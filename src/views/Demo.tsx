@@ -20,7 +20,15 @@ import {
   CheckCheck,
   User,
 } from "lucide-react";
-import { SCENARIO, PHASES, SCENARIO_TOTAL, type ScenarioEvent, type Phase } from "@/lib/scenario";
+import {
+  buildScenario,
+  SCENARIO_LIBRARY,
+  SCENARIO_TOTAL,
+  PHASES,
+  type ScenarioEvent,
+  type ScenarioKind,
+  type Phase,
+} from "@/lib/scenario";
 import { useApp } from "@/lib/store";
 import { Chip, LiveDot, Skeleton } from "@/components/fx/core";
 import { Waveform, Equalizer } from "@/components/fx/Waveform";
@@ -38,6 +46,7 @@ function eventDur(e: ScenarioEvent) {
 export function Demo() {
   const { lang } = useApp();
 
+  const [kind, setKind] = useState<ScenarioKind>("card");
   const [started, setStarted] = useState(false);
   const [running, setRunning] = useState(false);
   const [time, setTime] = useState(0);
@@ -46,6 +55,20 @@ export function Demo() {
   const [callLang, setCallLang] = useState<"en" | "ar">("en");
   const spokenRef = useRef<Set<string>>(new Set());
   const endRef = useRef<HTMLDivElement>(null);
+
+  const SCEN = useMemo(() => buildScenario(kind), [kind]);
+  const META = SCENARIO_LIBRARY.find((s) => s.kind === kind)!;
+  const pick = (k: ScenarioKind) => {
+    if (k === kind) return;
+    setKind(k);
+    setStarted(false);
+    setRunning(false);
+    setTime(0);
+    spokenRef.current.clear();
+    try {
+      window.speechSynthesis.cancel();
+    } catch {}
+  };
 
   /* ——— playback engine ——— */
   useEffect(() => {
@@ -64,8 +87,8 @@ export function Demo() {
   }, [running, speed]);
 
   const revealed = useMemo(
-    () => (started ? SCENARIO.filter((e) => e.t <= time) : []),
-    [time, started]
+    () => (started ? SCEN.filter((e) => e.t <= time) : []),
+    [time, started, SCEN]
   );
   const done = time >= SCENARIO_TOTAL;
   const phase: Phase = revealed.length ? revealed[revealed.length - 1].phase : "alert";
@@ -144,7 +167,7 @@ export function Demo() {
   const ss = String(elapsed % 60).padStart(2, "0");
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8 lg:py-12">
+    <div className="mx-auto max-w-7xl scroll-mt-24 px-4 py-8 sm:px-6 lg:px-8 lg:py-12">
       {/* ——— heading ——— */}
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
@@ -158,7 +181,7 @@ export function Demo() {
           </h1>
         </div>
         {/* controls */}
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex scroll-mt-24 flex-wrap items-center gap-2">
           {!started ? (
             <button
               onClick={start}
@@ -210,6 +233,64 @@ export function Demo() {
             </>
           )}
         </div>
+      </div>
+
+      {/* ——— scenario picker ——— */}
+      <div className="mt-7 grid gap-3 sm:grid-cols-3">
+        {SCENARIO_LIBRARY.map((m) => {
+          const sel = m.kind === kind;
+          return (
+            <button
+              key={m.kind}
+              onClick={() => pick(m.kind)}
+              aria-pressed={sel}
+              className={cn(
+                "group rounded-2xl border p-4 text-left transition-all",
+                sel
+                  ? "border-primary bg-green-tint shadow-[0_14px_34px_-24px_rgba(11,122,85,0.5)]"
+                  : "border-line bg-white hover:border-primary/40"
+              )}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span
+                  className={cn(
+                    "micro !text-[9.5px]",
+                    sel ? "!text-green-deep" : "!text-ink-3"
+                  )}
+                >
+                  {lang === "ar" ? m.vector.ar : m.vector.en}
+                </span>
+                <span
+                  className={cn(
+                    "num rounded-full px-2 py-0.5 text-[10px] font-bold",
+                    sel ? "bg-red-soft text-white" : "bg-paper text-ink-3"
+                  )}
+                >
+                  {m.risk}
+                </span>
+              </div>
+              <p className="mt-2 text-[14px] font-semibold tracking-tight">
+                {lang === "ar" ? m.title.ar : m.title.en}
+              </p>
+              <p className="mt-1 text-[12px] leading-relaxed text-ink-2">
+                {lang === "ar" ? m.desc.ar : m.desc.en}
+              </p>
+              <div className="mt-3 flex items-center justify-between">
+                <span className="num text-[11px] font-semibold text-foreground">
+                  {lang === "ar" ? m.amount.ar : m.amount.en}
+                </span>
+                <span
+                  className={cn(
+                    "text-[10.5px] font-semibold",
+                    sel ? "text-green-deep" : "text-ink-3 group-hover:text-primary"
+                  )}
+                >
+                  {sel ? (lang === "ar" ? "الحالة المحددة ✓" : "Selected ✓") : lang === "ar" ? "تشغيل هذه الحالة" : "Run this case →"}
+                </span>
+              </div>
+            </button>
+          );
+        })}
       </div>
 
       {/* ——— phase stepper ——— */}
@@ -286,14 +367,12 @@ export function Demo() {
                 </span>
                 <div className="leading-tight">
                   <p className="text-[14px] font-semibold text-white">
-                    Ahmed Al-Rashid{" "}
+                    {META.customer}{" "}
                     <span className="num ml-1 text-[11px] font-normal text-white/50">
-                      +971 •• ••• 4567
+                      {META.phone}
                     </span>
                   </p>
-                  <p className="num mt-1 text-[11px] text-white/50">
-                    VOICE · FATIMA (AR-GULF) · CARD •• 4417
-                  </p>
+                  <p className="num mt-1 text-[11px] text-white/50">{META.assetLine}</p>
                 </div>
               </div>
               <div className="flex items-center gap-2.5">
@@ -348,9 +427,10 @@ export function Demo() {
                     A fraud signal is about to fire
                   </p>
                   <p className="mx-auto mt-2 max-w-sm text-[13px] leading-relaxed text-ink-2">
-                    Press <span className="font-semibold text-primary">Simulate fraud alert</span> to
-                    push a critical transaction into the SecureVoice pipeline. The agent will call
-                    the customer, verify, and freeze the card — all inside 60 seconds.
+                    Pick one of three fraud cases above, then press{" "}
+                    <span className="font-semibold text-primary">Simulate fraud alert</span> to push
+                    it into the SecureVoice pipeline. The agent will call the customer, verify, and
+                    stop the loss — all inside 60 seconds.
                   </p>
                 </div>
                 <div className="w-full max-w-sm space-y-2.5">
@@ -413,10 +493,10 @@ export function Demo() {
           >
             {started ? (
               <div className="space-y-2.5 text-[12.5px]">
-                <Row k="Risk score" v="0.94 · critical" hot />
-                <Row k="Amount" v="AED 2,500.00" />
-                <Row k="Merchant" v="Electronics World · Dubai" />
-                <Row k="Signals" v="velocity + device mismatch" />
+                <Row k="Risk score" v={META.risk} hot />
+                <Row k="Amount" v={lang === "ar" ? META.amount.ar : META.amount.en} />
+                <Row k="Merchant" v={lang === "ar" ? META.merchant.ar : META.merchant.en} />
+                <Row k="Signals" v={lang === "ar" ? META.signals.ar : META.signals.en} />
                 <Row k="Rule" v="P1 · SLA 60s" />
               </div>
             ) : (
@@ -475,16 +555,10 @@ export function Demo() {
           >
             {time >= 45 ? (
               <div>
-                <p className="num text-[10.5px] leading-relaxed text-ink-2">
-                  POST /api/v1/cards/••4417/freeze
-                </p>
+                <p className="num text-[10.5px] leading-relaxed text-ink-2">{META.freezePath}</p>
                 <pre className="num mt-2 overflow-x-auto rounded-lg bg-[#0c110e] p-3 text-[10.5px] leading-relaxed text-green-bright">
 {time >= 50
-  ? `→ 200 OK · 240ms
-  freeze_type: "temporary"
-  reason:      "fraud_suspicion"
-  agent_id:    "sv-agent-01"
-  verification:"challenge_2of3"`
+  ? META.freezeOk.join("\n")
   : `→ awaiting customer
   confirmation…`}
                 </pre>
@@ -492,7 +566,7 @@ export function Demo() {
                   <div className="mt-2.5 flex items-center gap-2">
                     <CheckCheck className="h-3.5 w-3.5 text-green-deep" />
                     <span className="text-[11.5px] font-semibold text-green-deep">
-                      Card frozen — reversible
+                      {kind === "wire" ? "Transfer held — payee blocked" : "Card frozen — reversible"}
                     </span>
                   </div>
                 )}
@@ -515,7 +589,7 @@ export function Demo() {
             {time >= 58 ? (
               <div className="space-y-2.5 text-[12.5px]">
                 <Row k="Specialist" v="Sara H. · fraud desk" />
-                <Row k="Case" v="FRAUD-2026-08612 · P1" />
+                <Row k="Case" v={`${META.caseId} · P1`} />
                 <Row k="Context" v="verification + sentiment" />
                 <div className="flex items-center gap-2 pt-1">
                   <FileCheck2 className="h-3.5 w-3.5 text-green-deep" />
@@ -560,10 +634,13 @@ export function Demo() {
                   <span className="ml-2 text-[13px] text-white/55">vs 38 minutes today</span>
                 </div>
                 <p className="mt-3 max-w-lg text-[14px] leading-relaxed text-white/70">
-                  Fraud signal → connected call → verified identity → confirmed fraud → frozen card
-                  → warm handoff. Estimated prevented loss:{" "}
-                  <span className="num font-semibold text-white">AED 2,500</span>. Every step logged
-                  for CBUAE audit.
+                  Fraud signal → connected call → verified identity → confirmed fraud →{" "}
+                  {kind === "wire" ? "transfer held" : "card frozen"} → warm handoff. Estimated
+                  prevented loss:{" "}
+                  <span className="num font-semibold text-white">
+                    {lang === "ar" ? META.preventedLoss.ar : META.preventedLoss.en}
+                  </span>
+                  . Every step logged for CBUAE audit.
                 </p>
               </div>
               <div className="flex flex-col gap-2.5">

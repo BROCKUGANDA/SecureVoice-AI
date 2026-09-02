@@ -36,3 +36,25 @@ Stage Summary:
 - All PRD content mapped: Boxes A–N → deck slides & deep-dives; Box I guardrails → table + config switches; call flow → live simulation; design system (voices, params, templates) → config tab + voice slide
 - Design system: custom 4-font stack, emerald-on-paper palette, bespoke SVG charts, zero generic AI look
 - Bilingual: global EN/AR toggle affects nav + CTAs + headings + deck + demo transcript; Arabic set in IBM Plex Sans Arabic with dir=rtl scoped to text blocks
+
+---
+Task ID: 2
+Agent: Super Z (main agent)
+Task: Refocus app for judges — remove pitch deck from the demo experience; make the platform actively testable (user: "why show the pitch deck in the demo plus the judges need to be able to see and test out the platform")
+
+Work Log:
+- Navbar.tsx: removed "Pitch Deck" from desktop nav + mobile strip (4 platform views remain)
+- Footer.tsx: removed deck from footer links; added tiny muted "appendix" button (title: "Team appendix — not part of the product demo") so the team can still reach the deck player for their live presentation
+- Home.tsx: hero secondary CTA changed from "Pitch deck + script" → "Explore the dashboard"; added "For judges · للتقييم" test-drive band (3 cards: Trigger a live intervention / Operate the console / Inspect the architecture, each with direct jump button + AR mirror)
+- scenario.ts: rebuilt as a 3-case scenario library — buildScenario(kind) with ScenarioMeta per case:
+  * card  — card-not-present fraud (Ahmed, ••4417, AED 2,500 Electronics World, risk 0.94)
+  * atm   — cloned-card ATM cash-out (Mariam, ••9034, AED 8,000 Corniche St AD, risk 0.97, geo mismatch)
+  * wire  — impersonation wire scam (Khalid, AED 48,000 to mule M. TRADING LLC, risk 0.99, scammer-line interrupt, Marcus EN voice)
+  Each case: full 17-event bilingual script variant, own freeze endpoint (card freeze vs transfer hold), case ID, prevented loss
+- Demo.tsx: added scenario picker (3 selectable cards, risk chips, AR-localized, resets sim on switch); bound stage header, alert rail, freeze JSON, handoff case, outcome banner + prevented loss to selected META; empty-state copy updated; scroll-mt-24 on container + controls for sticky-header-safe scrollIntoView
+- Verified with agent-browser: home judge band + 4-item nav; ATM case end-to-end (alert→freeze→outcome with cloned_card_cashout + FRAUD-2026-08633); wire case end-to-end (transfer_hold + payee blocked + FRAUD-2026-08647 + AED 48,000 prevented loss); appendix link opens deck full-bleed with Exit; mobile 390×844 picker stacks; AR picker renders bilingual; ESLint clean; no page errors
+
+Stage Summary:
+- Judges now land on a product surface: no pitch deck in nav; hero CTAs both product-led
+- Demo is testable: judges pick and fire 1 of 3 distinct fraud cases, each with unique data, dialogue, and protective action
+- Deck demoted to footer "appendix" (team-only); delete the appendix button in Footer.tsx to remove entirely

@@ -8,7 +8,9 @@ import {
   ShieldCheck,
   FileCheck2,
   Play,
-  Presentation,
+  Zap,
+  LayoutDashboard,
+  BookOpenText,
   Webhook,
   Lock,
   Fingerprint,
@@ -62,6 +64,44 @@ const STEPS = [
   { n: "03", en: "Verification", ar: "تحقق", d: "Challenge flow — no PINs, ever" },
   { n: "04", en: "Card freeze", ar: "تجميد", d: "Temporary, pre-approved, reversible" },
   { n: "05", en: "Human handoff", ar: "تسليم", d: "Specialist receives full context" },
+];
+
+const JUDGE_STEPS: {
+  n: string;
+  icon: typeof Zap;
+  en: string;
+  ar: string;
+  body: string;
+  cta: string;
+  view: "demo" | "dashboard" | "product";
+}[] = [
+  {
+    n: "01",
+    icon: Zap,
+    en: "Trigger a live intervention",
+    ar: "أطلق تدخلاً حياً",
+    body: "Pick one of three fraud cases — card fraud, ATM cash-out, or a wire scam — and fire the alert yourself. Watch the agent call, verify, and stop the loss in 61 seconds.",
+    cta: "Open the live demo",
+    view: "demo",
+  },
+  {
+    n: "02",
+    icon: LayoutDashboard,
+    en: "Operate the console",
+    ar: "شغّل لوحة التحكم",
+    body: "Monitor active calls, tune the risk threshold, flip guardrails on and off, and search the immutable audit log — the same console a bank fraud desk would run.",
+    cta: "Open the dashboard",
+    view: "dashboard",
+  },
+  {
+    n: "03",
+    icon: BookOpenText,
+    en: "Inspect the architecture",
+    ar: "افحص البنية",
+    body: "The full call flow with guardrail checkpoints, the five-layer ElevenLabs stack, and the baseline-to-target metrics behind the 61-second promise.",
+    cta: "Open the deep dive",
+    view: "product",
+  },
 ];
 
 export function Home() {
@@ -148,11 +188,11 @@ export function Home() {
                   {t("Run the live simulation", "شغّل المحاكاة الحية", lang)}
                 </button>
                 <button
-                  onClick={() => setView("deck")}
+                  onClick={() => setView("dashboard")}
                   className="group flex items-center gap-2 rounded-full border border-line bg-white px-5 py-3 text-[14px] font-semibold text-foreground transition hover:border-primary/50 hover:text-primary"
                 >
-                  <Presentation className="h-4 w-4" />
-                  {t("Pitch deck + script", "العرض والسكريبت", lang)}
+                  <LayoutDashboard className="h-4 w-4" />
+                  {t("Explore the dashboard", "استكشف اللوحة", lang)}
                   <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
                 </button>
               </div>
@@ -278,6 +318,52 @@ export function Home() {
               </motion.div>
             </motion.div>
           </Reveal>
+        </div>
+      </section>
+
+      {/* ———————————————— JUDGE TEST-DRIVE ———————————————— */}
+      <section className="border-b border-line bg-white py-14 lg:py-16">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+          <Reveal>
+            <div className="flex flex-wrap items-end justify-between gap-4">
+              <div>
+                <div className="flex items-center gap-3">
+                  <span className="micro text-primary">For judges · للتقييم</span>
+                  <span className="h-px w-10 bg-line" />
+                </div>
+                <h2 className="font-display mt-3 max-w-xl text-2xl font-semibold leading-tight tracking-tight sm:text-3xl">
+                  Test the platform — don&apos;t take our word for it
+                </h2>
+              </div>
+              <p dir="rtl" className="font-arabic max-w-xs text-[13px] leading-relaxed text-ink-2">
+                كل ما تعرضه هذه الصفحة قابل للتجربة بنفسك عبر ثلاث محطات:
+              </p>
+            </div>
+          </Reveal>
+          <div className="mt-8 grid gap-3 lg:grid-cols-3">
+            {JUDGE_STEPS.map((s, i) => (
+              <Reveal key={s.n} delay={i * 0.07}>
+                <div className="group flex h-full flex-col rounded-2xl border border-line bg-paper p-6 transition-all hover:border-primary/40 hover:bg-white hover:shadow-[0_18px_40px_-26px_rgba(11,122,85,0.35)]">
+                  <div className="flex items-center justify-between">
+                    <span className="num text-[12px] font-bold text-primary">{s.n}</span>
+                    <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-green-tint text-green-deep transition-colors group-hover:bg-primary group-hover:text-white">
+                      <s.icon className="h-4 w-4" strokeWidth={1.7} />
+                    </span>
+                  </div>
+                  <p className="font-display mt-4 text-[16.5px] font-semibold tracking-tight">{s.en}</p>
+                  <p dir="rtl" className="font-arabic mt-0.5 text-[12px] text-ink-3">{s.ar}</p>
+                  <p className="mt-2.5 flex-1 text-[13px] leading-relaxed text-ink-2">{s.body}</p>
+                  <button
+                    onClick={() => setView(s.view)}
+                    className="mt-5 flex w-fit items-center gap-1.5 rounded-full border border-line bg-white px-4 py-2 text-[12.5px] font-semibold text-foreground transition hover:border-primary/50 hover:text-primary"
+                  >
+                    {s.cta}
+                    <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
+                  </button>
+                </div>
+              </Reveal>
+            ))}
+          </div>
         </div>
       </section>
 

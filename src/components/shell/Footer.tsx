@@ -7,7 +7,6 @@ const LINKS: { id: View; en: string; ar: string }[] = [
   { id: "demo", en: "Live Demo", ar: "عرض حي" },
   { id: "dashboard", en: "Dashboard", ar: "اللوحة" },
   { id: "product", en: "Deep Dive", ar: "التفاصيل" },
-  { id: "deck", en: "Pitch Deck", ar: "العرض" },
 ];
 
 export function Footer() {
@@ -40,6 +39,13 @@ export function Footer() {
             صوت آمن · حماية خلال ٦٠ ثانية
           </span>
         </nav>
+        <button
+          onClick={() => setView("deck")}
+          title="Team appendix — not part of the product demo"
+          className="text-[10.5px] text-ink-3/70 underline-offset-2 transition hover:text-ink-2 hover:underline"
+        >
+          appendix
+        </button>
       </div>
     </footer>
   );

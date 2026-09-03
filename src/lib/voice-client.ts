@@ -12,6 +12,7 @@ export const TTS_VOICE: Record<CallLang, Record<VoiceRole, string>> = {
   en: { agent: "jam", customer: "kazi" },
   ar: { agent: "tongtong", customer: "chuichui" },
   hi: { agent: "kazi", customer: "douji" },
+  ur: { agent: "luodo", customer: "xiaochen" },
 };
 
 /* ————— audio cache (object URLs, session-scoped) ————— */

@@ -1,8 +1,9 @@
 /**
  * SecureVoice AI — fraud scenario library + simulated call scripts.
- * Trilingual call delivery (EN / AR / HI) — the language selector represents
- * the language the AGENT speaks on the call:
+ * Four-language call delivery (EN / AR / HI / UR) — the language selector
+ * represents the language the AGENT speaks on the call:
  *   en → Marcus (EN-UK) · ar → Fatima (AR-Gulf) · hi → Kavita (HI-IN)
+ *   ur → Sana (UR-UAE) — Urdu layer lives in ./scenario-ur
  * Timings are virtual seconds from call start; the demo player scales them.
  *
  * Three triggerable cases so any visitor can TEST the pipeline, not just
@@ -11,6 +12,8 @@
  *   atm  — cloned-card ATM cash-out (Abu Dhabi, geo mismatch)
  *   wire — social-engineering wire scam (fake "bank security team")
  */
+
+import { UR_PACKS } from "./scenario-ur";
 
 export type Phase =
   | "alert"
@@ -21,18 +24,20 @@ export type Phase =
   | "action"
   | "handoff";
 
-export type CallLang = "en" | "ar" | "hi";
+export type CallLang = "en" | "ar" | "hi" | "ur";
 
 export const VOICE_BY_LANG: Record<CallLang, string> = {
   en: "MARCUS (EN-UK)",
   ar: "FATIMA (AR-GULF)",
   hi: "KAVITA (HI-IN)",
+  ur: "SANA (UR-UAE)",
 };
 
 export const CALL_LANG_LABEL: Record<CallLang, string> = {
   en: "English",
   ar: "العربية",
   hi: "हिन्दी",
+  ur: "اردو",
 };
 
 export interface PhaseMeta {
@@ -62,6 +67,7 @@ export interface ScenarioEvent {
   en: string;
   ar: string;
   hi?: string;
+  ur?: string;
   tag?: string; // mono chip e.g. "webhook", "POST /freeze"
 }
 
@@ -370,7 +376,7 @@ export function buildScenario(kind: ScenarioKind): ScenarioEvent[] {
   const p = PACKS[kind];
   const first = m.customer.split(" ")[0];
 
-  return [
+  const events: ScenarioEvent[] = [
     // — 0 · FRAUD SIGNAL —
     { id: "e01", t: 0, phase: "alert", speaker: "system", tag: "webhook · POST /fraud/alerts", en: p.alert[0], ar: p.alert[1], hi: p.alert[2] },
     {
@@ -454,6 +460,22 @@ export function buildScenario(kind: ScenarioKind): ScenarioEvent[] {
       hi: `निराकृत — धोखाधड़ी संकेत से सुरक्षात्मक कार्रवाई तक 61 सेकंड। रोकी गई अनुमानित हानि: ${m.preventedLoss.en}।`,
     },
   ];
+
+  /* Urdu layer — aligned 1:1 with the timeline above; falls back to EN */
+  const urp = UR_PACKS[kind];
+  return events.map((e, i) => {
+    const u = urp[i];
+    if (u === undefined) return e;
+    return { ...e, ur: typeof u === "function" ? u(m, first) : u };
+  });
+}
+
+/** Primary transcript text for a call language (graceful fallback to EN). */
+export function eventText(e: ScenarioEvent, lang: CallLang): string {
+  if (lang === "ar") return e.ar;
+  if (lang === "hi") return e.hi ?? e.en;
+  if (lang === "ur") return e.ur ?? e.en;
+  return e.en;
 }
 
 export const SCENARIO_TOTAL = 70; // virtual seconds (same timing grid for every case)

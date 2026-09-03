@@ -501,10 +501,11 @@ function LanguagesSection() {
     { lang: "English", native: "English", voice: "MARCUS · EN-UK", status: "Live", note: "Gulf-expat neutral register; detected from bank profile." },
     { lang: "Arabic", native: "العربية", voice: "FATIMA · AR-GULF", status: "Live", note: "Gulf dialect, RTL transcript, Friday/weekend-aware phrasing." },
     { lang: "Hindi", native: "हिन्दी", voice: "KAVITA · HI-IN", status: "Live", note: "For the UAE's largest expat segment; code-switches to EN for card terms." },
+    { lang: "Urdu", native: "اردو", voice: "SANA · UR-UAE", status: "Live", note: "Full script coverage across all three fraud cases — try it in the demo picker." },
   ];
   const roadmap = [
-    { lang: "Urdu", native: "اردو", note: "Q4 2026 — shares the Hindi pipeline; voice cloning consent flow identical." },
     { lang: "French", native: "Français", note: "Q1 2027 — West-Africa corridor remittance fraud is a top request from pilot banks." },
+    { lang: "Bengali", native: "বাংলা", note: "Shared pipeline with Hindi; evaluation under way with two exchange-house partners." },
   ];
 
   return (
@@ -517,14 +518,14 @@ function LanguagesSection() {
       </Reveal>
 
       <Reveal delay={0.04}>
-        <div className="grid gap-4 sm:grid-cols-3">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {live.map((l) => (
             <div key={l.lang} className="rounded-2xl border border-line bg-white p-5">
               <div className="flex items-center justify-between">
                 <span className="font-display text-[15px] font-semibold">{l.lang}</span>
                 <span className="rounded-full bg-green-tint px-2 py-0.5 font-mono text-[10px] font-bold uppercase tracking-wide text-primary">Live</span>
               </div>
-              <div dir={l.lang === "Arabic" || l.lang === "Hindi" ? undefined : "ltr"} className={cn("mt-1 text-[13px] text-ink-2", l.lang === "Arabic" && "font-arabic")}>
+              <div dir={l.lang === "English" ? "ltr" : undefined} className={cn("mt-1 text-[13px] text-ink-2", l.lang === "Arabic" && "font-arabic")}>
                 {l.native}
               </div>
               <div className="mt-3 font-mono text-[10.5px] tracking-wide text-ink-3">{l.voice}</div>
@@ -553,7 +554,7 @@ function LanguagesSection() {
       <Reveal delay={0.1}>
         <div className="flex items-center gap-2 text-[13px] text-ink-2">
           <ArrowRight className="h-3.5 w-3.5 text-primary" />
-          Hear all three languages in the <span className="font-semibold text-foreground">&nbsp;Live Demo&nbsp;</span> language picker — the Hindi case uses the same wire-fraud script.
+          Hear all four languages in the <span className="font-semibold text-foreground">&nbsp;Live Demo&nbsp;</span> language picker — every language runs the full script, not a sample.
         </div>
       </Reveal>
     </div>

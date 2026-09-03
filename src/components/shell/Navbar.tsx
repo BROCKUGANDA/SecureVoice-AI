@@ -1,9 +1,10 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { ShieldCheck, BookOpenText, Home, PhoneCall } from "lucide-react";
+import { BookOpenText, Home, ShieldCheck } from "lucide-react";
 import { useApp, t, type View, type Lang } from "@/lib/store";
 import { cn } from "@/lib/utils";
+import { LogoMark } from "@/components/shell/Logo";
 
 const NAV: { id: View; en: string; ar: string; icon: typeof Home }[] = [
   { id: "home", en: "Overview", ar: "الرئيسية", icon: Home },
@@ -23,8 +24,8 @@ export function Navbar() {
           className="group flex items-center gap-2.5"
           aria-label="SecureVoice AI home"
         >
-          <span className="relative flex h-9 w-9 items-center justify-center rounded-xl bg-[#0c110e] transition-colors group-hover:bg-green-deep">
-            <ShieldCheck className="h-[18px] w-[18px] text-green-bright" strokeWidth={1.8} />
+          <span className="transition-transform duration-300 group-hover:scale-105">
+            <LogoMark size={36} />
           </span>
           <span className="hidden flex-col items-start leading-none sm:flex">
             <span className="font-display text-[15px] font-semibold tracking-tight">

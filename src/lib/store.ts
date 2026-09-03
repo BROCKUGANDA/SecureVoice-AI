@@ -7,6 +7,7 @@ export type View =
   | "demo"
   | "dashboard"
   | "product"
+  | "usecases"
   | "docs"
   | "security"
   | "privacy"

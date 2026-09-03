@@ -19,6 +19,9 @@ import {
   Headset,
   CalendarCheck,
   CheckCircle2,
+  HandCoins,
+  HeartHandshake,
+  Globe2,
 } from "lucide-react";
 import { useApp, t } from "@/lib/store";
 import { Reveal, Counter, LiveDot, Chip } from "@/components/fx/core";
@@ -514,6 +517,52 @@ export function Home() {
                     <ArrowRight className="absolute -right-[13px] top-1/2 z-10 hidden h-4 w-4 -translate-y-1/2 text-[#b9c4bb] lg:block" />
                   )}
                 </div>
+              </Reveal>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ———————————————— USE-CASES STRIP ———————————————— */}
+      <section className="border-t border-line bg-paper py-14 lg:py-16">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+          <Reveal>
+            <div className="flex flex-wrap items-end justify-between gap-4">
+              <div>
+                <div className="micro text-primary">USE CASES · حالات الاستخدام</div>
+                <h2 className="font-display mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">
+                  Beyond fraud: five regulated voice deployments
+                </h2>
+                <p className="mt-2 max-w-xl text-[13.5px] leading-relaxed text-ink-2">
+                  Governed collections, provider pre-authorisation, support through difficult moments,
+                  multilingual servicing — one guardrailed engine, five configurations.
+                </p>
+              </div>
+              <button
+                onClick={() => setView("usecases")}
+                className="group flex shrink-0 items-center gap-2 rounded-full bg-[#0c110e] px-5 py-2.5 text-[13px] font-semibold text-white transition hover:opacity-90"
+              >
+                Explore the use cases
+                <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
+              </button>
+            </div>
+          </Reveal>
+          <div className="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            {[
+              { icon: HandCoins, t: "Governed collections", d: "Approved wording, permitted hours, every opt-out honoured — EN · AR · HI · UR." },
+              { icon: FileCheck2, t: "Provider pre-auth intake", d: "Rule-based B2B triage; a qualified employee approves every decision." },
+              { icon: HeartHandshake, t: "Difficult moments", d: "Bereavement & hardship cases handled once, end to end, with memory." },
+              { icon: Globe2, t: "Multilingual servicing", d: "Posted rates, transfer status, salary-card entitlements — in the caller's language." },
+            ].map((x, i) => (
+              <Reveal key={x.t} delay={i * 0.05}>
+                <button
+                  onClick={() => setView("usecases")}
+                  className="group h-full w-full rounded-2xl border border-line bg-white p-5 text-left transition-all hover:border-primary/40 hover:shadow-[0_10px_30px_-18px_rgba(11,122,85,0.35)]"
+                >
+                  <x.icon className="h-4.5 w-4.5 text-primary" strokeWidth={1.7} />
+                  <p className="font-display mt-3 text-[14.5px] font-semibold tracking-tight">{x.t}</p>
+                  <p className="mt-1.5 text-[12px] leading-relaxed text-ink-2">{x.d}</p>
+                </button>
               </Reveal>
             ))}
           </div>

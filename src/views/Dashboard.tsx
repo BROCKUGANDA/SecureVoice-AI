@@ -15,6 +15,7 @@ import {
   Timer,
   Search,
   Webhook,
+  XCircle,
 } from "lucide-react";
 import { useApp, t } from "@/lib/store";
 import { RECENT_CALLS, AUDIT_LOG, KPIS, LANG_DIST, OUTCOME_DIST, TREND, VOICES } from "@/lib/data";
@@ -32,6 +33,7 @@ const TABS = [
   { id: "analytics", en: "Analytics", ar: "التحليلات", icon: BarChart3 },
   { id: "config", en: "Configuration", ar: "الإعدادات", icon: SlidersHorizontal },
   { id: "compliance", en: "Compliance", ar: "الامتثال", icon: ScrollText },
+  { id: "webhooks", en: "Webhooks", ar: "التوقيع", icon: Webhook },
 ] as const;
 
 type TabId = (typeof TABS)[number]["id"];
@@ -98,6 +100,7 @@ export function Dashboard() {
         {tab === "analytics" && <Analytics />}
         {tab === "config" && <Config />}
         {tab === "compliance" && <Compliance />}
+        {tab === "webhooks" && <WebhooksDemo />}
       </motion.div>
     </div>
   );
@@ -630,6 +633,225 @@ function Compliance() {
           Showing {loading ? "—" : `${(safePage - 1) * PAGE_SIZE + 1}–${Math.min(safePage * PAGE_SIZE, filtered.length)} of ${filtered.length}`} sealed entries
         </span>
         <Pagination page={safePage} pages={pages} onChange={setPage} />
+      </div>
+    </div>
+  );
+}
+
+/* ————————————————— WEBHOOKS · live signing demo ————————————————— */
+
+const WX_EVENTS = [
+  "intervention.started",
+  "identity.verified",
+  "account.frozen",
+  "customer.confirmed",
+  "case.closed",
+  "escalated.human",
+] as const;
+
+type WxState = {
+  event: string;
+  payload: string;
+  header: string;
+  secret: string;
+  v1: string;
+  t: string;
+};
+
+function WebhooksDemo() {
+  const { lang } = useApp();
+  const [event, setEvent] = useState<string>("account.frozen");
+  const [busy, setBusy] = useState(false);
+  const [signed, setSigned] = useState<WxState | null>(null);
+  const [check, setCheck] = useState<{ valid: boolean; reason: string; tampered: boolean } | null>(null);
+
+  const sign = async () => {
+    setBusy(true);
+    setCheck(null);
+    try {
+      const r = await fetch("/api/webhooks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "sign", event }),
+      });
+      const d = await r.json();
+      if (d.ok) setSigned(d);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const verify = async (tamper: boolean) => {
+    if (!signed) return;
+    setBusy(true);
+    try {
+      let payload = signed.payload;
+      if (tamper) {
+        // flip a value the way an attacker would — the digest must catch it
+        try {
+          const obj = JSON.parse(payload);
+          if (typeof obj.risk_score === "number") obj.risk_score = 0.05;
+          else if (typeof obj.prevented_loss_aed === "number") obj.prevented_loss_aed = 999999;
+          else obj.verified = false;
+          payload = JSON.stringify(obj);
+        } catch {
+          payload = payload.replace(/.$/, "}");
+        }
+      }
+      const r = await fetch("/api/webhooks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "verify", payload, header: signed.header }),
+      });
+      const d = await r.json();
+      setCheck({ valid: !!d.valid, reason: d.reason ?? "", tampered: tamper });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="grid gap-6 lg:grid-cols-[1.5fr_1fr]">
+      {/* sign & verify */}
+      <div className="space-y-5">
+        <div className="rounded-3xl border border-line bg-white p-6">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="font-display text-[17px] font-semibold tracking-tight">
+                {t("Signed delivery — try to forge it", "تسليم موقّع — جرّب تزويره", lang)}
+              </h2>
+              <p className="mt-1 max-w-lg text-[13px] leading-relaxed text-ink-2">
+                {t(
+                  "Real HMAC-SHA256, computed server-side with the same primitives as production deliveries. Sign an event, verify it, then flip a value and watch the signature reject it.",
+                  "HMAC-SHA256 حقيقي يُحسب على الخادم بنفس طرائق الإنتاج. وقّع حدثاً، تحقق منه، ثم عدّل قيمة وشاهد التوقيع يرفضها.",
+                  lang
+                )}
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-4 flex flex-wrap items-center gap-2">
+            {WX_EVENTS.map((e) => (
+              <button
+                key={e}
+                onClick={() => setEvent(e)}
+                className={cn(
+                  "rounded-full border px-3 py-1.5 font-mono text-[11px] font-semibold transition",
+                  event === e
+                    ? "border-primary bg-green-tint text-primary"
+                    : "border-line bg-paper text-ink-2 hover:text-foreground"
+                )}
+              >
+                {e}
+              </button>
+            ))}
+            <button
+              onClick={sign}
+              disabled={busy}
+              className="ml-auto flex items-center gap-2 rounded-full bg-primary px-4 py-2 text-[12.5px] font-semibold text-white transition hover:bg-green-deep disabled:opacity-50"
+            >
+              <Webhook className="h-3.5 w-3.5" />
+              {busy ? t("Working…", "جارٍ…", lang) : t("Sign payload", "وقّع الحمولة", lang)}
+            </button>
+          </div>
+
+          {signed && (
+            <div className="mt-5 space-y-3">
+              <div>
+                <div className="micro mb-1.5 text-[9px] text-ink-3">RAW PAYLOAD · EXACTLY WHAT THE CONSUMER RECEIVES</div>
+                <pre className="max-h-44 overflow-auto rounded-xl bg-[#0c110e] px-4 py-3 font-mono text-[11.5px] leading-relaxed text-white/85 sv-scroll">
+{signed.payload}
+                </pre>
+              </div>
+              <div>
+                <div className="micro mb-1.5 text-[9px] text-ink-3">SIGNATURE HEADER · SV-SIGNATURE</div>
+                <div className="overflow-x-auto rounded-xl border border-line bg-paper px-4 py-3 font-mono text-[11.5px] text-foreground sv-scroll">
+                  <span className="text-ink-3">t={signed.t},</span>
+                  <span className="font-semibold text-primary">v1={signed.v1}</span>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap gap-2 pt-1">
+                <button
+                  onClick={() => verify(false)}
+                  disabled={busy}
+                  className="flex items-center gap-2 rounded-full bg-[#0c110e] px-4 py-2 text-[12.5px] font-semibold text-white transition hover:opacity-90 disabled:opacity-50"
+                >
+                  {t("Verify signature", "تحقق من التوقيع", lang)}
+                </button>
+                <button
+                  onClick={() => verify(true)}
+                  disabled={busy}
+                  className="flex items-center gap-2 rounded-full border border-red-200 bg-red-50 px-4 py-2 text-[12.5px] font-semibold text-red-700 transition hover:bg-red-100 disabled:opacity-50"
+                >
+                  {t("Tamper & verify", "العبث ثم تحقق", lang)}
+                </button>
+              </div>
+
+              {check && (
+                <motion.div
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className={cn(
+                    "flex items-start gap-2.5 rounded-xl border px-4 py-3",
+                    check.valid
+                      ? "border-green-200 bg-green-50 text-green-800"
+                      : "border-red-200 bg-red-50 text-red-700"
+                  )}
+                >
+                  {check.valid ? (
+                    <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" />
+                  ) : (
+                    <XCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                  )}
+                  <div className="text-[12.5px] font-medium leading-relaxed">
+                    {check.valid ? "SIGNATURE VALID — " : "SIGNATURE REJECTED — "}
+                    <span className="font-normal">{check.reason}</span>
+                    {check.tampered && !check.valid && (
+                      <span className="mt-0.5 block font-mono text-[11px] text-red-600/80">
+                        tamper: risk_score 0.94 → 0.05 · caught by digest
+                      </span>
+                    )}
+                  </div>
+                </motion.div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* explainer */}
+      <div className="space-y-4">
+        <div className="rounded-3xl border border-line bg-white p-6">
+          <div className="micro text-[9px] text-ink-3">WHAT YOUR ENDPOINT DOES</div>
+          <ol className="mt-3 space-y-2.5">
+            {[
+              "Read the raw request body as bytes — never a re-serialized parse.",
+              "Split the SV-Signature header into t and v1.",
+              "Reject if t is older than 5 minutes (replay protection).",
+              "Compute HMAC-SHA256(secret, `${t}.${rawBody}`) and compare to v1 in constant time.",
+            ].map((s, i) => (
+              <li key={i} className="flex gap-2.5 text-[12.5px] leading-relaxed text-ink-2">
+                <span className="font-mono text-[11px] font-bold text-primary">{String(i + 1).padStart(2, "0")}</span>
+                {s}
+              </li>
+            ))}
+          </ol>
+          <p className="mt-4 border-t border-line/70 pt-3 text-[11.5px] leading-relaxed text-ink-3">
+            The signing secret lives server-side — like the one behind this demo, it is never shipped to the browser. Verification here is constant-time (timingSafeEqual).
+          </p>
+        </div>
+        <div className="rounded-3xl border border-line bg-[#0c110e] p-6 text-white">
+          <div className="font-mono text-[10.5px] uppercase tracking-wider text-white/50">verify in 6 lines</div>
+          <pre className="mt-3 overflow-x-auto font-mono text-[11px] leading-relaxed text-white/85 sv-scroll">
+{`const hmac = crypto
+  .createHmac("sha256", secret)
+  .update(\`\${t}.${"${rawBody}"}\`)
+  .digest("hex");
+const ok = crypto.timingSafeEqual(
+  Buffer.from(hmac), Buffer.from(v1));`}
+          </pre>
+        </div>
       </div>
     </div>
   );

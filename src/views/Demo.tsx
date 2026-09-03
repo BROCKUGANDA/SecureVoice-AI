@@ -34,6 +34,7 @@ import {
   PHASES,
   VOICE_BY_LANG,
   CALL_LANG_LABEL,
+  eventText,
   type ScenarioEvent,
   type ScenarioKind,
   type Phase,
@@ -177,8 +178,7 @@ export function Demo() {
     const seq = speakSeq.current;
     stopVoice();
     const role: VoiceRole = latest.speaker === "agent" ? "agent" : "customer";
-    const text =
-      callLang === "ar" ? latest.ar : callLang === "hi" ? (latest.hi ?? latest.en) : latest.en;
+    const text = eventText(latest, callLang);
     speakText(text, callLang, role, Math.min(speed, 2)).then((neural) => {
       if (seq !== speakSeq.current || neural) return;
       /* browser fallback already spoken inside speakText */
@@ -189,8 +189,7 @@ export function Demo() {
       (e) => e.speaker === "agent" || e.speaker === "customer"
     );
     if (next) {
-      const ntext =
-        callLang === "ar" ? next.ar : callLang === "hi" ? (next.hi ?? next.en) : next.en;
+      const ntext = eventText(next, callLang);
       prefetchSpeech(ntext, TTS_VOICE[callLang][next.speaker === "agent" ? "agent" : "customer"]);
     }
   }, [revealed, audioOn, started, callLang, speed, SCEN]);
@@ -553,17 +552,17 @@ export function Demo() {
           <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line bg-paper px-5 py-3 sm:px-6">
             <div className="flex items-center gap-2">
               <div className="flex items-center rounded-full border border-line bg-white p-0.5">
-                {(["en", "ar", "hi"] as CallLang[]).map((l) => (
+                {(["en", "ar", "hi", "ur"] as CallLang[]).map((l) => (
                   <button
                     key={l}
                     onClick={() => pickLang(l)}
                     className={cn(
                       "rounded-full px-3 py-1 text-[11.5px] font-semibold transition",
-                      l === "ar" && "font-arabic",
+                      (l === "ar" || l === "ur" || l === "hi") && "font-arabic",
                       callLang === l ? "bg-primary text-white" : "text-ink-3 hover:text-foreground"
                     )}
                   >
-                    {l === "en" ? "EN" : l === "ar" ? "عربي" : "हिन्दी"}
+                    {l === "en" ? "EN" : l === "ar" ? "عربي" : l === "hi" ? "हिन्दी" : "اردو"}
                   </button>
                 ))}
               </div>
@@ -850,10 +849,9 @@ function RailCard({
 }
 
 function Bubble({ e, callLang }: { e: ScenarioEvent; callLang: CallLang }) {
-  const primary =
-    callLang === "ar" ? e.ar : callLang === "hi" ? (e.hi ?? e.en) : e.en;
+  const primary = eventText(e, callLang);
   const secondary = callLang === "en" ? e.ar : e.en;
-  const primaryRtl = callLang === "ar";
+  const primaryRtl = callLang === "ar" || callLang === "ur";
 
   if (e.speaker === "system") {
     return (
@@ -1239,7 +1237,7 @@ function ConversationPanel({ callLang }: { callLang: CallLang }) {
               value={typed}
               onChange={(e) => setTyped(e.target.value)}
               placeholder={
-                callLang === "ar" ? "مثال: هذه العملية ليست مني" : callLang === "hi" ? "जैसे: यह मेरा लेनदेन नहीं है" : 'e.g. "That transaction is not mine"'
+                callLang === "ar" ? "مثال: هذه العملية ليست مني" : callLang === "hi" ? "जैसे: यह मेरा लेनदेन नहीं है" : callLang === "ur" ? "مثال: یہ لین دین میرا نہیں ہے" : 'e.g. "That transaction is not mine"'
               }
               maxLength={600}
               className="h-10 flex-1 rounded-full border-line bg-paper px-4"

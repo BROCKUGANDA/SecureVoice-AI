@@ -2,10 +2,10 @@
 
 import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { ShieldCheck } from "lucide-react";
+import { LogoMark } from "@/components/shell/Logo";
 
 const STEPS = [
-  "Loading design system",
+  "Securing session",
   "Connecting fraud engine",
   "Warming telephony channels",
   "Arming guardrails",
@@ -51,9 +51,9 @@ export function LoadingScreen({ onDone }: { onDone: () => void }) {
               initial={{ scale: 0.8, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               transition={{ duration: 0.55, ease: [0.22, 1, 0.36, 1] }}
-              className="relative flex h-16 w-16 items-center justify-center rounded-2xl bg-green-tint/10 ring-1 ring-green-bright/30"
+              className="relative"
             >
-              <ShieldCheck className="h-8 w-8 text-green-bright" strokeWidth={1.6} />
+              <LogoMark size={64} />
               <span className="sv-pulse-ring absolute inset-0 rounded-2xl text-green-bright/60" />
             </motion.div>
             <motion.h1

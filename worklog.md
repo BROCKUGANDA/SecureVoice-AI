@@ -109,3 +109,22 @@ Stage Summary:
 - Product surface complete: platform (home/demo/dashboard/product) + trust/docs/legal perimeter (docs/security/privacy/terms) — reads as a released product, not a hackathon demo
 - Realness: pilot requests persist to SQLite w/ refs; security + docs pages show LIVE measured platform status; docs document the actual running API
 - Nav is 3 items + CTA; all destination views still reachable via in-page CTAs and footer
+
+---
+Task ID: 5
+Agent: Super Z (main agent)
+Task: Round 5 — user pasted all five ElevenLabs brief tracks (fraud intervention / governed collections / provider pre-auth / difficult moments / multilingual servicing) + "Urdu voice roadmap, or webhook signing demo in the dashboard" + "Don't show the words loading design system in splash page" + "make the logo cooler".
+
+Work Log:
+- Splash: STEPS[0] "Loading design system" → "Securing session" (verified visually mid-boot)
+- Logo (new Logo.tsx): custom SVG brand mark — shield outline with a 4-bar voice waveform inside on a dark rounded tile, emerald gradient; swapped into Navbar (hover-scale), Footer, LoadingScreen splash, and public/logo.svg favicon (old template Z-mark removed)
+- Urdu live (was roadmap): new src/lib/scenario-ur.ts — all 17 events × 3 cases in banking-register Urdu (templated lines as functions); scenario.ts: CallLang +ur, VOICE_BY_LANG SANA (UR-UAE), CALL_LANG_LABEL اردو, ScenarioEvent.ur, buildScenario post-processor maps UR_PACKS 1:1, new eventText() helper centralizes primary-text fallback (ur ?? en); Demo.tsx picker adds اردو, RTL for ur bubbles, ur placeholder in conversation panel; voice-client TTS_VOICE ur → luodo/xiaochen (verified: 461KB WAV); /api/agent: lang enum +ur, Urdu DENY/CONFIRM/GREETING keywords, Urdu replies for all 4 intents (curl: "یہ میرا لین دین نہیں ہے، فریز کریں" → deny_fraud → card_freeze); Docs languages: Urdu moved to Live (4-col grid), roadmap now French + Bengali
+- Webhook signing demo (new /api/webhooks): real HMAC-SHA256 via node:crypto — action:sign builds the 6-event sample payloads, signs "{t}.{rawBody}" with server-side whsec_…, returns SV-Signature header t=,v1=; action:verify recomputes with replay window (300s) + timingSafeEqual. Dashboard gets 5th tab "Webhooks": event chips → Sign payload → raw payload + signature header → Verify (VALID green) → Tamper & verify (flips risk_score client-side → REJECTED red with tamper annotation); explainer column: consumer-side 4-step recipe + 6-line verify snippet. API-verified: clean → valid:true, 2500→999999 tamper → rejected
+- Use Cases (new view + store/page/home/footer wiring): all five brief tracks as deep cards — pitch paragraph verbatim-faithful, WHAT THE AGENT DOES bullets, IN SCOPE / OUT OF SCOPE panels, BUILT FOR persona chips, honest status pills (fraud = SHIPPED w/ Run-the-live-demo button; collections/servicing = Pilot pipeline; pre-auth/hard-moments = Reference build); closing band → demo + docs. Home gains "Beyond fraud: five regulated voice deployments" strip (4 mini-cards → usecases view); footer product group adds Use Cases
+- Verification: eslint clean; tsc src clean (fixed tampered→tampered:tamper); production build ✓ incl. /api/webhooks; browser: splash wording, new logo in nav, Urdu demo playback (اردو transcript + SANA profile + RTL), Dashboard Webhooks E2E sign→verify→tamper→reject, Use Cases page all 5 tracks, zero page errors
+
+Stage Summary:
+- Platform now maps the FULL hackathon brief: fraud live, other four tracks scoped honestly (pilot pipeline / reference build) on one engine — judges see breadth without overclaiming
+- Four languages truly live end-to-end (script + neural TTS + guardrailed agent), Urdu included
+- Webhook integrity is no longer a claim on a page — it's a hands-on sign/tamper/verify demo with real crypto
+- Brand: distinctive shield×waveform mark replaces generic icon across app + favicon

@@ -10,6 +10,9 @@ import { Home } from "@/views/Home";
 import { Demo } from "@/views/Demo";
 import { Dashboard } from "@/views/Dashboard";
 import { Product } from "@/views/Product";
+import { Docs } from "@/views/Docs";
+import { Security } from "@/views/Security";
+import { Privacy, Terms } from "@/views/Legal";
 import { Deck } from "@/views/Deck";
 
 const VIEWS: Record<View, React.ComponentType> = {
@@ -17,6 +20,10 @@ const VIEWS: Record<View, React.ComponentType> = {
   demo: Demo,
   dashboard: Dashboard,
   product: Product,
+  docs: Docs,
+  security: Security,
+  privacy: Privacy,
+  terms: Terms,
   deck: Deck,
 };
 

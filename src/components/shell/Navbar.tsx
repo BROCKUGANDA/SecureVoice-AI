@@ -1,15 +1,14 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { ShieldCheck, PhoneCall, LayoutDashboard, BookOpenText, Home } from "lucide-react";
+import { ShieldCheck, BookOpenText, Home, PhoneCall } from "lucide-react";
 import { useApp, t, type View, type Lang } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
 const NAV: { id: View; en: string; ar: string; icon: typeof Home }[] = [
   { id: "home", en: "Overview", ar: "الرئيسية", icon: Home },
-  { id: "demo", en: "Live Demo", ar: "عرض حي", icon: PhoneCall },
-  { id: "dashboard", en: "Dashboard", ar: "اللوحة", icon: LayoutDashboard },
-  { id: "product", en: "Deep Dive", ar: "التفاصيل", icon: BookOpenText },
+  { id: "docs", en: "Docs", ar: "التوثيق", icon: BookOpenText },
+  { id: "security", en: "Security", ar: "الأمن", icon: ShieldCheck },
 ];
 
 export function Navbar() {

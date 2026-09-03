@@ -223,6 +223,14 @@
     opacity: 0;
   }
 }
+/* Decorative pulsing ring. The element MUST be its own positioning context,
+   otherwise ::after (absolute inset-0) anchors to the nearest positioned
+   ancestor and the ring expands over unrelated interactive elements,
+   intercepting their clicks. */
+.sv-pulse-ring {
+  position: relative;
+  pointer-events: none;
+}
 .sv-pulse-ring::after {
   content: "";
   position: absolute;
@@ -230,6 +238,7 @@
   border-radius: 9999px;
   border: 2px solid currentColor;
   animation: sv-pulse-ring 1.8s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+  pointer-events: none;
 }
 
 @keyframes sv-blink {

@@ -88,3 +88,24 @@ Stage Summary:
 - App now presents as a released platform (v1.0) usable by banks/partners, not a hackathon artifact; judges still get the fast 2× auto-playing test-drive
 - Demo: 3 triggerable cases, auto-start on intent, phase hints, 2× default
 - Hardened: error boundaries, security headers, reduced-motion, stable boot, prod build + standalone runtime verified
+
+---
+Task ID: 4
+Agent: Super Z (main agent)
+Task: User's 4th round — security/trust page, pilot form → real API + DB persistence, more languages (groundwork landed pre-session: /api/tts /api/asr /api/agent /api/pilot /api/status, Prisma+SQLite, voice-client, Hindi call language), nav slim-down ("why have live demo in nav when you have a CTA on the right? even dashboard and deep dive"), documentation page, legal pages, "make everything real as possible".
+
+Work Log:
+- PilotDialog (Home.tsx) wired to POST /api/pilot: async submit, server zod errors surfaced inline, honeypot hidden field, new fields (role, volume select, message textarea), busy spinner, success state shows real DB reference (SV-P-XXXXX), privacy-policy cross-link closes dialog → privacy view
+- Docs.tsx (new): 5-section docs hub — Quickstart (3 steps w/ copyable code), API Reference (all 5 real endpoints w/ fields), Webhooks (6-event catalog + signed payload), Guardrails (policy-as-config JSON), Languages (EN/AR/HI live + UR/FR roadmap). Sidebar nav + LIVE status chip polling /api/status every 30s (real version/db latency/region)
+- Security.tsx (new): trust center — Live status band polling /api/status every 20s (Operational, db ms, region, build, uptime — measured, not mocked); regulatory posture grid (UAE PDPL / CBUAE / PCI out-of-scope-by-design / data residency); 6 platform controls; "never asks for credentials" structural-rule panel; responsible disclosure block (security.txt style); privacy cross-link
+- Legal.tsx (new): Privacy (8 PDPL-aligned sections: minimal collection, lawful basis, UAE residency, retention, rights, contact) + Terms (8 sections: demo-is-synthetic no-warranty, acceptable use, governing law UAE/Dubai) sharing a numbered-section shell w/ version+effective metadata and mutual cross-links
+- page.tsx: registered docs/security/privacy/terms views (Record<View,…> now complete)
+- Navbar: slimmed to Overview / Docs / Security (user: live demo + dashboard + deep dive redundant vs right CTA); dashboard/product/demo still reachable — home hero + try-band CTAs, Demo page dashboard link, Deck link, footer
+- Footer: two link groups — product (Demo/Dashboard/Deep Dive) + resources (Documentation/Security/Privacy/Terms); appendix kept
+- BUG ROOT-CAUSED & FIXED (site-wide): .sv-pulse-ring::after (absolute inset-0) anchored to nearest positioned ancestor when the dot span was position:static — in Docs sidebar the giant pulsing ring anchored to the sticky aside and intercepted clicks on nav buttons (Playwright: "covered by span.h-2.w-2"). Fix: .sv-pulse-ring { position: relative; pointer-events: none } + pointer-events:none on ::after in globals.css — fixes all usage sites
+- Verification: eslint clean; tsc src clean; production build ✓ (/,/_not-found static; 5 API routes dynamic); browser (agent-browser): docs 5 tabs + copy buttons, security live band (Operational · 25ms · v1.0.4 · 47m), legal pages + cross-links, AR mode security/docs (تعمل, حالة المنصة المباشرة), mobile 390×844 slim nav, demo regression (auto-start → Marcus events), pilot E2E browser→API→SQLite (SV-P-U9X5M, all fields persisted) → test row cleaned; zero page errors
+
+Stage Summary:
+- Product surface complete: platform (home/demo/dashboard/product) + trust/docs/legal perimeter (docs/security/privacy/terms) — reads as a released product, not a hackathon demo
+- Realness: pilot requests persist to SQLite w/ refs; security + docs pages show LIVE measured platform status; docs document the actual running API
+- Nav is 3 items + CTA; all destination views still reachable via in-page CTAs and footer

@@ -18,6 +18,7 @@ import {
   VolumeX,
   CircleAlert,
   CheckCheck,
+  Eye,
   User,
 } from "lucide-react";
 import {
@@ -37,6 +38,42 @@ import { cn } from "@/lib/utils";
 const AGENT_DUR = 7.5; // virtual seconds agent "speaks" per line
 const CUSTOMER_DUR = 3.2;
 
+/** Phase-aware guidance shown under the player */
+const HINTS: Record<Phase | "idle", { en: string; ar: string }> = {
+  idle: {
+    en: "Pick a fraud case below and fire the alert yourself — the 60-second SLA clock starts the moment the webhook lands.",
+    ar: "اختر حالة احتيال أدناه وأطلق التنبيه بنفسك — تبدأ ساعة الستين ثانية لحظة وصول الويب هوك.",
+  },
+  alert: {
+    en: "The SLA clock starts on the webhook — watch the timer in the stage header race the 60-second promise.",
+    ar: "تبدأ ساعة الستين ثانية عند الويب هوك — راقب المؤقت في رأس المسرح قبل انتهاء المهلة.",
+  },
+  dial: {
+    en: "The outbound call connects in about one second — the agent reaches the customer before the fraudster finishes their script.",
+    ar: "يتم توصيل الاتصال الصادر خلال نحو ثانية — يصل الوكيل إلى العميل قبل أن يُكمل المحتال نصّه.",
+  },
+  intro: {
+    en: "The agent announces that the call is recorded and confirms who it is speaking to — no secrets requested, ever.",
+    ar: "يعلن الوكيل أن المكالمة مسجلة ويؤكد هوية الطرف الآخر — دون طلب أي أسرار أبداً.",
+  },
+  verify: {
+    en: "Verification is merchant-based: two transactions the customer knows, one they don't. No PINs, no passwords, no OTPs.",
+    ar: "التحقق يعتمد على المعاملات: عمليتان يعرفهما العميل وواحدة لا يعرفها. دون رموز سرية أو كلمات مرور.",
+  },
+  confirm: {
+    en: "A precise, quoted confirmation — exact amount, exact merchant, explicit yes or no. Nothing vague is acted on.",
+    ar: "تأكيد دقيق ومقتبس — المبلغ والمتجر بالتفصيل، ونعم أو لا صريحة. لا يُتخذ إجراء على أي غموض.",
+  },
+  action: {
+    en: "The agent has exactly one write action: a temporary, reversible freeze (or transfer hold). Watch the API receipt land in the rail.",
+    ar: "للوكيل إجراء كتابي واحد فقط: تجميد مؤقت قابل للإلغاء (أو حجز حوالة). راقب وصول إيصال الـ API في الشريط.",
+  },
+  handoff: {
+    en: "Everything travels with the warm handoff — transcript, verification method, sentiment, and the action receipt — and the audit log seals itself.",
+    ar: "كل شيء ينتقل مع التسليم المباشر — النص، طريقة التحقق، المشاعر، وإيصال الإجراء — ثم يُقفل سجل التدقيق نفسه.",
+  },
+};
+
 function eventDur(e: ScenarioEvent) {
   if (e.speaker === "agent") return AGENT_DUR + e.en.length / 40;
   if (e.speaker === "customer") return CUSTOMER_DUR;
@@ -44,13 +81,13 @@ function eventDur(e: ScenarioEvent) {
 }
 
 export function Demo() {
-  const { lang } = useApp();
+  const { lang, demoIntent, consumeDemoIntent } = useApp();
 
   const [kind, setKind] = useState<ScenarioKind>("card");
   const [started, setStarted] = useState(false);
   const [running, setRunning] = useState(false);
   const [time, setTime] = useState(0);
-  const [speed, setSpeed] = useState(1);
+  const [speed, setSpeed] = useState(2);
   const [audioOn, setAudioOn] = useState(true);
   const [callLang, setCallLang] = useState<"en" | "ar">("en");
   const spokenRef = useRef<Set<string>>(new Set());
@@ -162,6 +199,19 @@ export function Demo() {
     setRunning(false);
   };
 
+  /* keep the latest start() closure available to one-shot effects */
+  const startRef = useRef<() => void>(() => {});
+  useEffect(() => {
+    startRef.current = start;
+  });
+
+  /* ——— one-shot: a "launch live demo" CTA arrived (usually before mount) — begin playback ——— */
+  useEffect(() => {
+    if (!demoIntent) return;
+    consumeDemoIntent();
+    startRef.current();
+  }, [demoIntent, consumeDemoIntent]);
+
   const elapsed = Math.floor(time);
   const mm = Math.floor(elapsed / 60);
   const ss = String(elapsed % 60).padStart(2, "0");
@@ -183,13 +233,18 @@ export function Demo() {
         {/* controls */}
         <div className="flex scroll-mt-24 flex-wrap items-center gap-2">
           {!started ? (
-            <button
-              onClick={start}
-              className="flex items-center gap-2 rounded-full bg-primary px-5 py-2.5 text-[13.5px] font-semibold text-white shadow-[0_8px_22px_-8px_rgba(11,122,85,0.6)] transition hover:bg-green-deep"
-            >
-              <Zap className="h-4 w-4" />
-              Simulate fraud alert
-            </button>
+            <>
+              <button
+                onClick={start}
+                className="flex items-center gap-2 rounded-full bg-primary px-5 py-2.5 text-[13.5px] font-semibold text-white shadow-[0_8px_22px_-8px_rgba(11,122,85,0.6)] transition hover:bg-green-deep"
+              >
+                <Zap className="h-4 w-4" />
+                Simulate fraud alert
+              </button>
+              <span className="num hidden rounded-full border border-line bg-white px-3 py-1.5 text-[11px] text-ink-3 sm:block">
+                PLAYBACK 2×
+              </span>
+            </>
           ) : (
             <>
               <button
@@ -419,25 +474,33 @@ export function Demo() {
           <div className="sv-scroll h-[420px] space-y-3.5 overflow-y-auto px-4 py-5 sm:px-6">
             {!started && (
               <div className="flex h-full flex-col items-center justify-center gap-5 text-center">
-                <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-green-tint">
+                <span className="relative flex h-14 w-14 items-center justify-center rounded-2xl bg-green-tint">
                   <Zap className="h-6 w-6 text-primary" strokeWidth={1.6} />
+                  <span className="sv-pulse-ring absolute inset-0 rounded-2xl text-primary/40" />
                 </span>
                 <div>
                   <p className="font-display text-lg font-semibold">
-                    A fraud signal is about to fire
+                    Standing by for the next fraud signal
                   </p>
                   <p className="mx-auto mt-2 max-w-sm text-[13px] leading-relaxed text-ink-2">
-                    Pick one of three fraud cases above, then press{" "}
-                    <span className="font-semibold text-primary">Simulate fraud alert</span> to push
-                    it into the SecureVoice pipeline. The agent will call the customer, verify, and
-                    stop the loss — all inside 60 seconds.
+                    Armed case:{" "}
+                    <span className="font-semibold text-foreground">
+                      {lang === "ar" ? META.title.ar : META.title.en}
+                    </span>
+                    . Fire the alert to push it through the risk engine — the agent will call,
+                    verify, and stop the loss in one call.
                   </p>
                 </div>
-                <div className="w-full max-w-sm space-y-2.5">
-                  <Skeleton className="h-4 w-3/4" />
-                  <Skeleton className="h-4 w-1/2" />
-                  <Skeleton className="h-10 w-2/3" />
-                </div>
+                <button
+                  onClick={start}
+                  className="flex items-center gap-2.5 rounded-full bg-primary px-7 py-3.5 text-[14.5px] font-semibold text-white shadow-[0_10px_26px_-8px_rgba(11,122,85,0.6)] transition hover:bg-green-deep"
+                >
+                  <Zap className="h-4 w-4" />
+                  Simulate fraud alert now
+                </button>
+                <p className="num text-[10.5px] text-ink-3">
+                  PLAYBACK 2× · FULL CALL ≈ 35 SECONDS
+                </p>
               </div>
             )}
 
@@ -605,6 +668,38 @@ export function Demo() {
               </div>
             )}
           </RailCard>
+        </div>
+      </div>
+
+      {/* ——— what to watch for ——— */}
+      <div className="mt-5 rounded-2xl border border-line bg-white px-5 py-3.5">
+        <div className="flex items-start gap-3">
+          <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-green-tint">
+            <Eye className="h-3.5 w-3.5 text-primary" strokeWidth={1.8} />
+          </span>
+          <div className="min-w-0">
+            <p className="micro !text-[9.5px] text-ink-3">
+              {lang === "ar" ? "ما الذي تستحق المشاهدة" : "What to watch for"}
+            </p>
+            <AnimatePresence mode="wait" initial={false}>
+              <motion.p
+                key={started ? phase : "idle"}
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -6 }}
+                transition={{ duration: 0.3, ease: "easeOut" }}
+                className="mt-1 text-[13px] leading-relaxed text-ink-2"
+              >
+                {lang === "ar"
+                  ? HINTS[started ? phase : "idle"].ar
+                  : HINTS[started ? phase : "idle"].en}
+              </motion.p>
+            </AnimatePresence>
+          </div>
+          <span className="num ml-auto hidden shrink-0 text-[10px] text-ink-3 sm:block">
+            {String(phaseIdx + 1).padStart(2, "0")}/07 ·{" "}
+            {lang === "ar" ? PHASES[phaseIdx].ar : PHASES[phaseIdx].en}
+          </span>
         </div>
       </div>
 

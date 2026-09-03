@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { motion } from "framer-motion";
 import {
   ArrowRight,
@@ -16,10 +17,16 @@ import {
   Fingerprint,
   Snowflake,
   Headset,
+  CalendarCheck,
+  CheckCircle2,
 } from "lucide-react";
 import { useApp, t } from "@/lib/store";
 import { Reveal, Counter, LiveDot, Chip } from "@/components/fx/core";
 import { Waveform, Equalizer } from "@/components/fx/Waveform";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { useToast } from "@/hooks/use-toast";
 
 const ELEVEN = [
   "Agent Workflows",
@@ -66,7 +73,7 @@ const STEPS = [
   { n: "05", en: "Human handoff", ar: "تسليم", d: "Specialist receives full context" },
 ];
 
-const JUDGE_STEPS: {
+const TRY_STEPS: {
   n: string;
   icon: typeof Zap;
   en: string;
@@ -80,7 +87,7 @@ const JUDGE_STEPS: {
     icon: Zap,
     en: "Trigger a live intervention",
     ar: "أطلق تدخلاً حياً",
-    body: "Pick one of three fraud cases — card fraud, ATM cash-out, or a wire scam — and fire the alert yourself. Watch the agent call, verify, and stop the loss in 61 seconds.",
+    body: "Pick one of three fraud cases — card fraud, ATM cash-out, or a wire scam — and fire the alert yourself. The agent calls, verifies, and stops the loss in 61 seconds.",
     cta: "Open the live demo",
     view: "demo",
   },
@@ -98,14 +105,15 @@ const JUDGE_STEPS: {
     icon: BookOpenText,
     en: "Inspect the architecture",
     ar: "افحص البنية",
-    body: "The full call flow with guardrail checkpoints, the five-layer ElevenLabs stack, and the baseline-to-target metrics behind the 61-second promise.",
+    body: "The full call flow with guardrail checkpoints, the five-layer voice stack, and the baseline-to-target metrics behind the 61-second promise.",
     cta: "Open the deep dive",
     view: "product",
   },
 ];
 
 export function Home() {
-  const { setView, lang } = useApp();
+  const { setView, lang, launchDemo } = useApp();
+  const [pilotOpen, setPilotOpen] = useState(false);
 
   return (
     <div>
@@ -127,11 +135,11 @@ export function Home() {
             <Reveal>
               <div className="inline-flex items-center gap-2.5 rounded-full border border-line bg-white py-1.5 pl-2 pr-3.5 shadow-sm">
                 <span className="flex h-5 items-center rounded-full bg-green-tint px-2 text-[10px] font-bold uppercase tracking-wider text-green-deep">
-                  Live
+                  v1.0
                 </span>
                 <LiveDot />
                 <span className="text-[12px] font-medium text-ink-2">
-                  ElevenLabs Hackathon · Banking &amp; Insurance
+                  Real-time fraud intervention · Built for UAE banking
                 </span>
               </div>
             </Reveal>
@@ -181,7 +189,7 @@ export function Home() {
             <Reveal delay={0.34}>
               <div className="mt-8 flex flex-wrap items-center gap-3">
                 <button
-                  onClick={() => setView("demo")}
+                  onClick={launchDemo}
                   className="group flex items-center gap-2.5 rounded-full bg-primary px-6 py-3 text-[14.5px] font-semibold text-white shadow-[0_10px_26px_-8px_rgba(11,122,85,0.6)] transition hover:bg-green-deep"
                 >
                   <Play className="h-4 w-4 fill-current" />
@@ -321,18 +329,18 @@ export function Home() {
         </div>
       </section>
 
-      {/* ———————————————— JUDGE TEST-DRIVE ———————————————— */}
+      {/* ———————————————— TRY THE PLATFORM ———————————————— */}
       <section className="border-b border-line bg-white py-14 lg:py-16">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <Reveal>
             <div className="flex flex-wrap items-end justify-between gap-4">
               <div>
                 <div className="flex items-center gap-3">
-                  <span className="micro text-primary">For judges · للتقييم</span>
+                  <span className="micro text-primary">Try it now · جرّبها الآن</span>
                   <span className="h-px w-10 bg-line" />
                 </div>
                 <h2 className="font-display mt-3 max-w-xl text-2xl font-semibold leading-tight tracking-tight sm:text-3xl">
-                  Test the platform — don&apos;t take our word for it
+                  Test-drive the platform — don&apos;t take our word for it
                 </h2>
               </div>
               <p dir="rtl" className="font-arabic max-w-xs text-[13px] leading-relaxed text-ink-2">
@@ -341,7 +349,7 @@ export function Home() {
             </div>
           </Reveal>
           <div className="mt-8 grid gap-3 lg:grid-cols-3">
-            {JUDGE_STEPS.map((s, i) => (
+            {TRY_STEPS.map((s, i) => (
               <Reveal key={s.n} delay={i * 0.07}>
                 <div className="group flex h-full flex-col rounded-2xl border border-line bg-paper p-6 transition-all hover:border-primary/40 hover:bg-white hover:shadow-[0_18px_40px_-26px_rgba(11,122,85,0.35)]">
                   <div className="flex items-center justify-between">
@@ -354,7 +362,7 @@ export function Home() {
                   <p dir="rtl" className="font-arabic mt-0.5 text-[12px] text-ink-3">{s.ar}</p>
                   <p className="mt-2.5 flex-1 text-[13px] leading-relaxed text-ink-2">{s.body}</p>
                   <button
-                    onClick={() => setView(s.view)}
+                    onClick={() => (s.view === "demo" ? launchDemo() : setView(s.view))}
                     className="mt-5 flex w-fit items-center gap-1.5 rounded-full border border-line bg-white px-4 py-2 text-[12.5px] font-semibold text-foreground transition hover:border-primary/50 hover:text-primary"
                   >
                     {s.cta}
@@ -533,23 +541,142 @@ export function Home() {
               </p>
               <div className="mt-9 flex flex-wrap items-center justify-center gap-3">
                 <button
-                  onClick={() => setView("demo")}
+                  onClick={launchDemo}
                   className="flex items-center gap-2.5 rounded-full bg-green-bright px-7 py-3.5 text-[14.5px] font-semibold text-[#07130d] transition hover:bg-white"
                 >
                   <Play className="h-4 w-4 fill-current" />
-                  Launch live simulation
+                  {t("Launch live simulation", "أطلق المحاكاة الحية", lang)}
                 </button>
                 <button
                   onClick={() => setView("dashboard")}
                   className="rounded-full border border-white/20 px-6 py-3.5 text-[14px] font-semibold text-white/85 transition hover:border-white/50 hover:text-white"
                 >
-                  Explore the dashboard
+                  {t("Explore the dashboard", "استكشف اللوحة", lang)}
+                </button>
+                <button
+                  onClick={() => setPilotOpen(true)}
+                  className="flex items-center gap-2 rounded-full border border-white/20 px-6 py-3.5 text-[14px] font-semibold text-white/85 transition hover:border-white/50 hover:text-white"
+                >
+                  <CalendarCheck className="h-4 w-4" />
+                  {t("Book a pilot", "احجز تجربة ميدانية", lang)}
                 </button>
               </div>
             </div>
           </div>
         </Reveal>
       </section>
+
+      {/* ———————————————— PILOT DIALOG ———————————————— */}
+      <PilotDialog open={pilotOpen} onOpenChange={setPilotOpen} />
     </div>
+  );
+}
+
+/* ————— pilot booking dialog ————— */
+
+function PilotDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
+  const { toast } = useToast();
+  const [sent, setSent] = useState(false);
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [bank, setBank] = useState("");
+
+  const submit = () => {
+    if (!name.trim() || !email.trim() || !email.includes("@")) return;
+    setSent(true);
+    toast({
+      title: "Pilot request received",
+      description: "Our fraud team will reach out within one business day.",
+    });
+  };
+
+  const close = (o: boolean) => {
+    if (!o) setSent(false);
+    onOpenChange(o);
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={close}>
+      <DialogContent className="max-w-md rounded-3xl border-line bg-white p-7 sm:p-8">
+        {sent ? (
+          <div className="py-6 text-center">
+            <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-green-tint">
+              <CheckCircle2 className="h-7 w-7 text-primary" strokeWidth={1.6} />
+            </span>
+            <DialogHeader className="mt-5">
+              <DialogTitle className="font-display text-xl font-semibold tracking-tight">
+                Request received
+              </DialogTitle>
+              <DialogDescription className="mx-auto mt-2 max-w-xs text-[13.5px] leading-relaxed text-ink-2">
+                Thank you, {name.split(" ")[0]}. Our fraud team will contact you within one
+                business day to scope a 30-day pilot on your card portfolio.
+              </DialogDescription>
+            </DialogHeader>
+            <button
+              onClick={() => close(false)}
+              className="mt-6 rounded-full bg-primary px-6 py-2.5 text-[13px] font-semibold text-white transition hover:bg-green-deep"
+            >
+              Done
+            </button>
+          </div>
+        ) : (
+          <>
+            <DialogHeader>
+              <DialogTitle className="font-display text-xl font-semibold tracking-tight">
+                Book a 30-day pilot
+              </DialogTitle>
+              <DialogDescription className="mt-1.5 text-[13.5px] leading-relaxed text-ink-2">
+                Run SecureVoice AI against a slice of your card portfolio. Deployment inside your
+                VPC; no customer data leaves your tenancy.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="mt-5 space-y-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="pilot-name" className="text-[12px] font-semibold">Full name</Label>
+                <Input
+                  id="pilot-name"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="Fatima Al-Rashid"
+                  className="h-10 rounded-xl border-line bg-paper"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="pilot-email" className="text-[12px] font-semibold">Work email</Label>
+                <Input
+                  id="pilot-email"
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="fatima@bank.ae"
+                  className="h-10 rounded-xl border-line bg-paper"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="pilot-bank" className="text-[12px] font-semibold">Institution</Label>
+                <Input
+                  id="pilot-bank"
+                  value={bank}
+                  onChange={(e) => setBank(e.target.value)}
+                  placeholder="Your bank or insurance firm"
+                  className="h-10 rounded-xl border-line bg-paper"
+                />
+              </div>
+              <button
+                onClick={submit}
+                disabled={!name.trim() || !email.includes("@")}
+                className="flex w-full items-center justify-center gap-2 rounded-full bg-primary py-3 text-[13.5px] font-semibold text-white shadow-[0_8px_22px_-8px_rgba(11,122,85,0.6)] transition hover:bg-green-deep disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <CalendarCheck className="h-4 w-4" />
+                Request pilot
+              </button>
+              <p className="text-center text-[11px] text-ink-3">
+                Or email pilots@securevoice.ae · +971 4 000 0000
+              </p>
+            </div>
+          </>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }

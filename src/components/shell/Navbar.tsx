@@ -2,7 +2,7 @@
 
 import { motion } from "framer-motion";
 import { ShieldCheck, PhoneCall, LayoutDashboard, BookOpenText, Home } from "lucide-react";
-import { useApp, type View, type Lang } from "@/lib/store";
+import { useApp, t, type View, type Lang } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
 const NAV: { id: View; en: string; ar: string; icon: typeof Home }[] = [
@@ -13,7 +13,7 @@ const NAV: { id: View; en: string; ar: string; icon: typeof Home }[] = [
 ];
 
 export function Navbar() {
-  const { view, setView, lang, setLang } = useApp();
+  const { view, setView, lang, setLang, launchDemo } = useApp();
 
   return (
     <header className="sticky top-0 z-50 border-b border-line/80 bg-paper/85 backdrop-blur-xl">
@@ -92,14 +92,14 @@ export function Navbar() {
           </div>
 
           <button
-            onClick={() => setView("demo")}
+            onClick={launchDemo}
             className="group hidden items-center gap-2 rounded-full bg-primary px-4 py-2 text-[13px] font-semibold text-white shadow-[0_6px_18px_-6px_rgba(11,122,85,0.55)] transition hover:bg-green-deep sm:flex"
           >
             <span className="relative flex h-1.5 w-1.5">
               <span className="sv-pulse-ring absolute inset-0 text-white" />
               <span className="h-1.5 w-1.5 rounded-full bg-white" />
             </span>
-            Launch demo
+            <span className="relative">{t("Launch live demo", "ابدأ العرض الحي", lang)}</span>
           </button>
         </div>
       </div>

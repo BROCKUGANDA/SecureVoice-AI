@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { ShieldCheck } from "lucide-react";
 
@@ -15,22 +15,26 @@ const STEPS = [
 export function LoadingScreen({ onDone }: { onDone: () => void }) {
   const [progress, setProgress] = useState(0);
   const [gone, setGone] = useState(false);
+  const doneRef = useRef(onDone);
+  useEffect(() => {
+    doneRef.current = onDone;
+  }, [onDone]);
 
   useEffect(() => {
     let v = 0;
     const iv = setInterval(() => {
-      v = Math.min(100, v + 6 + Math.random() * 14);
+      v = Math.min(100, v + 9 + Math.random() * 16);
       setProgress(v);
       if (v >= 100) {
         clearInterval(iv);
         setTimeout(() => {
           setGone(true);
-          setTimeout(onDone, 480);
-        }, 260);
+          setTimeout(() => doneRef.current(), 480);
+        }, 220);
       }
-    }, 130);
+    }, 110);
     return () => clearInterval(iv);
-  }, [onDone]);
+  }, []);
 
   const step = Math.min(STEPS.length - 1, Math.floor((progress / 100) * STEPS.length));
 

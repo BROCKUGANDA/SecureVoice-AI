@@ -19,9 +19,9 @@ export function Footer() {
             <ShieldCheck className="h-3.5 w-3.5 text-green-bright" strokeWidth={1.8} />
           </span>
           <div className="leading-tight">
-            <p className="text-[12.5px] font-semibold">SecureVoice AI · Team SecureVoice</p>
+            <p className="text-[12.5px] font-semibold">SecureVoice AI · Platform 1.0</p>
             <p className="text-[11px] text-ink-3">
-              Real-Time Fraud Intervention · ElevenLabs Hackathon — Banking &amp; Insurance
+              Real-time fraud intervention for banks · CBUAE-aligned · Dubai, UAE
             </p>
           </div>
         </div>

@@ -58,3 +58,33 @@ Stage Summary:
 - Judges now land on a product surface: no pitch deck in nav; hero CTAs both product-led
 - Demo is testable: judges pick and fire 1 of 3 distinct fraud cases, each with unique data, dialogue, and protective action
 - Deck demoted to footer "appendix" (team-only); delete the appendix button in Footer.tsx to remove entirely
+
+---
+Task ID: 3
+Agent: Super Z (main agent)
+Task: Fix "demo just loading", full UI/UX/FX audit, public-release rebrand (no hackathon-only framing), production + runtime hardening, all-buttons-lead-somewhere audit. User approved: "what to watch for" hint strip + 2× default speed.
+
+Work Log:
+- Root-caused "demo just loading": pre-start state rendered skeleton bars (looked like eternal loading) and sim required finding the trigger button. Fixed by:
+  * store.ts: added demoIntent + launchDemo() — every "launch demo" CTA now auto-starts the simulation on arrival (Navbar "Launch live demo", hero "Run the live simulation", try-band card 01, final CTA)
+  * Demo pre-start redesigned as a "Standing by" panel: armed-case display, big start button, "PLAYBACK 2× · ≈35s" note — no more fake skeletons
+  * Default playback speed now 2× (approved); 1×/1.5× still selectable; timer keeps virtual-time (61s narrative intact)
+- Added phase-aware "What to watch for" hint strip under the player: 8 bilingual hints (idle + 7 phases), crossfades with AnimatePresence, shows NN/07 · phase tag
+- Public-release rebrand:
+  * Home badge: "ElevenLabs Hackathon" → "v1.0 · Real-time fraud intervention · Built for UAE banking"
+  * Judge band → "Try it now · جرّبها الآن / Test-drive the platform"
+  * Footer: "Team SecureVoice / Hackathon" → "SecureVoice AI · Platform 1.0 / Real-time fraud intervention for banks · CBUAE-aligned · Dubai, UAE"
+  * Deck cover chip: "Hackathon 2026" → "2026"; final CTA buttons + navbar CTA localized to AR (t())
+  * New "Book a pilot" dialog (Home final CTA): validated form (name/email/institution), success state + toast, contact line — makes the site read as a released product for banks, not just judges
+- Button audit: nav/footer/CTAs/scenario picker/demo controls/dashboard (tabs, voice select+preview, guardrails, slider, export)/product tabs/deck controls/appendix — all wired; no dead affordances
+- Hardening:
+  * src/app/error.tsx (brand-styled recoverable boundary), global-error.tsx (standalone shell), not-found.tsx (root 404)
+  * next.config: poweredByHeader:false + headers() — X-Content-Type-Options, Referrer-Policy, Permissions-Policy, X-DNS-Prefetch-Control
+  * LoadingScreen: onDone via ref effect (kills effect-restart loop), faster boot (~1.3s)
+  * globals.css: prefers-reduced-motion block (marquee/float/pulse/blink off)
+- Verification: ESLint clean; tsc clean for src; production build ✓ (/ static, /api dynamic, /_not-found); standalone server tested on :3001 — 200 + API + security headers confirmed; browser: EN+AR home/demo CTAs, auto-start→17 events→outcome, hint strip EN+AR, pilot dialog full flow, mobile 390×844 demo auto-start + AR; zero page errors
+
+Stage Summary:
+- App now presents as a released platform (v1.0) usable by banks/partners, not a hackathon artifact; judges still get the fast 2× auto-playing test-drive
+- Demo: 3 triggerable cases, auto-start on intent, phase hints, 2× default
+- Hardened: error boundaries, security headers, reduced-motion, stable boot, prod build + standalone runtime verified

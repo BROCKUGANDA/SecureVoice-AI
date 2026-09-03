@@ -239,7 +239,7 @@ function RenderSlide({
   if (layout === "cover")
     return (
       <div className="flex h-full flex-col justify-center">
-        <Chip className="w-fit">Banking &amp; Insurance · Hackathon 2026</Chip>
+        <Chip className="w-fit">Banking &amp; Insurance · 2026</Chip>
         <h1 className={cn(h, "mt-7 text-5xl leading-[1.02] sm:text-7xl")}>
           {isAr ? (
             <span dir="rtl" className="font-arabic">{title}</span>

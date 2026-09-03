@@ -25,6 +25,7 @@ import { Reveal, Counter, LiveDot, Chip } from "@/components/fx/core";
 import { Waveform, Equalizer } from "@/components/fx/Waveform";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 
@@ -576,22 +577,65 @@ export function Home() {
 
 function PilotDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
   const { toast } = useToast();
+  const { setView } = useApp();
   const [sent, setSent] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [ref, setRef] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [bank, setBank] = useState("");
+  const [role, setRole] = useState("");
+  const [volume, setVolume] = useState("");
+  const [message, setMessage] = useState("");
+  // honeypot — hidden from humans; bots tend to fill every field
+  const [companyUrl, setCompanyUrl] = useState("");
 
-  const submit = () => {
-    if (!name.trim() || !email.trim() || !email.includes("@")) return;
-    setSent(true);
-    toast({
-      title: "Pilot request received",
-      description: "Our fraud team will reach out within one business day.",
-    });
+  const valid = name.trim().length >= 2 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()) && bank.trim().length >= 2;
+
+  const submit = async () => {
+    if (!valid || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/pilot", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: name.trim(),
+          email: email.trim(),
+          institution: bank.trim(),
+          role: role.trim() || undefined,
+          volume: volume || undefined,
+          message: message.trim() || undefined,
+          company_url: companyUrl,
+          source: "website",
+        }),
+      });
+      const data = (await res.json()) as { ok: boolean; ref?: string; error?: string };
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || "Something went wrong. Please try again.");
+      }
+      setRef(data.ref ?? null);
+      setSent(true);
+      toast({
+        title: "Pilot request received",
+        description: "Our fraud team will reach out within one business day.",
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Network error — please try again.";
+      setError(msg);
+    } finally {
+      setBusy(false);
+    }
   };
 
   const close = (o: boolean) => {
-    if (!o) setSent(false);
+    if (!o) {
+      setSent(false);
+      setRef(null);
+      setError(null);
+    }
     onOpenChange(o);
   };
 
@@ -612,6 +656,14 @@ function PilotDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: 
                 business day to scope a 30-day pilot on your card portfolio.
               </DialogDescription>
             </DialogHeader>
+            {ref && (
+              <div className="mx-auto mt-5 w-fit rounded-xl border border-line bg-paper px-4 py-2.5">
+                <div className="micro text-[9px] text-ink-3">YOUR REFERENCE</div>
+                <div className="mt-0.5 font-mono text-[14px] font-semibold tracking-wider text-foreground">
+                  {ref}
+                </div>
+              </div>
+            )}
             <button
               onClick={() => close(false)}
               className="mt-6 rounded-full bg-primary px-6 py-2.5 text-[13px] font-semibold text-white transition hover:bg-green-deep"
@@ -631,15 +683,37 @@ function PilotDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: 
               </DialogDescription>
             </DialogHeader>
             <div className="mt-5 space-y-4">
-              <div className="space-y-1.5">
-                <Label htmlFor="pilot-name" className="text-[12px] font-semibold">Full name</Label>
-                <Input
-                  id="pilot-name"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="Fatima Al-Rashid"
-                  className="h-10 rounded-xl border-line bg-paper"
-                />
+              {/* honeypot — visually hidden, ignored by humans */}
+              <input
+                type="text"
+                tabIndex={-1}
+                autoComplete="off"
+                aria-hidden="true"
+                value={companyUrl}
+                onChange={(e) => setCompanyUrl(e.target.value)}
+                className="pointer-events-none absolute -left-[9999px] h-0 w-0 opacity-0"
+              />
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="pilot-name" className="text-[12px] font-semibold">Full name</Label>
+                  <Input
+                    id="pilot-name"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder="Fatima Al-Rashid"
+                    className="h-10 rounded-xl border-line bg-paper"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="pilot-role" className="text-[12px] font-semibold">Role <span className="font-normal text-ink-3">(optional)</span></Label>
+                  <Input
+                    id="pilot-role"
+                    value={role}
+                    onChange={(e) => setRole(e.target.value)}
+                    placeholder="Head of Fraud"
+                    className="h-10 rounded-xl border-line bg-paper"
+                  />
+                </div>
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="pilot-email" className="text-[12px] font-semibold">Work email</Label>
@@ -662,13 +736,67 @@ function PilotDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: 
                   className="h-10 rounded-xl border-line bg-paper"
                 />
               </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="pilot-volume" className="text-[12px] font-semibold">Monthly card volume</Label>
+                  <select
+                    id="pilot-volume"
+                    value={volume}
+                    onChange={(e) => setVolume(e.target.value)}
+                    className="h-10 w-full rounded-xl border border-line bg-paper px-3 text-[13px] text-foreground outline-none transition focus:border-primary/50"
+                  >
+                    <option value="">Select…</option>
+                    <option value="&lt; 100k cards">Under 100k cards</option>
+                    <option value="100k – 1M">100k – 1M cards</option>
+                    <option value="1M – 5M">1M – 5M cards</option>
+                    <option value="&gt; 5M">Over 5M cards</option>
+                  </select>
+                </div>
+                <div className="flex items-end pb-0.5">
+                  <p className="text-[11px] leading-snug text-ink-3">
+                    Stored securely in our UAE region. We never share your details — see our{" "}
+                    <button
+                      onClick={() => { close(false); setView("privacy"); }}
+                      className="underline decoration-line underline-offset-2 transition hover:text-primary"
+                    >
+                      Privacy Policy
+                    </button>
+                    .
+                  </p>
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="pilot-msg" className="text-[12px] font-semibold">Anything specific to scope? <span className="font-normal text-ink-3">(optional)</span></Label>
+                <Textarea
+                  id="pilot-msg"
+                  value={message}
+                  onChange={(e) => setMessage(e.target.value)}
+                  rows={3}
+                  placeholder="e.g. Card-not-present fraud on debit portfolio, Arabic + English calls, CBUAE reporting…"
+                  className="resize-none rounded-xl border-line bg-paper"
+                />
+              </div>
+              {error && (
+                <div className="rounded-xl border border-red-200 bg-red-50 px-3.5 py-2.5 text-[12.5px] font-medium text-red-700">
+                  {error}
+                </div>
+              )}
               <button
                 onClick={submit}
-                disabled={!name.trim() || !email.includes("@")}
+                disabled={!valid || busy}
                 className="flex w-full items-center justify-center gap-2 rounded-full bg-primary py-3 text-[13.5px] font-semibold text-white shadow-[0_8px_22px_-8px_rgba(11,122,85,0.6)] transition hover:bg-green-deep disabled:cursor-not-allowed disabled:opacity-40"
               >
-                <CalendarCheck className="h-4 w-4" />
-                Request pilot
+                {busy ? (
+                  <>
+                    <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+                    Submitting…
+                  </>
+                ) : (
+                  <>
+                    <CalendarCheck className="h-4 w-4" />
+                    Request pilot
+                  </>
+                )}
               </button>
               <p className="text-center text-[11px] text-ink-3">
                 Or email pilots@securevoice.ae · +971 4 000 0000

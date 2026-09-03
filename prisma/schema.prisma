@@ -21,12 +21,21 @@ model User {
   updatedAt DateTime @updatedAt
 }
 
-model Post {
-  id        String   @id @default(cuid())
-  title     String
-  content   String?
-  published Boolean  @default(false)
-  authorId  String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+/// Inbound pilot / partnership requests submitted from the public site.
+/// Minimal personal data by design (PDPL-aware): contact + institution only.
+model PilotRequest {
+  id          String   @id @default(cuid())
+  ref         String   @unique // human-friendly reference, e.g. SV-P-8F3K2
+  name        String
+  email       String
+  institution String
+  role        String?
+  volume      String? // monthly card volume band, self-reported
+  message     String?
+  source      String   @default("website") // website | deck | referral
+  status      String   @default("new") // new | contacted | qualified | closed
+  createdAt   DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([status])
 }

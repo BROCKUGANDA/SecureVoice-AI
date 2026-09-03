@@ -1,0 +1,683 @@
+     1→"use client";
+     2→
+     3→import { useState } from "react";
+     4→import { motion } from "framer-motion";
+     5→import {
+     6→  ArrowRight,
+     7→  PhoneOutgoing,
+     8→  Languages,
+     9→  ShieldCheck,
+    10→  FileCheck2,
+    11→  Play,
+    12→  Zap,
+    13→  LayoutDashboard,
+    14→  BookOpenText,
+    15→  Webhook,
+    16→  Lock,
+    17→  Fingerprint,
+    18→  Snowflake,
+    19→  Headset,
+    20→  CalendarCheck,
+    21→  CheckCircle2,
+    22→} from "lucide-react";
+    23→import { useApp, t } from "@/lib/store";
+    24→import { Reveal, Counter, LiveDot, Chip } from "@/components/fx/core";
+    25→import { Waveform, Equalizer } from "@/components/fx/Waveform";
+    26→import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+    27→import { Input } from "@/components/ui/input";
+    28→import { Label } from "@/components/ui/label";
+    29→import { useToast } from "@/hooks/use-toast";
+    30→
+    31→const ELEVEN = [
+    32→  "Agent Workflows",
+    33→  "Eleven v3 TTS",
+    34→  "Scribe v2 Realtime",
+    35→  "Knowledge Base + RAG",
+    36→  "Webhook Tools",
+    37→  "Twilio Telephony",
+    38→  "Agent Testing",
+    39→];
+    40→
+    41→const FEATURES = [
+    42→  {
+    43→    icon: PhoneOutgoing,
+    44→    en: "Immediate multilingual outreach",
+    45→    ar: "اتصال فوري متعدد اللغات",
+    46→    body: "The agent dials within 60 seconds of the fraud signal — no SMS to ignore, no queue. It speaks the customer's language from the first syllable: Arabic, English, Hindi, Urdu, Filipino, Malayalam.",
+    47→  },
+    48→  {
+    49→    icon: Fingerprint,
+    50→    en: "Verified identity, zero secrets",
+    51→    ar: "تحقق دون أسرار",
+    52→    body: "Bank-approved challenge flows — merchants, amounts, dates. The agent never requests PINs or passwords, so it can never be turned into a phishing tool.",
+    53→  },
+    54→  {
+    55→    icon: Snowflake,
+    56→    en: "Pre-approved actions only",
+    57→    ar: "إجراءات معتمدة فقط",
+    58→    body: "One write action exists in the agent's tool scope: the temporary card freeze. Anything irreversible — replacement, transfer, refund — goes to a human with full context.",
+    59→  },
+    60→  {
+    61→    icon: FileCheck2,
+    62→    en: "An audit trail that satisfies CBUAE",
+    63→    ar: "سجل تدقيق يلبي أنظمة المصرف المركزي",
+    64→    body: "Every call recorded, transcribed bilingually, and sealed with verification method, actions, and handoff reason into immutable AES-256 storage.",
+    65→  },
+    66→];
+    67→
+    68→const STEPS = [
+    69→  { n: "01", en: "Alert received", ar: "إشارة", d: "Fraud engine webhook, risk ≥ threshold" },
+    70→  { n: "02", en: "Outbound call", ar: "اتصال", d: "Connected in ~1s, language locked" },
+    71→  { n: "03", en: "Verification", ar: "تحقق", d: "Challenge flow — no PINs, ever" },
+    72→  { n: "04", en: "Card freeze", ar: "تجميد", d: "Temporary, pre-approved, reversible" },
+    73→  { n: "05", en: "Human handoff", ar: "تسليم", d: "Specialist receives full context" },
+    74→];
+    75→
+    76→const TRY_STEPS: {
+    77→  n: string;
+    78→  icon: typeof Zap;
+    79→  en: string;
+    80→  ar: string;
+    81→  body: string;
+    82→  cta: string;
+    83→  view: "demo" | "dashboard" | "product";
+    84→}[] = [
+    85→  {
+    86→    n: "01",
+    87→    icon: Zap,
+    88→    en: "Trigger a live intervention",
+    89→    ar: "أطلق تدخلاً حياً",
+    90→    body: "Pick one of three fraud cases — card fraud, ATM cash-out, or a wire scam — and fire the alert yourself. The agent calls, verifies, and stops the loss in 61 seconds.",
+    91→    cta: "Open the live demo",
+    92→    view: "demo",
+    93→  },
+    94→  {
+    95→    n: "02",
+    96→    icon: LayoutDashboard,
+    97→    en: "Operate the console",
+    98→    ar: "شغّل لوحة التحكم",
+    99→    body: "Monitor active calls, tune the risk threshold, flip guardrails on and off, and search the immutable audit log — the same console a bank fraud desk would run.",
+   100→    cta: "Open the dashboard",
+   101→    view: "dashboard",
+   102→  },
+   103→  {
+   104→    n: "03",
+   105→    icon: BookOpenText,
+   106→    en: "Inspect the architecture",
+   107→    ar: "افحص البنية",
+   108→    body: "The full call flow with guardrail checkpoints, the five-layer voice stack, and the baseline-to-target metrics behind the 61-second promise.",
+   109→    cta: "Open the deep dive",
+   110→    view: "product",
+   111→  },
+   112→];
+   113→
+   114→export function Home() {
+   115→  const { setView, lang, launchDemo } = useApp();
+   116→  const [pilotOpen, setPilotOpen] = useState(false);
+   117→
+   118→  return (
+   119→    <div>
+   120→      {/* ———————————————— HERO ———————————————— */}
+   121→      <section className="relative overflow-hidden">
+   122→        <div className="sv-grid-bg absolute inset-0" />
+   123→        <div
+   124→          className="absolute -top-40 right-[-10%] h-[480px] w-[480px] rounded-full opacity-60"
+   125→          style={{ background: "radial-gradient(circle, rgba(11,122,85,0.14), transparent 65%)" }}
+   126→        />
+   127→        <div
+   128→          className="absolute bottom-[-30%] left-[-8%] h-[420px] w-[420px] rounded-full opacity-50"
+   129→          style={{ background: "radial-gradient(circle, rgba(185,122,17,0.10), transparent 60%)" }}
+   130→        />
+   131→
+   132→        <div className="relative mx-auto grid max-w-7xl items-center gap-12 px-4 pb-20 pt-14 sm:px-6 lg:grid-cols-[1.05fr_0.95fr] lg:px-8 lg:pb-28 lg:pt-20">
+   133→          {/* Left column */}
+   134→          <div>
+   135→            <Reveal>
+   136→              <div className="inline-flex items-center gap-2.5 rounded-full border border-line bg-white py-1.5 pl-2 pr-3.5 shadow-sm">
+   137→                <span className="flex h-5 items-center rounded-full bg-green-tint px-2 text-[10px] font-bold uppercase tracking-wider text-green-deep">
+   138→                  v1.0
+   139→                </span>
+   140→                <LiveDot />
+   141→                <span className="text-[12px] font-medium text-ink-2">
+   142→                  Real-time fraud intervention · Built for UAE banking
+   143→                </span>
+   144→              </div>
+   145→            </Reveal>
+   146→
+   147→            <Reveal delay={0.1}>
+   148→              <h1 className="font-display mt-7 text-[2.6rem] font-semibold leading-[1.04] tracking-tight sm:text-6xl lg:text-[4.2rem]">
+   149→                Fraud detected.
+   150→                <br />
+   151→                Call placed.{" "}
+   152→                <span className="relative inline-block text-primary">
+   153→                  Frozen.
+   154→                  <svg
+   155→                    className="absolute -bottom-2 left-0 w-full"
+   156→                    viewBox="0 0 120 8"
+   157→                    fill="none"
+   158→                    aria-hidden="true"
+   159→                  >
+   160→                    <motion.path
+   161→                      d="M2 6 C 30 1, 80 1, 118 5"
+   162→                      stroke="#14a374"
+   163→                      strokeWidth="2.6"
+   164→                      strokeLinecap="round"
+   165→                      initial={{ pathLength: 0 }}
+   166→                      animate={{ pathLength: 1 }}
+   167→                      transition={{ duration: 0.9, delay: 0.9, ease: "easeOut" }}
+   168→                    />
+   169→                  </svg>
+   170→                </span>
+   171→                <br />
+   172→                In <span className="num">60</span> seconds.
+   173→              </h1>
+   174→            </Reveal>
+   175→
+   176→            <Reveal delay={0.2}>
+   177→              <p dir="rtl" className="font-arabic mt-5 text-[15px] leading-relaxed text-ink-2">
+   178→                وكيل صوتي ذكي يتصل بالعميل بلغته خلال ستين ثانية من إشارة الاحتيال — يتحقق من هويته، يؤكد العملية، ويجمّد البطاقة، ثم يسلم لأخصائي بشري.
+   179→              </p>
+   180→            </Reveal>
+   181→            <Reveal delay={0.26}>
+   182→              <p className="mt-4 max-w-xl text-[15.5px] leading-relaxed text-ink-2">
+   183→                SecureVoice AI closes the gap between fraud detection and fraud intervention for
+   184→                UAE banks — turning a 38-minute wait into a one-minute call that stops the loss
+   185→                while it is still a phone call away.
+   186→              </p>
+   187→            </Reveal>
+   188→
+   189→            <Reveal delay={0.34}>
+   190→              <div className="mt-8 flex flex-wrap items-center gap-3">
+   191→                <button
+   192→                  onClick={launchDemo}
+   193→                  className="group flex items-center gap-2.5 rounded-full bg-primary px-6 py-3 text-[14.5px] font-semibold text-white shadow-[0_10px_26px_-8px_rgba(11,122,85,0.6)] transition hover:bg-green-deep"
+   194→                >
+   195→                  <Play className="h-4 w-4 fill-current" />
+   196→                  {t("Run the live simulation", "شغّل المحاكاة الحية", lang)}
+   197→                </button>
+   198→                <button
+   199→                  onClick={() => setView("dashboard")}
+   200→                  className="group flex items-center gap-2 rounded-full border border-line bg-white px-5 py-3 text-[14px] font-semibold text-foreground transition hover:border-primary/50 hover:text-primary"
+   201→                >
+   202→                  <LayoutDashboard className="h-4 w-4" />
+   203→                  {t("Explore the dashboard", "استكشف اللوحة", lang)}
+   204→                  <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
+   205→                </button>
+   206→              </div>
+   207→            </Reveal>
+   208→
+   209→            <Reveal delay={0.42}>
+   210→              <div className="mt-9 flex flex-wrap items-center gap-x-7 gap-y-3">
+   211→                {[
+   212→                  { big: "38m → 60s", label: "contact delay" },
+   213→                  { big: "43% → 85%", label: "prevention rate" },
+   214→                  { big: "6+ langs", label: "Gulf-tuned voices" },
+   215→                ].map((s) => (
+   216→                  <div key={s.label} className="flex items-baseline gap-2">
+   217→                    <span className="num text-[15px] font-semibold text-foreground">{s.big}</span>
+   218→                    <span className="text-[12px] text-ink-3">{s.label}</span>
+   219→                  </div>
+   220→                ))}
+   221→              </div>
+   222→            </Reveal>
+   223→          </div>
+   224→
+   225→          {/* Right column — the call card */}
+   226→          <Reveal delay={0.25} className="relative">
+   227→            <motion.div
+   228→              initial={{ rotate: 1.5 }}
+   229→              animate={{ rotate: 0 }}
+   230→              transition={{ duration: 1, ease: [0.22, 1, 0.36, 1] }}
+   231→              className="relative"
+   232→            >
+   233→              <div className="relative overflow-hidden rounded-3xl border border-line bg-white shadow-[0_30px_70px_-30px_rgba(16,24,18,0.28)]">
+   234→                {/* header */}
+   235→                <div className="flex items-center justify-between border-b border-line bg-[#0c110e] px-5 py-4">
+   236→                  <div className="flex items-center gap-3">
+   237→                    <span className="relative flex h-9 w-9 items-center justify-center rounded-full bg-green-bright/15">
+   238→                      <PhoneOutgoing className="h-4 w-4 text-green-bright" />
+   239→                      <span className="sv-pulse-ring absolute inset-0 rounded-full text-green-bright/70" />
+   240→                    </span>
+   241→                    <div className="leading-tight">
+   242→                      <p className="num text-[11px] text-white/50">OUTBOUND · SECUREVOICE AGENT</p>
+   243→                      <p className="text-[13.5px] font-semibold text-white">
+   244→                        Ahmed Al-Rashid · <span className="num">+971 •• ••• 4567</span>
+   245→                      </p>
+   246→                    </div>
+   247→                  </div>
+   248→                  <div className="flex items-center gap-1.5 rounded-full bg-red-tint px-2.5 py-1">
+   249→                    <span className="h-1.5 w-1.5 rounded-full bg-red-soft sv-blink" />
+   250→                    <span className="num text-[10.5px] font-semibold text-red-soft">REC</span>
+   251→                  </div>
+   252→                </div>
+   253→
+   254→                {/* waveform */}
+   255→                <div className="border-b border-line px-5 pb-1 pt-4">
+   256→                  <div className="flex items-center gap-3">
+   257→                    <Equalizer active className="h-4 text-primary" />
+   258→                    <Waveform active className="h-14 w-full" bars={44} />
+   259→                  </div>
+   260→                </div>
+   261→
+   262→                {/* transcript */}
+   263→                <div className="space-y-3 px-5 py-4">
+   264→                  <div className="max-w-[85%] rounded-2xl rounded-tl-md bg-secondary px-3.5 py-2.5">
+   265→                    <p className="micro mb-1 text-ink-3">Agent · Fatima (AR-Gulf)</p>
+   266→                    <p dir="rtl" className="font-arabic text-[13px] leading-relaxed text-foreground">
+   267→                      أنت لم تُصرح بعملية ٢,٥٠٠ درهم — أهذا صحيح؟
+   268→                    </p>
+   269→                    <p className="mt-0.5 text-[11.5px] leading-relaxed text-ink-3">
+   270→                      “You did not authorize the AED 2,500 transaction — is that correct?”
+   271→                    </p>
+   272→                  </div>
+   273→                  <div className="ml-auto max-w-[70%] rounded-2xl rounded-tr-md bg-green-tint px-3.5 py-2.5">
+   274→                    <p className="micro mb-1 text-green-deep">Customer</p>
+   275→                    <p dir="rtl" className="font-arabic text-[13px] leading-relaxed text-foreground">
+   276→                      صحيح. هذه العملية ليست مني.
+   277→                    </p>
+   278→                    <p className="mt-0.5 text-[11.5px] leading-relaxed text-ink-3">
+   279→                      “Correct. That was not me.”
+   280→                    </p>
+   281→                  </div>
+   282→                </div>
+   283→
+   284→                {/* action bar */}
+   285→                <div className="flex items-center justify-between gap-3 border-t border-line bg-paper px-5 py-3.5">
+   286→                  <Chip className="!bg-white">
+   287→                    <Lock className="h-3 w-3 text-primary" />
+   288→                    POST /cards/••4417/freeze → <span className="font-semibold text-green-deep">200 OK</span>
+   289→                  </Chip>
+   290→                  <Chip className="!bg-white">
+   291→                    <Webhook className="h-3 w-3 text-amber-soft" />
+   292→                    SLA <span className="font-semibold">61s</span>
+   293→                  </Chip>
+   294→                </div>
+   295→              </div>
+   296→
+   297→              {/* floating chips */}
+   298→              <motion.div
+   299→                className="sv-float absolute -left-5 top-24 hidden rounded-2xl border border-line bg-white px-3.5 py-2.5 shadow-lg lg:block"
+   300→                initial={{ opacity: 0, x: -14 }}
+   301→                animate={{ opacity: 1, x: 0 }}
+   302→                transition={{ delay: 1.1 }}
+   303→              >
+   304→                <div className="flex items-center gap-2">
+   305→                  <ShieldCheck className="h-4 w-4 text-primary" />
+   306→                  <div className="leading-tight">
+   307→                    <p className="text-[11px] font-semibold">Guardrail 01</p>
+   308→                    <p className="text-[10px] text-ink-3">No PINs requested</p>
+   309→                  </div>
+   310→                </div>
+   311→              </motion.div>
+   312→              <motion.div
+   313→                className="sv-float absolute -right-4 bottom-16 hidden rounded-2xl border border-line bg-white px-3.5 py-2.5 shadow-lg lg:block"
+   314→                style={{ animationDelay: "1.2s" }}
+   315→                initial={{ opacity: 0, x: 14 }}
+   316→                animate={{ opacity: 1, x: 0 }}
+   317→                transition={{ delay: 1.3 }}
+   318→              >
+   319→                <div className="flex items-center gap-2">
+   320→                  <Headset className="h-4 w-4 text-amber-soft" />
+   321→                  <div className="leading-tight">
+   322→                    <p className="text-[11px] font-semibold">Handoff ready</p>
+   323→                    <p className="text-[10px] text-ink-3">Sara H. · specialist</p>
+   324→                  </div>
+   325→                </div>
+   326→              </motion.div>
+   327→            </motion.div>
+   328→          </Reveal>
+   329→        </div>
+   330→      </section>
+   331→
+   332→      {/* ———————————————— TRY THE PLATFORM ———————————————— */}
+   333→      <section className="border-b border-line bg-white py-14 lg:py-16">
+   334→        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+   335→          <Reveal>
+   336→            <div className="flex flex-wrap items-end justify-between gap-4">
+   337→              <div>
+   338→                <div className="flex items-center gap-3">
+   339→                  <span className="micro text-primary">Try it now · جرّبها الآن</span>
+   340→                  <span className="h-px w-10 bg-line" />
+   341→                </div>
+   342→                <h2 className="font-display mt-3 max-w-xl text-2xl font-semibold leading-tight tracking-tight sm:text-3xl">
+   343→                  Test-drive the platform — don&apos;t take our word for it
+   344→                </h2>
+   345→              </div>
+   346→              <p dir="rtl" className="font-arabic max-w-xs text-[13px] leading-relaxed text-ink-2">
+   347→                كل ما تعرضه هذه الصفحة قابل للتجربة بنفسك عبر ثلاث محطات:
+   348→              </p>
+   349→            </div>
+   350→          </Reveal>
+   351→          <div className="mt-8 grid gap-3 lg:grid-cols-3">
+   352→            {TRY_STEPS.map((s, i) => (
+   353→              <Reveal key={s.n} delay={i * 0.07}>
+   354→                <div className="group flex h-full flex-col rounded-2xl border border-line bg-paper p-6 transition-all hover:border-primary/40 hover:bg-white hover:shadow-[0_18px_40px_-26px_rgba(11,122,85,0.35)]">
+   355→                  <div className="flex items-center justify-between">
+   356→                    <span className="num text-[12px] font-bold text-primary">{s.n}</span>
+   357→                    <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-green-tint text-green-deep transition-colors group-hover:bg-primary group-hover:text-white">
+   358→                      <s.icon className="h-4 w-4" strokeWidth={1.7} />
+   359→                    </span>
+   360→                  </div>
+   361→                  <p className="font-display mt-4 text-[16.5px] font-semibold tracking-tight">{s.en}</p>
+   362→                  <p dir="rtl" className="font-arabic mt-0.5 text-[12px] text-ink-3">{s.ar}</p>
+   363→                  <p className="mt-2.5 flex-1 text-[13px] leading-relaxed text-ink-2">{s.body}</p>
+   364→                  <button
+   365→                    onClick={() => (s.view === "demo" ? launchDemo() : setView(s.view))}
+   366→                    className="mt-5 flex w-fit items-center gap-1.5 rounded-full border border-line bg-white px-4 py-2 text-[12.5px] font-semibold text-foreground transition hover:border-primary/50 hover:text-primary"
+   367→                  >
+   368→                    {s.cta}
+   369→                    <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
+   370→                  </button>
+   371→                </div>
+   372→              </Reveal>
+   373→            ))}
+   374→          </div>
+   375→        </div>
+   376→      </section>
+   377→
+   378→      {/* ———————————————— ELEVENLABS TICKER ———————————————— */}
+   379→      <section className="border-y border-line bg-white py-4">
+   380→        <div className="sv-mask-fade-x overflow-hidden">
+   381→          <div className="sv-marquee flex w-max items-center gap-10 px-4">
+   382→            {[...ELEVEN, ...ELEVEN].map((x, i) => (
+   383→              <span key={i} className="flex items-center gap-3 whitespace-nowrap">
+   384→                <span className="micro text-ink-3">{x}</span>
+   385→                <span className="h-1 w-1 rounded-full bg-primary/60" />
+   386→              </span>
+   387→            ))}
+   388→          </div>
+   389→        </div>
+   390→      </section>
+   391→
+   392→      {/* ———————————————— HERO STAT: 38:00 → 0:60 ———————————————— */}
+   393→      <section className="mx-auto max-w-7xl px-4 py-20 sm:px-6 lg:px-8 lg:py-28">
+   394→        <Reveal>
+   395→          <div className="grid overflow-hidden rounded-3xl border border-line bg-white shadow-[0_24px_60px_-40px_rgba(16,24,18,0.35)] lg:grid-cols-2">
+   396→            {/* old way */}
+   397→            <div className="relative p-8 sm:p-12 lg:border-r lg:border-line">
+   398→              <p className="micro text-ink-3">Today · manual outreach</p>
+   399→              <div className="mt-6 flex items-baseline gap-2">
+   400→                <Counter to={38} className="text-7xl font-semibold tracking-tight text-ink-3 sm:text-8xl" />
+   401→                <span className="num text-2xl text-ink-3">min</span>
+   402→              </div>
+   403→              <p className="mt-4 max-w-sm text-[14.5px] leading-relaxed text-ink-2">
+   404→                Average delay between fraud detection and customer contact at top UAE banks.
+   405→                Only <span className="num font-semibold">22%</span> of alerts get an immediate
+   406→                response. The fraudster finishes first.
+   407→              </p>
+   408→              <div className="mt-8 flex items-center gap-2">
+   409→                <span className="h-1.5 w-1.5 rounded-full bg-red-soft" />
+   410→                <span className="text-[12px] font-medium text-red-soft">
+   411→                  AED 340M annual losses · prevention rate 43%
+   412→                </span>
+   413→              </div>
+   414→            </div>
+   415→
+   416→            {/* securevoice */}
+   417→            <div className="relative bg-[#0c110e] p-8 text-white sm:p-12">
+   418→              <div
+   419→                className="absolute inset-0 opacity-70"
+   420→                style={{
+   421→                  background:
+   422→                    "radial-gradient(600px 240px at 85% 10%, rgba(20,163,116,0.22), transparent 60%)",
+   423→                }}
+   424→              />
+   425→              <div className="relative">
+   426→                <p className="micro text-green-bright">With SecureVoice AI</p>
+   427→                <div className="mt-6 flex items-baseline gap-2">
+   428→                  <Counter to={61} className="text-7xl font-semibold tracking-tight sm:text-8xl" />
+   429→                  <span className="num text-2xl text-green-bright">sec</span>
+   430→                </div>
+   431→                <p className="mt-4 max-w-sm text-[14.5px] leading-relaxed text-white/70">
+   432→                  From fraud signal to verified identity and frozen card — in the customer&apos;s
+   433→                  own language, inside a CBUAE-aligned guardrail, with a human one word away.
+   434→                </p>
+   435→                <div className="mt-8 flex flex-wrap gap-2">
+   436→                  <Chip className="!border-white/15 !bg-white/5 !text-white/85">verify · 2/3 challenge</Chip>
+   437→                  <Chip className="!border-white/15 !bg-white/5 !text-white/85">freeze · 240ms</Chip>
+   438→                  <Chip className="!border-white/15 !bg-white/5 !text-white/85">handoff · warm</Chip>
+   439→                </div>
+   440→              </div>
+   441→            </div>
+   442→          </div>
+   443→        </Reveal>
+   444→      </section>
+   445→
+   446→      {/* ———————————————— FEATURES ———————————————— */}
+   447→      <section className="mx-auto max-w-7xl px-4 pb-20 sm:px-6 lg:px-8 lg:pb-28">
+   448→        <Reveal>
+   449→          <div className="flex flex-wrap items-end justify-between gap-6">
+   450→            <div>
+   451→              <div className="flex items-center gap-3">
+   452→                <span className="micro text-primary">01 · Why it works</span>
+   453→                <span className="h-px w-10 bg-line" />
+   454→                <span dir="rtl" className="font-arabic text-[13px] text-ink-3">لماذا ينجح</span>
+   455→              </div>
+   456→              <h2 className="font-display mt-4 max-w-xl text-3xl font-semibold leading-[1.1] tracking-tight sm:text-4xl">
+   457→                A voice agent banks can actually trust
+   458→              </h2>
+   459→            </div>
+   460→            <p className="max-w-sm text-[14px] leading-relaxed text-ink-2">
+   461→              Every design decision answers one question: would a risk officer at a CBUAE-regulated
+   462→              bank sign off on this?
+   463→            </p>
+   464→          </div>
+   465→        </Reveal>
+   466→
+   467→        <div className="mt-10 grid gap-4 sm:grid-cols-2">
+   468→          {FEATURES.map((f, i) => (
+   469→            <Reveal key={f.en} delay={i * 0.07}>
+   470→              <div className="group h-full rounded-2xl border border-line bg-white p-6 transition-all hover:-translate-y-0.5 hover:border-primary/35 hover:shadow-[0_18px_40px_-24px_rgba(11,122,85,0.35)] sm:p-7">
+   471→                <div className="flex items-start justify-between">
+   472→                  <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-green-tint text-green-deep transition-colors group-hover:bg-primary group-hover:text-white">
+   473→                    <f.icon className="h-5 w-5" strokeWidth={1.7} />
+   474→                  </span>
+   475→                  <span dir="rtl" className="font-arabic text-[12px] text-ink-3">{f.ar}</span>
+   476→                </div>
+   477→                <h3 className="font-display mt-5 text-[17px] font-semibold tracking-tight">{f.en}</h3>
+   478→                <p className="mt-2.5 text-[13.5px] leading-relaxed text-ink-2">{f.body}</p>
+   479→              </div>
+   480→            </Reveal>
+   481→          ))}
+   482→        </div>
+   483→      </section>
+   484→
+   485→      {/* ———————————————— 5-STEP TEASER ———————————————— */}
+   486→      <section className="border-y border-line bg-white py-16 lg:py-20">
+   487→        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+   488→          <Reveal>
+   489→            <div className="flex flex-wrap items-end justify-between gap-4">
+   490→              <h2 className="font-display text-2xl font-semibold tracking-tight sm:text-3xl">
+   491→                The call, in five steps
+   492→              </h2>
+   493→              <button
+   494→                onClick={() => setView("product")}
+   495→                className="group flex items-center gap-1.5 text-[13.5px] font-semibold text-primary"
+   496→              >
+   497→                Open the deep dive
+   498→                <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
+   499→              </button>
+   500→            </div>
+   501→          </Reveal>
+   502→          <div className="mt-10 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+   503→            {STEPS.map((s, i) => (
+   504→              <Reveal key={s.n} delay={i * 0.06}>
+   505→                <div className="group relative h-full rounded-2xl border border-line bg-paper p-5 transition-all hover:border-primary/40 hover:bg-white">
+   506→                  <div className="flex items-center justify-between">
+   507→                    <span className="num text-[12px] font-bold text-primary">{s.n}</span>
+   508→                    <span dir="rtl" className="font-arabic text-[11.5px] text-ink-3">{s.ar}</span>
+   509→                  </div>
+   510→                  <p className="font-display mt-4 text-[15px] font-semibold tracking-tight">{s.en}</p>
+   511→                  <p className="mt-1.5 text-[12px] leading-relaxed text-ink-2">{s.d}</p>
+   512→                  {i < 4 && (
+   513→                    <ArrowRight className="absolute -right-[13px] top-1/2 z-10 hidden h-4 w-4 -translate-y-1/2 text-[#b9c4bb] lg:block" />
+   514→                  )}
+   515→                </div>
+   516→              </Reveal>
+   517→            ))}
+   518→          </div>
+   519→        </div>
+   520→      </section>
+   521→
+   522→      {/* ———————————————— CTA ———————————————— */}
+   523→      <section className="mx-auto max-w-7xl px-4 py-20 sm:px-6 lg:px-8 lg:py-24">
+   524→        <Reveal>
+   525→          <div className="relative overflow-hidden rounded-3xl bg-[#0c110e] px-8 py-14 text-center sm:px-12 lg:py-16">
+   526→            <div
+   527→              className="absolute inset-0"
+   528→              style={{
+   529→                background:
+   530→                  "radial-gradient(700px 300px at 50% -10%, rgba(20,163,116,0.25), transparent 65%)",
+   531→              }}
+   532→            />
+   533→            <div className="relative">
+   534→              <Languages className="mx-auto h-7 w-7 text-green-bright" strokeWidth={1.5} />
+   535→              <h2 className="font-display mx-auto mt-5 max-w-2xl text-3xl font-semibold leading-tight tracking-tight text-white sm:text-[2.6rem]">
+   536→                Don&apos;t read about intervention.{" "}
+   537→                <span className="text-green-bright">Watch it happen.</span>
+   538→              </h2>
+   539→              <p dir="rtl" className="font-arabic mx-auto mt-4 max-w-xl text-[14px] leading-relaxed text-white/60">
+   540→                شاهد المحاكاة الحية: تنبيه احتيال، اتصال بالعميل، تحقق من الهوية، تجميد البطاقة، وتسليم لأخصائي — كل ذلك في دقيقة واحدة.
+   541→              </p>
+   542→              <div className="mt-9 flex flex-wrap items-center justify-center gap-3">
+   543→                <button
+   544→                  onClick={launchDemo}
+   545→                  className="flex items-center gap-2.5 rounded-full bg-green-bright px-7 py-3.5 text-[14.5px] font-semibold text-[#07130d] transition hover:bg-white"
+   546→                >
+   547→                  <Play className="h-4 w-4 fill-current" />
+   548→                  {t("Launch live simulation", "أطلق المحاكاة الحية", lang)}
+   549→                </button>
+   550→                <button
+   551→                  onClick={() => setView("dashboard")}
+   552→                  className="rounded-full border border-white/20 px-6 py-3.5 text-[14px] font-semibold text-white/85 transition hover:border-white/50 hover:text-white"
+   553→                >
+   554→                  {t("Explore the dashboard", "استكشف اللوحة", lang)}
+   555→                </button>
+   556→                <button
+   557→                  onClick={() => setPilotOpen(true)}
+   558→                  className="flex items-center gap-2 rounded-full border border-white/20 px-6 py-3.5 text-[14px] font-semibold text-white/85 transition hover:border-white/50 hover:text-white"
+   559→                >
+   560→                  <CalendarCheck className="h-4 w-4" />
+   561→                  {t("Book a pilot", "احجز تجربة ميدانية", lang)}
+   562→                </button>
+   563→              </div>
+   564→            </div>
+   565→          </div>
+   566→        </Reveal>
+   567→      </section>
+   568→
+   569→      {/* ———————————————— PILOT DIALOG ———————————————— */}
+   570→      <PilotDialog open={pilotOpen} onOpenChange={setPilotOpen} />
+   571→    </div>
+   572→  );
+   573→}
+   574→
+   575→/* ————— pilot booking dialog ————— */
+   576→
+   577→function PilotDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
+   578→  const { toast } = useToast();
+   579→  const [sent, setSent] = useState(false);
+   580→  const [name, setName] = useState("");
+   581→  const [email, setEmail] = useState("");
+   582→  const [bank, setBank] = useState("");
+   583→
+   584→  const submit = () => {
+   585→    if (!name.trim() || !email.trim() || !email.includes("@")) return;
+   586→    setSent(true);
+   587→    toast({
+   588→      title: "Pilot request received",
+   589→      description: "Our fraud team will reach out within one business day.",
+   590→    });
+   591→  };
+   592→
+   593→  const close = (o: boolean) => {
+   594→    if (!o) setSent(false);
+   595→    onOpenChange(o);
+   596→  };
+   597→
+   598→  return (
+   599→    <Dialog open={open} onOpenChange={close}>
+   600→      <DialogContent className="max-w-md rounded-3xl border-line bg-white p-7 sm:p-8">
+   601→        {sent ? (
+   602→          <div className="py-6 text-center">
+   603→            <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-green-tint">
+   604→              <CheckCircle2 className="h-7 w-7 text-primary" strokeWidth={1.6} />
+   605→            </span>
+   606→            <DialogHeader className="mt-5">
+   607→              <DialogTitle className="font-display text-xl font-semibold tracking-tight">
+   608→                Request received
+   609→              </DialogTitle>
+   610→              <DialogDescription className="mx-auto mt-2 max-w-xs text-[13.5px] leading-relaxed text-ink-2">
+   611→                Thank you, {name.split(" ")[0]}. Our fraud team will contact you within one
+   612→                business day to scope a 30-day pilot on your card portfolio.
+   613→              </DialogDescription>
+   614→            </DialogHeader>
+   615→            <button
+   616→              onClick={() => close(false)}
+   617→              className="mt-6 rounded-full bg-primary px-6 py-2.5 text-[13px] font-semibold text-white transition hover:bg-green-deep"
+   618→            >
+   619→              Done
+   620→            </button>
+   621→          </div>
+   622→        ) : (
+   623→          <>
+   624→            <DialogHeader>
+   625→              <DialogTitle className="font-display text-xl font-semibold tracking-tight">
+   626→                Book a 30-day pilot
+   627→              </DialogTitle>
+   628→              <DialogDescription className="mt-1.5 text-[13.5px] leading-relaxed text-ink-2">
+   629→                Run SecureVoice AI against a slice of your card portfolio. Deployment inside your
+   630→                VPC; no customer data leaves your tenancy.
+   631→              </DialogDescription>
+   632→            </DialogHeader>
+   633→            <div className="mt-5 space-y-4">
+   634→              <div className="space-y-1.5">
+   635→                <Label htmlFor="pilot-name" className="text-[12px] font-semibold">Full name</Label>
+   636→                <Input
+   637→                  id="pilot-name"
+   638→                  value={name}
+   639→                  onChange={(e) => setName(e.target.value)}
+   640→                  placeholder="Fatima Al-Rashid"
+   641→                  className="h-10 rounded-xl border-line bg-paper"
+   642→                />
+   643→              </div>
+   644→              <div className="space-y-1.5">
+   645→                <Label htmlFor="pilot-email" className="text-[12px] font-semibold">Work email</Label>
+   646→                <Input
+   647→                  id="pilot-email"
+   648→                  type="email"
+   649→                  value={email}
+   650→                  onChange={(e) => setEmail(e.target.value)}
+   651→                  placeholder="fatima@bank.ae"
+   652→                  className="h-10 rounded-xl border-line bg-paper"
+   653→                />
+   654→              </div>
+   655→              <div className="space-y-1.5">
+   656→                <Label htmlFor="pilot-bank" className="text-[12px] font-semibold">Institution</Label>
+   657→                <Input
+   658→                  id="pilot-bank"
+   659→                  value={bank}
+   660→                  onChange={(e) => setBank(e.target.value)}
+   661→                  placeholder="Your bank or insurance firm"
+   662→                  className="h-10 rounded-xl border-line bg-paper"
+   663→                />
+   664→              </div>
+   665→              <button
+   666→                onClick={submit}
+   667→                disabled={!name.trim() || !email.includes("@")}
+   668→                className="flex w-full items-center justify-center gap-2 rounded-full bg-primary py-3 text-[13.5px] font-semibold text-white shadow-[0_8px_22px_-8px_rgba(11,122,85,0.6)] transition hover:bg-green-deep disabled:cursor-not-allowed disabled:opacity-40"
+   669→              >
+   670→                <CalendarCheck className="h-4 w-4" />
+   671→                Request pilot
+   672→              </button>
+   673→              <p className="text-center text-[11px] text-ink-3">
+   674→                Or email pilots@securevoice.ae · +971 4 000 0000
+   675→              </p>
+   676→            </div>
+   677→          </>
+   678→        )}
+   679→      </DialogContent>
+   680→    </Dialog>
+   681→  );
+   682→}
+   683→

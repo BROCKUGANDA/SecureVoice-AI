@@ -2,7 +2,16 @@
 
 import { create } from "zustand";
 
-export type View = "home" | "demo" | "dashboard" | "product" | "deck";
+export type View =
+  | "home"
+  | "demo"
+  | "dashboard"
+  | "product"
+  | "docs"
+  | "security"
+  | "privacy"
+  | "terms"
+  | "deck";
 export type Lang = "en" | "ar";
 
 interface AppState {

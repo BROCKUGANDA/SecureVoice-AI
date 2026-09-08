@@ -43,6 +43,7 @@ import {
 import {
   TTS_VOICE,
   speakText,
+  streamSpeech,
   stopVoice,
   prefetchSpeech,
   blobToWavBase64,
@@ -552,17 +553,18 @@ export function Demo() {
           <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line bg-paper px-5 py-3 sm:px-6">
             <div className="flex items-center gap-2">
               <div className="flex items-center rounded-full border border-line bg-white p-0.5">
-                {(["en", "ar", "hi", "ur"] as CallLang[]).map((l) => (
+                {(["en", "ar", "hi", "ur", "fr", "sw"] as CallLang[]).map((l) => (
                   <button
                     key={l}
                     onClick={() => pickLang(l)}
+                    aria-pressed={callLang === l}
                     className={cn(
                       "rounded-full px-3 py-1 text-[11.5px] font-semibold transition",
                       (l === "ar" || l === "ur" || l === "hi") && "font-arabic",
                       callLang === l ? "bg-primary text-white" : "text-ink-3 hover:text-foreground"
                     )}
                   >
-                    {l === "en" ? "EN" : l === "ar" ? "عربي" : l === "hi" ? "हिन्दी" : "اردو"}
+                    {l === "en" ? "EN" : l === "ar" ? "عربي" : l === "hi" ? "हिन्दी" : l === "fr" ? "FR" : l === "sw" ? "SW" : "اردو"}
                   </button>
                 ))}
               </div>
@@ -572,6 +574,7 @@ export function Demo() {
             </div>
             <button
               onClick={() => setAudioOn((a) => !a)}
+              aria-pressed={audioOn}
               className="flex items-center gap-2 rounded-full border border-line bg-white px-3 py-1.5 text-[11.5px] font-medium text-ink-2 transition hover:border-primary/40 hover:text-primary"
             >
               {audioOn ? <Volume2 className="h-3.5 w-3.5 text-primary" /> : <VolumeX className="h-3.5 w-3.5" />}
@@ -979,6 +982,8 @@ type Turn = {
   text: string;
   intent?: string;
   action?: string;
+  escalate?: boolean;
+  escalationReason?: string;
   latencyMs?: number;
   asrMs?: number;
 };
@@ -1036,9 +1041,12 @@ function ConversationPanel({ callLang }: { callLang: CallLang }) {
     setPhase("speaking");
     speakSeq.current += 1;
     const seq = speakSeq.current;
-    speakText(text, callLang, "agent", 1).finally(() => {
-      if (seq === speakSeq.current) setPhase("idle");
-    });
+    // streaming first (ElevenLabs chunked pipe + barge-in), buffered fallback
+    streamSpeech(text, callLang, "agent", 1)
+      .catch(() => ({ streamed: false, bargeIn: false }))
+      .then(() => {
+        if (seq === speakSeq.current) setPhase("idle");
+      });
   };
 
   const sendTurn = async (text: string, asrMs?: number) => {
@@ -1067,6 +1075,8 @@ function ConversationPanel({ callLang }: { callLang: CallLang }) {
           text: data.reply,
           intent: data.intent,
           action: data.action,
+          escalate: data.escalate as boolean | undefined,
+          escalationReason: data.escalationReason as string | undefined,
           latencyMs: data.latencyMs ?? Math.round(performance.now() - started),
         },
       ]);
@@ -1262,7 +1272,13 @@ function ConversationPanel({ callLang }: { callLang: CallLang }) {
 
         {/* right — conversation transcript */}
         <div className="flex flex-col">
-          <div ref={listRef} className="sv-scroll h-[340px] space-y-3.5 overflow-y-auto px-5 py-5 sm:px-6">
+          <div
+            ref={listRef}
+            role="log"
+            aria-label="Live conversation transcript"
+            aria-live="polite"
+            className="sv-scroll h-[340px] space-y-3.5 overflow-y-auto px-5 py-5 sm:px-6"
+          >
             {turns.length === 0 && phase === "idle" && (
               <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
                 <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-green-tint">
@@ -1307,6 +1323,11 @@ function ConversationPanel({ callLang }: { callLang: CallLang }) {
                   <div className="max-w-[88%] rounded-2xl rounded-tl-md bg-[#0c110e] px-4 py-3 text-white">
                     <div className="mb-1 flex items-center gap-2">
                       <PhoneOutgoing className="h-3 w-3 text-green-bright" />
+                      {t.escalate && (
+                        <span className="micro !text-[8.5px] rounded-full bg-red-soft/20 px-1.5 py-0.5 !text-red-soft" title={t.escalationReason}>
+                          HUMAN TALKOVER
+                        </span>
+                      )}
                       <span className="micro !text-[9px] !text-green-bright">
                         Agent · {VOICE_BY_LANG[callLang].split(" ")[0]}
                       </span>

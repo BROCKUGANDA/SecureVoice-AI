@@ -2,6 +2,7 @@
 
 import { useApp, type View } from "@/lib/store";
 import { LogoMark } from "@/components/shell/Logo";
+import { Mail } from "lucide-react";
 
 const PRODUCT: { id: View; en: string; ar: string }[] = [
   { id: "demo", en: "Live Demo", ar: "عرض حي" },
@@ -19,47 +20,71 @@ const RESOURCES: { id: View; en: string; ar: string }[] = [
 
 export function Footer() {
   const { setView, lang } = useApp();
+  const ar = lang === "ar";
 
   const group = (links: { id: View; en: string; ar: string }[]) =>
     links.map((l) => (
       <button
         key={l.id}
         onClick={() => setView(l.id)}
-        className="text-[12px] font-medium text-ink-2 transition hover:text-primary"
+        className="block text-[12px] font-medium text-ink-2 transition hover:text-primary"
       >
-        {lang === "ar" ? l.ar : l.en}
+        {ar ? l.ar : l.en}
       </button>
     ));
 
   return (
     <footer className="mt-auto border-t border-line bg-white">
-      <div className="mx-auto flex max-w-7xl flex-col items-center gap-4 px-4 py-6 sm:px-6 lg:flex-row lg:justify-between lg:px-8">
-        <div className="flex items-center gap-2.5">
-          <LogoMark size={28} />
-          <div className="leading-tight">
-            <p className="text-[12.5px] font-semibold">SecureVoice AI · Platform 1.0</p>
-            <p className="text-[11px] text-ink-3">
+      <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
+        <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-[1.4fr_1fr_1fr_1.2fr]">
+          {/* brand */}
+          <div>
+            <div className="flex items-center gap-2.5">
+              <LogoMark size={30} />
+              <div className="leading-tight">
+                <p className="text-[13px] font-semibold">SecureVoice AI</p>
+                <p className="micro text-[8.5px] text-ink-3">FRAUD INTERVENTION · v1.0</p>
+              </div>
+            </div>
+            <p className="mt-3 max-w-xs text-[11.5px] leading-relaxed text-ink-3">
               Real-time fraud intervention for banks · CBUAE-aligned · Dubai, UAE
+            </p>
+            <p dir="rtl" className="font-arabic mt-2 text-[11.5px] text-ink-3">
+              صوت آمن · حماية خلال ٦٠ ثانية
+            </p>
+          </div>
+
+          {/* product */}
+          <nav aria-label="Product">
+            <p className="micro text-[9px] text-ink-3">PRODUCT</p>
+            <div className="mt-3 space-y-2">{group(PRODUCT)}</div>
+          </nav>
+
+          {/* resources */}
+          <nav aria-label="Resources">
+            <p className="micro text-[9px] text-ink-3">RESOURCES</p>
+            <div className="mt-3 space-y-2">{group(RESOURCES)}</div>
+          </nav>
+
+          {/* contact */}
+          <div>
+            <p className="micro text-[9px] text-ink-3">CONTACT</p>
+            <a
+              href="mailto:otemaach@gmail.com"
+              className="mt-3 inline-flex items-center gap-2 rounded-full border border-line bg-paper px-3.5 py-2 text-[12px] font-semibold text-ink-2 transition hover:border-primary/40 hover:text-primary"
+            >
+              <Mail className="h-3.5 w-3.5 text-primary" />
+              otemaach@gmail.com
+            </a>
+            <p className="mt-2.5 text-[11px] leading-snug text-ink-3">
+              {ar ? "للبنوك وشركات التأمين — تجارب ميدانية متاحة" : "For banks & insurers — pilot programs open"}
             </p>
           </div>
         </div>
 
-        <nav className="flex flex-wrap items-center justify-center gap-x-3 gap-y-2" aria-label="Footer">
-          {group(PRODUCT)}
-          <span className="h-3.5 w-px bg-line" aria-hidden />
-          {group(RESOURCES)}
-          <span dir="rtl" className="font-arabic text-[11.5px] text-ink-3">
-            صوت آمن · حماية خلال ٦٠ ثانية
-          </span>
-        </nav>
-
-        <button
-          onClick={() => setView("deck")}
-          title="Team appendix — not part of the product demo"
-          className="text-[10.5px] text-ink-3/70 underline-offset-2 transition hover:text-ink-2 hover:underline"
-        >
-          appendix
-        </button>
+        <div className="mt-8 border-t border-line pt-4">
+          <p className="text-[10.5px] text-ink-3">© 2026 SecureVoice AI · Built for UAE banking</p>
+        </div>
       </div>
     </footer>
   );

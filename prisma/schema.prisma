@@ -1,9 +1,6 @@
 // This is your Prisma schema file,
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
 
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -38,4 +35,128 @@ model PilotRequest {
 
   @@index([createdAt])
   @@index([status])
+}
+
+/// Idempotency-Key store for upstream API calls (TTS, ASR, agent turns).
+/// Persists a (caller, key) → response payload for 24h so a retry is a free
+/// replay rather than a second billable call. Concurrent same-key requests
+/// dedupe via the unique composite key on (scope, key).
+model IdempotencyKey {
+  id        String   @id @default(cuid())
+  scope     String   // "tts" | "asr" | "agent" — narrows dedup to the right surface
+  key       String   // SHA-256 of the canonical request payload
+  callerId  String   // x-caller-id header (or "anon" if absent)
+  response  String   // JSON-stringified response (TTS: empty + audio stored elsewhere; ASR/agent: full body)
+  statusCode Int     @default(200)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@unique([scope, key, callerId])
+  @@index([expiresAt])
+}
+
+/// Tamper-evident call audit log. Every agent turn + TTS call + ASR call
+/// appends one row. chainHash = sha256(prevHash || canonicalRow), so any
+/// modification breaks the chain and `verifyChain()` can detect it.
+model AuditLog {
+  id         String   @id @default(cuid())
+  callRef    String   // human reference for the call (e.g. SV-C-8F3K2)
+  action     String   // "tts" | "asr" | "agent" | "freeze" | "handoff"
+  intent     String?  // agent decision (deny_fraud | confirm_authorized | greeting | unclear)
+  callerId   String?  // x-caller-id or "anon"
+  redactedText String? // redacted transcript snippet (PII removed)
+  meta       String?  // JSON-stringified metadata (lang, voice, latencyMs, etc.)
+  prevHash   String?  // chain link
+  chainHash  String   @unique
+  orgId      String?  // organization scoping (multi-tenant groundwork)
+  createdAt  DateTime @default(now())
+
+  @@index([callRef, createdAt])
+  @@index([orgId, createdAt])
+  @@index([createdAt])
+}
+
+/// Registered ElevenLabs voice personas with consent metadata.
+/// Cloning endpoints refuse a voice without a recorded consent URL + timestamp.
+model Voice {
+  id          String   @id @default(cuid())
+  voiceId     String   @unique // ElevenLabs voice_id or our internal slug
+  language    String   // BCP-47 (en-US, ar-AE, hi-IN, ur-PK, fr-FR, bn-BD)
+  displayName String
+  isCloned    Boolean  @default(false)
+  consentUrl  String?  // required if isCloned=true
+  consentAt   DateTime?
+  createdAt   DateTime @default(now())
+}
+
+/// Platform accounts. Two seeded credentials on every fresh database:
+///   operator@securevoice.ae — full platform access (Command Center: fire real
+///     interventions to their own enrolled phone, inspect audit chains)
+///   demo@securevoice.ae — demo mode (guided simulation only)
+/// Sign-up through the API always creates "demo" role; operator is seed-only.
+model Account {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String
+  role         String   @default("demo") // operator | demo
+  passwordHash String   // scrypt$salt$hash (node:crypto)
+  createdAt    DateTime @default(now())
+}
+
+/// Machine-to-machine producer keys for the headless API. A bank's fraud
+/// engine authenticates with `Authorization: Bearer svb_…` instead of HMAC.
+/// Only the SHA-256 hash is stored — the plaintext key is shown once at creation.
+model ProducerKey {
+  id         String    @id @default(cuid())
+  label      String
+  keyHash    String    @unique // sha256 of the plaintext svb_ key
+  orgId      String? // tenant scoping for signals fired with this key
+  revoked    Boolean   @default(false)
+  lastUsedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([orgId])
+}
+
+/// Clerk-backed platform profile + prepaid credits wallet (1 credit = 1
+/// intervention signal). The Clerk user is the identity; this row carries the
+/// billing state. Roles mirror Clerk publicMetadata.role at first sync:
+///   operator → 500 credits · demo/analyst → 25 credits
+model UserProfile {
+  id          String   @id @default(cuid())
+  clerkUserId String   @unique
+  email       String
+  name        String
+  role        String   @default("demo") // operator | demo
+  orgId       String? // Clerk organization id — multi-tenant scoping key
+  orgName     String? // white-label: organization display name
+  orgLogoUrl  String? // white-label: logo shown in the Command Center
+  elevenKeyEnc String? // BYOK ElevenLabs key, AES-256-GCM encrypted at rest
+  ttsCharsDate String? // platform-key voice metering day (YYYY-MM-DD)
+  ttsCharsToday Int     @default(0) // chars synthesized on the platform key today
+  credits     Int      @default(25)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([orgId])
+}
+
+/// Enrolled customer for live delivery (voice/SMS). A bank's signed-up customer
+/// who can receive fraud-intervention calls and alerts on their phone.
+/// PII discipline: phone is stored for dialing (never logged raw — audit rows
+/// carry redacted values only), customerRef is the bank's own identifier.
+model Customer {
+  id              String   @id @default(cuid())
+  customerRef     String   @unique // bank's customer identifier (no PII, e.g. CUST-8642)
+  phone           String   // E.164 (+9715…), the dial target
+  lang            String   @default("en") // en | ar | hi | ur
+  channel         String   @default("call") // preferred delivery: call | sms
+  consentRecordId String?  // recorded outbound consent (PDPL) — required for enroll
+  optedOut        Boolean  @default(false) // STOP honoured instantly, no delete (audit trail)
+  orgId           String? // organization scoping (multi-tenant groundwork)
+  enrolledAt      DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([optedOut])
+  @@index([orgId])
 }

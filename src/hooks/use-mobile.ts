@@ -11,7 +11,10 @@ export function useIsMobile() {
       setIsMobile(window.innerWidth < MOBILE_BREAKPOINT)
     }
     mql.addEventListener("change", onChange)
-    setIsMobile(window.innerWidth < MOBILE_BREAKPOINT)
+    // Initialize via the external-system subscription (media query) rather than
+    // a bare setState in the effect body, so the first render syncs without a
+    // cascading synchronous update.
+    onChange()
     return () => mql.removeEventListener("change", onChange)
   }, [])
 

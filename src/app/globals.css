@@ -65,7 +65,7 @@
   --background: #fbfbf8;
   --foreground: #101812;
   --ink-2: #46524a;
-  --ink-3: #79857c;
+  --ink-3: #667467;
   --line: #e7eae3;
   --border: #e7eae3;
   --input: #dde2d9;
@@ -189,6 +189,40 @@
   font-size: 0.6875rem;
   letter-spacing: 0.14em;
   text-transform: uppercase;
+}
+
+/* ——— Accessibility helpers ——— */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+.sr-only:focus:not(.sr-only) {
+  position: fixed;
+  width: auto;
+  height: auto;
+  padding: 0.625rem 1.25rem;
+  margin: 0;
+  overflow: visible;
+  clip: auto;
+  white-space: normal;
+}
+
+/* ——— Global focus ring: every interactive element gets a visible
+     indicator for keyboard users. Components can restyle but not remove it. ——— */
+:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+:focus:not(:focus-visible) {
+  outline: none;
 }
 
 /* ——— Keyframes ——— */
@@ -354,12 +388,17 @@
   .sv-marquee,
   .sv-float,
   .sv-pulse-ring,
-  .sv-blink {
+  .sv-blink,
+  .sv-shimmer {
     animation: none !important;
   }
   *,
   *::before,
   *::after {
     scroll-behavior: auto !important;
+    /* framer-motion animates via inline style; MotionConfig(reducedMotion="user")
+       already neutralizes transforms/opacity — this guards any remaining
+       CSS transitions so nothing keeps moving against the user's wish. */
+    transition-duration: 0.01ms !important;
   }
 }

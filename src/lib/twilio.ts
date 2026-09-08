@@ -1,0 +1,204 @@
+/**
+ * Twilio delivery layer — the live-telephony path for enrolled customers.
+ *
+ * Plain REST via fetch (no SDK dependency): the Twilio v2010 API is form-encoded
+ * with HTTP Basic auth. Runtime auth prefers the dedicated API key
+ * (TWILIO_API_KEY_SID/SECRET — rotatable independently) and falls back to the
+ * master TWILIO_AUTH_TOKEN.
+ *
+ * Voice: outbound call with INLINE TwiML — Twilio executes the script directly,
+ * so the platform needs no public webhook URL to place a call (works on trial
+ * accounts and behind NAT). The spoken script is the compliance-approved
+ * opening disclosure (identity + recording notice + never-ask-for-PIN promise)
+ * followed by the fraud-alert instruction, in the customer's language.
+ *
+ * SMS: fallback/alert channel when the call is not preferred.
+ *
+ * Activation is env-driven: when Twilio vars are absent, isConfigured() is
+ * false and the interventions route degrades to audit-only (no failure).
+ */
+
+export type DeliveryLang = "en" | "ar" | "hi" | "ur" | "fr" | "sw";
+
+type TwilioCreds = {
+  accountSid: string;
+  username: string; // API key SID or account SID
+  password: string; // API key secret or auth token
+  from: string;
+};
+
+/** Provider configuration state — surfaced via /api/status. */
+export function twilioMode(): "api-key" | "auth-token" | "unconfigured" {
+  if (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_API_KEY_SID && process.env.TWILIO_API_KEY_SECRET && process.env.TWILIO_FROM_NUMBER) return "api-key";
+  if (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_FROM_NUMBER) return "auth-token";
+  return "unconfigured";
+}
+
+export function isTwilioConfigured(): boolean {
+  return twilioMode() !== "unconfigured";
+}
+
+function creds(): TwilioCreds {
+  const mode = twilioMode();
+  if (!mode || mode === "unconfigured") throw new Error("Twilio not configured");
+  return {
+    accountSid: process.env.TWILIO_ACCOUNT_SID!,
+    username: mode === "api-key" ? process.env.TWILIO_API_KEY_SID! : process.env.TWILIO_ACCOUNT_SID!,
+    password: mode === "api-key" ? process.env.TWILIO_API_KEY_SECRET! : process.env.TWILIO_AUTH_TOKEN!,
+    from: process.env.TWILIO_FROM_NUMBER!,
+  };
+}
+
+/** E.164 sanity check — Twilio rejects anything else. */
+export function isE164(phone: string): boolean {
+  return /^\+[1-9]\d{7,14}$/.test(phone);
+}
+
+/* ————— multilingual voice script (compliance-approved wording) ————— */
+
+// Per-language Polly voices available on Twilio <Say>. Each line leads with the
+// opening disclosure (identity + recording notice + no-PIN promise), per the
+// server-enforced compliance policy.
+const VOICE: Record<DeliveryLang, { voice: string; language: string }> = {
+  en: { voice: "Polly.Joanna", language: "en-US" },
+  ar: { voice: "Polly.Zeina", language: "ar" },
+  hi: { voice: "Polly.Aditi", language: "hi-IN" },
+  ur: { voice: "Polly.Sana", language: "ur-PK" },
+  fr: { voice: "Polly.Celine", language: "fr-FR" },
+  sw: { voice: "Google.sw-KE-Standard-A", language: "sw-KE" }, // Google voice — Amazon Polly has no Swahili
+};
+
+const SCRIPT: Record<DeliveryLang, (amount: string, merchant: string) => string> = {
+  en: (amount, merchant) =>
+    `This call is recorded to protect you. Hello — I am your bank's AI security assistant, calling about recent activity on your account. ` +
+    (amount || merchant
+      ? `We detected a transaction of ${amount || "an amount"}${merchant ? ` at ${merchant}` : ""} that may not be yours. `
+      : `We detected suspicious activity on your account. `) +
+    `To protect you, we have placed a temporary hold on the transaction and will verify the details with you on this call. I will never ask for your PIN, password, or one-time passcode. A fraud specialist may join this call shortly.`,
+  ar: (amount, merchant) =>
+    `هذه المكالمة مسجلة لحمايتك. مرحباً — أنا مساعد الأمان الذكي في مصرفك، أتصل بخصوص نشاط حديث على حسابك. ` +
+    (amount || merchant
+      ? `رصدنا عملية بمبلغ ${amount || "غير محدد"}${merchant ? ` لدى ${merchant}` : ""} قد لا تكون لك. `
+      : `رصدنا نشاطاً مشبوهًا على حسابك. `) +
+    `لحمايتك، وضعنا حجزاً مؤقتاً على العملية وسنتحقق من التفاصيل معك في هذه المكالمة. لن أطلب منك رمزاً سرياً أو كلمة مرور أو رمز تحقق أبداً. قد ينضم أخصائي احتيال إلى المكالمة بعد قليل.`,
+  hi: (amount, merchant) =>
+    `यह कॉल आपकी सुरक्षा के लिए रिकॉर्ड हो रही है। नमस्ते — मैं आपके बैंक का AI सुरक्षा सहायक हूँ, आपके खाते की हालिया गतिविधि के बारे में। ` +
+    (amount || merchant
+      ? `हमने ${amount || "एक राशि"}${merchant ? ` ${merchant} पर` : ""} का लेनदेन पाया है जो शायद आपका नहीं है। `
+      : `हमें आपके खाते पर संदिग्ध गतिविधि मिली है। `) +
+    `आपकी सुरक्षा के लिए हमने लेनदेन पर अस्थायी रोक लगा दी है और इस कॉल पर विवरण सत्यापित करेंगे। मैं कभी आपका PIN, पासवर्ड या वन-टाइम पासकोड नहीं पूछूँगा। एक फ्रॉड विशेषज्ञ कुछ ही में जुड़ सकते हैं।`,
+  ur: (amount, merchant) =>
+    `یہ کال آپ کی حفاظت کے لیے ریکارڈ ہو رہی ہے۔ ہیلو — میں آپ کے بینک کا اے آئی سیکیورٹی اسسٹنٹ ہوں، آپ کے اکاؤنٹ کی حالیہ سرگرمی کے بارے میں۔ ` +
+    (amount || merchant
+      ? `ہمیں ${amount || "ایک رقم"}${merchant ? ` ${merchant} پر` : ""} کا لین دین ملا ہے جو شاید آپ کا نہیں ہے۔ `
+      : `ہمیں آپ کے اکاؤنٹ پر مشکوک سرگرمی ملی ہے۔ `) +
+    `آپ کی حفاظت کے لیے ہم نے لین دین پر عارضی روک لگا دی ہے اور اسی کال میں تفصیلات کی تصدیق کریں گے۔ میں کبھی آپ سے PIN، پاس ورڈ یا ون ٹائم کوڈ نہیں پوچھوں گا۔ ایک فراڈ ماہر چند لمحوں میں شامل ہو سکتا ہے۔`,
+  fr: (amount, merchant) =>
+    `Cet appel est enregistré pour vous protéger. Bonjour — je suis l'assistant de sécurité IA de votre banque, j'appelle au sujet d'une activité récente sur votre compte. ` +
+    (amount || merchant
+      ? `Nous avons détecté une transaction de ${amount || "montant inconnu"}${merchant ? ` chez ${merchant}` : ""} qui pourrait ne pas être la vôtre. `
+      : `Nous avons détecté une activité suspecte sur votre compte. `) +
+    `Pour vous protéger, nous avons placé une retenue temporaire sur la transaction et vérifierons les détails avec vous lors de cet appel. Je ne vous demanderai jamais votre code PIN, mot de passe ou code à usage unique. Un spécialiste anti-fraude pourrait rejoindre cet appel sous peu.`,
+  sw: (amount, merchant) =>
+    `Simu hii inarekodiwa kulinda wewe. Habari — mimi ni msaidizi wa usalama wa AI wa benki yako, napiga kuhusu shughuli ya hivi karibuni kwenye akaunti yako. ` +
+    (amount || merchant
+      ? `Tumegundua muamala wa ${amount || "kiasi kisichojulikana"}${merchant ? ` kwenye ${merchant}` : ""} ambao huenda si wako. `
+      : `Tumegundua shughuli ya kutuhumu kwenye akaunti yako. `) +
+    `Kulinda wewe, tumeweka zuio la muda kwenye muamala na tuthibitisha maelezo naye kwenye simu hii. Sitakuomba PIN, nenosiri, au msimbo wa matumizi moja kamwe. Mtaalamu wa udanganyifu anaweza kujiunga na simu hii hivi karibuni.`,
+};
+
+function escapeXml(s: string): string {
+  return s.replace(/[<>&'"]/g, (c) =>
+    ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", "'": "&apos;", '"': "&quot;" })[c] ?? c
+  );
+}
+
+/** Inline TwiML for the fraud-intervention voice call. */
+export function interventionTwiml(lang: DeliveryLang, amount?: string, merchant?: string): string {
+  const { voice, language } = VOICE[lang] ?? VOICE.en;
+  const text = (SCRIPT[lang] ?? SCRIPT.en)(amount ?? "", merchant ?? "");
+  return `<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="${voice}" language="${language}">${escapeXml(text)}</Say><Pause length="1"/><Say voice="${voice}" language="${language}">Thank you.</Say></Response>`;
+}
+
+/* ————— REST calls ————— */
+
+async function twilioPost(accountSid: string, username: string, password: string, path: string, params: Record<string, string>): Promise<{ ok: true; data: Record<string, unknown> } | { ok: false; status: number; error: string }> {
+  const body = new URLSearchParams(params).toString();
+  const auth = Buffer.from(`${username}:${password}`).toString("base64");
+  try {
+    const r = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${accountSid}/${path}`, {
+      method: "POST",
+      headers: {
+        "Authorization": `Basic ${auth}`,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body,
+      signal: AbortSignal.timeout(15_000),
+    });
+    const data = (await r.json().catch(() => ({}))) as Record<string, unknown>;
+    if (!r.ok) {
+      const msg =
+        (data as { message?: string }).message ??
+        (data as { code?: unknown }).code !== undefined
+          ? JSON.stringify(data).slice(0, 300)
+          : `Twilio ${r.status}`;
+      return { ok: false, status: r.status, error: msg };
+    }
+    return { ok: true, data };
+  } catch (err) {
+    return { ok: false, status: 503, error: err instanceof Error ? err.message : "network error" };
+  }
+}
+
+export type CallResult =
+  | { ok: true; sid: string; status: string }
+  | { ok: false; error: string; status: number };
+
+/** Place the fraud-intervention voice call to an enrolled customer. */
+export async function placeInterventionCall(args: {
+  to: string;
+  lang: DeliveryLang;
+  amount?: string;
+  merchant?: string;
+}): Promise<CallResult> {
+  const c = creds();
+  if (!isE164(args.to)) return { ok: false, status: 422, error: "Destination phone is not E.164" };
+  const res = await twilioPost(c.accountSid, c.username, c.password, "Calls.json", {
+    To: args.to,
+    From: c.from,
+    Twiml: interventionTwiml(args.lang, args.amount, args.merchant),
+  });
+  if (!res.ok) return { ok: false, status: res.status, error: res.error };
+  return { ok: true, sid: String(res.data.sid ?? ""), status: String(res.data.status ?? "queued") };
+}
+
+/** Send the fraud-alert SMS (fallback / opt-in channel). */
+export async function sendInterventionSms(args: {
+  to: string;
+  lang: DeliveryLang;
+  caseRef: string;
+  amount?: string;
+  merchant?: string;
+}): Promise<CallResult> {
+  const c = creds();
+  if (!isE164(args.to)) return { ok: false, status: 422, error: "Destination phone is not E.164" };
+  const body =
+    args.lang === "ar"
+      ? `SecureVoice AI: نشاط مشبوه على حسابك${args.amount ? ` بمبلغ ${args.amount}` : ""}. المرجع ${args.caseRef}. توقع مكالمة تحقق من مصرفك. لا تشارك رمز PIN أو OTP أبداً.`
+      : args.lang === "hi"
+        ? `SecureVoice AI: आपके खाते पर संदिग्ध गतिविधि${args.amount ? ` (${args.amount})` : ""}. संदर्भ ${args.caseRef}. अपने बैंक से वेरिफिकेशन कॉल की अपेक्षा करें। PIN या OTP साझा न करें।`
+        : args.lang === "ur"
+          ? `SecureVoice AI: آپ کے اکاؤنٹ پر مشکوک سرگرمی${args.amount ? ` (${args.amount})` : ""}. حوالہ ${args.caseRef}. اپنے بینک کی تصدیقی کال کی توقع رکھیں۔ PIN یا OTP شیئر نہ کریں۔`
+          : args.lang === "fr"
+            ? `SecureVoice AI : Activité suspecte sur votre compte${args.amount ? ` (${args.amount})` : ""}. Réf ${args.caseRef}. Attendez-vous à un appel de vérification de votre banque. Ne partagez jamais vos codes PIN ou OTP.`
+            : args.lang === "sw"
+              ? `SecureVoice AI: Shughuli ya kutuhumu kwenye akaunti yako${args.amount ? ` (${args.amount})` : ""}. Ref ${args.caseRef}. Subiri simu ya uthibitisho kutoka benki yako. Usishiriki PIN au OTP.`
+              : `SecureVoice AI: Suspicious activity on your account${args.amount ? ` (${args.amount})` : ""}. Ref ${args.caseRef}. Expect a verification call from your bank. Never share PINs or OTPs.`;
+  const res = await twilioPost(c.accountSid, c.username, c.password, "Messages.json", {
+    To: args.to,
+    From: c.from,
+    Body: body.slice(0, 300),
+  });
+  if (!res.ok) return { ok: false, status: res.status, error: res.error };
+  return { ok: true, sid: String(res.data.sid ?? ""), status: String(res.data.status ?? "queued") };
+}

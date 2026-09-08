@@ -95,7 +95,11 @@ function Carousel({
 
   React.useEffect(() => {
     if (!api) return
-    onSelect(api)
+    // Sync scroll state from the carousel (external system) via its event
+    // subscription — the initial read is deferred to a microtask so the effect
+    // body itself performs no synchronous setState (avoids cascading renders).
+    const queueSync = () => queueMicrotask(() => onSelect(api))
+    queueSync()
     api.on("reInit", onSelect)
     api.on("select", onSelect)
 

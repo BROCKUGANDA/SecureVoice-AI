@@ -316,9 +316,10 @@ function ApiReference() {
         >
           <div className="mt-3 border-t border-line/70 pt-3">
             <Field name="text" type="string" note="customer utterance, 1–600 chars" />
-            <Field name="lang" type="enum" note="en | ar | hi — reply is generated in the same language" />
+            <Field name="lang" type="enum" note="en | ar | hi | ur | fr | sw — reply is generated in the same language" />
             <Field name="→ intent" type="string" note="deny_fraud | confirm_authorized | greeting | unclear" />
-            <Field name="→ action" type="string" note="card_freeze | none | clarify — never credentials" />
+            <Field name="→ action" type="string" note="card_freeze | none | clarify | human_handoff — never credentials" />
+            <Field name="→ sentiment / escalate" type="string" note="distress or live-coaching markers route the call to a human operator" />
           </div>
         </Endpoint>
       </Reveal>
@@ -331,7 +332,8 @@ function ApiReference() {
         >
           <div className="mt-3 border-t border-line/70 pt-3">
             <Field name="text" type="string" note="≤ 1024 chars" />
-            <Field name="voice" type="enum" note="persona id, e.g. marcus-en | fatima-ar | kavita-hi" />
+            <Field name="voice" type="enum" note="language key (en | ar | hi | ur | fr | sw) or a configured ElevenLabs voice_id — BYOK keys skip platform metering" />
+            <Field name="→ /api/tts/stream" type="audio/mpeg" note="chunked streaming variant — playback starts before the render completes" />
             <Field name="speed" type="float" note="0.5 – 2.0, default 1.0" />
             <Field name="→ body" type="audio/wav" note="binary stream, Cache-Control: private" />
           </div>
@@ -351,11 +353,29 @@ function ApiReference() {
         </Endpoint>
       </Reveal>
 
-      <Reveal delay={0.1}>
+      <Reveal delay={0.09}>
         <Endpoint
           method="POST"
-          path="/api/pilot"
-          desc="Pilot intake. Validates, rate-limits (6/h per IP), honeypot-guarded, and persists to the requests table with a human-friendly reference like SV-P-8F3K2."
+          path="/api/interventions"
+          desc="The headless trigger — your fraud engine fires a signed risk signal and receives the intervention envelope instantly (202). Idempotent by caseId: a retried delivery never double-bills. Two auth modes: Bearer producer key (svb_…, per-org) or HMAC signature over the raw body."
+        >
+          <div className="mt-3 border-t border-line/70 pt-3">
+            <Field name="signal.caseId" type="string" note="your case reference — doubles as the idempotency key" />
+            <Field name="signal.transactionId" type="string?" note="echoed back on your result webhook" />
+            <Field name="signal.riskScore" type="number" note="0–1 — maps to the pre-approved action plan (≥0.90 freeze)" />
+            <Field name="signal.customer" type="object" note="ref (no PII) + lang: en | ar | hi | ur | fr | sw" />
+            <Field name="signal.callbackUrl" type="string?" note="signed outcome webhook (intervention.outcome) back to your core" />
+            <Field name="→ interventionId" type="string" note="SV-F-… case reference + SLA deadline + action plan" />
+            <Field name="→ 402" type="string" note="wallet empty — prepaid credits (1 credit = 1 intervention)" />
+          </div>
+        </Endpoint>
+      </Reveal>
+
+      <Reveal delay={0.11}>
+        <Endpoint
+          method="POST"
+          path="/api/enroll"
+          desc="Customer enrollment for live delivery — phone (E.164), language, channel (call/SMS) and consent record. Opt-out honoured instantly; phones are never logged raw."
         >
           <div className="mt-3 border-t border-line/70 pt-3">
             <Field name="name / email / institution" type="string" note="required" />

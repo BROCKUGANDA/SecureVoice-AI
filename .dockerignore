@@ -1,0 +1,57 @@
+# ---------------------------------------------------------------------------
+# Keep the Docker build context lean and secret-free.
+# Everything the image needs is copied explicitly in the Dockerfile stages.
+# ---------------------------------------------------------------------------
+
+# VCS & CI
+.git
+.gitignore
+.github
+
+# deps & build output — rebuilt inside the image
+node_modules
+.next
+out
+coverage
+
+# secrets — never baked into an image
+.env
+.env.*
+!.env.example
+
+# runtime databases — provisioned into a named volume at startup
+db
+prisma/db
+*.db
+*.db-journal
+*.sqlite*
+
+# internal dev tooling & agent artifacts
+.zscripts
+worklog.md
+tool-results
+download
+.claude
+.z-ai-config
+skills
+local-*
+
+# not needed inside the image
+docs
+tests
+examples
+scripts/shots
+scripts/tts-test
+README.md
+
+# docker files themselves
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# misc
+*.log
+*.pid
+*.tsbuildinfo
+next-env.d.ts
+package-lock.json

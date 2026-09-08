@@ -7,6 +7,8 @@ export const dynamic = "force-dynamic";
 /* ————— in-memory sliding-window rate limit (per IP) ————— */
 const WINDOW_MS = 60 * 60 * 1000; // 1 hour
 const MAX_PER_WINDOW = 6;
+const MAX_TRACKED_IPS = 10_000; // bound memory; XFF is spoofable, so an
+                                // attacker cycling fake IPs can't grow this forever
 const hits = new Map<string, number[]>();
 
 function rateLimited(ip: string): boolean {
@@ -22,6 +24,15 @@ function rateLimited(ip: string): boolean {
   if (hits.size > 500) {
     for (const [k, v] of hits) {
       if (v.every((t) => now - t >= WINDOW_MS)) hits.delete(k);
+    }
+  }
+  if (hits.size > MAX_TRACKED_IPS) {
+    // hard cap: drop the oldest half (Map preserves insertion order)
+    const drop = Math.ceil(hits.size / 2);
+    let i = 0;
+    for (const k of hits.keys()) {
+      if (i++ >= drop) break;
+      hits.delete(k);
     }
   }
   return false;
@@ -52,8 +63,8 @@ function makeRef(): string {
 
 export async function POST(req: NextRequest) {
   const ip =
-    req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
-    req.headers.get("x-real-ip") ||
+    req.headers.get("x-forwarded-for")?.split(",")[0]?.trim().slice(0, 64) ||
+    req.headers.get("x-real-ip")?.slice(0, 64) ||
     "local";
 
   if (rateLimited(ip)) {
@@ -103,7 +114,7 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     console.error("[pilot] insert failed:", err);
     return NextResponse.json(
-      { ok: false, error: "We could not save your request. Please try again or email pilots@securevoice.ae." },
+      { ok: false, error: "We could not save your request. Please try again or email otemaach@gmail.com." },
       { status: 500 }
     );
   }

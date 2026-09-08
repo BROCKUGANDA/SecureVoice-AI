@@ -24,6 +24,7 @@ import {
   Globe2,
 } from "lucide-react";
 import { useApp, t } from "@/lib/store";
+import { cn } from "@/lib/utils";
 import { Reveal, Counter, LiveDot, Chip } from "@/components/fx/core";
 import { Waveform, Equalizer } from "@/components/fx/Waveform";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
@@ -47,7 +48,7 @@ const FEATURES = [
     icon: PhoneOutgoing,
     en: "Immediate multilingual outreach",
     ar: "اتصال فوري متعدد اللغات",
-    body: "The agent dials within 60 seconds of the fraud signal — no SMS to ignore, no queue. It speaks the customer's language from the first syllable: Arabic, English, Hindi, Urdu, Filipino, Malayalam.",
+    body: "The agent dials within 60 seconds of the fraud signal — no SMS to ignore, no queue. Streaming neural voice starts mid-render, and customers can interrupt it like a human (barge-in). Six languages out of the box: Arabic, English, Hindi, Urdu, French, Kiswahili.",
   },
   {
     icon: Fingerprint,
@@ -208,6 +209,20 @@ export function Home() {
                   <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
                 </button>
               </div>
+            </Reveal>
+
+            <Reveal delay={0.38}>
+              <p className="mt-4 text-[12.5px] text-ink-3">
+                {t("Bank team?", "فريق مصرفي؟", lang)}{" "}
+                <button
+                  onClick={() => setView("auth")}
+                  className="font-semibold text-primary underline decoration-primary/30 underline-offset-2 transition hover:decoration-primary"
+                >
+                  {t("Sign in to run the platform", "سجّل الدخول لتشغيل المنصة", lang)}
+                </button>
+                {" — "}
+                {t("real interventions, your own phone, sealed audit trail.", "تدخلات حقيقية على هاتفك، وسجل تدقيق مختوم.", lang)}
+              </p>
             </Reveal>
 
             <Reveal delay={0.42}>
@@ -611,7 +626,59 @@ export function Home() {
                   {t("Book a pilot", "احجز تجربة ميدانية", lang)}
                 </button>
               </div>
+              <p className="mt-5 text-center text-[12.5px] text-white/45">
+                {t("Bank team?", "فريق مصرفي؟", lang)}{" "}
+                <button
+                  onClick={() => setView("auth")}
+                  className="font-semibold text-green-bright underline decoration-green-bright/30 underline-offset-2 transition hover:decoration-green-bright"
+                >
+                  {t("Sign in to run the platform", "سجّل الدخول لتشغيل المنصة", lang)}
+                </button>
+              </p>
             </div>
+          </div>
+        </Reveal>
+
+        {/* pricing tiers */}
+        <Reveal delay={0.1}>
+          <div className="mt-16">
+            <p className="micro text-center text-[9px] text-white/40">PRICING · PREPAID CREDITS OR MONTHLY</p>
+            <div className="mx-auto mt-6 grid max-w-4xl gap-4 sm:grid-cols-3">
+              {[
+                { name: "Starter", price: "$490", per: "/mo", detail: "1,000 interventions · 1 bank entity · 6 languages · email support", featured: false },
+                { name: "Pro", price: "$1,490", per: "/mo", detail: "5,000 interventions · 5 entities · streaming voice · priority routing · 99.9% SLA", featured: true },
+                { name: "Enterprise", price: "Custom", per: "", detail: "Unlimited volume · VPC deployment · BYOK · voice clones · CBUAE audit pack", featured: false },
+              ].map((t) => (
+                <div
+                  key={t.name}
+                  className={cn(
+                    "rounded-3xl border p-6",
+                    t.featured
+                      ? "border-green-bright/50 bg-green-bright/[0.08] shadow-[0_20px_60px_-30px_rgba(23,166,115,0.4)]"
+                      : "border-white/15 bg-white/[0.04]"
+                  )}
+                >
+                  {t.featured && (
+                    <span className="micro mb-3 inline-block rounded-full bg-green-bright/20 px-2 py-0.5 text-[8.5px] text-green-bright">
+                      MOST POPULAR
+                    </span>
+                  )}
+                  <p className="font-display text-[15px] font-semibold text-white">{t.name}</p>
+                  <p className="mt-2">
+                    <span className="font-display text-2xl font-semibold text-white">{t.price}</span>
+                    <span className="text-[12px] text-white/45"> {t.per}</span>
+                  </p>
+                  <p className="mt-3 text-[11.5px] leading-relaxed text-white/55">{t.detail}</p>
+                </div>
+              ))}
+            </div>
+            <p className="mt-5 text-center text-[11.5px] text-white/40">
+              {t(
+                "Every deployment ships with the tamper-evident audit chain, consent gating, and zero PII storage.",
+                "كل نسخة تشمل سجل التدقيق المختوم وبوابة الموافقة وصفر تخزين للبيانات الشخصية.",
+                lang
+              )}
+            </p>
           </div>
         </Reveal>
       </section>
@@ -731,7 +798,13 @@ function PilotDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: 
                 VPC; no customer data leaves your tenancy.
               </DialogDescription>
             </DialogHeader>
-            <div className="mt-5 space-y-4">
+            <form
+              className="mt-5 space-y-4"
+              onSubmit={(e) => {
+                e.preventDefault();
+                submit();
+              }}
+            >
               {/* honeypot — visually hidden, ignored by humans */}
               <input
                 type="text"
@@ -750,6 +823,8 @@ function PilotDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: 
                     value={name}
                     onChange={(e) => setName(e.target.value)}
                     placeholder="Fatima Al-Rashid"
+                    autoComplete="name"
+                    aria-invalid={name.trim().length > 0 && name.trim().length < 2}
                     className="h-10 rounded-xl border-line bg-paper"
                   />
                 </div>
@@ -760,6 +835,7 @@ function PilotDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: 
                     value={role}
                     onChange={(e) => setRole(e.target.value)}
                     placeholder="Head of Fraud"
+                    autoComplete="organization-title"
                     className="h-10 rounded-xl border-line bg-paper"
                   />
                 </div>
@@ -772,6 +848,9 @@ function PilotDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: 
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="fatima@bank.ae"
+                  autoComplete="email"
+                  inputMode="email"
+                  aria-invalid={email.trim().length > 0 && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())}
                   className="h-10 rounded-xl border-line bg-paper"
                 />
               </div>
@@ -782,6 +861,8 @@ function PilotDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: 
                   value={bank}
                   onChange={(e) => setBank(e.target.value)}
                   placeholder="Your bank or insurance firm"
+                  autoComplete="organization"
+                  aria-invalid={bank.trim().length > 0 && bank.trim().length < 2}
                   className="h-10 rounded-xl border-line bg-paper"
                 />
               </div>
@@ -826,12 +907,12 @@ function PilotDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: 
                 />
               </div>
               {error && (
-                <div className="rounded-xl border border-red-200 bg-red-50 px-3.5 py-2.5 text-[12.5px] font-medium text-red-700">
+                <div role="alert" className="rounded-xl border border-red-200 bg-red-50 px-3.5 py-2.5 text-[12.5px] font-medium text-red-700">
                   {error}
                 </div>
               )}
               <button
-                onClick={submit}
+                type="submit"
                 disabled={!valid || busy}
                 className="flex w-full items-center justify-center gap-2 rounded-full bg-primary py-3 text-[13.5px] font-semibold text-white shadow-[0_8px_22px_-8px_rgba(11,122,85,0.6)] transition hover:bg-green-deep disabled:cursor-not-allowed disabled:opacity-40"
               >
@@ -848,9 +929,9 @@ function PilotDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: 
                 )}
               </button>
               <p className="text-center text-[11px] text-ink-3">
-                Or email pilots@securevoice.ae · +971 4 000 0000
+                Or email otemaach@gmail.com — we reply personally
               </p>
-            </div>
+            </form>
           </>
         )}
       </DialogContent>

@@ -1,0 +1,57 @@
+# ---------------------------------------------------------------------------
+# SecureVoice AI — one-command reproducible demo
+#
+#   docker compose up --build          → http://localhost:3000
+#
+# What happens:
+#   1. db-setup provisions the SQLite schema (prisma db push) and seeds a
+#      realistic intervention case history so the Command Center isn't empty.
+#   2. app serves the Next.js standalone bundle on port 3000.
+#
+# Secrets: app loads an optional local .env (ElevenLabs / Twilio / webhook
+# keys). Without one the platform boots in audit-only / dry-run mode —
+# everything works, nothing is dialed, no quota is burned. Safe for judges.
+#
+# The database lives in the named volume `db-data` and survives restarts;
+# wipe it with `docker compose down -v` for a factory-fresh demo.
+# ---------------------------------------------------------------------------
+name: securevoice-ai
+
+services:
+  db-setup:
+    build:
+      context: .
+      target: builder
+    environment:
+      DATABASE_URL: file:/app/db/custom.db
+    volumes:
+      - db-data:/app/db
+    restart: "no"
+    command: ["sh", "-c", "bunx prisma db push --accept-data-loss --skip-generate && bun scripts/seed-demo.mjs"]
+
+  app:
+    build:
+      context: .
+      target: runner
+    ports:
+      - "3000:3000"
+    environment:
+      HOSTNAME: 0.0.0.0
+      DATABASE_URL: file:/app/db/custom.db
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      - db-data:/app/db
+    depends_on:
+      db-setup:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "bun", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+volumes:
+  db-data:

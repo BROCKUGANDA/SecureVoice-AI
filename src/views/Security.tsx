@@ -27,7 +27,8 @@ type Status = {
   version: string;
   region: string;
   dbLatencyMs: number | null;
-  uptimeSec: number;
+  heapUsedMb: number;
+  rssMb: number;
   ts: string;
 };
 
@@ -56,11 +57,8 @@ function useStatus(pollMs = 20000) {
   return { status, err };
 }
 
-function fmtUptime(s: number) {
-  const d = Math.floor(s / 86400);
-  const h = Math.floor((s % 86400) / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  return d > 0 ? `${d}d ${h}h` : h > 0 ? `${h}h ${m}m` : `${m}m`;
+function fmtMem(mb: number) {
+  return mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${mb} MB`;
 }
 
 function LiveStatusBand() {
@@ -77,14 +75,14 @@ function LiveStatusBand() {
         { label: t("Database round-trip", "زمن قاعدة البيانات", lang), value: `${status.dbLatencyMs ?? "—"} ms` },
         { label: t("Region", "المنطقة", lang), value: status.region },
         { label: t("Build", "الإصدار", lang), value: `v${status.version}` },
-        { label: t("Continuous uptime", "وقت التشغيل", lang), value: fmtUptime(status.uptimeSec) },
+        { label: t("Memory footprint", "استهلاك الذاكرة", lang), value: status.rssMb ? fmtMem(status.rssMb) : "—" },
       ]
     : [
         { label: t("API service", "خدمة الواجهة", lang), value: t("Probing…", "جارٍ الفحص…", lang) },
         { label: t("Database round-trip", "زمن قاعدة البيانات", lang), value: "—" },
         { label: t("Region", "المنطقة", lang), value: "—" },
         { label: t("Build", "الإصدار", lang), value: "—" },
-        { label: t("Continuous uptime", "وقت التشغيل", lang), value: "—" },
+        { label: t("Memory footprint", "استهلاك الذاكرة", lang), value: "—" },
       ];
 
   return (
@@ -177,6 +175,30 @@ export function Security() {
               title: "Data residency",
               body: "All speech, transcripts and case data stay in-country (me-central-1) — inside your tenancy for VPC deployments. Nothing crosses the border, including model prompts.",
               tag: "me-central-1",
+            },
+            {
+              icon: KeyRound,
+              title: "Enterprise auth",
+              body: "Sessions run on Clerk: verified email/phone sign-in, brute-force lockout, and a 15-minute idle-timeout guard. Roles are provisioned — there is no public sign-up.",
+              tag: "RBAC",
+            },
+            {
+              icon: Database,
+              title: "Tamper-evident audit chain",
+              body: "Every turn, delivery and outcome is a sha256-chained record. Any edit breaks the chain and the built-in verifier names the exact broken row. Organization id is sealed into each link.",
+              tag: "Hash-chained",
+            },
+            {
+              icon: Server,
+              title: "BYOK key isolation",
+              body: "Bring-your-own ElevenLabs keys are AES-256-GCM encrypted at rest, decrypted only in-process for an upstream call, and never displayed beyond a masked form.",
+              tag: "AES-256-GCM",
+            },
+            {
+              icon: Fingerprint,
+              title: "Bounded upstream spend",
+              body: "Platform-key voice usage is metered per workspace daily; interventions consume prepaid credits (402 at zero); the fire endpoint is rate-limited and idempotent.",
+              tag: "Metered",
             },
           ].map((c, i) => (
             <Reveal key={c.title} delay={i * 0.05}>
@@ -271,13 +293,13 @@ export function Security() {
             </h3>
             <p className="mt-2.5 text-[13.5px] leading-relaxed text-ink-2">
               {t(
-                "Found something? Report to security@securevoice.ae (PGP key on request). We acknowledge within 24 hours, triage within 72, and credit researchers who follow scope rules. No legal action for good-faith research that avoids service degradation and never touches customer data.",
-                "وجدت ثغرة؟ أرسل إلى security@securevoice.ae. نؤكد الاستلام خلال ٢٤ ساعة ونصنّفها خلال ٧٢، ونشكر الباحثين الملتزمين بالنطاق دون إجراءات قانونية للأبحاث بحسن نية.",
+                "Found something? Report to otemaach@gmail.com (PGP key on request). We acknowledge within 24 hours, triage within 72, and credit researchers who follow scope rules. No legal action for good-faith research that avoids service degradation and never touches customer data.",
+                "وجدت ثغرة؟ أرسل إلى otemaach@gmail.com. نؤكد الاستلام خلال ٢٤ ساعة ونصنّفها خلال ٧٢، ونشكر الباحثين الملتزمين بالنطاق دون إجراءات قانونية للأبحاث بحسن نية.",
                 lang
               )}
             </p>
             <div className="mt-4 rounded-xl border border-line bg-paper p-4 font-mono text-[11.5px] leading-relaxed text-ink-2">
-              Contact: security@securevoice.ae<br />
+              Contact: otemaach@gmail.com<br />
               Encryption: PGP · key ID 0x5ECURE<br />
               Preferred languages: EN, AR<br />
               Response SLA: 24h ack · 72h triage

@@ -447,8 +447,9 @@ function Config() {
           ))}
         </div>
         <div className="mt-4 rounded-xl bg-paper px-4 py-3 text-[11.5px] leading-relaxed text-ink-2">
-          Dialect variants tuned for Gulf Arabic, Urdu, Hindi, Filipino and Malayalam. Fallback to
-          English when language confidence drops below threshold.
+          Dialect variants tuned for Gulf Arabic, Urdu and Hindi today — Filipino and Malayalam are
+          one voice registration away on the same pipeline. Fallback to English when language
+          confidence drops below threshold.
         </div>
       </div>
 

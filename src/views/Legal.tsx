@@ -146,7 +146,7 @@ const PRIVACY_SECTIONS = [
   {
     h: "Your rights",
     body: [
-      "Under the PDPL you may request access, correction, deletion, portability, or object to processing. Email privacy@securevoice.ae and we will verify and respond within 30 days. If you are unsatisfied, you may lodge a complaint with the UAE Data Office.",
+      "Under the PDPL you may request access, correction, deletion, portability, or object to processing. Email otemaach@gmail.com and we will verify and respond within 30 days. If you are unsatisfied, you may lodge a complaint with the UAE Data Office.",
       "If your data is processed inside your bank's deployment of SecureVoice, direct your request to the bank; we support the bank in fulfilling it.",
     ],
   },
@@ -159,7 +159,7 @@ const PRIVACY_SECTIONS = [
   {
     h: "Contact",
     body: [
-      "Data protection questions: privacy@securevoice.ae. Postal: SecureVoice Technologies FZ-LLC, Dubai, United Arab Emirates. We answer every privacy email personally — no ticket bots.",
+      "Data protection questions: otemaach@gmail.com. Postal: SecureVoice Technologies FZ-LLC, Dubai, United Arab Emirates. We answer every privacy email personally — no ticket bots.",
     ],
   },
 ];

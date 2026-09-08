@@ -5,6 +5,8 @@ import {
   JetBrains_Mono,
   IBM_Plex_Sans_Arabic,
 } from "next/font/google";
+import { ClerkProvider } from "@clerk/nextjs";
+import { dark } from "@clerk/themes";
 import "./globals.css";
 import { Toaster } from "@/components/ui/toaster";
 
@@ -76,8 +78,15 @@ export default function RootLayout({
       <body
         className={`${display.variable} ${sans.variable} ${mono.variable} ${arabic.variable} antialiased bg-background text-foreground`}
       >
-        {children}
-        <Toaster />
+        {/* ClerkProvider sits inside <body> (never wrapping <html>) per Clerk docs */}
+        <ClerkProvider
+          appearance={{ theme: dark }}
+          signInUrl="/auth"
+          signUpUrl="/auth"
+        >
+          {children}
+          <Toaster />
+        </ClerkProvider>
       </body>
     </html>
   );

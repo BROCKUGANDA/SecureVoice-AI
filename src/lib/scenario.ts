@@ -24,13 +24,15 @@ export type Phase =
   | "action"
   | "handoff";
 
-export type CallLang = "en" | "ar" | "hi" | "ur";
+export type CallLang = "en" | "ar" | "hi" | "ur" | "fr" | "sw";
 
 export const VOICE_BY_LANG: Record<CallLang, string> = {
   en: "MARCUS (EN-UK)",
   ar: "FATIMA (AR-GULF)",
   hi: "KAVITA (HI-IN)",
   ur: "SANA (UR-UAE)",
+  fr: "CELINE (FR-FR)",
+  sw: "AMINA (SW-KE)",
 };
 
 export const CALL_LANG_LABEL: Record<CallLang, string> = {
@@ -38,6 +40,8 @@ export const CALL_LANG_LABEL: Record<CallLang, string> = {
   ar: "العربية",
   hi: "हिन्दी",
   ur: "اردو",
+  fr: "Français",
+  sw: "Kiswahili",
 };
 
 export interface PhaseMeta {

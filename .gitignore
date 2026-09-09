@@ -62,6 +62,9 @@ tool-results/
 download/
 scripts/tts-test/
 .claude
+.agents
+.cursor
+skills-lock.json
 .z-ai-config
 /skills/
 local-*

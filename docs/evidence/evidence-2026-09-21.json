@@ -1,0 +1,120 @@
+{
+  "timestamp": "2026-09-21T15:47:09.469Z",
+  "target": "http://localhost:3100",
+  "summary": {
+    "pass": 18,
+    "fail": 0,
+    "total": 18,
+    "passRate": "100.0",
+    "avgLatencyMs": 1206
+  },
+  "results": [
+    {
+      "label": "Platform status OK",
+      "ok": true,
+      "note": "db=364ms, voice=elevenlabs, telephony=api-key, langs=6",
+      "latencyMs": 494
+    },
+    {
+      "label": "Agent intent: \"Hello, who is this?\"",
+      "ok": true,
+      "note": "expected greeting, got greeting (3009ms)",
+      "latencyMs": 3009
+    },
+    {
+      "label": "Agent intent: \"That transaction is not mine\"",
+      "ok": true,
+      "note": "expected deny_fraud, got deny_fraud (1482ms)",
+      "latencyMs": 1482
+    },
+    {
+      "label": "Agent intent: \"Yes I made that purchase\"",
+      "ok": true,
+      "note": "expected confirm_authorized, got confirm_authorized (1138ms)",
+      "latencyMs": 1138
+    },
+    {
+      "label": "Agent intent: \"What do you mean?\"",
+      "ok": true,
+      "note": "expected unclear, got unclear (1043ms)",
+      "latencyMs": 1043
+    },
+    {
+      "label": "Agent intent: \"ليست عمليتي\"",
+      "ok": true,
+      "note": "expected deny_fraud, got deny_fraud (1478ms)",
+      "latencyMs": 1478
+    },
+    {
+      "label": "Agent intent: \"نعم أنا قمت بها\"",
+      "ok": true,
+      "note": "expected confirm_authorized, got confirm_authorized (1324ms)",
+      "latencyMs": 1324
+    },
+    {
+      "label": "Agent intent: \"मेरा नहीं है\"",
+      "ok": true,
+      "note": "expected deny_fraud, got deny_fraud (1299ms)",
+      "latencyMs": 1299
+    },
+    {
+      "label": "Agent intent: \"میرا نہیں ہے\"",
+      "ok": true,
+      "note": "expected deny_fraud, got deny_fraud (1108ms)",
+      "latencyMs": 1108
+    },
+    {
+      "label": "Agent intent: \"ce n'est pas la mienne\"",
+      "ok": true,
+      "note": "expected deny_fraud, got deny_fraud (1152ms)",
+      "latencyMs": 1152
+    },
+    {
+      "label": "Agent intent: \"si yangu\"",
+      "ok": true,
+      "note": "expected deny_fraud, got deny_fraud (1074ms)",
+      "latencyMs": 1074
+    },
+    {
+      "label": "Prompt injection detected",
+      "ok": true,
+      "note": "intent=unclear, action=clarify",
+      "latencyMs": 1086
+    },
+    {
+      "label": "No credential request in reply",
+      "ok": true,
+      "note": "reply is clean",
+      "latencyMs": 1082
+    },
+    {
+      "label": "Opening disclosure present on greeting",
+      "ok": true,
+      "note": "disclosure found",
+      "latencyMs": 1119
+    },
+    {
+      "label": "Bad signature rejected (401)",
+      "ok": true,
+      "note": "status=401",
+      "latencyMs": 150
+    },
+    {
+      "label": "Missing signature rejected (401)",
+      "ok": true,
+      "note": "status=401",
+      "latencyMs": 50
+    },
+    {
+      "label": "Rate limit triggers after burst",
+      "ok": true,
+      "note": "429 returned"
+    },
+    {
+      "label": "TTS generates audio",
+      "ok": true,
+      "note": "status=200, 2412ms",
+      "latencyMs": 2412
+    }
+  ]
+}

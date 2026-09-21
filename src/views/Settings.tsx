@@ -82,11 +82,11 @@ export function Settings() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ label: keyLabel.trim() || "Fraud engine" }),
       });
-      const d = (await r.json()) as { key?: string; label?: string; error?: string };
+      const d = (await r.json().catch(() => ({ error: "Unreadable response" }))) as { key?: string; label?: string; error?: string };
       if (!r.ok || !d.key) throw new Error(d.error || "Key creation failed");
       setNewKey({ key: d.key, label: d.label ?? keyLabel });
       setKeyLabel("");
-      const list = await fetch("/api/console/producer-keys").then((res) => res.json());
+      const list = await fetch("/api/console/producer-keys").then((res) => res.json()).catch(() => ({ keys: [] }));
       setProducerKeys(list.keys ?? []);
     } catch (e) {
       setMsg({ ok: false, text: e instanceof Error ? e.message : "Key creation failed" });
@@ -109,7 +109,7 @@ export function Settings() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(patch),
       });
-      const d = (await r.json()) as Settings & { ok?: boolean; error?: string };
+      const d = (await r.json().catch(() => ({ error: "Unreadable response" }))) as Settings & { ok?: boolean; error?: string };
       if (!r.ok || d.error) throw new Error(d.error || "Save failed");
       setSettings(d);
       setMsg({ ok: true, text: "Saved." });

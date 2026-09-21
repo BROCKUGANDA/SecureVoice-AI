@@ -125,7 +125,13 @@ export async function POST(req: NextRequest) {
     }
     bearerAuth = { callerId: producer.callerId, orgId: producer.orgId };
   } else {
-    const sig = verifySignature(rawBody, req.headers.get("sv-signature") || req.headers.get("SV-Signature"), process.env.WEBHOOK_SECRET ?? "");
+    // SV-Signature is canonical; X-SecureVoice-Signature is accepted as the
+    // documented alias a bank's integration may send.
+    const sigHeader =
+      req.headers.get("sv-signature") ||
+      req.headers.get("SV-Signature") ||
+      req.headers.get("x-securevoice-signature");
+    const sig = verifySignature(rawBody, sigHeader, process.env.WEBHOOK_SECRET ?? "");
     if (!sig.ok) {
       return NextResponse.json({ error: `Signature verification failed: ${sig.reason}` }, { status: 401 });
     }
@@ -253,7 +259,7 @@ export async function POST(req: NextRequest) {
     const deliver = (channel: "call" | "sms") =>
       channel === "sms"
         ? sendInterventionSms({ to: enrolled.phone, lang, caseRef, amount, merchant })
-        : placeInterventionCall({ to: enrolled.phone, lang, amount, merchant });
+        : placeInterventionCall({ to: enrolled.phone, lang, amount, merchant, origin: req.nextUrl.origin, callRef: caseRef });
 
     let result = await attempt(() => deliver(via), via);
     let finalChannel = via;
@@ -349,7 +355,13 @@ function sendResultWebhook(callbackUrl: string, payload: Record<string, unknown>
       const v1 = createHmac("sha256", secret).update(`${t}.${body}`).digest("hex");
       await fetch(callbackUrl, {
         method: "POST",
-        headers: { "Content-Type": "application/json", "SV-Signature": `t=${t},v1=${v1}` },
+        // SV-Signature canonical; X-SecureVoice-Signature is the alias the
+        // bank-side integration doc references.
+        headers: {
+          "Content-Type": "application/json",
+          "SV-Signature": `t=${t},v1=${v1}`,
+          "X-SecureVoice-Signature": `t=${t},v1=${v1}`,
+        },
         body,
         signal: AbortSignal.timeout(10_000),
       });
@@ -375,7 +387,7 @@ export async function GET() {
           transactionId: "string? — your transaction id, echoed back on your webhook",
           riskScore: "number 0-1",
           channel: "card | login | payment | transfer | remittance",
-          customer: { ref: "string (2-64) — your customer id (no PII)", lang: "en|ar|hi|ur", consentRecordId: "string? — required for outbound without prior consent" },
+          customer: { ref: "string (2-64) — your customer id (no PII)", lang: "en|ar|hi|ur|fr|sw", consentRecordId: "string? — required for outbound without prior consent" },
           transaction: { amountAed: "number?", merchant: "string?" },
           callbackUrl: "https URL? — post-call outcome delivery",
         },

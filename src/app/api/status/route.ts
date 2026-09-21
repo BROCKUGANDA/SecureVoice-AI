@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { twilioMode } from "@/lib/twilio";
+import { twilioMode, env, isProdVoiceMode, SUPPORTED_LANGS } from "@/lib/config";
 
 export const dynamic = "force-dynamic";
 
@@ -19,10 +19,8 @@ export async function GET() {
 
   const mem = process.memoryUsage();
 
-  // Voice provider mode — operators need to know at a glance whether the
-  // deployment is burning real ElevenLabs quota or serving the dev backend.
-  const voiceProvider = process.env.ELEVENLABS_API_KEY
-    ? process.env.ELEVENLABS_DRY_RUN === "true"
+  const voiceProvider = env.elevenLabsApiKey
+    ? env.elevenLabsDryRun
       ? "z-ai-dev (dry-run)"
       : "elevenlabs"
     : "z-ai-dev (no key configured)";
@@ -35,8 +33,8 @@ export async function GET() {
       region: "me-central-1 · UAE",
       dbLatencyMs,
       voiceProvider,
-      languages: ["en", "ar", "hi", "ur"],
-      ingest: process.env.WEBHOOK_SECRET ? "armed" : "unconfigured (set WEBHOOK_SECRET)",
+      languages: [...SUPPORTED_LANGS],
+      ingest: env.webhookSecret ? "armed" : "unconfigured (set WEBHOOK_SECRET)",
       telephony: twilioMode(),
       heapUsedMb: Math.round(mem.heapUsed / 1048576),
       rssMb: Math.round(mem.rss / 1048576),

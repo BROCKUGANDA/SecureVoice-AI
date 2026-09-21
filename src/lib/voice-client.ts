@@ -21,13 +21,13 @@ export const TTS_VOICE: Record<CallLang, Record<VoiceRole, string>> = {
 const AUDIO_CACHE = new Map<string, string>();
 const INFLIGHT = new Map<string, Promise<string>>();
 
-export function prefetchSpeech(text: string, voice: string): void {
-  fetchSpeechUrl(text, voice).catch(() => {});
+export function prefetchSpeech(text: string, voice: string, lang?: CallLang): void {
+  fetchSpeechUrl(text, voice, lang).catch(() => {});
 }
 
 /** Fetch (or reuse) a neural-voice WAV object URL for the given text. */
-export function fetchSpeechUrl(text: string, voice: string): Promise<string> {
-  const key = `${voice}::${text}`;
+export function fetchSpeechUrl(text: string, voice: string, lang?: CallLang): Promise<string> {
+  const key = `${voice}::${lang ?? ""}::${text}`;
   const hit = AUDIO_CACHE.get(key);
   if (hit) return Promise.resolve(hit);
 
@@ -38,7 +38,7 @@ export function fetchSpeechUrl(text: string, voice: string): Promise<string> {
     const res = await fetch("/api/tts", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text, voice }),
+      body: JSON.stringify({ text, voice, ...(lang ? { lang } : {}) }),
     });
     if (!res.ok) throw new Error(`tts ${res.status}`);
     const blob = await res.blob();
@@ -88,7 +88,15 @@ export function browserSpeak(text: string, lang: CallLang, rate = 1): void {
     if (!synth) return;
     synth.cancel();
     const u = new SpeechSynthesisUtterance(text);
-    u.lang = lang === "ar" ? "ar-SA" : lang === "hi" ? "hi-IN" : "en-US";
+    // map every supported call language — falling ur/fr/sw back to an en-US
+    // voice renders unintelligible gibberish
+    u.lang =
+      lang === "ar" ? "ar-SA"
+      : lang === "hi" ? "hi-IN"
+      : lang === "ur" ? "ur-PK"
+      : lang === "fr" ? "fr-FR"
+      : lang === "sw" ? "sw-KE"
+      : "en-US";
     u.rate = rate;
     const v = synth.getVoices().find((x) => x.lang.startsWith(u.lang.slice(0, 2)));
     if (v) u.voice = v;
@@ -106,7 +114,7 @@ export async function speakText(
   rate = 1
 ): Promise<boolean> {
   try {
-    const url = await fetchSpeechUrl(text, TTS_VOICE[lang][role]);
+    const url = await fetchSpeechUrl(text, TTS_VOICE[lang][role], lang);
     await playUrl(url, rate);
     return true;
   } catch {
@@ -184,8 +192,9 @@ export async function streamSpeech(
           }
         };
 
-        // barge-in monitor: open the mic and watch RMS while audio plays
-        const bargeInPromise = startMicMonitor(() => {
+        // barge-in monitor: echo-cancelled mic + sustained-speech gate — the
+        // agent's own speaker bleed must NOT trigger a self-cutoff
+        startMicMonitor(() => {
           audio.pause();
           try { mediaSource.endOfStream(); } catch {}
           done(true);
@@ -204,7 +213,14 @@ export async function streamSpeech(
         }
 
         const reader = res.body.getReader();
-        audio.play().catch(() => {});
+        // playback starts as soon as the first chunk lands; if the browser
+        // blocks it (autoplay policy), fall back cleanly — never kill a
+        // playing stream on a timer
+        audio.play().catch(() => {
+          audio.pause();
+          done(false);
+          void speakText(text, lang, role, rate);
+        });
         for (;;) {
           const { done: finished, value } = await reader.read();
           if (finished) break;
@@ -213,9 +229,6 @@ export async function streamSpeech(
         }
         try { mediaSource.endOfStream(); } catch {}
         audio.onended = () => done(false);
-        // if playback never started (autoplay block), fall back
-        setTimeout(() => { if (!settled && audio.paused) done(false); }, 2500);
-        void bargeInPromise;
       } catch {
         stopMicMonitor();
         await speakText(text, lang, role, rate);
@@ -225,13 +238,18 @@ export async function streamSpeech(
   });
 }
 
-/* mic monitor for barge-in — one live analyser watching loudness */
+/* mic monitor for barge-in — echo-cancelled, sustained-speech gated.
+ * The agent's own voice comes out of the speakers; echoCancellation plus a
+ * multi-frame threshold (a burst must persist ~150ms) keeps speaker bleed
+ * from cutting the agent off. */
 let monitorCtx: AudioContext | null = null;
 let monitorStream: MediaStream | null = null;
 
 async function startMicMonitor(onSpeak: () => void): Promise<void> {
   try {
-    monitorStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    monitorStream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+    });
     const AC: typeof AudioContext =
       window.AudioContext ||
       (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
@@ -241,7 +259,9 @@ async function startMicMonitor(onSpeak: () => void): Promise<void> {
     analyser.fftSize = 512;
     source.connect(analyser);
     const data = new Uint8Array(analyser.frequencyBinCount);
-    let lastTrigger = 0;
+    let hotFrames = 0;
+    const armedAt = Date.now() + 600; // ignore echo tail right after playback starts
+
     const tick = () => {
       if (!monitorCtx) return;
       analyser.getByteTimeDomainData(data);
@@ -251,11 +271,15 @@ async function startMicMonitor(onSpeak: () => void): Promise<void> {
         sum += v * v;
       }
       const rms = Math.sqrt(sum / data.length);
-      // speech threshold (~-30 dBFS); debounce 800ms so one word doesn't machine-gun
-      if (rms > 0.05 && Date.now() - lastTrigger > 800) {
-        lastTrigger = Date.now();
-        onSpeak();
-        return;
+      // speech threshold (~-24 dBFS) sustained across consecutive frames
+      if (rms > 0.09) {
+        hotFrames++;
+        if (hotFrames >= 8 && Date.now() > armedAt) {
+          onSpeak();
+          return;
+        }
+      } else {
+        hotFrames = Math.max(0, hotFrames - 2);
       }
       requestAnimationFrame(tick);
     };

@@ -12,6 +12,24 @@ export const db =
     // Query logging is a dev affordance; in production it leaks query params to
     // stdout and adds per-query overhead. Errors always surface.
     log: isProd ? ['error'] : ['query', 'error', 'warn'],
+    // For Postgres deployments, uncomment and tune these:
+    // datasources: { db: { url: process.env.DATABASE_URL } },
+    // For SQLite, Prisma manages the single connection internally.
+    // For Postgres, the default pool (num_cpus * 2 + 1) is usually fine;
+    // override via connection_limit in the DATABASE_URL query string:
+    //   postgresql://user:pass@host:5432/db?connection_limit=20&timeout=3000
   })
 
 if (!isProd) globalForPrisma.prisma = db
+
+// ── Boot-time housekeeping (runs once per process) ──
+// Evict expired idempotency keys so the table doesn't grow unboundedly.
+// Best-effort: failures are logged but never block startup.
+if (isProd) {
+  db.idempotencyKey
+    .deleteMany({ where: { expiresAt: { lte: new Date() } } })
+    .then(({ count }) => {
+      if (count > 0) console.log(`[db] evicted ${count} expired idempotency keys`)
+    })
+    .catch(() => {})
+}

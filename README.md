@@ -126,10 +126,24 @@ Everything is opt-in: **no keys required to run the demo** (dry-run + audit-only
 | `TWILIO_ACCOUNT_SID` / `TWILIO_API_KEY_*` / `TWILIO_FROM_NUMBER` | Real call + SMS delivery |
 | `WEBHOOK_SECRET` | Signs outbound events & verifies inbound risk signals |
 | `AUTH_SECRET` | Session cookie signing (384-bit) |
+| `GROQ_API_KEY` / `GROQ_MODEL` | **Optional** live LLM reply layer — drafts the agent's spoken lines in the customer's language (default `qwen/qwen3.8-27b`). Server-side only; never commit a key. |
+| `GEMINI_API_KEY` / `GEMINI_MODEL` | Optional LLM fallback when no Groq key is present (`gemini-1.5-flash`) |
 | `RATE_LIMIT_PER_HOUR` | Per-caller TTS/ASR/agent budget |
 | `COMPLIANCE_*` | Server-enforced compliance flags (disclosure, no credential requests, PII redaction) |
 
 See [.env.example](.env.example) for the annotated reference.
+
+## The LLM reply layer (optional)
+
+The agent's **intent routing and compliance guardrails are deterministic server-side code** — an LLM never decides to freeze a card, and a refusal cannot be prompted away. When `GROQ_API_KEY` (or `GEMINI_API_KEY`) is set, the model only *rephrases* the verified reply in the customer's language (en/ar/hi/ur/fr/sw) under strict voice rules, then passes the same compliance scan as the scripted replies:
+
+- ≤ 50 words — sized for a phone call, not a chat window
+- no markdown, asterisks, or emojis — TTS reads punctuation literally
+- never breaks character, never asks for PINs/OTPs/passwords
+
+Without a key the platform runs identically on scripted replies. Model provenance and refusal behavior: [MODEL_CARD.md](MODEL_CARD.md).
+
+**Judges running a clone:** create a free key at console.groq.com → API Keys, put it in your local `.env` (`GROQ_API_KEY=…`) — never commit yours. **Hosted demo:** the deployment injects the key server-side, so judges get the live-LLM experience with zero setup while the key never reaches the browser.
 
 ## Documentation
 

@@ -1,8 +1,9 @@
 /**
  * Clerk-backed platform profile + prepaid credits wallet.
  *
- * Identity lives in Clerk (operator@securevoice.ae / demo@securevoice.ae and
- * any self-serve sign-up). This module mirrors each Clerk user into a local
+ * Identity lives in Clerk (operator+clerk_test@securevoice.ae /
+ * demo+clerk_test@securevoice.ae and any self-serve sign-up). This module
+ * mirrors each Clerk user into a local
  * UserProfile row that carries the billing state:
  *
  *   1 credit = 1 intervention signal fired (the metered ElevenLabs/Twilio cost)
@@ -15,6 +16,7 @@
 
 import { auth, currentUser } from "@clerk/nextjs/server";
 import { db } from "@/lib/db";
+import type { Lang } from "@/lib/config";
 
 export type Role = "operator" | "demo";
 
@@ -59,24 +61,44 @@ export type OperatorGuard =
   | { ok: true; profile: PlatformProfile }
   | { ok: false; status: 401 | 403; error: string };
 
-/** Route-handler guard: signed in AND operator role. */
+/** Route-handler guard: any authenticated session (single-app strategy —
+ *  demo-role users share the Command Center under a Demo Mode badge). */
+export async function requireSignedIn(): Promise<OperatorGuard> {
+  const profile = await getProfile();
+  if (!profile) {
+    return { ok: false, status: 401, error: "Sign in required — open the sign-in page." };
+  }
+  return { ok: true, profile };
+}
+
+/** Route-handler guard: operator role only (settings, billing, seats). */
 export async function requireOperator(): Promise<OperatorGuard> {
   const profile = await getProfile();
   if (!profile) {
     return { ok: false, status: 401, error: "Sign in required — open the sign-in page." };
   }
   if (profile.role !== "operator") {
-    return { ok: false, status: 403, error: "Operator access required — demo accounts cannot run the platform." };
+    return { ok: false, status: 403, error: "Operator access required — this area is for the institution admin." };
   }
   return { ok: true, profile };
 }
 
-/** Metered deduction after a successful intervention. Returns the remaining balance. */
+/**
+ * Metered deduction after a successful intervention. Returns the remaining
+ * balance, or -1 when the wallet was already empty. The `credits > 0`
+ * condition makes the check-and-decrement ATOMIC in the database — two
+ * concurrent fires of a 1-credit wallet cannot both succeed and drive the
+ * balance negative.
+ */
 export async function deductCredit(clerkUserId: string): Promise<number> {
-  const row = await db.userProfile.update({
-    where: { clerkUserId },
+  const r = await db.userProfile.updateMany({
+    where: { clerkUserId, credits: { gt: 0 } },
     data: { credits: { decrement: 1 } },
+  });
+  if (r.count === 0) return -1;
+  const row = await db.userProfile.findUnique({
+    where: { clerkUserId },
     select: { credits: true },
   });
-  return row.credits;
+  return row?.credits ?? -1;
 }

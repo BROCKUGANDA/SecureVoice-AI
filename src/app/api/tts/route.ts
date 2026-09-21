@@ -4,9 +4,9 @@ import { tts as elevenTts, UpstreamError, DEV_VOICES, ELEVEN_VOICE_ENV, allowedV
 import { consume as consumeRateLimit } from "@/lib/ratelimit";
 import { append as auditAppend } from "@/lib/audit-chain";
 import { transcript as redactText } from "@/lib/redact";
-import { getProfile } from "@/lib/credits";
-import { db } from "@/lib/db";
-import { decryptSecret } from "@/lib/byok";
+import { resolveTtsKey, consumeCharQuota, quotaExceededResponse } from "@/lib/tts-quota";
+import { SUPPORTED_LANGS, MAX_TTS_CHARS } from "@/lib/config";
+import { badRequest, tooManyRequests, unprocessable, upstreamError, parseJson } from "@/lib/api-errors";
 
 export const dynamic = "force-dynamic";
 
@@ -21,14 +21,14 @@ export const dynamic = "force-dynamic";
  *     dry-run; configured ElevenLabs voice_ids in prod)
  */
 
-const LANGS = new Set(["en", "ar", "hi", "ur", "fr", "sw"]);
-const MAX_CHARS = 1024;
+const LANGS = new Set<string>(SUPPORTED_LANGS);
+const MAX_CHARS = MAX_TTS_CHARS;
 
 const schema = z.object({
   text: z.string().min(1).max(MAX_CHARS),
   voice: z.string().min(1).max(64),
   speed: z.number().min(0.5).max(2.0).optional(),
-  lang: z.enum(["en", "ar", "hi", "ur", "fr", "sw"]).default("en"),
+  lang: z.enum(SUPPORTED_LANGS).default("en"),
   callRef: z.string().min(3).max(64).optional(),
 });
 
@@ -46,7 +46,8 @@ const DEV_SLUG_LANG: Record<string, TtsLang> = {
 function resolveVoice(voice: string, lang: TtsLang): string {
   // 1. Language key ("en"…) → configured voice for the current mode
   if (LANGS.has(voice)) {
-    return isProdVoiceMode() ? ELEVEN_VOICE_ENV[voice as TtsLang] : defaultDevVoice(voice as TtsLang);
+    const v = voice as TtsLang;
+    return isProdVoiceMode() ? ELEVEN_VOICE_ENV[v] : defaultDevVoice(v);
   }
   // 2. Explicit valid voice for this mode → pass through
   if (allowedVoices().has(voice)) return voice;
@@ -68,15 +69,11 @@ export async function POST(req: NextRequest) {
   const callerId = req.headers.get("x-caller-id") || "anon";
 
   // 1. Body parse + validation
-  let body: unknown;
-  try {
-    body = await req.json();
-  } catch {
-    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
-  }
+  const body = await parseJson(req);
+  if (body === null) return badRequest("Invalid JSON body");
   const parsed = schema.safeParse(body);
   if (!parsed.success) {
-    return NextResponse.json({ error: "Invalid TTS request" }, { status: 422 });
+    return unprocessable("Invalid TTS request");
   }
   const { text, speed, lang, callRef = `SV-T-${Math.random().toString(36).slice(2, 8).toUpperCase()}` } = parsed.data;
 
@@ -85,8 +82,8 @@ export async function POST(req: NextRequest) {
   const allowed = allowedVoices();
   if (!allowed.has(voice)) {
     const hint = isProdVoiceMode()
-      ? "voice must be a language key (en|ar|hi|ur) or a configured ElevenLabs voice_id (set ELEVENLABS_VOICE_EN/AR/HI/UR)"
-      : `voice must be a language key (en|ar|hi|ur) or a dev voice (${[...DEV_VOICES].join(", ")})`;
+      ? "voice must be a language key (en|ar|hi|ur|fr|sw) or a configured ElevenLabs voice_id (set ELEVENLABS_VOICE_EN/AR/HI/UR)"
+      : `voice must be a language key (en|ar|hi|ur|fr|sw) or a dev voice (${[...DEV_VOICES].join(", ")})`;
     return NextResponse.json({ error: `Unknown voice '${parsed.data.voice}'. ${hint}` }, { status: 422 });
   }
 
@@ -94,40 +91,21 @@ export async function POST(req: NextRequest) {
   //    fast reject here keeps the audit log clean of "denied" entries)
   const rl = consumeRateLimit("tts", callerId);
   if (!rl.ok) {
-    return NextResponse.json(
-      { error: "Rate limit exceeded; retry later." },
-      { status: 429, headers: { "Retry-After": String(Math.ceil(rl.retryAfterMs / 1000)) } }
-    );
+    return tooManyRequests("Rate limit exceeded; retry later.", Math.ceil(rl.retryAfterMs / 1000));
   }
 
   // 4. Synthesize via the wrapper (cached + idempotent + upstream).
   //    Key logic (per org): BYOK first — an operator's own ElevenLabs key has
   //    NO limits. Without BYOK, the platform demo key is metered at 2,000
   //    chars/day/user so a scraped link can't drain the shared quota.
-  let keyOverride: string | undefined;
-  const profile = await getProfile();
-  if (profile) {
-    const row = await db.userProfile.findUnique({
-      where: { clerkUserId: profile.clerkUserId },
-      select: { elevenKeyEnc: true, ttsCharsDate: true, ttsCharsToday: true },
-    });
-    if (row?.elevenKeyEnc) {
-      keyOverride = decryptSecret(row.elevenKeyEnc) ?? undefined;
-    } else if (row && process.env.ELEVENLABS_DRY_RUN !== "true" && process.env.ELEVENLABS_API_KEY) {
-      const today = new Date().toISOString().slice(0, 10);
-      const used = row.ttsCharsDate === today ? row.ttsCharsToday : 0;
-      if (used + text.length > 2000) {
-        return NextResponse.json(
-          { error: "Daily neural-voice limit reached on the platform key — add your own ElevenLabs key in Settings → API Keys for unlimited usage." },
-          { status: 429, headers: { "Retry-After": "3600" } }
-        );
-      }
-      await db.userProfile.update({
-        where: { clerkUserId: profile.clerkUserId },
-        data: { ttsCharsDate: today, ttsCharsToday: used + text.length },
-      });
+  const keyRes = await resolveTtsKey();
+  if (keyRes.mode === "platform") {
+    const charged = await consumeCharQuota(keyRes, text);
+    if (!charged.ok) {
+      return tooManyRequests(quotaExceededResponse().error, 3600);
     }
   }
+  const keyOverride = keyRes.mode === "byok" ? keyRes.keyOverride : undefined;
 
   try {
     const result = await elevenTts({

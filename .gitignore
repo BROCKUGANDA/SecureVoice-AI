@@ -70,3 +70,29 @@ skills-lock.json
 local-*
 prompt
 test
+
+# --- submission hygiene: local scratch, never for judges ---
+.mimosa/
+docs/canvas-verify/
+docs/canvas-verify-sub/
+docs/canvas-build/geometry.json
+docs/canvas-build/draw-list.json
+docs/canvas-build/BRIEF.md
+docs/canvas-build/probe_pdf.py
+docs/canvas-build/__pycache__/
+docs/canvas-build/template-pages/
+docs/canvas-build/submission-pages/
+docs/walkthrough/*.mp4
+# superseded / broken earlier canvas + the stale 1-of-17 evidence run
+docs/IDEA-CANVAS-FILLED.pdf
+docs/canvas-with-text.pdf
+docs/canvas-plan.json
+docs/evidence/evidence-2026-09-10.json
+# local Chromium profile for the walkthrough capture: cookies + Login Data, never push
+scripts/walkthrough/out/
+docs/walkthrough/poster.png
+# superseded canvas approach (hardcoded coords) and an unused Supabase script;
+# the live DB is Postgres via Prisma
+scripts/draw-canvas-diagrams.py
+scripts/probe-canvas.py
+scripts/supabase-setup.mjs

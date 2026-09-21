@@ -4,6 +4,7 @@ import { useCallback, useEffect } from "react";
 import { motion, AnimatePresence, MotionConfig } from "framer-motion";
 import { useAuth, useUser } from "@clerk/nextjs";
 import { useApp, VIEW_ACCESS, type View } from "@/lib/store";
+import { cn } from "@/lib/utils";
 import { Navbar } from "@/components/shell/Navbar";
 import { Footer } from "@/components/shell/Footer";
 import { LoadingScreen } from "@/components/shell/LoadingScreen";
@@ -76,7 +77,7 @@ export default function Page() {
   const fullBleed = view === "deck" || view === "auth";
 
   return (
-    <div className="flex min-h-screen flex-col bg-paper">
+    <div className={cn("flex flex-col bg-paper", !fullBleed && "min-h-screen")}>
       <LoadingScreen onDone={() => setBooted(true)} />
 
       <IdleTimeoutHandler onTimeout={handleIdleTimeout} />

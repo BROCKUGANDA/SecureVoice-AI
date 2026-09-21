@@ -4,6 +4,7 @@ import { DEV_VOICES, ELEVEN_VOICE_ENV, allowedVoices, isProdVoiceMode, type TtsL
 import { consume as consumeRateLimit } from "@/lib/ratelimit";
 import { append as auditAppend } from "@/lib/audit-chain";
 import { transcript as redactText } from "@/lib/redact";
+import { resolveTtsKey, consumeCharQuota, quotaExceededResponse } from "@/lib/tts-quota";
 
 export const dynamic = "force-dynamic";
 
@@ -85,6 +86,18 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // Same key rules as the buffered route: BYOK first, platform key metered at
+  // 2,000 chars/day/user. (Previously the stream path bypassed metering and
+  // ignored org keys — a free-tier quota leak.)
+  const keyRes = await resolveTtsKey();
+  if (keyRes.mode === "platform") {
+    const charged = await consumeCharQuota(keyRes, text);
+    if (!charged.ok) {
+      return NextResponse.json(quotaExceededResponse(), { status: 429, headers: { "Retry-After": "3600" } });
+    }
+  }
+  const apiKey = keyRes.mode === "byok" ? keyRes.keyOverride : process.env.ELEVENLABS_API_KEY;
+
   // Per-language model (Swahili → Flash v2.5), matching the buffered route
   const model = lang === "sw" ? "eleven_flash_v2_5" : process.env.ELEVENLABS_MODEL ?? "eleven_v3";
 
@@ -93,7 +106,7 @@ export async function POST(req: NextRequest) {
     {
       method: "POST",
       headers: {
-        "xi-api-key": process.env.ELEVENLABS_API_KEY,
+        "xi-api-key": apiKey,
         "content-type": "application/json",
         "accept": "audio/mpeg",
       },

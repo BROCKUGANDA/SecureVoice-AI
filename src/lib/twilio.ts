@@ -18,6 +18,11 @@
  * false and the interventions route degrades to audit-only (no failure).
  */
 
+import { twilioMode, isTwilioConfigured } from "@/lib/config";
+
+export { twilioMode, isTwilioConfigured };
+export type { TwilioMode } from "@/lib/config";
+
 export type DeliveryLang = "en" | "ar" | "hi" | "ur" | "fr" | "sw";
 
 type TwilioCreds = {
@@ -26,17 +31,6 @@ type TwilioCreds = {
   password: string; // API key secret or auth token
   from: string;
 };
-
-/** Provider configuration state — surfaced via /api/status. */
-export function twilioMode(): "api-key" | "auth-token" | "unconfigured" {
-  if (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_API_KEY_SID && process.env.TWILIO_API_KEY_SECRET && process.env.TWILIO_FROM_NUMBER) return "api-key";
-  if (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_FROM_NUMBER) return "auth-token";
-  return "unconfigured";
-}
-
-export function isTwilioConfigured(): boolean {
-  return twilioMode() !== "unconfigured";
-}
 
 function creds(): TwilioCreds {
   const mode = twilioMode();
@@ -113,11 +107,38 @@ function escapeXml(s: string): string {
   );
 }
 
-/** Inline TwiML for the fraud-intervention voice call. */
-export function interventionTwiml(lang: DeliveryLang, amount?: string, merchant?: string): string {
+/**
+ * Inline TwiML for the fraud-intervention voice call — BIDIRECTIONAL.
+ *
+ * Opening: ElevenLabs audio via <Play> (when origin is available) or Polly <Say>.
+ * Then: <Gather input="speech"> collects the customer's response and POSTs
+ * to /api/twilio/turn, which runs the agent and returns the next TwiML.
+ * The call loops until the agent confirms or denies, then hangs up.
+ *
+ * When `origin` is provided (the deployment URL), the opening uses ElevenLabs
+ * audio via <Play>. Without it (local dev), falls back to Polly <Say>.
+ */
+export function interventionTwiml(
+  lang: DeliveryLang,
+  amount?: string,
+  merchant?: string,
+  origin?: string,
+  callRef?: string
+): string {
   const { voice, language } = VOICE[lang] ?? VOICE.en;
   const text = (SCRIPT[lang] ?? SCRIPT.en)(amount ?? "", merchant ?? "");
-  return `<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="${voice}" language="${language}">${escapeXml(text)}</Say><Pause length="1"/><Say voice="${voice}" language="${language}">Thank you.</Say></Response>`;
+  const turnUrl = `/api/twilio/turn?lang=${lang}${callRef ? `&callSid=${escapeXml(callRef)}` : ""}`;
+
+  // ElevenLabs opening via <Play> when we have a public origin
+  let opening: string;
+  if (origin) {
+    const audioUrl = `${origin}/api/twilio/audio?text=${encodeURIComponent(text.slice(0, 1024))}&lang=${lang}${callRef ? `&callRef=${encodeURIComponent(callRef)}` : ""}`;
+    opening = `<Play>${escapeXml(audioUrl)}</Play>`;
+  } else {
+    opening = `<Say voice="${voice}" language="${language}">${escapeXml(text)}</Say>`;
+  }
+
+  return `<?xml version="1.0" encoding="UTF-8"?><Response>${opening}<Gather input="speech" action="${escapeXml(turnUrl)}" method="POST" speechTimeout="auto" language="${language}"><Say voice="${voice}" language="${language}">Is this transaction yours? Please say yes or no.</Say></Gather><Say voice="${voice}" language="${language}">I didn't catch a response. A fraud specialist will follow up shortly. Thank you.</Say><Hangup/></Response>`;
 }
 
 /* ————— REST calls ————— */
@@ -154,19 +175,22 @@ export type CallResult =
   | { ok: true; sid: string; status: string }
   | { ok: false; error: string; status: number };
 
-/** Place the fraud-intervention voice call to an enrolled customer. */
+/** Place the fraud-intervention voice call to an enrolled customer.
+ *  The call is bidirectional: opening message → Gather → conversation loop. */
 export async function placeInterventionCall(args: {
   to: string;
   lang: DeliveryLang;
   amount?: string;
   merchant?: string;
+  origin?: string; // deployment URL for ElevenLabs <Play>
+  callRef?: string; // audit chain reference
 }): Promise<CallResult> {
   const c = creds();
   if (!isE164(args.to)) return { ok: false, status: 422, error: "Destination phone is not E.164" };
   const res = await twilioPost(c.accountSid, c.username, c.password, "Calls.json", {
     To: args.to,
     From: c.from,
-    Twiml: interventionTwiml(args.lang, args.amount, args.merchant),
+    Twiml: interventionTwiml(args.lang, args.amount, args.merchant, args.origin, args.callRef),
   });
   if (!res.ok) return { ok: false, status: res.status, error: res.error };
   return { ok: true, sid: String(res.data.sid ?? ""), status: String(res.data.status ?? "queued") };

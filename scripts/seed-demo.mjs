@@ -17,7 +17,6 @@ import { createHash } from "node:crypto";
 
 const db = new PrismaClient();
 const GENESIS = "0".repeat(64);
-const KEY_ORDER = ["action", "callRef, ", "callerId", "intent", "meta", "orgId", "prevHash", "redactedText"];
 
 // canonical: exact TS ordering — action, callRef, callerId, intent, meta, orgId, prevHash, redactedText
 function chainHash(prev, fields) {
@@ -52,6 +51,11 @@ const CASES = [
   { ref: "SV-8637", lang: "ar", risk: 0.96, channel: "card", amount: "AED 12300", merchant: "Luxury retail", action: "card_freeze_temporary", delivery: "call", minsAgo: 141 },
   { ref: "SV-8636", lang: "en", risk: 0.87, channel: "login", amount: null, merchant: null, action: "verify_only", delivery: "sms", minsAgo: 163 },
   { ref: "SV-8635", lang: "ur", risk: 0.95, channel: "card", amount: "AED 4400", merchant: "Crypto ramp", action: "card_freeze_temporary", delivery: "call", minsAgo: 187 },
+  { ref: "SV-8634", lang: "fr", risk: 0.92, channel: "card", amount: "AED 3100", merchant: "Marché Global", action: "card_freeze_temporary", delivery: "sms", minsAgo: 210 },
+  { ref: "SV-8633", lang: "sw", risk: 0.93, channel: "remittance", amount: "AED 1850", merchant: "Hawala Express", action: "transfer_hold_24h", delivery: "call", minsAgo: 233 },
+  { ref: "SV-8632", lang: "fr", risk: 0.89, channel: "payment", amount: "AED 990", merchant: "Boutique en ligne", action: "card_freeze_temporary", delivery: "sms", minsAgo: 258 },
+  { ref: "SV-8631", lang: "sw", risk: 0.9, channel: "login", amount: null, merchant: null, action: "verify_only", delivery: "sms", minsAgo: 282 },
+  { ref: "SV-8630", lang: "hi", risk: 0.92, channel: "card", amount: "AED 7800", merchant: "Luxury retail", action: "card_freeze_temporary", delivery: "call", minsAgo: 305 },
 ];
 
 const stamp = (minsAgo) => new Date(Date.now() - minsAgo * 60 * 1000);
@@ -122,12 +126,12 @@ const seedProfile = async () => {
   // this pre-arms the credits balance so the console works instantly)
   await db.userProfile.upsert({
     where: { clerkUserId: "user_3J3Lfk4hzKz2MsVGp2Nj1DYGbDj" },
-    create: { clerkUserId: "user_3J3Lfk4hzKz2MsVGp2Nj1DYGbDj", email: "operator@securevoice.ae", name: "Platform Operator", role: "operator", credits: 500 },
+    create: { clerkUserId: "user_3J3Lfk4hzKz2MsVGp2Nj1DYGbDj", email: "operator+clerk_test@securevoice.ae", name: "Platform Operator", role: "operator", credits: 500 },
     update: {},
   });
   await db.userProfile.upsert({
     where: { clerkUserId: "user_3J3Lg9M6FSaFx7LFiw1mb3Zq4VQ" },
-    create: { clerkUserId: "user_3J3Lg9M6FSaFx7LFiw1mb3Zq4VQ", email: "demo@securevoice.ae", name: "Demo Explorer", role: "demo", credits: 25 },
+    create: { clerkUserId: "user_3J3Lg9M6FSaFx7LFiw1mb3Zq4VQ", email: "demo+clerk_test@securevoice.ae", name: "Demo Explorer", role: "demo", credits: 25 },
     update: {},
   });
   console.log("✓ wallet rows for operator (500) + demo (25)");

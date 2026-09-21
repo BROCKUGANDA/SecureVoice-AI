@@ -13,16 +13,17 @@ const PUBLIC_NAV: { id: View; en: string; ar: string; icon: typeof Home }[] = [
   { id: "security", en: "Security", ar: "الأمن", icon: ShieldCheck },
 ];
 
-// visible to any signed-in session (demo or operator)
+// visible to any signed-in session (demo or operator) — single-app strategy:
+// demo seats share the Command Center under a Demo Mode badge
 const USER_NAV: { id: View; en: string; ar: string; icon: typeof Home }[] = [
   { id: "demo", en: "Demo", ar: "العرض", icon: Play },
   { id: "dashboard", en: "Dashboard", ar: "اللوحة", icon: Table2 },
   { id: "product", en: "Deep Dive", ar: "التفاصيل", icon: Presentation },
+  { id: "console", en: "Command Center", ar: "مركز التشغيل", icon: LayoutDashboard },
 ];
 
 // operator (admin) only
 const OPERATOR_NAV: { id: View; en: string; ar: string; icon: typeof Home }[] = [
-  { id: "console", en: "Command Center", ar: "مركز التشغيل", icon: LayoutDashboard },
   { id: "settings", en: "Settings", ar: "الإعدادات", icon: SettingsIcon },
   { id: "deck", en: "Appendix", ar: "ملحق", icon: Presentation },
 ];

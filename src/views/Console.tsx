@@ -195,7 +195,7 @@ export function Console() {
     // async fetches resolve outside the effect body — no synchronous setState
     let alive = true;
     fetch("/api/status").then((r) => r.json()).then((d) => alive && setStatus(d)).catch(() => {});
-    if (isSignedIn && role === "operator") {
+    if (isSignedIn) {
       fetch("/api/console/me")
         .then((r) => r.json())
         .then((d: { profile: { credits: number } | null }) => alive && d.profile && setCredits(d.profile.credits))
@@ -241,12 +241,12 @@ export function Console() {
     );
   }
 
-  if (!isSignedIn || role !== "operator") {
+  if (!isSignedIn) {
     return (
       <div className="flex min-h-[60vh] flex-col items-center justify-center gap-4 px-6 text-center">
         <ShieldCheck className="h-8 w-8 text-primary" />
-        <p className="font-display text-xl font-semibold">Operator access required</p>
-        <p className="max-w-sm text-[13px] text-ink-2">Sign in with the operator account to run the platform. Visitors can explore the live demo instead.</p>
+        <p className="font-display text-xl font-semibold">Sign in to open the Command Center</p>
+        <p className="max-w-sm text-[13px] text-ink-2">The Command Center is available to every provisioned seat — demo explorers and bank operators see the same surface.</p>
         <div className="flex gap-2">
           <button onClick={() => setView("auth")} className="rounded-full bg-primary px-6 py-2.5 text-[13px] font-semibold text-white transition hover:bg-green-deep">Sign in</button>
           <button onClick={() => setView("demo")} className="rounded-full border border-line px-6 py-2.5 text-[13px] font-semibold text-ink-2 transition hover:border-primary/40">Open demo</button>
@@ -256,15 +256,20 @@ export function Console() {
   }
 
   const enroll = async () => {
+    const trimmed = phone.trim();
+    if (!/^\+[1-9]\d{7,14}$/.test(trimmed)) {
+      setEnrollState({ ok: false, msg: "Phone must be E.164 format, e.g. +971501234567" });
+      return;
+    }
     setEnrolling(true);
     setEnrollState(null);
     try {
       const r = await fetch("/api/enroll", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ customerRef, phone: phone.trim(), lang: enrollLang, channel: enrollChannel, consentRecordId: `CN-${customerRef}` }),
+        body: JSON.stringify({ customerRef, phone: trimmed, lang: enrollLang, channel: enrollChannel, consentRecordId: `CN-${customerRef}` }),
       });
-      const d = (await r.json()) as { ok?: boolean; error?: string; message?: string };
+      const d = (await r.json().catch(() => ({}))) as { ok?: boolean; error?: string; message?: string };
       setEnrollState({ ok: !!d.ok, msg: d.ok ? (d.message ?? "Enrolled") : (d.error ?? "Enrollment failed") });
     } catch {
       setEnrollState({ ok: false, msg: "Network error — try again." });
@@ -289,7 +294,7 @@ export function Console() {
           ...(merchant ? { merchant } : {}),
         }),
       });
-      const data = (await r.json()) as FireResponse;
+      const data = (await r.json().catch(() => ({ error: "Unreadable response from server" }))) as FireResponse;
       if (typeof data.creditsRemaining === "number") setCredits(data.creditsRemaining);
       setRes(data);
       // refresh the recent-cases strip (async, outside any effect body)
@@ -311,7 +316,7 @@ export function Console() {
     setChain({ checking: true });
     try {
       const r = await fetch(`/api/console/audit?callRef=${encodeURIComponent(res.caseRef)}`);
-      const d = (await r.json()) as { verification: ChainVerification };
+      const d = (await r.json().catch(() => ({ verification: { ok: false, rows: 0, brokenAt: "unparseable" } }))) as { verification: ChainVerification };
       setChain({ checking: false, result: d.verification });
     } catch {
       setChain({ checking: false, result: { ok: false, rows: 0, brokenAt: "network" } });
@@ -346,11 +351,17 @@ export function Console() {
             {branding?.orgName ?? (ar ? "مركز التشغيل" : "Run the platform")}
           </h1>
           <p className="mt-2 max-w-xl text-[13.5px] leading-relaxed text-ink-2">
-            Full production access, {user?.firstName ?? "operator"} — connect your own phone, fire a real risk
-            signal through the signed ingest path, and follow the response runbook step by step.
+            {role === "operator"
+              ? "Full production access — connect your own phone, fire a real risk signal through the signed ingest path, and follow the response runbook step by step."
+              : "Sandboxed workspace — everything a bank operator sees, with seeded cases and a metered platform voice key. Fire a signal and watch the full pipeline."}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          {role !== "operator" && (
+            <span className="flex items-center gap-1.5 rounded-full bg-amber-tint px-2.5 py-1 text-[10.5px] font-bold uppercase tracking-wide text-amber-soft" title="Sandboxed workspace — seeded data, metered platform key">
+              🟡 Demo Mode
+            </span>
+          )}
           <Chip className="!text-[10.5px]"><Coins className="h-3 w-3 text-[#8a6d1d]" /> {credits ?? "…"} credits left</Chip>
           <Chip className="!text-[10.5px]"><PhoneCall className="h-3 w-3 text-primary" /> telephony: {status?.telephony ?? "…"}</Chip>
           <Chip className="!text-[10.5px]"><Radio className="h-3 w-3 text-primary" /> voice: {status?.voiceProvider?.split(" ")[0] ?? "…"}</Chip>

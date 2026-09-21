@@ -65,35 +65,79 @@ function chainHash(prev: string, row: AuditEntry): string {
     .digest("hex");
 }
 
-/** Append a new entry to the audit chain. */
+/**
+ * Per-callRef append mutex. append() is read-last-hash → compute → create;
+ * two concurrent appends for the SAME callRef could otherwise read the same
+ * prevHash and fork the chain. Serializing them per callRef (single-node
+ * deployment) removes the race without a DB round-trip per insert. The map is
+ * bounded + swept so an attacker cycling refs cannot grow it unboundedly.
+ */
+const CHAIN_LOCKS = new Map<string, Promise<unknown>>();
+const CHAIN_LOCKS_MAX = 5_000;
+const CHAIN_LOCKS_SWEEP_EVERY = 256;
+let lockCalls = 0;
+
+/** Track settled state on a WeakSet so we never mutate the promise object. */
+const settledLocks = new WeakSet<Promise<unknown>>();
+
+async function withChainLock<T>(callRef: string, fn: () => Promise<T>): Promise<T> {
+  // Periodic sweep: drop settled locks so the map stays bounded.
+  if (++lockCalls >= CHAIN_LOCKS_SWEEP_EVERY) {
+    lockCalls = 0;
+    if (CHAIN_LOCKS.size > CHAIN_LOCKS_MAX) {
+      for (const [k, p] of CHAIN_LOCKS) {
+        if (settledLocks.has(p)) CHAIN_LOCKS.delete(k);
+      }
+      // If still over cap (sustained unique-ref flood), drop the oldest half.
+      if (CHAIN_LOCKS.size > CHAIN_LOCKS_MAX) {
+        const sorted = [...CHAIN_LOCKS.keys()];
+        for (let i = 0; i < Math.ceil(sorted.length / 2); i++) {
+          CHAIN_LOCKS.delete(sorted[i]);
+        }
+      }
+    }
+  }
+
+  const prev = CHAIN_LOCKS.get(callRef) ?? Promise.resolve();
+  const run = prev.then(fn, fn);
+  const tracked = run.finally(() => {
+    settledLocks.add(tracked);
+  });
+  CHAIN_LOCKS.set(callRef, tracked);
+  return run;
+}
+
+/** Append a new entry to the audit chain (serialized per callRef). */
 export async function append(entry: AuditEntry): Promise<{ id: string; chainHash: string }> {
   const clean = sanitize(entry);
-  const last = await db.auditLog.findFirst({
-    where: { callRef: clean.callRef },
-    orderBy: { createdAt: "desc" },
-    select: { chainHash: true },
+  return withChainLock(clean.callRef, async () => {
+    const last = await db.auditLog.findFirst({
+      where: { callRef: clean.callRef },
+      orderBy: { createdAt: "desc" },
+      select: { chainHash: true },
+    });
+    const prevHash = last?.chainHash ?? GENESIS_HASH;
+    // Compute the canonical form of meta ONCE — sort nested keys — then use the
+    // SAME bytes for hashing AND storage. verifyChain() reads meta verbatim and
+    // passes it through, so the chain stays consistent across writes and reads.
+    const canonicalMeta = clean.meta ? canonicalizeNested(clean.meta) : undefined;
+    const hash = chainHash(prevHash, { ...clean, meta: canonicalMeta as unknown as Record<string, unknown> | undefined });
+    const row = await db.auditLog.create({
+      data: {
+        callRef: clean.callRef,
+        action: clean.action,
+        intent: clean.intent,
+        callerId: clean.callerId,
+        redactedText: clean.redactedText,
+        meta: canonicalMeta,
+        orgId: clean.orgId,
+        prevHash,
+        chainHash: hash,
+      },
+      select: { id: true, chainHash: true },
+    });
+    return row;
   });
-  const prevHash = last?.chainHash ?? GENESIS_HASH;
-  // Compute the canonical form of meta ONCE — sort nested keys — then use the
-  // SAME bytes for hashing AND storage. verifyChain() reads meta verbatim and
-  // passes it through, so the chain stays consistent across writes and reads.
-  const canonicalMeta = clean.meta ? canonicalizeNested(clean.meta) : undefined;
-  const hash = chainHash(prevHash, { ...clean, meta: canonicalMeta as unknown as Record<string, unknown> | undefined });
-  const row = await db.auditLog.create({
-    data: {
-      callRef: clean.callRef,
-      action: clean.action,
-      intent: clean.intent,
-      callerId: clean.callerId,
-      redactedText: clean.redactedText,
-      meta: canonicalMeta,
-      orgId: clean.orgId,
-      prevHash,
-      chainHash: hash,
-    },
-    select: { id: true, chainHash: true },
-  });
-  return row;
 }
 
 /** Recursively sort keys at every depth. */
@@ -109,14 +153,36 @@ export type ChainVerification =
   | { ok: true; rows: number }
   | { ok: false; brokenAt: string; expected: string; actual: string; rows: number };
 
-/** Walk a call's audit chain and verify every link. */
+/**
+ * Walk a call's audit chain by FOLLOWING the prev-hash links (genesis → each
+ * child), not by createdAt order — two rows can share a millisecond timestamp,
+ * which makes timestamp-ordered verification ambiguous. Also detects a fork
+ * (two rows claiming the same prevHash) and orphaned rows that hang off no
+ * link in the chain.
+ */
 export async function verifyChain(callRef: string): Promise<ChainVerification> {
   const rows = await db.auditLog.findMany({
     where: { callRef },
-    orderBy: { createdAt: "asc" },
   });
-  let prev = GENESIS_HASH;
+  // index rows by the prev-hash they claim to extend
+  const byPrev = new Map<string, typeof rows>();
   for (const row of rows) {
+    const key = row.prevHash ?? GENESIS_HASH;
+    const bucket = byPrev.get(key);
+    if (bucket) bucket.push(row);
+    else byPrev.set(key, [row]);
+  }
+
+  let prev = GENESIS_HASH;
+  const visited = new Set<string>();
+  for (;;) {
+    const candidates = byPrev.get(prev);
+    if (!candidates || candidates.length === 0) break;
+    if (candidates.length > 1) {
+      // fork: two rows extend the same link — the chain is ambiguous/broken
+      return { ok: false, brokenAt: candidates[1].id, expected: candidates[1].prevHash ?? GENESIS_HASH, actual: candidates[1].chainHash, rows: rows.length };
+    }
+    const row = candidates[0];
     // The `meta` column is stored as a JSON STRING (per append() above). We
     // canonicalize it back as that same string so the hash matches. If we
     // JSON.parse(row.meta) and let the serializer re-stringify, the bytes
@@ -127,15 +193,20 @@ export async function verifyChain(callRef: string): Promise<ChainVerification> {
       intent: row.intent ?? undefined,
       callerId: row.callerId ?? undefined,
       redactedText: row.redactedText ?? undefined,
-      // meta stored as a JSON string (append uses sorted JSON.stringify); pass
-      // it through verbatim so canonicalization reproduces the same bytes.
       meta: (row.meta ?? undefined) as unknown as Record<string, unknown> | undefined,
       orgId: (row as { orgId?: string | null }).orgId ?? undefined,
     });
-    if (row.prevHash !== prev || row.chainHash !== expected) {
+    if (row.chainHash !== expected) {
       return { ok: false, brokenAt: row.id, expected, actual: row.chainHash, rows: rows.length };
     }
     prev = row.chainHash;
+    visited.add(row.id);
+  }
+
+  if (visited.size !== rows.length) {
+    // rows exist that no chain link reaches (planted/spliced record)
+    const orphan = rows.find((r) => !visited.has(r.id));
+    return { ok: false, brokenAt: orphan?.id ?? rows[0].id, expected: prev, actual: "orphaned row", rows: rows.length };
   }
   return { ok: true, rows: rows.length };
 }

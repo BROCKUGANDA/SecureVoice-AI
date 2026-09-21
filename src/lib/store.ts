@@ -37,7 +37,7 @@ export const VIEW_ACCESS: Record<View, ViewAccess> = {
   dashboard: "user",
   product: "user",
   deck: "operator", // team appendix
-  console: "operator",
+  console: "user", // single app — demo-role users get the same Command Center with a Demo Mode badge
   settings: "operator",
 };
 export type Lang = "en" | "ar";

@@ -111,6 +111,7 @@ export function Demo() {
   const [audioOn, setAudioOn] = useState(true);
   const [callLang, setCallLang] = useState<CallLang>("en");
   const spokenRef = useRef<Set<string>>(new Set());
+  const audioBusyRef = useRef(false); // scenario clock freezes while a line is spoken
   const endRef = useRef<HTMLDivElement>(null);
   const speakSeq = useRef(0);
 
@@ -133,11 +134,14 @@ export function Demo() {
     stopVoice();
   };
 
-  /* ——— playback engine ——— */
+  /* ——— playback engine ———
+     The clock pauses while a line's audio is still speaking, so neural voice
+     always finishes naturally instead of being cut off by the next phase. */
   useEffect(() => {
     if (!running) return;
     const iv = setInterval(() => {
       setTime((prev) => {
+        if (audioBusyRef.current) return prev; // voice owns the tempo
         const next = prev + 0.1 * speed;
         if (next >= SCENARIO_TOTAL) {
           setRunning(false);
@@ -178,10 +182,13 @@ export function Demo() {
     speakSeq.current += 1;
     const seq = speakSeq.current;
     stopVoice();
+    audioBusyRef.current = true;
     const role: VoiceRole = latest.speaker === "agent" ? "agent" : "customer";
     const text = eventText(latest, callLang);
     speakText(text, callLang, role, Math.min(speed, 2)).then((neural) => {
-      if (seq !== speakSeq.current || neural) return;
+      if (seq !== speakSeq.current) return; // a newer line owns the flag now
+      audioBusyRef.current = false;
+      if (!neural) return;
       /* browser fallback already spoken inside speakText */
     });
     // pre-warm the next spoken line so the reply starts without a gap
@@ -191,7 +198,7 @@ export function Demo() {
     );
     if (next) {
       const ntext = eventText(next, callLang);
-      prefetchSpeech(ntext, TTS_VOICE[callLang][next.speaker === "agent" ? "agent" : "customer"]);
+      prefetchSpeech(ntext, TTS_VOICE[callLang][next.speaker === "agent" ? "agent" : "customer"], callLang);
     }
   }, [revealed, audioOn, started, callLang, speed, SCEN]);
 
@@ -1064,7 +1071,7 @@ function ConversationPanel({ callLang }: { callLang: CallLang }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text: clean, lang: callLang }),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({ error: "Unreadable response" }));
       if (!res.ok || !data.reply) throw new Error(data.error || "Agent unavailable");
       turnId.current += 1;
       setTurns((p) => [
@@ -1143,9 +1150,9 @@ function ConversationPanel({ callLang }: { callLang: CallLang }) {
       const res = await fetch("/api/asr", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ audio: b64, mime: "audio/wav" }),
+        body: JSON.stringify({ audio: b64, mime: "audio/wav", lang: callLang }),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({ error: "Unreadable response" }));
       if (!res.ok || !data.text) throw new Error(data.error || "Transcription failed");
       await sendTurn(data.text, Math.round(performance.now() - t0));
     } catch (e) {

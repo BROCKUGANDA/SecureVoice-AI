@@ -26,6 +26,7 @@ import { createHash } from "node:crypto";
 import { consume as consumeRateLimit } from "@/lib/ratelimit";
 import { withIdempotency } from "@/lib/idempotency";
 import { transcript as redactText } from "@/lib/redact";
+import { env, isProdVoiceMode, TTS_CACHE_TTL_MS, TTS_CACHE_MAX } from "@/lib/config";
 
 export type TtsLang = "en" | "ar" | "hi" | "ur" | "fr" | "sw";
 
@@ -50,8 +51,6 @@ export type TtsResult = {
 
 type CacheEntry = { buf: Buffer; at: number; ct: string };
 const TTS_CACHE = new Map<string, CacheEntry>();
-const TTS_CACHE_TTL_MS = 60 * 60 * 1000; // 1h
-const TTS_CACHE_MAX = 96;
 
 // separate scope/bucket from the route-level limiter so one user request
 // doesn't consume two tokens of the same 60/hour bucket
@@ -85,9 +84,7 @@ const MODEL_FOR_LANG: Partial<Record<TtsLang, string>> = {
 };
 
 /** Prod mode = a real key configured AND dry-run disabled. */
-export function isProdVoiceMode(): boolean {
-  return !!process.env.ELEVENLABS_API_KEY && process.env.ELEVENLABS_DRY_RUN !== "true";
-}
+export { isProdVoiceMode };
 
 /** The set of voices the /api/tts route accepts in the current mode. */
 export function allowedVoices(): Set<string> {
@@ -162,7 +159,7 @@ export async function tts(req: TtsRequest, opts?: { keyOverride?: string }): Pro
       cached: true,
       replayed: false,
       voice: req.voice,
-      model: process.env.ELEVENLABS_DRY_RUN === "true" ? "z-ai:dev" : "elevenlabs:prod",
+      model: env.elevenLabsDryRun ? "z-ai:dev" : "elevenlabs:prod",
     };
   }
 
@@ -205,24 +202,19 @@ export async function tts(req: TtsRequest, opts?: { keyOverride?: string }): Pro
 }
 
 async function callUpstreamTts(req: TtsRequest, keyOverride?: string): Promise<{ buf: Buffer; ct: string }> {
-  if (process.env.ELEVENLABS_DRY_RUN !== "true" && keyOverride) {
+  if (!env.elevenLabsDryRun && keyOverride) {
     return { buf: await callElevenLabsTts(req, keyOverride), ct: "audio/mpeg" };
   }
-  if (process.env.ELEVENLABS_DRY_RUN === "true") {
+  if (env.elevenLabsDryRun) {
     return { buf: await callZaiTts(req), ct: "audio/wav" };
   }
-  if (process.env.ELEVENLABS_API_KEY) {
+  if (env.elevenLabsApiKey) {
     return { buf: await callElevenLabsTts(req), ct: "audio/mpeg" };
   }
   // Safe default in dev: use z-ai so the demo always works.
   try {
     return { buf: await callZaiTts(req), ct: "audio/wav" };
   } catch {
-    // Last-resort fallback: a short silent WAV so the route doesn't 503 in dev.
-    // In prod, the rate limiter + idempotency + ELEVENLABS_API_KEY are all in
-    // place, so this path is unreachable. The placeholder is recognizably
-    // inaudible (zero PCM samples) so the caller can't mistake it for a real
-    // neural-voice response.
     return { buf: SILENT_WAV, ct: "audio/wav" };
   }
 }
@@ -272,10 +264,8 @@ async function callZaiTts(req: TtsRequest): Promise<Buffer> {
 }
 
 async function callElevenLabsTts(req: TtsRequest, keyOverride?: string): Promise<Buffer> {
-  // BYOK: an organization's own key takes precedence over the platform key.
-  const key = keyOverride ?? process.env.ELEVENLABS_API_KEY!;
-  // Per-language model override (Swahili → Flash v2.5); else env-pinned model.
-  const model = MODEL_FOR_LANG[req.lang] ?? process.env.ELEVENLABS_MODEL ?? "eleven_v3";
+  const key = keyOverride ?? env.elevenLabsApiKey!;
+  const model = MODEL_FOR_LANG[req.lang] ?? env.elevenLabsModel;
   const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(req.voice)}`, {
     method: "POST",
     headers: {

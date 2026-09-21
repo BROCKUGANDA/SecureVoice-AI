@@ -51,6 +51,15 @@ const nextConfig: NextConfig = {
     // Fail the build on type errors — verified clean as of this hardening pass.
     ignoreBuildErrors: false,
   },
+  // Headless-API aliases — the integration contract a bank's fraud engine
+  // follows (pitch/docs) uses the /v1/ prefix; these serve the same handlers.
+  async rewrites() {
+    return [
+      { source: "/v1/interventions", destination: "/api/interventions" },
+      { source: "/v1/enroll", destination: "/api/enroll" },
+      { source: "/v1/status", destination: "/api/status" },
+    ];
+  },
   async headers() {
     return [
       {

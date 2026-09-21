@@ -5,6 +5,9 @@ import { transcript as redactText } from "@/lib/redact";
 import { consume as consumeRateLimit } from "@/lib/ratelimit";
 import { append as auditAppend } from "@/lib/audit-chain";
 import { analyzeSentiment } from "@/lib/sentiment";
+import { draftAgentReply } from "@/lib/llm";
+import { SUPPORTED_LANGS, MAX_AGENT_TEXT_CHARS } from "@/lib/config";
+import { badRequest, tooManyRequests, unprocessable, upstreamError, parseJson } from "@/lib/api-errors";
 
 export const dynamic = "force-dynamic";
 
@@ -23,8 +26,8 @@ export const dynamic = "force-dynamic";
  */
 
 const schema = z.object({
-  text: z.string().trim().min(1).max(600),
-  lang: z.enum(["en", "ar", "hi", "ur", "fr", "sw"]).default("en"),
+  text: z.string().trim().min(1).max(MAX_AGENT_TEXT_CHARS),
+  lang: z.enum(SUPPORTED_LANGS).default("en"),
   callRef: z.string().min(3).max(64).optional(), // supplied by the client; generated if missing
   direction: z.enum(["inbound", "outbound"]).default("inbound"),
   consentRecordId: z.string().min(4).optional(),
@@ -136,25 +139,15 @@ export async function POST(req: NextRequest) {
   // 1. Rate limit BEFORE we parse the body (cheapest possible reject)
   const rl = consumeRateLimit("agent", callerId);
   if (!rl.ok) {
-    return NextResponse.json(
-      { error: "Rate limit exceeded; retry later." },
-      { status: 429, headers: { "Retry-After": String(Math.ceil(rl.retryAfterMs / 1000)) } }
-    );
+    return tooManyRequests("Rate limit exceeded; retry later.", Math.ceil(rl.retryAfterMs / 1000));
   }
 
-  let body: unknown;
-  try {
-    body = await req.json();
-  } catch {
-    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
-  }
+  const body = await parseJson(req);
+  if (body === null) return badRequest("Invalid JSON body");
 
   const parsed = schema.safeParse(body);
   if (!parsed.success) {
-    return NextResponse.json(
-      { error: "text (1–600 chars) and lang (en|ar|hi|ur) are required" },
-      { status: 422 }
-    );
+    return unprocessable(`text (1–${MAX_AGENT_TEXT_CHARS} chars) and lang (${SUPPORTED_LANGS.join("|")}) are required`);
   }
 
   // 2. Outbound consent gate (PUP compliance)
@@ -175,9 +168,13 @@ export async function POST(req: NextRequest) {
   const userInputAudit = auditUserInput(text);
   const sentimentResult = analyzeSentiment(text);
 
-  // 4. Compliance audit on the reply (deny + opening disclosure + PII redaction)
+  // 4. Draft the reply: the deterministic scripted line is the default; when a
+  //    GROQ_API_KEY is configured the LLM rephrases it in-language (never
+  //    decides the action). Compliance still audits whichever text wins.
+  const scripted = REPLIES[intent][lang];
+  const drafted = await draftAgentReply({ text, lang, intent, scriptedReply: scripted });
   const audited = auditAgentReply({
-    reply: REPLIES[intent][lang],
+    reply: drafted ?? scripted,
     intent,
     isOpening: intent === "greeting" || direction === "outbound",
     lang,
@@ -195,6 +192,7 @@ export async function POST(req: NextRequest) {
         lang,
         direction,
         replyLength: audited.reply.length,
+        llm: drafted != null,
         refused: !!audited.refused,
         suspicious: userInputAudit.suspicious,
         suspiciousReason: userInputAudit.reason,
@@ -217,6 +215,7 @@ export async function POST(req: NextRequest) {
     intent,
     action: audited.refused || sentimentResult.escalate ? "human_handoff" : baseAction,
     reply: audited.reply,
+    llm: drafted != null,
     guardrails: audited.guardrails,
     sentiment: sentimentResult.sentiment,
     escalate: sentimentResult.escalate,

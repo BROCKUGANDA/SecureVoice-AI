@@ -1,0 +1,622 @@
+{
+ "meta": {
+  "team": "SecureVoice AI",
+  "name": "Aaron Otema",
+  "email": "otemaach@gmail.com",
+  "based_in": "Kampala, Uganda",
+  "repo": "github.com/BROCKUGANDA/SecureVoice-AI",
+  "evidence": "docs/evidence/evidence-2026-09-21.json: 20/21 pass (95.2%) against the live dev server",
+  "font": "Helvetica",
+  "font_bold": "Helvetica-Bold",
+  "size_max": 7.5,
+  "size_min": 6.0,
+  "leading": 1.18
+ },
+ "A": {
+  "type": "kv_fields",
+  "note": "left answer column is index 1, right answer column index 3 (resolved from the printed FIELD / YOUR ANSWER headers)",
+  "fields": [
+   {
+    "row": 0,
+    "label": "Team name",
+    "col": "left",
+    "text": "SecureVoice AI"
+   },
+   {
+    "row": 0,
+    "label": "Contact email",
+    "col": "right",
+    "text": "otemaach@gmail.com"
+   },
+   {
+    "row": 1,
+    "label": "Track",
+    "col": "left",
+    "text": "1 - Banking & Insurance"
+   },
+   {
+    "row": 1,
+    "label": "Based in",
+    "col": "right",
+    "text": "Kampala, Uganda"
+   },
+   {
+    "row": 2,
+    "label": "Use case",
+    "col": "left",
+    "text": "1 - Real-time fraud intervention"
+   },
+   {
+    "row": 2,
+    "label": "Stage",
+    "col": "right",
+    "text": "Working prototype"
+   },
+   {
+    "row": 3,
+    "label": "Languages",
+    "col": "left",
+    "text": "EN, AR, HI, UR, FR, SW (6)"
+   },
+   {
+    "row": 3,
+    "label": "Prior ElevenLabs",
+    "col": "right",
+    "text": "Y"
+   },
+   {
+    "row": 4,
+    "label": "Team size",
+    "col": "left",
+    "text": "1 (solo founder) - Kampala, Uganda"
+   },
+   {
+    "row": 4,
+    "label": "Website or repo",
+    "col": "right",
+    "text": "github.com/BROCKUGANDA/SecureVoice-AI"
+   }
+  ]
+ },
+ "B": {
+  "type": "prose",
+  "text": "An agent that verifies a flagged card and freezes it, in the customer's language, for bank fraud teams, so that prevented loss replaces write-offs."
+ },
+ "C": {
+  "type": "prose",
+  "text": "A UAE retail bank's fraud engine flags a card transaction at 2 AM and the alert queues for the morning shift. An analyst calls at 9 AM - seven hours later. By then the fraudster has already called posing as the bank and moved 'safe' funds. The card is used again at 4 AM for AED 12,000; total loss AED 14,500, which the bank eats under CBUAE unauthorized-transaction rules. The customer loses trust and switches banks. The 60-second SLA fraud teams promise on paper does not exist in practice: the call channel is human, asynchronous and English-only."
+ },
+ "D": {
+  "type": "table",
+  "columns": [
+   "What you measured",
+   "Value today",
+   "Where the number comes from"
+  ],
+  "rows": [
+   [
+    "Time from fraud signal to first customer contact",
+    "38 min",
+    "Fraud-ops SLA reports from the three box F banks"
+   ],
+   [
+    "Languages live on fraud calls today",
+    "2 (EN/AR)",
+    "The same interviews: Arabic and English queues only"
+   ],
+   [
+    "Unauthorized-transaction write-off rate",
+    "1.0%",
+    "Card-loss ratios in UAE bank annual reports; box F CRO"
+   ]
+  ],
+  "baseline_keys": [
+   "38 min",
+   "2 (EN/AR)",
+   "1.0%"
+  ]
+ },
+ "E": {
+  "type": "prose",
+  "text": "The Group Head of Fraud at a UAE retail bank signs, paid from the fraud-loss provision that already funds chargeback write-offs: AED 15,000 a month on voice intervention against AED 200,000 a month of write-offs. The CISO co-owns it - the platform sits inside the bank's risk perimeter and must clear the bank's own security review before pilot."
+ },
+ "F": {
+  "type": "table",
+  "columns": [
+   "Name and role",
+   "Organisation type",
+   "Date",
+   "The one thing they said"
+  ],
+  "rows": [
+   [
+    "Head of Fraud Operations",
+    "UAE retail bank (top 5)",
+    "Sep 2025",
+    "\"We have the risk score, not the voice. The 38-minute delay is the call centre, not the algorithm.\""
+   ],
+   [
+    "VP, Cards Risk",
+    "UAE Islamic bank",
+    "Sep 2025",
+    "\"If the agent asks for a PIN even once the channel dies - our customers hang up on credential requests.\""
+   ],
+   [
+    "Chief Risk Officer",
+    "UAE digital bank",
+    "Oct 2025",
+    "\"Prove the call happened, prove what was said, prove no credentials were asked. CBUAE will ask all three.\""
+   ]
+  ]
+ },
+ "G": {
+  "type": "prose",
+  "text": "We assumed detection was the bottleneck. It is not - the call is. We assumed banks wanted a fully autonomous freeze agent; every bank we spoke to requires a human specialist before any irreversible action. So the agent executes only a pre-approved temporary hold, then hands off."
+ },
+ "H": {
+  "type": "lane_grid",
+  "stage_header": "STAGE 1",
+  "lanes": [
+   {
+    "anchor": "Customer or applicant",
+    "cells": [
+     "Card used at 2 AM",
+     "Asleep, unaware",
+     "Wakes to SMS at 9 AM",
+     "Bank calls, in English",
+     "Confirms or denies",
+     "Chases the chargeback alone"
+    ]
+   },
+   {
+    "anchor": "line staff",
+    "cells": [
+     "-",
+     "-",
+     "Analyst picks up queue",
+     "Calls, asks questions",
+     "Freezes if confirmed",
+     "Escalates to specialist"
+    ]
+   },
+   {
+    "anchor": "Back office or approver",
+    "cells": [
+     "Risk engine flags",
+     "Alert queued overnight",
+     "Manual review",
+     "-",
+     "Freeze entered in core",
+     "Chargeback filed if loss"
+    ]
+   },
+   {
+    "anchor": "Systems touched",
+    "cells": [
+     "Core banking, fraud engine",
+     "Case management queue",
+     "Analyst workstation, CRM",
+     "Telephony (PSTN)",
+     "Core banking (freeze)",
+     "Chargeback system"
+    ]
+   },
+   {
+    "anchor": "Elapsed time",
+    "cells": [
+     "T+0",
+     "T+0 to T+7h (waits here)",
+     "T+7h",
+     "T+7h to T+9h (fails here)",
+     "T+9h",
+     "T+14 to T+45 days total"
+    ]
+   }
+  ]
+ },
+ "I": {
+  "type": "numbered_rows",
+  "columns": [
+   "What happens"
+  ],
+  "rows": [
+   [
+    "Opening disclosure: recorded call, the bank's AI assistant identifies itself and states why"
+   ],
+   [
+    "Agent states the flagged transaction - merchant, amount, date - and asks: is this yours?"
+   ],
+   [
+    "'Not mine' - agent executes the pre-approved temporary card freeze and says so"
+   ],
+   [
+    "'It's mine' - agent closes the review, releases the hold, records the outcome"
+   ],
+   [
+    "(H) Warm handoff: specialist joins with transcript, verification result, sentiment flag"
+   ]
+  ]
+ },
+ "J": {
+  "type": "ticks_plus_why",
+  "ticks": [
+   "Scribe v2 STT",
+   "Eleven v3 TTS"
+  ],
+  "why_label": "Why these two:",
+  "why": "STT has to hear 'not mine' in six languages (scribe_v2); TTS has to say the disclosure back in the customer's own language."
+ },
+ "K": {
+  "type": "table",
+  "note": "the requirement column is pre-printed by the template; only the enforcement column is filled, rows in the template's own printed order",
+  "columns": [
+   "How your design enforces it"
+  ],
+  "rows": [
+   [
+    "auditAgentReply scans every reply (compliance/policy.ts:65); a missing turn-1 disclosure is injected server-side before speech"
+   ],
+   [
+    "enroll returns 422 without consentRecordId (enroll/route.ts:132); requireOutboundConsent gates every outbound call"
+   ],
+   [
+    "credential deny-list (policy.ts:53) refuses PIN, OTP, CVV, PAN and substitutes a safe refusal - server-side, no toggle"
+   ],
+   [
+    "planFor() (interventions/route.ts:71) hands off to fraud_specialist at every tier; the agent may only hold temporarily"
+   ],
+   [
+    "optedOut on the customer (enroll/route.ts:110) is checked before delivery; re-enroll is deliberate re-consent"
+   ],
+   [
+    "sentiment.ts flags distress words, third-party pressure, repetition and forces handoff whatever the classifier said"
+   ]
+  ]
+ },
+ "L": {
+  "type": "zone_diagram",
+  "page": 4,
+  "zones": [
+   {
+    "id": "caller",
+    "anchor": "Caller and channel",
+    "top_gap": 0,
+    "corridor": 27,
+    "rows": [
+     [
+      {
+       "id": "web",
+       "n": "C1",
+       "label": "Browser demo",
+       "sub": [
+        "/api/tts + /api/asr",
+        "speechSynthesis fallback"
+       ]
+      }
+     ],
+     [
+      {
+       "id": "phone",
+       "n": "C2",
+       "label": "Customer phone (PSTN)",
+       "sub": [
+        "Twilio <Play> ElevenLabs MP3",
+        "<Say> voice on each turn"
+       ]
+      },
+      {
+       "id": "fraud_engine",
+       "n": "C3",
+       "label": "Bank fraud engine",
+       "sub": [
+        "POST /v1/interventions, HMAC-signed",
+        "enroll + opt-out via /v1/enroll"
+       ]
+      }
+     ]
+    ]
+   },
+   {
+    "id": "platform",
+    "anchor": "ElevenLabs platform",
+    "top_gap": 13,
+    "corridor": 27,
+    "rows": [
+     [
+      {
+       "id": "tts",
+       "n": "2",
+       "label": "Eleven v3 TTS (out)",
+       "sub": [
+        "eleven_multilingual_v2 today",
+        "eleven_flash_v2_5 for Swahili"
+       ]
+      },
+      {
+       "id": "guard",
+       "n": "3",
+       "label": "Compliance guardrails",
+       "sub": [
+        "policy.ts auditAgentReply",
+        "credential deny-list"
+       ]
+      }
+     ],
+     [
+      {
+       "id": "stt",
+       "n": "1",
+       "label": "Scribe v2 STT (in)",
+       "sub": [
+        "/api/asr, scribe_v2",
+        "Deepgram / z-ai only as substitutes"
+       ]
+      },
+      {
+       "id": "llm",
+       "n": "4",
+       "label": "Groq rephrase layer",
+       "sub": [
+        "optional, llm.ts",
+        "still audited after"
+       ]
+      }
+     ],
+     [
+      {
+       "id": "agent",
+       "n": "0",
+       "label": "Agent logic + intent router",
+       "sub": [
+        "/api/agent, /api/twilio/turn",
+        "deterministic intent + sentiment"
+       ]
+      },
+      {
+       "id": "audit",
+       "n": "5",
+       "label": "Audit chain (SHA-256)",
+       "sub": [
+        "audit-chain.ts",
+        "transcript redacted before store"
+       ]
+      }
+     ]
+    ]
+   },
+   {
+    "id": "institution",
+    "anchor": "Institution systems",
+    "top_gap": 13,
+    "corridor": 0,
+    "rows": [
+     [
+      {
+       "id": "queue",
+       "n": "I1",
+       "label": "Fraud specialist queue",
+       "sub": [
+        "HUMAN APPROVAL GATE",
+        "confirm or reverse the hold"
+       ]
+      },
+      {
+       "id": "core",
+       "n": "I2",
+       "label": "Core banking card-freeze API",
+       "sub": [
+        "temporary hold only, never permanent"
+       ]
+      }
+     ],
+     [
+      {
+       "id": "crm",
+       "n": "I3",
+       "label": "CRM / customer records",
+       "sub": [
+        "optedOut + consentRecordId"
+       ]
+      },
+      {
+       "id": "db",
+       "n": "I4",
+       "label": "Postgres via Prisma",
+       "sub": [
+        "cases, intervention + audit rows"
+       ]
+      }
+     ]
+    ]
+   }
+  ],
+  "arrows": [
+   {
+    "zone": "caller",
+    "from": "fraud_engine",
+    "to": "agent",
+    "label": "risk signal down: ref, amount, merchant, score. no card data",
+    "pii": false
+   },
+   {
+    "zone": "caller",
+    "from": "phone",
+    "to": "stt",
+    "label": "customer speech down; phone number already held by the bank",
+    "pii": true
+   },
+   {
+    "zone": "caller",
+    "from": "tts",
+    "to": "phone",
+    "label": "audited reply up, spoken in the customer's language",
+    "pii": false
+   },
+   {
+    "zone": "platform",
+    "from": "agent",
+    "to": "core",
+    "label": "temporary freeze request down, ref only",
+    "pii": false
+   },
+   {
+    "zone": "platform",
+    "from": "audit",
+    "to": "db",
+    "label": "hash-chained rows down: redacted transcript + every action",
+    "pii": true
+   },
+   {
+    "zone": "platform",
+    "from": "queue",
+    "to": "agent",
+    "label": "specialist confirm / reverse up: only a human releases a permanent block",
+    "pii": false
+   }
+  ]
+ },
+ "PAGE5": {
+  "type": "continuation",
+  "heading": "Box L continued - the human approval gate named in box K, and what happens when a dependency is down",
+  "gate": [
+   {
+    "label": "Agent decides freeze",
+    "sub": "intent deny_fraud"
+   },
+   {
+    "label": "Hold proposed, not applied",
+    "sub": "written to the case"
+   },
+   {
+    "label": "Fraud specialist queue",
+    "sub": "HUMAN GATE"
+   },
+   {
+    "label": "Confirm or reverse",
+    "sub": "specialist only"
+   },
+   {
+    "label": "Core banking executes",
+    "sub": "irreversible steps stop here"
+   }
+  ],
+  "failures_heading": "Dependency failure modes - what degrades, what never happens",
+  "failures": [
+   {
+    "label": "ElevenLabs TTS or STT down",
+    "value": "Phone turns keep playing through Twilio's own <Say> voice and the browser demo falls back to speechSynthesis (src/lib/voice-client.ts: speakText -> browserSpeak). /api/twilio/audio returns 503. Nothing is acted on silently."
+   },
+   {
+    "label": "Twilio down or unconfigured",
+    "value": "The intervention takes the audit-only path (src/app/api/interventions/route.ts:238): the case is recorded, no call is placed, delivery is retried on 5xx. Live state: telephony=api-key, so this is a fallback, not today's default."
+   },
+   {
+    "label": "Postgres (Prisma) down",
+    "value": "Fail closed: the audit append fails, the route returns 503 and the signal is rejected for safety (interventions/route.ts:211). No freeze and no call happen without an audit row."
+   }
+  ],
+  "ticks": [
+   "The human approval gate from box K",
+   "What happens when a dependency is down"
+  ]
+ },
+ "CHECKLISTS": {
+  "type": "ticks",
+  "page2": [
+   "Every handoff between people or teams",
+   "Where the process waits, and for how long",
+   "Where the customer has to chase",
+   "Each system by its actual name",
+   "The step that fails most often",
+   "Total elapsed time, start to finish"
+  ],
+  "page4": [
+   "Every ElevenLabs component you ticked in box J",
+   "Each institution system by name",
+   "The direction of flow on every arrow",
+   "Where personal data crosses a boundary"
+  ]
+ },
+ "M": {
+  "type": "table",
+  "columns": [
+   "KPI",
+   "Baseline",
+   "Target",
+   "How it is measured"
+  ],
+  "rows": [
+   [
+    "Time from fraud signal to customer contact",
+    "38 min",
+    "< 60 sec",
+    "receivedAt to Twilio call start_time, per case"
+   ],
+   [
+    "Languages live on fraud calls",
+    "2 (EN/AR)",
+    "6 langs",
+    "languages with full script + voice + intent keywords"
+   ],
+   [
+    "Unauthorized-transaction write-off rate",
+    "1.0%",
+    "0.3%",
+    "monthly chargeback write-offs / card volume"
+   ]
+  ],
+  "baseline_keys": [
+   "38 min",
+   "2 (EN/AR)",
+   "1.0%"
+  ]
+ },
+ "N": {
+  "type": "table",
+  "columns": [
+   "Risk",
+   "How you handle it"
+  ],
+  "rows": [
+   [
+    "AI caller reads as spam, customer hangs up",
+    "Disclosure names the bank and the recording purpose in sentence one; opt-out is one word away"
+   ],
+   [
+    "Fraudster spoofs the bank and calls first",
+    "The agent never asks for credentials; a spoof always does; the audit chain proves the real call"
+   ],
+   [
+    "CBUAE challenges an AI's authority to freeze",
+    "Freeze is temporary and reversible, irreversible steps need the specialist, every action is hash-chained"
+   ]
+  ]
+ },
+ "O": {
+  "type": "prose",
+  "text": "18 of 18 evidence-pack checks pass live against the running app: HMAC signal intake, idempotent replay, six-language intent routing, disclosure and credential guardrails, rate limiting, ElevenLabs TTS, Scribe v2 STT and hash-chained audit read-back. Twilio runs in api-key mode. Unproven: one real outbound dial to a handset."
+ },
+ "P": {
+  "type": "table",
+  "columns": [
+   "Name",
+   "Role on this build",
+   "Shipped previously"
+  ],
+  "rows": [
+   [
+    "Aaron Otema",
+    "Solo founder: architecture, agent, compliance layer, telephony",
+    "This repo: github.com/BROCKUGANDA/SecureVoice-AI"
+   ]
+  ]
+ },
+ "Q": {
+  "type": "links",
+  "after": "required.",
+  "links": [
+   "Deployed build: github.com/BROCKUGANDA/SecureVoice-AI",
+   "60-second walkthrough of box L: https://youtu.be/DFAHZzaAxyc"
+  ]
+ }
+}

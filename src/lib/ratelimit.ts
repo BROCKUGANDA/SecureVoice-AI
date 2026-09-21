@@ -1,22 +1,18 @@
 /**
- * In-process token-bucket rate limiter. Default budget: 60 calls/hour/caller,
- * 1 call/second burst. Returns 429 with a Retry-After header when exhausted.
+ * Token-bucket rate limiter with a pluggable store backend.
  *
- * The interface is deliberately Redis-shaped (`consume(scope, id, cost)`) so
- * we can swap the in-memory map for an Upstash/Redis-backed implementation
- * for production scale without changing call sites. The atomic check-and-decrement
- * lives in one place; concurrent calls within the same Node process are safe
- * because all state mutations happen inside the bucket object.
+ * Default: in-process Map (single-instance deployments).
+ * Swap for Redis: implement the RateLimitStore interface and call
+ * `setRateLimitStore()` at boot — no call-site changes needed.
  *
- * Hardening notes:
+ * Interface is deliberately Redis-shaped (`consume(scope, id, cost)`) so the
+ * atomic check-and-decrement lives in one place.
+ *
+ * Hardening:
  *  - Caller-supplied IDs (x-caller-id) are length-capped and sanitized so an
- *    attacker cannot mint unbounded unique keys (memory exhaustion) or smuggle
- *    control characters into logs/storage.
- *  - The bucket map is capped with a max size + periodic eviction of stale
+ *    attacker cannot mint unbounded unique keys (memory exhaustion).
+ *  - The bucket map is capped with max size + periodic eviction of stale
  *    buckets; a scraper cycling IDs cannot grow it forever.
- *  - A multi-instance deployment still needs a shared store. For the
- *    SecureVoice single-instance deployment the in-memory bucket is fine and
- *    the interface stays the same.
  */
 
 type Bucket = {
@@ -26,9 +22,20 @@ type Bucket = {
   lastRefill: number; // epoch ms
 };
 
-type ConsumeResult =
+export type ConsumeResult =
   | { ok: true; remaining: number; resetMs: number }
   | { ok: false; retryAfterMs: number; remaining: 0; resetMs: number };
+
+/**
+ * Pluggable store interface. Implement this with Redis/Upstash for
+ * multi-instance deployments. The default InMemoryStore is fine for
+ * single-instance (the SecureVoice reference architecture).
+ */
+export interface RateLimitStore {
+  consume(scope: string, id: string, cost: number, capacity: number, refillPerSec: number): ConsumeResult;
+}
+
+/* ── In-memory store (default) ── */
 
 const BUCKETS = new Map<string, Bucket>();
 
@@ -36,7 +43,7 @@ const BUCKETS = new Map<string, Bucket>();
 // longer than that is equivalent to a fresh bucket and can be evicted.
 const STALE_MS = 2 * 60 * 60 * 1000;
 const MAX_BUCKETS = 20_000;
-const EVICT_SWEEP_EVERY = 512; // cheap periodic sweep, amortized O(1) per call
+const EVICT_SWEEP_EVERY = 512;
 let callsSinceSweep = 0;
 
 /** Cap + sanitize an untrusted caller-supplied key component. */
@@ -49,7 +56,6 @@ function sweep(now: number): void {
   for (const [k, b] of BUCKETS) {
     if (now - b.lastRefill > STALE_MS) BUCKETS.delete(k);
   }
-  // If still over cap (sustained unique-ID flood), drop the oldest half.
   if (BUCKETS.size > MAX_BUCKETS) {
     const sorted = [...BUCKETS.entries()].sort((a, b) => a[1].lastRefill - b[1].lastRefill);
     const drop = sorted.slice(0, Math.ceil(BUCKETS.size / 2));
@@ -57,45 +63,93 @@ function sweep(now: number): void {
   }
 }
 
-function getBucket(scope: string, id: string, capacity = 60, refillPerSec = 60 / 3600): Bucket {
-  const key = `${safeId(scope)}:${safeId(id)}`;
-  const now = Date.now();
-  if (++callsSinceSweep >= EVICT_SWEEP_EVERY) {
-    callsSinceSweep = 0;
-    sweep(now);
+class InMemoryStore implements RateLimitStore {
+  consume(scope: string, id: string, cost: number, capacity: number, refillPerSec: number): ConsumeResult {
+    const key = `${safeId(scope)}:${safeId(id)}`;
+    const now = Date.now();
+    if (++callsSinceSweep >= EVICT_SWEEP_EVERY) {
+      callsSinceSweep = 0;
+      sweep(now);
+    }
+    let b = BUCKETS.get(key);
+    if (!b) {
+      b = { capacity, refillPerSec, tokens: capacity, lastRefill: now };
+      BUCKETS.set(key, b);
+    } else {
+      const elapsed = (now - b.lastRefill) / 1000;
+      b.tokens = Math.min(b.capacity, b.tokens + elapsed * b.refillPerSec);
+      b.lastRefill = now;
+    }
+    if (b.tokens >= cost) {
+      b.tokens -= cost;
+      const resetMs = Math.ceil(((capacity - b.tokens) / refillPerSec) * 1000);
+      return { ok: true, remaining: Math.floor(b.tokens), resetMs };
+    }
+    const deficit = cost - b.tokens;
+    const retryAfterMs = Math.ceil((deficit / refillPerSec) * 1000);
+    return { ok: false, retryAfterMs, remaining: 0, resetMs: retryAfterMs };
   }
-  let b = BUCKETS.get(key);
-  if (!b) {
-    b = { capacity, refillPerSec, tokens: capacity, lastRefill: now };
-    BUCKETS.set(key, b);
-  } else {
-    const elapsed = (now - b.lastRefill) / 1000;
-    b.tokens = Math.min(b.capacity, b.tokens + elapsed * b.refillPerSec);
-    b.lastRefill = now;
-  }
-  return b;
+}
+
+let store: RateLimitStore = new InMemoryStore();
+
+/** Swap the store backend (call once at boot for Redis/etc). */
+export function setRateLimitStore(s: RateLimitStore): void {
+  store = s;
 }
 
 /**
  * Try to consume `cost` tokens for (scope, id). Always returns within O(1)
- * and never throws. A caller with no token has their request denied by the
- * 429 returned from the route handler.
+ * and never throws.
  */
 export function consume(scope: string, id: string, cost = 1): ConsumeResult {
   const capacity = Number(process.env.RATE_LIMIT_PER_HOUR) || 60;
   const refillPerSec = capacity / 3600;
-  const b = getBucket(scope, id, capacity, refillPerSec);
-  if (b.tokens >= cost) {
-    b.tokens -= cost;
-    const resetMs = Math.ceil(((capacity - b.tokens) / b.refillPerSec) * 1000);
-    return { ok: true, remaining: Math.floor(b.tokens), resetMs };
-  }
-  const deficit = cost - b.tokens;
-  const retryAfterMs = Math.ceil((deficit / b.refillPerSec) * 1000);
-  return { ok: false, retryAfterMs, remaining: 0, resetMs: retryAfterMs };
+  return store.consume(scope, id, cost, capacity, refillPerSec);
 }
 
 /** Test helper. Not for production use. */
 export function _reset(): void {
   BUCKETS.clear();
 }
+
+/* ── Redis store template (reference — not wired by default) ──
+
+import Redis from "ioredis";
+
+export class RedisStore implements RateLimitStore {
+  private redis: Redis;
+  constructor(redis: Redis) { this.redis = redis; }
+
+  async consume(scope, id, cost, capacity, refillPerSec): Promise<ConsumeResult> {
+    const key = `rl:${safeId(scope)}:${safeId(id)}`;
+    // Lua script: atomic refill + check-and-decrement
+    const script = `
+      local key = KEYS[1]
+      local cost = tonumber(ARGV[1])
+      local capacity = tonumber(ARGV[2])
+      local refillPerSec = tonumber(ARGV[3])
+      local now = tonumber(ARGV[4])
+      local data = redis.call("HMGET", key, "tokens", "last")
+      local tokens = tonumber(data[1]) or capacity
+      local last = tonumber(data[2]) or now
+      local elapsed = (now - last) / 1000
+      tokens = math.min(capacity, tokens + elapsed * refillPerSec)
+      if tokens >= cost then
+        tokens = tokens - cost
+        redis.call("HMSET", key, "tokens", tokens, "last", now)
+        redis.call("EXPIRE", key, 7200)
+        return {1, math.floor(tokens)}
+      end
+      local deficit = cost - tokens
+      local retry = math.ceil(deficit / refillPerSec * 1000)
+      return {0, retry}
+    `;
+    const [ok, val] = await this.redis.eval(script, 1, key, cost, capacity, refillPerSec, Date.now()) as [number, number];
+    return ok === 1
+      ? { ok: true, remaining: val, resetMs: 0 }
+      : { ok: false, retryAfterMs: val, remaining: 0, resetMs: val };
+  }
+}
+
+*/

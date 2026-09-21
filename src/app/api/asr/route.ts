@@ -23,6 +23,7 @@ const MAX_BODY_BYTES = 34_000_000; // JSON/base64 overhead over MAX_B64_CHARS
 const schema = z.object({
   audio: z.string().min(1).max(MAX_B64_CHARS),
   mime: z.string().min(1).max(64).default("audio/webm"),
+  lang: z.string().min(2).max(8).optional(),
   callRef: z.string().min(3).max(64).optional(),
 });
 
@@ -55,10 +56,10 @@ export async function POST(req: NextRequest) {
   if (!parsed.success) {
     return NextResponse.json({ error: "Invalid ASR request" }, { status: 422 });
   }
-  const { audio, mime, callRef = `SV-A-${Math.random().toString(36).slice(2, 8).toUpperCase()}` } = parsed.data;
+  const { audio, mime, lang, callRef = `SV-A-${Math.random().toString(36).slice(2, 8).toUpperCase()}` } = parsed.data;
 
   try {
-    const text = await transcribe(audio, mime);
+    const text = await transcribe(audio, mime, lang);
     if (!text) {
       return NextResponse.json(
         { error: "No speech detected — try again a little closer to the mic." },
@@ -72,7 +73,7 @@ export async function POST(req: NextRequest) {
       action: "asr",
       callerId,
       redactedText: redactText(text).slice(0, 200),
-      meta: { mime, latencyMs: Date.now() - started },
+      meta: { mime, lang: lang ?? null, latencyMs: Date.now() - started },
     }).catch((err) => {
       console.error("[asr] audit append failed:", err instanceof Error ? err.message : err);
     });
@@ -87,13 +88,23 @@ export async function POST(req: NextRequest) {
   }
 }
 
-async function transcribe(audioB64: string, mime: string): Promise<string> {
-  // Vendor selection — mirror the TTS wrapper's pattern.
+async function transcribe(audioB64: string, mime: string, lang?: string): Promise<string> {
+  // Vendor chain: ElevenLabs Scribe (if configured) → Deepgram nova-2 (fast,
+  // independent vendor) → z-ai dev backend. First non-empty transcript wins.
   if (process.env.ELEVENLABS_API_KEY && process.env.ELEVENLABS_DRY_RUN !== "true") {
     try {
-      return await transcribeElevenLabs(audioB64, mime);
+      const text = await transcribeElevenLabs(audioB64, mime);
+      if (text) return text;
     } catch {
-      // fall through to dev backend
+      // fall through to the next vendor
+    }
+  }
+  if (process.env.DEEPGRAM_API_KEY) {
+    try {
+      const text = await transcribeDeepgram(audioB64, mime, lang);
+      if (text) return text;
+    } catch {
+      // fall through to the dev backend
     }
   }
   try {
@@ -101,10 +112,39 @@ async function transcribe(audioB64: string, mime: string): Promise<string> {
   } catch {
     // Last-resort: return an empty transcript. Caller (the route) will 422
     // on empty text, telling the user to type their answer — the standard
-    // ASR failure UX. In prod with ELEVENLABS_API_KEY set, this path is
-    // unreachable.
+    // ASR failure UX. In prod with vendor keys set, this path is unreachable.
     return "";
   }
+}
+
+/** Deepgram nova-2 — low-latency fallback with a language hint when we know
+ *  it. nova-2 has NO Swahili/Urdu model: pinning an unsupported code errors
+ *  the whole request, so those (and anything unmapped) fall to `multi`
+ *  (code-switching detection) instead of a hard failure. */
+const DEEPGRAM_LANGS = new Set(["en", "ar", "fr", "hi", "es", "de", "it", "pt", "nl", "ru"]);
+
+async function transcribeDeepgram(audioB64: string, mime: string, lang?: string): Promise<string> {
+  const buf = Buffer.from(audioB64, "base64");
+  const dgLang = lang ? (DEEPGRAM_LANGS.has(lang) ? lang : "multi") : undefined;
+  const params = new URLSearchParams({ model: "nova-2", smart_format: "true" });
+  if (dgLang) params.set("language", dgLang);
+  const r = await fetch(`https://api.deepgram.com/v1/listen?${params.toString()}`, {
+    method: "POST",
+    headers: {
+      Authorization: `Token ${process.env.DEEPGRAM_API_KEY}`,
+      "Content-Type": mime || "audio/wav",
+    },
+    body: new Uint8Array(buf),
+    signal: AbortSignal.timeout(30_000),
+  });
+  if (!r.ok) {
+    const detail = await r.text().catch(() => "");
+    throw new Error(`Deepgram ${r.status}: ${detail.slice(0, 120)}`);
+  }
+  const data = (await r.json()) as {
+    results?: { channels?: { alternatives?: { transcript?: string }[] }[] };
+  };
+  return (data.results?.channels?.[0]?.alternatives?.[0]?.transcript ?? "").trim();
 }
 
 async function transcribeZai(audioB64: string): Promise<string> {

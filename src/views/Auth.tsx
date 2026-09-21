@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { SignIn, useClerk, useSignIn, useUser } from "@clerk/nextjs";
+import { SignIn, useSignIn, useUser } from "@clerk/nextjs";
 import { Copy, Check, ArrowRight, ShieldCheck, KeyRound, Loader2, LogOut } from "lucide-react";
 import { useApp } from "@/lib/store";
 import { LogoMark } from "@/components/shell/Logo";
@@ -22,9 +22,16 @@ import { cn } from "@/lib/utils";
  */
 
 const SEEDED = [
-  { role: "operator", label: "Full platform access", email: "operator@securevoice.ae", password: "SV-Operator-2026!", note: "Command Center — fire real interventions to your own phone, inspect the audit chain. 500 credits." },
-  { role: "demo", label: "Demo mode", email: "demo@securevoice.ae", password: "SV-Demo-2026!Judge", note: "Guided simulation — the full 60-second story with sample data. 25 credits." },
+  { role: "operator", label: "Full platform access", email: "operator+clerk_test@securevoice.ae", password: "SV-Operator-2026!", note: "Command Center — fire real interventions to your own phone, inspect the audit chain. 500 credits." },
+  { role: "demo", label: "Demo mode", email: "demo+clerk_test@securevoice.ae", password: "SV-Demo-2026!Judge", note: "Guided simulation — the full 60-second story with sample data. 25 credits." },
 ] as const;
+
+/** Clerk failures are ClerkError, not Error — the useful text is longMessage. */
+function describeClerkError(e: unknown): string {
+  if (!e || typeof e !== "object") return "";
+  const { longMessage, message } = e as { longMessage?: string; message?: string };
+  return longMessage || message || "";
+}
 
 /* ————— UAE-inspired SVG set (unchanged design language) ————— */
 
@@ -189,7 +196,7 @@ function DemoRequestForm() {
         disabled={busy}
         className="flex w-full items-center justify-center gap-2 rounded-full border border-[#c9a227]/50 bg-[#c9a227]/10 py-3 text-[13px] font-semibold text-[#e8c95a] transition hover:bg-[#c9a227]/20 disabled:opacity-50"
       >
-        {busy ? "Sending…" : "Request a demo"}
+        {busy ? "Sending…" : "Request a pilot"}
         <ArrowRight className="h-4 w-4" />
       </button>
     </form>
@@ -199,8 +206,7 @@ function DemoRequestForm() {
 export function Auth() {
   const { lang, setView, timedOut } = useApp();
   const { isSignedIn, user, isLoaded } = useUser();
-  const clerk = useClerk();
-  const { signIn, errors: signInErrors } = useSignIn();
+  const { signIn } = useSignIn();
   const [quickErr, setQuickErr] = useState<string | null>(null);
   const [quickBusy, setQuickBusy] = useState<string | null>(null);
   const ar = lang === "ar";
@@ -219,26 +225,66 @@ export function Auth() {
     setQuickBusy(key);
     setQuickErr(null);
     try {
-      // Clerk v7 signal flow: create with the identifier, submit the password,
-      // then activate the session the resource reports as created.
-      await signIn.create({ identifier });
-      const res = await signIn.password({ password });
-      if (res.error) throw res.error;
-      if (signIn.createdSessionId) {
-        await clerk.setActive({ session: signIn.createdSessionId });
-        // navigation happens via the isSignedIn effect above
-      } else {
-        setQuickErr("Sign-in needs an extra step — use the panel below.");
+      // Clerk v7 SignInFuture API — methods live on the `signIn` object.
+      // The typed surface doesn't expose password() on every overload, so we
+      // cast through the runtime shape we call.
+      const si = signIn as unknown as {
+        create: (p: { identifier: string }) => Promise<{ error: Error | null }>;
+        password: (p: { password: string }) => Promise<{ error: Error | null }>;
+        finalize: () => Promise<{ error: Error | null }>;
+        status: string;
+        supportedSecondFactors?: { strategy?: string }[];
+        mfa: {
+          sendEmailCode: () => Promise<{ error: Error | null }>;
+          verifyEmailCode: (p: { code: string }) => Promise<{ error: Error | null }>;
+        };
+      };
+
+      const created = await si.create({ identifier });
+      if (created.error) throw created.error;
+
+      const pw = await si.password({ password });
+      if (pw.error) throw pw.error;
+
+      if (si.status === "complete") {
+        await si.finalize();
+        return; // session active — the isSignedIn effect navigates
       }
-    } catch {
-      setQuickErr("Sign-in failed — check the credentials below and try again.");
+
+      // Device trust (auto-enabled on instances created after Nov 2025) leaves
+      // the attempt in `needs_client_trust` and asks every new device for an
+      // email code. Dev instances accept a fixed code for +clerk_test addresses,
+      // so it is completed silently here; in production the verify fails and the
+      // judge falls through to the <SignIn> panel below, which renders the same
+      // step natively. Every call stays on the hook's own `signIn` instance —
+      // finalize() only sees a created session from that one.
+      if (si.status === "needs_client_trust") {
+        if (!si.supportedSecondFactors?.some((f) => f.strategy === "email_code")) {
+          setQuickErr("Sign-in needs an extra step — use the panel below.");
+          return;
+        }
+        const sent = await si.mfa.sendEmailCode();
+        const verified = sent.error ? null : await si.mfa.verifyEmailCode({ code: "424242" });
+        const failure = sent.error ?? verified?.error ?? null;
+        if (failure || (si.status as string) !== "complete") {
+          setQuickErr(describeClerkError(failure) || "Device verification failed — use the panel below.");
+          return;
+        }
+        const done = await si.finalize();
+        if (done?.error) setQuickErr(describeClerkError(done.error));
+        return;
+      }
+
+      setQuickErr("Sign-in needs an extra step — use the panel below.");
+    } catch (err) {
+      setQuickErr(describeClerkError(err) || "Sign-in failed — check the credentials and try again.");
     } finally {
       setQuickBusy(null);
     }
   };
 
   return (
-    <div className="relative flex min-h-[calc(100vh-4rem)] flex-col items-center justify-center overflow-hidden bg-[#0c110e] px-4 py-14">
+    <div className="relative flex h-[100dvh] flex-col items-center justify-center overflow-y-auto bg-[#0c110e] px-4 py-8">
       <GeoField />
       <Horizon />
 
@@ -332,25 +378,31 @@ export function Auth() {
               </p>
             )}
 
-            {/* double-sided Clerk panels */}
-            <div className="mx-auto grid max-w-4xl gap-4 md:grid-cols-2">
-              <div className="overflow-hidden rounded-3xl border border-white/10 bg-white/[0.05] shadow-[0_40px_120px_-40px_rgba(0,0,0,0.8)] backdrop-blur-xl transition-transform duration-300 hover:-translate-y-0.5">
+            {/* double-sided Clerk panels — height-capped on desktop so the
+                page itself never scrolls; the ONLY scroll spot is inside a
+                panel (sv-scroll), keeping "one spot" scroll behavior */}
+            <div className="mx-auto grid max-w-4xl items-stretch gap-4 md:grid-cols-2">
+              <div className="flex min-h-[280px] flex-col overflow-hidden rounded-3xl border border-white/10 bg-white/[0.05] shadow-[0_40px_120px_-40px_rgba(0,0,0,0.8)] backdrop-blur-xl transition-transform duration-300 hover:-translate-y-0.5 md:max-h-[52vh]">
                 <UaeAccent />
-                <div className="sv-scroll max-h-[68vh] overflow-y-auto p-2 sm:p-3">
-                  <SignIn forceRedirectUrl="/auth" fallbackRedirectUrl="/auth" />
+                <div className="sv-scroll min-h-0 flex-1 overflow-y-auto p-2 sm:p-3">
+                  {/* routing="hash": this view is mounted at "/", which is not a Clerk
+                      catch-all route, so the default path routing throws and takes the
+                      tree down. Redirect to "/" (not "/auth", which is a client-side
+                      view, never a URL) and let the role effect above land the user. */}
+                  <SignIn routing="hash" forceRedirectUrl="/" fallbackRedirectUrl="/" />
                 </div>
               </div>
-              <div className="overflow-hidden rounded-3xl border border-white/10 bg-white/[0.05] shadow-[0_40px_120px_-40px_rgba(0,0,0,0.8)] backdrop-blur-xl transition-transform duration-300 hover:-translate-y-0.5">
+              <div className="flex min-h-[280px] flex-col overflow-hidden rounded-3xl border border-white/10 bg-white/[0.05] shadow-[0_40px_120px_-40px_rgba(0,0,0,0.8)] backdrop-blur-xl transition-transform duration-300 hover:-translate-y-0.5 md:max-h-[52vh]">
                 <UaeAccent />
-                <div className="sv-scroll max-h-[68vh] overflow-y-auto p-6 sm:p-7">
+                <div className="sv-scroll min-h-0 flex-1 overflow-y-auto p-6 sm:p-7">
                   <div className="flex items-center gap-2">
                     <Building2 className="h-4 w-4 text-green-bright" />
-                    <h2 className="font-display text-lg font-semibold text-white">{ar ? "اطلب عرضاً توضيحياً" : "Request a demo"}</h2>
+                    <h2 className="font-display text-lg font-semibold text-white">{ar ? "اطلب تجربة ميدانية" : "Request a pilot"}</h2>
                   </div>
                   <p className="mt-1.5 text-[12.5px] leading-relaxed text-white/45">
                     {ar
-                      ? "المنصة B2B — تُنشأ حسابات البنوك يدوياً مع روابط دعوة آمنة. اترك بياناتك وسيتواصل فريقنا خلال يوم عمل."
-                      : "SecureVoice is B2B — bank workspaces are provisioned manually with secure invites. Leave your details and our team responds within one business day."}
+                      ? "المنصة B2B — تُنشأ حسابات البنوك يدوياً مع روابط دعوة آمنة. نفس مسار نموذج التجربة في الصفحة الرئيسية."
+                      : "SecureVoice is B2B — bank workspaces are provisioned manually with secure invites. Same intake as the Book-a-pilot form: our fraud team responds within one business day."}
                   </p>
                   <DemoRequestForm />
                 </div>

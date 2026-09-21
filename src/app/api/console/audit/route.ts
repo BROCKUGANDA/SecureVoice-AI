@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireOperator } from "@/lib/credits";
+import { requireSignedIn } from "@/lib/credits";
 import { db } from "@/lib/db";
 import { verifyChain } from "@/lib/audit-chain";
 
@@ -15,13 +15,21 @@ export const dynamic = "force-dynamic";
  */
 
 export async function GET(req: NextRequest) {
-  const guard = await requireOperator();
+  const guard = await requireSignedIn();
   if (!guard.ok) {
     return NextResponse.json({ error: guard.error }, { status: guard.status });
   }
 
   const callRef = req.nextUrl.searchParams.get("callRef");
+  const orgId = guard.profile.orgId;
   if (callRef) {
+    // tenant check: a probe of another org's caseRef must not confirm existence
+    if (orgId) {
+      const any = await db.auditLog.findFirst({ where: { callRef: callRef.slice(0, 64) }, select: { orgId: true } });
+      if (any && any.orgId !== orgId) {
+        return NextResponse.json({ error: "Case not found in this workspace" }, { status: 404 });
+      }
+    }
     const verification = await verifyChain(callRef.slice(0, 64));
     const rows = await db.auditLog.findMany({
       where: { callRef: callRef.slice(0, 64) },
@@ -33,8 +41,9 @@ export async function GET(req: NextRequest) {
   }
 
   // Case list: the "freeze" action marks case creation in /api/interventions.
+  // Org-scoped when the session carries an active organization.
   const creations = await db.auditLog.findMany({
-    where: { action: "freeze" },
+    where: { action: "freeze", ...(orgId ? { orgId } : {}) },
     orderBy: { createdAt: "desc" },
     select: { callRef: true, intent: true, redactedText: true, meta: true, createdAt: true },
     take: 12,

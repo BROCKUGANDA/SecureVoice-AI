@@ -18,7 +18,7 @@
  * false and the interventions route degrades to audit-only (no failure).
  */
 
-import { twilioMode, isTwilioConfigured } from "@/lib/config";
+import { twilioMode, isTwilioConfigured, env as cfg } from "@/lib/config";
 
 export { twilioMode, isTwilioConfigured };
 export type { TwilioMode } from "@/lib/config";
@@ -176,7 +176,13 @@ export type CallResult =
   | { ok: false; error: string; status: number };
 
 /** Place the fraud-intervention voice call to an enrolled customer.
- *  The call is bidirectional: opening message → Gather → conversation loop. */
+ *  The call is bidirectional: opening message → Gather → conversation loop.
+ *
+ *  Pre-production guard: only a `production` deployment may dial a real
+ *  number. Under APP_ENV=staging this returns 403 and Twilio is never
+ *  contacted, so a pre-prod demo cannot reach a customer. It fails LOUDLY
+ *  rather than silently simulating, because a 403 in staging is a signal
+ *  that the environment is wired correctly. */
 export async function placeInterventionCall(args: {
   to: string;
   lang: DeliveryLang;
@@ -185,6 +191,9 @@ export async function placeInterventionCall(args: {
   origin?: string; // deployment URL for ElevenLabs <Play>
   callRef?: string; // audit chain reference
 }): Promise<CallResult> {
+  if (!cfg.canContactRealNumbers) {
+    return { ok: false, status: 403, error: `outbound_calls_disabled_${cfg.appEnv}` };
+  }
   const c = creds();
   if (!isE164(args.to)) return { ok: false, status: 422, error: "Destination phone is not E.164" };
   const res = await twilioPost(c.accountSid, c.username, c.password, "Calls.json", {
@@ -196,7 +205,8 @@ export async function placeInterventionCall(args: {
   return { ok: true, sid: String(res.data.sid ?? ""), status: String(res.data.status ?? "queued") };
 }
 
-/** Send the fraud-alert SMS (fallback / opt-in channel). */
+/** Send the fraud-alert SMS (fallback / opt-in channel).
+ *  Same pre-production guard as calls: staging never messages a real number. */
 export async function sendInterventionSms(args: {
   to: string;
   lang: DeliveryLang;
@@ -204,6 +214,9 @@ export async function sendInterventionSms(args: {
   amount?: string;
   merchant?: string;
 }): Promise<CallResult> {
+  if (!cfg.canContactRealNumbers) {
+    return { ok: false, status: 403, error: `outbound_sms_disabled_${cfg.appEnv}` };
+  }
   const c = creds();
   if (!isE164(args.to)) return { ok: false, status: 422, error: "Destination phone is not E.164" };
   const body =

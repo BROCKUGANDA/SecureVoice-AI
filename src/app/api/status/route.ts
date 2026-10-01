@@ -31,6 +31,10 @@ export async function GET() {
       service: "securevoice-api",
       version: "1.2.0",
       region: "me-central-1 · UAE",
+      // Environment posture, so a deployment's blast radius is visible
+      // from outside instead of being implicit in the branch name.
+      appEnv: env.appEnv,
+      canContactRealNumbers: env.canContactRealNumbers,
       dbLatencyMs,
       voiceProvider,
       languages: [...SUPPORTED_LANGS],

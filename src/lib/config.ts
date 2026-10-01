@@ -103,6 +103,37 @@ export const env = {
   /* Supabase */
   get supabaseUrl(): string | undefined { return process.env.SUPABASE_URL; },
   get supabasePublishableKey(): string | undefined { return process.env.SUPABASE_PUBLISHABLE_KEY; },
+
+  /* ------------------------------------------------------------------
+   * Environment posture.
+   *
+   * APP_ENV drives the one behaviour that must differ between a
+   * pre-production deployment and production: whether outbound
+   * side-effects may reach real customers. It is explicit rather than
+   * inferred from NODE_ENV so a `staging` deploy can never silently
+   * inherit production's permissions.
+   *
+   *   production  — real telephony + real voice, real customer contact.
+   *   staging     — same code, same DB, real voice, but outbound calls and
+   *                 SMS are REFUSED (403) so no real customer is dialled.
+   *   development — no external calls at all; dry-run voice.
+   *
+   * Irreversible fraud actions are unaffected: `card_freeze` never commits
+   * a freeze in ANY environment (see the route) — it can only stage a
+   * reversible request for a human specialist.
+   * ---------------------------------------------------------------- */
+  get appEnv(): "production" | "staging" | "development" {
+    const raw = (process.env.APP_ENV ?? process.env.NODE_ENV ?? "development").toLowerCase();
+    return raw === "production" || raw === "staging" ? raw : "development";
+  },
+  get isProduction(): boolean { return this.appEnv === "production"; },
+  get isStaging(): boolean { return this.appEnv === "staging"; },
+  /**
+   * True when this deployment is allowed to contact a real phone number.
+   * Only production. Everything else returns 403 on the outbound path
+   * rather than silently no-opping, so a misconfigured deploy fails loudly.
+   */
+  get canContactRealNumbers(): boolean { return this.isProduction; },
 } as const;
 
 /* ── Derived state ── */

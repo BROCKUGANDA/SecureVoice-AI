@@ -51,6 +51,14 @@ const nextConfig: NextConfig = {
     // Fail the build on type errors — verified clean as of this hardening pass.
     ignoreBuildErrors: false,
   },
+  experimental: {
+    // Proxy (src/proxy.ts) clones and buffers the request body so both it and the
+    // route handler can read it. The default cap is 10MB, but /api/asr accepts a
+    // base64 recording up to MAX_ASR_BODY_BYTES = 34_000_000 — so without this,
+    // any recording over ~7.5MB of audio reached the handler already truncated and
+    // failed `req.json()` with 400 instead of a 413. Set above the ASR limit.
+    proxyClientMaxBodySize: "40mb",
+  },
   // Headless-API aliases — the integration contract a bank's fraud engine
   // follows (pitch/docs) uses the /v1/ prefix; these serve the same handlers.
   async rewrites() {

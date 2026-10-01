@@ -44,7 +44,23 @@ const eslintConfig = [...nextCoreWebVitals, ...nextTypescript, {
     "no-useless-escape": "off",
   },
 }, {
-  ignores: ["node_modules/**", ".next/**", "out/**", "build/**", "next-env.d.ts", "examples/**", "skills"]
+  // Generated + vendored trees that are gitignored. `tool-results/` holds compiled
+  // CommonJS output from an earlier tooling run: it is not source, it is not
+  // committed, and linting it reported errors on a clean checkout — which trains
+  // everyone to ignore `bun run lint` failing. `mini-services/*/node_modules` is
+  // excluded for the same reason as the root.
+  ignores: [
+    "node_modules/**",
+    ".next/**",
+    "out/**",
+    "build/**",
+    "next-env.d.ts",
+    "examples/**",
+    "skills",
+    "tool-results/**",
+    "mini-services/*/node_modules/**",
+    "mini-services/*/.next/**",
+  ]
 }];
 
 export default eslintConfig;

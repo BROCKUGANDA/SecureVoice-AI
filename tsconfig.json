@@ -43,6 +43,7 @@
     ".next",
     "out",
     "dist",
-    "tool-results"
+    "tool-results",
+    "mini-services"
   ]
 }

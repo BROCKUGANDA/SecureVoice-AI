@@ -81,12 +81,13 @@ in-app view switcher). There are no separate `/docs`-style server routes.
 
 ## Run with Docker
 
-The reproducible, zero-setup path — Postgres, schema, seed data, and server in one command:
+The reproducible, zero-setup path — Postgres, schema, seed data, realtime push, TLS, and server in one command:
 
 ```bash
 docker compose up --build
 ```
 
+- **Caddy is the only service that publishes a port.** It terminates TLS on :443 and routes `/realtime/*` to the realtime service, everything else to the app.
 - **http://localhost:3000** is served by the Next.js standalone bundle inside a slim Bun image.
 - A **Postgres 16** service comes up on the compose network, `db-setup` applies the Prisma schema and seeds demo cases, then `app` starts.
 - Data persists in the `db-data` volume; `docker compose down -v` resets to a factory-fresh demo.
@@ -96,6 +97,40 @@ docker compose up --build
 > Prisma rejects a `file:` URL against it (`P1012: the URL must start with the protocol
 > postgresql://`). Verified empirically — don't be misled by older notes that mention
 > `prisma/db/custom.db`; this schema has always been Postgres-only.
+
+### Topology
+
+```text
+Internet ── :443 ──► Caddy (the only published port)
+                     ├─ /realtime/*  ──► realtime:4000   Bun + Socket.IO
+                     ├─ /healthz     ──► answered at the edge
+                     └─ everything else ──► app:3000    Next.js standalone
+```
+
+`app` and `realtime` are reachable only on the compose network. That is what makes
+the trust model in `src/proxy.ts` sound: it believes `X-Forwarded-For` only when the
+request carries the marker Caddy sets, and a direct-to-origin caller can forge
+anything else.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `SITE_ADDRESS` | `localhost` | Domain Caddy issues a certificate for. Must resolve to the host. |
+| `ACME_EMAIL` | `admin@example.com` | Let's Encrypt expiry notices. |
+| `REALTIME_INGEST_SECRET` | falls back to `AGENT_TOOL_SECRET` | HMAC key shared by app and realtime. Unset ⇒ realtime refuses every connection and the console silently uses SSE. |
+| `REALTIME_URL` | `http://realtime:4000` | Internal service address. **Never `localhost`** — inside the app container that is the app container. |
+| `REALTIME_ALLOWED_ORIGIN` | empty (any) | Comma-separated browser origins the socket accepts. |
+| `EDGE_RATE_LIMIT_PER_HOUR` | `600` | Pre-auth edge budget per client IP. Separate from the expensive-call API limit. |
+
+Two ways to reach the app:
+
+```bash
+docker compose up --build                    # real topology, TLS via Caddy
+docker compose --profile direct up --build   # publish :3000 directly, no TLS
+```
+
+The `direct` profile is for quick local work. It makes the origin reachable on
+its own, which means every `X-Forwarded-For` becomes forgeable and the edge layer
+falls back to one shared rate-limit bucket. Fine on a laptop; don't ship it.
 
 <details>
 <summary>Prefer plain Docker?</summary>

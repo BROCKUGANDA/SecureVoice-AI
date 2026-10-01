@@ -1,7 +1,8 @@
 # ---------------------------------------------------------------------------
 # SecureVoice AI — one-command reproducible demo
 #
-#   docker compose up --build          → http://localhost:3000
+#   docker compose up --build          → https://localhost (via Caddy)
+#   docker compose --profile direct up --build   → http://localhost:3000
 #
 # What happens:
 #   1. db  — Postgres 16 comes up on the compose network. The datasource in
@@ -10,15 +11,32 @@
 #      makes `docker compose up --build` genuinely reproducible.
 #   2. db-setup waits for it healthy, runs `prisma db push`, then seeds a
 #      realistic intervention case history so the Command Center isn't empty.
-#   3. app serves the Next.js standalone bundle on port 3000.
+#   3. realtime  — the Command Center's push path (Bun + socket.io). Holds a
+#      signing secret but NO database client: it only moves already-redacted,
+#      already-authorised events to sockets.
+#   4. app serves the Next.js standalone bundle on port 3000.
+#   5. caddy is the ONLY service that publishes a port, and terminates TLS.
+#
+# Two access paths, and why both exist:
+#   • Default (`caddy` service): the real topology. :80/:443 → caddy → app+realtime.
+#     Nothing else is reachable from outside, which is what makes the trust
+#     model in src/proxy.ts sound.
+#   • `--profile direct`: publishes app's :3000 straight to the host for quick
+#     local work. Convenient, but then the origin IS internet-reachable if the
+#     host is — and every X-Forwarded-For header becomes forgeable, so the edge
+#     layer falls back to a single shared rate-limit bucket. Fine for a laptop;
+#     do not ship it.
 #
 # To use your OWN Postgres instead of the bundled one, pass a connection
-# string via DATABASE_URL and start only the two app services:
-#   docker compose up --build db-setup app
+# string via DATABASE_URL and start only the app services:
+#   docker compose up --build db-setup app realtime caddy
 #
 # Secrets: app loads an optional local .env (ElevenLabs / Twilio / webhook
 # keys). Without one the platform boots in audit-only / dry-run mode —
 # everything works, nothing is dialed, no quota is burned. Safe for judges.
+# Realtime is also optional: with no REALTIME_INGEST_SECRET the service starts
+# but refuses every connection, /api/console/realtime-token returns 503, and the
+# console falls back to its SSE feed. Nothing breaks.
 #
 # The database lives in the named volume `db-data` and survives restarts;
 # wipe it with `docker compose down -v` for a factory-fresh demo.
@@ -47,7 +65,13 @@ services:
       context: .
       target: builder
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgresql://securevoice:securevoice@db:5432/securevoice?schema=public}
+      # FORCED, not interpolated. Docker Compose auto-loads ./.env for *variable
+      # interpolation*, so `${DATABASE_URL:-…}` would silently pick up a developer's
+      # local DATABASE_URL (e.g. a remote Supabase host) and bypass the bundled
+      # Postgres entirely — which is what broke `docker compose up` before.
+      # Compose reads env_file only for the APP's runtime secrets; to point
+      # db-setup at your own database, use COMPOSE_DB_URL below.
+      DATABASE_URL: postgresql://securevoice:securevoice@db:5432/securevoice?schema=public
     volumes:
       - db-data:/app/db
     depends_on:
@@ -57,23 +81,59 @@ services:
     restart: "no"
     command: ["sh", "-c", "bunx prisma db push --accept-data-loss --skip-generate && bun scripts/seed-demo.mjs"]
 
+  # Command Center push path. Separate image, separate trust boundary, and
+  # independently restartable: a hung socket layer must never take the API with it.
+  realtime:
+    build:
+      # Its own context — different dependency tree (socket.io, no Prisma, no Next).
+      context: ./mini-services/realtime
+    restart: unless-stopped
+    environment:
+      HOST: 0.0.0.0
+      PORT: "4000"
+      # Shared signing secret. Falls back to AGENT_TOOL_SECRET so an existing
+      # deployment needs one new variable, not two.
+      REALTIME_INGEST_SECRET: ${REALTIME_INGEST_SECRET:-${AGENT_TOOL_SECRET:-}}
+      # Comma-separated allowed browser origins. Empty = accept any (dev only).
+      REALTIME_ALLOWED_ORIGIN: ${REALTIME_ALLOWED_ORIGIN:-}
+    expose:
+      - "4000"
+    healthcheck:
+      # Liveness, not readiness: /readyz 503s until a signing secret is set, and a
+      # healthcheck that fails on a fresh clone would restart-loop forever.
+      test: ["CMD", "bun", "-e", "fetch('http://127.0.0.1:4000/healthz').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
   app:
     build:
       context: .
       target: runner
-    ports:
-      - "3000:3000"
+    restart: unless-stopped
     environment:
       HOSTNAME: 0.0.0.0
-      DATABASE_URL: ${DATABASE_URL:-postgresql://securevoice:securevoice@db:5432/securevoice?schema=public}
+      # Forced for the same reason as db-setup: an interpolated default loses to a
+      # developer's .env DATABASE_URL and would point the app at a different
+      # database than the one db-setup just seeded. Override with COMPOSE_DB_URL.
+      DATABASE_URL: postgresql://securevoice:securevoice@db:5432/securevoice?schema=public
+      # Internal service name, NEVER localhost: inside the app container,
+      # localhost is the app container. Empty = realtime disabled, console uses SSE.
+      REALTIME_URL: ${REALTIME_URL:-http://realtime:4000}
+      REALTIME_INGEST_SECRET: ${REALTIME_INGEST_SECRET:-${AGENT_TOOL_SECRET:-}}
     env_file:
       - path: .env
         required: false
     volumes:
       - db-data:/app/db
+    expose:
+      - "3000"
     depends_on:
       db-setup:
         condition: service_completed_successfully
+      realtime:
+        condition: service_started
     healthcheck:
       test: ["CMD", "bun", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
       interval: 30s
@@ -81,5 +141,57 @@ services:
       retries: 3
       start_period: 15s
 
+  # Reverse proxy — the only published port. TLS via Let's Encrypt; certificates
+  # and config persist in named volumes so a restart does not re-issue.
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp" # HTTP/3
+    environment:
+      # Domain to issue a certificate for. Must resolve to this host.
+      SITE_ADDRESS: ${SITE_ADDRESS:-localhost}
+      ACME_EMAIL: ${ACME_EMAIL:-admin@example.com}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data      # certificates + ACME account
+      - caddy-config:/config
+    depends_on:
+      app:
+        condition: service_healthy
+      realtime:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:2019/config/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # Opt-in escape hatch for local work: publish the app's :3000 directly and skip
+  # TLS. Off by default — see the note at the top of this file.
+  app-direct:
+    profiles: ["direct"]
+    build:
+      context: .
+      target: runner
+    environment:
+      HOSTNAME: 0.0.0.0
+      DATABASE_URL: postgresql://securevoice:securevoice@db:5432/securevoice?schema=public
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      - db-data:/app/db
+    ports:
+      - "3000:3000"
+    depends_on:
+      db-setup:
+        condition: service_completed_successfully
+
 volumes:
   db-data:
+  caddy-data:
+  caddy-config:

@@ -12,6 +12,7 @@ import { Chip, LiveDot, StatusPill } from "@/components/fx/core";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
+import { openRealtime, type RealtimeHandle, type RealtimeStatus } from "@/lib/realtime-client";
 
 /**
  * Operator Command Center — run the platform for real, on your own information:
@@ -187,6 +188,9 @@ export function Console() {
   const [credits, setCredits] = useState<number | null>(null);
   const [branding, setBranding] = useState<{ orgName: string | null; orgLogoUrl: string | null } | null>(null);
   const [liveFeed, setLiveFeed] = useState<string[]>([]);
+  // Realtime push path state. "unavailable" is not an error — it means the console
+  // is reading the SSE feed instead, which is exactly what it did before.
+  const [rtStatus, setRtStatus] = useState<RealtimeStatus>("connecting");
 
   const email = user?.primaryEmailAddress?.emailAddress ?? "";
   const customerRef = email ? selfRef(email) : "SELF-";
@@ -194,6 +198,10 @@ export function Console() {
   useEffect(() => {
     // async fetches resolve outside the effect body — no synchronous setState
     let alive = true;
+    // Declared here, not inside the isSignedIn block: the cleanup below closes both
+    // transports and would otherwise capture them out of scope.
+    let es: EventSource | null = null;
+    let rt: RealtimeHandle | null = null;
     fetch("/api/status").then((r) => r.json()).then((d) => alive && setStatus(d)).catch(() => {});
     if (isSignedIn) {
       fetch("/api/console/me")
@@ -206,30 +214,75 @@ export function Console() {
           if (alive && !d.error) setBranding({ orgName: d.orgName, orgLogoUrl: d.orgLogoUrl });
         })
         .catch(() => {});
-      // live pipeline feed (SSE) — audit activity as it lands
-      try {
-        const es = new EventSource("/api/console/events");
-        es.addEventListener("activity", (ev) => {
-          if (!alive) return;
-          try {
-            const rows = JSON.parse((ev as MessageEvent).data) as { callRef: string; action: string; intent: string | null; at: string }[];
-            setLiveFeed((f) => [
-              ...rows.map((r) => `${r.callRef} · ${r.action}${r.intent ? ` · ${r.intent}` : ""}`),
-              ...f,
-            ].slice(0, 4));
-          } catch {}
-        });
-        es.onerror = () => es.close();
-      } catch {}
+      // Live pipeline feed. Realtime (websocket) is the preferred transport; SSE is
+      // the always-on fallback. Both append the same rows to liveFeed, so the UI is
+      // identical either way and the console never goes blind.
+
+      const pushRow = (ref: string, action: string, intent: string | null) => {
+        if (!alive) return;
+        setLiveFeed((f) => [`${ref} · ${action}${intent ? ` · ${intent}` : ""}`, ...f].slice(0, 4));
+      };
+
+      const startSse = () => {
+        if (es || !alive) return;
+        try {
+          es = new EventSource("/api/console/events");
+          es.addEventListener("activity", (ev) => {
+            try {
+              const rows = JSON.parse((ev as MessageEvent).data) as { callRef: string; action: string; intent: string | null }[];
+              for (const r of rows) pushRow(r.callRef, r.action, r.intent ?? null);
+            } catch {}
+          });
+          es.onerror = () => es?.close();
+        } catch {}
+      };
+
+      const startRealtime = (callRefs: string[]) => {
+        openRealtime({
+          callRefs,
+          onActivity: (a, channel) => {
+            // channel is `case:<org>:<callRef>` — the ref is what the operator reads.
+            pushRow(channel.split(":")[2] ?? a.id, a.action, a.intent);
+          },
+          onStatus: (st) => alive && setRtStatus(st),
+        })
+          .then((handle) => {
+            if (!alive) {
+              handle?.close();
+              return;
+            }
+            rt = handle;
+            // SSE stays open even when realtime connects: a row written between the
+            // socket opening and the first join would otherwise be lost, and SSE is
+            // the cheap safety net for exactly that gap.
+            startSse();
+          })
+          .catch(() => startSse());
+      };
+
+      // The grant is minted from the case list, so the list has to arrive FIRST.
+      // Opening the socket before this resolves would mint a grant for zero channels
+      // and nothing would ever be pushed (→ the ordering bug this avoids).
+      (async () => {
+        let refs: string[] = [];
+        try {
+          const r = await fetch("/api/console/audit");
+          if (r.ok) {
+            const d = ((await r.json()) as { cases?: typeof cases }).cases ?? [];
+            if (alive) setCases(d);
+            refs = d.map((c) => c.callRef);
+          }
+        } catch {}
+        if (alive) startRealtime(refs);
+      })();
     }
-    (async () => {
-      try {
-        const r = await fetch("/api/console/audit");
-        if (r.ok && alive) setCases(((await r.json()) as { cases: typeof cases }).cases ?? []);
-      } catch {}
-    })();
+
     return () => {
       alive = false;
+      // Both transports must be torn down: leaving the socket open would keep it
+      // reconnecting after the operator navigates away.
+      es?.close();
+      rt?.close();
     };
   }, [isSignedIn, role]);
 
@@ -383,6 +436,24 @@ export function Console() {
             ))}
           </div>
         )}
+        {/* Transport badge sits OUTSIDE the liveFeed guard on purpose: with no
+            activity yet the console still needs to say which transport it is on.
+            Realtime is the push path; "unavailable" means SSE fallback, which is a
+            normal working state, not a fault. */}
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          <span
+            className={cn(
+              "micro rounded-full border px-2 py-1 text-[9px]",
+              rtStatus === "live"
+                ? "border-green-tint text-primary"
+                : rtStatus === "connecting"
+                  ? "border-line text-ink-2"
+                  : "border-line text-ink-3",
+            )}
+          >
+            feed: {rtStatus === "live" ? "websocket" : rtStatus === "connecting" ? "connecting" : "sse"}
+          </span>
+        </div>
       </div>
 
       <div className="mt-8 grid gap-6 lg:grid-cols-[1fr_1.1fr]">

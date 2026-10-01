@@ -1,23 +1,151 @@
-:81 {
-	@transform_port_query {
-		query XTransformPort=*
-	}
+# ---------------------------------------------------------------------------
+# SecureVoice AI — production reverse proxy (TLS + Let's Encrypt)
+#
+#   docker compose up --build        → https://<your domain>
+#
+# This is the ONLY service that publishes a port. `app` and `realtime` listen on
+# the compose network alone, so the origin is unreachable from the internet and
+# the trust model in src/proxy.ts holds: it believes X-Forwarded-For only when
+# this proxy identified itself on the connection.
+#
+# TOPOLOGY
+#   /realtime/*     → realtime:4000   websocket + presence fan-out
+#   /healthz        → answered here    so uptime probes cost nothing
+#   everything else → app:3000        Next.js standalone
+#
+# Caddy 2 gotchas this file is deliberately written around. Every one of these
+# was hit and fixed during this build — do not "simplify" them away:
+#
+#   1. There is NO way to say "omit this site block when the env var is unset".
+#      A `{$VAR::81}` default makes the block exist in EVERY config, so a
+#      production config would bind plaintext :81 alongside :443. Plaintext
+#      development therefore lives in a SEPARATE file (Caddyfile.dev), which is
+#      deliberately NOT a compose service. One variable driving two site blocks is
+#      also an error ("ambiguous site definition").
+#   2. Snippets `(name) { … }` must be DEFINED BEFORE any block that `import`s
+#      them, or Caddy fails with "File to import not found".
+#   3. There is NO `log { redact { … } }` in Caddy 2. Redaction is
+#      `log { format filter { … } }`, and inside `fields` each entry MUST be on
+#      one line — the multi-line braced form is a parse error.
+#   4. Redaction does not appear under `apps.http.logging`; look at the
+#      top-level `logging` key.
+#   5. Inside compose, a `reverse_proxy` target must be the SERVICE NAME
+#      (`app:3000`), never `localhost:3000` — localhost inside the caddy
+#      container is the caddy container itself.
+#
+# Verify with `caddy validate --config Caddyfile` before shipping. Never assume.
+# ---------------------------------------------------------------------------
+{
+	# ACME contact address for expiry notices.
+	email {$ACME_EMAIL:admin@example.com}
+	# Admin API stays internal to the container; never exposed.
+	admin off
+}
 
-	handle @transform_port_query {
-		reverse_proxy localhost:{query.XTransformPort} {
-			header_up Host {host}
-			header_up X-Forwarded-For {remote_host}
-			header_up X-Forwarded-Proto {scheme}
-			header_up X-Real-IP {remote_host}
+# ---- snippets: define before use --------------------------------------------------
+
+# Request headers shared by both upstreams.
+#
+# NOTE: `header_up` is a `reverse_proxy` subdirective — it CANNOT be imported from
+# a snippet the way `header` can, because a snippet expands to sibling directives
+# at the site level, not inside the proxy's own block. Mixing it in here fails to
+# adapt with "unrecognized directive: header_up". So the proxy-specific settings
+# live in each proxy snippet, and only site-level things are shared.
+(forwarded_headers) {
+	# The left-most X-Forwarded-For entry is the original client; this is what
+	# src/proxy.ts turns into a rate-limit key.
+	#
+	# INTENTIONALLY OVERRIDES CADDY'S DEFAULT — do not delete as "redundant".
+	# Caddy warns this is unnecessary because its default already sets the header,
+	# but the default APPENDS to a client-supplied chain. A caller sending
+	# `X-Forwarded-For: 1.2.3.4` would then reach the app as
+	# `1.2.3.4, <real-ip>`, and src/proxy.ts reads the LEFT-MOST entry as the
+	# client — so the caller picks its own rate-limit key and gets a fresh bucket
+	# per request. Setting the header outright discards anything the client sent.
+	# The origin is reachable only from this proxy, so no legitimate chain needs
+	# preserving.
+	header_up X-Forwarded-For {remote_host}
+	header_up X-Real-IP {remote_host}
+	header_up X-Forwarded-Proto {scheme}
+	header_up Host {host}
+
+	# Tell the app's edge layer that this request genuinely arrived through us.
+	# src/proxy.ts trusts X-Forwarded-For only when it sees this marker, so a forged
+	# header on a direct-to-origin request cannot buy extra rate-limit budget.
+	header_up X-SecureVoice-Proxy "1"
+
+	# DO NOT add `header_up Connection {>Connection}` here. Measured, not guessed:
+	# with that line the websocket upgrade dies with
+	#   HTTP 400 {"code":3,"message":"Bad request"} from Engine.IO,
+	# while removing only that line returns 101 Switching Protocols. Caddy already
+	# handles hop-by-hop headers and the upgrade itself, and re-setting Connection
+	# fights it. Verified with a bare proxy on :8445 (400) vs :8446 (101).
+	#
+	# Response buffering is handled per-handler with `flush_interval -1` instead,
+	# which is what keeps SSE and streamed TTS chunks unbuffered.
+}
+
+(secure_defaults) {
+	header {
+		# The app already sets these in next.config.ts; repeating them here hardens a
+		# response even if the app behind the proxy is swapped out.
+		Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		# This process is a reverse proxy, never a browser-reachable document.
+		-Server
+	}
+	encode zstd gzip
+}
+
+# ---- site: TLS only ----------------------------------------------------------------
+
+{$SITE_ADDRESS:localhost} {
+	import secure_defaults
+
+	# Realtime websocket + presence, matched BEFORE the catch-all so an app route can
+	# never claim this path. Must agree with SOCKET_PATH in
+	# mini-services/realtime/src/constants.ts.
+	handle /realtime/* {
+		reverse_proxy realtime:4000 {
+			import forwarded_headers
+			# The websocket upgrade must pass through untouched: no flush delay, and
+			# HTTP/1.1 enabled so `Upgrade:` is honoured.
+			flush_interval -1
+			transport http {
+				versions 1.1 2
+			}
 		}
 	}
 
+	# Uptime probe answered at the edge: costs nothing and does not consume the
+	# app's rate-limit bucket.
+	handle /healthz {
+		respond "ok" 200
+	}
+
 	handle {
-		reverse_proxy localhost:3000 {
-			header_up Host {host}
-			header_up X-Forwarded-For {remote_host}
-			header_up X-Forwarded-Proto {scheme}
-			header_up X-Real-IP {remote_host}
+		reverse_proxy app:3000 {
+			import forwarded_headers
+			# Next.js handles its own compression; double-compressing a streamed
+			# response only adds latency.
+			flush_interval -1
+		}
+	}
+
+	log {
+		format filter {
+			wrap console
+			fields {
+				# One line per field — see gotcha 3.
+				request>headers>Cookie delete
+				request>headers>Authorization delete
+				request>headers>X-Agent-Tool-Secret delete
+				request>headers>SV-Signature replace "[REDACTED]" "[REDACTED]"
+				# Never write a query string: signed bank payloads carry secrets in it.
+				uri query replace "[REDACTED]" "[REDACTED]"
+			}
 		}
 	}
 }

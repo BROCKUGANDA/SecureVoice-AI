@@ -1,0 +1,60 @@
+# ---------------------------------------------------------------------------
+# SecureVoice AI — PLAINTEXT reverse proxy for local development.
+#
+#   caddy run --config Caddyfile.dev
+#
+# DELIBERATELY NOT A COMPOSE SERVICE. Caddy 2 has no way to say "omit this site
+# block when the env var is unset" — a `{$VAR::81}` default makes the block exist
+# in every config, which would bind plaintext :81 alongside TLS :443 in
+# production. Separate files are the only correct way to hold the two.
+#
+# Run this yourself alongside `docker compose up db-setup app realtime`, or just
+# hit the app directly on :3000 — this file only exists so you can exercise the
+# proxy hop (and the XTransformPort pattern) without certificates.
+# ---------------------------------------------------------------------------
+
+{
+	admin off
+}
+
+(common_proxy) {
+	header_up X-Forwarded-For {remote_host}
+	header_up X-Real-IP {remote_host}
+	header_up X-Forwarded-Proto {scheme}
+	header_up Host {host}
+	header_up X-SecureVoice-Proxy "1"
+
+	# No `header_up Connection` — it breaks the websocket upgrade (400 instead of
+	# 101). See the same note in the production Caddyfile.
+}
+
+:81 {
+	# Starter-template pattern, kept working: ?XTransformPort=NNNN proxies to that
+	# port on the app's host. Handy for poking an extra local service through the
+	# same origin without adding a compose service.
+	@transform_port_query {
+		query XTransformPort=*
+	}
+	handle @transform_port_query {
+		reverse_proxy localhost:{query.XTransformPort} {
+			import common_proxy
+		}
+	}
+
+	handle /realtime/* {
+		reverse_proxy realtime:4000 {
+			import common_proxy
+			flush_interval -1
+			transport http {
+				versions 1.1 2
+			}
+		}
+	}
+
+	handle {
+		reverse_proxy app:3000 {
+			import common_proxy
+			flush_interval -1
+		}
+	}
+}

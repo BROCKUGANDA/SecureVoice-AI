@@ -1,0 +1,7 @@
+# Keep the realtime build context minimal: the Dockerfile copies exactly
+# package.json, bun.lock* and src/. Tests are not needed in the image.
+node_modules
+test
+Dockerfile
+.dockerignore
+*.log

@@ -69,7 +69,10 @@ skills-lock.json
 /skills/
 local-*
 prompt
-test
+# Bare `test` used to ignore ANY directory named test at any depth — it silently
+# swallowed mini-services/realtime/test/ (48 tests guarding the websocket service).
+# Scoped to the repo root so real test suites stay tracked.
+/test
 
 # --- submission hygiene: local scratch, never for judges ---
 .mimosa/

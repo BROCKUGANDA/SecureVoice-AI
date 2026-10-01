@@ -101,9 +101,19 @@ export function setRateLimitStore(s: RateLimitStore): void {
 /**
  * Try to consume `cost` tokens for (scope, id). Always returns within O(1)
  * and never throws.
+ *
+ * `capacityPerHour` lets a caller ask for a budget appropriate to its own
+ * traffic rather than inheriting RATE_LIMIT_PER_HOUR. That default is sized for
+ * expensive metered calls (TTS/ASR/agent turns), so reusing it for a per-request
+ * edge check would rate-limit ordinary page navigation on those same numbers —
+ * a demo visitor would be locked out after a handful of requests. Omit it and
+ * the historical behaviour is unchanged.
  */
-export function consume(scope: string, id: string, cost = 1): ConsumeResult {
-  const capacity = Number(process.env.RATE_LIMIT_PER_HOUR) || 60;
+export function consume(scope: string, id: string, cost = 1, capacityPerHour?: number): ConsumeResult {
+  // Parens are required: `??` cannot be mixed with `||` without them. An explicit
+  // capacity wins even when it is 0 — 0 is a legitimate "allow nothing" budget,
+  // which a falsy fallback would silently turn into the default.
+  const capacity = capacityPerHour ?? (Number(process.env.RATE_LIMIT_PER_HOUR) || 60);
   const refillPerSec = capacity / 3600;
   return store.consume(scope, id, cost, capacity, refillPerSec);
 }

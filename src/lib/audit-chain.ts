@@ -17,6 +17,7 @@
 
 import { createHash } from "node:crypto";
 import { db } from "@/lib/db";
+import { notifyRealtime } from "@/lib/realtime";
 
 const GENESIS_HASH = "0".repeat(64); // SHA-256 of empty; anchors the chain
 
@@ -110,7 +111,7 @@ async function withChainLock<T>(callRef: string, fn: () => Promise<T>): Promise<
 /** Append a new entry to the audit chain (serialized per callRef). */
 export async function append(entry: AuditEntry): Promise<{ id: string; chainHash: string }> {
   const clean = sanitize(entry);
-  return withChainLock(clean.callRef, async () => {
+  const row = await withChainLock(clean.callRef, async () => {
     // The read-then-write is intrinsic to a hash chain (each row commits the
     // previous row's hash), but it does NOT need two separate transactions.
     // Running both statements in ONE transaction is both cheaper and strictly
@@ -145,6 +146,25 @@ export async function append(entry: AuditEntry): Promise<{ id: string; chainHash
       });
     });
   });
+
+  // Push to the Command Center AFTER the chain write has committed, and outside
+  // the transaction: a websocket fan-out must not be able to hold a database
+  // transaction open, lengthen the write, or fail it. notifyRealtime() never
+  // rejects — if the realtime service is down the console falls back to SSE and
+  // this record is unaffected.
+  void notifyRealtime({
+    orgId: clean.orgId,
+    callRef: clean.callRef,
+    payload: {
+      id: row.id,
+      action: clean.action,
+      intent: clean.intent ?? null,
+      chainHash: row.chainHash,
+      ts: new Date().toISOString(),
+    },
+  });
+
+  return row;
 }
 
 /** Recursively sort keys at every depth. */

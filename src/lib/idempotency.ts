@@ -1,6 +1,6 @@
 /**
  * Idempotency wrapper for upstream-billing API calls (ElevenLabs TTS, ASR,
- * agent turns). Persists (scope, key, callerId) → response in SQLite for 24h
+ * agent turns). Persists (scope, key, callerId) → response in Postgres for 24h
  * so a network retry returns the cached answer instead of a second billable
  * upstream call.
  *

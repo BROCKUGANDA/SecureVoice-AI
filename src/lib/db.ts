@@ -12,11 +12,9 @@ export const db =
     // Query logging is a dev affordance; in production it leaks query params to
     // stdout and adds per-query overhead. Errors always surface.
     log: isProd ? ['error'] : ['query', 'error', 'warn'],
-    // For Postgres deployments, uncomment and tune these:
-    // datasources: { db: { url: process.env.DATABASE_URL } },
-    // For SQLite, Prisma manages the single connection internally.
-    // For Postgres, the default pool (num_cpus * 2 + 1) is usually fine;
-    // override via connection_limit in the DATABASE_URL query string:
+    // This schema is Postgres-only (`provider = "postgresql"`), so Prisma
+    // manages a real connection pool. The default size (num_cpus * 2 + 1) is
+    // usually fine; override via the connection_limit query param:
     //   postgresql://user:pass@host:5432/db?connection_limit=20&timeout=3000
   })
 

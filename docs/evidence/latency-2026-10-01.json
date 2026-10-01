@@ -1,0 +1,196 @@
+{
+  "generated_at": "2026-10-01",
+  "source": "live Next.js dev-server logs, port 3111 (before) and 3113 (after)",
+  "before_two_transactions": {
+    "authorized_card_freeze_ms": [
+      3700,
+      5200
+    ],
+    "prisma_round_trips": 6
+  },
+  "after_single_transaction": {
+    "authorized_card_freeze_warm_ms": {
+      "n": 12,
+      "median": 2450.0,
+      "min": 2200,
+      "max": 2900
+    },
+    "authorized_card_freeze_warm_application_code_ms": {
+      "n": 12,
+      "median": 2400.0,
+      "min": 2200,
+      "max": 2900
+    },
+    "cold_first_request_ms": 4100,
+    "prisma_round_trips": 4,
+    "improvement_vs_3700ms_baseline_pct": 34
+  },
+  "rejection_paths_no_db": {
+    "n": 3,
+    "median_ms": 165
+  },
+  "chain_integrity": "4-row chain verified: links_broken=0, prevHash == prior chainHash at every link, back to genesis",
+  "guardrail_suite": "8/8 passed after the change (docs/evidence/guardrails-runtime-2026-10-01.json)",
+  "samples": [
+    {
+      "path": "/api/elevenlabs/tools/card-freeze",
+      "status": 200,
+      "total_ms": 4100,
+      "next_ms": 15,
+      "proxy_ms": 43,
+      "app_ms": 4000
+    },
+    {
+      "path": "/api/elevenlabs/tools/card-freeze",
+      "status": 200,
+      "total_ms": 2500,
+      "next_ms": 19,
+      "proxy_ms": 39,
+      "app_ms": 2400
+    },
+    {
+      "path": "/api/elevenlabs/tools/card-freeze",
+      "status": 200,
+      "total_ms": 2900,
+      "next_ms": 33,
+      "proxy_ms": 35,
+      "app_ms": 2900
+    },
+    {
+      "path": "/api/elevenlabs/tools/card-freeze",
+      "status": 200,
+      "total_ms": 2800,
+      "next_ms": 11,
+      "proxy_ms": 30,
+      "app_ms": 2700
+    },
+    {
+      "path": "/api/elevenlabs/tools/card-freeze",
+      "status": 200,
+      "total_ms": 2500,
+      "next_ms": 27,
+      "proxy_ms": 67,
+      "app_ms": 2400
+    },
+    {
+      "path": "/api/elevenlabs/tools/card-freeze",
+      "status": 200,
+      "total_ms": 2400,
+      "next_ms": 14,
+      "proxy_ms": 35,
+      "app_ms": 2400
+    },
+    {
+      "path": "/api/elevenlabs/tools/card-freeze",
+      "status": 200,
+      "total_ms": 2200,
+      "next_ms": 11,
+      "proxy_ms": 29,
+      "app_ms": 2200
+    },
+    {
+      "path": "/api/elevenlabs/tools/card-freeze",
+      "status": 200,
+      "total_ms": 2800,
+      "next_ms": 13,
+      "proxy_ms": 31,
+      "app_ms": 2700
+    },
+    {
+      "path": "/api/elevenlabs/tools/card-freeze",
+      "status": 200,
+      "total_ms": 2400,
+      "next_ms": 12,
+      "proxy_ms": 19,
+      "app_ms": 2400
+    },
+    {
+      "path": "/api/elevenlabs/tools/card-freeze",
+      "status": 200,
+      "total_ms": 2400,
+      "next_ms": 5,
+      "proxy_ms": 14,
+      "app_ms": 2400
+    },
+    {
+      "path": "/api/elevenlabs/tools/card-freeze",
+      "status": 200,
+      "total_ms": 2200,
+      "next_ms": 6,
+      "proxy_ms": 25,
+      "app_ms": 2200
+    },
+    {
+      "path": "/api/elevenlabs/tools/card-freeze",
+      "status": 200,
+      "total_ms": 2400,
+      "next_ms": 8,
+      "proxy_ms": 17,
+      "app_ms": 2400
+    },
+    {
+      "path": "/api/elevenlabs/tools/card-freeze",
+      "status": 200,
+      "total_ms": 2700,
+      "next_ms": 27,
+      "proxy_ms": 43,
+      "app_ms": 2700
+    },
+    {
+      "path": "/api/elevenlabs/tools/human-handoff",
+      "status": 200,
+      "total_ms": 3400,
+      "next_ms": 929,
+      "proxy_ms": 35,
+      "app_ms": 2400
+    },
+    {
+      "path": "/api/elevenlabs/tools/card-freeze",
+      "status": 401,
+      "total_ms": 165,
+      "next_ms": 49,
+      "proxy_ms": 64,
+      "app_ms": 52
+    },
+    {
+      "path": "/api/elevenlabs/tools/card-freeze",
+      "status": 401,
+      "total_ms": 185,
+      "next_ms": 40,
+      "proxy_ms": 96,
+      "app_ms": 49
+    },
+    {
+      "path": "/api/elevenlabs/tools/card-freeze",
+      "status": 422,
+      "total_ms": 148,
+      "next_ms": 41,
+      "proxy_ms": 81,
+      "app_ms": 26
+    },
+    {
+      "path": "/api/elevenlabs/signed-url",
+      "status": 403,
+      "total_ms": 990,
+      "next_ms": 837,
+      "proxy_ms": 116,
+      "app_ms": 37
+    },
+    {
+      "path": "/api/elevenlabs/signed-url",
+      "status": 200,
+      "total_ms": 1376,
+      "next_ms": 11,
+      "proxy_ms": 33,
+      "app_ms": 1332
+    },
+    {
+      "path": "/api/elevenlabs/signed-url",
+      "status": 200,
+      "total_ms": 707,
+      "next_ms": 13,
+      "proxy_ms": 35,
+      "app_ms": 660
+    }
+  ]
+}

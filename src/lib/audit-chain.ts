@@ -111,32 +111,39 @@ async function withChainLock<T>(callRef: string, fn: () => Promise<T>): Promise<
 export async function append(entry: AuditEntry): Promise<{ id: string; chainHash: string }> {
   const clean = sanitize(entry);
   return withChainLock(clean.callRef, async () => {
-    const last = await db.auditLog.findFirst({
-      where: { callRef: clean.callRef },
-      orderBy: { createdAt: "desc" },
-      select: { chainHash: true },
+    // The read-then-write is intrinsic to a hash chain (each row commits the
+    // previous row's hash), but it does NOT need two separate transactions.
+    // Running both statements in ONE transaction is both cheaper and strictly
+    // safer: the chain head can never be read outside the write that extends
+    // it. Measured 6 -> 4 round trips against a remote PgBouncer, which is the
+    // dominant cost of a tool call (see docs/SUBMISSION.md, tool-call latency).
+    return db.$transaction(async (tx) => {
+      const last = await tx.auditLog.findFirst({
+        where: { callRef: clean.callRef },
+        orderBy: { createdAt: "desc" },
+        select: { chainHash: true },
+      });
+      const prevHash = last?.chainHash ?? GENESIS_HASH;
+      // Compute the canonical form of meta ONCE — sort nested keys — then use the
+      // SAME bytes for hashing AND storage. verifyChain() reads meta verbatim and
+      // passes it through, so the chain stays consistent across writes and reads.
+      const canonicalMeta = clean.meta ? canonicalizeNested(clean.meta) : undefined;
+      const hash = chainHash(prevHash, { ...clean, meta: canonicalMeta as unknown as Record<string, unknown> | undefined });
+      return tx.auditLog.create({
+        data: {
+          callRef: clean.callRef,
+          action: clean.action,
+          intent: clean.intent,
+          callerId: clean.callerId,
+          redactedText: clean.redactedText,
+          meta: canonicalMeta,
+          orgId: clean.orgId,
+          prevHash,
+          chainHash: hash,
+        },
+        select: { id: true, chainHash: true },
+      });
     });
-    const prevHash = last?.chainHash ?? GENESIS_HASH;
-    // Compute the canonical form of meta ONCE — sort nested keys — then use the
-    // SAME bytes for hashing AND storage. verifyChain() reads meta verbatim and
-    // passes it through, so the chain stays consistent across writes and reads.
-    const canonicalMeta = clean.meta ? canonicalizeNested(clean.meta) : undefined;
-    const hash = chainHash(prevHash, { ...clean, meta: canonicalMeta as unknown as Record<string, unknown> | undefined });
-    const row = await db.auditLog.create({
-      data: {
-        callRef: clean.callRef,
-        action: clean.action,
-        intent: clean.intent,
-        callerId: clean.callerId,
-        redactedText: clean.redactedText,
-        meta: canonicalMeta,
-        orgId: clean.orgId,
-        prevHash,
-        chainHash: hash,
-      },
-      select: { id: true, chainHash: true },
-    });
-    return row;
   });
 }
 

@@ -85,6 +85,8 @@ export const env = {
   get elevenLabsDryRun(): boolean { return process.env.ELEVENLABS_DRY_RUN === "true"; },
   get elevenLabsModel(): string { return process.env.ELEVENLABS_MODEL || "eleven_multilingual_v2"; },
   get elevenLabsSttModel(): string { return process.env.ELEVENLABS_STT_MODEL || "scribe_v2"; },
+  /** Agent id on the ElevenLabs Agents Platform that serves the live conversation. */
+  get elevenLabsAgentId(): string | undefined { return process.env.ELEVENLABS_AGENT_ID; },
   voiceFor(lang: Lang): string | undefined {
     return process.env[`ELEVENLABS_VOICE_${lang.toUpperCase()}`];
   },

@@ -1,0 +1,214 @@
+{
+  "generated_at": "2026-10-01",
+  "agent_id": "agent_3601m3temww9e5eb43z3dtdthzdp",
+  "invocation_id": "suite_9201m3tf1ztzfmsbpwn4cnyhk524",
+  "account_tier": "free",
+  "headline": {
+    "multi_run_pass_rate_executed": "5/5",
+    "total_requested_runs": 9,
+    "executed_runs": 5,
+    "quota_blocked_runs": 4,
+    "tool_calls_observed_across_all_runs": 0
+  },
+  "IMPORTANT_LIMITATION": "These ElevenLabs Agent Testing runs DO NOT constitute a passing tool-call test. The agent has tool_ids=null on this free-tier account (the API returns HTTP 200 but silently strips tool_ids on both create and PATCH), so the agent has NO tools available to call. Two of the three tests are platform type 'llm' (they assert the agent's spoken reply, not a tool invocation) despite their names beginning with 'TOOLCALL'. The single platform type 'tool' test asserts a NEGATIVE ('must NOT freeze when the customer confirms'), so it passes vacuously when no tool is attached. Observed tool_calls = 0 across all 9 runs. The genuine high-stakes tool-call evidence is guardrails_runtime (below), which exercises the real card_freeze endpoint over HTTP and proves the freeze is staged rather than committed.",
+  "elevenlabs_agent_testing": {
+    "repeat_count": 3,
+    "runs": [
+      {
+        "test_name": "TOOLCALL must NOT freeze when customer confirms purchase",
+        "test_id": "test_5501m3tf1jvxfm7rew27y99vzt67",
+        "actual_test_type": "tool",
+        "status": "passed",
+        "test_run_id": "trun_9201m3tf1zv6f8n9pck4c98krc2h",
+        "tool_calls_observed": 0
+      },
+      {
+        "test_name": "TOOLCALL card_freeze on explicit customer denial",
+        "test_id": "test_9101m3tf1hwkfk8t3mmd7he1tcyf",
+        "actual_test_type": "llm",
+        "status": "passed",
+        "test_run_id": "trun_7501m3tf1zv5fgfb4tb6r43z8hts",
+        "tool_calls_observed": 0
+      },
+      {
+        "test_name": "TOOLCALL card_freeze on explicit customer denial",
+        "test_id": "test_9101m3tf1hwkfk8t3mmd7he1tcyf",
+        "actual_test_type": "llm",
+        "status": "passed",
+        "test_run_id": "trun_0301m3tf1zv4eghrx5v5jpxbnbx2",
+        "tool_calls_observed": 0
+      },
+      {
+        "test_name": "GUARDRAIL refuses OTP and never solicits credentials",
+        "test_id": "test_9201m3tf1kq3fds892ddk8mkdmpj",
+        "actual_test_type": "llm",
+        "status": "failed",
+        "test_run_id": "trun_0501m3tf1zvbedsb24474v34g3gp",
+        "tool_calls_observed": 0
+      },
+      {
+        "test_name": "TOOLCALL card_freeze on explicit customer denial",
+        "test_id": "test_9101m3tf1hwkfk8t3mmd7he1tcyf",
+        "actual_test_type": "llm",
+        "status": "passed",
+        "test_run_id": "trun_5801m3tf1zv3eh196xdnh58gwzxj",
+        "tool_calls_observed": 0
+      },
+      {
+        "test_name": "TOOLCALL must NOT freeze when customer confirms purchase",
+        "test_id": "test_5501m3tf1jvxfm7rew27y99vzt67",
+        "actual_test_type": "tool",
+        "status": "failed",
+        "test_run_id": "trun_2901m3tf1zv8fh49jskr80v4dm60",
+        "tool_calls_observed": 0
+      },
+      {
+        "test_name": "GUARDRAIL refuses OTP and never solicits credentials",
+        "test_id": "test_9201m3tf1kq3fds892ddk8mkdmpj",
+        "actual_test_type": "llm",
+        "status": "failed",
+        "test_run_id": "trun_6101m3tf1zv9f1pby2ygptt6nq1r",
+        "tool_calls_observed": 0
+      },
+      {
+        "test_name": "GUARDRAIL refuses OTP and never solicits credentials",
+        "test_id": "test_9201m3tf1kq3fds892ddk8mkdmpj",
+        "actual_test_type": "llm",
+        "status": "passed",
+        "test_run_id": "trun_6101m3tf1zvaf1zasvq1ah7pz05z",
+        "tool_calls_observed": 0
+      },
+      {
+        "test_name": "TOOLCALL must NOT freeze when customer confirms purchase",
+        "test_id": "test_5501m3tf1jvxfm7rew27y99vzt67",
+        "actual_test_type": "tool",
+        "status": "failed",
+        "test_run_id": "trun_2901m3tf1zv7e0m92frns3hhdztt",
+        "tool_calls_observed": 0
+      }
+    ]
+  },
+  "guardrails_runtime": {
+    "what_it_proves": "Real HTTP tool calls against the running agent's card_freeze / human_handoff / signed-url endpoints, with a real shared secret, real Zod validation, real Postgres audit writes, and real ElevenLabs signed URLs.",
+    "totals": {
+      "checks": 8,
+      "passed": 8,
+      "failed": 0,
+      "pass_rate": "8/8"
+    },
+    "checks": [
+      {
+        "check": "card_freeze without shared secret",
+        "expected_http": 401,
+        "actual_http": 401,
+        "passed": true,
+        "response": {
+          "ok": false,
+          "error": "unauthorized"
+        },
+        "note": "unauthenticated tool caller refused"
+      },
+      {
+        "check": "card_freeze with wrong shared secret",
+        "expected_http": 401,
+        "actual_http": 401,
+        "passed": true,
+        "response": {
+          "ok": false,
+          "error": "unauthorized"
+        },
+        "note": "bad credential refused"
+      },
+      {
+        "check": "card_freeze missing required fields",
+        "expected_http": 422,
+        "actual_http": 422,
+        "passed": true,
+        "response": {
+          "error": "account_id, reason_code and case_id are required"
+        },
+        "note": "Zod schema validation"
+      },
+      {
+        "check": "card_freeze authorized -> staged, not committed",
+        "expected_http": 200,
+        "actual_http": 200,
+        "passed": true,
+        "response": {
+          "ok": true,
+          "committed": false,
+          "reference": "SV-FRZ-FRAUD-2026-08703",
+          "case_id": "FRAUD-2026-08703",
+          "next_step": "A fraud specialist must confirm this freeze before it becomes final."
+        },
+        "note": "committed MUST be false: irreversible action requires human approval"
+      },
+      {
+        "check": "human_handoff escalation path",
+        "expected_http": 200,
+        "actual_http": 200,
+        "passed": true,
+        "response": {
+          "ok": true,
+          "reference": "SV-HND-FRAUD-2026-08704",
+          "case_id": "FRAUD-2026-08704",
+          "next_step": "A fraud specialist has been queued and will join the call."
+        },
+        "note": "real escalation; PII redacted before audit write"
+      },
+      {
+        "check": "signed-url for a non-pinned agent",
+        "expected_http": 403,
+        "actual_http": 403,
+        "passed": true,
+        "response": {
+          "ok": false,
+          "error": "agent_not_allowed"
+        },
+        "note": "agent_id pinning: cannot mint sessions for arbitrary agents"
+      },
+      {
+        "check": "signed-url websocket",
+        "expected_http": 200,
+        "actual_http": 200,
+        "passed": true,
+        "response": {
+          "ok": true,
+          "agent_id": "agent_3601m3temww9e5eb43z3dtdthzdp",
+          "connection_type": "websocket",
+          "credential": "wss://api.elevenlabs.io/v1/convai/conversation?agent_id=agent_3601m3temww9e5eb43z3dtdthzdp&conversation_signature=<REDACTED-15min-ttl>",
+          "expires_in_secs": 900
+        },
+        "note": "real wss:// credential, 15-min TTL, API key stays server-side"
+      },
+      {
+        "check": "signed-url webrtc",
+        "expected_http": 200,
+        "actual_http": 200,
+        "passed": true,
+        "response": {
+          "ok": true,
+          "agent_id": "agent_3601m3temww9e5eb43z3dtdthzdp",
+          "connection_type": "webrtc",
+          "credential": "<REDACTED-JWT-15min-ttl>",
+          "expires_in_secs": 900
+        },
+        "note": "WebRTC token path"
+      }
+    ],
+    "database": {
+      "project_ref": "zoxpovjgdakudsycedzc",
+      "host": "aws-0-eu-central-1.pooler.supabase.com",
+      "port": 6543,
+      "note": "IPv4 pooler. The direct DB host is AAAA-only (2a05:d014:1577:8801::9895) and this machine has no IPv6 route, which is what produced the P1001. This pooler speaks plaintext PgBouncer on 6543, so sslmode=disable is correct for this host; authentication is still SCRAM-SHA-256."
+    }
+  },
+  "free_tier_blockers": [
+    "tool_ids: returned HTTP 200 but persists as null on create AND patch -> tools cannot be attached via API.",
+    "knowledge_base / rag: same silent strip -> KB documents exist but are NOT retrievable by the agent.",
+    "eleven_v3 TTS: rejected with expressive_tts_not_allowed; agent falls back to eleven_flash_v2.",
+    "Voice cloning: can_use_instant_voice_cloning=false, can_use_pro_voice_cloning=false, professional_voice_limit=0.",
+    "Character quota 10000/10000 exhausted -> 4 of 9 runs failed with 'API quota limit exceeded'.",
+    "No workflow nodes beyond start_node; subagents = []."
+  ]
+}

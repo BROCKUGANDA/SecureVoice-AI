@@ -273,8 +273,8 @@ function Quickstart({ lang }: { lang: "en" | "ar" }) {
         </h2>
         <p className="mt-2 max-w-2xl text-[14px] leading-relaxed text-ink-2">
           {t(
-            "The reference deployment below is the exact stack serving this website: Next.js route handlers, a SQLite/Postgres persistence layer, and neural voice endpoints. Swap the base URL and API key, and the same calls run inside your VPC.",
-            "النشر المرجعي أدناه هو نفس الحزمة التي تخدم هذا الموقع: معالجات مسارات Next.js، وطبقة تخزين SQLite/Postgres، ونقاط نطق عصبية. بدّل العنوان والمفتاح ليعمل داخل بنيتك.",
+            "The reference deployment below is the exact stack serving this website: Next.js route handlers, PostgreSQL persistence (via Prisma), and neural voice endpoints. Swap the base URL and API key, and the same calls run inside your VPC.",
+            "النشر المرجعي أدناه هو نفس الحزمة التي تخدم هذا الموقع: معالجات مسارات Next.js، وطبقة تخزين PostgreSQL عبر Prisma، ونقاط نطق عصبية. بدّل العنوان والمفتاح ليعمل داخل بنيتك.",
             lang
           )}
         </p>

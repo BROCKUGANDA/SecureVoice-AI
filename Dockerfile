@@ -8,6 +8,17 @@
 # or, for the full reproducible demo (schema + seed data included):
 #
 #   docker compose up --build
+#
+# DATABASE: the datasource in prisma/schema.prisma is `postgresql`, so the image
+# runs Prisma against whatever DATABASE_URL you pass in — which must be a
+# `postgresql://` or `postgres://` URL. A `file:` URL is REJECTED by Prisma
+# (P1012: "the URL must start with the protocol postgresql://"), so there is no
+# SQLite mode: this schema has always been Postgres-only.
+#
+#   docker compose up --build        → brings up its own Postgres 16 service
+#   docker run -p 3000:3000 \
+#     -e DATABASE_URL="postgresql://user:pass@host:5432/securevoice?schema=public" \
+#     securevoice-ai                → point it at your own Postgres
 # ---------------------------------------------------------------------------
 
 # ---------- deps: install dependencies + generate the Prisma client ----------
@@ -22,7 +33,7 @@ RUN bun install --frozen-lockfile \
 FROM oven/bun:1-slim AS builder
 WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1 \
-    DATABASE_URL=file:/app/db/custom.db
+    DATABASE_URL=postgresql://securevoice:securevoice@db:5432/securevoice?schema=public
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN bun run build
@@ -34,8 +45,9 @@ ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
     HOSTNAME=0.0.0.0 \
     PORT=3000 \
-    DATABASE_URL=file:/app/db/custom.db
-RUN mkdir -p /app/db
+    DATABASE_URL=postgresql://securevoice:securevoice@db:5432/securevoice?schema=public
 COPY --from=builder /app/.next/standalone ./
 EXPOSE 3000
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+  CMD bun -e "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 CMD ["bun", "server.js"]

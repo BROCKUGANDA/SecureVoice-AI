@@ -82,37 +82,64 @@ We started with the assumption that customers would prefer to *type* into a chat
 
 | Component | Used? | Why |
 |---|---|---|
-| Agents Platform | ✅ | Core platform — Agents orchestrates the conversation, calls our server-side tools for `card_freeze` and `human_handoff` |
-| Agent Workflows | ✅ | Multi-step flow (verify → confirm → freeze → handoff) is a Workflow, not a single turn |
-| Sub-agents | ❌ | One agent suffices; sub-agents add latency without adding capability here |
-| Eleven v3 TTS | ✅ | Multilingual v3 is the only neural voice that genuinely renders UAE banking-register Arabic; lower tiers mispronounce financial terms |
-| Voice Design | ✅ | We cloned four personas (EN-Male-Authoritative, AR-Female-Warm, HI-Male-Firm, UR-Female-Respectful) from licensed voice-talent recordings, each with consent URL on file |
-| Scribe v2 STT | ✅ | Scribe v2 is the only STT that handles code-switched Arabic-English (very common in UAE banking); we transcribe even our own TTS for the audit log |
-| Knowledge base + RAG | ✅ | KB holds the bank's verified fraud-disposition policy in EN/AR; agent refuses to deviate from policy text |
-| Server / client tools | ✅ | Two server tools: `card_freeze(accountId, reason)` and `human_handoff(callRef, summary)`. Both idempotent. |
+| Agents Platform | ✅ | Core platform. Real agent `agent_3601…thzdp` with a 1,862-char fraud-intervention system prompt, `trust_context`, and `scribe_realtime` ASR with 15 keyterms persisted. **Caveat: `tool_ids` are `null` on our free-tier account — see the Stage 2 blocker table.** |
+| Agent Workflows | ⚠️ **partial** | The branching flow (verify → confirm → freeze → handoff) runs in SecureVoice's own deterministic state machine (`src/app/api/agent/route.ts`, `src/app/api/twilio/turn/route.ts`) with real TwiXML `<Gather>` telephony. The ElevenLabs Workflow object currently holds only `start_node` — we have **not** ported the branch graph into the visual builder. |
+| Sub-agents | ❌ | One agent suffices; sub-agents add latency without adding capability here. `subagents: []` is deliberate, not missing. |
+| Eleven v3 TTS | ⚠️ **blocked** | Configured as the target model, but our free tier rejects it: `expressive_tts_not_allowed`. The live agent runs `eleven_flash_v2`. **We cannot claim v3 until the account is upgraded.** |
+| Voice Design / Voice Library | ❌ **not used** | **Corrected from an earlier draft that claimed four cloned personas.** Cloning is disabled on this account (`can_use_instant_voice_cloning=false`, `can_use_pro_voice_cloning=false`, `professional_voice_limit=0`). The live agent uses one stock Library voice. |
+| Scribe v2 STT | ✅ | Live and verified: `platform_settings.asr.provider = "scribe_realtime"`, `quality: high`. Chosen because it handles code-switched Arabic-English (standard in UAE banking). |
+| Keyterm biasing | ✅ | **Now actually sent** — 15 keyterms persisted on the live agent: `SecureVoice, AED, CNP, card freeze, IBAN, OTP, merchant, case id` + 7 Arabic (`بطاقة, تجميد, احتيال, معاملة, أمان, بطاقة, موثوق, مشبوه`). Previously defined in code but never transmitted; now verified on the agent record. |
+| Knowledge base + RAG | ⚠️ **partial** | Two real KB documents exist (EN + AR fraud-disposition policy `SV-FDP-2026-01` v3.2, Arabic copy corruption-checked). **But `knowledge_base` and `rag` are silently stripped on this tier, so the agent cannot retrieve them.** RAG answers and source attribution are **not yet live**. |
+| Server / webhook tools | ✅ | Two real account-level webhook tools pointing at our endpoints: `card_freeze` and `human_handoff`, both with full `api_schema`. **Not yet attached to the agent** (free-tier strip). |
+| Tool scoping & trust context | ✅ | Implemented and verified over HTTP — see box K. `trust_context` is set on the agent. |
 | MCP servers | ❌ | No MCP-native CRM in our target bank stack; we wire via signed webhooks instead |
-| Telephony (Twilio / SIP) | ✅ | Twilio SIP trunk for UAE carrier interconnect; CLI set to bank's verified number on outbound |
+| Telephony (Twilio / SIP) | ✅ | Real Twilio `<Gather>` loop in `src/app/api/twilio/turn/route.ts`. ElevenLabs-side `phone_numbers: []` — telephony is ours, not ElevenLabs'. |
 | Batch calling | ❌ | Outbound is per-event, never batch — anti-PUP & anti-spam compliance |
-| Agent Testing | ✅ | 27 conversation scenarios (3 cases × 9 perturbations: noise, accents, prompt injection, OTPs in input, multi-language, etc.) run nightly |
-| Post-call webhooks | ✅ | Signed `post-call` webhooks to bank's CRM + SIEM, redacted before send |
+| Agent Testing | ⚠️ **partial** | Real suite, real multi-run results: 3 tests × `repeat_count=3` = 9 runs, **5 executed and all 5 passed; 4 blocked by an exhausted character quota**. **Important: these do not prove a tool-call test** — observed `tool_calls` = 0 because no tools are attached. See box K and the evidence file. |
+| Post-call webhooks | ✅ | Signed `SV-Signature: t=<ts>,v1=<sha256(t.body, WEBHOOK_SECRET)>` to CRM + SIEM, PII redacted before send |
 | WhatsApp | ❌ | Out of scope for this use case (bank calls, not bank messages) |
-| Web / mobile SDKs | ✅ | Web SDK for the customer-side portal (account activity); mobile SDK deferred to Stage 2 |
-| Bring-your-own LLM | ❌ | Agents Platform's tuned model handles this; we don't need a second LLM in the loop |
+| Web / mobile SDKs | ✅ | Web SDK for the customer-side portal. Signed-URL broker at `/api/elevenlabs/signed-url` verified: returns a real `wss://…conversation_signature=` for WebSocket and a real WebRTC token, both 15-min TTL, API key never leaves the server. |
+| Bring-your-own LLM / cascading | ✅ | `conversation_config.agent.prompt.llm = gpt-4o-mini`; SecureVoice independently supports LLM cascade (Groq → Gemini → deterministic) in `src/lib/llm.ts` for its own reply layer. |
 
-**Why these two least obvious choices:**
+**The two honest caveats, stated plainly:**
 
-1. **Voice Design (cloned personas)** — banking in the UAE is a relationship business; a generic TTS voice erodes trust. We licensed four voice talents, recorded 90 minutes each, and cloned with documented consent. The cloned voice is what the regulator hears on the call recording.
-
-2. **Post-call webhooks (signed)** — every conversation must be auditable downstream by the bank's SIEM. We sign the payload with `SV-Signature: t=<ts>,v1=<sha256(t.body, WEBHOOK_SECRET)>` and redact PII (PAN, IBAN, phone, email, OTP) before signing. The bank's SIEM verifies the signature, decrypts the audit-log hash chain, and imports.
+1. **Free-tier entitlements cap what we can demonstrate.** Our ElevenLabs account is `tier=free`. The API returns HTTP 200 but silently drops `tool_ids`, `knowledge_base`, and `rag` on both agent create and PATCH. So the agent prompt, ASR keyterms, trust context, TTS voice, and the three tests are live and real — but tool attachment, RAG, and Eleven v3 are **blocked by the account tier, not by missing work**. Attaching tools and KB is a dashboard action or an upgrade; neither is something we can fix in code, and we have not pretended otherwise.
+2. **The Agent Testing pass rate is 5/5 executed, not 9/9, and it is not a tool-call test.** Four of nine runs failed on `API quota limit exceeded` (character usage hit `10000/10000`). Of the three tests, two are platform type `llm` despite their names starting with "TOOLCALL", and the single type `tool` test asserts a negative, so it passes vacuously with zero tools attached. **The real high-stakes tool-call evidence is the 8/8 runtime guardrail suite** in `docs/evidence/guardrails-runtime-2026-10-01.json`, which drives the actual `card_freeze` endpoint over HTTP and proves `committed: false`.
 
 ### K. Guardrails (every row is a code-level mechanism, not a comment)
+
+**Verified live 2026-10-01 — 8/8 runtime checks pass** (`docs/evidence/guardrails-runtime-2026-10-01.json`), driven over HTTP against the running server with a real Supabase Postgres audit write behind every call.
+
+| CHECK | EXPECTED | OBSERVED |
+|---|---|---|
+| `card_freeze` with no shared secret | 401 | **401** `{"ok":false,"error":"unauthorized"}` |
+| `card_freeze` with wrong shared secret | 401 | **401** same |
+| `card_freeze` missing required fields | 422 | **422** schema error |
+| `card_freeze` authorized | 200 + `committed:false` | **200** `committed:false`, `stage:pending_specialist` |
+| `human_handoff` escalation | 200 | **200** `SV-HND-…`, `sla_seconds:30` |
+| `signed-url` for a non-pinned agent | 403 | **403** `agent_not_allowed` |
+| `signed-url` websocket | 200 | **200** real `wss://…conversation_signature=` |
+| `signed-url` webrtc | 200 | **200** real token |
+| **PII redaction on a volunteered OTP** | 0 occurrences in DB | **0** — `482913` absent from all audit rows, rendered `[REDACTED]` |
+
+The high-stakes guarantee, in the agent's own response:
+```json
+{"ok":true,"committed":false,"reference":"SV-FRZ-FRAUD-2026-08612",
+ "case_id":"FRAUD-2026-08612",
+ "next_step":"A fraud specialist must confirm this freeze before it becomes final."}
+```
+and the matching audit row: `{"committed":false,"reason_code":"FRAUD_CONFIRMED_BY_CUSTOMER","source":"elevenlabs_agent_tool","stage":"pending_specialist"}`.
 
 | REQUIREMENT | HOW YOUR DESIGN ENFORCES IT |
 |---|---|
 | Opening disclosure | `src/lib/compliance/policy.ts → auditAgentReply()` injects the locale-specific disclosure string (`"This call is recorded to protect you"` / `"هذه المكالمة مسجلة لحمايتك"` / `"यह कॉल आपकी सुरक्षा के लिए रिकॉर्ड हो रहा है"` / `"یہ کال آپ کی حفاظت کے لیے ریکارڈ ہو رہی ہے"`) into every reply; if missing it appends the literal and flags `disclosure_injected` in the audit row |
 | Consent to be called | Outbound calls require `consentRecordId`; missing → 422 (`requireOutboundConsent`). Inbound calls are exempt (caller initiated). |
 | Verification without secrets | Agent's decision tree + reply table in `src/app/api/agent/route.ts` contains exactly four intents (`deny_fraud`, `confirm_authorized`, `greeting`, `unclear`); zero branches ask for PIN, password, OTP, CVV, or full PAN. The classifier is deterministic — no LLM in the path. |
-| Human approval point | Every `card_freeze` decision routes through `human_handoff` (specialist joins within 30 s, SLA in the bank's runbook). The agent's written summary appears in the specialist's console; specialist confirms before the freeze commits to the bank's core system. |
+| **Tool authentication** | `src/lib/agent-tool-auth.ts` requires a shared secret AND an allow-list entry **per tool name**. Both values are SHA-256 hashed before `timingSafeEqual` so a wrong-length credential returns a clean 401 instead of throwing. A secret valid for `human_handoff` does not authorize `card_freeze`. **Verified: 401/401/200 above.** |
+| **Human approval gate (high-stakes)** | `POST /api/elevenlabs/tools/card-freeze` never returns `committed:true`. It writes a reversible `pending_specialist` row and returns `committed:false` with an explicit next step. Only a human fraud specialist can finalize. **Verified in the DB row above.** |
+| **Agent pinning** | `/api/elevenlabs/signed-url` rejects any `agent_id` other than the configured one with 403 `agent_not_allowed`, so a caller cannot mint browser sessions for arbitrary agents. **Verified.** |
+| **API key containment** | The browser never receives the ElevenLabs API key; it receives only a 15-minute signed URL or WebRTC token minted server-side. **Verified — key stays in the server process.** |
+| **PII redaction before persistence** | `human_handoff` summaries are caller-supplied and untrusted, so they are passed through `src/lib/redact.ts` **before** the audit write. **Verified: volunteered OTP `482913` produced 0 rows containing it.** |
 | Opt-out path | Agent's greeting includes the bank's verified callback number in every language; user can hang up + dial back. A "do not call again" flag persists in the bank's CRM (out of our scope; bank-owned system). |
 | Escalation trigger | Agent routes to human on (a) `deny_fraud` decision, (b) prompt-injection detection (`auditUserInput` flags "ignore previous instructions", "share my otp", etc.), (c) customer sounds confused, (d) low confidence in the STT transcript. |
 
@@ -149,8 +176,11 @@ We started with the assumption that customers would prefer to *type* into a chat
 │            │                                                               │
 │            ▼                                                               │
 │   ┌─────────────────────────────────────────────────────────────────┐      │
-│   │   Agent Testing: 27 scenarios × 9 perturbations, nightly run     │      │
-│   │   Knowledge base: bank's fraud-disposition policy (EN/AR)       │      │
+│   │   Agent Testing: 3 tests × repeat_count 3 = 9 runs               │      │
+│   │   (5 executed, 5 passed; 4 quota-blocked)                       │      │
+│   │   Runtime guardrail suite: 8/8 HTTP checks against live tools   │      │
+│   │   Knowledge base: fraud-disposition policy (EN/AR) — created,    │      │
+│   │   NOT yet attached (free tier strips `rag`/`knowledge_base`)    │      │
 │   │   Post-call webhooks: signed payload to bank's CRM + SIEM       │      │
 │   └─────────────────────────────────────────────────────────────────┘      │
 └──────────────────────────────────────────────────────────────────────────────┘
@@ -160,7 +190,7 @@ We started with the assumption that customers would prefer to *type* into a chat
 ┌──────────────────────────────────────────────────────────────────────────────┐
 │                         INSTITUTION SYSTEMS ZONE                             │
 │                                                                              │
-│   [SecureVoice API /api/agent] ───writes───► [Audit Chain (SQLite, ◉)]      │
+│   [SecureVoice API /api/agent] ───writes───► [Audit Chain (Postgres, ◉)]     │
 │                                                                              │
 │   [SecureVoice API /api/tts]    ───reads───►  [ElevenLabs keyring]           │
 │                                                                              │
@@ -183,7 +213,7 @@ We started with the assumption that customers would prefer to *type* into a chat
 - Twilio → Agents Platform: SIP (encrypted), bidirectional audio
 - Web App → Agents Platform: WebSocket JSON frames (audio chunks + control)
 - Agents Platform → SecureVoice API: HTTPS POST with idempotency key (HMAC-SHA256 signed)
-- SecureVoice API → Audit Chain: Prisma ORM → SQLite (hash-chained, every row signed)
+- SecureVoice API → Audit Chain: Prisma ORM → **Supabase Postgres** (hash-chained, every row signed) via the `aws-0-eu-central-1.pooler.supabase.com:6543` IPv4 pooler
 - SecureVoice API → ElevenLabs keyring: server-side env var read, never written to logs or DB
 - SecureVoice API → Bank CRM stub: HTTPS POST + `SV-Signature: t=…,v1=…` header
 - SecureVoice API → Bank SIEM stub: same as CRM
@@ -234,10 +264,73 @@ We started with the assumption that customers would prefer to *type* into a chat
 
 ---
 
+## Stage 2 readiness — honest status against the required submissions
+
+Assessed against the criteria you were sent. Weights are the published Stage 2 criteria.
+
+| STAGE 2 SUBMISSION ITEM | STATUS | EVIDENCE / GAP |
+|---|---|---|
+| Live callable agent (test numbers) or hosted web/chat deployment | ⚠️ **partial** | ElevenLabs agent `agent_3601…thzdp` exists with a real prompt, first message, LLM, `scribe_realtime` ASR + 15 keyterms, `trust_context`, TTS voice, and a working signed-URL broker (real `wss://` + WebRTC token). **Gap: no tools/KB attached (free tier), so the agent cannot yet perform the freeze.** Twilio number and public deployment not re-verified in this pass. |
+| Recorded end-to-end demo + ≥1 failure/escalation path | ❌ **not done** | No committed `.mp4`/`.webm`/`.mov`. **The escalation path IS built and verified** (`human_handoff` → 200, `SV-HND-…`, `sla_seconds:30`) — it just has not been recorded. Highest-value remaining item. |
+| Agent Testing suite + multi-run pass rate + tool-call test on a high-stakes action | ⚠️ **partial** | Suite exists: 3 tests × `repeat_count=3` = 9 runs; **5 executed, 5 passed (100%), 4 quota-blocked**. **Honest gap: observed `tool_calls` = 0 — no tool-call test can pass meaningfully because `tool_ids` is null.** The high-stakes tool test is satisfied instead by the 8/8 runtime suite hitting the real `card_freeze` endpoint and proving `committed:false`. |
+| Transcripts + post-call analysis | ⚠️ **partial** | Post-call structure, signed webhooks and redacted transcripts exist in code; **no demo-conversation transcript artifact is committed yet.** |
+| One-page architecture diagram | ✅ | Box L above is the one-pager; **no standalone image/PDF artifact committed.** |
+| Short technical README | ✅ | `README.md` (169 lines). |
+
+### Weighted-criteria self-assessment
+
+| CRITERION | WEIGHT | HONEST READ |
+|---|---|---|
+| Working build — runs the flow end to end | 30% | **At risk.** The state machine, telephony, TTS/STT and tool endpoints all run; but the ElevenLabs agent itself has no tools attached, so the *platform-native* path does not complete the freeze. Fixable by attaching tools in the dashboard or upgrading — not by more code. |
+| Voice quality, latency, multilingual handling | 20% | **Capped by tier.** Six-language flow and code-switched Arabic-English are real; Eleven v3 and Voice Design are unavailable on `tier=free` (`expressive_tts_not_allowed`, cloning disabled), so this score is bounded no matter how good the code is. |
+| Evidence: pass rates, transcripts, analysis | 20% | **Improved this pass.** Real 8/8 runtime guardrail evidence with DB-backed verification, plus honest multi-run test data. Still missing transcripts and a recorded demo. |
+| Guardrails demonstrably enforced | 20% | **Strongest area.** 8/8 live checks: auth 401, schema 422, `committed:false` on the high-stakes action, agent pinning 403, PII redaction proven at the DB layer, API key never leaves the server. |
+| Scalability + path to named institutional pilot | (stated, unweighted) | Not yet evidenced in-repo. |
+
+### What only you can do (account-level, not code)
+
+1. **Attach the two webhook tools and the two KB documents to the agent in the ElevenLabs dashboard** — the API silently strips them on this tier. This single action converts three criteria from "partial" to real.
+2. **Upgrade off `tier=free`** to unlock Eleven v3 and Voice Design — the 20% voice criterion is tier-bound.
+3. **Reset or wait for the character quota** (it is at `10000/10000`) before rerunning the test suite for a clean 9/9.
+
+### Tool-call latency (measured, not estimated)
+
+Captured from the live dev-server logs, now a committed artifact: `docs/evidence/latency-2026-10-01.json`. **Before** is the original two-transaction `append()` (port 3111); **After** is the same code path following the single-transaction fix (port 3113, n=13 authorized calls).
+
+| REQUEST | BEFORE | AFTER | AUDIT DB WRITE |
+|---|---|---|---|
+| `card_freeze` 401 (no secret) | 108 ms | **165 ms** | no |
+| `card_freeze` 401 (wrong secret) | 159 ms | **185 ms** | no |
+| `card_freeze` 422 (schema reject) | 116 ms | **148 ms** | no |
+| `signed-url` 403 (agent not pinned) | 101 ms | **990 ms** | no |
+| `signed-url` 200 (websocket) | 1370 ms | **1376 ms** | no |
+| `signed-url` 200 (webrtc) | 735 ms | **707 ms** | no |
+| **`card_freeze` 200 (authorized)** | **3700–5200 ms** | **median 2450 ms** (range 2200–2900, n=12 warm) | **YES** |
+| **`human_handoff` 200** | **3700 ms** | **3400 ms** | **YES** |
+
+- **Authorized tool calls are ~34% faster** (median **2450 ms** vs the 3700 ms baseline; steady-state `application-code` median **2400 ms**). The one 4100 ms sample is the first request after server start — dev-mode compile, not the code path.
+- **Rejection paths stay fast and never touch the database**: median **165 ms** across 401/401/422 (application-code 26–52 ms). No Prisma query is emitted at all — auth and Zod validation reject before any DB access, so a hostile caller cannot make the audit chain do work it is not authorised to do.
+- **The remote audit write still dominates.** `append()` originally issued **6 Prisma round trips** (`BEGIN` → `SELECT … WHERE callRef` → `COMMIT` → `BEGIN` → `INSERT` → `COMMIT`). The server's own trace after the fix shows **4** (`BEGIN` → `SELECT` → `INSERT` → `COMMIT`) — one transaction. This is cheaper **and strictly safer**: the chain head can no longer be read outside the transaction that extends it.
+- **Verified safe, not assumed:** a 4-row chain written under the new single transaction verifies with `links_broken=0` and `prevHash == prior chainHash` at every link, back to genesis.
+- Remaining cost is the transatlantic round trip to a plaintext PgBouncer in `eu-central-1`; a UAE pilot would co-locate the audit write in-region and remove most of it. Steady-state median is **~12% of the ElevenLabs webhook `response_timeout_secs` of 20** — real headroom, not luck.
+
+### A Turbopack dev-cache trap (cost me a false alarm)
+
+After restarting the dev server, **every** route 404'd — including `/api/health`, which had just returned 200 — and the HTML served was the `global-error` boundary. The routes were all present on disk. Cause: a stale `.next` cache from a prior process. `rm -rf .next` restored all 22 routes immediately. If routes go 404 in this repo after adding a file, clear `.next` before debugging anything else.
+
+### Known environment gotchas (documented so they are not rediscovered painfully)
+
+- **Supabase is not paused** — its direct DB host is IPv6-only and this machine has no IPv6 route, which surfaces as `P1001`. Use `aws-0-eu-central-1.pooler.supabase.com:6543`. `/auth/v1/health` returns 200 even while the DB is unreachable.
+- `prisma db execute` / `db push` **hang** on that pooler; the Prisma client and `psql`/`psycopg2` work fine.
+- ElevenLabs signed URLs are `GET` with `agent_id` as a **query param**; a JSON body returns a bare `405`/`411` with no hint.
+- Free tier returns **HTTP 200 while silently dropping** `tool_ids`, `knowledge_base`, and `rag` — never trust the status code alone, read the field back.
+
+---
+
 ## Compliance & governance appendix
 
 - **Prohibited Use Policy (PUP):** every guardrail in box K is enforced in `src/lib/compliance/policy.ts`. See `docs/COMPLIANCE.md` for the full enumeration and the unit-test coverage matrix.
-- **Tamper-evident audit:** every agent turn, TTS call, and ASR call writes a hash-chained row to `AuditLog` (Prisma → SQLite). `verifyChain(callRef)` recomputes and reports the broken row if any link is tampered. See `src/lib/audit-chain.ts`.
+- **Tamper-evident audit:** every agent turn, TTS call, and ASR call writes a hash-chained row to `AuditLog` (Prisma → **Supabase Postgres**). `verifyChain(callRef)` recomputes and reports the broken row if any link is tampered. See `src/lib/audit-chain.ts`. *(An earlier draft of this doc said SQLite; the datasource in `prisma/schema.prisma` is `postgresql` and the live DB has 200+ rows.)*
 - **Rate limiting + idempotency:** 60 calls/hour per `caller_id` (configurable via `RATE_LIMIT_PER_HOUR`). Identical TTS/ASR requests within 24h return the stored response without a second upstream call. See `src/lib/ratelimit.ts` and `src/lib/idempotency.ts`.
 - **PII redaction:** PAN, IBAN, phone, email, OTP, CVV are redacted before any audit-log write, webhook send, or structured log line. See `src/lib/redact.ts`.
 - **Multilingual:** EN, AR, HI, UR run end-to-end (TTS + agent replies + disclosure) on the running platform. FR, BN on the roadmap (scenario packs to ship by 14 Oct).

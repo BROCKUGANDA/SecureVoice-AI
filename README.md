@@ -10,12 +10,12 @@
 [![Next.js 16](https://img.shields.io/badge/Next.js-16-000000?logo=nextdotjs&logoColor=white)](https://nextjs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org)
 [![Bun](https://img.shields.io/badge/Runtime-Bun-f9f1e1?logo=bun&logoColor=000)](https://bun.sh)
-[![Prisma + SQLite](https://img.shields.io/badge/Prisma-SQLite-2D3748?logo=prisma&logoColor=white)](https://www.prisma.io)
+[![Prisma + Postgres](https://img.shields.io/badge/Prisma-Postgres-2D3748?logo=prisma&logoColor=white)](https://www.prisma.io)
 [![ElevenLabs](https://img.shields.io/badge/Voice-ElevenLabs-000000)](https://elevenlabs.io)
 [![Twilio](https://img.shields.io/badge/Telephony-Twilio-F22F46?logo=twilio&logoColor=white)](https://www.twilio.com)
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?logo=docker&logoColor=white)](#run-with-docker)
 
-[Quickstart](#quickstart) &middot; [Run with Docker](#run-with-docker) &middot; [Demo walkthrough](#demo-walkthrough) &middot; [API surface](#api-surface) &middot; [Documentation](docs/SUBMISSION.md)
+[Quickstart](#quickstart) &middot; [Run with Docker](#run-with-docker) &middot; [Demo walkthrough](#demo-walkthrough) &middot; [API surface](#api-surface) &middot; [**Integration guide**](docs/INTEGRATION.md) &middot; [Submission](docs/SUBMISSION.md)
 
 <img src="scripts/shots/splash-new.png" alt="SecureVoice AI — fraud intervention call in progress" width="900" />
 
@@ -48,7 +48,10 @@ Today, when a bank's fraud engine flags a transaction, the case lands in a Tier�
 
 ## Quickstart
 
-> **Prerequisites:** [Bun](https://bun.sh) ≥ 1.3, Node ≥ 20 (for tooling). No database server needed — SQLite.
+> **Prerequisites:** [Bun](https://bun.sh) ≥ 1.3, Node ≥ 20 (for tooling).
+> The datasource in `prisma/schema.prisma` is **PostgreSQL** — you need a Postgres
+> server, or just use Docker below. There is **no SQLite mode** (Prisma rejects a
+> `file:` URL against a `postgresql` provider).
 
 ```bash
 # 1 — install dependencies
@@ -56,8 +59,10 @@ bun install
 
 # 2 — configure (the platform boots fine with empty keys: dry-run + audit-only)
 cp .env.example .env
+#    then set DATABASE_URL to your Postgres, e.g.
+#    DATABASE_URL="postgresql://user:pass@localhost:5432/securevoice?schema=public"
 
-# 3 — create the SQLite schema and seed a realistic case history
+# 3 — apply the schema and seed a realistic case history
 bun run db:push
 bun run db:seed
 
@@ -65,27 +70,44 @@ bun run db:seed
 bun run dev
 ```
 
-Open **[http://localhost:3000](http://localhost:3000)** — the landing page exposes the public pitch, the Docs, and the Security pages; the **Command Center** shows the live operator view.
+Open **[http://localhost:3000](http://localhost:3000)**. The site is a single-page app: the
+landing page is at `/`, and everything else — Docs, Security, Use Cases, Pilot, the
+Command Center, the live Demo — is reached by clicking through the nav (or via the
+in-app view switcher). There are no separate `/docs`-style server routes.
+
+> **Supabase users:** the direct DB host is often IPv6-only. If `prisma db push`
+> fails with `P1001` on a project you know is healthy, your host has no IPv6 route —
+> use the IPv4 pooler. See [docs/INTEGRATION.md §5](docs/INTEGRATION.md#5-run-it-yourself).
 
 ## Run with Docker
 
-The reproducible, zero-setup path — schema, seed data, and server in one command:
+The reproducible, zero-setup path — Postgres, schema, seed data, and server in one command:
 
 ```bash
 docker compose up --build
 ```
 
 - **http://localhost:3000** is served by the Next.js standalone bundle inside a slim Bun image.
-- `db-setup` provisions the SQLite schema (`prisma db push`) and seeds demo cases before `app` starts.
-- The database persists in the `db-data` volume; `docker compose down -v` resets to a factory-fresh demo.
-- A local `.env` is picked up automatically if present — without one the demo runs in dry-run mode.
+- A **Postgres 16** service comes up on the compose network, `db-setup` applies the Prisma schema and seeds demo cases, then `app` starts.
+- Data persists in the `db-data` volume; `docker compose down -v` resets to a factory-fresh demo.
+- A local `.env` is picked up automatically if present — without one the demo runs in dry-run/audit-only mode (nothing is dialled, no quota is burned). **Safe for judges.**
+
+> **No SQLite mode.** `prisma/schema.prisma` declares `provider = "postgresql"`, and
+> Prisma rejects a `file:` URL against it (`P1012: the URL must start with the protocol
+> postgresql://`). Verified empirically — don't be misled by older notes that mention
+> `prisma/db/custom.db`; this schema has always been Postgres-only.
 
 <details>
 <summary>Prefer plain Docker?</summary>
 
 ```bash
 docker build -t securevoice-ai .
-docker run -p 3000:3000 --env-file .env securevoice-ai
+
+# the image needs a Postgres (there is no SQLite mode — see above)
+docker run -p 3000:3000 \
+  -e DATABASE_URL="postgresql://securevoice:securevoice@host.docker.internal:5432/securevoice?schema=public" \
+  --env-file .env \
+  securevoice-ai
 ```
 
 </details>
@@ -103,15 +125,55 @@ docker run -p 3000:3000 --env-file .env securevoice-ai
 
 | Route | Purpose |
 |---|---|
-| `POST /api/interventions` | Bank fraud engine ingests a risk signal (signed payload) → case created, call placed |
+| `POST /api/interventions` · `/v1/interventions` | Bank fraud engine ingests a risk signal (HMAC-signed) → case created, SLA clock starts |
+| `POST /api/enroll` · `/v1/enroll` | Enroll a customer for real Twilio delivery (requires a `consentRecordId`) |
 | `POST /api/agent` | Guardrailed conversation turn API used during a live call |
-| `POST /api/tts` · `POST /api/asr` | Neural TTS / speech-to-text, language-routed voice IDs, rate-limited |
-| `POST /api/pilot` | End-to-end guided pilot (demo entry point) |
-| `POST /api/enroll` | Enroll a customer for real Twilio delivery |
+| `POST /api/tts` · `POST /api/tts/stream` · `POST /api/asr` | Neural TTS / speech-to-text, language-routed voice IDs, rate-limited |
+| `POST /api/pilot` | Guided pilot / lead capture |
 | `POST /api/webhooks` | Signed outbound phase-transition events back to the bank |
-| `GET /api/status` · `GET /api/health` | Platform status & liveness |
+| `POST /api/elevenlabs/tools/card-freeze` | ElevenLabs agent tool → **stages** a reversible freeze (always `committed:false`) |
+| `POST /api/elevenlabs/tools/human-handoff` | ElevenLabs agent tool → queue a fraud specialist |
+| `POST /api/elevenlabs/signed-url` | Mint a 15-min browser session credential; pins `ELEVENLABS_AGENT_ID` |
+| `GET /api/status` · `GET /api/health` · `GET /api/console/audit` | Status, liveness, audit chain export |
 
-Full request/response examples are on the in-app **Docs** page and in [docs/SUBMISSION.md](docs/SUBMISSION.md).
+Full request/response examples are on the in-app **Docs** page. For signing, enrolment,
+tool authorisation, and self-serve onboarding see **[docs/INTEGRATION.md](docs/INTEGRATION.md)**.
+
+## Run the ElevenLabs agent (optional, needs an account)
+
+The platform works standalone with the built-in voice pipeline. To use the **ElevenLabs
+conversational agent** instead, set `ELEVENLABS_API_KEY` + `ELEVENLABS_AGENT_ID` in `.env`.
+
+**Attach these in the ElevenLabs dashboard** (the API silently drops them on a free-tier
+account — it returns HTTP 200 and just doesn't save them):
+
+1. **Tools** → the `card_freeze` and `human_handoff` webhook tools, pointed at your
+   deployment's `/api/elevenlabs/tools/*` URLs, with your `AGENT_TOOL_SECRET` in a header.
+2. **Knowledge base** → the two fraud-policy documents (English + Arabic) and enable RAG.
+3. **Agent → Tools / Knowledge** → attach both to the agent itself.
+
+Free-tier limits to be aware of: `eleven_v3` returns `expressive_tts_not_allowed` (falls
+back to `eleven_flash_v2`), voice cloning is disabled, and the character quota can be
+exhausted mid-test-suite. See [docs/SUBMISSION.md](docs/SUBMISSION.md) for the exact
+account state and what is blocked versus working.
+
+## Use it with your own systems
+
+You do not need a SecureVoice plugin inside your core banking sandbox. Model it as a
+**producer** and a **consumer**:
+
+```
+your fraud engine ──HMAC-signed POST──►  /api/interventions   (fires an intervention)
+your CRM / SIEM   ◄──signed webhook────  /api/webhooks       (every phase transition)
+```
+
+Worked signing example, opt-out payload, producer-key auth, ElevenLabs tool
+authorisation, Docker/VPC deployment, and the current state of self-serve multi-tenant
+onboarding are all in **[docs/INTEGRATION.md](docs/INTEGRATION.md)**.
+
+Already built and usable by any tenant: `orgId` scoping on the core tables, per-team
+revocable producer keys, **BYOK** (bring your own ElevenLabs key, encrypted at rest),
+per-org branding, and a credits wallet.
 
 ## Configuration
 
@@ -119,7 +181,10 @@ Everything is opt-in: **no keys required to run the demo** (dry-run + audit-only
 
 | Variable | Purpose |
 |---|---|
-| `DATABASE_URL` | SQLite connection string (`file:…`) |
+| `DATABASE_URL` | **PostgreSQL** connection string (the Prisma datasource). An absolute `file:` URL also works for SQLite. |
+| `ELEVENLABS_AGENT_ID` | The ElevenLabs agent the browser may connect to. `/api/elevenlabs/signed-url` rejects any other id (403). |
+| `AGENT_TOOL_SECRET` | Shared secret the agent must present on webhook tool calls (`x-agent-tool-secret`). |
+| `AGENT_TOOL_ALLOWED` | Comma-separated tool allow-list, e.g. `card_freeze,human_handoff`. A secret valid for one tool does not authorise another. |
 | `ELEVENLABS_API_KEY` / `ELEVENLABS_DRY_RUN` | Neural voice; `DRY_RUN=true` serves the dev backend without burning quota |
 | `ELEVENLABS_MODEL` / `ELEVENLABS_STT_MODEL` | Model overrides (`eleven_v3`, `scribe_v2`) |
 | `ELEVENLABS_VOICE_EN/AR/HI/UR` | Per-language voice IDs |

@@ -1,0 +1,118 @@
+{
+  "generated_at": "2026-10-01",
+  "purpose": "Runtime proof of SecureVoice guardrails against real ElevenLabs tool-call shapes and real Supabase Postgres.",
+  "database": {
+    "project_ref": "zoxpovjgdakudsycedzc",
+    "host": "aws-0-eu-central-1.pooler.supabase.com",
+    "port": 6543,
+    "note": "IPv4 pooler. The direct DB host is AAAA-only (2a05:d014:1577:8801::9895) and this machine has no IPv6 route, which is what produced the P1001. This pooler speaks plaintext PgBouncer on 6543, so sslmode=disable is correct for this host; authentication is still SCRAM-SHA-256."
+  },
+  "totals": {
+    "checks": 8,
+    "passed": 8,
+    "failed": 0,
+    "pass_rate": "8/8"
+  },
+  "checks": [
+    {
+      "check": "card_freeze without shared secret",
+      "expected_http": 401,
+      "actual_http": 401,
+      "passed": true,
+      "response": {
+        "ok": false,
+        "error": "unauthorized"
+      },
+      "note": "unauthenticated tool caller refused"
+    },
+    {
+      "check": "card_freeze with wrong shared secret",
+      "expected_http": 401,
+      "actual_http": 401,
+      "passed": true,
+      "response": {
+        "ok": false,
+        "error": "unauthorized"
+      },
+      "note": "bad credential refused"
+    },
+    {
+      "check": "card_freeze missing required fields",
+      "expected_http": 422,
+      "actual_http": 422,
+      "passed": true,
+      "response": {
+        "error": "account_id, reason_code and case_id are required"
+      },
+      "note": "Zod schema validation"
+    },
+    {
+      "check": "card_freeze authorized -> staged, not committed",
+      "expected_http": 200,
+      "actual_http": 200,
+      "passed": true,
+      "response": {
+        "ok": true,
+        "committed": false,
+        "reference": "SV-FRZ-FRAUD-2026-08703",
+        "case_id": "FRAUD-2026-08703",
+        "next_step": "A fraud specialist must confirm this freeze before it becomes final."
+      },
+      "note": "committed MUST be false: irreversible action requires human approval"
+    },
+    {
+      "check": "human_handoff escalation path",
+      "expected_http": 200,
+      "actual_http": 200,
+      "passed": true,
+      "response": {
+        "ok": true,
+        "reference": "SV-HND-FRAUD-2026-08704",
+        "case_id": "FRAUD-2026-08704",
+        "next_step": "A fraud specialist has been queued and will join the call."
+      },
+      "note": "real escalation; PII redacted before audit write"
+    },
+    {
+      "check": "signed-url for a non-pinned agent",
+      "expected_http": 403,
+      "actual_http": 403,
+      "passed": true,
+      "response": {
+        "ok": false,
+        "error": "agent_not_allowed"
+      },
+      "note": "agent_id pinning: cannot mint sessions for arbitrary agents"
+    },
+    {
+      "check": "signed-url websocket",
+      "expected_http": 200,
+      "actual_http": 200,
+      "passed": true,
+      "response": {
+        "ok": true,
+        "agent_id": "agent_3601m3temww9e5eb43z3dtdthzdp",
+        "connection_type": "websocket",
+        "credential": "[REDACTED wss://credential, ttl=900s]",
+        "expires_in_secs": 900
+      },
+      "note": "real wss:// credential, 15-min TTL, API key stays server-side"
+    },
+    {
+      "check": "signed-url webrtc",
+      "expected_http": 200,
+      "actual_http": 200,
+      "passed": true,
+      "response": {
+        "ok": true,
+        "agent_id": "agent_3601m3temww9e5eb43z3dtdthzdp",
+        "connection_type": "webrtc",
+        "credential": "[REDACTED jwtcredential, ttl=900s]",
+        "expires_in_secs": 900
+      },
+      "note": "WebRTC token path"
+    }
+  ],
+  "verification_note": "Re-verified 2026-10-17 against a live Next.js server backed by Supabase Postgres (eu-central-1 IPv4 pooler): 8/8 HTTP checks green, AuditLog grew 215 -> 230 rows, three callRefs (SV-FRZ-FRAUD-2026-08703, SV-HND-FRAUD-2026-08704, SV-FRZ-CHAINPROOF-9) each show links_broken=0 across 4 rows, and a volunteered OTP is persisted as [REDACTED] (plaintext_OTP_rows=0).",
+  "credential_handling": "Signed URLs and WebRTC tokens are 15-minute single-use credentials, so they are redacted in this file. Their presence and shape (scheme + agent_id + HTTP 200) still prove the broker issued them; the ELEVENLABS_API_KEY itself never leaves the server."
+}

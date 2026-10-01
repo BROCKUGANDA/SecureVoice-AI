@@ -4,9 +4,17 @@
 #   docker compose up --build          → http://localhost:3000
 #
 # What happens:
-#   1. db-setup provisions the SQLite schema (prisma db push) and seeds a
+#   1. db  — Postgres 16 comes up on the compose network. The datasource in
+#      prisma/schema.prisma is `postgresql` and Prisma REJECTS a `file:` URL
+#      outright (P1012), so Postgres is the only supported mode — this is what
+#      makes `docker compose up --build` genuinely reproducible.
+#   2. db-setup waits for it healthy, runs `prisma db push`, then seeds a
 #      realistic intervention case history so the Command Center isn't empty.
-#   2. app serves the Next.js standalone bundle on port 3000.
+#   3. app serves the Next.js standalone bundle on port 3000.
+#
+# To use your OWN Postgres instead of the bundled one, pass a connection
+# string via DATABASE_URL and start only the two app services:
+#   docker compose up --build db-setup app
 #
 # Secrets: app loads an optional local .env (ElevenLabs / Twilio / webhook
 # keys). Without one the platform boots in audit-only / dry-run mode —
@@ -18,14 +26,34 @@
 name: securevoice-ai
 
 services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: securevoice
+      POSTGRES_PASSWORD: securevoice
+      POSTGRES_DB: securevoice
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U securevoice -d securevoice"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
   db-setup:
     build:
       context: .
       target: builder
     environment:
-      DATABASE_URL: file:/app/db/custom.db
+      DATABASE_URL: ${DATABASE_URL:-postgresql://securevoice:securevoice@db:5432/securevoice?schema=public}
     volumes:
       - db-data:/app/db
+    depends_on:
+      db:
+        condition: service_healthy
+        required: false
     restart: "no"
     command: ["sh", "-c", "bunx prisma db push --accept-data-loss --skip-generate && bun scripts/seed-demo.mjs"]
 
@@ -37,7 +65,7 @@ services:
       - "3000:3000"
     environment:
       HOSTNAME: 0.0.0.0
-      DATABASE_URL: file:/app/db/custom.db
+      DATABASE_URL: ${DATABASE_URL:-postgresql://securevoice:securevoice@db:5432/securevoice?schema=public}
     env_file:
       - path: .env
         required: false

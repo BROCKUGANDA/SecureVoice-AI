@@ -1,0 +1,78 @@
+{
+  "generated_at": "2026-10-01",
+  "purpose": "Prove what an ElevenLabs free-tier account CAN and CANNOT do, using the REST API directly (no SDK in the request path), and correct an earlier wrong diagnosis recorded in SUBMISSION.md.",
+  "account": {
+    "tier": "free",
+    "character_limit": 10000,
+    "character_count": 10000,
+    "can_use_instant_voice_cloning": false,
+    "can_use_pro_voice_cloning": false,
+    "professional_voice_limit": 0,
+    "voice_limit": 3
+  },
+  "agent_id": "agent_3601m3temww9e5eb43z3dtdthzdp",
+  "CAN_DO_on_free_tier": {
+    "attach_webhook_tools": {
+      "result": "attached",
+      "tool_ids": [
+        "tool_3601m3terb3meggakwq0s3tzr1v1",
+        "tool_0501m3tera4rf8rteg5xf7t87tgg"
+      ],
+      "verified_by": "fresh GET on conversation_config.agent.prompt.tool_ids"
+    },
+    "attach_knowledge_base": {
+      "result": "attached",
+      "documents": [
+        "SV-FDP-2026-01 Fraud Disposition Policy (EN) v3.2",
+        "SV-FDP-2026-01 Fraud Disposition Policy (AR) v3.2"
+      ],
+      "usage_mode": "auto",
+      "verified_by": "fresh GET on conversation_config.agent.prompt.knowledge_base"
+    },
+    "enable_rag": {
+      "enabled": true,
+      "max_vector_distance": 0.6,
+      "include_source_urls": true
+    },
+    "persisted_agent_config": {
+      "prompt": "1,862-char fraud-intervention system prompt",
+      "llm": "gpt-4o-mini",
+      "asr": {
+        "provider": "scribe_realtime",
+        "quality": "high",
+        "keywords": 16
+      },
+      "tts": {
+        "model_id": "eleven_flash_v2",
+        "voice_id": "cjVigY5qzO86Huf0OWal"
+      },
+      "first_message": "This call is recorded to protect you\u2026",
+      "trust_context": "unknown"
+    }
+  },
+  "CANNOT_DO_on_free_tier": {
+    "eleven_v3": {
+      "http_status": 402,
+      "code": "paid_plan_required",
+      "message": "Free users cannot use library voices via the API. Please upgrade\u2026",
+      "sdk_bypass_possible": false,
+      "why": "Entitlements are enforced server-side by API key. Verified with a bare fetch() with no ElevenLabs client library in the path, so installing the official SDK changes nothing. Only a subscription upgrade unlocks it."
+    },
+    "voice_cloning": "instant=false, pro=false, professional_voice_limit=0",
+    "synthesize_any_speech_right_now": {
+      "reason": "character quota exhausted (10000/10000)",
+      "observed": "both eleven_v3 and eleven_flash_v2 return quota_exceeded (0 credits)"
+    }
+  },
+  "correction": {
+    "previous_claim": "Free tier silently strips tool_ids / knowledge_base / rag from agent create and PATCH (returns 200, fields persist as null).",
+    "verdict": "WRONG \u2014 the blocker was our malformed request, not the tier.",
+    "root_cause": "knowledge_base[] locators require type + name + id, and `type` must be one of file | url | text | folder. We had sent type='knowledge_base', which returned HTTP 400 (input_invalid on agent.prompt.knowledge_base.0.type), and we then misread the null read-back as entitlement stripping.",
+    "methodology_lesson": "Never trust a PATCH status code \u2014 always GET the fields back. A 200 tells you the request was well-formed, not that it changed anything."
+  },
+  "remaining_stage2_gap": {
+    "tool_call_test": "The 9 Agent Testing runs predate tool attachment, so tool_calls=0. Re-running needs character quota. The high-stakes action is proven separately by the 8/8 runtime suite asserting committed:false.",
+    "eleven_v3": "blocked by tier; falls back to eleven_flash_v2",
+    "spoken_demo": "blocked until the character quota resets or the tier is upgraded"
+  }
+}

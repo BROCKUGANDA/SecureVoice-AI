@@ -144,18 +144,28 @@ tool authorisation, and self-serve onboarding see **[docs/INTEGRATION.md](docs/I
 The platform works standalone with the built-in voice pipeline. To use the **ElevenLabs
 conversational agent** instead, set `ELEVENLABS_API_KEY` + `ELEVENLABS_AGENT_ID` in `.env`.
 
-**Attach these in the ElevenLabs dashboard** (the API silently drops them on a free-tier
-account — it returns HTTP 200 and just doesn't save them):
+The two webhook tools and both knowledge-base documents are already defined on the
+account, and on our agent they are **attached**, with RAG and source attribution on.
+If you set this up on a new agent, attach them via `PATCH /v1/convai/agents/{id}`:
 
-1. **Tools** → the `card_freeze` and `human_handoff` webhook tools, pointed at your
-   deployment's `/api/elevenlabs/tools/*` URLs, with your `AGENT_TOOL_SECRET` in a header.
-2. **Knowledge base** → the two fraud-policy documents (English + Arabic) and enable RAG.
-3. **Agent → Tools / Knowledge** → attach both to the agent itself.
+```bash
+# knowledge_base locators need type + name + id. `type` must be one of
+# file | url | text | folder — anything else returns HTTP 400.
+curl -X PATCH "https://api.elevenlabs.io/v1/convai/agents/$AGENT_ID" \
+  -H "xi-api-key: $ELEVENLABS_API_KEY" -H "content-type: application/json" \
+  -d '{"conversation_config":{"agent":{"prompt":{
+        "tool_ids":["tool_…","tool_…"],
+        "knowledge_base":[{"type":"text","name":"<doc name>","id":"<doc id>"}],
+        "rag":{"enabled":true,"include_source_urls":true}}}}}'
+```
 
-Free-tier limits to be aware of: `eleven_v3` returns `expressive_tts_not_allowed` (falls
-back to `eleven_flash_v2`), voice cloning is disabled, and the character quota can be
-exhausted mid-test-suite. See [docs/SUBMISSION.md](docs/SUBMISSION.md) for the exact
-account state and what is blocked versus working.
+Always **read the fields back** with a GET — a 200 on PATCH does not prove anything saved.
+
+Free-tier limits to be aware of: `eleven_v3` returns **402 `paid_plan_required`**
+(enforced server-side, so no SDK or HTTP client can unlock it — the agent falls back to
+`eleven_flash_v2`), voice cloning is disabled, and the monthly character quota is small
+enough to run out mid-test-suite. See [docs/SUBMISSION.md](docs/SUBMISSION.md) for the
+exact account state.
 
 ## Use it with your own systems
 

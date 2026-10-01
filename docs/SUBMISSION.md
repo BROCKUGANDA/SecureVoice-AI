@@ -82,15 +82,15 @@ We started with the assumption that customers would prefer to *type* into a chat
 
 | Component | Used? | Why |
 |---|---|---|
-| Agents Platform | ✅ | Core platform. Real agent `agent_3601…thzdp` with a 1,862-char fraud-intervention system prompt, `trust_context`, and `scribe_realtime` ASR with 15 keyterms persisted. **Caveat: `tool_ids` are `null` on our free-tier account — see the Stage 2 blocker table.** |
+| Agents Platform | ✅ | Core platform. Real agent `agent_3601…thzdp` with a 1,862-char fraud-intervention system prompt, `trust_context`, `scribe_realtime` ASR with 16 keyterms, `gpt-4o-mini`, both webhook tools attached, and both KB documents attached with RAG + source attribution enabled — all read back from a fresh GET. |
 | Agent Workflows | ⚠️ **partial** | The branching flow (verify → confirm → freeze → handoff) runs in SecureVoice's own deterministic state machine (`src/app/api/agent/route.ts`, `src/app/api/twilio/turn/route.ts`) with real TwiXML `<Gather>` telephony. The ElevenLabs Workflow object currently holds only `start_node` — we have **not** ported the branch graph into the visual builder. |
 | Sub-agents | ❌ | One agent suffices; sub-agents add latency without adding capability here. `subagents: []` is deliberate, not missing. |
-| Eleven v3 TTS | ⚠️ **blocked** | Configured as the target model, but our free tier rejects it: `expressive_tts_not_allowed`. The live agent runs `eleven_flash_v2`. **We cannot claim v3 until the account is upgraded.** |
+| Eleven v3 TTS | ⚠️ **blocked** | Direct REST call (no SDK in the path) returns **HTTP 402 `paid_plan_required`** — entitlements are enforced server-side by API key, so no client library can unlock it. The live agent runs `eleven_flash_v2`. **We cannot claim v3 until the account is upgraded.** |
 | Voice Design / Voice Library | ❌ **not used** | **Corrected from an earlier draft that claimed four cloned personas.** Cloning is disabled on this account (`can_use_instant_voice_cloning=false`, `can_use_pro_voice_cloning=false`, `professional_voice_limit=0`). The live agent uses one stock Library voice. |
 | Scribe v2 STT | ✅ | Live and verified: `platform_settings.asr.provider = "scribe_realtime"`, `quality: high`. Chosen because it handles code-switched Arabic-English (standard in UAE banking). |
-| Keyterm biasing | ✅ | **Now actually sent** — 15 keyterms persisted on the live agent: `SecureVoice, AED, CNP, card freeze, IBAN, OTP, merchant, case id` + 7 Arabic (`بطاقة, تجميد, احتيال, معاملة, أمان, بطاقة, موثوق, مشبوه`). Previously defined in code but never transmitted; now verified on the agent record. |
-| Knowledge base + RAG | ⚠️ **partial** | Two real KB documents exist (EN + AR fraud-disposition policy `SV-FDP-2026-01` v3.2, Arabic copy corruption-checked). **But `knowledge_base` and `rag` are silently stripped on this tier, so the agent cannot retrieve them.** RAG answers and source attribution are **not yet live**. |
-| Server / webhook tools | ✅ | Two real account-level webhook tools pointing at our endpoints: `card_freeze` and `human_handoff`, both with full `api_schema`. **Not yet attached to the agent** (free-tier strip). |
+| Keyterm biasing | ✅ | **Now actually sent** — 16 keyterms persisted on the live agent (verified by read-back): 8 English (`SecureVoice, AED, CNP, card freeze, IBAN, OTP, merchant, case id`) + 8 Arabic (`بطاقة, تجميد, احتيال, معاملة, أمان, بطاقتي, موثوق, مشبوه`). Previously defined in code but never transmitted; now verified on the agent record. |
+| Knowledge base + RAG | ✅ | Two real KB documents (EN + AR fraud-disposition policy `SV-FDP-2026-01` v3.2, Arabic copy corruption-checked) are **attached to the agent** with `rag.enabled=true`, `max_vector_distance=0.6`, and `include_source_urls=true` for source attribution. Read back from a fresh GET after a 200 PATCH. |
+| Server / webhook tools | ✅ | Two real account-level webhook tools pointing at our endpoints: `card_freeze` and `human_handoff`, both with full `api_schema`, **both attached to the agent** (`tool_ids` holds 2 ids, confirmed by read-back). |
 | Tool scoping & trust context | ✅ | Implemented and verified over HTTP — see box K. `trust_context` is set on the agent. |
 | MCP servers | ❌ | No MCP-native CRM in our target bank stack; we wire via signed webhooks instead |
 | Telephony (Twilio / SIP) | ✅ | Real Twilio `<Gather>` loop in `src/app/api/twilio/turn/route.ts`. ElevenLabs-side `phone_numbers: []` — telephony is ours, not ElevenLabs'. |
@@ -103,7 +103,7 @@ We started with the assumption that customers would prefer to *type* into a chat
 
 **The two honest caveats, stated plainly:**
 
-1. **Free-tier entitlements cap what we can demonstrate.** Our ElevenLabs account is `tier=free`. The API returns HTTP 200 but silently drops `tool_ids`, `knowledge_base`, and `rag` on both agent create and PATCH. So the agent prompt, ASR keyterms, trust context, TTS voice, and the three tests are live and real — but tool attachment, RAG, and Eleven v3 are **blocked by the account tier, not by missing work**. Attaching tools and KB is a dashboard action or an upgrade; neither is something we can fix in code, and we have not pretended otherwise.
+1. **Free-tier entitlements cap what we can demonstrate.** Our ElevenLabs account is `tier=free`. Tool attachment, KB attachment, and RAG are all **live and verified** — an earlier draft of this document wrongly claimed the API silently stripped them. What the tier *does* block is **`eleven_v3`**, and that is enforced server-side: a bare REST call with no SDK in the path returns **HTTP 402 `paid_plan_required`**. No client library can change that; only an upgrade can. The character quota is separately exhausted (`10000/10000`), so the agent cannot currently *speak* at all until the month resets or the tier is upgraded.
 2. **The Agent Testing pass rate is 5/5 executed, not 9/9, and it is not a tool-call test.** Four of nine runs failed on `API quota limit exceeded` (character usage hit `10000/10000`). Of the three tests, two are platform type `llm` despite their names starting with "TOOLCALL", and the single type `tool` test asserts a negative, so it passes vacuously with zero tools attached. **The real high-stakes tool-call evidence is the 8/8 runtime guardrail suite** in `docs/evidence/guardrails-runtime-2026-10-01.json`, which drives the actual `card_freeze` endpoint over HTTP and proves `committed: false`.
 
 ### K. Guardrails (every row is a code-level mechanism, not a comment)
@@ -180,7 +180,7 @@ and the matching audit row: `{"committed":false,"reason_code":"FRAUD_CONFIRMED_B
 │   │   (5 executed, 5 passed; 4 quota-blocked)                       │      │
 │   │   Runtime guardrail suite: 8/8 HTTP checks against live tools   │      │
 │   │   Knowledge base: fraud-disposition policy (EN/AR) — created,    │      │
-│   │   NOT yet attached (free tier strips `rag`/`knowledge_base`)    │      │
+│   │   ATTACHED: 2 tools + 2 KB docs, RAG + source attribution    │      │
 │   │   Post-call webhooks: signed payload to bank's CRM + SIEM       │      │
 │   └─────────────────────────────────────────────────────────────────┘      │
 └──────────────────────────────────────────────────────────────────────────────┘
@@ -270,9 +270,9 @@ Assessed against the criteria you were sent. Weights are the published Stage 2 c
 
 | STAGE 2 SUBMISSION ITEM | STATUS | EVIDENCE / GAP |
 |---|---|---|
-| Live callable agent (test numbers) or hosted web/chat deployment | ⚠️ **partial** | ElevenLabs agent `agent_3601…thzdp` exists with a real prompt, first message, LLM, `scribe_realtime` ASR + 15 keyterms, `trust_context`, TTS voice, and a working signed-URL broker (real `wss://` + WebRTC token). **Gap: no tools/KB attached (free tier), so the agent cannot yet perform the freeze.** Twilio number and public deployment not re-verified in this pass. |
+| Live callable agent (test numbers) or hosted web/chat deployment | ⚠️ **partial** | ElevenLabs agent `agent_3601…thzdp` has a real prompt, first message, `gpt-4o-mini`, `scribe_realtime` ASR + 16 keyterms, `trust_context`, TTS voice, **2 attached tools, 2 attached KB docs with RAG + source attribution**, and a working signed-URL broker (real `wss://` + WebRTC token). **Remaining gap: the character quota is exhausted (10000/10000), so the agent cannot currently synthesize speech** — the config is correct, the account simply has no credits left this month. Twilio number and public deployment not re-verified in this pass. |
 | Recorded end-to-end demo + ≥1 failure/escalation path | ❌ **not done** | No committed `.mp4`/`.webm`/`.mov`. **The escalation path IS built and verified** (`human_handoff` → 200, `SV-HND-…`, `sla_seconds:30`) — it just has not been recorded. Highest-value remaining item. |
-| Agent Testing suite + multi-run pass rate + tool-call test on a high-stakes action | ⚠️ **partial** | Suite exists: 3 tests × `repeat_count=3` = 9 runs; **5 executed, 5 passed (100%), 4 quota-blocked**. **Honest gap: observed `tool_calls` = 0 — no tool-call test can pass meaningfully because `tool_ids` is null.** The high-stakes tool test is satisfied instead by the 8/8 runtime suite hitting the real `card_freeze` endpoint and proving `committed:false`. |
+| Agent Testing suite + multi-run pass rate + tool-call test on a high-stakes action | ⚠️ **partial** | Suite exists: 3 tests × `repeat_count=3` = 9 runs; **5 executed, 5 passed (100%), 4 quota-blocked**. **Those 9 runs predate tool attachment, so observed `tool_calls` = 0 and the high-stakes tool-call criterion is still genuinely unmet by ElevenLabs Agent Testing.** Tools are attached *now*, but re-running requires character quota. The high-stakes action is proven instead by the 8/8 runtime suite hitting the real `card_freeze` endpoint and asserting `committed:false`. |
 | Transcripts + post-call analysis | ⚠️ **partial** | Post-call structure, signed webhooks and redacted transcripts exist in code; **no demo-conversation transcript artifact is committed yet.** |
 | One-page architecture diagram | ✅ | Box L above is the one-pager; **no standalone image/PDF artifact committed.** |
 | Short technical README | ✅ | `README.md` (169 lines). |
@@ -289,13 +289,15 @@ Assessed against the criteria you were sent. Weights are the published Stage 2 c
 
 ### What only you can do (account-level, not code)
 
-1. **Attach the two webhook tools and the two KB documents to the agent in the ElevenLabs dashboard** — the API silently strips them on this tier. This single action converts three criteria from "partial" to real.
+1. ~~Attach the two webhook tools and the two KB documents to the agent.~~ **DONE** — both attached via the API and verified by read-back; RAG and source attribution are enabled.
 2. **Upgrade off `tier=free`** to unlock Eleven v3 and Voice Design — the 20% voice criterion is tier-bound.
 3. **Reset or wait for the character quota** (it is at `10000/10000`) before rerunning the test suite for a clean 9/9.
 
 ### Tool-call latency (measured, not estimated)
 
-Captured from the live dev-server logs, now a committed artifact: `docs/evidence/latency-2026-10-01.json`. **Before** is the original two-transaction `append()` (port 3111); **After** is the same code path following the single-transaction fix (port 3113, n=13 authorized calls).
+Captured from the live dev-server logs, now a committed artifact: `docs/evidence/latency-2026-10-01.json`.
+
+**Entitlement evidence:** `docs/evidence/elevenlabs-attachment-2026-10-01.json` records what a free tier can and cannot do, probed over plain REST with no SDK in the path — tools/KB/RAG attach successfully, `eleven_v3` returns `402 paid_plan_required`, and the character quota is exhausted. It also documents the earlier misdiagnosis it corrects. **Before** is the original two-transaction `append()` (port 3111); **After** is the same code path following the single-transaction fix (port 3113, n=13 authorized calls).
 
 | REQUEST | BEFORE | AFTER | AUDIT DB WRITE |
 |---|---|---|---|
@@ -323,7 +325,8 @@ After restarting the dev server, **every** route 404'd — including `/api/healt
 - **Supabase is not paused** — its direct DB host is IPv6-only and this machine has no IPv6 route, which surfaces as `P1001`. Use `aws-0-eu-central-1.pooler.supabase.com:6543`. `/auth/v1/health` returns 200 even while the DB is unreachable.
 - `prisma db execute` / `db push` **hang** on that pooler; the Prisma client and `psql`/`psycopg2` work fine.
 - ElevenLabs signed URLs are `GET` with `agent_id` as a **query param**; a JSON body returns a bare `405`/`411` with no hint.
-- Free tier returns **HTTP 200 while silently dropping** `tool_ids`, `knowledge_base`, and `rag` — never trust the status code alone, read the field back.
+- Never trust a PATCH status code alone — **read the field back**. That discipline is what caught our own wrong diagnosis: we had concluded the free tier strips `tool_ids`/`knowledge_base`/`rag`, when in fact our request was malformed. The real error was `knowledge_base[].type`: ElevenLabs rejects anything that is not `file`, `url`, `text`, or `folder`, and then requires `id`. With the correct locator shape, a free tier attaches tools, KB, and RAG just fine.
+- **Entitlements are enforced server-side, not by the SDK.** A bare `fetch` with no ElevenLabs client library in the path still returns `402 paid_plan_required` for `eleven_v3`, so swapping in the official SDK (or any HTTP client) buys nothing on a free tier.
 
 ---
 

@@ -169,9 +169,29 @@ docker compose exec -T db pg_dump -U securevoice securevoice | gzip > /srv/backu
 cd /srv/securevoice
 docker compose exec -T db pg_dump -U securevoice securevoice | gzip > /srv/backups/pre-$(date -u +%FT%H%M).sql.gz
 git pull --ff-only
-docker compose build --pull     # required — plain `up -d` reuses the stale image
+
+# BOTH images must be rebuilt, and this is not optional.
+#   app       — the application code changed.
+#   db-setup  — it runs `prisma migrate deploy` against files baked into its
+#               image. A plain `up -d` after a git pull reuses the previous
+#               db-setup image, which does not contain the new migration, and
+#               reports "No pending migrations to apply" while the database is
+#               actually behind. This has silently shipped twice on this
+#               project. CI fails the build on schema drift for the same reason.
+docker compose build --pull app db-setup
 docker compose up -d
+
+docker compose logs db-setup | tail -5     # must say "All migrations have been successfully applied"
 docker compose ps && curl -s https://voice.example.com/healthz
+curl -s https://voice.example.com/api/readyz | jq .status   # ok | degraded
+```
+
+Verify the migration actually landed — this is the check that catches a stale
+db-setup image:
+
+```bash
+docker compose exec -T db psql -U securevoice -d securevoice \
+  -c 'SELECT migration_name FROM _prisma_migrations ORDER BY finished_at;'
 ```
 
 Schema changes are versioned SQL in `prisma/migrations/` and applied by

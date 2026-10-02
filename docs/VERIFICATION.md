@@ -255,3 +255,44 @@ cd mini-services/realtime && bun test                      # includes the cross-
 
 ### Room scoping â€” already present, now proven
 The service derived channels from the org id and validated membership on every join before this package; the gate now proves the tenant property end to end rather than leaving it as a design claim.
+
+---
+
+## 2026-10-02 — Tool-call latency, measured in the deployment topology
+
+Run on the Akamai box (139.162.166.83), tool suite against the co-located
+Postgres — the topology the 300 ms budget is defined for.
+
+```
+db host: db (co-located)
+db floor ms:    p50=2  p95=3
+latency ms:     min=1  p50=5  p90=7  p95=9  p99=21  max=22   (n=200)
+enforcing platform budget: p95 < 300 ms
+PASS
+```
+
+**p95 = 9 ms against a 300 ms budget.**
+
+The same suite pointed at a remote database measured p95 592 ms with a 294 ms
+database floor — i.e. 97% of the "regression" was network. The gate now
+measures the database floor first and enforces the absolute budget only when the
+database is co-located, so a green run can never be mistaken for a measured one.
+
+## 2026-10-02 — Schema drift, caught twice
+
+`Case.postCallAt` (and eight sibling columns, plus `Notification`) existed in
+`schema.prisma` with no migration. The deployment served 200 on every request
+and failed only on the post-call path.
+
+- `2_outbox` — OutboxEvent, DeadLetter, InboundBankEvent, WebhookEvent,
+  WebhookQuarantine. Bank notifications were 500ing on every delivery.
+- `3_postcall` — the post-call ingest columns and the Notification table.
+
+Both generated with `prisma migrate diff` against the deployed database. CI now
+applies every migration to an ephemeral Postgres and fails the build on any
+difference from `schema.prisma`, printing the diff and the command to fix it.
+
+Deployment note: `db-setup` runs `prisma migrate deploy` from files baked into
+its image, so `docker compose build app db-setup` is mandatory after a pull —
+`up -d` alone reports "No pending migrations to apply" while the database is
+behind. Documented in docs/DEPLOY.md §7 with the verification query.

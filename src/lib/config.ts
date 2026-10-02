@@ -1,3 +1,4 @@
+import "server-only";
 /**
  * Centralised configuration — the single place that reads process.env and
  * exposes typed, validated values. Every module imports from here instead of

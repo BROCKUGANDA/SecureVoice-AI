@@ -1,3 +1,4 @@
+import "server-only";
 /**
  * Clerk-backed platform profile + prepaid credits wallet.
  *
@@ -101,4 +102,17 @@ export async function deductCredit(clerkUserId: string): Promise<number> {
     select: { credits: true },
   });
   return row?.credits ?? -1;
+}
+
+/**
+ * Return a previously deducted credit (the upstream action it paid for never
+ * happened). Atomic increment; pairs with deductCredit's claim-before-spend.
+ */
+export async function refundCredit(clerkUserId: string): Promise<number> {
+  const row = await db.userProfile.update({
+    where: { clerkUserId },
+    data: { credits: { increment: 1 } },
+    select: { credits: true },
+  });
+  return row.credits;
 }

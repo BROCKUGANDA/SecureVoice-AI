@@ -1,3 +1,4 @@
+import "server-only";
 /**
  * Token-bucket rate limiter with a pluggable store backend.
  *
@@ -121,6 +122,29 @@ export function consume(scope: string, id: string, cost = 1, capacityPerHour?: n
 /** Test helper. Not for production use. */
 export function _reset(): void {
   BUCKETS.clear();
+}
+
+/**
+ * Resolve the identity a rate limit should be keyed on for this request.
+ *
+ * Order of trust:
+ *   1. x-securevoice-client-ip — set by src/proxy.ts AFTER deciding whether
+ *      the X-Forwarded-For chain is believable (only when Caddy identified
+ *      itself). An attacker cannot influence its value through the proxy.
+ *   2. x-caller-id — caller-supplied, spoofable; last resort only (a caller
+ *      rotating it mints a fresh bucket per request, so never prefer it).
+ *
+ * Keying metered endpoints on the spoofable header made every per-caller
+ * limit decorative; keying on the proxy-resolved IP is what makes the limit
+ * real. Per-user limits on authenticated routes should still pass the
+ * authenticated user id directly to consume() instead of this helper.
+ */
+export function rateLimitId(req: Request, fallback = "anon"): string {
+  const ip = req.headers.get("x-securevoice-client-ip");
+  if (ip && ip !== "direct" && ip !== "unknown") return `ip:${ip}`;
+  const caller = req.headers.get("x-caller-id");
+  if (caller) return `cid:${caller}`;
+  return fallback;
 }
 
 /* ── Redis store template (reference — not wired by default) ──

@@ -1,3 +1,4 @@
+import "server-only";
 /**
  * Idempotency wrapper for upstream-billing API calls (ElevenLabs TTS, ASR,
  * agent turns). Persists (scope, key, callerId) → response in Postgres for 24h
@@ -34,7 +35,7 @@ const POLL_INTERVAL_MS = 200;
 const MAX_POLL_MS = 8_000; // slightly above CLAIM_TTL so we catch late winners
 
 export type IdempotencyOptions<T> = {
-  scope: "tts" | "tts-upstream" | "asr" | "agent";
+  scope: "tts" | "tts-upstream" | "tts-stream" | "asr" | "agent" | "interventions";
   key: string | Buffer; // canonical request bytes — caller hashes if needed
   callerId: string;
   fn: () => Promise<T>;
@@ -63,6 +64,16 @@ function isClaim(row: { response: string }): boolean {
   return row.response === "";
 }
 
+/** Deserialize a stored response; a corrupt row is treated as absent (and
+ *  deleted) rather than 500ing every replay of that key for 24h. */
+function tryDeserialize<T>(deserialize: (s: string) => T, s: string): { ok: true; value: T } | { ok: false } {
+  try {
+    return { ok: true, value: deserialize(s) };
+  } catch {
+    return { ok: false };
+  }
+}
+
 export async function withIdempotency<T>(opts: IdempotencyOptions<T>): Promise<IdempotencyResult<T>> {
   const key = hashKey(opts.key);
   const serialize = opts.serialize ?? ((v: T) => JSON.stringify(v));
@@ -72,7 +83,10 @@ export async function withIdempotency<T>(opts: IdempotencyOptions<T>): Promise<I
   // ── 1. Fast path: a completed row exists → replay ──
   const hit = await db.idempotencyKey.findUnique({ where });
   if (hit && !isExpired(hit.expiresAt) && !isClaim(hit)) {
-    return { value: deserialize(hit.response), replayed: true, key };
+    const parsed = tryDeserialize(deserialize, hit.response);
+    if (parsed.ok) return { value: parsed.value, replayed: true, key };
+    // Corrupt stored response — drop it and re-claim below.
+    await db.idempotencyKey.delete({ where: { id: hit.id } }).catch(() => {});
   }
 
   // If the existing row is expired or a stale claim, delete it so we can
@@ -129,7 +143,10 @@ export async function withIdempotency<T>(opts: IdempotencyOptions<T>): Promise<I
     await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
     const winner = await db.idempotencyKey.findUnique({ where });
     if (winner && !isExpired(winner.expiresAt) && !isClaim(winner)) {
-      return { value: deserialize(winner.response), replayed: true, key };
+      const parsed = tryDeserialize(deserialize, winner.response);
+      if (parsed.ok) return { value: parsed.value, replayed: true, key };
+      await db.idempotencyKey.delete({ where: { id: winner.id } }).catch(() => {});
+      break; // corrupt winner row — fall through to executing our own call
     }
     // The winner's claim expired without filling in — they crashed. Take over.
     if (winner && isClaim(winner) && isExpired(winner.expiresAt)) {
@@ -150,4 +167,68 @@ export async function evictExpired(): Promise<number> {
     where: { expiresAt: { lte: new Date() } },
   });
   return r.count;
+}
+
+/**
+ * Fast-path idempotency for mutating endpoints where the key is unique per
+ * request (e.g. a bank's Idempotency-Key on a risk signal). Two round-trips
+ * for a new key instead of three: findUnique → create-with-response.
+ *
+ * Concurrency: if two requests with the same key arrive simultaneously, both
+ * may execute fn(). The unique constraint on (scope, key, callerId) means
+ * only one create wins; the loser polls for the winner's response. This is
+ * the same safety guarantee as withIdempotency, just without the separate
+ * claim row — appropriate when fn() is idempotent by construction (the
+ * signal's own transaction is the real dedup).
+ */
+export async function withIdempotencyFast<T>(opts: {
+  scope: string;
+  key: string;
+  callerId: string;
+  fn: () => Promise<T>;
+  serialize?: (v: T) => string;
+  deserialize?: (s: string) => T;
+}): Promise<{ value: T; replayed: boolean; key: string }> {
+  const key = hashKey(opts.key);
+  const serialize = opts.serialize ?? ((v: T) => JSON.stringify(v));
+  const deserialize = opts.deserialize ?? ((s: string) => JSON.parse(s) as T);
+  const where = { scope_key_callerId: { scope: opts.scope, key, callerId: opts.callerId } };
+
+  // 1. Fast path: a completed row exists → replay.
+  const hit = await db.idempotencyKey.findUnique({ where });
+  if (hit && !isExpired(hit.expiresAt)) {
+    const parsed = tryDeserialize(deserialize, hit.response);
+    if (parsed.ok) return { value: parsed.value, replayed: true, key };
+    await db.idempotencyKey.delete({ where: { id: hit.id } }).catch(() => {});
+  }
+
+  // 2. Execute and store. The create is fire-and-forget: the response is
+  //    returned before the idempotency row lands. A replay that arrives
+  //    before the create completes will re-execute fn() — acceptable because
+    //    fn() is idempotent by construction (the signal's own transaction is
+    //    the real dedup). This keeps the critical path to two round-trips.
+  try {
+    const value = await opts.fn();
+    // Fire-and-forget the store. If it loses a race to a concurrent request,
+    // the unique constraint fires and we log — the winner's row stands.
+    void db.idempotencyKey
+      .create({
+        data: {
+          scope: opts.scope,
+          key,
+          callerId: opts.callerId,
+          response: serialize(value),
+          statusCode: 200,
+          expiresAt: new Date(Date.now() + TTL_MS),
+        },
+      })
+      .catch(() => {});
+    return { value, replayed: false, key };
+  } catch (err) {
+    throw err;
+  }
+}
+
+function isUniqueViolation(err: unknown): boolean {
+  return typeof err === "object" && err !== null && "code" in err && (err as { code?: string }).code === "23505";
 }

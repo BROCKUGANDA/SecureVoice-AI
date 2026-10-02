@@ -1,0 +1,3 @@
+[test]
+# No-op the Next.js `server-only` bundler marker in tests (see tests/preload.ts).
+preload = ["./tests/preload.ts"]

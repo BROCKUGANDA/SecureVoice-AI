@@ -1,86 +1,100 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { guardToolCall } from "@/lib/tool-guard";
+import { transitionCase, IllegalTransitionError } from "@/lib/case-state-machine";
 import { append as auditAppend } from "@/lib/audit-chain";
-import { authorizeToolCall } from "@/lib/agent-tool-auth";
 import { badRequest, parseJson, unprocessable } from "@/lib/api-errors";
 
 export const dynamic = "force-dynamic";
 
-/**
- * `card_freeze` — the high-stakes action, invoked by the ElevenLabs Agents
- * Platform as a webhook (server) tool.
- *
- * THE CENTRAL GUARDRAIL, and it is a property of this endpoint rather than of
- * the prompt: a freeze raised by the agent is a PAUSE, never a commit.
- *
- *   The agent may call this the instant a customer denies the transaction. What
- *   it may not do is settle the outcome. The write here marks the card
- *   `pending_specialist` and returns `committed: false`. The card processor is
- *   not touched. Only when a human fraud specialist confirms in the console
- *   does the freeze become final.
- *
- * That inversion is deliberate: the agent's judgement is allowed to be fast and
- * wrong about a *reversible* thing, and is never allowed to be right about an
- * irreversible thing on its own. Policy section 3 of SV-FDP-2026-01.
- *
- * Auth: shared secret + per-caller tool scope (see lib/agent-tool-auth).
- */
+const TOOL_NAME = "card_freeze";
+const ALLOWED_STATES = ["CONFIRMED_FRAUD"];
+const REVERSAL_WINDOW_SECS = 300;
 
 const schema = z.object({
+  conversation_id: z.string().min(1).max(128),
   account_id: z.string().min(2).max(64),
   reason_code: z.string().min(3).max(64),
-  case_id: z.string().min(3).max(64),
 });
 
 export async function POST(req: NextRequest) {
-  const auth = authorizeToolCall(req.headers.get("x-agent-tool-secret"), "card_freeze");
-  if (!auth.ok) {
-    return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status });
-  }
-
   const body = await parseJson(req);
   if (body === null) return badRequest("Invalid JSON body");
 
   const parsed = schema.safeParse(body);
   if (!parsed.success) {
-    return unprocessable("account_id, reason_code and case_id are required");
+    return unprocessable("conversation_id, account_id and reason_code are required");
   }
 
-  const { account_id, reason_code, case_id } = parsed.data;
-  const reference = `SV-FRZ-${case_id}`;
+  const { conversation_id, account_id, reason_code } = parsed.data;
 
-  // A freeze request is itself a recordable event — including the fact that it
-  // stopped short of committing. If the audit write fails we must NOT proceed,
-  // because an unlogged freeze is exactly the state the regulator asks about.
+  const guard = await guardToolCall(
+    TOOL_NAME,
+    req.headers.get("x-agent-tool-secret"),
+    conversation_id,
+    ALLOWED_STATES,
+  );
+  if (!guard.ok) {
+    return NextResponse.json(
+      { ok: false, error: guard.error, code: guard.code },
+      { status: guard.status },
+    );
+  }
+
+  const reference = `SV-FRZ-${guard.caseRef}`;
+
   try {
     await auditAppend({
-      callRef: reference,
+      callRef: guard.caseRef,
       action: "freeze",
-      intent: reason_code,
+      intent: "freeze_staged",
+      callerId: "agent-tool",
       redactedText: account_id,
       meta: {
+        tool: TOOL_NAME,
         stage: "pending_specialist",
         committed: false,
-        source: "elevenlabs_agent_tool",
+        reversal_window_secs: REVERSAL_WINDOW_SECS,
+        reference,
         reason_code,
-        case_id,
+        from: guard.state,
+        to: "FREEZE_STAGED",
+        source: "elevenlabs_agent_tool",
       },
     });
   } catch (err) {
-    // Fail closed: no audit row means no freeze.
     console.error("[tool/card_freeze] audit append failed, refusing freeze:", err);
     return NextResponse.json(
-      { ok: false, committed: false, error: "audit_unavailable" },
+      { ok: false, staged: false, committed: false, error: "audit_unavailable" },
       { status: 503 },
     );
   }
 
-  return NextResponse.json({
-    ok: true,
-    committed: false,
-    reference,
-    case_id,
-    // Read back to the agent so it tells the customer the truth: paused, not blocked.
-    next_step: "A fraud specialist must confirm this freeze before it becomes final.",
-  });
+  try {
+    const updated = await transitionCase(guard.caseRef, "FREEZE_STAGED", {
+      freezeStaged: true,
+      freezeReference: reference,
+    });
+    return NextResponse.json({
+      ok: true,
+      staged: true,
+      committed: false,
+      reversal_window_secs: REVERSAL_WINDOW_SECS,
+      reference,
+      case_ref: guard.caseRef,
+      state: updated.state,
+    });
+  } catch (err) {
+    if (err instanceof IllegalTransitionError) {
+      return NextResponse.json(
+        { ok: false, staged: false, committed: false, error: `case cannot move from ${guard.state} to FREEZE_STAGED`, code: "illegal_transition" },
+        { status: 409 },
+      );
+    }
+    console.error("[tool/card_freeze] case transition failed:", err);
+    return NextResponse.json(
+      { ok: false, staged: false, committed: false, error: "case_transition_failed" },
+      { status: 503 },
+    );
+  }
 }

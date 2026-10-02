@@ -1,0 +1,5 @@
+{
+  "//": "App-side tests run under Bun, which needs `bun:test` types and .ts import extensions. The root tsconfig is a Next.js app project with neither, so tests get their own project instead of loosening the app's compiler options.",
+  "extends": "./tsconfig.test-base.json",
+  "include": ["**/*.ts", "../src/lib/flags.ts", "../src/lib/realtime-token.ts"]
+}

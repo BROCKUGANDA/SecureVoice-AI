@@ -1,0 +1,128 @@
+import "server-only";
+/**
+ * Canonical case state machine — the ONE writer for case state.
+ *
+ * One enum, one writer, no exceptions. Illegal transitions throw and are
+ * logged. The state machine is the enforcement point for invariant I-2:
+ * `stage_card_freeze` is executable only from CONFIRMED_FRAUD.
+ *
+ *   RECEIVED → SCREENED → DIALING → RINGING → ANSWERED → DISCLOSED → VERIFYING
+ *   VERIFYING → CONFIRMED_LEGITIMATE | CONFIRMED_FRAUD | UNCERTAIN
+ *   CONFIRMED_FRAUD → FREEZE_STAGED → ESCALATED → NOTIFIED → CLOSED
+ *   CONFIRMED_LEGITIMATE → NOTIFIED → CLOSED
+ *   UNCERTAIN → ESCALATED → NOTIFIED → CLOSED
+ */
+
+import { db } from "@/lib/db";
+
+export const CASE_STATES = [
+  "RECEIVED", "SCREENED", "DIALING", "RINGING", "ANSWERED",
+  "DISCLOSED", "VERIFYING", "CONFIRMED_LEGITIMATE", "CONFIRMED_FRAUD",
+  "UNCERTAIN", "FREEZE_STAGED", "ESCALATED", "NOTIFIED", "CLOSED",
+  "REJECTED", "NO_ANSWER", "BUSY", "FAILED", "VOICEMAIL",
+  "RETRY_SCHEDULED", "EXHAUSTED",
+] as const;
+
+export type CaseState = (typeof CASE_STATES)[number];
+
+/** The single transition table. Any (from, to) not listed here is illegal. */
+const TRANSITIONS: Record<string, readonly string[]> = {
+  RECEIVED: ["SCREENED", "REJECTED"],
+  SCREENED: ["DIALING", "REJECTED"],
+  DIALING: ["RINGING", "NO_ANSWER", "BUSY", "FAILED", "VOICEMAIL"],
+  RINGING: ["ANSWERED", "NO_ANSWER", "BUSY", "VOICEMAIL"],
+  ANSWERED: ["DISCLOSED", "NO_ANSWER"],
+  DISCLOSED: ["VERIFYING", "CONFIRMED_LEGITIMATE", "CONFIRMED_FRAUD", "UNCERTAIN", "CLOSED"],
+  VERIFYING: ["CONFIRMED_LEGITIMATE", "CONFIRMED_FRAUD", "UNCERTAIN"],
+  CONFIRMED_FRAUD: ["FREEZE_STAGED", "ESCALATED", "NOTIFIED", "CLOSED"],
+  CONFIRMED_LEGITIMATE: ["NOTIFIED", "CLOSED"],
+  UNCERTAIN: ["ESCALATED", "NOTIFIED", "CLOSED"],
+  FREEZE_STAGED: ["ESCALATED", "NOTIFIED", "CLOSED"],
+  ESCALATED: ["NOTIFIED", "CLOSED"],
+  NOTIFIED: ["CLOSED"],
+  NO_ANSWER: ["RETRY_SCHEDULED", "EXHAUSTED"],
+  BUSY: ["RETRY_SCHEDULED", "EXHAUSTED"],
+  VOICEMAIL: ["RETRY_SCHEDULED", "EXHAUSTED"],
+  RETRY_SCHEDULED: ["DIALING", "EXHAUSTED"],
+  REJECTED: [],
+  FAILED: [],
+  EXHAUSTED: [],
+  CLOSED: [],
+};
+
+export function canTransition(from: string, to: string): boolean {
+  return (TRANSITIONS[from] ?? []).includes(to);
+}
+
+export class IllegalTransitionError extends Error {
+  constructor(
+    public from: string,
+    public to: string
+  ) {
+    super(`Illegal case transition: ${from} → ${to}`);
+    this.name = "IllegalTransitionError";
+  }
+}
+
+/** The single writer for case state. Throws on an illegal transition. */
+export async function transitionCase(
+  caseRef: string,
+  to: string,
+  meta?: Record<string, unknown>
+): Promise<{ id: string; state: string }> {
+  const row = await db.case.findUnique({ where: { caseRef } });
+  if (!row) throw new Error(`Case not found: ${caseRef}`);
+  const from = row.state;
+  if (!canTransition(from, to)) {
+    throw new IllegalTransitionError(from, to);
+  }
+  const updated = await db.case.update({
+    where: { caseRef },
+    data: { state: to, ...(meta ?? {}) },
+    select: { id: true, state: true },
+  });
+  return updated;
+}
+
+/** Create a case in RECEIVED state. */
+export async function createCase(data: {
+  caseRef: string;
+  orgId?: string | null;
+  transactionRef?: string;
+  riskScore?: number;
+  language?: string;
+  phone?: string;
+  merchant?: string;
+  amountMinor?: number;
+  currency?: string;
+  consentRecordId?: string;
+  conversationId?: string | null;
+}): Promise<{ id: string; caseRef: string; state: string }> {
+  return db.case.create({
+    data: {
+      caseRef: data.caseRef,
+      orgId: data.orgId ?? null,
+      state: "RECEIVED",
+      transactionRef: data.transactionRef ?? null,
+      riskScore: data.riskScore ?? null,
+      language: data.language ?? "en",
+      phone: data.phone ?? null,
+      merchant: data.merchant ?? null,
+      amountMinor: data.amountMinor ?? null,
+      currency: data.currency ?? null,
+      consentRecordId: data.consentRecordId ?? null,
+      conversationId: data.conversationId ?? null,
+    },
+    select: { id: true, caseRef: true, state: true },
+  });
+}
+
+/** Look up a case by conversation_id (the join key for the post-call webhook). */
+export async function caseByConversation(conversationId: string) {
+  return db.case.findFirst({ where: { conversationId } });
+}
+
+/** Look up a case by caseRef. */
+export async function caseByRef(caseRef: string) {
+  return db.case.findUnique({ where: { caseRef } });
+}

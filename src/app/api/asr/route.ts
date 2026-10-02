@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { consume as consumeRateLimit } from "@/lib/ratelimit";
+import { consume as consumeRateLimit, rateLimitId } from "@/lib/ratelimit";
 import { append as auditAppend } from "@/lib/audit-chain";
 import { transcript as redactText } from "@/lib/redact";
 
@@ -29,7 +29,7 @@ const schema = z.object({
 
 export async function POST(req: NextRequest) {
   const started = Date.now();
-  const callerId = req.headers.get("x-caller-id") || "anon";
+  const callerId = rateLimitId(req);
 
   // 1. Rate limit BEFORE touching the (potentially huge) body — cheapest
   //    possible reject; an exhausted caller can't make us buffer 18MB.

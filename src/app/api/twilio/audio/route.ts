@@ -2,9 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { append as auditAppend } from "@/lib/audit-chain";
 import { transcript as redactText } from "@/lib/redact";
-import { consume as consumeRateLimit } from "@/lib/ratelimit";
+import { consume as consumeRateLimit, rateLimitId } from "@/lib/ratelimit";
 import { env } from "@/lib/config";
 import { tts as elevenTts } from "@/lib/elevenlabs/client";
+import { verifyAudioSignature } from "@/lib/twilio";
 
 export const dynamic = "force-dynamic";
 
@@ -62,13 +63,23 @@ function cacheSet(key: string, buf: Buffer) {
 export async function GET(req: NextRequest) {
   const text = req.nextUrl.searchParams.get("text") ?? "";
   const lang = (req.nextUrl.searchParams.get("lang") ?? "en") as keyof typeof LANG_TO_VOICE;
-  const callRef = req.nextUrl.searchParams.get("callRef") ?? `SV-A-${Date.now().toString(36)}`;
+  // Raw param ("" when absent) — the signature is computed over exactly this.
+  const callRefParam = req.nextUrl.searchParams.get("callRef") ?? "";
 
   if (!text || text.length > 1024) {
     return NextResponse.json({ error: "text required (1–1024 chars)" }, { status: 400 });
   }
 
-  const rl = consumeRateLimit("twilio-audio", callRef);
+  // Signed-URL gate: this endpoint renders TTS on the shared platform key, so
+  // it must only serve URLs interventionTwiml minted. An unsigned (or
+  // mis-signed) request is someone synthesizing arbitrary audio on our bill.
+  const sig = req.nextUrl.searchParams.get("sig") ?? "";
+  if (!verifyAudioSignature(text, lang, callRefParam, sig)) {
+    return NextResponse.json({ error: "Invalid audio URL signature" }, { status: 403 });
+  }
+
+  const callRef = callRefParam || `SV-A-${Date.now().toString(36)}`;
+  const rl = consumeRateLimit("twilio-audio", rateLimitId(req, callRef));
   if (!rl.ok) {
     return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
   }
@@ -85,7 +96,7 @@ export async function GET(req: NextRequest) {
       headers: {
         "Content-Type": "audio/mpeg",
         "Content-Length": String(cached.length),
-        "Cache-Control": "public, max-age=3600",
+        "Cache-Control": "private, max-age=3600",
       },
     });
   }
@@ -113,7 +124,7 @@ export async function GET(req: NextRequest) {
       headers: {
         "Content-Type": result.contentType || "audio/mpeg",
         "Content-Length": String(result.bytes),
-        "Cache-Control": "public, max-age=3600",
+        "Cache-Control": "private, max-age=3600",
       },
     });
   } catch (err) {

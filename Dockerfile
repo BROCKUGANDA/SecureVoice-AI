@@ -34,6 +34,11 @@ FROM oven/bun:1-slim AS builder
 WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1 \
     DATABASE_URL=postgresql://securevoice:securevoice@db:5432/securevoice?schema=public
+# NEXT_PUBLIC_* vars are INLINED into the bundle at build time — runtime env has
+# no effect. The Clerk publishable key must therefore arrive as a build arg or
+# clerkMiddleware 500s every request and the stack never becomes healthy.
+ARG NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
+ENV NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN bun run build

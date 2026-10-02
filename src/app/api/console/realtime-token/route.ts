@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireSignedIn } from "@/lib/credits";
 import { mintRealtimeToken } from "@/lib/realtime-token";
+import { realtimeConfigured } from "@/lib/flags";
 
 export const dynamic = "force-dynamic";
 
@@ -13,11 +14,22 @@ export const dynamic = "force-dynamic";
  * 60s and carries the operator's org plus the channels for the cases they are
  * watching.
  *
- * 503 (not 401) when no signing secret is configured: the operator IS signed in,
- * the deployment is just missing REALTIME_INGEST_SECRET. That distinction lets
- * the console fall back to SSE instead of showing an auth error.
+ * 503 (not 401) when realtime is not configured — either the flag is off or
+ * REALTIME_INGEST_SECRET is missing. The operator IS signed in; the deployment
+ * just cannot serve the socket. That distinction lets the console fall back to
+ * SSE instead of showing an auth error.
  */
 export async function POST(req: Request) {
+  // Checked before the session guard so a disabled deployment returns the same
+  // 503 whether or not anyone is signed in — otherwise this endpoint doubles as
+  // an unauthenticated probe for which features are enabled.
+  if (!realtimeConfigured()) {
+    return NextResponse.json(
+      { error: "Realtime not configured — set FEATURE_REALTIME=true and REALTIME_INGEST_SECRET to enable the live feed." },
+      { status: 503 },
+    );
+  }
+
   const guard = await requireSignedIn();
   if (!guard.ok) {
     return NextResponse.json({ error: guard.error }, { status: guard.status });

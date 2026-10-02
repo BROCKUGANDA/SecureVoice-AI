@@ -1,0 +1,12 @@
+# syntax=docker/dockerfile:1
+# ---------------------------------------------------------------------------
+# SecureVoice AI — Northflank edge image.
+# The platform LB terminates TLS and forwards plaintext to this container,
+# which is the only public ingress (mirrors the compose Caddy service).
+# ---------------------------------------------------------------------------
+FROM caddy:2-alpine
+COPY Caddyfile.platform /etc/caddy/Caddyfile
+EXPOSE 80
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD wget -q --spider http://127.0.0.1/healthz || exit 1
+CMD ["caddy", "run", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]

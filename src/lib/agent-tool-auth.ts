@@ -1,3 +1,4 @@
+import "server-only";
 /**
  * Shared authentication for inbound agent-tool calls from the ElevenLabs
  * Agents Platform (and any other server caller).

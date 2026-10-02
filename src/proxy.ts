@@ -51,7 +51,7 @@ const EDGE_RATE_PER_HOUR = Number(process.env.EDGE_RATE_LIMIT_PER_HOUR) || 600;
  * Paths exempt from the rate limiter — infrastructure probes and static assets,
  * which would otherwise consume a shared bucket.
  */
-const RL_EXEMPT = [/^\/api\/health$/, /^\/api\/status$/, /^\/_next\//, /^\/favicon\.ico$/, /^\/robots\.txt$/];
+const RL_EXEMPT = [/^\/api\/health$/, /^\/_next\//, /^\/favicon\.ico$/, /^\/robots\.txt$/];
 
 /**
  * Hard ceiling on any request body. Set above experimental.proxyClientMaxBodySize

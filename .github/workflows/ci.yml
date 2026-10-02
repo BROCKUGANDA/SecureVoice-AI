@@ -70,6 +70,18 @@ jobs:
         working-directory: mini-services/realtime
         run: bun test
 
+      # App-side unit tests. The realtime service above needs its own step for
+      # its own tsconfig; these live in the root project and use the root
+      # install, so they are a single quick step.
+      - name: App unit tests
+        run: bun test tests/
+
+      # The test project is separate (it needs `bun:test` types and .ts import
+      # extensions the Next app project doesn't allow), so it needs its own
+      # typecheck or a type error in a test only shows up at runtime.
+      - name: Test typecheck
+        run: bunx tsc -p tests/tsconfig.json
+
       # The app gates: lint, root typecheck, production build. Kept as separate
       # steps so a failure names itself instead of arriving as one opaque blob.
       - name: Lint

@@ -46,8 +46,9 @@ const pilotSchema = z.object({
   role: z.string().trim().max(80).optional().or(z.literal("")),
   volume: z.string().trim().max(40).optional().or(z.literal("")),
   message: z.string().trim().max(600).optional().or(z.literal("")),
-  // honeypot — real users never fill this (hidden field)
-  company_url: z.string().max(0).optional().or(z.literal("")),
+  // honeypot — real users never fill this (hidden field). Any non-empty
+  // value marks a bot; max(0) would make the field always "" and the trap dead.
+  company_url: z.string().max(200).optional(),
   source: z.string().trim().max(24).optional(),
 });
 
@@ -62,9 +63,11 @@ function makeRef(): string {
 }
 
 export async function POST(req: NextRequest) {
+  // Use the proxy-resolved IP (set by src/proxy.ts after the XFF trust
+  // decision) — raw x-forwarded-for here would be trivially rotatable.
   const ip =
+    req.headers.get("x-securevoice-client-ip")?.slice(0, 64) ||
     req.headers.get("x-forwarded-for")?.split(",")[0]?.trim().slice(0, 64) ||
-    req.headers.get("x-real-ip")?.slice(0, 64) ||
     "local";
 
   if (rateLimited(ip)) {
@@ -96,26 +99,34 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, ref: "SV-P-00000" });
   }
 
-  try {
-    const row = await db.pilotRequest.create({
-      data: {
-        ref: makeRef(),
-        name: d.name,
-        email: d.email,
-        institution: d.institution,
-        role: d.role || null,
-        volume: d.volume || null,
-        message: d.message || null,
-        source: d.source || "website",
-      },
-      select: { ref: true, createdAt: true },
-    });
-    return NextResponse.json({ ok: true, ref: row.ref, createdAt: row.createdAt });
-  } catch (err) {
-    console.error("[pilot] insert failed:", err);
-    return NextResponse.json(
-      { ok: false, error: "We could not save your request. Please try again or email otemaach@gmail.com." },
-      { status: 500 }
-    );
+  // ref is 5 chars from a 32-symbol alphabet — collisions become likely around
+  // a few thousand rows, so retry the insert on a unique-constraint hit
+  // instead of surfacing a 500.
+  for (let attemptN = 0; attemptN < 5; attemptN++) {
+    try {
+      const row = await db.pilotRequest.create({
+        data: {
+          ref: makeRef(),
+          name: d.name,
+          email: d.email,
+          institution: d.institution,
+          role: d.role || null,
+          volume: d.volume || null,
+          message: d.message || null,
+          source: d.source || "website",
+        },
+        select: { ref: true, createdAt: true },
+      });
+      return NextResponse.json({ ok: true, ref: row.ref, createdAt: row.createdAt });
+    } catch (err) {
+      const code = (err as { code?: string } | null)?.code;
+      if (code === "P2002") continue; // ref collision — try a fresh ref
+      console.error("[pilot] insert failed:", err);
+      break;
+    }
   }
+  return NextResponse.json(
+    { ok: false, error: "We could not save your request. Please try again shortly." },
+    { status: 500 }
+  );
 }

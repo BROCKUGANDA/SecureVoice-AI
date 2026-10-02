@@ -1,4 +1,4 @@
-import type { ScenarioKind, ScenarioMeta } from "./scenario";
+import type { ScenarioKind, ScenarioMeta } from "./scenario-types";
 
 /**
  * Urdu (ur) script layer — one entry per event, aligned with the 17-event

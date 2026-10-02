@@ -1,3 +1,4 @@
+import "server-only";
 /**
  * Twilio delivery layer — the live-telephony path for enrolled customers.
  *
@@ -18,6 +19,7 @@
  * false and the interventions route degrades to audit-only (no failure).
  */
 
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { twilioMode, isTwilioConfigured } from "@/lib/config";
 
 export { twilioMode, isTwilioConfigured };
@@ -129,16 +131,75 @@ export function interventionTwiml(
   const text = (SCRIPT[lang] ?? SCRIPT.en)(amount ?? "", merchant ?? "");
   const turnUrl = `/api/twilio/turn?lang=${lang}${callRef ? `&callSid=${escapeXml(callRef)}` : ""}`;
 
-  // ElevenLabs opening via <Play> when we have a public origin
+  // ElevenLabs opening via <Play> when we have a public origin. The audio URL
+  // is HMAC-signed: /api/twilio/audio renders TTS on the shared platform key,
+  // so an unsigned URL would let anyone synthesize arbitrary audio on our bill.
   let opening: string;
-  if (origin) {
-    const audioUrl = `${origin}/api/twilio/audio?text=${encodeURIComponent(text.slice(0, 1024))}&lang=${lang}${callRef ? `&callRef=${encodeURIComponent(callRef)}` : ""}`;
+  const spoken = text.slice(0, 1024);
+  const sig = origin ? signAudioParams(spoken, lang, callRef ?? "") : null;
+  if (origin && sig) {
+    const audioUrl = `${origin}/api/twilio/audio?text=${encodeURIComponent(spoken)}&lang=${lang}${callRef ? `&callRef=${encodeURIComponent(callRef)}` : ""}&sig=${sig}`;
     opening = `<Play>${escapeXml(audioUrl)}</Play>`;
   } else {
     opening = `<Say voice="${voice}" language="${language}">${escapeXml(text)}</Say>`;
   }
 
   return `<?xml version="1.0" encoding="UTF-8"?><Response>${opening}<Gather input="speech" action="${escapeXml(turnUrl)}" method="POST" speechTimeout="auto" language="${language}"><Say voice="${voice}" language="${language}">Is this transaction yours? Please say yes or no.</Say></Gather><Say voice="${voice}" language="${language}">I didn't catch a response. A fraud specialist will follow up shortly. Thank you.</Say><Hangup/></Response>`;
+}
+
+/* ————— webhook + audio-URL authentication ————— */
+
+/**
+ * Sign the params of a /api/twilio/audio URL. Derived from WEBHOOK_SECRET
+ * (domain-separated) so the audio endpoint can prove the URL was minted by
+ * interventionTwiml, not invented by a caller. Returns null when no secret is
+ * configured — the caller must then fall back to inline <Say>.
+ */
+export function signAudioParams(text: string, lang: string, callRef: string): string | null {
+  const secret = process.env.WEBHOOK_SECRET;
+  if (!secret) return null;
+  return createHmac("sha256", `sv-audio:${secret}`)
+    .update(`${lang}.${callRef}.${text}`)
+    .digest("base64url");
+}
+
+/** Constant-time check of a sig produced by signAudioParams. */
+export function verifyAudioSignature(text: string, lang: string, callRef: string, sig: string): boolean {
+  const expected = signAudioParams(text, lang, callRef);
+  if (!expected) return false;
+  const a = Buffer.from(expected);
+  const b = Buffer.from(sig);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
+/**
+ * Validate an inbound Twilio webhook (X-Twilio-Signature): base64 HMAC-SHA1
+ * of the full URL + sorted POST params, keyed with the account auth token.
+ * Returns:
+ *   true  — signature present and valid
+ *   false — signature present and INVALID (reject the request)
+ *   null  — cannot verify (no TWILIO_AUTH_TOKEN configured); the caller
+ *           decides the policy (we log loudly and allow, since API-key-only
+ *           deployments have no token to verify against — set one).
+ */
+export function verifyTwilioSignature(
+  fullUrl: string,
+  params: Record<string, string>,
+  signatureHeader: string | null,
+): boolean | null {
+  const token = process.env.TWILIO_AUTH_TOKEN;
+  if (!token) return null;
+  if (!signatureHeader) return false;
+  const data =
+    fullUrl +
+    Object.keys(params)
+      .sort()
+      .map((k) => k + params[k])
+      .join("");
+  const expected = createHmac("sha1", token).update(data).digest("base64");
+  const a = Buffer.from(expected);
+  const b = Buffer.from(signatureHeader);
+  return a.length === b.length && timingSafeEqual(a, b);
 }
 
 /* ————— REST calls ————— */
@@ -158,11 +219,14 @@ async function twilioPost(accountSid: string, username: string, password: string
     });
     const data = (await r.json().catch(() => ({}))) as Record<string, unknown>;
     if (!r.ok) {
+      // Parens matter: `a ?? b !== undefined ? c : d` parses as
+      // `(a ?? (b !== undefined)) ? c : d` — the intended message was never used
+      // and raw Twilio error JSON leaked to the caller.
       const msg =
         (data as { message?: string }).message ??
-        (data as { code?: unknown }).code !== undefined
+        ((data as { code?: unknown }).code !== undefined
           ? JSON.stringify(data).slice(0, 300)
-          : `Twilio ${r.status}`;
+          : `Twilio ${r.status}`);
       return { ok: false, status: r.status, error: msg };
     }
     return { ok: true, data };

@@ -1,3 +1,4 @@
+import "server-only";
 /**
  * ElevenLabs client wrapper — the ONE place that talks to a neural-voice
  * provider. Vendor-neutral: the prod backend is ElevenLabs; the dev backend is

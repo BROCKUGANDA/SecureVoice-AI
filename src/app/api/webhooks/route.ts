@@ -17,7 +17,12 @@ export const dynamic = "force-dynamic";
  * means in practice — demonstrated here with the exact node:crypto primitives.
  */
 
-const DEMO_SECRET = `whsec_${randomBytes(24).toString("hex")}`;
+// Demo signing secret: derived from the deployment secret when one exists so
+// signatures stay stable across replicas and restarts; random per boot
+// otherwise (the demo teaches the SCHEME, persistence doesn't matter there).
+const DEMO_SECRET = process.env.WEBHOOK_SECRET
+  ? `whsec_demo_${createHmac("sha256", process.env.WEBHOOK_SECRET).update("sv-webhook-demo").digest("hex").slice(0, 32)}`
+  : `whsec_${randomBytes(24).toString("hex")}`;
 
 const EVENTS = new Set([
   "intervention.started",

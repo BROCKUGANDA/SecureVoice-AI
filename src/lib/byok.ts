@@ -1,3 +1,4 @@
+import "server-only";
 /**
  * BYOK (Bring Your Own Key) encryption — the organization's ElevenLabs key is
  * stored encrypted at rest (AES-256-GCM) and decrypted only in-process for an
@@ -9,7 +10,13 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "crypto";
 
 function byokKey(): Buffer {
-  const base = process.env.AUTH_SECRET || process.env.WEBHOOK_SECRET || "sv-dev-only-secret";
+  // Never fall back to a constant: a published default key would make every
+  // stored BYOK credential decryptable from a database dump. Fail loudly so a
+  // misconfigured deployment cannot silently encrypt under a guessable key.
+  const base = process.env.AUTH_SECRET;
+  if (!base) {
+    throw new Error("AUTH_SECRET is required for BYOK key storage — set it before storing organization ElevenLabs keys.");
+  }
   return createHash("sha256").update(`sv-byok:${base}`).digest();
 }
 

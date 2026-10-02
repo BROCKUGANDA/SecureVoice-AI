@@ -20,6 +20,22 @@ export const TTS_VOICE: Record<CallLang, Record<VoiceRole, string>> = {
 /* ————— audio cache (object URLs, session-scoped) ————— */
 const AUDIO_CACHE = new Map<string, string>();
 const INFLIGHT = new Map<string, Promise<string>>();
+// Bounded: every entry holds a live object URL (~100KB of blob). Evicting
+// WITHOUT revokeObjectURL leaks the blob for the tab's lifetime.
+const AUDIO_CACHE_MAX = 64;
+
+function cacheSet(key: string, url: string): void {
+  if (AUDIO_CACHE.size >= AUDIO_CACHE_MAX) {
+    // Map iterates in insertion order — the first key is the oldest.
+    const oldest = AUDIO_CACHE.keys().next().value;
+    if (oldest !== undefined) {
+      const oldUrl = AUDIO_CACHE.get(oldest);
+      AUDIO_CACHE.delete(oldest);
+      if (oldUrl) URL.revokeObjectURL(oldUrl);
+    }
+  }
+  AUDIO_CACHE.set(key, url);
+}
 
 export function prefetchSpeech(text: string, voice: string, lang?: CallLang): void {
   fetchSpeechUrl(text, voice, lang).catch(() => {});
@@ -44,7 +60,7 @@ export function fetchSpeechUrl(text: string, voice: string, lang?: CallLang): Pr
     const blob = await res.blob();
     if (blob.size < 512) throw new Error("tts empty");
     const url = URL.createObjectURL(blob);
-    AUDIO_CACHE.set(key, url);
+    cacheSet(key, url);
     return url;
   })().finally(() => INFLIGHT.delete(key));
 

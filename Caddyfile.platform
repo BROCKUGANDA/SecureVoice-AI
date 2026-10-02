@@ -1,0 +1,87 @@
+# ---------------------------------------------------------------------------
+# SecureVoice AI — Northflank edge (platform load balancer terminates TLS)
+#
+# Topology is identical to the compose stack: Caddy is the ONLY public-facing
+# process. `app` and `realtime` are private Northflank services reachable only
+# on the project network, and src/proxy.ts believes X-Forwarded-For only when
+# the marker header below is present.
+#
+# Differences from Caddyfile (self-hosted):
+#   - No ACME / no TLS here. Northflank's LB terminates TLS at the edge and
+#     forwards plaintext HTTP to this port — that is why the site listens on
+#     :80. TLS policy (HSTS etc.) is still emitted as response headers.
+#   - Upstream names are the Northflank service names (project-internal DNS),
+#     which match the compose service names deliberately.
+# ---------------------------------------------------------------------------
+{
+	# No admin API, no ACME — the platform LB owns certificates.
+	admin off
+	auto_https off
+}
+
+# ---- snippets (must be defined before use — Caddy 2 requirement) -------------
+
+(forwarded_headers) {
+	# Northflank's LB sets X-Forwarded-For; override it outright so a caller
+	# cannot prepend a forged entry (src/proxy.ts reads the left-most).
+	header_up X-Forwarded-For {remote_host}
+	header_up X-Real-IP {remote_host}
+	header_up X-Forwarded-Proto {scheme}
+	header_up Host {host}
+
+	# The marker src/proxy.ts requires before trusting client-IP headers.
+	header_up X-SecureVoice-Proxy "1"
+}
+
+(secure_defaults) {
+	header {
+		Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+	encode zstd gzip
+}
+
+# ---- site: plaintext behind the platform LB ---------------------------------
+
+:80 {
+	import secure_defaults
+
+	# Realtime websocket + presence, matched BEFORE the catch-all.
+	handle /realtime/* {
+		reverse_proxy realtime:4000 {
+			import forwarded_headers
+			flush_interval -1
+			transport http {
+				versions 1.1 2
+			}
+		}
+	}
+
+	# Uptime probe answered at the edge.
+	handle /healthz {
+		respond "ok" 200
+	}
+
+	handle {
+		reverse_proxy app:3000 {
+			import forwarded_headers
+			flush_interval -1
+		}
+	}
+
+	log {
+		format filter {
+			wrap console
+			fields {
+				request>headers>Cookie delete
+				request>headers>Authorization delete
+				request>headers>X-Agent-Tool-Secret delete
+				request>headers>SV-Signature replace "[REDACTED]" "[REDACTED]"
+				uri query replace "[REDACTED]" "[REDACTED]"
+			}
+		}
+	}
+}

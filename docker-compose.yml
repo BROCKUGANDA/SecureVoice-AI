@@ -9,8 +9,9 @@
 #      prisma/schema.prisma is `postgresql` and Prisma REJECTS a `file:` URL
 #      outright (P1012), so Postgres is the only supported mode — this is what
 #      makes `docker compose up --build` genuinely reproducible.
-#   2. db-setup waits for it healthy, runs `prisma db push`, then seeds a
-#      realistic intervention case history so the Command Center isn't empty.
+#   2. db-setup waits for it healthy, runs `prisma migrate deploy` (versioned
+#      SQL in prisma/migrations — never `db push --accept-data-loss` on a real
+#      deployment), then seeds a demo case history (SEED_DEMO=false to skip).
 #   3. realtime  — the Command Center's push path (Bun + socket.io). Holds a
 #      signing secret but NO database client: it only moves already-redacted,
 #      already-authorised events to sockets.
@@ -27,9 +28,10 @@
 #     layer falls back to a single shared rate-limit bucket. Fine for a laptop;
 #     do not ship it.
 #
-# To use your OWN Postgres instead of the bundled one, pass a connection
-# string via DATABASE_URL and start only the app services:
-#   docker compose up --build db-setup app realtime caddy
+# To use your OWN Postgres instead of the bundled one, set POSTGRES_USER /
+# POSTGRES_PASSWORD / POSTGRES_DB plus a full DATABASE_URL in .env and start
+# only the app services against it:
+#   docker compose up --build app realtime caddy
 #
 # Secrets: app loads an optional local .env (ElevenLabs / Twilio / webhook
 # keys). Without one the platform boots in audit-only / dry-run mode —
@@ -43,43 +45,58 @@
 # ---------------------------------------------------------------------------
 name: securevoice-ai
 
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
 services:
   db:
     image: postgres:16-alpine
     restart: unless-stopped
+    logging: *default-logging
+    mem_limit: 1g
     environment:
-      POSTGRES_USER: securevoice
-      POSTGRES_PASSWORD: securevoice
-      POSTGRES_DB: securevoice
+      # Credentials interpolate from .env (Compose auto-loads it for
+      # interpolation). Defaults keep the zero-config demo bootable; a public
+      # deployment MUST set POSTGRES_PASSWORD in .env.
+      POSTGRES_USER: ${POSTGRES_USER:-securevoice}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-securevoice}
+      POSTGRES_DB: ${POSTGRES_DB:-securevoice}
     volumes:
       - db-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U securevoice -d securevoice"]
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
       timeout: 5s
       retries: 20
-      start_period: 10s
+      start_period: 30s
 
   db-setup:
     build:
       context: .
       target: builder
+      args:
+        # Inlined into the Next.js bundle at build time — see Dockerfile.
+        NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY:-}
+    logging: *default-logging
     environment:
-      # FORCED, not interpolated. Docker Compose auto-loads ./.env for *variable
-      # interpolation*, so `${DATABASE_URL:-…}` would silently pick up a developer's
-      # local DATABASE_URL (e.g. a remote Supabase host) and bypass the bundled
-      # Postgres entirely — which is what broke `docker compose up` before.
-      # Compose reads env_file only for the APP's runtime secrets; to point
-      # db-setup at your own database, use COMPOSE_DB_URL below.
-      DATABASE_URL: postgresql://securevoice:securevoice@db:5432/securevoice?schema=public
-    volumes:
-      - db-data:/app/db
+      # Built from PARTS, not interpolated as a whole: a stray DATABASE_URL in a
+      # developer's .env (e.g. a remote Supabase host) must not redirect the
+      # schema push away from the bundled Postgres. Rotate the parts via
+      # POSTGRES_USER / POSTGRES_PASSWORD / POSTGRES_DB in .env.
+      DATABASE_URL: postgresql://${POSTGRES_USER:-securevoice}:${POSTGRES_PASSWORD:-securevoice}@db:5432/${POSTGRES_DB:-securevoice}?schema=public
+      # Seed the demo case history on first boot. Idempotent per callRef; set
+      # SEED_DEMO=false in .env for a clean production database.
+      SEED_DEMO: ${SEED_DEMO:-true}
     depends_on:
       db:
         condition: service_healthy
-        required: false
-    restart: "no"
-    command: ["sh", "-c", "bunx prisma db push --accept-data-loss --skip-generate && bun scripts/seed-demo.mjs"]
+    # Retry on transient failure — `restart: "no"` made a single failed push an
+    # unrecoverable gate (app requires service_completed_successfully).
+    restart: on-failure:3
+    command: ["sh", "-c", "bunx prisma migrate deploy && if [ \"$SEED_DEMO\" = \"true\" ]; then bun scripts/seed-demo.mjs; fi"]
 
   # Command Center push path. Separate image, separate trust boundary, and
   # independently restartable: a hung socket layer must never take the API with it.
@@ -88,14 +105,19 @@ services:
       # Its own context — different dependency tree (socket.io, no Prisma, no Next).
       context: ./mini-services/realtime
     restart: unless-stopped
+    logging: *default-logging
+    mem_limit: 512m
     environment:
       HOST: 0.0.0.0
       PORT: "4000"
-      # Shared signing secret. Falls back to AGENT_TOOL_SECRET so an existing
-      # deployment needs one new variable, not two.
-      REALTIME_INGEST_SECRET: ${REALTIME_INGEST_SECRET:-${AGENT_TOOL_SECRET:-}}
-      # Comma-separated allowed browser origins. Empty = accept any (dev only).
-      REALTIME_ALLOWED_ORIGIN: ${REALTIME_ALLOWED_ORIGIN:-}
+      # Shared signing secret, dedicated to the realtime path. It deliberately
+      # does NOT fall back to AGENT_TOOL_SECRET: that secret crosses the wire on
+      # ElevenLabs tool calls, and reusing it would let a leak there forge
+      # console broadcasts and mint realtime grants.
+      REALTIME_INGEST_SECRET: ${REALTIME_INGEST_SECRET:-}
+      # Comma-separated allowed browser origins. Defaults to the public site;
+      # set explicitly to "" only for local dev (accept-any is a hijack surface).
+      REALTIME_ALLOWED_ORIGIN: ${REALTIME_ALLOWED_ORIGIN:-https://${SITE_ADDRESS:-localhost}}
     expose:
       - "4000"
     healthcheck:
@@ -111,27 +133,28 @@ services:
     build:
       context: .
       target: runner
+      args:
+        # Inlined into the Next.js bundle at build time — see Dockerfile.
+        NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY:-}
     # IMAGE lets a release job smoke-test the image it just published instead of a
     # locally rebuilt copy. Unset (the normal case) => build from source.
     # `${VAR:-}` with no value yields an empty string, and compose treats that as
     # "no image override", so the default build path is unchanged.
     image: ${IMAGE:-securevoice-ai-app:local}
     restart: unless-stopped
+    logging: *default-logging
+    mem_limit: 1g
     environment:
       HOSTNAME: 0.0.0.0
-      # Forced for the same reason as db-setup: an interpolated default loses to a
-      # developer's .env DATABASE_URL and would point the app at a different
-      # database than the one db-setup just seeded. Override with COMPOSE_DB_URL.
-      DATABASE_URL: postgresql://securevoice:securevoice@db:5432/securevoice?schema=public
+      # Built from parts — see db-setup for why a whole-URL interpolation is unsafe.
+      DATABASE_URL: postgresql://${POSTGRES_USER:-securevoice}:${POSTGRES_PASSWORD:-securevoice}@db:5432/${POSTGRES_DB:-securevoice}?schema=public
       # Internal service name, NEVER localhost: inside the app container,
       # localhost is the app container. Empty = realtime disabled, console uses SSE.
       REALTIME_URL: ${REALTIME_URL:-http://realtime:4000}
-      REALTIME_INGEST_SECRET: ${REALTIME_INGEST_SECRET:-${AGENT_TOOL_SECRET:-}}
+      REALTIME_INGEST_SECRET: ${REALTIME_INGEST_SECRET:-}
     env_file:
       - path: .env
         required: false
-    volumes:
-      - db-data:/app/db
     expose:
       - "3000"
     depends_on:
@@ -151,6 +174,8 @@ services:
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped
+    logging: *default-logging
+    mem_limit: 256m
     ports:
       - "80:80"
       - "443:443"
@@ -169,11 +194,14 @@ services:
       realtime:
         condition: service_started
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:2019/config/"]
+      # Probe the edge itself — the Caddyfile answers /healthz. (The previous
+      # check hit the admin API on :2019, which `admin off` disables, so the
+      # container could NEVER report healthy.)
+      test: ["CMD-SHELL", "wget -q --spider --no-check-certificate --header=\"Host: $$SITE_ADDRESS\" https://127.0.0.1/healthz || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 10s
+      start_period: 15s
 
   # Opt-in escape hatch for local work: publish the app's :3000 directly and skip
   # TLS. Off by default — see the note at the top of this file.
@@ -182,14 +210,15 @@ services:
     build:
       context: .
       target: runner
+      args:
+        NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY:-}
+    logging: *default-logging
     environment:
       HOSTNAME: 0.0.0.0
-      DATABASE_URL: postgresql://securevoice:securevoice@db:5432/securevoice?schema=public
+      DATABASE_URL: postgresql://${POSTGRES_USER:-securevoice}:${POSTGRES_PASSWORD:-securevoice}@db:5432/${POSTGRES_DB:-securevoice}?schema=public
     env_file:
       - path: .env
         required: false
-    volumes:
-      - db-data:/app/db
     ports:
       - "3000:3000"
     depends_on:

@@ -1,3 +1,4 @@
+import "server-only";
 /**
  * ElevenLabs Prohibited Use Policy enforcement + UAE PDPL-aware guardrails.
  *
@@ -117,9 +118,9 @@ export function auditAgentReply(args: {
 
 const SAFE_REFUSAL: Record<"en" | "ar" | "hi" | "ur" | "fr" | "sw", string> = {
   en: "I am not able to ask for that information, and no legitimate bank representative will. Please end this call if anyone is asking you to share it, and call the number on the back of your card.",
-  ar: "لا أستطيع طلب هذه المعلومات، ولا يطلبها أي موظف bank representative حقيقي. إذا طُلب منك ذلك، أنهِ المكالمة واتصل بالرقم الموجود على ظهر بطاقتك.",
-  hi: "मैं यह जानकारी माँगने में असमर्थ हूँ, और कोई भी वास्तविक bank representative नहीं demand।। यदि कोई माँगे तो कॉल काट दें और कार्ड के पीछे दिया नंबर मिलाएँ।",
-  ur: "میں یہ معلومات مانگنے سے قاصر ہوں، اور کوئی بھی حقیقی bank representative نہیں مانے گا۔ اگر کوئی مانے تو کال کاٹ دیں اور کارڈ کی پشت پر دیا نمبر ملائیں۔",
+  ar: "لا أستطيع طلب هذه المعلومات، ولا يطلبها أي موظف بنك حقيقي. إذا طلبها منك أحد، أنهِ المكالمة واتصل بالرقم الموجود على ظهر بطاقتك.",
+  hi: "मैं यह जानकारी नहीं माँग सकता, और कोई भी वास्तविक बैंक प्रतिनिधि भी नहीं माँगेगा। यदि कोई माँगे तो कॉल काट दें और कार्ड के पीछे दिए नंबर पर कॉल करें।",
+  ur: "میں یہ معلومات نہیں مانگ سکتا، اور کوئی بھی حقیقی بینک نمائندہ بھی نہیں مانگے گا۔ اگر کوئی مانگے تو کال کاٹ دیں اور کارڈ کی پشت پر دیا گیا نمبر ملائیں۔",
   fr: "Je ne peux pas vous demander ces informations, et aucun représentant bancaire légitime ne le fera. Si quelqu'un vous les demande, raccrochez et appelez le numéro au dos de votre carte.",
   sw: "Siwezi kuomba habari hiyo, na mwakilishi yeyote halali wa benki hataomba. Kuna mtu akikuomba, sitisha simu upigie namba iliyo kwa nyuma ya kadi yako.",
 };

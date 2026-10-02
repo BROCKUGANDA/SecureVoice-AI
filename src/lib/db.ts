@@ -1,3 +1,4 @@
+import "server-only";
 import { PrismaClient } from '@prisma/client'
 
 const globalForPrisma = globalThis as unknown as {
@@ -19,6 +20,28 @@ export const db =
   })
 
 if (!isProd) globalForPrisma.prisma = db
+
+// ── Audit-chain dedicated client ──
+// The audit chain's fire-and-forget appends must never compete with the hot
+// path (the combined idempotency+consent check) for a connection from the
+// main pool. A dedicated client with its own small pool isolates the two:
+// a burst of audit writes can never starve the synchronous path.
+const globalForPrismaAudit = globalThis as unknown as {
+  prismaAudit: PrismaClient | undefined
+}
+
+export const dbAudit =
+  globalForPrismaAudit.prismaAudit ??
+  new PrismaClient({
+    log: isProd ? ['error'] : ['error'],
+    datasources: {
+      db: {
+        url: (process.env.DATABASE_URL ?? '') + '&connection_limit=5',
+      },
+    },
+  })
+
+if (!isProd) globalForPrismaAudit.prismaAudit = dbAudit
 
 // ── Boot-time housekeeping (runs once per process) ──
 // Evict expired idempotency keys so the table doesn't grow unboundedly.

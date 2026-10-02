@@ -35,6 +35,13 @@ download
 .z-ai-config
 skills
 local-*
+svpg
+.mimosa
+.agents
+.cursor
+test
+IDEA.md
+MODEL_CARD.md
 
 # not needed inside the image
 docs

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { auditAgentReply, auditUserInput, requireOutboundConsent } from "@/lib/compliance/policy";
 import { transcript as redactText } from "@/lib/redact";
-import { consume as consumeRateLimit } from "@/lib/ratelimit";
+import { consume as consumeRateLimit, rateLimitId } from "@/lib/ratelimit";
 import { append as auditAppend } from "@/lib/audit-chain";
 import { analyzeSentiment } from "@/lib/sentiment";
 import { draftAgentReply } from "@/lib/llm";
@@ -134,7 +134,7 @@ const ACTION: Record<Intent, Action> = {
 
 export async function POST(req: NextRequest) {
   const started = Date.now();
-  const callerId = req.headers.get("x-caller-id") || "anon";
+  const callerId = rateLimitId(req);
 
   // 1. Rate limit BEFORE we parse the body (cheapest possible reject)
   const rl = consumeRateLimit("agent", callerId);

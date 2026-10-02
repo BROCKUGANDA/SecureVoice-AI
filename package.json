@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev -p 3000 2>&1 | tee dev.log",
-    "build": "next build && node scripts/copy-standalone.mjs",
+    "build": "next build && bun scripts/copy-standalone.mjs",
     "start": "NODE_ENV=production bun .next/standalone/server.js 2>&1 | tee server.log",
     "lint": "eslint .",
     "db:push": "prisma db push --accept-data-loss",
@@ -13,10 +13,14 @@
     "db:reset": "prisma migrate reset",
     "db:seed": "node scripts/seed-demo.mjs",
     "build:linux": "next build && sh -c 'cp -r .next/static .next/standalone/.next/ && cp -r public .next/standalone/'",
-    "release:check": "bun run lint && bunx tsc --noEmit -p tsconfig.json && bun run build",
+    "release:check": "bun run lint && bunx tsc --noEmit -p tsconfig.json && bun run test && bun run build",
+    "preflight": "bun scripts/preflight.mjs",
     "realtime:test": "cd mini-services/realtime && bun test",
-    "verify": "bun run lint && bunx tsc --noEmit -p tsconfig.json && bun run realtime:test && bun run build",
-    "version:bump": "node scripts/bump-version.mjs"
+    "verify": "bun run lint && bunx tsc --noEmit -p tsconfig.json && bun run test && bun run realtime:test && bun run build",
+    "version:bump": "node scripts/bump-version.mjs",
+    "agent:apply": "bun scripts/agent-apply.ts",
+    "agent:snapshot": "bun scripts/agent-snapshot.ts",
+    "test": "bun scripts/run-tests.mjs"
   },
   "dependencies": {
     "@clerk/nextjs": "^7.9.1",
@@ -78,6 +82,7 @@
     "react-resizable-panels": "^3.0.3",
     "react-syntax-highlighter": "^15.6.1",
     "recharts": "^2.15.4",
+    "server-only": "^0.0.1",
     "sharp": "^0.34.3",
     "socket.io-client": "^4.8.1",
     "sonner": "^2.0.6",
@@ -91,6 +96,7 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
+    "@types/bun": "^1.4.2",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "bun-types": "^1.3.4",

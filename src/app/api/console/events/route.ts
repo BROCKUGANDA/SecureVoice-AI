@@ -28,9 +28,17 @@ export async function GET(req: NextRequest) {
   const afterParam = req.nextUrl.searchParams.get("after");
   let cursor = afterParam ? new Date(afterParam) : new Date(Date.now() - 60_000);
   if (Number.isNaN(cursor.getTime())) cursor = new Date(Date.now() - 60_000);
+  // Composite cursor: two rows can share a millisecond timestamp, and a
+  // timestamp-only `gt` cursor silently drops the second one. The id breaks
+  // the tie. `afterId` is optional for backward compatibility with clients
+  // that only send `after`.
+  let cursorId = req.nextUrl.searchParams.get("afterId") ?? "";
 
   const encoder = new TextEncoder();
+  // Tenant scope, same rule as /api/console/audit: org-less sessions are NOT
+  // "see everything" — they share the un-namespaced/default rows only.
   const orgId = guard.profile.orgId;
+  const orgScope = orgId ? { orgId } : { OR: [{ orgId: null }, { orgId: "default" }] };
 
   let intervalId: ReturnType<typeof setInterval> | null = null;
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
@@ -69,23 +77,30 @@ export async function GET(req: NextRequest) {
         try {
           const rows = await db.auditLog.findMany({
             where: {
-              createdAt: { gt: cursor },
-              ...(orgId ? { orgId } : {}),
+              AND: [
+                cursorId
+                  ? { OR: [{ createdAt: { gt: cursor } }, { createdAt: cursor, id: { gt: cursorId } }] }
+                  : { createdAt: { gt: cursor } },
+                orgScope,
+              ],
             },
-            orderBy: { createdAt: "asc" },
+            orderBy: [{ createdAt: "asc" }, { id: "asc" }],
             select: {
-              callRef: true, action: true, intent: true, redactedText: true, createdAt: true,
+              id: true, callRef: true, action: true, intent: true, redactedText: true, createdAt: true,
             },
             take: 20,
           });
           if (rows.length > 0) {
-            cursor = rows[rows.length - 1].createdAt;
+            const last = rows[rows.length - 1];
+            cursor = last.createdAt;
+            cursorId = last.id;
             send("activity", rows.map((r) => ({
               callRef: r.callRef,
               action: r.action,
               intent: r.intent,
               detail: (r.redactedText ?? "").slice(0, 90),
               at: r.createdAt.toISOString(),
+              id: r.id,
             })));
           }
         } catch {

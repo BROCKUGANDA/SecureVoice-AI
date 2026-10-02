@@ -121,6 +121,32 @@ anything else.
 | `REALTIME_ALLOWED_ORIGIN` | empty (any) | Comma-separated browser origins the socket accepts. |
 | `EDGE_RATE_LIMIT_PER_HOUR` | `600` | Pre-auth edge budget per client IP. Separate from the expensive-call API limit. |
 
+### Feature flags
+
+Every runtime switch is declared in `src/lib/flags.ts` — one file answers
+"what is switchable in this deployment?", which is not otherwise greppable.
+
+| Flag | Default | Effect |
+| --- | --- | --- |
+| `FEATURE_REALTIME` | `false` | Signed push to the realtime service. Needs `REALTIME_INGEST_SECRET` too — both or neither, because the service rejects every handshake without a secret. |
+| `FEATURE_CONSOLE_LIVE_FEED` | `false` | Console live feed over the websocket. Off means SSE, which is what shipped first. |
+| `FEATURE_PII_REDACTION` | `true` | Redact PII in logs, audit rows, webhook payloads. Turning this off writes customer transcripts in the clear — local debugging only. |
+| `FEATURE_ELEVEN_LABS_LIVE` | `false` | Real neural voice. `ELEVENLABS_DRY_RUN` still wins when set, since the provider client reads it directly. |
+
+Values are strictly `"true"` / `"false"`. Anything else throws at read time
+rather than reading as "disabled" — a typo that silently disables realtime is
+the exact failure this prevents. Defaults put the safe path first: money, PII,
+and the audit chain are off unless you opt in.
+
+Turn realtime on end to end (both switches, or it stays on SSE):
+
+```bash
+FEATURE_REALTIME=true \
+FEATURE_CONSOLE_LIVE_FEED=true \
+REALTIME_INGEST_SECRET="$(openssl rand -base64 32)" \
+  docker compose up --build
+```
+
 Two ways to reach the app:
 
 ```bash
@@ -178,6 +204,23 @@ tool authorisation, and self-serve onboarding see **[docs/INTEGRATION.md](docs/I
 
 The platform works standalone with the built-in voice pipeline. To use the **ElevenLabs
 conversational agent** instead, set `ELEVENLABS_API_KEY` + `ELEVENLABS_AGENT_ID` in `.env`.
+
+**Agent configuration as code.** The full agent definition — system prompt, per-language
+first messages and disclosure lines, LLM selection, TTS voice IDs, audio format, turn-taking,
+max duration, tool IDs, knowledge-base locators, RAG settings, evaluation criteria and
+data-collection fields — lives in [`agent/securevoice.agent.yaml`](agent/securevoice.agent.yaml).
+It is applied and verified by:
+
+```bash
+bun run agent:apply     # PATCH the agent, GET it back, deep-diff — exits non-zero on divergence
+bun run agent:snapshot  # write canonical config + sha256 to evidence/agent/
+```
+
+The current submission version is **`agtvrsn_0401m3xcsnyaeqbr5vkf4s6fffsp`**
+(agent `agent_3601m3temww9e5eb43z3dtdthzdp`). The snapshot hash
+`587112bd6949baa2002db99b17c76548214f63523498c7678339a876d5d9e3a7` is recorded in
+[docs/VERIFICATION.md](docs/VERIFICATION.md) and is reproducible — a second apply produces
+an identical hash and an empty diff.
 
 The two webhook tools and both knowledge-base documents are already defined on the
 account, and on our agent they are **attached**, with RAG and source attribution on.

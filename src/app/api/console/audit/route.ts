@@ -21,18 +21,26 @@ export async function GET(req: NextRequest) {
   }
 
   const callRef = req.nextUrl.searchParams.get("callRef");
+  // Tenant namespace. A session WITHOUT a Clerk organization is the default
+  // state of the reference deployment — it must still be scoped, not treated
+  // as "sees everything". Org-less users share the un-namespaced rows
+  // (orgId NULL, e.g. seeded demo data) plus the "default" namespace.
   const orgId = guard.profile.orgId;
+  // Prisma's `in` filter rejects null members, so the null namespace is an OR.
+  const orgScope = orgId ? { orgId } : { OR: [{ orgId: null }, { orgId: "default" }] };
   if (callRef) {
-    // tenant check: a probe of another org's caseRef must not confirm existence
-    if (orgId) {
-      const any = await db.auditLog.findFirst({ where: { callRef: callRef.slice(0, 64) }, select: { orgId: true } });
-      if (any && any.orgId !== orgId) {
-        return NextResponse.json({ error: "Case not found in this workspace" }, { status: 404 });
-      }
+    // tenant check: a probe of another org's caseRef must not confirm existence —
+    // same 404 whether the case is foreign or nonexistent.
+    const any = await db.auditLog.findFirst({
+      where: { callRef: callRef.slice(0, 64), ...orgScope },
+      select: { id: true },
+    });
+    if (!any) {
+      return NextResponse.json({ error: "Case not found in this workspace" }, { status: 404 });
     }
     const verification = await verifyChain(callRef.slice(0, 64));
     const rows = await db.auditLog.findMany({
-      where: { callRef: callRef.slice(0, 64) },
+      where: { callRef: callRef.slice(0, 64), ...orgScope },
       orderBy: { createdAt: "asc" },
       select: { id: true, action: true, intent: true, redactedText: true, meta: true, createdAt: true },
       take: 50,
@@ -41,9 +49,8 @@ export async function GET(req: NextRequest) {
   }
 
   // Case list: the "freeze" action marks case creation in /api/interventions.
-  // Org-scoped when the session carries an active organization.
   const creations = await db.auditLog.findMany({
-    where: { action: "freeze", ...(orgId ? { orgId } : {}) },
+    where: { action: "freeze", ...orgScope },
     orderBy: { createdAt: "desc" },
     select: { callRef: true, intent: true, redactedText: true, meta: true, createdAt: true },
     take: 12,

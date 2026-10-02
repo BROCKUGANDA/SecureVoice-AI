@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { DEV_VOICES, ELEVEN_VOICE_ENV, allowedVoices, isProdVoiceMode, type TtsLang } from "@/lib/elevenlabs/client";
-import { consume as consumeRateLimit } from "@/lib/ratelimit";
+import { consume as consumeRateLimit, rateLimitId } from "@/lib/ratelimit";
 import { append as auditAppend } from "@/lib/audit-chain";
 import { transcript as redactText } from "@/lib/redact";
 import { resolveTtsKey, consumeCharQuota, quotaExceededResponse } from "@/lib/tts-quota";
@@ -51,7 +51,7 @@ function devVoice(lang: TtsLang): string {
 
 export async function POST(req: NextRequest) {
   const started = Date.now();
-  const callerId = req.headers.get("x-caller-id") || "anon";
+  const callerId = rateLimitId(req);
 
   const rl = consumeRateLimit("tts-stream", callerId);
   if (!rl.ok) {

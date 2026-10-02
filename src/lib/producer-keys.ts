@@ -1,3 +1,4 @@
+import "server-only";
 /**
  * Producer API keys — headless machine auth for the /api/interventions ingest.
  * A bank's fraud engine can authenticate either with an HMAC signature

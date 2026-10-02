@@ -1,3 +1,4 @@
+import "server-only";
 /**
  * Minting side of the realtime grant token.
  *
@@ -25,9 +26,11 @@ import { createHmac } from "node:crypto";
 const PREFIX = "svr1";
 export const REALTIME_TOKEN_TTL_SEC = 60;
 
-/** Default secret; deployments set REALTIME_INGEST_SECRET explicitly. */
+/** Dedicated realtime secret. Deliberately no AGENT_TOOL_SECRET fallback:
+ *  that secret crosses the wire on ElevenLabs tool calls — reusing it here
+ *  would let a leak there mint console grants and forge live broadcasts. */
 function ingestSecret(): string | undefined {
-  return process.env.REALTIME_INGEST_SECRET || process.env.AGENT_TOOL_SECRET || undefined;
+  return process.env.REALTIME_INGEST_SECRET || undefined;
 }
 
 /** Recursively sort object keys so the signed bytes do not depend on insert order. */

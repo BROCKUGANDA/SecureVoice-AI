@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
-import { consume as consumeRateLimit } from "@/lib/ratelimit";
+import { consume as consumeRateLimit, rateLimitId } from "@/lib/ratelimit";
 import { isE164 } from "@/lib/twilio";
 import { append as auditAppend } from "@/lib/audit-chain";
 import { transcript as redactText } from "@/lib/redact";
@@ -40,6 +40,9 @@ const schema = z.object({
   lang: z.enum(["en", "ar", "hi", "ur", "fr", "sw"]).default("en"),
   channel: z.enum(["call", "sms"]).default("call"),
   consentRecordId: z.string().trim().min(4).max(64),
+  // Clearing a prior STOP requires an explicit, deliberate re-consent flag —
+  // re-enrollment alone must never silently reverse an opt-out.
+  reconsent: z.literal(true).optional(),
 });
 
 const optoutSchema = z.object({
@@ -47,14 +50,16 @@ const optoutSchema = z.object({
   customerRef: z.string().trim().min(2).max(64).regex(/^[\w.:-]+$/),
 });
 
-/** Session / Bearer / HMAC — at least one must pass. */
-async function authorize(req: NextRequest, rawBody: string): Promise<boolean> {
+/** Operator session / Bearer / HMAC — at least one must pass.
+ *  A bare Clerk session is NOT enough: demo-role accounts are self-serve, and
+ *  enrollment writes real phone numbers into a live dial-out system. */
+async function authorize(req: NextRequest, rawBody: string): Promise<{ ok: boolean; orgId: string | null }> {
   const profile = await getProfile();
-  if (profile) return true;
+  if (profile?.role === "operator") return { ok: true, orgId: profile.orgId };
   const bearer = req.headers.get("authorization");
   if (bearer?.startsWith("Bearer svb_")) {
     const producer = await verifyProducerKey(bearer.slice("Bearer ".length));
-    if (producer.ok) return true;
+    if (producer.ok) return { ok: true, orgId: producer.orgId };
   }
   const header = req.headers.get("sv-signature");
   const secret = process.env.WEBHOOK_SECRET;
@@ -68,15 +73,15 @@ async function authorize(req: NextRequest, rawBody: string): Promise<boolean> {
         const expected = createHmac("sha256", secret).update(`${t}.${rawBody}`).digest("hex");
         const a = Buffer.from(expected, "hex");
         const b = Buffer.from(v1, "hex");
-        if (a.length === b.length && timingSafeEqual(a, b)) return true;
+        if (a.length === b.length && timingSafeEqual(a, b)) return { ok: true, orgId: null };
       }
     }
   }
-  return false;
+  return { ok: false, orgId: null };
 }
 
 export async function POST(req: NextRequest) {
-  const callerId = req.headers.get("x-caller-id") || "enroll";
+  const callerId = rateLimitId(req, "enroll");
 
   const rl = consumeRateLimit("enroll", callerId);
   if (!rl.ok) {
@@ -88,9 +93,10 @@ export async function POST(req: NextRequest) {
 
   // Read the RAW body — the HMAC mode signs exact bytes (mirrors ingest).
   const rawBody = await req.text();
-  if (!(await authorize(req, rawBody))) {
+  const authz = await authorize(req, rawBody);
+  if (!authz.ok) {
     return NextResponse.json(
-      { error: "Sign in to the platform, or send a Bearer svb_ producer key or SV-Signature HMAC header." },
+      { error: "Operator session, Bearer svb_ producer key, or SV-Signature HMAC required." },
       { status: 401 }
     );
   }
@@ -140,6 +146,19 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // Tenant guard: a customer already enrolled under a different org is not
+  // ours to re-point at a new phone number.
+  const existing = await db.customer.findUnique({ where: { customerRef: d.customerRef } });
+  if (existing && authz.orgId && existing.orgId && existing.orgId !== authz.orgId) {
+    return NextResponse.json({ error: "Unknown customerRef" }, { status: 404 });
+  }
+  if (existing?.optedOut && !d.reconsent) {
+    return NextResponse.json(
+      { error: "Customer previously opted out — re-enrollment requires reconsent:true (deliberate re-consent)." },
+      { status: 409 }
+    );
+  }
+
   const row = await db.customer.upsert({
     where: { customerRef: d.customerRef },
     create: {
@@ -149,13 +168,15 @@ export async function POST(req: NextRequest) {
       channel: d.channel,
       consentRecordId: d.consentRecordId,
       optedOut: false,
+      orgId: authz.orgId,
     },
     update: {
       phone: d.phone,
       lang: d.lang,
       channel: d.channel,
       consentRecordId: d.consentRecordId,
-      optedOut: false, // re-enrollment clears a previous opt-out — deliberate re-consent
+      optedOut: false, // cleared only after the reconsent check above
+      ...(authz.orgId ? { orgId: authz.orgId } : {}),
     },
     select: { customerRef: true, lang: true, channel: true, optedOut: true },
   });
@@ -189,7 +210,7 @@ export async function GET() {
         enroll: { customerRef: "your customer id (no PII)", phone: "E.164 (+9715…)", lang: "en|ar|hi|ur|fr|sw", channel: "call|sms", consentRecordId: "your consent record id" },
         optout: { customerRef: "your customer id" },
       },
-      auth: "Clerk session | Bearer svb_… | SV-Signature HMAC (same scheme as /api/interventions)",
+      auth: "Operator session | Bearer svb_… | SV-Signature HMAC (same scheme as /api/interventions)",
       notes: ["Re-enrollment after opt-out = deliberate re-consent.", "Phones are stored for dialing, never logged raw.", "Delivery requires Twilio env vars — see /api/status 'telephony'."],
     },
     { headers: { "Cache-Control": "no-store" } }

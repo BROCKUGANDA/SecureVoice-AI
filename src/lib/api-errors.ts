@@ -1,3 +1,4 @@
+import "server-only";
 /**
  * Shared error-response helpers — one place to build consistent API error
  * bodies so every route returns the same shape.

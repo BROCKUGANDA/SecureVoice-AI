@@ -11,9 +11,17 @@ import type { NextConfig } from "next";
  *  - script/frame/font/img allowances cover the Clerk JS bundle, embedded
  *    component iframes, fonts, and profile images (img.clerk.com).
  */
+// 'unsafe-eval' is a dev-server requirement (React refresh); it never ships
+// in a production CSP.
+const scriptSrc = [
+  "script-src 'self' 'unsafe-inline'",
+  ...(process.env.NODE_ENV === "development" ? ["'unsafe-eval'"] : []),
+  "https://clerk.accounts.dev https://*.clerk.accounts.dev https://api.clerk.com",
+].join(" ");
+
 const CSP = [
   "default-src 'self'",
-  "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://clerk.accounts.dev https://*.clerk.accounts.dev https://api.clerk.com",
+  scriptSrc,
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob: https: https://img.clerk.com https://*.clerk.accounts.dev",
   "font-src 'self' data: https://fonts.clerk.com https://clerk.accounts.dev https://*.clerk.accounts.dev",

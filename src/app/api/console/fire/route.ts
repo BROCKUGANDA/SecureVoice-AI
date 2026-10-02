@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createHmac } from "crypto";
 import { z } from "zod";
-import { requireSignedIn, deductCredit } from "@/lib/credits";
+import { requireSignedIn, deductCredit, refundCredit } from "@/lib/credits";
 import { consume as consumeRateLimit } from "@/lib/ratelimit";
 import { env, SUPPORTED_LANGS } from "@/lib/config";
 import { badRequest, paymentRequired, tooManyRequests, unprocessable, upstreamError, parseJson } from "@/lib/api-errors";
@@ -42,10 +42,15 @@ export async function POST(req: NextRequest) {
   }
   const profile = guard.profile;
 
-  // Prepaid wallet — block BEFORE any upstream cost is incurred
-  if (profile.credits <= 0) {
+  // Prepaid wallet — CLAIM the credit BEFORE any upstream cost is incurred.
+  // A check-then-deduct-afterwards pair lets N concurrent fires all pass the
+  // guard on a 1-credit wallet; deductCredit's atomic decrement makes the
+  // claim itself the gate. It is refunded below if the intervention is not
+  // accepted upstream.
+  const claimed = await deductCredit(profile.clerkUserId);
+  if (claimed < 0) {
     return paymentRequired(
-      "Insufficient credits — your wallet is empty. Email otemaach@gmail.com to top up.",
+      "Insufficient credits — your wallet is empty. Contact your administrator to top up.",
       { credits: 0 }
     );
   }
@@ -66,6 +71,7 @@ export async function POST(req: NextRequest) {
 
   const secret = env.webhookSecret;
   if (!secret) {
+    await refundCredit(profile.clerkUserId);
     return upstreamError("WEBHOOK_SECRET not configured — ingest is unarmed (see /api/status).", 503);
   }
 
@@ -89,26 +95,31 @@ export async function POST(req: NextRequest) {
 
   // Forward over the exact same wire a bank producer uses — same signature
   // scheme, same endpoint, same validation, same audit trail.
-  const upstream = await fetch(`${req.nextUrl.origin}/api/interventions`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "SV-Signature": `t=${t},v1=${v1}`,
-      "x-caller-id": `console:${profile.clerkUserId.slice(0, 40)}`,
-    },
-    body: rawBody,
-    signal: AbortSignal.timeout(30_000),
-  });
+  let upstream: Response;
+  try {
+    upstream = await fetch(`${req.nextUrl.origin}/api/interventions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "SV-Signature": `t=${t},v1=${v1}`,
+        "x-caller-id": `console:${profile.clerkUserId.slice(0, 40)}`,
+      },
+      body: rawBody,
+      signal: AbortSignal.timeout(30_000),
+    });
+  } catch (err) {
+    // Network/timeout before a verdict — the claimed credit is refunded.
+    await refundCredit(profile.clerkUserId);
+    console.error("[console-fire] upstream unreachable:", err instanceof Error ? err.message : err);
+    return upstreamError("Intervention path unreachable — credit refunded, nothing was armed.", 503);
+  }
   const data = (await upstream.json().catch(() => ({ error: "unparseable upstream response" }))) as Record<string, unknown>;
 
-  // Metered deduction only on an accepted intervention (202) — a failed
-  // upstream attempt costs the operator nothing. deductCredit is atomic:
-  // count=0 means the wallet hit zero between the guard and here (concurrent
-  // fire) — the intervention already ran, so report the empty wallet honestly.
-  let credits = profile.credits;
-  if (upstream.status === 202) {
-    const deducted = await deductCredit(profile.clerkUserId);
-    credits = deducted >= 0 ? deducted : 0;
+  // The credit was claimed before the upstream call; a non-accepted
+  // intervention costs the operator nothing — refund it atomically.
+  let credits = claimed;
+  if (upstream.status !== 202) {
+    credits = await refundCredit(profile.clerkUserId);
   }
 
   return NextResponse.json(

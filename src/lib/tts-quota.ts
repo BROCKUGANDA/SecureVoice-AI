@@ -1,3 +1,4 @@
+import "server-only";
 /**
  * Voice-key resolution + per-user platform-key metering, shared by BOTH TTS
  * routes (buffered /api/tts and streaming /api/tts/stream) so neither surface

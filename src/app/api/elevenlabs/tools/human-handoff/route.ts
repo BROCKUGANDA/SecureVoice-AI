@@ -1,70 +1,120 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { guardToolCall } from "@/lib/tool-guard";
+import { canTransition, transitionCase, IllegalTransitionError } from "@/lib/case-state-machine";
 import { append as auditAppend } from "@/lib/audit-chain";
-import { authorizeToolCall } from "@/lib/agent-tool-auth";
+import { db } from "@/lib/db";
 import { transcript as redactText } from "@/lib/redact";
 import { badRequest, parseJson, unprocessable } from "@/lib/api-errors";
 
 export const dynamic = "force-dynamic";
 
-/**
- * `human_handoff` — the escalation tool, invoked by the ElevenLabs Agents
- * Platform as a webhook (server) tool.
- *
- * This is the failure/escalation path the Stage 2 brief explicitly requires a
- * demo of. The agent calls it on denial, distress, an explicit request for a
- * person, or any attempt to steer the agent off-policy.
- *
- * The agent's summary is untrusted caller-supplied text, so it is redacted
- * before it is written to the chain — a coached caller could otherwise talk a
- * summary full of PAN digits into the bank's audit record.
- */
+const TOOL_NAME = "human_handoff";
+const ALLOWED_STATES = [
+  "DISCLOSED",
+  "VERIFYING",
+  "CONFIRMED_FRAUD",
+  "CONFIRMED_LEGITIMATE",
+  "UNCERTAIN",
+  "FREEZE_STAGED",
+];
+const HANDOFF_SPECIALIST = "fraud_specialist";
+const ETA_SECS = 120;
+const QUEUE_POSITION = 1;
 
 const schema = z.object({
-  case_id: z.string().min(3).max(64),
+  conversation_id: z.string().min(1).max(128),
   summary: z.string().min(1).max(2000),
 });
 
 export async function POST(req: NextRequest) {
-  const auth = authorizeToolCall(req.headers.get("x-agent-tool-secret"), "human_handoff");
-  if (!auth.ok) {
-    return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status });
-  }
-
   const body = await parseJson(req);
   if (body === null) return badRequest("Invalid JSON body");
 
   const parsed = schema.safeParse(body);
-  if (!parsed.success) return unprocessable("case_id and summary are required");
+  if (!parsed.success) return unprocessable("conversation_id and summary are required");
 
-  const { case_id, summary } = parsed.data;
-  const reference = `SV-HND-${case_id}`;
+  const { conversation_id, summary } = parsed.data;
+
+  const guard = await guardToolCall(
+    TOOL_NAME,
+    req.headers.get("x-agent-tool-secret"),
+    conversation_id,
+    ALLOWED_STATES,
+  );
+  if (!guard.ok) {
+    return NextResponse.json(
+      { ok: false, error: guard.error, code: guard.code },
+      { status: guard.status },
+    );
+  }
+
+  const escalates = canTransition(guard.state, "ESCALATED");
 
   try {
     await auditAppend({
-      callRef: reference,
+      callRef: guard.caseRef,
       action: "handoff",
-      intent: "specialist_requested",
+      intent: "human_handoff",
+      callerId: "agent-tool",
       redactedText: redactText(summary),
       meta: {
+        tool: TOOL_NAME,
         stage: "queued_for_specialist",
-        sla_seconds: 30,
+        specialist: HANDOFF_SPECIALIST,
+        eta_secs: ETA_SECS,
+        queue_position: QUEUE_POSITION,
+        from: guard.state,
+        to: escalates ? "ESCALATED" : null,
+        escalated: escalates,
         source: "elevenlabs_agent_tool",
-        case_id,
       },
     });
   } catch (err) {
-    console.error("[tool/human_handoff] audit append failed:", err);
-    return NextResponse.json(
-      { ok: false, error: "audit_unavailable" },
-      { status: 503 },
-    );
+    console.error("[tool/human_handoff] audit append failed, refusing handoff:", err);
+    return NextResponse.json({ ok: false, error: "audit_unavailable" }, { status: 503 });
+  }
+
+  let state: string = guard.state;
+  try {
+    if (escalates) {
+      const updated = await transitionCase(guard.caseRef, "ESCALATED", {
+        handoffQueued: true,
+        handoffSpecialist: HANDOFF_SPECIALIST,
+      });
+      state = updated.state;
+    } else {
+      await db.case.update({
+        where: { caseRef: guard.caseRef },
+        data: { handoffQueued: true, handoffSpecialist: HANDOFF_SPECIALIST },
+        select: { id: true },
+      });
+    }
+  } catch (err) {
+    if (err instanceof IllegalTransitionError) {
+      console.error(
+        "[tool/human_handoff] escalation refused by the state machine, queueing the specialist only:",
+        err,
+      );
+      await db.case
+        .update({
+          where: { caseRef: guard.caseRef },
+          data: { handoffQueued: true, handoffSpecialist: HANDOFF_SPECIALIST },
+          select: { id: true },
+        })
+        .catch(() => {});
+    } else {
+      console.error("[tool/human_handoff] handoff queue write failed:", err);
+      return NextResponse.json({ ok: false, error: "handoff_queue_failed" }, { status: 503 });
+    }
   }
 
   return NextResponse.json({
     ok: true,
-    reference,
-    case_id,
-    next_step: "A fraud specialist has been queued and will join the call.",
+    specialist: HANDOFF_SPECIALIST,
+    eta_secs: ETA_SECS,
+    queue_position: QUEUE_POSITION,
+    case_ref: guard.caseRef,
+    state,
   });
 }

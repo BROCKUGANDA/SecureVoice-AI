@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createHash, createHmac, timingSafeEqual } from "crypto";
+import { createHmac, timingSafeEqual } from "crypto";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { append as auditAppend } from "@/lib/audit-chain";
 import { transcript as redactText } from "@/lib/redact";
-import { consume as consumeRateLimit } from "@/lib/ratelimit";
+import { consume as consumeRateLimit, rateLimitId } from "@/lib/ratelimit";
 import { verifyProducerKey } from "@/lib/producer-keys";
+import { withIdempotency } from "@/lib/idempotency";
 import { placeInterventionCall, sendInterventionSms, isTwilioConfigured, twilioMode, type DeliveryLang } from "@/lib/twilio";
 
 export const dynamic = "force-dynamic";
@@ -54,13 +55,42 @@ const schema = z.object({
         merchant: z.string().trim().max(120).optional(),
       })
       .optional(),
-    callbackUrl: z.string().url().max(300).optional(),
+    callbackUrl: z
+      .string()
+      .url()
+      .max(300)
+      .refine(isPublicHttpsUrl, "callbackUrl must be a public https URL")
+      .optional(),
     orgId: z.string().trim().min(2).max(64).optional(),
     notes: z.string().trim().max(600).optional(),
   }),
 });
 
 type Signal = z.infer<typeof schema>["signal"];
+
+/** SSRF guard: the outcome webhook is POSTed with our signature attached, so
+ *  the destination must be a genuine public host — never loopback, link-local
+ *  (cloud metadata), RFC-1918, or plaintext http. */
+function isPublicHttpsUrl(raw: string): boolean {
+  try {
+    const url = new URL(raw);
+    if (url.protocol !== "https:") return false;
+    const h = url.hostname.toLowerCase();
+    if (h === "localhost" || h.endsWith(".localhost") || h.endsWith(".internal") || h === "0.0.0.0" || h === "[::1]" || h === "[::]") return false;
+    const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(h);
+    if (m) {
+      const a = Number(m[1]);
+      const b = Number(m[2]);
+      if (a === 0 || a === 10 || a === 127) return false;
+      if (a === 172 && b >= 16 && b <= 31) return false;
+      if (a === 192 && b === 168) return false;
+      if (a === 169 && b === 254) return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 const ACTION_PLAN: { threshold: number; action: string; handoff: string }[] = [
   { threshold: 0.90, action: "card_freeze_temporary", handoff: "fraud_specialist" },
@@ -100,7 +130,7 @@ function verifySignature(rawBody: string, header: string | null, secret: string)
 
 export async function POST(req: NextRequest) {
   const started = Date.now();
-  const callerId = req.headers.get("x-caller-id") || "ingest";
+  const callerId = rateLimitId(req, "ingest");
 
   // 1. Rate limit before buffering the body
   const rl = consumeRateLimit("ingest", callerId);
@@ -157,26 +187,47 @@ export async function POST(req: NextRequest) {
   const orgId = bearerAuth?.orgId ?? signal.orgId ?? null;
   const effectiveCallerId = bearerAuth?.callerId ?? callerId;
 
-  // 4. Idempotency — the producer caseId is the dedup key. A bank retrying a
-  //    delivery (network hiccup, double-submit) gets the original envelope
-  //    back instead of triggering a second billable intervention.
-  const existing = await db.idempotencyKey.findUnique({
-    where: {
-      scope_key_callerId: {
-        scope: "interventions",
-        key: createHash("sha256").update(signal.caseId).digest("hex"),
-        callerId: effectiveCallerId,
-      },
-    },
-  }).catch(() => null);
-  if (existing && existing.expiresAt.getTime() > Date.now()) {
-    const prior = JSON.parse(existing.response) as Record<string, unknown>;
-    return NextResponse.json({ ...prior, duplicate: true }, {
-      status: 200,
-      headers: { "Cache-Control": "no-store", "X-Idempotent-Replay": "true" },
+  // 4. Idempotency (claim pattern) — the producer caseId is the dedup key.
+  //    The unique-constraint INSERT elects exactly one winner; a concurrent
+  //    bank retry polls and replays the winner's envelope instead of arming a
+  //    second case and dialing the customer twice.
+  let idem: Awaited<ReturnType<typeof withIdempotency<{ envelope: Record<string, unknown> }>>>;
+  try {
+    idem = await withIdempotency<{ envelope: Record<string, unknown> }>({
+      scope: "interventions",
+      key: signal.caseId,
+      callerId: effectiveCallerId,
+      fn: () => armAndDeliver(signal, plan, orgId, effectiveCallerId, started, req.nextUrl.origin),
     });
+  } catch (err) {
+    // armAndDeliver throws only on a hard-stop failure (audit write) — the
+    // claim is released by the wrapper so a retry can proceed immediately.
+    console.error("[interventions] arming failed:", err instanceof Error ? err.message : err);
+    return NextResponse.json({ error: "Case recording failed — signal rejected for safety" }, { status: 503 });
   }
 
+  return NextResponse.json(
+    { ...idem.value.envelope, ...(idem.replayed ? { duplicate: true } : {}) },
+    {
+      status: 202,
+      headers: { "Cache-Control": "no-store", ...(idem.replayed ? { "X-Idempotent-Replay": "true" } : {}) },
+    }
+  );
+}
+
+type Plan = { threshold: number; action: string; handoff: string };
+
+/** The billable half of the ingest: persist the case, place the call/SMS,
+ *  build the outcome envelope, push the producer callback. Runs exactly once
+ *  per (caseId, callerId) — see the idempotency claim above. */
+async function armAndDeliver(
+  signal: Signal,
+  plan: Plan,
+  orgId: string | null,
+  effectiveCallerId: string,
+  started: number,
+  origin: string,
+): Promise<{ envelope: Record<string, unknown> }> {
   // 5. Persist the case + append to the tamper-evident audit chain
   const caseRef = makeCaseRef();
   const slaDeadline = new Date(Date.now() + SLA_SECONDS * 1000);
@@ -209,20 +260,8 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     console.error("[interventions] audit append failed:", err instanceof Error ? err.message : err);
     // audit failure is a hard stop for a fraud action — do not arm the case
-    return NextResponse.json({ error: "Case recording failed — signal rejected for safety" }, { status: 503 });
+    throw new Error("Case recording failed — signal rejected for safety");
   }
-
-  // remember the idempotency key only after the case is armed
-  await db.idempotencyKey.create({
-    data: {
-      scope: "interventions",
-      key: createHash("sha256").update(signal.caseId).digest("hex"),
-      callerId: effectiveCallerId,
-      response: JSON.stringify({ caseRef, slaDeadline: slaDeadline.toISOString(), plan: { action: plan.action } }),
-      statusCode: 202,
-      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
-    },
-  }).catch(() => {});
 
   // 5. Live delivery — if the customer is enrolled, place the real call/SMS now.
   //    Unconfigured telephony or unenrolled refs degrade gracefully to
@@ -259,7 +298,7 @@ export async function POST(req: NextRequest) {
     const deliver = (channel: "call" | "sms") =>
       channel === "sms"
         ? sendInterventionSms({ to: enrolled.phone, lang, caseRef, amount, merchant })
-        : placeInterventionCall({ to: enrolled.phone, lang, amount, merchant, origin: req.nextUrl.origin, callRef: caseRef });
+        : placeInterventionCall({ to: enrolled.phone, lang, amount, merchant, origin, callRef: caseRef });
 
     let result = await attempt(() => deliver(via), via);
     let finalChannel = via;
@@ -335,13 +374,13 @@ export async function POST(req: NextRequest) {
         customerLang: signal.customer.lang,
         riskScore: signal.riskScore,
         delivery,
-        auditVerifyUrl: `${req.nextUrl.origin}/api/console/audit?callRef=${caseRef}`,
+        auditVerifyUrl: `${origin}/api/console/audit?callRef=${caseRef}`,
         timestamp: new Date().toISOString(),
       },
       process.env.WEBHOOK_SECRET
     );
   }
-  return NextResponse.json(envelope, { status: 202, headers: { "Cache-Control": "no-store" } });
+  return { envelope };
 }
 
 /** Notify the bank's system of the outcome — the same signed-envelope scheme

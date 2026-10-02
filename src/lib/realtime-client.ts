@@ -19,6 +19,23 @@ import { io, type Socket } from "socket.io-client";
 
 export type RealtimeStatus = "connecting" | "live" | "unavailable";
 
+/**
+ * Ask the server which client-visible features are enabled.
+ *
+ * A failed read is treated as "off": the socket is an accelerator, so when in
+ * doubt the console stays on SSE, which is the path it shipped with.
+ */
+async function fetchClientFlags(signal?: AbortSignal): Promise<{ consoleLiveFeed: boolean }> {
+  try {
+    const res = await fetch("/api/console/features", { signal, cache: "no-store" });
+    if (!res.ok) return { consoleLiveFeed: false };
+    const body = (await res.json()) as { consoleLiveFeed?: unknown };
+    return { consoleLiveFeed: body.consoleLiveFeed === true };
+  } catch {
+    return { consoleLiveFeed: false };
+  }
+}
+
 export type CaseActivity = {
   id: string;
   action: string;
@@ -89,6 +106,14 @@ export async function openRealtime(opts: RealtimeOptions): Promise<RealtimeHandl
   const { onActivity, onPresence, onStatus } = opts;
   const setStatus = onStatus ?? (() => {});
   const refs = normaliseRefs(opts.callRefs);
+
+  // Feature gate first, so a disabled deployment never spends a grant request or
+  // opens a socket that will only be refused.
+  const flags = await fetchClientFlags();
+  if (!flags.consoleLiveFeed) {
+    setStatus("unavailable");
+    return null;
+  }
 
   // Abort a hung grant request rather than leaving the console with no live feed
   // and no error — after this we simply stay on SSE.

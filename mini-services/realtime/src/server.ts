@@ -43,7 +43,10 @@ import { verify, type VerifiedGrant } from "./auth.ts";
 
 const PORT = Number(process.env.PORT ?? DEFAULT_PORT);
 const HOST = process.env.HOST ?? "0.0.0.0";
-const INGEST_SECRET = process.env.REALTIME_INGEST_SECRET ?? process.env.AGENT_TOOL_SECRET ?? "";
+// Dedicated realtime secret — no AGENT_TOOL_SECRET fallback (that secret
+// crosses the wire on ElevenLabs tool calls; a leak there must not mint
+// console grants or forge live broadcasts).
+const INGEST_SECRET = process.env.REALTIME_INGEST_SECRET ?? "";
 const ALLOWED_ORIGIN = process.env.REALTIME_ALLOWED_ORIGIN ?? "";
 const BODY_LIMIT = MAX_INGEST_BYTES;
 
@@ -174,8 +177,10 @@ const httpServer = createServer((req, res) => {
     req.on("data", (c: Buffer) => {
       size += c.length;
       if (size > BODY_LIMIT) {
-        req.destroy();
+        // Respond BEFORE destroying the request — writing after destroy raises
+        // and the client never sees the 413.
         send(413, { error: "payload_too_large" });
+        req.destroy();
         return;
       }
       chunks.push(c);

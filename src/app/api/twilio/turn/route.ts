@@ -2,11 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { append as auditAppend } from "@/lib/audit-chain";
 import { transcript as redactText } from "@/lib/redact";
-import { consume as consumeRateLimit } from "@/lib/ratelimit";
+import { consume as consumeRateLimit, rateLimitId } from "@/lib/ratelimit";
 import { analyzeSentiment } from "@/lib/sentiment";
 import { draftAgentReply } from "@/lib/llm";
 import { auditAgentReply, auditUserInput } from "@/lib/compliance/policy";
-import { env } from "@/lib/config";
+import { verifyTwilioSignature } from "@/lib/twilio";
 
 export const dynamic = "force-dynamic";
 
@@ -142,10 +142,38 @@ function buildTurnTwiml(reply: string, lang: string, endCall: boolean, callSid: 
 /* ── Main handler ── */
 
 export async function POST(req: NextRequest) {
-  const callerId = req.headers.get("x-caller-id") || "twilio-turn";
+  const callerId = rateLimitId(req, "twilio-turn");
 
-  // Rate limit per call SID to prevent abuse
-  const form = await req.formData();
+  // Parse the form body defensively — a malformed body must not become a 500.
+  let form: FormData;
+  try {
+    form = await req.formData();
+  } catch {
+    return new NextResponse(
+      `<?xml version="1.0" encoding="UTF-8"?><Response><Hangup/></Response>`,
+      { status: 400, headers: { "Content-Type": "text/xml" } }
+    );
+  }
+
+  // Twilio webhook authentication: without it, anyone can POST a forged
+  // SpeechResult with a real CallSid — forging audit rows on live fraud cases
+  // and burning the LLM budget. Verified when TWILIO_AUTH_TOKEN is configured
+  // (set it — API-key mode alone cannot verify inbound webhooks).
+  const params: Record<string, string> = {};
+  form.forEach((v, k) => { params[k] = String(v); });
+  const proto = req.headers.get("x-forwarded-proto") ?? "https";
+  const fullUrl = `${proto}://${req.headers.get("host")}${req.nextUrl.pathname}${req.nextUrl.search}`;
+  const sigOk = verifyTwilioSignature(fullUrl, params, req.headers.get("x-twilio-signature"));
+  if (sigOk === false) {
+    return new NextResponse(
+      `<?xml version="1.0" encoding="UTF-8"?><Response><Hangup/></Response>`,
+      { status: 403, headers: { "Content-Type": "text/xml" } }
+    );
+  }
+  if (sigOk === null) {
+    console.warn("[twilio-turn] TWILIO_AUTH_TOKEN not set — inbound webhook signatures cannot be verified");
+  }
+
   const callSid = String(form.get("CallSid") ?? req.nextUrl.searchParams.get("callSid") ?? "");
   const speechResult = String(form.get("SpeechResult") ?? "").trim();
   const confidence = Number(form.get("Confidence") ?? "0");

@@ -44,6 +44,7 @@
     "out",
     "dist",
     "tool-results",
-    "mini-services"
+    "mini-services",
+    "tests"
   ]
 }

@@ -160,3 +160,31 @@ model Customer {
   @@index([optedOut])
   @@index([orgId])
 }
+
+/// Fraud intervention case — the canonical state machine record.
+/// One enum, one writer (src/lib/case-state-machine.ts), no exceptions.
+model Case {
+  id            String   @id @default(cuid())
+  caseRef       String   @unique // SV-F-XXXXXX — the public case reference
+  orgId         String? // tenant scoping
+  state         String   @default("RECEIVED") // see case-state-machine.ts
+  conversationId String? // ElevenLabs conversation_id — join key for post-call webhook
+  transactionRef String?
+  riskScore      Float?
+  language      String   @default("en")
+  phone         String? // E.164, redacted in audit
+  merchant      String? // sanitised
+  amountMinor   Int?
+  currency      String?
+  consentRecordId String?
+  freezeStaged  Boolean  @default(false)
+  freezeReference String?
+  handoffQueued Boolean  @default(false)
+  handoffSpecialist String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([orgId, state])
+  @@index([orgId, createdAt])
+  @@index([conversationId])
+}

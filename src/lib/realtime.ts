@@ -1,3 +1,4 @@
+import "server-only";
 /**
  * App-side bridge to the realtime service.
  *
@@ -18,6 +19,7 @@
  */
 
 import { signIngestBody } from "@/lib/realtime-token";
+import { realtimeConfigured } from "@/lib/flags";
 
 const INGEST_PATH = "/ingest";
 
@@ -42,6 +44,12 @@ export type BroadcastInput = {
  * Callers that want to know whether it worked can await and read `delivered`.
  */
 export async function notifyRealtime(input: BroadcastInput): Promise<{ delivered: boolean }> {
+  // Gated on the flag as well as the secret: a deployment that has the secret
+  // left over from an earlier rollout should stop emitting signed requests the
+  // moment the flag goes off, rather than continuing to depend on the service
+  // being up.
+  if (!realtimeConfigured()) return { delivered: false };
+
   const url = endpoint();
   if (!url) return { delivered: false };
 

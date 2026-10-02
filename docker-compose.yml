@@ -98,6 +98,38 @@ services:
     restart: on-failure:3
     command: ["sh", "-c", "bunx prisma migrate deploy && if [ \"$SEED_DEMO\" = \"true\" ]; then bun scripts/seed-demo.mjs; fi"]
 
+  # Dial worker (S-1). Places the calls the ingest handler queued. A separate
+  # service, not a thread in the app: a hung carrier call must never occupy a
+  # web request, and killing the web tier must not stop fraud interventions.
+  # Scaling is safe by construction — claiming uses FOR UPDATE SKIP LOCKED — so
+  # `--scale dial-worker=3` needs no coordination between replicas.
+  dial-worker:
+    build:
+      context: .
+      target: builder   # full source tree: the worker is a script, not a bundle
+    restart: unless-stopped
+    logging: *default-logging
+    mem_limit: 512m
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-securevoice}:${POSTGRES_PASSWORD:-securevoice}@db:5432/${POSTGRES_DB:-securevoice}?schema=public
+      NODE_ENV: production
+      ELEVENLABS_DRY_RUN: ${ELEVENLABS_DRY_RUN:-true}
+      ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
+      ELEVENLABS_AGENT_ID: ${ELEVENLABS_AGENT_ID:-}
+      ELEVENLABS_PHONE_NUMBER_ID: ${ELEVENLABS_PHONE_NUMBER_ID:-}
+      ELEVENLABS_VOICE_EN: ${ELEVENLABS_VOICE_EN:-}
+      ELEVENLABS_VOICE_AR: ${ELEVENLABS_VOICE_AR:-}
+      ELEVENLABS_VOICE_HI: ${ELEVENLABS_VOICE_HI:-}
+      ELEVENLABS_VOICE_UR: ${ELEVENLABS_VOICE_UR:-}
+      ELEVENLABS_VOICE_FR: ${ELEVENLABS_VOICE_FR:-}
+      ELEVENLABS_VOICE_SW: ${ELEVENLABS_VOICE_SW:-}
+      DIAL_WORKER_POLL_MS: ${DIAL_WORKER_POLL_MS:-1000}
+      DIAL_WORKER_BATCH: ${DIAL_WORKER_BATCH:-5}
+    depends_on:
+      db-setup:
+        condition: service_completed_successfully
+    command: ["bun", "src/worker/dial.ts"]
+
   # Command Center push path. Separate image, separate trust boundary, and
   # independently restartable: a hung socket layer must never take the API with it.
   realtime:

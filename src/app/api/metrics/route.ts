@@ -5,6 +5,7 @@ import "server-only";
 import { db } from "@/lib/db";
 import { admissionSnapshot } from "@/lib/admission";
 import { capacitySnapshot } from "@/lib/capacity";
+import { dialQueueStats } from "@/lib/dial-queue";
 
 export const dynamic = "force-dynamic";
 
@@ -110,6 +111,26 @@ export async function GET(req: Request) {
     );
   } catch {
     push("sv_conversations_active", "Conversations currently consuming a voice slot.", "gauge", -1);
+  }
+
+  // ── dial queue (S-1) ────────────────────────────────────────────────────
+  // Queue depth is the number that tells you whether a burst is being absorbed
+  // or dropped. A growing queue with an empty worker is a stalled deployment; a
+  // growing dead-letter count is a customer who was never called.
+  try {
+    const q = await dialQueueStats();
+    push("sv_dial_queue_queued", "Dialling jobs waiting to be claimed.", "gauge", q.queued);
+    push("sv_dial_queue_leased", "Jobs claimed by a worker and in flight.", "gauge", q.leased);
+    push("sv_dial_queue_placed", "Jobs whose call was accepted by the provider.", "counter", q.placed);
+    push("sv_dial_queue_dead", "Jobs that exhausted retries — operator-visible failures.", "gauge", q.dead);
+    push(
+      "sv_dial_queue_oldest_age_seconds",
+      "Age of the oldest waiting job; the SLA is tens of seconds, not hours.",
+      "gauge",
+      q.oldestQueuedAgeSeconds,
+    );
+  } catch {
+    push("sv_dial_queue_queued", "Dialling jobs waiting to be claimed.", "gauge", -1);
   }
 
   // ── outbox: the bank-notification backlog ───────────────────────────────

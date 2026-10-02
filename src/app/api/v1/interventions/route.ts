@@ -1,4 +1,4 @@
-﻿import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { createHmac, timingSafeEqual } from "crypto";
 import { z } from "zod";
 import { db } from "@/lib/db";
@@ -9,7 +9,8 @@ import { verifyProducerKey } from "@/lib/producer-keys";
 import { createHash } from "node:crypto";
 import { sanitizeUntrusted, sanitizeDynamicVariables } from "@/lib/sanitize-untrusted";
 import { runPolicyGate } from "@/lib/policy-gate";
-import { placeOutboundCall } from "@/lib/elevenlabs/outbound-call";
+import { assertDialAllowed, releaseDialSlot } from "@/lib/abuse/guards";
+import { enqueueDial } from "@/lib/dial-queue";
 import { admitOrDegrade } from "@/lib/admission";
 import { notifyRealtime } from "@/lib/realtime";
 import { badRequest, unprocessable, upstreamError } from "@/lib/api-errors";
@@ -235,6 +236,8 @@ async function armAndDial(
   idemKey: string
 ): Promise<Record<string, unknown>> {
   const caseRef = makeCaseRef();
+  let dialSlot: number | null = null;
+
 
   // Policy gate — deterministic, fail-fast, audited either way.
   const gate = await runPolicyGate({
@@ -258,6 +261,41 @@ async function armAndDial(
     err.code = gate.code;
     throw err;
   }
+
+  // Abuse gate (WP-14): geography, demo-tier test-number restriction,
+  // per-destination cooldown, per-org and global concurrency caps, and the
+  // velocity breaker — evaluated in ONE typed decision before any carrier call.
+  // Runs after the consent/policy gate because consent is the legal
+  // precondition and this is the cost-and-abuse precondition. A refusal is a
+  // typed 409, audited, never a 500 — the same discipline as the policy gate.
+  // An org-less signal shares one conservative bucket rather than bypassing the
+  // gate: country, demo-tier, cooldown and the global cap still apply.
+  const abuseOrg = orgId ?? "unscoped";
+  const abuse = assertDialAllowed({
+    orgId: abuseOrg,
+    e164: signal.phone,
+  });
+  if (!abuse.allowed) {
+    void auditAppend({
+      callRef: caseRef,
+      action: "freeze",
+      intent: `abuse_rejected_${abuse.reason}`,
+      callerId: effectiveCallerId,
+      meta: {
+        reason: abuse.reason,
+        detail: abuse.detail,
+        country: abuse.country,
+        controls: abuse.controls.map((c) => ({ control: c.control, ok: c.ok, reason: c.reason })),
+        transactionRef: signal.transaction_ref,
+      },
+      orgId: orgId ?? undefined,
+    }, { fast: true }).catch(() => {});
+    const err = new Error(abuse.detail) as Error & { status: number; code: string };
+    err.status = 409;
+    err.code = abuse.reason;
+    throw err;
+  }
+  dialSlot = abuse.slot;
 
   // Audit: signal received + policy passed (single append, fire-and-forget).
   void auditAppend({
@@ -332,32 +370,43 @@ async function armAndDial(
     transaction_ref: signal.transaction_ref,
   });
 
-  // Place the call via the ElevenLabs Agents Platform.
+// Durable queue (S-1). The request handler ENQUEUES and returns; the call is
+  // placed by a worker that claims the job. Placing it inline would make the
+  // bank's fraud engine the rate limiter of our telephony account, leave a
+  // carrier call holding a web request, and give a campaign burst nowhere to
+  // go but a rate-limit response.
+  //
+  // The reservation taken above is released immediately: the worker takes its
+  // own slot at placement time, when the call actually happens.
+  releaseDialSlot(dialSlot);
+
   let delivery: Record<string, unknown>;
   try {
-    const result = await placeOutboundCall({
-      toNumber: signal.phone,
-      language: signal.language,
-      merchant,
-      amount: signal.amount,
-      currency: signal.currency,
+    const job = await enqueueDial({
       caseRef,
-      dynamicVariables,
+      attemptNo: 1,
+      // Expected-loss triage: a higher-value alert is dialled first when the
+      // queue is draining faster than the provider allows.
+      priority: Math.round(
+        (Number.isFinite(signal.risk_score) ? Math.min(Math.max(signal.risk_score, 0), 1) : 0) *
+          (signal.amount ?? 0) /
+          100,
+      ),
     });
     delivery = {
-      channel: "call",
+      channel: "queued",
       provider: "elevenlabs",
       to: redactText(signal.phone),
-      conversationId: result.conversationId,
-      callSid: result.callSid,
-      dryRun: result.dryRun,
+      jobId: job.id,
+      jobState: job.state,
+      duplicate: job.duplicate,
     };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     void auditAppend({
       callRef: caseRef,
       action: "handoff",
-      intent: "delivery_failed",
+      intent: "enqueue_failed",
       callerId: effectiveCallerId,
       meta: { error: msg.slice(0, 200) },
       orgId: orgId ?? undefined,
@@ -376,15 +425,17 @@ async function armAndDial(
     orgId: orgId ?? undefined,
   }, { fast: true }).catch(() => {});
 
-  // Emit case.dialing on the realtime channel.
+// Emit case.queued on the realtime channel. The state is QUEUED, not DIALING —
+  // the call has not been placed yet, and a console that claims otherwise is
+  // lying to the operator watching it.
   notifyRealtime({
     orgId: orgId ?? undefined,
     callRef: caseRef,
     payload: {
-      type: "case.dialing",
+      type: "case.queued",
       caseRef,
-      state: "DIALING",
-      conversationId: delivery.conversationId,
+      state: "QUEUED",
+      jobId: delivery.jobId,
       language: signal.language,
       riskScore: signal.risk_score,
       ts: new Date().toISOString(),
@@ -395,8 +446,8 @@ async function armAndDial(
     ok: true,
     caseRef,
     transactionRef: signal.transaction_ref,
-    status: "dialing",
-    conversationId: delivery.conversationId,
+    status: "queued",
+    jobId: delivery.jobId,
     language: signal.language,
     riskScore: signal.risk_score,
     delivery,

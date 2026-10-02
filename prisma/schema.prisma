@@ -2,12 +2,12 @@
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
 
 generator client {
-  provider = "prisma-client-js"
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
 }
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
 
 model User {
@@ -360,4 +360,37 @@ model PaymentRecord {
   createdAt    DateTime @default(now())
 
   @@index([orgId, createdAt])
+}
+/// --- Durable dial queue (S-1) ------------------------------------------------
+/// Placing an outbound call inside an HTTP request handler means no
+/// backpressure, no retry semantics, and no burst absorption: the bank's fraud
+/// engine controls our call rate, and a campaign burst arrives faster than any
+/// synchronous handler can dial. The call therefore becomes a durable job that
+/// a worker claims.
+model DialJob {
+  id             String    @id @default(cuid())
+  caseRef        String
+  attemptNo      Int       @default(1)
+  state          String    @default("QUEUED") // QUEUED | LEASED | PLACED | FAILED | DEAD
+  priority       Int       @default(0)        // higher = dialled sooner (expected-loss triage)
+  attempts       Int       @default(0)
+  lastError      String?
+  conversationId String?                      // provider conversation id, once placed
+  callSid        String?
+  /// Lease expiry: a worker killed mid-flight releases its claim after this,
+  /// so a crashed worker's job is reclaimed rather than lost.
+  leaseExpiresAt DateTime?
+  /// Earliest retry time. Null on first attempt; set by the backoff ladder.
+  availableAt    DateTime  @default(now())
+  placedAt       DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  /// The exactly-once guarantee. Double-dialing a fraud victim is a trust
+  /// failure and a regulatory one, so one job per (case, attempt) is enforced
+  /// by the database rather than by application logic that a retry can race.
+  @@unique([caseRef, attemptNo])
+  @@index([state, priority, createdAt])
+  @@index([state, availableAt])
+  @@index([leaseExpiresAt])
 }

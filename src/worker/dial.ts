@@ -13,7 +13,11 @@
  * One-shot drain (useful in CI and for an operator flushing after an incident):
  *   bun src/worker/dial.ts --once
  */
-import "server-only";
+// NOTE: deliberately NO `import "server-only"` here. That marker exists so the
+// Next bundler fails loudly if a client component reaches server code; this file
+// is a standalone Bun process outside any bundle, where the package only throws
+// and prevents the worker from starting at all. The imports below are all
+// server-only modules and are never reachable from a client bundle.
 
 import { hostname } from "node:os";
 import { randomUUID } from "node:crypto";

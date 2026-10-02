@@ -49,7 +49,7 @@ The dev-instance wallets were orphaned by the Clerk swap (expected).
 - [ ] Delete the Northflank API token pasted in chat (app.northflank.com → API keys).
 - [ ] Rotate any other credential pasted in chat.
 - [ ] Review the 2 high Dependabot alerts on GitHub.
-- [ ] Set up the nightly `pg_dump` cron (docs/HETZNER.md §8) — nothing is
+- [ ] Set up the nightly `pg_dump` cron (docs/DEPLOY.md §8) — nothing is
       backed up yet, and the audit chain is the compliance artifact you will be
       asked to demonstrate.
 - [ ] Confirm the legal entity named in the footer/privacy policy is actually

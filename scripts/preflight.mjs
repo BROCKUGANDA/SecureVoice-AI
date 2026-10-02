@@ -6,7 +6,7 @@
  *
  * Prints one line per check and exits 1 if any GO-LIVE blocker is present.
  * The point: "remember to flip the flag" is not a process. This script is.
- * Wire it into the deploy runbook (docs/HETZNER.md) and run it before judges
+ * Wire it into the deploy runbook (docs/DEPLOY.md) and run it before judges
  * touch the platform — a red row is impossible to miss.
  */
 

@@ -1,4 +1,4 @@
-# Deploying SecureVoice AI to a Hetzner VPS (docker-compose, production)
+# Deploying SecureVoice AI to a VPS (docker-compose, production)
 
 This deploys the compose stack **as-is** — Postgres 16, the Next.js app, the
 realtime socket service, and Caddy terminating TLS. Nothing else publishes a
@@ -10,7 +10,7 @@ Estimated time: ~15 minutes on a fresh box.
 
 ## 1. Provision
 
-- **Server**: CX32 (2 vCPU / 4 GB) minimum — Next build + Postgres + sockets
+- **Server**: 2 vCPU / 4 GB minimum (current deployment: Akamai/Linode, 8 GB, Frankfurt) — Next build + Postgres + sockets
   do not fit comfortably in 2 GB. Debian 13 or Ubuntu 24.04.
 - **Region**: pick the one closest to where calls are answered (tool
   round-trips are in the voice path; transatlantic latency is audible).
@@ -37,7 +37,7 @@ EOF
 systemctl restart docker
 ```
 
-## 2. Firewall (Hetzner Cloud Firewall — not ufw, pick one)
+## 2. Firewall (provider cloud firewall if one exists — Akamai/Linode, Hetzner, DigitalOcean all have them — otherwise ufw. Pick one, not both.)
 
 | Inbound | Why |
 | --- | --- |

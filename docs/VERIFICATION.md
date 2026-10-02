@@ -89,7 +89,7 @@ length 64.
 
 ### Measurement topology (read this before re-running)
 
-The p95 < 300 ms gate assumes the production topology in `docs/HETZNER.md`:
+The p95 < 300 ms gate assumes the production topology in `docs/DEPLOY.md`:
 Postgres **co-located with the app**. The dev Supabase database is ~270 ms
 round-trip away, which makes the gate physically impossible regardless of
 code — one round trip alone is 90 % of the budget. Measured evidence:
@@ -159,3 +159,99 @@ The delivery identity is the platform's own envelope — `(provider, eventType, 
 ### Artifacts
 - `tests/webhooks/elevenlabs-inbound.test.ts` — the WP-4 gate
 - `src/app/api/webhooks/elevenlabs/route.ts`, `src/lib/elevenlabs/inbound.ts`
+
+---
+
+## WP-5 · Outbound bank notification — PASSED
+
+**Date:** 2026-10-02
+**Command:** `bun run test:webhook:outbound`
+**Result:** 1 pass, 0 fail — 50 assertions, ~300 ms. Delivery survives a receiver returning **500 three times** and lands on the fourth; the retry ladder is backoff-jittered (`nextAttemptAt` moves into the future, first step 60 s); a sixth failure **dead-letters** the event; the **dead-letter replay produces exactly one additional delivery** and a second replay of the same letter is refused; the signature verifies in a **second language implementation (CPython)** — and rejects a forged signature and a tampered body there too; the state transition and the outbox row commit in one transaction; our own receiver accepts a real delivery, records it once, and 401s a forgery.
+
+### What was built
+- `src/lib/outbox.ts` — the whole egress path.
+  - **Transactional outbox.** `enqueueOutbox(tx, …)` takes the *transaction client*, so the case transition and the delivery row commit together. `case-state-machine.ts` gains `transitionCaseWithOutbox()` as the only sanctioned way to publish a verdict; WP-4's `NOTIFIED` transition now goes through it. No request handler ever awaits a `fetch`.
+  - **`FOR UPDATE SKIP LOCKED` claiming** — N workers drain concurrently with no distributed lock, and a killed worker's lease is reclaimed by a stale-`SENDING` sweep.
+  - **Retry ladder** `60s · 5m · 30m · 2h · 3h · 12h` (±20% jitter), six attempts over ~24 h, then `DEAD` plus a `DeadLetter` row. Replay is an admin action that re-queues exactly once.
+  - **Signing**: `SV-Signature: t={unix},v1={hex}` where `v1 = HMAC-SHA256({t}.{canonical_body})`, computed at delivery time over the exact bytes sent. Bodies are sorted-key canonical JSON, so signer and verifier agree byte-for-byte.
+  - **Payload discipline** (hazard H28): events carry the verdict, `case_ref`, `event_id` (stable across retries — the bank's dedupe key) and an audit reference. No transcript content, ever.
+- `scripts/outbox-worker.ts` (`bun run outbox:work`) — cron-friendly (`--once`) or loop mode; the only code that performs delivery network I/O.
+- `POST /api/webhooks/receiver` — our own bank-side receiver: reads raw bytes, verifies the signature, records the delivery.
+- **`/inspector`** — the demo surface the brief asks us to own rather than outsource to a third-party site: raw payload, signature header, and a green/red verdict **recomputed server-side** (the secret never reaches the browser). Operator-gated.
+- `POST /api/console/outbox/replay` — operator-only manual dead-letter replay; `GET` lists dead letters.
+- Reference verifiers shipped in-repo and **both executed by the gate**: `scripts/verify_sv_signature.ts` and `scripts/verify_sv_signature.py`. Snippets for both languages are published in the README.
+
+### Isolation fix found by the gate
+The first full-suite run failed while the gate passed standalone: `claimBatch` claims the oldest *due* row, and WP-4 legitimately leaves a `PENDING` verdict it never delivers. The gate now drains the shared queue on entry and asserts it claimed its own event by id, so it measures what it creates rather than whatever is next in line.
+
+### Notes and deviations
+- The gate **fails** when no Python interpreter is found rather than skipping the cross-language check. On this machine it resolves to the bundled CPython 3.13; set `PYTHON` to override.
+- Java is deliberately **not** in this package — the brief names it as a WP-17 integration artifact, and a third implementation adds little while the sprint still owes WP-6 through WP-24.
+- `BANK_WEBHOOK_SECRET` / `BANK_WEBHOOK_URL` were added to `.env` and `.env.example`; the URL defaults to our own receiver so the demo needs no external service.
+
+### Artifacts
+- `tests/webhooks/outbound.test.ts` — the WP-5 gate
+- `src/lib/outbox.ts`, `src/lib/case-state-machine.ts` (`transitionCaseWithOutbox`)
+- `src/app/api/webhooks/receiver/route.ts`, `src/app/api/console/outbox/replay/route.ts`
+- `src/app/inspector/page.tsx`, `src/components/inspector/Inspector.tsx`
+- `scripts/outbox-worker.ts`, `scripts/verify_sv_signature.ts`, `scripts/verify_sv_signature.py`
+
+---
+
+## Suite status at this point
+
+`bun run test` — all green (one process per file, co-located Postgres):
+
+| Gate | Result |
+|---|---|
+| WP-2 risk signal → dial | 1 pass — p95 signal→provider 551 ms (< 1500 ms) |
+| WP-3 server tools | 1 pass — p95 11 ms over 200 calls (< 300 ms) |
+| WP-4 post-call ingest | 1 pass — forged rejected, replay idempotent, OTP redacted, chain verifies |
+| WP-5 outbound notification | 1 pass — retries, dead-letter, single replay, cross-language signature |
+| WP-20 realtime slice | 1 pass — tenancy, resume, inbox dedupe, ack-escalation; cross-node **verified** over Redis |
+| flag/feature suites | 30 pass |
+
+`bunx tsc --noEmit` clean; `bun run build` succeeds with `/inspector`, `/api/webhooks/elevenlabs`, `/api/webhooks/receiver` and `/api/console/outbox/replay` registered.
+
+---
+
+## WP-20 · Realtime and notifications (sprint slice) — PASSED with one item unverified
+
+**Date:** 2026-10-02
+**Commands:** `bun run test:realtime` · `cd mini-services/realtime && bun test`
+**Result:** 1 pass, 0 fail — 40 assertions. Org B never receives Org A's events; a client that missed three events replays **every one** of them on reconnect; a burst of 8 alerts collapses into ONE inbox item with `count: 8`; an unacknowledged page advances `fraud_oncall → fraud_desk → head_of_risk → exhausted`, an acknowledged one never advances, and every hop verifies in the audit chain. Realtime service: 48 pass, 0 fail across 5 files, three consecutive clean runs.
+
+### What was built
+- **Resumability, tested where it is used.** The activity feed's read model moved out of the SSE handler into `src/lib/activity-feed.ts`, so the shipped query — not a copy of it — is what the gate exercises. The cursor is `(createdAt, id)`, because two rows can share a millisecond and a timestamp-only cursor silently drops the second. The test asserts exactly that case.
+- **Tenancy as a required argument.** `fetchActivitySince({ scope })` takes an `OrgScope`; there is no "unscoped" call to forget. Org-less sessions get the default rows only, asserted in the gate.
+- **In-app inbox + severity routing + acknowledgement-driven escalation** (`src/lib/notifications.ts`, `Notification` table). Alerts dedupe on `{orgId}:{alertType}:{window}` and increment a count, so a smishing wave is one alert carrying the real number. Escalation advances through a contact ladder on SLA expiry and stops permanently on acknowledgement; each hop is written to the audit chain, because "we paged on-call and nobody came" is a post-incident-review fact.
+- **`GET/POST /api/console/inbox`** — org-scoped list, acknowledge. Cross-org ids return **404, never 403** (a 403 confirms existence).
+- **Honest connection state** (`src/lib/connection-state.ts`): `live` / `reconnecting` / `stale since HH:MM`, where a reconnect alone does **not** promote the UI to "live" — only a received event does. A dashboard that looks live while frozen is worse than one that admits it is disconnected.
+
+### Cross-node delivery — VERIFIED (was unverified)
+
+Provisioned a portable Redis 5.0.14 (`redis-server.exe`, loopback only, port 6380, no Docker, no admin) and ran `mini-services/realtime/test/crossnode.test.ts`, which stands up **two real service instances**, connects a client to node B only, ingests into node A, and asserts the event arrives:
+
+```
+cross-node delivery verified: ingest on node A -> client on node B
+confirmed: without the Redis adapter the event never reaches the other node (silent, no error)
+50 pass / 0 fail
+```
+
+Both directions are asserted, and both matter:
+
+- **Positive** — with `REDIS_URL` set, `/readyz` on *both* instances reports `pubsub: redis` (the test asserts it, so it cannot pass by accident on a single process), and the event crosses the node boundary.
+- **Negative** — with no `REDIS_URL`, two instances both report `single-node` and the client on B receives **nothing, with no error**. That is the hazard itself: a console that silently stops updating looks identical to a quiet day.
+
+The gate refuses to run rather than skip: if `REDIS_URL` is unreachable it prints why and exits non-zero. `node-redis` is pinned to v4 because v6 negotiates RESP3 (`HELLO`), which Redis 5 does not implement.
+
+### Reproducing Redis locally
+
+```
+redis-server.exe --port 6380 --save "" --appendonly no     # loopback, no persistence
+$env:REDIS_URL="redis://127.0.0.1:6380"
+cd mini-services/realtime && bun test                      # includes the cross-node case
+```
+
+### Room scoping — already present, now proven
+The service derived channels from the org id and validated membership on every join before this package; the gate now proves the tenant property end to end rather than leaving it as a design claim.

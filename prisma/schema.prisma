@@ -360,3 +360,4 @@ model PaymentRecord {
   createdAt    DateTime @default(now())
 
   @@index([orgId, createdAt])
+}

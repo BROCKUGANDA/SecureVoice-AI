@@ -215,13 +215,18 @@ as it verifies the customer. Set `ELEVENLABS_API_KEY`, `ELEVENLABS_AGENT_ID` and
 
 ### Continuity path — when the platform is not on the call
 
-The built-in voice pipeline is the **continuity** path, not an alternative to the agent. The
-dial worker falls back to it when `ELEVENLABS_DRY_RUN=true` (or `FEATURE_ELEVEN_LABS_LIVE=false`,
-the default — both are the same switch, see [`src/lib/flags.ts`](src/lib/flags.ts)), or when
-`ELEVENLABS_AGENT_ID`, `ELEVENLABS_PHONE_NUMBER_ID` or `ELEVENLABS_API_KEY` is unset, in which
-case `placeOutboundCall()` refuses to dial rather than dialling nobody. Inbound Twilio calls
-always run there: `POST /api/twilio/turn` is a `<Gather>` loop over our own
-keyword/state-machine intent router and Polly/Google voices.
+The built-in voice pipeline is the **continuity** path, not an alternative to the agent. It is
+what carries a conversation whenever the platform agent is not the thing speaking: an
+**inbound Twilio call**, where `POST /api/twilio/turn` is a `<Gather>` loop over our own
+keyword/state-machine intent router and Polly/Google voices; and the **browser demo**, which
+posts each turn to `POST /api/agent` and the audio to `/api/tts`.
+
+Be precise about what is *not* a step-down: the dial worker never silently degrades to the
+continuity path. `placeOutboundCall()` either dials the platform agent, or — in dry-run
+(`ELEVENLABS_DRY_RUN=true`, mirrored by `FEATURE_ELEVEN_LABS_LIVE`, see
+[`src/lib/flags.ts`](src/lib/flags.ts)) — returns a synthetic `conversation_id` and places no
+call at all. If the agent credentials are missing it **throws**, and the job retries and then
+dead-letters through the audited queue rather than dialling a customer nobody is verifying.
 
 **What is lost on the continuity path:** the agent's autonomous tool calls. Nothing on this
 path can invoke `verify_transaction`, `card_freeze`, `human_handoff` or `switch_language` —

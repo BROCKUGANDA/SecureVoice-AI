@@ -1,6 +1,6 @@
 # Evidence index
 
-Generated 2026-10-02T13:54:48.760Z by `bun run evidence` (`scripts/build-evidence.ts`).
+Generated 2026-10-02T14:07:18.323Z by `bun run evidence` (`scripts/build-evidence.ts`).
 
 Every Stage 2 criterion and the artifact that is supposed to earn it. A criterion marked
 MISSING has no artifact. That is the honest state, and it is why this file is generated

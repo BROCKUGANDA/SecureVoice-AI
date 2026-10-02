@@ -90,6 +90,80 @@ export function clearOrgTestNumbers(): void {
   ORG_TEST_NUMBERS.clear();
 }
 
+/* ── Per-org tier resolution ───────────────────────────────────────────────── */
+
+/**
+ * Per-org tier registry, injected by the tenant service at runtime — the same
+ * shape as `ORG_TEST_NUMBERS` above, because there is no per-org policy table
+ * in this schema (see docs/VERIFICATION.md: "no per-org policy persistence
+ * (env/programmatic only)").
+ */
+const ORG_PLAN_TIERS = new Map<string, PlanTier>();
+
+/**
+ * Per-org tier env convention: `ABUSE_PLAN_TIER__<ORG>`, mirroring
+ * `config.orgAllowlistEnvName()`'s `ABUSE_ALLOWED_COUNTRIES__<ORG>`. This is
+ * the production persistence mechanism; the registry above is what a tenant
+ * service or a test injects.
+ */
+export function orgPlanTierEnvName(orgId: string): string {
+  return `ABUSE_PLAN_TIER__${orgId.toUpperCase().replace(/[^A-Z0-9]/g, "_")}`;
+}
+
+/**
+ * Register (or clear, with null) an org's plan tier.
+ *
+ * A value that is not a known tier is REJECTED rather than coerced: silently
+ * storing `coercePlanTier(garbage)` would register `demo` under a name an
+ * operator believes is `standard`, and the failure would only show up later
+ * as a refused production dial. Nothing is registered, so the org falls back
+ * to the deployment default.
+ */
+export function setOrgPlanTier(orgId: string, tier: PlanTier | string | null): void {
+  const key = orgKey(orgId);
+  if (!key) return;
+  if (tier === null) {
+    ORG_PLAN_TIERS.delete(key);
+    return;
+  }
+  if (!isPlanTier(tier)) return;
+  ORG_PLAN_TIERS.set(key, tier);
+}
+
+export function clearOrgPlanTiers(): void {
+  ORG_PLAN_TIERS.clear();
+}
+
+/**
+ * The tier to evaluate THIS org at.
+ *
+ * Precedence, highest first:
+ *   1. an explicit override (a caller that already loaded the tenant),
+ *   2. the runtime registry (`setOrgPlanTier`),
+ *   3. per-org env `ABUSE_PLAN_TIER__<ORG>`,
+ *   4. the deployment default `ABUSE_PLAN_TIER` (`TierConfig.defaultTier`),
+ *   5. `demo`.
+ *
+ * Step 5 is the whole point: it is the fail-closed reading, and it is what
+ * `assertDialAllowed` already assumed when `planTier` was left unset. The
+ * resolver exists so that a route which FORGETS to pass a tier still gets the
+ * org's real one instead of silently evaluating a paying bank as a demo.
+ */
+export function planTierFor(
+  orgId: string | null | undefined,
+  override?: PlanTier | string | null,
+): PlanTier {
+  if (isPlanTier(override)) return override;
+  const key = orgKey(orgId);
+  if (key) {
+    const registered = ORG_PLAN_TIERS.get(key);
+    if (registered) return registered;
+    const env = process.env[orgPlanTierEnvName(key)];
+    if (isPlanTier(env)) return env;
+  }
+  return coercePlanTier(abuseConfig().tier.defaultTier);
+}
+
 /**
  * Effective list for an org: registered list first, else ABUSE_TEST_NUMBERS.
  * An empty result is meaningful — it means "nothing is verified", which fails

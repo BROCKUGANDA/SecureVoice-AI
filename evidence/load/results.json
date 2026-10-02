@@ -13,7 +13,7 @@
       "wallClockIncluded": true,
       "randomIdentifiersIncluded": false,
       "note": "Latency percentiles are wall-clock measurements and therefore differ between runs — that is the point of the artifact. Every DECISION input is seeded (mulberry32 from the run id): which case is throttled, each case's risk and amount, and the backoff jitter. Two runs make the same decisions; only the timings differ.",
-      "seededFrom": "mur05s3hwm"
+      "seededFrom": "mur1532o1q"
     },
     "network": {
       "calls": 0,
@@ -35,8 +35,8 @@
     },
     "case_count_scaling": {
       "modelled_campaign_interventions": 2800,
-      "steady_cases_played": 60,
-      "burst_cases_played": 120,
+      "steady_cases_played": 300,
+      "burst_cases_played": 1200,
       "burst_workers": 224,
       "note": "Case COUNT is scaled down from the modelled 2,800-intervention campaign; OFFERED CONCURRENCY is not. Concurrency is the quantity under test — see burst.offered_concurrency against model.burst.required_concurrent_calls. Set LOAD_BURST_CASES=2800 for the full replay."
     },
@@ -429,116 +429,130 @@
   "scenarios": {
     "steady": {
       "name": "steady",
-      "case_ref_prefix": "SV-LA-mur05s3hwm-steady",
-      "cases_in": 60,
+      "case_ref_prefix": "SV-LA-mur1532o1q-steady",
+      "cases_in": 300,
       "offered_concurrency": 8,
-      "dialled": 60,
+      "dialled": 300,
       "shed": 0,
-      "errors": 203,
+      "errors": 779,
       "by_reason": {
-        "error": 203
+        "error": 779
       },
-      "error_rate": 3.3833,
+      "error_rate": 2.5967,
       "shed_rate": 0,
       "dialled_rate": 1,
       "latency": {
         "end_to_end_enqueue_to_accounted": {
-          "samples": 263,
-          "min_ms": 1016.4,
-          "p50_ms": 8365.7,
-          "p95_ms": 14702.4,
-          "p99_ms": 15210,
-          "max_ms": 15301.9,
-          "mean_ms": 8512.7
+          "samples": 1079,
+          "min_ms": 1077.2,
+          "p50_ms": 76555.6,
+          "p95_ms": 139725.5,
+          "p99_ms": 142550.3,
+          "max_ms": 143030.4,
+          "mean_ms": 78056.3
         },
         "admission_decision_including_gauge_count": {
-          "samples": 263,
-          "min_ms": 8.2,
-          "p50_ms": 21.3,
-          "p95_ms": 38.8,
-          "p99_ms": 52.1,
-          "max_ms": 65.9,
-          "mean_ms": 23.2
+          "samples": 1079,
+          "min_ms": 6.7,
+          "p50_ms": 22.3,
+          "p95_ms": 61.9,
+          "p99_ms": 137,
+          "max_ms": 274.4,
+          "mean_ms": 28.3
         },
         "vendor_call_including_synthetic_hold": {
-          "samples": 60,
-          "min_ms": 30.4,
-          "p50_ms": 36.2,
-          "p95_ms": 41.8,
-          "p99_ms": 44.9,
-          "max_ms": 44.9,
-          "mean_ms": 36.1
+          "samples": 300,
+          "min_ms": 30.1,
+          "p50_ms": 34.9,
+          "p95_ms": 49.8,
+          "p99_ms": 96.5,
+          "max_ms": 113.8,
+          "mean_ms": 37.5
         }
       },
       "queue": {
-        "max_depth": 60,
+        "max_depth": 300,
         "end_depth": 0,
-        "samples": 135,
-        "depth_p50": 31,
-        "depth_p95": 57,
-        "depth_mean": 32.3,
-        "jobs_done": 31,
-        "jobs_retried": 93,
-        "jobs_dead": 32,
+        "samples": 1302,
+        "depth_p50": 152,
+        "depth_p95": 287,
+        "depth_mean": 156.1,
+        "jobs_done": 169,
+        "jobs_retried": 357,
+        "jobs_dead": 141,
         "jobs_handler_crashes": 0,
-        "jobs_lost_before_settlement": 78,
-        "jobs_skipped_not_ours": 3062
+        "jobs_lost_before_settlement": 281,
+        "jobs_skipped_not_ours": 39555
       },
       "gauge": {
         "baseline_at_start": 57,
-        "peak_observed": 60,
-        "peak_own_in_flight": 2,
+        "peak_observed": 63,
+        "peak_own_in_flight": 3,
         "end": 57,
         "bands_seen": [
           "NORMAL"
         ]
       },
       "vendor": {
-        "placed": 60,
-        "throttled_429": 3,
-        "max_concurrent_sessions_observed": 2,
+        "placed": 300,
+        "throttled_429": 17,
+        "max_concurrent_sessions_observed": 4,
         "gate_timeouts": 0,
         "backoff_delays_ms_sample": [
-          240,
-          155,
-          198
+          231,
+          225,
+          216,
+          229,
+          135,
+          149,
+          212,
+          153,
+          136,
+          157,
+          212,
+          147,
+          175,
+          197,
+          185,
+          143,
+          194
         ],
-        "backoff_delay_min_ms": 155,
-        "backoff_delay_max_ms": 240,
-        "backoff_attempts": 3
+        "backoff_delay_min_ms": 135,
+        "backoff_delay_max_ms": 231,
+        "backoff_attempts": 17
       },
-      "wall_clock_ms": 15333
+      "wall_clock_ms": 143068
     },
     "burst": null
   },
   "accounting": {
     "steady": {
-      "casesIn": 60,
-      "casesFound": 60,
+      "casesIn": 300,
+      "casesFound": 300,
       "byState": {
-        "CONFIRMED_FRAUD": 60
+        "CONFIRMED_FRAUD": 300
       },
-      "dialled": 60,
+      "dialled": 300,
       "shedWithAuditRow": 0,
       "shedWithoutAuditRow": 0,
       "unaccountedInFlight": 0,
       "unaccountedRefs": [],
-      "queueRows": 60,
+      "queueRows": 300,
       "queueByState": {
-        "DEAD": 31,
-        "DONE": 29
+        "DEAD": 140,
+        "DONE": 160
       },
       "shedIntents": {},
       "chainSample": {
-        "checked": 2,
-        "ok": 2,
+        "checked": 8,
+        "ok": 8,
         "broken": []
       }
     },
     "burst": null
   },
   "summary": {
-    "steady_error_rate": 3.3833,
+    "steady_error_rate": 2.5967,
     "steady_shed_rate": 0,
     "burst_error_rate": null,
     "burst_shed_rate": null,

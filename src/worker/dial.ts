@@ -22,6 +22,7 @@ import { drainDialQueue, type DialJob, type DialOutcome } from "@/lib/scale/queu
 import { placeOutboundCall } from "@/lib/elevenlabs/outbound-call";
 import { append as auditAppend } from "@/lib/audit-chain";
 import { db } from "@/lib/db";
+import { transitionCase } from "@/lib/case-state-machine";
 
 const WORKER_ID = process.env.DIAL_WORKER_ID ?? `${hostname()}-${process.pid}-${randomUUID().slice(0, 8)}`;
 const POLL_MS = Number(process.env.DIAL_WORKER_POLL_MS ?? 1_000);
@@ -89,12 +90,15 @@ async function handle(job: DialJob): Promise<DialOutcome> {
       },
     });
 
-    // Persist the join key BEFORE reporting success, so a crash in the next few
-    // milliseconds cannot cause a second dial on reclaim.
-    await db.case.updateMany({
-      where: { caseRef: job.case_ref },
-      data: { conversationId: result.conversationId, state: "DIALING" },
-    });
+    // The case state machine is the SINGLE WRITER for case state. This used to
+    // be a raw `db.case.updateMany`, which bypassed the writer, skipped the
+    // legality check (SCREENED -> DIALING and RETRY_SCHEDULED -> DIALING are
+    // the only legal ways in) and wrote NO transition audit row — so a case
+    // could reach DIALING with nothing in the chain saying it did.
+    // transitionCase writes the row, the legality check and the audit entry
+    // together, and throws IllegalTransitionError rather than forcing a state
+    // the table forbids.
+    await transitionCase(job.case_ref, "DIALING", { conversationId: result.conversationId });
 
     void auditAppend({
       callRef: job.case_ref,

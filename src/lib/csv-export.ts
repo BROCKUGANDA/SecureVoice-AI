@@ -193,3 +193,40 @@ export function csvContentDisposition(filename: string): string {
   const utf8 = encodeURIComponent(filename).replace(/['()]/g, escape);
   return `attachment; filename="${ascii}"; filename*=UTF-8''${utf8}`;
 }
+
+/**
+ * The Command Center's "Recent interventions" export — the button in
+ * `src/views/Console.tsx`.
+ *
+ * This exists as a named function rather than staying inline in the click
+ * handler for two reasons. First, the handler used to build the file by hand:
+ * `[a, b, c].join(",")` with no quoting and no formula guard, so a merchant
+ * descriptor or channel label beginning `=` reached Excel as live code — the
+ * exact attack this module exists to stop, on the one surface bank analysts
+ * actually use. Second, an inline handler cannot be tested; a bank analyst
+ * opening Monday-morning's case list in a spreadsheet is a real consumer, not
+ * a demo, and the regression has to be catchable by `bun test`.
+ */
+export type InterventionExportRow = {
+  callRef: string;
+  riskScore?: number | null;
+  channel?: string | null;
+  plannedAction?: string | null;
+  at: Date | string | number;
+};
+
+export function interventionsCsv(rows: readonly InterventionExportRow[]): string {
+  return toCsv<InterventionExportRow>(
+    rows,
+    [
+      { header: "case_ref", value: (r) => r.callRef },
+      // `riskScore` is a genuine non-negative rate, so the leading-`-` trade-off
+      // in the module header cannot apply to it.
+      { header: "risk_score", value: (r) => r.riskScore ?? "" },
+      { header: "channel", value: (r) => r.channel ?? "" },
+      { header: "planned_action", value: (r) => r.plannedAction ?? "" },
+      { header: "fired_at", value: (r) => new Date(r.at).toISOString() },
+    ],
+    {}
+  );
+}

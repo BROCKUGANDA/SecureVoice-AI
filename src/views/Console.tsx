@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { openRealtime, type RealtimeHandle, type RealtimeStatus } from "@/lib/realtime-client";
+import { interventionsCsv } from "@/lib/csv-export";
 
 /**
  * Operator Command Center — run the platform for real, on your own information:
@@ -632,12 +633,21 @@ export function Console() {
                 {cases.length > 0 && (
                   <button
                     onClick={() => {
-                      // Export to CSV — bank analysts live in Excel
-                      const header = "case_ref,risk_score,channel,planned_action,fired_at";
-                      const rows = cases.map((c) =>
-                        [c.callRef, c.riskScore ?? "", c.channel ?? "", c.plannedAction ?? "", new Date(c.at).toISOString()].join(",")
+                      // Bank analysts live in Excel, so every cell is untrusted
+                      // input rendered inside a spreadsheet that executes
+                      // formulas. `interventionsCsv` goes through `toCsv`, which
+                      // neutralises a leading = + - @ and RFC-4180 quotes the
+                      // field; the hand-rolled join this replaced did neither.
+                      const csv = interventionsCsv(
+                        cases.map((c) => ({
+                          callRef: c.callRef,
+                          riskScore: c.riskScore ?? null,
+                          channel: c.channel ?? null,
+                          plannedAction: c.plannedAction ?? null,
+                          at: c.at,
+                        }))
                       );
-                      const blob = new Blob(["\ufeff" + [header, ...rows].join("\n")], { type: "text/csv;charset=utf-8" });
+                      const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
                       const url = URL.createObjectURL(blob);
                       const a = document.createElement("a");
                       a.href = url;

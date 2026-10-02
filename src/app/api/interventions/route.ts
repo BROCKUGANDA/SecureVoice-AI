@@ -7,6 +7,7 @@ import { transcript as redactText } from "@/lib/redact";
 import { consume as consumeRateLimit, rateLimitId } from "@/lib/ratelimit";
 import { verifyProducerKey } from "@/lib/producer-keys";
 import { withIdempotency } from "@/lib/idempotency";
+import { safeFetch, validateOutboundUrl } from "@/lib/validation/ssrf";
 import { placeInterventionCall, sendInterventionSms, isTwilioConfigured, twilioMode, type DeliveryLang } from "@/lib/twilio";
 
 export const dynamic = "force-dynamic";
@@ -59,7 +60,11 @@ const schema = z.object({
       .string()
       .url()
       .max(300)
-      .refine(isPublicHttpsUrl, "callbackUrl must be a public https URL")
+      // Shape only. The SSRF verdict needs DNS, so it is async and is applied
+      // in the handler (see the `validateOutboundUrl` call below) — a
+      // `.refine()` here could only ever re-implement the string check this
+      // route just removed.
+      .refine((v) => v.startsWith("https://"), "callbackUrl must be a public https URL")
       .optional(),
     orgId: z.string().trim().min(2).max(64).optional(),
     notes: z.string().trim().max(600).optional(),
@@ -68,29 +73,24 @@ const schema = z.object({
 
 type Signal = z.infer<typeof schema>["signal"];
 
-/** SSRF guard: the outcome webhook is POSTed with our signature attached, so
- *  the destination must be a genuine public host — never loopback, link-local
- *  (cloud metadata), RFC-1918, or plaintext http. */
-function isPublicHttpsUrl(raw: string): boolean {
-  try {
-    const url = new URL(raw);
-    if (url.protocol !== "https:") return false;
-    const h = url.hostname.toLowerCase();
-    if (h === "localhost" || h.endsWith(".localhost") || h.endsWith(".internal") || h === "0.0.0.0" || h === "[::1]" || h === "[::]") return false;
-    const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(h);
-    if (m) {
-      const a = Number(m[1]);
-      const b = Number(m[2]);
-      if (a === 0 || a === 10 || a === 127) return false;
-      if (a === 172 && b >= 16 && b <= 31) return false;
-      if (a === 192 && b === 168) return false;
-      if (a === 169 && b === 254) return false;
-    }
-    return true;
-  } catch {
-    return false;
-  }
-}
+/**
+ * SSRF guard for the bank-supplied `callbackUrl`.
+ *
+ * WHY THIS IS NOT A STRING CHECK: the previous ~15-line `isPublicHttpsUrl`
+ * only recognised IP *literals* and a few hostname suffixes. A name like
+ * `https://metadata.attacker.example/` parses as an ordinary public hostname,
+ * passes every regex, and then resolves to 169.254.169.254 — the cloud
+ * metadata endpoint holding the node's IAM credentials. That is the DNS
+ * rebinding / DNS-resolution gap, and it is the one that matters on the ONE
+ * path that actually POSTs to this URL with our signature attached.
+ *
+ * `validateOutboundUrl` (src/lib/validation/ssrf.ts) resolves the host and
+ * refuses when ANY answer is private, loopback, link-local or a metadata
+ * endpoint — one public + one private answer is rejected, because the
+ * connection race is the attack. It is async (DNS), so it cannot live in a
+ * zod `.refine()`; the schema keeps a cheap shape check and the real verdict
+ * is applied here, before anything is persisted or dialled.
+ */
 
 const ACTION_PLAN: { threshold: number; action: string; handoff: string }[] = [
   { threshold: 0.90, action: "card_freeze_temporary", handoff: "fraud_specialist" },
@@ -186,6 +186,20 @@ export async function POST(req: NextRequest) {
   // tenant: the Bearer key's org wins; HMAC producers may declare orgId in-payload
   const orgId = bearerAuth?.orgId ?? signal.orgId ?? null;
   const effectiveCallerId = bearerAuth?.callerId ?? callerId;
+
+  // 3b. SSRF verdict on the callback URL — resolved, not pattern-matched.
+  //     Runs BEFORE the case is persisted and before any dial, so a callback
+  //     that points into the private network never becomes a stored value that
+  //     a later step would fetch.
+  if (signal.callbackUrl) {
+    const verdict = await validateOutboundUrl(signal.callbackUrl);
+    if (!verdict.ok) {
+      return NextResponse.json(
+        { error: `Invalid signal: signal.callbackUrl ${verdict.reason}` },
+        { status: 422 }
+      );
+    }
+  }
 
   // 4. Idempotency (claim pattern) — the producer caseId is the dedup key.
   //    The unique-constraint INSERT elects exactly one winner; a concurrent
@@ -400,7 +414,12 @@ function sendResultWebhook(callbackUrl: string, payload: Record<string, unknown>
       const body = JSON.stringify(payload);
       const t = Math.floor(Date.now() / 1000).toString();
       const v1 = createHmac("sha256", secret).update(`${t}.${body}`).digest("hex");
-      await fetch(callbackUrl, {
+      // safeFetch, not bare fetch: it re-runs the full SSRF guard on every
+      // redirect hop with `redirect: "manual"`. A URL that validated at ingest
+      // and then 302s to `http://169.254.169.254/` was never validated, and
+      // the bare `fetch` this replaced followed that hop with our signature
+      // and the outcome payload attached.
+      await safeFetch(callbackUrl, {
         method: "POST",
         // SV-Signature canonical; X-SecureVoice-Signature is the alias the
         // bank-side integration doc references.

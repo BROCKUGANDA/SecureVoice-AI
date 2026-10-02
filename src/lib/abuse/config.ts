@@ -77,6 +77,18 @@ export type TierConfig = {
    * ending in `*` (e.g. `+1500555*`). Empty = the demo tier may dial nothing.
    */
   testNumbers: readonly string[];
+  /**
+   * The tier an ORG falls back to when nothing names it specifically.
+   *
+   * WHY THIS EXISTS: `assertDialAllowed` defaults an unset `planTier` to
+   * `demo` — the strictest tier, so an unset value fails closed. That default
+   * is correct for the guard and wrong for a route that forgets to pass one:
+   * a live bank org was being evaluated as a demo tenant and refused with
+   * `demo_tier_requires_test_number`. `tiers.planTierFor()` is what resolves
+   * the org's real tier; this is the deployment-wide fallback it lands on.
+   * Unset ⇒ `demo`, unchanged, so the fail-closed default survives.
+   */
+  defaultTier: string;
 };
 
 export type VelocityConfig = {
@@ -171,7 +183,7 @@ export const DEFAULT_ABUSE_CONFIG: AbuseConfig = {
   geo: { allowlist: [], denylist: HARD_DENIED_COUNTRIES, deniedPrefixes: HARD_DENIED_PREFIXES },
   // No built-in test numbers: a number we guessed was a test number is a real
   // person's phone. The list is explicitly configured (env) or injected.
-  tier: { testNumbers: [] },
+  tier: { testNumbers: [], defaultTier: "demo" },
   velocity: {
     burstWindowSec: 60,
     burstRateMax: 20,
@@ -241,7 +253,12 @@ export function resolveAbuseConfig(
       denylist: unionHardDefaults(d.geo.denylist, list("ABUSE_DENIED_COUNTRIES")),
       deniedPrefixes: unionHardDefaults(d.geo.deniedPrefixes, list("ABUSE_DENIED_PREFIXES")),
     },
-    tier: { testNumbers: dedupe(list("ABUSE_TEST_NUMBERS")) },
+    tier: {
+      testNumbers: dedupe(list("ABUSE_TEST_NUMBERS")),
+      // Fail closed: an unrecognised value is not a licence to dial, it is a
+      // typo, so anything that is not a known tier becomes `demo`.
+      defaultTier: (process.env.ABUSE_PLAN_TIER ?? "demo").trim() || "demo",
+    },
     velocity: {
       burstWindowSec: num("ABUSE_BURST_WINDOW_SEC", d.velocity.burstWindowSec, 1),
       burstRateMax: num("ABUSE_BURST_RATE_MAX", d.velocity.burstRateMax, 1),

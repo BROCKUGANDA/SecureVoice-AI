@@ -1,6 +1,6 @@
 # Agent test summary
 
-Generated 2026-10-02T13:54:48.760Z from `evidence/guardrails/redteam.json` (sha256 `41a71495e7ddf482…`).
+Generated 2026-10-02T14:07:18.323Z from `evidence/guardrails/redteam.json` (sha256 `41a71495e7ddf482…`).
 
 ## Pass rates
 

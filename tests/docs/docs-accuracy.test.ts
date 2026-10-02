@@ -142,10 +142,17 @@ test("docs: no heading calls the ElevenLabs conversation plane optional", () => 
 test("docs: the README names the agent primary and the built-in pipeline the continuity path", () => {
   expect(readme).toMatch(/ElevenLabs conversation plane \(primary\)/i);
   expect(readme).toMatch(/continuity path/i);
-  // The step-down trigger and the capability lost must both be named.
+
+  // Both halves of the continuity contract: what carries a conversation there,
+  // and the capability that is lost. The trigger must be one the code actually
+  // has — asserting this caught a first draft that claimed dry-run falls back
+  // to the built-in pipeline, which placeOutboundCall() does not do.
   const continuity = readme.slice(readme.search(/### Continuity path/i));
+  expect(continuity).toMatch(/inbound Twilio call/i);
+  expect(continuity).toMatch(/POST \/api\/twilio\/turn/);
   expect(continuity).toMatch(/ELEVENLABS_DRY_RUN/);
   expect(continuity).toMatch(/FEATURE_ELEVEN_LABS_LIVE/);
+  expect(continuity).toMatch(/dead-letters?/i);
   expect(continuity).toMatch(/lost/i);
 });
 

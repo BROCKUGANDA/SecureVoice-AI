@@ -10,6 +10,8 @@ import { createHash } from "node:crypto";
 import { sanitizeUntrusted, sanitizeDynamicVariables } from "@/lib/sanitize-untrusted";
 import { runPolicyGate } from "@/lib/policy-gate";
 import { assertDialAllowed, releaseDialSlot } from "@/lib/abuse/guards";
+import { validateOutboundUrl } from "@/lib/validation/ssrf";
+import { planTierFor } from "@/lib/abuse/tiers";
 import { enqueueDialJob } from "@/lib/scale/queue";
 import { admitOrDegrade } from "@/lib/admission";
 import { notifyRealtime } from "@/lib/realtime";
@@ -58,34 +60,14 @@ const schema = z
       .string()
       .url()
       .max(300)
-      .refine(isPublicHttpsUrl, "callback_url must be a public https URL")
+      // Shape only; the SSRF verdict needs DNS and is applied in the handler.
+      .refine((v) => v.startsWith("https://"), "callback_url must be a public https URL")
       .optional(),
     org_id: z.string().trim().min(2).max(64).optional(),
   })
   .strict();
 
 type Signal = z.infer<typeof schema>;
-
-function isPublicHttpsUrl(raw: string): boolean {
-  try {
-    const url = new URL(raw);
-    if (url.protocol !== "https:") return false;
-    const h = url.hostname.toLowerCase();
-    if (h === "localhost" || h.endsWith(".localhost") || h.endsWith(".internal") || h === "0.0.0.0" || h === "[::1]" || h === "[::]") return false;
-    const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(h);
-    if (m) {
-      const a = Number(m[1]);
-      const b = Number(m[2]);
-      if (a === 0 || a === 10 || a === 127) return false;
-      if (a === 172 && b >= 16 && b <= 31) return false;
-      if (a === 192 && b === 168) return false;
-      if (a === 169 && b === 254) return false;
-    }
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 function makeCaseRef(): string {
   const alphabet = "23456789ABCDEFGHJKMNPQRSTUVWXYZ";
@@ -155,6 +137,18 @@ export async function POST(req: NextRequest) {
     return unprocessable(`Invalid signal: ${first?.path.join(".")} ${first?.message ?? ""}`.trim());
   }
   const signal: Signal = parsed.data;
+
+  // SSRF verdict on the callback URL — resolved, not pattern-matched. The
+  // removed string check only recognised IP literals and a few suffixes, so a
+  // name that resolves into the private network (a cloud metadata endpoint in
+  // particular) passed every regex. Runs before the DB round-trip so a
+  // hostile callback never becomes a stored value a later step would fetch.
+  if (signal.callback_url) {
+    const verdict = await validateOutboundUrl(signal.callback_url);
+    if (!verdict.ok) {
+      return unprocessable(`Invalid signal: callback_url ${verdict.reason}`);
+    }
+  }
   const orgId = bearerAuth?.orgId ?? signal.org_id ?? null;
   const effectiveCallerId = bearerAuth?.callerId ?? callerId;
   const idemHash = hashKey(idemKey.trim());
@@ -270,11 +264,21 @@ async function armAndDial(
   // precondition and this is the cost-and-abuse precondition. A refusal is a
   // typed 409, audited, never a 500 — the same discipline as the policy gate.
   // An org-less signal shares one conservative bucket rather than bypassing the
-  // gate: country, demo-tier, cooldown and the global cap still apply.
+  // gate: country, tier, cooldown and the global cap still apply.
+  //
+  // The tier MUST be resolved for the org, not left to the guard's `demo`
+  // default. `assertDialAllowed` defaults an unset `planTier` to the strictest
+  // tier so it fails closed — correct for the guard, but a route that never
+  // passes one therefore evaluated every live bank signal as a DEMO tenant and
+  // refused it with `demo_tier_requires_test_number`. That refuses legitimate
+  // production dials. `planTierFor` resolves the org's real tier and still
+  // lands on `demo` when nothing declares one, so the fail-closed default is
+  // unchanged for an unconfigured deployment.
   const abuseOrg = orgId ?? "unscoped";
   const abuse = assertDialAllowed({
     orgId: abuseOrg,
     e164: signal.phone,
+    planTier: planTierFor(abuseOrg),
   });
   if (!abuse.allowed) {
     void auditAppend({

@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0",
-  "generated_at": "2026-10-02T13:54:48.760Z",
+  "generated_at": "2026-10-02T14:07:18.323Z",
   "disclaimer": "`measured_p95_ms` contains only values observed on a real run. A null there means NOT INSTRUMENTED, which is not a pass. Targets are published separately so the two can never be confused.",
   "interventions_measured": 0,
   "note": "The 30-intervention minimum in the definition of done is NOT met. The conversation-plane spans are not yet instrumented.",

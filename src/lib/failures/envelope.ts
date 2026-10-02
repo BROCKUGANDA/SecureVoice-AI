@@ -359,8 +359,8 @@ export type FailureInit = {
 };
 
 const DOCS_BASE = (() => {
-  const raw = process.env.FAILURE_DOCS_BASE_URL?.trim();
-  return raw ? raw.replace(/\/+$/, "") : "https://docs.securevoice.ai/errors";
+   const raw = process.env.FAILURE_DOCS_BASE_URL?.trim();
+   return raw ? raw.replace(/\/+$/, "") : "https://securevoice.ai/docs/errors";
 })();
 
 export function docsUrlFor(code: FailureCode): string {

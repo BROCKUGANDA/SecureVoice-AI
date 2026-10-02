@@ -17,7 +17,15 @@ const dir = new URL("../tests/", import.meta.url).pathname.replace(/^\/([A-Za-z]
 const files = readdirSync(dir, { recursive: true })
   .filter((f) => String(f).endsWith(".test.ts"))
   .map((f) => String(f).split("\\").join("/"))
-  .sort();
+  // Ordering is a real dependency, not an accident of the alphabet:
+  // `docs/load-artifact-consistency.test.ts` checks docs/CAPACITY.md against
+  // `evidence/load/results.json`, so the load gate must produce that artifact
+  // FIRST. Alphabetically `docs` sorts before `load`, which silently compared
+  // the document against the PREVIOUS run's numbers.
+  .sort((a, b) => {
+    const rank = (f) => (f.startsWith("load/") ? 0 : f.startsWith("docs/") ? 1 : 2);
+    return rank(a) - rank(b) || a.localeCompare(b);
+  });
 
 if (files.length === 0) {
   console.error("no test files found in tests/");

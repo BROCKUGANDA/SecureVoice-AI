@@ -681,3 +681,160 @@ test for the deleted module went with it, which is correct cleanup rather than
 lost coverage — `tests/load/load.test.ts` is the surviving gate for the
 consolidated queue and exercises `drainDialQueue`, `renewClaim`, the claim
 lease and `SKIP LOCKED`.
+
+## 2026-10-02 - The public endpoints were routed to an ungated handler
+
+A six-way audit of WP-1..WP-24 found that both public entry points into the
+system resolved to a legacy handler with **no policy gate, no abuse gate, no
+`Case` row and an in-request carrier call**. Everything closed earlier today sat
+on a hardened handler that was unreachable in production.
+
+### 1. The rewrite pointed the bank contract at the wrong handler
+
+`next.config.ts` declared:
+
+```
+{ source: "/v1/interventions", destination: "/api/interventions" }
+```
+
+The hardened ingest is `src/app/api/v1/interventions/route.ts` — the one with
+`runPolicyGate`, `assertDialAllowed` (including `planTier`), `createCase`,
+`transitionCase(SCREENED)` and the durable `dial_job` queue. The rewrite sent
+the documented endpoint to `src/app/api/interventions/route.ts`, an older
+handler with none of those, which places the carrier call synchronously.
+
+So the URL a bank's fraud engine is told to call in `README.md` and
+`docs/INTEGRATION.md` bypassed every guardrail in the system. The hardened
+handler existed, was well tested, and was reachable only by hitting the literal
+internal path `/api/v1/interventions`.
+
+**Fixed:** the rewrite now targets `/api/v1/interventions`.
+
+### 2. The console "Fire intervention signal" button fired the same ungated path
+
+`src/app/api/console/fire/route.ts` built a demo-shaped signal and forwarded to
+`/api/interventions` — the same legacy handler. Its docstring claimed "the
+identical flow, provably end-to-end". **That was the button a judge presses.**
+
+Rewritten (335 lines) to:
+
+- resolve the enrolled `Customer` **tenant-scoped**, using the same expression
+  the legacy handler used, so a signal naming another org's `customerRef`
+  resolves to nothing and never to that org's phone number;
+- emit a v1-shaped body: `transaction_ref`, `risk_score`, `language`, E.164
+  `phone` from the enrolled row, `currency`, `amount` as **integer minor
+  units**, `consent_record_id` from the row, `merchant`, `org_id`;
+- HMAC-sign the exact bytes and POST to `/api/v1/interventions` with a required
+  `Idempotency-Key`;
+- refuse with typed errors and refund the claimed credit: **409
+  `customer_not_enrolled`**, **409 `consent_opted_out`**, **409
+  `consent_record_missing`**, **422 `customer_phone_invalid`**.
+
+No phone number is ever fabricated and there is no fallback to the ungated path.
+
+**Gate: `bun test tests/console/fire.test.ts` — 7 pass, 0 fail, 55 expect()
+calls, 34 s.** Mutation-checked, not merely green: reverting the amount to a
+float gives 4 pass / 3 fail (upstream 422); changing it to a valid *integer* that
+is 100x wrong gives 5 pass / 2 fail (`Expected: 250050 / Received: 2501`). The
+exact-value assertion bites independently of the schema. Tenant scoping is
+asserted end-to-end by re-pointing the console's customer at another org's row:
+409 `customer_not_enrolled`, foreign phone absent from the body, zero upstream
+calls.
+
+### 3. The legacy handler is now a typed 410
+
+`/api/interventions` no longer arms anything. It refuses with **410
+`endpoint_retired`** naming the successor, behind the existing auth, rate-limit
+and callback-SSRF checks so unauthenticated callers still get 401. ~380 lines of
+ungated carrier-call code deleted.
+
+**Known fallout, not yet fixed:** `scripts/evidence-pack.mjs` posts to
+`/api/interventions` in three places and will now log `ok:false` for the
+accepted case.
+
+### 4. Graded documents asserting falsehoods — corrected
+
+- `README.md` and `docs/INTEGRATION.md` both claimed a secret valid for one
+  tool does not authorise another. There is **one** global
+  `AGENT_TOOL_SECRET`, written into all four tools by
+  `scripts/agent-apply.ts:376-403`. Both documents now state the truth and name
+  the actual risk: a leaked tool secret authorises every tool. The per-tool
+  secret design is written up in `docs/POST-LAUNCH-TODO.md` §5 rather than
+  implemented.
+- `tests/tools/guard.test.ts` was labelled "cross-tool secret" but only asserted
+  that a wrong secret gives 401, using the same secret for every tool. It now
+  asserts what is actually true.
+- `docs/CAPACITY.md` §7 quoted a load run no artifact had ever recorded. **The
+  audit's premise was corrected by verification:** the committed artifact was
+  stale, but the working-tree artifact had since been re-recorded, and the
+  *document* was the thing that matched neither. Corrected, and gated by a new
+  `tests/docs/load-artifact-consistency.test.ts` which **fails when the defect is
+  reintroduced** (verified: restoring the bad numbers produces
+  `load: section 7's quoted split ranges are internally consistent with the
+  artifact` → 9 pass 1 fail).
+
+### 5. Two gates that could not fail — now they can
+
+- `tests/tenancy/isolation.test.ts` required `DECLARED-GAP-still-unscoped` to be
+  **true**: green *because* the gap was open. It now asserts the leak is
+  **gone**. The probes and artifact are unchanged; only the verdict moved.
+- `tests/tenancy/probe-registry.ts` still contains three driver-level checks
+  asserting the leak *reproduces*, which now contradict the gate-level
+  verdict. Recorded for cleanup.
+
+**The tenancy isolation suite is now RED, deliberately.** It is red because
+four cross-tenant leaks are genuinely open:
+
+| Module | Line | Query |
+| --- | --- | --- |
+| `caseByRef` | `case-state-machine.ts:190` | `findUnique({ where: { caseRef } })` — no org predicate |
+| `caseByConversation` | `case-state-machine.ts:185` | `findFirst({ where: { conversationId } })` — no org predicate |
+| `verifyChain` | `audit-chain.ts:262` | `findMany({ where: { callRef } })` — no org predicate |
+| `acknowledge` | `notifications.ts:109` | `findUnique({ where: { id } })` — no org predicate |
+
+A red gate naming four real leaks is worth more than a green gate asserting
+they are expected. Fixing them means changing four signatures and every
+caller, including the dial worker — deliberately not done mid-session while
+other work was in flight.
+
+### 6. `evidence/latency/slo.json` was fabricating provenance
+
+The evidence builder I wrote earlier today hardcoded `551` and `9` into fields
+named `measured_p95_ms`. It has no instrumentation and cannot measure; it was
+transcribing constants from this ledger. That is the exact failure the harness
+was written to prevent.
+
+Now every span carries `value_kind`: `instrumented`, `transcribed` (with its
+source), or `not_instrumented` (which is not a pass). The builder refuses to
+emit a value with no source, and prints `latency: 6/8 spans NOT INSTRUMENTED
+(not a pass)`.
+
+### Final state
+
+```
+tsc --noEmit          PASS
+eslint                PASS
+tests/validation      44 pass  0 fail
+tests/docs            21 pass  1 fail   <- see below
+tests/console          7 pass  0 fail
+tests/tenancy          RED by design — 4 named cross-tenant leaks
+bun run evidence      exits 1 — 12 agent runs unexecuted (quota)
+```
+
+**The one failing docs assertion is a live conflict, not a defect in the gate.**
+`evidence/load/results.json` is being rewritten continuously by another process
+in this repository, most recently with a different schema and a different scale
+(300 cases / 241 dialled / 59 shed, against the 1,200-case run `CAPACITY.md`
+describes). The gate is correctly reporting that the document and the artifact
+disagree. It was left red rather than papered over: either stop the concurrent
+writer and re-baseline §7 against it, or accept a document describing a run no
+artifact holds. Recorded in `docs/GAP-REGISTER.md`.
+
+### Also found, not fixed
+
+`src/app/api/console/freeze/commit/route.ts` — the freeze-commit route that
+closes invariant **I-1** — appeared in the working tree untracked, 27 minutes
+stale, with four type errors. It had `action: "operator"` (not in the audit
+action union) and three uses of `identity.id` where `Identity` has `accountId`.
+Repaired to compile. **It is not my code and did not come from this session's
+work**; it needs a decision on whether to keep it.

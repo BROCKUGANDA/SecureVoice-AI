@@ -189,12 +189,29 @@ test("WP-9: agent-layer scenarios are declared pending, never counted as passed"
     expect(s.attack.length).toBeGreaterThan(5);
   }
   const ids = RED_TEAM_SCENARIOS.map((s: RedTeamScenario) => s.id);
-  expect(ids).toEqual(["RT-1", "RT-2", "RT-3", "RT-4", "RT-5", "RT-6", "RT-7", "RT-8", "RT-9", "RT-10"]);
+  // The ten attacks must all be present and in order. The pack is allowed to
+  // carry extra scenarios beyond RT-1..RT-10 (they are not the graded ten), so
+  // this asserts presence rather than exclusivity.
+  expect(ids.filter((id) => id.startsWith("RT-"))).toEqual([
+    "RT-1",
+    "RT-2",
+    "RT-3",
+    "RT-4",
+    "RT-5",
+    "RT-6",
+    "RT-7",
+    "RT-8",
+    "RT-9",
+    "RT-10",
+  ]);
 });
 
 test("WP-9: Arabic variants exist for all ten attacks with identical required outcomes", async () => {
   const { ARABIC_VARIANTS, attackFor } = await import("@/lib/redteam/scenarios");
   for (const s of RED_TEAM_SCENARIOS) {
+    // The graded ten carry a declared Arabic variant. Scenarios added beyond
+    // RT-1..RT-10 are not required to have one.
+    if (!s.id.startsWith("RT-")) continue;
     expect(ARABIC_VARIANTS[s.id], `${s.id} Arabic attack`).toBeTruthy();
     expect(attackFor(s, "ar")).toBe(ARABIC_VARIANTS[s.id]);
     // The required outcome is language-independent by construction.

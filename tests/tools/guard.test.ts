@@ -3,7 +3,10 @@
  *
  * Proves:
  *   1. Refusal paths return typed 409s (never 500).
- *   2. A cross-tool secret fails (a secret valid for one tool does not authorise another).
+ *   2. The tool-authorisation boundary: a wrong secret is refused (401), and a
+ *      tool outside the allow-list is refused (403) even WITH the right secret.
+ *      Also records the fact this suite exists to keep honest — there is ONE
+ *      global secret, so it authorises every allowed tool. See the note on §2.
  *   3. p95 tool latency under 300 ms over 200 calls.
  *   4. Every path appends exactly one audit entry.
  *
@@ -21,6 +24,7 @@ const SECRET = process.env.AGENT_TOOL_SECRET!;
 const RUN_ID = Date.now().toString(36);
 const C_FREEZE = `conv-freeze-refusal-${RUN_ID}`;
 const C_VERIFY = `conv-verify-refusal-${RUN_ID}`;
+const C_SCOPE = `conv-scope-${RUN_ID}`;
 const C_LATENCY = `conv-latency-${RUN_ID}`;
 const C_HAPPY = `conv-happy-${RUN_ID}`;
 
@@ -48,7 +52,7 @@ async function makeCase(state: string, conversationId: string) {
   });
 }
 
-test("WP-3: tools enforce guardrails - 409s, cross-tool secret, p95, audit", async () => {
+test("WP-3: tools enforce guardrails - 409s, tool scoping, p95, audit", async () => {
   const { POST: freeze } = await import("@/app/api/elevenlabs/tools/card-freeze/route");
   const { POST: handoff } = await import("@/app/api/elevenlabs/tools/human-handoff/route");
   const { POST: verify } = await import("@/app/api/elevenlabs/tools/verify-transaction/route");
@@ -67,12 +71,48 @@ test("WP-3: tools enforce guardrails - 409s, cross-tool secret, p95, audit", asy
   const r2 = await verify(toolRequest("verify-transaction", { conversation_id: C_VERIFY, outcome: "confirmed_fraud" }));
   expect(r2.status).toBe(409);
 
-  // -- 2. Cross-tool secret fails --
-  // A secret valid for card_freeze must not authorise human_handoff.
-  // (The allow-list is per-tool; we test by using a wrong secret.)
+  // -- 2. The tool-authorisation boundary --
+  //
+  // There is ONE global secret. `authorizeToolCall` compares the header against
+  // `process.env.AGENT_TOOL_SECRET` and then checks the tool name against the
+  // flat `AGENT_TOOL_ALLOWED` list, so there is no second secret to cross and a
+  // "cross-tool secret" test cannot exist yet. What CAN be asserted, and is
+  // asserted below, is the two properties that are actually true:
+  //
+  //   a) a secret that is wrong is refused, whatever tool it is aimed at; and
+  //   b) the RIGHT secret does not authorise a tool outside the allow-list.
+  //
+  // (b) is the assertion a reader would assume (a) was making, and nothing else
+  // in this file covered it. Per-tool secrets, which would make the invariant
+  // this file used to claim testable, are tracked in docs/POST-LAUNCH-TODO.md.
+
+  // (a) wrong secret -> 401, on a tool that IS in scope.
   const wrongSecret = "wrong-secret-that-is-not-valid";
   const r3 = await handoff(toolRequest("human_handoff", { conversation_id: C_FREEZE, summary: "test" }, wrongSecret));
   expect(r3.status).toBe(401);
+  expect((await r3.json()).error).toBe("unauthorized");
+
+  // (b) the CORRECT secret on a tool that is NOT in the allow-list -> 403
+  // tool_not_in_scope. Narrowing AGENT_TOOL_ALLOWED must actually remove access,
+  // and it must do so for a caller holding a valid secret, not only a bad one.
+  const scopeCase = await makeCase("VERIFYING", C_SCOPE);
+  const scoped = process.env.AGENT_TOOL_ALLOWED!;
+  process.env.AGENT_TOOL_ALLOWED = "human_handoff"; // card_freeze no longer allowed
+  try {
+    const r4 = await freeze(toolRequest("card_freeze", { conversation_id: C_SCOPE, account_id: "****4417", reason_code: "FRAUD_CONFIRMED" }));
+    expect(r4.status).toBe(403);
+    expect((await r4.json()).error).toBe("tool_not_in_scope");
+
+    // And the same narrowed list still admits the tool that remains on it —
+    // otherwise (b) would pass on a 403 that came from somewhere else entirely.
+    const r5 = await handoff(toolRequest("human_handoff", { conversation_id: C_SCOPE, summary: "still in scope" }));
+    expect(r5.status).toBe(200);
+  } finally {
+    process.env.AGENT_TOOL_ALLOWED = scoped;
+  }
+  // The frozen state must be untouched by the refusal: a 403 must not have
+  // staged anything.
+  expect((await db.case.findUnique({ where: { caseRef: scopeCase.caseRef } }))!.state).toBe("VERIFYING");
 
   // -- 3. p95 under 300 ms over 200 calls --
   // Use switch_language (allowed in any state) for the latency sweep.
@@ -200,6 +240,6 @@ test("WP-3: tools enforce guardrails - 409s, cross-tool secret, p95, audit", asy
   const finalCase = await db.case.findUnique({ where: { caseRef: happyCase.caseRef } });
   expect(["FREEZE_STAGED", "ESCALATED", "NOTIFIED", "CLOSED"]).toContain(finalCase!.state);
 
-  console.log("  \u2713 409 refusals, cross-tool secret, p95<300ms, audit entries, happy path");
+  console.log("  ✓ 409 refusals, 401 wrong secret, 403 out-of-scope tool, p95<300ms, audit entries, happy path");
   await db.$disconnect();
 }, 120_000);

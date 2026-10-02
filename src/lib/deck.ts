@@ -124,9 +124,9 @@ export const DECK: Slide[] = [
     titleEn: "Five layers, one SLA",
     titleAr: "خمس طبقات، اتفاقية مستوى خدمة واحدة",
     scriptEn:
-      "Under the hood, five layers. The Event Ingestion Layer receives fraud alerts by webhook, validates and enriches them, and queues them with priority handling. The Agent Orchestration Layer runs the ElevenLabs workflow engine with full conversation state. The Integration Layer talks to the core banking APIs — transaction history, card freeze — over OAuth 2.0 with mutual TLS. The Telephony Layer manages Twilio outbound calling with fallback numbers. And the Analytics and Audit Layer records, transcribes, and seals every interaction into immutable storage. Sixty-second SLA from alert to customer contact, with pre-warmed telephony channels.",
+      "Under the hood, five layers. The Event Ingestion Layer receives fraud alerts by webhook, validates and enriches them, and queues them with priority handling. The Agent Orchestration Layer runs the ElevenLabs workflow engine with full conversation state. The Integration Layer talks to the core banking APIs — transaction history, card freeze — over HMAC-signed webhooks. The Telephony Layer manages Twilio outbound calling with fallback numbers. And the Analytics and Audit Layer records, transcribes, and seals every interaction into immutable storage. Sixty-second SLA from alert to customer contact, with pre-warmed telephony channels.",
     scriptAr:
-      "خمس طبقات: استيعاب الأحداث عبر Webhook، تنسيق الوكيل عبر محرك ElevenLabs، التكامل مع أنظمة البنك عبر OAuth 2.0 وmTLS، الهاتف عبر Twilio، والتحليلات والتدقيق مع تخزين غير قابل للتغيير.",
+      "خمس طبقات: استيعاب الأحداث عبر Webhook، تنسيق الوكيل عبر محرك ElevenLabs، التكامل مع أنظمة البنك عبر Webhook موقّع بـ HMAC، الهاتف عبر Twilio، والتحليلات والتدقيق مع تخزين غير قابل للتغيير.",
   },
   {
     id: 9,

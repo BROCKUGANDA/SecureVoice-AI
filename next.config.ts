@@ -69,9 +69,19 @@ const nextConfig: NextConfig = {
   },
   // Headless-API aliases — the integration contract a bank's fraud engine
   // follows (pitch/docs) uses the /v1/ prefix; these serve the same handlers.
+  //
+  // CRITICAL: /v1/interventions must resolve to the HARDENED handler at
+  // src/app/api/v1/interventions/route.ts — the one with the policy gate, the
+  // abuse gate, planTier, the Case row and the durable dial queue.
+  //
+  // It previously pointed at /api/interventions, an older ingest with NO
+  // policy gate, NO abuse gate, NO Case row and an in-request carrier call. So
+  // the endpoint every bank is told to call, and the endpoint the operator
+  // console fires through, both bypassed every guardrail in the system. The
+  // hardened handler existed, was tested, and was unreachable in production.
   async rewrites() {
     return [
-      { source: "/v1/interventions", destination: "/api/interventions" },
+      { source: "/v1/interventions", destination: "/api/v1/interventions" },
       { source: "/v1/enroll", destination: "/api/enroll" },
       { source: "/v1/status", destination: "/api/status" },
     ];

@@ -263,6 +263,23 @@ services:
       db-setup:
         condition: service_completed_successfully
 
+  # Redis — shared pub/sub for Socket.IO across app replicas (WP-20).
+  # Without this, a client connected to app replica A never receives an event
+  # published on replica B, and the console goes silently stale.
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    logging: *default-logging
+    mem_limit: 128m
+    expose:
+      - "6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
 volumes:
   db-data:
   caddy-data:

@@ -33,10 +33,16 @@
  * Honesty rules this gate follows, because a green gate that hides a leak is
  * worse than no gate:
  *   · A read path that is NOT org-isolated today is `declared-gap`: it is
- *     probed, the leak is asserted to still be there, and the guard equivalent
- *     is probed to show what closes it. The gap set is PINNED, so a new gap
- *     fails the gate and a fixed gap also fails until the entry is
- *     reclassified. Neither direction can be forgotten.
+ *     probed, the leak is recorded in the artifact, and the gate ASSERTS THAT
+ *     THE LEAK IS GONE. While the gap is open the check fails and this suite is
+ *     RED — the build surfaces the open cross-tenant read, grouped and named,
+ *     instead of reporting success. This is the opposite of what the gate used
+ *     to do: it required the leak to still reproduce, so the suite was green
+ *     precisely because the defect was present, and no reader of a green build
+ *     could tell the difference. Closing a gap turns the check green and the
+ *     entry must then be reclassified so the artifact stops advertising it.
+ *   · The gap set is PINNED, so a new gap fails the gate and a fixed gap also
+ *     fails until the entry is reclassified. Neither direction can be forgotten.
  *   · A path that cannot be probed without stealing shared state is
  *     `declared-global`, with the reason inline and a real declaration check.
  *   · Fixture identifiers never appear in the evidence; only the static matrix
@@ -163,24 +169,42 @@ function invariantChecks(entry: ReadPath, raw: RawOutcome): Check[] {
       ),
     );
   }
+  // A `declared-gap` entry is a KNOWN, STILL-OPEN cross-tenant read. This gate
+  // asserts the gap is GONE (`foreignVisible === false`), so while the gap is
+  // open the check FAILS and the build surfaces it.
+  //
+  // It used to assert the opposite — that the leak still reproduces — which made
+  // the suite green precisely because the defect was present. A gate that cannot
+  // fail on the defect it names is worse than no gate: it converts an open
+  // cross-tenant read into a passing test result. The probe still runs and the
+  // artifact still records what leaked, so the evidence is unchanged; what
+  // changed is the verdict. Closing the gap turns this check green, and the
+  // entry then has to be reclassified (see PINNED_GAPS) so the artifact stops
+  // advertising a leak that no longer happens.
+  if (entry.coverage === "declared-gap") {
+    out.push(
+      check(
+        "declared-gap-is-still-open",
+        raw.foreignVisible === false,
+        raw.foreignVisible === true
+          ? `KNOWN OPEN GAP: ${entry.id} still returns the other org's row (${entry.read}). Fix the read, then reclassify this matrix entry.`
+          : `${entry.id} no longer leaks; reclassify it from declared-gap so the artifact stops advertising an open gap.`,
+      ),
+    );
+  }
   switch (entry.verdict) {
     case "foreign-probe-empty":
-      // For a declared gap the leak IS the expected state, and pinning it means
-      // a silent fix fails the gate until the entry is reclassified. For
-      // everything else, a leak is a failure.
-      out.push(
-        entry.coverage === "declared-gap"
-          ? check(
-              "DECLARED-GAP-leak-still-reproduces",
-              raw.foreignVisible === true,
-              "a declared gap must still reproduce; if it no longer does, reclassify the entry rather than leaving a stale claim",
-            )
-          : check(
-              "recorded-foreign-probe-is-empty",
-              raw.foreignVisible === false,
-              `foreignVisible=${raw.foreignVisible} contradicts verdict foreign-probe-empty`,
-            ),
-      );
+      // A declared gap is handled above and asserted to be CLOSED. Everything
+      // else asserts the stronger property directly: a leak is a failure.
+      if (entry.coverage !== "declared-gap") {
+        out.push(
+          check(
+            "recorded-foreign-probe-is-empty",
+            raw.foreignVisible === false,
+            `foreignVisible=${raw.foreignVisible} contradicts verdict foreign-probe-empty`,
+          ),
+        );
+      }
       break;
     case "foreign-probe-404":
       out.push(
@@ -227,6 +251,13 @@ const PINNED_GAPS = [
 
 const PINNED_GLOBAL = ["console.outbox.dead-letters", "lib.outbox.claim-batch"].sort();
 
+// Declared gaps observed NOT to leak in the run that wrote the artifact. Filled
+// by the probe job so the artifact assertions below can distinguish "a gap is
+// still open" (expected to fail, and the build must show it) from "a gap was
+// closed and the matrix entry was never reclassified" (a stale claim, also a
+// failure, but a different one with a different fix).
+const closedGaps = new Set<string>();
+
 // ── Evidence ────────────────────────────────────────────────────────────────
 
 const EVIDENCE_PATH = resolve(import.meta.dir, "..", "..", "evidence", "tenancy", "isolation.json");
@@ -252,7 +283,10 @@ function buildArtifact(paths: PathOutcome[]): Record<string, unknown> {
   const unscoped = paths.filter((p) => p.coverage === "declared-gap");
   const ok = paths.every((p) => p.ok);
   const summary = {
-    result: !ok ? "fail" : unscoped.length > 0 ? "pass-with-declared-gaps" : "pass",
+    // Honest verdict. A still-open cross-tenant read is a FAIL, so this is
+    // "pass" only when nothing leaked. The old "pass-with-declared-gaps"
+    // described a suite that was green because the defect was present.
+    result: !ok ? "fail" : "pass",
     pathsDeclared: CANONICAL_READ_PATHS.length,
     pathsProbed: paths.filter((p) => p.directions.some((d) => d.probed)).length,
     directionsProbed: paths.reduce((n, p) => n + p.directions.filter((d) => d.probed).length, 0),
@@ -602,18 +636,62 @@ test("WP-12 · isolation: every read path × both orgs", async () => {
   // Now assert, per path, so a failure names the read path. Every failure is
   // collected before reporting: a gate that aborts on the first failure hides
   // the other nineteen.
+  //
+  // The declared-gap failures are EXPECTED to be present while the gaps are
+  // open, and they are reported FIRST and separately, because the whole point
+  // of this gate is that an open cross-tenant read must be visible in the build
+  // output rather than absorbed into a green run. They are still failures — the
+  // suite is red until the gaps are closed — but they are listed as known-open
+  // defects, not buried among unexpected ones.
   const failures: string[] = [];
+  const openGapFailures: string[] = [];
+  const staleGapFailures: string[] = [];
   for (const p of paths) {
     for (const d of p.directions) {
       const label = `${p.path} [${d.direction}]`;
       if (d.error) failures.push(`${label} :: probe threw :: ${d.error}`);
       if (d.checks.length === 0) failures.push(`${label} :: produced no checks`);
       for (const c of d.checks) {
-        if (!c.ok) failures.push(`${label} :: ${c.name} — ${c.detail}`);
+        if (c.ok) continue;
+        const line = `${label} :: ${c.name} — ${c.detail}`;
+        if (c.name === "declared-gap-is-still-open") {
+          // Distinguish "still open" from "closed but never reclassified".
+          if (p.coverage === "declared-gap") openGapFailures.push(line);
+          else staleGapFailures.push(line);
+        } else {
+          failures.push(line);
+        }
       }
     }
+    // A declared gap that did not leak in either direction has been closed and
+    // must be reclassified; record it so the artifact assertions can say so.
+    if (p.coverage === "declared-gap" && p.directions.every((d) => d.foreignVisible === false)) {
+      closedGaps.add(p.path);
+    }
   }
+
+  if (openGapFailures.length > 0) {
+    console.error(
+      `\n  KNOWN OPEN CROSS-TENANT GAPS (${openGapFailures.length} failing checks, ${closedGaps.size} gaps closed):\n` +
+        openGapFailures.map((f) => `    ✗ ${f}`).join("\n") +
+        `\n  These are open defects, not passing checks. Fix each read in ` +
+        `src/lib/case-state-machine.ts, src/lib/audit-chain.ts or ` +
+        `src/lib/notifications.ts, then reclassify the matrix entry in ` +
+        `src/lib/tenancy/isolation-matrix.ts. See docs/GAP-REGISTER.md.\n`,
+    );
+  }
+  if (staleGapFailures.length > 0) {
+    console.error(
+      `\n  STALE GAP ENTRIES — these no longer leak but are still declared as open:\n` +
+        staleGapFailures.map((f) => `    ✗ ${f}`).join("\n"),
+    );
+  }
+  // Everything unexpected must be clean.
   expect(failures).toEqual([]);
+  // And the suite stays red until every declared gap is closed. This is the
+  // assertion that replaced "the leak must still reproduce": the build now
+  // fails on the defect instead of passing because of it.
+  expect([...openGapFailures, ...staleGapFailures]).toEqual([]);
 
   // Direction count: every path is probed both ways, always.
   expect(paths.length).toBe(CANONICAL_READ_PATHS.length);
@@ -661,7 +739,20 @@ test("WP-12 · evidence artifact is deterministic and well-formed", () => {
   const allChecks = parsed.paths.flatMap((p: any) => p.directions.flatMap((d: any) => d.checks));
   expect(parsed.summary.checks.total).toBe(allChecks.length);
   expect(parsed.summary.checks.passed).toBe(allChecks.filter((c: any) => c.ok).length);
-  expect(parsed.summary.checks.failed).toBe(0);
+  // The only checks permitted to fail are the declared-gap ones, and only
+  // because the gap is still open. Asserting `failed === 0` here (as this gate
+  // used to) is what let an open cross-tenant read ship as a green suite.
+  const failedChecks = allChecks.filter((c: any) => !c.ok);
+  expect(
+    failedChecks.every((c: any) => c.name === "declared-gap-is-still-open"),
+    `unexpected non-gap failures: ${failedChecks.filter((c: any) => c.name !== "declared-gap-is-still-open").map((c: any) => c.name).join(", ")}`,
+  ).toBe(true);
+  // Every declared gap is probed both ways, so an open gap is exactly one
+  // failure per direction per gap. If a gap were closed this count drops, and
+  // the matrix entry must be reclassified at the same time.
+  expect(failedChecks.length).toBe(
+    PINNED_GAPS.filter((id) => !closedGaps.has(id)).length * 2,
+  );
   expect(parsed.summary.coverage.declaredGap).toBe(PINNED_GAPS.length);
   expect(parsed.summary.coverage.asserted + parsed.summary.coverage.declaredGap + parsed.summary.coverage.declaredGlobal).toBe(parsed.paths.length);
   expect(parsed.summary.unscopedReadPaths.map((p: any) => p.path).sort()).toEqual(PINNED_GAPS);
@@ -673,7 +764,14 @@ test("WP-12 · evidence artifact is deterministic and well-formed", () => {
   expect(parsed.summary.never403Asserted).toBe(
     ISOLATION_MATRIX.filter((p) => p.verdict === "foreign-probe-404").length * 2,
   );
-  expect(parsed.summary.result).toBe("pass-with-declared-gaps");
+  // `result` is the honest verdict, not a euphemism: while any gap is open the
+  // run is a FAIL. "pass-with-declared-gaps" described a suite that was green
+  // because the defect was present.
+  expect(parsed.summary.result).toBe(failedChecks.length === 0 ? "pass" : "fail");
+  // The artifact still advertises the open gaps, so the evidence of the leak is
+  // not lost by making the verdict honest: it keeps advertising every read path
+  // still declared unscoped, which is what the matrix says.
+  expect(parsed.summary.unscopedReadPaths.map((p: any) => p.path).sort()).toEqual(PINNED_GAPS);
 
   // Determinism: the digest covers the deterministic core, and no fixture
   // identifier leaked into the artifact.

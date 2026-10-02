@@ -2,19 +2,19 @@
   "schemaVersion": 1,
   "gate": "WP-12 multi-tenancy isolation",
   "digestAlgorithm": "sha256",
-  "digest": "f2ba7e6af2af3bff2fad593413e41b0d15d9df33402a03bde47bc98529228822",
-  "generatedAt": "2026-10-02T15:05:41.395Z",
+  "digest": "65ff6714448ed5b5950591dbc3e05a8b9c8d16e30f15d01424bff90d3dc4f386",
+  "generatedAt": "2026-10-02T15:59:32.225Z",
   "run": {
-    "id": "mur3hw0p",
+    "id": "mur5dazg",
     "orgs": {
-      "A": "org-tenancy-a-mur3hw0p",
-      "B": "org-tenancy-b-mur3hw0p"
+      "A": "org-tenancy-a-mur5dazg",
+      "B": "org-tenancy-b-mur5dazg"
     },
-    "database": "TEST_DATABASE_URL",
+    "database": "DATABASE_URL",
     "note": "identifiers above are per-run; the digest covers the deterministic core only"
   },
   "summary": {
-    "result": "pass-with-declared-gaps",
+    "result": "fail",
     "pathsDeclared": 22,
     "pathsProbed": 20,
     "directionsProbed": 40,
@@ -25,8 +25,8 @@
     },
     "checks": {
       "total": 204,
-      "passed": 204,
-      "failed": 0
+      "passed": 196,
+      "failed": 8
     },
     "http404Asserted": 5,
     "never403Asserted": 10,
@@ -2211,12 +2211,12 @@
               "detail": "the scoped equivalent must return nothing for the foreign callRef"
             },
             {
-              "name": "DECLARED-GAP-leak-still-reproduces",
-              "ok": true,
-              "detail": "a declared gap must still reproduce; if it no longer does, reclassify the entry rather than leaving a stale claim"
+              "name": "declared-gap-is-still-open",
+              "ok": false,
+              "detail": "KNOWN OPEN GAP: lib.audit-chain.verify still returns the other org's row (verifyChain). Fix the read, then reclassify this matrix entry."
             }
           ],
-          "ok": true,
+          "ok": false,
           "error": null
         },
         {
@@ -2250,16 +2250,16 @@
               "detail": "the scoped equivalent must return nothing for the foreign callRef"
             },
             {
-              "name": "DECLARED-GAP-leak-still-reproduces",
-              "ok": true,
-              "detail": "a declared gap must still reproduce; if it no longer does, reclassify the entry rather than leaving a stale claim"
+              "name": "declared-gap-is-still-open",
+              "ok": false,
+              "detail": "KNOWN OPEN GAP: lib.audit-chain.verify still returns the other org's row (verifyChain). Fix the read, then reclassify this matrix entry."
             }
           ],
-          "ok": true,
+          "ok": false,
           "error": null
         }
       ],
-      "ok": true
+      "ok": false
     },
     {
       "path": "lib.billing.org-ledger",
@@ -2424,12 +2424,12 @@
               "detail": "the scoped equivalent must return nothing for the foreign conversation id"
             },
             {
-              "name": "DECLARED-GAP-leak-still-reproduces",
-              "ok": true,
-              "detail": "a declared gap must still reproduce; if it no longer does, reclassify the entry rather than leaving a stale claim"
+              "name": "declared-gap-is-still-open",
+              "ok": false,
+              "detail": "KNOWN OPEN GAP: lib.case.by-conversation still returns the other org's row (caseByConversation). Fix the read, then reclassify this matrix entry."
             }
           ],
-          "ok": true,
+          "ok": false,
           "error": null
         },
         {
@@ -2468,16 +2468,16 @@
               "detail": "the scoped equivalent must return nothing for the foreign conversation id"
             },
             {
-              "name": "DECLARED-GAP-leak-still-reproduces",
-              "ok": true,
-              "detail": "a declared gap must still reproduce; if it no longer does, reclassify the entry rather than leaving a stale claim"
+              "name": "declared-gap-is-still-open",
+              "ok": false,
+              "detail": "KNOWN OPEN GAP: lib.case.by-conversation still returns the other org's row (caseByConversation). Fix the read, then reclassify this matrix entry."
             }
           ],
-          "ok": true,
+          "ok": false,
           "error": null
         }
       ],
-      "ok": true
+      "ok": false
     },
     {
       "path": "lib.case.by-ref",
@@ -2528,12 +2528,12 @@
               "detail": "the scoped equivalent must return nothing for the foreign caseRef"
             },
             {
-              "name": "DECLARED-GAP-leak-still-reproduces",
-              "ok": true,
-              "detail": "a declared gap must still reproduce; if it no longer does, reclassify the entry rather than leaving a stale claim"
+              "name": "declared-gap-is-still-open",
+              "ok": false,
+              "detail": "KNOWN OPEN GAP: lib.case.by-ref still returns the other org's row (caseByRef). Fix the read, then reclassify this matrix entry."
             }
           ],
-          "ok": true,
+          "ok": false,
           "error": null
         },
         {
@@ -2572,16 +2572,16 @@
               "detail": "the scoped equivalent must return nothing for the foreign caseRef"
             },
             {
-              "name": "DECLARED-GAP-leak-still-reproduces",
-              "ok": true,
-              "detail": "a declared gap must still reproduce; if it no longer does, reclassify the entry rather than leaving a stale claim"
+              "name": "declared-gap-is-still-open",
+              "ok": false,
+              "detail": "KNOWN OPEN GAP: lib.case.by-ref still returns the other org's row (caseByRef). Fix the read, then reclassify this matrix entry."
             }
           ],
-          "ok": true,
+          "ok": false,
           "error": null
         }
       ],
-      "ok": true
+      "ok": false
     },
     {
       "path": "lib.notifications.acknowledge",
@@ -2623,12 +2623,12 @@
               "detail": "the scoped equivalent must match zero rows"
             },
             {
-              "name": "DECLARED-GAP-leak-still-reproduces",
-              "ok": true,
-              "detail": "a declared gap must still reproduce; if it no longer does, reclassify the entry rather than leaving a stale claim"
+              "name": "declared-gap-is-still-open",
+              "ok": false,
+              "detail": "KNOWN OPEN GAP: lib.notifications.acknowledge still returns the other org's row (acknowledge). Fix the read, then reclassify this matrix entry."
             }
           ],
-          "ok": true,
+          "ok": false,
           "error": null
         },
         {
@@ -2658,16 +2658,16 @@
               "detail": "the scoped equivalent must match zero rows"
             },
             {
-              "name": "DECLARED-GAP-leak-still-reproduces",
-              "ok": true,
-              "detail": "a declared gap must still reproduce; if it no longer does, reclassify the entry rather than leaving a stale claim"
+              "name": "declared-gap-is-still-open",
+              "ok": false,
+              "detail": "KNOWN OPEN GAP: lib.notifications.acknowledge still returns the other org's row (acknowledge). Fix the read, then reclassify this matrix entry."
             }
           ],
-          "ok": true,
+          "ok": false,
           "error": null
         }
       ],
-      "ok": true
+      "ok": false
     },
     {
       "path": "lib.outbox.claim-batch",

@@ -15,6 +15,8 @@ import "server-only";
 
 import { db } from "@/lib/db";
 import { enqueueOutbox, type BankEventInput } from "@/lib/outbox";
+import { notify } from "@/lib/notifications";
+import { notifyRealtime } from "@/lib/realtime";
 
 export const CASE_STATES = [
   "RECEIVED", "SCREENED", "DIALING", "RINGING", "ANSWERED",
@@ -96,6 +98,20 @@ export async function transitionCase(
  * only place state can change — so a transition cannot happen without leaving a
  * trace, no matter which caller performed it or what it forgot to log.
  */
+/**
+ * Severity mapping for case state transitions.
+ * Only the states that matter to a human get a notification.
+ */
+const SEVERITY_FOR_STATE: Record<string, "page" | "urgent" | "info"> = {
+  CONFIRMED_FRAUD: "page",
+  FREEZE_STAGED: "page",
+  ESCALATED: "urgent",
+  FAILED: "urgent",
+  EXHAUSTED: "urgent",
+  REJECTED: "info",
+  CLOSED: "info",
+};
+
 async function recordTransition(
   caseRef: string,
   from: string,
@@ -117,6 +133,28 @@ async function recordTransition(
   ).catch((err) => {
     console.error("[case-state] transition audit failed:", err instanceof Error ? err.message : err);
   });
+
+  // Emit an in-app notification for states that require human attention (WP-20)
+  const severity = SEVERITY_FOR_STATE[to];
+  if (severity) {
+    void notify({
+      orgId,
+      alertType: `case:${to.toLowerCase()}`,
+      severity,
+      title: `Case ${caseRef}: ${to}`,
+      body: `Transitioned from ${from} to ${to}`,
+      caseRef,
+    }).catch((err) => {
+      console.error("[case-state] notification failed:", err instanceof Error ? err.message : err);
+    });
+  }
+
+  // Emit a realtime event for the console (WP-20)
+  void notifyRealtime({
+    orgId,
+    callRef: caseRef,
+    payload: { type: "case_state", caseRef, from, to, meta: meta ?? {} },
+  }).catch(() => {});
 }
 
 /**

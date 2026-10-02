@@ -1,0 +1,27 @@
+{
+  "name": "SecureVoice AI — Fraud Intervention Console",
+  "short_name": "SecureVoice",
+  "description": "Real-time voice fraud intervention platform for banking and insurance",
+  "start_url": "/",
+  "display": "standalone",
+  "theme_color": "#07100D",
+  "background_color": "#F8F5EF",
+  "icons": [
+    {
+      "src": "/favicon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/favicon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    },
+    {
+      "src": "/favicon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

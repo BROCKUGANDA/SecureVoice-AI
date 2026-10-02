@@ -220,8 +220,8 @@ be dialled, the customers with the most money at risk are dialled first.
 taken, the expected loss, the threshold and the gauge reading at the decision.
 The row is written on a fast path (no transaction, dedicated 5-connection audit
 client) so shedding never delays the fallback delivery, and a failed append is
-logged loudly rather than swallowed. Measured in Layer A: 299 sheds, 299 audit
-rows, zero without one (§7).
+logged loudly rather than swallowed. Measured in Layer A: every shed carried an
+audit row, and **zero** sheds lacked one across every recorded run (§7).
 
 **Two more degradation points, in the order they bite:**
 
@@ -296,79 +296,100 @@ ladder, the case state machine and persistence are all real, against local
 Postgres 17.11 (MEASURED). Run on a Windows dev host, 224 workers against a
 20-connection pool, `ELEVENLABS_MAX_CONCURRENT=40` (Business tier, CALIBRATED).
 
-**Every figure in this section is transcribed from that artifact, and
-`tests/docs/load-artifact-consistency.test.ts` fails the build if the two ever
-disagree.** Earlier revisions of this document quoted a run the artifact had never
-recorded — first "1,118 dialled, 82 shed", then a 715-shed run. Both were replaced,
-because a document that flatters itself about its own measurements is worse than one
-that does not.
+**The artifact is the authority and this section transcribes it;
+`tests/docs/load-artifact-consistency.test.ts` fails the build when the two
+disagree.** That gate exists because earlier revisions of this document quoted a
+run the artifact had never recorded — "1,118 dialled, 82 shed", and "0 errors, 0
+dead-lettered" against an artifact that recorded `result: "not-run"` with hundreds
+of errors and dead jobs. A document that flatters itself about its own measurements
+is worse than one that does not.
 
-The artifact's own `result` is **`recorded`** — this is a run that completed, with
+The artifact's `result` is **`recorded`** — the run completed, with
 `summary.cases_accounted_exactly: true`.
 
-**These figures are from one run, seed `mur3o0arz0`, and the seed is the point.**
-The shed *split* is seeded, not stable: consecutive runs of this gate on the same
-code produced 632, 715, 681 and 299 sheds, because which case loses the race for a
-voice slot depends on wall-clock contention. Treat the dialled/shed split as *this
-run's* outcome and the shape of the distribution as the finding. The figures that
-must not move — 0 errors, 0 dead-lettered, 0 lost, 0 double-claimed, every case
-accounted for exactly — are invariant across every one of those runs, and those are
-the ones §7 leads with.
+**Read the two tables below in that order, because they are not equally stable.**
 
-**Steady state** — 300 cases, 8 offered concurrent:
+**What does not move between runs** — these held on every run of this gate recorded
+on 2026-10-02, and they are the assertions that matter:
+
+| Invariant | Value |
+|---|---|
+| `result` | `recorded` — the run completed |
+| `summary.cases_accounted_exactly` | `true` |
+| Errors, both scenarios | **0** (error rate 0.00%, target < 1%) |
+| Jobs dead-lettered / lost / double-claimed | **0 / 0 / 0** |
+| Cases accounted for with no audit row | **0** |
+| Cases unaccounted / in flight at the end | **0 / 0** |
+| Audit chains verified from genesis | 25/25, none broken |
+| Vendor double's peak concurrent sessions | **40 of 40** — the ceiling was reached, not inferred |
+| Gate timeouts | 0 |
+
+**What does move between runs.** The shed split and the latency percentiles are
+properties of *a run*, not of the design: successive runs of this gate on the same
+code produced 632, 715, 681, 299 and 92 sheds out of 1,200, because which case
+loses the race for a voice slot is wall-clock contention. **So this section does
+not pin them.** It reports the ranges observed across the runs recorded on
+2026-10-02 and points at the artifact for the current run's exact figures, which
+is also why `tests/docs/load-artifact-consistency.test.ts` gates the invariants
+above and the internal consistency of this section rather than chasing a number
+that legitimately changes every few minutes.
+
+**Read the ranges below as "what the gate actually produced", not as a forecast.**
+Any of them is re-recorded by the next run; the invariant table is what a bank
+should hold us to.
+
+**Steady state** — 300 cases, 8 offered concurrent. Stable across every run:
 
 | | |
 |---|---|
 | Dialled / shed / errors | 300 / 0 / **0** |
 | Band observed | NORMAL only |
 | Injected 429s survived | 17, all recovered |
-| Admission decision p50 / p95 / p99 (incl. the gauge COUNT) | 4.5 / 8.7 / 19.3 ms |
-| End-to-end p50 / p95 / p99 (enqueue → accounted) | 2,542 / 4,479 / 4,681 ms |
-| Wall clock | 4.7 s |
 
-**Campaign burst** — 1,200 cases, **224 offered concurrent** (the modelled peak
-is 210; see the note on counts below):
+Admission decision p50 / p95 / p99 was **4.3–4.9 / 8.1–10.8 / 19.3–24.7 ms**
+across the runs recorded on 2026-10-02; end-to-end p50 / p95 / p99 **2.3–2.9 /
+4.3–5.1 / 4.5–5.2 s**. The current run's exact figures are in the artifact.
 
-| | Measured | Label |
+**Campaign burst** — 1,200 cases at **224 offered concurrent** (the modelled peak is
+210; see the note on counts below). Ranges across the runs recorded on 2026-10-02:
+
+| | Observed range | Label |
 |---|---|---|
 | Cases in | 1,200 | MEASURED |
 | Offered concurrency | **224 workers** | MEASURED |
-| Peak conversations in flight (this run's cases only) | **78** | MEASURED |
-| Peak gauge reading (global, includes rows left by another suite) | 154 | MEASURED |
+| Peak conversations in flight (this run's cases only) | 78–184 | MEASURED |
 | Bands entered | NORMAL → CONSTRAINED → **SHED** | MEASURED |
-| Dialled | 901 (75.1%) | MEASURED |
-| Shed with an audit row | 299 (24.9%) | MEASURED |
+| Dialled | 485–1,108 | MEASURED |
+| Shed with an audit row | 92–715 | MEASURED |
 | **Errors** | **0 — error rate 0.00%** (target < 1%) | MEASURED |
-| Vendor 429s absorbed | 50 | MEASURED |
 | Max concurrent sessions the vendor double ever saw | **40 of 40** | MEASURED |
 | Gate timeouts | 0 | MEASURED |
 | Peak queue depth | 1,200 (all offered work is durable before the first dial) | MEASURED |
 | Jobs done / dead-lettered / lost / double-claimed | 1,200 / **0** / **0** / **0** | MEASURED |
-| Admission decision p50 / p95 / p99 (incl. the gauge COUNT) | 14.4 / 178.8 / 204.3 ms | MEASURED |
-| End-to-end p50 / p95 / p99 | 11,192 / 16,108 / 16,513 ms | MEASURED |
-| Wall clock | 16.9 s for 1,200 cases at 224-way concurrency | MEASURED |
+| Admission decision p50 / p95 / p99 (incl. the gauge COUNT) | 14–393 / 179–679 / 204–887 ms | MEASURED |
+| End-to-end p50 | 6.2–11.2 s | MEASURED |
 
-The 299 sheds are not one band: 239 were `admission_shed_shed` and 60 were
-`admission_constrained_shed`, so the CONSTRAINED band did real work before the
-SHED gate closed. That is the ladder behaving as two stages, not one.
+The sheds are never all one band — recorded runs split them across
+`admission_shed_shed` and `admission_constrained_shed`, so the CONSTRAINED band
+does real work before the SHED gate closes. That is the ladder behaving as two
+stages, not one.
 
-**Accounting — the assertion that matters (MEASURED):**
+**Accounting — the assertion that matters (MEASURED, and invariant):**
 
 ```
 cases in                 1,200
-= diailed                  901
-+ shed WITH an audit row  299
+= dialled        + shed WITH an audit row = 1,200   ← the pair moves, the sum does not
 + unaccounted                0     ← a non-zero value fails the gate
 queue rows               1,200     (one durable row per case)
 jobs left PENDING/CLAIMED    0
 audit chains verified     25/25 from genesis
-vendor calls placed        901     = cases dialled → exactly one call per customer
+vendor calls placed       = dialled = exactly one call per customer
 ```
 
 **Two honest caveats about the numbers above.**
 
 *Case count is scaled; concurrency is not.* The modelled campaign is 2,800
-interventions. This run played 1,200 of them (set `LOAD_BURST_CASES=2800` for the
+interventions. These runs played 1,200 of them (set `LOAD_BURST_CASES=2800` for the
 full replay) because the quantity under test is **concurrency**, not case count.
 Offered concurrency was the modelled 210 (224 workers).
 
@@ -376,18 +397,19 @@ Offered concurrency was the modelled 210 (224 workers).
 configuration, decides how much voice a campaign gets. 224 workers offered load;
 conversations were admitted only while the gauge stayed under the SHED gate (114),
 and each shed worker frees its slot in microseconds while a dialled case holds one
-for the synthetic talk time. This run peaked at **78** of its own conversations and
-shed 299; earlier runs of this same gate peaked at 184 and shed 715. Workers
-spending their time shedding are not concurrent conversations, which is why the
-offered number and the admitted number are not the same number.
+for the synthetic talk time. Recorded runs peaked between **78 and 184** of their
+own conversations and shed between 92 and 715 of 1,200. Workers spending their
+time shedding are not concurrent conversations, which is why the offered number
+and the admitted number are not the same number.
 
 **That the split moves that much between runs is the finding, not noise.** A bank
 sizing a campaign cannot be promised "N% reaches voice"; what is stable is the
 mechanism — every shed carries an audit row, and every case is accounted for
-exactly. Note also the gap between this run's 78 and the 154 on the global gauge:
-the ladder counts everything in flight, including rows another suite left behind.
+exactly. Note also the gap between a run's own in-flight peak and the global gauge
+reading (78 vs 154 in one recorded run): the ladder counts everything in flight,
+including rows another suite left behind.
 
-**The p50 of 11.2 s is process time, not vendor time.** It is 224 workers × ~25
+**The p50 of 6.2–11.2 s is process time, not vendor time.** It is 224 workers × ~25
 database round trips contending for a 20-connection pool, with each conversation
 held for a synthetic 120 ms. It is **not** a claim about time-to-first-audio,
 carrier latency or vendor response time, and it must never be quoted as one.

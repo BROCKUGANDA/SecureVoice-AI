@@ -131,7 +131,10 @@ test("WP-2: 20 signals dial in dry-run, p95 < 1.5s, idempotent, audited", async 
     // was asserting pre-queue behaviour and had been failing since the queue
     // landed — which is why nothing caught the defect below.
     expect(r.data.delivery.channel).toBe("queued");
-    expect(r.data.delivery.jobState).toBe("QUEUED");
+    // The canonical dial-queue vocabulary is PENDING | CLAIMED | DONE | DEAD
+    // (src/lib/scale/queue.ts). A case is enqueued before it has a call, which
+    // is the property that makes a burst survivable.
+    expect(r.data.delivery.jobState).toBe("PENDING");
     expect(r.data.delivery.jobId).toBeTruthy();
     caseRefs.push(r.data.caseRef);
   }

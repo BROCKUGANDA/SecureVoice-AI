@@ -12,7 +12,7 @@
  *   · `prisma/schema.prisma` model DialJob  → fields caseRef, attemptNo, state,
  *     priority, attempts, ... — no orgId;
  *   · the generated client agrees (DialJobSelect has no orgId);
- *   · `information_schema` agrees: `"DialJob"` has no `orgId` column;
+ *   · `information_schema agrees: dial_job has no `orgId` column;
  *   · `dial_job` (snake_case, migration 2_dial_job, the table
  *     src/lib/scale/queue.ts drives with raw SQL) DOES have `org_id` — but that
  *     is a different table and is never reached through Prisma.
@@ -178,20 +178,21 @@ test("DialJob: a worker read is genuinely cross-org, which is why it is not scop
   // only ever sees models the generated client actually has.
   const refs = [`SV-Q-REG-A-${RUN}`, `SV-Q-REG-B-${RUN}`];
   for (const [i, caseRef] of refs.entries()) {
+    // dial_job's canonical vocabulary: snake_case columns, states
+    // PENDING | CLAIMED | DONE | DEAD (src/lib/scale/queue.ts).
     await db.$executeRawUnsafe(
-      `INSERT INTO "DialJob" ("id","caseRef","attemptNo","state","priority","attempts","availableAt","createdAt","updatedAt")
-       VALUES ($1,$2,$3,'DEAD',0,1,NOW(),NOW(),NOW())`,
+      `INSERT INTO dial_job ("id","case_id","case_ref","attempt_no","state","priority","retries","payload","available_at","created_at","updated_at")
+       VALUES ($1,$1,$2,1,'DEAD',0,1,'{}',NOW(),NOW(),NOW())`,
       `reg-probe-${RUN}-${i}`,
       caseRef,
-      1
     );
   }
 
   const rows = await db.$queryRawUnsafe<{ caseRef: string }[]>(
-    `SELECT "caseRef" FROM "DialJob" WHERE "state" = 'DEAD' AND "caseRef" = ANY($1)`,
+    `SELECT case_ref FROM dial_job WHERE "state" = 'DEAD' AND case_ref = ANY($1)`,
     refs
   );
   expect(rows).toHaveLength(2);
 
-  await db.$executeRawUnsafe(`DELETE FROM "DialJob" WHERE "id" LIKE $1`, `reg-probe-${RUN}-%`);
+  await db.$executeRawUnsafe(`DELETE FROM dial_job WHERE "id" LIKE $1`, `reg-probe-${RUN}-%`);
 });

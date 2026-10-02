@@ -360,9 +360,14 @@ function ApiReference() {
           desc="The headless trigger — your fraud engine fires a signed risk signal and receives the intervention envelope instantly (202). Idempotent by caseId: a retried delivery never double-bills. Two auth modes: Bearer producer key (svb_…, per-org) or HMAC signature over the raw body."
         >
           <div className="mt-3 border-t border-line/70 pt-3">
-            <Field name="signal.caseId" type="string" note="your case reference — doubles as the idempotency key" />
-            <Field name="signal.transactionId" type="string?" note="echoed back on your result webhook" />
-            <Field name="signal.riskScore" type="number" note="0–1 — maps to the pre-approved action plan (≥0.90 freeze)" />
+            <Field name="transaction_ref" type="string" note="your transaction reference — echoed back on your result webhook" />
+            <Field name="phone" type="string" note="E.164 customer phone number" />
+            <Field name="amount" type="integer" note="integer minor units (e.g. 250000 for AED 2,500.00)" />
+            <Field name="currency" type="string" note="ISO-4217 currency code (e.g. AED, USD, KES)" />
+            <Field name="risk_score" type="number" note="0–1 — maps to the pre-approved action plan" />
+            <Field name="language" type="string" note="BCP-47 language code (e.g. en, ar, hi)" />
+            <Field name="merchant" type="string?" note="merchant name, optional" />
+            <Field name="consent_record_id" type="string" note="consent record reference" />
             <Field name="signal.customer" type="object" note="ref (no PII) + lang: en | ar | hi | ur | fr | sw" />
             <Field name="signal.callbackUrl" type="string?" note="signed outcome webhook (intervention.outcome) back to your core" />
             <Field name="→ interventionId" type="string" note="SV-F-… case reference + SLA deadline + action plan" />

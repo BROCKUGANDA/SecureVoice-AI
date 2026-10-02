@@ -39,17 +39,24 @@ export async function GET() {
   const started = Date.now();
   const checks: Check[] = [];
 
-  const timed = async (name: string, fn: () => Promise<Check>) => {
+  // Fatality is declared per check, never inferred from the outcome. A check
+  // that throws is still classified by what it protects: inferring fatality
+  // from the failure is how a monitoring endpoint pulls a healthy process out
+  // of service during a partial outage — which is exactly what a missing
+  // outbox table did before this was fixed.
+  const timed = async (name: string, fatal: boolean, fn: () => Promise<Check>) => {
     const t0 = Date.now();
+    let check: Check;
     try {
-      checks.push(await fn());
+      check = await fn();
     } catch (err) {
-      checks.push({ name, ok: false, fatal: true, detail: err instanceof Error ? err.message.slice(0, 120) : "error" });
+      check = { name, ok: false, fatal, detail: err instanceof Error ? err.message.slice(0, 120) : "error" };
     }
-    checks[checks.length - 1].ms = Date.now() - t0;
+    check.ms = Date.now() - t0;
+    checks.push(check);
   };
 
-  await timed("database", async () => {
+  await timed("database", true, async () => {
     await db.$queryRaw`SELECT 1`;
     return { name: "database", ok: true, fatal: true };
   });
@@ -57,7 +64,7 @@ export async function GET() {
   // Bank-notification backlog. Fatal=false: a wedged outbox degrades the
   // product (the bank is not notified promptly) but the platform can still take
   // and verify interventions, so we must not take the instance out of service.
-  await timed("outbox", async () => {
+  await timed("outbox", false, async () => {
     const oldest = await db.outboxEvent.findFirst({
       where: { state: "PENDING" },
       orderBy: { createdAt: "asc" },
@@ -76,7 +83,7 @@ export async function GET() {
   // a platform that is supposed to be serving cases, the chain pipeline is
   // broken even though every request returns 200 — this is the alert that
   // catches it.
-  await timed("audit_chain", async () => {
+  await timed("audit_chain", false, async () => {
     const last = await db.auditLog.findFirst({ orderBy: { createdAt: "desc" }, select: { createdAt: true } });
     const ageSec = last ? Math.round((Date.now() - last.createdAt.getTime()) / 1000) : -1;
     return {
@@ -91,7 +98,7 @@ export async function GET() {
   // Vendor reachability is reported, never asserted: a voice-provider outage
   // must not mark us unready, because we would then refuse the very traffic
   // that is queueing while the provider recovers.
-  await timed("voice_provider", async () => {
+  await timed("voice_provider", false, async () => {
     const configured = !!(process.env.ELEVENLABS_API_KEY || process.env.TWILIO_ACCOUNT_SID);
     return {
       name: "voice_provider",

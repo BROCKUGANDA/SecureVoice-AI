@@ -1,0 +1,24 @@
+# SecureVoice AI — security contact
+# RFC 9116 (/.well-known/security.txt). Served from /security.txt as well as
+# from /.well-known/security.txt by the Caddy reverse proxy; see Caddyfile.
+#
+# The values below are PLACEHOLDERS. There is no real monitored mailbox or
+# phone number wired up in this repository, and inventing one that looks real
+# is worse than leaving this file absent: a security.txt that routes a
+# disclosure to a black hole is a false promise of a working channel.
+#
+# Before this deployment is public, fill in a real contact. See
+# docs/SURFACE.md for the checklist.
+
+Contact: mailto:security@example.com
+Expires: 2027-10-02T00:00:00.000Z
+Preferred-Languages: en, ar
+Canonical: https://example.com/.well-known/security.txt
+
+# Intentionally NOT declared, and why:
+#   Policy:        there is no published disclosure policy document or bug
+#                  bounty, so advertising one would be a claim nobody is
+#                  prepared to honour.
+#   Encryption:    no PGP key is published in this repo, so pointing at a
+#                  key ID would send a reporter to verify against nothing.
+#   Acknowledgments / hiring:  not applicable.

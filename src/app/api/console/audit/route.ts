@@ -38,7 +38,7 @@ export async function GET(req: NextRequest) {
     if (!any) {
       return NextResponse.json({ error: "Case not found in this workspace" }, { status: 404 });
     }
-    const verification = await verifyChain(callRef.slice(0, 64));
+    const verification = await verifyChain(callRef.slice(0, 64), orgId);
     const rows = await db.auditLog.findMany({
       where: { callRef: callRef.slice(0, 64), ...orgScope },
       orderBy: { createdAt: "asc" },

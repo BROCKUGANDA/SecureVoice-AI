@@ -105,9 +105,20 @@ export async function notify(input: NotifyInput): Promise<{ id: string; deduplic
   return { id: row.id, deduplicated: existing !== null, count: row.count };
 }
 
-/** A human has seen it. Escalation stops here permanently. */
-export async function acknowledge(notificationId: string): Promise<{ ok: boolean; error?: string }> {
-  const row = await db.notification.findUnique({ where: { id: notificationId } });
+/**
+ * A human has seen it. Escalation stops here permanently.
+ *
+ * Org-scoped, and that is the point of the signature. It previously took only
+ * an id and would acknowledge ANY org's alert; the inbox route pre-checked
+ * ownership first, so the leak was covered at exactly one call site. The
+ * predicate belongs here, once, so a second caller cannot reintroduce it.
+ */
+export async function acknowledge(
+  notificationId: string,
+  orgId: string | null | undefined
+): Promise<{ ok: boolean; error?: string }> {
+  const scope = orgId ? { orgId } : { OR: [{ orgId: null }, { orgId: "default" }] };
+  const row = await db.notification.findFirst({ where: { id: notificationId, ...scope } });
   if (!row) return { ok: false, error: "not_found" };
   if (row.acknowledgedAt) return { ok: false, error: "already_acknowledged" };
   await db.notification.update({

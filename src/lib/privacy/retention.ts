@@ -578,7 +578,10 @@ export async function runRetention(
   };
 
   const orgs = await orgsToSweep(opts.orgIds, maxOrgs);
-  const touchedRefs = new Set<string>();
+  // caseRef -> orgId. The sweep crosses org boundaries, but chain verification
+  // is org-scoped, so the owning org has to travel with the ref. Passing null
+  // would silently skip every org-scoped chain and report false corruption.
+  const touchedRefs = new Map<string, string | null>();
 
   for (const orgId of orgs) {
     let selector: DueSelector;
@@ -631,11 +634,13 @@ export async function runRetention(
             }
           : due.where;
 
-        let rows: { caseRef: string; createdAt: Date }[];
+        let rows: { caseRef: string; createdAt: Date; orgId: string | null }[];
         try {
           rows = await db.case.findMany({
             where,
-            select: { caseRef: true, createdAt: true },
+            // orgId travels with the row: chain verification is org-scoped, so
+            // the sweep has to know which namespace each ref belongs to.
+            select: { caseRef: true, createdAt: true, orgId: true },
             orderBy: [{ createdAt: "asc" }, { caseRef: "asc" }],
             take: batchSize,
           });
@@ -676,7 +681,7 @@ export async function runRetention(
             report.errors.push({ caseRef: row.caseRef, tier, stage: "act", error: message });
             console.error(`[retention] ${tier} failed for ${row.caseRef}: ${message}`);
           }
-          touchedRefs.add(row.caseRef);
+          touchedRefs.set(row.caseRef, row.orgId ?? null);
         }
       }
     }
@@ -684,10 +689,10 @@ export async function runRetention(
 
   // Re-verify every chain this run touched, with the production verifier. A
   // retention job that broke a chain is an incident: say so, do not re-anchor.
-  for (const ref of touchedRefs) {
+  for (const [ref, refOrgId] of touchedRefs) {
     if (report.chain.brokenAt) break;
     try {
-      const verification = await verifyChain(ref);
+      const verification = await verifyChain(ref, refOrgId);
       report.chain.refsChecked += 1;
       if (!verification.ok) {
         report.chain.intact = false;

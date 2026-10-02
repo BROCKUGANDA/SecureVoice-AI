@@ -122,7 +122,9 @@ test("WP-4: post-call ingest verifies, dedupes, redacts, notifies", async () => 
   expect(stored).toContain("[REDACTED]");
 
   // Chain verifies after ingest (I-6) and carries the ingest entry.
-  const chain = await verifyChain(c.caseRef);
+  // The ingest row is appended with `orgId: caseRow.orgId`, and the fixture
+  // created the Case with `orgId: "org-test"` — so "org-test" owns this chain.
+  const chain = await verifyChain(c.caseRef, "org-test");
   expect(chain.ok).toBe(true);
   const auditCountBefore = await db.auditLog.count({ where: { callRef: c.caseRef } });
   expect(auditCountBefore).toBeGreaterThan(0);

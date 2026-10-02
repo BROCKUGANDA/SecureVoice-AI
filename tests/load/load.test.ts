@@ -835,7 +835,11 @@ async function accountForCases(result: ScenarioResult): Promise<Accounting> {
     .filter((_, i) => i % SAMPLE_EVERY === 0)
     .slice(0, CHAIN_SAMPLE);
   for (const ref of sample) {
-    const v = await auditChain.verifyChain(ref);
+    // Every row on these chains is written under ORG: `admitAtScale` appends
+    // with `orgId: args.orgId` (ORG is passed at the call site above) and
+    // `transitionCase` seals the Case row's own orgId, which `createCase`
+    // set to ORG. So ORG owns the sampled chains.
+    const v = await auditChain.verifyChain(ref, ORG);
     chain.checked++;
     if (v.ok) chain.ok++;
     else chain.broken.push(`${ref}: broken at ${v.brokenAt} (expected ${v.expected.slice(0, 12)}…, got ${v.actual.slice(0, 12)}…)`);
@@ -873,6 +877,11 @@ beforeAll(async () => {
   // capacity gate that is not reproducible is not a gate.
   await db.$executeRawUnsafe(`DELETE FROM dial_job`).catch(() => {});
   await db.$executeRawUnsafe(`DELETE FROM "AuditLog"`).catch(() => {});
+  // The admission gauge is `count(Case where state IN flight)`. Leaving the
+  // previous run's in-flight cases behind starts the gauge above zero, which
+  // pushes a steady-state run into a heavier band and sheds load that should
+  // never have been shed — the burst numbers were contaminated the same way.
+  await db.$executeRawUnsafe(`DELETE FROM "Case"`).catch(() => {});
 });
 
 afterAll(async () => {

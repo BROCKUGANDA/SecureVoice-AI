@@ -29,6 +29,7 @@ where `createCase()` existed with zero callers. The entry points that prove it:
 | Entry point | Package | Production call sites |
 | --- | --- | --- |
 | `createCase()` | WP-2 | **0** until fixed today |
+| `caseByRef()`, `verifyChain()`, `acknowledge()` | WP-12 | **0** — org predicate missing, now FIXED |
 | `scopedDb()` | WP-12 | **1** (`api/auth/export/route.ts`) |
 | `runRetention()` | WP-15 | **0** — no scheduler exists |
 | `scaleMetricsSnapshot()`, `reapExpiredLeases()`, `replayDeadDialJob()` | WP-19 | **0** |
@@ -171,6 +172,37 @@ to ESCALATED. Returns `committed:true` with actor and timestamp.
   claimed) are POST-LAUNCH-TODO §5.
 
 **Effort:** S. **Status:** CLOSED.
+
+### 8b. Four cross-tenant leaks — CLOSED (3 of 4)
+
+The tenancy gate was green because it asserted the leaks still existed. It now
+asserts they are gone, which turned it red and named them:
+
+| Module | Was | Now |
+| --- | --- | --- |
+| `caseByRef()` | `findUnique({ caseRef })` | org-scoped predicate, org required |
+| `verifyChain()` | `findMany({ callRef })` | org-scoped predicate, org required |
+| `acknowledge()` | `findUnique({ id })` | org-scoped `findFirst`, org required |
+| `caseByConversation()` | unscoped | **still unscoped, deliberately** |
+
+The console routes each pre-checked ownership before calling these, so the leak
+was covered at exactly one call site per function — the arrangement that fails
+the moment a second caller appears. The predicate now lives in the library.
+
+`caseByConversation` is left unscoped on purpose. Its two production callers
+— post-call webhook ingest and the agent tool guard — have **no tenant identity
+to scope by**: the webhook is authenticated by a shared platform secret and the
+tools by one global `AGENT_TOOL_SECRET`. Adding a scope parameter there today
+would mean passing null and calling it scoped, which is the same false assurance
+the other three were changed to remove. It is closed instead by per-tenant tool
+secrets (`docs/POST-LAUNCH-TODO.md` §5).
+
+One consequence worth naming: the retention sweep crosses orgs, so it now
+carries each case's `orgId` alongside its ref and verifies per org. Passing null
+would have silently skipped every org-scoped chain and reported false
+corruption — a quieter and worse failure than the one being fixed.
+
+**Status:** 3 of 4 CLOSED. `caseByConversation` remains open by design.
 
 ### 5. `src/lib/failures/**` has zero production callers — **30%**
 

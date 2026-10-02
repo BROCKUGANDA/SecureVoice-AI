@@ -1,0 +1,8 @@
+{
+  "//": "WP-7 only. tests/tsconfig.json has no `jsx` setting, so it cannot resolve the SloPanel component this suite renders; this project adds just that, on top of the shared test base. Not a new convention for the repo's tests — a local gate for this suite: `bunx tsc --noEmit -p tests/telemetry/tsconfig.json`.",
+  "extends": "../tsconfig.test-base.json",
+  "compilerOptions": {
+    "jsx": "react-jsx"
+  },
+  "include": ["**/*.ts", "../../src/components/slo/SloPanel.tsx", "../../src/lib/telemetry/**/*.ts"]
+}

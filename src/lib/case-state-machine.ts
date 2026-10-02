@@ -219,12 +219,43 @@ export async function transitionCaseWithOutbox(
   });
 }
 
-/** Look up a case by conversation_id (the join key for the post-call webhook). */
-export async function caseByConversation(conversationId: string) {
-  return db.case.findFirst({ where: { conversationId } });
+/**
+ * Look up a case by caseRef, scoped to one organisation.
+ *
+ * `orgId` is REQUIRED. This used to take only the ref and return whatever row
+ * carried it, which meant any caller holding another tenant's caseRef got that
+ * tenant's case. The console routes each pre-checked the org and returned 404
+ * before calling this — so the leak was covered at every call site, which is
+ * exactly the arrangement that fails the moment a fourth call site appears.
+ * The predicate now lives here, once.
+ *
+ * A null org means the shared namespace: rows with `orgId IS NULL` (seeded demo
+ * data) plus the literal `"default"`. Prisma's `in` rejects null members, hence
+ * the OR rather than `in: [null, "default"]`.
+ */
+export async function caseByRef(caseRef: string, orgId: string | null | undefined) {
+  return db.case.findFirst({
+    where: { caseRef, ...(orgId ? { orgId } : { OR: [{ orgId: null }, { orgId: "default" }] }) },
+  });
 }
 
-/** Look up a case by caseRef. */
-export async function caseByRef(caseRef: string) {
-  return db.case.findUnique({ where: { caseRef } });
+/**
+ * Look up a case by conversation_id — the join key for the post-call webhook.
+ *
+ * Deliberately NOT org-scoped, and this is the residual cross-tenant risk
+ * recorded in docs/GAP-REGISTER.md. Both production callers resolve a case they
+ * are correlating AGAINST, not listing:
+ *
+ *   - `src/lib/elevenlabs/inbound.ts` correlates an inbound provider event.
+ *   - `src/lib/tool-guard.ts` resolves the case the agent is acting on.
+ *
+ * Neither has a tenant identity to scope by: the webhook is authenticated by a
+ * shared platform secret, and the agent tools by a single global
+ * `AGENT_TOOL_SECRET`. There is no tenant to check until per-tenant tool
+ * secrets exist (docs/POST-LAUNCH-TODO.md §5). Adding a scope parameter today
+ * would mean passing null and calling it scoped — the same false assurance the
+ * four org predicates were removed for.
+ */
+export async function caseByConversation(conversationId: string) {
+  return db.case.findFirst({ where: { conversationId } });
 }

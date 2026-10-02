@@ -260,7 +260,10 @@ test("issuing and consuming an invitation is written to the audit chain", async 
   const { token } = await makeInvite("Analyst", owner.identity.accountId, owner.orgId);
 
   // Issued → the chain must already carry the issue event.
-  const afterIssue = await verifyChain(`AUTH-${owner.identity.accountId.replace(/[^\w.:-]/g, "")}`);
+  // Scoped to the org that OWNS these rows: `issueInvite`/`acceptInvite` both
+  // append under `invite.orgId`, which is the fixture's own `owner.orgId`.
+  // Passing null here would walk the shared namespace and verify zero rows.
+  const afterIssue = await verifyChain(`AUTH-${owner.identity.accountId.replace(/[^\w.:-]/g, "")}`, owner.orgId);
   expect(afterIssue.ok).toBe(true);
 
   const result = await acceptInvite({ token });
@@ -269,7 +272,9 @@ test("issuing and consuming an invitation is written to the audit chain", async 
 
   // Consumed → the consuming account's own chain carries the redemption, so the
   // question "who provisioned this account" is answerable from the chain.
-  const created = await verifyChain(`AUTH-${result.identity.accountId.replace(/[^\w.:-]/g, "")}`);
+  // The redemption row is appended with `orgId: invite.orgId` — the same org
+  // the account was created into, which is the fixture's `owner.orgId`.
+  const created = await verifyChain(`AUTH-${result.identity.accountId.replace(/[^\w.:-]/g, "")}`, owner.orgId);
   expect(created.ok).toBe(true);
   if (!created.ok) return;
 

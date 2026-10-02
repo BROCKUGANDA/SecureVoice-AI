@@ -1,0 +1,967 @@
+{
+  "schemaVersion": 1,
+  "gate": "WP-18 internal seams",
+  "digestAlgorithm": "sha256",
+  "redactions": [
+    "[chainRef]",
+    "[caseRef]",
+    "[paymentRef]",
+    "[org]",
+    "[run]"
+  ],
+  "reproducibility": {
+    "seededPipelineByteStable": true,
+    "deterministicCoreByteStable": true,
+    "mechanism": "fixed clock at RUN_INSTANT + fixed seeds + a CONSTANT fixture org for the audit-chain fixtures (orgId is sealed into every chainHash); no run-scoped identifier and no database-assigned identifier appears in the core",
+    "verified": [
+      "the seeded pipeline is run twice in one test and the canonical serialisations compared byte for byte",
+      "a different seed MUST change the output, so determinism is not the same as a constant",
+      "all 2 database-assigned identifiers produced during the run are absent from the core"
+    ]
+  },
+  "ports": [
+    {
+      "port": "RiskSignalSource",
+      "declaredAdapters": [
+        "http",
+        "kafka",
+        "sftp",
+        "poll"
+      ],
+      "boundAdapters": [
+        "http"
+      ],
+      "realAdapter": "http",
+      "fakeAdapter": "in-memory fixture feed",
+      "notBound": [
+        {
+          "adapter": "kafka",
+          "reason": "no Kafka client or broker contract exists in the repository"
+        },
+        {
+          "adapter": "sftp",
+          "reason": "no SFTP transport exists; signal ingest is HTTP-only"
+        },
+        {
+          "adapter": "poll",
+          "reason": "no polled upstream is implemented"
+        }
+      ],
+      "modeInRealRun": "real",
+      "realAdapterId": "built-in",
+      "modeInOfflineRun": "fake",
+      "fakeAdapterId": "in-memory fixture feed of 3 signals; FIFO drain, no I/O, no socket",
+      "verification": "bound-only",
+      "compared": [
+        "the real adapter's open() refuses without WEBHOOK_SECRET and names it",
+        "the real adapter's open() reports POST /v1/interventions when configured",
+        "the real adapter's pull() throws (push-only) rather than returning []",
+        "the fake feed's FIFO order, limit and closed-source behaviour"
+      ],
+      "notCompared": [
+        "the ingest end-to-end — needs a signed bank request and writes a real case row",
+        "kafka, sftp and poll adapters — not implemented in this repository",
+        "adapter-to-adapter parity — the http adapter is push-only and the fake is pull-only, so there is no shared operation to compare"
+      ],
+      "notes": [
+        "this is the one port with no shared operation between its real and fake adapters; it is reported as bound, not as tested"
+      ]
+    },
+    {
+      "port": "ConversationProvider",
+      "declaredAdapters": [
+        "elevenlabs",
+        "builtin"
+      ],
+      "boundAdapters": [
+        "elevenlabs"
+      ],
+      "realAdapter": "elevenlabs",
+      "fakeAdapter": "scripted transcript player",
+      "notBound": [
+        {
+          "adapter": "builtin",
+          "reason": "the continuity plane is a port method (`continue()`) with no adapter behind it; nothing in-repo answers it, and the real binding refuses explicitly rather than pretending"
+        }
+      ],
+      "modeInRealRun": "real",
+      "realAdapterId": "@/lib/elevenlabs/outbound-call placeOutboundCall; honours ELEVENLABS_DRY_RUN, has no continuity plane and no transcript replay",
+      "modeInOfflineRun": "fake",
+      "fakeAdapterId": "scripted transcript player; placement ids from the seeded generator, turns replayed from a per-language script",
+      "verification": "contract-dry-run",
+      "compared": [
+        "the real adapter's dry-run placement makes ZERO network calls",
+        "dryRun === true on the real dry-run path",
+        "non-empty conversationId and callSid from both adapters",
+        "a placement is a deterministic function of its inputs"
+      ],
+      "notCompared": [
+        "a live placement — would place a real call",
+        "id formats — provider-scoped, so a match would be a coincidence",
+        "continue() — the brief's `builtin` continuity adapter is NOT bound; the real adapter refuses",
+        "transcript() / verdict() — the real adapter has no replay, so there is nothing to compare"
+      ],
+      "notes": [
+        "dry-run is `ELEVENLABS_DRY_RUN=true`, the same switch the e2e suite uses"
+      ]
+    },
+    {
+      "port": "TelephonyProvider",
+      "declaredAdapters": [
+        "twilio",
+        "sip-trunk"
+      ],
+      "boundAdapters": [
+        "twilio"
+      ],
+      "realAdapter": "twilio",
+      "fakeAdapter": "recording stub",
+      "notBound": [
+        {
+          "adapter": "sip-trunk",
+          "reason": "no SIP stack or trunk credential path exists"
+        }
+      ],
+      "modeInRealRun": "real",
+      "realAdapterId": "@/lib/twilio placeInterventionCall/sendInterventionSms; needs live credentials and egresses to api.twilio.com",
+      "modeInOfflineRun": "fake",
+      "fakeAdapterId": "recording stub; records the dial request and returns a queued sid without a carrier",
+      "verification": "contract-offline-surface",
+      "compared": [
+        "validateDestination() across 9 destinations including 4 refusals"
+      ],
+      "notCompared": [
+        "placeCall() — the real adapter cannot be invoked without credentials; asserted, not assumed",
+        "sendSms() — same reason",
+        "sid format — carrier-scoped"
+      ],
+      "notes": [
+        "the sip-trunk adapter the brief names is not implemented in this repository"
+      ]
+    },
+    {
+      "port": "NotificationSink",
+      "declaredAdapters": [
+        "webhook",
+        "crm",
+        "itsm",
+        "siem",
+        "contact-centre",
+        "sms"
+      ],
+      "boundAdapters": [
+        "contact-centre"
+      ],
+      "realAdapter": "contact-centre (console inbox)",
+      "fakeAdapter": "capture buffer",
+      "notBound": [
+        {
+          "adapter": "webhook",
+          "reason": "bank/webhook delivery is the transactional outbox (WP-5), which requires a transaction client and is therefore deliberately NOT a NotificationSink binding"
+        },
+        {
+          "adapter": "crm",
+          "reason": "no CRM integration exists"
+        },
+        {
+          "adapter": "itsm",
+          "reason": "no ITSM integration exists"
+        },
+        {
+          "adapter": "siem",
+          "reason": "no SIEM forwarding exists"
+        },
+        {
+          "adapter": "sms",
+          "reason": "the SMS channel is `@/lib/twilio`'s sendInterventionSms, reached through the TelephonyProvider port, not as a notification binding"
+        }
+      ],
+      "modeInRealRun": "real",
+      "realAdapterId": "@/lib/notifications inbox — the operator console's queue, backed by the Notification table",
+      "modeInOfflineRun": "fake",
+      "fakeAdapterId": "capture buffer using the same window-folding dedupe key as the console inbox",
+      "verification": "contract-real",
+      "compared": [
+        "burst folding (3 identical enqueues → 1 item, count=3)",
+        "distinct alert types stay distinct items",
+        "acknowledge() with the wrong org → not_found",
+        "acknowledge() twice → already_acknowledged",
+        "pending() shrinks after acknowledgement"
+      ],
+      "notCompared": [
+        "notification ids — Postgres assigns cuids, the fake mints seeded ULIDs",
+        "`channel` — port vocabulary with no column behind it; the inbox is one channel by construction"
+      ],
+      "notes": [
+        "the bank webhook path is the transactional outbox (WP-5) and is deliberately not a NotificationSink binding"
+      ]
+    },
+    {
+      "port": "PaymentProvider",
+      "declaredAdapters": [
+        "paystack",
+        "manualinvoice",
+        "flutterwave"
+      ],
+      "boundAdapters": [
+        "manualinvoice"
+      ],
+      "realAdapter": "manualinvoice",
+      "fakeAdapter": "deterministic mock",
+      "notBound": [
+        {
+          "adapter": "paystack",
+          "reason": "`@/lib/payments/paystack` is implemented and unit-tested against an injected HTTP client, but the BOUND adapter is manualinvoice — the only money adapter exercisable with no gateway and no credential"
+        },
+        {
+          "adapter": "flutterwave",
+          "reason": "no Flutterwave adapter exists"
+        }
+      ],
+      "modeInRealRun": "real",
+      "realAdapterId": "@/lib/payments/manual-invoice — dual-control bank transfer; no gateway, no webhook, no checkout (provider id manualinvoice)",
+      "modeInOfflineRun": "fake",
+      "fakeAdapterId": "deterministic mock; mirrors the manualinvoice refusal surface and adds an offline settle() that no webhook can reach",
+      "verification": "contract-real",
+      "compared": [
+        "listEntitlements() of an unknown reference → []",
+        "refund() of an unknown reference → { ok:false, reason:'not_found' }",
+        "refund() of a settled reference → ok, then 'already_refunded' on the second call",
+        "entitlements survive a refund",
+        "verifyWebhook() → unsupported_event",
+        "chargeStoredAuthorization() → refused, reference ''",
+        "createCheckout() → throws",
+        "a replayed settlement applies nothing"
+      ],
+      "notCompared": [
+        "refusal reason strings — each names its own adapter, which is correct",
+        "dual control (recorder ≠ verifier) — `recordPayment`/`verifyPayment` are not port methods, so there is nothing to compare the fake against"
+      ],
+      "notes": [
+        "the bound real adapter is `manualinvoice`, the only money adapter exercisable with no gateway",
+        "paystack is implemented and unit-tested against an injected HTTP client but is not the bound adapter"
+      ]
+    },
+    {
+      "port": "SecretStore",
+      "declaredAdapters": [
+        "env",
+        "vault",
+        "kms"
+      ],
+      "boundAdapters": [
+        "env"
+      ],
+      "realAdapter": "env",
+      "fakeAdapter": "in-memory",
+      "notBound": [
+        {
+          "adapter": "vault",
+          "reason": "no HashiCorp Vault client exists"
+        },
+        {
+          "adapter": "kms",
+          "reason": "no cloud KMS client exists"
+        }
+      ],
+      "modeInRealRun": "real",
+      "realAdapterId": "built-in",
+      "modeInOfflineRun": "fake",
+      "fakeAdapterId": "in-memory map; process.env is never read and no value leaves the process",
+      "verification": "contract-real",
+      "compared": [
+        "get() hit",
+        "get() miss",
+        "get() empty-key refusal",
+        "has() on both outcomes",
+        "an empty env value reads as a miss"
+      ],
+      "notCompared": [
+        "keys() — process.env's key set is machine-specific, so the fake's list is not compared to it"
+      ],
+      "notes": [
+        "the fake never reads process.env; the real store never leaves the process either"
+      ]
+    },
+    {
+      "port": "AuditSink",
+      "declaredAdapters": [
+        "postgres-append-only"
+      ],
+      "boundAdapters": [
+        "postgres-append-only"
+      ],
+      "realAdapter": "postgres append-only",
+      "fakeAdapter": "in-memory chain",
+      "notBound": [],
+      "modeInRealRun": "real",
+      "realAdapterId": "@/lib/audit-chain append/verifyChain — Postgres append-only, sha256 chain over canonical JSON",
+      "modeInOfflineRun": "fake",
+      "fakeAdapterId": "in-memory hash chain with the real canonicalisation; append-only surface, tamper detection proven against it",
+      "verification": "contract-real",
+      "compared": [
+        "chainHash of every link, byte for byte, across 4 links including hostile input",
+        "verifyChain() === ok with the same link count",
+        "verifyChain() reports the exact tampered link id on a real-DB rewrite"
+      ],
+      "notCompared": [
+        "row ids — the real chain is assigned cuids by Postgres, the fake mints seeded ULIDs"
+      ],
+      "notes": [
+        "the fake reproduces @/lib/audit-chain's canonicalisation (sorted top-level keys, recursively sorted meta)",
+        "a hash chain cannot detect a truncated TAIL; append-only in the storage layer is what prevents truncation"
+      ]
+    },
+    {
+      "port": "Clock",
+      "declaredAdapters": [
+        "system"
+      ],
+      "boundAdapters": [
+        "system"
+      ],
+      "realAdapter": "system",
+      "fakeAdapter": "fixed clock",
+      "notBound": [],
+      "modeInRealRun": "real",
+      "realAdapterId": "built-in",
+      "modeInOfflineRun": "fake",
+      "fakeAdapterId": "fixed clock at 2026-01-01T00:00:00.000Z; moves only when step()/set() is called",
+      "verification": "contract-real",
+      "compared": [
+        "now() returns a Date",
+        "monotonic non-decreasing sequence",
+        "fixed clock moves only on step()/set()"
+      ],
+      "notCompared": [
+        "nothing: the system clock's whole surface is offline"
+      ],
+      "notes": [
+        "the two clocks disagree on VALUES by design; parity is on the contract, not the number"
+      ]
+    },
+    {
+      "port": "IdGenerator",
+      "declaredAdapters": [
+        "system"
+      ],
+      "boundAdapters": [
+        "system"
+      ],
+      "realAdapter": "system",
+      "fakeAdapter": "seeded ULIDs",
+      "notBound": [],
+      "modeInRealRun": "real",
+      "realAdapterId": "built-in",
+      "modeInOfflineRun": "fake",
+      "fakeAdapterId": "seeded ULIDs from seed \"report\"; same seed replays the same sequence forever",
+      "verification": "contract-real",
+      "compared": [
+        "26-character Crockford base32 shape",
+        "uniqueness over 500 ids",
+        "monotonic within one millisecond"
+      ],
+      "notCompared": [
+        "the id bytes themselves — a seeded generator reproducing random bytes would be the bug"
+      ],
+      "notes": [
+        "same seed ⇒ same sequence; different seed ⇒ different sequence"
+      ]
+    }
+  ],
+  "summary": {
+    "ports": 9,
+    "contractTested": [
+      "ConversationProvider",
+      "TelephonyProvider",
+      "NotificationSink",
+      "PaymentProvider",
+      "SecretStore",
+      "AuditSink",
+      "Clock",
+      "IdGenerator"
+    ],
+    "realParity": [
+      "NotificationSink",
+      "PaymentProvider",
+      "SecretStore",
+      "AuditSink",
+      "Clock",
+      "IdGenerator"
+    ],
+    "dryRunOnly": [
+      "ConversationProvider"
+    ],
+    "offlineSurfaceOnly": [
+      "TelephonyProvider"
+    ],
+    "boundOnly": [
+      "RiskSignalSource"
+    ],
+    "declaredAdaptersTotal": 23,
+    "boundAdaptersTotal": 9,
+    "notBoundAdaptersTotal": 14,
+    "checks": {
+      "total": 111,
+      "passed": 111,
+      "failed": 0
+    },
+    "result": "pass"
+  },
+  "checks": [
+    {
+      "name": "brief-table-is-encoded",
+      "ok": true,
+      "detail": "9 ports, each with a non-empty declared-adapter list"
+    },
+    {
+      "name": "every-declared-adapter-is-bound-or-declared-unbound",
+      "ok": true,
+      "detail": "all 9 ports account for every adapter the brief names"
+    },
+    {
+      "name": "real-registry-binds-every-port",
+      "ok": true,
+      "detail": "real registry bound 9/9 ports"
+    },
+    {
+      "name": "descriptors-are-in-canonical-order",
+      "ok": true,
+      "detail": "descriptor order matches PORT_NAMES, so the artifact is byte-stable"
+    },
+    {
+      "name": "real-registry-reports-mode-real-for-every-port",
+      "ok": true,
+      "detail": "9/9 real"
+    },
+    {
+      "name": "every-port-carries-a-detail-string",
+      "ok": true,
+      "detail": "9/9 described"
+    },
+    {
+      "name": "descriptor-mode-equals-adapter-declared-mode",
+      "ok": true,
+      "detail": "9/9 agree"
+    },
+    {
+      "name": "offline-registry-reports-mode-fake-for-every-port",
+      "ok": true,
+      "detail": "9/9 fake — nothing in an offline run is real"
+    },
+    {
+      "name": "registry-mode-is-declared",
+      "ok": true,
+      "detail": "offline=offline, real=real"
+    },
+    {
+      "name": "adapters-are-stable-per-registry",
+      "ok": true,
+      "detail": "repeated getters return the identical adapter; there is no global"
+    },
+    {
+      "name": "fake-chain-hashes-are-byte-identical-to-the-real-chain",
+      "ok": true,
+      "detail": "4 links hashed identically by @/lib/audit-chain and the in-memory fake"
+    },
+    {
+      "name": "chain-hashes-are-sha256-hex",
+      "ok": true,
+      "detail": "every chainHash is 64 hex characters"
+    },
+    {
+      "name": "real-chain-verifies",
+      "ok": true,
+      "detail": "ok=true rows=4"
+    },
+    {
+      "name": "fake-chain-verifies",
+      "ok": true,
+      "detail": "in-memory verification: ok=true rows=4"
+    },
+    {
+      "name": "both-chains-report-the-same-link-count",
+      "ok": true,
+      "detail": "real=4 fake=4"
+    },
+    {
+      "name": "negative-control-real-chain-reports-the-tampered-link",
+      "ok": true,
+      "detail": "verifyChain reported a break and named the row that was rewritten (match=true)"
+    },
+    {
+      "name": "tamper-baseline-verifies",
+      "ok": true,
+      "detail": "{\"ok\":true,\"rows\":4}"
+    },
+    {
+      "name": "tampered-row-is-detected-at-the-right-link",
+      "ok": true,
+      "detail": "brokenAt=01KDWCJ2M01K9007PARGZV918X expected=01KDWCJ2M01K9007PARGZV918X"
+    },
+    {
+      "name": "deleted-link-is-detected-as-an-orphan",
+      "ok": true,
+      "detail": "ok=false actual=orphaned row rows=3"
+    },
+    {
+      "name": "forked-link-is-detected",
+      "ok": true,
+      "detail": "brokenAt=01KDWCJ2M08B9D4FJBXZ866A1X expected=01KDWCJ2M08B9D4FJBXZ866A1X"
+    },
+    {
+      "name": "audit-surface-is-append-only",
+      "ok": true,
+      "detail": "no update/delete/upsert on the adapter; the only mutation seams are named *ForTest"
+    },
+    {
+      "name": "burst-folds-identically",
+      "ok": true,
+      "detail": "real=[{\"deduplicated\":false,\"count\":1},{\"deduplicated\":true,\"count\":2},{\"deduplicated\":true,\"count\":3}] fake=[{\"deduplicated\":false,\"count\":1},{\"deduplicated\":true,\"count\":2},{\"deduplicated\":true,\"count\":3}]"
+    },
+    {
+      "name": "a-burst-of-three-becomes-one-item-counting-three",
+      "ok": true,
+      "detail": "both adapters returned count=3 on the third identical enqueue"
+    },
+    {
+      "name": "one-pending-item-per-burst",
+      "ok": true,
+      "detail": "real pending=1 fake pending=1"
+    },
+    {
+      "name": "severity-and-alert-type-survive-both",
+      "ok": true,
+      "detail": "real severities=page fake severities=page"
+    },
+    {
+      "name": "distinct-alert-types-are-distinct-items",
+      "ok": true,
+      "detail": "real=2 fake=2"
+    },
+    {
+      "name": "acknowledge-is-org-scoped-in-both",
+      "ok": true,
+      "detail": "real={\"ok\":false,\"error\":\"not_found\"} fake={\"ok\":false,\"error\":\"not_found\"}"
+    },
+    {
+      "name": "acknowledge-succeeds-for-the-owning-org",
+      "ok": true,
+      "detail": "{\"realOk\":{\"ok\":true},\"fakeOk\":{\"ok\":true}}"
+    },
+    {
+      "name": "double-acknowledge-is-the-same-typed-refusal",
+      "ok": true,
+      "detail": "real={\"ok\":false,\"error\":\"already_acknowledged\"} fake={\"ok\":false,\"error\":\"already_acknowledged\"}"
+    },
+    {
+      "name": "an-acknowledged-item-leaves-both-inboxes",
+      "ok": true,
+      "detail": "real outstanding=1 fake outstanding=1 (2 before the acknowledgement)"
+    },
+    {
+      "name": "unknown-reference-has-no-entitlements",
+      "ok": true,
+      "detail": "{\"realList\":[],\"fakeList\":[]}"
+    },
+    {
+      "name": "refund-of-an-unknown-reference-is-the-same-typed-refusal",
+      "ok": true,
+      "detail": "real={\"ok\":false,\"reference\":\"REF-NEVER-SETTLED\",\"reason\":\"not_found\"} fake={\"ok\":false,\"reference\":\"REF-NEVER-SETTLED\",\"reason\":\"not_found\"}"
+    },
+    {
+      "name": "manualinvoice-recorded-the-transfer",
+      "ok": true,
+      "detail": "ok=true duplicate=false (the paymentId is a Postgres id and is deliberately not quoted)"
+    },
+    {
+      "name": "refund-of-a-settled-reference-succeeds-in-both",
+      "ok": true,
+      "detail": "real={\"ok\":true,\"reference\":\"[paymentRef]\"} fake={\"ok\":true,\"reference\":\"[paymentRef]\"}"
+    },
+    {
+      "name": "second-refund-is-the-same-typed-refusal",
+      "ok": true,
+      "detail": "real={\"ok\":false,\"reference\":\"[paymentRef]\",\"reason\":\"already_refunded\"} fake={\"ok\":false,\"reference\":\"[paymentRef]\",\"reason\":\"already_refunded\"}"
+    },
+    {
+      "name": "entitlements-survive-a-refund-in-both",
+      "ok": true,
+      "detail": "real=[{\"key\":\"calls\",\"units\":100}] fake=[{\"key\":\"calls\",\"units\":100}]"
+    },
+    {
+      "name": "webhook-verification-is-the-same-refusal",
+      "ok": true,
+      "detail": "real={\"ok\":false,\"reason\":\"unsupported_event\",\"detail\":\"manualinvoice has no webhook surface\"} fake={\"ok\":false,\"reason\":\"unsupported_event\",\"detail\":\"deterministic has no webhook surface\"}"
+    },
+    {
+      "name": "stored-authorization-overage-is-refused-by-both",
+      "ok": true,
+      "detail": "real={\"ok\":false,\"reference\":\"\",\"reason\":\"manualinvoice: overage must be invoiced and verified manually\"} fake={\"ok\":false,\"reference\":\"\",\"reason\":\"deterministic: overage must be invoiced and verified manually\"}"
+    },
+    {
+      "name": "checkout-refuses-in-both",
+      "ok": true,
+      "detail": "real=\"manualinvoice: bank transfers are started by issuing a quote, not a checkout URL\" fake=\"deterministic: bank transfers are started by issuing a quote, not a checkout URL\""
+    },
+    {
+      "name": "a-replayed-settlement-is-a-no-op",
+      "ok": true,
+      "detail": "{\"applied\":false,\"duplicate\":true,\"reference\":\"[paymentRef]\",\"units\":0}"
+    },
+    {
+      "name": "a-present-secret-resolves-identically",
+      "ok": true,
+      "detail": "{\"realHit\":{\"ok\":true,\"value\":\"fixture-value-not-a-credential\"},\"fakeHit\":{\"ok\":true,\"value\":\"fixture-value-not-a-credential\"}}"
+    },
+    {
+      "name": "has-agrees",
+      "ok": true,
+      "detail": "both report the key present"
+    },
+    {
+      "name": "a-missing-secret-is-a-typed-miss-not-undefined",
+      "ok": true,
+      "detail": "{\"realMiss\":{\"ok\":false,\"reason\":\"not_found\"},\"fakeMiss\":{\"ok\":false,\"reason\":\"not_found\"}}"
+    },
+    {
+      "name": "has-agrees-on-a-miss",
+      "ok": true,
+      "detail": "both report the key absent"
+    },
+    {
+      "name": "an-empty-key-is-forbidden-in-both",
+      "ok": true,
+      "detail": "{\"realForbidden\":{\"ok\":false,\"reason\":\"forbidden\"},\"fakeForbidden\":{\"ok\":false,\"reason\":\"forbidden\"}}"
+    },
+    {
+      "name": "the-fake-enumerates-names-not-values",
+      "ok": true,
+      "detail": "1 key name(s), sorted, no value present in the listing"
+    },
+    {
+      "name": "the-real-store-refuses-to-report-an-empty-string-as-a-secret",
+      "ok": true,
+      "detail": "ELEVENLABS_API_KEY='' must read as a miss, not as an empty auth header"
+    },
+    {
+      "name": "the-same-seed-produces-byte-identical-output",
+      "ok": true,
+      "detail": "sha256 run1=35a9a7e12ba11c09 run2=35a9a7e12ba11c09"
+    },
+    {
+      "name": "a-different-seed-produces-different-output",
+      "ok": true,
+      "detail": "sha256 seed-B=d8f49a5c743f7eb4"
+    },
+    {
+      "name": "seeded-generators-with-one-seed-agree",
+      "ok": true,
+      "detail": "two generators, one seed, 64 identical ids"
+    },
+    {
+      "name": "a-different-seed-diverges",
+      "ok": true,
+      "detail": "seed changes the first id"
+    },
+    {
+      "name": "seeded-ids-are-valid-ulids",
+      "ok": true,
+      "detail": "64 ids are 26 Crockford base32 characters"
+    },
+    {
+      "name": "seeded-ids-never-repeat",
+      "ok": true,
+      "detail": "64 ids, 64 distinct values"
+    },
+    {
+      "name": "a-frozen-clock-makes-ids-strictly-increasing",
+      "ok": true,
+      "detail": "same millisecond ⇒ monotonic entropy bump"
+    },
+    {
+      "name": "system-ids-are-unique-and-well-formed",
+      "ok": true,
+      "detail": "200 system ULIDs, all distinct and well formed"
+    },
+    {
+      "name": "system-ids-are-monotonic-under-a-frozen-clock",
+      "ok": true,
+      "detail": "call order is preserved in the id"
+    },
+    {
+      "name": "the-fixed-clock-does-not-move-on-its-own",
+      "ok": true,
+      "detail": "frozen at 2026-01-01T09:00:00.000Z"
+    },
+    {
+      "name": "step-moves-the-clock-by-exactly-the-delta",
+      "ok": true,
+      "detail": "step(1500) advanced 1500 ms"
+    },
+    {
+      "name": "set-jumps-to-an-absolute-instant",
+      "ok": true,
+      "detail": "set() is absolute"
+    },
+    {
+      "name": "the-system-clock-is-monotonic",
+      "ok": true,
+      "detail": "500 samples, never went backwards"
+    },
+    {
+      "name": "the-system-clock-tracks-the-wall-clock",
+      "ok": true,
+      "detail": "500 samples spanned 0 ms"
+    },
+    {
+      "name": "both-clocks-return-a-Date",
+      "ok": true,
+      "detail": "the port's return type holds for both adapters"
+    },
+    {
+      "name": "the-real-dry-run-never-left-the-process",
+      "ok": true,
+      "detail": "0 network calls during a real-adapter dry-run placement"
+    },
+    {
+      "name": "dry-run-reports-dryRun-true",
+      "ok": true,
+      "detail": "{\"conversationId\":\"conv_dryrun_[caseRef]\",\"callSid\":\"CA_dryrun_[caseRef]\",\"dryRun\":true}"
+    },
+    {
+      "name": "both-placements-yield-non-empty-correlation-keys",
+      "ok": true,
+      "detail": "real=conv_dryrun_[caseRef]/CA_dryrun_[caseRef] fake=01KDWCJ2M005KRV73F5QE32JJK/CA_scripted_01KDWCJ2M005KRV73F5QE32JJK"
+    },
+    {
+      "name": "a-placement-is-a-deterministic-function-of-its-inputs",
+      "ok": true,
+      "detail": "the real dry-run derives its id from the case reference: conv_dryrun_[caseRef]"
+    },
+    {
+      "name": "id-formats-are-provider-scoped-and-therefore-not-compared",
+      "ok": true,
+      "detail": "real=\"conv_dryrun_[caseRef]\" fake=\"01KDWCJ2M005KRV73F5QE32JJK\" — a deliberate, reported difference"
+    },
+    {
+      "name": "the-real-adapter-refuses-continuity-rather-than-faking-it",
+      "ok": true,
+      "detail": "real continue(): conversation.elevenlabs: no continuity plane is bound — there is no builtin conversation adapter in this repository"
+    },
+    {
+      "name": "the-fake-can-serve-the-continuity-plane",
+      "ok": true,
+      "detail": "fake continue(): 01KDWCJ2M005KRV73F5QE32JJM"
+    },
+    {
+      "name": "only-the-fake-can-replay-a-transcript",
+      "ok": true,
+      "detail": "real adapter replayed 0 turns (no replay exists); the scripted player replayed 6"
+    },
+    {
+      "name": "destination-validation-is-identical-for-every-input",
+      "ok": true,
+      "detail": "9 destinations compared, including 6 refusals"
+    },
+    {
+      "name": "telephony-real-adapter-refuses-without-credentials",
+      "ok": true,
+      "detail": "real placeCall(): Twilio not configured — this is why the carrier path is bound-only, not contract-tested"
+    },
+    {
+      "name": "the-recording-stub-refuses-a-bad-destination-with-the-carrier-s-shape",
+      "ok": true,
+      "detail": "{\"ok\":false,\"status\":422,\"error\":\"Destination phone is not E.164\",\"channel\":\"voice\"}"
+    },
+    {
+      "name": "the-recording-stub-accepts-an-e164-destination",
+      "ok": true,
+      "detail": "{\"ok\":true,\"sid\":\"CA_fake_01KDWCJ2M0K8HCK13K13YGEVC9\",\"status\":\"queued\",\"channel\":\"voice\"}"
+    },
+    {
+      "name": "the-recording-stub-records-sms-on-the-same-surface",
+      "ok": true,
+      "detail": "{\"ok\":true,\"sid\":\"CA_fake_01KDWCJ2M0K8HCK13K13YGEVCA\",\"status\":\"queued\",\"channel\":\"sms\"}"
+    },
+    {
+      "name": "the-http-ingest-refuses-to-open-without-its-signing-secret",
+      "ok": true,
+      "detail": "{\"ok\":false,\"reason\":\"WEBHOOK_SECRET is not configured\"}"
+    },
+    {
+      "name": "the-http-ingest-opens-with-a-secret-configured",
+      "ok": true,
+      "detail": "{\"ok\":true,\"target\":\"POST /v1/interventions\"}"
+    },
+    {
+      "name": "the-http-source-refuses-to-pull-instead-of-returning-an-empty-array",
+      "ok": true,
+      "detail": "real pull(): risksignal.http is push-only: signals arrive on POST /v1/interventions and there is no cursor to pull from — an empty array here would read as \"nothing arrived\""
+    },
+    {
+      "name": "the-fixture-feed-refuses-to-pull-while-closed",
+      "ok": true,
+      "detail": "RiskSignalSource(risksignal.fixture) is not open"
+    },
+    {
+      "name": "the-fixture-feed-delivers-every-signal-in-order",
+      "ok": true,
+      "detail": "3 signals, insertion order preserved"
+    },
+    {
+      "name": "a-drained-feed-returns-nothing",
+      "ok": true,
+      "detail": "0 signals on the second pull"
+    },
+    {
+      "name": "pull(limit) is honoured",
+      "ok": true,
+      "detail": "2 signals with limit=2"
+    },
+    {
+      "name": "no-provider-credentials-are-present",
+      "ok": true,
+      "detail": "14 credential variables are unset"
+    },
+    {
+      "name": "elevenlabs-dry-run-is-not-set",
+      "ok": true,
+      "detail": "ELEVENLABS_DRY_RUN=undefined"
+    },
+    {
+      "name": "signal-arrived-from-the-fixture-feed",
+      "ok": true,
+      "detail": "{\"transactionRef\":\"TXN-FIXTURE-0001\",\"riskScore\":0.94}"
+    },
+    {
+      "name": "the-intervention-has-credit-backing-it",
+      "ok": true,
+      "detail": "{\"units\":5}"
+    },
+    {
+      "name": "the-policy-gate-admits-the-signal",
+      "ok": true,
+      "detail": "{\"ok\":true}"
+    },
+    {
+      "name": "the-conversation-and-the-dial-were-both-placed-offline",
+      "ok": true,
+      "detail": "{\"placement\":{\"conversationId\":\"01KDWCJ2M095Z15J3BEKZMCP1D\",\"callSid\":\"CA_scripted_01KDWCJ2M095Z15J3BEKZMCP1D\",\"dryRun\":false},\"call\":{\"ok\":true,\"sid\":\"CA_fake_01KDWCJ2M095Z15J3BEKZMCP1E\",\"status\":\"queued\",\"channel\":\"voice\"}}"
+    },
+    {
+      "name": "the-scripted-transcript-yields-a-verdict",
+      "ok": true,
+      "detail": "6 turns, verdict=confirmed_fraud"
+    },
+    {
+      "name": "the-verdict-and-its-bank-delivery-committed-together",
+      "ok": true,
+      "detail": "event seams-evt-[run] enqueued with a 278-byte canonical payload"
+    },
+    {
+      "name": "a-notification-was-enqueued-through-the-port",
+      "ok": true,
+      "detail": "{\"id\":\"01KDWCJ2M095Z15J3BEKZMCP1G\",\"deduplicated\":false,\"count\":1}"
+    },
+    {
+      "name": "the-notification-capture-buffer-holds-it",
+      "ok": true,
+      "detail": "1 item(s) captured"
+    },
+    {
+      "name": "the-real-inbox-also-recorded-the-intervention",
+      "ok": true,
+      "detail": "4 inbox row(s), severities=page,urgent"
+    },
+    {
+      "name": "the-in-memory-chain-verifies-for-the-intervention",
+      "ok": true,
+      "detail": "1 links verified in memory (the head hash depends on the run-scoped org and is deliberately not quoted)"
+    },
+    {
+      "name": "the-postgres-chain-verifies-for-the-same-intervention",
+      "ok": true,
+      "detail": "9 links written to Postgres with no network and no credentials"
+    },
+    {
+      "name": "the-secret-store-reports-no-provider-key-present",
+      "ok": true,
+      "detail": "{\"ok\":false,\"reason\":\"not_found\"}"
+    },
+    {
+      "name": "the-payment-port-settled-offline",
+      "ok": true,
+      "detail": "{\"applied\":true,\"duplicate\":false,\"reference\":\"SEAMPAY-[run]\",\"units\":10}"
+    },
+    {
+      "name": "no-network-call-was-made-anywhere-in-the-offline-intervention",
+      "ok": true,
+      "detail": "0 network calls; attempt log: []"
+    },
+    {
+      "name": "the-case-ended-CLOSED",
+      "ok": true,
+      "detail": "state=CLOSED"
+    },
+    {
+      "name": "artifact-lists-every-port",
+      "ok": true,
+      "detail": "9 ports in the artifact"
+    },
+    {
+      "name": "every-port-has-a-verification-level",
+      "ok": true,
+      "detail": "no port is silently unclassified"
+    },
+    {
+      "name": "the-mode-in-the-run-is-read-from-the-registry",
+      "ok": true,
+      "detail": "the real run resolved 9 real adapters and the offline run resolved 9 fakes"
+    },
+    {
+      "name": "bound-adapters-and-declared-adapters-are-both-listed",
+      "ok": true,
+      "detail": "23 declared adapters across the brief's table"
+    },
+    {
+      "name": "every-declared-adapter-is-either-bound-or-explained",
+      "ok": true,
+      "detail": "bound + notBound partitions the brief's table, per port"
+    },
+    {
+      "name": "the-contract-tested-list-is-explicit-and-disjoint-from-bound-only",
+      "ok": true,
+      "detail": "contract-tested=[ConversationProvider, TelephonyProvider, NotificationSink, PaymentProvider, SecretStore, AuditSink, Clock, IdGenerator] bound-only=[RiskSignalSource]"
+    },
+    {
+      "name": "no-port-is-left-unreported",
+      "ok": true,
+      "detail": "every port has a verification level"
+    },
+    {
+      "name": "every-contract-tested-port-names-what-it-compared",
+      "ok": true,
+      "detail": "a parity claim without a 'not compared' list would be an overclaim"
+    },
+    {
+      "name": "every-bound-only-port-explains-what-was-not-exercised",
+      "ok": true,
+      "detail": "1 bound-only port(s), each with an explicit reason"
+    }
+  ],
+  "unreportedPorts": [],
+  "digest": "bb853cdd0037be5b9cbf67e3f96f908de74ae0b2faa717abe8bf5894030b05af",
+  "generatedAt": "2026-10-02T18:20:00.234Z",
+  "run": {
+    "id": "murafsg9",
+    "org": "org-seams-murafsg9",
+    "caseRef": "SV-F-SEAMSMURAFSG9",
+    "chainRef": "SEAMCHAIN-murafsg9"
+  },
+  "commands": {
+    "test": "bun test tests/seams",
+    "typecheck": "bunx tsc --noEmit",
+    "env": "TEST_DATABASE_URL=postgresql://postgres@127.0.0.1:5432/securevoice_test?connection_limit=20"
+  }
+}

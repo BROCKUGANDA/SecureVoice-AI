@@ -50,7 +50,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "not_found" }, { status: 404 });
   }
 
-  const result = await acknowledge(parsed.data.id);
+  const result = await acknowledge(parsed.data.id, guard.profile.orgId ?? null);
   if (!result.ok) {
     const status = result.error === "not_found" ? 404 : 409;
     return NextResponse.json({ error: result.error }, { status });

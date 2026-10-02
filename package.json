@@ -9,7 +9,7 @@
     "build": "next build && bun scripts/copy-standalone.mjs",
     "start": "NODE_ENV=production bun .next/standalone/server.js 2>&1 | tee server.log",
     "lint": "eslint .",
-    "evidence": "bun scripts/build-evidence.ts",
+    "evidence": "bun --preload ./tests/preload.ts scripts/build-evidence.ts",
     "test:agent": "bun scripts/run-agent-tests.ts",
     "db:push": "prisma db push --accept-data-loss",
     "db:generate": "prisma generate",

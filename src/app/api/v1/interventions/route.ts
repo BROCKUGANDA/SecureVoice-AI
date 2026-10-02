@@ -14,10 +14,29 @@ import { validateOutboundUrl } from "@/lib/validation/ssrf";
 import { planTierFor } from "@/lib/abuse/tiers";
 import { enqueueDialJob } from "@/lib/scale/queue";
 import { admitOrDegrade } from "@/lib/admission";
+import { makeFailure, type FailureCode, type FailureInit } from "@/lib/failures/envelope";
+
 import { notifyRealtime } from "@/lib/realtime";
 import { createCase, transitionCase } from "@/lib/case-state-machine";
-import { badRequest, unprocessable, upstreamError } from "@/lib/api-errors";
 
+/**
+ * One error shape for the whole bank-facing surface: `{ code, message,
+ * retryable, requestId, docsUrl }`.
+ *
+ * Previously every refusal here returned a bare `{ error: string }`, which is
+ * not the envelope this project already ships and tests (455 chaos checks
+ * against `src/lib/failures/**`). A bank integrating against this endpoint got
+ * no machine-readable code, no `retryable` flag to branch on, and no
+ * correlation id to quote in a support ticket.
+ */
+
+function failure(code: FailureCode, init: FailureInit = {}): NextResponse {
+  const f = makeFailure(code, init);
+  return NextResponse.json(f.body, {
+    status: f.status,
+    headers: { ...f.headers, "Cache-Control": "no-store" },
+  });
+}
 export const dynamic = "force-dynamic";
 
 /**
@@ -101,7 +120,7 @@ export async function POST(req: NextRequest) {
 
   const rl = consumeRateLimit("ingest", callerId);
   if (!rl.ok) {
-    return NextResponse.json({ error: "Rate limit exceeded; retry later." }, { status: 429, headers: { "Retry-After": String(Math.ceil(rl.retryAfterMs / 1000)) } });
+    return failure("rate_limited", { retryAfterSec: Math.ceil(rl.retryAfterMs / 1000) });
   }
 
   const rawBody = await req.text();
@@ -110,31 +129,31 @@ export async function POST(req: NextRequest) {
   if (bearerHeader?.startsWith("Bearer svb_")) {
     const producer = await verifyProducerKey(bearerHeader.slice("Bearer ".length));
     if (!producer.ok) {
-      return NextResponse.json({ error: "Invalid or revoked producer key" }, { status: 401 });
+      return failure("unauthenticated", { detail: "producer key is invalid or revoked" });
     }
     bearerAuth = { callerId: producer.callerId, orgId: producer.orgId };
   } else {
     const sigHeader = req.headers.get("sv-signature") || req.headers.get("SV-Signature") || req.headers.get("x-securevoice-signature");
     const sig = verifySignature(rawBody, sigHeader, process.env.WEBHOOK_SECRET ?? "");
     if (!sig.ok) {
-      return NextResponse.json({ error: `Signature verification failed: ${sig.reason}` }, { status: 401 });
+      return failure("unauthenticated", { detail: `signature rejected: ${sig.reason}` });
     }
   }
 
   const idemKey = req.headers.get("idempotency-key");
   if (!idemKey || idemKey.trim().length < 8) {
-    return badRequest("Idempotency-Key header is required (min 8 characters)");
+    return failure("malformed_request", { detail: "Idempotency-Key header is required, min 8 characters" });
   }
 
   let parsed: ReturnType<typeof schema.safeParse>;
   try {
     parsed = schema.safeParse(JSON.parse(rawBody));
   } catch {
-    return badRequest("Invalid JSON body");
+    return failure("malformed_request", { detail: "request body is not valid JSON" });
   }
   if (!parsed.success) {
     const first = parsed.error.issues[0];
-    return unprocessable(`Invalid signal: ${first?.path.join(".")} ${first?.message ?? ""}`.trim());
+    return failure("semantically_invalid", { detail: `${first?.path.join(".")} ${first?.message ?? ""}`.trim() });
   }
   const signal: Signal = parsed.data;
 
@@ -146,7 +165,7 @@ export async function POST(req: NextRequest) {
   if (signal.callback_url) {
     const verdict = await validateOutboundUrl(signal.callback_url);
     if (!verdict.ok) {
-      return unprocessable(`Invalid signal: callback_url ${verdict.reason}`);
+      return failure("semantically_invalid", { detail: `callback_url rejected: ${verdict.reason}` });
     }
   }
   const orgId = bearerAuth?.orgId ?? signal.org_id ?? null;
@@ -191,10 +210,8 @@ export async function POST(req: NextRequest) {
       meta: { reason: "customer has opted out", code: "consent_opted_out" },
       orgId: orgId ?? undefined,
     }, { fast: true }).catch(() => {});
-    return NextResponse.json(
-      { error: "customer has opted out of outbound contact", code: "consent_opted_out" },
-      { status: 409 }
-    );
+    // Consent refusal is a POLICY decision, not a fault. 409, never 5xx.
+    return failure("policy_precondition", { detail: "consent_opted_out" });
   }
 
   // ── Execute: policy gate + call placement ──
@@ -217,8 +234,24 @@ export async function POST(req: NextRequest) {
     });
     return NextResponse.json(envelope, { status: 202, headers: { "Cache-Control": "no-store" } });
   } catch (err) {
+    // A policy or abuse refusal arrives as a TYPED failure: `armAndDial` sets
+    // `status` and `code` on it and throws. This catch used to flatten every
+    // one of those into `upstreamError(...)`, which defaults to **503** — so a
+    // bank whose signal was correctly refused for consent, geography or quota
+    // received "Service Unavailable". That reads as "our fault, retry later",
+    // and a bank that retries an invitation refusal re-dials a customer it
+    // was told not to contact. A refusal is not an outage and must not wear
+    // an outage's status code.
+    const typed = err as { status?: unknown; code?: unknown; message?: unknown };
+    if (typeof typed.status === "number" && typeof typed.code === "string") {
+      const status = typed.status;
+      const detail = typeof typed.message === "string" ? typed.message : typed.code;
+      return failure(status >= 400 && status < 500 ? "policy_precondition" : "dependency_unavailable", {
+        detail: `${typed.code}: ${detail}`,
+      });
+    }
     console.error("[v1/interventions] arming failed:", err instanceof Error ? err.message : err);
-    return upstreamError("Case recording failed — signal rejected for safety");
+    return failure("dependency_unavailable", { detail: "case recording failed" });
   }
 }
 

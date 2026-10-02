@@ -1,0 +1,14 @@
+{
+  "schema_version": "1.0",
+  "gate": "surface",
+  "command": "bun test tests/surface",
+  "ok": true,
+  "exit_code": 0,
+  "duration_ms": 383,
+  "passed": 67,
+  "failed": 0,
+  "assertions": 140,
+  "database": "shared test database",
+  "generated_at": "2026-10-02T17:31:43.051Z",
+  "output_tail": "(pass) web app manifest > declares a maskable icon [0.10ms]\n(pass) web app manifest > start_url is the marketing root, never a console route [0.02ms]\n(pass) web app manifest > theme_color matches the viewport themeColor in the root layout [0.33ms]\n(pass) web app manifest > theme_color and background_color are valid hex colours [0.11ms]\n(pass) origin resolution > robots and sitemap derive the same origin [0.05ms]\n(pass) origin resolution > prefers NEXT_PUBLIC_SITE_URL and strips a trailing slash [0.83ms]\n(pass) origin resolution > promotes the bare SITE_ADDRESS to an https origin [2.41ms]\n(pass) origin resolution > falls back to localhost so a dev build still emits valid output [0.66ms]\n(skip) live deployment (SURFACE_BASE_URL) > a representative public route carries the full header set\n(skip) live deployment (SURFACE_BASE_URL) > the CSP includes frame-ancestors 'none'\n(skip) live deployment (SURFACE_BASE_URL) > a representative API route is noindex\n(skip) live deployment (SURFACE_BASE_URL) > robots.txt and sitemap.xml are served and agree on the origin\n(skip) live deployment (SURFACE_BASE_URL) > the web manifest is served and parses\n(pass) known gaps, asserted so they cannot be forgotten > the manifest is NOT linked from the root layout [0.63ms]\n(pass) known gaps, asserted so they cannot be forgotten > CLOSED 2026-10-02: public/robots.txt no longer collides with app/robots.ts [0.74ms]\n(pass) known gaps, asserted so they cannot be forgotten > security.txt is a placeholder, not a working contact [0.26ms]\n\n5 tests skipped:\n(skip) live deployment (SURFACE_BASE_URL) > a representative public route carries the full header set\n(skip) live deployment (SURFACE_BASE_URL) > the CSP includes frame-ancestors 'none'\n(skip) live deployment (SURFACE_BASE_URL) > a representative API route is noindex\n(skip) live deployment (SURFACE_BASE_URL) > robots.txt and sitemap.xml are served and agree on the origin\n(skip) live deployment (SURFACE_BASE_URL) > the web manifest is served and parses\n\n 67 pass\n 5 skip\n 0 fail\n 140 expect() calls\nRan 72 tests across 1 file. [343.00ms]\n"
+}

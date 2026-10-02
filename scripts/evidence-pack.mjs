@@ -127,30 +127,58 @@ async function testInterventionPipeline() {
     return;
   }
 
+  // The v1 contract, not the retired one. `/api/interventions` now answers 410
+  // by design — see docs/GAP-REGISTER.md — so posting there would prove
+  // nothing about the pipeline.
+  //
+  // `amount` is INTEGER MINOR UNITS. `phone` and `consent_record_id` are
+  // REQUIRED by the strict schema, and both come from an enrolled Customer
+  // row. A deployment with no verified test-number enrollment therefore gets a
+  // typed refusal, not a call — which this now reports as such rather than as
+  // a bare ok:false.
+  const enrolledPhone = process.env.EVIDENCE_TEST_PHONE;
+  const consentRecordId = process.env.EVIDENCE_CONSENT_RECORD_ID;
+  if (!enrolledPhone || !consentRecordId) {
+    log("Intervention pipeline", {
+      ok: false,
+      skipped: true,
+      note: "set EVIDENCE_TEST_PHONE and EVIDENCE_CONSENT_RECORD_ID to a verified test enrollment to exercise the dial path",
+    });
+    return;
+  }
+
+  const transactionRef = `EVIDENCE-${Date.now().toString(36).toUpperCase()}`;
   const signal = {
-    signal: {
-      caseId: `EVIDENCE-${Date.now().toString(36).toUpperCase()}`,
-      riskScore: 0.94,
-      channel: "card",
-      customer: { ref: "EVIDENCE-001", lang: "en" },
-      transaction: { amountAed: 2500, merchant: "Electronics World" },
-    },
+    transaction_ref: transactionRef,
+    risk_score: 0.94,
+    language: "en",
+    phone: enrolledPhone,
+    currency: "AED",
+    amount: 250000,
+    merchant: "Electronics World",
+    consent_record_id: consentRecordId,
   };
   const rawBody = JSON.stringify(signal);
   const t = Math.floor(Date.now() / 1000).toString();
   const crypto = await import("crypto");
   const v1 = crypto.createHmac("sha256", secret).update(`${t}.${rawBody}`).digest("hex");
 
-  const r = await post("/api/interventions", signal, {
+  const r = await post("/v1/interventions", signal, {
     "SV-Signature": `t=${t},v1=${v1}`,
+    "Idempotency-Key": `evidence-${transactionRef}`,
     "x-caller-id": "evidence-pack",
   });
 
   log("Intervention accepted (HMAC signed)", {
     ok: r.status === 202 && r.data.caseRef,
-    note: `caseRef=${r.data.caseRef}, status=${r.status}, ${r.latencyMs}ms`,
+    note:
+      r.status === 202
+        ? `caseRef=${r.data.caseRef}, status=${r.status}, ${r.latencyMs}ms`
+        : `NOT ACCEPTED: status=${r.status} code=${r.data?.code ?? "-"} ${r.data?.error ?? ""} — ${r.latencyMs}ms`,
     latencyMs: r.latencyMs,
   });
+
+  if (r.status !== 202 || !r.data.caseRef) return;
 
   // Verify the audit chain for this case
   if (r.data.caseRef) {
@@ -165,10 +193,12 @@ async function testInterventionPipeline() {
     });
   }
 
-  // Test idempotency — same caseId should return duplicate
-  const dup = await post("/api/interventions", signal, {
+  // Idempotent replay: the SAME Idempotency-Key must return the stored
+  // response and create nothing. A fresh key would prove nothing.
+  const dup = await post("/v1/interventions", signal, {
     "SV-Signature": `t=${t},v1=${v1}`,
     "x-caller-id": "evidence-pack",
+    "Idempotency-Key": `evidence-${transactionRef}`,
   });
   log("Idempotent replay (same caseId)", {
     ok: dup.data.duplicate === true || dup.status === 200,

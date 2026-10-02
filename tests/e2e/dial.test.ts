@@ -206,7 +206,14 @@ test("WP-2: 20 signals dial in dry-run, p95 < 1.5s, idempotent, audited", async 
   // fire-and-forget on the hot path, so wait for them to land.
   await new Promise((r) => setTimeout(r, 3000));
   for (const ref of caseRefs.slice(0, 5)) {
-    const result = await verifyChain(ref);
+    // These cases were admitted through the BEARER-less interventions route:
+    // `orgId = bearerAuth?.orgId ?? signal.org_id ?? null` resolves to null
+    // here (no bearer key, no org_id in the body), and every audit append on
+    // that path is written with `orgId: orgId ?? undefined` — so the rows
+    // really do live in the shared namespace. null is the OWNING scope for
+    // this fixture, not a placeholder. ("unscoped" above is the abuse-policy
+    // bucket, a different string from the row's orgId.)
+    const result = await verifyChain(ref, null);
     expect(result.ok).toBe(true);
   }
 

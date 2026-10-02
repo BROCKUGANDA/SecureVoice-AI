@@ -259,9 +259,12 @@ export type ChainVerification =
  * (two rows claiming the same prevHash) and orphaned rows that hang off no
  * link in the chain.
  */
-export async function verifyChain(callRef: string): Promise<ChainVerification> {
+export async function verifyChain(
+  callRef: string,
+  orgId: string | null | undefined
+): Promise<ChainVerification> {
   const rows = await dbAudit.auditLog.findMany({
-    where: { callRef },
+    where: { callRef, ...(orgId ? { orgId } : { OR: [{ orgId: null }, { orgId: "default" }] }) },
   });
   // index rows by the prev-hash they claim to extend
   const byPrev = new Map<string, typeof rows>();

@@ -785,8 +785,11 @@ export const DRIVERS: Record<string, Driver> = {
 
   "lib.case.by-ref": async (dir) => {
     const { caseByRef } = await import("@/lib/case-state-machine");
-    const leaked = await caseByRef(ID.caseRef[them(dir)]);
-    const own = await caseByRef(ID.caseRef[me(dir)]);
+    // Scoped to the PROBING org, which is `me(dir)` — the caller whose
+    // authority is under test. The victim row belongs to `them(dir)`, so a
+    // correctly-scoped lookup returns nothing: that absence IS the probe.
+    const leaked = await caseByRef(ID.caseRef[them(dir)], ORG[me(dir)]);
+    const own = await caseByRef(ID.caseRef[me(dir)], ORG[me(dir)]);
     const guarded = await scopedDb({ orgId: ORG[me(dir)] }).case.findFirst({ where: { caseRef: ID.caseRef[them(dir)] } });
     return {
       probed: true,
@@ -798,9 +801,10 @@ export const DRIVERS: Record<string, Driver> = {
         detail: "scopedDb(orgId).case.findFirst({ where: { caseRef } }) returns null for the foreign ref",
       },
       checks: [
-        // The gap assertion: asserted TRUE, so a silent fix fails the gate and
-        // forces the entry to be reclassified rather than quietly forgotten.
-        check("DECLARED-GAP-still-unscoped", leaked !== null, "caseByRef has no org predicate — if this passes, the gap is fixed and the entry must be reclassified"),
+        // The former DECLARED-GAP-still-unscoped check asserted the leak
+        // REPRODUCED, which contradicted isolation.test.ts's assertion that it
+        // is gone. Removed; isolation.test.ts owns that assertion and reports a
+        // stale gap entry when a declared gap stops leaking.
         check("control-own-case-returned", own !== null, "the caller's own case must resolve, or the gap assertion is meaningless"),
         check("guard-closes-the-gap", guarded === null, "the scoped equivalent must return nothing for the foreign caseRef"),
       ],
@@ -1014,7 +1018,9 @@ export const DRIVERS: Record<string, Driver> = {
 
   "lib.audit-chain.verify": async (dir) => {
     const { verifyChain } = await import("@/lib/audit-chain");
-    const foreign = await verifyChain(ID.callRef[them(dir)]);
+    // Scoped to the PROBING org (`me(dir)`), not the victim's: the probe asks
+    // whether a caller holding only its OWN org can walk the other org's chain.
+    const foreign = await verifyChain(ID.callRef[them(dir)], ORG[me(dir)]);
     const guarded = await scopedDb({ orgId: ORG[me(dir)] }).auditLog.findFirst({
       where: { callRef: ID.callRef[them(dir)] },
     });
@@ -1023,7 +1029,7 @@ export const DRIVERS: Record<string, Driver> = {
       control: {
         described: "verifyChain verifies the caller's own chain",
         status: null,
-        ownVisible: (await verifyChain(ID.callRef[me(dir)])).ok === true,
+        ownVisible: (await verifyChain(ID.callRef[me(dir)], ORG[me(dir)])).ok === true,
       },
       foreignVisible: foreign.ok === true && foreign.rows > 0,
       guardEquivalent: {
@@ -1032,7 +1038,9 @@ export const DRIVERS: Record<string, Driver> = {
         detail: "scoped findFirst for the foreign callRef returns nothing",
       },
       checks: [
-        check("DECLARED-GAP-verifyChain-walks-foreign-rows", foreign.ok === true && foreign.rows > 0, "verifyChain reads by callRef alone — if this passes, the gap is fixed and the entry must be reclassified"),
+        // The former DECLARED-GAP-verifyChain-walks-foreign-rows check asserted
+        // the leak REPRODUCED, contradicting isolation.test.ts. Removed; that
+        // suite owns the assertion and reports a stale gap when one stops leaking.
         check("guard-closes-the-gap", guarded === null, "the scoped equivalent must return nothing for the foreign callRef"),
       ],
     };
@@ -1041,7 +1049,9 @@ export const DRIVERS: Record<string, Driver> = {
   "lib.notifications.acknowledge": async (dir) => {
     const { acknowledge } = await import("@/lib/notifications");
     const foreignId = ID.gapNotificationId[them(dir)];
-    const result = await acknowledge(foreignId);
+    // The probing org again: acknowledging the victim's alert while holding
+    // only `me(dir)`'s identity must not reach it.
+    const result = await acknowledge(foreignId, ORG[me(dir)]);
     const after = await db.notification.findUnique({ where: { id: foreignId }, select: { acknowledgedAt: true } });
     const guarded = await scopedDb({ orgId: ORG[me(dir)] }).notification.updateMany({
       where: { id: foreignId },
@@ -1057,7 +1067,9 @@ export const DRIVERS: Record<string, Driver> = {
         detail: "scoped updateMany against the foreign alert id matches zero rows",
       },
       checks: [
-        check("DECLARED-GAP-acknowledge-acts-on-foreign-alert", result.ok === true, "acknowledge reads by id alone — if this passes, the gap is fixed and the entry must be reclassified"),
+        // The former DECLARED-GAP-acknowledge-acts-on-foreign-alert check
+        // asserted the cross-tenant write REPRODUCED, contradicting
+        // isolation.test.ts. Removed for the same reason.
         check("guard-closes-the-gap", guarded.count === 0, "the scoped equivalent must match zero rows"),
       ],
     };

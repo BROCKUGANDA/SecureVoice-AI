@@ -398,7 +398,11 @@ test("I-6: erasure destroys the plaintext and the chain still verifies from gene
   await seedChain(caseRef, ORG_DEFAULT, 4);
 
   const beforeErase = await chainSnapshot(caseRef);
-  const verificationBefore = await verifyChain(caseRef);
+  // `seedChain(caseRef, ORG_DEFAULT, 4)` wrote these rows with
+  // `orgId: ORG_DEFAULT`, and the seal/erasure witnesses in crypto-shred.ts
+  // append with `orgId: row.orgId` — the Case's own ORG_DEFAULT. This scope is
+  // load-bearing: the `rows === 4` check below is vacuous under a null scope.
+  const verificationBefore = await verifyChain(caseRef, ORG_DEFAULT);
   expect(verificationBefore.ok).toBe(true);
   check(
     "chain-ok-before",
@@ -480,7 +484,7 @@ test("I-6: erasure destroys the plaintext and the chain still verifies from gene
   // (c) INVARIANT I-6: verifies from genesis, byte-identical, plus one appended
   // witness row.
   const afterErase = await chainSnapshot(caseRef);
-  const verificationAfter = await verifyChain(caseRef);
+  const verificationAfter = await verifyChain(caseRef, ORG_DEFAULT);
   check(
     "chain-ok-after-erasure-I6",
     verificationAfter.ok === true,
@@ -517,7 +521,7 @@ test("I-6: erasure destroys the plaintext and the chain still verifies from gene
     where: { id: victim.id },
     data: { redactedText: "TAMPERED — this text was never written by the app" },
   });
-  const tampered = await verifyChain(caseRef);
+  const tampered = await verifyChain(caseRef, ORG_DEFAULT);
   check(
     "negative-control-tamper-is-detected",
     tampered.ok === false && tampered.brokenAt === victim.id,
@@ -527,7 +531,7 @@ test("I-6: erasure destroys the plaintext and the chain still verifies from gene
 
   // Restore the row so the rest of the run sees an intact chain.
   await db.auditLog.update({ where: { id: victim.id }, data: { redactedText: victim.redactedText } });
-  const restored = await verifyChain(caseRef);
+  const restored = await verifyChain(caseRef, ORG_DEFAULT);
   expect(restored.ok).toBe(true);
 
   // (e) Erasure is idempotent, and does not append a second witness.
@@ -584,7 +588,7 @@ test("erasure succeeds even with no master key; sealing does not", async () => {
     eraseResult.keyDestroyed === true,
     "a lost KEK must not be able to BLOCK a deletion request",
   );
-  const chain = await verifyChain(caseRef);
+  const chain = await verifyChain(caseRef, ORG_DEFAULT);
   check("chain-ok-after-nokek-erasure", chain.ok === true, `${chain.ok ? "ok" : "broken"}`);
 });
 
@@ -807,7 +811,8 @@ test("transcripts shred at 90 days, case records at their window, and the chain 
   await pace();
 
   const before = await chainSnapshot(aged);
-  expect((await verifyChain(aged)).ok).toBe(true);
+  // `seedChain(aged, ORG_DEFAULT, 3)` — ORG_DEFAULT owns this chain.
+  expect((await verifyChain(aged, ORG_DEFAULT)).ok).toBe(true);
   const stateBefore = await casePrivacyState(aged);
 
   // t+0: 40 days old — inside the transcript window (90), so nothing but audio
@@ -869,7 +874,7 @@ test("transcripts shred at 90 days, case records at their window, and the chain 
       ? `all ${before.length} pre-existing rows byte-identical after a retention run`
       : `mutated: ${moved.join(", ")}`,
   );
-  const verification = await verifyChain(aged);
+  const verification = await verifyChain(aged, ORG_DEFAULT);
   check(
     "retention-kept-chain-verifying-I6",
     verification.ok === true,
@@ -904,7 +909,10 @@ test("transcripts shred at 90 days, case records at their window, and the chain 
     "the Case row is gone after its retention window closes",
   );
   const recordAfter = await chainSnapshot(recordCase);
-  const recordVerification = await verifyChain(recordCase);
+  // `seedChain(recordCase, ORG_OVERRIDE, 2)` — ORG_OVERRIDE owns this chain,
+  // NOT ORG_DEFAULT: the record tier is deliberately configured on a different
+  // org, and scoping this to ORG_DEFAULT would verify zero rows.
+  const recordVerification = await verifyChain(recordCase, ORG_OVERRIDE);
   check(
     "deleting-the-case-row-left-the-chain-intact",
     recordVerification.ok === true && recordAfter.length > recordBefore.length,
@@ -1039,7 +1047,8 @@ test("deleteCaseRecord removes the row and keeps the chain, eraseCase is safe to
     (await db.case.findUnique({ where: { caseRef: caseRef } })) === null,
     `cleared [${deleted.clearedColumns.join(", ")}], keyDestroyed=${deleted.keyDestroyed}`,
   );
-  const verification = await verifyChain(caseRef);
+  // `seedChain(caseRef, ORG_DEFAULT, 2)` — ORG_DEFAULT owns this chain.
+  const verification = await verifyChain(caseRef, ORG_DEFAULT);
   check(
     "chain-survives-case-deletion",
     verification.ok === true,

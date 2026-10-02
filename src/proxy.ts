@@ -126,10 +126,146 @@ function reject(
 ): NextResponse {
   // Log the path for correlation, but never echo it back to the caller.
   console.warn(`[edge] ${status} ${error} ${req.method} ${req.nextUrl.pathname} rid=${requestId}`);
-  return NextResponse.json(
+  const res = NextResponse.json(
     { error },
     { status, headers: { "Cache-Control": "no-store", [REQUEST_ID]: requestId, ...extra } },
   );
+  // A rejected request is still a served response, and an error body on an
+  // operator route is exactly the sort of thing that must not be indexed.
+  applySurfaceHeaders(res, req.nextUrl.pathname);
+  return res;
+}
+
+/* ── Public surface: indexing + Permissions-Policy (WP-24) ───────────────── */
+
+/**
+ * Which paths a crawler may index. An ALLOWLIST, not a denylist.
+ *
+ * The reason is structural, and it is the single most important thing to
+ * understand about this app's public surface: there is no `/console` URL.
+ * `src/app/page.tsx` renders EVERY view — marketing, docs, security, legal AND
+ * the authenticated Command Center — from one client-side `view` state, with no
+ * `usePathname`, no `router.push`, and no `history.pushState` anywhere in the
+ * tree. So the console cannot be de-indexed by path: there is no path to
+ * exclude. What protects it is (a) Clerk gating the data and (b) never handing
+ * a crawler a URL that resolves to it.
+ *
+ * That leaves exactly two HTML routes in the tree — `/` and `/inspector` — and
+ * `/inspector` is a signature-verification debug tool, so `/` is the only
+ * indexable page.
+ *
+ * Allowlist rather than denylist because a denylist silently reopens the
+ * surface every time someone adds a route: the new page ships indexable and
+ * nobody notices for months. Here a new page is noindex by default and has to
+ * be opted in, which fails towards the safe side.
+ *
+ * `/sitemap.xml` is listed because it is part of the public SEO surface and the
+ * proxy matcher DOES run for it (unlike `/robots.txt` and `/site.webmanifest`,
+ * whose extensions the matcher excludes). Leaving it noindexed was measured on
+ * a running server, not assumed. `/robots.txt` is absent from this list on
+ * purpose: the matcher skips it entirely, so no header is ever attached.
+ *
+ * Adding a real public page? Add it here AND to src/app/sitemap.ts. tests/
+ * surface/surface.test.ts fails if the two disagree.
+ */
+export const INDEXABLE_PATHS: readonly string[] = ["/", "/sitemap.xml"];
+
+/**
+ * Where the microphone is permitted.
+ *
+ * READ THIS BEFORE "TIGHTENING" IT — this list looks longer than it should be,
+ * and shortening it silently breaks the product.
+ *
+ * `navigator.mediaDevices.getUserMedia` is called in exactly two places:
+ * `src/views/Demo.tsx` and `src/lib/voice-client.ts`. Both are reachable from
+ * the `demo` VIEW, which `src/app/page.tsx` renders at path `/`. So in the
+ * current single-page architecture the microphone consumer IS `/`, and denying
+ * it there is denying it to the entire demo — the one thing this app exists to
+ * show.
+ *
+ * The policy is still written as an allowlist rather than a blanket
+ * `microphone=(self)` because that is the shape that survives the obvious next
+ * refactor: when the demo is split out to its own `/widget` route, deleting
+ * `"/"` from this array is the whole change, and until then `/api/*`, `/v1/*`
+ * and every other path are provably denied. Everything not listed gets
+ * `microphone=()`.
+ */
+export const MICROPHONE_ALLOWLIST: readonly string[] = ["/"];
+
+/** Capabilities this product never uses. Denied on every path, no exceptions. */
+const ALWAYS_DENIED = [
+  "camera=()",
+  "geolocation=()",
+  "payment=()",
+  "usb=()",
+  "midi=()",
+  "serial=()",
+  "hid=()",
+  "display-capture=()",
+] as const;
+
+function isIndexable(pathname: string): boolean {
+  return INDEXABLE_PATHS.includes(pathname);
+}
+
+/**
+ * `X-Robots-Tag` for a path, or `null` when the path is indexable and the
+ * header should be absent entirely.
+ *
+ * `null` rather than `index, follow` for the indexable case: emitting an
+ * affirmative robots header on the marketing site is noise, and if it ever
+ * disagreed with src/app/sitemap.ts the disagreement would be invisible in a
+ * diff. Absence is the unambiguous signal.
+ *
+ * `nofollow` is paired with `noindex` deliberately. These responses carry
+ * operator dashboards, DB latency, heap size and the Command Center's audit
+ * chain — following links out of them would let a crawler walk from a leaked
+ * internal URL to the rest of the site.
+ */
+export function robotsTagFor(pathname: string): string | null {
+  return isIndexable(pathname) ? null : "noindex, nofollow";
+}
+
+/**
+ * `Permissions-Policy` for a path.
+ *
+ * This OVERLAPS with the blanket header in next.config.ts
+ * (`camera=(), microphone=(self), geolocation=(), payment=()`). The overlap is
+ * deliberate, and which header wins was MEASURED on a running dev server
+ * rather than reasoned about:
+ *
+ *   GET /            -> Permissions-Policy: camera=(), geolocation=(), payment=(),
+ *                       usb=(), midi=(), serial=(), hid=(), display-capture=(),
+ *                       microphone=(self)          <- this function's value, ONCE
+ *   GET /api/status  -> Permissions-Policy: ... microphone=()   <- this function's
+ *
+ * So the proxy's response header REPLACES the one from `headers()` — it does
+ * not append and the two do not intersect. That makes this the authoritative
+ * definition of the policy, which is why the per-path half lives here: the
+ * config's global value is dead on every path this file matches. Empirically
+ * the header is present once, not twice.
+ *
+ * next.config.ts is outside this work package's scope. Its `headers()` does
+ * support per-`source` entries and is arguably the better home for a static
+ * policy; see docs/SURFACE.md.
+ */
+export function permissionsPolicyFor(pathname: string): string {
+  const mic = MICROPHONE_ALLOWLIST.includes(pathname) ? "microphone=(self)" : "microphone=()";
+  return [...ALWAYS_DENIED, mic].join(", ");
+}
+
+/**
+ * Apply the surface headers to a response.
+ *
+ * Split out from the middleware body so the early-return paths (413/429) get
+ * the same treatment as the normal one — a rejection that skipped this would
+ * leak a robots-invisible error page exactly when something has gone wrong.
+ */
+export function applySurfaceHeaders(res: NextResponse, pathname: string): NextResponse {
+  const tag = robotsTagFor(pathname);
+  if (tag) res.headers.set("X-Robots-Tag", tag);
+  res.headers.set("Permissions-Policy", permissionsPolicyFor(pathname));
+  return res;
 }
 
 export default clerkMiddleware((_auth, req) => {
@@ -167,12 +303,12 @@ export default clerkMiddleware((_auth, req) => {
   const country = resolveCountry(req);
   if (country) headers.set("x-securevoice-country", country);
 
-  // NextResponse.next({ request: { headers } }) makes these visible UPSTREAM to
-  // the route handler. Passing them as `headers` instead would expose them to the
-  // client, which is why the distinction matters.
+// NextResponse.next({ request: { headers } }) makes these visible UPSTREAM to
+  // the route handler. Passing them as `headers` instead would expose them to
+  // the client, which is why the distinction matters.
   const res = NextResponse.next({ request: { headers } });
   res.headers.set(REQUEST_ID, requestId);
-  return res;
+  return applySurfaceHeaders(res, pathname);
 });
 
 export const config = {

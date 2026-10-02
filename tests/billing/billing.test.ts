@@ -805,7 +805,9 @@ test("WP-13: manual invoice enforces dual control and audit-chains both actions"
   expect(await db.usageLedger.count({ where: { orgId: org, kind: "topup" } })).toBe(1);
 
   // ── both actions are audit-chained under one callRef ──
-  const chain = await verifyChain(`PAY-${bankRef}`);
+  // `recordPayment`/`verifyPayment` audit under `input.orgId`, which for this
+  // fixture is `org` — the same string passed to every call above.
+  const chain = await verifyChain(`PAY-${bankRef}`, org);
   expect(chain.ok).toBe(true);
   const auditRows = await db.auditLog.findMany({ where: { callRef: `PAY-${bankRef}` } });
   const intents = auditRows.map((r) => r.intent);

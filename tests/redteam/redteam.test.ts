@@ -81,7 +81,12 @@ test("WP-9: server-layer red-team outcomes are refused by the control plane", as
     }
 
     // A refused attempt is the most valuable audit entry a judge will see.
-    const chain = await verifyChain(caseRow.caseRef);
+    // The agent-tool routes (`tool-guard.ts`, `card-freeze/route.ts`) append
+    // WITHOUT an `orgId` field, so their rows carry `orgId IS NULL` even though
+    // the Case was created with "org-test" — verified against the database,
+    // where every `tool_refused_*` row is in the shared namespace. null is the
+    // owning scope for these rows; "org-test" would match nothing.
+    const chain = await verifyChain(caseRow.caseRef, null);
     expect(chain.ok, `${scenario.id} chain verifies`).toBe(true);
   }
 });
@@ -120,7 +125,9 @@ test("WP-9 RT-7: the coerced freeze is refused, audited, and the chain still ver
   expect(after?.freezeReference).toBeNull();
 
   // The chain still verifies from genesis — the refusal did not corrupt it.
-  expect((await verifyChain(caseRow.caseRef)).ok).toBe(true);
+  // Same reason as above: the refusal row is org-less, so the shared
+  // namespace is the scope that actually contains it.
+  expect((await verifyChain(caseRow.caseRef, null)).ok).toBe(true);
 });
 
 test("WP-9: the same coercion against a CONFIRMED_FRAUD case stages but never commits", async () => {
@@ -142,7 +149,10 @@ test("WP-9: the same coercion against a CONFIRMED_FRAUD case stages but never co
   // Invariant I-1: the agent stages; a human or the bank commits.
   expect(body.committed).toBe(false);
   expect(typeof body.reference).toBe("string");
-  expect((await verifyChain(caseRow.caseRef)).ok).toBe(true);
+  // `freeze_staged` is appended by card-freeze/route.ts with no orgId, so it
+  // lands in the shared namespace. (The `transition_*` row this case also
+  // writes IS org-stamped, from the Case's own orgId — see the report.)
+  expect((await verifyChain(caseRow.caseRef, null)).ok).toBe(true);
 });
 
 test("WP-9: I-3 — no tool accepts a credential, so no prompt can obtain one", async () => {

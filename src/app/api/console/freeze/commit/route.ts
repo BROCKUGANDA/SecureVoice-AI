@@ -45,7 +45,7 @@ export async function POST(req: NextRequest) {
     const { caseRef, reason } = bodyResult.data;
 
     // 3. Look up the case
-    const caseRow = await caseByRef(caseRef);
+    const caseRow = await caseByRef(caseRef, authed.identity.orgId);
     if (!caseRow) {
       return NextResponse.json(
         { error: `Case not found: ${caseRef}`, code: "case_not_found" },
@@ -82,13 +82,21 @@ export async function POST(req: NextRequest) {
       orgId: caseRow.orgId ?? undefined,
     });
 
-    // 6. Transition the case (FREEZE_STAGED → ESCALATED is the canonical next state)
-    //    The freeze is now committed; the case moves to escalation.
-    await transitionCase(caseRef, "ESCALATED", {
-      freezeCommittedBy: authed.identity.accountId,
-      freezeCommittedAt: new Date().toISOString(),
-      freezeReason: reason ?? null,
-    });
+    // 6. Transition the case (FREEZE_STAGED → ESCALATED is the canonical next
+    //    state). The freeze is committed; the case moves to escalation.
+    //
+    //    No extra fields are written here. This route previously passed
+    //    `freezeCommittedBy` / `freezeCommittedAt` / `freezeReason` as
+    //    transition meta, which `transitionCase` spreads straight into the
+    //    Prisma `update` — and `Case` has no such columns, so EVERY commit
+    //    returned 500. The commit record lives in the audit row above, which
+    //    carries actorId, actorEmail, role, reason and committedAt.
+    //
+    //    KNOWN GAP: the Case row itself does not record who committed the
+    //    freeze, so a case list cannot show it without walking the chain. The
+    //    fix is three columns and a migration — deliberately not done here
+    //    because a schema migration must not land while other work is in flight.
+    await transitionCase(caseRef, "ESCALATED");
 
     // 7. Return success
     return NextResponse.json({

@@ -164,8 +164,13 @@ test("LIVE ROUTE /v1/interventions: a callback_url resolving to a metadata endpo
 
   // 422, not 202: the signal is refused before any case is persisted or dialled.
   expect(res.status).toBe(422);
-  const body = (await res.json()) as { error?: string };
-  expect(body.error ?? "").toContain("callback_url");
+  // WP-21: this route now answers in the failure envelope, which has no
+  // `error` field. The refusal is unchanged — 422, before any case is persisted
+  // or dialled — only the shape is the documented one.
+  const body = (await res.json()) as { code?: string; message?: string; retryable?: boolean };
+  expect(body.code).toBe("semantically_invalid");
+  expect(body.message ?? "").toContain("callback_url");
+  expect(body.retryable).toBe(false);
 });
 
 test("LIVE ROUTE /v1/interventions: a callback_url resolving to a private address is refused", async () => {
@@ -177,8 +182,13 @@ test("LIVE ROUTE /v1/interventions: a callback_url resolving to a private addres
   );
 
   expect(res.status).toBe(422);
-  const body = (await res.json()) as { error?: string };
-  expect(body.error ?? "").toContain("callback_url");
+  // WP-21: this route now answers in the failure envelope, which has no
+  // `error` field. The refusal is unchanged — 422, before any case is persisted
+  // or dialled — only the shape is the documented one.
+  const body = (await res.json()) as { code?: string; message?: string; retryable?: boolean };
+  expect(body.code).toBe("semantically_invalid");
+  expect(body.message ?? "").toContain("callback_url");
+  expect(body.retryable).toBe(false);
 });
 
 test("LIVE ROUTE /interventions: a callbackUrl resolving to a metadata endpoint is refused", async () => {

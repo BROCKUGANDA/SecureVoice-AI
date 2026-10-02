@@ -1,0 +1,14 @@
+{
+  "schema_version": "1.0",
+  "gate": "outbound-webhook",
+  "command": "bun test tests/webhooks/outbound.test.ts",
+  "ok": true,
+  "exit_code": 0,
+  "duration_ms": 1149,
+  "passed": 2,
+  "failed": 0,
+  "assertions": 52,
+  "database": "shared test database",
+  "generated_at": "2026-10-02T17:31:12.788Z",
+  "output_tail": "        ORDER BY \"nextAttemptAt\" ASC\n        FOR UPDATE SKIP LOCKED\n        LIMIT $2\n     )\n     -- CAS: re-assert claimability on the UPDATE's own WHERE.\n     --\n     -- SKIP LOCKED alone is NOT a claim. The subquery locks a row for the\n     -- duration of THIS statement, but nothing stops two concurrent workers\n     -- from both selecting the same id across statements, and the UPDATE would\n     -- then stamp state='SENDING' twice and both workers would deliver the same\n     -- bank notification. Re-checking the state here means a row that changed\n     -- under us simply is not returned, and the loser's UPDATE affects zero\n     -- rows. This is the same defect the dial-queue load gate caught.\n     AND (\n       (o.state = 'PENDING' AND o.\"nextAttemptAt\" <= now())\n       OR (o.state = 'SENDING' AND o.\"updatedAt\" < $3)\n     )\n    RETURNING o.id, o.\"eventType\", o.\"caseRef\", o.payload, o.\"targetUrl\", o.attempts\n  \n\n\ntests\\webhooks\\outbound.test.ts:\n(pass) WP-5: outbox retries, dead-letters, replays once, cross-language signature [630.45ms]\n(pass) WP-5: concurrent claimers never both win the same delivery [339.65ms]\n\n 2 pass\n 0 fail\n 52 expect() calls\nRan 2 tests across 1 file. [1092.00ms]\n"
+}

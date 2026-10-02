@@ -1,0 +1,14 @@
+{
+  "schema_version": "1.0",
+  "gate": "dial",
+  "command": "bun test tests/e2e/dial.test.ts",
+  "ok": true,
+  "exit_code": 0,
+  "duration_ms": 5824,
+  "passed": 1,
+  "failed": 0,
+  "assertions": 211,
+  "database": "shared test database",
+  "generated_at": "2026-10-02T17:31:06.318Z",
+  "output_tail": "                $5, $6, $7, $8, $9, $10)\n        ON CONFLICT (\"idemKey\") DO NOTHING\n        RETURNING \"id\", \"orgId\", \"caseRef\", \"attemptNo\", \"kind\", \"units\", \"reason\", \"idemKey\", \"balanceAfter\", \"createdAt\"\n      \n         (id, case_id, case_ref, org_id, attempt_no, retries, state, priority, payload,\n          available_at, created_at, updated_at)\n       VALUES\n         ($1, $2, $3, $4, $5, 0, 'PENDING', $6, $7, now() + (CAST($8 AS text) || ' milliseconds')::interval, now(), now())\n       ON CONFLICT (\"case_id\", \"attempt_no\") DO NOTHING\n       RETURNING id, attempt_no, retries, state\n    SELECT\n      (SELECT response FROM \"IdempotencyKey\"\n       WHERE scope = 'interventions' AND key = $1 AND \"callerId\" = $2\n       AND \"expiresAt\" > NOW() AND response != ''\n       LIMIT 1) as idem_response,\n      (SELECT \"optedOut\" FROM \"Customer\"\n       WHERE \"consentRecordId\" = $3\n       LIMIT 1) as consent_opted_out\n  \n  ✓ 20 signals dialed, p95=37ms, idempotent, chains verified\n\n\ntests\\e2e\\dial.test.ts:\n(pass) WP-2: 20 signals dial in dry-run, p95 < 1.5s, idempotent, audited [5722.79ms]\n\n 1 pass\n 0 fail\n 211 expect() calls\nRan 1 test across 1 file. [5.80s]\n"
+}

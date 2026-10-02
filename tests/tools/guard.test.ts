@@ -214,7 +214,13 @@ test("WP-3: tools enforce guardrails - 409s, tool scoping, p95, audit", async ()
 
   // -- 4. Every path appends exactly one audit entry --
   // The refusal (r1) must have an audit entry.
-  const chainResult = await verifyChain(fraudCase.caseRef);
+  // The refusal row is written by `guardToolCall`, which calls
+  // `auditAppend` WITHOUT an `orgId` field — so the stored row has
+  // `orgId IS NULL` even though the Case belongs to "org-test". Confirmed
+  // against the database: every `tool_refused_*` / `freeze_staged` row sits
+  // in the shared namespace. null is therefore the scope that actually OWNS
+  // this row; "org-test" would match zero rows and verify nothing.
+  const chainResult = await verifyChain(fraudCase.caseRef, null);
   expect(chainResult.ok).toBe(true);
 
   // -- 5. Happy path: verify -> freeze -> handoff --

@@ -106,13 +106,16 @@ test("WP-20: tenancy, resume, inbox dedupe, acknowledgement escalation", async (
   expect(hop3[0].toContact).toBeNull();
 
   // Every hop is in the tamper-evident chain.
-  const chain = await verifyChain(`SV-F-${RUN}`);
+  // `advanceEscalations` appends each hop with `orgId: n.orgId`, and this
+  // notification was created with ORG_A — so ORG_A owns the SV-F-<RUN> chain.
+  const chain = await verifyChain(`SV-F-${RUN}`, ORG_A);
   expect(chain.ok).toBe(true);
 
   // An acknowledged notification is terminal: no further hops, ever.
   const acked = await notify({ orgId: ORG_A, alertType: "case_stuck", severity: "page", title: "Stuck case", caseRef: `SV-S-${RUN}`, windowMinutes: 0, at });
-  expect((await acknowledge(acked.id)).ok).toBe(true);
-  expect((await acknowledge(acked.id)).error).toBe("already_acknowledged");
+  // `acked` was notified under ORG_A, so ORG_A is the org that owns the row.
+  expect((await acknowledge(acked.id, ORG_A)).ok).toBe(true);
+  expect((await acknowledge(acked.id, ORG_A)).error).toBe("already_acknowledged");
   const afterAck = await advanceEscalations(new Date(at.getTime() + sla * 10));
   expect(afterAck.find((h) => h.id === acked.id)).toBeUndefined();
 

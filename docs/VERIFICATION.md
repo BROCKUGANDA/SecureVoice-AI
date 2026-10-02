@@ -418,6 +418,73 @@ Every scenario whose required outcome is a **control-plane** obligation is drive
 
 ---
 
+## WP-8 · The evidence machine — BUILT, 13/16 gates green in one command
+
+**Date:** 2026-10-02
+**Command:** `bun run evidence`
+**Result:** **13 of 16 gates passed (81.3%)**, writing `evidence/INDEX.md`, `evidence/results.json` and 22 hashed artifacts.
+
+The machine runs each gate in its own process (the same one-process-per-file rule the suite uses) and **assembles rather than invents**: every figure in `INDEX.md` is transcribed from a file a gate wrote, and each Stage 2 criterion is mapped to the file that answers it. Where a gate printed "not measured", the bundle says not measured.
+
+**It reports its own failures**, which is the whole design:
+
+```
+[evidence] tenancy … FAILED (exit 1)
+[evidence] load    … FAILED (exit -1)
+[evidence] surface … FAILED (exit 1)
+13/16 gates passed — wrote evidence/INDEX.md and evidence/results.json
+```
+
+Three failures remain, and they are the shared-database contamination described below — each of those three suites passes when run on its own.
+
+---
+
+## WP-7 · Latency instrumentation — BUILT, evidence correctly reports zero
+
+**Date:** 2026-10-02
+**Command:** `bun test tests/telemetry` → **40 pass, 0 fail, 420 assertions**
+
+Eight brief-specified spans with their targets, nearest-rank percentiles (a p95 is always a value the system actually produced), a typed `meetsTarget` verdict, a live SLO panel drawing the **38-minute industry baseline as a reference line** on a log axis (a linear axis would put the product in 0.0004% of the width), and an OTLP-compatible export that needs no dependency and no collector.
+
+**`evidence/latency/slo.json` reports `interventions_measured: 0`, `meets_30_intervention_threshold: false`, and the emitter exits non-zero.** That is the correct result today: no call site is instrumented yet, and the brief's requirement is ≥30 **real** interventions. Two hand-copied constants that previously sat in the artifact (551 ms, 9 ms) were removed — they were exactly the kind of transcribed constant this package exists to replace. Their provenance remains in this ledger.
+
+Honest limits recorded in the artifact: spans persist to a local JSONL file (no schema change was in scope), so they are per-instance, lost on container restart unless `evidence/` is a volume, and are not shared between replicas.
+
+---
+
+## WP-24 · Public surface + WP-16 · Runbook — BUILT
+
+**Date:** 2026-10-02
+**Command:** `bun test tests/surface` → **67 pass, 0 fail, 5 skip**
+
+Four findings changed the design, all verified against the bundled Next.js 16 docs rather than assumed:
+
+1. **`src/middleware.ts` must not exist.** Next 16 deprecated `middleware` in favour of `proxy`; `src/proxy.ts` already was this app's middleware. It was extended, not duplicated.
+2. **There is no `/console` URL.** All thirteen views render from one client-side `view` state. Only `/` and `/inspector` are real routes — which is why the noindex work targets headers and paths, not route patterns.
+3. **`next.config.ts` already sets every security header** including a strict CSP, so a second CSP was deliberately not added.
+4. `/robots.txt` returned **500** from a `public/robots.txt` + `src/app/robots.ts` collision; the public file was removed and the app route is now the single owner.
+
+Headers were verified **on a running server**, not declared: CSP (incl. `frame-ancestors 'none'`), HSTS, nosniff, `Referrer-Policy`, COOP/CORP, per-path `Permissions-Policy`, and `X-Robots-Tag` on `/api/status`, `/v1/status`, `/inspector`, `/api/metrics`. Two manifest bugs fixed: every install icon 404'd (the referenced PNGs have never existed) and `theme_color` contradicted the layout's viewport. One measured bug fixed in the proxy: `/sitemap.xml` was being served `noindex`.
+
+**Not verified, and stated as such:** the CSP is confirmed *emitted* but never confirmed non-breaking in a browser against Clerk, fonts and the websocket — no signed-in session was available. `security.txt` carries a placeholder contact, which is worse than no file and should be replaced before submission.
+
+### The old runbook was fabricated
+`docs/RUNBOOK.md` documented five kill switches — `live_dialing`, `outbound_webhooks`, `llm_phrasing`, `byok`, `spend_ceiling`. **None existed**; `src/lib/flags.ts` has exactly four flags, and the features route returns only one. The runbook was rewritten from the repository's real flags, env vars and probes. The genuine kill switches here are mostly *absence of a credential*: blank `TWILIO_*` for audit-only mode, blank `GROQ_API_KEY`/`GEMINI_API_KEY` for scripted replies, blank `BANK_WEBHOOK_URL` to pause dispatch. The P1001/IPv6 trap and the literal freeze dates are recorded.
+
+---
+
+## Systemic issue: one database for 25 suites
+
+The three remaining gate failures are not logic errors. **Every suite shares `securevoice_test`**, and suites create and delete rows that other suites assert on, so the failing set changes between runs. Fixed so far:
+
+- the capacity gate now runs against **its own database** (`securevoice_load`), because a capacity number contaminated by another suite is not a capacity number, and it is now **reproducible across consecutive runs**;
+- the runner's ordering dependency is now explicit (`load/` before `docs/`, because the capacity document is checked against the artifact the load gate writes) — previously alphabetical order compared the document against the *previous* run's numbers;
+- `tenancy`, `load` and `surface` each pass when run on their own.
+
+The remaining fix is to give the other suites isolated databases too. That is a refactor, not a patch, and it is the highest-value next task: without it the suite is not reliably green and a judge's first `bun run test` is a coin flip.
+
+---
+
 ## Suite status after this batch
 
 `bun run test` — **17 suites, 0 fail, exit 0**: WP-2 · WP-3 · WP-4 · WP-5 · WP-9 · WP-12 · WP-13 · WP-14 · WP-15 · WP-20 · WP-21 · WP-22 plus the flag suites. `bunx tsc --noEmit` clean. `mini-services/realtime`: 50 pass / 0 fail including the cross-node Redis proof.
@@ -838,3 +905,348 @@ stale, with four type errors. It had `action: "operator"` (not in the audit
 action union) and three uses of `identity.id` where `Identity` has `accountId`.
 Repaired to compile. **It is not my code and did not come from this session's
 work**; it needs a decision on whether to keep it.
+
+## 2026-10-02 - Four cross-tenant leaks closed; the gate that hid them turned red first
+
+The tenancy isolation gate was **green because it asserted the leaks still
+existed**. `tests/tenancy/isolation.test.ts` required
+`DECLARED-GAP-still-unscoped` to be true. Changing only the verdict — the probes
+and the artifact untouched — made it red and named four genuine leaks:
+
+| Module | Line | Query as it was |
+| --- | --- | --- |
+| `caseByRef` | `case-state-machine.ts:190` | `findUnique({ where: { caseRef } })` |
+| `caseByConversation` | `case-state-machine.ts:185` | `findFirst({ where: { conversationId } })` |
+| `verifyChain` | `audit-chain.ts:262` | `findMany({ where: { callRef } })` |
+| `acknowledge` | `notifications.ts:109` | `findUnique({ where: { id } })` |
+
+Not one had an org predicate. Each console route pre-checked ownership and
+returned 404 before calling the function, so the leak was covered at exactly
+one call site per function — the arrangement that fails the moment a second
+caller appears, and that a judge finds in a twenty-minute vendor review.
+
+### Fixed
+
+`caseByRef`, `verifyChain` and `acknowledge` now take a **required** org scope and
+apply it in the query, using the convention the console routes already used:
+
+```ts
+orgId ? { orgId } : { OR: [{ orgId: null }, { orgId: "default" }] }
+```
+
+Making it required is the point. An optional scope is a scope that will be
+omitted, and omitting it is the exact failure being removed. The three console
+routes now pass `guard.profile.orgId`, and the freeze-commit route passes
+`authed.identity.orgId`.
+
+**One consequence worth recording.** The retention sweep crosses organisations,
+so it now carries each case's `orgId` alongside its ref and verifies per org.
+Passing `null` there would have silently skipped every org-scoped chain and
+reported **false corruption** — a quieter and worse failure than the one being
+fixed.
+
+### Not fixed, deliberately
+
+`caseByConversation` remains unscoped. Its two production callers have **no
+tenant identity to scope by**: the post-call webhook is authenticated by a
+shared platform secret, and the agent tools by one global `AGENT_TOOL_SECRET`.
+Adding a scope parameter today would mean passing `null` and calling it scoped —
+the same false assurance the other three were changed to remove. It closes with
+per-tenant tool secrets (`docs/POST-LAUNCH-TODO.md` §5), not with a signature
+change.
+
+### Gate
+
+**`bun test tests/tenancy/isolation.test.ts` — 8 failing checks → 2.**
+
+```
+KNOWN OPEN CROSS-TENANT GAPS (2 failing checks, 3 gaps closed):
+  ✗ lib.case.by-conversation [A-reads-B] :: declared-gap-is-still-open
+  ✗ lib.case.by-conversation [B-reads-A] :: declared-gap-is-still-open
+3 pass  1 fail  Ran 4 tests across 1 file. [91.28s]
+```
+
+The suite is **still red**, and that is correct: it is red for the one gap that
+genuinely remains, and it names it. Three driver-level checks in
+`tests/tenancy/probe-registry.ts` that asserted the leak *reproduces* were
+deleted so the artifact no longer records both "gap open: ok=true" and
+"gap open: ok=false" for the same path. The fourth was deliberately **kept** —
+it belongs to `by-conversation`, which is still open, and deleting it would
+erase the only live evidence for that gap.
+
+### Test migration
+
+28 call sites across 10 test files moved to the new signatures. No `null` was
+used to make a test compile: every value is the empirically confirmed owning
+org, verified by direct SQL against the database rather than inferred from the
+test's own naming. Two cases where the obvious answer would have been wrong:
+
+- `tests/privacy/privacy.test.ts:915` verifies a chain seeded under a
+  **different** org (`ORG_OVERRIDE`). Passing `ORG_DEFAULT` would have
+  silently verified zero rows and still passed.
+- `tests/redteam/redteam.test.ts` and `tests/tools/guard.test.ts` pass `null`
+  because the rows genuinely have `orgId IS NULL` — `tool-guard.ts` appends
+  with no orgId. Passing `"org-test"` would have matched nothing.
+
+`bunx tsc -p tests/tsconfig.json` — 0 arg-count errors (28 before).
+
+### Also closed
+
+`scripts/evidence-pack.mjs` posted the retired legacy shape to
+`/api/interventions`, which now answers 410 by design. It posts a correct v1
+body to `/v1/interventions` with a required `Idempotency-Key`, the replay reuses
+the **same** key (a fresh one would prove nothing), and a non-202 now reports
+the refusal code rather than a bare `ok:false`. Where no verified test-number
+enrollment is configured it reports the dependency instead of pretending.
+
+### Final state
+
+```
+tsc (app)                 PASS
+tsc (tests)               PASS — 0 arg-count errors
+eslint                    PASS
+tests/validation          44 pass  0 fail
+tests/console              7 pass  0 fail
+tests/docs                12 pass  1 fail   <- load artifact, see below
+tests/tenancy             RED — 1 named gap, by design
+bun run evidence          exits 1 — 12 agent runs unexecuted (quota)
+```
+
+### Two things outside this work
+
+**A second agent is writing into this repository.** `tests/telemetry/` and
+`tests/surface/` appeared untracked while this session was running, and
+`src/app/api/console/freeze/commit/route.ts` appeared earlier the same way. They
+are not from this session's work. `tests/docs` also dropped from 21 tests to 12
+during it. Anything measured here can move underneath you.
+
+**`evidence/load/results.json` is being rewritten continuously** by that other
+process — most recently with a different schema (`schemaVersion: 1`) and a
+different scale (300 cases / 241 dialled / 59 shed, against the 1,200-case run
+`docs/CAPACITY.md` describes). That is why the one failing docs assertion
+stands: the gate is correctly reporting that the document and the artifact
+disagree. Left red rather than papered over.
+
+## 2026-10-02 - A policy refusal was reaching the bank as HTTP 503
+
+`src/lib/failures/**` — a five-field error envelope with a 31-rule leak
+scanner, a 9-row database failure matrix, four circuit breakers with declared
+fallbacks and a 9-edge derived timeout tree — had **zero production callers**.
+455 chaos checks run against it. The 46 route handlers kept their own ad-hoc
+`{ error: string }`.
+
+Wiring the bank-facing ingest to it exposed a real defect underneath.
+
+### The defect
+
+`armAndDial` throws a **typed** refusal for every policy and abuse decision:
+
+```ts
+const err = new Error(gate.reason) as Error & { status: number; code: string };
+err.status = 409;
+err.code = gate.code;
+throw err;
+```
+
+The route's catch flattened every one of those into `upstreamError(...)`, which
+defaults to **503**:
+
+```ts
+} catch (err) {
+  console.error("[v1/interventions] arming failed:", ...);
+  return upstreamError("Case recording failed — signal rejected for safety");
+}
+```
+
+So a bank whose signal was correctly refused — consent opted out, destination
+country not allowlisted, org concurrency cap, spend ceiling, credits exhausted,
+demo tier, velocity breaker — received **503 Service Unavailable**.
+
+That is worse than a wrong-looking status code. 503 reads as "our fault, retry
+later", and a bank integrating against a fraud engine that retries an
+invitation refusal re-dials a customer it was told not to contact. The audit
+row said `policy_rejected_*`; the HTTP response said outage. The two disagreed.
+
+### Fixed
+
+The catch now branches on a typed failure and preserves its meaning. A 4xx
+refusal stays a `policy_precondition` at 4xx; only a genuine fault is a
+`dependency_unavailable`. **A policy refusal can no longer wear an outage's
+status code.**
+
+Every error return on this route now goes through the envelope:
+`{ code, message, retryable, requestId, docsUrl }`, with the correlation id in
+the `x-request-id` header as well as the body. A bank now gets a machine-readable
+code, a `retryable` flag to branch on, and an id to quote in a ticket.
+
+**Gate: `bun test tests/failure-envelope` — 5 pass, 0 fail.** It asserts the
+envelope shape, the `code` is one of the 17 declared codes, the `x-request-id`
+header matches the body, an unauthenticated request is 401 with
+`retryable: false` (a bank must not retry a bad signature — that is a
+configuration error), no refusal is 5xx, and no failure body leaks a stack
+trace, SQL, a filesystem path or `PrismaClient`.
+
+`tests/validation/callback-ssrf.test.ts` asserted `body.error` contained
+"callback_url". The envelope has no `error` field — deliberately. Two
+assertions updated to the contract (`code === "semantically_invalid"`, message
+names `callback_url`, `retryable === false`). The refusal itself is unchanged:
+422, before any case is persisted or dialled. **44 pass, 0 fail.**
+
+### `docs/RUNBOOK.md` written
+
+It did not exist, and `src/app/api/agent/route.ts` already cited it. Written
+from verified code, not from the spec:
+
+- Triage table: `/api/health` (process) vs `/api/readyz` (can this instance
+  serve) vs `/api/status` (operator-gated deep diagnostics) — and why wiring
+  `/api/status` into monitoring returns an auth failure, not a health answer.
+- The degradation ladder, transcribed from the actual `FALLBACKS` table:
+  conversation plane → continuity pipeline/SMS; telephony → queued + alert; LLM
+  → scripted replies; Redis → in-process limits, fail closed. Each row records
+  that the intervention is preserved.
+- Kill switches, stated honestly: `BILLING_KILL_SWITCH` is the **only**
+  deploy-free one; the four feature flags need a container restart; there is no
+  switch for live dialling, and `docker compose stop dial-worker` is the
+  documented answer.
+- Rollback, including the `docker compose build app db-setup` trap that has
+  shipped twice, and the query that catches a stale `db-setup` image.
+- Named failure modes: `P1001` IPv6, connection exhaustion with the arithmetic,
+  a case stuck in `DIALING`, a case stuck after the call, and the console button
+  returning `customer_not_enrolled`.
+- **"Audit append failure"**, the section `src/app/api/agent/route.ts` cites —
+  with the instruction not to re-anchor a broken chain to make a check pass.
+- An empty contacts table, marked `INPUT REQUIRED`.
+
+Two claims in my first draft were wrong and are corrected in the file: I wrote
+that "three code comments cite this file" (it is one), and that the dead-letter
+state is `dead` (the enum is `DEAD`).
+
+### State
+
+```
+tsc (app)              PASS for the files I changed
+eslint                 PASS
+tests/validation        44 pass  0 fail
+tests/console            7 pass  0 fail
+tests/failure-envelope   5 pass  0 fail
+tests/docs             12 pass  1 fail   <- load artifact, unchanged
+tests/tenancy          RED — 1 named gap, by design
+bun run evidence       exits 1 — 12 agent runs unexecuted (quota)
+```
+
+### Not mine, currently broken
+
+`src/lib/ports/fakes.ts` appeared during this session and does not typecheck:
+
+```
+src/lib/ports/fakes.ts(175,14): error TS2322:
+  Type 'Readonly<{ en: readonly {...}[]; ar: ...; hi: ... }>'
+  is not assignable to type 'Readonly<Record<string, readonly TranscriptTurn[]>>'
+```
+
+It is the WP-18 ports work (the seven named ports this audit found missing), it
+is not from this session's work, and `app tsc` is red because of it. I have not
+touched it — fixing another writer's in-flight file is how work gets clobbered.
+It needs either a fix or a decision from whoever owns it.
+
+## 2026-10-02 - The freeze-commit route has never worked; invariant I-1 now has a gate
+
+Invariant **I-1** says a freeze is never committed by the agent: `stage_card_freeze`
+stages `committed:false`, and a **second actor** commits it. The judge script shows
+this at 2:10 — freeze staged, `committed:false`, reversal window, specialist queued.
+
+The second half of that flow had no route and no test. A `freeze/commit` route
+appeared in the working tree untracked (from a concurrent session, not this one)
+with four type errors; repairing it to compile was not enough.
+
+### It could not have worked
+
+```ts
+await transitionCase(caseRef, "ESCALATED", {
+  freezeCommittedBy: authed.identity.accountId,
+  freezeCommittedAt: new Date().toISOString(),
+  freezeReason: reason ?? null,
+});
+```
+
+`transitionCase` spreads its meta straight into the Prisma `update` `data`.
+`Case` has **no `freezeCommittedBy`, no `freezeCommittedAt`, no `freezeReason`
+column** — only `freezeStaged` and `freezeReference`. Prisma rejects the unknown
+fields, so **every commit returned 500**. The route looked correct and was never
+executed, because nothing executed it.
+
+Fixed by dropping the phantom fields. The commit record is not lost: the audit
+row above already carries `actorId`, `actorEmail`, `role`, `reason` and
+`committedAt`, and that is the append-only record by design.
+
+**Known gap, stated rather than hidden:** the `Case` row itself does not record
+who committed the freeze, so a case list cannot show it without walking the chain.
+The proper fix is three columns and a migration, deliberately not made here
+because a schema migration must not land while another writer is mid-flight on
+the same schema.
+
+### Gate: `tests/auth/freeze-commit.test.ts` — 7 pass, 0 fail
+
+Seven assertions, and the refusal half matters as much as the happy path — a test
+that only asserted success would pass against a route that refuses everything,
+and one that only asserted refusal would pass against a route that is always
+broken:
+
+| Assertion | Proves |
+| --- | --- |
+| Commit succeeds from `FREEZE_STAGED`, case → `ESCALATED` | the happy path runs at all |
+| Refused **without** a fresh step-up (428), case stays `FREEZE_STAGED` | a valid Owner cookie is not enough; the freeze stays reversible |
+| Another tenant's staged freeze → **404, not 403** | a 403 confirms the case exists, which is the leak |
+| Refused from `SCREENED` with `state_precondition_failed` (409) | only fraud confirmation can be committed |
+| Unknown body fields rejected (422), case unmoved | `.strictObject` holds on the commit path |
+| An **Auditor** with a valid step-up is refused (403) | step-up does not substitute for the capability |
+| Chain verifies from genesis after commit | a freeze that commits with nothing in the chain is indistinguishable from one that never happened |
+
+Each test drives eight sequential case-state transitions plus audit appends
+against a ~280 ms remote database, so each carries an explicit 60 s budget — the
+same pattern `tests/e2e/dial.test.ts` uses.
+
+### Also this session
+
+- **`docs/RUNBOOK.md`** written (did not exist; `src/app/api/agent/route.ts`
+  cited it). Degradation ladder transcribed from the real `FALLBACKS` table,
+  the health-endpoint triage split, kill switches stated honestly
+  (`BILLING_KILL_SWITCH` is the only deploy-free one), rollback including the
+  `build app db-setup` trap, five named failure modes, and the
+  "Audit append failure" section the code points at.
+- **The failure envelope wired into the bank-facing route.** A policy or abuse
+  refusal previously reached the bank as **503 Service Unavailable**, because
+  `armAndDial` throws a typed `{status: 409, code}` and the catch flattened every
+  one into `upstreamError(...)`, which defaults to 503. A bank would read that as
+  "your fault, retry" and re-dial a customer it was told not to contact. Refusals
+  are now `policy_precondition` at 4xx; only genuine faults are 5xx.
+  **Gate: `tests/failure-envelope` — 5 pass, 0 fail**, including "no refusal is
+  5xx" and "no failure body leaks a stack trace, SQL, a path or PrismaClient".
+- **Three of four cross-tenant leaks closed** — `caseByRef`, `verifyChain` and
+  `acknowledge` now take a required org scope. The tenancy gate went from 8
+  failing checks to 2, and the 2 that remain name the one gap that is open by
+  design (`caseByConversation`, whose callers have no tenant identity).
+- **`evidence-pack.mjs`** repointed at the v1 contract with an `Idempotency-Key`,
+  replaying the **same** key.
+
+### State
+
+```
+tsc  app        red — src/lib/contracts/{schema,openapi}.ts (concurrent writer)
+tsc  mine       0 errors across every file I touched
+eslint          PASS for every file I touched
+tests/validation        44 pass  0 fail
+tests/console            7 pass  0 fail
+tests/failure-envelope   5 pass  0 fail
+tests/auth/freeze-commit 7 pass  0 fail
+tests/docs             12 pass  1 fail  <- load artifact, unchanged
+tests/tenancy          RED — 1 named gap, by design
+bun run evidence       exits 1 — 12 agent runs unexecuted (quota)
+```
+
+### Concurrent writer
+
+Three files owned by another writer are currently breaking `app tsc`, none from
+this session: `src/lib/ports/fakes.ts` (WP-18 ports) and
+`src/lib/contracts/{schema,openapi}.ts`. Untouched by design — fixing another
+writer's in-flight file is how work gets clobbered.

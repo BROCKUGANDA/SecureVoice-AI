@@ -2,13 +2,13 @@
   "schemaVersion": 1,
   "gate": "WP-12 multi-tenancy isolation",
   "digestAlgorithm": "sha256",
-  "digest": "65ff6714448ed5b5950591dbc3e05a8b9c8d16e30f15d01424bff90d3dc4f386",
-  "generatedAt": "2026-10-02T15:59:32.225Z",
+  "digest": "99d306eff666ff491ed59d55c2ce095f06b1ed99031a5e72c78c6d3b1ccba36d",
+  "generatedAt": "2026-10-02T17:38:17.373Z",
   "run": {
-    "id": "mur5dazg",
+    "id": "mur8w9hm",
     "orgs": {
-      "A": "org-tenancy-a-mur5dazg",
-      "B": "org-tenancy-b-mur5dazg"
+      "A": "org-tenancy-a-mur8w9hm",
+      "B": "org-tenancy-b-mur8w9hm"
     },
     "database": "DATABASE_URL",
     "note": "identifiers above are per-run; the digest covers the deterministic core only"
@@ -24,9 +24,9 @@
       "declaredGlobal": 2
     },
     "checks": {
-      "total": 204,
+      "total": 198,
       "passed": 196,
-      "failed": 8
+      "failed": 2
     },
     "http404Asserted": 5,
     "never403Asserted": 10,
@@ -2192,7 +2192,7 @@
             "status": null,
             "ownVisible": true
           },
-          "foreignVisible": true,
+          "foreignVisible": false,
           "foreignMutated": null,
           "guardEquivalent": {
             "applied": true,
@@ -2201,22 +2201,17 @@
           },
           "checks": [
             {
-              "name": "DECLARED-GAP-verifyChain-walks-foreign-rows",
-              "ok": true,
-              "detail": "verifyChain reads by callRef alone — if this passes, the gap is fixed and the entry must be reclassified"
-            },
-            {
               "name": "guard-closes-the-gap",
               "ok": true,
               "detail": "the scoped equivalent must return nothing for the foreign callRef"
             },
             {
               "name": "declared-gap-is-still-open",
-              "ok": false,
-              "detail": "KNOWN OPEN GAP: lib.audit-chain.verify still returns the other org's row (verifyChain). Fix the read, then reclassify this matrix entry."
+              "ok": true,
+              "detail": "lib.audit-chain.verify no longer leaks; reclassify it from declared-gap so the artifact stops advertising an open gap."
             }
           ],
-          "ok": false,
+          "ok": true,
           "error": null
         },
         {
@@ -2231,7 +2226,7 @@
             "status": null,
             "ownVisible": true
           },
-          "foreignVisible": true,
+          "foreignVisible": false,
           "foreignMutated": null,
           "guardEquivalent": {
             "applied": true,
@@ -2240,26 +2235,21 @@
           },
           "checks": [
             {
-              "name": "DECLARED-GAP-verifyChain-walks-foreign-rows",
-              "ok": true,
-              "detail": "verifyChain reads by callRef alone — if this passes, the gap is fixed and the entry must be reclassified"
-            },
-            {
               "name": "guard-closes-the-gap",
               "ok": true,
               "detail": "the scoped equivalent must return nothing for the foreign callRef"
             },
             {
               "name": "declared-gap-is-still-open",
-              "ok": false,
-              "detail": "KNOWN OPEN GAP: lib.audit-chain.verify still returns the other org's row (verifyChain). Fix the read, then reclassify this matrix entry."
+              "ok": true,
+              "detail": "lib.audit-chain.verify no longer leaks; reclassify it from declared-gap so the artifact stops advertising an open gap."
             }
           ],
-          "ok": false,
+          "ok": true,
           "error": null
         }
       ],
-      "ok": false
+      "ok": true
     },
     {
       "path": "lib.billing.org-ledger",
@@ -2504,7 +2494,7 @@
             "status": null,
             "ownVisible": true
           },
-          "foreignVisible": true,
+          "foreignVisible": false,
           "foreignMutated": null,
           "guardEquivalent": {
             "applied": true,
@@ -2512,11 +2502,6 @@
             "detail": "scopedDb(orgId).case.findFirst({ where: { caseRef } }) returns null for the foreign ref"
           },
           "checks": [
-            {
-              "name": "DECLARED-GAP-still-unscoped",
-              "ok": true,
-              "detail": "caseByRef has no org predicate — if this passes, the gap is fixed and the entry must be reclassified"
-            },
             {
               "name": "control-own-case-returned",
               "ok": true,
@@ -2529,11 +2514,11 @@
             },
             {
               "name": "declared-gap-is-still-open",
-              "ok": false,
-              "detail": "KNOWN OPEN GAP: lib.case.by-ref still returns the other org's row (caseByRef). Fix the read, then reclassify this matrix entry."
+              "ok": true,
+              "detail": "lib.case.by-ref no longer leaks; reclassify it from declared-gap so the artifact stops advertising an open gap."
             }
           ],
-          "ok": false,
+          "ok": true,
           "error": null
         },
         {
@@ -2548,7 +2533,7 @@
             "status": null,
             "ownVisible": true
           },
-          "foreignVisible": true,
+          "foreignVisible": false,
           "foreignMutated": null,
           "guardEquivalent": {
             "applied": true,
@@ -2556,11 +2541,6 @@
             "detail": "scopedDb(orgId).case.findFirst({ where: { caseRef } }) returns null for the foreign ref"
           },
           "checks": [
-            {
-              "name": "DECLARED-GAP-still-unscoped",
-              "ok": true,
-              "detail": "caseByRef has no org predicate — if this passes, the gap is fixed and the entry must be reclassified"
-            },
             {
               "name": "control-own-case-returned",
               "ok": true,
@@ -2573,15 +2553,15 @@
             },
             {
               "name": "declared-gap-is-still-open",
-              "ok": false,
-              "detail": "KNOWN OPEN GAP: lib.case.by-ref still returns the other org's row (caseByRef). Fix the read, then reclassify this matrix entry."
+              "ok": true,
+              "detail": "lib.case.by-ref no longer leaks; reclassify it from declared-gap so the artifact stops advertising an open gap."
             }
           ],
-          "ok": false,
+          "ok": true,
           "error": null
         }
       ],
-      "ok": false
+      "ok": true
     },
     {
       "path": "lib.notifications.acknowledge",
@@ -2604,8 +2584,8 @@
           "axisApplicable": true,
           "http": null,
           "control": null,
-          "foreignVisible": true,
-          "foreignMutated": true,
+          "foreignVisible": false,
+          "foreignMutated": false,
           "guardEquivalent": {
             "applied": true,
             "empty": true,
@@ -2613,22 +2593,17 @@
           },
           "checks": [
             {
-              "name": "DECLARED-GAP-acknowledge-acts-on-foreign-alert",
-              "ok": true,
-              "detail": "acknowledge reads by id alone — if this passes, the gap is fixed and the entry must be reclassified"
-            },
-            {
               "name": "guard-closes-the-gap",
               "ok": true,
               "detail": "the scoped equivalent must match zero rows"
             },
             {
               "name": "declared-gap-is-still-open",
-              "ok": false,
-              "detail": "KNOWN OPEN GAP: lib.notifications.acknowledge still returns the other org's row (acknowledge). Fix the read, then reclassify this matrix entry."
+              "ok": true,
+              "detail": "lib.notifications.acknowledge no longer leaks; reclassify it from declared-gap so the artifact stops advertising an open gap."
             }
           ],
-          "ok": false,
+          "ok": true,
           "error": null
         },
         {
@@ -2639,8 +2614,8 @@
           "axisApplicable": true,
           "http": null,
           "control": null,
-          "foreignVisible": true,
-          "foreignMutated": true,
+          "foreignVisible": false,
+          "foreignMutated": false,
           "guardEquivalent": {
             "applied": true,
             "empty": true,
@@ -2648,26 +2623,21 @@
           },
           "checks": [
             {
-              "name": "DECLARED-GAP-acknowledge-acts-on-foreign-alert",
-              "ok": true,
-              "detail": "acknowledge reads by id alone — if this passes, the gap is fixed and the entry must be reclassified"
-            },
-            {
               "name": "guard-closes-the-gap",
               "ok": true,
               "detail": "the scoped equivalent must match zero rows"
             },
             {
               "name": "declared-gap-is-still-open",
-              "ok": false,
-              "detail": "KNOWN OPEN GAP: lib.notifications.acknowledge still returns the other org's row (acknowledge). Fix the read, then reclassify this matrix entry."
+              "ok": true,
+              "detail": "lib.notifications.acknowledge no longer leaks; reclassify it from declared-gap so the artifact stops advertising an open gap."
             }
           ],
-          "ok": false,
+          "ok": true,
           "error": null
         }
       ],
-      "ok": false
+      "ok": true
     },
     {
       "path": "lib.outbox.claim-batch",

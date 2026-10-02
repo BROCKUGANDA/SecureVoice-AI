@@ -148,9 +148,57 @@ const seedProfile = async () => {
   console.log("✓ wallet rows for operator (500) + demo (25)");
 };
 
+/**
+ * The Console's "Fire intervention signal" button needs an enrolled Customer:
+ * the hardened `/v1/interventions` path resolves the destination from a real
+ * row, tenant-scoped, and refuses with a typed `customer_not_enrolled` when
+ * there is none. Without this step a freshly seeded deployment has nobody to
+ * call, and the judge's very first click does nothing.
+ *
+ * A phone number is NOT invented here. Dialling a number nobody verified is
+ * worse than not dialling: it is a real call to a real stranger, and it makes
+ * the demo evidence a fabrication. The operator supplies a number they have
+ * verified on the Twilio trial, and the seed either creates the enrollment or
+ * says, in as many words, that it did not.
+ */
+const seedEnrollment = async () => {
+  const phone = process.env.DEMO_TEST_PHONE?.trim();
+  const consentRecordId = process.env.DEMO_CONSENT_RECORD_ID?.trim();
+  if (!phone || !consentRecordId) {
+    console.log(
+      "⚠ NO ENROLLED CUSTOMER — the console 'Fire intervention signal' button will\n" +
+        "  return customer_not_enrolled until you set both:\n" +
+        "    DEMO_TEST_PHONE=+<E.164 test number you have verified on Twilio>\n" +
+        "    DEMO_CONSENT_RECORD_ID=CONSENT-<your consent record>\n" +
+        "  then re-run `bun run db:seed`. The number is not invented here on purpose.",
+    );
+    return;
+  }
+  if (!/^\+[1-9]\d{1,14}$/.test(phone)) {
+    console.error(`✗ DEMO_TEST_PHONE is not E.164: ${phone}`);
+    process.exitCode = 1;
+    return;
+  }
+  const customerRef = `SELF-${(process.env.DEMO_OPERATOR_EMAIL ?? "operator").split("@")[0].replace(/\W/g, "") || "operator"}`;
+  await db.customer.upsert({
+    where: { customerRef },
+    create: {
+      customerRef,
+      phone,
+      consentRecordId,
+      optedOut: false,
+      lang: "en",
+      channel: "call",
+    },
+    update: { phone, consentRecordId, optedOut: false },
+  });
+  console.log(`✓ enrolled customer ${customerRef} → ${phone}`);
+};
+
 const main = async () => {
   for (const c of CASES) await seedCase(c);
   await seedProfile();
+  await seedEnrollment();
   const count = await db.auditLog.count();
   console.log(`done — ${count} audit rows total`);
 };

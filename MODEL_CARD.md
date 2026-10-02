@@ -50,7 +50,7 @@ behavior is identical without any LLM key.
 |---|---|
 | Default LLM | `qwen/qwen3.8-27b` served by Groq (LPUs) — **preview tier**: Groq's documentation warns preview models "should not be used in production environments as they may be discontinued at short notice" |
 | Fallback LLM | `gemini-1.5-flash` via Gemini's OpenAI-compatible endpoint |
-| Model selection rationale | ~400 ms round trips; clean spoken-style output. `llama-3.1-8b-instant` remains listed in Groq's Production Models table (verified 2026-10) and is the natural production-tier substitute for the preview-tier default — an earlier version of this card claimed Llama-3.1 had been retired from Groq, which is false. `gpt-oss-120b` spends its token budget on reasoning and returns empty voice content at low `max_tokens`. |
+| Model selection rationale | ~400 ms round trips; clean spoken-style output. `llama-3.1-8b-instant` is a production-tier Groq model (confirmed in Groq's current Production Models table, 2026-10) and is the drop-in substitute whenever the preview default is withdrawn; `gpt-oss-120b` spends its token budget on reasoning and returns empty voice content at low `max_tokens`. |
 | Training data | Not disclosed by the providers; base models used zero-shot with a system prompt — no fine-tuning on customer data |
 | Voice models | ElevenLabs `eleven_multilingual_v2` (29 languages) + `eleven_flash_v2_5` (Swahili), preset voice per language |
 | ASR models | ElevenLabs Scribe → Deepgram nova-2 (language hints; unsupported pins → `multi`) |

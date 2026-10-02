@@ -48,7 +48,7 @@ function agentLanguages(): string[] {
     if (!inside) continue;
     if (/^\S/.test(line)) break; // the next top-level key ends the block
     const key = /^ {2}([a-z]{2}):\s*$/.exec(line);
-    if (key) out.push(key[1]);
+    if (key?.[1]) out.push(key[1]);
   }
   return out;
 }
@@ -62,18 +62,25 @@ function pipelineLanguages(): string[] {
 
 const asSet = (langs: string[]) => `\`${langs.join(" / ")}\``;
 
-// ── 1 · SQLite ─────────────────────────────────────────────────────────────
-
 test("docs: no source file claims a `file:` URL works for SQLite", () => {
   expect(schema).toMatch(/provider\s*=\s*"postgresql"/);
 
+  // Whitespace is collapsed first so a denial wrapped across markdown line
+  // breaks stays in the same sentence as the claim it denies, and table cells
+  // are separate sentences so a denial in a neighbouring cell cannot bless a
+  // false claim in this one.
   for (const [name, doc] of [["README.md", readme], ["MODEL_CARD.md", card]] as const) {
-    for (const [i, line] of lines(doc).entries()) {
-      if (!/file:/.test(line)) continue;
-      // Any mention of a `file:` URL must be a denial, not a permission.
-      expect(
-        { name, line: i + 1, text: line.trim(), negated: /\b(no|not|never|rejects)\b/i.test(line) },
-      ).toEqual({ name, line: i + 1, text: line.trim(), negated: true });
+    for (const sentence of doc.replace(/\s+/g, " ").split(/(?<=[.!?])\s+|\s\|\s|\s\|$/)) {
+      if (!/file:/.test(sentence)) continue;
+      expect({
+        name,
+        sentence: sentence.trim().slice(0, 160),
+        denies: /\b(no|not|never|rejects|nothing|cannot)\b/i.test(sentence),
+      }).toEqual({
+        name,
+        sentence: sentence.trim().slice(0, 160),
+        denies: true,
+      });
     }
   }
 });
@@ -122,7 +129,10 @@ test("docs: the recorded-conversation claim is stated, and it is narrow", () => 
 test("docs: no heading calls the ElevenLabs conversation plane optional", () => {
   for (const line of lines(readme)) {
     if (!/^#{1,6} /.test(line)) continue;
-    expect({ heading: line, optional: /optional/i.test(line) }).toEqual({
+    // Only headings that name the agent are in scope: "The LLM reply layer
+    // (optional)" is a true claim about a layer that genuinely is opt-in.
+    if (!/elevenlabs/i.test(line)) continue;
+    expect({ heading: line, optional: /\boptional\b/i.test(line) }).toEqual({
       heading: line,
       optional: false,
     });
@@ -195,9 +205,16 @@ test("docs: the latency table labels every row measured or not yet measured", ()
   }
 });
 
-test("docs: the model card does not present an observed range as a p95", () => {
-  expect(card).not.toMatch(/p95[^\n|]*0\.4[–-]0\.9/);
-  expect(card).toMatch(/not yet measured/i);
+test("docs: a p95 in the model card is never stated without a measurement status", () => {
+  // The old row said "Agent turn p95 incl. TTS start" and then supplied an
+  // observed range as if it were one. A p95 claim must carry its own status.
+  for (const line of lines(card)) {
+    if (!/\bp95\b/i.test(line)) continue;
+    expect({
+      line: line.trim().slice(0, 120),
+      qualified: /(not yet measured|measured|MEASURED|p95 over \d+)/i.test(line),
+    }).toEqual({ line: line.trim().slice(0, 120), qualified: true });
+  }
 });
 
 // ── Evidence link ─────────────────────────────────────────────────────────

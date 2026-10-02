@@ -16,6 +16,10 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # Manual re-run without touching a file. This repo's Actions was enabled after
+  # the workflow landed, so the original push produced a `startup_failure` that
+  # never ran a step; a dispatch is the fastest way to confirm a fix.
+  workflow_dispatch:
 
 # A superseded commit on a PR makes the whole run meaningless; cancel it.
 concurrency:

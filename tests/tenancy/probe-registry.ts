@@ -130,6 +130,12 @@ export const ID = {
   controlProducerKeyId: {} as Record<Side, string>,
   producerKeyPlaintext: {} as Record<Side, string>,
   producerKeyHash: {} as Record<Side, string>,
+  // Tenant-model fixtures for the registry additions (UsageLedger,
+  // PaymentRecord). `idemKey` and `reference` are both globally UNIQUE, which
+  // is what makes the cross-org probe meaningful: the identifier alone would
+  // otherwise resolve any org's row.
+  ledgerIdemKey: {} as Record<Side, string>,
+  paymentReference: {} as Record<Side, string>,
 };
 
 export const AUDIT_AT: Record<Side, Date> = { A: new Date(), B: new Date() };
@@ -253,6 +259,31 @@ beforeAll(async () => {
         select: { id: true },
       })
     ).id;
+    // A settled money movement per org. `idemKey` is UNIQUE globally, so each
+    // side gets a distinct one.
+    ID.ledgerIdemKey[side] = `${ORG[side]}:0:topup:tenancy-probe-${side}`;
+    await db.usageLedger.create({
+      data: {
+        orgId: ORG[side],
+        kind: "topup",
+        units: 1000,
+        reason: "tenancy probe",
+        idemKey: ID.ledgerIdemKey[side],
+      },
+    });
+
+    ID.paymentReference[side] = `pay-tenancy-${side}-${RUN}`;
+    await db.paymentRecord.create({
+      data: {
+        orgId: ORG[side],
+        provider: "manualinvoice",
+        reference: ID.paymentReference[side],
+        amountMinor: 100_000,
+        currency: "AED",
+        status: "success",
+      },
+    });
+
     ID.controlProducerKeyId[side] = (
       await db.producerKey.create({
         data: {
@@ -275,6 +306,8 @@ afterAll(async () => {
   await db.notification.deleteMany({ where: { orgId: orgs } });
   await db.outboxEvent.deleteMany({ where: { orgId: orgs } });
   await db.userProfile.deleteMany({ where: { orgId: orgs } });
+  await db.usageLedger.deleteMany({ where: { orgId: orgs } });
+  await db.paymentRecord.deleteMany({ where: { orgId: orgs } });
   if (PILOT_REF) await db.pilotRequest.deleteMany({ where: { ref: PILOT_REF } });
   await db.$disconnect();
 }, 60_000);
@@ -335,6 +368,114 @@ export const NOT_PROBED_GUARD: GuardEquivalent = {
 };
 
 export const DRIVERS: Record<string, Driver> = {
+  "lib.billing.org-ledger": async (dir) => {
+    const own = ORG[me(dir)];
+    const sdb = scopedDb({ orgId: own });
+
+    // The probe: the other org's globally-unique ledger key, resolved through
+    // THIS org's scoped client. The caller never writes an org predicate — the
+    // guard injects it.
+    const leaked = await sdb.usageLedger.findFirst({
+      where: { idemKey: ID.ledgerIdemKey[them(dir)] },
+    });
+    const control = await sdb.usageLedger.findFirst({
+      where: { idemKey: ID.ledgerIdemKey[me(dir)] },
+    });
+
+    // A listing must be bounded to the caller's own org too, not just the
+    // single-key lookup.
+    const all = await sdb.usageLedger.findMany({ select: { orgId: true } });
+
+    return {
+      probed: true,
+      control: {
+        described: "the same scoped client resolves the caller's own ledger row",
+        status: null,
+        ownVisible: control?.orgId === own,
+      },
+      foreignVisible: leaked !== null,
+      guardEquivalent: {
+        applied: true,
+        empty: leaked === null,
+        detail: "scopedDb({ orgId }).usageLedger.findFirst({ where: { idemKey } }) returns nothing for the other org",
+      },
+      checks: [
+        check(
+          "cross-org-ledger-row-not-resolvable",
+          leaked === null,
+          "scopedDb({ orgId }).usageLedger must not resolve the probe org's ledger row",
+        ),
+        check("control-own-ledger-row-resolved", control?.orgId === own, "the caller's own row must resolve, or the assertion above is vacuous"),
+        check(
+          "scoped-listing-contains-only-own-org",
+          all.every((r) => r.orgId === own),
+          `scoped listing returned ${all.length} rows, ${all.filter((r) => r.orgId !== own).length} of them foreign`,
+        ),
+        check("scoped-listing-is-non-empty", all.length > 0, "an empty listing would make the filter assertion vacuous"),
+      ],
+    };
+  },
+  "lib.payments.record-by-reference": async (dir) => {
+    const own = ORG[me(dir)];
+    const sdb = scopedDb({ orgId: own });
+
+    const leaked = await sdb.paymentRecord.findFirst({
+      where: { reference: ID.paymentReference[them(dir)] },
+    });
+    const control = await sdb.paymentRecord.findFirst({
+      where: { reference: ID.paymentReference[me(dir)] },
+    });
+
+    // The raw client resolves it, because `reference` is globally UNIQUE. That
+    // is the negative control: without it, "the scoped read returned null"
+    // could just mean the fixture is missing.
+    const unscoped = await db.paymentRecord.findFirst({
+      where: { reference: ID.paymentReference[them(dir)] },
+      select: { orgId: true },
+    });
+
+    let crossOrgRefused = false;
+    try {
+      await sdb.paymentRecord.findFirst({
+        where: { orgId: ORG[them(dir)], reference: ID.paymentReference[them(dir)] },
+      });
+    } catch (err) {
+      crossOrgRefused = isTenancyScopeError(err);
+    }
+
+    return {
+      probed: true,
+      control: {
+        described: "the same scoped client resolves the caller's own payment record",
+        status: null,
+        ownVisible: control?.orgId === own,
+      },
+      foreignVisible: leaked !== null,
+      guardEquivalent: {
+        applied: true,
+        empty: leaked === null,
+        detail: "scopedDb({ orgId }).paymentRecord.findFirst({ where: { reference } }) returns nothing for the other org",
+      },
+      checks: [
+        check(
+          "cross-org-payment-record-not-resolvable",
+          leaked === null,
+          "scopedDb({ orgId }).paymentRecord must not resolve the probe org's settlement from its reference alone",
+        ),
+        check("control-own-payment-record-resolved", control?.orgId === own, "the caller's own record must resolve, or the assertion above is vacuous"),
+        check(
+          "NEGATIVE-CONTROL-unscoped-read-reaches-foreign-row",
+          unscoped?.orgId === ORG[them(dir)],
+          "the raw findUnique({ reference }) the payment adapters use must still resolve the other org's row, or the isolation assertion is vacuous",
+        ),
+        check(
+          "explicit-cross-org-where-is-refused",
+          crossOrgRefused,
+          "naming another org in `where` must throw cross_org_request, not silently return zero rows",
+        ),
+      ],
+    };
+  },
   "console.audit.case-list": async (dir) => {
     const { GET } = await import("@/app/api/console/audit/route");
     const res = await asOrg(me(dir), () => GET(req("GET", "/api/console/audit")));

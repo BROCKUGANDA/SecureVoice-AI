@@ -616,3 +616,68 @@ name is discoverable and ends the relationship when discovered. The carrier
 per-minute rate for the pilot country is also flagged as an input, because East
 African mobile termination is expensive enough that a US domestic rate would
 discredit the whole model.
+
+## 2026-10-02 - README accuracy pass, and four libraries that existed but nothing called
+
+### README contradictions (§9 of the brief)
+
+The technical README is graded. Four live contradictions, plus two missing
+artifacts.
+
+| Item | Before | After |
+| --- | --- | --- |
+| SQLite | Configuration table claimed an absolute `file:` URL works for SQLite — false, Prisma rejects it with P1012 against a `postgresql` provider | Claim deleted. `file:` now appears in the README only in the two correct statements that Prisma **rejects** it. The correct claims were not softened. |
+| Languages | Features said Hindi and Urdu live with French/Bengali/Swahili on the roadmap; the LLM section listed all six. Bengali appears nowhere in the code. | One true statement per path, each attributed to its source: the ElevenLabs agent is `en / ar / hi` (`agent/securevoice.agent.yaml`); the continuity pipeline additionally `ur / fr / sw` (`src/lib/config.ts`). Only English and Arabic have a recorded end-to-end conversation. |
+| Conversation plane | Heading read "Run the ElevenLabs agent (optional, needs an account)" and "The platform works standalone with the built-in voice pipeline instead" — the exact inverse of the required positioning | Heading is now "The ElevenLabs conversation plane (primary)". A continuity-path subsection states the trigger (inbound Twilio turns, browser demo) and the capability lost — nothing on that path can invoke the four tools; the deterministic router only *reports* an intent. Flag names verified against `src/lib/flags.ts`. |
+| Groq model | `qwen/qwen3.8-27b` presented without qualification; `MODEL_CARD.md` claimed `llama-3.1-8b-instant` was retired from Groq — demonstrably false | Every mention carries the preview-tier disclosure with Groq's own warning. The Llama-3.1 claim is corrected to the true statement. |
+| Missing | No evidence link; no latency table | `evidence/INDEX.md` linked. Latency table publishes two measured spans (signal-accepted to provider-accepted 551 ms; tool round-trip p95 9 ms) and three explicitly **not yet measured**. The remote-DB caveat is stated so the 9 ms figure cannot be read as topology-independent. |
+
+**Gate: `bun test tests/docs/docs-accuracy.test.ts` — 12 pass, 0 fail, 42
+expect() calls, 134 ms.** The assertions derive the language sets from
+`agent/securevoice.agent.yaml` and `src/lib/config.ts` and the datasource from
+`prisma/schema.prisma` rather than restating them, so drift in those sources
+fails the gate. Five deliberate mutations were each caught: reintroducing the
+SQLite claim, widening the agent language list to six, reverting the heading to
+"(optional, needs an account)", removing the "(primary)" heading, and
+reverting the Llama model-card claim.
+
+### Libraries that existed but no route called
+
+The same failure class as `createCase` — a correct, self-tested library with no
+production call site.
+
+| Item | Before | After |
+| --- | --- | --- |
+| `planTier` | Never passed to `assertDialAllowed`, which defaults an unset tier to the strictest — so **every live signal evaluated as the `demo` tier** and legitimate production dials could be refused | `planTierFor(abuseOrg)` resolves the org's real tier at the call site. |
+| SSRF on `callback_url` | The one live path validated with a ~15-line string check and no DNS resolution, so a hostname resolving to a private, loopback, link-local or cloud-metadata address passed | The live path now runs `validateOutboundUrl`, which resolves DNS and re-validates. The cheap `https://` string check remains only as a first-pass schema filter. |
+| CSV formula injection | The console's export button bypassed the neutraliser, so a merchant name starting `=`, `+`, `-` or `@` executed in Excel when a bank analyst opened the export | `Console.tsx` imports `interventionsCsv` from the helper, so the shipped path goes through it. |
+| Tenancy registry | `UsageLedger` and `PaymentRecord` carry `orgId` but were in neither registry. `DialJob` likewise. | `UsageLedger` and `PaymentRecord` added to `TENANTED_MODELS`. `DialJob` placed in `PLATFORM_MODELS` **with its reason stated**, because `prisma/schema.prisma` declares no `DialJob` model at all, the table has no `orgId` column, and a worker legitimately claims across every org exactly as `lib.outbox.claim-batch` does. Registering it as a tenant model would make the guard inject an org predicate Prisma rejects at query time. |
+
+**Gates:** `bun test tests/validation` — **44 pass, 0 fail, 326 expect() calls**,
+covering all four (plus the pre-existing validation suite) in 1.96 s.
+`bun test tests/tenancy/isolation.test.ts` — **4 pass, 0 fail, 525 expect()
+calls**, 86.8 s.
+
+### Not verified here
+
+The full `bun run test` suite and the 20-signal p95 leg of the WP-2 gate remain
+unrun against this topology for the reason recorded in the earlier entry: the
+remote Supabase instance hangs the burst, and `tests/preload.ts` documents that
+this suite requires `TEST_DATABASE_URL` pointed at a co-located Postgres.
+Docker was not available to stand one up.
+
+**Repository hygiene note.** Two commits (`289663a`, `e6b9e7e`) were created
+during this session that swept far more than their stated scope — including
+pre-existing uncommitted work and other work in this same session — under
+messages that describe only part of what they contain. They are recorded here
+so the history is not mistaken for a clean narrative. The working tree was
+left uncommitted afterwards.
+
+The queue consolidation those commits describe **is** real in the final tree:
+`src/lib/dial-queue.ts` (PascalCase `DialJob`) is gone and
+`src/lib/scale/queue.ts` (`dial_job`) is the single durable queue. The worker
+imports `drainDialQueue` from it and uses the snake_case `job.case_ref`. The
+test for the deleted module went with it, which is correct cleanup rather than
+lost coverage — `tests/load/load.test.ts` is the surviving gate for the
+consolidated queue and exercises `drainDialQueue`, `renewClaim`, the claim
+lease and `SKIP LOCKED`.

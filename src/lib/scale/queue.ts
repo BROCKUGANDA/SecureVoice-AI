@@ -30,11 +30,40 @@ import "server-only";
  * means the SQL and the model cannot drift apart silently: the column list is
  * asserted against `information_schema` by the load gate, so a migration that
  * does not match this module fails loudly rather than at 3am.
+* ────────────────────────────────────────────────────────────────────────────
+ *
+ * ── Time: everything is the DATABASE clock, and that is not a style choice ────
+ * Every deadline this module writes (`available_at`, `lease_expires_at`,
+ * `completed_at`, `updated_at`) is produced by Postgres `now()`, and every delay
+ * is an INTERVAL added to it. The API therefore takes *durations*
+ * (`leaseMs`, `availableInMs`, backoff), never instants (`Date`).
+ *
+ * This is load-bearing, and it was found the hard way. `TIMESTAMP(3)` has no
+ * timezone, so a JS `Date` sent through the driver arrives as its **UTC** wall
+ * time, while `now()` returns the server's **local** wall time. On a host that
+ * is not UTC — this repository's own Postgres runs on `E. Africa Standard Time`,
+ * UTC+3 — every lease was written three hours in the PAST, so every claimed row
+ * was instantly reclaimable. Measured effect at 8 workers and 300 cases: ~41,000
+ * claims for 300 jobs, and the drain never finished.
+ *
+ * Two rules follow, and they are the reason for the shape of these functions:
+ *   1. Never write a client-clock instant into a column later compared to
+ *      `now()`. Write `now() + interval` instead.
+ *   2. Prefer a duration over an instant in every API. A duration is timezone-
+ *      free, clock-skew-free, and it is what callers actually mean.
  * ────────────────────────────────────────────────────────────────────────────
  */
 
 import { randomUUID } from "node:crypto";
 import { db } from "@/lib/db";
+
+/** Milliseconds → an INTERVAL literal. Used for every deadline this module writes. */
+const MS = "milliseconds";
+
+/** `now() + $1 milliseconds`, as SQL text. */
+function nowPlusMs(paramIndex: number): string {
+  return `now() + (CAST($${paramIndex} AS text) || ' ${MS}')::interval`;
+}
 
 /** The physical table name (snake_case, see schema-notes.md). */
 export const DIAL_JOB_TABLE = "dial_job";
@@ -151,32 +180,38 @@ export async function enqueueDialJob(input: {
   priority?: number;
   /** Sanitised dial inputs only — never transcript content (invariant I-10). */
   payload?: Record<string, unknown>;
-  availableAt?: Date;
-  now?: Date;
+  /** Delay before the job becomes claimable. 0 (default) = due now. */
+  availableInMs?: number;
 }): Promise<EnqueueResult> {
   if (!input.caseId || !input.caseRef) throw new TypeError("enqueueDialJob requires caseId and caseRef");
   const attemptNo = input.attemptNo ?? 1;
   if (!Number.isInteger(attemptNo) || attemptNo < 1) {
     throw new RangeError(`attemptNo must be a positive integer (got ${String(input.attemptNo)})`);
   }
-  const now = input.now ?? new Date();
+  const availableInMs = Math.max(0, Math.trunc(input.availableInMs ?? 0));
   const id = randomUUID();
   const payload = JSON.stringify(input.payload ?? {});
 
   try {
-    const inserted = await db.$queryRaw<
+    const inserted = await db.$queryRawUnsafe<
       { id: string; attempt_no: number; retries: number; state: DialJobState }[]
-    >`
-      INSERT INTO "dial_job"
-        (id, case_id, case_ref, org_id, attempt_no, retries, state, priority, payload,
-         available_at, created_at, updated_at)
-      VALUES
-        (${id}, ${input.caseId}, ${input.caseRef}, ${input.orgId ?? null}, ${attemptNo}, 0,
-         'PENDING', ${Math.trunc(input.priority ?? 0)}, ${payload},
-         ${input.availableAt ?? now}, ${now}, ${now})
-      ON CONFLICT ("case_id", "attempt_no") DO NOTHING
-      RETURNING id, attempt_no, retries, state
-    `;
+    >(
+      `INSERT INTO "dial_job"
+         (id, case_id, case_ref, org_id, attempt_no, retries, state, priority, payload,
+          available_at, created_at, updated_at)
+       VALUES
+         ($1, $2, $3, $4, $5, 0, 'PENDING', $6, $7, ${nowPlusMs(8)}, now(), now())
+       ON CONFLICT ("case_id", "attempt_no") DO NOTHING
+       RETURNING id, attempt_no, retries, state`,
+      id,
+      input.caseId,
+      input.caseRef,
+      input.orgId ?? null,
+      attemptNo,
+      Math.trunc(input.priority ?? 0),
+      payload,
+      availableInMs,
+    );
     const row = inserted[0];
     if (row) return { id: row.id, created: true, retries: row.retries, state: row.state };
 
@@ -206,69 +241,67 @@ export async function enqueueDialJob(input: {
  * sweeper, no heartbeat, no orphan. When the lease lapses the row is simply
  * claimable again.
  *
- * ## Exactly-once is enforced BEFORE the call, not here
+ * ## Exactly-once is enforced by the UPDATE's own predicate, not by the lock
  *
- * `FOR UPDATE SKIP LOCKED` stops two workers from locking the same row. It does
- * not, by itself, stop two workers from *updating* it: the subquery's row set is
- * captured, and a worker whose snapshot predates another worker's commit can
- * still update the same id and overwrite `claimed_by`. Observed directly in this
- * repo's load gate at 8-way concurrency — one job id was returned to seven
- * successive claims with `claimed_by` rewritten each time (see
- * tests/load/load.test.ts, "the ownership gate").
+ * `FOR UPDATE SKIP LOCKED` alone is NOT a claim. Two things go wrong without the
+ * predicate repeated on the UPDATE target (`WHERE j.id = cand.id AND <claim
+ * condition>`), and both were observed in this repo's own load gate:
  *
- * I tried to close it in SQL (four shapes: subquery only, subquery + outer
- * predicate re-asserted, `UPDATE … FROM` a CTE, and a data-modifying CTE) and
- * could not measure a reliable difference on a shared, concurrently-used
- * database, so no claim is made here about which form is "the fix". The
- * predicate below is kept because re-asserting the claim condition can only ever
- * narrow the set of rows an UPDATE touches — never widen it — which is the right
- * default even though it is not sufficient on its own.
+ *   1. **Double-claim.** The candidate list is captured from a snapshot, so a
+ *      worker whose snapshot predates another worker's commit still sees the row
+ *      as PENDING and re-claims it, overwriting `claimed_by`. Observed at 8-way
+ *      concurrency: one job id returned to seven successive claims.
+ *   2. **Livelock.** With `LIMIT 1` and many workers, every worker snapshots the
+ *      SAME top-priority row, so one job collects N claims, N-1 of which are
+ *      useless. Measured: ~270,000 claims for 1,200 cases, and the drain never
+ *      finished.
  *
- * What IS sufficient, and is asserted by the gate: `renewClaim()` re-verifies
- * ownership in the same statement that extends the lease, and `drainDialQueue`
- * refuses to run the handler for a job it cannot confirm. The irreversible
- * action is what gets the guarantee, not the lock.
+ * Re-asserting the claim condition on the target makes the transition an atomic
+ * compare-and-set: PENDING → CLAIMED can only happen once per row, so a worker
+ * that loses the race simply receives fewer rows. The `SKIP LOCKED` selection is
+ * kept — it is what lets workers drain concurrently without blocking — but the
+ * guarantee comes from the predicate.
  *
- * Time comparisons use the DATABASE clock (`now()`), not this process's clock,
- * because two instances with skewed clocks would otherwise disagree about what
- * is due — and the loser would double-dial. The lease DEADLINE is passed in as
- * a timestamp so the caller can own the clock policy explicitly.
+ * `renewClaim()` re-checks ownership once more immediately before the worker
+ * places a call, and extends the lease to cover the call. That covers the case
+ * the predicate cannot: a lease that lapses mid-conversation and is reclaimed by
+ * someone else while the call is still running. The irreversible action gets the
+ * guarantee, not the lock.
+ *
+ * Every time value here is the DATABASE clock (see the module header): the lease
+ * is `now() + leaseMs`, so no client's timezone or skew can put it in the past.
  */
 export async function claimDialJobs(opts: {
   workerId: string;
   limit?: number;
   leaseMs?: number;
-  /** Absolute lease deadline. Defaults to now + leaseMs on this process's clock. */
-  leaseUntil?: Date;
-  now?: Date;
 }): Promise<DialJob[]> {
   const limit = Math.max(1, Math.trunc(opts.limit ?? 10));
-  const leaseMs = opts.leaseMs ?? DEFAULT_LEASE_MS;
-  const leaseUntil = opts.leaseUntil ?? new Date((opts.now ?? new Date()).getTime() + leaseMs);
   try {
-    // $queryRawUnsafe, not the tagged form: the column list in RETURNING cannot be
-    // a bound parameter, so this query mixes literal SQL with positional params.
+    // $queryRawUnsafe, not the tagged form: the column list in RETURNING and the
+    // INTERVAL expression are literal SQL, so this mixes SQL text with $params.
     return await db.$queryRawUnsafe<DialJob[]>(
       `UPDATE "dial_job" j
           SET state = 'CLAIMED',
               claimed_by = $1,
-              lease_expires_at = $2,
+              lease_expires_at = ${nowPlusMs(2)},
               updated_at = now()
-        WHERE j.id IN (
-          SELECT id FROM "dial_job"
-           WHERE (state = 'PENDING' AND available_at <= now())
-              OR (state = 'CLAIMED' AND lease_expires_at IS NOT NULL AND lease_expires_at < now())
-ORDER BY priority DESC, available_at ASC, created_at ASC
-          FOR UPDATE SKIP LOCKED
-          LIMIT $3
-        )
+         FROM (
+           SELECT id FROM "dial_job"
+            WHERE (state = 'PENDING' AND available_at <= now())
+               OR (state = 'CLAIMED' AND lease_expires_at IS NOT NULL AND lease_expires_at < now())
+            ORDER BY priority DESC, available_at ASC, created_at ASC
+            FOR UPDATE SKIP LOCKED
+            LIMIT $3
+         ) AS cand
+        WHERE j.id = cand.id
           AND (
             (j.state = 'PENDING' AND j.available_at <= now())
             OR (j.state = 'CLAIMED' AND j.lease_expires_at IS NOT NULL AND j.lease_expires_at < now())
           )
        RETURNING ${COLUMNS_QUALIFIED}`,
       opts.workerId,
-      leaseUntil,
+      Math.max(0, Math.trunc(opts.leaseMs ?? DEFAULT_LEASE_MS)),
       limit,
     );
   } catch (err) {
@@ -280,12 +313,12 @@ ORDER BY priority DESC, available_at ASC, created_at ASC
  * Mark a claimed job DONE. Idempotent: a job that is already DONE or DEAD is
  * left alone, so a duplicated completion cannot resurrect a dead-lettered row.
  */
-export async function completeDialJob(id: string, now: Date = new Date()): Promise<boolean> {
+export async function completeDialJob(id: string): Promise<boolean> {
   try {
     const rows = await db.$executeRaw`
       UPDATE "dial_job"
-         SET state = 'DONE', completed_at = ${now}, last_error = NULL,
-             claimed_by = NULL, lease_expires_at = NULL, updated_at = ${now}
+         SET state = 'DONE', completed_at = now(), last_error = NULL,
+             claimed_by = NULL, lease_expires_at = NULL, updated_at = now()
        WHERE id = ${id} AND state = 'CLAIMED'
     `;
     return rows > 0;
@@ -316,18 +349,16 @@ export async function failDialJob(args: {
   id: string;
   error: string;
   maxAttempts?: number;
-  now?: Date;
   rand?: () => number;
   /** Force the dead-letter branch regardless of the ladder (operator use). */
   dead?: boolean;
 }): Promise<FailOutcome> {
   const maxAttempts = Math.max(1, args.maxAttempts ?? MAX_DIAL_ATTEMPTS);
-  const now = args.now ?? new Date();
   const error = args.error.slice(0, 500);
   try {
     const rows = await db.$queryRaw<{ retries: number }[]>`
       UPDATE "dial_job"
-         SET retries = retries + 1, last_error = ${error}, updated_at = ${now}
+         SET retries = retries + 1, last_error = ${error}, updated_at = now()
        WHERE id = ${args.id} AND state = 'CLAIMED'
       RETURNING retries
     `;
@@ -349,27 +380,30 @@ export async function failDialJob(args: {
     if (args.dead || retries >= maxAttempts) {
       await db.$executeRaw`
         UPDATE "dial_job"
-           SET state = 'DEAD', completed_at = ${now}, claimed_by = NULL,
-               lease_expires_at = NULL, updated_at = ${now}
+           SET state = 'DEAD', completed_at = now(), claimed_by = NULL,
+               lease_expires_at = NULL, updated_at = now()
          WHERE id = ${args.id}
       `;
       return { outcome: "DEAD", retries, nextAttemptAt: null };
     }
-    const nextAttemptAt = new Date(now.getTime() + dialJobBackoffMs(retries, args.rand));
-    await db.$executeRaw`
-      UPDATE "dial_job"
-         SET state = 'PENDING', available_at = ${nextAttemptAt}, claimed_by = NULL,
-             lease_expires_at = NULL, updated_at = ${now}
-       WHERE id = ${args.id}
-    `;
-    return { outcome: "RETRY", retries, nextAttemptAt };
+    // The backoff is applied by the DATABASE clock (see the module header).
+    const backoffMs = dialJobBackoffMs(retries, args.rand);
+    await db.$executeRawUnsafe(
+      `UPDATE "dial_job"
+          SET state = 'PENDING', "available_at" = ${nowPlusMs(1)}, claimed_by = NULL,
+              lease_expires_at = NULL, updated_at = now()
+        WHERE id = $2`,
+      backoffMs,
+      args.id,
+    );
+    return { outcome: "RETRY", retries, nextAttemptAt: null };
   } catch (err) {
     return rethrow(err, "failDialJob");
   }
 }
 
 export type FailOutcome =
-  | { outcome: "RETRY"; retries: number; nextAttemptAt: Date }
+  | { outcome: "RETRY"; retries: number; nextAttemptAt: null }
   | { outcome: "DEAD"; retries: number; nextAttemptAt: null; state?: undefined }
   | {
       outcome: "SETTLED";
@@ -415,12 +449,12 @@ export async function outstandingJobs(): Promise<number> {
  * number — "how many jobs are stranded right now" — and because a queue whose
  * recovery depends on traffic has no recovery when the traffic stops.
  */
-export async function reapExpiredLeases(now: Date = new Date()): Promise<number> {
+export async function reapExpiredLeases(): Promise<number> {
   try {
     return await db.$executeRaw`
       UPDATE "dial_job"
-         SET state = 'PENDING', claimed_by = NULL, lease_expires_at = NULL, updated_at = ${now}
-       WHERE state = 'CLAIMED' AND lease_expires_at IS NOT NULL AND lease_expires_at < ${now}
+         SET state = 'PENDING', claimed_by = NULL, lease_expires_at = NULL, updated_at = now()
+       WHERE state = 'CLAIMED' AND lease_expires_at IS NOT NULL AND lease_expires_at < now()
     `;
   } catch (err) {
     return rethrow(err, "reapExpiredLeases");
@@ -428,12 +462,12 @@ export async function reapExpiredLeases(now: Date = new Date()): Promise<number>
 }
 
 /** Operator replay of a dead-lettered job: back to PENDING, ladder untouched. */
-export async function replayDeadDialJob(id: string, now: Date = new Date()): Promise<{ ok: boolean; reason?: string }> {
+export async function replayDeadDialJob(id: string): Promise<{ ok: boolean; reason?: string }> {
   try {
     const rows = await db.$executeRaw`
       UPDATE "dial_job"
-         SET state = 'PENDING', available_at = ${now}, last_error = NULL,
-             completed_at = NULL, claimed_by = NULL, lease_expires_at = NULL, updated_at = ${now}
+         SET state = 'PENDING', available_at = now(), last_error = NULL,
+             completed_at = NULL, claimed_by = NULL, lease_expires_at = NULL, updated_at = now()
        WHERE id = ${id} AND state = 'DEAD'
     `;
     if (rows === 0) return { ok: false, reason: "not_dead" };
@@ -463,16 +497,15 @@ export async function replayDeadDialJob(id: string, now: Date = new Date()): Pro
  *          from now); false if it does not, in which case do NOT place the call.
  */
 export async function renewClaim(jobId: string, workerId: string, leaseMs = DEFAULT_LEASE_MS): Promise<boolean> {
-  const leaseUntil = new Date(Date.now() + leaseMs);
   try {
     const rows = await db.$queryRawUnsafe<{ id: string }[]>(
       `UPDATE "dial_job"
-          SET "lease_expires_at" = $3, "updated_at" = now()
+          SET "lease_expires_at" = ${nowPlusMs(3)}, "updated_at" = now()
         WHERE id = $1 AND state = 'CLAIMED' AND "claimed_by" = $2
       RETURNING id`,
       jobId,
       workerId,
-      leaseUntil,
+      Math.max(0, Math.trunc(leaseMs)),
     );
     return rows.length === 1;
   } catch (err) {
@@ -538,16 +571,13 @@ export async function drainDialQueue(args: {
   limit?: number;
   leaseMs?: number;
   maxAttempts?: number;
-  now?: () => Date;
   rand?: () => number;
 }): Promise<DrainResult> {
   const out: DrainResult = { claimed: 0, done: 0, retried: 0, dead: 0, crashed: 0, lost: 0, skipped: 0 };
-  const now = args.now ?? ((): Date => new Date());
   const jobs = await claimDialJobs({
     workerId: args.workerId,
     limit: args.limit ?? 10,
     leaseMs: args.leaseMs,
-    now: now(),
   });
   out.claimed = jobs.length;
 
@@ -579,14 +609,13 @@ export async function drainDialQueue(args: {
       outcome = { ok: false, error: `handler crashed: ${err instanceof Error ? err.message : String(err)}`, retryable: true };
     }
     if (outcome.ok) {
-      if (await completeDialJob(job.id, now())) out.done++;
+      if (await completeDialJob(job.id)) out.done++;
       continue;
     }
     const settled = await failDialJob({
       id: job.id,
       error: outcome.error,
       maxAttempts: args.maxAttempts,
-      now: now(),
       rand: args.rand,
       dead: outcome.retryable === false,
     });

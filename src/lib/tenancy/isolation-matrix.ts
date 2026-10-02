@@ -197,6 +197,16 @@ export const CANONICAL_READ_PATHS: readonly CanonicalReadPath[] = Object.freeze(
     model: "DeadLetter",
     obligation: "The replay console is operator-scoped at the deployment level; the model carries no orgId.",
   },
+  {
+    id: "lib.billing.org-ledger",
+    model: "UsageLedger",
+    obligation: "An org-scoped read of the usage ledger cannot resolve another org's money movements.",
+  },
+  {
+    id: "lib.payments.record-by-reference",
+    model: "PaymentRecord",
+    obligation: "An org-scoped read of a payment record cannot resolve another org's settlement.",
+  },
 ]);
 
 // ── The evidence obligation ──────────────────────────────────────────────────
@@ -550,6 +560,38 @@ export const ISOLATION_MATRIX: readonly ReadPath[] = Object.freeze([
     coverage: "declared-global",
     notes:
       "NOT PROBED, deliberately: claiming is a destructive claim on the SHARED delivery queue, so a probe would steal events the WP-5 gate asserts on. This is the one tenant model with a deliberately global read, and it is a raw `$queryRaw` — outside the Prisma model layer the guard can instrument, which is exactly why it is written down here. The org is not lost: the signed payload carries org_id, and the worker's updates are by event id. Residual risk, recorded: the operator replay console (console.outbox.dead-letters) is the human-facing surface over these rows and is not org-scoped.",
+  },
+  {
+    id: "lib.billing.org-ledger",
+    title: "Org-scoped usage-ledger read",
+    model: "UsageLedger",
+    kind: "library",
+    module: "src/lib/tenancy/guard.ts",
+    read: "scopedDb(orgScopeFor(org)).usageLedger.findMany",
+    probe: {
+      field: "idemKey",
+      invoke: "Read the other org's ledger idemKey through this org's scoped client — must resolve to nothing.",
+    },
+    verdict: "foreign-probe-empty",
+    coverage: "asserted",
+    notes:
+      "`UsageLedger` carries `orgId` and was missing from TENANTED_MODELS, so the guard refused it as `unregistered_model` and no caller could reach it through a scope at all — the org predicate was never injected because there was no predicate to inject. Registered, so `scopedDb(org).usageLedger.*` now works and the predicate is the guard's, not the caller's. The module-level functions in src/lib/billing/ledger.ts still read through the raw client with an explicit `orgId` filter; they are not the path under test here.",
+  },
+  {
+    id: "lib.payments.record-by-reference",
+    title: "Org-scoped payment-record read",
+    model: "PaymentRecord",
+    kind: "library",
+    module: "src/lib/tenancy/guard.ts",
+    read: "scopedDb(orgScopeFor(org)).paymentRecord.findFirst",
+    probe: {
+      field: "reference",
+      invoke: "Resolve the other org's globally-unique payment `reference` through this org's scoped client — must resolve to nothing.",
+    },
+    verdict: "foreign-probe-empty",
+    coverage: "asserted",
+    notes:
+      "`PaymentRecord` carries `orgId` and was missing from TENANTED_MODELS, with the same consequence as the ledger. `reference` is globally UNIQUE, so the raw `db.paymentRecord.findUnique({ reference })` in src/lib/payments/provider.ts resolves any org's settlement from the reference alone; registering the model makes the scoped form refuse it, and an explicit cross-org `where` is refused outright rather than silently emptied.",
   },
 ]);
 

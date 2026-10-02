@@ -2,35 +2,35 @@
   "schemaVersion": 1,
   "gate": "WP-12 multi-tenancy isolation",
   "digestAlgorithm": "sha256",
-  "digest": "608d18a2fab8216707e28c9db97e0135cead6f5e4090792da4ee5078042c1697",
-  "generatedAt": "2026-10-02T12:42:26.314Z",
+  "digest": "f2ba7e6af2af3bff2fad593413e41b0d15d9df33402a03bde47bc98529228822",
+  "generatedAt": "2026-10-02T15:05:41.395Z",
   "run": {
-    "id": "muqydnqu",
+    "id": "mur3hw0p",
     "orgs": {
-      "A": "org-tenancy-a-muqydnqu",
-      "B": "org-tenancy-b-muqydnqu"
+      "A": "org-tenancy-a-mur3hw0p",
+      "B": "org-tenancy-b-mur3hw0p"
     },
     "database": "TEST_DATABASE_URL",
     "note": "identifiers above are per-run; the digest covers the deterministic core only"
   },
   "summary": {
     "result": "pass-with-declared-gaps",
-    "pathsDeclared": 20,
-    "pathsProbed": 18,
-    "directionsProbed": 36,
+    "pathsDeclared": 22,
+    "pathsProbed": 20,
+    "directionsProbed": 40,
     "coverage": {
-      "asserted": 14,
+      "asserted": 16,
       "declaredGap": 4,
       "declaredGlobal": 2
     },
     "checks": {
-      "total": 184,
-      "passed": 184,
+      "total": 204,
+      "passed": 204,
       "failed": 0
     },
     "http404Asserted": 5,
     "never403Asserted": 10,
-    "tenantModelsDeclared": 7,
+    "tenantModelsDeclared": 9,
     "unscopedReadPaths": [
       {
         "path": "lib.audit-chain.verify",
@@ -154,6 +154,16 @@
       "id": "console.outbox.dead-letters",
       "model": "DeadLetter",
       "obligation": "The replay console is operator-scoped at the deployment level; the model carries no orgId."
+    },
+    {
+      "id": "lib.billing.org-ledger",
+      "model": "UsageLedger",
+      "obligation": "An org-scoped read of the usage ledger cannot resolve another org's money movements."
+    },
+    {
+      "id": "lib.payments.record-by-reference",
+      "model": "PaymentRecord",
+      "obligation": "An org-scoped read of a payment record cannot resolve another org's settlement."
     }
   ],
   "matrix": [
@@ -419,6 +429,28 @@
       "module": "src/lib/outbox.ts",
       "read": "claimBatch",
       "probeField": "orgId",
+      "http": null
+    },
+    {
+      "id": "lib.billing.org-ledger",
+      "model": "UsageLedger",
+      "verdict": "foreign-probe-empty",
+      "coverage": "asserted",
+      "kind": "library",
+      "module": "src/lib/tenancy/guard.ts",
+      "read": "scopedDb(orgScopeFor(org)).usageLedger.findMany",
+      "probeField": "idemKey",
+      "http": null
+    },
+    {
+      "id": "lib.payments.record-by-reference",
+      "model": "PaymentRecord",
+      "verdict": "foreign-probe-empty",
+      "coverage": "asserted",
+      "kind": "library",
+      "module": "src/lib/tenancy/guard.ts",
+      "read": "scopedDb(orgScopeFor(org)).paymentRecord.findFirst",
+      "probeField": "reference",
       "http": null
     }
   ],
@@ -2230,6 +2262,120 @@
       "ok": true
     },
     {
+      "path": "lib.billing.org-ledger",
+      "title": "Org-scoped usage-ledger read",
+      "model": "UsageLedger",
+      "verdict": "foreign-probe-empty",
+      "coverage": "asserted",
+      "module": "src/lib/tenancy/guard.ts",
+      "read": "scopedDb(orgScopeFor(org)).usageLedger.findMany",
+      "probeField": "idemKey",
+      "probeInvoke": "Read the other org's ledger idemKey through this org's scoped client — must resolve to nothing.",
+      "http": null,
+      "notes": "`UsageLedger` carries `orgId` and was missing from TENANTED_MODELS, so the guard refused it as `unregistered_model` and no caller could reach it through a scope at all — the org predicate was never injected because there was no predicate to inject. Registered, so `scopedDb(org).usageLedger.*` now works and the predicate is the guard's, not the caller's. The module-level functions in src/lib/billing/ledger.ts still read through the raw client with an explicit `orgId` filter; they are not the path under test here.",
+      "directions": [
+        {
+          "direction": "A-reads-B",
+          "sessionOrg": "A",
+          "probeOwner": "B",
+          "probed": true,
+          "axisApplicable": true,
+          "http": null,
+          "control": {
+            "described": "the same scoped client resolves the caller's own ledger row",
+            "status": null,
+            "ownVisible": true
+          },
+          "foreignVisible": false,
+          "foreignMutated": null,
+          "guardEquivalent": {
+            "applied": true,
+            "empty": true,
+            "detail": "scopedDb({ orgId }).usageLedger.findFirst({ where: { idemKey } }) returns nothing for the other org"
+          },
+          "checks": [
+            {
+              "name": "cross-org-ledger-row-not-resolvable",
+              "ok": true,
+              "detail": "scopedDb({ orgId }).usageLedger must not resolve the probe org's ledger row"
+            },
+            {
+              "name": "control-own-ledger-row-resolved",
+              "ok": true,
+              "detail": "the caller's own row must resolve, or the assertion above is vacuous"
+            },
+            {
+              "name": "scoped-listing-contains-only-own-org",
+              "ok": true,
+              "detail": "scoped listing returned 1 rows, 0 of them foreign"
+            },
+            {
+              "name": "scoped-listing-is-non-empty",
+              "ok": true,
+              "detail": "an empty listing would make the filter assertion vacuous"
+            },
+            {
+              "name": "recorded-foreign-probe-is-empty",
+              "ok": true,
+              "detail": "foreignVisible=false contradicts verdict foreign-probe-empty"
+            }
+          ],
+          "ok": true,
+          "error": null
+        },
+        {
+          "direction": "B-reads-A",
+          "sessionOrg": "B",
+          "probeOwner": "A",
+          "probed": true,
+          "axisApplicable": true,
+          "http": null,
+          "control": {
+            "described": "the same scoped client resolves the caller's own ledger row",
+            "status": null,
+            "ownVisible": true
+          },
+          "foreignVisible": false,
+          "foreignMutated": null,
+          "guardEquivalent": {
+            "applied": true,
+            "empty": true,
+            "detail": "scopedDb({ orgId }).usageLedger.findFirst({ where: { idemKey } }) returns nothing for the other org"
+          },
+          "checks": [
+            {
+              "name": "cross-org-ledger-row-not-resolvable",
+              "ok": true,
+              "detail": "scopedDb({ orgId }).usageLedger must not resolve the probe org's ledger row"
+            },
+            {
+              "name": "control-own-ledger-row-resolved",
+              "ok": true,
+              "detail": "the caller's own row must resolve, or the assertion above is vacuous"
+            },
+            {
+              "name": "scoped-listing-contains-only-own-org",
+              "ok": true,
+              "detail": "scoped listing returned 1 rows, 0 of them foreign"
+            },
+            {
+              "name": "scoped-listing-is-non-empty",
+              "ok": true,
+              "detail": "an empty listing would make the filter assertion vacuous"
+            },
+            {
+              "name": "recorded-foreign-probe-is-empty",
+              "ok": true,
+              "detail": "foreignVisible=false contradicts verdict foreign-probe-empty"
+            }
+          ],
+          "ok": true,
+          "error": null
+        }
+      ],
+      "ok": true
+    },
+    {
       "path": "lib.case.by-conversation",
       "title": "Case lookup by provider conversation id",
       "model": "Case",
@@ -2609,6 +2755,120 @@
               "name": "not-probed-requires-a-declared-reason",
               "ok": true,
               "detail": "an unprobed path must be classified declared-global and say why inline"
+            }
+          ],
+          "ok": true,
+          "error": null
+        }
+      ],
+      "ok": true
+    },
+    {
+      "path": "lib.payments.record-by-reference",
+      "title": "Org-scoped payment-record read",
+      "model": "PaymentRecord",
+      "verdict": "foreign-probe-empty",
+      "coverage": "asserted",
+      "module": "src/lib/tenancy/guard.ts",
+      "read": "scopedDb(orgScopeFor(org)).paymentRecord.findFirst",
+      "probeField": "reference",
+      "probeInvoke": "Resolve the other org's globally-unique payment `reference` through this org's scoped client — must resolve to nothing.",
+      "http": null,
+      "notes": "`PaymentRecord` carries `orgId` and was missing from TENANTED_MODELS, with the same consequence as the ledger. `reference` is globally UNIQUE, so the raw `db.paymentRecord.findUnique({ reference })` in src/lib/payments/provider.ts resolves any org's settlement from the reference alone; registering the model makes the scoped form refuse it, and an explicit cross-org `where` is refused outright rather than silently emptied.",
+      "directions": [
+        {
+          "direction": "A-reads-B",
+          "sessionOrg": "A",
+          "probeOwner": "B",
+          "probed": true,
+          "axisApplicable": true,
+          "http": null,
+          "control": {
+            "described": "the same scoped client resolves the caller's own payment record",
+            "status": null,
+            "ownVisible": true
+          },
+          "foreignVisible": false,
+          "foreignMutated": null,
+          "guardEquivalent": {
+            "applied": true,
+            "empty": true,
+            "detail": "scopedDb({ orgId }).paymentRecord.findFirst({ where: { reference } }) returns nothing for the other org"
+          },
+          "checks": [
+            {
+              "name": "cross-org-payment-record-not-resolvable",
+              "ok": true,
+              "detail": "scopedDb({ orgId }).paymentRecord must not resolve the probe org's settlement from its reference alone"
+            },
+            {
+              "name": "control-own-payment-record-resolved",
+              "ok": true,
+              "detail": "the caller's own record must resolve, or the assertion above is vacuous"
+            },
+            {
+              "name": "NEGATIVE-CONTROL-unscoped-read-reaches-foreign-row",
+              "ok": true,
+              "detail": "the raw findUnique({ reference }) the payment adapters use must still resolve the other org's row, or the isolation assertion is vacuous"
+            },
+            {
+              "name": "explicit-cross-org-where-is-refused",
+              "ok": true,
+              "detail": "naming another org in `where` must throw cross_org_request, not silently return zero rows"
+            },
+            {
+              "name": "recorded-foreign-probe-is-empty",
+              "ok": true,
+              "detail": "foreignVisible=false contradicts verdict foreign-probe-empty"
+            }
+          ],
+          "ok": true,
+          "error": null
+        },
+        {
+          "direction": "B-reads-A",
+          "sessionOrg": "B",
+          "probeOwner": "A",
+          "probed": true,
+          "axisApplicable": true,
+          "http": null,
+          "control": {
+            "described": "the same scoped client resolves the caller's own payment record",
+            "status": null,
+            "ownVisible": true
+          },
+          "foreignVisible": false,
+          "foreignMutated": null,
+          "guardEquivalent": {
+            "applied": true,
+            "empty": true,
+            "detail": "scopedDb({ orgId }).paymentRecord.findFirst({ where: { reference } }) returns nothing for the other org"
+          },
+          "checks": [
+            {
+              "name": "cross-org-payment-record-not-resolvable",
+              "ok": true,
+              "detail": "scopedDb({ orgId }).paymentRecord must not resolve the probe org's settlement from its reference alone"
+            },
+            {
+              "name": "control-own-payment-record-resolved",
+              "ok": true,
+              "detail": "the caller's own record must resolve, or the assertion above is vacuous"
+            },
+            {
+              "name": "NEGATIVE-CONTROL-unscoped-read-reaches-foreign-row",
+              "ok": true,
+              "detail": "the raw findUnique({ reference }) the payment adapters use must still resolve the other org's row, or the isolation assertion is vacuous"
+            },
+            {
+              "name": "explicit-cross-org-where-is-refused",
+              "ok": true,
+              "detail": "naming another org in `where` must throw cross_org_request, not silently return zero rows"
+            },
+            {
+              "name": "recorded-foreign-probe-is-empty",
+              "ok": true,
+              "detail": "foreignVisible=false contradicts verdict foreign-probe-empty"
             }
           ],
           "ok": true,

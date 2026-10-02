@@ -280,6 +280,36 @@ model DeadLetter {
   @@index([failedAt])
 }
 
+/// Durable dial queue (WP-19). Call placement leaves the request handler and
+/// becomes a row, so a campaign burst queues instead of overwhelming the
+/// telephony provider, and a killed worker loses its lease rather than the job.
+/// The unique index on (caseId, attemptNo) is the exactly-once dial guarantee.
+model DialJob {
+  id             String    @id @default(cuid())
+  caseId         String    @map("case_id")
+  caseRef        String    @map("case_ref")
+  orgId          String?   @map("org_id")
+  attemptNo      Int       @default(1) @map("attempt_no")
+  retries        Int       @default(0)
+  state          String    @default("PENDING")
+  priority       Int       @default(0)
+  payload        String
+  availableAt    DateTime  @default(now()) @map("available_at")
+  leaseExpiresAt DateTime? @map("lease_expires_at")
+  claimedBy      String?   @map("claimed_by")
+  lastError      String?   @map("last_error")
+  completedAt    DateTime? @map("completed_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  @@unique([caseId, attemptNo], map: "dial_job_case_id_attempt_no_key")
+  @@index([state, availableAt, priority], map: "dial_job_state_available_at_priority_idx")
+  @@index([state, leaseExpiresAt], map: "dial_job_state_lease_expires_at_idx")
+  @@index([caseId], map: "dial_job_case_id_idx")
+  @@index([state, createdAt], map: "dial_job_state_created_at_idx")
+  @@map("dial_job")
+}
+
 /// Deliveries received by the in-app receiver (the /inspector demo surface,
 /// and the fixture a bank integration team can point its own tests at).
 model InboundBankEvent {

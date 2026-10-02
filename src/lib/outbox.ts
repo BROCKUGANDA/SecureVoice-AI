@@ -175,6 +175,19 @@ export async function claimBatch(limit = 10, leaseMs = 5 * 60_000): Promise<
         FOR UPDATE SKIP LOCKED
         LIMIT ${limit}
      )
+     -- CAS: re-assert claimability on the UPDATE's own WHERE.
+     --
+     -- SKIP LOCKED alone is NOT a claim. The subquery locks a row for the
+     -- duration of THIS statement, but nothing stops two concurrent workers
+     -- from both selecting the same id across statements, and the UPDATE would
+     -- then stamp state='SENDING' twice and both workers would deliver the same
+     -- bank notification. Re-checking the state here means a row that changed
+     -- under us simply is not returned, and the loser's UPDATE affects zero
+     -- rows. This is the same defect the dial-queue load gate caught.
+     AND (
+       (o.state = 'PENDING' AND o."nextAttemptAt" <= now())
+       OR (o.state = 'SENDING' AND o."updatedAt" < ${stale})
+     )
     RETURNING o.id, o."eventType", o."caseRef", o.payload, o."targetUrl", o.attempts
   `;
   return rows;

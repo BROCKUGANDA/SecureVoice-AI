@@ -1,6 +1,6 @@
 # Evidence index
 
-Generated 2026-10-02T14:07:18.323Z by `bun run evidence` (`scripts/build-evidence.ts`).
+Generated 2026-10-02T14:58:05.521Z by `bun run evidence` (`scripts/build-evidence.ts`).
 
 Every Stage 2 criterion and the artifact that is supposed to earn it. A criterion marked
 MISSING has no artifact. That is the honest state, and it is why this file is generated
@@ -57,7 +57,7 @@ rather than written by hand — a hand-written index drifts from the tree it des
 | --- | --- | --- |
 | `evidence/agent/snapshot.json` | 24487 | `587112bd6949baa2…` |
 | `evidence/guardrails/redteam.json` | 7897 | `41a71495e7ddf482…` |
-| `evidence/tenancy/isolation.json` | 96342 | `44656c33afd9d1c7…` |
+| `evidence/tenancy/isolation.json` | 106912 | `f93207eeef41185a…` |
 | `evidence/privacy/privacy.json` | 15375 | `f60285ea576f6411…` |
 | `evidence/chaos/results.json` | 89806 | `66a65b12ac52a36d…` |
-| `evidence/load/results.json` | 25085 | `de7726c1cdbb4d83…` |
+| `evidence/load/results.json` | 28364 | `1c1e73a2fb983de3…` |

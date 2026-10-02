@@ -121,7 +121,7 @@
     {
       "name": "erased-at-recorded",
       "ok": true,
-      "detail": "erasedAt=2026-10-02T11:46:07.986Z"
+      "detail": "erasedAt=2026-10-02T15:05:38.523Z"
     },
     {
       "name": "read-after-erasure-throws",
@@ -156,12 +156,12 @@
     {
       "name": "erasure-witness-in-chain",
       "ok": true,
-      "detail": "witness row cmuqwda10000c7qzwrcl4750z records keyDestroyed=true"
+      "detail": "witness row cmur3hujs000czk7qbrbb7mil records keyDestroyed=true"
     },
     {
       "name": "negative-control-tamper-is-detected",
       "ok": true,
-      "detail": "detected at cmuqwd9yp00087qzwrlhr6gew"
+      "detail": "detected at cmur3hui50008zk7q3qr4bpvm"
     },
     {
       "name": "erasure-is-idempotent",
@@ -211,7 +211,7 @@
     {
       "name": "pilot-audio-is-zero-days",
       "ok": true,
-      "detail": "org-privacy-pilot-muqwd9q6: audioDays=0 (source pilot)"
+      "detail": "org-privacy-pilot-mur3huae: audioDays=0 (source pilot)"
     },
     {
       "name": "pilot-leaves-other-tiers-alone",
@@ -291,7 +291,7 @@
     {
       "name": "dry-run-reports-due-work",
       "ok": true,
-      "detail": "dry run would act on 1 audio tier case(s): SV-P-muqwd9q6-AUDIO0"
+      "detail": "dry run would act on 1 audio tier case(s): SV-P-mur3huae-AUDIO0"
     },
     {
       "name": "dry-run-reports-no-transcript-work",
@@ -301,7 +301,7 @@
     {
       "name": "zero-day-audio-purged-immediately",
       "ok": true,
-      "detail": "pilot case purged on the first run (SV-P-muqwd9q6-AUDIO0)"
+      "detail": "pilot case purged on the first run (SV-P-mur3huae-AUDIO0)"
     },
     {
       "name": "thirty-day-audio-not-purged",
@@ -341,7 +341,7 @@
     {
       "name": "transcript-tier-fires-at-140-days",
       "ok": true,
-      "detail": "acted on 5 case(s): SV-P-muqwd9q6-TIER, SV-P-muqwd9q6-AUDIO30, SV-P-muqwd9q6-KEYA, SV-P-muqwd9q6-KEYB, SV-P-muqwd9q6-SEAL"
+      "detail": "acted on 5 case(s): SV-P-mur3huae-TIER, SV-P-mur3huae-AUDIO30, SV-P-mur3huae-KEYA, SV-P-mur3huae-KEYB, SV-P-mur3huae-SEAL"
     },
     {
       "name": "transcript-tier-scrubs-payload",
@@ -471,19 +471,19 @@
     {
       "name": "master-key-in-process",
       "ok": true,
-      "detail": "master key resolved; ops fingerprint 0d9dc51da244657f is a hash, not the key"
+      "detail": "master key resolved; ops fingerprint 34aa1360fddabd8c is a hash, not the key"
     }
   ],
-  "digest": "d8582bdee39e820edf104641bc04af1d3425ef6be8ac13cd85f399f7a5fed1d5",
-  "generatedAt": "2026-10-02T11:46:08.752Z",
+  "digest": "2edecee3456a4a582d6a00986b612ee1b486d6ac56301e7e19dbabde6d27113d",
+  "generatedAt": "2026-10-02T15:05:38.968Z",
   "run": {
-    "id": "muqwd9q6",
+    "id": "mur3huae",
     "orgs": {
-      "default": "org-privacy-default-muqwd9q6",
-      "pilot": "org-privacy-pilot-muqwd9q6",
-      "override": "org-privacy-override-muqwd9q6"
+      "default": "org-privacy-default-mur3huae",
+      "pilot": "org-privacy-pilot-mur3huae",
+      "override": "org-privacy-override-mur3huae"
     },
-    "batch": "SV-P-muqwd9q6-BATCHORG",
+    "batch": "SV-P-mur3huae-BATCHORG",
     "database": "TEST_DATABASE_URL",
     "note": "identifiers above are per-run; the digest covers the deterministic core only"
   },

@@ -1,12 +1,55 @@
 # `DialJob` — what must be added to `prisma/schema.prisma`
 
-**Status: NOT YET APPLIED. Both remaining steps are yours; WP-19 was scoped to
-leave `prisma/schema.prisma` untouched and to run no `db push`.**
+> ## ⚠ CONFLICT: there are now TWO dial-queue implementations in this repo
+>
+> While this work package was in progress, another agent added a **competing**
+> `DialJob` model to `prisma/schema.prisma` plus its own migration
+> `prisma/migrations/4_dialqueue/migration.sql`. They are not compatible, and
+> **someone has to reconcile them before CI is green.** This section is that
+> reconciliation; everything below it describes the model `src/lib/scale/queue.ts`
+> actually queries.
+>
+> | | This WP (`2_dialjob`) | Competing (`4_dialqueue`) |
+> |---|---|---|
+> | Table | `dial_job` (snake_case, `@@map`) | `DialJob` (PascalCase, no `@@map`) |
+> | Case key | `case_id` (Case.id) + `case_ref` | `case_ref` only |
+> | Attempt columns | `attempt_no` (identity, unique) + `retries` (ladder) | `attemptNo` (unique) + `attempts` |
+> | States | `PENDING · CLAIMED · DONE · DEAD` | `QUEUED · LEASED · PLACED · FAILED · DEAD` |
+> | Tenant scoping | `org_id` | **absent** |
+> | Dial payload | `payload` (sanitised JSON) | `conversationId` / `callSid` result columns |
+> | Claim owner | `claimed_by` | **absent** — nothing records which worker leased a row |
+> | Terminal timestamp | `completed_at` | `placedAt` |
+>
+> **Consequence right now:** `prisma/migrations/2_dial_job/migration.sql` creates
+> a table the schema does not declare, and `4_dialqueue` creates a table nothing in
+> this WP reads. CI's **"Migration drift gate"** (`migrate deploy` then
+> `migrate diff --to-schema-datamodel`) **fails** on that divergence.
+>
+> **Three ways to resolve it — pick one, do not leave both:**
+>
+> 1. **Adopt mine** (recommended — it is the one with a passing gate behind it):
+>    paste the block in §1 into `schema.prisma`, delete `4_dialqueue/`, and point
+>    the competing worker at `src/lib/scale/queue.ts`.
+> 2. **Adopt theirs**: delete `2_dial_job/migration.sql`, and rewrite
+>    `src/lib/scale/queue.ts` against the `DialJob` columns. The behaviours to
+>    re-implement are all listed in §4 below; the `claimed_by` / `org_id` /
+>    `retries` columns would need adding, and the four defects in §5 must not be
+>    reintroduced.
+> 3. **Merge** the two models into one table. More work than either option above,
+>    and the only reason to choose it is if both implementations are already in use.
+>
+> I did not touch `schema.prisma`, `4_dialqueue/`, or the competing module: they
+> are outside this work package's file scope and outside its authorship.
+
+---
+
+**Status of my side: migration written, not applied to any shared database beyond
+my own test database; the model block is below.**
 
 | # | What | Where | Consequence if skipped |
 |---|---|---|---|
-| 1 | `DialJob` model block (below) | `prisma/schema.prisma` | `db.dialJob` never exists; the queue keeps working via raw SQL, and CI's **migration drift gate fails** (a migration that creates a table the schema does not declare is drift) |
-| 2 | Apply the migration | your database | every `dial_job` read/write fails with `relation "dial_job" does not exist`; `src/lib/scale/queue.ts` rethrows that as a message pointing here |
+| 1 | `DialJob` model block (§1) | `prisma/schema.prisma` | `db.dialJob` never exists; the queue keeps working via raw SQL, and the migration drift gate fails |
+| 2 | Apply the migration (§3) | your database | every `dial_job` read/write fails with `relation "dial_job" does not exist`; `src/lib/scale/queue.ts` rethrows that as a message pointing here |
 
 ---
 
@@ -149,3 +192,25 @@ the reasons:
 Nothing else in the repo reads `dial_job`. The only importer of
 `src/lib/scale/queue.ts` is `src/lib/scale/admission.ts`, for the `queue_depth`
 metric.
+
+---
+
+## 5. Four things a re-implementation must not get wrong
+
+Each of these was found by the Layer A gate, not by review. They are properties of
+the *code*, not of the schema, so they survive any of the three resolutions above.
+
+1. **`FOR UPDATE SKIP LOCKED` alone is not a claim.** Re-assert the claim
+   condition on the `UPDATE`'s target so PENDING → CLAIMED is an atomic
+   compare-and-set. Measured at 8-way concurrency: one job id claimed seven times,
+   and with `LIMIT 1` a livelock — ~270,000 claims for 1,200 cases.
+2. **Every deadline must be `now() + interval`, computed by the database.** The
+   columns are `TIMESTAMP(3)` (no timezone); a JS `Date` arrives as UTC wall
+   time while `now()` is local wall time. On this repo's UTC+3 host every lease
+   was written three hours in the past and the queue never drained.
+3. **Re-verify ownership immediately before the call** (`renewClaim`), and size
+   the lease to outlast the *call*, not the claim — a 120 s lease around a 180 s
+   conversation is a guaranteed double-dial.
+4. **Bounded attempts must not throw when the row has moved on.** A worker whose
+   lease expired mid-call is a normal event; it is counted (`lost`), not fatal to
+   the drainer.

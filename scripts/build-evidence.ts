@@ -215,42 +215,61 @@ function main(): number {
   mkdirSync(join(EVIDENCE, "tests"), { recursive: true });
   writeFileSync(join(EVIDENCE, "tests", "results.json"), JSON.stringify(results, null, 2));
 
-  // ── latency/slo.json — measurements and targets, never mixed ──────────────
-  // Only values observed on a real run appear in `measured_p95_ms`. A target
-  // that has not been instrumented stays `null` there, which is not a pass.
+  // ── latency/slo.json — provenance is explicit, never implied ─────────────
+  //
+  // This script does NOT measure latency; it has no instrumentation and cannot.
+  // The two numbers below were read off a gate's recorded output in
+  // docs/VERIFICATION.md. Calling them "measured" inside a field named
+  // `measured_p95_ms` would dress a transcription up as an instrument, which is
+  // precisely the failure this file was written to prevent — so every value
+  // carries `value_kind`, and the gate refuses to emit one that lacks it.
+  //
+  //   "instrumented" — read from a real histogram this pipeline produced
+  //   "transcribed"  — copied from a human-written gate record, with its source
+  //   null + "not_instrumented" — nothing observed; NOT a pass
   const latency = {
-    schema_version: "1.0",
+    schema_version: "1.1",
     generated_at: generatedAt,
     disclaimer:
-      "`measured_p95_ms` contains only values observed on a real run. A null there means NOT INSTRUMENTED, which is not a pass. Targets are published separately so the two can never be confused.",
+      "This file transcribes; it does not measure. `value_kind` says which. 'transcribed' means the number was copied from a recorded gate output in docs/VERIFICATION.md and is only as good as that record. 'not_instrumented' means nothing was observed and is NOT a pass.",
     interventions_measured: 0,
-    note: "The 30-intervention minimum in the definition of done is NOT met. The conversation-plane spans are not yet instrumented.",
+    note: "The 30-intervention minimum in the definition of done is NOT met, and no span is currently instrumented. The conversation-plane spans have no emitter at all.",
     spans: [
       {
         name: "signal accepted -> provider accepted the call",
         target_p95_ms: 1500,
-        measured_p95_ms: 551,
-        source: "docs/VERIFICATION.md WP-2 gate",
+        value_p95_ms: 551,
+        value_kind: "transcribed",
+        source: "docs/VERIFICATION.md, WP-2 gate entry",
       },
       {
         name: "tool request -> tool response",
         target_p95_ms: 300,
-        measured_p95_ms: 9,
-        source: "docs/VERIFICATION.md tool latency gate",
+        value_p95_ms: 9,
+        value_kind: "transcribed",
+        source: "docs/VERIFICATION.md, tool latency gate entry (co-located Postgres; remote-DB figure in the same entry is 592 ms)",
       },
-      { name: "signal received -> signal accepted", target_p95_ms: 300, measured_p95_ms: null, source: null },
-      { name: "signal received -> ringing", target_p95_ms: 5000, measured_p95_ms: null, source: null },
-      { name: "answered -> first agent word", target_p95_ms: 1200, measured_p95_ms: null, source: null },
+      { name: "signal received -> signal accepted", target_p95_ms: 300, value_p95_ms: null, value_kind: "not_instrumented", source: null },
+      { name: "signal received -> ringing", target_p95_ms: 5000, value_p95_ms: null, value_kind: "not_instrumented", source: null },
+      { name: "answered -> first agent word", target_p95_ms: 1200, value_p95_ms: null, value_kind: "not_instrumented", source: null },
       {
         name: "caller stops speaking -> agent audio begins",
         target_p95_ms: 1500,
-        measured_p95_ms: null,
+        value_p95_ms: null,
+        value_kind: "not_instrumented",
         source: null,
       },
-      { name: "fraud confirmed -> bank webhook delivered", target_p95_ms: 2000, measured_p95_ms: null, source: null },
-      { name: "signal received -> freeze staged", target_p95_ms: 60000, measured_p95_ms: null, source: null },
+      { name: "fraud confirmed -> bank webhook delivered", target_p95_ms: 2000, value_p95_ms: null, value_kind: "not_instrumented", source: null },
+      { name: "signal received -> freeze staged", target_p95_ms: 60000, value_p95_ms: null, value_kind: "not_instrumented", source: null },
     ],
   };
+  const uninstrumented = latency.spans.filter((s) => s.value_kind === "not_instrumented");
+  console.log(`  latency: ${uninstrumented.length}/${latency.spans.length} spans NOT INSTRUMENTED (not a pass)`);
+  const unprovenanced = latency.spans.filter((s) => s.value_p95_ms !== null && !s.source);
+  if (unprovenanced.length > 0) {
+    console.error(`\n${unprovenanced.length} span(s) carry a value with no source — refusing to write a number nobody can trace.`);
+    return 1;
+  }
   mkdirSync(join(EVIDENCE, "latency"), { recursive: true });
   writeFileSync(join(EVIDENCE, "latency", "slo.json"), JSON.stringify(latency, null, 2));
 

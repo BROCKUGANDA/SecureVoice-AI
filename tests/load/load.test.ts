@@ -673,8 +673,14 @@ async function runScenario(args: {
         finish();
         return { ok: true };
       }
-      errors++;
+errors++;
       byReason.error = (byReason.error ?? 0) + 1;
+      if (process.env.WP19_DEBUG_SKIP) {
+        console.error(
+          `[wp19-load] handler error on ${spec.caseRef} (attempt ${job.retries}):`,
+          err instanceof Error ? `${err.name}: ${err.message}` : String(err),
+        );
+      }
       finish();
       return { ok: false, error: err instanceof Error ? err.message : String(err) };
     } finally {
@@ -857,9 +863,16 @@ let burst: ScenarioResult | null = null;
 let steadyAccounting: Accounting | null = null;
 let burstAccounting: Accounting | null = null;
 
-beforeAll(() => {
+beforeAll(async () => {
   if (!dbAvailable) return;
   scaleAdmission.resetShedCounter();
+  // This suite runs against its OWN database (see scripts/run-tests.mjs), so
+  // `dial_job` is entirely ours and a full purge is safe. Without it, a second
+  // run inherits the previous run's undrained jobs: the queue is deeper, more
+  // cases are shed, and the numbers drift away from the recorded artifact. A
+  // capacity gate that is not reproducible is not a gate.
+  await db.$executeRawUnsafe(`DELETE FROM dial_job`).catch(() => {});
+  await db.$executeRawUnsafe(`DELETE FROM "AuditLog"`).catch(() => {});
 });
 
 afterAll(async () => {
@@ -1516,12 +1529,15 @@ describe.skipIf(!dbAvailable)("WP-19 durable dial queue", () => {
     const [seed] = await seedJobs(1, 200);
     const jobId = await jobIdFor(seed!.caseId);
 
-    // A lease that has already expired is exactly the state a SIGKILLed worker
+// A lease that has already expired is exactly the state a SIGKILLed worker
     // leaves behind: the row is CLAIMED and nobody is coming back for it.
+    // `leaseMs: 0` is how you say that — the lease is written as
+    // `now() + 0 milliseconds`, i.e. already expired. (There is deliberately no
+    // "expired at" Date parameter: see the time note in src/lib/scale/queue.ts.)
     const claimed = await queue.claimDialJobs({
       workerId: "doomed-worker",
       limit: 5,
-      leaseUntil: new Date(Date.now() - 1_000),
+      leaseMs: 0,
     });
     const stranded = claimed.find((j) => j.id === jobId);
     expect(stranded).toBeDefined();
@@ -1537,7 +1553,7 @@ describe.skipIf(!dbAvailable)("WP-19 durable dial queue", () => {
 
   test("reapExpiredLeases reports how many jobs are stranded right now", async () => {
     await seedJobs(2, 300);
-    const claimed = await queue.claimDialJobs({ workerId: "doomed-2", limit: 2, leaseUntil: new Date(Date.now() - 1_000) });
+    const claimed = await queue.claimDialJobs({ workerId: "doomed-2", limit: 2, leaseMs: 0 });
     expect(claimed.length).toBe(2);
     const reaped = await queue.reapExpiredLeases();
     expect(reaped).toBeGreaterThanOrEqual(2);

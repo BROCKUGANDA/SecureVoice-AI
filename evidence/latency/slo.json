@@ -1,56 +1,64 @@
 {
-  "schema_version": "1.0",
-  "generated_at": "2026-10-02T14:07:18.323Z",
-  "disclaimer": "`measured_p95_ms` contains only values observed on a real run. A null there means NOT INSTRUMENTED, which is not a pass. Targets are published separately so the two can never be confused.",
+  "schema_version": "1.1",
+  "generated_at": "2026-10-02T14:58:05.521Z",
+  "disclaimer": "This file transcribes; it does not measure. `value_kind` says which. 'transcribed' means the number was copied from a recorded gate output in docs/VERIFICATION.md and is only as good as that record. 'not_instrumented' means nothing was observed and is NOT a pass.",
   "interventions_measured": 0,
-  "note": "The 30-intervention minimum in the definition of done is NOT met. The conversation-plane spans are not yet instrumented.",
+  "note": "The 30-intervention minimum in the definition of done is NOT met, and no span is currently instrumented. The conversation-plane spans have no emitter at all.",
   "spans": [
     {
       "name": "signal accepted -> provider accepted the call",
       "target_p95_ms": 1500,
-      "measured_p95_ms": 551,
-      "source": "docs/VERIFICATION.md WP-2 gate"
+      "value_p95_ms": 551,
+      "value_kind": "transcribed",
+      "source": "docs/VERIFICATION.md, WP-2 gate entry"
     },
     {
       "name": "tool request -> tool response",
       "target_p95_ms": 300,
-      "measured_p95_ms": 9,
-      "source": "docs/VERIFICATION.md tool latency gate"
+      "value_p95_ms": 9,
+      "value_kind": "transcribed",
+      "source": "docs/VERIFICATION.md, tool latency gate entry (co-located Postgres; remote-DB figure in the same entry is 592 ms)"
     },
     {
       "name": "signal received -> signal accepted",
       "target_p95_ms": 300,
-      "measured_p95_ms": null,
+      "value_p95_ms": null,
+      "value_kind": "not_instrumented",
       "source": null
     },
     {
       "name": "signal received -> ringing",
       "target_p95_ms": 5000,
-      "measured_p95_ms": null,
+      "value_p95_ms": null,
+      "value_kind": "not_instrumented",
       "source": null
     },
     {
       "name": "answered -> first agent word",
       "target_p95_ms": 1200,
-      "measured_p95_ms": null,
+      "value_p95_ms": null,
+      "value_kind": "not_instrumented",
       "source": null
     },
     {
       "name": "caller stops speaking -> agent audio begins",
       "target_p95_ms": 1500,
-      "measured_p95_ms": null,
+      "value_p95_ms": null,
+      "value_kind": "not_instrumented",
       "source": null
     },
     {
       "name": "fraud confirmed -> bank webhook delivered",
       "target_p95_ms": 2000,
-      "measured_p95_ms": null,
+      "value_p95_ms": null,
+      "value_kind": "not_instrumented",
       "source": null
     },
     {
       "name": "signal received -> freeze staged",
       "target_p95_ms": 60000,
-      "measured_p95_ms": null,
+      "value_p95_ms": null,
+      "value_kind": "not_instrumented",
       "source": null
     }
   ]

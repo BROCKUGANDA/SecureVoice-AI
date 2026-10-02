@@ -16,3 +16,11 @@ mock.module("server-only", () => ({}));
 if (process.env.TEST_DATABASE_URL) {
   process.env.DATABASE_URL = process.env.TEST_DATABASE_URL;
 }
+
+// The load gate (WP-19) measures CAPACITY, so it gets its own database. It
+// shares nothing with the functional suites: a capacity number contaminated by
+// another suite's rows is not a capacity number, and the run-to-run drift that
+// causes is exactly what makes an evidence artifact worthless.
+if (process.env.LOAD_DATABASE_URL) {
+  process.env.DATABASE_URL = process.env.LOAD_DATABASE_URL;
+}

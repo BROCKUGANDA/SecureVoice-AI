@@ -64,3 +64,38 @@ The dev-instance wallets were orphaned by the Clerk swap (expected).
       serve) — this is the control that stops toll fraud.
 - [ ] Signed MSA + DPA; the public Terms are evaluation-only by design.
 - [ ] Decide the invoicing entity and tax treatment with an accountant.
+
+## 5. Per-tool agent secrets — not implemented, and the docs now say so
+
+There is **one** agent-tool credential today. `authorizeToolCall`
+(`src/lib/agent-tool-auth.ts`) compares `x-agent-tool-secret` against the single
+global `AGENT_TOOL_SECRET`, then checks the tool name against one flat global
+`AGENT_TOOL_ALLOWED`; `scripts/agent-apply.ts:382-417` writes that same one value
+into every tool's `request_headers`. **So a leaked tool secret authorises every
+tool on the list, not just the one it was issued for** — a leaked `human_handoff`
+secret is a leaked `card_freeze` credential. `README.md` and
+`docs/INTEGRATION.md` used to claim the opposite; they now state this instead.
+
+The gap is scoping, not authentication: the secret is already compared in
+constant time over length-safe buffers, and an unset allow-list already fails
+closed with `403 tool_scope_unconfigured` for every tool.
+
+**What closing it means:**
+
+- Move from one global secret to a per-tool map, e.g. `AGENT_TOOL_SECRETS` as
+  `card_freeze=…,human_handoff=…`, keeping the single-value name working as a
+  wildcard for one release so deployments do not break on upgrade.
+- `authorizeToolCall` selects the expected secret *by tool name* before
+  comparing, and returns 401 when the tool has no entry — a missing entry must be
+  a refusal, never a fall-through to a shared value.
+- Keep the allow-list as the second, independent condition. Scoping without it
+  would still let a `card_freeze` secret name a tool that isn't allowed.
+- `scripts/agent-apply.ts:configureToolSecrets` stops overwriting all headers
+  with one value and writes each tool's own secret; a re-apply must not clobber a
+  tool's secret with another tool's.
+- Roll out by issuing a per-tool secret to one tool, rotating, then repeating —
+  dual-accept during rotation, with the shared secret removed at the end.
+- Gate it: `tests/tools/guard.test.ts` should carry two distinct secret fixtures
+  and assert that tool A's secret is refused on tool B. It cannot today because
+  there is no second secret to hold; that test is the acceptance criterion for
+  this item.

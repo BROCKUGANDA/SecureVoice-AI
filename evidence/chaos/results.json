@@ -428,7 +428,7 @@
         "file": "src/lib/billing/ledger.ts",
         "transactions": 1,
         "regions": [
-          "301-384"
+          "355-355"
         ],
         "findings": []
       },
@@ -450,8 +450,8 @@
         "file": "src/lib/outbox.ts",
         "transactions": 2,
         "regions": [
-          "230-248",
-          "279-285"
+          "243-261",
+          "292-298"
         ],
         "findings": []
       },
@@ -471,7 +471,7 @@
         "file": "src/lib/payments/provider.ts",
         "transactions": 1,
         "regions": [
-          "306-370"
+          "306-375"
         ],
         "findings": []
       },
@@ -479,7 +479,7 @@
         "file": "src/lib/tenancy/guard.ts",
         "transactions": 1,
         "regions": [
-          "531-531"
+          "537-537"
         ],
         "findings": []
       }
@@ -2237,7 +2237,7 @@
       "area": "gate",
       "name": "evidence-digest-is-sha256",
       "ok": true,
-      "detail": "177d62d8ee573948"
+      "detail": "7c5380a66f6ec463"
     },
     {
       "area": "gate",
@@ -3363,5 +3363,5 @@
     }
   ],
   "digestAlgorithm": "sha256",
-  "digest": "2e10d5deea922623558618559114e49f16b912999e3683421a9692fc89c1e52f"
+  "digest": "4d905ba078ba7793d56a8f5a391851986f9a972e5294b9401b13d6daaf5e485a"
 }

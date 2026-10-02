@@ -214,6 +214,46 @@ test("WP-5: outbox retries, dead-letters, replays once, cross-language signature
   await db.$disconnect();
 }, 120_000);
 
+test("WP-5: concurrent claimers never both win the same delivery", async () => {
+  // SKIP LOCKED is not a claim on its own. Ten claimers racing for one event
+  // must produce exactly ONE winner, or a bank notification is delivered twice
+  // and the bank's dedupe key ends up doing work our queue should have done.
+  const single = await db.outboxEvent.create({
+    data: {
+      caseRef: `SV-F-OUT-RACE`,
+      eventType: "case.notified",
+      payload: canonicalJson({ event_id: "race-single", event_type: "case.notified", data: {} }),
+      targetUrl: "http://bank.example/hook",
+    },
+  });
+
+  const claimers = await Promise.all(Array.from({ length: 10 }, () => claimBatch(10)));
+  const winners = claimers.flat().filter((e) => e.id === single.id);
+  expect(winners).toHaveLength(1);
+
+  // And across a burst, no id is ever handed out twice.
+  await db.outboxEvent.updateMany({
+    where: { state: "PENDING" },
+    data: { state: "DELIVERED", deliveredAt: new Date() },
+  });
+  for (let i = 0; i < 12; i++) {
+    await db.outboxEvent.create({
+      data: {
+        caseRef: `SV-F-OUT-RACE`,
+        eventType: "case.notified",
+        payload: canonicalJson({ event_id: `race-${i}`, event_type: "case.notified", data: {} }),
+        targetUrl: "http://bank.example/hook",
+      },
+    });
+  }
+  const raced = (await Promise.all(Array.from({ length: 12 }, () => claimBatch(10))))
+    .flat()
+    .map((e) => e.id);
+  expect(new Set(raced).size).toBe(raced.length);
+
+  await db.$disconnect();
+}, 120_000);
+
 function findPython(): string | null {
   const candidates = [
     process.env.PYTHON,

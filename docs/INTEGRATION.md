@@ -177,9 +177,17 @@ Two independent conditions must hold:
    time), **and**
 2. the tool name appears in `AGENT_TOOL_ALLOWED`.
 
-A secret valid for `human_handoff` therefore **cannot** authorise `card_freeze`. This
-is the "tool scoping and trust context" requirement — an agent serving untrusted
-callers cannot reach a privileged action with a leaked read-only credential.
+**Both conditions are global, and neither is per-tool.** `AGENT_TOOL_SECRET` is a
+single value and `AGENT_TOOL_ALLOWED` is one flat list
+(`src/lib/agent-tool-auth.ts`), and `scripts/agent-apply.ts:382-417` writes that one
+secret into every tool's `request_headers`. So a leaked secret authorises **every**
+tool on the list — not `human_handoff` instead of `card_freeze`. Stated plainly as a
+risk: **a leaked tool secret is a leaked `card_freeze` credential**, and narrowing
+the list is the only lever there is (an empty list fails closed with
+`403 tool_scope_unconfigured` for every tool).
+
+Per-tool secrets — so a read-only credential cannot reach a privileged action — is
+follow-up work, tracked in [docs/POST-LAUNCH-TODO.md](POST-LAUNCH-TODO.md).
 
 ### Browser sessions without exposing your key
 

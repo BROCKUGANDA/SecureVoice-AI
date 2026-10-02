@@ -82,6 +82,8 @@ export const TENANTED_MODELS = [
   "UserProfile",
   "Notification",
   "OutboxEvent",
+  "UsageLedger",
+  "PaymentRecord",
 ] as const;
 
 export type TenantedModel = (typeof TENANTED_MODELS)[number];
@@ -123,6 +125,10 @@ export const PLATFORM_MODELS: Readonly<Record<string, PlatformModelDeclaration>>
   },
   DeadLetter: {
     reason: "Replay queue keyed by OutboxEvent.id. The org lives on the OutboxEvent row; DeadLetter stores only the failed payload for operator replay.",
+  },
+  DialJob: {
+    reason:
+      "The dial queue. It carries NO orgId column: prisma/schema.prisma declares no DialJob model at all, the generated client's DialJobSelect has no orgId, and information_schema confirms the `\"DialJob\"` table has none. (`dial_job`, snake_case, is a different table carrying org_id; src/lib/scale/queue.ts drives it with raw SQL and never goes through Prisma.) Registering it as a TENANT model would make the guard inject an orgId predicate that Prisma rejects at query time, and the model's absence from schema.prisma means the $extends hook would never even fire for it. The org is recoverable by joining caseRef to the Case row, and a worker legitimately claims across ALL orgs — exactly like lib.outbox.claim-batch — so a request-scoped scope is the wrong abstraction.",
   },
   InboundBankEvent: {
     reason: "Operator-facing delivery inspector (the /inspector surface); shows a bank what we sent them, scoped by deployment access, not by tenant.",

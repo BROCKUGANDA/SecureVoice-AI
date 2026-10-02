@@ -374,7 +374,7 @@ Everything is opt-in: **no keys required to run the demo** (dry-run + audit-only
 | `DATABASE_URL` | **PostgreSQL** connection string (the Prisma datasource, `provider = "postgresql"`). There is no SQLite mode — see [Quickstart](#quickstart). |
 | `ELEVENLABS_AGENT_ID` | The ElevenLabs agent the browser may connect to. `/api/elevenlabs/signed-url` rejects any other id (403). |
 | `AGENT_TOOL_SECRET` | Shared secret the agent must present on webhook tool calls (`x-agent-tool-secret`). |
-| `AGENT_TOOL_ALLOWED` | Comma-separated tool allow-list, e.g. `card_freeze,human_handoff`. A secret valid for one tool does not authorise another. |
+| `AGENT_TOOL_ALLOWED` | Comma-separated tool allow-list, e.g. `card_freeze,human_handoff`. **One global list, not per-tool scoping — see [Tool authorisation](#tool-authorisation).** |
 | `ELEVENLABS_API_KEY` / `ELEVENLABS_DRY_RUN` | Neural voice; `DRY_RUN=true` serves the dev backend without burning quota |
 | `ELEVENLABS_MODEL` / `ELEVENLABS_STT_MODEL` | Model overrides (`eleven_v3`, `scribe_v2`) |
 | `ELEVENLABS_VOICE_EN/AR/HI/UR` | Per-language voice IDs |
@@ -387,6 +387,28 @@ Everything is opt-in: **no keys required to run the demo** (dry-run + audit-only
 | `COMPLIANCE_*` | Server-enforced compliance flags (disclosure, no credential requests, PII redaction) |
 
 See [.env.example](.env.example) for the annotated reference.
+
+### Tool authorisation
+
+There is **one** agent-tool credential. `authorizeToolCall`
+(`src/lib/agent-tool-auth.ts`) compares the `x-agent-tool-secret` header against the
+single global `process.env.AGENT_TOOL_SECRET`, then checks the requested tool name
+against one flat, global list in `AGENT_TOOL_ALLOWED`.
+
+**A leaked tool secret therefore authorises every tool on that list, not just the one
+it was issued for.** There is no per-tool secret, so there is no per-tool scoping to
+enforce: if `human_handoff` is in the list, the same secret reaches `card_freeze`.
+`scripts/agent-apply.ts:382-417` writes that one value into every tool's
+`request_headers`, which is how it works in practice.
+
+What the allow-list *does* buy is fail-closed narrowing of the whole surface at once:
+an unset list gives `403 tool_scope_unconfigured` for **every** tool, so a deployment
+that has not been scoped yet cannot reach any privileged action. The secret comparison
+is also constant-time and length-safe (both sides SHA-256'd, then `timingSafeEqual`).
+Neither of those is per-tool authorisation.
+
+Per-tool secrets — so a read-only credential cannot reach `card_freeze` — is
+follow-up work, tracked in [docs/POST-LAUNCH-TODO.md](docs/POST-LAUNCH-TODO.md).
 
 ## The LLM reply layer (optional)
 

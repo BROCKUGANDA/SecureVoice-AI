@@ -193,8 +193,8 @@ admission decision (MEASURED in Layer A — see §7).
 
 **What the gauge costs, measured.** The whole admission decision — the gauge
 COUNT, a grouped count over `dial_job`, and (on a shed) the audit append — is
-**3.7 ms p50 / 8.4 ms p95** at steady state and **243 ms p50 / 531 ms p95** at
-burst, when 224 workers contend for a 20-connection pool. The degradation is
+**4.5 ms p50 / 8.7 ms p95** at steady state and **14.4 ms p50 / 178.8 ms p95** at burst,
+when 224 workers contend for a 20-connection pool. The degradation is
 connection-pool wait, not the COUNT itself: at a few thousand `Case` rows the scan
 is not the problem. Two consequences: the gauge is cheap enough to keep on the
 hot path at pilot scale, and the roadmap trigger for replacing it with a leased
@@ -220,7 +220,7 @@ be dialled, the customers with the most money at risk are dialled first.
 taken, the expected loss, the threshold and the gauge reading at the decision.
 The row is written on a fast path (no transaction, dedicated 5-connection audit
 client) so shedding never delays the fallback delivery, and a failed append is
-logged loudly rather than swallowed. Measured in Layer A: 656 sheds, 656 audit
+logged loudly rather than swallowed. Measured in Layer A: 299 sheds, 299 audit
 rows, zero without one (§7).
 
 **Two more degradation points, in the order they bite:**
@@ -296,6 +296,25 @@ ladder, the case state machine and persistence are all real, against local
 Postgres 17.11 (MEASURED). Run on a Windows dev host, 224 workers against a
 20-connection pool, `ELEVENLABS_MAX_CONCURRENT=40` (Business tier, CALIBRATED).
 
+**Every figure in this section is transcribed from that artifact, and
+`tests/docs/load-artifact-consistency.test.ts` fails the build if the two ever
+disagree.** Earlier revisions of this document quoted a run the artifact had never
+recorded — first "1,118 dialled, 82 shed", then a 715-shed run. Both were replaced,
+because a document that flatters itself about its own measurements is worse than one
+that does not.
+
+The artifact's own `result` is **`recorded`** — this is a run that completed, with
+`summary.cases_accounted_exactly: true`.
+
+**These figures are from one run, seed `mur3o0arz0`, and the seed is the point.**
+The shed *split* is seeded, not stable: consecutive runs of this gate on the same
+code produced 632, 715, 681 and 299 sheds, because which case loses the race for a
+voice slot depends on wall-clock contention. Treat the dialled/shed split as *this
+run's* outcome and the shape of the distribution as the finding. The figures that
+must not move — 0 errors, 0 dead-lettered, 0 lost, 0 double-claimed, every case
+accounted for exactly — are invariant across every one of those runs, and those are
+the ones §7 leads with.
+
 **Steady state** — 300 cases, 8 offered concurrent:
 
 | | |
@@ -303,8 +322,9 @@ Postgres 17.11 (MEASURED). Run on a Windows dev host, 224 workers against a
 | Dialled / shed / errors | 300 / 0 / **0** |
 | Band observed | NORMAL only |
 | Injected 429s survived | 17, all recovered |
-| Admission decision p50 / p95 / p99 (incl. the gauge COUNT) | 3.7 / 8.4 / 12.8 ms |
-| End-to-end p50 / p95 / p99 (enqueue → accounted) | 2,554 / 4,525 / 4,738 ms |
+| Admission decision p50 / p95 / p99 (incl. the gauge COUNT) | 4.5 / 8.7 / 19.3 ms |
+| End-to-end p50 / p95 / p99 (enqueue → accounted) | 2,542 / 4,479 / 4,681 ms |
+| Wall clock | 4.7 s |
 
 **Campaign burst** — 1,200 cases, **224 offered concurrent** (the modelled peak
 is 210; see the note on counts below):
@@ -313,30 +333,36 @@ is 210; see the note on counts below):
 |---|---|---|
 | Cases in | 1,200 | MEASURED |
 | Offered concurrency | **224 workers** | MEASURED |
-| Peak conversations in flight (this run's cases only) | **180** | MEASURED |
-| Peak gauge reading (global, includes 55 rows left by another suite) | 241 | MEASURED |
+| Peak conversations in flight (this run's cases only) | **78** | MEASURED |
+| Peak gauge reading (global, includes rows left by another suite) | 154 | MEASURED |
 | Bands entered | NORMAL → CONSTRAINED → **SHED** | MEASURED |
-| Dialled | 544 (45.3%) | MEASURED |
-| Shed with an audit row | 656 (54.7%) | MEASURED |
+| Dialled | 901 (75.1%) | MEASURED |
+| Shed with an audit row | 299 (24.9%) | MEASURED |
 | **Errors** | **0 — error rate 0.00%** (target < 1%) | MEASURED |
-| Vendor 429s absorbed | 37 | MEASURED |
+| Vendor 429s absorbed | 50 | MEASURED |
 | Max concurrent sessions the vendor double ever saw | **40 of 40** | MEASURED |
 | Gate timeouts | 0 | MEASURED |
-| Peak queue depth | 1,200 (mean 760, p50 854) | MEASURED |
-| Jobs done / dead-lettered | 1,200 / **0** | MEASURED |
-| Admission decision p50 / p95 / p99 (incl. the gauge COUNT) | 243 / 531 / 616 ms | MEASURED |
-| End-to-end p50 / p95 / p99 | 6,250 / 8,959 / 9,027 ms | MEASURED |
+| Peak queue depth | 1,200 (all offered work is durable before the first dial) | MEASURED |
+| Jobs done / dead-lettered / lost / double-claimed | 1,200 / **0** / **0** / **0** | MEASURED |
+| Admission decision p50 / p95 / p99 (incl. the gauge COUNT) | 14.4 / 178.8 / 204.3 ms | MEASURED |
+| End-to-end p50 / p95 / p99 | 11,192 / 16,108 / 16,513 ms | MEASURED |
+| Wall clock | 16.9 s for 1,200 cases at 224-way concurrency | MEASURED |
+
+The 299 sheds are not one band: 239 were `admission_shed_shed` and 60 were
+`admission_constrained_shed`, so the CONSTRAINED band did real work before the
+SHED gate closed. That is the ladder behaving as two stages, not one.
 
 **Accounting — the assertion that matters (MEASURED):**
 
 ```
 cases in                 1,200
-= dialled                  544
-+ shed WITH an audit row   656
+= diailed                  901
++ shed WITH an audit row  299
 + unaccounted                0     ← a non-zero value fails the gate
 queue rows               1,200     (one durable row per case)
 jobs left PENDING/CLAIMED    0
 audit chains verified     25/25 from genesis
+vendor calls placed        901     = cases dialled → exactly one call per customer
 ```
 
 **Two honest caveats about the numbers above.**
@@ -344,16 +370,24 @@ audit chains verified     25/25 from genesis
 *Case count is scaled; concurrency is not.* The modelled campaign is 2,800
 interventions. This run played 1,200 of them (set `LOAD_BURST_CASES=2800` for the
 full replay) because the quantity under test is **concurrency**, not case count.
-Offered concurrency was the modelled 210 (224 workers), and the platform held 180
-conversations in flight simultaneously.
+Offered concurrency was the modelled 210 (224 workers).
 
-*Why 180 and not 224?* Because a shed decision resolves in microseconds and frees
-its worker, while a dialled case holds a slot for the synthetic talk time. Workers
-spending their time shedding are not concurrent conversations. 180 in flight with
-224 offered, and 656 of 1,200 cases shed, is the platform working as designed —
-not a shortfall in the offered load.
+*Why the platform did not hold 224 conversations.* The ladder, not a lucky
+configuration, decides how much voice a campaign gets. 224 workers offered load;
+conversations were admitted only while the gauge stayed under the SHED gate (114),
+and each shed worker frees its slot in microseconds while a dialled case holds one
+for the synthetic talk time. This run peaked at **78** of its own conversations and
+shed 299; earlier runs of this same gate peaked at 184 and shed 715. Workers
+spending their time shedding are not concurrent conversations, which is why the
+offered number and the admitted number are not the same number.
 
-**The p50 of 6.2 s is process time, not vendor time.** It is 224 workers × ~25
+**That the split moves that much between runs is the finding, not noise.** A bank
+sizing a campaign cannot be promised "N% reaches voice"; what is stable is the
+mechanism — every shed carries an audit row, and every case is accounted for
+exactly. Note also the gap between this run's 78 and the 154 on the global gauge:
+the ladder counts everything in flight, including rows another suite left behind.
+
+**The p50 of 11.2 s is process time, not vendor time.** It is 224 workers × ~25
 database round trips contending for a 20-connection pool, with each conversation
 held for a synthetic 120 ms. It is **not** a claim about time-to-first-audio,
 carrier latency or vendor response time, and it must never be quoted as one.
@@ -379,6 +413,36 @@ read, not this paragraph):
 conversational-AI budget, a scheduled window with the bank, and the ceilings read
 out of both consoles. Until it exists, no claim in this document about vendor
 behaviour is MEASURED, and the document says which ones are not.
+
+### Two defects the gate caught, and why they are written down
+
+Both were found by this gate, not by review, and both would have shipped.
+
+**1. `FOR UPDATE SKIP LOCKED` alone is not a claim.** The claim's candidate list is
+captured from a snapshot, so a worker whose snapshot predates another worker's
+commit still sees a row as PENDING and re-claims it, overwriting the first
+worker's `claimed_by`. Measured at 8-way concurrency: one job id returned to
+seven successive claims. Worse, with `LIMIT 1` and many workers every worker
+snapshots the *same* top-priority row, so one job collects N claims of which N-1
+are useless — ~270,000 claims for 1,200 cases, and the drain never finished. The
+fix is to re-assert the claim condition on the `UPDATE`'s target, which makes
+PENDING → CLAIMED an atomic compare-and-set, plus `renewClaim()` immediately
+before the call as the last line of defence. **A queue that can double-claim is a
+queue that can call a customer twice about their own card**, which is a trust
+failure, not a performance one.
+
+**2. A lease written from the application's clock is a lease in the past.** The
+`dial_job` columns are `TIMESTAMP(3)` — no timezone. A JS `Date` sent through the
+driver arrives as its **UTC** wall time, while `now()` returns the server's
+**local** wall time. On a host that is not UTC (this repository's own Postgres
+runs on `E. Africa Standard Time`, UTC+3) every lease was written three hours in
+the past, so every claimed row was instantly reclaimable and the queue livelocked.
+The API now takes *durations*, never instants, and every deadline is
+`now() + interval` computed by the database.
+
+The general rule, and the reason both are in this document: **anything compared
+against `now()` must be written by the same clock.** Neither defect would have
+been visible in a unit test, a demo, or a single-worker run.
 
 ---
 

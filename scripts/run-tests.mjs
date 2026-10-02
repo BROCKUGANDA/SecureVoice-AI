@@ -26,7 +26,18 @@ if (files.length === 0) {
 
 let failed = 0;
 for (const f of files) {
-  const r = spawnSync(process.execPath, ["test", `tests/${f}`], { stdio: "inherit" });
+  // The capacity gate runs against its own database. It measures how much load
+  // the system sustains, and a shared database carries another suite's rows
+  // and gauges into that measurement — which shows up as run-to-run drift and
+  // an evidence artifact that disagrees with itself. Everything else shares
+  // TEST_DATABASE_URL.
+  const env = { ...process.env };
+  if (f.startsWith("load/")) {
+    env.LOAD_DATABASE_URL =
+      process.env.LOAD_DATABASE_URL ??
+      "postgresql://postgres@127.0.0.1:5432/securevoice_load?connection_limit=20";
+  }
+  const r = spawnSync(process.execPath, ["test", `tests/${f}`], { stdio: "inherit", env });
   if (r.status !== 0) failed = 1;
 }
 process.exit(failed);

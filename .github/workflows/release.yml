@@ -101,7 +101,7 @@ jobs:
 
             `app` and `realtime` stay on the internal network; Caddy is the only
             published port.
-          footer: |
+
             Verified in CI on this tag: lint, typecheck (app + realtime), 48 realtime
             tests, production build, `caddy validate` on both configs, compose parse,
             and a live stack smoke test through Caddy over TLS.

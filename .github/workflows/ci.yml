@@ -58,6 +58,15 @@ jobs:
           DATABASE_URL: postgresql://securevoice:securevoice@localhost:5432/securevoice?schema=public
         run: bunx prisma generate
 
+      # The release job is tag-triggered and would otherwise be the first place
+      # a typo in release.yml is ever executed. actionlint checks both files —
+      # an undefined action input otherwise fails only at release time, which is
+      # the worst possible moment to find out.
+      - name: Lint workflow definitions
+        uses: docker://rhysd/actionlint:1.7.12
+        with:
+          args: .github/workflows/*.yml
+
       - name: Realtime service — install
         working-directory: mini-services/realtime
         run: bun install --frozen-lockfile

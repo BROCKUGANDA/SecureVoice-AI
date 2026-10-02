@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { twilioMode, env, SUPPORTED_LANGS } from "@/lib/config";
 import { requireOperator } from "@/lib/credits";
+import { admissionSnapshot } from "@/lib/admission";
 
 export const dynamic = "force-dynamic";
 
@@ -69,6 +70,7 @@ const webhookFresh = lastWebhookAt !== null && Date.now() - Date.parse(lastWebho
         pending: pendingWebhooks,
       },
       telephony: twilioMode(),
+      capacity: await admissionSnapshot(),
       heapUsedMb: Math.round(mem.heapUsed / 1048576),
       rssMb: Math.round(mem.rss / 1048576),
       ts: new Date().toISOString(),

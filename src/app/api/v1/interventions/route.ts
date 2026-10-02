@@ -10,6 +10,7 @@ import { createHash } from "node:crypto";
 import { sanitizeUntrusted, sanitizeDynamicVariables } from "@/lib/sanitize-untrusted";
 import { runPolicyGate } from "@/lib/policy-gate";
 import { placeOutboundCall } from "@/lib/elevenlabs/outbound-call";
+import { admitOrDegrade } from "@/lib/admission";
 import { notifyRealtime } from "@/lib/realtime";
 import { badRequest, unprocessable, upstreamError } from "@/lib/api-errors";
 
@@ -277,6 +278,49 @@ async function armAndDial(
     },
     orgId: orgId ?? undefined,
   }, { fast: true }).catch(() => {});
+
+  // Admission control — capacity is a policy decision, and it is audited like
+  // one. Runs AFTER the policy gate (a case we must not call should never
+  // consume a voice slot) and BEFORE the dial. A shed case still gets an
+  // outcome: it falls back to SMS/app push and the decision is in the chain.
+  const admission = await admitOrDegrade({
+    callRef: caseRef,
+    orgId,
+    callerId: effectiveCallerId,
+    riskScore: signal.risk_score,
+    amountMinor: signal.amount ?? 0,
+  });
+  if (!admission.admitted) {
+    const fallback = admission.fallback ?? "sms";
+    void auditAppend({
+      callRef: caseRef,
+      action: "handoff",
+      intent: "degraded_to_async",
+      callerId: effectiveCallerId,
+      redactedText: `capacity ${admission.band}; fallback=${fallback}`,
+      meta: {
+        band: admission.band,
+        reason: admission.reason,
+        fallback,
+        expectedLoss: admission.expectedLoss,
+        activeConversations: admission.activeConversations,
+      },
+      orgId: orgId ?? undefined,
+    }, { fast: true }).catch(() => {});
+    return {
+      ok: true,
+      caseRef,
+      transactionRef: signal.transaction_ref,
+      status: "degraded_to_async",
+      degraded: {
+        band: admission.band,
+        reason: admission.reason,
+        fallback,
+        expectedLoss: admission.expectedLoss,
+      },
+      receivedAt: new Date().toISOString(),
+    };
+  }
 
   // Sanitise every bank-supplied string before it becomes a dynamic variable.
   const merchant = signal.merchant ? sanitizeUntrusted(signal.merchant) : undefined;

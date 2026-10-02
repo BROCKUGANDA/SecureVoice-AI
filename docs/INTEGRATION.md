@@ -283,6 +283,7 @@ For host-side schema work against your own database, put the connection string i
 `.env` as `DATABASE_URL`, then:
 
 ```bash
+bunx prisma generate       # client lives in src/generated/prisma (postinstall does this)
 bunx prisma db push        # apply schema
 bun scripts/seed-demo.mjs  # optional demo data
 ```

@@ -1,9 +1,10 @@
 # SecureVoice AI — Voice-Agent Model Card
 
 Covers the optional LLM reply layer (`src/lib/llm.ts`) and the deterministic
-voice stack it plugs into. The card follows the standard model-card sections:
-intended use, out of scope, training/provenance, evaluation, limitations, and
-mitigations.
+voice stack it plugs into. Both live on the **continuity path** (see the README);
+the ElevenLabs Agents Platform conversation plane does not use either. The card
+follows the standard model-card sections: intended use, out of scope,
+training/provenance, evaluation, limitations, and mitigations.
 
 ---
 
@@ -47,9 +48,9 @@ behavior is identical without any LLM key.
 
 | Field | Value |
 |---|---|
-| Default LLM | `qwen/qwen3.8-27b` served by Groq (LPUs) |
+| Default LLM | `qwen/qwen3.8-27b` served by Groq (LPUs) — **preview tier**: Groq's documentation warns preview models "should not be used in production environments as they may be discontinued at short notice" |
 | Fallback LLM | `gemini-1.5-flash` via Gemini's OpenAI-compatible endpoint |
-| Model selection rationale | ~400 ms round trips; clean spoken-style output. Llama-3.1 models were retired from Groq's lineup (verified 2026-09); `gpt-oss-120b` spends its token budget on reasoning and returns empty voice content at low `max_tokens`. |
+| Model selection rationale | ~400 ms round trips; clean spoken-style output. `llama-3.1-8b-instant` remains listed in Groq's Production Models table (verified 2026-10) and is the natural production-tier substitute for the preview-tier default — an earlier version of this card claimed Llama-3.1 had been retired from Groq, which is false. `gpt-oss-120b` spends its token budget on reasoning and returns empty voice content at low `max_tokens`. |
 | Training data | Not disclosed by the providers; base models used zero-shot with a system prompt — no fine-tuning on customer data |
 | Voice models | ElevenLabs `eleven_multilingual_v2` (29 languages) + `eleven_flash_v2_5` (Swahili), preset voice per language |
 | ASR models | ElevenLabs Scribe → Deepgram nova-2 (language hints; unsupported pins → `multi`) |
@@ -71,8 +72,8 @@ Every LLM draft is generated under, and audited against, these rules:
 
 | Check | Method | Status |
 |---|---|---|
-| Language correctness (6 langs) | Live `/api/agent` runs per language; replies must be in the requested language | verified at demo freeze (fr/sw live; ar/hi/ur scripted + LLM spot checks) |
-| Latency | Agent turn p95 incl. TTS start | LLM draft ~0.4–0.9 s; scripted path < 50 ms |
+| Language correctness (6 langs) | Live `POST /api/agent` turn-API runs per language; replies must be in the requested language | spot-checked at demo freeze (fr/sw live; ar/hi/ur scripted + LLM spot checks). **No recorded conversation artifact is committed** — only English and Arabic have a recorded end-to-end conversation in the evidence bundle |
+| Latency | LLM draft round-trip (Groq) and the scripted-path reply | **not yet measured** as a p95 — the `0.4–0.9 s` figure is an observed draft range on a handful of runs, not a distribution; scripted path is a synchronous in-process lookup |
 | Credential-asking resistance | Post-generation deny-pattern scan + prompt-injection scanner on user input | enforced server-side, cannot be disabled |
 | Safety fallback | Kill the key → full behavior identical, scripted replies | verified |
 

@@ -21,7 +21,7 @@ import "server-only";
  */
 
 import { createHash, createHmac, randomUUID, timingSafeEqual } from "node:crypto";
-import type { Prisma } from "@prisma/client";
+import type { Prisma } from "@/generated/prisma/client";
 import { db } from "@/lib/db";
 
 export const WEBHOOK_SIGNATURE_HEADER = "sv-signature";

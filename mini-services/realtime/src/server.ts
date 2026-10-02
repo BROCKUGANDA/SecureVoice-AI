@@ -40,6 +40,7 @@ import { PresenceRegistry, caseChannel, orgChannel, safeSegment } from "./channe
 import { DEFAULT_PORT, MAX_INGEST_BYTES, SOCKET_PATH } from "./constants.ts";
 import { parseIngest, verifySignature } from "./ingest.ts";
 import { verify, type VerifiedGrant } from "./auth.ts";
+import { attachPubSub, type PubSub } from "./pubsub.ts";
 
 const PORT = Number(process.env.PORT ?? DEFAULT_PORT);
 const HOST = process.env.HOST ?? "0.0.0.0";
@@ -168,7 +169,9 @@ const httpServer = createServer((req, res) => {
       send(503, { ok: false, error: "ingest_secret_unconfigured" });
       return;
     }
-    send(200, { ok: true });
+    // Report the fan-out mode explicitly (WP-20): an operator must be able to
+    // see whether this instance can reach its peers without reading the logs.
+    send(200, { ok: true, pubsub: pubsub.mode, pubsubDetail: pubsub.detail });
     return;
   }
   if (req.method === "POST" && url.pathname === "/ingest") {
@@ -219,6 +222,15 @@ const httpServer = createServer((req, res) => {
 
 io.attach(httpServer, { path: SOCKET_PATH });
 
+// Cross-instance fan-out (WP-20). Attaches the Redis adapter when REDIS_URL is
+// configured; otherwise runs single-node and says so on /readyz rather than
+// pretending. A configured-but-unreachable Redis is fatal on purpose: booting
+// without the adapter is how you get a silently broken multi-node service.
+const pubsub: PubSub = await attachPubSub(io).catch((err: unknown) => {
+  console.error(String(err));
+  process.exit(1);
+});
+
 httpServer.listen(PORT, HOST, () => {
   if (!INGEST_SECRET) {
     console.warn("[realtime] REALTIME_INGEST_SECRET unset — /ingest and /ws will reject everything");
@@ -226,12 +238,14 @@ httpServer.listen(PORT, HOST, () => {
   if (!ALLOWED_ORIGIN) {
     console.warn("[realtime] REALTIME_ALLOWED_ORIGIN unset — accepting any Origin (dev only)");
   }
-  console.log(`[realtime] listening on ${HOST}:${PORT} (socket.io path "${SOCKET_PATH}")`);
+  console.log(`[realtime] listening on ${HOST}:${PORT} (socket.io path "${SOCKET_PATH}", pubsub=${pubsub.mode})`);
 });
 
 for (const sig of ["SIGTERM", "SIGINT"] as const) {
   process.on(sig, () => {
-    io.close(() => httpServer.close(() => process.exit(0)));
+    void pubsub.close().finally(() => {
+      io.close(() => httpServer.close(() => process.exit(0)));
+    });
     // Don't let a stuck socket hold the container open past its grace period.
     setTimeout(() => process.exit(0), 5_000).unref();
   });

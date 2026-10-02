@@ -48,13 +48,16 @@ const eslintConfig = [...nextCoreWebVitals, ...nextTypescript, {
   // CommonJS output from an earlier tooling run: it is not source, it is not
   // committed, and linting it reported errors on a clean checkout — which trains
   // everyone to ignore `bun run lint` failing. `mini-services/*/node_modules` is
-  // excluded for the same reason as the root.
+  // excluded for the same reason as the root. `src/generated/` is Prisma ORM
+  // v7's client output: regenerable TypeScript that lives under src/ so the
+  // bundler can compile it, and just as much an artifact as tool-results/.
   ignores: [
     "node_modules/**",
     ".next/**",
     "out/**",
     "build/**",
     "next-env.d.ts",
+    "src/generated/**",
     "examples/**",
     "skills",
     "tool-results/**",

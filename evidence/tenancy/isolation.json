@@ -1,0 +1,2735 @@
+{
+  "schemaVersion": 1,
+  "gate": "WP-12 multi-tenancy isolation",
+  "digestAlgorithm": "sha256",
+  "digest": "608d18a2fab8216707e28c9db97e0135cead6f5e4090792da4ee5078042c1697",
+  "generatedAt": "2026-10-02T12:42:26.314Z",
+  "run": {
+    "id": "muqydnqu",
+    "orgs": {
+      "A": "org-tenancy-a-muqydnqu",
+      "B": "org-tenancy-b-muqydnqu"
+    },
+    "database": "TEST_DATABASE_URL",
+    "note": "identifiers above are per-run; the digest covers the deterministic core only"
+  },
+  "summary": {
+    "result": "pass-with-declared-gaps",
+    "pathsDeclared": 20,
+    "pathsProbed": 18,
+    "directionsProbed": 36,
+    "coverage": {
+      "asserted": 14,
+      "declaredGap": 4,
+      "declaredGlobal": 2
+    },
+    "checks": {
+      "total": 184,
+      "passed": 184,
+      "failed": 0
+    },
+    "http404Asserted": 5,
+    "never403Asserted": 10,
+    "tenantModelsDeclared": 7,
+    "unscopedReadPaths": [
+      {
+        "path": "lib.audit-chain.verify",
+        "module": "src/lib/audit-chain.ts",
+        "read": "verifyChain"
+      },
+      {
+        "path": "lib.case.by-conversation",
+        "module": "src/lib/case-state-machine.ts",
+        "read": "caseByConversation"
+      },
+      {
+        "path": "lib.case.by-ref",
+        "module": "src/lib/case-state-machine.ts",
+        "read": "caseByRef"
+      },
+      {
+        "path": "lib.notifications.acknowledge",
+        "module": "src/lib/notifications.ts",
+        "read": "acknowledge"
+      }
+    ]
+  },
+  "canonicalReadPaths": [
+    {
+      "id": "console.audit.case-list",
+      "model": "AuditLog",
+      "obligation": "The case list shows only the caller's own cases."
+    },
+    {
+      "id": "console.audit.case-chain",
+      "model": "AuditLog",
+      "obligation": "A chain walk for a foreign caseRef answers 404, never 403."
+    },
+    {
+      "id": "console.events.activity",
+      "model": "AuditLog",
+      "obligation": "The live activity feed is org-scoped, not platform-wide."
+    },
+    {
+      "id": "console.producer-keys.list",
+      "model": "ProducerKey",
+      "obligation": "An operator sees only their own org's machine keys."
+    },
+    {
+      "id": "console.producer-keys.revoke",
+      "model": "ProducerKey",
+      "obligation": "Revoking a foreign key is a 404, never a 403, never a success."
+    },
+    {
+      "id": "console.inbox.list",
+      "model": "Notification",
+      "obligation": "The alert inbox shows only the caller's own alerts."
+    },
+    {
+      "id": "console.inbox.acknowledge",
+      "model": "Notification",
+      "obligation": "Acknowledging a foreign alert is a 404, never a 403."
+    },
+    {
+      "id": "console.settings.read",
+      "model": "UserProfile",
+      "obligation": "Settings return the caller's own white-label and BYOK state only."
+    },
+    {
+      "id": "lib.outbox.claim-batch",
+      "model": "OutboxEvent",
+      "obligation": "The delivery worker drains ONE shared queue: a claim is deliberately not org-scoped, and every claimed row carries its own orgId for the signed payload."
+    },
+    {
+      "id": "identity.user-profile",
+      "model": "UserProfile",
+      "obligation": "A session resolves only its own profile; another org's is unreachable."
+    },
+    {
+      "id": "identity.producer-key",
+      "model": "ProducerKey",
+      "obligation": "A producer key authenticates as exactly one org, and resolves as nothing under any other scope."
+    },
+    {
+      "id": "lib.case.by-ref",
+      "model": "Case",
+      "obligation": "caseByRef must not return another org's case."
+    },
+    {
+      "id": "lib.case.by-conversation",
+      "model": "Case",
+      "obligation": "caseByConversation must not return another org's case."
+    },
+    {
+      "id": "api.enroll.customer-by-ref",
+      "model": "Customer",
+      "obligation": "Enrolling against another org's customerRef is a 404, never a 403."
+    },
+    {
+      "id": "api.enroll.customer-optout",
+      "model": "Customer",
+      "obligation": "A STOP must not opt out another org's customer."
+    },
+    {
+      "id": "api.interventions.customer-by-ref",
+      "model": "Customer",
+      "obligation": "Ingest must not resolve another org's customer by customerRef."
+    },
+    {
+      "id": "lib.audit-chain.verify",
+      "model": "AuditLog",
+      "obligation": "verifyChain must not walk another org's rows."
+    },
+    {
+      "id": "lib.notifications.acknowledge",
+      "model": "Notification",
+      "obligation": "acknowledge() must not act on another org's alert."
+    },
+    {
+      "id": "pilot.leads",
+      "model": "PilotRequest",
+      "obligation": "Public-site leads are global; the triage read is an explicit bypass, never a tenant read."
+    },
+    {
+      "id": "console.outbox.dead-letters",
+      "model": "DeadLetter",
+      "obligation": "The replay console is operator-scoped at the deployment level; the model carries no orgId."
+    }
+  ],
+  "matrix": [
+    {
+      "id": "console.audit.case-list",
+      "model": "AuditLog",
+      "verdict": "foreign-probe-empty",
+      "coverage": "asserted",
+      "kind": "http",
+      "module": "src/app/api/console/audit/route.ts",
+      "read": "GET",
+      "probeField": "callRef",
+      "http": {
+        "method": "GET",
+        "route": "/api/console/audit",
+        "probeParam": "callRef"
+      }
+    },
+    {
+      "id": "console.audit.case-chain",
+      "model": "AuditLog",
+      "verdict": "foreign-probe-404",
+      "coverage": "asserted",
+      "kind": "http",
+      "module": "src/app/api/console/audit/route.ts",
+      "read": "GET",
+      "probeField": "callRef",
+      "http": {
+        "method": "GET",
+        "route": "/api/console/audit",
+        "probeParam": "callRef"
+      }
+    },
+    {
+      "id": "console.events.activity",
+      "model": "AuditLog",
+      "verdict": "foreign-probe-empty",
+      "coverage": "asserted",
+      "kind": "library",
+      "module": "src/lib/activity-feed.ts",
+      "read": "fetchActivitySince",
+      "probeField": "callRef",
+      "http": null
+    },
+    {
+      "id": "console.producer-keys.list",
+      "model": "ProducerKey",
+      "verdict": "foreign-probe-empty",
+      "coverage": "asserted",
+      "kind": "http",
+      "module": "src/app/api/console/producer-keys/route.ts",
+      "read": "GET",
+      "probeField": "id",
+      "http": {
+        "method": "GET",
+        "route": "/api/console/producer-keys",
+        "probeParam": ""
+      }
+    },
+    {
+      "id": "console.producer-keys.revoke",
+      "model": "ProducerKey",
+      "verdict": "foreign-probe-404",
+      "coverage": "asserted",
+      "kind": "http",
+      "module": "src/app/api/console/producer-keys/route.ts",
+      "read": "DELETE",
+      "probeField": "id",
+      "http": {
+        "method": "DELETE",
+        "route": "/api/console/producer-keys",
+        "probeParam": "id"
+      }
+    },
+    {
+      "id": "console.inbox.list",
+      "model": "Notification",
+      "verdict": "foreign-probe-empty",
+      "coverage": "asserted",
+      "kind": "http",
+      "module": "src/app/api/console/inbox/route.ts",
+      "read": "GET",
+      "probeField": "id",
+      "http": {
+        "method": "GET",
+        "route": "/api/console/inbox",
+        "probeParam": ""
+      }
+    },
+    {
+      "id": "console.inbox.acknowledge",
+      "model": "Notification",
+      "verdict": "foreign-probe-404",
+      "coverage": "asserted",
+      "kind": "http",
+      "module": "src/app/api/console/inbox/route.ts",
+      "read": "POST",
+      "probeField": "id",
+      "http": {
+        "method": "POST",
+        "route": "/api/console/inbox",
+        "probeParam": "id"
+      }
+    },
+    {
+      "id": "console.settings.read",
+      "model": "UserProfile",
+      "verdict": "foreign-probe-empty",
+      "coverage": "asserted",
+      "kind": "http",
+      "module": "src/app/api/console/settings/route.ts",
+      "read": "GET",
+      "probeField": "orgName",
+      "http": {
+        "method": "GET",
+        "route": "/api/console/settings",
+        "probeParam": ""
+      }
+    },
+    {
+      "id": "identity.user-profile",
+      "model": "UserProfile",
+      "verdict": "foreign-probe-empty",
+      "coverage": "asserted",
+      "kind": "library",
+      "module": "src/lib/credits.ts",
+      "read": "getProfile",
+      "probeField": "orgName",
+      "http": null
+    },
+    {
+      "id": "identity.producer-key",
+      "model": "ProducerKey",
+      "verdict": "identity-keyed",
+      "coverage": "asserted",
+      "kind": "library",
+      "module": "src/lib/producer-keys.ts",
+      "read": "verifyProducerKey",
+      "probeField": "keyHash",
+      "http": null
+    },
+    {
+      "id": "lib.case.by-ref",
+      "model": "Case",
+      "verdict": "foreign-probe-empty",
+      "coverage": "declared-gap",
+      "kind": "library",
+      "module": "src/lib/case-state-machine.ts",
+      "read": "caseByRef",
+      "probeField": "caseRef",
+      "http": null
+    },
+    {
+      "id": "lib.case.by-conversation",
+      "model": "Case",
+      "verdict": "foreign-probe-empty",
+      "coverage": "declared-gap",
+      "kind": "library",
+      "module": "src/lib/case-state-machine.ts",
+      "read": "caseByConversation",
+      "probeField": "conversationId",
+      "http": null
+    },
+    {
+      "id": "api.enroll.customer-by-ref",
+      "model": "Customer",
+      "verdict": "foreign-probe-404",
+      "coverage": "asserted",
+      "kind": "http",
+      "module": "src/app/api/enroll/route.ts",
+      "read": "POST",
+      "probeField": "customerRef",
+      "http": {
+        "method": "POST",
+        "route": "/api/enroll",
+        "probeParam": "customerRef"
+      }
+    },
+    {
+      "id": "api.enroll.customer-optout",
+      "model": "Customer",
+      "verdict": "foreign-probe-404",
+      "coverage": "asserted",
+      "kind": "http",
+      "module": "src/app/api/enroll/route.ts",
+      "read": "POST",
+      "probeField": "customerRef",
+      "http": {
+        "method": "POST",
+        "route": "/api/enroll",
+        "probeParam": "customerRef"
+      }
+    },
+    {
+      "id": "api.interventions.customer-by-ref",
+      "model": "Customer",
+      "verdict": "foreign-probe-empty",
+      "coverage": "asserted",
+      "kind": "http",
+      "module": "src/app/api/interventions/route.ts",
+      "read": "POST",
+      "probeField": "customerRef",
+      "http": {
+        "method": "POST",
+        "route": "/api/interventions",
+        "probeParam": "customer.ref"
+      }
+    },
+    {
+      "id": "lib.audit-chain.verify",
+      "model": "AuditLog",
+      "verdict": "foreign-probe-empty",
+      "coverage": "declared-gap",
+      "kind": "library",
+      "module": "src/lib/audit-chain.ts",
+      "read": "verifyChain",
+      "probeField": "callRef",
+      "http": null
+    },
+    {
+      "id": "lib.notifications.acknowledge",
+      "model": "Notification",
+      "verdict": "foreign-probe-empty",
+      "coverage": "declared-gap",
+      "kind": "library",
+      "module": "src/lib/notifications.ts",
+      "read": "acknowledge",
+      "probeField": "id",
+      "http": null
+    },
+    {
+      "id": "pilot.leads",
+      "model": "PilotRequest",
+      "verdict": "platform-global",
+      "coverage": "asserted",
+      "kind": "library",
+      "module": "src/app/api/pilot/route.ts",
+      "read": "POST / TENANCY_BYPASS read",
+      "probeField": "ref",
+      "http": null
+    },
+    {
+      "id": "console.outbox.dead-letters",
+      "model": "DeadLetter",
+      "verdict": "platform-global",
+      "coverage": "declared-global",
+      "kind": "http",
+      "module": "src/app/api/console/outbox/replay/route.ts",
+      "read": "GET",
+      "probeField": "caseRef",
+      "http": {
+        "method": "GET",
+        "route": "/api/console/outbox/replay",
+        "probeParam": ""
+      }
+    },
+    {
+      "id": "lib.outbox.claim-batch",
+      "model": "OutboxEvent",
+      "verdict": "platform-global",
+      "coverage": "declared-global",
+      "kind": "library",
+      "module": "src/lib/outbox.ts",
+      "read": "claimBatch",
+      "probeField": "orgId",
+      "http": null
+    }
+  ],
+  "paths": [
+    {
+      "path": "api.enroll.customer-by-ref",
+      "title": "Enroll / re-point a customer",
+      "model": "Customer",
+      "verdict": "foreign-probe-404",
+      "coverage": "asserted",
+      "module": "src/app/api/enroll/route.ts",
+      "read": "POST",
+      "probeField": "customerRef",
+      "probeInvoke": "POST /api/enroll as org A with org B's customerRef — must be 404.",
+      "http": {
+        "method": "POST",
+        "route": "/api/enroll",
+        "probeParam": "customerRef"
+      },
+      "notes": "The read is unscoped but the route then compares `existing.orgId` to the caller's and answers 404 (route lines 151-154). The gate also re-reads the row to prove org B's phone/consent were not re-pointed.",
+      "directions": [
+        {
+          "direction": "A-reads-B",
+          "sessionOrg": "A",
+          "probeOwner": "B",
+          "probed": true,
+          "axisApplicable": true,
+          "http": {
+            "method": "POST",
+            "route": "/api/enroll",
+            "status": 404
+          },
+          "control": {
+            "described": "enrolling the caller's own control customer succeeds",
+            "status": 200,
+            "ownVisible": true
+          },
+          "foreignVisible": false,
+          "foreignMutated": false,
+          "guardEquivalent": {
+            "applied": true,
+            "empty": true,
+            "detail": "scoped findFirst for the foreign customerRef returns nothing"
+          },
+          "checks": [
+            {
+              "name": "foreign-probe-is-404",
+              "ok": true,
+              "detail": "expected 404, got 404"
+            },
+            {
+              "name": "never-403",
+              "ok": true,
+              "detail": "a 403 confirms the customerRef exists"
+            },
+            {
+              "name": "foreign-customer-not-repointed",
+              "ok": true,
+              "detail": "the other org's customer must keep its org and phone"
+            },
+            {
+              "name": "control-own-enroll-200",
+              "ok": true,
+              "detail": "expected 200 enrolling the caller's own customer, got 200"
+            },
+            {
+              "name": "recorded-foreign-probe-is-404",
+              "ok": true,
+              "detail": "recorded status 404 contradicts verdict foreign-probe-404"
+            },
+            {
+              "name": "recorded-foreign-probe-is-not-403",
+              "ok": true,
+              "detail": "a 403 confirms existence and must never be the cross-tenant answer"
+            }
+          ],
+          "ok": true,
+          "error": null
+        },
+        {
+          "direction": "B-reads-A",
+          "sessionOrg": "B",
+          "probeOwner": "A",
+          "probed": true,
+          "axisApplicable": true,
+          "http": {
+            "method": "POST",
+            "route": "/api/enroll",
+            "status": 404
+          },
+          "control": {
+            "described": "enrolling the caller's own control customer succeeds",
+            "status": 200,
+            "ownVisible": true
+          },
+          "foreignVisible": false,
+          "foreignMutated": false,
+          "guardEquivalent": {
+            "applied": true,
+            "empty": true,
+            "detail": "scoped findFirst for the foreign customerRef returns nothing"
+          },
+          "checks": [
+            {
+              "name": "foreign-probe-is-404",
+              "ok": true,
+              "detail": "expected 404, got 404"
+            },
+            {
+              "name": "never-403",
+              "ok": true,
+              "detail": "a 403 confirms the customerRef exists"
+            },
+            {
+              "name": "foreign-customer-not-repointed",
+              "ok": true,
+              "detail": "the other org's customer must keep its org and phone"
+            },
+            {
+              "name": "control-own-enroll-200",
+              "ok": true,
+              "detail": "expected 200 enrolling the caller's own customer, got 200"
+            },
+            {
+              "name": "recorded-foreign-probe-is-404",
+              "ok": true,
+              "detail": "recorded status 404 contradicts verdict foreign-probe-404"
+            },
+            {
+              "name": "recorded-foreign-probe-is-not-403",
+              "ok": true,
+              "detail": "a 403 confirms existence and must never be the cross-tenant answer"
+            }
+          ],
+          "ok": true,
+          "error": null
+        }
+      ],
+      "ok": true
+    },
+    {
+      "path": "api.enroll.customer-optout",
+      "title": "STOP opt-out",
+      "model": "Customer",
+      "verdict": "foreign-probe-404",
+      "coverage": "asserted",
+      "module": "src/app/api/enroll/route.ts",
+      "read": "POST",
+      "probeField": "customerRef",
+      "probeInvoke": "POST /api/enroll { action: 'optout', customerRef: <the other org's ref> } authenticated with THIS org's svb_ producer key — must be 404 and must not reach the other org's row.",
+      "http": {
+        "method": "POST",
+        "route": "/api/enroll",
+        "probeParam": "customerRef"
+      },
+      "notes": "FIXED 2026-10-02 (was a declared gap): the opt-out branch now scopes by org — `where: { customerRef, orgId }` for a tenant-bound caller, and the shared rows only for an org-less one. A producer naming another tenant's customerRef now updates 0 rows and is answered 404, which is also why `rowsUpdated` can no longer confirm existence. Probed through the real route handler over the headless-producer auth path — a Clerk operator session short-circuits `authorize()` before the Bearer branch, so the probe uses a demo-role seat — in both directions, with a control proving the same call succeeds for the caller's own customer and a negative control proving the pre-fix unscoped expression still reaches and mutates the foreign row.",
+      "directions": [
+        {
+          "direction": "A-reads-B",
+          "sessionOrg": "A",
+          "probeOwner": "B",
+          "probed": true,
+          "axisApplicable": true,
+          "http": {
+            "method": "POST",
+            "route": "/api/enroll (optout)",
+            "status": 404
+          },
+          "control": {
+            "described": "the tenant-bound producer opts out its OWN customer and gets 200",
+            "status": 200,
+            "ownVisible": true
+          },
+          "foreignVisible": false,
+          "foreignMutated": false,
+          "guardEquivalent": {
+            "applied": true,
+            "empty": true,
+            "detail": "the guard's injected predicate matches zero rows for the foreign customerRef — the same answer the route now gives"
+          },
+          "checks": [
+            {
+              "name": "foreign-probe-is-404",
+              "ok": true,
+              "detail": "expected 404 \"Unknown customerRef\", got 404"
+            },
+            {
+              "name": "never-403",
+              "ok": true,
+              "detail": "a 403 confirms the customerRef exists; the route must answer 404 like an unknown ref"
+            },
+            {
+              "name": "foreign-row-not-mutated",
+              "ok": true,
+              "detail": "the other org's customer must keep optedOut=false — rows updated must not reach it"
+            },
+            {
+              "name": "foreign-row-still-theirs",
+              "ok": true,
+              "detail": "the foreign row's orgId must be unchanged"
+            },
+            {
+              "name": "control-own-optout-succeeds",
+              "ok": true,
+              "detail": "expected 200 opting out the caller's own customer, got 200"
+            },
+            {
+              "name": "control-own-row-mutated",
+              "ok": true,
+              "detail": "the caller's own customer must actually be opted out, or the 404 above is vacuous"
+            },
+            {
+              "name": "NEGATIVE-CONTROL-unscoped-read-reaches-foreign-row",
+              "ok": true,
+              "detail": "the unscoped expression must still resolve the other org's customer, or the isolation assertion is vacuous"
+            },
+            {
+              "name": "NEGATIVE-CONTROL-unscoped-write-mutates-foreign-row",
+              "ok": true,
+              "detail": "the unscoped expression must still be able to flip the other org's consent — this is the defect the org predicate removes"
+            },
+            {
+              "name": "recorded-foreign-probe-is-404",
+              "ok": true,
+              "detail": "recorded status 404 contradicts verdict foreign-probe-404"
+            },
+            {
+              "name": "recorded-foreign-probe-is-not-403",
+              "ok": true,
+              "detail": "a 403 confirms existence and must never be the cross-tenant answer"
+            }
+          ],
+          "ok": true,
+          "error": null
+        },
+        {
+          "direction": "B-reads-A",
+          "sessionOrg": "B",
+          "probeOwner": "A",
+          "probed": true,
+          "axisApplicable": true,
+          "http": {
+            "method": "POST",
+            "route": "/api/enroll (optout)",
+            "status": 404
+          },
+          "control": {
+            "described": "the tenant-bound producer opts out its OWN customer and gets 200",
+            "status": 200,
+            "ownVisible": true
+          },
+          "foreignVisible": false,
+          "foreignMutated": false,
+          "guardEquivalent": {
+            "applied": true,
+            "empty": true,
+            "detail": "the guard's injected predicate matches zero rows for the foreign customerRef — the same answer the route now gives"
+          },
+          "checks": [
+            {
+              "name": "foreign-probe-is-404",
+              "ok": true,
+              "detail": "expected 404 \"Unknown customerRef\", got 404"
+            },
+            {
+              "name": "never-403",
+              "ok": true,
+              "detail": "a 403 confirms the customerRef exists; the route must answer 404 like an unknown ref"
+            },
+            {
+              "name": "foreign-row-not-mutated",
+              "ok": true,
+              "detail": "the other org's customer must keep optedOut=false — rows updated must not reach it"
+            },
+            {
+              "name": "foreign-row-still-theirs",
+              "ok": true,
+              "detail": "the foreign row's orgId must be unchanged"
+            },
+            {
+              "name": "control-own-optout-succeeds",
+              "ok": true,
+              "detail": "expected 200 opting out the caller's own customer, got 200"
+            },
+            {
+              "name": "control-own-row-mutated",
+              "ok": true,
+              "detail": "the caller's own customer must actually be opted out, or the 404 above is vacuous"
+            },
+            {
+              "name": "NEGATIVE-CONTROL-unscoped-read-reaches-foreign-row",
+              "ok": true,
+              "detail": "the unscoped expression must still resolve the other org's customer, or the isolation assertion is vacuous"
+            },
+            {
+              "name": "NEGATIVE-CONTROL-unscoped-write-mutates-foreign-row",
+              "ok": true,
+              "detail": "the unscoped expression must still be able to flip the other org's consent — this is the defect the org predicate removes"
+            },
+            {
+              "name": "recorded-foreign-probe-is-404",
+              "ok": true,
+              "detail": "recorded status 404 contradicts verdict foreign-probe-404"
+            },
+            {
+              "name": "recorded-foreign-probe-is-not-403",
+              "ok": true,
+              "detail": "a 403 confirms existence and must never be the cross-tenant answer"
+            }
+          ],
+          "ok": true,
+          "error": null
+        }
+      ],
+      "ok": true
+    },
+    {
+      "path": "api.interventions.customer-by-ref",
+      "title": "Ingest resolves the enrolled customer",
+      "model": "Customer",
+      "verdict": "foreign-probe-empty",
+      "coverage": "asserted",
+      "module": "src/app/api/interventions/route.ts",
+      "read": "POST",
+      "probeField": "customerRef",
+      "probeInvoke": "A signal from org A naming org B's customerRef must resolve to nothing — org B's phone number must never become a dialled number.",
+      "http": {
+        "method": "POST",
+        "route": "/api/interventions",
+        "probeParam": "customer.ref"
+      },
+      "notes": "FIXED 2026-10-02 (was the highest-severity gap in this matrix): the ingest lookup is now `db.customer.findFirst({ where: { customerRef, orgId } })` for a tenant-bound caller, and the shared rows only otherwise. Probed by executing both of the route's exact expressions against the fixtures (tenant-bound branch AND org-less branch) plus a negative control proving the pre-fix unscoped expression still resolves the other org's customer. Still not driven end to end, because a full request needs the live telephony pipeline — the expression, not the request, is what crosses the tenant boundary.",
+      "directions": [
+        {
+          "direction": "A-reads-B",
+          "sessionOrg": "A",
+          "probeOwner": "B",
+          "probed": true,
+          "axisApplicable": true,
+          "http": null,
+          "control": {
+            "described": "the same tenant-bound expression resolves the caller's own customer",
+            "status": null,
+            "ownVisible": true
+          },
+          "foreignVisible": false,
+          "foreignMutated": null,
+          "guardEquivalent": {
+            "applied": true,
+            "empty": true,
+            "detail": "the guard's injected predicate returns nothing for the foreign customerRef"
+          },
+          "checks": [
+            {
+              "name": "tenant-bound-lookup-returns-nothing",
+              "ok": true,
+              "detail": "db.customer.findFirst({ where: { customerRef: signal.customer.ref, orgId } }) must not resolve the other org's customer — its phone number is the dialled target"
+            },
+            {
+              "name": "org-less-lookup-returns-nothing",
+              "ok": true,
+              "detail": "db.customer.findFirst({ where: { customerRef: signal.customer.ref, OR: [{ orgId: null }, { orgId: 'default' }] } }) must not resolve a named org's customer either"
+            },
+            {
+              "name": "control-own-customer-resolved",
+              "ok": true,
+              "detail": "the caller's own customer must resolve, or the assertions above are vacuous"
+            },
+            {
+              "name": "NEGATIVE-CONTROL-unscoped-lookup-reaches-foreign-row",
+              "ok": true,
+              "detail": "the pre-fix unscoped expression must still resolve the other org's customer, or the isolation assertion is vacuous"
+            },
+            {
+              "name": "recorded-foreign-probe-is-empty",
+              "ok": true,
+              "detail": "foreignVisible=false contradicts verdict foreign-probe-empty"
+            }
+          ],
+          "ok": true,
+          "error": null
+        },
+        {
+          "direction": "B-reads-A",
+          "sessionOrg": "B",
+          "probeOwner": "A",
+          "probed": true,
+          "axisApplicable": true,
+          "http": null,
+          "control": {
+            "described": "the same tenant-bound expression resolves the caller's own customer",
+            "status": null,
+            "ownVisible": true
+          },
+          "foreignVisible": false,
+          "foreignMutated": null,
+          "guardEquivalent": {
+            "applied": true,
+            "empty": true,
+            "detail": "the guard's injected predicate returns nothing for the foreign customerRef"
+          },
+          "checks": [
+            {
+              "name": "tenant-bound-lookup-returns-nothing",
+              "ok": true,
+              "detail": "db.customer.findFirst({ where: { customerRef: signal.customer.ref, orgId } }) must not resolve the other org's customer — its phone number is the dialled target"
+            },
+            {
+              "name": "org-less-lookup-returns-nothing",
+              "ok": true,
+              "detail": "db.customer.findFirst({ where: { customerRef: signal.customer.ref, OR: [{ orgId: null }, { orgId: 'default' }] } }) must not resolve a named org's customer either"
+            },
+            {
+              "name": "control-own-customer-resolved",
+              "ok": true,
+              "detail": "the caller's own customer must resolve, or the assertions above are vacuous"
+            },
+            {
+              "name": "NEGATIVE-CONTROL-unscoped-lookup-reaches-foreign-row",
+              "ok": true,
+              "detail": "the pre-fix unscoped expression must still resolve the other org's customer, or the isolation assertion is vacuous"
+            },
+            {
+              "name": "recorded-foreign-probe-is-empty",
+              "ok": true,
+              "detail": "foreignVisible=false contradicts verdict foreign-probe-empty"
+            }
+          ],
+          "ok": true,
+          "error": null
+        }
+      ],
+      "ok": true
+    },
+    {
+      "path": "console.audit.case-chain",
+      "title": "Audit chain walk for one caseRef",
+      "model": "AuditLog",
+      "verdict": "foreign-probe-404",
+      "coverage": "asserted",
+      "module": "src/app/api/console/audit/route.ts",
+      "read": "GET",
+      "probeField": "callRef",
+      "probeInvoke": "GET /api/console/audit?callRef=<other org's callRef> as org A — must be 404, not 403.",
+      "http": {
+        "method": "GET",
+        "route": "/api/console/audit",
+        "probeParam": "callRef"
+      },
+      "notes": "Route does an org-scoped findFirst before verifyChain (lines 34-47). The 404-not-403 assertion is the point: a 403 confirms the caseRef exists.",
+      "directions": [
+        {
+          "direction": "A-reads-B",
+          "sessionOrg": "A",
+          "probeOwner": "B",
+          "probed": true,
+          "axisApplicable": true,
+          "http": {
+            "method": "GET",
+            "route": "/api/console/audit?callRef=",
+            "status": 404
+          },
+          "control": {
+            "described": "the caller's own callRef returns the chain with 200",
+            "status": 200,
+            "ownVisible": true
+          },
+          "foreignVisible": false,
+          "foreignMutated": null,
+          "guardEquivalent": {
+            "applied": true,
+            "empty": null,
+            "detail": "route performs the org-scoped findFirst before verifyChain"
+          },
+          "checks": [
+            {
+              "name": "foreign-probe-is-404",
+              "ok": true,
+              "detail": "expected 404, got 404"
+            },
+            {
+              "name": "never-403",
+              "ok": true,
+              "detail": "a 403 confirms the caseRef exists — 404 must be indistinguishable from 'no such case'"
+            },
+            {
+              "name": "control-own-chain-200",
+              "ok": true,
+              "detail": "expected 200 for the caller's own chain, got 200"
+            },
+            {
+              "name": "recorded-foreign-probe-is-404",
+              "ok": true,
+              "detail": "recorded status 404 contradicts verdict foreign-probe-404"
+            },
+            {
+              "name": "recorded-foreign-probe-is-not-403",
+              "ok": true,
+              "detail": "a 403 confirms existence and must never be the cross-tenant answer"
+            }
+          ],
+          "ok": true,
+          "error": null
+        },
+        {
+          "direction": "B-reads-A",
+          "sessionOrg": "B",
+          "probeOwner": "A",
+          "probed": true,
+          "axisApplicable": true,
+          "http": {
+            "method": "GET",
+            "route": "/api/console/audit?callRef=",
+            "status": 404
+          },
+          "control": {
+            "described": "the caller's own callRef returns the chain with 200",
+            "status": 200,
+            "ownVisible": true
+          },
+          "foreignVisible": false,
+          "foreignMutated": null,
+          "guardEquivalent": {
+            "applied": true,
+            "empty": null,
+            "detail": "route performs the org-scoped findFirst before verifyChain"
+          },
+          "checks": [
+            {
+              "name": "foreign-probe-is-404",
+              "ok": true,
+              "detail": "expected 404, got 404"
+            },
+            {
+              "name": "never-403",
+              "ok": true,
+              "detail": "a 403 confirms the caseRef exists — 404 must be indistinguishable from 'no such case'"
+            },
+            {
+              "name": "control-own-chain-200",
+              "ok": true,
+              "detail": "expected 200 for the caller's own chain, got 200"
+            },
+            {
+              "name": "recorded-foreign-probe-is-404",
+              "ok": true,
+              "detail": "recorded status 404 contradicts verdict foreign-probe-404"
+            },
+            {
+              "name": "recorded-foreign-probe-is-not-403",
+              "ok": true,
+              "detail": "a 403 confirms existence and must never be the cross-tenant answer"
+            }
+          ],
+          "ok": true,
+          "error": null
+        }
+      ],
+      "ok": true
+    },
+    {
+      "path": "console.audit.case-list",
+      "title": "Command Center case list",
+      "model": "AuditLog",
+      "verdict": "foreign-probe-empty",
+      "coverage": "asserted",
+      "module": "src/app/api/console/audit/route.ts",
+      "read": "GET",
+      "probeField": "callRef",
+      "probeInvoke": "GET /api/console/audit as org A; the response `cases[]` must not contain org B's callRef.",
+      "http": {
+        "method": "GET",
+        "route": "/api/console/audit",
+        "probeParam": "callRef"
+      },
+      "notes": "Scoping lives in the route's `orgScope` (line 30). Both directions are probed because the shared/`default` fallback is the branch most likely to leak.",
+      "directions": [
+        {
+          "direction": "A-reads-B",
+          "sessionOrg": "A",
+          "probeOwner": "B",
+          "probed": true,
+          "axisApplicable": true,
+          "http": {
+            "method": "GET",
+            "route": "/api/console/audit",
+            "status": 200
+          },
+          "control": {
+            "described": "the caller's own callRef is listed in cases[]",
+            "status": 200,
+            "ownVisible": true
+          },
+          "foreignVisible": false,
+          "foreignMutated": null,
+          "guardEquivalent": {
+            "applied": true,
+            "empty": null,
+            "detail": "route already scopes the query; the guard equivalent is the same predicate"
+          },
+          "checks": [
+            {
+              "name": "http-2xx",
+              "ok": true,
+              "detail": "expected 200, got 200"
+            },
+            {
+              "name": "control-own-case-listed",
+              "ok": true,
+              "detail": "the caller's own case must be listed, or the foreign check is vacuous"
+            },
+            {
+              "name": "foreign-callRef-absent",
+              "ok": true,
+              "detail": "the other org's callRef must not appear in the case list"
+            },
+            {
+              "name": "recorded-foreign-probe-is-empty",
+              "ok": true,
+              "detail": "foreignVisible=false contradicts verdict foreign-probe-empty"
+            }
+          ],
+          "ok": true,
+          "error": null
+        },
+        {
+          "direction": "B-reads-A",
+          "sessionOrg": "B",
+          "probeOwner": "A",
+          "probed": true,
+          "axisApplicable": true,
+          "http": {
+            "method": "GET",
+            "route": "/api/console/audit",
+            "status": 200
+          },
+          "control": {
+            "described": "the caller's own callRef is listed in cases[]",
+            "status": 200,
+            "ownVisible": true
+          },
+          "foreignVisible": false,
+          "foreignMutated": null,
+          "guardEquivalent": {
+            "applied": true,
+            "empty": null,
+            "detail": "route already scopes the query; the guard equivalent is the same predicate"
+          },
+          "checks": [
+            {
+              "name": "http-2xx",
+              "ok": true,
+              "detail": "expected 200, got 200"
+            },
+            {
+              "name": "control-own-case-listed",
+              "ok": true,
+              "detail": "the caller's own case must be listed, or the foreign check is vacuous"
+            },
+            {
+              "name": "foreign-callRef-absent",
+              "ok": true,
+              "detail": "the other org's callRef must not appear in the case list"
+            },
+            {
+              "name": "recorded-foreign-probe-is-empty",
+              "ok": true,
+              "detail": "foreignVisible=false contradicts verdict foreign-probe-empty"
+            }
+          ],
+          "ok": true,
+          "error": null
+        }
+      ],
+      "ok": true
+    },
+    {
+      "path": "console.events.activity",
+      "title": "SSE activity feed read model",
+      "model": "AuditLog",
+      "verdict": "foreign-probe-empty",
+      "coverage": "asserted",
+      "module": "src/lib/activity-feed.ts",
+      "read": "fetchActivitySince",
+      "probeField": "callRef",
+      "probeInvoke": "fetchActivitySince({ scope: { orgId: A } }) must not return org B's audit rows; likewise B against A.",
+      "http": null,
+      "notes": "The scope is a required argument here by design (see the module docstring), and /api/console/events re-derives it from `guard.profile.orgId` (route line 44). The read model is probed rather than the SSE transport because the transport adds a timer, not a predicate.",
+      "directions": [
+        {
+          "direction": "A-reads-B",
+          "sessionOrg": "A",
+          "probeOwner": "B",
+          "probed": true,
+          "axisApplicable": true,
+          "http": null,
+          "control": {
+            "described": "the caller's own audit row is in the feed window",
+            "status": null,
+            "ownVisible": true
+          },
+          "foreignVisible": false,
+          "foreignMutated": null,
+          "guardEquivalent": {
+            "applied": true,
+            "empty": true,
+            "detail": "the scope is a required argument of the read model, not an optional filter"
+          },
+          "checks": [
+            {
+              "name": "control-own-row-in-window",
+              "ok": true,
+              "detail": "own row must be in the window or the foreign check is vacuous"
+            },
+            {
+              "name": "foreign-callRef-absent",
+              "ok": true,
+              "detail": "0 foreign row(s) leaked into the activity feed"
+            },
+            {
+              "name": "every-row-in-scope",
+              "ok": true,
+              "detail": "0 row(s) carried a foreign orgId"
+            },
+            {
+              "name": "recorded-foreign-probe-is-empty",
+              "ok": true,
+              "detail": "foreignVisible=false contradicts verdict foreign-probe-empty"
+            }
+          ],
+          "ok": true,
+          "error": null
+        },
+        {
+          "direction": "B-reads-A",
+          "sessionOrg": "B",
+          "probeOwner": "A",
+          "probed": true,
+          "axisApplicable": true,
+          "http": null,
+          "control": {
+            "described": "the caller's own audit row is in the feed window",
+            "status": null,
+            "ownVisible": true
+          },
+          "foreignVisible": false,
+          "foreignMutated": null,
+          "guardEquivalent": {
+            "applied": true,
+            "empty": true,
+            "detail": "the scope is a required argument of the read model, not an optional filter"
+          },
+          "checks": [
+            {
+              "name": "control-own-row-in-window",
+              "ok": true,
+              "detail": "own row must be in the window or the foreign check is vacuous"
+            },
+            {
+              "name": "foreign-callRef-absent",
+              "ok": true,
+              "detail": "0 foreign row(s) leaked into the activity feed"
+            },
+            {
+              "name": "every-row-in-scope",
+              "ok": true,
+              "detail": "0 row(s) carried a foreign orgId"
+            },
+            {
+              "name": "recorded-foreign-probe-is-empty",
+              "ok": true,
+              "detail": "foreignVisible=false contradicts verdict foreign-probe-empty"
+            }
+          ],
+          "ok": true,
+          "error": null
+        }
+      ],
+      "ok": true
+    },
+    {
+      "path": "console.inbox.acknowledge",
+      "title": "Acknowledge an alert",
+      "model": "Notification",
+      "verdict": "foreign-probe-404",
+      "coverage": "asserted",
+      "module": "src/app/api/console/inbox/route.ts",
+      "read": "POST",
+      "probeField": "id",
+      "probeInvoke": "POST /api/console/inbox { action: \"acknowledge\", id: <org B's alert id> } as org A — must be 404.",
+      "http": {
+        "method": "POST",
+        "route": "/api/console/inbox",
+        "probeParam": "id"
+      },
+      "notes": "Ownership is pre-checked against the caller's own inbox (route lines 48-51) precisely so a foreign id is indistinguishable from a nonexistent one. The gate also re-reads the row to prove acknowledgedAt stayed null.",
+      "directions": [
+        {
+          "direction": "A-reads-B",
+          "sessionOrg": "A",
+          "probeOwner": "B",
+          "probed": true,
+          "axisApplicable": true,
+          "http": {
+            "method": "POST",
+            "route": "/api/console/inbox",
+            "status": 404
+          },
+          "control": {
+            "described": "acknowledging the caller's own alert succeeds",
+            "status": 200,
+            "ownVisible": true
+          },
+          "foreignVisible": false,
+          "foreignMutated": false,
+          "guardEquivalent": {
+            "applied": true,
+            "empty": true,
+            "detail": "scoped updateMany against the foreign alert id matches zero rows"
+          },
+          "checks": [
+            {
+              "name": "foreign-probe-is-404",
+              "ok": true,
+              "detail": "expected 404, got 404"
+            },
+            {
+              "name": "never-403",
+              "ok": true,
+              "detail": "a 403 confirms the alert id exists"
+            },
+            {
+              "name": "foreign-alert-not-acknowledged",
+              "ok": true,
+              "detail": "the other org's alert must remain unacknowledged"
+            },
+            {
+              "name": "control-own-alert-ack-200",
+              "ok": true,
+              "detail": "expected 200 acknowledging the caller's own alert, got 200"
+            },
+            {
+              "name": "recorded-foreign-probe-is-404",
+              "ok": true,
+              "detail": "recorded status 404 contradicts verdict foreign-probe-404"
+            },
+            {
+              "name": "recorded-foreign-probe-is-not-403",
+              "ok": true,
+              "detail": "a 403 confirms existence and must never be the cross-tenant answer"
+            }
+          ],
+          "ok": true,
+          "error": null
+        },
+        {
+          "direction": "B-reads-A",
+          "sessionOrg": "B",
+          "probeOwner": "A",
+          "probed": true,
+          "axisApplicable": true,
+          "http": {
+            "method": "POST",
+            "route": "/api/console/inbox",
+            "status": 404
+          },
+          "control": {
+            "described": "acknowledging the caller's own alert succeeds",
+            "status": 200,
+            "ownVisible": true
+          },
+          "foreignVisible": false,
+          "foreignMutated": false,
+          "guardEquivalent": {
+            "applied": true,
+            "empty": true,
+            "detail": "scoped updateMany against the foreign alert id matches zero rows"
+          },
+          "checks": [
+            {
+              "name": "foreign-probe-is-404",
+              "ok": true,
+              "detail": "expected 404, got 404"
+            },
+            {
+              "name": "never-403",
+              "ok": true,
+              "detail": "a 403 confirms the alert id exists"
+            },
+            {
+              "name": "foreign-alert-not-acknowledged",
+              "ok": true,
+              "detail": "the other org's alert must remain unacknowledged"
+            },
+            {
+              "name": "control-own-alert-ack-200",
+              "ok": true,
+              "detail": "expected 200 acknowledging the caller's own alert, got 200"
+            },
+            {
+              "name": "recorded-foreign-probe-is-404",
+              "ok": true,
+              "detail": "recorded status 404 contradicts verdict foreign-probe-404"
+            },
+            {
+              "name": "recorded-foreign-probe-is-not-403",
+              "ok": true,
+              "detail": "a 403 confirms existence and must never be the cross-tenant answer"
+            }
+          ],
+          "ok": true,
+          "error": null
+        }
+      ],
+      "ok": true
+    },
+    {
+      "path": "console.inbox.list",
+      "title": "Operator alert inbox",
+      "model": "Notification",
+      "verdict": "foreign-probe-empty",
+      "coverage": "asserted",
+      "module": "src/app/api/console/inbox/route.ts",
+      "read": "GET",
+      "probeField": "id",
+      "probeInvoke": "GET /api/console/inbox as org A; `notifications[]` must not contain org B's alert id.",
+      "http": {
+        "method": "GET",
+        "route": "/api/console/inbox",
+        "probeParam": ""
+      },
+      "notes": "Delegates to notifications.inbox(orgId), which ORs the shared namespace when orgId is null.",
+      "directions": [
+        {
+          "direction": "A-reads-B",
+          "sessionOrg": "A",
+          "probeOwner": "B",
+          "probed": true,
+          "axisApplicable": true,
+          "http": {
+            "method": "GET",
+            "route": "/api/console/inbox",
+            "status": 200
+          },
+          "control": {
+            "described": "the caller's own alert id is in the inbox",
+            "status": 200,
+            "ownVisible": true
+          },
+          "foreignVisible": false,
+          "foreignMutated": null,
+          "guardEquivalent": {
+            "applied": true,
+            "empty": null,
+            "detail": "notifications.inbox(orgId) ORs only the shared namespace when orgId is null"
+          },
+          "checks": [
+            {
+              "name": "http-2xx",
+              "ok": true,
+              "detail": "expected 200, got 200"
+            },
+            {
+              "name": "control-own-alert-listed",
+              "ok": true,
+              "detail": "own alert must be listed or the foreign check is vacuous"
+            },
+            {
+              "name": "foreign-alert-id-absent",
+              "ok": true,
+              "detail": "the other org's alert must not appear in the inbox"
+            },
+            {
+              "name": "recorded-foreign-probe-is-empty",
+              "ok": true,
+              "detail": "foreignVisible=false contradicts verdict foreign-probe-empty"
+            }
+          ],
+          "ok": true,
+          "error": null
+        },
+        {
+          "direction": "B-reads-A",
+          "sessionOrg": "B",
+          "probeOwner": "A",
+          "probed": true,
+          "axisApplicable": true,
+          "http": {
+            "method": "GET",
+            "route": "/api/console/inbox",
+            "status": 200
+          },
+          "control": {
+            "described": "the caller's own alert id is in the inbox",
+            "status": 200,
+            "ownVisible": true
+          },
+          "foreignVisible": false,
+          "foreignMutated": null,
+          "guardEquivalent": {
+            "applied": true,
+            "empty": null,
+            "detail": "notifications.inbox(orgId) ORs only the shared namespace when orgId is null"
+          },
+          "checks": [
+            {
+              "name": "http-2xx",
+              "ok": true,
+              "detail": "expected 200, got 200"
+            },
+            {
+              "name": "control-own-alert-listed",
+              "ok": true,
+              "detail": "own alert must be listed or the foreign check is vacuous"
+            },
+            {
+              "name": "foreign-alert-id-absent",
+              "ok": true,
+              "detail": "the other org's alert must not appear in the inbox"
+            },
+            {
+              "name": "recorded-foreign-probe-is-empty",
+              "ok": true,
+              "detail": "foreignVisible=false contradicts verdict foreign-probe-empty"
+            }
+          ],
+          "ok": true,
+          "error": null
+        }
+      ],
+      "ok": true
+    },
+    {
+      "path": "console.outbox.dead-letters",
+      "title": "Dead-letter replay console",
+      "model": "DeadLetter",
+      "verdict": "platform-global",
+      "coverage": "declared-global",
+      "module": "src/app/api/console/outbox/replay/route.ts",
+      "read": "GET",
+      "probeField": "caseRef",
+      "probeInvoke": "GET /api/console/outbox/replay lists rows regardless of caseRef org — the model carries no orgId.",
+      "http": {
+        "method": "GET",
+        "route": "/api/console/outbox/replay",
+        "probeParam": ""
+      },
+      "notes": "NOT PROBED, deliberately: GET drains nothing but POST with `all: true` replays every unreplayed dead letter, and a probe would mutate shared delivery state that the WP-5 gate also asserts on. `DeadLetter` is declared in PLATFORM_MODELS (the org lives on the OutboxEvent row) and the route is operator-gated. Flagged as a real residual risk: any future multi-operator deployment needs this scoped.",
+      "directions": [
+        {
+          "direction": "A-reads-B",
+          "sessionOrg": "A",
+          "probeOwner": "B",
+          "probed": false,
+          "axisApplicable": false,
+          "http": null,
+          "control": {
+            "described": "not probed",
+            "status": null,
+            "ownVisible": null
+          },
+          "foreignVisible": null,
+          "foreignMutated": null,
+          "guardEquivalent": {
+            "applied": false,
+            "empty": null,
+            "detail": "no guard equivalent for this path"
+          },
+          "checks": [
+            {
+              "name": "declared-platform-model-with-reason",
+              "ok": true,
+              "detail": "DeadLetter must be declared in PLATFORM_MODELS with a written reason"
+            },
+            {
+              "name": "not-probed-requires-a-declared-reason",
+              "ok": true,
+              "detail": "an unprobed path must be classified declared-global and say why inline"
+            }
+          ],
+          "ok": true,
+          "error": null
+        },
+        {
+          "direction": "B-reads-A",
+          "sessionOrg": "B",
+          "probeOwner": "A",
+          "probed": false,
+          "axisApplicable": false,
+          "http": null,
+          "control": {
+            "described": "not probed",
+            "status": null,
+            "ownVisible": null
+          },
+          "foreignVisible": null,
+          "foreignMutated": null,
+          "guardEquivalent": {
+            "applied": false,
+            "empty": null,
+            "detail": "no guard equivalent for this path"
+          },
+          "checks": [
+            {
+              "name": "declared-platform-model-with-reason",
+              "ok": true,
+              "detail": "DeadLetter must be declared in PLATFORM_MODELS with a written reason"
+            },
+            {
+              "name": "not-probed-requires-a-declared-reason",
+              "ok": true,
+              "detail": "an unprobed path must be classified declared-global and say why inline"
+            }
+          ],
+          "ok": true,
+          "error": null
+        }
+      ],
+      "ok": true
+    },
+    {
+      "path": "console.producer-keys.list",
+      "title": "Bank integration keys list",
+      "model": "ProducerKey",
+      "verdict": "foreign-probe-empty",
+      "coverage": "asserted",
+      "module": "src/app/api/console/producer-keys/route.ts",
+      "read": "GET",
+      "probeField": "id",
+      "probeInvoke": "GET /api/console/producer-keys as org A; `keys[]` must not contain org B's key id.",
+      "http": {
+        "method": "GET",
+        "route": "/api/console/producer-keys",
+        "probeParam": ""
+      },
+      "notes": "orgScope is applied to the where clause (route lines 22-27).",
+      "directions": [
+        {
+          "direction": "A-reads-B",
+          "sessionOrg": "A",
+          "probeOwner": "B",
+          "probed": true,
+          "axisApplicable": true,
+          "http": {
+            "method": "GET",
+            "route": "/api/console/producer-keys",
+            "status": 200
+          },
+          "control": {
+            "described": "the caller's own key id is listed",
+            "status": 200,
+            "ownVisible": true
+          },
+          "foreignVisible": false,
+          "foreignMutated": null,
+          "guardEquivalent": {
+            "applied": true,
+            "empty": null,
+            "detail": "orgScope is applied to the where clause in the route"
+          },
+          "checks": [
+            {
+              "name": "http-2xx",
+              "ok": true,
+              "detail": "expected 200, got 200"
+            },
+            {
+              "name": "control-own-key-listed",
+              "ok": true,
+              "detail": "own key must be listed or the foreign check is vacuous"
+            },
+            {
+              "name": "foreign-key-id-absent",
+              "ok": true,
+              "detail": "the other org's producer key must not be listed"
+            },
+            {
+              "name": "recorded-foreign-probe-is-empty",
+              "ok": true,
+              "detail": "foreignVisible=false contradicts verdict foreign-probe-empty"
+            }
+          ],
+          "ok": true,
+          "error": null
+        },
+        {
+          "direction": "B-reads-A",
+          "sessionOrg": "B",
+          "probeOwner": "A",
+          "probed": true,
+          "axisApplicable": true,
+          "http": {
+            "method": "GET",
+            "route": "/api/console/producer-keys",
+            "status": 200
+          },
+          "control": {
+            "described": "the caller's own key id is listed",
+            "status": 200,
+            "ownVisible": true
+          },
+          "foreignVisible": false,
+          "foreignMutated": null,
+          "guardEquivalent": {
+            "applied": true,
+            "empty": null,
+            "detail": "orgScope is applied to the where clause in the route"
+          },
+          "checks": [
+            {
+              "name": "http-2xx",
+              "ok": true,
+              "detail": "expected 200, got 200"
+            },
+            {
+              "name": "control-own-key-listed",
+              "ok": true,
+              "detail": "own key must be listed or the foreign check is vacuous"
+            },
+            {
+              "name": "foreign-key-id-absent",
+              "ok": true,
+              "detail": "the other org's producer key must not be listed"
+            },
+            {
+              "name": "recorded-foreign-probe-is-empty",
+              "ok": true,
+              "detail": "foreignVisible=false contradicts verdict foreign-probe-empty"
+            }
+          ],
+          "ok": true,
+          "error": null
+        }
+      ],
+      "ok": true
+    },
+    {
+      "path": "console.producer-keys.revoke",
+      "title": "Revoke a bank integration key",
+      "model": "ProducerKey",
+      "verdict": "foreign-probe-404",
+      "coverage": "asserted",
+      "module": "src/app/api/console/producer-keys/route.ts",
+      "read": "DELETE",
+      "probeField": "id",
+      "probeInvoke": "DELETE /api/console/producer-keys?id=<org B's key id> as org A — must be 404 and must not revoke it.",
+      "http": {
+        "method": "DELETE",
+        "route": "/api/console/producer-keys",
+        "probeParam": "id"
+      },
+      "notes": "updateMany with the org scope; a zero count is reported as 404 (route lines 65-72). The gate also re-reads the row to prove the foreign key was not mutated.",
+      "directions": [
+        {
+          "direction": "A-reads-B",
+          "sessionOrg": "A",
+          "probeOwner": "B",
+          "probed": true,
+          "axisApplicable": true,
+          "http": {
+            "method": "DELETE",
+            "route": "/api/console/producer-keys?id=",
+            "status": 404
+          },
+          "control": {
+            "described": "revoking the caller's own key succeeds",
+            "status": 200,
+            "ownVisible": true
+          },
+          "foreignVisible": false,
+          "foreignMutated": false,
+          "guardEquivalent": {
+            "applied": true,
+            "empty": true,
+            "detail": "scoped updateMany against the foreign key id matches zero rows"
+          },
+          "checks": [
+            {
+              "name": "foreign-probe-is-404",
+              "ok": true,
+              "detail": "expected 404, got 404"
+            },
+            {
+              "name": "never-403",
+              "ok": true,
+              "detail": "a 403 confirms the key id exists"
+            },
+            {
+              "name": "foreign-key-not-revoked",
+              "ok": true,
+              "detail": "the other org's key must still be unrevoked"
+            },
+            {
+              "name": "control-own-key-revoked-200",
+              "ok": true,
+              "detail": "expected 200 revoking the caller's own key, got 200"
+            },
+            {
+              "name": "recorded-foreign-probe-is-404",
+              "ok": true,
+              "detail": "recorded status 404 contradicts verdict foreign-probe-404"
+            },
+            {
+              "name": "recorded-foreign-probe-is-not-403",
+              "ok": true,
+              "detail": "a 403 confirms existence and must never be the cross-tenant answer"
+            }
+          ],
+          "ok": true,
+          "error": null
+        },
+        {
+          "direction": "B-reads-A",
+          "sessionOrg": "B",
+          "probeOwner": "A",
+          "probed": true,
+          "axisApplicable": true,
+          "http": {
+            "method": "DELETE",
+            "route": "/api/console/producer-keys?id=",
+            "status": 404
+          },
+          "control": {
+            "described": "revoking the caller's own key succeeds",
+            "status": 200,
+            "ownVisible": true
+          },
+          "foreignVisible": false,
+          "foreignMutated": false,
+          "guardEquivalent": {
+            "applied": true,
+            "empty": true,
+            "detail": "scoped updateMany against the foreign key id matches zero rows"
+          },
+          "checks": [
+            {
+              "name": "foreign-probe-is-404",
+              "ok": true,
+              "detail": "expected 404, got 404"
+            },
+            {
+              "name": "never-403",
+              "ok": true,
+              "detail": "a 403 confirms the key id exists"
+            },
+            {
+              "name": "foreign-key-not-revoked",
+              "ok": true,
+              "detail": "the other org's key must still be unrevoked"
+            },
+            {
+              "name": "control-own-key-revoked-200",
+              "ok": true,
+              "detail": "expected 200 revoking the caller's own key, got 200"
+            },
+            {
+              "name": "recorded-foreign-probe-is-404",
+              "ok": true,
+              "detail": "recorded status 404 contradicts verdict foreign-probe-404"
+            },
+            {
+              "name": "recorded-foreign-probe-is-not-403",
+              "ok": true,
+              "detail": "a 403 confirms existence and must never be the cross-tenant answer"
+            }
+          ],
+          "ok": true,
+          "error": null
+        }
+      ],
+      "ok": true
+    },
+    {
+      "path": "console.settings.read",
+      "title": "White-label + BYOK settings",
+      "model": "UserProfile",
+      "verdict": "foreign-probe-empty",
+      "coverage": "asserted",
+      "module": "src/app/api/console/settings/route.ts",
+      "read": "GET",
+      "probeField": "orgName",
+      "probeInvoke": "GET /api/console/settings as org A; the response must not contain the sentinel orgName written to org B's profile.",
+      "http": {
+        "method": "GET",
+        "route": "/api/console/settings",
+        "probeParam": ""
+      },
+      "notes": "Identity-keyed read with no id-shaped probe: the route can only ever pass its own clerkUserId, so the cross-tenant probe is a SENTINEL orgName written onto the other org's profile. Both directions return 200 for the caller's own profile and neither response may contain the other org's sentinel. Deliberately NOT a 404 assertion — there is no identifier in the request for a 404 to hide, and claiming otherwise would be a fake assertion. The four genuinely id-shaped paths (console.audit.case-chain, console.producer-keys.revoke, console.inbox.acknowledge, api.enroll.customer-by-ref) carry the 404-never-403 assertion.",
+      "directions": [
+        {
+          "direction": "A-reads-B",
+          "sessionOrg": "A",
+          "probeOwner": "B",
+          "probed": true,
+          "axisApplicable": true,
+          "http": {
+            "method": "GET",
+            "route": "/api/console/settings",
+            "status": 200
+          },
+          "control": {
+            "described": "the caller's own session sees its own orgName sentinel",
+            "status": 200,
+            "ownVisible": true
+          },
+          "foreignVisible": false,
+          "foreignMutated": null,
+          "guardEquivalent": {
+            "applied": true,
+            "empty": true,
+            "detail": "scoped findFirst for the foreign org's sentinel orgName returns nothing"
+          },
+          "checks": [
+            {
+              "name": "http-2xx",
+              "ok": true,
+              "detail": "expected 200, got 200"
+            },
+            {
+              "name": "control-own-sentinel-visible",
+              "ok": true,
+              "detail": "the org's own sentinel must be returned, or the foreign check is vacuous"
+            },
+            {
+              "name": "foreign-sentinel-absent",
+              "ok": true,
+              "detail": "settings must not contain the other org's white-label state"
+            },
+            {
+              "name": "recorded-foreign-probe-is-empty",
+              "ok": true,
+              "detail": "foreignVisible=false contradicts verdict foreign-probe-empty"
+            }
+          ],
+          "ok": true,
+          "error": null
+        },
+        {
+          "direction": "B-reads-A",
+          "sessionOrg": "B",
+          "probeOwner": "A",
+          "probed": true,
+          "axisApplicable": true,
+          "http": {
+            "method": "GET",
+            "route": "/api/console/settings",
+            "status": 200
+          },
+          "control": {
+            "described": "the caller's own session sees its own orgName sentinel",
+            "status": 200,
+            "ownVisible": true
+          },
+          "foreignVisible": false,
+          "foreignMutated": null,
+          "guardEquivalent": {
+            "applied": true,
+            "empty": true,
+            "detail": "scoped findFirst for the foreign org's sentinel orgName returns nothing"
+          },
+          "checks": [
+            {
+              "name": "http-2xx",
+              "ok": true,
+              "detail": "expected 200, got 200"
+            },
+            {
+              "name": "control-own-sentinel-visible",
+              "ok": true,
+              "detail": "the org's own sentinel must be returned, or the foreign check is vacuous"
+            },
+            {
+              "name": "foreign-sentinel-absent",
+              "ok": true,
+              "detail": "settings must not contain the other org's white-label state"
+            },
+            {
+              "name": "recorded-foreign-probe-is-empty",
+              "ok": true,
+              "detail": "foreignVisible=false contradicts verdict foreign-probe-empty"
+            }
+          ],
+          "ok": true,
+          "error": null
+        }
+      ],
+      "ok": true
+    },
+    {
+      "path": "identity.producer-key",
+      "title": "Producer key authentication",
+      "model": "ProducerKey",
+      "verdict": "identity-keyed",
+      "coverage": "asserted",
+      "module": "src/lib/producer-keys.ts",
+      "read": "verifyProducerKey",
+      "probeField": "keyHash",
+      "probeInvoke": "verifyProducerKey(org B's plaintext) authenticates as org B, and the same keyHash resolves to NOTHING under scopedDb({ orgId: A }).",
+      "http": null,
+      "notes": "The key IS the tenant, so the read is keyed by a secret rather than a scope. Isolation is therefore structural — and the gate proves it by resolving the foreign keyHash through org A's scoped client and requiring null.",
+      "directions": [
+        {
+          "direction": "A-reads-B",
+          "sessionOrg": "A",
+          "probeOwner": "B",
+          "probed": true,
+          "axisApplicable": true,
+          "http": null,
+          "control": {
+            "described": "the caller's own plaintext key authenticates as the caller's org",
+            "status": null,
+            "ownVisible": true
+          },
+          "foreignVisible": false,
+          "foreignMutated": null,
+          "guardEquivalent": {
+            "applied": true,
+            "empty": true,
+            "detail": "the foreign keyHash resolves to nothing under the caller's scope"
+          },
+          "checks": [
+            {
+              "name": "key-authenticates-as-its-own-org",
+              "ok": true,
+              "detail": "a producer key must authenticate as exactly the org it was issued to"
+            },
+            {
+              "name": "own-key-authenticates-as-own-org",
+              "ok": true,
+              "detail": "the caller's own key must authenticate as the caller's org"
+            },
+            {
+              "name": "foreign-keyhash-invisible-in-scope",
+              "ok": true,
+              "detail": "the other org's keyHash must not resolve under the caller's scope"
+            },
+            {
+              "name": "unknown-key-refused",
+              "ok": true,
+              "detail": "an unknown key must not authenticate"
+            },
+            {
+              "name": "identity-key-read-is-invisible-in-scope",
+              "ok": true,
+              "detail": "a credential-keyed read must resolve as nothing under a foreign scope"
+            }
+          ],
+          "ok": true,
+          "error": null
+        },
+        {
+          "direction": "B-reads-A",
+          "sessionOrg": "B",
+          "probeOwner": "A",
+          "probed": true,
+          "axisApplicable": true,
+          "http": null,
+          "control": {
+            "described": "the caller's own plaintext key authenticates as the caller's org",
+            "status": null,
+            "ownVisible": true
+          },
+          "foreignVisible": false,
+          "foreignMutated": null,
+          "guardEquivalent": {
+            "applied": true,
+            "empty": true,
+            "detail": "the foreign keyHash resolves to nothing under the caller's scope"
+          },
+          "checks": [
+            {
+              "name": "key-authenticates-as-its-own-org",
+              "ok": true,
+              "detail": "a producer key must authenticate as exactly the org it was issued to"
+            },
+            {
+              "name": "own-key-authenticates-as-own-org",
+              "ok": true,
+              "detail": "the caller's own key must authenticate as the caller's org"
+            },
+            {
+              "name": "foreign-keyhash-invisible-in-scope",
+              "ok": true,
+              "detail": "the other org's keyHash must not resolve under the caller's scope"
+            },
+            {
+              "name": "unknown-key-refused",
+              "ok": true,
+              "detail": "an unknown key must not authenticate"
+            },
+            {
+              "name": "identity-key-read-is-invisible-in-scope",
+              "ok": true,
+              "detail": "a credential-keyed read must resolve as nothing under a foreign scope"
+            }
+          ],
+          "ok": true,
+          "error": null
+        }
+      ],
+      "ok": true
+    },
+    {
+      "path": "identity.user-profile",
+      "title": "Session profile resolution",
+      "model": "UserProfile",
+      "verdict": "foreign-probe-empty",
+      "coverage": "asserted",
+      "module": "src/lib/credits.ts",
+      "read": "getProfile",
+      "probeField": "orgName",
+      "probeInvoke": "getProfile() as org A's session must resolve orgId=A and never surface org B's profile values.",
+      "http": null,
+      "notes": "The Clerk session claim is the only source of orgId here, and the upsert is keyed by clerkUserId — a session cannot address another org's row.",
+      "directions": [
+        {
+          "direction": "A-reads-B",
+          "sessionOrg": "A",
+          "probeOwner": "B",
+          "probed": true,
+          "axisApplicable": true,
+          "http": null,
+          "control": {
+            "described": "getProfile resolves the caller's own org and clerk id",
+            "status": null,
+            "ownVisible": true
+          },
+          "foreignVisible": false,
+          "foreignMutated": null,
+          "guardEquivalent": {
+            "applied": true,
+            "empty": true,
+            "detail": "the other org's clerkUserId resolves to nothing under the caller's scope"
+          },
+          "checks": [
+            {
+              "name": "resolves-own-org",
+              "ok": true,
+              "detail": "getProfile must resolve the session's own orgId"
+            },
+            {
+              "name": "resolves-own-identity",
+              "ok": true,
+              "detail": "getProfile must resolve the session's own clerkUserId"
+            },
+            {
+              "name": "no-foreign-identity",
+              "ok": true,
+              "detail": "the resolved profile must not be the other org's"
+            },
+            {
+              "name": "guard-refuses-foreign-clerk-id",
+              "ok": true,
+              "detail": "scoped findFirst for the other org's clerkUserId must be empty"
+            },
+            {
+              "name": "recorded-foreign-probe-is-empty",
+              "ok": true,
+              "detail": "foreignVisible=false contradicts verdict foreign-probe-empty"
+            }
+          ],
+          "ok": true,
+          "error": null
+        },
+        {
+          "direction": "B-reads-A",
+          "sessionOrg": "B",
+          "probeOwner": "A",
+          "probed": true,
+          "axisApplicable": true,
+          "http": null,
+          "control": {
+            "described": "getProfile resolves the caller's own org and clerk id",
+            "status": null,
+            "ownVisible": true
+          },
+          "foreignVisible": false,
+          "foreignMutated": null,
+          "guardEquivalent": {
+            "applied": true,
+            "empty": true,
+            "detail": "the other org's clerkUserId resolves to nothing under the caller's scope"
+          },
+          "checks": [
+            {
+              "name": "resolves-own-org",
+              "ok": true,
+              "detail": "getProfile must resolve the session's own orgId"
+            },
+            {
+              "name": "resolves-own-identity",
+              "ok": true,
+              "detail": "getProfile must resolve the session's own clerkUserId"
+            },
+            {
+              "name": "no-foreign-identity",
+              "ok": true,
+              "detail": "the resolved profile must not be the other org's"
+            },
+            {
+              "name": "guard-refuses-foreign-clerk-id",
+              "ok": true,
+              "detail": "scoped findFirst for the other org's clerkUserId must be empty"
+            },
+            {
+              "name": "recorded-foreign-probe-is-empty",
+              "ok": true,
+              "detail": "foreignVisible=false contradicts verdict foreign-probe-empty"
+            }
+          ],
+          "ok": true,
+          "error": null
+        }
+      ],
+      "ok": true
+    },
+    {
+      "path": "lib.audit-chain.verify",
+      "title": "Tamper-evidence chain walk",
+      "model": "AuditLog",
+      "verdict": "foreign-probe-empty",
+      "coverage": "declared-gap",
+      "module": "src/lib/audit-chain.ts",
+      "read": "verifyChain",
+      "probeField": "callRef",
+      "probeInvoke": "verifyChain(org B's callRef) currently walks and returns org B's rows; the console route's own pre-check is what protects it.",
+      "http": null,
+      "notes": "GAP (defence in depth, not currently exploitable): `verifyChain` reads by callRef alone (line 263). The only caller, /api/console/audit, org-checks first, so the route is safe today. The function would return a foreign chain to any future caller that skipped the pre-check. Guard equivalent probed in the same run.",
+      "directions": [
+        {
+          "direction": "A-reads-B",
+          "sessionOrg": "A",
+          "probeOwner": "B",
+          "probed": true,
+          "axisApplicable": true,
+          "http": null,
+          "control": {
+            "described": "verifyChain verifies the caller's own chain",
+            "status": null,
+            "ownVisible": true
+          },
+          "foreignVisible": true,
+          "foreignMutated": null,
+          "guardEquivalent": {
+            "applied": true,
+            "empty": true,
+            "detail": "scoped findFirst for the foreign callRef returns nothing"
+          },
+          "checks": [
+            {
+              "name": "DECLARED-GAP-verifyChain-walks-foreign-rows",
+              "ok": true,
+              "detail": "verifyChain reads by callRef alone — if this passes, the gap is fixed and the entry must be reclassified"
+            },
+            {
+              "name": "guard-closes-the-gap",
+              "ok": true,
+              "detail": "the scoped equivalent must return nothing for the foreign callRef"
+            },
+            {
+              "name": "DECLARED-GAP-leak-still-reproduces",
+              "ok": true,
+              "detail": "a declared gap must still reproduce; if it no longer does, reclassify the entry rather than leaving a stale claim"
+            }
+          ],
+          "ok": true,
+          "error": null
+        },
+        {
+          "direction": "B-reads-A",
+          "sessionOrg": "B",
+          "probeOwner": "A",
+          "probed": true,
+          "axisApplicable": true,
+          "http": null,
+          "control": {
+            "described": "verifyChain verifies the caller's own chain",
+            "status": null,
+            "ownVisible": true
+          },
+          "foreignVisible": true,
+          "foreignMutated": null,
+          "guardEquivalent": {
+            "applied": true,
+            "empty": true,
+            "detail": "scoped findFirst for the foreign callRef returns nothing"
+          },
+          "checks": [
+            {
+              "name": "DECLARED-GAP-verifyChain-walks-foreign-rows",
+              "ok": true,
+              "detail": "verifyChain reads by callRef alone — if this passes, the gap is fixed and the entry must be reclassified"
+            },
+            {
+              "name": "guard-closes-the-gap",
+              "ok": true,
+              "detail": "the scoped equivalent must return nothing for the foreign callRef"
+            },
+            {
+              "name": "DECLARED-GAP-leak-still-reproduces",
+              "ok": true,
+              "detail": "a declared gap must still reproduce; if it no longer does, reclassify the entry rather than leaving a stale claim"
+            }
+          ],
+          "ok": true,
+          "error": null
+        }
+      ],
+      "ok": true
+    },
+    {
+      "path": "lib.case.by-conversation",
+      "title": "Case lookup by provider conversation id",
+      "model": "Case",
+      "verdict": "foreign-probe-empty",
+      "coverage": "declared-gap",
+      "module": "src/lib/case-state-machine.ts",
+      "read": "caseByConversation",
+      "probeField": "conversationId",
+      "probeInvoke": "caseByConversation(org B's conversationId) currently returns org B's case. The scoped equivalent must return null.",
+      "http": null,
+      "notes": "GAP: `db.case.findFirst({ where: { conversationId } })` (line 152) has no org predicate. This is the post-call webhook join key, so a replayed foreign conversation id would attach a foreign case to the wrong org's record. Guard equivalent probed in the same run.",
+      "directions": [
+        {
+          "direction": "A-reads-B",
+          "sessionOrg": "A",
+          "probeOwner": "B",
+          "probed": true,
+          "axisApplicable": true,
+          "http": null,
+          "control": {
+            "described": "caseByConversation returns the caller's own case",
+            "status": null,
+            "ownVisible": true
+          },
+          "foreignVisible": true,
+          "foreignMutated": null,
+          "guardEquivalent": {
+            "applied": true,
+            "empty": true,
+            "detail": "scopedDb(orgId).case.findFirst({ where: { conversationId } }) returns null for the foreign id"
+          },
+          "checks": [
+            {
+              "name": "DECLARED-GAP-still-unscoped",
+              "ok": true,
+              "detail": "caseByConversation has no org predicate — if this passes, the gap is fixed and the entry must be reclassified"
+            },
+            {
+              "name": "control-own-case-returned",
+              "ok": true,
+              "detail": "the caller's own case must resolve, or the gap assertion is meaningless"
+            },
+            {
+              "name": "guard-closes-the-gap",
+              "ok": true,
+              "detail": "the scoped equivalent must return nothing for the foreign conversation id"
+            },
+            {
+              "name": "DECLARED-GAP-leak-still-reproduces",
+              "ok": true,
+              "detail": "a declared gap must still reproduce; if it no longer does, reclassify the entry rather than leaving a stale claim"
+            }
+          ],
+          "ok": true,
+          "error": null
+        },
+        {
+          "direction": "B-reads-A",
+          "sessionOrg": "B",
+          "probeOwner": "A",
+          "probed": true,
+          "axisApplicable": true,
+          "http": null,
+          "control": {
+            "described": "caseByConversation returns the caller's own case",
+            "status": null,
+            "ownVisible": true
+          },
+          "foreignVisible": true,
+          "foreignMutated": null,
+          "guardEquivalent": {
+            "applied": true,
+            "empty": true,
+            "detail": "scopedDb(orgId).case.findFirst({ where: { conversationId } }) returns null for the foreign id"
+          },
+          "checks": [
+            {
+              "name": "DECLARED-GAP-still-unscoped",
+              "ok": true,
+              "detail": "caseByConversation has no org predicate — if this passes, the gap is fixed and the entry must be reclassified"
+            },
+            {
+              "name": "control-own-case-returned",
+              "ok": true,
+              "detail": "the caller's own case must resolve, or the gap assertion is meaningless"
+            },
+            {
+              "name": "guard-closes-the-gap",
+              "ok": true,
+              "detail": "the scoped equivalent must return nothing for the foreign conversation id"
+            },
+            {
+              "name": "DECLARED-GAP-leak-still-reproduces",
+              "ok": true,
+              "detail": "a declared gap must still reproduce; if it no longer does, reclassify the entry rather than leaving a stale claim"
+            }
+          ],
+          "ok": true,
+          "error": null
+        }
+      ],
+      "ok": true
+    },
+    {
+      "path": "lib.case.by-ref",
+      "title": "Case lookup by public reference",
+      "model": "Case",
+      "verdict": "foreign-probe-empty",
+      "coverage": "declared-gap",
+      "module": "src/lib/case-state-machine.ts",
+      "read": "caseByRef",
+      "probeField": "caseRef",
+      "probeInvoke": "caseByRef(org B's caseRef) currently returns org B's case. The scoped equivalent must return null.",
+      "http": null,
+      "notes": "GAP: `db.case.findUnique({ where: { caseRef } })` (line 157) has no org predicate. No HTTP route currently calls it with attacker-controlled input, and the fix is outside this work package's write scope. Guard equivalent probed in the same run: scopedDb({ orgId: A }).case.findFirst({ where: { caseRef: B } }) is null.",
+      "directions": [
+        {
+          "direction": "A-reads-B",
+          "sessionOrg": "A",
+          "probeOwner": "B",
+          "probed": true,
+          "axisApplicable": true,
+          "http": null,
+          "control": {
+            "described": "caseByRef returns the caller's own case",
+            "status": null,
+            "ownVisible": true
+          },
+          "foreignVisible": true,
+          "foreignMutated": null,
+          "guardEquivalent": {
+            "applied": true,
+            "empty": true,
+            "detail": "scopedDb(orgId).case.findFirst({ where: { caseRef } }) returns null for the foreign ref"
+          },
+          "checks": [
+            {
+              "name": "DECLARED-GAP-still-unscoped",
+              "ok": true,
+              "detail": "caseByRef has no org predicate — if this passes, the gap is fixed and the entry must be reclassified"
+            },
+            {
+              "name": "control-own-case-returned",
+              "ok": true,
+              "detail": "the caller's own case must resolve, or the gap assertion is meaningless"
+            },
+            {
+              "name": "guard-closes-the-gap",
+              "ok": true,
+              "detail": "the scoped equivalent must return nothing for the foreign caseRef"
+            },
+            {
+              "name": "DECLARED-GAP-leak-still-reproduces",
+              "ok": true,
+              "detail": "a declared gap must still reproduce; if it no longer does, reclassify the entry rather than leaving a stale claim"
+            }
+          ],
+          "ok": true,
+          "error": null
+        },
+        {
+          "direction": "B-reads-A",
+          "sessionOrg": "B",
+          "probeOwner": "A",
+          "probed": true,
+          "axisApplicable": true,
+          "http": null,
+          "control": {
+            "described": "caseByRef returns the caller's own case",
+            "status": null,
+            "ownVisible": true
+          },
+          "foreignVisible": true,
+          "foreignMutated": null,
+          "guardEquivalent": {
+            "applied": true,
+            "empty": true,
+            "detail": "scopedDb(orgId).case.findFirst({ where: { caseRef } }) returns null for the foreign ref"
+          },
+          "checks": [
+            {
+              "name": "DECLARED-GAP-still-unscoped",
+              "ok": true,
+              "detail": "caseByRef has no org predicate — if this passes, the gap is fixed and the entry must be reclassified"
+            },
+            {
+              "name": "control-own-case-returned",
+              "ok": true,
+              "detail": "the caller's own case must resolve, or the gap assertion is meaningless"
+            },
+            {
+              "name": "guard-closes-the-gap",
+              "ok": true,
+              "detail": "the scoped equivalent must return nothing for the foreign caseRef"
+            },
+            {
+              "name": "DECLARED-GAP-leak-still-reproduces",
+              "ok": true,
+              "detail": "a declared gap must still reproduce; if it no longer does, reclassify the entry rather than leaving a stale claim"
+            }
+          ],
+          "ok": true,
+          "error": null
+        }
+      ],
+      "ok": true
+    },
+    {
+      "path": "lib.notifications.acknowledge",
+      "title": "Alert acknowledgement (library)",
+      "model": "Notification",
+      "verdict": "foreign-probe-empty",
+      "coverage": "declared-gap",
+      "module": "src/lib/notifications.ts",
+      "read": "acknowledge",
+      "probeField": "id",
+      "probeInvoke": "acknowledge(org B's alert id) currently succeeds; the route's own pre-check is what protects it.",
+      "http": null,
+      "notes": "GAP (defence in depth, not currently exploitable): `acknowledge` reads by id alone (line 110). The only caller pre-checks against the caller's own inbox, so the route is safe today. The evidence records this so a future caller that skips the pre-check is a test failure, not a breach.",
+      "directions": [
+        {
+          "direction": "A-reads-B",
+          "sessionOrg": "A",
+          "probeOwner": "B",
+          "probed": true,
+          "axisApplicable": true,
+          "http": null,
+          "control": null,
+          "foreignVisible": true,
+          "foreignMutated": true,
+          "guardEquivalent": {
+            "applied": true,
+            "empty": true,
+            "detail": "scoped updateMany against the foreign alert id matches zero rows"
+          },
+          "checks": [
+            {
+              "name": "DECLARED-GAP-acknowledge-acts-on-foreign-alert",
+              "ok": true,
+              "detail": "acknowledge reads by id alone — if this passes, the gap is fixed and the entry must be reclassified"
+            },
+            {
+              "name": "guard-closes-the-gap",
+              "ok": true,
+              "detail": "the scoped equivalent must match zero rows"
+            },
+            {
+              "name": "DECLARED-GAP-leak-still-reproduces",
+              "ok": true,
+              "detail": "a declared gap must still reproduce; if it no longer does, reclassify the entry rather than leaving a stale claim"
+            }
+          ],
+          "ok": true,
+          "error": null
+        },
+        {
+          "direction": "B-reads-A",
+          "sessionOrg": "B",
+          "probeOwner": "A",
+          "probed": true,
+          "axisApplicable": true,
+          "http": null,
+          "control": null,
+          "foreignVisible": true,
+          "foreignMutated": true,
+          "guardEquivalent": {
+            "applied": true,
+            "empty": true,
+            "detail": "scoped updateMany against the foreign alert id matches zero rows"
+          },
+          "checks": [
+            {
+              "name": "DECLARED-GAP-acknowledge-acts-on-foreign-alert",
+              "ok": true,
+              "detail": "acknowledge reads by id alone — if this passes, the gap is fixed and the entry must be reclassified"
+            },
+            {
+              "name": "guard-closes-the-gap",
+              "ok": true,
+              "detail": "the scoped equivalent must match zero rows"
+            },
+            {
+              "name": "DECLARED-GAP-leak-still-reproduces",
+              "ok": true,
+              "detail": "a declared gap must still reproduce; if it no longer does, reclassify the entry rather than leaving a stale claim"
+            }
+          ],
+          "ok": true,
+          "error": null
+        }
+      ],
+      "ok": true
+    },
+    {
+      "path": "lib.outbox.claim-batch",
+      "title": "Outbox delivery worker claim",
+      "model": "OutboxEvent",
+      "verdict": "platform-global",
+      "coverage": "declared-global",
+      "module": "src/lib/outbox.ts",
+      "read": "claimBatch",
+      "probeField": "orgId",
+      "probeInvoke": "claimBatch() takes the oldest due rows across ALL orgs by design — a per-org claim would deadlock the queue behind a silent tenant's backlog.",
+      "http": null,
+      "notes": "NOT PROBED, deliberately: claiming is a destructive claim on the SHARED delivery queue, so a probe would steal events the WP-5 gate asserts on. This is the one tenant model with a deliberately global read, and it is a raw `$queryRaw` — outside the Prisma model layer the guard can instrument, which is exactly why it is written down here. The org is not lost: the signed payload carries org_id, and the worker's updates are by event id. Residual risk, recorded: the operator replay console (console.outbox.dead-letters) is the human-facing surface over these rows and is not org-scoped.",
+      "directions": [
+        {
+          "direction": "A-reads-B",
+          "sessionOrg": "A",
+          "probeOwner": "B",
+          "probed": false,
+          "axisApplicable": false,
+          "http": null,
+          "control": {
+            "described": "not probed",
+            "status": null,
+            "ownVisible": null
+          },
+          "foreignVisible": null,
+          "foreignMutated": null,
+          "guardEquivalent": {
+            "applied": false,
+            "empty": null,
+            "detail": "no guard equivalent for this path"
+          },
+          "checks": [
+            {
+              "name": "tenant-model-declared",
+              "ok": true,
+              "detail": "OutboxEvent is a tenant model, so its deliberately global read must be written down here"
+            },
+            {
+              "name": "scope-would-constrain-it",
+              "ok": true,
+              "detail": "if the worker were rewritten on the guard, the claim would be org-constrained"
+            },
+            {
+              "name": "not-probed-requires-a-declared-reason",
+              "ok": true,
+              "detail": "an unprobed path must be classified declared-global and say why inline"
+            }
+          ],
+          "ok": true,
+          "error": null
+        },
+        {
+          "direction": "B-reads-A",
+          "sessionOrg": "B",
+          "probeOwner": "A",
+          "probed": false,
+          "axisApplicable": false,
+          "http": null,
+          "control": {
+            "described": "not probed",
+            "status": null,
+            "ownVisible": null
+          },
+          "foreignVisible": null,
+          "foreignMutated": null,
+          "guardEquivalent": {
+            "applied": false,
+            "empty": null,
+            "detail": "no guard equivalent for this path"
+          },
+          "checks": [
+            {
+              "name": "tenant-model-declared",
+              "ok": true,
+              "detail": "OutboxEvent is a tenant model, so its deliberately global read must be written down here"
+            },
+            {
+              "name": "scope-would-constrain-it",
+              "ok": true,
+              "detail": "if the worker were rewritten on the guard, the claim would be org-constrained"
+            },
+            {
+              "name": "not-probed-requires-a-declared-reason",
+              "ok": true,
+              "detail": "an unprobed path must be classified declared-global and say why inline"
+            }
+          ],
+          "ok": true,
+          "error": null
+        }
+      ],
+      "ok": true
+    },
+    {
+      "path": "pilot.leads",
+      "title": "Public-site pilot leads",
+      "model": "PilotRequest",
+      "verdict": "platform-global",
+      "coverage": "asserted",
+      "module": "src/app/api/pilot/route.ts",
+      "read": "POST / TENANCY_BYPASS read",
+      "probeField": "ref",
+      "probeInvoke": "Create a lead through the public route, then read it back through TENANCY_BYPASS.run('PilotRequest', …). The bypass log must record only declared platform models.",
+      "http": null,
+      "notes": "The canonical TENANCY_BYPASS case: a website lead has no organization until it is onboarded, so `PilotRequest` is declared in PLATFORM_MODELS and read through the audited escape hatch rather than a scope. The gate also asserts the hatch refuses every model in TENANTED_MODELS.",
+      "directions": [
+        {
+          "direction": "A-reads-B",
+          "sessionOrg": "A",
+          "probeOwner": "B",
+          "probed": true,
+          "axisApplicable": false,
+          "http": null,
+          "control": {
+            "described": "the public route created the lead and the bypass reads it back",
+            "status": null,
+            "ownVisible": true
+          },
+          "foreignVisible": false,
+          "foreignMutated": null,
+          "guardEquivalent": {
+            "applied": true,
+            "empty": null,
+            "detail": "TENANCY_BYPASS is the sanctioned non-scoped read for a declared platform model"
+          },
+          "checks": [
+            {
+              "name": "public-route-created-the-lead",
+              "ok": true,
+              "detail": "the lead must be readable through the declared bypass"
+            },
+            {
+              "name": "bypass-refuses-tenant-model",
+              "ok": true,
+              "detail": "TENANCY_BYPASS must refuse every model in TENANTED_MODELS"
+            },
+            {
+              "name": "bypass-log-holds-only-platform-models",
+              "ok": true,
+              "detail": "no bypass may target a tenant model"
+            },
+            {
+              "name": "bypass-log-non-empty",
+              "ok": true,
+              "detail": "the bypass must be recorded, so it can be audited"
+            },
+            {
+              "name": "platform-global-read-is-explicit",
+              "ok": true,
+              "detail": "a model with no org column has no tenant axis; the record must say so rather than imply a direction was probed"
+            }
+          ],
+          "ok": true,
+          "error": null
+        },
+        {
+          "direction": "B-reads-A",
+          "sessionOrg": "B",
+          "probeOwner": "A",
+          "probed": true,
+          "axisApplicable": false,
+          "http": null,
+          "control": {
+            "described": "the public route created the lead and the bypass reads it back",
+            "status": null,
+            "ownVisible": true
+          },
+          "foreignVisible": false,
+          "foreignMutated": null,
+          "guardEquivalent": {
+            "applied": true,
+            "empty": null,
+            "detail": "TENANCY_BYPASS is the sanctioned non-scoped read for a declared platform model"
+          },
+          "checks": [
+            {
+              "name": "public-route-created-the-lead",
+              "ok": true,
+              "detail": "the lead must be readable through the declared bypass"
+            },
+            {
+              "name": "bypass-refuses-tenant-model",
+              "ok": true,
+              "detail": "TENANCY_BYPASS must refuse every model in TENANTED_MODELS"
+            },
+            {
+              "name": "bypass-log-holds-only-platform-models",
+              "ok": true,
+              "detail": "no bypass may target a tenant model"
+            },
+            {
+              "name": "bypass-log-non-empty",
+              "ok": true,
+              "detail": "the bypass must be recorded, so it can be audited"
+            },
+            {
+              "name": "platform-global-read-is-explicit",
+              "ok": true,
+              "detail": "a model with no org column has no tenant axis; the record must say so rather than imply a direction was probed"
+            }
+          ],
+          "ok": true,
+          "error": null
+        }
+      ],
+      "ok": true
+    }
+  ]
+}

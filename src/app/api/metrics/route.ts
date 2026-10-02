@@ -5,7 +5,7 @@ import "server-only";
 import { db } from "@/lib/db";
 import { admissionSnapshot } from "@/lib/admission";
 import { capacitySnapshot } from "@/lib/capacity";
-import { dialQueueStats } from "@/lib/dial-queue";
+import { queueDepth } from "@/lib/scale/queue";
 
 export const dynamic = "force-dynamic";
 
@@ -118,19 +118,13 @@ export async function GET(req: Request) {
   // or dropped. A growing queue with an empty worker is a stalled deployment; a
   // growing dead-letter count is a customer who was never called.
   try {
-    const q = await dialQueueStats();
-    push("sv_dial_queue_queued", "Dialling jobs waiting to be claimed.", "gauge", q.queued);
-    push("sv_dial_queue_leased", "Jobs claimed by a worker and in flight.", "gauge", q.leased);
-    push("sv_dial_queue_placed", "Jobs whose call was accepted by the provider.", "counter", q.placed);
+    const q = await queueDepth();
+    push("sv_dial_queue_pending", "Dialling jobs waiting to be claimed.", "gauge", q.pending);
+    push("sv_dial_queue_claimed", "Jobs claimed by a worker and in flight.", "gauge", q.claimed);
+    push("sv_dial_queue_done", "Jobs whose call was accepted by the provider.", "counter", q.done);
     push("sv_dial_queue_dead", "Jobs that exhausted retries — operator-visible failures.", "gauge", q.dead);
-    push(
-      "sv_dial_queue_oldest_age_seconds",
-      "Age of the oldest waiting job; the SLA is tens of seconds, not hours.",
-      "gauge",
-      q.oldestQueuedAgeSeconds,
-    );
   } catch {
-    push("sv_dial_queue_queued", "Dialling jobs waiting to be claimed.", "gauge", -1);
+    push("sv_dial_queue_pending", "Dialling jobs waiting to be claimed.", "gauge", -1);
   }
 
   // ── outbox: the bank-notification backlog ───────────────────────────────

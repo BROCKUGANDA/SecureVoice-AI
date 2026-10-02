@@ -5,7 +5,7 @@ import { canTransition, transitionCase, IllegalTransitionError } from "@/lib/cas
 import { append as auditAppend } from "@/lib/audit-chain";
 import { db } from "@/lib/db";
 import { transcript as redactText } from "@/lib/redact";
-import { badRequest, parseJson, unprocessable } from "@/lib/api-errors";
+import { badRequest, parseJson, unprocessable, schemaErrorCode } from "@/lib/api-errors"
 
 export const dynamic = "force-dynamic";
 
@@ -22,7 +22,7 @@ const HANDOFF_SPECIALIST = "fraud_specialist";
 const ETA_SECS = 120;
 const QUEUE_POSITION = 1;
 
-const schema = z.object({
+const schema = z.strictObject({
   conversation_id: z.string().min(1).max(128),
   summary: z.string().min(1).max(2000),
 });
@@ -32,7 +32,7 @@ export async function POST(req: NextRequest) {
   if (body === null) return badRequest("Invalid JSON body");
 
   const parsed = schema.safeParse(body);
-  if (!parsed.success) return unprocessable("conversation_id and summary are required");
+  if (!parsed.success) return unprocessable("conversation_id and summary are required", schemaErrorCode(parsed.error));
 
   const { conversation_id, summary } = parsed.data;
 

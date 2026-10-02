@@ -111,8 +111,15 @@ export async function POST(req: NextRequest) {
   // ————— opt-out path (STOP) —————
   const parsedOut = optoutSchema.safeParse(body);
   if (parsedOut.success) {
+    // Tenant-scoped (WP-12): without the org predicate any authenticated
+    // producer could flip another tenant's consent by naming their
+    // customerRef, and `count` would confirm it exists. A tenant-bound caller
+    // may only stop its own customers; an org-less caller only the shared rows.
+    const outScope = authz.orgId
+      ? { customerRef: parsedOut.data.customerRef, orgId: authz.orgId }
+      : { customerRef: parsedOut.data.customerRef, OR: [{ orgId: null }, { orgId: "default" }] };
     const row = await db.customer.updateMany({
-      where: { customerRef: parsedOut.data.customerRef },
+      where: outScope,
       data: { optedOut: true },
     });
     await auditAppend({

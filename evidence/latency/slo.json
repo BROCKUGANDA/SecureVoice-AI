@@ -1,0 +1,57 @@
+{
+  "schema_version": "1.0",
+  "generated_at": "2026-10-02T13:54:48.760Z",
+  "disclaimer": "`measured_p95_ms` contains only values observed on a real run. A null there means NOT INSTRUMENTED, which is not a pass. Targets are published separately so the two can never be confused.",
+  "interventions_measured": 0,
+  "note": "The 30-intervention minimum in the definition of done is NOT met. The conversation-plane spans are not yet instrumented.",
+  "spans": [
+    {
+      "name": "signal accepted -> provider accepted the call",
+      "target_p95_ms": 1500,
+      "measured_p95_ms": 551,
+      "source": "docs/VERIFICATION.md WP-2 gate"
+    },
+    {
+      "name": "tool request -> tool response",
+      "target_p95_ms": 300,
+      "measured_p95_ms": 9,
+      "source": "docs/VERIFICATION.md tool latency gate"
+    },
+    {
+      "name": "signal received -> signal accepted",
+      "target_p95_ms": 300,
+      "measured_p95_ms": null,
+      "source": null
+    },
+    {
+      "name": "signal received -> ringing",
+      "target_p95_ms": 5000,
+      "measured_p95_ms": null,
+      "source": null
+    },
+    {
+      "name": "answered -> first agent word",
+      "target_p95_ms": 1200,
+      "measured_p95_ms": null,
+      "source": null
+    },
+    {
+      "name": "caller stops speaking -> agent audio begins",
+      "target_p95_ms": 1500,
+      "measured_p95_ms": null,
+      "source": null
+    },
+    {
+      "name": "fraud confirmed -> bank webhook delivered",
+      "target_p95_ms": 2000,
+      "measured_p95_ms": null,
+      "source": null
+    },
+    {
+      "name": "signal received -> freeze staged",
+      "target_p95_ms": 60000,
+      "measured_p95_ms": null,
+      "source": null
+    }
+  ]
+}

@@ -17,6 +17,8 @@ import "server-only";
  */
 
 import { append as auditAppend, type AuditEntry } from "@/lib/audit-chain";
+import { assertWithinBudget, maySpend } from "@/lib/billing/breaker";
+import { reserve as reserveCredits, balance as ledgerBalance } from "@/lib/billing/ledger";
 
 export type PolicyGateInput = {
   orgId: string | null;
@@ -144,12 +146,52 @@ export async function runPolicyGate(input: PolicyGateInput): Promise<PolicyGateR
   }
 
   // 5. Org spend ceiling not breached.
-  //    Checked against the credits ledger — the sum of reservations for the org.
-  //    For the demo this is permissive; production uses the UsageLedger.
+  //
+  //    Enforced against the append-only UsageLedger via the spend breaker
+  //    (WP-13). One intervention attempt is the billable SKU, so the estimate
+  //    reserved here is exactly one unit; the actual call duration is reconciled
+  //    on the post-call webhook, which releases the remainder.
+  const orgKey = orgId ?? "unscoped";
+  const budget = await assertWithinBudget({ orgId: orgKey, units: 1 });
+  if (!maySpend(budget)) {
+    const reason = budget.decision === "stop" ? budget.reason : "spend_ceiling";
+    await audit("freeze", "policy_spend_ceiling", {
+      percent: budget.percent,
+      decision: budget.decision,
+      window: budget.window,
+    });
+    return { ok: false, reason: `org spend ceiling reached (${budget.percent}% of ${budget.window ?? "window"})`, code: "spend_ceiling" };
+  }
+  if (budget.decision === "warn") {
+    // 60/80/95 are alerts, not stops: the call still proceeds, but the breach
+    // is on the record before it becomes an invoice.
+    await audit("freeze", "policy_spend_alert", { percent: budget.percent, threshold: budget.threshold });
+  }
 
   // 6. Credits reserved.
-  //    The credit reservation happens in the route handler after the gate
-  //    passes — the gate itself does not deduct.
+  //
+  //    A real reservation in the append-only ledger, not a decrement of a
+  //    mutable counter: the unique idempotency key {caseRef}:1:reserve means a
+  //    retried signal cannot reserve twice, and the balance remains the sum of
+  //    the ledger (invariant I-8). Reconciled on the post-call webhook.
+  const available = await ledgerBalance(orgKey);
+  if (available < 1) {
+    await audit("freeze", "policy_credits_exhausted", { available });
+    return { ok: false, reason: "no credits remaining for this organisation", code: "credits_exhausted" };
+  }
+  try {
+    await reserveCredits({
+      orgId: orgKey,
+      caseRef: input.caseRef,
+      unitsEstimate: 1,
+      reason: "intervention_attempt",
+    });
+  } catch (err) {
+    // A lost race for the last credit, a closed window, an unknown org: a typed
+    // refusal, never a 500 on the dial path.
+    await audit("freeze", "policy_credits_exhausted", { error: String(err).slice(0, 120) });
+    return { ok: false, reason: "credit reservation refused", code: "credits_exhausted" };
+  }
 
   // The success audit entry is written by the route handler (combined with
   // signal_received) to keep the hot path to two appends total.

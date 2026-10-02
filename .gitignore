@@ -45,6 +45,10 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
+# prisma — ORM v7 generates the client into src/ as TypeScript source.
+# It is a build artifact (`bunx prisma generate`), never tracked.
+/src/generated/
+
 # logs & pids
 *.log
 *.pid

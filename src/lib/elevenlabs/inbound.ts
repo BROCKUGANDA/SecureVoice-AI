@@ -1,4 +1,4 @@
-﻿import "server-only";
+import "server-only";
 /**
  * Inbound post-call processing (WP-4).
  *
@@ -16,6 +16,7 @@ import { db } from "@/lib/db";
 import { caseByConversation, canTransition, transitionCase, transitionCaseWithOutbox } from "@/lib/case-state-machine";
 import { append as auditAppend } from "@/lib/audit-chain";
 import * as redact from "@/lib/redact";
+import { settleAttempt } from "@/lib/billing/ledger";
 
 type WebhookEventRow = {
   id: string;
@@ -216,14 +217,63 @@ async function handleTranscription(row: WebhookEventRow, data: any): Promise<voi
   // Verdict delivery triggers WP-5. Transitions to NOTIFIED only where the
   // current state allows it (e.g. CONFIRMED_FRAUD/CONFIRMED_LEGITIMATE/
   // UNCERTAIN/ESCALATED); a terminal case stays untouched by design.
+  //
+  // The transition and the bank notification commit in one transaction, so a
+  // verdict can never reach NOTIFIED without a delivery row behind it. The
+  // payload carries the verdict and an audit reference only — never transcript
+  // content (hazard H28: the bank pulls evidence, we never push it).
   if (canTransition(caseRow.state, "NOTIFIED")) {
     try {
-      await transitionCase(caseRow.caseRef, "NOTIFIED");
+      await transitionCaseWithOutbox(caseRow.caseRef, "NOTIFIED", {
+        outbox: {
+          eventType: "case.notified",
+          caseRef: caseRow.caseRef,
+          orgId: caseRow.orgId ?? null,
+          occurredAt: new Date(caseRow.postCallAt ?? Date.now()).toISOString(),
+          data: {
+            state: "NOTIFIED",
+            outcome,
+            duration_seconds: durationSeconds,
+            freeze_staged: caseRow.freezeStaged,
+            freeze_reference: caseRow.freezeReference,
+            handoff_queued: caseRow.handoffQueued,
+            handoff_specialist: caseRow.handoffSpecialist,
+            tool_calls_observed: toolCallCount,
+            audit_ref: caseRow.caseRef,
+            evidence: {
+              transcript: "withheld",
+              note: "redacted transcript and audit chain are retrievable via the signed case export; no transcript content is included in outbound events",
+            },
+          },
+        },
+      });
     } catch (err) {
       console.error("[inbound] case transition to NOTIFIED failed:", err);
     }
   }
-}
+
+  // Billing reconciliation (WP-13): the reserve taken at dial time is settled
+  // against the ACTUAL reported duration, and the remainder released.
+  // settleAttempt is idempotent on (caseRef, attemptNo, kind), so a webhook
+  // replay cannot double-settle.
+  try {
+    await settleAttempt({
+      orgId: caseRow.orgId ?? "unscoped",
+      caseRef: caseRow.caseRef,
+      attemptNo: 1,
+      unitsEstimate: 1,
+      // One intervention attempt is the billable SKU (WP-13), so the reserved
+      // unit is the actual charge; duration is recorded alongside it as the
+      // margin input the cost model needs, not as the billing unit.
+      unitsActual: 1,
+      reason: durationSeconds !== null ? `post_call_reconcile_${durationSeconds}s` : "post_call_reconcile",
+    });
+  } catch (err) {
+    // Metering must never break the evidence pipeline: the ingest is already
+    // committed and chained. The reservation stays in place for a later
+    // reconcile pass rather than being force-released.
+    console.error("[inbound] billing reconciliation failed:", err);
+  }}
 
 async function handleAudio(row: WebhookEventRow, data: any): Promise<void> {
   const conversationId: string | null =

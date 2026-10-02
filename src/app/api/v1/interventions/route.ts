@@ -10,9 +10,10 @@ import { createHash } from "node:crypto";
 import { sanitizeUntrusted, sanitizeDynamicVariables } from "@/lib/sanitize-untrusted";
 import { runPolicyGate } from "@/lib/policy-gate";
 import { assertDialAllowed, releaseDialSlot } from "@/lib/abuse/guards";
-import { enqueueDial } from "@/lib/dial-queue";
+import { enqueueDialJob } from "@/lib/scale/queue";
 import { admitOrDegrade } from "@/lib/admission";
 import { notifyRealtime } from "@/lib/realtime";
+import { createCase, transitionCase } from "@/lib/case-state-machine";
 import { badRequest, unprocessable, upstreamError } from "@/lib/api-errors";
 
 export const dynamic = "force-dynamic";
@@ -297,6 +298,32 @@ async function armAndDial(
   }
   dialSlot = abuse.slot;
 
+  // Persist the case BEFORE the dial job is enqueued.
+  //
+  // The case row is what every downstream stage joins on: the dial worker
+  // looks the case up by caseRef to read the destination and the dynamic
+  // variables (without it the worker has no phone and the job is dead-lettered
+  // as "case has no phone number"), and the post-call webhook and the bank
+  // outbox correlate on the same row. Minting a caseRef and never writing the
+  // row means no call is ever placed.
+  //
+  // The gates above have passed, so this is RECEIVED -> SCREENED through the
+  // single writer. The dial worker then owns SCREENED -> DIALING.
+  const merchant = signal.merchant ? sanitizeUntrusted(signal.merchant) : undefined;
+  await createCase({
+    caseRef,
+    orgId,
+    transactionRef: signal.transaction_ref,
+    riskScore: signal.risk_score,
+    language: signal.language,
+    phone: signal.phone,
+    merchant,
+    amountMinor: signal.amount,
+    currency: signal.currency,
+    consentRecordId: signal.consent_record_id,
+  });
+  await transitionCase(caseRef, "SCREENED");
+
   // Audit: signal received + policy passed (single append, fire-and-forget).
   void auditAppend({
     callRef: caseRef,
@@ -361,7 +388,6 @@ async function armAndDial(
   }
 
   // Sanitise every bank-supplied string before it becomes a dynamic variable.
-  const merchant = signal.merchant ? sanitizeUntrusted(signal.merchant) : undefined;
   const dynamicVariables = sanitizeDynamicVariables({
     merchant: merchant ?? "",
     amount: signal.amount,
@@ -382,8 +408,10 @@ async function armAndDial(
 
   let delivery: Record<string, unknown>;
   try {
-    const job = await enqueueDial({
+    const job = await enqueueDialJob({
+      caseId: caseRef,
       caseRef,
+      orgId,
       attemptNo: 1,
       // Expected-loss triage: a higher-value alert is dialled first when the
       // queue is draining faster than the provider allows.
@@ -392,6 +420,15 @@ async function armAndDial(
           (signal.amount ?? 0) /
           100,
       ),
+      // Sanitised dial inputs only — never transcript content (invariant I-10).
+      payload: {
+        to: redactText(signal.phone),
+        language: signal.language,
+        merchant: merchant ?? "",
+        amount: signal.amount ?? 0,
+        currency: signal.currency ?? "",
+        transaction_ref: signal.transaction_ref,
+      },
     });
     delivery = {
       channel: "queued",
@@ -399,7 +436,7 @@ async function armAndDial(
       to: redactText(signal.phone),
       jobId: job.id,
       jobState: job.state,
-      duplicate: job.duplicate,
+      duplicate: !job.created,
     };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

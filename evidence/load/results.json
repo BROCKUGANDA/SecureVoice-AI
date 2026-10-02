@@ -1,0 +1,550 @@
+{
+  "schemaVersion": 1,
+  "gate": "WP-19 Layer A — concurrency and scale; vendors mocked at the port seam",
+  "result": "not-run",
+  "integrity": {
+    "rule": "never present an extrapolated number as a measured one",
+    "labels": {
+      "measured": "Latency percentiles, error/shed/dial rates, queue depth, gauge peaks, job counts, chain verification. Observed by THIS run, on THIS machine, against local Postgres, with the vendor held at a synthetic constant latency.",
+      "calibrated": "The concurrency target (ELEVENLABS_MAX_CONCURRENT=40, the Business tier) and the vendor ceilings — from elevenlabs.io/pricing/agents read 2026-10-02. Never measured against our account.",
+      "extrapolated": "The campaign shape (8,000 customers, 40 minutes, 35% flag rate), the 8x steady-state peak multiple, and everything derived from them. Modelled, not observed."
+    },
+    "determinism": {
+      "wallClockIncluded": true,
+      "randomIdentifiersIncluded": false,
+      "note": "Latency percentiles are wall-clock measurements and therefore differ between runs — that is the point of the artifact. Every DECISION input is seeded (mulberry32 from the run id): which case is throttled, each case's risk and amount, and the backoff jitter. Two runs make the same decisions; only the timings differ.",
+      "seededFrom": "mur05s3hwm"
+    },
+    "network": {
+      "calls": 0,
+      "urls": [],
+      "note": "globalThis.fetch was a tripwire for the whole suite. A Layer A result containing any network call is a FAILURE, not a slow test."
+    },
+    "database": {
+      "available": true,
+      "note": "ok",
+      "baseline_in_flight_at_start": 57,
+      "baseline_note": "activeConversations() is a GLOBAL gauge (a COUNT of live cases), and this database is shared with other suites, so rows left in DIALING..VERIFYING by an earlier run inflate every reading. peak_own_in_flight counts ONLY this run's cases and is the figure to compare against the model.",
+      "migration": {
+        "applied": false,
+        "skipped": false,
+        "note": "dial_job already present — the gate did not apply the migration"
+      },
+      "migration_columns_match_code": true,
+      "migration_columns_detail": "table dial_job: expected 16 columns, found 16: attempt_no, available_at, case_id, case_ref, claimed_by, completed_at, created_at, id, last_error, lease_expires_at, org_id, payload, priority, retries, state, updated_at"
+    },
+    "case_count_scaling": {
+      "modelled_campaign_interventions": 2800,
+      "steady_cases_played": 60,
+      "burst_cases_played": 120,
+      "burst_workers": 224,
+      "note": "Case COUNT is scaled down from the modelled 2,800-intervention campaign; OFFERED CONCURRENCY is not. Concurrency is the quantity under test — see burst.offered_concurrency against model.burst.required_concurrent_calls. Set LOAD_BURST_CASES=2800 for the full replay."
+    },
+    "vendor_backoff": {
+      "sleeps_injected": "no-op",
+      "note": "Backoff sleeps are injected as no-ops so the gate costs no wall clock and stays deterministic. The delays that WOULD have been waited are recorded under vendor.backoff_delays_ms_sample and are NOT included in any latency percentile above."
+    },
+    "synthetic_hold": {
+      "steady_ms": 30,
+      "burst_ms": 120,
+      "note": "A Layer A 'conversation' holds a vendor slot for this long instead of the modelled 180 s. It stands in for talk time so that offered concurrency is expressed inside a CI budget; it is NOT a measurement of call duration, and every latency percentile that includes it is labelled."
+    },
+    "not_measured_here": [
+      "Real telephony: Twilio calls-per-second per from-number, account concurrency, carrier latency, answer and seize rates.",
+      "ElevenLabs Conversational AI: actual concurrent-session enforcement, the real 429 rate at the ceiling, real time-to-first-audio, real per-minute billing.",
+      "Network behaviour between the app, the provider and the bank webhook endpoint.",
+      "Multi-instance behaviour: every worker here is one process on one database. SKIP LOCKED is exercised; cross-instance clock skew and per-instance pool contention are not.",
+      "Postgres under a realistic index size — the gauge is a COUNT over Case.state and this database has a few thousand rows, not millions.",
+      "Partitioning, read replicas and autoscaling — POST-SUBMISSION roadmap, docs/CAPACITY.md §9."
+    ]
+  },
+  "model": {
+    "burst": {
+      "inputs": {
+        "cardsPerMonth": {
+          "value": 8000,
+          "confidence": "extrapolated",
+          "basis": "modelling-assumption",
+          "source": "institution-supplied (their card volume); we have no pilot figure yet"
+        },
+        "flagRate": {
+          "value": 0.35,
+          "confidence": "extrapolated",
+          "basis": "modelling-assumption",
+          "source": "institution-supplied; ~0.35% steady state is our planning figure, NOT a measurement"
+        },
+        "meanCallSeconds": {
+          "value": 180,
+          "confidence": "calibrated",
+          "basis": "repo-documented",
+          "source": "docs/UNIT-ECONOMICS.md §1 (demo-traffic handle time; no pilot distribution yet)"
+        },
+        "peakMultiple": {
+          "value": 1,
+          "confidence": "extrapolated",
+          "basis": "modelling-assumption",
+          "source": "our planning figure; replace with the institution's own peak-hour ratio once measured"
+        },
+        "carrierUsdPerMinute": {
+          "value": 0,
+          "confidence": "extrapolated",
+          "basis": "modelling-assumption",
+          "source": "EXCLUDED — INPUT REQUIRED (docs/UNIT-ECONOMICS.md §2, Twilio rate card by destination)"
+        },
+        "fromNumbers": {
+          "value": 1,
+          "confidence": "measured",
+          "basis": "repo-documented",
+          "source": "deployment configuration; buying numbers is the cheapest scale lever on the carrier side"
+        }
+      },
+      "steps": [
+        {
+          "id": "interventions_per_month",
+          "formula": "cards_per_month × flag_rate",
+          "value": 2800,
+          "unit": "interventions/month",
+          "confidence": "extrapolated",
+          "basis": "derived-from-model",
+          "note": "One intervention = one billable voice attempt. This is a VOLUME, not a load."
+        },
+        {
+          "id": "mean_per_hour",
+          "formula": "interventions ÷ 0.67 h (averaging window)",
+          "value": 4200,
+          "unit": "interventions/hour",
+          "confidence": "extrapolated",
+          "basis": "derived-from-model",
+          "note": "Averaged over a 40-minute campaign window. Dividing the same volume by 730 h instead of 0.67 h is the difference between a trivial number and a campaign."
+        },
+        {
+          "id": "peak_per_hour",
+          "formula": "mean_per_hour × peak_multiple",
+          "value": 4200,
+          "unit": "interventions/hour",
+          "confidence": "extrapolated",
+          "basis": "derived-from-model",
+          "note": "peak_multiple = 1 for a burst: the campaign window IS the peak, so applying an 8× multiple on top would invent a peak nobody is going to send us."
+        },
+        {
+          "id": "peak_per_second",
+          "formula": "peak_per_hour ÷ 3600",
+          "value": 1.1666666666666667,
+          "unit": "interventions/second",
+          "confidence": "extrapolated",
+          "basis": "derived-from-model",
+          "note": "Arrival rate at the peak."
+        },
+        {
+          "id": "required_concurrent",
+          "formula": "peak_per_second × mean_call_seconds",
+          "value": 210,
+          "unit": "concurrent calls",
+          "confidence": "extrapolated",
+          "basis": "derived-from-model",
+          "note": "Little's law. This is the number a vendor ceiling is compared against, and it is invariant under time compression — you cannot make a burst cheaper by speeding up the clock."
+        },
+        {
+          "id": "from_numbers_required",
+          "formula": "ceil(peak_per_second ÷ twilio_cps_per_number)",
+          "value": 1,
+          "unit": "numbers",
+          "confidence": "extrapolated",
+          "basis": "derived-from-model",
+          "note": "Per-NUMBER CPS is a lever; account concurrency is not."
+        }
+      ],
+      "interventions_per_month": 2800,
+      "averaging_window_hours": 0.667,
+      "mean_per_hour": 4200,
+      "peak_per_hour": 4200,
+      "peak_per_second": 1.167,
+      "required_concurrent_calls": 210,
+      "from_numbers_required": 1,
+      "voice_coverage_of_peak": 0.5714,
+      "band_at_peak": "SHED",
+      "binding_constraint": {
+        "name": "twilioAccountConcurrency",
+        "ratio": 21,
+        "oversubscribed": true,
+        "statement": "carrier account concurrency: modelled peak needs 210, account allows 10 — this one does NOT improve by buying more numbers"
+      },
+      "cost_at_peak": {
+        "usdPerHour": 30.4,
+        "usdPerPeakBurst": 20.266666666666666,
+        "usdPerPeakBurstMinutes": 40,
+        "carrierIncluded": false,
+        "requiredHourlyBillingCeilingMinor": 3040,
+        "breakdown": {
+          "withinPlanConcurrent": 40,
+          "overPlanBurstConcurrent": 170,
+          "conversationalAiUsd": 30.4,
+          "carrierUsd": 0
+        },
+        "confidence": "extrapolated",
+        "note": "Conversational AI at $0.08/min in-plan and $0.16/min above the plan ceiling (both sourced, 2026-10-02). Minutes of talk in an hour = concurrent calls. CARRIER EXCLUDED — the per-minute carrier rate is destination-specific and is still INPUT REQUIRED (docs/UNIT-ECONOMICS.md §2), so this figure is a FLOOR, not an estimate. The billing breaker (src/lib/billing/breaker.ts, BILLING_HOURLY_LIMIT_MINOR) must be set above requiredHourlyBillingCeilingMinor or a legitimate campaign gets stopped by the spend breaker."
+      },
+      "verdict": [
+        "2800 interventions, averaged over a 40-minute campaign window → 4200/hour mean, 4200/hour at the modelled peak.",
+        "Modelled peak 210 concurrent calls (1.167/s offered, mean talk 180s).",
+        "⚠ OVERSUBSCRIBED by 21× against twilioAccountConcurrency: carrier account concurrency: modelled peak needs 210, account allows 10 — this one does NOT improve by buying more numbers. Voice can cover 57.1% of the modelled peak even at the 3× burst allowance; the remainder must take the fallback channel (SMS / app push) WITH an audit row per case.",
+        "At the modelled peak the admission ladder sits in SHED (CONSTRAINED ≥ 84, SHED ≥ 114).",
+        "Cost EXCLUDES the carrier: docs/UNIT-ECONOMICS.md §2 marks the carrier $/min INPUT REQUIRED (destination-specific). Fill TWILIO_CARRIER_USD_PER_MINUTE per destination before quoting a cost."
+      ]
+    },
+    "steady": {
+      "inputs": {
+        "cardsPerMonth": {
+          "value": 200000,
+          "confidence": "extrapolated",
+          "basis": "modelling-assumption",
+          "source": "institution-supplied (their card volume); we have no pilot figure yet"
+        },
+        "flagRate": {
+          "value": 0.0035,
+          "confidence": "extrapolated",
+          "basis": "modelling-assumption",
+          "source": "institution-supplied; ~0.35% steady state is our planning figure, NOT a measurement"
+        },
+        "meanCallSeconds": {
+          "value": 180,
+          "confidence": "calibrated",
+          "basis": "repo-documented",
+          "source": "docs/UNIT-ECONOMICS.md §1 (demo-traffic handle time; no pilot distribution yet)"
+        },
+        "peakMultiple": {
+          "value": 8,
+          "confidence": "extrapolated",
+          "basis": "modelling-assumption",
+          "source": "our planning figure; replace with the institution's own peak-hour ratio once measured"
+        },
+        "carrierUsdPerMinute": {
+          "value": 0,
+          "confidence": "extrapolated",
+          "basis": "modelling-assumption",
+          "source": "EXCLUDED — INPUT REQUIRED (docs/UNIT-ECONOMICS.md §2, Twilio rate card by destination)"
+        },
+        "fromNumbers": {
+          "value": 1,
+          "confidence": "measured",
+          "basis": "repo-documented",
+          "source": "deployment configuration; buying numbers is the cheapest scale lever on the carrier side"
+        }
+      },
+      "steps": [
+        {
+          "id": "interventions_per_month",
+          "formula": "cards_per_month × flag_rate",
+          "value": 700,
+          "unit": "interventions/month",
+          "confidence": "extrapolated",
+          "basis": "derived-from-model",
+          "note": "One intervention = one billable voice attempt. This is a VOLUME, not a load."
+        },
+        {
+          "id": "mean_per_hour",
+          "formula": "interventions ÷ 730 h (averaging window)",
+          "value": 0.958904109589041,
+          "unit": "interventions/hour",
+          "confidence": "extrapolated",
+          "basis": "derived-from-model",
+          "note": "Averaged over an average month (730 h). Dividing the same volume by 730 h instead of 0.67 h is the difference between a trivial number and a campaign."
+        },
+        {
+          "id": "peak_per_hour",
+          "formula": "mean_per_hour × peak_multiple",
+          "value": 7.671232876712328,
+          "unit": "interventions/hour",
+          "confidence": "extrapolated",
+          "basis": "derived-from-model",
+          "note": "The whole design question lives in peak_multiple."
+        },
+        {
+          "id": "peak_per_second",
+          "formula": "peak_per_hour ÷ 3600",
+          "value": 0.00213089802130898,
+          "unit": "interventions/second",
+          "confidence": "extrapolated",
+          "basis": "derived-from-model",
+          "note": "Arrival rate at the peak."
+        },
+        {
+          "id": "required_concurrent",
+          "formula": "peak_per_second × mean_call_seconds",
+          "value": 0.3835616438356164,
+          "unit": "concurrent calls",
+          "confidence": "extrapolated",
+          "basis": "derived-from-model",
+          "note": "Little's law. This is the number a vendor ceiling is compared against, and it is invariant under time compression — you cannot make a burst cheaper by speeding up the clock."
+        },
+        {
+          "id": "from_numbers_required",
+          "formula": "ceil(peak_per_second ÷ twilio_cps_per_number)",
+          "value": 1,
+          "unit": "numbers",
+          "confidence": "extrapolated",
+          "basis": "derived-from-model",
+          "note": "Per-NUMBER CPS is a lever; account concurrency is not."
+        }
+      ],
+      "interventions_per_month": 700,
+      "averaging_window_hours": 730,
+      "mean_per_hour": 0.96,
+      "peak_per_hour": 7.67,
+      "peak_per_second": 0.002,
+      "required_concurrent_calls": 0.4,
+      "from_numbers_required": 1,
+      "voice_coverage_of_peak": 1,
+      "band_at_peak": "NORMAL",
+      "binding_constraint": {
+        "name": "twilioAccountConcurrency",
+        "ratio": 0.03835616438356164,
+        "oversubscribed": false,
+        "statement": "carrier account concurrency: modelled peak needs 0.4, account allows 10 — this one does NOT improve by buying more numbers"
+      },
+      "cost_at_peak": {
+        "usdPerHour": 0.030684931506849315,
+        "usdPerPeakBurst": null,
+        "usdPerPeakBurstMinutes": null,
+        "carrierIncluded": false,
+        "requiredHourlyBillingCeilingMinor": 4,
+        "breakdown": {
+          "withinPlanConcurrent": 0.3835616438356164,
+          "overPlanBurstConcurrent": 0,
+          "conversationalAiUsd": 0.030684931506849315,
+          "carrierUsd": 0
+        },
+        "confidence": "extrapolated",
+        "note": "Conversational AI at $0.08/min in-plan and $0.16/min above the plan ceiling (both sourced, 2026-10-02). Minutes of talk in an hour = concurrent calls. CARRIER EXCLUDED — the per-minute carrier rate is destination-specific and is still INPUT REQUIRED (docs/UNIT-ECONOMICS.md §2), so this figure is a FLOOR, not an estimate. The billing breaker (src/lib/billing/breaker.ts, BILLING_HOURLY_LIMIT_MINOR) must be set above requiredHourlyBillingCeilingMinor or a legitimate campaign gets stopped by the spend breaker."
+      },
+      "verdict": [
+        "700 interventions, averaged over an average month (730 h) → 1/hour mean, 7.7/hour at the modelled peak.",
+        "Modelled peak 0.4 concurrent calls (0.002/s offered, mean talk 180s).",
+        "Within every vendor ceiling. Headroom is held by the admission ladder, not by the vendors.",
+        "At the modelled peak the admission ladder sits in NORMAL (CONSTRAINED ≥ 84, SHED ≥ 114).",
+        "Cost EXCLUDES the carrier: docs/UNIT-ECONOMICS.md §2 marks the carrier $/min INPUT REQUIRED (destination-specific). Fill TWILIO_CARRIER_USD_PER_MINUTE per destination before quoting a cost."
+      ]
+    }
+  },
+  "ceilings": [
+    {
+      "name": "elevenLabsConcurrentSessions",
+      "vendor": "elevenlabs",
+      "value": 40,
+      "unit": "concurrent_calls",
+      "envVar": "ELEVENLABS_MAX_CONCURRENT",
+      "source": "elevenlabs.io/pricing/agents — concurrency by tier (Free 4 · Starter 6 · Creator 10 · Pro 20 · Scale 30 · Business 40)",
+      "checkedOn": "2026-10-02",
+      "basis": "published-vendor-limit",
+      "confidence": "calibrated",
+      "note": "CALIBRATED against a published tier table, NOT measured against our account: we have never run a real conversation at the ceiling. The default is the FREE tier (4) on purpose — assuming a paid tier is how a demo discovers it was throttled on the day it mattered. Read the real number in the ElevenLabs dashboard (Settings → Usage / Limits) and set ELEVENLABS_MAX_CONCURRENT."
+    },
+    {
+      "name": "twilioCallsPerSecondPerNumber",
+      "vendor": "twilio",
+      "value": 2,
+      "unit": "calls_per_second",
+      "envVar": "TWILIO_CPS_PER_FROM_NUMBER",
+      "source": "Twilio account-specific voice limit — Twilio Console → Voice → Settings, or support. Not a published fixed number; assigned per account and raised by support.",
+      "checkedOn": "2026-10-02",
+      "basis": "published-vendor-limit",
+      "confidence": "calibrated",
+      "note": "CALIBRATED as a conservative starting point for a new account, NOT a quoted term. It is PER FROM-NUMBER, which is why from-numbers are a scaling lever and not a detail: N numbers at C cps give N×C. The default (2) is ours, not Twilio's — set TWILIO_CPS_PER_FROM_NUMBER from the console before load testing."
+    },
+    {
+      "name": "twilioAccountConcurrency",
+      "vendor": "twilio",
+      "value": 10,
+      "unit": "concurrent_calls",
+      "envVar": "TWILIO_MAX_CONCURRENT_CALLS",
+      "source": "Twilio account-level concurrent calls in flight — Console → Voice → Settings, or support.",
+      "checkedOn": "2026-10-02",
+      "basis": "published-vendor-limit",
+      "confidence": "calibrated",
+      "note": "CALIBRATED conservative default (10) for a new account, NOT a quoted term. This is an ACCOUNT limit, so unlike the per-number CPS it does not improve by buying numbers. The default (10) is ours — set TWILIO_MAX_CONCURRENT_CALLS from the console."
+    }
+  ],
+  "plan": {
+    "eleven_labs_concurrency": 40,
+    "burst_allowance_ceiling": 120,
+    "band_constrained_at": 84,
+    "band_shed_at": 114,
+    "shed_threshold_minor": 50000
+  },
+  "metrics_snapshot_at_end": {
+    "queue_depth": 0,
+    "active_conversations": 57,
+    "shed_count": 0,
+    "band": "NORMAL",
+    "gates": {
+      "constrained_at": 84,
+      "shed_at": 114,
+      "burst_ceiling": 120,
+      "burst_multiplier": 3,
+      "headroom": 63
+    },
+    "ceilings": [
+      {
+        "name": "elevenLabsConcurrentSessions",
+        "vendor": "elevenlabs",
+        "value": 40,
+        "unit": "concurrent_calls",
+        "envVar": "ELEVENLABS_MAX_CONCURRENT",
+        "source": "elevenlabs.io/pricing/agents — concurrency by tier (Free 4 · Starter 6 · Creator 10 · Pro 20 · Scale 30 · Business 40)",
+        "checkedOn": "2026-10-02",
+        "basis": "published-vendor-limit",
+        "confidence": "calibrated",
+        "note": "CALIBRATED against a published tier table, NOT measured against our account: we have never run a real conversation at the ceiling. The default is the FREE tier (4) on purpose — assuming a paid tier is how a demo discovers it was throttled on the day it mattered. Read the real number in the ElevenLabs dashboard (Settings → Usage / Limits) and set ELEVENLABS_MAX_CONCURRENT."
+      },
+      {
+        "name": "twilioCallsPerSecondPerNumber",
+        "vendor": "twilio",
+        "value": 2,
+        "unit": "calls_per_second",
+        "envVar": "TWILIO_CPS_PER_FROM_NUMBER",
+        "source": "Twilio account-specific voice limit — Twilio Console → Voice → Settings, or support. Not a published fixed number; assigned per account and raised by support.",
+        "checkedOn": "2026-10-02",
+        "basis": "published-vendor-limit",
+        "confidence": "calibrated",
+        "note": "CALIBRATED as a conservative starting point for a new account, NOT a quoted term. It is PER FROM-NUMBER, which is why from-numbers are a scaling lever and not a detail: N numbers at C cps give N×C. The default (2) is ours, not Twilio's — set TWILIO_CPS_PER_FROM_NUMBER from the console before load testing."
+      },
+      {
+        "name": "twilioAccountConcurrency",
+        "vendor": "twilio",
+        "value": 10,
+        "unit": "concurrent_calls",
+        "envVar": "TWILIO_MAX_CONCURRENT_CALLS",
+        "source": "Twilio account-level concurrent calls in flight — Console → Voice → Settings, or support.",
+        "checkedOn": "2026-10-02",
+        "basis": "published-vendor-limit",
+        "confidence": "calibrated",
+        "note": "CALIBRATED conservative default (10) for a new account, NOT a quoted term. This is an ACCOUNT limit, so unlike the per-number CPS it does not improve by buying numbers. The default (10) is ours — set TWILIO_MAX_CONCURRENT_CALLS from the console."
+      }
+    ],
+    "source": {
+      "elevenLabs": "elevenlabs.io/pricing/agents, read 2026-10-02 (tier must be confirmed in the dashboard)",
+      "twilio": "account-specific — Twilio Console → Voice → Settings (not a published number)"
+    }
+  },
+  "scenarios": {
+    "steady": {
+      "name": "steady",
+      "case_ref_prefix": "SV-LA-mur05s3hwm-steady",
+      "cases_in": 60,
+      "offered_concurrency": 8,
+      "dialled": 60,
+      "shed": 0,
+      "errors": 203,
+      "by_reason": {
+        "error": 203
+      },
+      "error_rate": 3.3833,
+      "shed_rate": 0,
+      "dialled_rate": 1,
+      "latency": {
+        "end_to_end_enqueue_to_accounted": {
+          "samples": 263,
+          "min_ms": 1016.4,
+          "p50_ms": 8365.7,
+          "p95_ms": 14702.4,
+          "p99_ms": 15210,
+          "max_ms": 15301.9,
+          "mean_ms": 8512.7
+        },
+        "admission_decision_including_gauge_count": {
+          "samples": 263,
+          "min_ms": 8.2,
+          "p50_ms": 21.3,
+          "p95_ms": 38.8,
+          "p99_ms": 52.1,
+          "max_ms": 65.9,
+          "mean_ms": 23.2
+        },
+        "vendor_call_including_synthetic_hold": {
+          "samples": 60,
+          "min_ms": 30.4,
+          "p50_ms": 36.2,
+          "p95_ms": 41.8,
+          "p99_ms": 44.9,
+          "max_ms": 44.9,
+          "mean_ms": 36.1
+        }
+      },
+      "queue": {
+        "max_depth": 60,
+        "end_depth": 0,
+        "samples": 135,
+        "depth_p50": 31,
+        "depth_p95": 57,
+        "depth_mean": 32.3,
+        "jobs_done": 31,
+        "jobs_retried": 93,
+        "jobs_dead": 32,
+        "jobs_handler_crashes": 0,
+        "jobs_lost_before_settlement": 78,
+        "jobs_skipped_not_ours": 3062
+      },
+      "gauge": {
+        "baseline_at_start": 57,
+        "peak_observed": 60,
+        "peak_own_in_flight": 2,
+        "end": 57,
+        "bands_seen": [
+          "NORMAL"
+        ]
+      },
+      "vendor": {
+        "placed": 60,
+        "throttled_429": 3,
+        "max_concurrent_sessions_observed": 2,
+        "gate_timeouts": 0,
+        "backoff_delays_ms_sample": [
+          240,
+          155,
+          198
+        ],
+        "backoff_delay_min_ms": 155,
+        "backoff_delay_max_ms": 240,
+        "backoff_attempts": 3
+      },
+      "wall_clock_ms": 15333
+    },
+    "burst": null
+  },
+  "accounting": {
+    "steady": {
+      "casesIn": 60,
+      "casesFound": 60,
+      "byState": {
+        "CONFIRMED_FRAUD": 60
+      },
+      "dialled": 60,
+      "shedWithAuditRow": 0,
+      "shedWithoutAuditRow": 0,
+      "unaccountedInFlight": 0,
+      "unaccountedRefs": [],
+      "queueRows": 60,
+      "queueByState": {
+        "DEAD": 31,
+        "DONE": 29
+      },
+      "shedIntents": {},
+      "chainSample": {
+        "checked": 2,
+        "ok": 2,
+        "broken": []
+      }
+    },
+    "burst": null
+  },
+  "summary": {
+    "steady_error_rate": 3.3833,
+    "steady_shed_rate": 0,
+    "burst_error_rate": null,
+    "burst_shed_rate": null,
+    "burst_peak_own_in_flight": null,
+    "burst_peak_gauge": null,
+    "burst_vendor_max_concurrent": null,
+    "cases_accounted_exactly": null
+  }
+}

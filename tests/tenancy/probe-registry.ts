@@ -28,7 +28,14 @@ import {
 } from "@/lib/tenancy/guard";
 // ── Session (Clerk is mocked; the org claim is the only thing under test) ────
 
-const session = { userId: "", orgId: null as string | null };
+/**
+ * `role` is a real variable here, not decoration. `/api/enroll`'s `authorize()`
+ * short-circuits on `profile?.role === "operator"` and returns the SESSION's org
+ * — so an operator session can never exercise the producer-key branch. Probing
+ * a route's Bearer path therefore requires a non-operator seat, which is what
+ * `asProducer()` below arranges.
+ */
+const session = { userId: "", orgId: null as string | null, role: "operator" as "operator" | "demo" };
 
 mock.module("@clerk/nextjs/server", () => ({
   auth: async () => ({
@@ -41,7 +48,7 @@ mock.module("@clerk/nextjs/server", () => ({
     emailAddresses: [{ emailAddress: `${session.userId}@tenancy-probe.invalid` }],
     firstName: "Tenancy",
     lastName: "Probe",
-    publicMetadata: { role: "operator" },
+    publicMetadata: { role: session.role },
   }),
 }));
 
@@ -51,16 +58,43 @@ export type Direction = "A-reads-B" | "B-reads-A";
 export const me = (d: Direction): Side => (d === "A-reads-B" ? "A" : "B");
 export const them = (d: Direction): Side => (d === "A-reads-B" ? "B" : "A");
 
+type SessionSnapshot = { userId: string; orgId: string | null; role: "operator" | "demo" };
+const snapshot = (): SessionSnapshot => ({ ...session });
+const restore = (prev: SessionSnapshot): void => {
+  session.userId = prev.userId;
+  session.orgId = prev.orgId;
+  session.role = prev.role;
+};
+
 /** Run `fn` as the given org's operator session, then restore. */
 export async function asOrg<T>(org: Side, fn: () => Promise<T>): Promise<T> {
-  const prev = { userId: session.userId, orgId: session.orgId };
+  const prev = snapshot();
   session.userId = org === "A" ? ID.clerkUserId.A : ID.clerkUserId.B;
   session.orgId = org === "A" ? ORG.A : ORG.B;
+  session.role = "operator";
   try {
     return await fn();
   } finally {
-    session.userId = prev.userId;
-    session.orgId = prev.orgId;
+    restore(prev);
+  }
+}
+
+/**
+ * Run `fn` as the given org's HEADLESS PRODUCER: a non-operator seat plus that
+ * org's own `svb_…` bearer key. This is the path a bank's fraud engine
+ * actually uses, and the one that makes `authorize()` resolve `orgId` from the
+ * KEY rather than from a console session — so the probe tests tenant scoping
+ * where an attacker would apply it.
+ */
+export async function asProducer<T>(org: Side, fn: (bearer: string, callerId: string) => Promise<T>): Promise<T> {
+  const prev = snapshot();
+  session.userId = ID.clerkUserId[org];
+  session.orgId = org === "A" ? ORG.A : ORG.B;
+  session.role = "demo";
+  try {
+    return await fn(ID.producerKeyPlaintext[org], `pk:tenancy-probe-${org}`);
+  } finally {
+    restore(prev);
   }
 }
 
@@ -78,6 +112,10 @@ export const ID = {
   customerRef: { A: `CUST-TA-${RUN}`, B: `CUST-TB-${RUN}` },
   gapCustomerRef: { A: `CUST-GAP-TA-${RUN}`, B: `CUST-GAP-TB-${RUN}` },
   controlCustomerRef: { A: `CUST-CTRL-TA-${RUN}`, B: `CUST-CTRL-TB-${RUN}` },
+  // The opt-out probe's own control: the production route must SUCCEED when the
+  // tenant-bound caller names its OWN customer, otherwise a blanket 404 would
+  // satisfy the cross-tenant assertion without isolating anything.
+  controlGapCustomerRef: { A: `CUST-CTRLGAP-TA-${RUN}`, B: `CUST-CTRLGAP-TB-${RUN}` },
   clerkUserId: { A: `clerk_tenancy_a_${RUN}`, B: `clerk_tenancy_b_${RUN}` },
   orgName: { A: `ORG-A-SENTINEL-${RUN}`, B: `ORG-B-SENTINEL-${RUN}` },
   dedupeKey: { A: `tenancy-a-${RUN}`, B: `tenancy-b-${RUN}` },
@@ -96,9 +134,15 @@ export const ID = {
 
 export const AUDIT_AT: Record<Side, Date> = { A: new Date(), B: new Date() };
 let PILOT_REF = "";
-/** The unscoped expression at src/app/api/interventions/route.ts:274. */
-const INTERVENTIONS_CUSTOMER_LOOKUP =
-  "db.customer.findUnique({ where: { customerRef: signal.customer.ref } }) — no org predicate";
+/**
+ * The two expressions `src/app/api/interventions/route.ts` now issues for the
+ * enrolled-customer lookup, quoted in the probe's check details so a failure
+ * names the exact code under test rather than a description of it.
+ */
+const INTERVENTIONS_CUSTOMER_LOOKUP_TENANT =
+  "db.customer.findFirst({ where: { customerRef: signal.customer.ref, orgId } })";
+const INTERVENTIONS_CUSTOMER_LOOKUP_ORGLESS =
+  "db.customer.findFirst({ where: { customerRef: signal.customer.ref, OR: [{ orgId: null }, { orgId: 'default' }] } })";
 
 export const CONSENT_PHONE = "+971509876543";
 export const CONSENT_ID = `CN-${RUN}`;
@@ -135,7 +179,12 @@ beforeAll(async () => {
       },
     });
 
-    for (const ref of [ID.customerRef[side], ID.gapCustomerRef[side], ID.controlCustomerRef[side]]) {
+    for (const ref of [
+      ID.customerRef[side],
+      ID.gapCustomerRef[side],
+      ID.controlCustomerRef[side],
+      ID.controlGapCustomerRef[side],
+    ]) {
       await db.customer.create({
         data: { customerRef: ref, phone: CONSENT_PHONE, orgId: ORG[side], consentRecordId: CONSENT_ID },
       });
@@ -235,16 +284,21 @@ afterAll(async () => {
 export function req(
   method: "GET" | "POST" | "DELETE",
   route: string,
-  opts: { query?: Record<string, string>; body?: unknown } = {},
+  opts: {
+    query?: Record<string, string>;
+    body?: unknown;
+    /** e.g. `authorization: "Bearer svb_…"` for the headless-producer auth path. */
+    headers?: Record<string, string>;
+  } = {},
 ): NextRequest {
   const url = new URL(`http://localhost${route}`);
   for (const [k, v] of Object.entries(opts.query ?? {})) url.searchParams.set(k, v);
   return new NextRequest(url, {
     method,
-    ...(opts.body === undefined
-      ? {}
-      : { headers: { "content-type": "application/json" }, body: JSON.stringify(opts.body) }),
-  });
+    ...(opts.body === undefined ? {} : { "content-type": "application/json" }),
+    headers: opts.headers,
+    ...(opts.body === undefined ? {} : { body: JSON.stringify(opts.body) }),
+  } as ConstructorParameters<typeof NextRequest>[1]);
 }
 
 // ── Result shape ────────────────────────────────────────────────────────────
@@ -685,63 +739,134 @@ export const DRIVERS: Record<string, Driver> = {
   "api.enroll.customer-optout": async (dir) => {
     const { POST } = await import("@/app/api/enroll/route");
     const foreignRef = ID.gapCustomerRef[them(dir)];
-    const res = await asOrg(me(dir), () =>
-      POST(req("POST", "/api/enroll", { body: { action: "optout", customerRef: foreignRef } })),
-    );
-    const after = await db.customer.findUnique({ where: { customerRef: foreignRef }, select: { optedOut: true } });
+    const ownRef = ID.controlGapCustomerRef[me(dir)];
+    const optout = (bearer: string, callerId: string, customerRef: string) =>
+      POST(
+        req("POST", "/api/enroll", {
+          body: { action: "optout", customerRef },
+          // The headless-producer auth path: `authorize()` resolves orgId from
+          // the KEY, which is how a bank actually calls this endpoint and where
+          // an attacker would apply the tenant boundary.
+          headers: { authorization: `Bearer ${bearer}`, "x-caller-id": callerId },
+        }),
+      );
+
+    // ── 1. The production handler, tenant-bound, naming the OTHER org's ref ──
+    // Authenticated as THIS org (not the row's owner). If this probe ever
+    // returns 200 the scoping is gone; if it returns 404 for everyone, the
+    // control below catches the route having simply stopped working.
+    const res = await asProducer(me(dir), (bearer, callerId) => optout(bearer, callerId, foreignRef));
+    const after = await db.customer.findUnique({
+      where: { customerRef: foreignRef },
+      select: { optedOut: true, orgId: true },
+    });
+
+    // ── 2. Control: the same call naming the org's OWN ref must succeed ─────
+    const control = await asProducer(me(dir), (bearer, callerId) => optout(bearer, callerId, ownRef));
+    const controlAfter = await db.customer.findUnique({
+      where: { customerRef: ownRef },
+      select: { optedOut: true, orgId: true },
+    });
+
+    // ── 3. NEGATIVE CONTROL: the predicate the route used to issue ──────────
+    // If the unscoped expression no longer reaches the foreign row, the two
+    // assertions above are only proving that this fixture happens to be tidy,
+    // not that the org predicate is what prevents the mutation. So run the old
+    // expression and require it to still find AND flip the foreign row. This
+    // deliberately mutates a fixture row; nothing downstream reads it.
+    const unscopedRead = await db.customer.findFirst({
+      where: { customerRef: foreignRef },
+      select: { orgId: true },
+    });
+    const unscopedWrite = await db.customer.updateMany({
+      where: { customerRef: foreignRef },
+      data: { optedOut: true },
+    });
+    const afterControl = await db.customer.findUnique({
+      where: { customerRef: foreignRef },
+      select: { optedOut: true },
+    });
+
     const guarded = await scopedDb({ orgId: ORG[me(dir)] }).customer.updateMany({
       where: { customerRef: foreignRef },
       data: { optedOut: true },
     });
+
     return {
       probed: true,
       http: { method: "POST", route: "/api/enroll (optout)", status: res.status },
+      control: {
+        described: "the tenant-bound producer opts out its OWN customer and gets 200",
+        status: control.status,
+        ownVisible: control.status === 200 && controlAfter?.optedOut === true && controlAfter?.orgId === ORG[me(dir)],
+      },
       foreignVisible: res.status === 200,
       foreignMutated: after?.optedOut === true,
       guardEquivalent: {
         applied: true,
         empty: guarded.count === 0,
-        detail: "scoped updateMany against the foreign customerRef matches zero rows",
+        detail: "the guard's injected predicate matches zero rows for the foreign customerRef — the same answer the route now gives",
       },
       checks: [
-        // The gap assertion: the opt-out branch has no org check at all.
-        check("DECLARED-GAP-cross-tenant-optout-mutates", after?.optedOut === true, "the opt-out branch mutates another org's consent state — if this passes, the gap is fixed and the entry must be reclassified"),
-        check("guard-closes-the-gap", guarded.count === 0, "the scoped equivalent must match zero rows"),
+        check("foreign-probe-is-404", res.status === 404, `expected 404 "Unknown customerRef", got ${res.status}`),
+        check("never-403", res.status !== 403, "a 403 confirms the customerRef exists; the route must answer 404 like an unknown ref"),
+        check("foreign-row-not-mutated", after?.optedOut === false, "the other org's customer must keep optedOut=false — rows updated must not reach it"),
+        check("foreign-row-still-theirs", after?.orgId === ORG[them(dir)], "the foreign row's orgId must be unchanged"),
+        check("control-own-optout-succeeds", control.status === 200, `expected 200 opting out the caller's own customer, got ${control.status}`),
+        check("control-own-row-mutated", controlAfter?.optedOut === true, "the caller's own customer must actually be opted out, or the 404 above is vacuous"),
+        // Negative controls — the scoping is what prevents the mutation.
+        check("NEGATIVE-CONTROL-unscoped-read-reaches-foreign-row", unscopedRead?.orgId === ORG[them(dir)], "the unscoped expression must still resolve the other org's customer, or the isolation assertion is vacuous"),
+        check("NEGATIVE-CONTROL-unscoped-write-mutates-foreign-row", unscopedWrite.count === 1 && afterControl?.optedOut === true, "the unscoped expression must still be able to flip the other org's consent — this is the defect the org predicate removes"),
       ],
     };
   },
 
   "api.interventions.customer-by-ref": async (dir) => {
-    // The pipeline (policy gate, idempotency, telephony, live provider) is out
-    // of gate scope, so the EXACT expression the route issues is executed
-    // directly. That is the read, not a paraphrase of it.
-    const productionEquivalent = await db.customer.findUnique({
-      where: { customerRef: ID.customerRef[them(dir)] },
-      select: { orgId: true },
+    // End-to-end is still out of gate scope (the ingest pipeline needs the live
+    // telephony provider), so the EXACT expressions the route now issues are
+    // executed directly against the fixtures — tenant-bound branch and
+    // org-less branch — rather than a paraphrase of them.
+    const ownRef = ID.customerRef[me(dir)];
+    const foreignRef = ID.customerRef[them(dir)];
+    const tenantBound = await db.customer.findFirst({ where: { customerRef: foreignRef, orgId: ORG[me(dir)] } });
+    const orgLess = await db.customer.findFirst({
+      where: { customerRef: foreignRef, OR: [{ orgId: null }, { orgId: "default" }] },
     });
-    const guarded = await scopedDb({ orgId: ORG[me(dir)] }).customer.findFirst({
-      where: { customerRef: ID.customerRef[them(dir)] },
-    });
+    const control = await db.customer.findFirst({ where: { customerRef: ownRef, orgId: ORG[me(dir)] } });
+
+    // Negative control: the pre-fix expression, which is the defect.
+    const unscoped = await db.customer.findFirst({ where: { customerRef: foreignRef }, select: { orgId: true } });
+
     return {
       probed: true,
       control: {
-        described: "the same expression resolves the caller's own customer",
+        described: "the same tenant-bound expression resolves the caller's own customer",
         status: null,
-        ownVisible: (await db.customer.findUnique({ where: { customerRef: ID.customerRef[me(dir)] }, select: { orgId: true } }))?.orgId === ORG[me(dir)],
+        ownVisible: control?.orgId === ORG[me(dir)],
       },
-      foreignVisible: productionEquivalent !== null,
+      foreignVisible: tenantBound !== null,
       guardEquivalent: {
         applied: true,
-        empty: guarded === null,
-        detail: "scoped findFirst for the foreign customerRef returns nothing",
+        empty: (await scopedDb({ orgId: ORG[me(dir)] }).customer.findFirst({ where: { customerRef: foreignRef } })) === null,
+        detail: "the guard's injected predicate returns nothing for the foreign customerRef",
       },
       checks: [
         check(
-          "DECLARED-GAP-production-expression-resolves-foreign-row",
-          productionEquivalent?.orgId === ORG[them(dir)],
-          `${INTERVENTIONS_CUSTOMER_LOOKUP} resolves the other org's customer for this org's signal`,
+          "tenant-bound-lookup-returns-nothing",
+          tenantBound === null,
+          `${INTERVENTIONS_CUSTOMER_LOOKUP_TENANT} must not resolve the other org's customer — its phone number is the dialled target`,
         ),
-        check("guard-closes-the-gap", guarded === null, "the scoped equivalent must return nothing for the foreign customerRef"),
+        check(
+          "org-less-lookup-returns-nothing",
+          orgLess === null,
+          `${INTERVENTIONS_CUSTOMER_LOOKUP_ORGLESS} must not resolve a named org's customer either`,
+        ),
+        check("control-own-customer-resolved", control?.orgId === ORG[me(dir)], "the caller's own customer must resolve, or the assertions above are vacuous"),
+        check(
+          "NEGATIVE-CONTROL-unscoped-lookup-reaches-foreign-row",
+          unscoped?.orgId === ORG[them(dir)],
+          "the pre-fix unscoped expression must still resolve the other org's customer, or the isolation assertion is vacuous",
+        ),
       ],
     };
   },

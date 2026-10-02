@@ -33,8 +33,23 @@ export function notFound(error = "Not found"): NextResponse {
   return NextResponse.json({ error }, { status: 404 });
 }
 
-export function unprocessable(error: string): NextResponse {
-  return NextResponse.json({ error }, { status: 422 });
+/**
+ * Map a Zod failure to a machine-readable code.
+ *
+ * A strict schema that refuses an unknown field is a different event from one
+ * that refuses a missing required field, and a bank integrating against these
+ * tools branches on the distinction — so the reason travels in the body, not
+ * only in prose. (WP-22: unknown fields are rejected, never passed through.)
+ */
+export function schemaErrorCode(error: { issues?: readonly { code?: string }[] }): string {
+  const codes = new Set((error.issues ?? []).map((i) => i.code));
+  if (codes.has("unrecognized_keys")) return "unknown_field";
+  if (codes.size === 0) return "invalid_payload";
+  return "invalid_payload";
+}
+
+export function unprocessable(error: string, code = "invalid_payload"): NextResponse {
+  return NextResponse.json({ error, code }, { status: 422 });
 }
 
 export function paymentRequired(error: string, extra?: Record<string, unknown>): NextResponse {

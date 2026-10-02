@@ -12,10 +12,21 @@
  * Run: node scripts/seed-demo.mjs
  */
 
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient } from "@/generated/prisma/client";
+import { PrismaPg } from "@prisma/adapter-pg";
 import { createHash } from "node:crypto";
 
-const db = new PrismaClient();
+// Prisma ORM v7 has no built-in pool: the connection is opened by the
+// `@prisma/adapter-pg` driver adapter. `?schema=` is a Prisma-only query param
+// that node-pg drops, so it is passed to the adapter explicitly.
+const databaseUrl = process.env.DATABASE_URL ?? "";
+const namedSchema = /[?&]schema=([^&]+)/.exec(databaseUrl)?.[1];
+const db = new PrismaClient({
+  adapter: new PrismaPg(
+    { connectionString: databaseUrl, max: 1 },
+    namedSchema ? { schema: namedSchema } : undefined,
+  ),
+});
 const GENESIS = "0".repeat(64);
 
 // canonical: exact TS ordering — action, callRef, callerId, intent, meta, orgId, prevHash, redactedText

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ElevenLabsClient } from "@elevenlabs/elevenlabs-js";
-import { Prisma } from "@prisma/client";
+import { Prisma } from "@/generated/prisma/client";
 import { db } from "@/lib/db";
 import { processInboundEvent } from "@/lib/elevenlabs/inbound";
 

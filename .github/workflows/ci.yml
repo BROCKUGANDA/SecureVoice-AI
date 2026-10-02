@@ -118,15 +118,17 @@ jobs:
           bunx prisma migrate deploy
           # Exit code 2 means "there is a difference". Anything else is a real error.
           set +e
+          # ORM v7 removed --from-url/--to-schema-datamodel: the datasource
+          # comes from prisma.config.ts and the datamodel from --to-schema.
           bunx prisma migrate diff \
-            --from-url "$DATABASE_URL" \
-            --to-schema-datamodel prisma/schema.prisma \
+            --from-config-datasource \
+            --to-schema prisma/schema.prisma \
             --script > /tmp/drift.sql
           DIFF_RC=$?
           set -e
           if [ "$DIFF_RC" = "2" ] || [ -s /tmp/drift.sql ]; then
             echo "::error::schema.prisma is ahead of prisma/migrations — generate a migration:"
-            echo "::error::bunx prisma migrate diff --from-url <db> --to-schema-datamodel prisma/schema.prisma --script"
+            echo "::error::bunx prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --script"
             cat /tmp/drift.sql
             exit 1
           fi

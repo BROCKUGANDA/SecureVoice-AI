@@ -15,7 +15,7 @@
 [![Twilio](https://img.shields.io/badge/Telephony-Twilio-F22F46?logo=twilio&logoColor=white)](https://www.twilio.com)
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?logo=docker&logoColor=white)](#run-with-docker)
 
-[Quickstart](#quickstart) &middot; [Run with Docker](#run-with-docker) &middot; [Demo walkthrough](#demo-walkthrough) &middot; [API surface](#api-surface) &middot; [**Integration guide**](docs/INTEGRATION.md) &middot; [Submission](docs/SUBMISSION.md) &middot; [Releasing](docs/RELEASING.md)
+[Quickstart](#quickstart) &middot; [Run with Docker](#run-with-docker) &middot; [Demo walkthrough](#demo-walkthrough) &middot; [API surface](#api-surface) &middot; [**Evidence bundle**](evidence/INDEX.md) &middot; [**Integration guide**](docs/INTEGRATION.md) &middot; [Submission](docs/SUBMISSION.md) &middot; [Releasing](docs/RELEASING.md)
 
 <img src="scripts/shots/splash-new.png" alt="SecureVoice AI — fraud intervention call in progress" width="900" />
 
@@ -38,7 +38,7 @@ Today, when a bank's fraud engine flags a transaction, the case lands in a Tier�
 ## Features
 
 - 🎙️ **Streaming voice agent with barge-in** — sub-second turn-taking; the customer can interrupt the agent mid-sentence.
-- 🌍 **Multilingual** — English & Arabic live end-to-end, Hindi & Urdu live, French / Bengali / Swahili on the roadmap. Voice identity per language.
+- 🌍 **Multilingual, per path** — the ElevenLabs agent (the primary conversation plane) is configured for `en / ar / hi` ([`agent/securevoice.agent.yaml`](agent/securevoice.agent.yaml)); the built-in continuity pipeline additionally speaks `ur / fr / sw` ([`src/lib/config.ts`](src/lib/config.ts)). **Only English and Arabic have a recorded end-to-end conversation in the evidence bundle.** Voice identity per language.
 - 🖥️ **Operator Command Center** — live intervention feed (SSE), case monitoring, sentiment-based escalation to human specialists.
 - 🔗 **Tamper-evident audit chain** — every action hash-chained (sha256) with canonical serialization; exportable per case reference.
 - 🏦 **Bank-grade ingest API** — signed risk-signal webhooks (`SV-Signature: t=…,v1=…`), idempotent case creation, producer key auth.
@@ -54,13 +54,17 @@ Today, when a bank's fraud engine flags a transaction, the case lands in a Tier�
 > `file:` URL against a `postgresql` provider).
 
 ```bash
-# 1 — install dependencies
-bun install
-
-# 2 — configure (the platform boots fine with empty keys: dry-run + audit-only)
+# 1 — configure (the platform boots fine with empty keys: dry-run + audit-only).
+#     This comes before `bun install` because Prisma ORM v7 resolves
+#     DATABASE_URL through prisma.config.ts, and the install's postinstall runs
+#     `prisma generate`.
 cp .env.example .env
 #    then set DATABASE_URL to your Postgres, e.g.
 #    DATABASE_URL="postgresql://user:pass@localhost:5432/securevoice?schema=public"
+
+# 2 — install dependencies (postinstall generates the Prisma client into
+#     src/generated/prisma, which the app imports)
+bun install
 
 # 3 — apply the schema and seed a realistic case history
 bun run db:push
@@ -200,10 +204,33 @@ docker run -p 3000:3000 \
 Full request/response examples are on the in-app **Docs** page. For signing, enrolment,
 tool authorisation, and self-serve onboarding see **[docs/INTEGRATION.md](docs/INTEGRATION.md)**.
 
-## Run the ElevenLabs agent (optional, needs an account)
+## The ElevenLabs conversation plane (primary)
 
-The platform works standalone with the built-in voice pipeline. To use the **ElevenLabs
-conversational agent** instead, set `ELEVENLABS_API_KEY` + `ELEVENLABS_AGENT_ID` in `.env`.
+The conversation runs on the **ElevenLabs Agents Platform** by default. The durable queue's
+dial worker claims a case and calls `placeOutboundCall()`, which places the outbound call on
+the platform agent; the agent then owns the conversation, calling our server-side tools
+(`verify_transaction`, `card_freeze`, `human_handoff`, `switch_language`) over signed webhooks
+as it verifies the customer. Set `ELEVENLABS_API_KEY`, `ELEVENLABS_AGENT_ID` and
+`ELEVENLABS_PHONE_NUMBER_ID` in `.env` to place a real one.
+
+### Continuity path — when the platform is not on the call
+
+The built-in voice pipeline is the **continuity** path, not an alternative to the agent. The
+dial worker falls back to it when `ELEVENLABS_DRY_RUN=true` (or `FEATURE_ELEVEN_LABS_LIVE=false`,
+the default — both are the same switch, see [`src/lib/flags.ts`](src/lib/flags.ts)), or when
+`ELEVENLABS_AGENT_ID`, `ELEVENLABS_PHONE_NUMBER_ID` or `ELEVENLABS_API_KEY` is unset, in which
+case `placeOutboundCall()` refuses to dial rather than dialling nobody. Inbound Twilio calls
+always run there: `POST /api/twilio/turn` is a `<Gather>` loop over our own
+keyword/state-machine intent router and Polly/Google voices.
+
+**What is lost on the continuity path:** the agent's autonomous tool calls. Nothing on this
+path can invoke `verify_transaction`, `card_freeze`, `human_handoff` or `switch_language` —
+the deterministic router *reports* an intent (`deny_fraud` → `card_freeze`,
+sentiment escalation → `human_handoff`) and the write action must be driven by the caller
+against `/api/elevenlabs/tools/*` rather than by the conversation itself. Everything
+load-bearing for the guardrail claim survives: disclosure, the no-credential rule, PII
+redaction, sentiment escalation, and the hash-chained audit trail are server-enforced on both
+paths.
 
 **Agent configuration as code.** The full agent definition — system prompt, per-language
 first messages and disclosure lines, LLM selection, TTS voice IDs, audio format, turn-taking,
@@ -263,13 +290,83 @@ Already built and usable by any tenant: `orgId` scoping on the core tables, per-
 revocable producer keys, **BYOK** (bring your own ElevenLabs key, encrypted at rest),
 per-org branding, and a credits wallet.
 
+### Verifying our outbound webhooks
+
+Case verdicts reach your system through a transactional outbox and arrive signed:
+
+```
+SV-Signature: t={unix_seconds},v1={hex_hmac}
+v1 = HMAC_SHA256(shared_secret, f"{t}.{body}")
+```
+
+**Verify the raw body bytes exactly as received.** Re-serialising the JSON before
+hashing changes the bytes and the digest will not match — this is the single most
+common integration bug. Reject anything older than 5 minutes to blunt replay, and
+deduplicate on `event_id`, which is stable across retries of the same verdict.
+
+**TypeScript**
+
+```ts
+import { createHmac, timingSafeEqual } from "node:crypto";
+
+export function verifySvSignature(
+  rawBody: string,
+  header: string | null,
+  secret: string,
+  toleranceSec = 300,
+): { ok: true } | { ok: false; reason: string } {
+  if (!header) return { ok: false, reason: "missing_signature" };
+  const parts = Object.fromEntries(
+    header.split(",").map((p) => p.trim().split("=")).filter((p) => p.length === 2),
+  ) as Record<string, string>;
+  const { t, v1 } = parts;
+  if (!t || !v1) return { ok: false, reason: "malformed_signature" };
+  if (Math.abs(Date.now() / 1000 - Number(t)) > toleranceSec)
+    return { ok: false, reason: "stale_timestamp" };
+  const expected = createHmac("sha256", secret).update(`${t}.${rawBody}`).digest("hex");
+  const a = Buffer.from(expected, "hex"), b = Buffer.from(v1, "hex");
+  if (a.length !== b.length || !timingSafeEqual(a, b))
+    return { ok: false, reason: "digest_mismatch" };
+  return { ok: true };
+}
+```
+
+**Python**
+
+```python
+import hashlib, hmac, time
+
+def verify_sv_signature(raw_body: bytes, header: str, secret: str, tolerance: int = 300):
+    parts = dict(p.strip().split("=", 1) for p in header.split(",") if "=" in p)
+    t, v1 = parts.get("t"), parts.get("v1")
+    if not t or not v1:
+        return False, "malformed_signature"
+    if abs(time.time() - int(t)) > tolerance:
+        return False, "stale_timestamp"
+    expected = hmac.new(secret.encode(), f"{t}.".encode() + raw_body, hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(expected, v1):
+        return False, "digest_mismatch"
+    return True, "ok"
+```
+
+Both implementations ship in-repo and are executed against a real delivery by the WP-5
+gate — `scripts/verify_sv_signature.ts` and `scripts/verify_sv_signature.py` — so the two
+languages are proven to agree rather than assumed to. A reference Java implementation is a
+WP-17 deliverable.
+
+Our own receiver lives at `POST /api/webhooks/receiver` and the human-readable view at
+**`/inspector`**: the raw payload, the signature header, and a green/red verdict recomputed
+server-side. Deliveries retry with backoff and jitter (~1m, 5m, 30m, 2h, 3h, 12h) and
+dead-letter after six attempts; an operator can replay a dead letter from
+`POST /api/console/outbox/replay`.
+
 ## Configuration
 
 Everything is opt-in: **no keys required to run the demo** (dry-run + audit-only mode).
 
 | Variable | Purpose |
 |---|---|
-| `DATABASE_URL` | **PostgreSQL** connection string (the Prisma datasource). An absolute `file:` URL also works for SQLite. |
+| `DATABASE_URL` | **PostgreSQL** connection string (the Prisma datasource, `provider = "postgresql"`). There is no SQLite mode — see [Quickstart](#quickstart). |
 | `ELEVENLABS_AGENT_ID` | The ElevenLabs agent the browser may connect to. `/api/elevenlabs/signed-url` rejects any other id (403). |
 | `AGENT_TOOL_SECRET` | Shared secret the agent must present on webhook tool calls (`x-agent-tool-secret`). |
 | `AGENT_TOOL_ALLOWED` | Comma-separated tool allow-list, e.g. `card_freeze,human_handoff`. A secret valid for one tool does not authorise another. |
@@ -279,7 +376,7 @@ Everything is opt-in: **no keys required to run the demo** (dry-run + audit-only
 | `TWILIO_ACCOUNT_SID` / `TWILIO_API_KEY_*` / `TWILIO_FROM_NUMBER` | Real call + SMS delivery |
 | `WEBHOOK_SECRET` | Signs outbound events & verifies inbound risk signals |
 | `AUTH_SECRET` | Session cookie signing (384-bit) |
-| `GROQ_API_KEY` / `GROQ_MODEL` | **Optional** live LLM reply layer — drafts the agent's spoken lines in the customer's language (default `qwen/qwen3.8-27b`). Server-side only; never commit a key. |
+| `GROQ_API_KEY` / `GROQ_MODEL` | **Optional** live LLM reply layer — drafts the agent's spoken lines in the customer's language (default `qwen/qwen3.8-27b`, a Groq **preview-tier** model that Groq's own docs warn "should not be used in production environments as they may be discontinued at short notice"). Server-side only; never commit a key. |
 | `GEMINI_API_KEY` / `GEMINI_MODEL` | Optional LLM fallback when no Groq key is present (`gemini-1.5-flash`) |
 | `RATE_LIMIT_PER_HOUR` | Per-caller TTS/ASR/agent budget |
 | `COMPLIANCE_*` | Server-enforced compliance flags (disclosure, no credential requests, PII redaction) |
@@ -288,18 +385,40 @@ See [.env.example](.env.example) for the annotated reference.
 
 ## The LLM reply layer (optional)
 
-The agent's **intent routing and compliance guardrails are deterministic server-side code** — an LLM never decides to freeze a card, and a refusal cannot be prompted away. When `GROQ_API_KEY` (or `GEMINI_API_KEY`) is set, the model only *rephrases* the verified reply in the customer's language (en/ar/hi/ur/fr/sw) under strict voice rules, then passes the same compliance scan as the scripted replies:
+The agent's **intent routing and compliance guardrails are deterministic server-side code** — an LLM never decides to freeze a card, and a refusal cannot be prompted away. When `GROQ_API_KEY` (or `GEMINI_API_KEY`) is set, the model only *rephrases* the verified reply in the customer's language under strict voice rules, then passes the same compliance scan as the scripted replies. It runs on the **continuity path only** — its language set is the pipeline's own, `en / ar / hi / ur / fr / sw` ([`src/lib/config.ts`](src/lib/config.ts)), not the ElevenLabs agent's `en / ar / hi`:
 
 - ≤ 50 words — sized for a phone call, not a chat window
 - no markdown, asterisks, or emojis — TTS reads punctuation literally
 - never breaks character, never asks for PINs/OTPs/passwords
 
-Without a key the platform runs identically on scripted replies. Model provenance and refusal behavior: [MODEL_CARD.md](MODEL_CARD.md).
+Without a key the platform runs identically on scripted replies. The default Groq model, `qwen/qwen3.8-27b`, is **preview-tier** — Groq's own documentation warns preview models "should not be used in production environments as they may be discontinued at short notice", so pin `GROQ_MODEL` to a production-tier slug before a pilot. Model provenance and refusal behavior: [MODEL_CARD.md](MODEL_CARD.md).
 
 **Judges running a clone:** create a free key at console.groq.com → API Keys, put it in your local `.env` (`GROQ_API_KEY=…`) — never commit yours. **Hosted demo:** the deployment injects the key server-side, so judges get the live-LLM experience with zero setup while the key never reaches the browser.
 
+## Measured latency
+
+Two legs of the path are measured today. Everything else is a **target** and is marked as
+not yet measured — a target printed next to a measurement is how a submission ends up
+claiming performance it never observed. Sources: [docs/VERIFICATION.md](docs/VERIFICATION.md)
+and the per-suite commands below.
+
+| Leg | Target | Measured | Status |
+|---|---|---|---|
+| Risk signal accepted → provider accepted (call placement) | p95 < 1,500 ms | **p95 551 ms** over 20 signals | ✅ MEASURED — `bun test tests/e2e/dial.test.ts` |
+| Server tool round-trip (agent → `/api/elevenlabs/tools/*` → agent) | p95 < 300 ms | **p95 9 ms** over 200 calls, co-located Postgres (db floor p95 3 ms) | ✅ MEASURED — `bun test tests/tools/guard.test.ts` |
+| Signal accepted → first audio the customer hears | < 60 s (the headline claim) | — | ⬜ **not yet measured** — needs a live PSTN call, which the evidence bundle does not contain |
+| Call end → post-call webhook ingested, case reconciled | < 30 s | — | ⬜ **not yet measured** — no end-to-end timing harness exists |
+| Verdict enqueued → first delivery attempt to the bank | < 5 s | — | ⬜ **not yet measured** — the outbox gate asserts retry/dead-letter *behaviour*, not delivery latency |
+
+The tool latency figure is only meaningful against a co-located database. The same suite
+pointed at a remote Postgres measured p95 592 ms with a 294 ms database floor — 97 % of that
+"regression" was network. The gate measures the database floor first and only enforces the
+absolute 300 ms budget when the database is co-located, so a green run cannot be mistaken for
+a measured one.
+
 ## Documentation
 
+- 📦 [evidence/INDEX.md](evidence/INDEX.md) — what is in the evidence bundle, how each artifact was produced, and which claims are measured versus targeted.
 - 📄 [docs/SUBMISSION.md](docs/SUBMISSION.md) — the full Stage‑1 submission: opportunity, measured baseline, architecture, and roadmap (Ignyte × ElevenLabs hackathon, Track 1 — Banking & Insurance, Use Case 1).
 - 🖥️ In-app **Docs** page — live, runnable API reference served by the deployment itself.
 - 🔐 In-app **Security** page — guardrails, compliance posture, and the audit-chain design.

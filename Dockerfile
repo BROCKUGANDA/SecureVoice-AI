@@ -24,8 +24,14 @@
 # ---------- deps: install dependencies + generate the Prisma client ----------
 FROM oven/bun:1-slim AS deps
 WORKDIR /app
+# Prisma ORM v7 reads the datasource URL from prisma.config.ts and generates
+# the client into src/generated/prisma as TypeScript. generate never dials the
+# database, but the config still resolves DATABASE_URL, so a syntactically
+# valid placeholder is supplied — the same value the builder stage bakes in.
+ENV DATABASE_URL=postgresql://securevoice:securevoice@localhost:5432/securevoice?schema=public
 COPY package.json bun.lock ./
 COPY prisma/schema.prisma ./prisma/
+COPY prisma.config.ts ./
 RUN bun install --frozen-lockfile \
  && bunx prisma generate
 
@@ -41,6 +47,9 @@ ARG NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
 ENV NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
+# The client is a build artifact (git- and dockerignored), so the one generated
+# in deps is what the bundle compiles against.
+COPY --from=deps /app/src/generated ./src/generated
 RUN bun run build
 
 # ---------- runner: minimal standalone server ----------

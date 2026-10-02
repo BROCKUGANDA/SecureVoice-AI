@@ -271,7 +271,15 @@ async function armAndDeliver(
   const lang = signal.customer.lang as DeliveryLang;
 
   let delivery: Record<string, unknown>;
-  const enrolled = await db.customer.findUnique({ where: { customerRef: signal.customer.ref } });
+  // Tenant-scoped: a signal naming another org's customerRef must resolve to
+  // nothing, never to that org's phone number (WP-12 isolation matrix). An
+  // unscoped lookup here is a cross-tenant read of the one field that becomes
+  // a dialled number.
+  const enrolled = orgId
+    ? await db.customer.findFirst({ where: { customerRef: signal.customer.ref, orgId } })
+    : await db.customer.findFirst({
+        where: { customerRef: signal.customer.ref, OR: [{ orgId: null }, { orgId: "default" }] },
+      });
 
   if (!isTwilioConfigured()) {
     delivery = { channel: "none", mode: twilioMode(), reason: "telephony unconfigured — audit-only path" };

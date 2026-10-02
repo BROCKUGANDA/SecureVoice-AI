@@ -3,7 +3,7 @@ import { z } from "zod";
 import { guardToolCall } from "@/lib/tool-guard";
 import { transitionCase, IllegalTransitionError } from "@/lib/case-state-machine";
 import { append as auditAppend } from "@/lib/audit-chain";
-import { badRequest, parseJson, unprocessable } from "@/lib/api-errors";
+import { badRequest, parseJson, unprocessable, schemaErrorCode } from "@/lib/api-errors"
 
 export const dynamic = "force-dynamic";
 
@@ -11,7 +11,7 @@ const TOOL_NAME = "card_freeze";
 const ALLOWED_STATES = ["CONFIRMED_FRAUD"];
 const REVERSAL_WINDOW_SECS = 300;
 
-const schema = z.object({
+const schema = z.strictObject({
   conversation_id: z.string().min(1).max(128),
   account_id: z.string().min(2).max(64),
   reason_code: z.string().min(3).max(64),
@@ -23,7 +23,7 @@ export async function POST(req: NextRequest) {
 
   const parsed = schema.safeParse(body);
   if (!parsed.success) {
-    return unprocessable("conversation_id, account_id and reason_code are required");
+    return unprocessable("conversation_id, account_id and reason_code are required", schemaErrorCode(parsed.error));
   }
 
   const { conversation_id, account_id, reason_code } = parsed.data;

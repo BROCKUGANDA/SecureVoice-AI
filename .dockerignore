@@ -14,6 +14,10 @@ node_modules
 out
 coverage
 
+# Prisma client — regenerated inside the image by the deps stage. A stale local
+# copy must never reach the build context.
+src/generated
+
 # secrets — never baked into an image
 .env
 .env.*

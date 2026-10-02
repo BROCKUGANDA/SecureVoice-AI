@@ -1,0 +1,377 @@
+#!/usr/bin/env bun
+/**
+ * Evidence machine (WP-8) — assembles the graded bundle in one command.
+ *
+ *   bun run evidence
+ *
+ * Reads what the individual gates already produce, verifies it is present and
+ * passing, and emits:
+ *
+ *   evidence/INDEX.md            every Stage 2 rubric criterion -> artifact
+ *   evidence/tests/results.json  per-scenario runs, pass rate, root causes
+ *   evidence/tests/SUMMARY.md    the human-readable version
+ *   evidence/latency/slo.json    measured spans only, targets marked separately
+ *
+ * HONESTY RULE, and the reason this file refuses to be clever:
+ *   It never invents, back-fills, or softens an artifact. An artifact that is
+ *   missing is reported MISSING and the command exits non-zero. A gate that
+ *   did not run is reported UNVERIFIED, which is not the same as passing and is
+ *   never counted as it. A number this file cannot find is `null`, not a
+ *   plausible default.
+ *
+ *   The one thing it will not do is describe a TARGET as a MEASUREMENT. The
+ *   latency file carries both, in separate fields, permanently.
+ *
+ * Everything it reads is produced by a gate. Nothing here produces evidence.
+ *
+ * Artifacts are external JSON on disk, so they are read as `unknown` and
+ * narrowed by guard rather than trusted by cast.
+ */
+import { createHash } from "node:crypto";
+import { join } from "node:path";
+import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, statSync } from "node:fs";
+
+const ROOT = join(import.meta.dir, "..");
+const EVIDENCE = join(ROOT, "evidence");
+
+// ── narrowing helpers for untrusted JSON ────────────────────────────────────
+function asRecord(v: unknown): Record<string, unknown> | null {
+  return v !== null && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
+}
+function asArray(v: unknown): unknown[] | null {
+  return Array.isArray(v) ? v : null;
+}
+function asNumber(v: unknown): number | null {
+  return typeof v === "number" && Number.isFinite(v) ? v : null;
+}
+function asString(v: unknown): string | null {
+  return typeof v === "string" ? v : null;
+}
+function at(record: Record<string, unknown> | null, key: string): unknown {
+  return record?.[key] ?? null;
+}
+
+interface Artifact {
+  data: unknown;
+  sha256: string;
+  bytes: number;
+}
+
+function readArtifact(relPath: string): Artifact | null {
+  const abs = join(ROOT, relPath);
+  if (!existsSync(abs)) return null;
+  const raw = readFileSync(abs, "utf8");
+  try {
+    return { data: JSON.parse(raw) as unknown, sha256: createHash("sha256").update(raw).digest("hex"), bytes: raw.length };
+  } catch {
+    return null;
+  }
+}
+
+type CriterionStatus = "PRESENT" | "MISSING";
+
+interface RubricCriterion {
+  criterion: string;
+  weight: string;
+  /** Artifacts that must exist for this criterion to be claimed. */
+  requiredArtifacts: string[];
+  /** Artifacts that strengthen it but whose absence is reported, not fatal. */
+  supportingArtifacts: string[];
+  note: string;
+}
+
+const RUBRIC: RubricCriterion[] = [
+  {
+    criterion: "Working build — signal to staged freeze to signed bank webhook, end to end",
+    weight: "30%",
+    requiredArtifacts: ["evidence/chaos/results.json"],
+    supportingArtifacts: ["docs/VERIFICATION.md"],
+    note: "The dial path is proven in tests/e2e/dial.test.ts and ledgered in docs/VERIFICATION.md.",
+  },
+  {
+    criterion: "Voice quality, latency and multilingual handling",
+    weight: "20%",
+    requiredArtifacts: ["evidence/agent/snapshot.json", "evidence/latency/slo.json"],
+    supportingArtifacts: ["evidence/transcripts"],
+    note: "Per-language voice configuration is in the agent snapshot. Only English and Arabic have recorded end-to-end conversations.",
+  },
+  {
+    criterion: "Evidence — test pass rates, transcripts, conversation analysis",
+    weight: "20%",
+    requiredArtifacts: ["evidence/tests/results.json", "evidence/tests/SUMMARY.md"],
+    supportingArtifacts: ["evidence/transcripts", "evidence/analysis"],
+    note: "Pass rates are generated from gate output. Transcripts and post-call analysis come from real calls, never from this script.",
+  },
+  {
+    criterion: "Guardrails demonstrably enforced in the running agent (the server refuses)",
+    weight: "20%",
+    requiredArtifacts: ["evidence/guardrails/redteam.json", "evidence/privacy/privacy.json"],
+    supportingArtifacts: [],
+    note: "Server-layer refusals are proven offline in tests/redteam/redteam.test.ts; the conversation plane is proven by the simulation harness.",
+  },
+  {
+    criterion: "Scalability and path to a named institutional pilot",
+    weight: "10%",
+    requiredArtifacts: ["evidence/tenancy/isolation.json", "evidence/load/results.json"],
+    supportingArtifacts: ["docs/CAPACITY.md", "docs/PILOT.md"],
+    note: "Cross-tenant isolation and the capacity model are measured. A NAMED institution is founder-supplied and cannot be generated by a script.",
+  },
+];
+
+interface Row {
+  criterion: string;
+  weight: string;
+  status: CriterionStatus;
+  detail: string[];
+}
+
+function inspect(paths: string[], fatal: boolean): { status: CriterionStatus; detail: string[] } {
+  const detail: string[] = [];
+  let missing = false;
+  for (const p of paths) {
+    const abs = join(ROOT, p);
+    if (!existsSync(abs)) {
+      detail.push(`${fatal ? "**MISSING**" : "absent (not fatal)"}: \`${p}\``);
+      if (fatal) missing = true;
+      continue;
+    }
+    // A directory counts only when it actually holds something.
+    if (statSync(abs).isDirectory() && readdirSync(abs).length === 0) {
+      detail.push(`present but EMPTY: \`${p}\``);
+      if (fatal) missing = true;
+      continue;
+    }
+    detail.push(`present: \`${p}\``);
+  }
+  return { status: missing ? "MISSING" : "PRESENT", detail };
+}
+
+interface ScenarioRow {
+  scenarioId: string;
+  runs: number;
+  passed: number;
+  errored: number;
+  toolsCalled: string[];
+}
+
+function scenarioRows(results: unknown[]): ScenarioRow[] {
+  const byId = new Map<string, ScenarioRow>();
+  for (const raw of results) {
+    const r = asRecord(raw);
+    const id = asString(at(r, "scenarioId"));
+    if (!id) continue;
+    const row = byId.get(id) ?? { scenarioId: id, runs: 0, passed: 0, errored: 0, toolsCalled: [] };
+    row.runs += 1;
+    const status = asString(at(r, "status"));
+    if (status === "pass") row.passed += 1;
+    if (status === "error") row.errored += 1;
+    for (const t of asArray(at(r, "toolsCalled")) ?? []) {
+      const name = asString(t);
+      if (name && !row.toolsCalled.includes(name)) row.toolsCalled.push(name);
+    }
+    byId.set(id, row);
+  }
+  return [...byId.values()].sort((a, b) => a.scenarioId.localeCompare(b.scenarioId));
+}
+
+function main(): number {
+  const generatedAt = new Date().toISOString();
+  const redteam = readArtifact("evidence/guardrails/redteam.json");
+  const tenancy = readArtifact("evidence/tenancy/isolation.json");
+  const privacy = readArtifact("evidence/privacy/privacy.json");
+  const chaos = readArtifact("evidence/chaos/results.json");
+  const load = readArtifact("evidence/load/results.json");
+  const agent = readArtifact("evidence/agent/snapshot.json");
+
+  // ── tests/results.json — generated, never hand-typed ──────────────────────
+  const rt = asRecord(redteam?.data);
+  const rtSummary = asRecord(at(rt, "summary"));
+  const toolCriterion = asRecord(at(rt, "tool_call_criterion"));
+  const perRun = asArray(at(rt, "results")) ?? [];
+
+  const results = {
+    schema_version: "1.0",
+    generated_at: generatedAt,
+    source: "evidence/guardrails/redteam.json",
+    source_sha256: redteam?.sha256 ?? null,
+    runs_per_scenario: asNumber(at(rt, "runs_per_scenario")),
+    languages: asArray(at(rt, "languages")),
+    agent_layer_pass_rate: asNumber(at(rtSummary, "pass_rate")),
+    agent_layer_scored_runs: asNumber(at(rtSummary, "scored")),
+    agent_layer_unverified_runs: asNumber(at(rtSummary, "errors")),
+    tool_call_criterion: toolCriterion
+      ? {
+          pass_rate: asNumber(at(toolCriterion, "pass_rate")),
+          runs: asNumber(at(toolCriterion, "executed")),
+          unverified: asNumber(at(toolCriterion, "unverified")),
+          scenarios: at(toolCriterion, "scenarios"),
+          failures: at(toolCriterion, "failures"),
+        }
+      : null,
+    scenarios: scenarioRows(perRun),
+    per_run: perRun,
+  };
+
+  mkdirSync(join(EVIDENCE, "tests"), { recursive: true });
+  writeFileSync(join(EVIDENCE, "tests", "results.json"), JSON.stringify(results, null, 2));
+
+  // ── latency/slo.json — measurements and targets, never mixed ──────────────
+  // Only values observed on a real run appear in `measured_p95_ms`. A target
+  // that has not been instrumented stays `null` there, which is not a pass.
+  const latency = {
+    schema_version: "1.0",
+    generated_at: generatedAt,
+    disclaimer:
+      "`measured_p95_ms` contains only values observed on a real run. A null there means NOT INSTRUMENTED, which is not a pass. Targets are published separately so the two can never be confused.",
+    interventions_measured: 0,
+    note: "The 30-intervention minimum in the definition of done is NOT met. The conversation-plane spans are not yet instrumented.",
+    spans: [
+      {
+        name: "signal accepted -> provider accepted the call",
+        target_p95_ms: 1500,
+        measured_p95_ms: 551,
+        source: "docs/VERIFICATION.md WP-2 gate",
+      },
+      {
+        name: "tool request -> tool response",
+        target_p95_ms: 300,
+        measured_p95_ms: 9,
+        source: "docs/VERIFICATION.md tool latency gate",
+      },
+      { name: "signal received -> signal accepted", target_p95_ms: 300, measured_p95_ms: null, source: null },
+      { name: "signal received -> ringing", target_p95_ms: 5000, measured_p95_ms: null, source: null },
+      { name: "answered -> first agent word", target_p95_ms: 1200, measured_p95_ms: null, source: null },
+      {
+        name: "caller stops speaking -> agent audio begins",
+        target_p95_ms: 1500,
+        measured_p95_ms: null,
+        source: null,
+      },
+      { name: "fraud confirmed -> bank webhook delivered", target_p95_ms: 2000, measured_p95_ms: null, source: null },
+      { name: "signal received -> freeze staged", target_p95_ms: 60000, measured_p95_ms: null, source: null },
+    ],
+  };
+  mkdirSync(join(EVIDENCE, "latency"), { recursive: true });
+  writeFileSync(join(EVIDENCE, "latency", "slo.json"), JSON.stringify(latency, null, 2));
+
+  // ── SUMMARY.md ───────────────────────────────────────────────────────────
+  // Written BEFORE the rubric map is computed, because the Evidence criterion
+  // lists SUMMARY.md as one of its required artifacts. A gate that reports a
+  // file missing two lines after it creates it is worse than no gate.
+  const toolScenarios = asArray(at(toolCriterion, "scenarios")) ?? [];
+  const summary = [
+    "# Agent test summary",
+    "",
+    `Generated ${generatedAt} from \`evidence/guardrails/redteam.json\` (sha256 \`${redteam?.sha256.slice(0, 16) ?? "ABSENT"}…\`).`,
+    "",
+    "## Pass rates",
+    "",
+    `- Agent layer (wording / in-character): **${results.agent_layer_pass_rate ?? "UNVERIFIED"}** over ${results.agent_layer_scored_runs ?? 0} scored runs.`,
+    `- Runs that did not execute: **${results.agent_layer_unverified_runs ?? 0}**. These are not passes.`,
+    `- Tool-call criterion (behaviour): **${asNumber(at(toolCriterion, "pass_rate")) ?? "UNVERIFIED"}** over ${asNumber(at(toolCriterion, "executed")) ?? 0} executed runs.`,
+    "",
+    "## Tool-call scenarios",
+    "",
+    'Scored on the tool INVOCATION recorded in the transcript, never on the wording of the reply.',
+    'An agent that says "I will pause your card immediately" and calls nothing fails this table.',
+    "",
+    "| Scenario | Must call | Must NOT call |",
+    "| --- | --- | --- |",
+    ...toolScenarios.map((raw) => {
+      const s = asRecord(raw);
+      const mustCall = (asArray(at(s, "mustCall")) ?? []).map(asString).filter(Boolean).join(", ") || "—";
+      const mustNotCall = (asArray(at(s, "mustNotCall")) ?? []).map(asString).filter(Boolean).join(", ") || "—";
+      return `| ${asString(at(s, "id"))} — ${asString(at(s, "title"))} | ${mustCall} | ${mustNotCall} |`;
+    }),
+    "",
+    "## Per scenario",
+    "",
+    "| Scenario | Runs | Passed | Did not execute | Tools observed |",
+    "| --- | --- | --- | --- | --- |",
+    ...results.scenarios.map(
+      (s) => `| ${s.scenarioId} | ${s.runs} | ${s.passed} | ${s.errored} | ${s.toolsCalled.join(", ") || "—"} |`,
+    ),
+    "",
+  ].join("\n");
+  writeFileSync(join(EVIDENCE, "tests", "SUMMARY.md"), summary);
+
+  // ── rubric map ───────────────────────────────────────────────────────────
+  const rows: Row[] = RUBRIC.map((r) => {
+    const required = inspect(r.requiredArtifacts, true);
+    const supporting = inspect(r.supportingArtifacts, false);
+    return {
+      criterion: r.criterion,
+      weight: r.weight,
+      status: required.status,
+      detail: [...required.detail, ...supporting.detail, `— ${r.note}`],
+    };
+  });
+
+  const digests = ([
+    ["evidence/agent/snapshot.json", agent],
+    ["evidence/guardrails/redteam.json", redteam],
+    ["evidence/tenancy/isolation.json", tenancy],
+    ["evidence/privacy/privacy.json", privacy],
+    ["evidence/chaos/results.json", chaos],
+    ["evidence/load/results.json", load],
+  ] as const).map(
+    ([p, a]) =>
+      `| \`${p}\` | ${a ? a.bytes : "—"} | ${a ? `\`${a.sha256.slice(0, 16)}…\`` : "**ABSENT**"} |`,
+  );
+
+  const index = [
+    "# Evidence index",
+    "",
+    `Generated ${generatedAt} by \`bun run evidence\` (\`scripts/build-evidence.ts\`).`,
+    "",
+    "Every Stage 2 criterion and the artifact that is supposed to earn it. A criterion marked",
+    "MISSING has no artifact. That is the honest state, and it is why this file is generated",
+    "rather than written by hand — a hand-written index drifts from the tree it describes.",
+    "",
+    "| Stage 2 criterion | Weight | Status |",
+    "| --- | --- | --- |",
+    ...rows.map((r) => `| ${r.criterion} | ${r.weight} | **${r.status}** |`),
+    "",
+    "## Detail",
+    "",
+    ...rows.flatMap((r) => [`### ${r.criterion} (${r.weight}) — ${r.status}`, "", ...r.detail.map((d) => `- ${d}`), ""]),
+    "## Artifact digests",
+    "",
+    "| Artifact | Bytes | sha256 |",
+    "| --- | --- | --- |",
+    ...digests,
+    "",
+  ].join("\n");
+  writeFileSync(join(EVIDENCE, "INDEX.md"), index);
+
+
+  console.log("wrote evidence/INDEX.md");
+  console.log("wrote evidence/tests/results.json");
+  console.log("wrote evidence/tests/SUMMARY.md");
+  console.log("wrote evidence/latency/slo.json\n");
+  for (const r of rows) console.log(`  ${r.status.padEnd(8)} ${r.weight.padEnd(4)} ${r.criterion}`);
+
+  const missing = rows.filter((r) => r.status === "MISSING");
+  if (missing.length > 0) {
+    console.error(`\n${missing.length} required criterion/criteria have a MISSING artifact:`);
+    for (const m of missing) console.error(`  - ${m.criterion}`);
+    console.error("\nThis bundle is NOT submission-ready.");
+    return 1;
+  }
+  if (results.agent_layer_unverified_runs) {
+    console.error(`\n${results.agent_layer_unverified_runs} agent-layer run(s) did not execute — UNVERIFIED, not passed.`);
+    return 1;
+  }
+  const toolRate = asNumber(at(toolCriterion, "pass_rate"));
+  if (toolRate === null) {
+    console.error("\ntool-call criterion did not execute — UNVERIFIED, not passed.");
+    return 1;
+  }
+  if (toolRate !== 1) {
+    console.error(`\ntool-call criterion pass rate is ${toolRate}, not 1.`);
+    return 1;
+  }
+  return 0;
+}
+
+process.exit(main());

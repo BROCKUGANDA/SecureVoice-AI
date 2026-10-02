@@ -1,13 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireSignedIn } from "@/lib/credits";
-import { db } from "@/lib/db";
+import { fetchActivitySince, nextCursor, type ActivityCursor, type OrgScope } from "@/lib/activity-feed";
 
 export const dynamic = "force-dynamic";
 
 /**
  * Server-Sent Events stream of live audit activity.
- * Polls the audit log every 2s and pushes new rows as SSE `activity` events;
- * closes after 90s — the client's EventSource reconnects automatically.
+ * Polls the shared activity feed every 2s and pushes new rows as SSE `activity`
+ * events; closes after 90s — the client's EventSource reconnects.
+ *
+ * The read itself lives in `src/lib/activity-feed.ts` so tenancy scoping and
+ * the (createdAt, id) resume cursor are unit-tested rather than trusted. This
+ * route only owns the transport: streaming, cancellation and the stream cap.
  *
  * Concurrency: uses a single setInterval that is cleared on close/cancel, so
  * a disconnected client never leaves a polling loop running. The abort
@@ -26,19 +30,18 @@ export async function GET(req: NextRequest) {
   }
 
   const afterParam = req.nextUrl.searchParams.get("after");
-  let cursor = afterParam ? new Date(afterParam) : new Date(Date.now() - 60_000);
-  if (Number.isNaN(cursor.getTime())) cursor = new Date(Date.now() - 60_000);
-  // Composite cursor: two rows can share a millisecond timestamp, and a
-  // timestamp-only `gt` cursor silently drops the second one. The id breaks
-  // the tie. `afterId` is optional for backward compatibility with clients
-  // that only send `after`.
-  let cursorId = req.nextUrl.searchParams.get("afterId") ?? "";
+  let cursor: ActivityCursor | undefined = afterParam
+    ? { createdAt: new Date(afterParam), id: req.nextUrl.searchParams.get("afterId") ?? "" }
+    : undefined;
+  if (cursor && Number.isNaN(cursor.createdAt.getTime())) {
+    cursor = { createdAt: new Date(Date.now() - 60_000), id: "" };
+  }
 
   const encoder = new TextEncoder();
   // Tenant scope, same rule as /api/console/audit: org-less sessions are NOT
   // "see everything" — they share the un-namespaced/default rows only.
   const orgId = guard.profile.orgId;
-  const orgScope = orgId ? { orgId } : { OR: [{ orgId: null }, { orgId: "default" }] };
+  const scope: OrgScope = orgId ? { orgId } : { shared: true };
 
   let intervalId: ReturnType<typeof setInterval> | null = null;
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
@@ -75,25 +78,9 @@ export async function GET(req: NextRequest) {
       const tick = async () => {
         if (closed) return;
         try {
-          const rows = await db.auditLog.findMany({
-            where: {
-              AND: [
-                cursorId
-                  ? { OR: [{ createdAt: { gt: cursor } }, { createdAt: cursor, id: { gt: cursorId } }] }
-                  : { createdAt: { gt: cursor } },
-                orgScope,
-              ],
-            },
-            orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-            select: {
-              id: true, callRef: true, action: true, intent: true, redactedText: true, createdAt: true,
-            },
-            take: 20,
-          });
+          const rows = await fetchActivitySince({ scope, cursor, take: 20 });
           if (rows.length > 0) {
-            const last = rows[rows.length - 1];
-            cursor = last.createdAt;
-            cursorId = last.id;
+            cursor = nextCursor(rows);
             send("activity", rows.map((r) => ({
               callRef: r.callRef,
               action: r.action,

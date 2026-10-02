@@ -3,7 +3,7 @@ import { z } from "zod";
 import { guardToolCall } from "@/lib/tool-guard";
 import { canTransition, transitionCase, IllegalTransitionError } from "@/lib/case-state-machine";
 import { append as auditAppend } from "@/lib/audit-chain";
-import { badRequest, parseJson, unprocessable } from "@/lib/api-errors";
+import { badRequest, parseJson, unprocessable, schemaErrorCode } from "@/lib/api-errors"
 
 export const dynamic = "force-dynamic";
 
@@ -16,7 +16,7 @@ const DISPOSITION = {
   uncertain: { to: "UNCERTAIN", next_prompt_key: "human_handoff" },
 } as const;
 
-const schema = z.object({
+const schema = z.strictObject({
   conversation_id: z.string().min(1).max(128),
   outcome: z.enum(["confirmed_fraud", "confirmed_legitimate", "uncertain"]),
 });
@@ -27,9 +27,7 @@ export async function POST(req: NextRequest) {
 
   const parsed = schema.safeParse(body);
   if (!parsed.success) {
-    return unprocessable(
-      "conversation_id and outcome (confirmed_fraud | confirmed_legitimate | uncertain) are required",
-    );
+    return unprocessable("conversation_id and outcome (confirmed_fraud | confirmed_legitimate | uncertain) are required", schemaErrorCode(parsed.error));
   }
 
   const { conversation_id, outcome } = parsed.data;

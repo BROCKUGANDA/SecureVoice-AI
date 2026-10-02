@@ -1,17 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { Prisma } from "@prisma/client";
+import { Prisma } from "@/generated/prisma/client";
 import { authorizeToolCall } from "@/lib/agent-tool-auth";
 import { CASE_STATES } from "@/lib/case-state-machine";
 import { append as auditAppend } from "@/lib/audit-chain";
 import { db } from "@/lib/db";
-import { badRequest, parseJson, unprocessable } from "@/lib/api-errors";
+import { badRequest, parseJson, unprocessable, schemaErrorCode } from "@/lib/api-errors"
 
 export const dynamic = "force-dynamic";
 
 const TOOL_NAME = "switch_language";
 
-const schema = z.object({
+const schema = z.strictObject({
   conversation_id: z.string().min(1).max(128),
   language: z
     .string()
@@ -34,7 +34,7 @@ export async function POST(req: NextRequest) {
 
   const parsed = schema.safeParse(body);
   if (!parsed.success) {
-    return unprocessable("conversation_id and a valid language tag are required");
+    return unprocessable("conversation_id and a valid language tag are required", schemaErrorCode(parsed.error));
   }
 
   const { conversation_id } = parsed.data;

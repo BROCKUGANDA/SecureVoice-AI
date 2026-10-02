@@ -10,6 +10,8 @@
     "test": "bun test"
   },
   "dependencies": {
+    "@socket.io/redis-adapter": "^8.3.0",
+    "redis": "^4",
     "socket.io": "^4.8.1"
   },
   "devDependencies": {

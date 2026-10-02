@@ -1,149 +1,152 @@
 /**
- * Dial worker — the process that turns queued jobs into calls.
+ * Dial worker — the runnable loop around src/lib/scale/queue.ts.
  *
- * Run as its own service (compose: `dial-worker`) rather than inside the web
- * app, for three reasons: a hung carrier call can never occupy a web request;
- * workers scale independently of request handling; and killing the web tier
- * does not stop fraud interventions.
+ * The queue module owns the semantics (SKIP LOCKED claiming, lease expiry,
+ * bounded attempts, the dead-letter state). This file owns only the loop and
+ * the side effect: turning a claimed job into a call.
  *
- * Scaling out is safe by construction — claiming uses FOR UPDATE SKIP LOCKED —
- * so `docker compose up --scale dial-worker=3` needs no coordination.
+ * It runs as its own compose service rather than inside the web app, so a hung
+ * carrier call never occupies an HTTP request and killing the web tier does not
+ * stop fraud interventions. Scaling out is safe by construction — claiming uses
+ * FOR UPDATE SKIP LOCKED — so `--scale dial-worker=3` needs no coordination.
  *
- * Run directly for a one-shot drain:  bun src/worker/dial.ts --once
+ * One-shot drain (useful in CI and for an operator flushing after an incident):
+ *   bun src/worker/dial.ts --once
  */
 import "server-only";
 
-import { claimDialJobs, markDialFailed, markDialPlaced, markDialRecovered, MAX_DIAL_ATTEMPTS } from "@/lib/dial-queue";
-import { caseByConversation, transitionCase } from "@/lib/case-state-machine";
+import { hostname } from "node:os";
+import { randomUUID } from "node:crypto";
+
+import { drainDialQueue, type DialJob, type DialOutcome } from "@/lib/scale/queue";
 import { placeOutboundCall } from "@/lib/elevenlabs/outbound-call";
 import { append as auditAppend } from "@/lib/audit-chain";
 import { db } from "@/lib/db";
 
-const POLL_INTERVAL_MS = Number(process.env.DIAL_WORKER_POLL_MS ?? 1_000);
+const WORKER_ID = process.env.DIAL_WORKER_ID ?? `${hostname()}-${process.pid}-${randomUUID().slice(0, 8)}`;
+const POLL_MS = Number(process.env.DIAL_WORKER_POLL_MS ?? 1_000);
 const BATCH = Number(process.env.DIAL_WORKER_BATCH ?? 5);
+const LEASE_MS = Number(process.env.DIAL_WORKER_LEASE_MS ?? 60_000);
 const ONCE = process.argv.includes("--once");
 
-/**
- * Place one claimed job.
- *
- * The recovery check comes first and is the important part: if the case already
- * has a conversation id, the call was placed before this worker (or a previous
- * one) died, and we record that instead of dialling a customer who is already
- * on the phone with us.
- */
-async function runJob(job: {
-  id: string;
-  caseRef: string;
-  attemptNo: number;
-  attempts: number;
-  conversationId: string | null;
-}): Promise<void> {
-  if (job.conversationId) {
-    await markDialRecovered(job.id, job.conversationId);
-    return;
-  }
+type JobPayload = {
+  to?: string;
+  phone?: string;
+  language?: string;
+  merchant?: string;
+  amount?: number;
+  currency?: string;
+  transaction_ref?: string;
+};
 
-  // Join key: the conversation id is what the post-call webhook correlates on,
-  // and its presence means a call already exists for this case.
+function parsePayload(job: DialJob): JobPayload {
+  try {
+    const v = JSON.parse(job.payload) as unknown;
+    return v && typeof v === "object" ? (v as JobPayload) : {};
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Place one call.
+ *
+ * The recovery check comes first and is the part that matters: if the case
+ * already carries a conversation id, a previous worker placed this call and died
+ * before recording it. Dialling again would call a customer who is already on
+ * the phone with us — the one failure the queue's unique index cannot prevent
+ * on its own, because the provider accepted the call outside our transaction.
+ */
+async function handle(job: DialJob): Promise<DialOutcome> {
+  const payload = parsePayload(job);
+  const to = payload.to ?? payload.phone;
+  if (!to) return { ok: false, error: "job payload has no destination", retryable: false };
+
   const existing = await db.case.findFirst({
-    where: { caseRef: job.caseRef },
-    select: { conversationId: true, state: true, phone: true, language: true, merchant: true, amountMinor: true, currency: true },
+    where: { caseRef: job.case_ref },
+    select: { conversationId: true, state: true },
   });
   if (existing?.conversationId) {
-    await markDialRecovered(job.id, existing.conversationId);
-    return;
-  }
-  if (!existing?.phone) {
-    await markDialFailed(job.id, "case has no phone number", job.attempts);
-    return;
-  }
-  // A case already in flight is not re-dialled.
-  if (["DIALING", "RINGING", "ANSWERED"].includes(existing.state)) {
-    await markDialRecovered(job.id, job.conversationId ?? "");
-    return;
+    // Already placed by a worker that died before writing it down.
+    return { ok: true };
   }
 
   try {
     const result = await placeOutboundCall({
-      toNumber: existing.phone,
-      language: existing.language ?? "en",
-      merchant: existing.merchant ?? undefined,
-      amount: existing.amountMinor ?? undefined,
-      currency: existing.currency ?? undefined,
-      caseRef: job.caseRef,
+      toNumber: to,
+      language: payload.language ?? "en",
+      merchant: payload.merchant ?? undefined,
+      amount: payload.amount ?? undefined,
+      currency: payload.currency ?? undefined,
+      caseRef: job.case_ref,
       dynamicVariables: {
-        case_id: job.caseRef,
-        merchant: existing.merchant ?? "",
-        amount: existing.amountMinor ?? 0,
-        currency: existing.currency ?? "",
+        case_id: job.case_id,
+        case_ref: job.case_ref,
+        merchant: payload.merchant ?? "",
+        amount: payload.amount ?? 0,
+        currency: payload.currency ?? "",
+        transaction_ref: payload.transaction_ref ?? "",
       },
     });
 
-    await markDialPlaced(job.id, {
-      conversationId: result.conversationId,
-      callSid: result.callSid,
-    });
-
-    // Persist the join key so a crash before this point cannot cause a second
-    // dial, and so the post-call webhook can find the case.
+    // Persist the join key BEFORE reporting success, so a crash in the next few
+    // milliseconds cannot cause a second dial on reclaim.
     await db.case.updateMany({
-      where: { caseRef: job.caseRef },
+      where: { caseRef: job.case_ref },
       data: { conversationId: result.conversationId, state: "DIALING" },
     });
 
     void auditAppend({
-      callRef: job.caseRef,
+      callRef: job.case_ref,
       action: "handoff",
       intent: "dial_placed",
-      callerId: "dial-worker",
-      redactedText: `attempt ${job.attemptNo}`,
+      callerId: WORKER_ID,
+      redactedText: `attempt ${job.attempt_no}`,
       meta: {
         jobId: job.id,
-        attemptNo: job.attemptNo,
+        attemptNo: job.attempt_no,
+        retries: job.retries,
         conversationId: result.conversationId,
         dryRun: result.dryRun,
-        latencyMs: 0,
       },
+      orgId: job.org_id ?? undefined,
     }).catch(() => {});
+
+    return { ok: true };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    const outcome = await markDialFailed(job.id, message, job.attempts);
     void auditAppend({
-      callRef: job.caseRef,
+      callRef: job.case_ref,
       action: "handoff",
-      intent: outcome === "DEAD" ? "dial_dead" : "dial_retry",
-      callerId: "dial-worker",
+      intent: "dial_failed",
+      callerId: WORKER_ID,
       redactedText: message.slice(0, 120),
-      meta: { jobId: job.id, attemptNo: job.attemptNo, attempts: job.attempts, max: MAX_DIAL_ATTEMPTS },
+      meta: { jobId: job.id, attemptNo: job.attempt_no, retries: job.retries },
+      orgId: job.org_id ?? undefined,
     }).catch(() => {});
-    if (outcome === "DEAD") {
-      // Dead-lettered: the case must not sit in DIALING forever. Move it to a
-      // terminal failure state so it appears in the console as an outcome.
-      await transitionCase(job.caseRef, "FAILED").catch(() => {});
-    }
+    // Retryable: a busy signal or a transient provider error is worth another
+    // attempt; a rejected number is not, and retrying it wastes quota.
+    const permanent = /not a valid|invalid|not.*reachable|permission/i.test(message);
+    return { ok: false, error: message.slice(0, 300), retryable: !permanent };
   }
 }
 
 async function tick(): Promise<number> {
-  const jobs = await claimDialJobs(BATCH);
-  // Sequential within a batch: the telephony ceiling is per-second, and a
-  // parallel burst would race straight into provider rate limiting. Parallelism
-  // comes from running more workers, which is the axis that scales cleanly.
-  for (const job of jobs) {
-    await runJob(job).catch((err) =>
-      console.error("[dial-worker] job failed:", job.id, err instanceof Error ? err.message : err),
-    );
-  }
-  return jobs.length;
+  const result = await drainDialQueue({
+    workerId: WORKER_ID,
+    handler: handle,
+    limit: BATCH,
+    leaseMs: LEASE_MS,
+  });
+  return result.claimed;
 }
 
 async function main(): Promise<void> {
-  const target = process.env.DIAL_TARGET ?? "http://dial-worker";
-  console.log(`[dial-worker] starting — poll ${POLL_INTERVAL_MS}ms, batch ${BATCH}, target ${target}`);
+  console.log(`[dial-worker] ${WORKER_ID} starting — batch ${BATCH}, lease ${LEASE_MS}ms, poll ${POLL_MS}ms`);
 
   if (ONCE) {
     const n = await tick();
-    console.log(`[dial-worker] drained ${n} job(s) and exiting (--once)`);
+    console.log(`[dial-worker] claimed ${n} job(s) and exiting (--once)`);
     return;
   }
 
@@ -152,25 +155,24 @@ async function main(): Promise<void> {
     running = false;
     console.log("[dial-worker] draining — finishing in-flight work");
   };
-  // Bun's typed `process.on` overload only enumerates a narrow event union;
-  // SIGTERM/SIGINT are valid at runtime and are exactly what compose sends.
+  // Bun's typed process.on overload enumerates a narrow event union; SIGTERM
+  // and SIGINT are valid at runtime and are exactly what compose sends.
   process.on("SIGTERM" as never, stop as never);
   process.on("SIGINT" as never, stop as never);
 
   while (running) {
-    let processed = 0;
+    let claimed = 0;
     try {
-      processed = await tick();
+      claimed = await tick();
     } catch (err) {
       console.error("[dial-worker] tick failed:", err instanceof Error ? err.message : err);
     }
-    // Only idle when there was nothing to do; a backlog is drained flat out.
-    if (processed === 0) await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+    // Only idle when there was nothing to do — a backlog drains flat out.
+    if (claimed === 0) await new Promise((r) => setTimeout(r, POLL_MS));
   }
   console.log("[dial-worker] stopped cleanly");
 }
 
-// Guard the import so this file can be imported by a test without starting a loop.
 if (import.meta.main) {
   main().catch((err) => {
     console.error("[dial-worker] fatal:", err instanceof Error ? err.message : err);
@@ -178,5 +180,4 @@ if (import.meta.main) {
   });
 }
 
-export { runJob, tick };
-export { caseByConversation };
+export { handle, tick, WORKER_ID };

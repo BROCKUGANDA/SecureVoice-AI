@@ -211,10 +211,14 @@ function invariantChecks(entry: ReadPath, raw: RawOutcome): Check[] {
 }
 
 // ── Pinned sets — a change here is a change to the tenancy contract ─────────
-
+//
+// The four OPEN gaps. Two more were closed on 2026-10-02 (the ingest customer
+// lookup and the enroll opt-out branch); their entries were reclassified to
+// `asserted` and their probes now exercise the production handler with the org
+// predicate in place, plus a negative control proving the pre-fix unscoped
+// expression still leaks. Removing a name from this list is a deliberate act:
+// the gate will not notice on its own.
 const PINNED_GAPS = [
-  "api.enroll.customer-optout",
-  "api.interventions.customer-by-ref",
   "lib.audit-chain.verify",
   "lib.case.by-conversation",
   "lib.case.by-ref",
@@ -442,7 +446,7 @@ test("WP-12 · guard is fail-closed: an unscoped read is refused, not served", a
   expect(await asA.case.findMany({ where: { caseRef: { in: [ID.caseRef.A, ID.caseRef.B] } } })).toHaveLength(1);
   expect(await asA.auditLog.count({ where: { callRef: ID.callRef.B } })).toBe(0);
   expect(await asA.auditLog.count({ where: { callRef: ID.callRef.A } })).toBe(1);
-  expect(await asA.customer.count()).toBe(3);
+  expect(await asA.customer.count()).toBe(4);
   expect(await asA.notification.count()).toBe(3);
   expect(await asA.producerKey.count()).toBe(2);
   // Symmetric: B sees only B.

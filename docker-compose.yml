@@ -1,30 +1,30 @@
 # ---------------------------------------------------------------------------
-# SecureVoice AI — one-command reproducible demo
+# SecureVoice AI â€” one-command reproducible demo
 #
-#   docker compose up --build          → https://localhost (via Caddy)
-#   docker compose --profile direct up --build   → http://localhost:3000
+#   docker compose up --build          â†’ https://localhost (via Caddy)
+#   docker compose --profile direct up --build   â†’ http://localhost:3000
 #
 # What happens:
-#   1. db  — Postgres 16 comes up on the compose network. The datasource in
+#   1. db  â€” Postgres 16 comes up on the compose network. The datasource in
 #      prisma/schema.prisma is `postgresql` and Prisma REJECTS a `file:` URL
-#      outright (P1012), so Postgres is the only supported mode — this is what
+#      outright (P1012), so Postgres is the only supported mode â€” this is what
 #      makes `docker compose up --build` genuinely reproducible.
 #   2. db-setup waits for it healthy, runs `prisma migrate deploy` (versioned
-#      SQL in prisma/migrations — never `db push --accept-data-loss` on a real
+#      SQL in prisma/migrations â€” never `db push --accept-data-loss` on a real
 #      deployment), then seeds a demo case history (SEED_DEMO=false to skip).
-#   3. realtime  — the Command Center's push path (Bun + socket.io). Holds a
+#   3. realtime  â€” the Command Center's push path (Bun + socket.io). Holds a
 #      signing secret but NO database client: it only moves already-redacted,
 #      already-authorised events to sockets.
 #   4. app serves the Next.js standalone bundle on port 3000.
 #   5. caddy is the ONLY service that publishes a port, and terminates TLS.
 #
 # Two access paths, and why both exist:
-#   • Default (`caddy` service): the real topology. :80/:443 → caddy → app+realtime.
+#   â€¢ Default (`caddy` service): the real topology. :80/:443 â†’ caddy â†’ app+realtime.
 #     Nothing else is reachable from outside, which is what makes the trust
 #     model in src/proxy.ts sound.
-#   • `--profile direct`: publishes app's :3000 straight to the host for quick
+#   â€¢ `--profile direct`: publishes app's :3000 straight to the host for quick
 #     local work. Convenient, but then the origin IS internet-reachable if the
-#     host is — and every X-Forwarded-For header becomes forgeable, so the edge
+#     host is â€” and every X-Forwarded-For header becomes forgeable, so the edge
 #     layer falls back to a single shared rate-limit bucket. Fine for a laptop;
 #     do not ship it.
 #
@@ -34,7 +34,7 @@
 #   docker compose up --build app realtime caddy
 #
 # Secrets: app loads an optional local .env (ElevenLabs / Twilio / webhook
-# keys). Without one the platform boots in audit-only / dry-run mode —
+# keys). Without one the platform boots in audit-only / dry-run mode â€”
 # everything works, nothing is dialed, no quota is burned. Safe for judges.
 # Realtime is also optional: with no REALTIME_INGEST_SECRET the service starts
 # but refuses every connection, /api/console/realtime-token returns 503, and the
@@ -78,7 +78,7 @@ services:
       context: .
       target: builder
       args:
-        # Inlined into the Next.js bundle at build time — see Dockerfile.
+        # Inlined into the Next.js bundle at build time â€” see Dockerfile.
         NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY:-}
     logging: *default-logging
     environment:
@@ -93,7 +93,7 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    # Retry on transient failure — `restart: "no"` made a single failed push an
+    # Retry on transient failure â€” `restart: "no"` made a single failed push an
     # unrecoverable gate (app requires service_completed_successfully).
     restart: on-failure:3
     command: ["sh", "-c", "bunx prisma migrate deploy && if [ \"$SEED_DEMO\" = \"true\" ]; then bun scripts/seed-demo.mjs; fi"]
@@ -101,7 +101,7 @@ services:
   # Dial worker (S-1). Places the calls the ingest handler queued. A separate
   # service, not a thread in the app: a hung carrier call must never occupy a
   # web request, and killing the web tier must not stop fraud interventions.
-  # Scaling is safe by construction — claiming uses FOR UPDATE SKIP LOCKED — so
+  # Scaling is safe by construction â€” claiming uses FOR UPDATE SKIP LOCKED â€” so
   # `--scale dial-worker=3` needs no coordination between replicas.
   dial-worker:
     build:
@@ -128,13 +128,15 @@ services:
     depends_on:
       db-setup:
         condition: service_completed_successfully
-    command: ["bun", "src/worker/dial.ts"]
+    # The preload neutralises the Next-only `server-only` marker for this plain Bun
+    # process; see scripts/worker-preload.ts for why that is safe.
+    command: ["bun", "--preload", "./scripts/worker-preload.ts", "src/worker/dial.ts"]
 
   # Command Center push path. Separate image, separate trust boundary, and
   # independently restartable: a hung socket layer must never take the API with it.
   realtime:
     build:
-      # Its own context — different dependency tree (socket.io, no Prisma, no Next).
+      # Its own context â€” different dependency tree (socket.io, no Prisma, no Next).
       context: ./mini-services/realtime
     restart: unless-stopped
     logging: *default-logging
@@ -166,7 +168,7 @@ services:
       context: .
       target: runner
       args:
-        # Inlined into the Next.js bundle at build time — see Dockerfile.
+        # Inlined into the Next.js bundle at build time â€” see Dockerfile.
         NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY:-}
     # IMAGE lets a release job smoke-test the image it just published instead of a
     # locally rebuilt copy. Unset (the normal case) => build from source.
@@ -178,7 +180,7 @@ services:
     mem_limit: 1g
     environment:
       HOSTNAME: 0.0.0.0
-      # Built from parts — see db-setup for why a whole-URL interpolation is unsafe.
+      # Built from parts â€” see db-setup for why a whole-URL interpolation is unsafe.
       DATABASE_URL: postgresql://${POSTGRES_USER:-securevoice}:${POSTGRES_PASSWORD:-securevoice}@db:5432/${POSTGRES_DB:-securevoice}?schema=public
       # Internal service name, NEVER localhost: inside the app container,
       # localhost is the app container. Empty = realtime disabled, console uses SSE.
@@ -204,7 +206,7 @@ services:
       retries: 3
       start_period: 15s
 
-  # Reverse proxy — the only published port. TLS via Let's Encrypt; certificates
+  # Reverse proxy â€” the only published port. TLS via Let's Encrypt; certificates
   # and config persist in named volumes so a restart does not re-issue.
   caddy:
     image: caddy:2-alpine
@@ -230,9 +232,9 @@ services:
         condition: service_started
     healthcheck:
       # Probe the edge itself. Must NOT depend on the ACME cert: before (and
-      # during) issuance, :80 answers with a 308→https redirect, so accept any
+      # during) issuance, :80 answers with a 308â†’https redirect, so accept any
       # HTTP response line as proof Caddy is serving. (The previous check hit
-      # the admin API on :2019, which `admin off` disables — never healthy.)
+      # the admin API on :2019, which `admin off` disables â€” never healthy.)
       test: ["CMD-SHELL", "wget -S --spider http://127.0.0.1/healthz 2>&1 | grep -qE 'HTTP/1\\.[01] (200|301|302|307|308)'"]
       interval: 30s
       timeout: 5s
@@ -240,7 +242,7 @@ services:
       start_period: 15s
 
   # Opt-in escape hatch for local work: publish the app's :3000 directly and skip
-  # TLS. Off by default — see the note at the top of this file.
+  # TLS. Off by default â€” see the note at the top of this file.
   app-direct:
     profiles: ["direct"]
     build:

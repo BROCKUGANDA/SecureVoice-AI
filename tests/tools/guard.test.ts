@@ -128,7 +128,7 @@ test("WP-3: tools enforce guardrails â€” 409s, cross-tool secret, p95, audi
 
   // The happy-path case must be in FREEZE_STAGED or beyond.
   const finalCase = await db.case.findUnique({ where: { caseRef: happyCase.caseRef } });
-  expect(["FREEZE_STAGED", "ESCALATED", "NOTIFIED", "CLOSED"]).includes(finalCase!.state);
+  expect(["FREEZE_STAGED", "ESCALATED", "NOTIFIED", "CLOSED"]).toContain(finalCase!.state);
 
   console.log("  âœ“ 409 refusals, cross-tool secret, p95<300ms, audit entries, happy path");
   await db.$disconnect();

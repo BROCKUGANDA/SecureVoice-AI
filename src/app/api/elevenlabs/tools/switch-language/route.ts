@@ -31,7 +31,7 @@ export async function POST(req: NextRequest) {
   const { conversation_id } = parsed.data;
   const language = parsed.data.language.toLowerCase();
 
-  const auth = guardToolCall(TOOL_NAME, req.headers.get("x-agent-tool-secret"), conversation_id, CASE_STATES);
+  const auth = await guardToolCall(TOOL_NAME, req.headers.get("x-agent-tool-secret"), conversation_id, CASE_STATES);
   if (!auth.ok) {
     return NextResponse.json(
       { ok: false, error: auth.error, code: auth.code },
@@ -42,7 +42,6 @@ export async function POST(req: NextRequest) {
   const updated = await db.case.updateMany({
     where: { conversationId: conversation_id, state: { in: [...CASE_STATES] } },
     data: { language },
-    select: { id: true },
   });
 
   if (updated.count === 0) {

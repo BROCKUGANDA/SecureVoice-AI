@@ -99,6 +99,12 @@ export async function POST(req: NextRequest) {
   //    NO limits. Without BYOK, the platform demo key is metered at 2,000
   //    chars/day/user so a scraped link can't drain the shared quota.
   const keyRes = await resolveTtsKey();
+  if (keyRes.mode === "anonymous") {
+    // Refuse BEFORE any vendor call. An unauthenticated caller must not be able
+    // to spend the platform's ElevenLabs key: there is no profile row to charge,
+    // so the daily quota cannot be enforced and every request is free.
+    return NextResponse.json({ error: keyRes.reason }, { status: 401 });
+  }
   if (keyRes.mode === "platform") {
     const charged = await consumeCharQuota(keyRes, text);
     if (!charged.ok) {

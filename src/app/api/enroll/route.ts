@@ -72,7 +72,10 @@ async function authorize(req: NextRequest, rawBody: string): Promise<{ ok: boole
         const { createHmac, timingSafeEqual } = await import("crypto");
         const expected = createHmac("sha256", secret).update(`${t}.${rawBody}`).digest("hex");
         const a = Buffer.from(expected, "hex");
-        const b = Buffer.from(v1, "hex");
+        // Required capture group of the regex above (exactly 64 lowercase hex
+        // chars), so it cannot actually be undefined here. Asserted rather than
+        // branched on.
+        const b = Buffer.from(v1!, "hex");
         if (a.length === b.length && timingSafeEqual(a, b)) return { ok: true, orgId: null };
       }
     }

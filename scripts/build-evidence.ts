@@ -51,6 +51,8 @@ const GATES: Gate[] = [
   { id: "load", command: ["test", "tests/load"], produces: ["evidence/load/results.json"], env: { LOAD_DATABASE_URL: LOAD_DB } },
   { id: "telemetry", command: ["test", "tests/telemetry"], produces: ["evidence/latency/slo.json"] },
   { id: "surface", command: ["test", "tests/surface"], produces: ["evidence/surface/surface.json"] },
+  { id: "contracts", command: ["test", "tests/contracts"], produces: ["evidence/conformance/contract-gate-run.json"] },
+  { id: "seams", command: ["test", "tests/seams"], produces: ["evidence/seams/seams-run.json"] },
 ];
 
 type GateResult = { id: string; ok: boolean; exitCode: number; durationMs: number; stdout: string };
@@ -59,7 +61,7 @@ function runGate(gate: Gate): GateResult {
   const started = Date.now();
   const r = spawnSync(process.execPath, gate.command, {
     cwd: ROOT,
-    env: { ...process.env, ...(gate.env ?? {}) },
+    env: { ...process.env, ...(gate.env ?? {}), PYTHON },
     encoding: "utf8",
   });
   const result: GateResult = {

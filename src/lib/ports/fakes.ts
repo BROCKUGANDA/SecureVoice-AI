@@ -61,12 +61,17 @@ import type {
 } from "@/lib/payments/provider";
 import type { RefundRequest, RefundResult } from "@/lib/payments/provider";
 
+/**
+ * Adapter ids for the fakes that have one. The payment mock has none: the WP-13
+ * `PaymentProvider` interface exposes `id` ("deterministic"), not `adapterId`, and
+ * adding a second identifier for the same object would be the kind of thing that
+ * drifts.
+ */
 export const FAKE_IDS = {
   signalSource: "risksignal.fixture",
   conversation: "conversation.scripted",
   telephony: "telephony.recorder",
   notification: "notification.capture",
-  payment: "payment.deterministic",
   secret: "secret.memory",
   audit: "audit.memory",
 } as const;
@@ -219,7 +224,7 @@ export function createScriptedConversationProvider(deps: FakeDeps): ScriptedConv
 
   const remember = (req: ConversationRequest, continuity: boolean): ConversationPlacement => {
     const conversationId = deps.ids.next();
-    scripts.set(conversationId, SCRIPTED_TRANSCRIPTS[req.language] ?? SCRIPTED_TRANSCRIPTS.en);
+    scripts.set(conversationId, SCRIPTED_TRANSCRIPTS[req.language] ?? SCRIPTED_TRANSCRIPTS.en!);
     const placement: ConversationPlacement = {
       conversationId,
       callSid: `CA_scripted_${conversationId}`,
@@ -601,7 +606,7 @@ export function createInMemoryAuditSink(deps: FakeDeps): InMemoryAuditSink {
     async append(entry: AuditEntry, _opts?: { fast?: boolean }): Promise<AuditAppendResult> {
       const clean = sanitizeEntry(entry);
       const rows = chainFor(clean.callRef);
-      const prevHash = rows.length > 0 ? rows[rows.length - 1].chainHash : GENESIS_HASH;
+      const prevHash = rows.length > 0 ? rows[rows.length - 1]!.chainHash : GENESIS_HASH;
       const canonicalMeta = clean.meta ? canonicalizeNested(clean.meta) : undefined;
       const hash = chainHash(prevHash, {
         ...(clean as unknown as Record<string, unknown>),
@@ -650,15 +655,21 @@ export function createInMemoryAuditSink(deps: FakeDeps): InMemoryAuditSink {
         const candidates = byPrev.get(prev);
         if (!candidates || candidates.length === 0) break;
         if (candidates.length > 1) {
+          // The length check above is what guarantees elements 0 and 1 exist;
+          // asserted for the checker rather than re-tested, because this branch
+          // already IS the test.
+          const fork = candidates[1]!;
           return {
             ok: false,
-            brokenAt: candidates[1].id,
-            expected: candidates[1].prevHash ?? GENESIS_HASH,
-            actual: candidates[1].chainHash,
+            brokenAt: fork.id,
+            expected: fork.prevHash ?? GENESIS_HASH,
+            actual: fork.chainHash,
             rows: all.length,
           };
         }
-        const row = candidates[0];
+        // Non-empty was checked above (`candidates.length === 0` breaks), so
+        // element 0 exists.
+        const row = candidates[0]!;
         const expected = chainHash(prev, {
           callRef: row.callRef,
           action: row.action,
@@ -693,7 +704,7 @@ export function createInMemoryAuditSink(deps: FakeDeps): InMemoryAuditSink {
     },
     head(callRef) {
       const rows = chainFor(callRef);
-      return rows.length === 0 ? GENESIS_HASH : rows[rows.length - 1].chainHash;
+      return rows.length === 0 ? GENESIS_HASH : rows[rows.length - 1]!.chainHash;
     },
     corruptForTest(callRef, index, patch) {
       const rows = chainFor(callRef);
@@ -705,7 +716,7 @@ export function createInMemoryAuditSink(deps: FakeDeps): InMemoryAuditSink {
     spliceForTest(callRef, index) {
       const rows = chainFor(callRef);
       if (index < 0 || index >= rows.length) return null;
-      return { ...rows.splice(index, 1)[0] };
+      return { ...rows.splice(index, 1)[0]! };
     },
     forkForTest(callRef, index) {
       const rows = chainFor(callRef);

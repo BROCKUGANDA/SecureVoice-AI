@@ -4,11 +4,11 @@
   "command": "bun test tests/webhooks/elevenlabs-inbound.test.ts",
   "ok": true,
   "exit_code": 0,
-  "duration_ms": 4026,
+  "duration_ms": 2562,
   "passed": 1,
   "failed": 0,
   "assertions": 22,
   "database": "shared test database",
-  "generated_at": "2026-10-02T17:31:11.638Z",
-  "output_tail": "      FROM \"UsageLedger\"\n     WHERE \"orgId\" = $1\n     GROUP BY \"kind\"\n  \n        INSERT INTO \"UsageLedger\"\n          (\"id\", \"orgId\", \"caseRef\", \"attemptNo\", \"kind\", \"units\", \"reason\", \"idemKey\", \"balanceAfter\", \"createdAt\")\n        VALUES ($1, $2, $3, $4,\n                $5, $6, $7, $8, $9, $10)\n        ON CONFLICT (\"idemKey\") DO NOTHING\n        RETURNING \"id\", \"orgId\", \"caseRef\", \"attemptNo\", \"kind\", \"units\", \"reason\", \"idemKey\", \"balanceAfter\", \"createdAt\"\n      \nprisma:error \nInvalid `db.webhookEvent.create()` invocation in\nC:\\Users\\HP\\Desktop\\SecureVoiceai\\src\\app\\api\\webhooks\\elevenlabs\\route.ts:55:39\n\n  52       : null;\n  53 \n  54 try {\n→ 55   const row = await db.webhookEvent.create(\nUnique constraint failed on the constraint: `WebhookEvent_provider_eventType_conversationId_eventTimesta_key`\n\n\ntests\\webhooks\\elevenlabs-inbound.test.ts:\n(pass) WP-4: post-call ingest verifies, dedupes, redacts, notifies [3866.62ms]\n\n 1 pass\n 0 fail\n 22 expect() calls\nRan 1 test across 1 file. [3.98s]\n"
+  "generated_at": "2026-10-02T21:14:42.849Z",
+  "output_tail": "      FROM \"UsageLedger\"\n     WHERE \"orgId\" = $1\n     GROUP BY \"kind\"\n  \n        INSERT INTO \"UsageLedger\"\n          (\"id\", \"orgId\", \"caseRef\", \"attemptNo\", \"kind\", \"units\", \"reason\", \"idemKey\", \"balanceAfter\", \"createdAt\")\n        VALUES ($1, $2, $3, $4,\n                $5, $6, $7, $8, $9, $10)\n        ON CONFLICT (\"idemKey\") DO NOTHING\n        RETURNING \"id\", \"orgId\", \"caseRef\", \"attemptNo\", \"kind\", \"units\", \"reason\", \"idemKey\", \"balanceAfter\", \"createdAt\"\n      \nprisma:error \nInvalid `db.webhookEvent.create()` invocation in\nC:\\Users\\HP\\Desktop\\SecureVoiceai\\src\\app\\api\\webhooks\\elevenlabs\\route.ts:55:39\n\n  52       : null;\n  53 \n  54 try {\n→ 55   const row = await db.webhookEvent.create(\nUnique constraint failed on the constraint: `WebhookEvent_provider_eventType_conversationId_eventTimesta_key`\n\n\ntests\\webhooks\\elevenlabs-inbound.test.ts:\n(pass) WP-4: post-call ingest verifies, dedupes, redacts, notifies [2458.42ms]\n\n 1 pass\n 0 fail\n 22 expect() calls\nRan 1 test across 1 file. [2.53s]\n"
 }

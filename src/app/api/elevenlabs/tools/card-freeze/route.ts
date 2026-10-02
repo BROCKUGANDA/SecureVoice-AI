@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { guardToolCall } from "@/lib/tool-guard";
 import { transitionCase, IllegalTransitionError } from "@/lib/case-state-machine";
+import { recordSpanAndPersist } from "@/lib/telemetry/store";
+import { db } from "@/lib/db";
 import { append as auditAppend } from "@/lib/audit-chain";
 import { badRequest, parseJson, unprocessable, schemaErrorCode } from "@/lib/api-errors"
 
@@ -75,6 +77,20 @@ export async function POST(req: NextRequest) {
       freezeStaged: true,
       freezeReference: reference,
     });
+    // Latency instrumentation (WP-7): the brief's headline span ends here. The
+    // signal arrived when the case was created; the freeze is staged now. Both
+    // endpoints are real executions of those two events, not approximated.
+    const caseRow = await db.case.findUnique({ where: { caseRef: guard.caseRef } });
+    // Always record — a failed lookup must not lose the span silently. The
+    // start is the case's creation when we have it, else the guard's entry.
+    const startedAt = caseRow ? caseRow.createdAt.getTime() : Date.now();
+    recordSpanAndPersist({
+      span: "signal_received_to_freeze_staged",
+      startedAtMs: startedAt,
+      endedAtMs: Date.now(),
+      caseRef: guard.caseRef,
+    });
+
     return NextResponse.json({
       ok: true,
       staged: true,

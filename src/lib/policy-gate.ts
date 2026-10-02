@@ -38,7 +38,8 @@ function countryFromE164(phone: string): string | null {
   // after +. We use a small lookup for the common cases.
   const m = /^\+(\d{1,3})/.exec(phone);
   if (!m) return null;
-  const cc = m[1];
+  // Required capture group (1-3 digits), so it cannot actually be undefined.
+  const cc = m[1]!;
   // 1-digit codes
   if (cc === "1") return "US"; // +1 — US/CA (treated as one NANP zone)
   if (cc === "7") return "RU";

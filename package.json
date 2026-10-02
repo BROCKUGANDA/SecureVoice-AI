@@ -27,6 +27,8 @@
     "test:webhook:inbound": "bun test tests/webhooks/elevenlabs-inbound.test.ts",
     "test:webhook:outbound": "bun test tests/webhooks/outbound.test.ts",
     "test:realtime": "bun test tests/realtime/realtime.test.ts",
+    "test:contracts": "bun test tests/contracts",
+    "test:seams": "bun test tests/seams",
     "outbox:work": "bun --preload ./tests/preload.ts scripts/outbox-worker.ts",
     "test": "bun scripts/run-tests.mjs"
   },

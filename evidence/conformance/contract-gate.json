@@ -1,0 +1,570 @@
+{
+  "artifact": "WP-17 — integration contract conformance gate",
+  "schema_of_artifact": 1,
+  "generated_at": "2026-10-02T20:53:01.854Z",
+  "generated_by": [
+    "cd C:\\Users\\HP\\Desktop\\SecureVoiceai",
+    "$env:PATH=\"C:\\Users\\HP\\.bun\\bin;$env:PATH\"",
+    "$env:TEST_DATABASE_URL=\"postgresql://postgres@127.0.0.1:5432/securevoice_test?connection_limit=20\"",
+    "bun test tests/contracts",
+    "bunx tsc --noEmit"
+  ],
+  "scope_note": "NO LIVE BANK RECEIVER WAS INVOLVED. Every receiver graded below is an in-process fake, and every outbound POST is intercepted before a socket is opened. What this artifact proves is that the checker grades correctly; it does not prove any bank is conformant. A bank's first grade comes from POST /v1/conformance/run against their own URL.",
+  "machine_readable_contract": {
+    "openapi": {
+      "path": "/openapi",
+      "note": "Not /openapi.json: an App Router route's URL is its directory name, and a second path would mean a second copy to keep in sync.",
+      "openapi_version": "3.1.0",
+      "documented_paths": [
+        "/v1/interventions",
+        "/api/interventions",
+        "/v1/conformance/run",
+        "/openapi",
+        "/asyncapi"
+      ],
+      "schemas": [
+        "RiskSignal",
+        "InterventionQueued202",
+        "Delivery",
+        "Degraded",
+        "InterventionDegraded202",
+        "InterventionAccepted202",
+        "InterventionReplay202",
+        "Error",
+        "FailureEnvelope",
+        "LegacyError",
+        "BankEventEnvelope",
+        "CaseNotifiedData",
+        "EvidencePointer",
+        "ConformanceRunRequest",
+        "ConformanceReport",
+        "ConformanceCheck"
+      ],
+      "security_schemes": [
+        "SvSignature",
+        "ProducerKey"
+      ],
+      "bytes": 73438,
+      "generated_from": "src/lib/contracts/schema.ts (transcribed from the route code)"
+    },
+    "asyncapi": {
+      "path": "/asyncapi",
+      "asyncapi_version": "3.0.0",
+      "channels": [
+        "bankEvents"
+      ],
+      "operations": [
+        "sendCaseNotified"
+      ],
+      "delivery": {
+        "maxAttempts": 6,
+        "ladderMs": [
+          60000,
+          300000,
+          1800000,
+          7200000,
+          10800000,
+          43200000
+        ],
+        "ladderHuman": [
+          "+1m",
+          "+5m",
+          "+30m",
+          "+2h",
+          "+3h",
+          "+12h"
+        ],
+        "totalSpan": "roughly 21 hours, then DEAD plus a DeadLetter row replayable by an operator",
+        "retryableStatuses": [
+          "network_error",
+          408,
+          429,
+          "5xx"
+        ],
+        "terminalStatuses": [
+          "other 4xx"
+        ],
+        "backoffJitter": "±20% around each ladder step",
+        "ordering": "none — see the channel description",
+        "dedupeKey": "event_id"
+      },
+      "bytes": 10821,
+      "generated_from": "src/lib/contracts/schema.ts"
+    }
+  },
+  "error_catalog": {
+    "codes": 43,
+    "status_only_failures": 6,
+    "envelope_families": [
+      "failure_envelope_v1",
+      "legacy_error_field"
+    ],
+    "drift_gate": "tests/contracts scans the route sources for failure(\"…\") and code:\"…\" literals and asserts BOTH directions against this catalog; a pinned list asserts the envelope codes no documented endpoint emits."
+  },
+  "conformance_checker": {
+    "endpoint": "POST /v1/conformance/run",
+    "probes_per_run": 5,
+    "default_budget_ms": 2000,
+    "transport": "injected; the checker has no fetch reference and cannot open a socket by itself",
+    "grades": [
+      "signature_verified",
+      "idempotency_honoured",
+      "fast_2xx",
+      "replay_handled",
+      "rejects_malformed"
+    ]
+  },
+  "grading_matrix": [
+    {
+      "receiver": "correct receiver",
+      "defect": "none",
+      "verdict": "conforming",
+      "score": "5/5",
+      "failing_checks": [],
+      "passing_checks": [
+        "signature_verified",
+        "idempotency_honoured",
+        "fast_2xx",
+        "replay_handled",
+        "rejects_malformed"
+      ],
+      "observations": [
+        {
+          "id": "signature_verified",
+          "status": "pass",
+          "observed": "tampered digest → HTTP 401 in 3ms; unsigned → HTTP 401 in 3ms"
+        },
+        {
+          "id": "idempotency_honoured",
+          "status": "pass",
+          "observed": "accepted and acknowledged event_id ab35f981-79a2-4775-bb2e-035d141a6fc3 (HTTP 202 in 4ms)"
+        },
+        {
+          "id": "fast_2xx",
+          "status": "pass",
+          "observed": "202 in 4ms against a 2000ms budget"
+        },
+        {
+          "id": "replay_handled",
+          "status": "pass",
+          "observed": "HTTP 202 in 4ms, redelivery recognised and not re-applied"
+        },
+        {
+          "id": "rejects_malformed",
+          "status": "pass",
+          "observed": "HTTP 422 in 4ms — a signed but schema-invalid payload was refused"
+        }
+      ],
+      "deliveries_seen_by_receiver": 2,
+      "distinct_event_ids": 1
+    },
+    {
+      "receiver": "receiver that accepts a tampered digest",
+      "defect": "no signature verification",
+      "verdict": "non_conforming",
+      "score": "4/5",
+      "failing_checks": [
+        "signature_verified"
+      ],
+      "passing_checks": [
+        "idempotency_honoured",
+        "fast_2xx",
+        "replay_handled",
+        "rejects_malformed"
+      ],
+      "observations": [
+        {
+          "id": "signature_verified",
+          "status": "fail",
+          "observed": "tampered digest → HTTP 202 in 4ms; unsigned → HTTP 202 in 4ms"
+        },
+        {
+          "id": "idempotency_honoured",
+          "status": "pass",
+          "observed": "accepted and acknowledged event_id 618c0bef-ef62-4088-920d-9904f0daba40 (HTTP 202 in 4ms)"
+        },
+        {
+          "id": "fast_2xx",
+          "status": "pass",
+          "observed": "202 in 4ms against a 2000ms budget"
+        },
+        {
+          "id": "replay_handled",
+          "status": "pass",
+          "observed": "HTTP 202 in 4ms, redelivery recognised and not re-applied"
+        },
+        {
+          "id": "rejects_malformed",
+          "status": "pass",
+          "observed": "HTTP 422 in 4ms — a signed but schema-invalid payload was refused"
+        }
+      ],
+      "deliveries_seen_by_receiver": 4,
+      "distinct_event_ids": 1
+    },
+    {
+      "receiver": "receiver that never acknowledges event_id",
+      "defect": "dedupe key unobservable",
+      "verdict": "non_conforming",
+      "score": "4/5",
+      "failing_checks": [
+        "idempotency_honoured"
+      ],
+      "passing_checks": [
+        "signature_verified",
+        "fast_2xx",
+        "replay_handled",
+        "rejects_malformed"
+      ],
+      "observations": [
+        {
+          "id": "signature_verified",
+          "status": "pass",
+          "observed": "tampered digest → HTTP 401 in 3ms; unsigned → HTTP 401 in 3ms"
+        },
+        {
+          "id": "idempotency_honoured",
+          "status": "fail",
+          "observed": "HTTP 202 in 4ms but the response never identified the event_id it applied, so its dedupe key is unverifiable"
+        },
+        {
+          "id": "fast_2xx",
+          "status": "pass",
+          "observed": "202 in 4ms against a 2000ms budget"
+        },
+        {
+          "id": "replay_handled",
+          "status": "pass",
+          "observed": "HTTP 202 in 4ms, redelivery recognised and not re-applied"
+        },
+        {
+          "id": "rejects_malformed",
+          "status": "pass",
+          "observed": "HTTP 422 in 4ms — a signed but schema-invalid payload was refused"
+        }
+      ],
+      "deliveries_seen_by_receiver": 2,
+      "distinct_event_ids": 1
+    },
+    {
+      "receiver": "receiver slower than its budget",
+      "defect": "5s to a 2s budget",
+      "verdict": "non_conforming",
+      "score": "4/5",
+      "failing_checks": [
+        "fast_2xx"
+      ],
+      "passing_checks": [
+        "signature_verified",
+        "idempotency_honoured",
+        "replay_handled",
+        "rejects_malformed"
+      ],
+      "observations": [
+        {
+          "id": "signature_verified",
+          "status": "pass",
+          "observed": "tampered digest → HTTP 401 in 3ms; unsigned → HTTP 401 in 3ms"
+        },
+        {
+          "id": "idempotency_honoured",
+          "status": "pass",
+          "observed": "accepted and acknowledged event_id 15b3038f-0544-4d01-a1ba-5dca5026534d (HTTP 202 in 5000ms)"
+        },
+        {
+          "id": "fast_2xx",
+          "status": "fail",
+          "observed": "202 in 5000ms against a 2000ms budget"
+        },
+        {
+          "id": "replay_handled",
+          "status": "pass",
+          "observed": "HTTP 202 in 4ms, redelivery recognised and not re-applied"
+        },
+        {
+          "id": "rejects_malformed",
+          "status": "pass",
+          "observed": "HTTP 422 in 4ms — a signed but schema-invalid payload was refused"
+        }
+      ],
+      "deliveries_seen_by_receiver": 2,
+      "distinct_event_ids": 1
+    },
+    {
+      "receiver": "receiver that re-applies a redelivery",
+      "defect": "double-charge on replay",
+      "verdict": "non_conforming",
+      "score": "4/5",
+      "failing_checks": [
+        "replay_handled"
+      ],
+      "passing_checks": [
+        "signature_verified",
+        "idempotency_honoured",
+        "fast_2xx",
+        "rejects_malformed"
+      ],
+      "observations": [
+        {
+          "id": "signature_verified",
+          "status": "pass",
+          "observed": "tampered digest → HTTP 401 in 3ms; unsigned → HTTP 401 in 3ms"
+        },
+        {
+          "id": "idempotency_honoured",
+          "status": "pass",
+          "observed": "accepted and acknowledged event_id a959b4e6-78fc-4708-8ce4-23d079cc53b7 (HTTP 202 in 4ms)"
+        },
+        {
+          "id": "fast_2xx",
+          "status": "pass",
+          "observed": "202 in 4ms against a 2000ms budget"
+        },
+        {
+          "id": "replay_handled",
+          "status": "fail",
+          "observed": "HTTP 202 in 4ms with no idempotency marker — the redelivery was acknowledged as if it were new, so a receiver like this applies the event twice"
+        },
+        {
+          "id": "rejects_malformed",
+          "status": "pass",
+          "observed": "HTTP 422 in 4ms — a signed but schema-invalid payload was refused"
+        }
+      ],
+      "deliveries_seen_by_receiver": 2,
+      "distinct_event_ids": 1
+    },
+    {
+      "receiver": "receiver that acknowledges malformed payloads",
+      "defect": "stores what it cannot parse",
+      "verdict": "non_conforming",
+      "score": "4/5",
+      "failing_checks": [
+        "rejects_malformed"
+      ],
+      "passing_checks": [
+        "signature_verified",
+        "idempotency_honoured",
+        "fast_2xx",
+        "replay_handled"
+      ],
+      "observations": [
+        {
+          "id": "signature_verified",
+          "status": "pass",
+          "observed": "tampered digest → HTTP 401 in 3ms; unsigned → HTTP 401 in 3ms"
+        },
+        {
+          "id": "idempotency_honoured",
+          "status": "pass",
+          "observed": "accepted and acknowledged event_id f5e67f79-c634-442b-8a75-93f8f6c815d6 (HTTP 202 in 4ms)"
+        },
+        {
+          "id": "fast_2xx",
+          "status": "pass",
+          "observed": "202 in 4ms against a 2000ms budget"
+        },
+        {
+          "id": "replay_handled",
+          "status": "pass",
+          "observed": "HTTP 202 in 4ms, redelivery recognised and not re-applied"
+        },
+        {
+          "id": "rejects_malformed",
+          "status": "fail",
+          "observed": "HTTP 202 in 4ms — a signed but schema-invalid payload was ACKNOWLEDGED, so anything you cannot parse enters your systems silently"
+        }
+      ],
+      "deliveries_seen_by_receiver": 2,
+      "distinct_event_ids": 1
+    },
+    {
+      "receiver": "receiver slower than a widened budget",
+      "defect": "3s to a 4s budget — the check measures the budget",
+      "verdict": "conforming",
+      "score": "5/5",
+      "failing_checks": [],
+      "passing_checks": [
+        "signature_verified",
+        "idempotency_honoured",
+        "fast_2xx",
+        "replay_handled",
+        "rejects_malformed"
+      ],
+      "observations": [
+        {
+          "id": "signature_verified",
+          "status": "pass",
+          "observed": "tampered digest → HTTP 401 in 3ms; unsigned → HTTP 401 in 3ms"
+        },
+        {
+          "id": "idempotency_honoured",
+          "status": "pass",
+          "observed": "accepted and acknowledged event_id 93b6fba4-081b-421f-8723-b49a649ac203 (HTTP 202 in 3000ms)"
+        },
+        {
+          "id": "fast_2xx",
+          "status": "pass",
+          "observed": "202 in 3000ms against a 4000ms budget"
+        },
+        {
+          "id": "replay_handled",
+          "status": "pass",
+          "observed": "HTTP 202 in 4ms, redelivery recognised and not re-applied"
+        },
+        {
+          "id": "rejects_malformed",
+          "status": "pass",
+          "observed": "HTTP 422 in 4ms — a signed but schema-invalid payload was refused"
+        }
+      ],
+      "deliveries_seen_by_receiver": 2,
+      "distinct_event_ids": 1
+    }
+  ],
+  "ssrf": {
+    "method": "the real validateOutboundUrl, with no DNS injected — every target below is refused before resolution",
+    "probes_sent_for_blocked_targets": 0,
+    "blocked_targets_probed": 20,
+    "results": [
+      {
+        "target": "http://receiver.bank.example/hooks",
+        "verdict": "not_https"
+      },
+      {
+        "target": "https://127.0.0.1/hooks",
+        "verdict": "private_address"
+      },
+      {
+        "target": "https://169.254.169.254/latest/meta-data/",
+        "verdict": "private_address"
+      },
+      {
+        "target": "https://169.254.170.2/v4/credentials",
+        "verdict": "private_address"
+      },
+      {
+        "target": "https://100.100.100.200/latest/meta-data/",
+        "verdict": "private_address"
+      },
+      {
+        "target": "https://192.0.0.192/opc/v2/instance/",
+        "verdict": "private_address"
+      },
+      {
+        "target": "https://10.0.0.5/hooks",
+        "verdict": "private_address"
+      },
+      {
+        "target": "https://172.16.4.4/hooks",
+        "verdict": "private_address"
+      },
+      {
+        "target": "https://192.168.1.10/hooks",
+        "verdict": "private_address"
+      },
+      {
+        "target": "https://100.64.0.1/hooks",
+        "verdict": "private_address"
+      },
+      {
+        "target": "https://[::1]/hooks",
+        "verdict": "private_address"
+      },
+      {
+        "target": "https://[::ffff:127.0.0.1]/hooks",
+        "verdict": "private_address"
+      },
+      {
+        "target": "https://[fc00::1]/hooks",
+        "verdict": "private_address"
+      },
+      {
+        "target": "https://localhost/hooks",
+        "verdict": "blocked_hostname"
+      },
+      {
+        "target": "https://metadata.google.internal/computeMetadata/v1/",
+        "verdict": "blocked_hostname"
+      },
+      {
+        "target": "https://payments.internal/hooks",
+        "verdict": "blocked_hostname"
+      },
+      {
+        "target": "https://fraud-team.corp/hooks",
+        "verdict": "blocked_hostname"
+      },
+      {
+        "target": "https://user:pass@receiver.bank.example/hooks",
+        "verdict": "credentials_in_url"
+      },
+      {
+        "target": "https://receiver.bank.example:8443/hooks",
+        "verdict": "blocked_port"
+      },
+      {
+        "target": "receiver.bank.example/hooks",
+        "verdict": "malformed_url"
+      }
+    ]
+  },
+  "signature_scheme_cross_language": {
+    "claim": "one scheme, four implementations, verified to agree",
+    "implementations": [
+      "src/lib/outbox.ts (sender)",
+      "scripts/verify_sv_signature.ts (TypeScript, reference)",
+      "scripts/verify_sv_signature.py (Python, reference)",
+      "scripts/verify-signatures/SignatureVerifier.java (Java, reference for core-banking platforms)"
+    ],
+    "java_executed": true,
+    "java_toolchain": "Temurin OpenJDK 17.0.20 (javac -Xlint:all clean, no warnings)",
+    "java_commands": [
+      "javac -Xlint:all -d <tmp> scripts/verify-signatures/SignatureVerifier.java",
+      "java -cp <tmp> securevoice.integration.SignatureVerifier <body> <header> <secret>",
+      "bun scripts/verify_sv_signature.ts <body> <header> <secret>"
+    ],
+    "java_results": {
+      "valid_delivery": "VERIFIED: ok (exit 0) — and the TypeScript verifier returned VERIFIED on the same bytes",
+      "tampered_digest": "REJECTED: digest_mismatch (exit 1) — TypeScript: REJECTED, same reason",
+      "stale_timestamp_t_minus_1h": "REJECTED: stale_timestamp (exit 1)",
+      "future_timestamp_t_plus_1h": "REJECTED: stale_timestamp (exit 1)",
+      "malformed_header": "REJECTED: malformed_signature (exit 1)",
+      "absent_header": "REJECTED: missing_signature (via the static API; the CLI treats an absent argument as a usage error, exit 2)",
+      "java_sign_vs_independent_node_signer": "byte-identical header",
+      "non_utf8_body": "round-trips — the digest is computed over bytes, never over a re-serialised String",
+      "extra_header_parameters": "ignored without breaking a valid signature"
+    }
+  },
+  "retry_ladder": {
+    "max_attempts": 6,
+    "ladder_ms": [
+      60000,
+      300000,
+      1800000,
+      7200000,
+      10800000,
+      43200000
+    ],
+    "total_span": "roughly 21 hours, then DEAD plus a DeadLetter row replayable by an operator",
+    "retryable": [
+      "network error",
+      408,
+      429,
+      "5xx"
+    ],
+    "terminal": [
+      "any other 4xx"
+    ],
+    "dedupe_key": "event_id",
+    "ordering": "none"
+  },
+  "honest_limits": [
+    "The graders are fakes. This artifact says the checker works; it says nothing about any bank.",
+    "The grading matrix asserts the intended verdict, not just that a verdict was produced: each deliberately broken receiver must fail exactly one named check and pass the other four, so a checker that failed everything would not pass this gate.",
+    "The blocked-target list is resolved from the real guard with no DNS, so a hostname that only fails after resolution (a public name pointing at 10.0.0.5) is covered by the guard's unit tests rather than by this probe.",
+    "The conformance route's own auth and rate-limit wiring is asserted by source inspection in tests/contracts, not by invoking the route handler — invoking it needs a database and a live producer key.",
+    "docs/INTEGRATION.md still documents the RETIRED /api/interventions. This work package was not permitted to edit it; docs/INTEGRATION-CONTRACT.md and GET /openapi are authoritative.",
+    "GET /openapi is served, not GET /openapi.json. Adding the alias is a one-line route and is listed in the contract doc rather than done, because the work package's allowed-paths list did not include a src/app/openapi.json/ directory."
+  ]
+}

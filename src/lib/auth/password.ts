@@ -156,10 +156,13 @@ function parseScrypt(stored: string): ParsedScrypt | null {
   const parts = stored.split("$");
   if (parts.length < 3) return null;
   // Legacy 3-field form: scrypt$<salt-hex>$<tag-hex>, default params (the
-  // pre-WP-11 Account rows).
-  if (!parts[1].includes("=")) {
-    const salt = Buffer.from(parts[1], "hex");
-    const tag = Buffer.from(parts[2], "hex");
+  // pre-WP-11 Account rows). `parts.length >= 3` is what makes these two indexes
+  // defined; the assertions record that for the checker rather than adding a
+  // branch that cannot run. TS2538 here would otherwise fire on every stored
+  // password row.
+  if (!parts[1]!.includes("=")) {
+    const salt = Buffer.from(parts[1]!, "hex");
+    const tag = Buffer.from(parts[2]!, "hex");
     if (salt.length === 0 || tag.length === 0) return null;
     return { params: SCRYPT_PARAMS, salt, tag };
   }

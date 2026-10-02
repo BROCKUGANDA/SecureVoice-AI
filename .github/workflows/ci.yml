@@ -102,6 +102,27 @@ jobs:
       - name: Typecheck
         run: bunx tsc --noEmit -p tsconfig.json
 
+# AA-1.3 — timezone independence.
+#
+# The same suite, run again under a deliberately absurd timezone. Costs one CI
+# step and catches an entire class of billing and scheduling bug that is
+# invisible from the deploy box (UTC) and catastrophic in East Africa, where the
+# operators actually are: a case opened at 23:40 EAT landing in the wrong
+# billing period, or a UTC-authored cutoff firing at the wrong local hour.
+#
+# Kiritimati is UTC+14 (the largest offset in the world) and Niue is UTC-11, so
+# between them they bracket the full 24-hour span and a local-time day bucket
+# cannot accidentally agree in both. The gate spawns its own children with TZ set
+# before exec, because TZ is consumed by the C runtime at process start.
+#
+# Only the timezone-independent suites run here: anything needing Postgres would
+# fail on connection rather than on timezone, and this job exists to isolate one
+# cause of failure.
+      - name: Hostile timezone suite
+        env:
+          TZ: Pacific/Kiritimati
+        run: bun test tests/timezone tests/billing tests/telemetry tests/contracts
+
 # Schema drift gate. Twice now a model has landed in schema.prisma with
       # no migration: the app deploys, every request returns 200, and the
       # failure only appears when a code path touches the new column — which is

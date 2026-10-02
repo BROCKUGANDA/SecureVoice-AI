@@ -100,7 +100,19 @@ const WILDCARD_DNS_SUFFIXES = [".nip.io", ".sslip.io", ".xip.io", ".localtest.me
 /** Returns null when the address is publicly routable, else the reason it is not. */
 export type BlockReason = string;
 
-function classifyIPv4(octets: readonly number[]): BlockReason | null {
+/**
+ * A validated dotted quad, as a 4-tuple.
+ *
+ * The tuple type (rather than `number[]`) is what lets `classifyIPv4` destructure
+ * without a possibly-undefined element at every comparison. `noUncheckedIndexedAccess`
+ * is on for this project (tests/tsconfig.test-base.json), and under it an array
+ * destructuring is typed `number | undefined` even when the length is provably 4.
+ * Typing the return as a tuple encodes the invariant once, here, instead of
+ * asserting it 20 times inside the classifier.
+ */
+type IPv4Octets = readonly [a: number, b: number, c: number, d: number];
+
+function classifyIPv4(octets: IPv4Octets): BlockReason | null {
   const [a, b, c, d] = octets;
 
   // Cloud metadata first, so the audit log names the actual bug.
@@ -130,7 +142,7 @@ function classifyIPv4(octets: readonly number[]): BlockReason | null {
   return null;
 }
 
-function parseIPv4(input: string): number[] | null {
+function parseIPv4(input: string): IPv4Octets | null {
   const parts = input.split(".");
   if (parts.length !== 4) return null;
   const out: number[] = [];
@@ -140,7 +152,9 @@ function parseIPv4(input: string): number[] | null {
     if (n > 255) return null;
     out.push(n);
   }
-  return out;
+  // Exactly four validated octets — the length check above guarantees it, so the
+  // tuple cast carries no runtime assumption.
+  return out as unknown as IPv4Octets;
 }
 
 /**
@@ -151,7 +165,16 @@ function parseIPv4(input: string): number[] | null {
  * range test while still looking correct. Handles `::` compression, a
  * bracketed form, a zone id, and a trailing embedded IPv4 (`::ffff:127.0.0.1`).
  */
-function expandIPv6(input: string): number[] | null {
+/**
+ * The 8 canonical groups of a valid IPv6 address, as a tuple.
+ *
+ * Every return path below either produces exactly 8 groups or returns null, so
+ * the tuple records an invariant that is already enforced at runtime. Without it,
+ * `classifyIPv6` reads `g[0]`/`g[1]` as possibly-undefined under
+ * noUncheckedIndexedAccess and every prefix comparison needs an assertion.
+ */
+type IPv6Groups = readonly [number, number, number, number, number, number, number, number];
+function expandIPv6(input: string): IPv6Groups | null {
   let s = input.trim();
   if (s.startsWith("[") && s.endsWith("]")) s = s.slice(1, -1);
   const zone = s.indexOf("%");
@@ -191,16 +214,18 @@ function expandIPv6(input: string): number[] | null {
     groups.push(...g);
   }
 
-  if (doubleAt < 0) return groups.length === 8 ? groups : null;
+  if (doubleAt < 0) return groups.length === 8 ? (groups as unknown as IPv6Groups) : null;
 
   const fill = 8 - groups.length;
   if (fill < 1) return null; // "::" must stand for at least one zero group
   if (tailStart > 8 - fill) return null; // the head alone overflowed 8 groups
   // Splice the zero run in exactly where "::" was.
-  return [...groups.slice(0, tailStart), ...new Array<number>(fill).fill(0), ...groups.slice(tailStart)];
+  // Spliced to exactly 8 groups: `fill` was computed as 8 - groups.length and
+  // the overflow checks above reject any head that would overshoot.
+  return [...groups.slice(0, tailStart), ...new Array<number>(fill).fill(0), ...groups.slice(tailStart)] as unknown as IPv6Groups;
 }
 
-function classifyIPv6(g: readonly number[]): BlockReason | null {
+function classifyIPv6(g: IPv6Groups): BlockReason | null {
   const hi = g[0];
   const second = g[1];
 

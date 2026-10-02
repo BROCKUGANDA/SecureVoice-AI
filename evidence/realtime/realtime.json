@@ -4,11 +4,11 @@
   "command": "bun test tests/realtime/realtime.test.ts",
   "ok": true,
   "exit_code": 0,
-  "duration_ms": 811,
+  "duration_ms": 430,
   "passed": 1,
   "failed": 0,
   "assertions": 40,
   "database": "shared test database",
-  "generated_at": "2026-10-02T17:31:14.356Z",
-  "output_tail": "bun test v1.4.2 (744846f84)\n  [scope] cross-node delivery: UNVERIFIED here (no Redis, no Docker); run mini-services/realtime tests with REDIS_URL to close it\n\n\ntests\\realtime\\realtime.test.ts:\n(pass) WP-20: tenancy, resume, inbox dedupe, acknowledgement escalation [644.58ms]\n\n 1 pass\n 0 fail\n 40 expect() calls\nRan 1 test across 1 file. [772.00ms]\n"
+  "generated_at": "2026-10-02T21:14:44.424Z",
+  "output_tail": "bun test v1.4.2 (744846f84)\n  [scope] cross-node delivery: UNVERIFIED here (no Redis, no Docker); run mini-services/realtime tests with REDIS_URL to close it\n\n\ntests\\realtime\\realtime.test.ts:\n(pass) WP-20: tenancy, resume, inbox dedupe, acknowledgement escalation [308.42ms]\n\n 1 pass\n 0 fail\n 40 expect() calls\nRan 1 test across 1 file. [399.00ms]\n"
 }

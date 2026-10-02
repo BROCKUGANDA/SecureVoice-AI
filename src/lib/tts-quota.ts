@@ -1,4 +1,4 @@
-import "server-only";
+﻿import "server-only";
 /**
  * Voice-key resolution + per-user platform-key metering, shared by BOTH TTS
  * routes (buffered /api/tts and streaming /api/tts/stream) so neither surface
@@ -21,18 +21,54 @@ import { env, DAILY_CHAR_LIMIT } from "@/lib/config";
 export type TtsKeyResolution =
   | { mode: "byok"; keyOverride: string }
   | { mode: "platform"; clerkUserId: string; usedToday: number }
-  | { mode: "unmetered" }; // signed out, or dev dry-run — nothing to meter
+  | { mode: "unmetered" }
+  /**
+   * No profile and no BYOK, so there is no per-user budget to charge.
+   *
+   * BEFORE this variant existed, an unauthenticated caller fell through to
+   * `unmetered` and synthesised against the PLATFORM'S ElevenLabs key with no
+   * quota check at all. The only guard was `consumeRateLimit("tts-stream",
+   * rateLimitId(req))`, and `rateLimitId` returns the literal string "anon"
+   * whenever no client-IP header is present, so every anonymous caller shared
+   * ONE bucket and an attacker controlling their own egress simply spread
+   * requests across IPs to reset it. That is a direct drain of a paid vendor key
+   * by an unauthenticated caller (hazard P-9, trial and signup abuse).
+   *
+   * The caller must REFUSE this mode whenever a real key is configured.
+   * Refusal lives here rather than in each route so the two TTS surfaces cannot
+   * drift apart, which is the whole reason this module is shared.
+   */
+  | { mode: "anonymous"; reason: string };
+
+/** True when this resolution must not be allowed to spend a vendor key. */
+export function isAnonymousUnmetered(res: TtsKeyResolution): boolean {
+  return res.mode === "anonymous";
+}
 
 export async function resolveTtsKey(): Promise<TtsKeyResolution> {
   if (env.elevenLabsDryRun) return { mode: "unmetered" };
   const profile = await getProfile();
-  if (!profile) return { mode: "unmetered" };
+  if (!profile) {
+    // Signed out. Never hand an anonymous caller the platform key: there is no
+    // UserProfile row to charge, so `consumeCharQuota` has nothing to
+    // decrement and would return ok:true forever.
+    return env.elevenLabsApiKey
+      ? { mode: "anonymous", reason: "sign in to use the platform voice key, or supply your own key" }
+      : { mode: "unmetered" };
+  }
 
   const row = await db.userProfile.findUnique({
     where: { clerkUserId: profile.clerkUserId },
     select: { clerkUserId: true, elevenKeyEnc: true, ttsCharsDate: true, ttsCharsToday: true },
   });
-  if (!row) return { mode: "unmetered" };
+  if (!row) {
+    // The signed-in user has no profile row, so the per-user daily counter
+    // cannot be charged. Same exposure as signed-out, so it is refused the
+    // same way rather than silently falling through to the platform key.
+    return env.elevenLabsApiKey
+      ? { mode: "anonymous", reason: "voice quota is not provisioned for this account" }
+      : { mode: "unmetered" };
+  }
 
   if (row.elevenKeyEnc) {
     const key = decryptSecret(row.elevenKeyEnc);

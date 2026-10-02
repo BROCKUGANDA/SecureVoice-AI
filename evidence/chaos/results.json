@@ -1,14 +1,3371 @@
 {
-  "schema_version": "1.0",
-  "gate": "chaos",
-  "command": "bun test tests/chaos/chaos.test.ts",
-  "ok": true,
-  "exit_code": 0,
-  "duration_ms": 436,
-  "passed": 36,
-  "failed": 0,
-  "assertions": 921,
-  "database": "shared test database",
-  "generated_at": "2026-10-02T17:31:20.663Z",
-  "output_tail": "(pass) WP-21 / database failure matrix > row 5 — unique violation 23505: idempotency replay or a typed 409, never a 500 [2.59ms]\n(pass) WP-21 / database failure matrix > row 6 — foreign-key violation 23503: 409 naming the field [1.20ms]\n(pass) WP-21 / database failure matrix > row 7 — primary unreachable: read-only degraded mode REFUSES new interventions [1.53ms]\n(pass) WP-21 / database failure matrix > row 8 — replica lag past threshold: fail back to primary, or show a staleness banner [0.49ms]\n(pass) WP-21 / database failure matrix > row 9 — disk or WAL above 70%: alert, and the audit chain is never the write that fails [1.58ms]\n(pass) WP-21 / database failure matrix > the classifier reads both client vocabularies [0.46ms]\n(pass) WP-21 / database failure matrix > recordSection: matrix evidence is written [0.17ms]\n(pass) WP-21 / dependency breakers > conversation_plane: declared fallback, and a full open → half-open → close lifecycle [2.29ms]\n(pass) WP-21 / dependency breakers > telephony: declared fallback, and a full open → half-open → close lifecycle [0.30ms]\n(pass) WP-21 / dependency breakers > llm: declared fallback, and a full open → half-open → close lifecycle [0.23ms]\n(pass) WP-21 / dependency breakers > redis: declared fallback, and a full open → half-open → close lifecycle [0.21ms]\n(pass) WP-21 / dependency breakers > the declarations are the brief's, verbatim [0.30ms]\n(pass) WP-21 / dependency breakers > the Redis fallback is a CONSERVATIVE in-process limit, and says so [0.24ms]\n(pass) WP-21 / dependency breakers > recordSection: breaker evidence is written [0.16ms]\n(pass) WP-21 / timeout discipline > the declared tree is strictly decreasing at every edge [0.67ms]\n(pass) WP-21 / timeout discipline > deriveChildTimeout cannot return a budget that is not shorter [18.89ms]\n(pass) WP-21 / timeout discipline > a slow dependency surfaces as a typed error, not a cascade [74.49ms]\n(pass) WP-21 / timeout discipline > recordSection: timeout evidence is written [0.41ms]\n(pass) WP-21 / negative control — a policy refusal is 409 and NEVER 500 > every refusal the real runPolicyGate can emit maps to 409 [56.14ms]\n(pass) WP-21 / negative control — a policy refusal is 409 and NEVER 500 > no route is asked to retry a refusal [0.16ms]\n(pass) WP-21 / static check — no network I/O inside a database transaction > NEGATIVE CONTROL: the scanner reports a fetch() inside a $transaction, and ignores it outside [3.11ms]\n(pass) WP-21 / static check — no network I/O inside a database transaction > every scanned module holds the rule [22.65ms]\n(pass) WP-21 / gate integrity > the gate itself made no network call and touched no database [0.11ms]\n(pass) WP-21 / gate integrity > the evidence artifact is deterministic and complete [30.05ms]\n\n 36 pass\n 0 fail\n 921 expect() calls\nRan 36 tests across 1 file. [401.00ms]\n"
+  "schemaVersion": 1,
+  "gate": "WP-21 failure semantics for the API and the database",
+  "determinism": {
+    "wallClockIncluded": false,
+    "randomIdentifiersIncluded": false,
+    "sortOrder": "sections by id, checks by (area, name), matrix rows by id, breakers by dependency",
+    "note": "No timestamp and no run id is recorded. The artifact must be byte-identical for an identical set of outcomes, so a clock reading would make every diff meaningless."
+  },
+  "database": {
+    "used": false,
+    "note": "Every row of the matrix is driven by a synthetic error object, so the gate does not need a live database and cannot be made to fail by breaking one."
+  },
+  "breakers": [
+    {
+      "dependency": "conversation_plane",
+      "declared": "conversation plane down → continuity pipeline or SMS",
+      "channel": "continuity_pipeline",
+      "secondary": "sms",
+      "alerts": true,
+      "degraded": true,
+      "preservesIntervention": true,
+      "retryAfterSec": 30,
+      "lifecycle": [
+        "closed",
+        "open",
+        "half_open",
+        "closed",
+        "open",
+        "half_open",
+        "open",
+        "closed"
+      ],
+      "transitionsObserved": [
+        "closed",
+        "closed>open",
+        "closed>open>half_open",
+        "closed>open>half_open>closed",
+        "closed>open>half_open>closed>open",
+        "closed>open>half_open>closed>open>half_open",
+        "closed>open>half_open>closed>open>half_open>open",
+        "closed>open>half_open>closed>open>half_open>open>half_open>closed",
+        "closed"
+      ],
+      "fallbackInvoked": true,
+      "primaryInvokedWhileOpen": false,
+      "ok": true
+    },
+    {
+      "dependency": "llm",
+      "declared": "LLM down → scripted replies",
+      "channel": "scripted_reply",
+      "secondary": null,
+      "alerts": false,
+      "degraded": true,
+      "preservesIntervention": true,
+      "retryAfterSec": 15,
+      "lifecycle": [
+        "closed",
+        "open",
+        "half_open",
+        "closed",
+        "open",
+        "half_open",
+        "open",
+        "closed"
+      ],
+      "transitionsObserved": [
+        "closed",
+        "closed>open",
+        "closed>open>half_open",
+        "closed>open>half_open>closed",
+        "closed>open>half_open>closed>open",
+        "closed>open>half_open>closed>open>half_open",
+        "closed>open>half_open>closed>open>half_open>open",
+        "closed>open>half_open>closed>open>half_open>open>half_open>closed",
+        "closed"
+      ],
+      "fallbackInvoked": true,
+      "primaryInvokedWhileOpen": false,
+      "ok": true
+    },
+    {
+      "dependency": "redis",
+      "declared": "Redis down → conservative in-process limits logged as degraded",
+      "channel": "in_process_limits",
+      "secondary": null,
+      "alerts": true,
+      "degraded": true,
+      "preservesIntervention": true,
+      "retryAfterSec": 5,
+      "lifecycle": [
+        "closed",
+        "open",
+        "half_open",
+        "closed",
+        "open",
+        "half_open",
+        "open",
+        "closed"
+      ],
+      "transitionsObserved": [
+        "closed",
+        "closed>open",
+        "closed>open>half_open",
+        "closed>open>half_open>closed",
+        "closed>open>half_open>closed>open",
+        "closed>open>half_open>closed>open>half_open",
+        "closed>open>half_open>closed>open>half_open>open",
+        "closed>open>half_open>closed>open>half_open>open>half_open>closed",
+        "closed"
+      ],
+      "fallbackInvoked": true,
+      "primaryInvokedWhileOpen": false,
+      "ok": true
+    },
+    {
+      "dependency": "telephony",
+      "declared": "telephony down → queue and alert",
+      "channel": "queued",
+      "secondary": "alert",
+      "alerts": true,
+      "degraded": false,
+      "preservesIntervention": true,
+      "retryAfterSec": 60,
+      "lifecycle": [
+        "closed",
+        "open",
+        "half_open",
+        "closed",
+        "open",
+        "half_open",
+        "open",
+        "closed"
+      ],
+      "transitionsObserved": [
+        "closed",
+        "closed>open",
+        "closed>open>half_open",
+        "closed>open>half_open>closed",
+        "closed>open>half_open>closed>open",
+        "closed>open>half_open>closed>open>half_open",
+        "closed>open>half_open>closed>open>half_open>open",
+        "closed>open>half_open>closed>open>half_open>open>half_open>closed",
+        "closed"
+      ],
+      "fallbackInvoked": true,
+      "primaryInvokedWhileOpen": false,
+      "ok": true
+    }
+  ],
+  "envelope": {
+    "shape": [
+      "code",
+      "message",
+      "retryable",
+      "requestId",
+      "docsUrl"
+    ],
+    "forbiddenStatuses": [
+      403
+    ],
+    "leakRules": 32,
+    "maxMessageChars": 200,
+    "policyRefusalCodes": [
+      "concurrency_cap",
+      "consent_invalid",
+      "cooldown",
+      "country_not_allowed",
+      "country_unparseable",
+      "credits_exhausted",
+      "spend_ceiling"
+    ],
+    "policyRefusalStatus": 409,
+    "statusDiscipline": [
+      {
+        "code": "db_capacity_shed",
+        "status": 503,
+        "retryable": true,
+        "retryAfter": true,
+        "disposition": "shed_load"
+      },
+      {
+        "code": "dependency_unavailable",
+        "status": 503,
+        "retryable": true,
+        "retryAfter": true,
+        "disposition": "dependency_unavailable"
+      },
+      {
+        "code": "internal_bug",
+        "status": 500,
+        "retryable": false,
+        "retryAfter": false,
+        "disposition": "bug"
+      },
+      {
+        "code": "intervention_refused_degraded",
+        "status": 409,
+        "retryable": false,
+        "retryAfter": false,
+        "disposition": "state_precondition"
+      },
+      {
+        "code": "malformed_request",
+        "status": 400,
+        "retryable": false,
+        "retryAfter": false,
+        "disposition": "malformed"
+      },
+      {
+        "code": "not_found",
+        "status": 404,
+        "retryable": false,
+        "retryAfter": false,
+        "disposition": "not_found_or_cross_tenant"
+      },
+      {
+        "code": "payload_too_large",
+        "status": 413,
+        "retryable": false,
+        "retryAfter": false,
+        "disposition": "too_large"
+      },
+      {
+        "code": "policy_precondition",
+        "status": 409,
+        "retryable": false,
+        "retryAfter": false,
+        "disposition": "policy_precondition"
+      },
+      {
+        "code": "rate_limited",
+        "status": 429,
+        "retryable": true,
+        "retryAfter": true,
+        "disposition": "caller_quota"
+      },
+      {
+        "code": "reference_conflict",
+        "status": 409,
+        "retryable": false,
+        "retryAfter": false,
+        "disposition": "state_precondition"
+      },
+      {
+        "code": "semantically_invalid",
+        "status": 422,
+        "retryable": false,
+        "retryAfter": false,
+        "disposition": "semantically_invalid"
+      },
+      {
+        "code": "state_conflict",
+        "status": 409,
+        "retryable": false,
+        "retryAfter": false,
+        "disposition": "state_precondition"
+      },
+      {
+        "code": "statement_timeout",
+        "status": 503,
+        "retryable": true,
+        "retryAfter": true,
+        "disposition": "shed_load"
+      },
+      {
+        "code": "transaction_contended",
+        "status": 409,
+        "retryable": true,
+        "retryAfter": false,
+        "disposition": "state_precondition"
+      },
+      {
+        "code": "unauthenticated",
+        "status": 401,
+        "retryable": false,
+        "retryAfter": false,
+        "disposition": "unauthenticated"
+      },
+      {
+        "code": "unique_conflict",
+        "status": 409,
+        "retryable": false,
+        "retryAfter": false,
+        "disposition": "state_precondition"
+      }
+    ]
+  },
+  "matrix": [
+    {
+      "id": "deadlock_40P01",
+      "condition": "Deadlock (40P01)",
+      "required": "Retry the transaction up to three times with jitter.",
+      "observed": "recovered after 2 retries; always-deadlocking transaction attempted 4 times (3 jittered retries) then answered 409",
+      "ok": true
+    },
+    {
+      "id": "disk_or_wal_pressure",
+      "condition": "Disk or WAL above 70%",
+      "required": "Alert; the audit chain must never be the write that fails.",
+      "observed": "70% → elevated + alert(data_volume_at_70pct) + 503; 95% → critical, refuses [bulk_export, read_model_rebuild] while audit_chain stays admitted first in the priority order at every level",
+      "ok": true
+    },
+    {
+      "id": "foreign_key_23503",
+      "condition": "Foreign-key violation (23503)",
+      "required": "409 naming the field.",
+      "observed": "409 reference_conflict naming orgId (driver) / caseRef (Prisma meta.field_name); the offending value and the table name are never published",
+      "ok": true
+    },
+    {
+      "id": "pool_exhausted",
+      "condition": "Pool exhausted",
+      "required": "Shed with 503 and Retry-After; do not queue indefinitely behind a connection.",
+      "observed": "503 + Retry-After 2, queueBehindConnection=false, maxWaitMsRecommended=0, transaction attempts=1",
+      "ok": true
+    },
+    {
+      "id": "primary_unreachable",
+      "condition": "Primary unreachable",
+      "required": "Read-only degraded mode: serve reads, explicitly REFUSE new interventions.",
+      "observed": "reads allowed, interventionsAllowed=false, zero write attempts, refusal 409 intervention_refused_degraded (retryable=false, fallback=sms); full outage → 503 + Retry-After",
+      "ok": true
+    },
+    {
+      "id": "replica_lag",
+      "condition": "Replica lag past threshold",
+      "required": "Fail reads back to primary or show a staleness banner.",
+      "observed": "120 ms → replica, not stale; 9 400 ms → primary (failedBack) or replica + banner{lagMs:9400,thresholdMs:2000}; default mode is fail_back",
+      "ok": true
+    },
+    {
+      "id": "serialization_40001",
+      "condition": "Serialization failure (40001)",
+      "required": "Same retry path.",
+      "observed": "same runner, same constant (3 retries / 4 attempts), exhausted → 409",
+      "ok": true
+    },
+    {
+      "id": "statement_timeout",
+      "condition": "Statement timeout",
+      "required": "Typed timeout error, never a hanging request.",
+      "observed": "abandoned at budget with DbTimeoutError inside the 5 s assertion bound; 503 + Retry-After 5; own errors propagate unchanged",
+      "ok": true
+    },
+    {
+      "id": "unique_violation_23505",
+      "condition": "Unique violation (23505)",
+      "required": "Route to the idempotency response or a typed 409, never a 500.",
+      "observed": "stored answer present → replay 200; absent, no store, or non-2xx → 409 unique_conflict; no path returns 500",
+      "ok": true
+    }
+  ],
+  "negativeControl": {
+    "policyRefusal": {
+      "declaredCodes": [
+        "consent_invalid",
+        "country_unparseable",
+        "country_not_allowed",
+        "cooldown",
+        "concurrency_cap",
+        "spend_ceiling",
+        "credits_exhausted"
+      ],
+      "status": 409,
+      "retryable": false,
+      "retryAfterSec": null,
+      "emittedByRunPolicyGate": [
+        "consent_invalid",
+        "country_unparseable",
+        "country_not_allowed",
+        "cooldown",
+        "concurrency_cap"
+      ],
+      "declaredButNotEmitted": [
+        "spend_ceiling",
+        "credits_exhausted"
+      ],
+      "note": "WP-2 policy-gate steps 5 (spend ceiling) and 6 (credit reservation) are comments, so runPolicyGate cannot produce those two codes yet. They are declared in POLICY_REFUSAL_CODES and are asserted here so the mapping is complete the day they are implemented.",
+      "contrast": "internal_bug is the only code that yields 500"
+    }
+  },
+  "staticCheck": {
+    "rule": "no network I/O inside a database transaction",
+    "method": "comments and string literals are blanked (offsets preserved), every $transaction( region is bracket-matched, and the region is searched for a declared network-token vocabulary",
+    "filesScanned": [
+      "src/lib/outbox.ts",
+      "src/lib/billing/ledger.ts",
+      "src/lib/billing/breaker.ts",
+      "src/lib/payments/provider.ts",
+      "src/lib/payments/manual-invoice.ts",
+      "src/lib/payments/paystack.ts",
+      "src/lib/audit-chain.ts",
+      "src/lib/tenancy/guard.ts",
+      "src/lib/case-state-machine.ts",
+      "src/lib/idempotency.ts"
+    ],
+    "filesRead": [
+      "src/lib/audit-chain.ts",
+      "src/lib/billing/breaker.ts",
+      "src/lib/billing/ledger.ts",
+      "src/lib/case-state-machine.ts",
+      "src/lib/idempotency.ts",
+      "src/lib/outbox.ts",
+      "src/lib/payments/manual-invoice.ts",
+      "src/lib/payments/paystack.ts",
+      "src/lib/payments/provider.ts",
+      "src/lib/tenancy/guard.ts"
+    ],
+    "filesUnreadable": [],
+    "transactionRegions": [
+      {
+        "file": "src/lib/audit-chain.ts",
+        "transactions": 1,
+        "regions": [
+          "188-219"
+        ],
+        "findings": []
+      },
+      {
+        "file": "src/lib/billing/breaker.ts",
+        "transactions": 0,
+        "regions": [],
+        "findings": []
+      },
+      {
+        "file": "src/lib/billing/ledger.ts",
+        "transactions": 1,
+        "regions": [
+          "355-355"
+        ],
+        "findings": []
+      },
+      {
+        "file": "src/lib/case-state-machine.ts",
+        "transactions": 1,
+        "regions": [
+          "179-187"
+        ],
+        "findings": []
+      },
+      {
+        "file": "src/lib/idempotency.ts",
+        "transactions": 0,
+        "regions": [],
+        "findings": []
+      },
+      {
+        "file": "src/lib/outbox.ts",
+        "transactions": 2,
+        "regions": [
+          "243-261",
+          "292-298"
+        ],
+        "findings": []
+      },
+      {
+        "file": "src/lib/payments/manual-invoice.ts",
+        "transactions": 0,
+        "regions": [],
+        "findings": []
+      },
+      {
+        "file": "src/lib/payments/paystack.ts",
+        "transactions": 0,
+        "regions": [],
+        "findings": []
+      },
+      {
+        "file": "src/lib/payments/provider.ts",
+        "transactions": 1,
+        "regions": [
+          "306-375"
+        ],
+        "findings": []
+      },
+      {
+        "file": "src/lib/tenancy/guard.ts",
+        "transactions": 1,
+        "regions": [
+          "537-537"
+        ],
+        "findings": []
+      }
+    ],
+    "networkTokens": [
+      "fetch",
+      "axios",
+      "got",
+      "undici",
+      "WebSocket",
+      "http.request",
+      "https.request",
+      "net.connect",
+      "net.Socket",
+      "tls.connect",
+      "dgram",
+      "createTransport",
+      "smtp",
+      "sendMail",
+      "redis",
+      "ioredis"
+    ],
+    "findings": [],
+    "negativeControl": {
+      "fixture": "synthetic $transaction(async tx => { await fetch(...); await tx.case.create(...) })",
+      "reported": true,
+      "tokenDetected": "fetch",
+      "lineReported": 3,
+      "cleanFixture": "same fetch() placed outside the transaction reports nothing",
+      "commentsAndStrings": "a comment and a string literal mentioning fetch() inside a transaction are not reported",
+      "tokenCoverage": 16
+    },
+    "limits": [
+      "regex literals are not blanked, so a regex containing a network token would be reported (false positive, fails loudly)",
+      "a dynamically-computed callee name is not detected",
+      "a network call made by a FUNCTION CALLED from inside a transaction is not detected; the modules that can reach the network are named above for manual review"
+    ],
+    "httpCapableModules": [
+      {
+        "file": "src/lib/audit-chain.ts",
+        "importsHttp": true
+      },
+      {
+        "file": "src/lib/case-state-machine.ts",
+        "importsHttp": true
+      }
+    ]
+  },
+  "timeouts": {
+    "edges": [
+      {
+        "parent": "ingest.request",
+        "parentMs": 5000,
+        "child": "ingest.audit_append",
+        "childMs": 2000,
+        "reserveMs": 3000,
+        "source": "declared here — see src/lib/audit-chain.ts MAX_CONCURRENT_APPENDS",
+        "why": "the chain append is bounded by its own client pool and must not inherit the request budget"
+      },
+      {
+        "parent": "ingest.request",
+        "parentMs": 5000,
+        "child": "ingest.db_write",
+        "childMs": 3000,
+        "reserveMs": 2000,
+        "source": "declared here — no per-call budget exists on the ingest path",
+        "why": "state transition plus outbox row must commit inside the request budget"
+      },
+      {
+        "parent": "ingest.request",
+        "parentMs": 5000,
+        "child": "ingest.realtime_fanout",
+        "childMs": 1500,
+        "reserveMs": 3500,
+        "source": "src/lib/realtime.ts (TIMEOUT_MS = 1_500)",
+        "why": "a fan-out that has not landed in time degrades the console, never the request"
+      },
+      {
+        "parent": "outbox_worker.deliver",
+        "parentMs": 10000,
+        "child": "outbox_worker.bank_webhook",
+        "childMs": 8000,
+        "reserveMs": 2000,
+        "source": "declared here — src/lib/outbox.ts deliver() sets no timeout on its fetch",
+        "why": "a webhook call with no budget is the one hang the worker cannot shed around"
+      },
+      {
+        "parent": "outbox_worker.claim",
+        "parentMs": 5000,
+        "child": "outbox_worker.db_update",
+        "childMs": 3000,
+        "reserveMs": 2000,
+        "source": "declared here — the claim query runs on the shared pool",
+        "why": "a claim must either take its rows or release them, never hang holding SKIP LOCKED leases"
+      },
+      {
+        "parent": "voice_pipeline.turn",
+        "parentMs": 30000,
+        "child": "voice_pipeline.llm_turn",
+        "childMs": 8000,
+        "reserveMs": 22000,
+        "source": "src/lib/llm.ts (TIMEOUT_MS = 8_000)",
+        "why": "an agent turn must leave room for synthesis and playback inside the same turn window"
+      },
+      {
+        "parent": "voice_pipeline.turn",
+        "parentMs": 30000,
+        "child": "voice_pipeline.outbound_call_api",
+        "childMs": 10000,
+        "reserveMs": 20000,
+        "source": "src/lib/elevenlabs/outbound-call.ts (10_000)",
+        "why": "the call request must land before the turn window closes"
+      },
+      {
+        "parent": "voice_pipeline.turn",
+        "parentMs": 30000,
+        "child": "voice_pipeline.telephony_dial",
+        "childMs": 15000,
+        "reserveMs": 15000,
+        "source": "src/lib/twilio.ts (15_000)",
+        "why": "a dial that has not been placed leaves the turn silent with nothing queued"
+      },
+      {
+        "parent": "voice_pipeline.turn",
+        "parentMs": 30000,
+        "child": "voice_pipeline.tts",
+        "childMs": 25000,
+        "reserveMs": 5000,
+        "source": "src/lib/elevenlabs/client.ts (25_000)",
+        "why": "synthesis is the last thing to finish before audio is played back"
+      }
+    ],
+    "violations": [],
+    "edgesChecked": 9,
+    "rule": "every outbound call is strictly shorter than the caller waiting on it"
+  },
+  "summary": {
+    "result": "pass",
+    "areas": 7,
+    "checks": {
+      "total": 455,
+      "passed": 455,
+      "failed": 0
+    },
+    "matrixRows": {
+      "total": 9,
+      "ok": 9
+    },
+    "breakers": {
+      "total": 4,
+      "ok": 4
+    },
+    "failedChecks": []
+  },
+  "checks": [
+    {
+      "area": "breaker",
+      "name": "conversation_plane:503-with-retry-after",
+      "ok": true,
+      "detail": "30"
+    },
+    {
+      "area": "breaker",
+      "name": "conversation_plane:declared-fallback-present",
+      "ok": true,
+      "detail": "conversation plane down → continuity pipeline or SMS"
+    },
+    {
+      "area": "breaker",
+      "name": "conversation_plane:failed-probe-reopens",
+      "ok": true,
+      "detail": "re-opened with a fresh cooldown"
+    },
+    {
+      "area": "breaker",
+      "name": "conversation_plane:fallback-invoked-while-open",
+      "ok": true,
+      "detail": "fallback:continuity_pipeline"
+    },
+    {
+      "area": "breaker",
+      "name": "conversation_plane:half-open-admits-probes",
+      "ok": true,
+      "detail": "probes=2"
+    },
+    {
+      "area": "breaker",
+      "name": "conversation_plane:lifecycle-reaches-half-open",
+      "ok": true,
+      "detail": "closed / closed>open / closed>open>half_open / closed>open>half_open>closed / closed>open>half_open>closed>open / closed>open>half_open>closed>open>half_open / closed>open>half_open>closed>open>half_open>open / closed>open>half_open>closed>open>half_open>open>half_open>closed / closed"
+    },
+    {
+      "area": "breaker",
+      "name": "conversation_plane:opens-at-threshold",
+      "ok": true,
+      "detail": "closed>open"
+    },
+    {
+      "area": "breaker",
+      "name": "conversation_plane:primary-not-attempted-while-open",
+      "ok": true,
+      "detail": "primaryCalls=1"
+    },
+    {
+      "area": "breaker",
+      "name": "conversation_plane:probe-closes-on-success",
+      "ok": true,
+      "detail": "closed"
+    },
+    {
+      "area": "breaker",
+      "name": "declaration:conversation_plane",
+      "ok": true,
+      "detail": "conversation plane down → continuity pipeline or SMS"
+    },
+    {
+      "area": "breaker",
+      "name": "declaration:every-dependency-covered",
+      "ok": true,
+      "detail": "conversation_plane,telephony,llm,redis"
+    },
+    {
+      "area": "breaker",
+      "name": "declaration:llm",
+      "ok": true,
+      "detail": "LLM down → scripted replies"
+    },
+    {
+      "area": "breaker",
+      "name": "declaration:redis",
+      "ok": true,
+      "detail": "Redis down → conservative in-process limits logged as degraded"
+    },
+    {
+      "area": "breaker",
+      "name": "declaration:telephony",
+      "ok": true,
+      "detail": "telephony down → queue and alert"
+    },
+    {
+      "area": "breaker",
+      "name": "llm:503-with-retry-after",
+      "ok": true,
+      "detail": "15"
+    },
+    {
+      "area": "breaker",
+      "name": "llm:declared-fallback-present",
+      "ok": true,
+      "detail": "LLM down → scripted replies"
+    },
+    {
+      "area": "breaker",
+      "name": "llm:failed-probe-reopens",
+      "ok": true,
+      "detail": "re-opened with a fresh cooldown"
+    },
+    {
+      "area": "breaker",
+      "name": "llm:fallback-invoked-while-open",
+      "ok": true,
+      "detail": "fallback:scripted_reply"
+    },
+    {
+      "area": "breaker",
+      "name": "llm:half-open-admits-probes",
+      "ok": true,
+      "detail": "probes=2"
+    },
+    {
+      "area": "breaker",
+      "name": "llm:lifecycle-reaches-half-open",
+      "ok": true,
+      "detail": "closed / closed>open / closed>open>half_open / closed>open>half_open>closed / closed>open>half_open>closed>open / closed>open>half_open>closed>open>half_open / closed>open>half_open>closed>open>half_open>open / closed>open>half_open>closed>open>half_open>open>half_open>closed / closed"
+    },
+    {
+      "area": "breaker",
+      "name": "llm:opens-at-threshold",
+      "ok": true,
+      "detail": "closed>open"
+    },
+    {
+      "area": "breaker",
+      "name": "llm:primary-not-attempted-while-open",
+      "ok": true,
+      "detail": "primaryCalls=1"
+    },
+    {
+      "area": "breaker",
+      "name": "llm:probe-closes-on-success",
+      "ok": true,
+      "detail": "closed"
+    },
+    {
+      "area": "breaker",
+      "name": "redis:503-with-retry-after",
+      "ok": true,
+      "detail": "5"
+    },
+    {
+      "area": "breaker",
+      "name": "redis:admits-below-ceiling",
+      "ok": true,
+      "detail": "49 yes / 50 no"
+    },
+    {
+      "area": "breaker",
+      "name": "redis:conservative-ceiling",
+      "ok": true,
+      "detail": "100 → 50 per process"
+    },
+    {
+      "area": "breaker",
+      "name": "redis:declared-fallback-present",
+      "ok": true,
+      "detail": "Redis down → conservative in-process limits logged as degraded"
+    },
+    {
+      "area": "breaker",
+      "name": "redis:failed-probe-reopens",
+      "ok": true,
+      "detail": "re-opened with a fresh cooldown"
+    },
+    {
+      "area": "breaker",
+      "name": "redis:fallback-invoked-while-open",
+      "ok": true,
+      "detail": "fallback:in_process_limits"
+    },
+    {
+      "area": "breaker",
+      "name": "redis:garbage-limit-fails-closed",
+      "ok": true,
+      "detail": "1"
+    },
+    {
+      "area": "breaker",
+      "name": "redis:half-open-admits-probes",
+      "ok": true,
+      "detail": "probes=2"
+    },
+    {
+      "area": "breaker",
+      "name": "redis:lifecycle-reaches-half-open",
+      "ok": true,
+      "detail": "closed / closed>open / closed>open>half_open / closed>open>half_open>closed / closed>open>half_open>closed>open / closed>open>half_open>closed>open>half_open / closed>open>half_open>closed>open>half_open>open / closed>open>half_open>closed>open>half_open>open>half_open>closed / closed"
+    },
+    {
+      "area": "breaker",
+      "name": "redis:logged-as-degraded",
+      "ok": true,
+      "detail": "degraded: in-process limit active for org-x:dial (redis unavailable)"
+    },
+    {
+      "area": "breaker",
+      "name": "redis:opens-at-threshold",
+      "ok": true,
+      "detail": "closed>open"
+    },
+    {
+      "area": "breaker",
+      "name": "redis:primary-not-attempted-while-open",
+      "ok": true,
+      "detail": "primaryCalls=1"
+    },
+    {
+      "area": "breaker",
+      "name": "redis:probe-closes-on-success",
+      "ok": true,
+      "detail": "closed"
+    },
+    {
+      "area": "breaker",
+      "name": "telephony:503-with-retry-after",
+      "ok": true,
+      "detail": "60"
+    },
+    {
+      "area": "breaker",
+      "name": "telephony:declared-fallback-present",
+      "ok": true,
+      "detail": "telephony down → queue and alert"
+    },
+    {
+      "area": "breaker",
+      "name": "telephony:failed-probe-reopens",
+      "ok": true,
+      "detail": "re-opened with a fresh cooldown"
+    },
+    {
+      "area": "breaker",
+      "name": "telephony:fallback-invoked-while-open",
+      "ok": true,
+      "detail": "fallback:queued"
+    },
+    {
+      "area": "breaker",
+      "name": "telephony:half-open-admits-probes",
+      "ok": true,
+      "detail": "probes=2"
+    },
+    {
+      "area": "breaker",
+      "name": "telephony:lifecycle-reaches-half-open",
+      "ok": true,
+      "detail": "closed / closed>open / closed>open>half_open / closed>open>half_open>closed / closed>open>half_open>closed>open / closed>open>half_open>closed>open>half_open / closed>open>half_open>closed>open>half_open>open / closed>open>half_open>closed>open>half_open>open>half_open>closed / closed"
+    },
+    {
+      "area": "breaker",
+      "name": "telephony:opens-at-threshold",
+      "ok": true,
+      "detail": "closed>open"
+    },
+    {
+      "area": "breaker",
+      "name": "telephony:primary-not-attempted-while-open",
+      "ok": true,
+      "detail": "primaryCalls=1"
+    },
+    {
+      "area": "breaker",
+      "name": "telephony:probe-closes-on-success",
+      "ok": true,
+      "detail": "closed"
+    },
+    {
+      "area": "envelope",
+      "name": "403-reserved-for-role-gating-not-tenancy",
+      "ok": true,
+      "detail": "api-errors.forbidden=403, no code maps to it"
+    },
+    {
+      "area": "envelope",
+      "name": "agrees-with-api-errors:dependency_unavailable",
+      "ok": true,
+      "detail": "503 vs 503"
+    },
+    {
+      "area": "envelope",
+      "name": "agrees-with-api-errors:internal_bug",
+      "ok": true,
+      "detail": "500 vs 500"
+    },
+    {
+      "area": "envelope",
+      "name": "agrees-with-api-errors:malformed_request",
+      "ok": true,
+      "detail": "400 vs 400"
+    },
+    {
+      "area": "envelope",
+      "name": "agrees-with-api-errors:not_found",
+      "ok": true,
+      "detail": "404 vs 404"
+    },
+    {
+      "area": "envelope",
+      "name": "agrees-with-api-errors:rate_limited",
+      "ok": true,
+      "detail": "429 vs 429"
+    },
+    {
+      "area": "envelope",
+      "name": "agrees-with-api-errors:semantically_invalid",
+      "ok": true,
+      "detail": "422 vs 422"
+    },
+    {
+      "area": "envelope",
+      "name": "agrees-with-api-errors:unauthenticated",
+      "ok": true,
+      "detail": "401 vs 401"
+    },
+    {
+      "area": "envelope",
+      "name": "api-errors-already-carries-retry-after",
+      "ok": true,
+      "detail": "3"
+    },
+    {
+      "area": "envelope",
+      "name": "cross-tenant-body-identical",
+      "ok": true,
+      "detail": "identical"
+    },
+    {
+      "area": "envelope",
+      "name": "cross-tenant-detail-cannot-leak",
+      "ok": true,
+      "detail": "Not found."
+    },
+    {
+      "area": "envelope",
+      "name": "cross-tenant-detail-is-dropped",
+      "ok": true,
+      "detail": "identical"
+    },
+    {
+      "area": "envelope",
+      "name": "cross-tenant-has-no-distinct-code",
+      "ok": true,
+      "detail": "not_found"
+    },
+    {
+      "area": "envelope",
+      "name": "cross-tenant-is-404",
+      "ok": true,
+      "detail": "404"
+    },
+    {
+      "area": "envelope",
+      "name": "cross-tenant-never-403",
+      "ok": true,
+      "detail": "404"
+    },
+    {
+      "area": "envelope",
+      "name": "empty-detail-falls-back-to-public-message",
+      "ok": true,
+      "detail": "fallback"
+    },
+    {
+      "area": "envelope",
+      "name": "five-fields:db_capacity_shed",
+      "ok": true,
+      "detail": "keys=code,docsUrl,message,requestId,retryable"
+    },
+    {
+      "area": "envelope",
+      "name": "five-fields:dependency_unavailable",
+      "ok": true,
+      "detail": "keys=code,docsUrl,message,requestId,retryable"
+    },
+    {
+      "area": "envelope",
+      "name": "five-fields:internal_bug",
+      "ok": true,
+      "detail": "keys=code,docsUrl,message,requestId,retryable"
+    },
+    {
+      "area": "envelope",
+      "name": "five-fields:intervention_refused_degraded",
+      "ok": true,
+      "detail": "keys=code,docsUrl,message,requestId,retryable"
+    },
+    {
+      "area": "envelope",
+      "name": "five-fields:malformed_request",
+      "ok": true,
+      "detail": "keys=code,docsUrl,message,requestId,retryable"
+    },
+    {
+      "area": "envelope",
+      "name": "five-fields:not_found",
+      "ok": true,
+      "detail": "keys=code,docsUrl,message,requestId,retryable"
+    },
+    {
+      "area": "envelope",
+      "name": "five-fields:payload_too_large",
+      "ok": true,
+      "detail": "keys=code,docsUrl,message,requestId,retryable"
+    },
+    {
+      "area": "envelope",
+      "name": "five-fields:policy_precondition",
+      "ok": true,
+      "detail": "keys=code,docsUrl,message,requestId,retryable"
+    },
+    {
+      "area": "envelope",
+      "name": "five-fields:rate_limited",
+      "ok": true,
+      "detail": "keys=code,docsUrl,message,requestId,retryable"
+    },
+    {
+      "area": "envelope",
+      "name": "five-fields:reference_conflict",
+      "ok": true,
+      "detail": "keys=code,docsUrl,message,requestId,retryable"
+    },
+    {
+      "area": "envelope",
+      "name": "five-fields:semantically_invalid",
+      "ok": true,
+      "detail": "keys=code,docsUrl,message,requestId,retryable"
+    },
+    {
+      "area": "envelope",
+      "name": "five-fields:state_conflict",
+      "ok": true,
+      "detail": "keys=code,docsUrl,message,requestId,retryable"
+    },
+    {
+      "area": "envelope",
+      "name": "five-fields:statement_timeout",
+      "ok": true,
+      "detail": "keys=code,docsUrl,message,requestId,retryable"
+    },
+    {
+      "area": "envelope",
+      "name": "five-fields:transaction_contended",
+      "ok": true,
+      "detail": "keys=code,docsUrl,message,requestId,retryable"
+    },
+    {
+      "area": "envelope",
+      "name": "five-fields:unauthenticated",
+      "ok": true,
+      "detail": "keys=code,docsUrl,message,requestId,retryable"
+    },
+    {
+      "area": "envelope",
+      "name": "five-fields:unique_conflict",
+      "ok": true,
+      "detail": "keys=code,docsUrl,message,requestId,retryable"
+    },
+    {
+      "area": "envelope",
+      "name": "fk-value-never-published",
+      "ok": true,
+      "detail": "A referenced record is missing or not visible to this organisation. [redacted](org_[redacted]) [redacted] \"Case\""
+    },
+    {
+      "area": "envelope",
+      "name": "map-agrees:db_capacity_shed",
+      "ok": true,
+      "detail": "503"
+    },
+    {
+      "area": "envelope",
+      "name": "map-agrees:dependency_unavailable",
+      "ok": true,
+      "detail": "503"
+    },
+    {
+      "area": "envelope",
+      "name": "map-agrees:internal_bug",
+      "ok": true,
+      "detail": "500"
+    },
+    {
+      "area": "envelope",
+      "name": "map-agrees:intervention_refused_degraded",
+      "ok": true,
+      "detail": "409"
+    },
+    {
+      "area": "envelope",
+      "name": "map-agrees:malformed_request",
+      "ok": true,
+      "detail": "400"
+    },
+    {
+      "area": "envelope",
+      "name": "map-agrees:not_found",
+      "ok": true,
+      "detail": "404"
+    },
+    {
+      "area": "envelope",
+      "name": "map-agrees:payload_too_large",
+      "ok": true,
+      "detail": "413"
+    },
+    {
+      "area": "envelope",
+      "name": "map-agrees:policy_precondition",
+      "ok": true,
+      "detail": "409"
+    },
+    {
+      "area": "envelope",
+      "name": "map-agrees:rate_limited",
+      "ok": true,
+      "detail": "429"
+    },
+    {
+      "area": "envelope",
+      "name": "map-agrees:reference_conflict",
+      "ok": true,
+      "detail": "409"
+    },
+    {
+      "area": "envelope",
+      "name": "map-agrees:semantically_invalid",
+      "ok": true,
+      "detail": "422"
+    },
+    {
+      "area": "envelope",
+      "name": "map-agrees:state_conflict",
+      "ok": true,
+      "detail": "409"
+    },
+    {
+      "area": "envelope",
+      "name": "map-agrees:statement_timeout",
+      "ok": true,
+      "detail": "503"
+    },
+    {
+      "area": "envelope",
+      "name": "map-agrees:transaction_contended",
+      "ok": true,
+      "detail": "409"
+    },
+    {
+      "area": "envelope",
+      "name": "map-agrees:unauthenticated",
+      "ok": true,
+      "detail": "401"
+    },
+    {
+      "area": "envelope",
+      "name": "map-agrees:unique_conflict",
+      "ok": true,
+      "detail": "409"
+    },
+    {
+      "area": "envelope",
+      "name": "never-403:db_capacity_shed",
+      "ok": true,
+      "detail": "503"
+    },
+    {
+      "area": "envelope",
+      "name": "never-403:dependency_unavailable",
+      "ok": true,
+      "detail": "503"
+    },
+    {
+      "area": "envelope",
+      "name": "never-403:internal_bug",
+      "ok": true,
+      "detail": "500"
+    },
+    {
+      "area": "envelope",
+      "name": "never-403:intervention_refused_degraded",
+      "ok": true,
+      "detail": "409"
+    },
+    {
+      "area": "envelope",
+      "name": "never-403:malformed_request",
+      "ok": true,
+      "detail": "400"
+    },
+    {
+      "area": "envelope",
+      "name": "never-403:not_found",
+      "ok": true,
+      "detail": "404"
+    },
+    {
+      "area": "envelope",
+      "name": "never-403:payload_too_large",
+      "ok": true,
+      "detail": "413"
+    },
+    {
+      "area": "envelope",
+      "name": "never-403:policy_precondition",
+      "ok": true,
+      "detail": "409"
+    },
+    {
+      "area": "envelope",
+      "name": "never-403:rate_limited",
+      "ok": true,
+      "detail": "429"
+    },
+    {
+      "area": "envelope",
+      "name": "never-403:reference_conflict",
+      "ok": true,
+      "detail": "409"
+    },
+    {
+      "area": "envelope",
+      "name": "never-403:semantically_invalid",
+      "ok": true,
+      "detail": "422"
+    },
+    {
+      "area": "envelope",
+      "name": "never-403:state_conflict",
+      "ok": true,
+      "detail": "409"
+    },
+    {
+      "area": "envelope",
+      "name": "never-403:statement_timeout",
+      "ok": true,
+      "detail": "503"
+    },
+    {
+      "area": "envelope",
+      "name": "never-403:transaction_contended",
+      "ok": true,
+      "detail": "409"
+    },
+    {
+      "area": "envelope",
+      "name": "never-403:unauthenticated",
+      "ok": true,
+      "detail": "401"
+    },
+    {
+      "area": "envelope",
+      "name": "never-403:unique_conflict",
+      "ok": true,
+      "detail": "409"
+    },
+    {
+      "area": "envelope",
+      "name": "no-leak:db_capacity_shed",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "area": "envelope",
+      "name": "no-leak:dependency_unavailable",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "area": "envelope",
+      "name": "no-leak:internal_bug",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "area": "envelope",
+      "name": "no-leak:intervention_refused_degraded",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "area": "envelope",
+      "name": "no-leak:malformed_request",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "area": "envelope",
+      "name": "no-leak:not_found",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "area": "envelope",
+      "name": "no-leak:payload_too_large",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "area": "envelope",
+      "name": "no-leak:policy_precondition",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "area": "envelope",
+      "name": "no-leak:rate_limited",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "area": "envelope",
+      "name": "no-leak:reference_conflict",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "area": "envelope",
+      "name": "no-leak:semantically_invalid",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "area": "envelope",
+      "name": "no-leak:state_conflict",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "area": "envelope",
+      "name": "no-leak:statement_timeout",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "area": "envelope",
+      "name": "no-leak:transaction_contended",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "area": "envelope",
+      "name": "no-leak:unauthenticated",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "area": "envelope",
+      "name": "no-leak:unique_conflict",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "area": "envelope",
+      "name": "only-internal-bug-is-500",
+      "ok": true,
+      "detail": "internal_bug"
+    },
+    {
+      "area": "envelope",
+      "name": "request-id-opaque-passthrough",
+      "ok": true,
+      "detail": "passthrough"
+    },
+    {
+      "area": "envelope",
+      "name": "request-id-rejects-internal-identifier",
+      "ok": true,
+      "detail": "replaced"
+    },
+    {
+      "area": "envelope",
+      "name": "request-id-rejects-unsafe-shape",
+      "ok": true,
+      "detail": "replaced"
+    },
+    {
+      "area": "envelope",
+      "name": "request-id-rejects-uuid",
+      "ok": true,
+      "detail": "replaced"
+    },
+    {
+      "area": "envelope",
+      "name": "request-id-replacements-are-opaque",
+      "ok": true,
+      "detail": "opaque"
+    },
+    {
+      "area": "envelope",
+      "name": "request-id-replacements-are-unique",
+      "ok": true,
+      "detail": "unique"
+    },
+    {
+      "area": "envelope",
+      "name": "response-init-carries-status-and-retry-after",
+      "ok": true,
+      "detail": "503/7"
+    },
+    {
+      "area": "envelope",
+      "name": "retry-after-absent:internal_bug",
+      "ok": true,
+      "detail": "undefined"
+    },
+    {
+      "area": "envelope",
+      "name": "retry-after-absent:intervention_refused_degraded",
+      "ok": true,
+      "detail": "undefined"
+    },
+    {
+      "area": "envelope",
+      "name": "retry-after-absent:malformed_request",
+      "ok": true,
+      "detail": "undefined"
+    },
+    {
+      "area": "envelope",
+      "name": "retry-after-absent:not_found",
+      "ok": true,
+      "detail": "undefined"
+    },
+    {
+      "area": "envelope",
+      "name": "retry-after-absent:payload_too_large",
+      "ok": true,
+      "detail": "undefined"
+    },
+    {
+      "area": "envelope",
+      "name": "retry-after-absent:policy_precondition",
+      "ok": true,
+      "detail": "undefined"
+    },
+    {
+      "area": "envelope",
+      "name": "retry-after-absent:reference_conflict",
+      "ok": true,
+      "detail": "undefined"
+    },
+    {
+      "area": "envelope",
+      "name": "retry-after-absent:semantically_invalid",
+      "ok": true,
+      "detail": "undefined"
+    },
+    {
+      "area": "envelope",
+      "name": "retry-after-absent:state_conflict",
+      "ok": true,
+      "detail": "undefined"
+    },
+    {
+      "area": "envelope",
+      "name": "retry-after-absent:transaction_contended",
+      "ok": true,
+      "detail": "undefined"
+    },
+    {
+      "area": "envelope",
+      "name": "retry-after-absent:unauthenticated",
+      "ok": true,
+      "detail": "undefined"
+    },
+    {
+      "area": "envelope",
+      "name": "retry-after-absent:unique_conflict",
+      "ok": true,
+      "detail": "undefined"
+    },
+    {
+      "area": "envelope",
+      "name": "retry-after-bad-value-becomes-1",
+      "ok": true,
+      "detail": "1"
+    },
+    {
+      "area": "envelope",
+      "name": "retry-after-clamped-high",
+      "ok": true,
+      "detail": "3600"
+    },
+    {
+      "area": "envelope",
+      "name": "retry-after-clamped-low",
+      "ok": true,
+      "detail": "1"
+    },
+    {
+      "area": "envelope",
+      "name": "retry-after-honours-caller-value",
+      "ok": true,
+      "detail": "30"
+    },
+    {
+      "area": "envelope",
+      "name": "retry-after-present:db_capacity_shed",
+      "ok": true,
+      "detail": "1"
+    },
+    {
+      "area": "envelope",
+      "name": "retry-after-present:dependency_unavailable",
+      "ok": true,
+      "detail": "1"
+    },
+    {
+      "area": "envelope",
+      "name": "retry-after-present:rate_limited",
+      "ok": true,
+      "detail": "1"
+    },
+    {
+      "area": "envelope",
+      "name": "retry-after-present:statement_timeout",
+      "ok": true,
+      "detail": "1"
+    },
+    {
+      "area": "envelope",
+      "name": "sample-detected:internal_identifier:bearer eyJhbGciOiJIUzI1NiJ9.abc.",
+      "ok": true,
+      "detail": "internal_identifier"
+    },
+    {
+      "area": "envelope",
+      "name": "sample-detected:internal_identifier:dsn postgresql://postgres:pw@10.",
+      "ok": true,
+      "detail": "internal_identifier"
+    },
+    {
+      "area": "envelope",
+      "name": "sample-detected:internal_identifier:generated by cuid2('abc')",
+      "ok": true,
+      "detail": "internal_identifier"
+    },
+    {
+      "area": "envelope",
+      "name": "sample-detected:internal_identifier:id 6f0d2c1a-1111-2222-3333-44445",
+      "ok": true,
+      "detail": "internal_identifier"
+    },
+    {
+      "area": "envelope",
+      "name": "sample-detected:internal_identifier:key sk_live_0123456789abcdef rej",
+      "ok": true,
+      "detail": "internal_identifier"
+    },
+    {
+      "area": "envelope",
+      "name": "sample-detected:internal_identifier:row a1b2c3d4e5f60718293a4b5c6d7e",
+      "ok": true,
+      "detail": "internal_identifier"
+    },
+    {
+      "area": "envelope",
+      "name": "sample-detected:internal_identifier:row org_9f2c4a17e0b34d55 not vis",
+      "ok": true,
+      "detail": "internal_identifier"
+    },
+    {
+      "area": "envelope",
+      "name": "sample-detected:internal_timestamp:failed at 2026-10-02T09:14:22.40",
+      "ok": true,
+      "detail": "internal_timestamp"
+    },
+    {
+      "area": "envelope",
+      "name": "sample-detected:model_prompt:<|im_start|>assistant",
+      "ok": true,
+      "detail": "model_prompt"
+    },
+    {
+      "area": "envelope",
+      "name": "sample-detected:model_prompt:You are a helpful collections as",
+      "ok": true,
+      "detail": "model_prompt"
+    },
+    {
+      "area": "envelope",
+      "name": "sample-detected:model_prompt:instructions: refuse the call",
+      "ok": true,
+      "detail": "model_prompt"
+    },
+    {
+      "area": "envelope",
+      "name": "sample-detected:model_prompt:model params temperature: 0.7",
+      "ok": true,
+      "detail": "model_prompt"
+    },
+    {
+      "area": "envelope",
+      "name": "sample-detected:model_prompt:returned tool_calls: []",
+      "ok": true,
+      "detail": "model_prompt"
+    },
+    {
+      "area": "envelope",
+      "name": "sample-detected:model_prompt:system: you are a fraud analyst ",
+      "ok": true,
+      "detail": "model_prompt"
+    },
+    {
+      "area": "envelope",
+      "name": "sample-detected:oversized:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "ok": true,
+      "detail": "oversized"
+    },
+    {
+      "area": "envelope",
+      "name": "sample-detected:sql:INSERT INTO \"AuditLog\" (\"callRef",
+      "ok": true,
+      "detail": "sql"
+    },
+    {
+      "area": "envelope",
+      "name": "sample-detected:sql:ON CONFLICT (\"reference\") DO NOT",
+      "ok": true,
+      "detail": "sql"
+    },
+    {
+      "area": "envelope",
+      "name": "sample-detected:sql:SELECT ... FOR UPDATE SKIP LOCKE",
+      "ok": true,
+      "detail": "sql"
+    },
+    {
+      "area": "envelope",
+      "name": "sample-detected:sql:Unique constraint failed on the ",
+      "ok": true,
+      "detail": "sql"
+    },
+    {
+      "area": "envelope",
+      "name": "sample-detected:sql:cast to ::jsonb failed",
+      "ok": true,
+      "detail": "sql"
+    },
+    {
+      "area": "envelope",
+      "name": "sample-detected:sql:insert failed: Key (orgId)=(org_",
+      "ok": true,
+      "detail": "internal_identifier|sql"
+    },
+    {
+      "area": "envelope",
+      "name": "sample-detected:sql:select 1 from \"UsageLedger\" wher",
+      "ok": true,
+      "detail": "sql"
+    },
+    {
+      "area": "envelope",
+      "name": "sample-detected:sql:violates foreign key constraint ",
+      "ok": true,
+      "detail": "sql"
+    },
+    {
+      "area": "envelope",
+      "name": "sample-detected:sql:violates not-null constraint on ",
+      "ok": true,
+      "detail": "sql"
+    },
+    {
+      "area": "envelope",
+      "name": "sample-detected:sql:where \"orgId\" = $1",
+      "ok": true,
+      "detail": "sql"
+    },
+    {
+      "area": "envelope",
+      "name": "sample-detected:stack_trace:Error: boom\n    at handler (/srv",
+      "ok": true,
+      "detail": "stack_trace"
+    },
+    {
+      "area": "envelope",
+      "name": "sample-detected:stack_trace:TypeError: cannot read propertie",
+      "ok": true,
+      "detail": "stack_trace"
+    },
+    {
+      "area": "envelope",
+      "name": "sample-detected:stack_trace:frames in /srv/app/node_modules/",
+      "ok": true,
+      "detail": "stack_trace"
+    },
+    {
+      "area": "envelope",
+      "name": "sample-detected:stack_trace:query metadata at prisma://local",
+      "ok": true,
+      "detail": "stack_trace"
+    },
+    {
+      "area": "envelope",
+      "name": "sample-detected:stack_trace:raised at src/lib/billing/ledger",
+      "ok": true,
+      "detail": "stack_trace"
+    },
+    {
+      "area": "envelope",
+      "name": "sample-detected:stack_trace:thrown from at Object.<anonymous",
+      "ok": true,
+      "detail": "stack_trace"
+    },
+    {
+      "area": "envelope",
+      "name": "sample-redacted:internal_identifier:bearer eyJhbGciOiJIUzI1NiJ9.abc.",
+      "ok": true,
+      "detail": "The request was well-formed but semantically invalid. bearer [redacted]abc.def"
+    },
+    {
+      "area": "envelope",
+      "name": "sample-redacted:internal_identifier:dsn postgresql://postgres:pw@10.",
+      "ok": true,
+      "detail": "The request was well-formed but semantically invalid. dsn [redacted]"
+    },
+    {
+      "area": "envelope",
+      "name": "sample-redacted:internal_identifier:generated by cuid2('abc')",
+      "ok": true,
+      "detail": "The request was well-formed but semantically invalid. generated by [redacted]'abc')"
+    },
+    {
+      "area": "envelope",
+      "name": "sample-redacted:internal_identifier:id 6f0d2c1a-1111-2222-3333-44445",
+      "ok": true,
+      "detail": "The request was well-formed but semantically invalid. id [redacted] missing"
+    },
+    {
+      "area": "envelope",
+      "name": "sample-redacted:internal_identifier:key sk_live_0123456789abcdef rej",
+      "ok": true,
+      "detail": "The request was well-formed but semantically invalid. key sk_live_[redacted] rejected"
+    },
+    {
+      "area": "envelope",
+      "name": "sample-redacted:internal_identifier:row a1b2c3d4e5f60718293a4b5c6d7e",
+      "ok": true,
+      "detail": "The request was well-formed but semantically invalid. row [redacted] missing"
+    },
+    {
+      "area": "envelope",
+      "name": "sample-redacted:internal_identifier:row org_9f2c4a17e0b34d55 not vis",
+      "ok": true,
+      "detail": "The request was well-formed but semantically invalid. row org_[redacted] not visible"
+    },
+    {
+      "area": "envelope",
+      "name": "sample-redacted:internal_timestamp:failed at 2026-10-02T09:14:22.40",
+      "ok": true,
+      "detail": "The request was well-formed but semantically invalid. failed at [redacted].401Z"
+    },
+    {
+      "area": "envelope",
+      "name": "sample-redacted:model_prompt:<|im_start|>assistant",
+      "ok": true,
+      "detail": "The request was well-formed but semantically invalid. [redacted]assistant"
+    },
+    {
+      "area": "envelope",
+      "name": "sample-redacted:model_prompt:You are a helpful collections as",
+      "ok": true,
+      "detail": "The request was well-formed but semantically invalid. [redacted] helpful collections assistant."
+    },
+    {
+      "area": "envelope",
+      "name": "sample-redacted:model_prompt:instructions: refuse the call",
+      "ok": true,
+      "detail": "The request was well-formed but semantically invalid. [redacted] refuse the call"
+    },
+    {
+      "area": "envelope",
+      "name": "sample-redacted:model_prompt:model params temperature: 0.7",
+      "ok": true,
+      "detail": "The request was well-formed but semantically invalid. model params [redacted].7"
+    },
+    {
+      "area": "envelope",
+      "name": "sample-redacted:model_prompt:returned tool_calls: []",
+      "ok": true,
+      "detail": "The request was well-formed but semantically invalid. returned [redacted]: []"
+    },
+    {
+      "area": "envelope",
+      "name": "sample-redacted:model_prompt:system: you are a fraud analyst ",
+      "ok": true,
+      "detail": "The request was well-formed but semantically invalid. [redacted] [redacted] fraud analyst for a bank"
+    },
+    {
+      "area": "envelope",
+      "name": "sample-redacted:oversized:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "ok": true,
+      "detail": "The request was well-formed but semantically invalid. xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    {
+      "area": "envelope",
+      "name": "sample-redacted:sql:INSERT INTO \"AuditLog\" (\"callRef",
+      "ok": true,
+      "detail": "The request was well-formed but semantically invalid. [redacted] \"AuditLog\" (\"callRef\") VALUES ('SV-1')"
+    },
+    {
+      "area": "envelope",
+      "name": "sample-redacted:sql:ON CONFLICT (\"reference\") DO NOT",
+      "ok": true,
+      "detail": "The request was well-formed but semantically invalid. [redacted] (\"reference\") DO NOTHING"
+    },
+    {
+      "area": "envelope",
+      "name": "sample-redacted:sql:SELECT ... FOR UPDATE SKIP LOCKE",
+      "ok": true,
+      "detail": "The request was well-formed but semantically invalid. SELECT ... [redacted] SKIP LOCKED"
+    },
+    {
+      "area": "envelope",
+      "name": "sample-redacted:sql:Unique constraint failed on the ",
+      "ok": true,
+      "detail": "The request was well-formed but semantically invalid. [redacted] on the fields: (`idemKey`)"
+    },
+    {
+      "area": "envelope",
+      "name": "sample-redacted:sql:cast to ::jsonb failed",
+      "ok": true,
+      "detail": "The request was well-formed but semantically invalid. cast to [redacted] failed"
+    },
+    {
+      "area": "envelope",
+      "name": "sample-redacted:sql:insert failed: Key (orgId)=(org_",
+      "ok": true,
+      "detail": "The request was well-formed but semantically invalid. insert failed: [redacted](org_[redacted]) [redacted] \"Case\""
+    },
+    {
+      "area": "envelope",
+      "name": "sample-redacted:sql:select 1 from \"UsageLedger\" wher",
+      "ok": true,
+      "detail": "The request was well-formed but semantically invalid. [redacted] \"UsageLedger\" [redacted] 'org_a'"
+    },
+    {
+      "area": "envelope",
+      "name": "sample-redacted:sql:violates foreign key constraint ",
+      "ok": true,
+      "detail": "The request was well-formed but semantically invalid. [redacted] constraint \"Case_orgId_fkey\""
+    },
+    {
+      "area": "envelope",
+      "name": "sample-redacted:sql:violates not-null constraint on ",
+      "ok": true,
+      "detail": "The request was well-formed but semantically invalid. [redacted] constraint on the column \"units\""
+    },
+    {
+      "area": "envelope",
+      "name": "sample-redacted:sql:where \"orgId\" = $1",
+      "ok": true,
+      "detail": "The request was well-formed but semantically invalid. [redacted] $1"
+    },
+    {
+      "area": "envelope",
+      "name": "sample-redacted:stack_trace:Error: boom\n    at handler (/srv",
+      "ok": true,
+      "detail": "The request was well-formed but semantically invalid. [redacted] boom [redacted][redacted])"
+    },
+    {
+      "area": "envelope",
+      "name": "sample-redacted:stack_trace:TypeError: cannot read propertie",
+      "ok": true,
+      "detail": "The request was well-formed but semantically invalid. [redacted] cannot read properties of undefined at pool"
+    },
+    {
+      "area": "envelope",
+      "name": "sample-redacted:stack_trace:frames in /srv/app/node_modules/",
+      "ok": true,
+      "detail": "The request was well-formed but semantically invalid. frames in /srv/app/[redacted]/@prisma/client/runtime/library.js"
+    },
+    {
+      "area": "envelope",
+      "name": "sample-redacted:stack_trace:query metadata at prisma://local",
+      "ok": true,
+      "detail": "The request was well-formed but semantically invalid. query metadata at [redacted]localhost:5432/db"
+    },
+    {
+      "area": "envelope",
+      "name": "sample-redacted:stack_trace:raised at src/lib/billing/ledger",
+      "ok": true,
+      "detail": "The request was well-formed but semantically invalid. raised at [redacted]"
+    },
+    {
+      "area": "envelope",
+      "name": "sample-redacted:stack_trace:thrown from at Object.<anonymous",
+      "ok": true,
+      "detail": "The request was well-formed but semantically invalid. thrown from [redacted][redacted])"
+    },
+    {
+      "area": "envelope",
+      "name": "sanctioned-status:db_capacity_shed",
+      "ok": true,
+      "detail": "503"
+    },
+    {
+      "area": "envelope",
+      "name": "sanctioned-status:dependency_unavailable",
+      "ok": true,
+      "detail": "503"
+    },
+    {
+      "area": "envelope",
+      "name": "sanctioned-status:internal_bug",
+      "ok": true,
+      "detail": "500"
+    },
+    {
+      "area": "envelope",
+      "name": "sanctioned-status:intervention_refused_degraded",
+      "ok": true,
+      "detail": "409"
+    },
+    {
+      "area": "envelope",
+      "name": "sanctioned-status:malformed_request",
+      "ok": true,
+      "detail": "400"
+    },
+    {
+      "area": "envelope",
+      "name": "sanctioned-status:not_found",
+      "ok": true,
+      "detail": "404"
+    },
+    {
+      "area": "envelope",
+      "name": "sanctioned-status:payload_too_large",
+      "ok": true,
+      "detail": "413"
+    },
+    {
+      "area": "envelope",
+      "name": "sanctioned-status:policy_precondition",
+      "ok": true,
+      "detail": "409"
+    },
+    {
+      "area": "envelope",
+      "name": "sanctioned-status:rate_limited",
+      "ok": true,
+      "detail": "429"
+    },
+    {
+      "area": "envelope",
+      "name": "sanctioned-status:reference_conflict",
+      "ok": true,
+      "detail": "409"
+    },
+    {
+      "area": "envelope",
+      "name": "sanctioned-status:semantically_invalid",
+      "ok": true,
+      "detail": "422"
+    },
+    {
+      "area": "envelope",
+      "name": "sanctioned-status:state_conflict",
+      "ok": true,
+      "detail": "409"
+    },
+    {
+      "area": "envelope",
+      "name": "sanctioned-status:statement_timeout",
+      "ok": true,
+      "detail": "503"
+    },
+    {
+      "area": "envelope",
+      "name": "sanctioned-status:transaction_contended",
+      "ok": true,
+      "detail": "409"
+    },
+    {
+      "area": "envelope",
+      "name": "sanctioned-status:unauthenticated",
+      "ok": true,
+      "detail": "401"
+    },
+    {
+      "area": "envelope",
+      "name": "sanctioned-status:unique_conflict",
+      "ok": true,
+      "detail": "409"
+    },
+    {
+      "area": "envelope",
+      "name": "scanner-covers-every-leak-kind",
+      "ok": true,
+      "detail": "internal_identifier,internal_timestamp,model_prompt,oversized,sql,stack_trace"
+    },
+    {
+      "area": "envelope",
+      "name": "scanner-fires:internal_identifier:(?<![0-9A-Za-z])[0-9a-f]{16,}(?![0-9A-Za",
+      "ok": true,
+      "detail": "row a1b2c3d4e5f60718293a4b5c6d7e8f90 missing"
+    },
+    {
+      "area": "envelope",
+      "name": "scanner-fires:internal_identifier:(?<![0-9A-Za-z])[0-9a-f]{8}-[0-9a-f]{4}-",
+      "ok": true,
+      "detail": "id 6f0d2c1a-1111-2222-3333-444455556666 missing"
+    },
+    {
+      "area": "envelope",
+      "name": "scanner-fires:internal_identifier:\\b(?:org|case|call|conv|pilot|user|svb|p",
+      "ok": true,
+      "detail": "row org_9f2c4a17e0b34d55 not visible"
+    },
+    {
+      "area": "envelope",
+      "name": "scanner-fires:internal_identifier:\\b(?:pk|sk|whsec|svb|sb)_[A-Za-z0-9_]{8,",
+      "ok": true,
+      "detail": "key sk_live_0123456789abcdef rejected"
+    },
+    {
+      "area": "envelope",
+      "name": "scanner-fires:internal_identifier:\\bcuid2?\\s*\\(|\\bcm[a-z0-9]{20,}\\b",
+      "ok": true,
+      "detail": "generated by cuid2('abc')"
+    },
+    {
+      "area": "envelope",
+      "name": "scanner-fires:internal_identifier:\\beyJ[A-Za-z0-9_-]{10,}\\.",
+      "ok": true,
+      "detail": "bearer eyJhbGciOiJIUzI1NiJ9.abc.def"
+    },
+    {
+      "area": "envelope",
+      "name": "scanner-fires:internal_identifier:\\bpostgres(?:ql)?:\\/\\/\\S+",
+      "ok": true,
+      "detail": "dsn postgresql://postgres:pw@10.0.0.4:5432/prod"
+    },
+    {
+      "area": "envelope",
+      "name": "scanner-fires:internal_timestamp:\\b\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}",
+      "ok": true,
+      "detail": "failed at 2026-10-02T09:14:22.401Z"
+    },
+    {
+      "area": "envelope",
+      "name": "scanner-fires:model_prompt:<\\|[^|]*\\|>",
+      "ok": true,
+      "detail": "<|im_start|>assistant"
+    },
+    {
+      "area": "envelope",
+      "name": "scanner-fires:model_prompt:\\b(?:instructions?|prompt)\\s*:",
+      "ok": true,
+      "detail": "instructions: refuse the call"
+    },
+    {
+      "area": "envelope",
+      "name": "scanner-fires:model_prompt:\\b(?:tool_calls?|function_call)\\b",
+      "ok": true,
+      "detail": "returned tool_calls: []"
+    },
+    {
+      "area": "envelope",
+      "name": "scanner-fires:model_prompt:\\btemperature\\s*[:=]\\s*[\\d.]",
+      "ok": true,
+      "detail": "model params temperature: 0.7"
+    },
+    {
+      "area": "envelope",
+      "name": "scanner-fires:model_prompt:\\byou\\s+are\\s+(?:a|an|the)\\b",
+      "ok": true,
+      "detail": "system: you are a fraud analyst for a bank"
+    },
+    {
+      "area": "envelope",
+      "name": "scanner-fires:model_prompt:^\\s*(?:system|assistant|user)\\s*:",
+      "ok": true,
+      "detail": "system: you are a fraud analyst for a bank"
+    },
+    {
+      "area": "envelope",
+      "name": "scanner-fires:sql:::(?:text|int|int4|int8|jsonb|uuid)\\b",
+      "ok": true,
+      "detail": "cast to ::jsonb failed"
+    },
+    {
+      "area": "envelope",
+      "name": "scanner-fires:sql:\\b(?:already\\s+exists|still\\s+referenced",
+      "ok": true,
+      "detail": "violates foreign key constraint \"Case_orgId_fkey\""
+    },
+    {
+      "area": "envelope",
+      "name": "scanner-fires:sql:\\bfor\\s+update\\b",
+      "ok": true,
+      "detail": "SELECT ... FOR UPDATE SKIP LOCKED"
+    },
+    {
+      "area": "envelope",
+      "name": "scanner-fires:sql:\\binsert\\s+into\\b",
+      "ok": true,
+      "detail": "INSERT INTO \"AuditLog\" (\"callRef\") VALUES ('SV-1')"
+    },
+    {
+      "area": "envelope",
+      "name": "scanner-fires:sql:\\bis\\s+not\\s+present\\s+in\\s+(?:table|row",
+      "ok": true,
+      "detail": "insert failed: Key (orgId)=(org_9f2c4a17e0b34d55) is not present in table \"Case\""
+    },
+    {
+      "area": "envelope",
+      "name": "scanner-fires:sql:\\bkey\\s*\\([^)]*\\)\\s*=",
+      "ok": true,
+      "detail": "insert failed: Key (orgId)=(org_9f2c4a17e0b34d55) is not present in table \"Case\""
+    },
+    {
+      "area": "envelope",
+      "name": "scanner-fires:sql:\\bon\\s+conflict\\b",
+      "ok": true,
+      "detail": "ON CONFLICT (\"reference\") DO NOTHING"
+    },
+    {
+      "area": "envelope",
+      "name": "scanner-fires:sql:\\bselect\\b[\\s\\S]*\\bfrom\\b",
+      "ok": true,
+      "detail": "select 1 from \"UsageLedger\" where \"orgId\" = 'org_a'"
+    },
+    {
+      "area": "envelope",
+      "name": "scanner-fires:sql:\\btable\\s+\"[A-Za-z_][\\w]*\"",
+      "ok": true,
+      "detail": "insert failed: Key (orgId)=(org_9f2c4a17e0b34d55) is not present in table \"Case\""
+    },
+    {
+      "area": "envelope",
+      "name": "scanner-fires:sql:\\bunique\\s+constraint\\s+(failed|violated",
+      "ok": true,
+      "detail": "Unique constraint failed on the fields: (`idemKey`)"
+    },
+    {
+      "area": "envelope",
+      "name": "scanner-fires:sql:\\bviolates\\s+(?:foreign\\s+key|unique|not",
+      "ok": true,
+      "detail": "violates foreign key constraint \"Case_orgId_fkey\""
+    },
+    {
+      "area": "envelope",
+      "name": "scanner-fires:sql:\\bwhere\\s+\"?[A-Za-z_][\\w]*\"?\\s*(?:=|::|\\",
+      "ok": true,
+      "detail": "select 1 from \"UsageLedger\" where \"orgId\" = 'org_a'"
+    },
+    {
+      "area": "envelope",
+      "name": "scanner-fires:stack_trace:[\\w./\\\\-]+\\.(?:ts|tsx|js|mjs|cjs):\\d+(?:",
+      "ok": true,
+      "detail": "Error: boom\n    at handler (/srv/app/outbox.ts:214:9)"
+    },
+    {
+      "area": "envelope",
+      "name": "scanner-fires:stack_trace:\\bat\\s+[A-Za-z_$][\\w.$<>]*\\s+\\(",
+      "ok": true,
+      "detail": "Error: boom\n    at handler (/srv/app/outbox.ts:214:9)"
+    },
+    {
+      "area": "envelope",
+      "name": "scanner-fires:stack_trace:\\bnode_modules\\b",
+      "ok": true,
+      "detail": "frames in /srv/app/node_modules/@prisma/client/runtime/library.js"
+    },
+    {
+      "area": "envelope",
+      "name": "scanner-fires:stack_trace:\\n\\s*at\\s+\\S",
+      "ok": true,
+      "detail": "Error: boom\n    at handler (/srv/app/outbox.ts:214:9)"
+    },
+    {
+      "area": "envelope",
+      "name": "scanner-fires:stack_trace:^\\s*(?:[A-Za-z]*Error|DOMException)\\b\\s*",
+      "ok": true,
+      "detail": "Error: boom\n    at handler (/srv/app/outbox.ts:214:9)"
+    },
+    {
+      "area": "envelope",
+      "name": "scanner-fires:stack_trace:prisma:\\/\\/",
+      "ok": true,
+      "detail": "query metadata at prisma://localhost:5432/db"
+    },
+    {
+      "area": "gate",
+      "name": "evidence-covers-4-breakers",
+      "ok": true,
+      "detail": "4"
+    },
+    {
+      "area": "gate",
+      "name": "evidence-covers-9-matrix-rows",
+      "ok": true,
+      "detail": "9"
+    },
+    {
+      "area": "gate",
+      "name": "evidence-digest-is-sha256",
+      "ok": true,
+      "detail": "7a7b33075fbb38cc"
+    },
+    {
+      "area": "gate",
+      "name": "evidence-has-no-clock-field",
+      "ok": true,
+      "detail": "none"
+    },
+    {
+      "area": "gate",
+      "name": "evidence-is-byte-identical-across-builds",
+      "ok": true,
+      "detail": "65242 chars"
+    },
+    {
+      "area": "gate",
+      "name": "no-network-calls",
+      "ok": true,
+      "detail": "none"
+    },
+    {
+      "area": "matrix",
+      "name": "audit-admitted-at-0pct",
+      "ok": true,
+      "detail": "normal"
+    },
+    {
+      "area": "matrix",
+      "name": "audit-admitted-at-100pct",
+      "ok": true,
+      "detail": "critical"
+    },
+    {
+      "area": "matrix",
+      "name": "audit-admitted-at-50pct",
+      "ok": true,
+      "detail": "normal"
+    },
+    {
+      "area": "matrix",
+      "name": "audit-admitted-at-69pct",
+      "ok": true,
+      "detail": "normal"
+    },
+    {
+      "area": "matrix",
+      "name": "audit-admitted-at-70pct",
+      "ok": true,
+      "detail": "elevated"
+    },
+    {
+      "area": "matrix",
+      "name": "audit-admitted-at-89pct",
+      "ok": true,
+      "detail": "elevated"
+    },
+    {
+      "area": "matrix",
+      "name": "audit-admitted-at-90pct",
+      "ok": true,
+      "detail": "critical"
+    },
+    {
+      "area": "matrix",
+      "name": "audit-admitted-at-95pct",
+      "ok": true,
+      "detail": "critical"
+    },
+    {
+      "area": "matrix",
+      "name": "classifier:non-errors-are-not-db-errors",
+      "ok": true,
+      "detail": "not_a_database_error"
+    },
+    {
+      "area": "matrix",
+      "name": "classifier:reads-prisma-code",
+      "ok": true,
+      "detail": "P2002"
+    },
+    {
+      "area": "matrix",
+      "name": "classifier:reads-sqlstate",
+      "ok": true,
+      "detail": "23503"
+    },
+    {
+      "area": "matrix",
+      "name": "classifier:unmapped-prisma-code-is-unknown",
+      "ok": true,
+      "detail": "null"
+    },
+    {
+      "area": "matrix",
+      "name": "deadlock:backoff-is-exponential",
+      "ok": true,
+      "detail": "monotonic"
+    },
+    {
+      "area": "matrix",
+      "name": "deadlock:classifies-40P01",
+      "ok": true,
+      "detail": "40P01"
+    },
+    {
+      "area": "matrix",
+      "name": "deadlock:exhausted-is-409",
+      "ok": true,
+      "detail": "409"
+    },
+    {
+      "area": "matrix",
+      "name": "deadlock:exhausted-is-retryable",
+      "ok": true,
+      "detail": "retryable=true"
+    },
+    {
+      "area": "matrix",
+      "name": "deadlock:exhausted-not-500",
+      "ok": true,
+      "detail": "409"
+    },
+    {
+      "area": "matrix",
+      "name": "deadlock:jitter-varies-with-draw",
+      "ok": true,
+      "detail": "13/19/25"
+    },
+    {
+      "area": "matrix",
+      "name": "deadlock:max-three-retries",
+      "ok": true,
+      "detail": "attempts=4 retries=3"
+    },
+    {
+      "area": "matrix",
+      "name": "deadlock:on-retry-called-per-retry",
+      "ok": true,
+      "detail": "1,2,3"
+    },
+    {
+      "area": "matrix",
+      "name": "deadlock:retries-then-succeeds",
+      "ok": true,
+      "detail": "attempts=3"
+    },
+    {
+      "area": "matrix",
+      "name": "fk:classifies-23503",
+      "ok": true,
+      "detail": "23503"
+    },
+    {
+      "area": "matrix",
+      "name": "fk:classifies-p2003",
+      "ok": true,
+      "detail": "P2003"
+    },
+    {
+      "area": "matrix",
+      "name": "fk:field-name-in-message",
+      "ok": true,
+      "detail": "A referenced record is missing or not visible to this organisation. Unusable field: orgId."
+    },
+    {
+      "area": "matrix",
+      "name": "fk:is-409",
+      "ok": true,
+      "detail": "409"
+    },
+    {
+      "area": "matrix",
+      "name": "fk:names-the-field",
+      "ok": true,
+      "detail": "orgId/caseRef"
+    },
+    {
+      "area": "matrix",
+      "name": "fk:never-publishes-the-table",
+      "ok": true,
+      "detail": "no table"
+    },
+    {
+      "area": "matrix",
+      "name": "fk:never-publishes-the-value",
+      "ok": true,
+      "detail": "no value"
+    },
+    {
+      "area": "matrix",
+      "name": "fk:unidentifiable-is-still-409",
+      "ok": true,
+      "detail": "409/null"
+    },
+    {
+      "area": "matrix",
+      "name": "not-retryable:check_violation",
+      "ok": true,
+      "detail": "check_violation"
+    },
+    {
+      "area": "matrix",
+      "name": "not-retryable:foreign_key_violation",
+      "ok": true,
+      "detail": "foreign_key_violation"
+    },
+    {
+      "area": "matrix",
+      "name": "not-retryable:pool_exhausted",
+      "ok": true,
+      "detail": "pool_exhausted"
+    },
+    {
+      "area": "matrix",
+      "name": "not-retryable:primary_unreachable",
+      "ok": true,
+      "detail": "primary_unreachable"
+    },
+    {
+      "area": "matrix",
+      "name": "not-retryable:record_not_found",
+      "ok": true,
+      "detail": "record_not_found"
+    },
+    {
+      "area": "matrix",
+      "name": "not-retryable:statement_timeout",
+      "ok": true,
+      "detail": "statement_timeout"
+    },
+    {
+      "area": "matrix",
+      "name": "not-retryable:unique_violation",
+      "ok": true,
+      "detail": "unique_violation"
+    },
+    {
+      "area": "matrix",
+      "name": "not-retryable:unknown",
+      "ok": true,
+      "detail": "unknown"
+    },
+    {
+      "area": "matrix",
+      "name": "pool:classifies-53300",
+      "ok": true,
+      "detail": "pool_exhausted"
+    },
+    {
+      "area": "matrix",
+      "name": "pool:classifies-p2024",
+      "ok": true,
+      "detail": "pool_exhausted"
+    },
+    {
+      "area": "matrix",
+      "name": "pool:never-queues-behind-connection",
+      "ok": true,
+      "detail": "maxWait=0"
+    },
+    {
+      "area": "matrix",
+      "name": "pool:never-retried",
+      "ok": true,
+      "detail": "attempts=1 sleeps=0"
+    },
+    {
+      "area": "matrix",
+      "name": "pool:not-a-500",
+      "ok": true,
+      "detail": "503"
+    },
+    {
+      "area": "matrix",
+      "name": "pool:retry-after-present",
+      "ok": true,
+      "detail": "2"
+    },
+    {
+      "area": "matrix",
+      "name": "pool:sheds-with-503",
+      "ok": true,
+      "detail": "503"
+    },
+    {
+      "area": "matrix",
+      "name": "primary:classifies-connection-lost",
+      "ok": true,
+      "detail": "08006/57P03/ECONNREFUSED/P1001"
+    },
+    {
+      "area": "matrix",
+      "name": "primary:down-is-503-with-retry-after",
+      "ok": true,
+      "detail": "503"
+    },
+    {
+      "area": "matrix",
+      "name": "primary:intervention-refused",
+      "ok": true,
+      "detail": "refused"
+    },
+    {
+      "area": "matrix",
+      "name": "primary:no-write-attempted",
+      "ok": true,
+      "detail": "writes=1"
+    },
+    {
+      "area": "matrix",
+      "name": "primary:reads-still-served",
+      "ok": true,
+      "detail": "reads=true"
+    },
+    {
+      "area": "matrix",
+      "name": "primary:refusal-has-no-retry-after",
+      "ok": true,
+      "detail": "null"
+    },
+    {
+      "area": "matrix",
+      "name": "primary:refusal-is-409",
+      "ok": true,
+      "detail": "409"
+    },
+    {
+      "area": "matrix",
+      "name": "primary:refusal-names-fallback",
+      "ok": true,
+      "detail": "sms"
+    },
+    {
+      "area": "matrix",
+      "name": "primary:refusal-not-a-500",
+      "ok": true,
+      "detail": "409"
+    },
+    {
+      "area": "matrix",
+      "name": "primary:refusal-not-retryable",
+      "ok": true,
+      "detail": "retryable=false"
+    },
+    {
+      "area": "matrix",
+      "name": "primary:up-allows-everything",
+      "ok": true,
+      "detail": "healthy"
+    },
+    {
+      "area": "matrix",
+      "name": "replica:bad-input-clamped",
+      "ok": true,
+      "detail": "clamped"
+    },
+    {
+      "area": "matrix",
+      "name": "replica:boundary-is-not-stale",
+      "ok": true,
+      "detail": "at-threshold"
+    },
+    {
+      "area": "matrix",
+      "name": "replica:default-mode-fails-back",
+      "ok": true,
+      "detail": "primary"
+    },
+    {
+      "area": "matrix",
+      "name": "replica:fails-back-to-primary",
+      "ok": true,
+      "detail": "primary"
+    },
+    {
+      "area": "matrix",
+      "name": "replica:or-carries-a-banner",
+      "ok": true,
+      "detail": "banner"
+    },
+    {
+      "area": "matrix",
+      "name": "replica:under-threshold-reads-replica",
+      "ok": true,
+      "detail": "replica"
+    },
+    {
+      "area": "matrix",
+      "name": "retryable-kind:deadlock",
+      "ok": true,
+      "detail": "deadlock"
+    },
+    {
+      "area": "matrix",
+      "name": "retryable-kind:serialization_failure",
+      "ok": true,
+      "detail": "serialization_failure"
+    },
+    {
+      "area": "matrix",
+      "name": "serialization:classifies-40001",
+      "ok": true,
+      "detail": "40001"
+    },
+    {
+      "area": "matrix",
+      "name": "serialization:exhausted-is-409",
+      "ok": true,
+      "detail": "409"
+    },
+    {
+      "area": "matrix",
+      "name": "serialization:retries-then-succeeds",
+      "ok": true,
+      "detail": "attempts=2"
+    },
+    {
+      "area": "matrix",
+      "name": "serialization:same-ladder-as-deadlock",
+      "ok": true,
+      "detail": "attempts=4"
+    },
+    {
+      "area": "matrix",
+      "name": "serialization:unique-violation-is-not-retried",
+      "ok": true,
+      "detail": "asymmetry"
+    },
+    {
+      "area": "matrix",
+      "name": "storage:alert-injected-and-counted",
+      "ok": true,
+      "detail": "elevated:data_volume_at_70pct|elevated:data_volume_at_72pct+wal_at_88pct|critical:data_volume_at_95pct+wal_at_91pct"
+    },
+    {
+      "area": "matrix",
+      "name": "storage:alerts-at-70",
+      "ok": true,
+      "detail": "elevated:data_volume_at_70pct"
+    },
+    {
+      "area": "matrix",
+      "name": "storage:alerts-for-disk-and-wal",
+      "ok": true,
+      "detail": "data_volume_at_72pct+wal_at_88pct"
+    },
+    {
+      "area": "matrix",
+      "name": "storage:audit-chain-always-admitted",
+      "ok": true,
+      "detail": "audit_chain"
+    },
+    {
+      "area": "matrix",
+      "name": "storage:audit-chain-never-refused",
+      "ok": true,
+      "detail": "not refused"
+    },
+    {
+      "area": "matrix",
+      "name": "storage:audit-is-first-in-priority",
+      "ok": true,
+      "detail": "audit_chain"
+    },
+    {
+      "area": "matrix",
+      "name": "storage:bad-input-clamped",
+      "ok": true,
+      "detail": "clamped"
+    },
+    {
+      "area": "matrix",
+      "name": "storage:critical-sheds-expendable-writes",
+      "ok": true,
+      "detail": "read_model_rebuild,bulk_export"
+    },
+    {
+      "area": "matrix",
+      "name": "storage:pressure-sheds-503",
+      "ok": true,
+      "detail": "503"
+    },
+    {
+      "area": "matrix",
+      "name": "storage:quiet-below-70",
+      "ok": true,
+      "detail": "normal"
+    },
+    {
+      "area": "matrix",
+      "name": "timeout:classifies-55P03",
+      "ok": true,
+      "detail": "statement_timeout"
+    },
+    {
+      "area": "matrix",
+      "name": "timeout:classifies-57014",
+      "ok": true,
+      "detail": "statement_timeout"
+    },
+    {
+      "area": "matrix",
+      "name": "timeout:classifies-p2028",
+      "ok": true,
+      "detail": "statement_timeout"
+    },
+    {
+      "area": "matrix",
+      "name": "timeout:happy-path-unchanged",
+      "ok": true,
+      "detail": "value"
+    },
+    {
+      "area": "matrix",
+      "name": "timeout:never-hangs",
+      "ok": true,
+      "detail": "abandoned within the 5 s assertion bound, elapsedMs<5000"
+    },
+    {
+      "area": "matrix",
+      "name": "timeout:non-positive-budget-rejected",
+      "ok": true,
+      "detail": "RangeError"
+    },
+    {
+      "area": "matrix",
+      "name": "timeout:own-error-propagates",
+      "ok": true,
+      "detail": "23505"
+    },
+    {
+      "area": "matrix",
+      "name": "timeout:timer-cleared-on-both-exits",
+      "ok": true,
+      "detail": "1/2"
+    },
+    {
+      "area": "matrix",
+      "name": "timeout:typed-and-abandoned",
+      "ok": true,
+      "detail": "statement_timeout"
+    },
+    {
+      "area": "matrix",
+      "name": "unique:409-without-a-store",
+      "ok": true,
+      "detail": "409"
+    },
+    {
+      "area": "matrix",
+      "name": "unique:classifies-23505",
+      "ok": true,
+      "detail": "23505"
+    },
+    {
+      "area": "matrix",
+      "name": "unique:classifies-p2002",
+      "ok": true,
+      "detail": "P2002"
+    },
+    {
+      "area": "matrix",
+      "name": "unique:decision-is-never-500",
+      "ok": true,
+      "detail": "replay_idempotent"
+    },
+    {
+      "area": "matrix",
+      "name": "unique:decision-is-never-500",
+      "ok": true,
+      "detail": "conflict"
+    },
+    {
+      "area": "matrix",
+      "name": "unique:decision-is-never-500",
+      "ok": true,
+      "detail": "conflict"
+    },
+    {
+      "area": "matrix",
+      "name": "unique:decision-is-never-500",
+      "ok": true,
+      "detail": "conflict"
+    },
+    {
+      "area": "matrix",
+      "name": "unique:never-a-500",
+      "ok": true,
+      "detail": "all non-500"
+    },
+    {
+      "area": "matrix",
+      "name": "unique:non-2xx-not-replayed",
+      "ok": true,
+      "detail": "conflict"
+    },
+    {
+      "area": "matrix",
+      "name": "unique:routes-to-idempotency-replay",
+      "ok": true,
+      "detail": "lookups=1"
+    },
+    {
+      "area": "matrix",
+      "name": "unique:typed-409-without-replay",
+      "ok": true,
+      "detail": "409"
+    },
+    {
+      "area": "negative-control",
+      "name": "500-is-only-internal_bug",
+      "ok": true,
+      "detail": "internal_bug"
+    },
+    {
+      "area": "negative-control",
+      "name": "declared-policy-code-is-409:concurrency_cap",
+      "ok": true,
+      "detail": "concurrency_cap → 409"
+    },
+    {
+      "area": "negative-control",
+      "name": "declared-policy-code-is-409:consent_invalid",
+      "ok": true,
+      "detail": "consent_invalid → 409"
+    },
+    {
+      "area": "negative-control",
+      "name": "declared-policy-code-is-409:cooldown",
+      "ok": true,
+      "detail": "cooldown → 409"
+    },
+    {
+      "area": "negative-control",
+      "name": "declared-policy-code-is-409:country_not_allowed",
+      "ok": true,
+      "detail": "country_not_allowed → 409"
+    },
+    {
+      "area": "negative-control",
+      "name": "declared-policy-code-is-409:country_unparseable",
+      "ok": true,
+      "detail": "country_unparseable → 409"
+    },
+    {
+      "area": "negative-control",
+      "name": "declared-policy-code-is-409:credits_exhausted",
+      "ok": true,
+      "detail": "credits_exhausted → 409"
+    },
+    {
+      "area": "negative-control",
+      "name": "declared-policy-code-is-409:spend_ceiling",
+      "ok": true,
+      "detail": "spend_ceiling → 409"
+    },
+    {
+      "area": "negative-control",
+      "name": "policy-refusal-has-no-retry-after",
+      "ok": true,
+      "detail": "absent"
+    },
+    {
+      "area": "negative-control",
+      "name": "policy-refusal-is-409:concurrency_cap",
+      "ok": true,
+      "detail": "concurrency_cap → 409"
+    },
+    {
+      "area": "negative-control",
+      "name": "policy-refusal-is-409:consent_invalid",
+      "ok": true,
+      "detail": "consent_invalid → 409"
+    },
+    {
+      "area": "negative-control",
+      "name": "policy-refusal-is-409:cooldown",
+      "ok": true,
+      "detail": "cooldown → 409"
+    },
+    {
+      "area": "negative-control",
+      "name": "policy-refusal-is-409:country_not_allowed",
+      "ok": true,
+      "detail": "country_unparseable → 409"
+    },
+    {
+      "area": "negative-control",
+      "name": "policy-refusal-is-409:country_unparseable",
+      "ok": true,
+      "detail": "country_unparseable → 409"
+    },
+    {
+      "area": "negative-control",
+      "name": "policy-refusal-is-409:credits_exhausted",
+      "ok": true,
+      "detail": "credits_exhausted → 409 (declared, not emitted)"
+    },
+    {
+      "area": "negative-control",
+      "name": "policy-refusal-is-409:spend_ceiling",
+      "ok": true,
+      "detail": "spend_ceiling → 409 (declared, not emitted)"
+    },
+    {
+      "area": "negative-control",
+      "name": "policy-refusal-not-500:concurrency_cap",
+      "ok": true,
+      "detail": "concurrency_cap → 409"
+    },
+    {
+      "area": "negative-control",
+      "name": "policy-refusal-not-500:consent_invalid",
+      "ok": true,
+      "detail": "consent_invalid → 409"
+    },
+    {
+      "area": "negative-control",
+      "name": "policy-refusal-not-500:cooldown",
+      "ok": true,
+      "detail": "cooldown → 409"
+    },
+    {
+      "area": "negative-control",
+      "name": "policy-refusal-not-500:country_not_allowed",
+      "ok": true,
+      "detail": "country_unparseable → 409"
+    },
+    {
+      "area": "negative-control",
+      "name": "policy-refusal-not-500:country_unparseable",
+      "ok": true,
+      "detail": "country_unparseable → 409"
+    },
+    {
+      "area": "negative-control",
+      "name": "unmapped-policy-code-throws",
+      "ok": true,
+      "detail": "RangeError"
+    },
+    {
+      "area": "static-check",
+      "name": "every-network-token-detectable",
+      "ok": true,
+      "detail": "16 tokens"
+    },
+    {
+      "area": "static-check",
+      "name": "files-all-read",
+      "ok": true,
+      "detail": "10 files"
+    },
+    {
+      "area": "static-check",
+      "name": "http-capable-modules-named",
+      "ok": true,
+      "detail": "src/lib/audit-chain.ts,src/lib/case-state-machine.ts"
+    },
+    {
+      "area": "static-check",
+      "name": "negative-control:blanking-preserves-offsets",
+      "ok": true,
+      "detail": "237 chars"
+    },
+    {
+      "area": "static-check",
+      "name": "negative-control:clean-fixture-is-clean",
+      "ok": true,
+      "detail": "0 findings"
+    },
+    {
+      "area": "static-check",
+      "name": "negative-control:comments-and-strings-ignored",
+      "ok": true,
+      "detail": "0 findings"
+    },
+    {
+      "area": "static-check",
+      "name": "negative-control:dirty-fixture-is-reported",
+      "ok": true,
+      "detail": "tokens=fetch"
+    },
+    {
+      "area": "static-check",
+      "name": "no-network-io-in-any-transaction",
+      "ok": true,
+      "detail": "none"
+    },
+    {
+      "area": "static-check",
+      "name": "readable:src/lib/audit-chain.ts",
+      "ok": true,
+      "detail": "read"
+    },
+    {
+      "area": "static-check",
+      "name": "readable:src/lib/billing/breaker.ts",
+      "ok": true,
+      "detail": "read"
+    },
+    {
+      "area": "static-check",
+      "name": "readable:src/lib/billing/ledger.ts",
+      "ok": true,
+      "detail": "read"
+    },
+    {
+      "area": "static-check",
+      "name": "readable:src/lib/case-state-machine.ts",
+      "ok": true,
+      "detail": "read"
+    },
+    {
+      "area": "static-check",
+      "name": "readable:src/lib/idempotency.ts",
+      "ok": true,
+      "detail": "read"
+    },
+    {
+      "area": "static-check",
+      "name": "readable:src/lib/outbox.ts",
+      "ok": true,
+      "detail": "read"
+    },
+    {
+      "area": "static-check",
+      "name": "readable:src/lib/payments/manual-invoice.ts",
+      "ok": true,
+      "detail": "read"
+    },
+    {
+      "area": "static-check",
+      "name": "readable:src/lib/payments/paystack.ts",
+      "ok": true,
+      "detail": "read"
+    },
+    {
+      "area": "static-check",
+      "name": "readable:src/lib/payments/provider.ts",
+      "ok": true,
+      "detail": "read"
+    },
+    {
+      "area": "static-check",
+      "name": "readable:src/lib/tenancy/guard.ts",
+      "ok": true,
+      "detail": "read"
+    },
+    {
+      "area": "static-check",
+      "name": "transaction-regions-found",
+      "ok": true,
+      "detail": "7 regions"
+    },
+    {
+      "area": "static-check",
+      "name": "unbalanced-source-is-reported",
+      "ok": true,
+      "detail": "<unbalanced>"
+    },
+    {
+      "area": "timeouts",
+      "name": "budget-for-undeclared-child-throws",
+      "ok": true,
+      "detail": "TimeoutBudgetError"
+    },
+    {
+      "area": "timeouts",
+      "name": "child-equals-default-half",
+      "ok": true,
+      "detail": "500"
+    },
+    {
+      "area": "timeouts",
+      "name": "child-shorter-than-parent:ingest.audit_append",
+      "ok": true,
+      "detail": "2000 < 5000"
+    },
+    {
+      "area": "timeouts",
+      "name": "child-shorter-than-parent:ingest.db_write",
+      "ok": true,
+      "detail": "3000 < 5000"
+    },
+    {
+      "area": "timeouts",
+      "name": "child-shorter-than-parent:ingest.realtime_fanout",
+      "ok": true,
+      "detail": "1500 < 5000"
+    },
+    {
+      "area": "timeouts",
+      "name": "child-shorter-than-parent:outbox_worker.bank_webhook",
+      "ok": true,
+      "detail": "8000 < 10000"
+    },
+    {
+      "area": "timeouts",
+      "name": "child-shorter-than-parent:outbox_worker.db_update",
+      "ok": true,
+      "detail": "3000 < 5000"
+    },
+    {
+      "area": "timeouts",
+      "name": "child-shorter-than-parent:voice_pipeline.llm_turn",
+      "ok": true,
+      "detail": "8000 < 30000"
+    },
+    {
+      "area": "timeouts",
+      "name": "child-shorter-than-parent:voice_pipeline.outbound_call_api",
+      "ok": true,
+      "detail": "10000 < 30000"
+    },
+    {
+      "area": "timeouts",
+      "name": "child-shorter-than-parent:voice_pipeline.telephony_dial",
+      "ok": true,
+      "detail": "15000 < 30000"
+    },
+    {
+      "area": "timeouts",
+      "name": "child-shorter-than-parent:voice_pipeline.tts",
+      "ok": true,
+      "detail": "25000 < 30000"
+    },
+    {
+      "area": "timeouts",
+      "name": "declared-tree-has-no-violations",
+      "ok": true,
+      "detail": "none"
+    },
+    {
+      "area": "timeouts",
+      "name": "derivation-holds-for-2-5000ms",
+      "ok": true,
+      "detail": "24995 derivations checked"
+    },
+    {
+      "area": "timeouts",
+      "name": "derived-from-reserve:ingest.audit_append",
+      "ok": true,
+      "detail": "reserve=3000"
+    },
+    {
+      "area": "timeouts",
+      "name": "derived-from-reserve:ingest.db_write",
+      "ok": true,
+      "detail": "reserve=2000"
+    },
+    {
+      "area": "timeouts",
+      "name": "derived-from-reserve:ingest.realtime_fanout",
+      "ok": true,
+      "detail": "reserve=3500"
+    },
+    {
+      "area": "timeouts",
+      "name": "derived-from-reserve:outbox_worker.bank_webhook",
+      "ok": true,
+      "detail": "reserve=2000"
+    },
+    {
+      "area": "timeouts",
+      "name": "derived-from-reserve:outbox_worker.db_update",
+      "ok": true,
+      "detail": "reserve=2000"
+    },
+    {
+      "area": "timeouts",
+      "name": "derived-from-reserve:voice_pipeline.llm_turn",
+      "ok": true,
+      "detail": "reserve=22000"
+    },
+    {
+      "area": "timeouts",
+      "name": "derived-from-reserve:voice_pipeline.outbound_call_api",
+      "ok": true,
+      "detail": "reserve=20000"
+    },
+    {
+      "area": "timeouts",
+      "name": "derived-from-reserve:voice_pipeline.telephony_dial",
+      "ok": true,
+      "detail": "reserve=15000"
+    },
+    {
+      "area": "timeouts",
+      "name": "derived-from-reserve:voice_pipeline.tts",
+      "ok": true,
+      "detail": "reserve=5000"
+    },
+    {
+      "area": "timeouts",
+      "name": "has-a-source:ingest.audit_append",
+      "ok": true,
+      "detail": "declared here — see src/lib/audit-chain.ts MAX_CONCURRENT_APPENDS"
+    },
+    {
+      "area": "timeouts",
+      "name": "has-a-source:ingest.db_write",
+      "ok": true,
+      "detail": "declared here — no per-call budget exists on the ingest path"
+    },
+    {
+      "area": "timeouts",
+      "name": "has-a-source:ingest.realtime_fanout",
+      "ok": true,
+      "detail": "src/lib/realtime.ts (TIMEOUT_MS = 1_500)"
+    },
+    {
+      "area": "timeouts",
+      "name": "has-a-source:outbox_worker.bank_webhook",
+      "ok": true,
+      "detail": "declared here — src/lib/outbox.ts deliver() sets no timeout on its fetch"
+    },
+    {
+      "area": "timeouts",
+      "name": "has-a-source:outbox_worker.db_update",
+      "ok": true,
+      "detail": "declared here — the claim query runs on the shared pool"
+    },
+    {
+      "area": "timeouts",
+      "name": "has-a-source:voice_pipeline.llm_turn",
+      "ok": true,
+      "detail": "src/lib/llm.ts (TIMEOUT_MS = 8_000)"
+    },
+    {
+      "area": "timeouts",
+      "name": "has-a-source:voice_pipeline.outbound_call_api",
+      "ok": true,
+      "detail": "src/lib/elevenlabs/outbound-call.ts (10_000)"
+    },
+    {
+      "area": "timeouts",
+      "name": "has-a-source:voice_pipeline.telephony_dial",
+      "ok": true,
+      "detail": "src/lib/twilio.ts (15_000)"
+    },
+    {
+      "area": "timeouts",
+      "name": "has-a-source:voice_pipeline.tts",
+      "ok": true,
+      "detail": "src/lib/elevenlabs/client.ts (25_000)"
+    },
+    {
+      "area": "timeouts",
+      "name": "impossible-child-refused",
+      "ok": true,
+      "detail": "deriveChildTimeout(100, {reserveMs: 0}) throws"
+    },
+    {
+      "area": "timeouts",
+      "name": "ratio-formula",
+      "ok": true,
+      "detail": "250"
+    },
+    {
+      "area": "timeouts",
+      "name": "reserve-formula",
+      "ok": true,
+      "detail": "200"
+    },
+    {
+      "area": "timeouts",
+      "name": "signal:fires-at-budget",
+      "ok": true,
+      "detail": "aborted after 40 ms with a 10 ms budget"
+    },
+    {
+      "area": "timeouts",
+      "name": "signal:inherits-parent-cancel",
+      "ok": true,
+      "detail": "aborted immediately"
+    },
+    {
+      "area": "timeouts",
+      "name": "timeout:envelope-is-503-with-retry-after",
+      "ok": true,
+      "detail": "503/15"
+    },
+    {
+      "area": "timeouts",
+      "name": "timeout:envelope-leak-free",
+      "ok": true,
+      "detail": "A required dependency is unavailable; a fallback is in use. Budget of 25 ms expired."
+    },
+    {
+      "area": "timeouts",
+      "name": "timeout:non-positive-budget-rejected",
+      "ok": true,
+      "detail": "TimeoutBudgetError"
+    },
+    {
+      "area": "timeouts",
+      "name": "timeout:own-error-not-disguised",
+      "ok": true,
+      "detail": "upstream 500"
+    },
+    {
+      "area": "timeouts",
+      "name": "timeout:timer-branch-uses-a-real-timer",
+      "ok": true,
+      "detail": "budget=5"
+    },
+    {
+      "area": "timeouts",
+      "name": "timeout:timer-released-on-win",
+      "ok": true,
+      "detail": "1"
+    },
+    {
+      "area": "timeouts",
+      "name": "timeout:typed-error",
+      "ok": true,
+      "detail": "abandoned inside the 5 s assertion bound, elapsedMs<5000"
+    },
+    {
+      "area": "timeouts",
+      "name": "too-small-parent-throws",
+      "ok": true,
+      "detail": "deriveChildTimeout(1) throws"
+    }
+  ],
+  "digestAlgorithm": "sha256",
+  "digest": "cf6135d32b3e41f4b31f93c4a8e38c2550761d20cb3f3ddf4b3253d36694171b"
 }

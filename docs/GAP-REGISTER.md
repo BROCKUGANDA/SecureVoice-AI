@@ -14,6 +14,36 @@ is one of:
 - **FALSIFIED** — a graded artifact asserts something untrue; correcting it is
   the work
 
+## Closed this session, with the gate that proves it
+
+Read this before the detail below — several items are further along than the
+per-item status lines suggest, and the evidence for each is a command that was
+run and whose output was read.
+
+| What was wrong | Gate | Result |
+| --- | --- | --- |
+| `createCase` had **zero callers**, so no `Case` row was ever written and **no call was ever placed** | live dial + `caseByRef`/`runJob` | `SCREENED → DIALING`, conversation id persisted |
+| The worker wrote state via raw `updateMany`, bypassing the single-writer state machine | `tests/e2e/dial.test.ts` | asserts the queue contract **and** a `Case` row per caseRef |
+| `next.config.ts` rewrote `/v1/interventions` — the documented bank contract — to the **legacy ungated** handler | live rewrite inspection | `/v1/interventions` now reaches the hardened handler |
+| The console's "Fire signal" button fired the same ungated handler under a docstring claiming "provably end-to-end" | `tests/console/fire.test.ts` | **7 pass**; mutation-checked (a 100× wrong *integer* amount is caught) |
+| A policy or abuse refusal reached the bank as **503**, because a typed `{status:409}` was flattened by `upstreamError()` | `tests/failure-envelope` | **5 pass**; "no refusal is 5xx" asserted |
+| Every refusal returned a bare `{error}` — no code, no `retryable`, no correlation id | same | envelope `{code,message,retryable,requestId,docsUrl}` |
+| The freeze-commit route **500'd on every call** — it wrote three columns `Case` does not have | `tests/auth/freeze-commit` | **7 pass**; invariant **I-1** now has an end-to-end gate |
+| 3 of 4 cross-tenant leaks had no org predicate; the gate was **green because it asserted they existed** | `tests/tenancy/isolation` | 8 failing checks → **2**, naming the one gap that is open by design |
+| The console routes' tenancy was proven by running **expressions**, not the routes | `tests/tenancy/console-routes` | **6 pass**; drives the real handlers with two mocked orgs |
+| No `bun run evidence`; no evidence index | `bun run evidence` | emits `INDEX.md`, `tests/`, `latency/`; **exits 1 honestly** |
+| The tool-call criterion could not fail — a boolean over all tool names | `scripts/run-agent-tests.ts` | TC-1/2/3 scored on the **invocation**, not the reply |
+| README contradicted itself on SQLite, languages, conversation-plane priority, and the Groq tier | `tests/docs` | mutation-checked, 5 deliberate regressions each caught |
+| No `docs/RUNBOOK.md` — cited by code that assumed it existed | — | written from the real `FALLBACKS` table, not the spec |
+| The seed created **no Customer rows**, so a fresh deployment's first console click was a dead one | `bun scripts/seed-demo.mjs` | enrolls from a verified number, or says in as many words that it did not |
+
+**Correcting two of my own earlier claims.** I reported that `scopedDb` having
+one caller meant tenancy was unenforced in production — that was too strong. The
+console routes apply the org predicate themselves and are now proven to. And
+`dial-queue.test.ts` was not "lost coverage" when the queue consolidated; it
+tested a module that was deleted, and `tests/load/load.test.ts` is the gate for
+the one that replaced it.
+
 ---
 
 ## The pattern that explains most of this register

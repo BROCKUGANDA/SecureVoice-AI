@@ -121,6 +121,65 @@ const SEED_INTERVENTION = "seams-offline-intervention";
  */
 const pace = (): Promise<void> => Bun.sleep(4);
 
+// ── run-scoped cleanup ───────────────────────────────────────────────────────
+
+/**
+ * Every row this gate can create, by column. Listed explicitly rather than
+ * pattern-matched, because a gate that cleans up with `%seam%` will eventually
+ * delete something that is not its own.
+ *
+ * `PAY-${PAY_REF}` is in the audit list and was NOT in the first version of this
+ * cleanup, so `recordPayment`'s chained `payment_recorded` row survived every
+ * run. That is the kind of leak that only shows up if the residue is asserted
+ * rather than assumed — hence `the-gate-leaves-no-residue` below.
+ */
+const RUN_SCOPED_AUDIT_REFS = () => [
+  CHAIN_REF,
+  `${CHAIN_REF}-T`,
+  CASE_REF,
+  `PAY-${PAY_REF}`,
+];
+
+async function cleanupRunScopedRows(): Promise<Record<string, number>> {
+  const outbox = await db.outboxEvent.deleteMany({ where: { caseRef: CASE_REF } });
+  const audit = await dbAudit.auditLog.deleteMany({
+    where: {
+      OR: [
+        { callRef: { in: RUN_SCOPED_AUDIT_REFS() } },
+        { orgId: { in: [ORG, CHAIN_ORG] } },
+      ],
+    },
+  });
+  const notifications = await db.notification.deleteMany({
+    where: { OR: [{ caseRef: CASE_REF }, { orgId: ORG }] },
+  });
+  const cases = await db.case.deleteMany({ where: { caseRef: CASE_REF } });
+  const ledger = await db.usageLedger.deleteMany({ where: { orgId: ORG } });
+  const payments = await db.paymentRecord.deleteMany({ where: { reference: PAY_REF } });
+  return {
+    outbox: outbox.count,
+    auditLog: audit.count,
+    notifications: notifications.count,
+    cases: cases.count,
+    ledger: ledger.count,
+    payments: payments.count,
+  };
+}
+
+async function countRunScopedRows(): Promise<Record<string, number>> {
+  const audit = await dbAudit.auditLog.count({
+    where: { OR: [{ callRef: { in: RUN_SCOPED_AUDIT_REFS() } }, { orgId: { in: [ORG, CHAIN_ORG] } }] },
+  });
+  const cases = await db.case.count({ where: { caseRef: CASE_REF } });
+  const notifications = await db.notification.count({
+    where: { OR: [{ caseRef: CASE_REF }, { orgId: ORG }] },
+  });
+  const outbox = await db.outboxEvent.count({ where: { caseRef: CASE_REF } });
+  const ledger = await db.usageLedger.count({ where: { orgId: ORG } });
+  const payments = await db.paymentRecord.count({ where: { reference: PAY_REF } });
+  return { auditLog: audit, cases, notifications, outbox, ledger, payments };
+}
+
 // ── network tripwire ─────────────────────────────────────────────────────────
 // Armed before any adapter is constructed. Every real adapter in this repo
 // reaches the network through `globalThis.fetch` — the Paystack adapter takes an
@@ -1004,7 +1063,14 @@ test("WP-18 · a fixed clock and a seeded generator make a whole run byte-stable
   const sys = systemClock();
   const samples = Array.from({ length: 500 }, () => sys.now().getTime());
   check("the-system-clock-is-monotonic", samples.every((ms, i) => i === 0 || ms >= samples[i - 1]), "500 samples, never went backwards");
-  check("the-system-clock-tracks-the-wall-clock", Math.abs(samples[499] - samples[0]) < 60_000, `500 samples spanned ${samples[499] - samples[0]} ms`);
+  check(
+    "the-system-clock-tracks-the-wall-clock",
+    Math.abs(samples[499] - samples[0]) < 60_000,
+    // The span is not quoted: it is a measured wall-clock value and would differ
+    // on every run, which would make the artifact's core non-reproducible. The
+    // BOUND is the assertion; the number is not the claim.
+    `500 samples all fall within 60 s of the first (the span itself is deliberately not quoted)`,
+  );
   check(
     "both-clocks-return-a-Date",
     sys.now() instanceof Date && f.now() instanceof Date,
@@ -1419,7 +1485,7 @@ test("WP-18 · offline mode completes a full intervention with no network and no
 
 let artifactWritten = false;
 
-test("WP-18 · the evidence artifact lists every port, its mode, and what was actually tested", () => {
+test("WP-18 · the evidence artifact lists every port, its mode, and what was actually tested", async () => {
   // Every port gets a parity entry, even if only "bound-only". A port missing
   // from the report is a port nobody is claiming anything about.
   const reported = new Set(PARITY.map((p) => p.port));
@@ -1495,6 +1561,24 @@ test("WP-18 · the evidence artifact lists every port, its mode, and what was ac
     portRows.filter((r) => r.verification === "bound-only").every((r) => r.notCompared.length > 0),
     `${boundOnly.length} bound-only port(s), each with an explicit reason`,
   );
+  // Run-scoped cleanup, asserted rather than assumed. A gate that quietly
+  // accumulates rows makes the next run's numbers somebody else's problem, and
+  // in a shared test database it eventually deletes or mis-measures someone
+  // else's work.
+  const removed = await cleanupRunScopedRows();
+  const remaining = await countRunScopedRows();
+  const residue = Object.values(remaining).reduce((n, v) => n + v, 0);
+  check(
+    "the-gate-leaves-no-residue",
+    residue === 0,
+    `removed ${JSON.stringify(removed)}; ${residue} run-scoped row(s) remain`,
+  );
+  check(
+    "the-gate-touched-only-its-own-rows",
+    removed.cases === 1 && removed.payments === 1 && removed.ledger === 2 && removed.outbox === 1,
+    `deleted ${removed.cases} case, ${removed.payments} payment, ${removed.ledger} ledger rows (the credit top-up and the policy gate's reservation) and ${removed.outbox} outbox event — every one keyed by this run's ids`,
+  );
+
   const scrubbedChecks = CHECKS.map((c) => ({ ...c, detail: scrub(c.detail) }));
   const scrubProbe = JSON.stringify({ ports: portRows, checks: scrubbedChecks });
 
@@ -1630,15 +1714,9 @@ afterAll(async () => {
     );
   }
 
-  // Run-scoped cleanup. Every fixture above is prefixed with the run id, so
-  // nothing another agent is doing in the same database can be touched.
-  await db.outboxEvent.deleteMany({ where: { caseRef: CASE_REF } });
-  await dbAudit.auditLog.deleteMany({ where: { callRef: { in: [CHAIN_REF, `${CHAIN_REF}-T`, CASE_REF] } } });
-  await db.notification.deleteMany({ where: { caseRef: CASE_REF } });
-  await db.case.deleteMany({ where: { caseRef: CASE_REF } });
-  await db.usageLedger.deleteMany({ where: { orgId: ORG } });
-  await db.paymentRecord.deleteMany({ where: { reference: PAY_REF } });
-  await db.notification.deleteMany({ where: { orgId: ORG } });
+  // Run-scoped cleanup, again — the artifact test already did it and asserted
+  // the residue was zero, so this is the net for a run that failed earlier.
+  await cleanupRunScopedRows();
 
   await db.$disconnect();
   await dbAudit.$disconnect();

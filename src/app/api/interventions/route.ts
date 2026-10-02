@@ -97,7 +97,9 @@ function verifySignature(rawBody: string, header: string | null, secret: string)
   if (age < -REPLAY_WINDOW_SEC) return { ok: false, reason: "Timestamp in the future" };
   const expected = createHmac("sha256", secret).update(`${t}.${rawBody}`).digest("hex");
   const a = Buffer.from(expected, "hex");
-  const b = Buffer.from(v1, "hex");
+  // Required capture group of the regex above (exactly 64 lowercase hex chars), so
+  // it cannot actually be undefined here. Asserted rather than branched on.
+  const b = Buffer.from(v1!, "hex");
   return a.length === b.length && timingSafeEqual(a, b) ? { ok: true } : { ok: false, reason: "Digest mismatch" };
 }
 

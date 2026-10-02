@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createHmac, timingSafeEqual } from "crypto";
 import { z } from "zod";
 import { db } from "@/lib/db";
+import { recordSpanAndPersist } from "@/lib/telemetry/store";
 import { append as auditAppend } from "@/lib/audit-chain";
 import { transcript as redactText } from "@/lib/redact";
 import { consume as consumeRateLimit, rateLimitId } from "@/lib/ratelimit";
@@ -40,19 +41,19 @@ function failure(code: FailureCode, init: FailureInit = {}): NextResponse {
 export const dynamic = "force-dynamic";
 
 /**
- * POST /v1/interventions — the canonical bank-facing risk-signal ingest.
+ * POST /v1/interventions â€” the canonical bank-facing risk-signal ingest.
  *
  * A bank's fraud engine POSTs a signed risk signal; the platform runs a
  * deterministic policy gate and, if it passes, places an outbound call via
  * the ElevenLabs Agents Platform. The conversation_id returned by the
- * provider is persisted against the case — it is the join key for the
+ * provider is persisted against the case â€” it is the join key for the
  * post-call webhook (WP-4).
  *
- *   Idempotency-Key: <required> — replay returns the stored response
+ *   Idempotency-Key: <required> â€” replay returns the stored response
  *   SV-Signature: t={unix},v1={hmac_sha256(WEBHOOK_SECRET, "{t}.{rawBody}")}
- *   or: Authorization: Bearer svb_…
+ *   or: Authorization: Bearer svb_â€¦
  *
- * Strict schema — unknown fields rejected, no type coercion. Money is an
+ * Strict schema â€” unknown fields rejected, no type coercion. Money is an
  * integer in minor units; phone is E.164; currency is ISO-4217; language is
  * BCP-47.
  *
@@ -106,7 +107,11 @@ function verifySignature(rawBody: string, header: string | null, secret: string)
   if (age < -REPLAY_WINDOW_SEC) return { ok: false, reason: "Timestamp in the future" };
   const expected = createHmac("sha256", secret).update(`${t}.${rawBody}`).digest("hex");
   const a = Buffer.from(expected, "hex");
-  const b = Buffer.from(v1, "hex");
+  // `v1` is a required capture group of the regex above (exactly 64 lowercase hex
+  // chars), so it can never actually be undefined here — the match either fails
+  // and we returned above, or it carries both captures. The assertion records that
+  // invariant for the type checker instead of adding a branch that cannot run.
+  const b = Buffer.from(v1!, "hex");
   return a.length === b.length && timingSafeEqual(a, b) ? { ok: true } : { ok: false, reason: "Digest mismatch" };
 }
 
@@ -157,7 +162,7 @@ export async function POST(req: NextRequest) {
   }
   const signal: Signal = parsed.data;
 
-  // SSRF verdict on the callback URL — resolved, not pattern-matched. The
+  // SSRF verdict on the callback URL â€” resolved, not pattern-matched. The
   // removed string check only recognised IP literals and a few suffixes, so a
   // name that resolves into the private network (a cloud metadata endpoint in
   // particular) passed every regex. Runs before the DB round-trip so a
@@ -172,7 +177,7 @@ export async function POST(req: NextRequest) {
   const effectiveCallerId = bearerAuth?.callerId ?? callerId;
   const idemHash = hashKey(idemKey.trim());
 
-  // ── Combined check: idempotency + consent in ONE DB round-trip ──
+  // â”€â”€ Combined check: idempotency + consent in ONE DB round-trip â”€â”€
   // The remote DB's ~1.2 s/round-trip dominates the latency budget, so the
   // two reads that used to be sequential are now a single raw query.
   const combined = await db.$queryRaw<{ idem_response: string | null; consent_opted_out: boolean | null }[]>`
@@ -195,7 +200,7 @@ export async function POST(req: NextRequest) {
         { status: 202, headers: { "Cache-Control": "no-store", "X-Idempotent-Replay": "true" } }
       );
     } catch {
-      // Corrupt stored response — fall through to re-execute.
+      // Corrupt stored response â€” fall through to re-execute.
     }
   }
 
@@ -214,9 +219,9 @@ export async function POST(req: NextRequest) {
     return failure("policy_precondition", { detail: "consent_opted_out" });
   }
 
-  // ── Execute: policy gate + call placement ──
+  // â”€â”€ Execute: policy gate + call placement â”€â”€
   try {
-    const envelope = await armAndDial(signal, orgId, effectiveCallerId, started, idemHash, idemKey.trim());
+    const { envelope, acceptedAt } = await armAndDial(signal, orgId, effectiveCallerId, started, idemHash, idemKey.trim());
     // Store the response fire-and-forget, deferred until after the response
     // is sent so it never competes with the next signal's combined check for
     // a connection from the pool.
@@ -232,11 +237,39 @@ export async function POST(req: NextRequest) {
         },
       }).catch(() => {});
     });
+    // Latency instrumentation (WP-7). Two spans, both measured on real
+    // executions of this path â€” never synthesised:
+    //   signal received -> accepted            (target 300 ms)
+    //   signal accepted -> provider accepted   (target 1.5 s)
+    //
+    // `started` is stamped when the request arrives and `accepted` when the
+    // deterministic gate has passed, so the first span measures intake only and
+    // the second measures everything the caller is actually waiting on.
+    const spanCaseRef = typeof envelope.caseRef === "string" ? envelope.caseRef : null;
+    // `armAndDial` stamps `acceptedAt` the moment the deterministic gate passes
+    // and returns it alongside the envelope. It is real elapsed work; a span
+    // that faked the boundary would report 0 ms and quietly prove nothing.
+    const accepted = acceptedAt > 0 ? acceptedAt : started;
+    recordSpanAndPersist({
+      span: "signal_received_to_accepted",
+      startedAtMs: started,
+      endedAtMs: accepted,
+      interventionId: spanCaseRef,
+      caseRef: spanCaseRef,
+    });
+    recordSpanAndPersist({
+      span: "signal_accepted_to_provider_accepted",
+      startedAtMs: accepted,
+      endedAtMs: Date.now(),
+      interventionId: spanCaseRef,
+      caseRef: spanCaseRef,
+    });
+
     return NextResponse.json(envelope, { status: 202, headers: { "Cache-Control": "no-store" } });
   } catch (err) {
     // A policy or abuse refusal arrives as a TYPED failure: `armAndDial` sets
     // `status` and `code` on it and throws. This catch used to flatten every
-    // one of those into `upstreamError(...)`, which defaults to **503** — so a
+    // one of those into `upstreamError(...)`, which defaults to **503** â€” so a
     // bank whose signal was correctly refused for consent, geography or quota
     // received "Service Unavailable". That reads as "our fault, retry later",
     // and a bank that retries an invitation refusal re-dials a customer it
@@ -255,6 +288,28 @@ export async function POST(req: NextRequest) {
   }
 }
 
+/**
+ * What `armAndDial` hands back: the wire envelope, plus the internal gate
+ * timestamp used for latency spans.
+ *
+ * `acceptedAt` is deliberately NOT a property of `envelope` - it must never be
+ * serialised into the 202 a bank receives, nor into the stored idempotent replay
+ * response. Keeping it on a sibling key makes that structural instead of a
+ * matter of remembering to strip it.
+ */
+type ArmResult = {
+  envelope: {
+    ok: boolean;
+    caseRef: string;
+    transactionRef: string;
+    status: string;
+    receivedAt: string;
+    [k: string]: unknown;
+  };
+  /** Epoch ms at which the deterministic gate passed. 0 when never stamped. */
+  acceptedAt: number;
+};
+
 async function armAndDial(
   signal: Signal,
   orgId: string | null,
@@ -262,12 +317,15 @@ async function armAndDial(
   started: number,
   idemHash: string,
   idemKey: string
-): Promise<Record<string, unknown>> {
+): Promise<ArmResult> {
   const caseRef = makeCaseRef();
   let dialSlot: number | null = null;
+  // Stamped the moment the deterministic gate passes, so the provider span
+  // measures what the caller actually waits on rather than collapsing to 0.
+  let acceptedAt = 0;
 
 
-  // Policy gate — deterministic, fail-fast, audited either way.
+  // Policy gate â€” deterministic, fail-fast, audited either way.
   const gate = await runPolicyGate({
     orgId,
     phone: signal.phone,
@@ -292,16 +350,16 @@ async function armAndDial(
 
   // Abuse gate (WP-14): geography, demo-tier test-number restriction,
   // per-destination cooldown, per-org and global concurrency caps, and the
-  // velocity breaker — evaluated in ONE typed decision before any carrier call.
+  // velocity breaker â€” evaluated in ONE typed decision before any carrier call.
   // Runs after the consent/policy gate because consent is the legal
   // precondition and this is the cost-and-abuse precondition. A refusal is a
-  // typed 409, audited, never a 500 — the same discipline as the policy gate.
+  // typed 409, audited, never a 500 â€” the same discipline as the policy gate.
   // An org-less signal shares one conservative bucket rather than bypassing the
   // gate: country, tier, cooldown and the global cap still apply.
   //
   // The tier MUST be resolved for the org, not left to the guard's `demo`
   // default. `assertDialAllowed` defaults an unset `planTier` to the strictest
-  // tier so it fails closed — correct for the guard, but a route that never
+  // tier so it fails closed â€” correct for the guard, but a route that never
   // passes one therefore evaluated every live bank signal as a DEMO tenant and
   // refused it with `demo_tier_requires_test_number`. That refuses legitimate
   // production dials. `planTierFor` resolves the org's real tier and still
@@ -334,6 +392,7 @@ async function armAndDial(
     throw err;
   }
   dialSlot = abuse.slot;
+  acceptedAt = Date.now();
 
   // Persist the case BEFORE the dial job is enqueued.
   //
@@ -367,7 +426,7 @@ async function armAndDial(
     action: "freeze",
     intent: "signal_received",
     callerId: effectiveCallerId,
-    redactedText: redactText(`${signal.transaction_ref} · ${signal.phone.replace(/\d(?=\d{4})/g, "*")} · ${signal.risk_score}`),
+    redactedText: redactText(`${signal.transaction_ref} Â· ${signal.phone.replace(/\d(?=\d{4})/g, "*")} Â· ${signal.risk_score}`),
     meta: {
       transactionRef: signal.transaction_ref,
       riskScore: signal.risk_score,
@@ -381,7 +440,7 @@ async function armAndDial(
     orgId: orgId ?? undefined,
   }, { fast: true }).catch(() => {});
 
-  // Admission control — capacity is a policy decision, and it is audited like
+  // Admission control â€” capacity is a policy decision, and it is audited like
   // one. Runs AFTER the policy gate (a case we must not call should never
   // consume a voice slot) and BEFORE the dial. A shed case still gets an
   // outcome: it falls back to SMS/app push and the decision is in the chain.
@@ -409,7 +468,7 @@ async function armAndDial(
       },
       orgId: orgId ?? undefined,
     }, { fast: true }).catch(() => {});
-    return {
+    const envelope = {
       ok: true,
       caseRef,
       transactionRef: signal.transaction_ref,
@@ -422,6 +481,8 @@ async function armAndDial(
       },
       receivedAt: new Date().toISOString(),
     };
+    // Same internal-only telemetry hand-off as the queued path below.
+    return { envelope, acceptedAt };
   }
 
   // Sanitise every bank-supplied string before it becomes a dynamic variable.
@@ -457,7 +518,7 @@ async function armAndDial(
           (signal.amount ?? 0) /
           100,
       ),
-      // Sanitised dial inputs only — never transcript content (invariant I-10).
+      // Sanitised dial inputs only â€” never transcript content (invariant I-10).
       payload: {
         to: redactText(signal.phone),
         language: signal.language,
@@ -488,7 +549,7 @@ async function armAndDial(
     throw err;
   }
 
-  // Persist the conversation_id against the case — the join key for WP-4.
+  // Persist the conversation_id against the case â€” the join key for WP-4.
   void auditAppend({
     callRef: caseRef,
     action: "handoff",
@@ -499,7 +560,7 @@ async function armAndDial(
     orgId: orgId ?? undefined,
   }, { fast: true }).catch(() => {});
 
-// Emit case.queued on the realtime channel. The state is QUEUED, not DIALING —
+// Emit case.queued on the realtime channel. The state is QUEUED, not DIALING â€”
   // the call has not been placed yet, and a console that claims otherwise is
   // lying to the operator watching it.
   notifyRealtime({
@@ -516,7 +577,7 @@ async function armAndDial(
     },
   });
 
-  return {
+  const envelope = {
     ok: true,
     caseRef,
     transactionRef: signal.transaction_ref,
@@ -527,6 +588,11 @@ async function armAndDial(
     delivery,
     receivedAt: new Date().toISOString(),
   };
+  // `acceptedAt` is INTERNAL telemetry plumbing, deliberately NOT part of the wire
+  // envelope. It is returned alongside so the POST handler can measure a real
+  // gate boundary, and so it is never serialised into the 202 a bank receives
+  // nor into the stored idempotent replay response.
+  return { envelope, acceptedAt };
 }
 
 /** Discovery: what producers need to know to integrate. */
@@ -535,22 +601,22 @@ export async function GET() {
     {
       endpoint: "POST /v1/interventions",
       auth: [
-        "Authorization: Bearer svb_… (per-org producer key)",
+        "Authorization: Bearer svb_â€¦ (per-org producer key)",
         "SV-Signature: t={unix},v1={hmac_sha256(WEBHOOK_SECRET, '{t}.{rawBody}')}",
       ],
-      idempotencyKey: "required — replay returns the stored response, creates nothing",
+      idempotencyKey: "required â€” replay returns the stored response, creates nothing",
       schema: {
-        transaction_ref: "string (3-64) — your transaction reference",
+        transaction_ref: "string (3-64) â€” your transaction reference",
         risk_score: "number 0-1",
         language: "BCP-47 (en, ar, hi)",
-        phone: "E.164 (+9715…)",
-        currency: "ISO-4217 (AED, USD, …)",
+        phone: "E.164 (+9715â€¦)",
+        currency: "ISO-4217 (AED, USD, â€¦)",
         amount: "integer minor units (fils/cents)",
-        merchant: "string? — sanitised before it becomes a dynamic variable",
-        consent_record_id: "string (4-64) — required for outbound contact",
-        callback_url: "https URL? — post-call outcome delivery",
+        merchant: "string? â€” sanitised before it becomes a dynamic variable",
+        consent_record_id: "string (4-64) â€” required for outbound contact",
+        callback_url: "https URL? â€” post-call outcome delivery",
       },
-      response: "202 Accepted — { caseRef, conversationId, status: 'dialing' }",
+      response: "202 Accepted â€” { caseRef, conversationId, status: 'dialing' }",
     },
     { headers: { "Cache-Control": "no-store" } }
   );

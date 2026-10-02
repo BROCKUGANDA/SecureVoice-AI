@@ -402,8 +402,8 @@
     "boundAdaptersTotal": 9,
     "notBoundAdaptersTotal": 14,
     "checks": {
-      "total": 111,
-      "passed": 111,
+      "total": 113,
+      "passed": 113,
       "failed": 0
     },
     "result": "pass"
@@ -712,7 +712,7 @@
     {
       "name": "the-system-clock-tracks-the-wall-clock",
       "ok": true,
-      "detail": "500 samples spanned 0 ms"
+      "detail": "500 samples all fall within 60 s of the first (the span itself is deliberately not quoted)"
     },
     {
       "name": "both-clocks-return-a-Date",
@@ -948,16 +948,26 @@
       "name": "every-bound-only-port-explains-what-was-not-exercised",
       "ok": true,
       "detail": "1 bound-only port(s), each with an explicit reason"
+    },
+    {
+      "name": "the-gate-leaves-no-residue",
+      "ok": true,
+      "detail": "removed {\"outbox\":1,\"auditLog\":14,\"notifications\":4,\"cases\":1,\"ledger\":2,\"payments\":1}; 0 run-scoped row(s) remain"
+    },
+    {
+      "name": "the-gate-touched-only-its-own-rows",
+      "ok": true,
+      "detail": "deleted 1 case, 1 payment, 2 ledger rows (the credit top-up and the policy gate's reservation) and 1 outbox event — every one keyed by this run's ids"
     }
   ],
   "unreportedPorts": [],
-  "digest": "bb853cdd0037be5b9cbf67e3f96f908de74ae0b2faa717abe8bf5894030b05af",
-  "generatedAt": "2026-10-02T18:20:00.234Z",
+  "digest": "8249ae9930372b03874f635d86c2152439c9bb6743cdd7327102fea4b442e9c8",
+  "generatedAt": "2026-10-02T21:58:39.912Z",
   "run": {
-    "id": "murafsg9",
-    "org": "org-seams-murafsg9",
-    "caseRef": "SV-F-SEAMSMURAFSG9",
-    "chainRef": "SEAMCHAIN-murafsg9"
+    "id": "muri8zjk",
+    "org": "org-seams-muri8zjk",
+    "caseRef": "SV-F-SEAMSMURI8ZJK",
+    "chainRef": "SEAMCHAIN-muri8zjk"
   },
   "commands": {
     "test": "bun test tests/seams",

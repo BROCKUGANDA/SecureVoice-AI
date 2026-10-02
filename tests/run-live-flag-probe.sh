@@ -11,8 +11,11 @@
 set -uo pipefail
 
 cd "$(dirname "$0")/.."
-PORT="${PROBE_PORT:-3121}"
-LOG="${TMPDIR:-/tmp}/svprobe-$PORT.log"
+# Absolute bun path: nested shells here can lose PATH, which silently no-ops.
+BUN="/c/Users/HP/.bun/bin/bun"
+PORT="${PROBE_PORT:-3171}"
+# TMPDIR is often unset in this env; LOCALAPPDATA/Temp is the real temp dir.
+LOG="${TMPDIR:-$LOCALAPPDATA/Temp}/svprobe-$PORT.log"
 
 cleanup() {
   [ -n "${SRV_PID:-}" ] && kill "$SRV_PID" 2>/dev/null
@@ -53,7 +56,7 @@ rc=0
 
 echo "=== CASE 1: FEATURE_REALTIME=false, FEATURE_CONSOLE_LIVE_FEED=false ==="
 if boot false false ""; then
-  EXPECT_LIVE_FEED=false PROBE_BASE="http://127.0.0.1:$PORT" bun tests/live-flag-probe.ts || rc=1
+  EXPECT_LIVE_FEED=false PROBE_BASE="http://127.0.0.1:$PORT" "$BUN" tests/live-flag-probe.ts || rc=1
 else
   rc=1
 fi
@@ -61,7 +64,7 @@ fi
 echo
 echo "=== CASE 2: FEATURE_REALTIME=true, FEATURE_CONSOLE_LIVE_FEED=true, secret set ==="
 if boot true true "probe-secret-not-real-but-consistent"; then
-  EXPECT_LIVE_FEED=true PROBE_BASE="http://127.0.0.1:$PORT" bun tests/live-flag-probe.ts || rc=1
+  EXPECT_LIVE_FEED=true PROBE_BASE="http://127.0.0.1:$PORT" "$BUN" tests/live-flag-probe.ts || rc=1
 else
   rc=1
 fi

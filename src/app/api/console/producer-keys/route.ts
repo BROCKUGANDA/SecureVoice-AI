@@ -3,6 +3,7 @@ import { z } from "zod";
 import { requireOperator } from "@/lib/credits";
 import { db } from "@/lib/db";
 import { generateProducerKey, hashProducerKey } from "@/lib/producer-keys";
+import { append as auditAppend } from "@/lib/audit-chain";
 
 export const dynamic = "force-dynamic";
 
@@ -49,6 +50,18 @@ export async function POST(req: NextRequest) {
     data: { label: parsed.data.label, keyHash: hashProducerKey(plaintext), orgId: guard.profile.orgId },
     select: { id: true, label: true, createdAt: true },
   });
+  // Issuing a credential is a security event. The key itself is never in the
+  // record — only its id and label, because the plaintext is shown once and
+  // hashing it into an audit row would help nobody and risk a lot.
+  await auditAppend({
+    callRef: `PRODKEY-${row.id.slice(0, 24)}`,
+    action: "consent",
+    intent: "producer_key_issued",
+    callerId: guard.profile.clerkUserId,
+    redactedText: `issued "${parsed.data.label}"`,
+    meta: { keyId: row.id, label: parsed.data.label, orgId: guard.profile.orgId ?? undefined },
+    orgId: guard.profile.orgId ?? undefined,
+  });
   return NextResponse.json({ ok: true, key: plaintext, ...row, note: "Copy it now — it is shown only once." });
 }
 
@@ -69,5 +82,14 @@ export async function DELETE(req: NextRequest) {
   if (r.count === 0) {
     return NextResponse.json({ error: "Key not found in this workspace" }, { status: 404 });
   }
+  await auditAppend({
+    callRef: `PRODKEY-${id.slice(0, 24)}`,
+    action: "consent",
+    intent: "producer_key_revoked",
+    callerId: guard.profile.clerkUserId,
+    redactedText: "revoked",
+    meta: { keyId: id, orgId: guard.profile.orgId ?? undefined },
+    orgId: guard.profile.orgId ?? undefined,
+  });
   return NextResponse.json({ ok: true, revoked: id });
 }

@@ -17,6 +17,7 @@ import "server-only";
 
 import { auth, currentUser } from "@clerk/nextjs/server";
 import { db } from "@/lib/db";
+import { append as auditAppend } from "@/lib/audit-chain";
 import type { Lang } from "@/lib/config";
 
 export type Role = "operator" | "demo";
@@ -85,6 +86,28 @@ export async function requireOperator(): Promise<OperatorGuard> {
 }
 
 /**
+ * Record a wallet movement in the audit chain.
+ *
+ * Credits are money: every decrement and every refund is a balance change, and
+ * "the balance went down and nobody can say why" is the first question any
+ * auditor asks about a metered system. Fire-and-forget by design — a failing
+ * audit write must never block the intervention it describes — but it is
+ * written on every path, including the failed-wallet path.
+ */
+async function auditWallet(clerkUserId: string, intent: string, credits: number, note: string): Promise<void> {
+  await auditAppend({
+    callRef: `WALLET-${clerkUserId.slice(0, 24)}`,
+    action: "consent",
+    intent,
+    callerId: clerkUserId,
+    redactedText: note,
+    meta: { credits, clerkUserId },
+  }).catch((err) => {
+    console.error("[credits] wallet audit append failed:", err instanceof Error ? err.message : err);
+  });
+}
+
+/**
  * Metered deduction after a successful intervention. Returns the remaining
  * balance, or -1 when the wallet was already empty. The `credits > 0`
  * condition makes the check-and-decrement ATOMIC in the database — two
@@ -96,12 +119,17 @@ export async function deductCredit(clerkUserId: string): Promise<number> {
     where: { clerkUserId, credits: { gt: 0 } },
     data: { credits: { decrement: 1 } },
   });
-  if (r.count === 0) return -1;
+  if (r.count === 0) {
+    await auditWallet(clerkUserId, "wallet_exhausted", 0, "deduct refused: wallet empty");
+    return -1;
+  }
   const row = await db.userProfile.findUnique({
     where: { clerkUserId },
     select: { credits: true },
   });
-  return row?.credits ?? -1;
+  const remaining = row?.credits ?? -1;
+  await auditWallet(clerkUserId, "wallet_debited", remaining, "1 credit consumed by an intervention");
+  return remaining;
 }
 
 /**
@@ -114,5 +142,6 @@ export async function refundCredit(clerkUserId: string): Promise<number> {
     data: { credits: { increment: 1 } },
     select: { credits: true },
   });
+  await auditWallet(clerkUserId, "wallet_refunded", row.credits, "credit returned: intervention not accepted");
   return row.credits;
 }

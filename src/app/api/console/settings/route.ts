@@ -3,6 +3,7 @@ import { z } from "zod";
 import { requireOperator } from "@/lib/credits";
 import { db } from "@/lib/db";
 import { decryptSecret, encryptSecret, maskKey } from "@/lib/byok";
+import { append as auditAppend } from "@/lib/audit-chain";
 
 export const dynamic = "force-dynamic";
 
@@ -75,6 +76,32 @@ export async function POST(req: NextRequest) {
   }
 
   await db.userProfile.update({ where: { clerkUserId: guard.profile.clerkUserId }, data });
+
+  // Storing or rotating a vendor credential is a security event, so it is
+  // recorded like one. The KEY ITSELF IS NEVER LOGGED — only that it changed
+  // and a masked fingerprint, which is the difference between an audit trail
+  // that proves rotation happened and one that becomes a secret exfiltration
+  // path of its own.
+  const touched = Object.keys(data);
+  if (touched.length > 0) {
+    await auditAppend({
+      callRef: `SETTINGS-${guard.profile.clerkUserId.slice(0, 24)}`,
+      action: "consent",
+      intent: d.elevenKey !== undefined ? "by_key_set" : "settings_update",
+      callerId: guard.profile.clerkUserId,
+      redactedText: touched
+        .map((f) => (f === "elevenKeyEnc" ? `elevenKey=***${maskKey(d.elevenKey ?? "")}` : f))
+        .join(", "),
+      meta: {
+        fields: touched,
+        byokChanged: d.elevenKey !== undefined,
+        byokFingerprint: d.elevenKey !== undefined ? maskKey(d.elevenKey!) : undefined,
+        orgId: guard.profile.orgId ?? undefined,
+      },
+      orgId: guard.profile.orgId ?? undefined,
+    });
+  }
+
   const result = await readSettings();
   if ("error" in result) {
     return NextResponse.json({ error: result.error.error }, { status: result.error.status });
@@ -94,6 +121,17 @@ export async function DELETE(req: NextRequest) {
   await db.userProfile.update({
     where: { clerkUserId: guard.profile.clerkUserId },
     data: { elevenKeyEnc: null },
+  });
+  // Removal of a stored vendor credential is audited for the same reason as
+  // setting it: both are the events a security reviewer asks to see.
+  await auditAppend({
+    callRef: `SETTINGS-${guard.profile.clerkUserId.slice(0, 24)}`,
+    action: "consent",
+    intent: "by_key_removed",
+    callerId: guard.profile.clerkUserId,
+    redactedText: "elevenKey removed",
+    meta: { fields: ["elevenKeyEnc"], byokChanged: true, orgId: guard.profile.orgId ?? undefined },
+    orgId: guard.profile.orgId ?? undefined,
   });
   return NextResponse.json({ ok: true, removed: "elevenKey" });
 }

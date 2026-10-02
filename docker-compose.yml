@@ -163,7 +163,10 @@ services:
       realtime:
         condition: service_started
     healthcheck:
-      test: ["CMD", "bun", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      # Readiness, not liveness: the instance must be able to reach its
+      # database before it is allowed to take traffic. /api/health stays a pure
+      # process probe for uptime monitors.
+      test: ["CMD", "bun", "-e", "fetch('http://127.0.0.1:3000/api/readyz').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
       interval: 30s
       timeout: 5s
       retries: 3

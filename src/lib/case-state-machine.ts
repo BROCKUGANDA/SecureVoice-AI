@@ -82,7 +82,41 @@ export async function transitionCase(
     data: { state: to, ...(meta ?? {}) },
     select: { id: true, state: true },
   });
+  await recordTransition(caseRef, from, to, meta, row.orgId);
   return updated;
+}
+
+/**
+ * Every case-state transition gets its own audit row, written by the single
+ * writer that performs it.
+ *
+ * The route handlers already write their own narrative rows ("signal_received",
+ * "delivery_call"), and those are what a reader reads. This is the other half:
+ * a mechanical, complete record of the state machine itself, produced at the
+ * only place state can change — so a transition cannot happen without leaving a
+ * trace, no matter which caller performed it or what it forgot to log.
+ */
+async function recordTransition(
+  caseRef: string,
+  from: string,
+  to: string,
+  meta: Record<string, unknown> | undefined,
+  orgId: string | null,
+): Promise<void> {
+  const { append } = await import("@/lib/audit-chain");
+  await append(
+    {
+      callRef: caseRef,
+      action: "agent",
+      intent: `transition_${from.toLowerCase()}_to_${to.toLowerCase()}`,
+      redactedText: `${from} → ${to}`,
+      meta: { from, to, ...(meta ?? {}) },
+      orgId: orgId ?? undefined,
+    },
+    { fast: true },
+  ).catch((err) => {
+    console.error("[case-state] transition audit failed:", err instanceof Error ? err.message : err);
+  });
 }
 
 /**

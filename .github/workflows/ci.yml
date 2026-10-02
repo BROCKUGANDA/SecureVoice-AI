@@ -83,7 +83,10 @@ jobs:
       # its own tsconfig; these live in the root project and use the root
       # install, so they are a single quick step.
       - name: App unit tests
-        run: bun test tests/
+        # The per-file runner (scripts/run-tests.mjs) is used rather than a bare
+        # `bun test tests/`, so each file gets a clean module registry and the
+        # gate matches what `bun run verify` executes locally.
+        run: bun run test
 
       # The test project is separate (it needs `bun:test` types and .ts import
       # extensions the Next app project doesn't allow), so it needs its own
@@ -98,6 +101,36 @@ jobs:
 
       - name: Typecheck
         run: bunx tsc --noEmit -p tsconfig.json
+
+# Schema drift gate. Twice now a model has landed in schema.prisma with
+      # no migration: the app deploys, every request returns 200, and the
+      # failure only appears when a code path touches the new column — which is
+      # the worst possible time to discover it. This step applies every
+      # migration to an ephemeral Postgres and then asks Prisma whether the
+      # result still matches schema.prisma. `--exit-code` makes any difference
+      # a non-zero exit, so drift fails the build instead of the demo.
+      - name: Migration drift gate
+        env:
+          DATABASE_URL: postgresql://securevoice:securevoice@localhost:5432/securevoice?schema=public
+        run: |
+          docker compose up -d db
+          until docker compose exec -T db pg_isready -U securevoice -d securevoice >/dev/null 2>&1; do sleep 1; done
+          bunx prisma migrate deploy
+          # Exit code 2 means "there is a difference". Anything else is a real error.
+          set +e
+          bunx prisma migrate diff \
+            --from-url "$DATABASE_URL" \
+            --to-schema-datamodel prisma/schema.prisma \
+            --script > /tmp/drift.sql
+          DIFF_RC=$?
+          set -e
+          if [ "$DIFF_RC" = "2" ] || [ -s /tmp/drift.sql ]; then
+            echo "::error::schema.prisma is ahead of prisma/migrations — generate a migration:"
+            echo "::error::bunx prisma migrate diff --from-url <db> --to-schema-datamodel prisma/schema.prisma --script"
+            cat /tmp/drift.sql
+            exit 1
+          fi
+          echo "no schema drift"
 
       - name: Build
         env:

@@ -123,12 +123,30 @@ const PRIVACY_SECTIONS = [
     h: "Lawful basis",
     body: [
       "For website data we rely on your consent, given when you submit a form, and on our legitimate interest in operating and securing the service. For fraud-intervention calls processed for a bank, the lawful basis is established by that bank — typically the vital-interest and legal-obligation bases recognised under Federal Decree-Law No. 45 of 2021 (the \"PDPL\") — and we operate strictly on the bank's documented instructions.",
+      "Because this deployment runs in the European Economic Area, we also comply with the EU General Data Protection Regulation (Regulation (EU) 2016/679) for personal data processed in connection with it: we rely on your consent for website submissions and on legitimate interests for security logging, we have concluded a Data Processing Agreement with each processor, and transfers outside the EEA are covered by Standard Contractual Clauses or an adequacy decision.",
     ],
   },
   {
     h: "Where your data lives",
     body: [
-      "Website submissions are stored in our UAE region (me-central-1). Platform deployments store speech, transcripts and case data inside the bank's own tenancy, in-country. Data never leaves the UAE; inference endpoints that process audio are similarly pinned to the region, including the prompts sent to them.",
+      "This website and the reference deployment run in European infrastructure: the application server and its database are hosted in Germany (Frankfurt, eu-central-1) with TLS 1.3 in transit and AES-256 at rest.",
+      "Live voice inference — text to speech and speech to text — is performed by our processors (listed below) in the United States and the United Kingdom, so the words spoken during an intervention call cross the border to be synthesised. We do not send call audio to any model for reasoning or decision-making; intent classification and every protective action are deterministic server-side code.",
+      "In a bank deployment the position changes: case data, transcripts and audio are written to the bank's own tenancy, and our role is that of a processor acting on the bank's documented instructions. A bank requiring in-country (UAE) processing deploys the platform inside its own VPC — the container topology is unchanged — so speech, transcripts and case data never leave its perimeter.",
+      "We do not sell personal data, and we do not use it for advertising or profiling of any kind.",
+    ],
+  },
+  {
+    h: "Sub-processors",
+    body: [
+      "We use a small number of processors, each under contract and each limited to the purpose stated: identity and session management (Clerk); telephony for outbound intervention calls and SMS (Twilio); speech synthesis and transcription (ElevenLabs, with Deepgram as fallback); optional reply drafting (Groq or Google Gemini); infrastructure and database hosting (the cloud provider and database provider named in our sub-processor register); and transactional email for support replies.",
+      "Where a bank requires additional residency, silence, or a written commitment for any of these, we will either pin the processor to an in-region endpoint or remove it from that deployment. The current register, with processing locations and the standard contractual clauses where applicable, is available on request.",
+    ],
+  },
+  {
+    h: "Automated voice and your rights when you are called",
+    body: [
+      "The intervention call is delivered by an AI voice agent. Every call opens with a spoken disclosure that it is an automated system calling on the bank's behalf and that the call is recorded, and the agent never asks for a PIN, password, one-time passcode or full card number.",
+      "You can ask to stop at any time and the opt-out is honoured immediately for all future contact about that account.",
     ],
   },
   {
@@ -146,8 +164,8 @@ const PRIVACY_SECTIONS = [
   {
     h: "Your rights",
     body: [
-      "Under the PDPL you may request access, correction, deletion, portability, or object to processing. Email otemaach@gmail.com and we will verify and respond within 30 days. If you are unsatisfied, you may lodge a complaint with the UAE Data Office.",
-      "If your data is processed inside your bank's deployment of SecureVoice, direct your request to the bank; we support the bank in fulfilling it.",
+      "Under the PDPL you may request access, correction, deletion, portability, or object to processing. Under the GDPR you may also request restriction and erasure, and you may complain to your national supervisory authority — in the EEA, the Irish Data Protection Commission is our lead authority. Email otemaach@gmail.com and we will verify and respond within 30 days.",
+      "If your data is processed inside your bank's deployment of SecureVoice, direct your request to the bank; we support the bank in fulfilling it. If you ask us to delete a case record, we destroy the encryption key that makes the transcript readable while retaining the hash chain, so the record of the action remains provable without the content.",
     ],
   },
   {
@@ -171,9 +189,9 @@ export function Privacy() {
       icon={ScrollText}
       titleEn="Privacy Policy"
       titleAr="سياسة الخصوصية"
-      subtitleEn="We collect the minimum needed to answer you, we store it in the UAE, and we never sell it. This page is the plain-English version; the legal text of our DPA is available to pilot customers on request."
-      subtitleAr="نجمع الحد الأدنى اللازم للرد عليك، ونخزّنه في الإمارات، ولا نبيعه أبداً. هذه النسخة المبسطة؛ والنص القانوني متاح لعملاء البرنامج التجريبي عند الطلب."
-      meta={{ version: "1.2", effective: "2026-02-01", entity: "SECUREVOICE TECHNOLOGIES FZ-LLC" }}
+      subtitleEn="We collect the minimum needed to answer you, we store it in Europe, and we never sell it. This page is the plain-English version; the legal text of our DPA is available to pilot customers on request."
+      subtitleAr="نجمع الحد الأدنى اللازم للرد عليك، ونخزّنه في أوروبا، ولا نبيعه أبداً. هذه النسخة المبسطة؛ والنص القانوني متاح لعملاء البرنامج التجريبي عند الطلب."
+      meta={{ version: "1.3", effective: "2026-10-02", entity: "SECUREVOICE TECHNOLOGIES FZ-LLC" }}
       sections={PRIVACY_SECTIONS}
     />
   );
@@ -213,6 +231,14 @@ const TERMS_SECTIONS = [
     ],
   },
   {
+    h: "Artificial intelligence and automated decisions",
+    body: [
+      "The Service uses an AI voice agent for customer contact and, where configured, a language model to phrase replies. No model ever decides a financial outcome. Intent classification, identity verification and every protective action are deterministic server-side code governed by the bank's policy; a language model may only rephrase a line that policy has already approved, and its output is scanned before it is spoken.",
+      "A freeze or hold requested by the agent is staged and reversible, and a second actor — the bank's system or a human specialist — commits it. You can ask at any point during a call whether you are speaking to an automated system, and the agent will tell you plainly.",
+      "Because our website demonstration runs on synthetic data and is for evaluation only, no automated decision made by it affects any real person. Production terms on this point are governed by the signed agreement with the contracting bank.",
+    ],
+  },
+  {
     h: "Intellectual property",
     body: [
       "The Service, including its guardrail policy format, agent architecture, voice personas and this website, is the property of SecureVoice Technologies FZ-LLC and its licensors. You may reference and link to this site; you may not copy its design, content or code for competing purposes without written permission.",
@@ -241,7 +267,7 @@ export function Terms() {
       titleAr="الشروط والأحكام"
       subtitleEn="The short version: use this site lawfully, treat the demo as evaluation-only, and rely on a signed agreement for production. The long version follows."
       subtitleAr="باختصار: استخدم الموقع بشكل قانوني، وتعامل مع العرض التجريبي كتقييم فقط، واعتمد على اتفاقية موقّعة للإنتاج. التفاصيل الكاملة أدناه."
-      meta={{ version: "1.1", effective: "2026-02-01", entity: "SECUREVOICE TECHNOLOGIES FZ-LLC" }}
+      meta={{ version: "1.2", effective: "2026-10-02", entity: "SECUREVOICE TECHNOLOGIES FZ-LLC" }}
       sections={TERMS_SECTIONS}
     />
   );

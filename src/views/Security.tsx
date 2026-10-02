@@ -167,14 +167,14 @@ export function Security() {
             {
               icon: Lock,
               title: "PCI DSS scope",
-              body: "The agent never touches PANs. Card identifiers arrive as tokens and last-4 only, keeping the voice platform outside the PCI cardholder-data environment entirely.",
-              tag: "Out of scope by design",
+              body: "The agent never touches PANs. Card identifiers arrive as tokens and last-4 only, keeping the voice platform entirely outside the PCI cardholder-data environment — the applicable self-assessment is SAQ A, not SAQ D.",
+              tag: "SAQ A — out of scope by design",
             },
             {
               icon: Globe2,
               title: "Data residency",
-              body: "All speech, transcripts and case data stay in-country (me-central-1) — inside your tenancy for VPC deployments. Nothing crosses the border, including model prompts.",
-              tag: "me-central-1",
+              body: "This deployment runs in European infrastructure (Frankfurt, eu-central-1), TLS 1.3 in transit and AES-256 at rest. Speech synthesis and transcription are performed by processors in the US and UK — no call audio reaches a model for decision-making. A bank requiring in-country (UAE) processing deploys the same containers inside its own VPC, so transcripts and case data never leave its perimeter.",
+              tag: "eu-central-1",
             },
             {
               icon: KeyRound,

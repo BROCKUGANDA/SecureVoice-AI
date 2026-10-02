@@ -12,7 +12,12 @@ import { readdirSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 
 const dir = new URL("../tests/", import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1");
-const files = readdirSync(dir).filter((f) => f.endsWith(".test.ts")).sort();
+// Recursive: gate tests live in subdirectories (tests/e2e, tests/tools,
+// tests/webhooks) and every *.test.ts must run in `bun run test`.
+const files = readdirSync(dir, { recursive: true })
+  .filter((f) => String(f).endsWith(".test.ts"))
+  .map((f) => String(f).split("\\").join("/"))
+  .sort();
 
 if (files.length === 0) {
   console.error("no test files found in tests/");

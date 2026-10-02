@@ -121,12 +121,12 @@ function Header({ lang }: { lang: "en" | "ar" }) {
 /* ————————————————— live status chip ————————————————— */
 
 function StatusChip() {
-  const [status, setStatus] = useState<{ version: string; dbLatencyMs: number | null; ok: boolean } | null>(null);
+  const [status, setStatus] = useState<{ version: string; dbLatencyMs: number | null; ok: boolean; region?: string } | null>(null);
 
   useEffect(() => {
     let alive = true;
     const load = () =>
-      fetch("/api/status")
+      fetch("/api/meta")
         .then((r) => r.json())
         .then((d) => alive && setStatus(d))
         .catch(() => {});
@@ -148,7 +148,7 @@ function StatusChip() {
             <span className="font-mono text-[12px] font-semibold">api v{status.version}</span>
           </div>
           <div className="mt-1 font-mono text-[10.5px] text-ink-3">
-            db {status.dbLatencyMs ?? "—"}ms · me-central-1
+            db {status.dbLatencyMs ?? "—"}ms · {status.region ?? "self-hosted"}
           </div>
         </>
       ) : (
@@ -418,7 +418,7 @@ function Webhooks() {
       <Reveal>
         <h2 className="font-display text-xl font-semibold tracking-tight">Event catalog</h2>
         <p className="mt-2 max-w-2xl text-[14px] leading-relaxed text-ink-2">
-          Six events cover the full intervention lifecycle. Deliveries are signed (HMAC-SHA256 over the raw body), retried with exponential backoff for 24 hours, and every payload is written to the audit log before it leaves the region.
+          Six events cover the full intervention lifecycle. Deliveries are signed (HMAC-SHA256 over the raw body), retried with exponential backoff for 24 hours, and every payload is written to the audit log before it is delivered to your endpoint.
         </p>
       </Reveal>
 

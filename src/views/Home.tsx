@@ -884,7 +884,7 @@ function PilotDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: 
                 </div>
                 <div className="flex items-end pb-0.5">
                   <p className="text-[11px] leading-snug text-ink-3">
-                    Stored securely in our UAE region. We never share your details — see our{" "}
+                    Stored securely in our European infrastructure. We never share your details — see our{" "}
                     <button
                       onClick={() => { close(false); setView("privacy"); }}
                       className="underline decoration-line underline-offset-2 transition hover:text-primary"

@@ -78,3 +78,84 @@ length 64.
 - Audit chain: dedicated Prisma client (`dbAudit`, 5-connection pool) so fire-and-forget appends never starve the hot path.
 - Idempotency store: deferred with `setImmediate` so it never blocks the response.
 - Cooldown/concurrency: in-memory (no DB round-trip on the hot path).
+
+---
+
+## WP-3 · Server tools guardrail boundary — PASSED
+
+**Date:** 2026-10-02
+**Command:** `TEST_DATABASE_URL=postgresql://postgres@127.0.0.1:5432/securevoice_test?connection_limit=20 bun test tests/tools/guard.test.ts`
+**Result:** 1 pass, 0 fail — p95 tool latency **11 ms over 200 calls** (target < 300 ms; distributions across runs: min 1 / p50 4 / p90 6 / p95 11 / p99 23 / max 26 ms), typed 409 refusals, cross-tool secret 401, audit chains verified from genesis, verify → freeze → handoff happy path.
+
+### Measurement topology (read this before re-running)
+
+The p95 < 300 ms gate assumes the production topology in `docs/HETZNER.md`:
+Postgres **co-located with the app**. The dev Supabase database is ~270 ms
+round-trip away, which makes the gate physically impossible regardless of
+code — one round trip alone is 90 % of the budget. Measured evidence:
+
+| Path | RTT per round trip | p95 over 200 calls |
+|---|---|---|
+| Co-located Postgres (gate run above) | ~2–6 ms | **11 ms** |
+| Remote Supabase, 1-round-trip hot path | 270 ms (raw pg: 268–289 ms) | 304–605 ms |
+
+`tests/preload.ts` honours `TEST_DATABASE_URL`, so the gate runs against a
+co-located database when one is provided and falls back to `DATABASE_URL`
+(dev Supabase) otherwise. Every other assertion in the suite (refusals,
+secrets, audit chains) is topology-independent and passes on either database.
+
+### What was built
+- `prisma/schema.prisma` — `Case` model (the conversation↔case join key for the agent tools).
+- `src/lib/case-state-machine.ts` — single writer for case state; `TRANSITIONS` table enforces invariant **I-2** (`stage_card_freeze` executable only from `CONFIRMED_FRAUD`).
+- `src/lib/tool-guard.ts` — shared `guardToolCall`: auth (`timingSafeEqual` + per-tool allow-list) → case resolution → state precondition. Every refusal is a typed 409/401, never a 500, and every refusal is appended to the audit chain **before** returning.
+- Four webhook tools under `src/app/api/elevenlabs/tools/`:
+  `card_freeze` (staged-only, commits nothing), `human_handoff`,
+  `verify_transaction` (disposition transitions), `switch_language`.
+- **Hot path = 1 database round trip.** `switch_language` folds the case
+  lookup and the state precondition into the `UPDATE … FROM (CTE) … RETURNING`
+  itself instead of a `findFirst` + `update` pair; refusals pay one extra
+  round trip only to type the 409. Auth is in-memory (no DB).
+- `tests/tools/guard.test.ts` — the gate: 409 refusal codes, cross-tool
+  secret, 200-call latency sweep (concurrency 10, pool warmed), audit-chain
+  verification of the refusal entry, and the verify → freeze → handoff path.
+  Unique `RUN_ID`-suffixed conversation ids so repeated runs never collide.
+
+### Artifacts
+- `tests/tools/guard.test.ts` — the WP-3 gate
+- `src/lib/tool-guard.ts`, `src/lib/case-state-machine.ts`
+- `src/app/api/elevenlabs/tools/*/route.ts` (four tools)
+
+---
+
+## WP-4 · Post-call ingest — PASSED
+
+**Date:** 2026-10-02
+**Command:** `bun run test:webhook:inbound` (with `TEST_DATABASE_URL` pointed at the co-located `securevoice_test` Postgres, same as WP-3)
+**Result:** 1 pass, 0 fail — 22 assertions, 2.5 s. Forged signature → 401; valid signature with a stale timestamp → 401; exact replay → `duplicate: true` with **zero** additional audit rows; synthetic PAN / OTP / CVV absent from the stored transcript; case advanced `CONFIRMED_FRAUD → NOTIFIED`; audit chain verifies from genesis after ingest (I-6); an uncorrelatable conversation lands in quarantine with a redacted excerpt (never dropped).
+
+### What was built
+- `src/app/api/webhooks/elevenlabs/route.ts` — verifies `ElevenLabs-Signature: t=…,v0=…` with the **platform SDK's `constructEvent`** (`@elevenlabs/elevenlabs-js@2.70.0`, installed for this), not a hand-rolled HMAC. A verification failure is a 401 — never a 5xx. The handler then does the minimum: dedupe + persist the delivery, and returns 2xx immediately; all heavy work is fired without `await`.
+- `src/lib/elevenlabs/inbound.ts` — processing for `post_call_transcription`, `post_call_audio` and `call_initiation_failure`, handled separately.
+  - Transcript is redacted through `src/lib/redact.ts` **before** anything is stored (I-10). The raw payload is never persisted, so a quarantine row can only ever hold a redacted excerpt.
+  - Evaluation-criteria results, data-collection results, `call_successful` and the reported call duration are persisted on the case.
+  - Billing reconciliation input: `durationSeconds` on the case plus `billing.billed_minutes` in the audit entry — the append-only `UsageLedger` itself arrives with WP-13.
+  - Every ingest appends `post_call_ingest` to the audit chain **before** the database mutation, mirroring the WP-3 refusal discipline.
+  - The case advances to `NOTIFIED` where the state machine allows it, which is the trigger WP-5 hangs off.
+  - Per-row in-process lock, so a redelivery arriving mid-processing cannot double-write or duplicate the audit entry.
+- `prisma/schema.prisma` — `Case` gained `postCallAt`, `postCallEventType`, `outcome`, `durationSeconds`, `transcriptRedacted`, `evaluationResults`, `dataCollectionResults`; new `WebhookEvent` (registry + dedupe via unique `(provider, eventType, conversationId, eventTimestamp)`) and `WebhookQuarantine`.
+- `GET /api/status` now reports `webhookIngest { configured, lastWebhookAt, fresh24h, pending }` — the "no webhook in 24 h" alarm the brief asks for (hazard H8).
+- `drainPendingWebhooks()` surfaces deliveries that were accepted but never processed, so a crash mid-ingest cannot leave a case stuck (hazard H7).
+- `scripts/run-tests.mjs` now discovers `*.test.ts` recursively, so the `tests/e2e`, `tests/tools` and `tests/webhooks` gates actually run inside `bun run test`.
+
+### Idempotency (invariant I-7 at the webhook boundary)
+
+The delivery identity is the platform's own envelope — `(provider, eventType, conversationId, eventTimestamp)`, not a hash of the body. A redelivery with the same envelope returns `duplicate: true` and writes nothing; a redelivery of a row that was accepted but failed processing is re-processed, which is what makes the platform's retry ladder useful instead of losing evidence.
+
+### Notes and deviations
+- Timestamp freshness is the SDK's 30-minute tolerance. Egress-IP pinning is not configured (documented as optional in the brief).
+- Processing runs in-process off the enqueue. That is deliberate for a single-node deploy and is paired with the persisted delivery registry plus `drainPendingWebhooks()`; WP-5's outbox makes the whole egress path durable.
+- `ELEVENLABS_WEBHOOK_SECRET` was added to `.env` / `.env.example` with a 64-char hex development value. Production must replace it with the secret ElevenLabs generates for the webhook endpoint.
+
+### Artifacts
+- `tests/webhooks/elevenlabs-inbound.test.ts` — the WP-4 gate
+- `src/app/api/webhooks/elevenlabs/route.ts`, `src/lib/elevenlabs/inbound.ts`

@@ -181,10 +181,110 @@ model Case {
   freezeReference String?
   handoffQueued Boolean  @default(false)
   handoffSpecialist String?
+  // Post-call ingest (WP-4): the conversation record becomes billing truth
+  // and the bank notification. Transcript is stored redacted only (I-10).
+  postCallAt       DateTime?
+  postCallEventType String?
+  outcome          String? // analysis.call_successful / evaluation verdict
+  durationSeconds  Int?   // from the conversation metadata (billing reconcile)
+  transcriptRedacted String?
+  evaluationResults String? // JSON string of analysis.evaluation_criteria_results
+  dataCollectionResults String? // JSON string of analysis.data_collection_results
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
   @@index([orgId, state])
   @@index([orgId, createdAt])
   @@index([conversationId])
+}
+
+/// One row per inbound ElevenLabs delivery (verified signature) — the
+/// processing registry and the dedupe record. Unique per
+/// (provider, eventType, conversationId, eventTimestamp): an exact redelivery
+/// is a replay and creates nothing new. Not processed rows may be retried.
+model WebhookEvent {
+  id             String   @id @default(cuid())
+  provider       String   @default("elevenlabs")
+  eventType      String
+  conversationId String?
+  agentId        String?
+  eventTimestamp Int?
+  processed      Boolean  @default(false)
+  error          String?
+  processedAt    DateTime?
+  receivedAt     DateTime @default(now())
+
+  @@unique([provider, eventType, conversationId, eventTimestamp])
+  @@index([processed])
+  @@index([conversationId])
+}
+
+/// Inbound webhooks that could not be correlated to a case land here — never
+/// silently dropped (WP-4 step 4). Redacted transcript excerpt only.
+model WebhookQuarantine {
+  id            String   @id @default(cuid())
+  eventType     String
+  conversationId String?
+  reason        String
+  transcriptRedacted String?
+  eventTimestamp Int?
+  createdAt     DateTime @default(now())
+
+  @@index([conversationId])
+  @@index([createdAt])
+}
+
+/// Transactional outbox (WP-5). The case transition and this row commit in
+/// the SAME transaction, so a verdict can never exist without its delivery.
+/// PENDING -> SENDING -> DELIVERED, or -> DEAD after the retry ladder
+/// exhausts (then a DeadLetter row exists for manual replay).
+model OutboxEvent {
+  id            String   @id @default(cuid()) // also the event_id the bank deduplicates on
+  orgId         String?
+  caseRef       String?
+  eventType     String   // e.g. case.notified
+  payload       String   // canonical JSON body actually signed and sent
+  targetUrl     String
+  state         String   @default("PENDING") // PENDING | SENDING | DELIVERED | DEAD
+  attempts      Int      @default(0)
+  nextAttemptAt DateTime @default(now())
+  lastError     String?
+  deliveredAt   DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([state, nextAttemptAt])
+  @@index([caseRef])
+}
+
+/// Dead-letter table: deliveries that exhausted the retry ladder.
+/// Manual replay (admin-only endpoint) re-queues the matching OutboxEvent.
+model DeadLetter {
+  id        String   @id @default(cuid())
+  eventId   String   @unique // OutboxEvent.id
+  eventType String
+  caseRef   String?
+  payload   String
+  targetUrl String
+  error     String
+  attempts  Int
+  replayedAt DateTime?
+  failedAt  DateTime @default(now())
+
+  @@index([failedAt])
+}
+
+/// Deliveries received by the in-app receiver (the /inspector demo surface,
+/// and the fixture a bank integration team can point its own tests at).
+model InboundBankEvent {
+  id              String   @id @default(cuid())
+  eventId         String   @unique
+  eventType       String
+  caseRef         String?
+  signatureValid  Boolean
+  signatureHeader String?
+  body            String
+  receivedAt      DateTime @default(now())
+
+  @@index([receivedAt])
 }

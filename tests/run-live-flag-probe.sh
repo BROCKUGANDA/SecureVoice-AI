@@ -26,6 +26,10 @@ boot() {
   cleanup
   # Generous budgets: the edge limiter in src/proxy.ts is 600/hour by default and
   # would otherwise rate-limit the probe itself into a 429.
+  # Hostname matters: Next's standalone server binds IPv4 but proxies some work
+  # internally through `localhost`, which on this host resolves to ::1 first —
+  # so binding 0.0.0.0 while requesting `localhost` produced ECONNREFUSED on
+  # every route. `127.0.0.1` is used throughout instead.
   PORT="$PORT" HOSTNAME=127.0.0.1 \
     EDGE_RATE_LIMIT_PER_HOUR=1000000 RATE_LIMIT_PER_HOUR=1000000 \
     FEATURE_REALTIME="$realtime" FEATURE_CONSOLE_LIVE_FEED="$feed" \
@@ -35,7 +39,9 @@ boot() {
   for _ in $(seq 1 40); do
     sleep 2
     local code
-    code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 4 "http://127.0.0.1:$PORT/api/status" || true)
+    # Force IPv4 and bypass any proxy: this host resolves `localhost` to ::1
+    # first, which the IPv4-bound standalone server never answers on.
+    code=$(curl -4 --noproxy '*' -s -o /dev/null -w "%{http_code}" --max-time 6 "http://127.0.0.1:$PORT/api/status" || true)
     if [ "$code" != "000" ] && [ -n "$code" ]; then return 0; fi
   done
   echo "server on :$PORT never became ready; log:" >&2

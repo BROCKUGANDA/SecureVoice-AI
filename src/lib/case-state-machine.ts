@@ -14,6 +14,7 @@ import "server-only";
  */
 
 import { db } from "@/lib/db";
+import { enqueueOutbox, type BankEventInput } from "@/lib/outbox";
 
 export const CASE_STATES = [
   "RECEIVED", "SCREENED", "DIALING", "RINGING", "ANSWERED",
@@ -84,8 +85,37 @@ export async function transitionCase(
   return updated;
 }
 
-/** Create a case in RECEIVED state. */
-export async function createCase(data: {
+/**
+ * Transition + outbox row in ONE transaction (WP-5).
+ *
+ * This is the only sanctioned way to publish a verdict to the bank: the case
+ * state change and the delivery row commit together, so a state can never be
+ * reached without its notification, and a notification can never claim a state
+ * that did not happen. Illegal transitions still throw before anything writes.
+ */
+export async function transitionCaseWithOutbox(
+  caseRef: string,
+  to: string,
+  opts: { meta?: Record<string, unknown>; outbox: BankEventInput & { eventId?: string; occurredAt?: string } },
+): Promise<{ id: string; state: string; eventId: string }> {
+  const row = await db.case.findUnique({ where: { caseRef } });
+  if (!row) throw new Error(`Case not found: ${caseRef}`);
+  const from = row.state;
+  if (!canTransition(from, to)) {
+    throw new IllegalTransitionError(from, to);
+  }
+  return db.$transaction(async (tx) => {
+    const updated = await tx.case.update({
+      where: { caseRef },
+      data: { state: to, ...(opts.meta ?? {}) },
+      select: { id: true, state: true },
+    });
+    const event = await enqueueOutbox(tx, opts.outbox);
+    return { ...updated, eventId: event.id };
+  });
+}
+
+/** Create a case in RECEIVED state. */export async function createCase(data: {
   caseRef: string;
   orgId?: string | null;
   transactionRef?: string;

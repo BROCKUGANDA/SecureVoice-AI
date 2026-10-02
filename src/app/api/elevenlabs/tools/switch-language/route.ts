@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { guardToolCall } from "@/lib/tool-guard";
+import { Prisma } from "@prisma/client";
+import { authorizeToolCall } from "@/lib/agent-tool-auth";
 import { CASE_STATES } from "@/lib/case-state-machine";
 import { append as auditAppend } from "@/lib/audit-chain";
 import { db } from "@/lib/db";
@@ -19,6 +20,14 @@ const schema = z.object({
     .regex(/^[a-zA-Z]{2,3}(-[a-zA-Z0-9]{2,8})*$/, "language must be a BCP-47 tag such as en, ar, hi or ur-AE"),
 });
 
+/**
+ * Latency budget: this tool sits on the conversational critical path, so the
+ * hot path is ONE database round trip — the case lookup and the state
+ * precondition are folded into the UPDATE itself (`CTE target … UPDATE …
+ * WHERE id IN target`) rather than a findFirst + update pair. Refusals pay a
+ * second round trip to type the 409, which is fine: only happy-path latency
+ * counts against the p95 gate (docs/VERIFICATION.md, WP-3).
+ */
 export async function POST(req: NextRequest) {
   const body = await parseJson(req);
   if (body === null) return badRequest("Invalid JSON body");
@@ -31,43 +40,78 @@ export async function POST(req: NextRequest) {
   const { conversation_id } = parsed.data;
   const language = parsed.data.language.toLowerCase();
 
-  const auth = await guardToolCall(TOOL_NAME, req.headers.get("x-agent-tool-secret"), conversation_id, CASE_STATES);
+  // In-memory — no database round trip.
+  const auth = authorizeToolCall(req.headers.get("x-agent-tool-secret"), TOOL_NAME);
   if (!auth.ok) {
-    return NextResponse.json(
-      { ok: false, error: auth.error, code: auth.code },
-      { status: auth.status },
-    );
+    return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status });
   }
 
-  const updated = await db.case.updateMany({
-    where: { conversationId: conversation_id, state: { in: [...CASE_STATES] } },
-    data: { language },
-  });
+  // ONE round trip: existence + state precondition + write, atomically.
+  let rows: { caseRef: string; state: string }[];
+  try {
+    rows = await db.$queryRaw<{ caseRef: string; state: string }[]>(Prisma.sql`
+      WITH target AS (
+        SELECT id FROM "Case"
+        WHERE "conversationId" = ${conversation_id}
+          AND state::text = ANY(${CASE_STATES})
+        LIMIT 1
+      )
+      UPDATE "Case" c
+      SET language = ${language}
+      FROM target t
+      WHERE c.id = t.id
+      RETURNING c."caseRef" AS "caseRef", c.state::text AS "state"
+    `);
+  } catch (err) {
+    console.error("[tool/switch_language] guarded update failed:", err);
+    return NextResponse.json({ ok: false, error: "case_update_failed" }, { status: 503 });
+  }
 
-  if (updated.count === 0) {
+  if (rows.length === 0) {
+    // Refusal path — one extra round trip to distinguish the typed 409s.
+    const existing = await db.$queryRaw<{ caseRef: string; state: string }[]>(Prisma.sql`
+      SELECT "caseRef" AS "caseRef", state::text AS "state" FROM "Case"
+      WHERE "conversationId" = ${conversation_id} LIMIT 1
+    `);
+    if (existing.length > 0) {
+      await auditAppend(
+        {
+          callRef: existing[0].caseRef,
+          action: "agent",
+          intent: `tool_refused_${TOOL_NAME}`,
+          callerId: "agent-tool",
+          meta: { tool: TOOL_NAME, state: existing[0].state, allowedStates: CASE_STATES, reason: "state_precondition_failed" },
+        },
+        { fast: true },
+      ).catch(() => {});
+      return NextResponse.json(
+        { ok: false, error: `tool ${TOOL_NAME} cannot act on a case in state ${existing[0].state}`, code: "state_precondition_failed" },
+        { status: 409 },
+      );
+    }
     return NextResponse.json(
       { ok: false, error: "no live case for this conversation_id", code: "case_not_found" },
       { status: 409 },
     );
   }
 
+  const { caseRef, state } = rows[0];
+
+  // Fire-and-forget: a reversible language preference must not add a second
+  // round trip to the conversational critical path; the per-callRef chain lock
+  // still serialises it behind any other append for this conversation.
   void auditAppend({
-    callRef: auth.caseRef,
+    callRef: caseRef,
     action: "agent",
     intent: "switch_language",
     callerId: "agent-tool",
-    meta: {
-      tool: TOOL_NAME,
-      to_language: language,
-      state: auth.state,
-      source: "elevenlabs_agent_tool",
-    },
+    meta: { tool: TOOL_NAME, to_language: language, state, source: "elevenlabs_agent_tool" },
   }, { fast: true }).catch(() => {});
 
   return NextResponse.json({
     ok: true,
     language,
-    case_ref: auth.caseRef,
-    state: auth.state,
+    case_ref: caseRef,
+    state,
   });
 }

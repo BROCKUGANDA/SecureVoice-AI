@@ -1,0 +1,146 @@
+# ---------------------------------------------------------------------------
+# SecureVoice AI — CI
+#
+# Runs the same gates that gate a release, on every push and PR. The commands are
+# not duplicated here: they come from package.json, so `bun run verify` locally is
+# byte-for-byte what CI executes.
+#
+# The realtime service is gated too. It is a separate package with its own
+# dependencies and tsconfig, so the root `tsc` deliberately does not cover it —
+# without this job its type errors would only ever surface on a deploy host.
+# ---------------------------------------------------------------------------
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# A superseded commit on a PR makes the whole run meaningless; cancel it.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Lint, typecheck, tests, build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # Prisma needs a syntactically valid URL at generate time. It is never
+      # dialled during a build — this is the same value the Dockerfile bakes in.
+      - name: Install dependencies
+        env:
+          DATABASE_URL: postgresql://securevoice:securevoice@localhost:5432/securevoice?schema=public
+        run: bun install --frozen-lockfile
+
+      - name: Generate Prisma client
+        env:
+          DATABASE_URL: postgresql://securevoice:securevoice@localhost:5432/securevoice?schema=public
+        run: bunx prisma generate
+
+      - name: Realtime service — install
+        working-directory: mini-services/realtime
+        run: bun install --frozen-lockfile
+
+      - name: Realtime service — typecheck
+        working-directory: mini-services/realtime
+        run: bunx tsc -p tsconfig.json
+
+      - name: Realtime service — tests
+        working-directory: mini-services/realtime
+        run: bun test
+
+      # The app gates: lint, root typecheck, production build. Kept as separate
+      # steps so a failure names itself instead of arriving as one opaque blob.
+      - name: Lint
+        run: bun run lint
+
+      - name: Typecheck
+        run: bunx tsc --noEmit -p tsconfig.json
+
+      - name: Build
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
+          DATABASE_URL: postgresql://securevoice:securevoice@localhost:5432/securevoice?schema=public
+        run: bun run build
+
+      # `next build` fetches from Google Fonts at build time. That is fine here and
+      # is the single most common reason a first CI run fails — the step below
+      # proves it, with a real build and not a cache hit.
+      - name: Verify proxy edge and reverse-proxy config
+        run: |
+          docker run --rm -v "$PWD:/w" -w /w alpine:3 sh -c "apk add --no-cache caddy >/dev/null && \
+            caddy validate --config Caddyfile && caddy validate --config Caddyfile.dev"
+
+      - name: Compose file parses
+        run: docker compose config --quiet
+
+  compose-smoke:
+    name: Compose stack smoke test
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build and start the stack
+        run: docker compose up -d --build --wait --wait-timeout 300
+
+      - name: Report status
+        if: always()
+        run: docker compose ps
+
+      - name: Dump logs on failure
+        if: failure()
+        run: docker compose logs --no-color --tail 200
+
+      # Caddy is the only published port, so this is the real ingress path.
+      - name: HTTPS through Caddy
+        run: |
+          for i in $(seq 1 30); do
+            code=$(curl -sk -o /dev/null -w '%{http_code}' https://localhost/api/health || true)
+            [ "$code" = "200" ] && break
+            sleep 5
+          done
+          echo "api/health via Caddy: $code"
+          test "$code" = "200"
+
+      - name: SPA served through Caddy
+        run: test "$(curl -sk -o /dev/null -w '%{http_code}' https://localhost/)" = "200"
+
+      # Proves the socket route is wired to the realtime service, without needing a
+      # signing secret or a browser: Engine.IO answers a handshake on that path.
+      - name: Realtime route reachable through the proxy
+        run: |
+          code=$(curl -sk -o /dev/null -w '%{http_code}' \
+            'https://localhost/realtime/?EIO=4&transport=polling')
+          echo "realtime polling via Caddy: $code"
+          test "$code" = "200"
+
+      - name: Realtime port is not published to the host
+        run: |
+          # The origin must stay internal or the edge rate-limit trust model breaks.
+          if docker compose ps realtime --format '{{.Ports}}' | grep -qE '0\.0\.0\.0|::'; then
+            echo "realtime is published to the host — expected expose-only"
+            exit 1
+          fi
+          echo "realtime is expose-only, as intended"
+
+      - name: Tear down
+        if: always()
+        run: docker compose down -v

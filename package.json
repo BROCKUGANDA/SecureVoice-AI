@@ -12,7 +12,11 @@
     "db:migrate": "prisma migrate dev",
     "db:reset": "prisma migrate reset",
     "db:seed": "node scripts/seed-demo.mjs",
-    "build:linux": "next build && sh -c 'cp -r .next/static .next/standalone/.next/ && cp -r public .next/standalone/'"
+    "build:linux": "next build && sh -c 'cp -r .next/static .next/standalone/.next/ && cp -r public .next/standalone/'",
+    "release:check": "bun run lint && bunx tsc --noEmit -p tsconfig.json && bun run build",
+    "realtime:test": "cd mini-services/realtime && bun test",
+    "verify": "bun run lint && bunx tsc --noEmit -p tsconfig.json && bun run realtime:test && bun run build",
+    "version:bump": "node scripts/bump-version.mjs"
   },
   "dependencies": {
     "@clerk/nextjs": "^7.9.1",
@@ -95,5 +99,9 @@
     "tailwindcss": "^4",
     "tw-animate-css": "^1.3.5",
     "typescript": "^5"
-  }
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "packageManager": "bun@1.4.2"
 }

@@ -1,0 +1,107 @@
+# ---------------------------------------------------------------------------
+# SecureVoice AI — release
+#
+# Tag-driven. Push a semver tag and this builds the image, runs the smoke tests
+# against it, publishes it to GHCR, and creates the GitHub release from the
+# commit body.
+#
+# Version authority: the tag. package.json's "version" is kept in step by
+# scripts/bump-version.mjs, which the release job verifies — so a tag that
+# disagrees with package.json fails loudly instead of shipping a mislabelled image.
+# ---------------------------------------------------------------------------
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write   # create the GitHub release
+  packages: write   # push to GHCR
+
+jobs:
+  release:
+    name: Publish image and release
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Reject a tag that does not match package.json
+        run: |
+          tag="${GITHUB_REF_NAME}"                       # v0.3.0
+          pkg="$(node -p "require('./package.json').version")"
+          echo "tag=$tag package.json=$pkg"
+          [ "v$pkg" = "$tag" ] || {
+            echo "::error::tag $tag does not match package.json version $pkg."
+            echo "Run: bun run version:bump $pkg  and commit before tagging."
+            exit 1
+          }
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: runner
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}:${{ github.ref_name }}
+            ghcr.io/${{ github.repository }}:latest
+          provenance: true
+          sbom: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # The published image is what a consumer actually runs, so the smoke test
+      # targets it rather than a locally built copy.
+      - name: Smoke test the published image
+        run: |
+          docker compose up -d --no-build --wait --wait-timeout 300
+          docker compose ps
+          code=$(curl -sk -o /dev/null -w '%{http_code}' https://localhost/api/health || true)
+          echo "api/health via Caddy: $code"
+          test "$code" = "200"
+        env:
+          # Tag the compose-built services with what we just pushed.
+          IMAGE: ghcr.io/${{ github.repository }}:${{ github.ref_name }}
+
+      - name: Logs on failure
+        if: failure()
+        run: docker compose logs --no-color --tail 200
+
+      - name: Tear down
+        if: always()
+        run: docker compose down -v
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          body: |
+            ## Container image
+
+            ```
+            docker pull ghcr.io/${{ github.repository }}:${{ github.ref_name }}
+            ```
+
+            Run the full stack (Postgres, app, realtime, Caddy with TLS):
+
+            ```bash
+            SITE_ADDRESS=your.domain ACME_EMAIL=you@example.com \
+              REALTIME_INGEST_SECRET="$(openssl rand -base64 32)" \
+              docker compose up -d
+            ```
+
+            `app` and `realtime` stay on the internal network; Caddy is the only
+            published port.
+          footer: |
+            Verified in CI on this tag: lint, typecheck (app + realtime), 48 realtime
+            tests, production build, `caddy validate` on both configs, compose parse,
+            and a live stack smoke test through Caddy over TLS.

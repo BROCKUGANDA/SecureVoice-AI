@@ -207,17 +207,80 @@ Verified behaviour (see [`evidence/guardrails-runtime-2026-10-01.json`](evidence
 ```bash
 git clone <your-fork> && cd SecureVoiceai
 cp .env.example .env        # optional — the demo runs without any keys
-docker compose up --build   # → http://localhost:3000
+docker compose up --build   # → https://localhost (Caddy terminates TLS)
 ```
 
-That brings up Postgres, applies the Prisma schema, seeds demo cases, and serves the
-Next.js standalone bundle. There is **no SQLite mode** — Prisma rejects a `file:` URL
-against this schema's `postgresql` provider (`P1012`). Reset to a factory-fresh demo
-with `docker compose down -v`.
+That brings up Postgres, applies the Prisma schema, seeds demo cases, starts the
+realtime push service, and serves everything behind **Caddy**, which is the only
+service that publishes a port. There is **no SQLite mode** — Prisma rejects a
+`file:` URL against this schema's `postgresql` provider (`P1012`). Reset to a
+factory-fresh demo with `docker compose down -v`.
+
+### Topology
+
+```text
+Internet ── :443 ──► Caddy  (the only published port)
+                     ├─ /realtime/*  ──► realtime:4000   Bun + Socket.IO
+                     ├─ /healthz     ──► answered at the edge
+                     └─ everything else ──► app:3000    Next.js standalone
+```
+
+`app` and `realtime` are reachable only on the compose network. That is what lets
+`src/proxy.ts` trust `X-Forwarded-For` — it believes the header only when the
+request carries the marker Caddy sets, so a caller hitting the origin directly
+cannot forge its own rate-limit key.
+
+If you need the app on a bare port for local work:
+
+```bash
+docker compose --profile direct up --build   # publishes :3000, no TLS
+```
+
+Convenient on a laptop, but then the origin *is* reachable on its own, every
+forwarded-IP header is forgeable, and the edge layer collapses to one shared
+rate-limit bucket. Don't ship that profile.
+
+### Deploying to a real domain
+
+Caddy issues a Let's Encrypt certificate automatically. Set the domain and your
+ACME contact in `.env`:
+
+```
+SITE_ADDRESS=voice.example.com
+ACME_EMAIL=you@example.com
+```
+
+The domain must resolve to the host and ports 80/443 must be reachable for the
+ACME challenge. Certificates persist in the `caddy-data` volume, so a restart
+does not re-issue. Access logs redact `Cookie`, `Authorization`, `SV-Signature`
+and the entire query string — the signed bank payloads put secrets in the query,
+so this is load-bearing, not hygiene.
+
+### Realtime push (optional, degrades cleanly)
+
+The Command Center uses a websocket when it is wired up and falls back to its SSE
+feed when it is not. Set one shared HMAC key and both sides turn on:
+
+```
+REALTIME_INGEST_SECRET=<openssl rand -base64 32>   # falls back to AGENT_TOOL_SECRET
+```
+
+Leave it unset and nothing breaks: the realtime service starts but refuses every
+connection, `/api/console/realtime-token` returns 503, and the console reads SSE.
+The realtime service holds no database credentials and never sees a transcript —
+only already-redacted, already-authorised events move through it.
 
 ### Point it at your own database
 
-Put the connection string in `.env` as `DATABASE_URL`, then:
+> **Read this before editing `.env`.** Docker Compose auto-loads `./.env` for
+> *variable interpolation*, so a `DATABASE_URL` you set for host-side Prisma
+> commands does **not** redirect the containers — `docker-compose.yml` hard-codes
+> the internal `db:5432` URL on purpose, so `db-setup` and `app` can never end up
+> pointed at different databases. The app's runtime secrets still come from `.env`
+> via `env_file`.
+
+For host-side schema work against your own database, put the connection string in
+`.env` as `DATABASE_URL`, then:
 
 ```bash
 bunx prisma db push        # apply schema
@@ -229,8 +292,12 @@ with `P1001` on a project you know is healthy, use the IPv4 pooler — the proje
 fine, your host just has no IPv6 route:
 
 ```
-postgresql://postgres.<ref>:<pw>@aws-0-<region>.pooler.supabase.com:5432/postgres?sslmode=require
+postgresql://postgres.<ref>:***@aws-0-<region>.pooler.supabase.com:5432/postgres?sslmode=require
 ```
+
+This `P1001` also appears in Docker for a different reason: if the container says it
+cannot reach a **remote** database that you never configured in compose, check
+whether a local `.env` is leaking into the build. That was a real bug here.
 
 ---
 

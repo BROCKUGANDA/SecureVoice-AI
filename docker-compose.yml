@@ -198,7 +198,7 @@ services:
       # during) issuance, :80 answers with a 308→https redirect, so accept any
       # HTTP response line as proof Caddy is serving. (The previous check hit
       # the admin API on :2019, which `admin off` disables — never healthy.)
-      test: ["CMD-SHELL", "wget -q -S --spider --max-redirect 0 http://127.0.0.1/healthz 2>&1 | grep -qE 'HTTP/1\\.[01] (200|301|302|307|308)'"]
+      test: ["CMD-SHELL", "wget -S --spider http://127.0.0.1/healthz 2>&1 | grep -qE 'HTTP/1\\.[01] (200|301|302|307|308)'"]
       interval: 30s
       timeout: 5s
       retries: 3

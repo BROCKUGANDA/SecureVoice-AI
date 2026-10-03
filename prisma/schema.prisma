@@ -180,14 +180,14 @@ model ProducerKey {
 /// revocation column, same last-used stamp — so there is one credential
 /// convention in this codebase rather than two.
 model AgentToolSecret {
-  id           String        @id @default(cuid())
+  id           String       @id @default(cuid())
   label        String
-  keyHash      String        @unique // sha256 of the plaintext svt_ secret
-  orgId        String        @db.Uuid // the ONE tenant this credential may act for
-  organization Organization  @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  revoked      Boolean       @default(false)
+  keyHash      String       @unique // sha256 of the plaintext svt_ secret
+  orgId        String       @db.Uuid // the ONE tenant this credential may act for
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  revoked      Boolean      @default(false)
   lastUsedAt   DateTime?
-  createdAt    DateTime      @default(now())
+  createdAt    DateTime     @default(now())
 
   @@index([orgId])
 }
@@ -518,22 +518,22 @@ model Verification {
 }
 
 model Organization {
-  id          String        @id @default(dbgenerated("pg_catalog.gen_random_uuid()")) @db.Uuid
-  name        String
-  slug        String
-  logo        String?
-  createdAt   DateTime
-  metadata    String?
-  members     Member[]
-  invitations Invitation[]
-  profiles    UserProfile[]
-  toolSecrets  AgentToolSecret[]
+  id                  String            @id @default(dbgenerated("pg_catalog.gen_random_uuid()")) @db.Uuid
+  name                String
+  slug                String
+  logo                String?
+  createdAt           DateTime
+  metadata            String?
+  members             Member[]
+  invitations         Invitation[]
+  profiles            UserProfile[]
+  toolSecrets         AgentToolSecret[]
   // Provider binding for inbound ElevenLabs events (bleedguard). The webhook
   // payload names the agent that produced it, so this is the tenant the event
   // belongs to — which is what lets the post-call correlation resolve the case
   // org-scoped instead of trusting the shared platform secret.
-  elevenAgentId      String? @unique
-  elevenPhoneNumberId String? @unique
+  elevenAgentId       String?           @unique
+  elevenPhoneNumberId String?           @unique
 
   @@unique([slug])
   @@map("organization")

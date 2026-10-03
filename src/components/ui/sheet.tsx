@@ -58,9 +58,13 @@ function SheetContent({
           side === "left" &&
             "data-[state=closed]:slide-out-to-left data-[state=open]:slide-in-from-left inset-y-0 left-0 h-full w-3/4 border-r sm:max-w-sm",
           side === "top" &&
-            "data-[state=closed]:slide-out-to-top data-[state=open]:slide-in-from-top inset-x-0 top-0 h-auto border-b",
+            // `h-auto` alone lets a tall sheet grow past the viewport with the
+            // footer unreachable, so the height is capped and the body scrolls.
+            // `dvh` not `vh`: mobile browsers collapse the URL bar, making `vh`
+            // taller than what is actually visible.
+            "data-[state=closed]:slide-out-to-top data-[state=open]:slide-in-from-top inset-x-0 top-0 h-auto max-h-[calc(100dvh-2rem)] overflow-y-auto border-b",
           side === "bottom" &&
-            "data-[state=closed]:slide-out-to-bottom data-[state=open]:slide-in-from-bottom inset-x-0 bottom-0 h-auto border-t",
+            "data-[state=closed]:slide-out-to-bottom data-[state=open]:slide-in-from-bottom inset-x-0 bottom-0 h-auto max-h-[calc(100dvh-2rem)] overflow-y-auto border-t",
           className,
         )}
         {...props}

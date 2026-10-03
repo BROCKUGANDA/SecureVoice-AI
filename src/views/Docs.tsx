@@ -136,26 +136,50 @@ function Header({ lang }: { lang: "en" | "ar" }) {
 
 /* ————————————————— live status chip ————————————————— */
 
+type MetaStatus = { version: string; region?: string };
+
 function StatusChip() {
-  const [status, setStatus] = useState<{
-    version: string;
-    dbLatencyMs: number | null;
-    ok: boolean;
-    region?: string;
-  } | null>(null);
+  const [status, setStatus] = useState<MetaStatus | null>(null);
+  const [failed, setFailed] = useState(false);
 
   useEffect(() => {
     let alive = true;
-    const load = () =>
-      fetch("/api/meta")
-        .then((r) => r.json())
-        .then((d) => alive && setStatus(d))
-        .catch(() => {});
+    let timer: ReturnType<typeof setTimeout>;
+    let controller: AbortController | null = null;
+
+    const load = async () => {
+      controller?.abort();
+      controller = new AbortController();
+      // Without a timeout a request that never settles leaves the skeleton up
+      // forever, which is indistinguishable from "still loading" to a reader.
+      const timeout = setTimeout(() => controller?.abort(), 5000);
+      try {
+        const r = await fetch("/api/meta", { signal: controller.signal });
+        if (!r.ok) throw new Error(`status ${r.status}`);
+        const d = (await r.json()) as MetaStatus;
+        if (!alive) return;
+        setStatus(d);
+        setFailed(false);
+        timer = setTimeout(load, 30000);
+      } catch {
+        // A failed poll is shown, not swallowed. The previous `.catch(() => {})`
+        // left the placeholder up indefinitely, so an outage looked identical to
+        // a slow page — the reader had no way to tell "loading" from "broken".
+        if (!alive) return;
+        setFailed(true);
+        // Retry sooner than the healthy interval: this is the degraded path,
+        // and a status chip that gives up for 30s after a blip reads as dead.
+        timer = setTimeout(load, 5000);
+      } finally {
+        clearTimeout(timeout);
+      }
+    };
+
     load();
-    const id = setInterval(load, 30000);
     return () => {
       alive = false;
-      clearInterval(id);
+      clearTimeout(timer);
+      controller?.abort();
     };
   }, []);
 
@@ -168,17 +192,27 @@ function StatusChip() {
             <span
               className={cn(
                 "h-2 w-2 rounded-full",
-                status.ok ? "bg-primary sv-pulse-ring" : "bg-red-500",
+                // The dot reports the LAST SUCCESSFUL poll, and greys out when a
+                // later poll failed. Showing green next to stale data would be a
+                // claim the chip can no longer support.
+                failed ? "bg-ink-3" : "bg-primary sv-pulse-ring",
               )}
             />
             <span className="font-mono text-[12px] font-semibold">api v{status.version}</span>
           </div>
+          {/* No DB latency here on purpose: /api/meta is the public, non-probing
+              half of /api/status and never returns a latency figure. The old
+              `db {dbLatencyMs ?? "-"}ms` therefore rendered a permanent "db -ms",
+              which reads as a broken measurement rather than an absent one. */}
           <div className="mt-1 font-mono text-[10.5px] text-ink-3">
-            db {status.dbLatencyMs ?? "—"}ms · {status.region ?? "self-hosted"}
+            {status.region ?? "self-hosted"}
+            {failed ? " · last poll failed" : ""}
           </div>
         </>
+      ) : failed ? (
+        <div className="mt-2 font-mono text-[10.5px] text-ink-3">status unavailable — retrying</div>
       ) : (
-        <div className="mt-2 h-8 animate-pulse rounded bg-line/50" />
+        <div className="mt-2 h-8 w-full animate-pulse rounded bg-line/40" />
       )}
     </div>
   );
@@ -667,6 +701,18 @@ function Guardrails({ lang }: { lang: "en" | "ar" }) {
 /* ————————————————— languages ————————————————— */
 
 function LanguagesSection() {
+  // These six are the languages the product actually speaks, and each one is
+  // wired end to end rather than listed as aspiration:
+  //   - a telephony voice in src/lib/twilio.ts (VOICE, keyed by DeliveryLang)
+  //   - a server-enforced compliance script in the same file (SCRIPT), which is
+  //     what carries the "recorded call / never ask for a PIN" disclosure
+  //   - a demo persona in src/lib/scenario.ts
+  //   - membership in SUPPORTED_LANGS (src/lib/config.ts)
+  //
+  // French and Swahili were previously shown as roadmap items while both were
+  // already shipping. That was the documentation being wrong, not the product,
+  // and a bank counting the languages on this page against the ones their
+  // customer hears is exactly the kind of gap that ends a pilot.
   const live = [
     {
       lang: "English",
@@ -696,17 +742,26 @@ function LanguagesSection() {
       status: "Live",
       note: "Full script coverage across all three fraud cases — try it in the demo picker.",
     },
-  ];
-  const roadmap = [
     {
       lang: "French",
       native: "Français",
-      note: "Q1 2027 — West-Africa corridor remittance fraud is a top request from pilot banks.",
+      voice: "CELINE · FR-FR",
+      status: "Live",
+      note: "West-Africa corridor: remittance and beneficiary-fraud phrasing.",
     },
+    {
+      lang: "Swahili",
+      native: "Kiswahili",
+      voice: "AMINA · SW-KE",
+      status: "Live",
+      note: "East-Africa corridor: mobile-money fraud, which is where the loss actually is.",
+    },
+  ];
+  const roadmap = [
     {
       lang: "Bengali",
       native: "বাংলা",
-      note: "Shared pipeline with Hindi; evaluation under way with two exchange-house partners.",
+      note: "Not yet wired — no telephony voice, compliance script or persona yet, so it is not counted in the six above. Shared pipeline with Hindi.",
     },
   ];
 
@@ -715,14 +770,64 @@ function LanguagesSection() {
       <Reveal>
         <h2 className="font-display text-xl font-semibold tracking-tight">Call languages</h2>
         <p className="mt-2 max-w-2xl text-[14px] leading-relaxed text-ink-2">
-          Language is selected per customer profile and confirmed in-call. The agent code-switches
-          for financial terms (card, IBAN, transfer) into the customer's second language, matching
-          how people in the UAE actually talk about money.
+          Six languages ship live, and each is a complete voice — telephony voice, compliance script
+          and transcript — rather than a translation layer. The agent{" "}
+          <strong className="font-semibold text-foreground">
+            knows which language to use before the call is placed
+          </strong>
+          : it is resolved from the enrolled customer profile and the tenant&rsquo;s own routing
+          rules, then confirmed with the customer on the opening line and switched mid-call if they
+          answer in another language. Financial terms (card, IBAN, transfer) code-switch into the
+          customer&rsquo;s second language, matching how people in the UAE actually talk about
+          money.
         </p>
       </Reveal>
 
+      <Reveal delay={0.02}>
+        <div className="rounded-2xl border border-line bg-white p-5">
+          <div className="micro text-[9px] text-ink-3">
+            WHERE THE AGENT&rsquo;S KNOWLEDGE COMES FROM
+          </div>
+          <p className="mt-3 text-[13px] leading-relaxed text-ink-2">
+            The agent never improvises your bank&rsquo;s policy. What it says on a call is drawn
+            from a knowledge base you control, in whichever of the two ways suits your estate:
+          </p>
+          <ul className="mt-3 space-y-3">
+            <li className="flex gap-3">
+              <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />
+              <span className="text-[13px] leading-relaxed text-ink-2">
+                <strong className="font-semibold text-foreground">
+                  Uploaded through the provider&rsquo;s knowledge base.
+                </strong>{" "}
+                Your escalation matrix, refund thresholds and disclosure wording are uploaded as
+                documents to the voice provider&rsquo;s knowledge base and retrieved per turn. You
+                can update them without a deploy, and every retrieval is logged against the call for
+                audit.
+              </span>
+            </li>
+            <li className="flex gap-3">
+              <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />
+              <span className="text-[13px] leading-relaxed text-ink-2">
+                <strong className="font-semibold text-foreground">
+                  Integrated with your internal systems.
+                </strong>{" "}
+                Where the answer lives in a core banking or CRM system, we integrate directly and
+                resolve it live during the call — the agent reads your data rather than a cached
+                summary of it. Nothing is asserted to a customer that the source system did not
+                return.
+              </span>
+            </li>
+          </ul>
+          <p className="mt-3 text-[12.5px] leading-relaxed text-ink-3">
+            Both paths are tenant-scoped: a bank&rsquo;s documents and internal answers are never
+            visible to another institution, and the compliance disclosure that opens every call is
+            enforced server-side in each language rather than left to the model.
+          </p>
+        </div>
+      </Reveal>
+
       <Reveal delay={0.04}>
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {live.map((l) => (
             <div key={l.lang} className="rounded-2xl border border-line bg-white p-5">
               <div className="flex items-center justify-between">
@@ -767,7 +872,7 @@ function LanguagesSection() {
       <Reveal delay={0.1}>
         <div className="flex items-center gap-2 text-[13px] text-ink-2">
           <ArrowRight className="h-3.5 w-3.5 text-primary" />
-          Hear all four languages in the{" "}
+          Hear all six languages in the{" "}
           <span className="font-semibold text-foreground">&nbsp;Live Demo&nbsp;</span> language
           picker — every language runs the full script, not a sample.
         </div>

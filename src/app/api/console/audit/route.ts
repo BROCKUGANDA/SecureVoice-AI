@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { requireSignedIn } from "@/lib/credits";
 import { db } from "@/lib/db";
 import { verifyChain } from "@/lib/audit-chain";
@@ -21,7 +22,7 @@ export async function GET(req: NextRequest) {
   }
 
   const callRef = req.nextUrl.searchParams.get("callRef");
-  // Tenant namespace. A session WITHOUT a Clerk organization is the default
+  // Tenant namespace. A session WITHOUT an active organization is the default
   // state of the reference deployment — it must still be scoped, not treated
   // as "sees everything". Org-less users share the un-namespaced rows
   // (orgId NULL, e.g. seeded demo data) plus the "default" namespace.
@@ -42,7 +43,14 @@ export async function GET(req: NextRequest) {
     const rows = await db.auditLog.findMany({
       where: { callRef: callRef.slice(0, 64), ...orgScope },
       orderBy: { createdAt: "asc" },
-      select: { id: true, action: true, intent: true, redactedText: true, meta: true, createdAt: true },
+      select: {
+        id: true,
+        action: true,
+        intent: true,
+        redactedText: true,
+        meta: true,
+        createdAt: true,
+      },
       take: 50,
     });
     return NextResponse.json({ verification, rows }, { headers: { "Cache-Control": "no-store" } });

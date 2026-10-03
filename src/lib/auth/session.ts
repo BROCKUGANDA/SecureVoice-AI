@@ -46,14 +46,7 @@ import "server-only";
  */
 
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
-import {
-  AUTH_SCOPES,
-  drop,
-  listFor,
-  patch,
-  put,
-  read,
-} from "@/lib/auth/store";
+import { AUTH_SCOPES, drop, listFor, patch, put, read } from "@/lib/auth/store";
 import {
   ABSOLUTE_LIFETIME_MS,
   IDLE_TIMEOUT_MS,
@@ -71,7 +64,7 @@ export class SessionConfigError extends Error {
   constructor() {
     super(
       `${SESSION_SECRET_ENV} is not set. It signs session cookies; a default key would let anyone mint ` +
-        `a valid session. Set ${SESSION_SECRET_ENV} to at least 32 random bytes (see .env.example).`
+        `a valid session. Set ${SESSION_SECRET_ENV} to at least 32 random bytes (see .env.example).`,
     );
     this.name = "SessionConfigError";
   }
@@ -110,8 +103,7 @@ export function signSessionToken(sessionId: string, accountId: string, issuedAtM
 }
 
 export type TokenParse =
-  | { ok: true; sessionId: string; accountId: string; issuedAt: number }
-  | { ok: false };
+  { ok: true; sessionId: string; accountId: string; issuedAt: number } | { ok: false };
 
 /** Verify the HMAC and decode. A bad signature is `ok:false`, never a throw. */
 export function parseSessionToken(token: string | null | undefined): TokenParse {
@@ -191,7 +183,7 @@ export async function issueSession(input: IssueSessionInput): Promise<IssuedSess
     sid,
     record.accountId,
     record,
-    new Date(now + SESSION_RECORD_TTL_MS)
+    new Date(now + SESSION_RECORD_TTL_MS),
   );
   return { record, token: signSessionToken(sid, record.accountId, now) };
 }
@@ -242,7 +234,7 @@ const REJECTION_MESSAGE: Record<SessionRejection, string> = {
  */
 export async function verifySession(
   token: string | null | undefined,
-  options: { now?: number } = {}
+  options: { now?: number } = {},
 ): Promise<SessionCheck> {
   const now = options.now ?? Date.now();
   const reject = (reason: SessionRejection): SessionCheck => ({
@@ -262,11 +254,7 @@ export async function verifySession(
   }
   if (!parsed.ok) return reject(token ? "invalid_token" : "no_session");
 
-  const record = await read<SessionRecord>(
-    AUTH_SCOPES.session,
-    parsed.sessionId,
-    parsed.accountId
-  );
+  const record = await read<SessionRecord>(AUTH_SCOPES.session, parsed.sessionId, parsed.accountId);
   if (!record) return reject("unknown_session");
 
   if (record.revokedAt !== null) return reject("revoked");
@@ -352,11 +340,8 @@ export function readSessionCookie(cookieHeader: string | null | undefined): stri
 
 /** Revoke one session. */
 export async function revokeSession(sessionId: string, accountId: string): Promise<boolean> {
-  const patched = await patch<SessionRecord>(
-    AUTH_SCOPES.session,
-    sessionId,
-    accountId,
-    (cur) => (cur.revokedAt === null ? { ...cur, revokedAt: Date.now() } : cur)
+  const patched = await patch<SessionRecord>(AUTH_SCOPES.session, sessionId, accountId, (cur) =>
+    cur.revokedAt === null ? { ...cur, revokedAt: Date.now() } : cur,
   );
   return patched !== null;
 }

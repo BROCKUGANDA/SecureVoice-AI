@@ -414,7 +414,7 @@
         "file": "src/lib/audit-chain.ts",
         "transactions": 1,
         "regions": [
-          "188-219"
+          "197-231"
         ],
         "findings": []
       },
@@ -428,7 +428,7 @@
         "file": "src/lib/billing/ledger.ts",
         "transactions": 1,
         "regions": [
-          "355-355"
+          "352-352"
         ],
         "findings": []
       },
@@ -436,7 +436,7 @@
         "file": "src/lib/case-state-machine.ts",
         "transactions": 1,
         "regions": [
-          "179-187"
+          "201-209"
         ],
         "findings": []
       },
@@ -450,8 +450,8 @@
         "file": "src/lib/outbox.ts",
         "transactions": 2,
         "regions": [
-          "243-261",
-          "292-298"
+          "271-289",
+          "323-329"
         ],
         "findings": []
       },
@@ -471,7 +471,7 @@
         "file": "src/lib/payments/provider.ts",
         "transactions": 1,
         "regions": [
-          "306-375"
+          "316-385"
         ],
         "findings": []
       },
@@ -479,7 +479,7 @@
         "file": "src/lib/tenancy/guard.ts",
         "transactions": 1,
         "regions": [
-          "537-537"
+          "556-556"
         ],
         "findings": []
       }
@@ -2241,7 +2241,7 @@
       "area": "gate",
       "name": "evidence-digest-is-sha256",
       "ok": true,
-      "detail": "7a7b33075fbb38cc"
+      "detail": "0cda42ffcd04ca90"
     },
     {
       "area": "gate",
@@ -3367,5 +3367,5 @@
     }
   ],
   "digestAlgorithm": "sha256",
-  "digest": "cf6135d32b3e41f4b31f93c4a8e38c2550761d20cb3f3ddf4b3253d36694171b"
+  "digest": "9568d9d1c2962d412130da8a79fb388fea3e5ae22e4eef73e79dbd7479249769"
 }

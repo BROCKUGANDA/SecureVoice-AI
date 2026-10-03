@@ -57,7 +57,12 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { db, dbAudit } from "@/lib/db";
-import { canTransition, createCase, transitionCase, transitionCaseWithOutbox } from "@/lib/case-state-machine";
+import {
+  canTransition,
+  createCase,
+  transitionCase,
+  transitionCaseWithOutbox,
+} from "@/lib/case-state-machine";
 import { runPolicyGate } from "@/lib/policy-gate";
 import { topup } from "@/lib/billing/ledger";
 import { recordPayment } from "@/lib/payments/manual-invoice";
@@ -74,6 +79,8 @@ import { createRegistry, PORT_BINDINGS } from "@/lib/ports/registry";
 import {
   FIXTURE_SIGNALS,
   type CaptureNotificationSink,
+  type DeterministicPaymentProvider,
+  type FixtureSignalSource,
   type InMemoryAuditSink,
 } from "@/lib/ports/fakes";
 
@@ -133,21 +140,13 @@ const pace = (): Promise<void> => Bun.sleep(4);
  * run. That is the kind of leak that only shows up if the residue is asserted
  * rather than assumed — hence `the-gate-leaves-no-residue` below.
  */
-const RUN_SCOPED_AUDIT_REFS = () => [
-  CHAIN_REF,
-  `${CHAIN_REF}-T`,
-  CASE_REF,
-  `PAY-${PAY_REF}`,
-];
+const RUN_SCOPED_AUDIT_REFS = () => [CHAIN_REF, `${CHAIN_REF}-T`, CASE_REF, `PAY-${PAY_REF}`];
 
 async function cleanupRunScopedRows(): Promise<Record<string, number>> {
   const outbox = await db.outboxEvent.deleteMany({ where: { caseRef: CASE_REF } });
   const audit = await dbAudit.auditLog.deleteMany({
     where: {
-      OR: [
-        { callRef: { in: RUN_SCOPED_AUDIT_REFS() } },
-        { orgId: { in: [ORG, CHAIN_ORG] } },
-      ],
+      OR: [{ callRef: { in: RUN_SCOPED_AUDIT_REFS() } }, { orgId: { in: [ORG, CHAIN_ORG] } }],
     },
   });
   const notifications = await db.notification.deleteMany({
@@ -168,7 +167,9 @@ async function cleanupRunScopedRows(): Promise<Record<string, number>> {
 
 async function countRunScopedRows(): Promise<Record<string, number>> {
   const audit = await dbAudit.auditLog.count({
-    where: { OR: [{ callRef: { in: RUN_SCOPED_AUDIT_REFS() } }, { orgId: { in: [ORG, CHAIN_ORG] } }] },
+    where: {
+      OR: [{ callRef: { in: RUN_SCOPED_AUDIT_REFS() } }, { orgId: { in: [ORG, CHAIN_ORG] } }],
+    },
   });
   const cases = await db.case.count({ where: { caseRef: CASE_REF } });
   const notifications = await db.notification.count({
@@ -242,11 +243,7 @@ function restoreCredentials(): void {
  * How far a port's real adapter was actually exercised. This is the field that
  * stops "bound" from being read as "tested".
  */
-type ParityLevel =
-  | "contract-real"
-  | "contract-dry-run"
-  | "contract-offline-surface"
-  | "bound-only";
+type ParityLevel = "contract-real" | "contract-dry-run" | "contract-offline-surface" | "bound-only";
 
 type Parity = {
   port: PortName;
@@ -338,7 +335,9 @@ test("WP-18 · every port in the brief is bound and reports its own mode", () =>
   check(
     "brief-table-is-encoded",
     Object.keys(DECLARED_ADAPTERS).length === PORT_NAMES.length &&
-      PORT_NAMES.every((p) => Array.isArray(DECLARED_ADAPTERS[p]) && DECLARED_ADAPTERS[p].length > 0),
+      PORT_NAMES.every(
+        (p) => Array.isArray(DECLARED_ADAPTERS[p]) && DECLARED_ADAPTERS[p].length > 0,
+      ),
     `${PORT_NAMES.length} ports, each with a non-empty declared-adapter list`,
   );
 
@@ -352,7 +351,9 @@ test("WP-18 · every port in the brief is bound and reports its own mode", () =>
       // Adapter ids in the brief's table are written with spaces or
       // capitalisation; the bindings use hyphenated slugs. Compare loosely.
       const normalised = adapter.toLowerCase().replace(/[\s]+/g, "-");
-      const hit = [...accounted].some((a) => a.toLowerCase() === normalised || a.toLowerCase().startsWith(normalised));
+      const hit = [...accounted].some(
+        (a) => a.toLowerCase() === normalised || a.toLowerCase().startsWith(normalised),
+      );
       if (!hit) unaccounted.push(`${port}/${adapter}`);
     }
     if (binding.bound.length === 0) unaccounted.push(`${port}/<nothing bound>`);
@@ -368,7 +369,8 @@ test("WP-18 · every port in the brief is bound and reports its own mode", () =>
   const descriptors: PortDescriptor[] = real.descriptors();
   check(
     "real-registry-binds-every-port",
-    descriptors.length === PORT_NAMES.length && PORT_NAMES.every((p) => descriptors.some((d) => d.port === p)),
+    descriptors.length === PORT_NAMES.length &&
+      PORT_NAMES.every((p) => descriptors.some((d) => d.port === p)),
     `real registry bound ${descriptors.length}/${PORT_NAMES.length} ports`,
   );
   check(
@@ -400,42 +402,74 @@ test("WP-18 · every port in the brief is bound and reports its own mode", () =>
         IdGenerator: "idGenerator",
       }[d.port]
     ]?.();
-    if (adapter?.mode !== d.mode) modeLie.push(`${d.port}: adapter=${adapter?.mode} descriptor=${d.mode}`);
+    if (adapter?.mode !== d.mode)
+      modeLie.push(`${d.port}: adapter=${adapter?.mode} descriptor=${d.mode}`);
   }
-  check("real-registry-reports-mode-real-for-every-port", modes.length === 0, modes.join("; ") || "9/9 real");
-  check("every-port-carries-a-detail-string", missingDetail.length === 0, missingDetail.join(", ") || "9/9 described");
-  check("descriptor-mode-equals-adapter-declared-mode", modeLie.length === 0, modeLie.join("; ") || "9/9 agree");
+  check(
+    "real-registry-reports-mode-real-for-every-port",
+    modes.length === 0,
+    modes.join("; ") || "9/9 real",
+  );
+  check(
+    "every-port-carries-a-detail-string",
+    missingDetail.length === 0,
+    missingDetail.join(", ") || "9/9 described",
+  );
+  check(
+    "descriptor-mode-equals-adapter-declared-mode",
+    modeLie.length === 0,
+    modeLie.join("; ") || "9/9 agree",
+  );
 
   const offlineDescriptors = offline.descriptors();
-  const offlineModes = offlineDescriptors.filter((d) => d.mode !== "fake").map((d) => `${d.port}=${d.mode}`);
+  const offlineModes = offlineDescriptors
+    .filter((d) => d.mode !== "fake")
+    .map((d) => `${d.port}=${d.mode}`);
   check(
     "offline-registry-reports-mode-fake-for-every-port",
     offlineModes.length === 0,
     offlineModes.join("; ") || "9/9 fake — nothing in an offline run is real",
   );
-  check("registry-mode-is-declared", offline.mode === "offline" && real.mode === "real", `offline=${offline.mode}, real=${real.mode}`);
+  check(
+    "registry-mode-is-declared",
+    offline.mode === "offline" && real.mode === "real",
+    `offline=${offline.mode}, real=${real.mode}`,
+  );
 
   // The registry must not be a service locator: the same call must return the
   // same adapter instance, and a caller must get its port off the object it
   // holds rather than from ambient state.
   check(
     "adapters-are-stable-per-registry",
-    offline.notificationSink() === offline.notificationSink() && offline.clock() === offline.clock(),
+    offline.notificationSink() === offline.notificationSink() &&
+      offline.clock() === offline.clock(),
     "repeated getters return the identical adapter; there is no global",
   );
 
   parity({
     port: "Clock",
     level: "contract-real",
-    compared: ["now() returns a Date", "monotonic non-decreasing sequence", "fixed clock moves only on step()/set()"],
+    compared: [
+      "now() returns a Date",
+      "monotonic non-decreasing sequence",
+      "fixed clock moves only on step()/set()",
+    ],
     notCompared: ["nothing: the system clock's whole surface is offline"],
-    notes: ["the two clocks disagree on VALUES by design; parity is on the contract, not the number"],
+    notes: [
+      "the two clocks disagree on VALUES by design; parity is on the contract, not the number",
+    ],
   });
   parity({
     port: "IdGenerator",
     level: "contract-real",
-    compared: ["26-character Crockford base32 shape", "uniqueness over 500 ids", "monotonic within one millisecond"],
-    notCompared: ["the id bytes themselves — a seeded generator reproducing random bytes would be the bug"],
+    compared: [
+      "26-character Crockford base32 shape",
+      "uniqueness over 500 ids",
+      "monotonic within one millisecond",
+    ],
+    notCompared: [
+      "the id bytes themselves — a seeded generator reproducing random bytes would be the bug",
+    ],
     notes: ["same seed ⇒ same sequence; different seed ⇒ different sequence"],
   });
 
@@ -460,10 +494,38 @@ test("WP-18 · every port in the brief is bound and reports its own mode", () =>
  * diverge.
  */
 const CHAIN_ENTRIES = [
-  { callRef: "", action: "freeze" as const, intent: "signal_received", callerId: "bank-prod-1", meta: { riskScore: 0.94, nested: { b: 2, a: 1 }, list: [3, 1, 2] }, orgId: CHAIN_ORG },
-  { callRef: "", action: "agent" as const, intent: "transition_received_to_screened", callerId: "bank-prod-1", meta: { from: "RECEIVED", to: "SCREENED" }, orgId: CHAIN_ORG },
-  { callRef: "", action: "asr" as const, intent: "customer_reply", callerId: "bank/prod 1", redactedText: "x".repeat(600), meta: {}, orgId: CHAIN_ORG },
-  { callRef: "", action: "handoff" as const, intent: "", meta: { verdict: "confirmed_fraud" }, orgId: CHAIN_ORG },
+  {
+    callRef: "",
+    action: "freeze" as const,
+    intent: "signal_received",
+    callerId: "bank-prod-1",
+    meta: { riskScore: 0.94, nested: { b: 2, a: 1 }, list: [3, 1, 2] },
+    orgId: CHAIN_ORG,
+  },
+  {
+    callRef: "",
+    action: "agent" as const,
+    intent: "transition_received_to_screened",
+    callerId: "bank-prod-1",
+    meta: { from: "RECEIVED", to: "SCREENED" },
+    orgId: CHAIN_ORG,
+  },
+  {
+    callRef: "",
+    action: "asr" as const,
+    intent: "customer_reply",
+    callerId: "bank/prod 1",
+    redactedText: "x".repeat(600),
+    meta: {},
+    orgId: CHAIN_ORG,
+  },
+  {
+    callRef: "",
+    action: "handoff" as const,
+    intent: "",
+    meta: { verdict: "confirmed_fraud" },
+    orgId: CHAIN_ORG,
+  },
 ].map((e) => ({ ...e, callRef: CHAIN_REF, orgId: CHAIN_ORG }));
 
 test("WP-18 · AuditSink: the in-memory chain computes the same hashes as the Postgres chain", async () => {
@@ -494,7 +556,11 @@ test("WP-18 · AuditSink: the in-memory chain computes the same hashes as the Po
 
   const realVerification = await realSink.verifyChain(CHAIN_REF, CHAIN_ORG);
   const fakeVerification = await fakeSink.verifyChain(CHAIN_REF, CHAIN_ORG);
-  check("real-chain-verifies", realVerification.ok === true, `ok=${realVerification.ok} rows=${realVerification.ok ? realVerification.rows : "n/a"}`);
+  check(
+    "real-chain-verifies",
+    realVerification.ok === true,
+    `ok=${realVerification.ok} rows=${realVerification.ok ? realVerification.rows : "n/a"}`,
+  );
   check(
     "fake-chain-verifies",
     fakeVerification.ok === true,
@@ -508,8 +574,12 @@ test("WP-18 · AuditSink: the in-memory chain computes the same hashes as the Po
 
   // NEGATIVE CONTROL on the REAL chain. Without this, "both chains verified"
   // could pass because neither verifier ever fails.
-  const rows = await dbAudit.auditLog.findMany({ where: { callRef: CHAIN_REF }, orderBy: { createdAt: "asc" } });
-  const victim = rows[1];
+  const rows = await dbAudit.auditLog.findMany({
+    where: { callRef: CHAIN_REF },
+    orderBy: { createdAt: "asc" },
+  });
+  // Exactly CHAIN_ENTRIES (four) links were appended above, so index 1 exists.
+  const victim = rows[1]!;
   OPAQUE_IDS.push(victim.id);
   await dbAudit.auditLog.update({
     where: { id: victim.id },
@@ -519,7 +589,7 @@ test("WP-18 · AuditSink: the in-memory chain computes the same hashes as the Po
   check(
     "negative-control-real-chain-reports-the-tampered-link",
     !brokenReal.ok && brokenReal.brokenAt === victim.id,
-    `verifyChain reported a break and named the row that was rewritten (match=${brokenReal.brokenAt === victim.id})`,
+    `verifyChain reported a break and named the row that was rewritten (match=${brokenReal.ok ? false : brokenReal.brokenAt === victim.id})`,
   );
 
   parity({
@@ -530,7 +600,9 @@ test("WP-18 · AuditSink: the in-memory chain computes the same hashes as the Po
       "verifyChain() === ok with the same link count",
       "verifyChain() reports the exact tampered link id on a real-DB rewrite",
     ],
-    notCompared: ["row ids — the real chain is assigned cuids by Postgres, the fake mints seeded ULIDs"],
+    notCompared: [
+      "row ids — the real chain is assigned cuids by Postgres, the fake mints seeded ULIDs",
+    ],
     notes: [
       "the fake reproduces @/lib/audit-chain's canonicalisation (sorted top-level keys, recursively sorted meta)",
       "a hash chain cannot detect a truncated TAIL; append-only in the storage layer is what prevents truncation",
@@ -542,7 +614,11 @@ test("WP-18 · AuditSink: the in-memory chain computes the same hashes as the Po
 
 test("WP-18 · AuditSink: the in-memory chain still detects tampering", async () => {
   const from = mark();
-  const sink = createRegistry({ offline: true, seed: SEED_TAMPER_A, clockAt: RUN_INSTANT }).auditSink() as InMemoryAuditSink;
+  const sink = createRegistry({
+    offline: true,
+    seed: SEED_TAMPER_A,
+    clockAt: RUN_INSTANT,
+  }).auditSink() as InMemoryAuditSink;
   const ref = `${CHAIN_REF}-T`;
   for (const entry of CHAIN_ENTRIES) await sink.append({ ...entry, callRef: ref });
 
@@ -559,7 +635,11 @@ test("WP-18 · AuditSink: the in-memory chain still detects tampering", async ()
   );
 
   // 2. A deleted link (the tail is untouched, so the break is an orphan).
-  const fresh = createRegistry({ offline: true, seed: SEED_TAMPER_B, clockAt: RUN_INSTANT }).auditSink() as InMemoryAuditSink;
+  const fresh = createRegistry({
+    offline: true,
+    seed: SEED_TAMPER_B,
+    clockAt: RUN_INSTANT,
+  }).auditSink() as InMemoryAuditSink;
   for (const entry of CHAIN_ENTRIES) await fresh.append({ ...entry, callRef: ref });
   fresh.spliceForTest(ref, 1);
   const afterDelete = await fresh.verifyChain(ref, CHAIN_ORG);
@@ -572,7 +652,11 @@ test("WP-18 · AuditSink: the in-memory chain still detects tampering", async ()
   );
 
   // 3. A forked link (two rows claiming the same prevHash).
-  const forked = createRegistry({ offline: true, seed: SEED_TAMPER_C, clockAt: RUN_INSTANT }).auditSink() as InMemoryAuditSink;
+  const forked = createRegistry({
+    offline: true,
+    seed: SEED_TAMPER_C,
+    clockAt: RUN_INSTANT,
+  }).auditSink() as InMemoryAuditSink;
   for (const entry of CHAIN_ENTRIES) await forked.append({ ...entry, callRef: ref });
   const planted = forked.forkForTest(ref, 1);
   const afterFork = await forked.verifyChain(ref, CHAIN_ORG);
@@ -603,7 +687,11 @@ test("WP-18 · NotificationSink: the capture buffer folds bursts exactly like th
   const from = mark();
   clearCredentials();
   const real = createRegistry().notificationSink();
-  const fake = createRegistry({ offline: true, seed: SEED_NOTIFY, clockAt: RUN_INSTANT }).notificationSink();
+  const fake = createRegistry({
+    offline: true,
+    seed: SEED_NOTIFY,
+    clockAt: RUN_INSTANT,
+  }).notificationSink();
 
   const base = {
     orgId: ORG,
@@ -616,10 +704,19 @@ test("WP-18 · NotificationSink: the capture buffer folds bursts exactly like th
   // A burst of three identical alerts must become ONE item carrying three.
   const observed: { real: unknown[]; fake: unknown[] } = { real: [], fake: [] };
   for (let i = 0; i < 3; i++) {
-    observed.real.push(await real.enqueue({ ...base, channel: "in-app", alertType: `seams:burst:${RUN}` }));
-    observed.fake.push(await fake.enqueue({ ...base, channel: "in-app", alertType: `seams:burst:${RUN}` }));
+    observed.real.push(
+      await real.enqueue({ ...base, channel: "in-app", alertType: `seams:burst:${RUN}` }),
+    );
+    observed.fake.push(
+      await fake.enqueue({ ...base, channel: "in-app", alertType: `seams:burst:${RUN}` }),
+    );
   }
-  const realShape = observed.real.map((r) => ({ ...(r as { id: string }), id: undefined, deduplicated: (r as { deduplicated: boolean }).deduplicated, count: (r as { count: number }).count }));
+  const realShape = observed.real.map((r) => ({
+    ...(r as { id: string }),
+    id: undefined,
+    deduplicated: (r as { deduplicated: boolean }).deduplicated,
+    count: (r as { count: number }).count,
+  }));
   const fakeShape = observed.fake.map((r) => ({ ...(r as { id: string }), id: undefined }));
   check(
     "burst-folds-identically",
@@ -628,7 +725,8 @@ test("WP-18 · NotificationSink: the capture buffer folds bursts exactly like th
   );
   check(
     "a-burst-of-three-becomes-one-item-counting-three",
-    (observed.real[2] as { count: number }).count === 3 && (observed.fake[2] as { count: number }).count === 3,
+    (observed.real[2] as { count: number }).count === 3 &&
+      (observed.fake[2] as { count: number }).count === 3,
     "both adapters returned count=3 on the third identical enqueue",
   );
 
@@ -641,7 +739,8 @@ test("WP-18 · NotificationSink: the capture buffer folds bursts exactly like th
   );
   check(
     "severity-and-alert-type-survive-both",
-    realPending.every((n) => n.severity === "page") && fakePending.every((n) => n.severity === "page"),
+    realPending.every((n) => n.severity === "page") &&
+      fakePending.every((n) => n.severity === "page"),
     `real severities=${[...new Set(realPending.map((n) => n.severity))].join(",")} fake severities=${[...new Set(fakePending.map((n) => n.severity))].join(",")}`,
   );
 
@@ -657,8 +756,10 @@ test("WP-18 · NotificationSink: the capture buffer folds bursts exactly like th
   );
 
   // Org scoping on acknowledge, in both directions and identical.
-  const realId = realAfter[0].id;
-  const fakeId = fakeAfter[0].id;
+  // Lengths were asserted equal just above and the fixture is non-empty, so the
+  // first alert exists on both sides.
+  const realId = realAfter[0]!.id;
+  const fakeId = fakeAfter[0]!.id;
   const realWrongOrg = await real.acknowledge(realId, "org-somebody-else");
   const fakeWrongOrg = await fake.acknowledge(fakeId, "org-somebody-else");
   check(
@@ -668,7 +769,11 @@ test("WP-18 · NotificationSink: the capture buffer folds bursts exactly like th
   );
   const realOk = await real.acknowledge(realId, ORG);
   const fakeOk = await fake.acknowledge(fakeId, ORG);
-  check("acknowledge-succeeds-for-the-owning-org", realOk.ok === true && fakeOk.ok === true, JSON.stringify({ realOk, fakeOk }));
+  check(
+    "acknowledge-succeeds-for-the-owning-org",
+    realOk.ok === true && fakeOk.ok === true,
+    JSON.stringify({ realOk, fakeOk }),
+  );
   const realTwice = await real.acknowledge(realId, ORG);
   const fakeTwice = await fake.acknowledge(fakeId, ORG);
   check(
@@ -700,7 +805,9 @@ test("WP-18 · NotificationSink: the capture buffer folds bursts exactly like th
       "notification ids — Postgres assigns cuids, the fake mints seeded ULIDs",
       "`channel` — port vocabulary with no column behind it; the inbox is one channel by construction",
     ],
-    notes: ["the bank webhook path is the transactional outbox (WP-5) and is deliberately not a NotificationSink binding"],
+    notes: [
+      "the bank webhook path is the transactional outbox (WP-5) and is deliberately not a NotificationSink binding",
+    ],
   });
 
   expectClean(from);
@@ -714,13 +821,24 @@ test("WP-18 · PaymentProvider: the deterministic mock matches manualinvoice on 
   const from = mark();
   clearCredentials();
   const real = createRegistry().paymentProvider();
-  const fake = createRegistry({ offline: true, seed: SEED_PAY, clockAt: RUN_INSTANT }).paymentProvider();
+  // An offline registry hands back the deterministic fake, whose offline-only
+  // `settle()` and `settlements()` are part of DeterministicPaymentProvider and
+  // are deliberately absent from the shared PaymentProviderPort contract.
+  const fake = createRegistry({
+    offline: true,
+    seed: SEED_PAY,
+    clockAt: RUN_INSTANT,
+  }).paymentProvider() as DeterministicPaymentProvider;
   const money = { amountMinor: 245_000, currency: "AED" };
 
   // Unknown reference: nothing settled, so nothing to list and nothing to refund.
   const realList = await real.listEntitlements("REF-NEVER-SETTLED");
   const fakeList = await fake.listEntitlements("REF-NEVER-SETTLED");
-  check("unknown-reference-has-no-entitlements", JSON.stringify(realList) === "[]" && JSON.stringify(fakeList) === "[]", JSON.stringify({ realList, fakeList }));
+  check(
+    "unknown-reference-has-no-entitlements",
+    JSON.stringify(realList) === "[]" && JSON.stringify(fakeList) === "[]",
+    JSON.stringify({ realList, fakeList }),
+  );
 
   const realRefund = await real.refund({ reference: "REF-NEVER-SETTLED", money });
   const fakeRefund = await fake.refund({ reference: "REF-NEVER-SETTLED", money });
@@ -736,11 +854,15 @@ test("WP-18 · PaymentProvider: the deterministic mock matches manualinvoice on 
     orgId: ORG,
     bankReference: PAY_REF,
     money,
-    recordedBy: "clerk-a",
+    recordedBy: "actor-a",
     entitlements: [{ key: "calls", units: 100 }],
     purpose: "seams-parity",
   });
-  check("manualinvoice-recorded-the-transfer", recorded.ok === true, `ok=${recorded.ok} duplicate=${recorded.duplicate} (the paymentId is a Postgres id and is deliberately not quoted)`);
+  check(
+    "manualinvoice-recorded-the-transfer",
+    recorded.ok === true,
+    `ok=${recorded.ok} duplicate=${recorded.ok ? recorded.duplicate : "n/a"} (the paymentId is a Postgres id and is deliberately not quoted)`,
+  );
   if (recorded.ok) OPAQUE_IDS.push(recorded.paymentId);
   await fake.settle({
     reference: PAY_REF,
@@ -779,7 +901,9 @@ test("WP-18 · PaymentProvider: the deterministic mock matches manualinvoice on 
   const fakeWebhook = await fake.verifyWebhook({ rawBody: "{}", headers: {} });
   check(
     "webhook-verification-is-the-same-refusal",
-    realWebhook.ok === false && fakeWebhook.ok === false && realWebhook.reason === fakeWebhook.reason,
+    realWebhook.ok === false &&
+      fakeWebhook.ok === false &&
+      realWebhook.reason === fakeWebhook.reason,
     `real=${JSON.stringify(realWebhook)} fake=${JSON.stringify(fakeWebhook)}`,
   );
 
@@ -807,20 +931,24 @@ test("WP-18 · PaymentProvider: the deterministic mock matches manualinvoice on 
     `real=${JSON.stringify(realCharge)} fake=${JSON.stringify(fakeCharge)}`,
   );
 
-  const realCheckoutErr = await captureError(() => real.createCheckout({
-    orgId: ORG,
-    purpose: "seams-parity",
-    money,
-    email: "ops@example.test",
-    requestKey: "req-2",
-  }));
-  const fakeCheckoutErr = await captureError(() => fake.createCheckout({
-    orgId: ORG,
-    purpose: "seams-parity",
-    money,
-    email: "ops@example.test",
-    requestKey: "req-2",
-  }));
+  const realCheckoutErr = await captureError(() =>
+    real.createCheckout({
+      orgId: ORG,
+      purpose: "seams-parity",
+      money,
+      email: "ops@example.test",
+      requestKey: "req-2",
+    }),
+  );
+  const fakeCheckoutErr = await captureError(() =>
+    fake.createCheckout({
+      orgId: ORG,
+      purpose: "seams-parity",
+      money,
+      email: "ops@example.test",
+      requestKey: "req-2",
+    }),
+  );
   check(
     "checkout-refuses-in-both",
     /checkout/i.test(realCheckoutErr.message) && /checkout/i.test(fakeCheckoutErr.message),
@@ -878,49 +1006,81 @@ test("WP-18 · SecretStore: the in-memory store answers exactly as process.env d
   process.env[KEY] = value;
   try {
     const real = createRegistry().secretStore();
-    const fake = createRegistry({ offline: true, seed: SEED_SECRET, secrets: { [KEY]: value } }).secretStore();
+    const fake = createRegistry({
+      offline: true,
+      seed: SEED_SECRET,
+      secrets: { [KEY]: value },
+    }).secretStore();
 
     const realHit = await real.get(KEY);
     const fakeHit = await fake.get(KEY);
-    check("a-present-secret-resolves-identically", JSON.stringify(realHit) === JSON.stringify(fakeHit), JSON.stringify({ realHit, fakeHit }));
-    check("has-agrees", (await real.has(KEY)) === (await fake.has(KEY)) && (await real.has(KEY)), "both report the key present");
+    check(
+      "a-present-secret-resolves-identically",
+      JSON.stringify(realHit) === JSON.stringify(fakeHit),
+      JSON.stringify({ realHit, fakeHit }),
+    );
+    check(
+      "has-agrees",
+      (await real.has(KEY)) === (await fake.has(KEY)) && (await real.has(KEY)),
+      "both report the key present",
+    );
 
     const MISSING = "WP18_SEAM_ABSENT";
     const realMiss = await real.get(MISSING);
     const fakeMiss = await fake.get(MISSING);
-    check("a-missing-secret-is-a-typed-miss-not-undefined", JSON.stringify(realMiss) === JSON.stringify(fakeMiss), JSON.stringify({ realMiss, fakeMiss }));
     check(
-    "has-agrees-on-a-miss",
-    (await real.has(MISSING)) === (await fake.has(MISSING)) && !(await real.has(MISSING)),
-    "both report the key absent",
-  );
+      "a-missing-secret-is-a-typed-miss-not-undefined",
+      JSON.stringify(realMiss) === JSON.stringify(fakeMiss),
+      JSON.stringify({ realMiss, fakeMiss }),
+    );
+    check(
+      "has-agrees-on-a-miss",
+      (await real.has(MISSING)) === (await fake.has(MISSING)) && !(await real.has(MISSING)),
+      "both report the key absent",
+    );
 
     const realForbidden = await real.get("");
     const fakeForbidden = await fake.get("");
-    check("an-empty-key-is-forbidden-in-both", JSON.stringify(realForbidden) === JSON.stringify(fakeForbidden), JSON.stringify({ realForbidden, fakeForbidden }));
+    check(
+      "an-empty-key-is-forbidden-in-both",
+      JSON.stringify(realForbidden) === JSON.stringify(fakeForbidden),
+      JSON.stringify({ realForbidden, fakeForbidden }),
+    );
 
     const keys = await fake.keys();
     check(
       "the-fake-enumerates-names-not-values",
-      keys.includes(KEY) && JSON.stringify(keys) === JSON.stringify([...keys].sort()) && !JSON.stringify(keys).includes(value),
+      keys.includes(KEY) &&
+        JSON.stringify(keys) === JSON.stringify([...keys].sort()) &&
+        !JSON.stringify(keys).includes(value),
       `${keys.length} key name(s), sorted, no value present in the listing`,
     );
     check(
       "the-real-store-refuses-to-report-an-empty-string-as-a-secret",
-      (await (async () => {
-        process.env.WP18_SEAM_EMPTY = "";
-        const r = await real.get("WP18_SEAM_EMPTY");
-        delete process.env.WP18_SEAM_EMPTY;
-        return r;
-      })()).ok === false,
+      (
+        await (async () => {
+          process.env.WP18_SEAM_EMPTY = "";
+          const r = await real.get("WP18_SEAM_EMPTY");
+          delete process.env.WP18_SEAM_EMPTY;
+          return r;
+        })()
+      ).ok === false,
       "ELEVENLABS_API_KEY='' must read as a miss, not as an empty auth header",
     );
 
     parity({
       port: "SecretStore",
       level: "contract-real",
-      compared: ["get() hit", "get() miss", "get() empty-key refusal", "has() on both outcomes", "an empty env value reads as a miss"],
-      notCompared: ["keys() — process.env's key set is machine-specific, so the fake's list is not compared to it"],
+      compared: [
+        "get() hit",
+        "get() miss",
+        "get() empty-key refusal",
+        "has() on both outcomes",
+        "an empty env value reads as a miss",
+      ],
+      notCompared: [
+        "keys() — process.env's key set is machine-specific, so the fake's list is not compared to it",
+      ],
       notes: ["the fake never reads process.env; the real store never leaves the process either"],
     });
   } finally {
@@ -942,7 +1102,7 @@ test("WP-18 · SecretStore: the in-memory store answers exactly as process.env d
  */
 async function runSeededPipeline(seed: string): Promise<string> {
   const registry = createRegistry({ offline: true, seed, clockAt: RUN_INSTANT });
-  const source = registry.riskSignalSource();
+  const source = registry.riskSignalSource() as FixtureSignalSource;
   const conversation = registry.conversationProvider();
   const notifications = registry.notificationSink();
   const audit = registry.auditSink();
@@ -957,7 +1117,9 @@ async function runSeededPipeline(seed: string): Promise<string> {
     const caseRef = `SV-F-${ids.next()}`;
     const states: string[] = ["RECEIVED"];
     for (const to of ["SCREENED", "DIALING", "RINGING", "ANSWERED", "DISCLOSED", "VERIFYING"]) {
-      const from = states[states.length - 1];
+      // `states` is seeded with "RECEIVED" above and grows by one per iteration,
+      // so the last element is always the state this hop starts from.
+      const from = states[states.length - 1]!;
       const legal = canTransition(from, to);
       await audit.append({
         callRef: caseRef,
@@ -976,7 +1138,11 @@ async function runSeededPipeline(seed: string): Promise<string> {
       language: signal.language,
       firstMessage: "recorded",
       voiceId: "fixture-voice",
-      dynamicVariables: { merchant: signal.merchant ?? "", amountMinor: signal.amountMinor, currency: signal.currency },
+      dynamicVariables: {
+        merchant: signal.merchant ?? "",
+        amountMinor: signal.amountMinor,
+        currency: signal.currency,
+      },
     });
     const turns = await conversation.transcript(placement.conversationId);
     const verdict = await conversation.verdict(placement.conversationId);
@@ -1016,12 +1182,20 @@ test("WP-18 · a fixed clock and a seeded generator make a whole run byte-stable
   // Two runs, same seed, byte for byte.
   const first = await runSeededPipeline("seed-A");
   const second = await runSeededPipeline("seed-A");
-  check("the-same-seed-produces-byte-identical-output", first === second, `sha256 run1=${sha256(first).slice(0, 16)} run2=${sha256(second).slice(0, 16)}`);
+  check(
+    "the-same-seed-produces-byte-identical-output",
+    first === second,
+    `sha256 run1=${sha256(first).slice(0, 16)} run2=${sha256(second).slice(0, 16)}`,
+  );
 
   // A different seed MUST change the output, or "deterministic" would be
   // indistinguishable from "constant" — the classic way this claim rots.
   const other = await runSeededPipeline("seed-B");
-  check("a-different-seed-produces-different-output", first !== other, `sha256 seed-B=${sha256(other).slice(0, 16)}`);
+  check(
+    "a-different-seed-produces-different-output",
+    first !== other,
+    `sha256 seed-B=${sha256(other).slice(0, 16)}`,
+  );
 
   // The generator's own promises, asserted directly.
   const clock = fixedClock(RUN_INSTANT);
@@ -1031,41 +1205,75 @@ test("WP-18 · a fixed clock and a seeded generator make a whole run byte-stable
   const seqA = Array.from({ length: 64 }, () => seededA.next());
   const seqB = Array.from({ length: 64 }, () => seededB.next());
   const seqC = Array.from({ length: 64 }, () => seededC.next());
-  check("seeded-generators-with-one-seed-agree", seqA.join(",") === seqB.join(","), "two generators, one seed, 64 identical ids");
+  check(
+    "seeded-generators-with-one-seed-agree",
+    seqA.join(",") === seqB.join(","),
+    "two generators, one seed, 64 identical ids",
+  );
   check("a-different-seed-diverges", seqA[0] !== seqC[0], "seed changes the first id");
   check(
     "seeded-ids-are-valid-ulids",
     seqA.every((id) => id.length === ULID_LENGTH && [...id].every((ch) => CROCKFORD.includes(ch))),
     `${seqA.length} ids are ${ULID_LENGTH} Crockford base32 characters`,
   );
-  check("seeded-ids-never-repeat", new Set(seqA).size === seqA.length, "64 ids, 64 distinct values");
-  check("a-frozen-clock-makes-ids-strictly-increasing", seqA.every((id, i) => i === 0 || id > seqA[i - 1]), "same millisecond ⇒ monotonic entropy bump");
+  check(
+    "seeded-ids-never-repeat",
+    new Set(seqA).size === seqA.length,
+    "64 ids, 64 distinct values",
+  );
+  check(
+    "a-frozen-clock-makes-ids-strictly-increasing",
+    seqA.every((id, i) => i === 0 || id > seqA[i - 1]!),
+    "same millisecond ⇒ monotonic entropy bump",
+  );
 
   const real = ulidGenerator(clock);
   const realSeq = Array.from({ length: 200 }, () => real.next());
   check(
     "system-ids-are-unique-and-well-formed",
     new Set(realSeq).size === realSeq.length &&
-      realSeq.every((id) => id.length === ULID_LENGTH && [...id].every((ch) => CROCKFORD.includes(ch))),
+      realSeq.every(
+        (id) => id.length === ULID_LENGTH && [...id].every((ch) => CROCKFORD.includes(ch)),
+      ),
     "200 system ULIDs, all distinct and well formed",
   );
-  check("system-ids-are-monotonic-under-a-frozen-clock", realSeq.every((id, i) => i === 0 || id > realSeq[i - 1]), "call order is preserved in the id");
+  check(
+    "system-ids-are-monotonic-under-a-frozen-clock",
+    realSeq.every((id, i) => i === 0 || id > realSeq[i - 1]!),
+    "call order is preserved in the id",
+  );
 
   // The fixed clock is genuinely fixed, and moving it is explicit.
   const f = fixedClock(RUN_INSTANT);
   const t0 = f.now().toISOString();
   f.now().setUTCFullYear(1999); // mutating the returned Date must not move the clock
-  check("the-fixed-clock-does-not-move-on-its-own", f.now().toISOString() === t0, `frozen at ${t0}`);
-  check("step-moves-the-clock-by-exactly-the-delta", f.step(1_500).getTime() - new Date(t0).getTime() === 1_500, "step(1500) advanced 1500 ms");
-  check("set-jumps-to-an-absolute-instant", f.set("2027-06-01T00:00:00.000Z").toISOString() === "2027-06-01T00:00:00.000Z", "set() is absolute");
+  check(
+    "the-fixed-clock-does-not-move-on-its-own",
+    f.now().toISOString() === t0,
+    `frozen at ${t0}`,
+  );
+  check(
+    "step-moves-the-clock-by-exactly-the-delta",
+    f.step(1_500).getTime() - new Date(t0).getTime() === 1_500,
+    "step(1500) advanced 1500 ms",
+  );
+  check(
+    "set-jumps-to-an-absolute-instant",
+    f.set("2027-06-01T00:00:00.000Z").toISOString() === "2027-06-01T00:00:00.000Z",
+    "set() is absolute",
+  );
 
   // The system clock's contract, asserted against the wall clock it replaces.
   const sys = systemClock();
   const samples = Array.from({ length: 500 }, () => sys.now().getTime());
-  check("the-system-clock-is-monotonic", samples.every((ms, i) => i === 0 || ms >= samples[i - 1]), "500 samples, never went backwards");
+  check(
+    "the-system-clock-is-monotonic",
+    samples.every((ms, i) => i === 0 || ms >= samples[i - 1]!),
+    "500 samples, never went backwards",
+  );
   check(
     "the-system-clock-tracks-the-wall-clock",
-    Math.abs(samples[499] - samples[0]) < 60_000,
+    Math.abs(samples[499]! - samples[0]!) < 60_000,
     // The span is not quoted: it is a measured wall-clock value and would differ
     // on every run, which would make the artifact's core non-reproducible. The
     // BOUND is the assertion; the number is not the claim.
@@ -1105,7 +1313,11 @@ test("WP-18 · ConversationProvider: the dry-run path is offline, and the script
     NETWORK_CALLS.length === before,
     `${NETWORK_CALLS.length - before} network calls during a real-adapter dry-run placement`,
   );
-  const fakeConversation = createRegistry({ offline: true, seed: SEED_CONVERSATION, clockAt: RUN_INSTANT }).conversationProvider();
+  const fakeConversation = createRegistry({
+    offline: true,
+    seed: SEED_CONVERSATION,
+    clockAt: RUN_INSTANT,
+  }).conversationProvider();
   const fakeStart = await fakeConversation.start(req);
 
   check("dry-run-reports-dryRun-true", realDry.dryRun === true, JSON.stringify(realDry));
@@ -1133,15 +1345,23 @@ test("WP-18 · ConversationProvider: the dry-run path is offline, and the script
   );
 
   // ── the divergences, asserted so they cannot be forgotten ────────────────
-  const realContinue = await captureError(() => createRegistry().conversationProvider().continue(req));
+  const realContinue = await captureError(() =>
+    createRegistry().conversationProvider().continue(req),
+  );
   const fakeContinue = await fakeConversation.continue(req);
   check(
     "the-real-adapter-refuses-continuity-rather-than-faking-it",
     /continuity/i.test(realContinue.message),
     `real continue(): ${realContinue.message}`,
   );
-  check("the-fake-can-serve-the-continuity-plane", fakeContinue.conversationId.length > 0, `fake continue(): ${fakeContinue.conversationId}`);
-  const realTurns = (await createRegistry().conversationProvider().transcript(realDry.conversationId)).length;
+  check(
+    "the-fake-can-serve-the-continuity-plane",
+    fakeContinue.conversationId.length > 0,
+    `fake continue(): ${fakeContinue.conversationId}`,
+  );
+  const realTurns = (
+    await createRegistry().conversationProvider().transcript(realDry.conversationId)
+  ).length;
   const fakeTurns = (await fakeConversation.transcript(fakeStart.conversationId)).length;
   check(
     "only-the-fake-can-replay-a-transcript",
@@ -1180,7 +1400,11 @@ test("WP-18 · TelephonyProvider: destination validation matches; the carrier pa
   const from = mark();
   clearCredentials();
   const real = createRegistry().telephonyProvider();
-  const fake = createRegistry({ offline: true, seed: SEED_TELEPHONY, clockAt: RUN_INSTANT }).telephonyProvider();
+  const fake = createRegistry({
+    offline: true,
+    seed: SEED_TELEPHONY,
+    clockAt: RUN_INSTANT,
+  }).telephonyProvider();
 
   const DESTINATIONS = [
     "+971500000001",
@@ -1222,9 +1446,17 @@ test("WP-18 · TelephonyProvider: destination validation matches; the carrier pa
     JSON.stringify(bad),
   );
   const good = await fake.placeCall({ to: "+971500000001", language: "en", caseRef: CASE_REF });
-  check("the-recording-stub-accepts-an-e164-destination", good.ok === true && good.sid.length > 0, JSON.stringify(good));
+  check(
+    "the-recording-stub-accepts-an-e164-destination",
+    good.ok === true && good.sid.length > 0,
+    JSON.stringify(good),
+  );
   const sms = await fake.sendSms({ to: "+971500000001", language: "en", caseRef: CASE_REF });
-  check("the-recording-stub-records-sms-on-the-same-surface", sms.ok === true && sms.channel === "sms", JSON.stringify(sms));
+  check(
+    "the-recording-stub-records-sms-on-the-same-surface",
+    sms.ok === true && sms.channel === "sms",
+    JSON.stringify(sms),
+  );
 
   parity({
     port: "TelephonyProvider",
@@ -1260,7 +1492,11 @@ test("WP-18 · RiskSignalSource: the http ingest is push-only and says so", asyn
   process.env.WEBHOOK_SECRET = "fixture-not-a-real-secret";
   try {
     const withSecret = await real.open();
-    check("the-http-ingest-opens-with-a-secret-configured", withSecret.ok === true && withSecret.target === "POST /v1/interventions", JSON.stringify(withSecret));
+    check(
+      "the-http-ingest-opens-with-a-secret-configured",
+      withSecret.ok === true && withSecret.target === "POST /v1/interventions",
+      JSON.stringify(withSecret),
+    );
   } finally {
     if (SAVED_WEBHOOK_SECRET === undefined) delete process.env.WEBHOOK_SECRET;
     else process.env.WEBHOOK_SECRET = SAVED_WEBHOOK_SECRET;
@@ -1272,15 +1508,32 @@ test("WP-18 · RiskSignalSource: the http ingest is push-only and says so", asyn
     `real pull(): ${pullErr.message} — an empty array here would read as "nothing arrived"`,
   );
 
-  // The fake feed, on its own terms.
-  const source = createRegistry({ offline: true, seed: SEED_SOURCE, clockAt: RUN_INSTANT }).riskSignalSource();
+  // The fake feed, on its own terms. `reset()`/`delivered()`/`pendingCount()` are
+  // the fixture source's own surface, not part of the shared RiskSignalSource.
+  const source = createRegistry({
+    offline: true,
+    seed: SEED_SOURCE,
+    clockAt: RUN_INSTANT,
+  }).riskSignalSource() as FixtureSignalSource;
   const closedPull = await captureError(() => source.pull());
-  check("the-fixture-feed-refuses-to-pull-while-closed", /not open/.test(closedPull.message), closedPull.message);
+  check(
+    "the-fixture-feed-refuses-to-pull-while-closed",
+    /not open/.test(closedPull.message),
+    closedPull.message,
+  );
   await source.open();
   const pulled = await source.pull();
-  check("the-fixture-feed-delivers-every-signal-in-order", JSON.stringify(pulled) === JSON.stringify(FIXTURE_SIGNALS), `${pulled.length} signals, insertion order preserved`);
+  check(
+    "the-fixture-feed-delivers-every-signal-in-order",
+    JSON.stringify(pulled) === JSON.stringify(FIXTURE_SIGNALS),
+    `${pulled.length} signals, insertion order preserved`,
+  );
   const drained = await source.pull();
-  check("a-drained-feed-returns-nothing", drained.length === 0, `${drained.length} signals on the second pull`);
+  check(
+    "a-drained-feed-returns-nothing",
+    drained.length === 0,
+    `${drained.length} signals on the second pull`,
+  );
   const limited = await (async () => {
     source.reset();
     await source.open();
@@ -1303,7 +1556,9 @@ test("WP-18 · RiskSignalSource: the http ingest is push-only and says so", asyn
       "kafka, sftp and poll adapters — not implemented in this repository",
       "adapter-to-adapter parity — the http adapter is push-only and the fake is pull-only, so there is no shared operation to compare",
     ],
-    notes: ["this is the one port with no shared operation between its real and fake adapters; it is reported as bound, not as tested"],
+    notes: [
+      "this is the one port with no shared operation between its real and fake adapters; it is reported as bound, not as tested",
+    ],
   });
 
   expectClean(from);
@@ -1319,29 +1574,56 @@ test("WP-18 · offline mode completes a full intervention with no network and no
 
   // The claim is only worth anything if the credentials really are absent.
   const present = CREDENTIAL_ENV.filter((k) => (process.env[k] ?? "") !== "");
-  check("no-provider-credentials-are-present", present.length === 0, present.length === 0 ? `${CREDENTIAL_ENV.length} credential variables are unset` : `still set: ${present.join(", ")}`);
-  check("elevenlabs-dry-run-is-not-set", process.env.ELEVENLABS_DRY_RUN !== "true", `ELEVENLABS_DRY_RUN=${String(process.env.ELEVENLABS_DRY_RUN)}`);
+  check(
+    "no-provider-credentials-are-present",
+    present.length === 0,
+    present.length === 0
+      ? `${CREDENTIAL_ENV.length} credential variables are unset`
+      : `still set: ${present.join(", ")}`,
+  );
+  check(
+    "elevenlabs-dry-run-is-not-set",
+    process.env.ELEVENLABS_DRY_RUN !== "true",
+    `ELEVENLABS_DRY_RUN=${String(process.env.ELEVENLABS_DRY_RUN)}`,
+  );
 
   const netBefore = NETWORK_CALLS.length;
   const registry = createRegistry({ offline: true, seed: SEED_INTERVENTION, clockAt: RUN_INSTANT });
-  const source = registry.riskSignalSource();
+  const source = registry.riskSignalSource() as FixtureSignalSource;
   const conversation = registry.conversationProvider();
   const telephony = registry.telephonyProvider();
   const notifications = registry.notificationSink() as CaptureNotificationSink;
   const audit = registry.auditSink();
   const secretStore = registry.secretStore();
-  const payment = registry.paymentProvider();
+  const payment = registry.paymentProvider() as DeterministicPaymentProvider;
   const clock = registry.clock();
 
   // 1. Signal in.
   await source.open();
   const signal = (await source.pull({ limit: 1 }))[0];
-  check("signal-arrived-from-the-fixture-feed", signal !== undefined && signal.transactionRef === FIXTURE_SIGNALS[0].transactionRef, JSON.stringify({ transactionRef: signal?.transactionRef, riskScore: signal?.riskScore }));
+  check(
+    "signal-arrived-from-the-fixture-feed",
+    signal !== undefined && signal.transactionRef === FIXTURE_SIGNALS[0]!.transactionRef,
+    JSON.stringify({ transactionRef: signal?.transactionRef, riskScore: signal?.riskScore }),
+  );
+  // Every step below reads the signal's own fields, so an empty feed must stop
+  // the run here rather than fail later on an unrelated-looking property.
+  if (signal === undefined)
+    throw new Error("fixture feed delivered no signal — the rest of this run has nothing to drive");
 
   // Money-backed credit, written straight to the append-only ledger. The
   // policy gate refuses an org with no credits, and that refusal is the point.
-  const top = await topup({ orgId: ORG, units: 5, eventId: `seams:${RUN}`, reason: "seams-offline-intervention" });
-  check("the-intervention-has-credit-backing-it", top.ok === true, JSON.stringify(top.ok ? { units: top.entry.units } : top));
+  const top = await topup({
+    orgId: ORG,
+    units: 5,
+    eventId: `seams:${RUN}`,
+    reason: "seams-offline-intervention",
+  });
+  check(
+    "the-intervention-has-credit-backing-it",
+    top.ok === true,
+    JSON.stringify(top.ok ? { units: top.entry.units } : top),
+  );
 
   // 2. Policy gate — the real one, against the real Postgres ledger.
   const gate = await runPolicyGate({
@@ -1376,15 +1658,43 @@ test("WP-18 · offline mode completes a full intervention with no network and no
     language: signal.language,
     firstMessage: "recorded",
     voiceId: "fixture-voice",
-    dynamicVariables: { merchant: signal.merchant ?? "", amountMinor: signal.amountMinor, currency: signal.currency, case_id: CASE_REF },
+    dynamicVariables: {
+      merchant: signal.merchant ?? "",
+      amountMinor: signal.amountMinor,
+      currency: signal.currency,
+      case_id: CASE_REF,
+    },
   });
-  const call = await telephony.placeCall({ to: signal.phone, language: signal.language, amount: "2450.00", merchant: signal.merchant, caseRef: CASE_REF });
-  check("the-conversation-and-the-dial-were-both-placed-offline", placement.conversationId.length > 0 && call.ok === true, JSON.stringify({ placement, call }));
+  const call = await telephony.placeCall({
+    to: signal.phone,
+    language: signal.language,
+    amount: "2450.00",
+    merchant: signal.merchant,
+    caseRef: CASE_REF,
+  });
+  check(
+    "the-conversation-and-the-dial-were-both-placed-offline",
+    placement.conversationId.length > 0 && call.ok === true,
+    JSON.stringify({ placement, call }),
+  );
   const turns = await conversation.transcript(placement.conversationId);
   const verdict = await conversation.verdict(placement.conversationId);
-  check("the-scripted-transcript-yields-a-verdict", turns.length > 0 && verdict !== null, `${turns.length} turns, verdict=${verdict}`);
+  check(
+    "the-scripted-transcript-yields-a-verdict",
+    turns.length > 0 && verdict !== null,
+    `${turns.length} turns, verdict=${verdict}`,
+  );
 
-  for (const to of ["DIALING", "RINGING", "ANSWERED", "DISCLOSED", "VERIFYING", "CONFIRMED_FRAUD", "ESCALATED", "NOTIFIED"] as const) {
+  for (const to of [
+    "DIALING",
+    "RINGING",
+    "ANSWERED",
+    "DISCLOSED",
+    "VERIFYING",
+    "CONFIRMED_FRAUD",
+    "ESCALATED",
+    "NOTIFIED",
+  ] as const) {
     await pace();
     await transitionCase(CASE_REF, to);
   }
@@ -1420,9 +1730,17 @@ test("WP-18 · offline mode completes a full intervention with no network and no
     caseRef: CASE_REF,
     at: clock.now(),
   });
-  check("a-notification-was-enqueued-through-the-port", receipt.deduplicated === false && receipt.count === 1, JSON.stringify(receipt));
+  check(
+    "a-notification-was-enqueued-through-the-port",
+    receipt.deduplicated === false && receipt.count === 1,
+    JSON.stringify(receipt),
+  );
   const captured = notifications.captured();
-  check("the-notification-capture-buffer-holds-it", captured.some((n) => n.caseRef === CASE_REF), `${captured.length} item(s) captured`);
+  check(
+    "the-notification-capture-buffer-holds-it",
+    captured.some((n) => n.caseRef === CASE_REF),
+    `${captured.length} item(s) captured`,
+  );
 
   const inboxRows = await db.notification.findMany({ where: { caseRef: CASE_REF } });
   check(
@@ -1456,7 +1774,11 @@ test("WP-18 · offline mode completes a full intervention with no network and no
 
   // 8. The two remaining ports, exercised in the same offline run.
   const secretMiss = await secretStore.get("ELEVENLABS_API_KEY");
-  check("the-secret-store-reports-no-provider-key-present", secretMiss.ok === false, JSON.stringify(secretMiss));
+  check(
+    "the-secret-store-reports-no-provider-key-present",
+    secretMiss.ok === false,
+    JSON.stringify(secretMiss),
+  );
   const settled = await payment.settle({
     reference: `SEAMPAY-${RUN}`,
     eventId: `seams-pay-${RUN}`,
@@ -1495,7 +1817,8 @@ test("WP-18 · the evidence artifact lists every port, its mode, and what was ac
   // into this file — otherwise the artifact could claim a mode nobody resolved.
   const realDescriptors = createRegistry().descriptors();
   const offlineDescriptors = createRegistry({ offline: true, seed: "report" }).descriptors();
-  const descriptorOf = (list: PortDescriptor[], port: PortName) => list.find((d) => d.port === port);
+  const descriptorOf = (list: PortDescriptor[], port: PortName) =>
+    list.find((d) => d.port === port);
 
   const portRows = PORT_NAMES.map((port) => {
     const binding = PORT_BINDINGS[port];
@@ -1510,7 +1833,7 @@ test("WP-18 · the evidence artifact lists every port, its mode, and what was ac
       fakeAdapter: binding.fake,
       notBound: binding.notBound.map((n) => ({ adapter: n.adapter, reason: n.reason })),
       modeInRealRun: real?.mode ?? "unknown",
-      realAdapterId: real?.detail.includes("@/lib") ? real.detail : (real ? "built-in" : ""),
+      realAdapterId: real?.detail.includes("@/lib") ? real.detail : real ? "built-in" : "",
       modeInOfflineRun: offline?.mode ?? "unknown",
       fakeAdapterId: offline?.detail ?? "",
       verification: p?.level ?? "bound-only",
@@ -1522,14 +1845,26 @@ test("WP-18 · the evidence artifact lists every port, its mode, and what was ac
 
   const contractTested = portRows.filter((r) => r.verification !== "bound-only").map((r) => r.port);
   const realParity = portRows.filter((r) => r.verification === "contract-real").map((r) => r.port);
-  const dryRunOnly = portRows.filter((r) => r.verification === "contract-dry-run").map((r) => r.port);
-  const offlineSurfaceOnly = portRows.filter((r) => r.verification === "contract-offline-surface").map((r) => r.port);
+  const dryRunOnly = portRows
+    .filter((r) => r.verification === "contract-dry-run")
+    .map((r) => r.port);
+  const offlineSurfaceOnly = portRows
+    .filter((r) => r.verification === "contract-offline-surface")
+    .map((r) => r.port);
   const boundOnly = portRows.filter((r) => r.verification === "bound-only").map((r) => r.port);
 
   // ── checks that describe the artifact, recorded BEFORE the write so the
   //    summary in the file and the log in memory agree ───────────────────────
-  check("artifact-lists-every-port", portRows.length === PORT_NAMES.length, `${portRows.length} ports in the artifact`);
-  check("every-port-has-a-verification-level", portRows.every((r) => typeof r.verification === "string"), "no port is silently unclassified");
+  check(
+    "artifact-lists-every-port",
+    portRows.length === PORT_NAMES.length,
+    `${portRows.length} ports in the artifact`,
+  );
+  check(
+    "every-port-has-a-verification-level",
+    portRows.every((r) => typeof r.verification === "string"),
+    "no port is silently unclassified",
+  );
   check(
     "the-mode-in-the-run-is-read-from-the-registry",
     portRows.every((r) => r.modeInRealRun === "real" && r.modeInOfflineRun === "fake"),
@@ -1547,13 +1882,20 @@ test("WP-18 · the evidence artifact lists every port, its mode, and what was ac
   );
   check(
     "the-contract-tested-list-is-explicit-and-disjoint-from-bound-only",
-    contractTested.length + boundOnly.length === portRows.length && contractTested.every((p) => !boundOnly.includes(p)),
+    contractTested.length + boundOnly.length === portRows.length &&
+      contractTested.every((p) => !boundOnly.includes(p)),
     `contract-tested=[${contractTested.join(", ")}] bound-only=[${boundOnly.join(", ")}]`,
   );
-  check("no-port-is-left-unreported", unreported.length === 0, unreported.length === 0 ? "every port has a verification level" : unreported.join(", "));
+  check(
+    "no-port-is-left-unreported",
+    unreported.length === 0,
+    unreported.length === 0 ? "every port has a verification level" : unreported.join(", "),
+  );
   check(
     "every-contract-tested-port-names-what-it-compared",
-    portRows.filter((r) => r.verification !== "bound-only").every((r) => r.compared.length > 0 && r.notCompared.length > 0),
+    portRows
+      .filter((r) => r.verification !== "bound-only")
+      .every((r) => r.compared.length > 0 && r.notCompared.length > 0),
     "a parity claim without a 'not compared' list would be an overclaim",
   );
   check(
@@ -1593,8 +1935,9 @@ test("WP-18 · the evidence artifact lists every port, its mode, and what was ac
   );
   check(
     "the-scrubbed-core-still-shows-which-reference-was-involved",
-    scrubbedChecks.some((c) => c.detail.includes("[paymentRef]") || c.detail.includes("[caseRef]")) &&
-      scrubbedChecks.every((c) => !c.detail.includes(PAY_REF)),
+    scrubbedChecks.some(
+      (c) => c.detail.includes("[paymentRef]") || c.detail.includes("[caseRef]"),
+    ) && scrubbedChecks.every((c) => !c.detail.includes(PAY_REF)),
     "placeholders replaced the identifiers rather than dropping the sentences",
   );
   check(
@@ -1672,7 +2015,9 @@ test("WP-18 · the evidence artifact lists every port, its mode, and what was ac
   expect(parsed.summary.declaredAdaptersTotal).toBe(
     PORT_NAMES.reduce((n, p) => n + DECLARED_ADAPTERS[p].length, 0),
   );
-  expect(parsed.summary.boundAdaptersTotal + parsed.summary.notBoundAdaptersTotal).toBe(parsed.summary.declaredAdaptersTotal);
+  expect(parsed.summary.boundAdaptersTotal + parsed.summary.notBoundAdaptersTotal).toBe(
+    parsed.summary.declaredAdaptersTotal,
+  );
 
   const { digest, generatedAt, run, commands, ...rest } = parsed;
   expect(typeof digest).toBe("string");
@@ -1703,7 +2048,11 @@ afterAll(async () => {
       gate: "WP-18 internal seams",
       digestAlgorithm: "sha256",
       ports: [],
-      summary: { result: "fail", reason: "the suite failed before the artifact test ran", checks: { total: CHECKS.length, passed: passed(), failed: failed() } },
+      summary: {
+        result: "fail",
+        reason: "the suite failed before the artifact test ran",
+        checks: { total: CHECKS.length, passed: passed(), failed: failed() },
+      },
       checks: CHECKS,
     };
     mkdirSync(dirname(EVIDENCE_PATH), { recursive: true });

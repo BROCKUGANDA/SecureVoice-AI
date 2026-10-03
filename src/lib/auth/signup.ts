@@ -56,7 +56,7 @@ export function accountCreationPath(): "invite_redemption" {
  */
 export async function createAccountFromSignup(
   // Intentionally ignored — never read, never logged.
-  _input?: unknown
+  _input?: unknown,
 ): Promise<SignupRefusal> {
   return { ok: false, code: SIGNUP_CLOSED_CODE, error: SIGNUP_CLOSED_MESSAGE };
 }

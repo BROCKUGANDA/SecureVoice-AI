@@ -94,26 +94,11 @@ export function SectionHead({
     <div className="max-w-3xl">
       <Reveal>
         <div className="flex items-center gap-3">
-          <span
-            className={cn(
-              "micro",
-              light ? "text-green-bright" : "text-primary"
-            )}
-          >
-            {index}
-          </span>
-          <span
-            className={cn(
-              "h-px w-10",
-              light ? "bg-white/25" : "bg-line"
-            )}
-          />
+          <span className={cn("micro", light ? "text-green-bright" : "text-primary")}>{index}</span>
+          <span className={cn("h-px w-10", light ? "bg-white/25" : "bg-line")} />
           <span
             dir="rtl"
-            className={cn(
-              "font-arabic text-[13px]",
-              light ? "text-white/60" : "text-ink-3"
-            )}
+            className={cn("font-arabic text-[13px]", light ? "text-white/60" : "text-ink-3")}
           >
             {ar}
           </span>
@@ -123,10 +108,16 @@ export function SectionHead({
         <h2
           className={cn(
             "font-display mt-4 text-3xl sm:text-4xl lg:text-[2.75rem] leading-[1.08] font-semibold tracking-tight",
-            light ? "text-white" : "text-foreground"
+            light ? "text-white" : "text-foreground",
           )}
         >
-          {lang === "ar" ? <span dir="rtl" className="font-arabic">{ar}</span> : en}
+          {lang === "ar" ? (
+            <span dir="rtl" className="font-arabic">
+              {ar}
+            </span>
+          ) : (
+            en
+          )}
         </h2>
       </Reveal>
       {desc && (
@@ -134,7 +125,7 @@ export function SectionHead({
           <p
             className={cn(
               "mt-4 text-base sm:text-lg leading-relaxed",
-              light ? "text-white/65" : "text-ink-2"
+              light ? "text-white/65" : "text-ink-2",
             )}
           >
             {desc}
@@ -163,7 +154,7 @@ export function StatusPill({
     <span
       className={cn(
         "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px] font-medium whitespace-nowrap",
-        tones[tone]
+        tones[tone],
       )}
     >
       {children}
@@ -187,7 +178,7 @@ export function Chip({ children, className }: { children: ReactNode; className?:
     <span
       className={cn(
         "inline-flex items-center gap-1.5 rounded-md border border-line bg-white px-2 py-0.5 num text-[10.5px] text-ink-2",
-        className
+        className,
       )}
     >
       {children}

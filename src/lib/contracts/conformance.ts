@@ -43,11 +43,7 @@ import { randomUUID } from "node:crypto";
 import { canonicalJson, signPayload } from "@/lib/outbox";
 import type { FailureCode } from "@/lib/failures/envelope";
 
-import {
-  OUTBOUND_SCHEMA_VERSION,
-  REPLAY_WINDOW_SECONDS,
-  SIGNATURE_HEADER,
-} from "./schema";
+import { OUTBOUND_SCHEMA_VERSION, REPLAY_WINDOW_SECONDS, SIGNATURE_HEADER } from "./schema";
 
 /* ──────────────────────────────────────────────────────────────────────────
  * The graded checks
@@ -78,7 +74,8 @@ export const CONFORMANCE_REQUIREMENTS: Readonly<Record<ConformanceCheckId, strin
     "Verify SV-Signature over the RAW request bytes before acting. A request with a tampered digest or no signature at all MUST be refused with a 4xx.",
   idempotency_honoured:
     "Key your dedupe store on event_id and acknowledge the event you accepted, by echoing event_id in the response body or in the `x-securevoice-event-id` header.",
-  fast_2xx: "Return a 2xx for a well-formed delivery within the stated budget, then do the work asynchronously. A slow 2xx is a lost event, not a delayed one.",
+  fast_2xx:
+    "Return a 2xx for a well-formed delivery within the stated budget, then do the work asynchronously. A slow 2xx is a lost event, not a delayed one.",
   replay_handled:
     "A redelivery of an event_id you have already applied MUST NOT be applied again. Mark the redelivery with `duplicate: true` in the response body, or the `X-Securevoice-Duplicate: true` header (aliases: `idempotent_replay`, `replayed`, `already_applied`).",
   rejects_malformed:
@@ -107,7 +104,8 @@ export const CONFORMANCE_RUN_HEADER = "x-securevoice-conformance-run";
  * Transport
  * ────────────────────────────────────────────────────────────────────────── */
 
-export type ProbeKind = "valid_delivery" | "replay" | "tampered_signature" | "unsigned" | "malformed";
+export type ProbeKind =
+  "valid_delivery" | "replay" | "tampered_signature" | "unsigned" | "malformed";
 
 export type TransportRequest = {
   readonly url: string;
@@ -232,7 +230,11 @@ function buildProbeEnvelope(input: {
 }
 
 /** A correctly SIGNED envelope whose `data` is a string: unambiguously invalid. */
-function buildMalformedEnvelope(input: { eventId: string; caseRef: string; nowIso: string }): Record<string, unknown> {
+function buildMalformedEnvelope(input: {
+  eventId: string;
+  caseRef: string;
+  nowIso: string;
+}): Record<string, unknown> {
   return {
     schema_version: OUTBOUND_SCHEMA_VERSION,
     event_id: input.eventId,
@@ -327,7 +329,10 @@ export const MAX_BUDGET_MS = 10_000;
 export async function runConformance(opts: RunConformanceOptions): Promise<ConformanceReport> {
   const now = opts.now ?? Date.now;
   const newRunId = opts.newRunId ?? randomUUID;
-  const budgetMs = Math.min(MAX_BUDGET_MS, Math.max(MIN_BUDGET_MS, opts.budgetMs ?? DEFAULT_BUDGET_MS));
+  const budgetMs = Math.min(
+    MAX_BUDGET_MS,
+    Math.max(MIN_BUDGET_MS, opts.budgetMs ?? DEFAULT_BUDGET_MS),
+  );
   const runId = newRunId();
   const nowIso = new Date(now()).toISOString();
   const notes: string[] = [];
@@ -335,7 +340,9 @@ export async function runConformance(opts: RunConformanceOptions): Promise<Confo
   try {
     url = new URL(opts.receiverUrl);
   } catch {
-    throw new Error("receiverUrl must be an absolute URL (the SSRF verdict runs before this function)");
+    throw new Error(
+      "receiverUrl must be an absolute URL (the SSRF verdict runs before this function)",
+    );
   }
 
   const caseRef = probeCaseRef(runId);
@@ -370,17 +377,37 @@ export async function runConformance(opts: RunConformanceOptions): Promise<Confo
     return `t=${nowSec},v1=${flipped}${v1.slice(1)}`;
   })();
 
-  const probes: Array<{ kind: ProbeKind; body: string; signature: string | null; eventId: string }> = [
+  const probes: Array<{
+    kind: ProbeKind;
+    body: string;
+    signature: string | null;
+    eventId: string;
+  }> = [
     {
       kind: "valid_delivery",
       body: validBody,
       signature: signPayload(validBody, nowSec, opts.secret),
       eventId: primaryEventId,
     },
-    { kind: "replay", body: validBody, signature: signPayload(validBody, replayTimestamp, opts.secret), eventId: primaryEventId },
-    { kind: "tampered_signature", body: validBody, signature: tamperedSignature, eventId: primaryEventId },
+    {
+      kind: "replay",
+      body: validBody,
+      signature: signPayload(validBody, replayTimestamp, opts.secret),
+      eventId: primaryEventId,
+    },
+    {
+      kind: "tampered_signature",
+      body: validBody,
+      signature: tamperedSignature,
+      eventId: primaryEventId,
+    },
     { kind: "unsigned", body: validBody, signature: null, eventId: primaryEventId },
-    { kind: "malformed", body: malformedBody, signature: signPayload(malformedBody, nowSec, opts.secret), eventId: randomUUID() },
+    {
+      kind: "malformed",
+      body: malformedBody,
+      signature: signPayload(malformedBody, nowSec, opts.secret),
+      eventId: randomUUID(),
+    },
   ];
 
   const observations: ProbeObservation[] = [];
@@ -434,7 +461,8 @@ export async function runConformance(opts: RunConformanceOptions): Promise<Confo
     });
   }
 
-  const byKind = (kind: ProbeKind): ProbeObservation | undefined => observations.find((p) => p.kind === kind);
+  const byKind = (kind: ProbeKind): ProbeObservation | undefined =>
+    observations.find((p) => p.kind === kind);
   const valid = byKind("valid_delivery");
   const replay = byKind("replay");
   const tampered = byKind("tampered_signature");
@@ -450,7 +478,10 @@ export async function runConformance(opts: RunConformanceOptions): Promise<Confo
     {
       id: "signature_verified",
       title: "Signature verified",
-      status: tampered && unsigned && isClientError(tampered.status) && isClientError(unsigned.status) ? "pass" : "fail",
+      status:
+        tampered && unsigned && isClientError(tampered.status) && isClientError(unsigned.status)
+          ? "pass"
+          : "fail",
       observed: `tampered digest → ${describe(tampered)}; unsigned → ${describe(unsigned)}`,
       requirement: CONFORMANCE_REQUIREMENTS.signature_verified,
     },
@@ -468,10 +499,7 @@ export async function runConformance(opts: RunConformanceOptions): Promise<Confo
     {
       id: "fast_2xx",
       title: "2xx within budget",
-      status:
-        valid && isSuccess(valid.status) && valid.latencyMs <= budgetMs
-          ? "pass"
-          : "fail",
+      status: valid && isSuccess(valid.status) && valid.latencyMs <= budgetMs ? "pass" : "fail",
       observed: valid
         ? isSuccess(valid.status)
           ? `${valid.status} in ${valid.latencyMs}ms against a ${budgetMs}ms budget`
@@ -482,7 +510,8 @@ export async function runConformance(opts: RunConformanceOptions): Promise<Confo
     {
       id: "replay_handled",
       title: "Replay handled",
-      status: replay && isSuccess(replay.status) && replay.duplicate_marker === true ? "pass" : "fail",
+      status:
+        replay && isSuccess(replay.status) && replay.duplicate_marker === true ? "pass" : "fail",
       observed: replay
         ? replay.status === 0
           ? `the redelivery of event_id ${primaryEventId} produced no response`
@@ -520,7 +549,9 @@ export async function runConformance(opts: RunConformanceOptions): Promise<Confo
     `Signatures use a ${REPLAY_WINDOW_SECONDS}s replay window, so a receiver clock more than ${REPLAY_WINDOW_SECONDS / 60} minutes out will fail signature_verified for reasons unrelated to its implementation.`,
   );
   if (observations.some((o) => o.status === 0)) {
-    notes.push("At least one probe never got a response — check reachability and TLS before reading the individual checks.");
+    notes.push(
+      "At least one probe never got a response — check reachability and TLS before reading the individual checks.",
+    );
   }
 
   return {
@@ -554,7 +585,8 @@ export type UrlVerdictLike =
   | { ok: true; url: URL; addresses: readonly string[] }
   | { ok: false; code: string; reason: string; host?: string };
 
-export type AuthOutcome = { ok: true; callerId: string; orgId: string | null } | { ok: false; reason: string };
+export type AuthOutcome =
+  { ok: true; callerId: string; orgId: string | null } | { ok: false; reason: string };
 
 export type ConformanceDeps = {
   /** Required. There is no default and no fallback to the global fetch. */
@@ -626,7 +658,10 @@ export async function handleConformanceRun(
   if (!auth.ok) {
     return {
       kind: "refused",
-      refusal: { code: "unauthenticated", detail: `conformance runs require a producer key: ${auth.reason}` },
+      refusal: {
+        code: "unauthenticated",
+        detail: `conformance runs require a producer key: ${auth.reason}`,
+      },
     };
   }
 
@@ -634,7 +669,11 @@ export async function handleConformanceRun(
   if (!limit.ok) {
     return {
       kind: "refused",
-      refusal: { code: "rate_limited", detail: "too many conformance runs", retryAfterSec: limit.retryAfterSec },
+      refusal: {
+        code: "rate_limited",
+        detail: "too many conformance runs",
+        retryAfterSec: limit.retryAfterSec,
+      },
     };
   }
 

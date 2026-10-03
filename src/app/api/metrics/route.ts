@@ -49,13 +49,24 @@ export async function GET(req: Request) {
   }
   const started = Date.now();
   const out: string[] = [];
-  const push = (name: string, help: string, type: "gauge" | "counter", value: number, labels = "" as string) => {
+  const push = (
+    name: string,
+    help: string,
+    type: "gauge" | "counter",
+    value: number,
+    labels = "" as string,
+  ) => {
     out.push(`# HELP ${name} ${help}`, `# TYPE ${name} ${type}`, `${name}${labels} ${value}`);
   };
 
   // ── process ──────────────────────────────────────────────────────────────
   const mem = process.memoryUsage();
-  push("sv_process_resident_memory_bytes", "Resident set size of the Node process.", "gauge", mem.rss);
+  push(
+    "sv_process_resident_memory_bytes",
+    "Resident set size of the Node process.",
+    "gauge",
+    mem.rss,
+  );
   push("sv_process_heap_used_bytes", "V8 heap in use.", "gauge", mem.heapUsed);
   push("sv_process_uptime_seconds", "Process uptime.", "gauge", Math.round(process.uptime()));
 
@@ -70,7 +81,12 @@ export async function GET(req: Request) {
     dbOk = 0;
   }
   push("sv_db_up", "1 when the primary database answered the probe.", "gauge", dbOk);
-  push("sv_db_probe_latency_ms", "Round-trip latency of the database probe.", "gauge", Date.now() - dbStart);
+  push(
+    "sv_db_probe_latency_ms",
+    "Round-trip latency of the database probe.",
+    "gauge",
+    Date.now() - dbStart,
+  );
 
   // ── cases and admission ─────────────────────────────────────────────────
   try {
@@ -93,20 +109,32 @@ export async function GET(req: Request) {
 
   try {
     const capacity = await admissionSnapshot();
-    push("sv_conversations_active", "Conversations currently consuming a voice slot.", "gauge", capacity.activeConversations);
+    push(
+      "sv_conversations_active",
+      "Conversations currently consuming a voice slot.",
+      "gauge",
+      capacity.activeConversations,
+    );
     push(
       "sv_admission_band",
       "Current admission band: 0 normal, 1 constrained, 2 shed.",
       "gauge",
       capacity.band === "NORMAL" ? 0 : capacity.band === "CONSTRAINED" ? 1 : 2,
     );
-    push("sv_vendor_ceiling_concurrent", "Enforced vendor concurrency ceiling (ElevenLabs).", "gauge", capacity.ceilings.elevenLabsBurstCeiling);
+    push(
+      "sv_vendor_ceiling_concurrent",
+      "Enforced vendor concurrency ceiling (ElevenLabs).",
+      "gauge",
+      capacity.ceilings.elevenLabsBurstCeiling,
+    );
     push(
       "sv_vendor_ceiling_utilisation",
       "Active conversations as a fraction of the burst ceiling.",
       "gauge",
       capacity.ceilings.elevenLabsBurstCeiling > 0
-        ? Number((capacity.activeConversations / capacity.ceilings.elevenLabsBurstCeiling).toFixed(4))
+        ? Number(
+            (capacity.activeConversations / capacity.ceilings.elevenLabsBurstCeiling).toFixed(4),
+          )
         : 0,
     );
   } catch {
@@ -122,7 +150,12 @@ export async function GET(req: Request) {
     push("sv_dial_queue_pending", "Dialling jobs waiting to be claimed.", "gauge", q.pending);
     push("sv_dial_queue_claimed", "Jobs claimed by a worker and in flight.", "gauge", q.claimed);
     push("sv_dial_queue_done", "Jobs whose call was accepted by the provider.", "counter", q.done);
-    push("sv_dial_queue_dead", "Jobs that exhausted retries — operator-visible failures.", "gauge", q.dead);
+    push(
+      "sv_dial_queue_dead",
+      "Jobs that exhausted retries — operator-visible failures.",
+      "gauge",
+      q.dead,
+    );
   } catch {
     push("sv_dial_queue_pending", "Dialling jobs waiting to be claimed.", "gauge", -1);
   }
@@ -146,7 +179,12 @@ export async function GET(req: Request) {
       oldest ? Math.round((Date.now() - oldest.createdAt.getTime()) / 1000) : 0,
     );
     const dead = await db.deadLetter.count({ where: { replayedAt: null } });
-    push("sv_outbox_dead_letter", "Notifications that exhausted retries and need replay.", "gauge", dead);
+    push(
+      "sv_outbox_dead_letter",
+      "Notifications that exhausted retries and need replay.",
+      "gauge",
+      dead,
+    );
   } catch {
     push("sv_outbox_pending", "Bank notifications waiting for delivery.", "gauge", -1);
   }
@@ -156,7 +194,10 @@ export async function GET(req: Request) {
   // supposedly serving, the evidence pipeline is broken even though the site
   // looks fine.
   try {
-    const last = await db.auditLog.findFirst({ orderBy: { createdAt: "desc" }, select: { createdAt: true } });
+    const last = await db.auditLog.findFirst({
+      orderBy: { createdAt: "desc" },
+      select: { createdAt: true },
+    });
     push(
       "sv_audit_last_write_age_seconds",
       "Seconds since the last audit-chain append.",
@@ -167,11 +208,21 @@ export async function GET(req: Request) {
     const rows24h = await db.auditLog.count({ where: { createdAt: { gte: today } } });
     push("sv_audit_rows_24h", "Audit rows written in the last 24 hours.", "gauge", rows24h);
   } catch {
-    push("sv_audit_last_write_age_seconds", "Seconds since the last audit-chain append.", "gauge", -1);
+    push(
+      "sv_audit_last_write_age_seconds",
+      "Seconds since the last audit-chain append.",
+      "gauge",
+      -1,
+    );
   }
 
   // ── scrape self-timing ──────────────────────────────────────────────────
-  push("sv_scrape_duration_ms", "Time taken to produce this scrape.", "gauge", Date.now() - started);
+  push(
+    "sv_scrape_duration_ms",
+    "Time taken to produce this scrape.",
+    "gauge",
+    Date.now() - started,
+  );
 
   return new NextResponse(`${out.join("\n")}\n`, {
     headers: {

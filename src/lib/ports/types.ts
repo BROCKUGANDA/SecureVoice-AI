@@ -194,7 +194,8 @@ export type TranscriptTurn = {
   atSeconds: number;
 };
 
-export type ConversationVerdict = "confirmed_fraud" | "confirmed_legitimate" | "uncertain" | "no_answer";
+export type ConversationVerdict =
+  "confirmed_fraud" | "confirmed_legitimate" | "uncertain" | "no_answer";
 
 export interface ConversationProvider {
   readonly adapterId: string;
@@ -257,13 +258,7 @@ export interface TelephonyProvider {
 // ── NotificationSink ─────────────────────────────────────────────────────────
 
 export type NotificationChannel =
-  | "webhook"
-  | "crm"
-  | "itsm"
-  | "siem"
-  | "contact-centre"
-  | "sms"
-  | "in-app";
+  "webhook" | "crm" | "itsm" | "siem" | "contact-centre" | "sms" | "in-app";
 
 export type NotificationSeverity = "page" | "urgent" | "info";
 
@@ -302,7 +297,8 @@ export type NotificationReceipt = {
   count: number;
 };
 
-export type NotificationAck = { ok: true } | { ok: false; error: "not_found" | "already_acknowledged" };
+export type NotificationAck =
+  { ok: true } | { ok: false; error: "not_found" | "already_acknowledged" };
 
 export interface NotificationSink {
   readonly adapterId: string;
@@ -334,8 +330,7 @@ export interface PaymentProviderPort extends PaymentProvider {
 // ── SecretStore ──────────────────────────────────────────────────────────────
 
 export type SecretResult =
-  | { ok: true; value: string }
-  | { ok: false; reason: "not_found" | "not_configured" | "forbidden" };
+  { ok: true; value: string } | { ok: false; reason: "not_found" | "not_configured" | "forbidden" };
 
 export interface SecretStore {
   readonly adapterId: string;

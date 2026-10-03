@@ -25,6 +25,7 @@
  */
 
 import { afterAll, expect, test } from "bun:test";
+import { NextRequest } from "next/server";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { db } from "@/lib/db";
@@ -64,7 +65,8 @@ test("no route under api/auth creates an account from a credential", async () =>
   expect(files.length).toBeGreaterThan(0);
 
   // Pathnames that would indicate a public account-creation endpoint.
-  const forbidden = /sign-?up|signup|register|registration|join|create-account|new-account|self-?serve/i;
+  const forbidden =
+    /sign-?up|signup|register|registration|join|create-account|new-account|self-?serve/i;
 
   for (const file of files) {
     const relative = file.replace(AUTH_ROUTES, "").replace(/\\/g, "/");
@@ -84,14 +86,15 @@ test("createIdentity is called from exactly ONE module: invite redemption", () =
     if (entry.endsWith(".ts")) files.push(join(libDir, entry));
   }
 
-  const callers: string[] = [];
+  // Each entry records the file and how many call sites it holds, so the assertion
+  // below pins BOTH the single allowed caller and the single allowed call.
+  const callers: { file: string; count: number }[] = [];
   for (const file of files) {
     const source = readFileSync(file, "utf8");
     // Match real CALL SITES only. Two exclusions:
     //   `function createIdentity(`  — the declaration, not a call.
     //   `.createIdentity(`          — a method on another object, not this one.
-    const calls =
-      source.match(/(?<![\w.])(?<!function )createIdentity\s*\(/g) ?? [];
+    const calls = source.match(/(?<![\w.])(?<!function )createIdentity\s*\(/g) ?? [];
     if (calls.length > 0) {
       callers.push({
         file: file.slice(libDir.length + 1).replace(/\\/g, "/"),
@@ -157,7 +160,7 @@ test("the PUBLIC magic-link verify route cannot create an account", async () => 
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({}),
-    })
+    }),
   );
   expect(noToken.status).toBe(422);
 
@@ -167,7 +170,7 @@ test("the PUBLIC magic-link verify route cannot create an account", async () => 
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ token: uniq("unknown-magic-token") }),
-    })
+    }),
   );
   expect(bogus.status).toBe(401);
 
@@ -183,7 +186,7 @@ test("the PUBLIC password route cannot create an account", async () => {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ email, password: "some-password-here" }),
-    })
+    }),
   );
   // 401: there is no such account, and signing in does not make one.
   expect(response.status).toBe(401);
@@ -199,7 +202,7 @@ test("the invite-accept route creates an account only with a real token", async 
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ email, role: "Owner" }),
-    })
+    }),
   );
   expect(noToken.status).toBe(422);
   expect(await db.account.count({ where: { email } })).toBe(0);
@@ -210,7 +213,7 @@ test("the invite-accept route creates an account only with a real token", async 
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ token: uniq("fabricated-invite"), email, role: "Owner" }),
-    })
+    }),
   );
   expect(fabricated.status).toBe(410);
   expect(await db.account.count({ where: { email } })).toBe(0);
@@ -232,7 +235,7 @@ test("the invite-accept route creates an account only with a real token", async 
       headers: { "content-type": "application/json" },
       // `email` and `role` in the body are ignored: the invite is the authority.
       body: JSON.stringify({ token, email: "attacker@evil.test", role: "Owner" }),
-    })
+    }),
   );
   expect(accepted.status).toBe(201);
 
@@ -261,7 +264,7 @@ test("an account with a real role can only be created by redeeming an invitation
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ token: "", email: testEmail("nothing") }),
-    })
+    }),
   );
   expect(refused.status).toBe(422);
   expect(await db.account.count()).toBe(before);
@@ -272,11 +275,13 @@ test("an invitation cannot be self-issued by an anonymous caller", async () => {
   // step-up. Assert the route refuses without a session.
   const { POST } = await import("@/app/api/auth/invites/route");
   const response = await POST(
-    new Request("http://t/api/auth/invites", {
+    // This route takes a NextRequest (it reads the cookie jar), so the request is
+    // constructed as one rather than narrowed with a cast at the call site.
+    new NextRequest("http://t/api/auth/invites", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ email: testEmail("selfissue"), role: "Owner" }),
-    })
+    } as ConstructorParameters<typeof NextRequest>[1]),
   );
   expect(response.status).toBe(401);
   expect(await db.account.count({ where: { email: { contains: "selfissue" } } })).toBe(0);

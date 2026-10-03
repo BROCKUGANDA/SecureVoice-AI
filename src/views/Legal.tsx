@@ -58,7 +58,9 @@ function LegalShell({
             <Reveal key={s.h} delay={Math.min(i * 0.03, 0.15)}>
               <section>
                 <h2 className="font-display text-[17px] font-semibold tracking-tight">
-                  <span className="mr-2.5 font-mono text-[12px] font-bold text-primary">{String(i + 1).padStart(2, "0")}</span>
+                  <span className="mr-2.5 font-mono text-[12px] font-bold text-primary">
+                    {String(i + 1).padStart(2, "0")}
+                  </span>
                   {s.h}
                 </h2>
                 <div className="mt-3 space-y-3 border-l-2 border-line pl-5">
@@ -108,7 +110,7 @@ const PRIVACY_SECTIONS = [
   {
     h: "Who we are",
     body: [
-      "SecureVoice Technologies FZ-LLC (\"SecureVoice\", \"we\") provides a real-time voice fraud-intervention platform for banks and insurers operating in the United Arab Emirates. This policy explains what personal data we process through this website and the platform, why, and the rights you have over it.",
+      'SecureVoice Technologies FZ-LLC ("SecureVoice", "we") provides a real-time voice fraud-intervention platform for banks and insurers operating in the United Arab Emirates. This policy explains what personal data we process through this website and the platform, why, and the rights you have over it.',
       "We act as the data controller for data submitted through this website (for example, a pilot request) and as a data processor acting on your bank's documented instructions for any data processed inside a bank deployment of the platform.",
     ],
   },
@@ -122,7 +124,7 @@ const PRIVACY_SECTIONS = [
   {
     h: "Lawful basis",
     body: [
-      "For website data we rely on your consent, given when you submit a form, and on our legitimate interest in operating and securing the service. For fraud-intervention calls processed for a bank, the lawful basis is established by that bank — typically the vital-interest and legal-obligation bases recognised under Federal Decree-Law No. 45 of 2021 (the \"PDPL\") — and we operate strictly on the bank's documented instructions.",
+      'For website data we rely on your consent, given when you submit a form, and on our legitimate interest in operating and securing the service. For fraud-intervention calls processed for a bank, the lawful basis is established by that bank — typically the vital-interest and legal-obligation bases recognised under Federal Decree-Law No. 45 of 2021 (the "PDPL") — and we operate strictly on the bank\'s documented instructions.',
       "Because this deployment runs in the European Economic Area, we also comply with the EU General Data Protection Regulation (Regulation (EU) 2016/679) for personal data processed in connection with it: we rely on your consent for website submissions and on legitimate interests for security logging, we have concluded a Data Processing Agreement with each processor, and transfers outside the EEA are covered by Standard Contractual Clauses or an adequacy decision.",
     ],
   },
@@ -138,7 +140,7 @@ const PRIVACY_SECTIONS = [
   {
     h: "Sub-processors",
     body: [
-      "We use a small number of processors, each under contract and each limited to the purpose stated: identity and session management (Clerk); telephony for outbound intervention calls and SMS (Twilio); speech synthesis and transcription (ElevenLabs, with Deepgram as fallback); optional reply drafting (Groq or Google Gemini); infrastructure and database hosting (the cloud provider and database provider named in our sub-processor register); and transactional email for support replies.",
+      "We use a small number of processors, each under contract and each limited to the purpose stated: identity and session management, which we host ourselves on our own infrastructure (the Clerk processor was retired at the Clerk -> Better Auth cutover, and no account data is sent to a third-party identity provider); telephony for outbound intervention calls and SMS (Twilio); speech synthesis and transcription (ElevenLabs, with Deepgram as fallback); optional reply drafting (Groq or Google Gemini); infrastructure and database hosting (the cloud provider and database provider named in our sub-processor register); and transactional email for support replies. Where a deployment enables Better Auth's optional hosted telemetry (BETTER_AUTH_API_KEY), Better Auth receives request metadata only — never case content, credentials, or personal data — and that processor must be added to the register below before such a deployment is offered.",
       "Where a bank requires additional residency, silence, or a written commitment for any of these, we will either pin the processor to an in-region endpoint or remove it from that deployment. The current register, with processing locations and the standard contractual clauses where applicable, is available on request.",
     ],
   },
@@ -203,7 +205,7 @@ const TERMS_SECTIONS = [
   {
     h: "Agreement",
     body: [
-      "These Terms govern your use of this website and any evaluation access to the SecureVoice platform (the \"Service\") operated by SecureVoice Technologies FZ-LLC (\"SecureVoice\", \"we\"). By using the Service you accept these Terms. Production use by a financial institution is governed by a separate signed agreement (MSA + DPA) that takes precedence over anything on this page.",
+      'These Terms govern your use of this website and any evaluation access to the SecureVoice platform (the "Service") operated by SecureVoice Technologies FZ-LLC ("SecureVoice", "we"). By using the Service you accept these Terms. Production use by a financial institution is governed by a separate signed agreement (MSA + DPA) that takes precedence over anything on this page.',
     ],
   },
   {
@@ -215,7 +217,7 @@ const TERMS_SECTIONS = [
   {
     h: "Demo data and no warranty",
     body: [
-      "Names, card digits, case references and amounts shown in the demo are synthetic. The demo is provided \"as is\" for evaluation. While we work hard to keep it available, we do not warrant uninterrupted or error-free operation of the public demonstration, and availability figures shown on the status endpoint apply to the reference deployment only.",
+      'Names, card digits, case references and amounts shown in the demo are synthetic. The demo is provided "as is" for evaluation. While we work hard to keep it available, we do not warrant uninterrupted or error-free operation of the public demonstration, and availability figures shown on the status endpoint apply to the reference deployment only.',
     ],
   },
   {

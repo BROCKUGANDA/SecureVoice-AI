@@ -80,14 +80,18 @@ test("UsageLedger: registered as a tenant model and scoped", async () => {
 
   const asA = scopedDb({ orgId: ORG.A });
   // Control first: the fixture must be reachable at all, or "empty" is vacuous.
-  expect((await asA.usageLedger.findFirst({ where: { idemKey: KEY.ledgerIdemKey.A } }))?.orgId).toBe(ORG.A);
+  expect(
+    (await asA.usageLedger.findFirst({ where: { idemKey: KEY.ledgerIdemKey.A } }))?.orgId,
+  ).toBe(ORG.A);
 
   // The cross-org read.
   expect(await asA.usageLedger.findFirst({ where: { idemKey: KEY.ledgerIdemKey.B } })).toBeNull();
 
   // And symmetric.
   const asB = scopedDb({ orgId: ORG.B });
-  expect((await asB.usageLedger.findFirst({ where: { idemKey: KEY.ledgerIdemKey.B } }))?.orgId).toBe(ORG.B);
+  expect(
+    (await asB.usageLedger.findFirst({ where: { idemKey: KEY.ledgerIdemKey.B } }))?.orgId,
+  ).toBe(ORG.B);
   expect(await asB.usageLedger.findFirst({ where: { idemKey: KEY.ledgerIdemKey.A } })).toBeNull();
 });
 
@@ -116,12 +120,18 @@ test("PaymentRecord: registered as a tenant model and scoped", async () => {
   const asA = scopedDb({ orgId: ORG.A });
   // Control: `reference` is globally UNIQUE, so a null here could just mean the
   // row is missing. Prove the fixture resolves through the RAW client first.
-  const unscoped = await db.paymentRecord.findFirst({ where: { reference: KEY.paymentReference.B } });
+  const unscoped = await db.paymentRecord.findFirst({
+    where: { reference: KEY.paymentReference.B },
+  });
   expect(unscoped?.orgId).toBe(ORG.B);
 
   // Through the scoped client the same identifier resolves nothing.
-  expect(await asA.paymentRecord.findFirst({ where: { reference: KEY.paymentReference.B } })).toBeNull();
-  expect((await asA.paymentRecord.findFirst({ where: { reference: KEY.paymentReference.A } }))?.orgId).toBe(ORG.A);
+  expect(
+    await asA.paymentRecord.findFirst({ where: { reference: KEY.paymentReference.B } }),
+  ).toBeNull();
+  expect(
+    (await asA.paymentRecord.findFirst({ where: { reference: KEY.paymentReference.A } }))?.orgId,
+  ).toBe(ORG.A);
 });
 
 test("PaymentRecord: the scoped listing is bounded to the caller's org", async () => {
@@ -138,7 +148,7 @@ test("DialJob: the Prisma model carries no orgId, so it is platform-declared", a
   // WRONG and the model must move to TENANTED_MODELS.
   const cols = await db.$queryRawUnsafe<{ column_name: string }[]>(
     `SELECT column_name FROM information_schema.columns
-      WHERE table_schema = 'public' AND table_name = 'DialJob' AND column_name = 'orgId'`
+      WHERE table_schema = 'public' AND table_name = 'DialJob' AND column_name = 'orgId'`,
   );
   expect(cols).toHaveLength(0);
 
@@ -190,7 +200,7 @@ test("DialJob: a worker read is genuinely cross-org, which is why it is not scop
 
   const rows = await db.$queryRawUnsafe<{ caseRef: string }[]>(
     `SELECT case_ref FROM dial_job WHERE "state" = 'DEAD' AND case_ref = ANY($1)`,
-    refs
+    refs,
   );
   expect(rows).toHaveLength(2);
 

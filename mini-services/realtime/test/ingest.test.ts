@@ -11,7 +11,11 @@ describe("ingest signature", () => {
   });
 
   test("rejects a single-byte body mutation", () => {
-    const { body, header } = signIngest({ kind: "activity", orgId: "o", callRef: "SV-1" }, SECRET, NOW);
+    const { body, header } = signIngest(
+      { kind: "activity", orgId: "o", callRef: "SV-1" },
+      SECRET,
+      NOW,
+    );
     const tampered = body.replace("SV-1", "SV-2");
     expect(verifySignature(header, tampered, SECRET, NOW).ok).toBe(false);
   });
@@ -84,6 +88,7 @@ describe("ingest payload", () => {
     const watchers = Array.from({ length: 200 }, (_, i) => `op-${i}`);
     const r = parseIngest({ kind: "presence", orgId: "o", watchers });
     expect(r.ok).toBe(true);
-    if (r.ok && r.event.kind === "presence") expect(r.event.watchers.length).toBeLessThanOrEqual(64);
+    if (r.ok && r.event.kind === "presence")
+      expect(r.event.watchers.length).toBeLessThanOrEqual(64);
   });
 });

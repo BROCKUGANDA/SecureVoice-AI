@@ -194,7 +194,9 @@ test("load: §7 says the shed split moves between runs instead of pinning it", (
   // the design. It has to disclose the variance, or a reader will size a
   // campaign on one run's dialled/shed split.
   expect(s7).toMatch(/does move between runs/i);
-  expect(s7.replace(/\s+/g, " ")).toMatch(/successive runs of this gate on the same code produced/i);
+  expect(s7.replace(/\s+/g, " ")).toMatch(
+    /successive runs of this gate on the same code produced/i,
+  );
   expect(s7).toMatch(/wall-clock contention/i);
 });
 
@@ -207,7 +209,8 @@ test("load: §7's quoted split ranges are internally consistent with the artifac
   const range = (label: string) => {
     const m = row(label).match(/([\d,]+)[^\d|]+([\d,]+)/);
     expect(m, `§7's "${label}" row states no observed range`).not.toBeNull();
-    return [Number(m![1].replace(/,/g, "")), Number(m![2].replace(/,/g, ""))] as const;
+    // Both groups are required (non-optional) captures, so a match always fills them.
+    return [Number(m![1]!.replace(/,/g, "")), Number(m![2]!.replace(/,/g, ""))] as const;
   };
   const [minDialled, maxDialled] = range("Dialled");
   const [minShed, maxShed] = range("Shed with an audit row");

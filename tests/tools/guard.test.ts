@@ -1,4 +1,4 @@
-﻿/**
+/**
  * WP-3: server tools - the guardrail boundary.
  *
  * Proves:
@@ -13,14 +13,20 @@
  *   bun test tests/tools/guard.test.ts
  */
 import { test, expect } from "bun:test";
+import { NextRequest } from "next/server";
 import { db } from "@/lib/db";
 import { verifyChain } from "@/lib/audit-chain";
+import { TOOL_TENANT_ORG_ID, issueTenantToolSecret, revokeTenantToolSecrets } from "../tool-tenant";
 
 process.env.ELEVENLABS_DRY_RUN = "true";
 process.env.AGENT_TOOL_SECRET = process.env.AGENT_TOOL_SECRET ?? "test-tool-secret";
 process.env.AGENT_TOOL_ALLOWED = "card_freeze,human_handoff,verify_transaction,switch_language";
 
-const SECRET = process.env.AGENT_TOOL_SECRET!;
+// A per-tenant credential, not the platform key: the cases below are org-scoped,
+// and the lookup is scoped, so a platform-scoped call would correctly find
+// nothing. This also exercises the real bleedguard path end to end.
+const SECRET = await issueTenantToolSecret("tools-guard");
+process.env.AGENT_TOOL_SECRET = process.env.AGENT_TOOL_SECRET ?? "test-tool-secret";
 const RUN_ID = Date.now().toString(36);
 const C_FREEZE = `conv-freeze-refusal-${RUN_ID}`;
 const C_VERIFY = `conv-verify-refusal-${RUN_ID}`;
@@ -28,12 +34,21 @@ const C_SCOPE = `conv-scope-${RUN_ID}`;
 const C_LATENCY = `conv-latency-${RUN_ID}`;
 const C_HAPPY = `conv-happy-${RUN_ID}`;
 
-function toolRequest(tool: string, body: Record<string, unknown>, secret: string | null = SECRET): Request {
-  return new Request(`http://localhost/api/elevenlabs/tools/${tool}`, {
+/** The tool routes are declared as taking a NextRequest, so this builds one rather
+ *  than handing them a bare Request and casting at every call site. */
+function toolRequest(
+  tool: string,
+  body: Record<string, unknown>,
+  secret: string | null = SECRET,
+): NextRequest {
+  return new NextRequest(`http://localhost/api/elevenlabs/tools/${tool}`, {
     method: "POST",
-    headers: { "content-type": "application/json", ...(secret ? { "x-agent-tool-secret": secret } : {}) },
+    headers: {
+      "content-type": "application/json",
+      ...(secret ? { "x-agent-tool-secret": secret } : {}),
+    },
     body: JSON.stringify(body),
-  });
+  } as ConstructorParameters<typeof NextRequest>[1]);
 }
 
 async function makeCase(state: string, conversationId: string) {
@@ -45,7 +60,7 @@ async function makeCase(state: string, conversationId: string) {
     data: {
       caseRef: `SV-F-TEST${Math.random().toString(36).slice(2, 8).toUpperCase()}`,
       conversationId,
-      orgId: "org-test",
+      orgId: TOOL_TENANT_ORG_ID,
       state,
     },
     select: { id: true, caseRef: true, state: true },
@@ -61,14 +76,22 @@ test("WP-3: tools enforce guardrails - 409s, tool scoping, p95, audit", async ()
   // -- 1. Refusal paths return typed 409s --
   // stage_card_freeze from VERIFYING (not CONFIRMED_FRAUD) -> 409 (I-2).
   const fraudCase = await makeCase("VERIFYING", C_FREEZE);
-  const r1 = await freeze(toolRequest("card_freeze", { conversation_id: C_FREEZE, account_id: "****4417", reason_code: "FRAUD_CONFIRMED" }));
+  const r1 = await freeze(
+    toolRequest("card_freeze", {
+      conversation_id: C_FREEZE,
+      account_id: "****4417",
+      reason_code: "FRAUD_CONFIRMED",
+    }),
+  );
   expect(r1.status).toBe(409);
   const d1 = await r1.json();
   expect(d1.code).toBe("state_precondition_failed");
 
   // verify_transaction from RECEIVED → 409.
   const earlyCase = await makeCase("RECEIVED", C_VERIFY);
-  const r2 = await verify(toolRequest("verify-transaction", { conversation_id: C_VERIFY, outcome: "confirmed_fraud" }));
+  const r2 = await verify(
+    toolRequest("verify-transaction", { conversation_id: C_VERIFY, outcome: "confirmed_fraud" }),
+  );
   expect(r2.status).toBe(409);
 
   // -- 2. The tool-authorisation boundary --
@@ -88,7 +111,9 @@ test("WP-3: tools enforce guardrails - 409s, tool scoping, p95, audit", async ()
 
   // (a) wrong secret -> 401, on a tool that IS in scope.
   const wrongSecret = "wrong-secret-that-is-not-valid";
-  const r3 = await handoff(toolRequest("human_handoff", { conversation_id: C_FREEZE, summary: "test" }, wrongSecret));
+  const r3 = await handoff(
+    toolRequest("human_handoff", { conversation_id: C_FREEZE, summary: "test" }, wrongSecret),
+  );
   expect(r3.status).toBe(401);
   expect((await r3.json()).error).toBe("unauthorized");
 
@@ -99,20 +124,30 @@ test("WP-3: tools enforce guardrails - 409s, tool scoping, p95, audit", async ()
   const scoped = process.env.AGENT_TOOL_ALLOWED!;
   process.env.AGENT_TOOL_ALLOWED = "human_handoff"; // card_freeze no longer allowed
   try {
-    const r4 = await freeze(toolRequest("card_freeze", { conversation_id: C_SCOPE, account_id: "****4417", reason_code: "FRAUD_CONFIRMED" }));
+    const r4 = await freeze(
+      toolRequest("card_freeze", {
+        conversation_id: C_SCOPE,
+        account_id: "****4417",
+        reason_code: "FRAUD_CONFIRMED",
+      }),
+    );
     expect(r4.status).toBe(403);
     expect((await r4.json()).error).toBe("tool_not_in_scope");
 
     // And the same narrowed list still admits the tool that remains on it —
     // otherwise (b) would pass on a 403 that came from somewhere else entirely.
-    const r5 = await handoff(toolRequest("human_handoff", { conversation_id: C_SCOPE, summary: "still in scope" }));
+    const r5 = await handoff(
+      toolRequest("human_handoff", { conversation_id: C_SCOPE, summary: "still in scope" }),
+    );
     expect(r5.status).toBe(200);
   } finally {
     process.env.AGENT_TOOL_ALLOWED = scoped;
   }
   // The frozen state must be untouched by the refusal: a 403 must not have
   // staged anything.
-  expect((await db.case.findUnique({ where: { caseRef: scopeCase.caseRef } }))!.state).toBe("VERIFYING");
+  expect((await db.case.findUnique({ where: { caseRef: scopeCase.caseRef } }))!.state).toBe(
+    "VERIFYING",
+  );
 
   // -- 3. p95 under 300 ms over 200 calls --
   // Use switch_language (allowed in any state) for the latency sweep.
@@ -161,13 +196,15 @@ test("WP-3: tools enforce guardrails - 409s, tool scoping, p95, audit", async ()
           const t0 = performance.now();
           await db.$queryRaw`SELECT 1`;
           floors.push(performance.now() - t0);
-        })()
+        })(),
       );
     }
     await Promise.all(ps);
   }
   const fs = [...floors].sort((a, b) => a - b);
-  const dbP95 = fs[Math.min(fs.length - 1, Math.floor(fs.length * 0.95) - 1)];
+  // `floors` collects exactly one sample per FLOOR_N iteration above, and the
+  // Math.min clamps the index into range, so this element is always present.
+  const dbP95 = fs[Math.min(fs.length - 1, Math.floor(fs.length * 0.95) - 1)]!;
 
   const latencies: number[] = [];
   for (let batch = 0; batch < Math.ceil(N / CONCURRENCY); batch++) {
@@ -176,21 +213,25 @@ test("WP-3: tools enforce guardrails - 409s, tool scoping, p95, audit", async ()
       batchPromises.push(
         (async () => {
           const start = performance.now();
-          const res = await switchLang(toolRequest("switch-language", { conversation_id: C_LATENCY, language: "ar" }));
+          const res = await switchLang(
+            toolRequest("switch-language", { conversation_id: C_LATENCY, language: "ar" }),
+          );
           const elapsed = performance.now() - start;
           expect(res.status).toBe(200);
           latencies.push(elapsed);
-        })()
+        })(),
       );
     }
     await Promise.all(batchPromises);
   }
   const sorted = [...latencies].sort((a, b) => a - b);
-  const p = (q: number) => sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * q) - 1)];
+  // `latencies` collects exactly one sample per N iteration above and the
+  // Math.min clamps the index, so every element this returns is present.
+  const p = (q: number) => sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * q) - 1)]!;
   console.log(
     `  db host: ${dbHost} (${isCoLocated ? "co-located" : "REMOTE"})\n` +
-    `  db floor ms: p50=${fs[Math.floor(fs.length * 0.5)].toFixed(0)} p95=${dbP95.toFixed(0)}\n` +
-    `  latency ms: min=${sorted[0].toFixed(0)} p50=${p(0.5).toFixed(0)} p90=${p(0.9).toFixed(0)} p95=${p(0.95).toFixed(0)} p99=${p(0.99).toFixed(0)} max=${sorted[sorted.length - 1].toFixed(0)} (n=${N})`,
+      `  db floor ms: p50=${fs[Math.floor(fs.length * 0.5)]!.toFixed(0)} p95=${dbP95.toFixed(0)}\n` +
+      `  latency ms: min=${sorted[0]!.toFixed(0)} p50=${p(0.5).toFixed(0)} p90=${p(0.9).toFixed(0)} p95=${p(0.95).toFixed(0)} p99=${p(0.99).toFixed(0)} max=${sorted[sorted.length - 1]!.toFixed(0)} (n=${N})`,
   );
   const p95 = p(0.95);
 
@@ -207,8 +248,8 @@ test("WP-3: tools enforce guardrails - 409s, tool scoping, p95, audit", async ()
   } else {
     console.log(
       `  platform budget NOT enforced: the ${dbP95.toFixed(0)} ms database floor makes an absolute\n` +
-      `  300 ms gate meaningless. Run this suite against the deployed box (or a local\n` +
-      `  Postgres) to measure the real number.`,
+        `  300 ms gate meaningless. Run this suite against the deployed box (or a local\n` +
+        `  Postgres) to measure the real number.`,
     );
   }
 
@@ -225,19 +266,32 @@ test("WP-3: tools enforce guardrails - 409s, tool scoping, p95, audit", async ()
 
   // -- 5. Happy path: verify -> freeze -> handoff --
   const happyCase = await makeCase("VERIFYING", C_HAPPY);
-  const v1 = await verify(toolRequest("verify-transaction", { conversation_id: C_HAPPY, outcome: "confirmed_fraud" }));
+  const v1 = await verify(
+    toolRequest("verify-transaction", { conversation_id: C_HAPPY, outcome: "confirmed_fraud" }),
+  );
   const v1d = await v1.json();
   expect(v1d.outcome).toBe("confirmed_fraud");
   expect(v1d.next_prompt_key).toBe("stage_freeze");
 
-  const f1 = await freeze(toolRequest("card_freeze", { conversation_id: C_HAPPY, account_id: "****4417", reason_code: "FRAUD_CONFIRMED" }));
+  const f1 = await freeze(
+    toolRequest("card_freeze", {
+      conversation_id: C_HAPPY,
+      account_id: "****4417",
+      reason_code: "FRAUD_CONFIRMED",
+    }),
+  );
   expect(f1.status).toBe(200);
   const f1d = await f1.json();
   expect(f1d.staged).toBe(true);
   expect(f1d.committed).toBe(false);
   expect(f1d.reference).toBeTruthy();
 
-  const h1 = await handoff(toolRequest("human_handoff", { conversation_id: C_HAPPY, summary: "Customer denied transaction" }));
+  const h1 = await handoff(
+    toolRequest("human_handoff", {
+      conversation_id: C_HAPPY,
+      summary: "Customer denied transaction",
+    }),
+  );
   expect(h1.status).toBe(200);
   const h1d = await h1.json();
   expect(h1d.specialist).toBe("fraud_specialist");
@@ -246,6 +300,8 @@ test("WP-3: tools enforce guardrails - 409s, tool scoping, p95, audit", async ()
   const finalCase = await db.case.findUnique({ where: { caseRef: happyCase.caseRef } });
   expect(["FREEZE_STAGED", "ESCALATED", "NOTIFIED", "CLOSED"]).toContain(finalCase!.state);
 
-  console.log("  ✓ 409 refusals, 401 wrong secret, 403 out-of-scope tool, p95<300ms, audit entries, happy path");
+  console.log(
+    "  ✓ 409 refusals, 401 wrong secret, 403 out-of-scope tool, p95<300ms, audit entries, happy path",
+  );
   await db.$disconnect();
 }, 120_000);

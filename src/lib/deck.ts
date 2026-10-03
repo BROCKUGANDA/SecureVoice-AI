@@ -40,7 +40,8 @@ export const DECK: Slide[] = [
     kicker: "SecureVoice AI · Banking & Insurance",
     titleEn: "Real-Time Fraud Intervention",
     titleAr: "التدخل الفوري في الاحتيال",
-    subEn: "An AI voice agent that calls customers in their language within 60 seconds of a fraud signal.",
+    subEn:
+      "An AI voice agent that calls customers in their language within 60 seconds of a fraud signal.",
     subAr: "وكيل صوتي ذكي يتصل بالعملاء بلغتهم خلال ٦٠ ثانية من إشارة الاحتيال.",
     scriptEn:
       "Good morning judges. Before I explain anything, I want you to hold one number in your mind: thirty-eight. That is how many minutes pass between the moment a UAE bank's system detects fraud and the moment a human agent finally reaches the customer on the phone. Thirty-eight minutes is enough for a fraudster to drain an account, max out a card, and disappear. We are SecureVoice AI, and we built the antidote: an AI voice agent that calls the customer in sixty seconds — in their own language — verifies who they are, confirms the fraud, freezes the card, and hands off to a human. Let me show you.",
@@ -78,7 +79,8 @@ export const DECK: Slide[] = [
     kicker: "03 · The Idea",
     titleEn: "One line. Three pillars.",
     titleAr: "فكرة واحدة. ثلاث ركائز.",
-    subEn: "An AI voice agent that immediately calls customers in their language when fraud is detected, verifies identity, and executes protective actions within 60 seconds.",
+    subEn:
+      "An AI voice agent that immediately calls customers in their language when fraud is detected, verifies identity, and executes protective actions within 60 seconds.",
     scriptEn:
       "So here is the idea in one line: an AI voice agent that immediately calls customers in their language when fraud is detected, verifies identity, and executes protective actions within sixty seconds. Three pillars make it work. Immediate: the call starts within a minute of the fraud signal — no queue, no SMS. Multilingual: the agent speaks the customer's language from the first syllable — Arabic, English, Hindi, Urdu, Filipino, Malayalam. And Action-capable: this is not a chatbot. It verifies, confirms, freezes the card, and hands off to humans — all inside one compliant call.",
     scriptAr:
@@ -200,7 +202,8 @@ export const DECK: Slide[] = [
     kicker: "14 · Proof of Build",
     titleEn: "Don't take our word for it",
     titleAr: "جرّبوه بأنفسكم",
-    subEn: "securevoice.ai/demo — simulated fraud scenario, full call flow, mock banking integration",
+    subEn:
+      "securevoice.ai/demo — simulated fraud scenario, full call flow, mock banking integration",
     scriptEn:
       "Everything I have claimed, you can touch. The live demo is running right now: a simulated fraud scenario with the full call flow, integrated with mock banking systems. Trigger an alert, watch the agent call, listen to the verification, see the freeze execute, and follow the handoff — then explore the operations dashboard: live call monitor, analytics against baseline, configuration, and the compliance audit log. This is not a concept deck. It is a working system.",
     scriptAr:

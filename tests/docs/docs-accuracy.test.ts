@@ -57,7 +57,10 @@ function agentLanguages(): string[] {
 function pipelineLanguages(): string[] {
   const m = /export const SUPPORTED_LANGS = \[([^\]]*)\]/.exec(configTs);
   if (!m) throw new Error("SUPPORTED_LANGS not found in src/lib/config.ts");
-  return m[1]!.split(",").map((s) => s.trim().replace(/^["']|["']$/g, "")).filter(Boolean);
+  return m[1]!
+    .split(",")
+    .map((s) => s.trim().replace(/^["']|["']$/g, ""))
+    .filter(Boolean);
 }
 
 const asSet = (langs: string[]) => `\`${langs.join(" / ")}\``;
@@ -69,7 +72,10 @@ test("docs: no source file claims a `file:` URL works for SQLite", () => {
   // breaks stays in the same sentence as the claim it denies, and table cells
   // are separate sentences so a denial in a neighbouring cell cannot bless a
   // false claim in this one.
-  for (const [name, doc] of [["README.md", readme], ["MODEL_CARD.md", card]] as const) {
+  for (const [name, doc] of [
+    ["README.md", readme],
+    ["MODEL_CARD.md", card],
+  ] as const) {
     for (const sentence of doc.replace(/\s+/g, " ").split(/(?<=[.!?])\s+|\s\|\s|\s\|$/)) {
       if (!/file:/.test(sentence)) continue;
       expect({
@@ -102,8 +108,8 @@ test("docs: the per-path language sets match their sources of truth", () => {
   expect(agentClaim).toBeDefined();
   expect(agentClaim).toMatch(/agent\/securevoice\.agent\.yaml/);
 
-  const pipelineClaim = lines(readme).find(
-    (l) => l.includes(asSet(pipelineLanguages().filter((l) => !agentLanguages().includes(l)))),
+  const pipelineClaim = lines(readme).find((l) =>
+    l.includes(asSet(pipelineLanguages().filter((l) => !agentLanguages().includes(l)))),
   );
   expect(pipelineClaim).toBeDefined();
   expect(pipelineClaim).toMatch(/src\/lib\/config\.ts/);
@@ -185,7 +191,10 @@ function latencyRows(): string[][] {
   for (const line of lines(readme).slice(start)) {
     if (rows.length > 0 && !/^\|/.test(line)) break; // table ended
     if (!/^\|/.test(line)) continue;
-    const cells = line.split("|").slice(1, -1).map((c) => c.trim());
+    const cells = line
+      .split("|")
+      .slice(1, -1)
+      .map((c) => c.trim());
     if (cells.some((c) => /^-{3,}$/.test(c))) continue;
     if (/^Leg$/i.test(cells[0] ?? "")) continue;
     rows.push(cells);

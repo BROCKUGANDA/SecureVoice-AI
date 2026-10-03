@@ -155,7 +155,7 @@ export function Demo() {
 
   const revealed = useMemo(
     () => (started ? SCEN.filter((e) => e.t <= time) : []),
-    [time, started, SCEN]
+    [time, started, SCEN],
   );
   const done = time >= SCENARIO_TOTAL;
   const phase: Phase = revealed.length ? revealed[revealed.length - 1].phase : "alert";
@@ -193,12 +193,14 @@ export function Demo() {
     });
     // pre-warm the next spoken line so the reply starts without a gap
     const idx = SCEN.indexOf(latest);
-    const next = SCEN.slice(idx + 1).find(
-      (e) => e.speaker === "agent" || e.speaker === "customer"
-    );
+    const next = SCEN.slice(idx + 1).find((e) => e.speaker === "agent" || e.speaker === "customer");
     if (next) {
       const ntext = eventText(next, callLang);
-      prefetchSpeech(ntext, TTS_VOICE[callLang][next.speaker === "agent" ? "agent" : "customer"], callLang);
+      prefetchSpeech(
+        ntext,
+        TTS_VOICE[callLang][next.speaker === "agent" ? "agent" : "customer"],
+        callLang,
+      );
     }
   }, [revealed, audioOn, started, callLang, speed, SCEN]);
 
@@ -260,7 +262,9 @@ export function Demo() {
           <div className="flex items-center gap-3">
             <span className="micro text-primary">Live simulation</span>
             <span className="h-px w-10 bg-line" />
-            <span dir="rtl" className="font-arabic text-[13px] text-ink-3">محاكاة حية</span>
+            <span dir="rtl" className="font-arabic text-[13px] text-ink-3">
+              محاكاة حية
+            </span>
           </div>
           <h1 className="font-display mt-3 text-3xl font-semibold tracking-tight sm:text-4xl">
             One fraud alert. One minute. Watch the intervention.
@@ -314,7 +318,7 @@ export function Demo() {
                     onClick={() => setSpeed(s)}
                     className={cn(
                       "num rounded-full px-2.5 py-1.5 text-[11.5px] font-semibold transition",
-                      speed === s ? "bg-[#0c110e] text-white" : "text-ink-3 hover:text-foreground"
+                      speed === s ? "bg-[#0c110e] text-white" : "text-ink-3 hover:text-foreground",
                     )}
                   >
                     {s}×
@@ -339,22 +343,19 @@ export function Demo() {
                 "group rounded-2xl border p-4 text-left transition-all",
                 sel
                   ? "border-primary bg-green-tint shadow-[0_14px_34px_-24px_rgba(11,122,85,0.5)]"
-                  : "border-line bg-white hover:border-primary/40"
+                  : "border-line bg-white hover:border-primary/40",
               )}
             >
               <div className="flex items-center justify-between gap-2">
                 <span
-                  className={cn(
-                    "micro !text-[9.5px]",
-                    sel ? "!text-green-deep" : "!text-ink-3"
-                  )}
+                  className={cn("micro !text-[9.5px]", sel ? "!text-green-deep" : "!text-ink-3")}
                 >
                   {lang === "ar" ? m.vector.ar : m.vector.en}
                 </span>
                 <span
                   className={cn(
                     "num rounded-full px-2 py-0.5 text-[10px] font-bold",
-                    sel ? "bg-red-soft text-white" : "bg-paper text-ink-3"
+                    sel ? "bg-red-soft text-white" : "bg-paper text-ink-3",
                   )}
                 >
                   {m.risk}
@@ -373,10 +374,16 @@ export function Demo() {
                 <span
                   className={cn(
                     "text-[10.5px] font-semibold",
-                    sel ? "text-green-deep" : "text-ink-3 group-hover:text-primary"
+                    sel ? "text-green-deep" : "text-ink-3 group-hover:text-primary",
                   )}
                 >
-                  {sel ? (lang === "ar" ? "الحالة المحددة ✓" : "Selected ✓") : lang === "ar" ? "تشغيل هذه الحالة" : "Run this case →"}
+                  {sel
+                    ? lang === "ar"
+                      ? "الحالة المحددة ✓"
+                      : "Selected ✓"
+                    : lang === "ar"
+                      ? "تشغيل هذه الحالة"
+                      : "Run this case →"}
                 </span>
               </div>
             </button>
@@ -400,7 +407,7 @@ export function Demo() {
                         ? "border-primary bg-primary text-white"
                         : isCurrent
                           ? "border-primary bg-green-tint text-green-deep"
-                          : "border-line bg-white text-ink-3"
+                          : "border-line bg-white text-ink-3",
                     )}
                   >
                     {isDone ? <CheckCheck className="h-3.5 w-3.5" /> : p.n}
@@ -412,7 +419,7 @@ export function Demo() {
                     <p
                       className={cn(
                         "whitespace-nowrap text-[11px] font-semibold",
-                        isDone || isCurrent ? "text-foreground" : "text-ink-3"
+                        isDone || isCurrent ? "text-foreground" : "text-ink-3",
                       )}
                     >
                       {p.en}
@@ -495,7 +502,7 @@ export function Demo() {
             <span
               className={cn(
                 "num w-16 text-right text-[10.5px]",
-                speaking ? "text-primary" : "text-ink-3"
+                speaking ? "text-primary" : "text-ink-3",
               )}
             >
               {speaking === "agent"
@@ -536,9 +543,7 @@ export function Demo() {
                   <Zap className="h-4 w-4" />
                   Simulate fraud alert now
                 </button>
-                <p className="num text-[10.5px] text-ink-3">
-                  PLAYBACK 2× · FULL CALL ≈ 35 SECONDS
-                </p>
+                <p className="num text-[10.5px] text-ink-3">PLAYBACK 2× · FULL CALL ≈ 35 SECONDS</p>
               </div>
             )}
 
@@ -568,10 +573,20 @@ export function Demo() {
                     className={cn(
                       "rounded-full px-3 py-1 text-[11.5px] font-semibold transition",
                       (l === "ar" || l === "ur" || l === "hi") && "font-arabic",
-                      callLang === l ? "bg-primary text-white" : "text-ink-3 hover:text-foreground"
+                      callLang === l ? "bg-primary text-white" : "text-ink-3 hover:text-foreground",
                     )}
                   >
-                    {l === "en" ? "EN" : l === "ar" ? "عربي" : l === "hi" ? "हिन्दी" : l === "fr" ? "FR" : l === "sw" ? "SW" : "اردو"}
+                    {l === "en"
+                      ? "EN"
+                      : l === "ar"
+                        ? "عربي"
+                        : l === "hi"
+                          ? "हिन्दी"
+                          : l === "fr"
+                            ? "FR"
+                            : l === "sw"
+                              ? "SW"
+                              : "اردو"}
                   </button>
                 ))}
               </div>
@@ -584,7 +599,11 @@ export function Demo() {
               aria-pressed={audioOn}
               className="flex items-center gap-2 rounded-full border border-line bg-white px-3 py-1.5 text-[11.5px] font-medium text-ink-2 transition hover:border-primary/40 hover:text-primary"
             >
-              {audioOn ? <Volume2 className="h-3.5 w-3.5 text-primary" /> : <VolumeX className="h-3.5 w-3.5" />}
+              {audioOn ? (
+                <Volume2 className="h-3.5 w-3.5 text-primary" />
+              ) : (
+                <VolumeX className="h-3.5 w-3.5" />
+              )}
               Agent audio {audioOn ? "on" : "off"}
             </button>
           </div>
@@ -636,15 +655,10 @@ export function Demo() {
                     <span
                       className={cn(
                         "h-1.5 w-1.5 rounded-full transition-colors",
-                        on ? "bg-primary" : "bg-[#d3d9d0]"
+                        on ? "bg-primary" : "bg-[#d3d9d0]",
                       )}
                     />
-                    <span
-                      className={cn(
-                        "num text-[11px]",
-                        on ? "text-foreground" : "text-ink-3"
-                      )}
-                    >
+                    <span className={cn("num text-[11px]", on ? "text-foreground" : "text-ink-3")}>
                       {s.k}
                     </span>
                     {on && <span className="num ml-auto text-[10px] text-green-deep">ok</span>}
@@ -665,16 +679,18 @@ export function Demo() {
               <div>
                 <p className="num text-[10.5px] leading-relaxed text-ink-2">{META.freezePath}</p>
                 <pre className="num mt-2 overflow-x-auto rounded-lg bg-[#0c110e] p-3 text-[10.5px] leading-relaxed text-green-bright">
-{time >= 50
-  ? META.freezeOk.join("\n")
-  : `→ awaiting customer
+                  {time >= 50
+                    ? META.freezeOk.join("\n")
+                    : `→ awaiting customer
   confirmation…`}
                 </pre>
                 {time >= 50 && (
                   <div className="mt-2.5 flex items-center gap-2">
                     <CheckCheck className="h-3.5 w-3.5 text-green-deep" />
                     <span className="text-[11.5px] font-semibold text-green-deep">
-                      {kind === "wire" ? "Transfer held — payee blocked" : "Card frozen — reversible"}
+                      {kind === "wire"
+                        ? "Transfer held — payee blocked"
+                        : "Card frozen — reversible"}
                     </span>
                   </div>
                 )}
@@ -839,7 +855,9 @@ function RailCard({
     <div
       className={cn(
         "rounded-2xl border bg-white p-4.5 p-5 transition-all",
-        active ? "border-primary/30 shadow-[0_14px_34px_-24px_rgba(11,122,85,0.45)]" : "border-line"
+        active
+          ? "border-primary/30 shadow-[0_14px_34px_-24px_rgba(11,122,85,0.45)]"
+          : "border-line",
       )}
     >
       <div className="mb-3 flex items-center justify-between">
@@ -877,13 +895,9 @@ function Bubble({ e, callLang }: { e: ScenarioEvent; callLang: CallLang }) {
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <Chip>{e.tag ?? "system"}</Chip>
-            <span className="num text-[10px] text-ink-3">
-              t+{e.t}s
-            </span>
+            <span className="num text-[10px] text-ink-3">t+{e.t}s</span>
           </div>
-          <p className="mt-1.5 text-[12.5px] font-medium leading-relaxed text-ink-2">
-            {primary}
-          </p>
+          <p className="mt-1.5 text-[12.5px] font-medium leading-relaxed text-ink-2">{primary}</p>
           {primaryRtl ? (
             <p className="mt-0.5 text-[11.5px] leading-relaxed text-ink-3">{secondary}</p>
           ) : (
@@ -932,7 +946,7 @@ function Bubble({ e, callLang }: { e: ScenarioEvent; callLang: CallLang }) {
           "max-w-[88%] rounded-2xl px-4 py-3 sm:max-w-[80%]",
           isAgent
             ? "rounded-tl-md bg-[#0c110e] text-white"
-            : "rounded-tr-md bg-green-tint text-foreground"
+            : "rounded-tr-md bg-green-tint text-foreground",
         )}
       >
         <div className="mb-1.5 flex items-center gap-2">
@@ -942,10 +956,7 @@ function Bubble({ e, callLang }: { e: ScenarioEvent; callLang: CallLang }) {
             <User className="h-3 w-3 text-green-deep" />
           )}
           <span
-            className={cn(
-              "micro !text-[9px]",
-              isAgent ? "!text-green-bright" : "!text-green-deep"
-            )}
+            className={cn("micro !text-[9px]", isAgent ? "!text-green-bright" : "!text-green-deep")}
           >
             {isAgent ? "Agent" : "Customer"}
           </span>
@@ -955,10 +966,7 @@ function Bubble({ e, callLang }: { e: ScenarioEvent; callLang: CallLang }) {
         </div>
         <p
           dir={primaryRtl ? "rtl" : "ltr"}
-          className={cn(
-            primaryRtl ? "font-arabic" : "",
-            "text-[13.5px] leading-relaxed"
-          )}
+          className={cn(primaryRtl ? "font-arabic" : "", "text-[13.5px] leading-relaxed")}
         >
           {primary}
         </p>
@@ -967,7 +975,7 @@ function Bubble({ e, callLang }: { e: ScenarioEvent; callLang: CallLang }) {
           className={cn(
             primaryRtl ? "" : "font-arabic",
             "mt-1.5 border-t pt-1.5 text-[11px] leading-relaxed",
-            isAgent ? "border-white/10 text-white/55" : "border-green-deep/10 text-ink-3"
+            isAgent ? "border-white/10 text-white/55" : "border-green-deep/10 text-ink-3",
           )}
         >
           {secondary}
@@ -1007,7 +1015,10 @@ const CONV_STATUS: Record<ConvPhase, { en: string; ar: string }> = {
 
 const INTENT_CHIP: Record<string, { label: string; tone: string }> = {
   deny_fraud: { label: "intent: deny_fraud", tone: "bg-red-tint text-red-soft" },
-  confirm_authorized: { label: "intent: confirm_authorized", tone: "bg-green-tint text-green-deep" },
+  confirm_authorized: {
+    label: "intent: confirm_authorized",
+    tone: "bg-green-tint text-green-deep",
+  },
   greeting: { label: "intent: greeting", tone: "bg-paper text-ink-2" },
   unclear: { label: "intent: clarify", tone: "bg-amber-tint text-amber-soft" },
 };
@@ -1092,7 +1103,7 @@ function ConversationPanel({ callLang }: { callLang: CallLang }) {
       setError(
         lang === "ar"
           ? "لم يستجب الوكيل — حاول مرة أخرى أو اكتب سؤالك."
-          : "The agent did not respond — try again or type your answer."
+          : "The agent did not respond — try again or type your answer.",
       );
       setPhase("idle");
     }
@@ -1103,7 +1114,9 @@ function ConversationPanel({ callLang }: { callLang: CallLang }) {
     if (phase !== "idle") return;
     if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
       setError(
-        lang === "ar" ? "الميكروفون غير مدعوم — اكتب إجابتك." : "Microphone unsupported here — type your answer below."
+        lang === "ar"
+          ? "الميكروفون غير مدعوم — اكتب إجابتك."
+          : "Microphone unsupported here — type your answer below.",
       );
       return;
     }
@@ -1124,7 +1137,7 @@ function ConversationPanel({ callLang }: { callLang: CallLang }) {
       setError(
         lang === "ar"
           ? "تعذّر الوصول إلى الميكروفون — اسمح بالوصول أو اكتب إجابتك."
-          : "Microphone blocked — allow access or type your answer below."
+          : "Microphone blocked — allow access or type your answer below.",
       );
     }
   };
@@ -1139,7 +1152,9 @@ function ConversationPanel({ callLang }: { callLang: CallLang }) {
     streamRef.current = null;
     const blob = new Blob(chunksRef.current, { type: chunksRef.current[0]?.type || "audio/webm" });
     if (blob.size < 1200) {
-      setError(lang === "ar" ? "لم نسمع شيئاً — حاول مجدداً." : "Didn't catch anything — try again.");
+      setError(
+        lang === "ar" ? "لم نسمع شيئاً — حاول مجدداً." : "Didn't catch anything — try again.",
+      );
       setPhase("idle");
       return;
     }
@@ -1158,7 +1173,9 @@ function ConversationPanel({ callLang }: { callLang: CallLang }) {
     } catch (e) {
       setError(
         (e instanceof Error && e.message) ||
-          (lang === "ar" ? "فشل التحويل — اكتب إجابتك." : "Transcription failed — type your answer below.")
+          (lang === "ar"
+            ? "فشل التحويل — اكتب إجابتك."
+            : "Transcription failed — type your answer below."),
       );
       setPhase("idle");
     }
@@ -1173,12 +1190,17 @@ function ConversationPanel({ callLang }: { callLang: CallLang }) {
       <div className="relative flex flex-wrap items-center justify-between gap-3 overflow-hidden bg-[#0c110e] px-5 py-4 sm:px-6">
         <div
           className="absolute inset-0 opacity-50"
-          style={{ background: "radial-gradient(420px 150px at 15% 0%, rgba(20,163,116,0.3), transparent 60%)" }}
+          style={{
+            background:
+              "radial-gradient(420px 150px at 15% 0%, rgba(20,163,116,0.3), transparent 60%)",
+          }}
         />
         <div className="relative flex items-center gap-3">
           <span className="relative flex h-10 w-10 items-center justify-center rounded-full bg-green-bright/15 ring-1 ring-green-bright/30">
             <AudioLines className="h-5 w-5 text-green-bright" />
-            {phase === "recording" && <span className="sv-pulse-ring absolute inset-0 rounded-full text-green-bright/70" />}
+            {phase === "recording" && (
+              <span className="sv-pulse-ring absolute inset-0 rounded-full text-green-bright/70" />
+            )}
           </span>
           <div className="leading-tight">
             <p className="text-[14px] font-semibold text-white">
@@ -1218,7 +1240,7 @@ function ConversationPanel({ callLang }: { callLang: CallLang }) {
                 ? "bg-red-soft text-white"
                 : busy
                   ? "bg-paper text-ink-3"
-                  : "bg-primary text-white hover:bg-green-deep"
+                  : "bg-primary text-white hover:bg-green-deep",
             )}
           >
             {phase === "recording" ? (
@@ -1228,16 +1250,25 @@ function ConversationPanel({ callLang }: { callLang: CallLang }) {
             ) : (
               <Mic className="h-6 w-6" strokeWidth={1.8} />
             )}
-            {phase === "recording" && <span className="sv-pulse-ring absolute inset-0 rounded-full text-red-soft/60" />}
+            {phase === "recording" && (
+              <span className="sv-pulse-ring absolute inset-0 rounded-full text-red-soft/60" />
+            )}
           </button>
 
-          <p className={cn("text-[12px] font-medium", phase === "recording" ? "text-red-soft" : "text-ink-3")}>
+          <p
+            className={cn(
+              "text-[12px] font-medium",
+              phase === "recording" ? "text-red-soft" : "text-ink-3",
+            )}
+          >
             {lang === "ar" ? status.ar : status.en}
           </p>
 
           <div className="flex w-full max-w-sm items-center gap-2">
             <div className="h-px flex-1 bg-line" />
-            <span className="text-[10.5px] text-ink-3">{lang === "ar" ? "أو اكتب بدلاً من ذلك" : "or type instead"}</span>
+            <span className="text-[10.5px] text-ink-3">
+              {lang === "ar" ? "أو اكتب بدلاً من ذلك" : "or type instead"}
+            </span>
             <div className="h-px flex-1 bg-line" />
           </div>
 
@@ -1254,7 +1285,13 @@ function ConversationPanel({ callLang }: { callLang: CallLang }) {
               value={typed}
               onChange={(e) => setTyped(e.target.value)}
               placeholder={
-                callLang === "ar" ? "مثال: هذه العملية ليست مني" : callLang === "hi" ? "जैसे: यह मेरा लेनदेन नहीं है" : callLang === "ur" ? "مثال: یہ لین دین میرا نہیں ہے" : 'e.g. "That transaction is not mine"'
+                callLang === "ar"
+                  ? "مثال: هذه العملية ليست مني"
+                  : callLang === "hi"
+                    ? "जैसे: यह मेरा लेनदेन नहीं है"
+                    : callLang === "ur"
+                      ? "مثال: یہ لین دین میرا نہیں ہے"
+                      : 'e.g. "That transaction is not mine"'
               }
               maxLength={600}
               className="h-10 flex-1 rounded-full border-line bg-paper px-4"
@@ -1293,9 +1330,12 @@ function ConversationPanel({ callLang }: { callLang: CallLang }) {
                 </span>
                 <p className="max-w-xs text-[13px] leading-relaxed text-ink-2">
                   No turns yet. Say{" "}
-                  <span className="font-semibold text-foreground">“that transaction is not mine”</span>{" "}
+                  <span className="font-semibold text-foreground">
+                    “that transaction is not mine”
+                  </span>{" "}
                   to trigger the protective action — or{" "}
-                  <span className="font-semibold text-foreground">“it&apos;s mine”</span> to close the review.
+                  <span className="font-semibold text-foreground">“it&apos;s mine”</span> to close
+                  the review.
                 </p>
               </div>
             )}
@@ -1312,10 +1352,19 @@ function ConversationPanel({ callLang }: { callLang: CallLang }) {
                     <div className="mb-1 flex items-center gap-2">
                       <User className="h-3 w-3 text-green-deep" />
                       <span className="micro !text-[9px] !text-green-deep">
-                        You {typeof t.asrMs === "number" && <span className="num">· ASR {t.asrMs}ms</span>}
+                        You{" "}
+                        {typeof t.asrMs === "number" && (
+                          <span className="num">· ASR {t.asrMs}ms</span>
+                        )}
                       </span>
                     </div>
-                    <p className={cn("text-[13px] leading-relaxed", callLang === "ar" && "font-arabic")} dir={callLang === "ar" ? "rtl" : "ltr"}>
+                    <p
+                      className={cn(
+                        "text-[13px] leading-relaxed",
+                        callLang === "ar" && "font-arabic",
+                      )}
+                      dir={callLang === "ar" ? "rtl" : "ltr"}
+                    >
                       {t.text}
                     </p>
                   </div>
@@ -1331,7 +1380,10 @@ function ConversationPanel({ callLang }: { callLang: CallLang }) {
                     <div className="mb-1 flex items-center gap-2">
                       <PhoneOutgoing className="h-3 w-3 text-green-bright" />
                       {t.escalate && (
-                        <span className="micro !text-[8.5px] rounded-full bg-red-soft/20 px-1.5 py-0.5 !text-red-soft" title={t.escalationReason}>
+                        <span
+                          className="micro !text-[8.5px] rounded-full bg-red-soft/20 px-1.5 py-0.5 !text-red-soft"
+                          title={t.escalationReason}
+                        >
                           HUMAN TALKOVER
                         </span>
                       )}
@@ -1342,12 +1394,23 @@ function ConversationPanel({ callLang }: { callLang: CallLang }) {
                         <span className="num text-[9.5px] text-white/40">turn {t.latencyMs}ms</span>
                       )}
                     </div>
-                    <p className={cn("text-[13px] leading-relaxed", callLang === "ar" && "font-arabic")} dir={callLang === "ar" ? "rtl" : "ltr"}>
+                    <p
+                      className={cn(
+                        "text-[13px] leading-relaxed",
+                        callLang === "ar" && "font-arabic",
+                      )}
+                      dir={callLang === "ar" ? "rtl" : "ltr"}
+                    >
                       {t.text}
                     </p>
                     <div className="mt-2 flex flex-wrap items-center gap-1.5 border-t border-white/10 pt-2">
                       {t.intent && (
-                        <span className={cn("num rounded-full px-2 py-0.5 text-[9.5px] font-bold", INTENT_CHIP[t.intent]?.tone ?? "bg-white/10 text-white/70")}>
+                        <span
+                          className={cn(
+                            "num rounded-full px-2 py-0.5 text-[9.5px] font-bold",
+                            INTENT_CHIP[t.intent]?.tone ?? "bg-white/10 text-white/70",
+                          )}
+                        >
                           {INTENT_CHIP[t.intent]?.label ?? t.intent}
                         </span>
                       )}
@@ -1369,7 +1432,7 @@ function ConversationPanel({ callLang }: { callLang: CallLang }) {
                     </div>
                   </div>
                 </motion.div>
-              )
+              ),
             )}
 
             {(phase === "asr" || phase === "agent") && (

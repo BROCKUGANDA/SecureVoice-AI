@@ -32,7 +32,10 @@ function spyReceiver(script: (call: number) => number) {
   let n = 0;
   const fetchImpl = (async (_url: string, init: RequestInit) => {
     n++;
-    calls.push({ body: String(init.body), header: (init.headers as Record<string, string>)["sv-signature"] });
+    calls.push({
+      body: String(init.body),
+      header: (init.headers as Record<string, string>)["sv-signature"] ?? null,
+    });
     const status = script(n);
     return new Response(JSON.stringify({ ok: status < 300 }), { status });
   }) as unknown as typeof fetch;
@@ -82,7 +85,7 @@ test("WP-5: outbox retries, dead-letters, replays once, cross-language signature
   const claimed = await claimBatch(10);
   const mine = claimed.filter((e) => e.id === tx.id);
   expect(mine).toHaveLength(1);
-  const first = await deliver(mine[0], flaky.fetchImpl);
+  const first = await deliver(mine[0]!, flaky.fetchImpl);
   expect(first.status).toBe("RETRY");
   expect(flaky.count()).toBe(1);
 
@@ -100,7 +103,7 @@ test("WP-5: outbox retries, dead-letters, replays once, cross-language signature
     await db.outboxEvent.update({ where: { id: tx.id }, data: { nextAttemptAt: new Date(0) } });
     const batch = (await claimBatch(10)).filter((e) => e.id === tx.id);
     expect(batch).toHaveLength(1);
-    await deliver(batch[0], flaky.fetchImpl);
+    await deliver(batch[0]!, flaky.fetchImpl);
   }
   expect(flaky.count()).toBe(4);
   const delivered = await db.outboxEvent.findUnique({ where: { id: tx.id } });
@@ -108,7 +111,8 @@ test("WP-5: outbox retries, dead-letters, replays once, cross-language signature
   expect(delivered?.deliveredAt).not.toBeNull();
 
   // The signature on the wire is valid and covers the exact bytes sent.
-  const sent = flaky.calls[3];
+  // flaky.count() is asserted to be 4 directly above, so the fourth call exists.
+  const sent = flaky.calls[3]!;
   expect(verifySvSignature(sent.body, sent.header, SECRET).ok).toBe(true);
   // Tampering with a single byte invalidates it.
   expect(verifySvSignature(sent.body + " ", sent.header, SECRET).ok).toBe(false);
@@ -129,7 +133,7 @@ test("WP-5: outbox retries, dead-letters, replays once, cross-language signature
     await db.outboxEvent.update({ where: { id: doomed.id }, data: { nextAttemptAt: new Date(0) } });
     const batch = (await claimBatch(10)).filter((e) => e.id === doomed.id);
     expect(batch).toHaveLength(1);
-    const res = await deliver(batch[0], always500.fetchImpl);
+    const res = await deliver(batch[0]!, always500.fetchImpl);
     if (i < MAX_ATTEMPTS - 1) expect(res.status).toBe("RETRY");
     else expect(res.status).toBe("DEAD");
   }
@@ -176,9 +180,7 @@ test("WP-5: outbox retries, dead-letters, replays once, cross-language signature
   expect(storedEvent?.signatureValid).toBe(true);
   // A redelivery of the same event_id must not create a second row.
   await receiver(recvReq(sent.body, sent.header));
-  expect(
-    await db.inboundBankEvent.count({ where: { eventId: storedEvent!.eventId } }),
-  ).toBe(1);
+  expect(await db.inboundBankEvent.count({ where: { eventId: storedEvent!.eventId } })).toBe(1);
 
   const refused = await receiver(recvReq(sent.body, "t=1,v0=" + "00".repeat(32)));
   expect(refused.status).toBe(401);
@@ -193,17 +195,35 @@ test("WP-5: outbox retries, dead-letters, replays once, cross-language signature
     const dir = mkdtempSync(join(tmpdir(), "sv-sig-"));
     const bodyFile = join(dir, "body.json");
     writeFileSync(bodyFile, sent.body, "utf8");
-    const proc = Bun.spawnSync([py!, "scripts/verify_sv_signature.py", bodyFile, sent.header!, SECRET]);
+    const proc = Bun.spawnSync([
+      py!,
+      "scripts/verify_sv_signature.py",
+      bodyFile,
+      sent.header!,
+      SECRET,
+    ]);
     const out = proc.stdout.toString();
     expect(out).toContain("VERIFIED");
 
     // And a forged signature is rejected by the second implementation too.
-    const forged = Bun.spawnSync([py!, "scripts/verify_sv_signature.py", bodyFile, "t=1,v0=deadbeef", SECRET]);
+    const forged = Bun.spawnSync([
+      py!,
+      "scripts/verify_sv_signature.py",
+      bodyFile,
+      "t=1,v0=deadbeef",
+      SECRET,
+    ]);
     expect(forged.stdout.toString()).toContain("REJECTED");
 
     // A tampered body is rejected too - the classic re-serialisation mistake.
     writeFileSync(bodyFile, sent.body.replace("success", "success "), "utf8");
-    const tampered = Bun.spawnSync([py!, "scripts/verify_sv_signature.py", bodyFile, sent.header!, SECRET]);
+    const tampered = Bun.spawnSync([
+      py!,
+      "scripts/verify_sv_signature.py",
+      bodyFile,
+      sent.header!,
+      SECRET,
+    ]);
     expect(tampered.stdout.toString()).toContain("REJECTED");
   }
 

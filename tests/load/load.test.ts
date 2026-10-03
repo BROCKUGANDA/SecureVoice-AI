@@ -76,9 +76,8 @@ const PLAN_CONCURRENCY = 40;
 
 // ── 2. Modules (dynamic, so step 1 lands first) ──────────────────────────────
 const { db } = await import("@/lib/db");
-const { ELEVENLABS_BURST_CEILING, BAND_ENTER_CONSTRAINED_PCT, BAND_ENTER_SHED_PCT } = await import(
-  "@/lib/capacity"
-);
+const { ELEVENLABS_BURST_CEILING, BAND_ENTER_CONSTRAINED_PCT, BAND_ENTER_SHED_PCT } =
+  await import("@/lib/capacity");
 const { activeConversations } = await import("@/lib/admission");
 const scaleAdmission = await import("@/lib/scale/admission");
 const scaleCapacity = await import("@/lib/scale/capacity");
@@ -132,7 +131,13 @@ const SAMPLE_EVERY = intEnv("LOAD_CHAIN_EVERY", 40);
  */
 const DIAL_LEASE_MS = intEnv("LOAD_DIAL_LEASE_MS", 240_000);
 const EVIDENCE_PATH = join(process.cwd(), "evidence", "load", "results.json");
-const MIGRATION_SQL_PATH = join(process.cwd(), "prisma", "migrations", "2_dial_job", "migration.sql");
+const MIGRATION_SQL_PATH = join(
+  process.cwd(),
+  "prisma",
+  "migrations",
+  "2_dial_job",
+  "migration.sql",
+);
 
 function intEnv(name: string, fallback: number): number {
   const raw = process.env[name];
@@ -250,7 +255,11 @@ function mockVoicePort(holdMs: number): { port: VoicePort; stats: PortStats } {
         try {
           await sleep(holdMs);
           stats.placed++;
-          return { conversationId: `conv_${args.caseRef}`, callSid: `CA_${args.caseRef}`, dryRun: false };
+          return {
+            conversationId: `conv_${args.caseRef}`,
+            callSid: `CA_${args.caseRef}`,
+            dryRun: false,
+          };
         } finally {
           stats.inFlight--;
         }
@@ -274,13 +283,21 @@ type Bootstrap = { applied: boolean; skipped: boolean; note: string };
  */
 async function ensureDialJobTable(): Promise<Bootstrap> {
   if (process.env.DIAL_JOB_SKIP_BOOTSTRAP === "1") {
-    return { applied: false, skipped: true, note: "DIAL_JOB_SKIP_BOOTSTRAP=1 — the table must already exist" };
+    return {
+      applied: false,
+      skipped: true,
+      note: "DIAL_JOB_SKIP_BOOTSTRAP=1 — the table must already exist",
+    };
   }
   const present = await db.$queryRawUnsafe<{ reg: string | null }[]>(
     `SELECT to_regclass('public."dial_job"')::text AS reg`,
   );
   if (present[0]?.reg) {
-    return { applied: false, skipped: false, note: "dial_job already present — the gate did not apply the migration" };
+    return {
+      applied: false,
+      skipped: false,
+      note: "dial_job already present — the gate did not apply the migration",
+    };
   }
   const sql = readFileSync(MIGRATION_SQL_PATH, "utf8");
   // Strip `--` comments BEFORE splitting: this migration's prose contains
@@ -361,7 +378,8 @@ try {
   );
   const actual = cols.map((c) => c.column_name);
   migrationColumnsOk =
-    actual.length === DIAL_JOB_EXPECTED_COLUMNS.length && DIAL_JOB_EXPECTED_COLUMNS.every((c) => actual.includes(c));
+    actual.length === DIAL_JOB_EXPECTED_COLUMNS.length &&
+    DIAL_JOB_EXPECTED_COLUMNS.every((c) => actual.includes(c));
   migrationColumnsDetail = `table dial_job: expected ${DIAL_JOB_EXPECTED_COLUMNS.length} columns, found ${actual.length}: ${actual.join(", ")}`;
   baselineGauge = await activeConversations();
 } catch (err) {
@@ -421,7 +439,7 @@ type ScenarioResult = {
   jobsDone: number;
   jobsRetried: number;
   jobsDead: number;
-jobsCrashed: number;
+  jobsCrashed: number;
   /** Jobs this worker no longer owned at settlement time — must stay 0. */
   jobsLost: number;
   /** Jobs refused by the ownership gate because another worker owned them. */
@@ -666,14 +684,17 @@ async function runScenario(args: {
             { fast: true },
           )
           .catch((auditErr) => {
-            console.error("[wp19-load] ceiling-exhaustion audit append failed:", auditErr instanceof Error ? auditErr.message : auditErr);
+            console.error(
+              "[wp19-load] ceiling-exhaustion audit append failed:",
+              auditErr instanceof Error ? auditErr.message : auditErr,
+            );
           });
         shed++;
         byReason.vendor_ceiling_exhausted = (byReason.vendor_ceiling_exhausted ?? 0) + 1;
         finish();
         return { ok: true };
       }
-errors++;
+      errors++;
       byReason.error = (byReason.error ?? 0) + 1;
       if (process.env.WP19_DEBUG_SKIP) {
         console.error(
@@ -700,7 +721,7 @@ errors++;
     }
   }
 
-const workerLoop = async (workerIndex: number): Promise<void> => {
+  const workerLoop = async (workerIndex: number): Promise<void> => {
     const workerId = `${args.name}-w${workerIndex}`;
     for (;;) {
       const drained = await queue.drainDialQueue({
@@ -756,7 +777,7 @@ const workerLoop = async (workerIndex: number): Promise<void> => {
     maxQueueDepth,
     endQueueDepth: finalDepth.pending + finalDepth.claimed,
     jobsDone,
-jobsRetried,
+    jobsRetried,
     jobsDead,
     jobsCrashed,
     jobsLost,
@@ -821,9 +842,13 @@ async function accountForCases(result: ScenarioResult): Promise<Accounting> {
   const queueByState: Record<string, number> = {};
   for (const r of queueRows) queueByState[r.state] = r.n;
 
-  const inFlightRefs = caseRows.filter((r) => IN_FLIGHT_STATES.includes(r.state)).map((r) => r.caseRef);
+  const inFlightRefs = caseRows
+    .filter((r) => IN_FLIGHT_STATES.includes(r.state))
+    .map((r) => r.caseRef);
   const parkedRefs = caseRows.filter((r) => PARKED_STATES.includes(r.state)).map((r) => r.caseRef);
-  const concluded = caseRows.filter((r) => CONCLUDED_STATES.includes(r.state)).map((r) => r.caseRef);
+  const concluded = caseRows
+    .filter((r) => CONCLUDED_STATES.includes(r.state))
+    .map((r) => r.caseRef);
   const shedWithAuditRow = parkedRefs.filter((ref) => shedAuditRefs.has(ref));
   const shedWithoutAuditRow = parkedRefs.filter((ref) => !shedAuditRefs.has(ref));
 
@@ -842,7 +867,10 @@ async function accountForCases(result: ScenarioResult): Promise<Accounting> {
     const v = await auditChain.verifyChain(ref, ORG);
     chain.checked++;
     if (v.ok) chain.ok++;
-    else chain.broken.push(`${ref}: broken at ${v.brokenAt} (expected ${v.expected.slice(0, 12)}…, got ${v.actual.slice(0, 12)}…)`);
+    else
+      chain.broken.push(
+        `${ref}: broken at ${v.brokenAt} (expected ${v.expected.slice(0, 12)}…, got ${v.actual.slice(0, 12)}…)`,
+      );
   }
 
   return {
@@ -889,9 +917,15 @@ afterAll(async () => {
     // Delete ONLY this run's rows, scoped by the per-run prefix. Another suite
     // running concurrently in this database is not collateral damage. dial_job
     // is this work package's own table, so nothing else can be in it.
-    await db.$executeRawUnsafe(`DELETE FROM "AuditLog" WHERE "callRef" LIKE $1`, `${PREFIX}-%`).catch(() => {});
-    await db.$executeRawUnsafe(`DELETE FROM dial_job WHERE "case_ref" LIKE $1`, `${PREFIX}-%`).catch(() => {});
-    await db.$executeRawUnsafe(`DELETE FROM "Case" WHERE "caseRef" LIKE $1`, `${PREFIX}-%`).catch(() => {});
+    await db
+      .$executeRawUnsafe(`DELETE FROM "AuditLog" WHERE "callRef" LIKE $1`, `${PREFIX}-%`)
+      .catch(() => {});
+    await db
+      .$executeRawUnsafe(`DELETE FROM dial_job WHERE "case_ref" LIKE $1`, `${PREFIX}-%`)
+      .catch(() => {});
+    await db
+      .$executeRawUnsafe(`DELETE FROM "Case" WHERE "caseRef" LIKE $1`, `${PREFIX}-%`)
+      .catch(() => {});
   }
   try {
     await writeEvidence();
@@ -950,7 +984,9 @@ function summariseScenario(r: ScenarioResult | null): Record<string, unknown> | 
       depth_p50: percentile(sortedDepths, 0.5),
       depth_p95: percentile(sortedDepths, 0.95),
       depth_mean: roundTo(
-        r.queueDepthSamples.length === 0 ? 0 : r.queueDepthSamples.reduce((a, b) => a + b, 0) / r.queueDepthSamples.length,
+        r.queueDepthSamples.length === 0
+          ? 0
+          : r.queueDepthSamples.reduce((a, b) => a + b, 0) / r.queueDepthSamples.length,
       ),
       jobs_done: r.jobsDone,
       jobs_retried: r.jobsRetried,
@@ -1012,16 +1048,14 @@ async function writeEvidence(): Promise<void> {
       labels: {
         measured:
           "Latency percentiles, error/shed/dial rates, queue depth, gauge peaks, job counts, chain verification. Observed by THIS run, on THIS machine, against local Postgres, with the vendor held at a synthetic constant latency.",
-        calibrated:
-          `The concurrency target (ELEVENLABS_MAX_CONCURRENT=${PLAN_CONCURRENCY}, the Business tier) and the vendor ceilings — from elevenlabs.io/pricing/agents read 2026-10-02. Never measured against our account.`,
+        calibrated: `The concurrency target (ELEVENLABS_MAX_CONCURRENT=${PLAN_CONCURRENCY}, the Business tier) and the vendor ceilings — from elevenlabs.io/pricing/agents read 2026-10-02. Never measured against our account.`,
         extrapolated:
           "The campaign shape (8,000 customers, 40 minutes, 35% flag rate), the 8x steady-state peak multiple, and everything derived from them. Modelled, not observed.",
       },
       determinism: {
         wallClockIncluded: true,
         randomIdentifiersIncluded: false,
-        note:
-          "Latency percentiles are wall-clock measurements and therefore differ between runs — that is the point of the artifact. Every DECISION input is seeded (mulberry32 from the run id): which case is throttled, each case's risk and amount, and the backoff jitter. Two runs make the same decisions; only the timings differ.",
+        note: "Latency percentiles are wall-clock measurements and therefore differ between runs — that is the point of the artifact. Every DECISION input is seeded (mulberry32 from the run id): which case is throttled, each case's risk and amount, and the backoff jitter. Two runs make the same decisions; only the timings differ.",
         seededFrom: RUN,
       },
       network: {
@@ -1044,19 +1078,16 @@ async function writeEvidence(): Promise<void> {
         steady_cases_played: STEADY_CASES,
         burst_cases_played: BURST_CASES,
         burst_workers: BURST_WORKERS,
-        note:
-          "Case COUNT is scaled down from the modelled 2,800-intervention campaign; OFFERED CONCURRENCY is not. Concurrency is the quantity under test — see burst.offered_concurrency against model.burst.required_concurrent_calls. Set LOAD_BURST_CASES=2800 for the full replay.",
+        note: "Case COUNT is scaled down from the modelled 2,800-intervention campaign; OFFERED CONCURRENCY is not. Concurrency is the quantity under test — see burst.offered_concurrency against model.burst.required_concurrent_calls. Set LOAD_BURST_CASES=2800 for the full replay.",
       },
       vendor_backoff: {
         sleeps_injected: "no-op",
-        note:
-          "Backoff sleeps are injected as no-ops so the gate costs no wall clock and stays deterministic. The delays that WOULD have been waited are recorded under vendor.backoff_delays_ms_sample and are NOT included in any latency percentile above.",
+        note: "Backoff sleeps are injected as no-ops so the gate costs no wall clock and stays deterministic. The delays that WOULD have been waited are recorded under vendor.backoff_delays_ms_sample and are NOT included in any latency percentile above.",
       },
       synthetic_hold: {
         steady_ms: STEADY_HOLD_MS,
         burst_ms: BURST_HOLD_MS,
-        note:
-          "A Layer A 'conversation' holds a vendor slot for this long instead of the modelled 180 s. It stands in for talk time so that offered concurrency is expressed inside a CI budget; it is NOT a measurement of call duration, and every latency percentile that includes it is labelled.",
+        note: "A Layer A 'conversation' holds a vendor slot for this long instead of the modelled 180 s. It stands in for talk time so that offered concurrency is expressed inside a CI budget; it is NOT a measurement of call duration, and every latency percentile that includes it is labelled.",
       },
       not_measured_here: [
         "Real telephony: Twilio calls-per-second per from-number, account concurrency, carrier latency, answer and seize rates.",
@@ -1106,7 +1137,12 @@ async function writeEvidence(): Promise<void> {
 // ═════════════════════════════════════════════════════════════════════════════
 
 describe("WP-19 capacity model (pure — no database, no vendor, no network)", () => {
-  const steadyArgs = { cardsPerMonth: 200_000, flagRate: 0.0035, peakMultiple: 8, fromNumbers: 1 } as const;
+  const steadyArgs = {
+    cardsPerMonth: 200_000,
+    flagRate: 0.0035,
+    peakMultiple: 8,
+    fromNumbers: 1,
+  } as const;
   const burstArgs = {
     cardsPerMonth: 8_000,
     flagRate: 0.35,
@@ -1139,7 +1175,9 @@ describe("WP-19 capacity model (pure — no database, no vendor, no network)", (
     // Twilio account default (10) that is the CARRIER, not the AI provider:
     // 210/10 = 21x versus 210/40 = 5.25x. Reading the real Twilio number out of
     // the console is what moves the binding constraint back to ElevenLabs.
-    expect(["elevenLabsConcurrentSessions", "twilioAccountConcurrency"]).toContain(m.bindingConstraint.name);
+    expect(["elevenLabsConcurrentSessions", "twilioAccountConcurrency"]).toContain(
+      m.bindingConstraint.name,
+    );
     expect(m.ceilingRatios.elevenLabsConcurrentSessions).toBeCloseTo(5.25, 2);
     expect(m.ceilingRatios.twilioAccountConcurrency).toBeCloseTo(21, 1);
     // Voice cannot cover the burst even at the 3× burst allowance (120).
@@ -1152,7 +1190,11 @@ describe("WP-19 capacity model (pure — no database, no vendor, no network)", (
   test("the burst arithmetic is a function of the WINDOW, not of a magic multiplier", () => {
     // The same volume averaged over a month is nothing; averaged over 40 minutes
     // it is a campaign. That single choice is the whole difference.
-    const overMonth = scaleCapacity.projectCapacity({ cardsPerMonth: 8_000, flagRate: 0.35, peakMultiple: 1 });
+    const overMonth = scaleCapacity.projectCapacity({
+      cardsPerMonth: 8_000,
+      flagRate: 0.35,
+      peakMultiple: 1,
+    });
     expect(overMonth.averagingWindowHours).toBe(730);
     expect(overMonth.requiredConcurrentCalls).toBeLessThan(1);
     expect(scaleCapacity.projectCapacity(burstArgs).requiredConcurrentCalls).toBeGreaterThan(200);
@@ -1277,7 +1319,10 @@ describe("WP-19 client-side vendor ceiling — 429 and the gate", () => {
     expect(delays.length).toBe(2);
     // Equal jitter: each delay sits in [half, full] of its exponential step.
     for (const [i, d] of delays.entries()) {
-      const exponential = Math.min(scaleCapacity.BACKOFF_MAX_MS, scaleCapacity.BACKOFF_BASE_MS * 2 ** i);
+      const exponential = Math.min(
+        scaleCapacity.BACKOFF_MAX_MS,
+        scaleCapacity.BACKOFF_BASE_MS * 2 ** i,
+      );
       expect(d).toBeGreaterThanOrEqual(Math.floor(exponential / 2));
       expect(d).toBeLessThanOrEqual(Math.ceil(exponential));
     }
@@ -1293,10 +1338,14 @@ describe("WP-19 client-side vendor ceiling — 429 and the gate", () => {
     // A fixed delay would collapse to one value; equal jitter spreads them.
     expect(many.size).toBeGreaterThan(10);
     for (const attempt of [1, 2, 3, 4, 5, 10, 50]) {
-      expect(scaleCapacity.throttleBackoffMs(attempt, () => 1)).toBeLessThanOrEqual(scaleCapacity.BACKOFF_MAX_MS);
+      expect(scaleCapacity.throttleBackoffMs(attempt, () => 1)).toBeLessThanOrEqual(
+        scaleCapacity.BACKOFF_MAX_MS,
+      );
       expect(scaleCapacity.throttleBackoffMs(attempt, () => 0)).toBeGreaterThan(0);
     }
-    expect(scaleCapacity.throttleBackoffMs(1, () => 0.5)).toBe(scaleCapacity.throttleBackoffMs(1, () => 0.5));
+    expect(scaleCapacity.throttleBackoffMs(1, () => 0.5)).toBe(
+      scaleCapacity.throttleBackoffMs(1, () => 0.5),
+    );
   });
 
   test("a non-throttle error surfaces immediately — it is never retried into a bill", async () => {
@@ -1367,11 +1416,19 @@ describe("WP-19 client-side vendor ceiling — 429 and the gate", () => {
 describe.skipIf(!dbAvailable)("WP-19 durable dial queue", () => {
   const q = (n: number): string => `${QUEUE_PREFIX}${String(n).padStart(4, "0")}`;
 
-  async function seedJobs(n: number, startOrdinal = 0): Promise<{ caseId: string; caseRef: string }[]> {
+  async function seedJobs(
+    n: number,
+    startOrdinal = 0,
+  ): Promise<{ caseId: string; caseRef: string }[]> {
     const out: { caseId: string; caseRef: string }[] = [];
     for (let i = 0; i < n; i++) {
       const caseRef = q(startOrdinal + i);
-      const created = await csm.createCase({ caseRef, orgId: ORG, riskScore: 0.9, amountMinor: 100_000 });
+      const created = await csm.createCase({
+        caseRef,
+        orgId: ORG,
+        riskScore: 0.9,
+        amountMinor: 100_000,
+      });
       await queue.enqueueDialJob({
         caseId: created.id,
         caseRef,
@@ -1386,7 +1443,10 @@ describe.skipIf(!dbAvailable)("WP-19 durable dial queue", () => {
   }
 
   async function jobIdFor(caseId: string): Promise<string> {
-    const row = await db.$queryRawUnsafe<{ id: string }[]>(`SELECT id FROM dial_job WHERE "case_id" = $1`, caseId);
+    const row = await db.$queryRawUnsafe<{ id: string }[]>(
+      `SELECT id FROM dial_job WHERE "case_id" = $1`,
+      caseId,
+    );
     const id = row[0]?.id;
     if (!id) throw new Error(`no dial_job row for case ${caseId}`);
     return id;
@@ -1408,7 +1468,9 @@ describe.skipIf(!dbAvailable)("WP-19 durable dial queue", () => {
       if (claimed.length === 0) return;
       for (const j of claimed) await queue.completeDialJob(j.id);
     }
-    throw new Error("resetQueue: the queue did not drain — a job is stuck in a state claims cannot take");
+    throw new Error(
+      "resetQueue: the queue did not drain — a job is stuck in a state claims cannot take",
+    );
   }
 
   beforeEach(resetQueue);
@@ -1416,9 +1478,15 @@ describe.skipIf(!dbAvailable)("WP-19 durable dial queue", () => {
   afterAll(async () => {
     // Settle nothing: remove this describe's rows outright, so the scenarios
     // that follow start from a queue that owes nobody anything.
-    await db.$executeRawUnsafe(`DELETE FROM "AuditLog" WHERE "callRef" LIKE $1`, `${QUEUE_PREFIX}%`).catch(() => {});
-    await db.$executeRawUnsafe(`DELETE FROM dial_job WHERE "case_ref" LIKE $1`, `${QUEUE_PREFIX}%`).catch(() => {});
-    await db.$executeRawUnsafe(`DELETE FROM "Case" WHERE "caseRef" LIKE $1`, `${QUEUE_PREFIX}%`).catch(() => {});
+    await db
+      .$executeRawUnsafe(`DELETE FROM "AuditLog" WHERE "callRef" LIKE $1`, `${QUEUE_PREFIX}%`)
+      .catch(() => {});
+    await db
+      .$executeRawUnsafe(`DELETE FROM dial_job WHERE "case_ref" LIKE $1`, `${QUEUE_PREFIX}%`)
+      .catch(() => {});
+    await db
+      .$executeRawUnsafe(`DELETE FROM "Case" WHERE "caseRef" LIKE $1`, `${QUEUE_PREFIX}%`)
+      .catch(() => {});
   });
 
   test("the migration in the repo matches the columns this module reads", () => {
@@ -1429,7 +1497,11 @@ describe.skipIf(!dbAvailable)("WP-19 durable dial queue", () => {
 
   test("enqueue is idempotent on (case_id, attempt_no) — a replayed signal costs one row", async () => {
     const [seed] = await seedJobs(1);
-    const again = await queue.enqueueDialJob({ caseId: seed!.caseId, caseRef: seed!.caseRef, orgId: ORG });
+    const again = await queue.enqueueDialJob({
+      caseId: seed!.caseId,
+      caseRef: seed!.caseRef,
+      orgId: ORG,
+    });
     expect(again.created).toBe(false);
     expect(again.id).toBeDefined();
     const rows = await db.$queryRawUnsafe<{ n: number }[]>(
@@ -1438,7 +1510,11 @@ describe.skipIf(!dbAvailable)("WP-19 durable dial queue", () => {
     );
     expect(rows[0]?.n).toBe(1);
     // A SECOND attempt for the same case is a different job, not a duplicate.
-    const second = await queue.enqueueDialJob({ caseId: seed!.caseId, caseRef: seed!.caseRef, attemptNo: 2 });
+    const second = await queue.enqueueDialJob({
+      caseId: seed!.caseId,
+      caseRef: seed!.caseRef,
+      attemptNo: 2,
+    });
     expect(second.created).toBe(true);
     expect(second.id).not.toBe(again.id);
   }, 30_000);
@@ -1538,7 +1614,7 @@ describe.skipIf(!dbAvailable)("WP-19 durable dial queue", () => {
     const [seed] = await seedJobs(1, 200);
     const jobId = await jobIdFor(seed!.caseId);
 
-// A lease that has already expired is exactly the state a SIGKILLed worker
+    // A lease that has already expired is exactly the state a SIGKILLed worker
     // leaves behind: the row is CLAIMED and nobody is coming back for it.
     // `leaseMs: 0` is how you say that — the lease is written as
     // `now() + 0 milliseconds`, i.e. already expired. (There is deliberately no
@@ -1630,7 +1706,11 @@ describe.skipIf(!dbAvailable)("WP-19 durable dial queue", () => {
     // record, so a bug cannot hide inside the retry statistics.
     expect(job?.state === "PENDING" || job?.state === "DEAD").toBe(true);
     expect(job?.last_error).toMatch(/handler crashed: a bug/);
-    for (const j of await queue.claimDialJobs({ workerId: "cleanup", limit: 50, leaseMs: 60_000 })) {
+    for (const j of await queue.claimDialJobs({
+      workerId: "cleanup",
+      limit: 50,
+      leaseMs: 60_000,
+    })) {
       await queue.completeDialJob(j.id);
     }
   }, 60_000);
@@ -1639,7 +1719,11 @@ describe.skipIf(!dbAvailable)("WP-19 durable dial queue", () => {
     await seedJobs(3, 600);
     const before = await queue.queueDepth();
     expect(before.pending).toBeGreaterThanOrEqual(3);
-    const claimed = await queue.claimDialJobs({ workerId: "depth-worker", limit: 1, leaseMs: 60_000 });
+    const claimed = await queue.claimDialJobs({
+      workerId: "depth-worker",
+      limit: 1,
+      leaseMs: 60_000,
+    });
     expect(claimed.length).toBe(1);
     const during = await queue.queueDepth();
     expect(during.pending + during.claimed).toBe(before.pending + before.claimed);
@@ -1659,7 +1743,10 @@ describe.skipIf(!dbAvailable)("WP-19 admission metrics", () => {
     expect(["NORMAL", "CONSTRAINED", "SHED"]).toContain(snap.band);
     // The gates are derived from the ladder's own constants, not restated.
     expect(snap.gates.burst_ceiling).toBe(ELEVENLABS_BURST_CEILING);
-    expect(snap.gates.constrained_at).toBeCloseTo(ELEVENLABS_BURST_CEILING * BAND_ENTER_CONSTRAINED_PCT, 6);
+    expect(snap.gates.constrained_at).toBeCloseTo(
+      ELEVENLABS_BURST_CEILING * BAND_ENTER_CONSTRAINED_PCT,
+      6,
+    );
     expect(snap.gates.shed_at).toBeCloseTo(ELEVENLABS_BURST_CEILING * BAND_ENTER_SHED_PCT, 6);
     expect(snap.gates.headroom).toBe(snap.gates.burst_ceiling - snap.active_conversations);
     expect(snap.queue_depth).toBe(await queue.outstandingJobs());
@@ -1676,10 +1763,15 @@ describe.skipIf(!dbAvailable)("WP-19 admission metrics", () => {
 
 describe.skipIf(!dbAvailable)("WP-19 Layer A scenarios", () => {
   test("steady state: modest offered concurrency, no shed, no error", async () => {
-    steady = await runScenario({ name: "steady", cases: STEADY_CASES, workers: STEADY_WORKERS, holdMs: STEADY_HOLD_MS });
+    steady = await runScenario({
+      name: "steady",
+      cases: STEADY_CASES,
+      workers: STEADY_WORKERS,
+      holdMs: STEADY_HOLD_MS,
+    });
     steadyAccounting = await accountForCases(steady);
 
-expect(steady.errors).toBe(0);
+    expect(steady.errors).toBe(0);
     expect(steady.jobsCrashed).toBe(0);
     expect(steady.jobsLost).toBe(0); // a job nobody owned at settlement = a case we cannot account for
     expect(steady.jobsSkipped).toBe(0);
@@ -1698,7 +1790,12 @@ expect(steady.errors).toBe(0);
   }, 600_000);
 
   test("campaign burst: the modelled peak is offered, and the ladder degrades with an audit row", async () => {
-    burst = await runScenario({ name: "burst", cases: BURST_CASES, workers: BURST_WORKERS, holdMs: BURST_HOLD_MS });
+    burst = await runScenario({
+      name: "burst",
+      cases: BURST_CASES,
+      workers: BURST_WORKERS,
+      holdMs: BURST_HOLD_MS,
+    });
     burstAccounting = await accountForCases(burst);
 
     // ── the peak ─────────────────────────────────────────────────────────────
@@ -1708,7 +1805,7 @@ expect(steady.errors).toBe(0);
     // We OFFER that much concurrency. Sustaining the offer is the whole test.
     expect(burst.offeredConcurrency).toBeGreaterThanOrEqual(modelledPeak);
     // Error rate under 1%, per the brief.
-expect(ratio(burst.errors, burst.casesIn)).toBeLessThan(0.01);
+    expect(ratio(burst.errors, burst.casesIn)).toBeLessThan(0.01);
     expect(burst.jobsCrashed).toBe(0);
     expect(burst.jobsLost).toBe(0);
     expect(burst.jobsSkipped).toBe(0);
@@ -1746,7 +1843,9 @@ expect(ratio(burst.errors, burst.casesIn)).toBeLessThan(0.01);
       // Every parked case has an audit row naming the shed.
       expect(acc.shedWithoutAuditRow, `${name}: shed cases with no audit row`).toBe(0);
       // And the arithmetic closes.
-      expect(acc.dialled + acc.shedWithAuditRow, `${name}: accounted != cases in`).toBe(result.casesIn);
+      expect(acc.dialled + acc.shedWithAuditRow, `${name}: accounted != cases in`).toBe(
+        result.casesIn,
+      );
       // No job was left owed to a customer.
       expect(acc.queueByState.PENDING ?? 0, `${name}: jobs still queued`).toBe(0);
       expect(acc.queueByState.CLAIMED ?? 0, `${name}: jobs still claimed`).toBe(0);
@@ -1787,22 +1886,27 @@ expect(ratio(burst.errors, burst.casesIn)).toBeLessThan(0.01);
     expect(acc).not.toBeNull();
     if (acc === null) return;
     if ((acc.shedWithAuditRow ?? 0) === 0) return; // no sheds at this tier: nothing to order
-    const shedRefs = await db.$queryRawUnsafe<{ "caseRef": string }[]>(
+    const shedRefs = await db.$queryRawUnsafe<{ caseRef: string }[]>(
       `SELECT DISTINCT "callRef" FROM "AuditLog" WHERE "callRef" LIKE $1 AND intent LIKE 'admission%shed'`,
       `${PREFIX}-burst-%`,
     );
-    const dialledRefs = await db.$queryRawUnsafe<{ caseRef: string; riskScore: number | null; amountMinor: number | null }[]>(
+    const dialledRefs = await db.$queryRawUnsafe<
+      { caseRef: string; riskScore: number | null; amountMinor: number | null }[]
+    >(
       `SELECT "caseRef", "riskScore", "amountMinor" FROM "Case" WHERE "caseRef" LIKE $1 AND state = 'CONFIRMED_FRAUD'`,
       `${PREFIX}-burst-%`,
     );
     const lossOf = (r: { riskScore: number | null; amountMinor: number | null }): number =>
       (r.riskScore ?? 0) * (r.amountMinor ?? 0);
-    const shedLosses = await db.$queryRawUnsafe<{ riskScore: number | null; amountMinor: number | null }[]>(
+    const shedLosses = await db.$queryRawUnsafe<
+      { riskScore: number | null; amountMinor: number | null }[]
+    >(
       `SELECT "riskScore", "amountMinor" FROM "Case" WHERE "caseRef" = ANY($1::text[])`,
       shedRefs.map((r) => r.caseRef),
     );
     const meanShed = shedLosses.reduce((a, r) => a + lossOf(r), 0) / Math.max(1, shedLosses.length);
-    const meanDialled = dialledRefs.reduce((a, r) => a + lossOf(r), 0) / Math.max(1, dialledRefs.length);
+    const meanDialled =
+      dialledRefs.reduce((a, r) => a + lossOf(r), 0) / Math.max(1, dialledRefs.length);
     // Triage is the point of the ladder: the voice channel went to the money.
     expect(meanShed).toBeLessThan(meanDialled);
   }, 120_000);
@@ -1833,7 +1937,11 @@ expect(ratio(burst.errors, burst.casesIn)).toBeLessThan(0.01);
       scenarios: Record<string, unknown>;
       accounting: Record<string, unknown>;
     };
-    expect(Object.keys(written.integrity.labels).sort()).toEqual(["calibrated", "extrapolated", "measured"]);
+    expect(Object.keys(written.integrity.labels).sort()).toEqual([
+      "calibrated",
+      "extrapolated",
+      "measured",
+    ]);
     for (const [label, text] of Object.entries(written.integrity.labels)) {
       expect(text.length, `label "${label}" must explain itself`).toBeGreaterThan(60);
     }

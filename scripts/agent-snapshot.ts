@@ -35,7 +35,8 @@ function canonicalise(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(canonicalise);
   if (value && typeof value === "object") {
     const sorted: Record<string, unknown> = {};
-    for (const k of Object.keys(value).sort()) sorted[k] = canonicalise((value as Record<string, unknown>)[k]);
+    for (const k of Object.keys(value).sort())
+      sorted[k] = canonicalise((value as Record<string, unknown>)[k]);
     return sorted;
   }
   return value;

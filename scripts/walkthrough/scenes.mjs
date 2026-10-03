@@ -58,8 +58,11 @@ export const scenes = [
     chapter: "Access",
     title: "Role-gated operator access",
     narration:
-      "Access is role-gated. This session is stamped operator — full access. A demo seat gets a different badge and only the guided simulation. Clerk holds the identity; no passwords live here.",
-    captions: ["Operator and demo seats are different roles", "Clerk holds the identity — no stored passwords"],
+      "Access is role-gated. This session is stamped operator — full access. A demo seat gets a different badge and only the guided simulation. Identity is self-hosted; no passwords live in the browser.",
+    captions: [
+      "Operator and demo seats are different roles",
+      "Self-hosted identity — no stored passwords",
+    ],
     steps: [
       { nav: "Overview" },
       { scroll: { y: 1900, ms: 1400 } },
@@ -78,10 +81,7 @@ export const scenes = [
     narration:
       "That's the Command Center: recent interventions with risk score and language, delivery state for every leg, and the audit chain behind each case. The feed is pushed, not polled.",
     captions: ["Live intervention feed over SSE", "Cases carry risk score and language"],
-    steps: [
-      { scroll: { y: 700, ms: 6000 } },
-      { scroll: { y: 0, ms: 2500 } },
-    ],
+    steps: [{ scroll: { y: 700, ms: 6000 } }, { scroll: { y: 0, ms: 2500 } }],
     min: 3.0,
   }),
   S({
@@ -105,7 +105,11 @@ export const scenes = [
     min: 4.0,
     agentLines: [
       { at: 6.0, lang: "en", text: "This is Marcus calling about a transaction on your card." },
-      { at: 13.5, lang: "en", text: "You did not authorise the twenty-five hundred dirham payment — is that correct?" },
+      {
+        at: 13.5,
+        lang: "en",
+        text: "You did not authorise the twenty-five hundred dirham payment — is that correct?",
+      },
     ],
   }),
   S({
@@ -116,11 +120,7 @@ export const scenes = [
     narration:
       "Three things make this safe to put in front of a customer. Every call opens with a disclosure. The agent never asks for a PIN, an OTP or a password, and that is enforced on the server rather than by asking the model nicely. And personal data is redacted before it reaches the database.",
     captions: ["No PINs, OTPs or passwords — server-enforced", "PII redacted before persistence"],
-    steps: [
-      { nav: "Security" },
-      { sleep: 1500 },
-      { scroll: { y: 1400, ms: 8000 } },
-    ],
+    steps: [{ nav: "Security" }, { sleep: 1500 }, { scroll: { y: 1400, ms: 8000 } }],
     min: 3.0,
   }),
   S({
@@ -147,7 +147,10 @@ export const scenes = [
     title: "A chain that proves itself",
     narration:
       "And on the compliance side, every action is sealed as a row in an immutable audit log: a sha256 hash over the canonical serialisation, chained to the row before it, so editing any field breaks the link from that point onward. Filter, actor, detail, hash — the list an auditor recomputes.",
-    captions: ["sha256 hash chain, canonical serialisation", "Sealed rows an auditor can recompute"],
+    captions: [
+      "sha256 hash chain, canonical serialisation",
+      "Sealed rows an auditor can recompute",
+    ],
     steps: [
       { nav: "Dashboard" },
       { sleep: 1200 },

@@ -22,7 +22,7 @@ export async function GET(req: Request) {
   if (!authed.ok) {
     return NextResponse.json(
       { error: authed.error, code: authed.code },
-      { status: authed.status, headers: { "Cache-Control": "no-store" } }
+      { status: authed.status, headers: { "Cache-Control": "no-store" } },
     );
   }
   return NextResponse.json(
@@ -37,6 +37,6 @@ export async function GET(req: Request) {
       },
       policy: { idleTimeoutMs: IDLE_TIMEOUT_MS, absoluteLifetimeMs: ABSOLUTE_LIFETIME_MS },
     },
-    { headers: { "Cache-Control": "no-store" } }
+    { headers: { "Cache-Control": "no-store" } },
   );
 }

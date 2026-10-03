@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { z } from "zod";
 import { consume as consumeRateLimit, rateLimitId } from "@/lib/ratelimit";
 import { append as auditAppend } from "@/lib/audit-chain";
@@ -37,7 +38,7 @@ export async function POST(req: NextRequest) {
   if (!rl.ok) {
     return NextResponse.json(
       { error: "Rate limit exceeded; retry later." },
-      { status: 429, headers: { "Retry-After": String(Math.ceil(rl.retryAfterMs / 1000)) } }
+      { status: 429, headers: { "Retry-After": String(Math.ceil(rl.retryAfterMs / 1000)) } },
     );
   }
 
@@ -56,14 +57,19 @@ export async function POST(req: NextRequest) {
   if (!parsed.success) {
     return NextResponse.json({ error: "Invalid ASR request" }, { status: 422 });
   }
-  const { audio, mime, lang, callRef = `SV-A-${Math.random().toString(36).slice(2, 8).toUpperCase()}` } = parsed.data;
+  const {
+    audio,
+    mime,
+    lang,
+    callRef = `SV-A-${Math.random().toString(36).slice(2, 8).toUpperCase()}`,
+  } = parsed.data;
 
   try {
     const text = await transcribe(audio, mime, lang);
     if (!text) {
       return NextResponse.json(
         { error: "No speech detected — try again a little closer to the mic." },
-        { status: 422 }
+        { status: 422 },
       );
     }
 
@@ -81,9 +87,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, text, mime, callRef });
   } catch (err) {
     console.error("[asr] transcription failed:", err instanceof Error ? err.message : err);
-    const msg = err instanceof Error && err.message === "ASR timeout"
-      ? "Transcription timed out — please try a shorter recording."
-      : "Transcription unavailable right now. You can type your answer instead.";
+    const msg =
+      err instanceof Error && err.message === "ASR timeout"
+        ? "Transcription timed out — please try a shorter recording."
+        : "Transcription unavailable right now. You can type your answer instead.";
     return NextResponse.json({ error: msg }, { status: 503 });
   }
 }

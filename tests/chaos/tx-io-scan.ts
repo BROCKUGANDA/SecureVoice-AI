@@ -210,7 +210,11 @@ export function scanSourceForNetworkInTransaction(source: string, file: string):
     }
     if (depth !== 0) {
       // Unbalanced source: refuse to guess, and say so in the evidence.
-      regions.push({ line: lineAt(code, match.index), endLine: lineAt(code, code.length - 1), tokens: [] });
+      regions.push({
+        line: lineAt(code, match.index),
+        endLine: lineAt(code, code.length - 1),
+        tokens: [],
+      });
       findings.push({
         file,
         line: lineAt(code, match.index),
@@ -230,7 +234,12 @@ export function scanSourceForNetworkInTransaction(source: string, file: string):
       if (hit) {
         tokens.push(token);
         const absolute = openParen + 1 + hit.index;
-        findings.push({ file, line: lineAt(code, absolute), token, excerpt: excerptAt(source, absolute) });
+        findings.push({
+          file,
+          line: lineAt(code, absolute),
+          token,
+          excerpt: excerptAt(source, absolute),
+        });
       }
     }
     regions.push({ line: startLine, endLine, tokens: tokens.sort() });

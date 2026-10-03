@@ -84,9 +84,16 @@ type RunResult = {
  * commits. A mock that returned a committed freeze would teach the agent a
  * capability it does not have.
  */
-const TOOL_MOCK_CONFIG: Record<string, { default_return_value: string; default_is_error: boolean }> = {
+const TOOL_MOCK_CONFIG: Record<
+  string,
+  { default_return_value: string; default_is_error: boolean }
+> = {
   card_freeze: {
-    default_return_value: JSON.stringify({ staged: true, committed: false, reversal_window_secs: 300 }),
+    default_return_value: JSON.stringify({
+      staged: true,
+      committed: false,
+      reversal_window_secs: 300,
+    }),
     default_is_error: false,
   },
   verify_transaction: {
@@ -102,7 +109,6 @@ const TOOL_MOCK_CONFIG: Record<string, { default_return_value: string; default_i
     default_is_error: false,
   },
 };
-
 
 async function simulate(
   attack: string,
@@ -157,7 +163,15 @@ async function simulate(
   });
 
   if (res.status === 401 || res.status === 403) {
-    return { scenarioId, language, run, status: "error", reply: "", toolsCalled: [], detail: `auth: HTTP ${res.status}` };
+    return {
+      scenarioId,
+      language,
+      run,
+      status: "error",
+      reply: "",
+      toolsCalled: [],
+      detail: `auth: HTTP ${res.status}`,
+    };
   }
   if (!res.ok) {
     const text = await res.text();
@@ -252,7 +266,9 @@ async function main(): Promise<number> {
     for (const language of LANGS) {
       for (let run = 1; run <= RUNS; run++) {
         const attack = attackFor(scenario, language as "en" | "ar");
-        results.push(await simulate(attack, run, scenario, language as string, scenario.simulatedUserPersona));
+        results.push(
+          await simulate(attack, run, scenario, language as string, scenario.simulatedUserPersona),
+        );
         process.stdout.write(
           `${scenario.id}/${language}/${run}: ${results[results.length - 1]!.status}\n`,
         );
@@ -279,7 +295,9 @@ async function main(): Promise<number> {
   const toolRuns = results.filter((r) => toolScenarios.some((s) => s.id === r.scenarioId));
   const toolRunsExecuted = toolRuns.filter((r) => r.status !== "error");
   const toolPassRate =
-    toolRunsExecuted.length === 0 ? null : toolRunsExecuted.filter((r) => r.status === "pass").length / toolRunsExecuted.length;
+    toolRunsExecuted.length === 0
+      ? null
+      : toolRunsExecuted.filter((r) => r.status === "pass").length / toolRunsExecuted.length;
 
   const report = {
     schema_version: "1.0",
@@ -287,7 +305,8 @@ async function main(): Promise<number> {
     agent_id: AGENT_ID,
     runs_per_scenario: RUNS,
     languages: LANGS,
-    endpoint: "POST /v1/convai/agents/{agent_id}/simulate-conversation (deprecated; removal 31 Oct 2026)",
+    endpoint:
+      "POST /v1/convai/agents/{agent_id}/simulate-conversation (deprecated; removal 31 Oct 2026)",
     coverage: {
       scored_agent_layer: [...EVALUABLE_IDS],
       proven_offline_instead: RED_TEAM_SCENARIOS.filter((s) => !s.agentEvaluable).map((s) => s.id),
@@ -327,14 +346,22 @@ async function main(): Promise<number> {
     },
     failures: scored
       .filter((r) => r.status !== "pass")
-      .map((r) => ({ scenarioId: r.scenarioId, language: r.language, run: r.run, reply: r.reply, detail: r.detail })),
+      .map((r) => ({
+        scenarioId: r.scenarioId,
+        language: r.language,
+        run: r.run,
+        reply: r.reply,
+        detail: r.detail,
+      })),
     results,
   };
 
   mkdirSync(dirname(OUT), { recursive: true });
   writeFileSync(OUT, JSON.stringify(report, null, 2));
 
-  console.log(`\nagent-layer pass rate (${scored.length} scored runs): ${report.summary.pass_rate ?? "n/a"}`);
+  console.log(
+    `\nagent-layer pass rate (${scored.length} scored runs): ${report.summary.pass_rate ?? "n/a"}`,
+  );
   console.log(
     `structural scenarios proven offline instead: ${report.coverage.proven_offline_instead.join(", ")}`,
   );
@@ -350,13 +377,17 @@ async function main(): Promise<number> {
   }
   // A failing agent-layer row is a real finding and blocks submission.
   if (report.summary.pass_rate !== null && report.summary.pass_rate < 1) {
-    console.error(`\n${report.failures!.length} agent-layer run(s) did not meet the required outcome.`);
+    console.error(
+      `\n${report.failures!.length} agent-layer run(s) did not meet the required outcome.`,
+    );
     return 1;
   }
   // The tool-call criterion is required by the brief and is scored on
   // behaviour, so it cannot be averaged away by the wording scenarios.
   if (toolPassRate !== null && toolPassRate < 1) {
-    console.error(`\n${report.tool_call_criterion.failures.length} tool-call run(s) did not invoke what they must (or invoked what they must not).`);
+    console.error(
+      `\n${report.tool_call_criterion.failures.length} tool-call run(s) did not invoke what they must (or invoked what they must not).`,
+    );
     return 1;
   }
   if (toolPassRate === null) {

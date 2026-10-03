@@ -48,7 +48,7 @@ Idempotency-Key: your-case-reference
     "transactionId": "TRX-99127",
     "riskScore": 0.94,
     "channel": "card",
-    "customer":  { "ref": "CUST-8642", "lang": "ar", "consentRecordId": "CN-8812" },
+    "customer": { "ref": "CUST-8642", "lang": "ar", "consentRecordId": "CN-8812" },
     "transaction": { "amountAed": 2500, "merchant": "Electronics World" },
     "callbackUrl": "https://your-bank.example/securevoice/verdict"
   }
@@ -64,12 +64,12 @@ at creation, independently revocable, scoped to your organisation.
 **(b) HMAC signature.**
 `SV-Signature: t={unix},v1={hmac_sha256(secret, "{t}.{raw_body}")}`
 
-| Property | Implementation |
-| --- | --- |
-| Signed over | The **exact raw request bytes** — never a re-serialised body |
-| Replay window | 300 s. Timestamps older *or ahead of* our clock are rejected |
-| Comparison | Constant-time (`timingSafeEqual`) over SHA-256 digests |
-| Unsigned signals | Rejected with 401. We never act on an unsigned signal |
+| Property         | Implementation                                               |
+| ---------------- | ------------------------------------------------------------ |
+| Signed over      | The **exact raw request bytes** — never a re-serialised body |
+| Replay window    | 300 s. Timestamps older _or ahead of_ our clock are rejected |
+| Comparison       | Constant-time (`timingSafeEqual`) over SHA-256 digests       |
+| Unsigned signals | Rejected with 401. We never act on an unsigned signal        |
 
 ### Idempotency
 
@@ -137,16 +137,16 @@ log aggregator, or a compromised CRM from becoming a PII exfiltration path.
 
 **We receive:**
 
-| Field | Why |
-| --- | --- |
-| Alert / case reference | join key, dedupe |
-| Customer reference (your token) | **Your token, never a real identifier** |
-| Phone number (E.164) | the only way to place the call |
-| Language (BCP-47) | select the agent's voice |
-| Transaction amount + currency | read the amount aloud for verification |
-| Merchant descriptor | read the merchant for verification |
-| Risk score | triage and, if you enable it, load-shedding priority |
-| Consent record reference | evidences lawful outbound contact |
+| Field                           | Why                                                  |
+| ------------------------------- | ---------------------------------------------------- |
+| Alert / case reference          | join key, dedupe                                     |
+| Customer reference (your token) | **Your token, never a real identifier**              |
+| Phone number (E.164)            | the only way to place the call                       |
+| Language (BCP-47)               | select the agent's voice                             |
+| Transaction amount + currency   | read the amount aloud for verification               |
+| Merchant descriptor             | read the merchant for verification                   |
+| Risk score                      | triage and, if you enable it, load-shedding priority |
+| Consent record reference        | evidences lawful outbound contact                    |
 
 **We never receive, and never ask for:** card number / PAN, CVV, PIN, OTP,
 passwords, security-question answers, account balances, full customer names,
@@ -160,11 +160,11 @@ is **SAQ A**, not SAQ D.
 
 ## 5. Processing location
 
-| Element | Location |
-| --- | --- |
-| Application, database, audit chain | European infrastructure (Frankfurt, `eu-central-1`) |
-| Speech synthesis / transcription | United States and United Kingdom (our processors) |
-| Your deployment option | **In your VPC or on-prem** — the container topology is unchanged, so transcripts and case data never leave your perimeter |
+| Element                            | Location                                                                                                                  |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| Application, database, audit chain | European infrastructure (Frankfurt, `eu-central-1`)                                                                       |
+| Speech synthesis / transcription   | United States and United Kingdom (our processors)                                                                         |
+| Your deployment option             | **In your VPC or on-prem** — the container topology is unchanged, so transcripts and case data never leave your perimeter |
 
 An institution requiring in-country (UAE) processing deploys the same images
 inside its own network. Nothing in the integration surface changes.
@@ -173,16 +173,16 @@ inside its own network. Nothing in the integration surface changes.
 
 ## 6. Retention and deletion
 
-| Data | Default | Configurable |
-| --- | --- | --- |
-| Raw call audio | 30 days | **down to zero** — keep only the audit hash |
-| Transcripts | 90 days | yes |
-| Redacted case records | 7 years | yes |
-| Audit chain (hashes only) | retained | no — it is the evidence |
+| Data                      | Default  | Configurable                                |
+| ------------------------- | -------- | ------------------------------------------- |
+| Raw call audio            | 30 days  | **down to zero** — keep only the audit hash |
+| Transcripts               | 90 days  | yes                                         |
+| Redacted case records     | 7 years  | yes                                         |
+| Audit chain (hashes only) | retained | no — it is the evidence                     |
 
 **Erasure** destroys the per-case encryption key. The transcript becomes
 unreadable immediately and permanently, while the hash chain still verifies from
-genesis — so a deletion request can be honoured *and* the record of the action
+genesis — so a deletion request can be honoured _and_ the record of the action
 remains provable. That is the answer to "how do you reconcile right-to-erasure
 with an immutable audit log", and it is a question every bank's DPO will ask.
 
@@ -190,13 +190,13 @@ with an immutable audit log", and it is a question every bank's DPO will ask.
 
 ## 7. Availability and failure behaviour
 
-| Failure | Behaviour |
-| --- | --- |
-| Your receiver returns 5xx | Exponential backoff, ~24 h of retries, then dead-letter + alert |
-| Webhook lost | Reconciler completes the case from the conversation record |
-| Voice provider unavailable | Degraded mode: no call is placed; the case records the failure and the alert escalates to your channel |
-| Burst beyond capacity | Load shedding in audited bands: highest expected loss first, remainder falls to SMS/app push, **every shed decision is an audit row** |
-| Duplicate delivery | Idempotent replay — no second call, no double charge |
+| Failure                    | Behaviour                                                                                                                             |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| Your receiver returns 5xx  | Exponential backoff, ~24 h of retries, then dead-letter + alert                                                                       |
+| Webhook lost               | Reconciler completes the case from the conversation record                                                                            |
+| Voice provider unavailable | Degraded mode: no call is placed; the case records the failure and the alert escalates to your channel                                |
+| Burst beyond capacity      | Load shedding in audited bands: highest expected loss first, remainder falls to SMS/app push, **every shed decision is an audit row** |
+| Duplicate delivery         | Idempotent replay — no second call, no double charge                                                                                  |
 
 ---
 

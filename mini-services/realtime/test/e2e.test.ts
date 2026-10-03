@@ -164,7 +164,12 @@ describe("realtime service", () => {
 
   test("rejects a socket with a token signed by the wrong secret", async () => {
     const bad = sign(
-      { orgId: "org_a", sub: "op", chans: ["case:org_a:SV-1"], exp: Math.floor(Date.now() / 1000) + 60 },
+      {
+        orgId: "org_a",
+        sub: "op",
+        chans: ["case:org_a:SV-1"],
+        exp: Math.floor(Date.now() / 1000) + 60,
+      },
       "attacker-secret",
     );
     await expect(open(bad)).rejects.toThrow(/unauthorized/);
@@ -172,7 +177,12 @@ describe("realtime service", () => {
 
   test("rejects an expired grant at the handshake", async () => {
     const stale = sign(
-      { orgId: "org_a", sub: "op", chans: ["case:org_a:SV-1"], exp: Math.floor(Date.now() / 1000) - 600 },
+      {
+        orgId: "org_a",
+        sub: "op",
+        chans: ["case:org_a:SV-1"],
+        exp: Math.floor(Date.now() / 1000) - 600,
+      },
       SECRET,
     );
     await expect(open(stale)).rejects.toThrow(/unauthorized/);
@@ -181,7 +191,11 @@ describe("realtime service", () => {
   test("refuses a join for a channel outside the grant", async () => {
     const { socket } = await open(grant("org_a", "analyst-1", ["case:org_a:SV-77"]));
     try {
-      const denied = await emit<{ ok: boolean; error?: string }>(socket, "join", "case:org_b:SV-77");
+      const denied = await emit<{ ok: boolean; error?: string }>(
+        socket,
+        "join",
+        "case:org_b:SV-77",
+      );
       expect(denied.ok).toBe(false);
       expect(denied.error).toBe("not_in_scope");
 
@@ -241,12 +255,17 @@ describe("realtime service", () => {
       await emit(watcher.socket, "join", "case:org_a:SV-79");
       await emit(observer.socket, "join", "case:org_a:SV-79");
 
-      const joined = await waitFor(() => observer.presence.find((p) => p.watchers.includes("analyst-3")));
+      const joined = await waitFor(() =>
+        observer.presence.find((p) => p.watchers.includes("analyst-3")),
+      );
       expect(joined.channel).toBe("case:org_a:SV-79");
 
       watcher.socket.close();
       const left = await waitFor(
-        () => observer.presence.find((p) => !p.watchers.includes("analyst-3") && p.watchers.includes("analyst-4")),
+        () =>
+          observer.presence.find(
+            (p) => !p.watchers.includes("analyst-3") && p.watchers.includes("analyst-4"),
+          ),
         6000,
       );
       expect(left.channel).toBe("case:org_a:SV-79");

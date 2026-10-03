@@ -24,7 +24,10 @@ const SECRET = process.env.WEBHOOK_SECRET;
 const TEST_NUMBER = "+971500000001"; // UAE test number (E.164)
 
 /** Twenty distinct UAE test destinations — one per signal in the burst. */
-const TEST_NUMBERS = Array.from({ length: 20 }, (_, i) => `+971500000${String(i + 1).padStart(3, "0")}`);
+const TEST_NUMBERS = Array.from(
+  { length: 20 },
+  (_, i) => `+971500000${String(i + 1).padStart(3, "0")}`,
+);
 
 function signBody(body: string): string {
   const t = Math.floor(Date.now() / 1000).toString();
@@ -32,7 +35,11 @@ function signBody(body: string): string {
   return `t=${t},v1=${v1}`;
 }
 
-function makeRequest(idempotencyKey: string, transactionRef: string, phone: string = TEST_NUMBER): Request {
+function makeRequest(
+  idempotencyKey: string,
+  transactionRef: string,
+  phone: string = TEST_NUMBER,
+): Request {
   const body = JSON.stringify({
     transaction_ref: transactionRef,
     risk_score: 0.94,
@@ -115,7 +122,7 @@ test("WP-2: 20 signals dial in dry-run, p95 < 1.5s, idempotent, audited", async 
           const data = await res.json();
           latencies.push(elapsed);
           results.push({ status: res.status, data });
-        })()
+        })(),
       );
     }
     await Promise.all(batchPromises);
@@ -159,7 +166,8 @@ test("WP-2: 20 signals dial in dry-run, p95 < 1.5s, idempotent, audited", async 
 
   // p95 latency.
   const sorted = [...latencies].sort((a, b) => a - b);
-  const p95 = sorted[Math.floor(sorted.length * 0.95) - 1];
+  // N is a literal 20, so latencies holds 20 samples and this index is in range.
+  const p95 = sorted[Math.floor(sorted.length * 0.95) - 1]!;
   console.log(`  p95 signal→provider: ${p95.toFixed(0)}ms (target < 1500ms)`);
   expect(p95).toBeLessThan(1500);
 
@@ -179,7 +187,11 @@ test("WP-2: 20 signals dial in dry-run, p95 < 1.5s, idempotent, audited", async 
   });
   const replayReq1 = new Request("http://localhost/api/v1/interventions", {
     method: "POST",
-    headers: { "content-type": "application/json", "sv-signature": signBody(replayBody), "idempotency-key": replayIdemKey },
+    headers: {
+      "content-type": "application/json",
+      "sv-signature": signBody(replayBody),
+      "idempotency-key": replayIdemKey,
+    },
     body: replayBody,
   });
   const res1 = await POST(replayReq1 as any);
@@ -193,7 +205,11 @@ test("WP-2: 20 signals dial in dry-run, p95 < 1.5s, idempotent, audited", async 
 
   const replayReq2 = new Request("http://localhost/api/v1/interventions", {
     method: "POST",
-    headers: { "content-type": "application/json", "sv-signature": signBody(replayBody), "idempotency-key": replayIdemKey },
+    headers: {
+      "content-type": "application/json",
+      "sv-signature": signBody(replayBody),
+      "idempotency-key": replayIdemKey,
+    },
     body: replayBody,
   });
   const res2 = await POST(replayReq2 as any);

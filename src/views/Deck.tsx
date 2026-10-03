@@ -86,13 +86,15 @@ export function Deck() {
           </span>
           <div className="leading-none">
             <p className="text-[12.5px] font-semibold text-white">SecureVoice AI — Pitch Deck</p>
-            <p className="micro mt-1 !text-[8.5px] text-white/40">
-              {slide.kicker}
-            </p>
+            <p className="micro mt-1 !text-[8.5px] text-white/40">{slide.kicker}</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <div className="flex items-center rounded-full border border-white/15 p-0.5" role="group" aria-label="Deck language">
+          <div
+            className="flex items-center rounded-full border border-white/15 p-0.5"
+            role="group"
+            aria-label="Deck language"
+          >
             {(["en", "ar"] as const).map((l) => (
               <button
                 key={l}
@@ -100,7 +102,7 @@ export function Deck() {
                 className={cn(
                   "rounded-full px-3 py-1.5 text-[11.5px] font-semibold transition",
                   l === "ar" && "font-arabic",
-                  lang === l ? "bg-green-bright text-[#07130d]" : "text-white/55 hover:text-white"
+                  lang === l ? "bg-green-bright text-[#07130d]" : "text-white/55 hover:text-white",
                 )}
               >
                 {l === "en" ? "EN" : "عربي"}
@@ -113,7 +115,7 @@ export function Deck() {
               "flex items-center gap-2 rounded-full border px-3.5 py-2 text-[11.5px] font-semibold transition",
               scriptOpen
                 ? "border-green-bright/40 bg-green-bright/10 text-green-bright"
-                : "border-white/15 text-white/60 hover:text-white"
+                : "border-white/15 text-white/60 hover:text-white",
             )}
           >
             {scriptOpen ? <X className="h-3.5 w-3.5" /> : <NotebookPen className="h-3.5 w-3.5" />}
@@ -142,7 +144,13 @@ export function Deck() {
                 transition={{ duration: 0.38, ease: [0.22, 1, 0.36, 1] }}
                 className="sv-scroll h-full overflow-y-auto p-7 sm:p-10 lg:p-12"
               >
-                <RenderSlide slideId={slide.id} layout={slide.layout} title={title} sub={sub} isAr={isAr} />
+                <RenderSlide
+                  slideId={slide.id}
+                  layout={slide.layout}
+                  title={title}
+                  sub={sub}
+                  isAr={isAr}
+                />
               </motion.div>
             </AnimatePresence>
           </div>
@@ -189,13 +197,15 @@ export function Deck() {
               <div className="flex h-full w-[340px] flex-col rounded-3xl border border-white/10 bg-white/5 p-5">
                 <div className="flex items-center gap-2">
                   <NotebookPen className="h-4 w-4 text-green-bright" />
-                  <span className="micro !text-[9px] text-white/50">Speaker script · سكريبت المتحدث</span>
+                  <span className="micro !text-[9px] text-white/50">
+                    Speaker script · سكريبت المتحدث
+                  </span>
                 </div>
                 <div className="sv-scroll mt-4 flex-1 overflow-y-auto" dir={isAr ? "rtl" : "ltr"}>
                   <p
                     className={cn(
                       "text-[13.5px] leading-[1.85] text-white/85",
-                      isAr && "font-arabic text-[14px] leading-[2]"
+                      isAr && "font-arabic text-[14px] leading-[2]",
                     )}
                   >
                     {script}
@@ -232,8 +242,7 @@ function RenderSlide({
   isAr: boolean;
 }) {
   const { setView } = useApp();
-  const h =
-    "font-display font-semibold tracking-tight text-[#101812]";
+  const h = "font-display font-semibold tracking-tight text-[#101812]";
   const arCls = isAr ? "font-arabic" : "";
 
   if (layout === "cover")
@@ -242,17 +251,23 @@ function RenderSlide({
         <Chip className="w-fit">Banking &amp; Insurance · 2026</Chip>
         <h1 className={cn(h, "mt-7 text-5xl leading-[1.02] sm:text-7xl")}>
           {isAr ? (
-            <span dir="rtl" className="font-arabic">{title}</span>
+            <span dir="rtl" className="font-arabic">
+              {title}
+            </span>
           ) : (
             <>
-              Real-Time Fraud<br />
+              Real-Time Fraud
+              <br />
               <span className="text-primary">Intervention</span> Voice Agent
             </>
           )}
         </h1>
         <p
           dir={isAr ? "rtl" : "ltr"}
-          className={cn("mt-6 max-w-xl text-[15px] leading-relaxed text-ink-2", isAr && "font-arabic")}
+          className={cn(
+            "mt-6 max-w-xl text-[15px] leading-relaxed text-ink-2",
+            isAr && "font-arabic",
+          )}
         >
           {sub}
         </p>
@@ -274,15 +289,28 @@ function RenderSlide({
     return (
       <div className="flex h-full flex-col justify-center">
         <div className="flex items-baseline gap-5">
-          <span className="num text-[7rem] font-bold leading-none text-ink-3/40 sm:text-[10rem]">38</span>
+          <span className="num text-[7rem] font-bold leading-none text-ink-3/40 sm:text-[10rem]">
+            38
+          </span>
           <div>
             <h2 className={cn(h, "text-4xl sm:text-5xl")}>
-              {isAr ? <span dir="rtl" className="font-arabic">{title}</span> : "minutes of open door"}
+              {isAr ? (
+                <span dir="rtl" className="font-arabic">
+                  {title}
+                </span>
+              ) : (
+                "minutes of open door"
+              )}
             </h2>
-            <p className="num mt-1 text-[13px] text-ink-3">AVG DETECTION → CONTACT · UAE TOP BANKS</p>
+            <p className="num mt-1 text-[13px] text-ink-3">
+              AVG DETECTION → CONTACT · UAE TOP BANKS
+            </p>
           </div>
         </div>
-        <p className={cn("mt-8 max-w-2xl text-[15.5px] leading-[1.8] text-ink-2", arCls)} dir={isAr ? "rtl" : "ltr"}>
+        <p
+          className={cn("mt-8 max-w-2xl text-[15.5px] leading-[1.8] text-ink-2", arCls)}
+          dir={isAr ? "rtl" : "ltr"}
+        >
           {sub}
         </p>
       </div>
@@ -292,14 +320,22 @@ function RenderSlide({
     return (
       <div className="flex h-full flex-col justify-center">
         <h2 className={cn(h, "text-3xl sm:text-4xl")}>
-          {isAr ? <span dir="rtl" className="font-arabic">{title}</span> : title}
+          {isAr ? (
+            <span dir="rtl" className="font-arabic">
+              {title}
+            </span>
+          ) : (
+            title
+          )}
         </h2>
         <div className="mt-8 grid gap-3 sm:grid-cols-3">
           {BASE_STATS.map((s) => (
             <div key={s.v} className="rounded-2xl border border-line bg-paper p-5">
               <p className="num text-[26px] font-bold tracking-tight text-primary">{s.v}</p>
               <p className="mt-1.5 text-[12px] leading-snug text-ink-2">{s.en}</p>
-              <p dir="rtl" className="font-arabic mt-1 text-[11px] text-ink-3">{s.ar}</p>
+              <p dir="rtl" className="font-arabic mt-1 text-[11px] text-ink-3">
+                {s.ar}
+              </p>
             </div>
           ))}
         </div>
@@ -310,21 +346,44 @@ function RenderSlide({
     return (
       <div className="flex h-full flex-col justify-center">
         <h2 className={cn(h, "text-3xl sm:text-4xl")}>
-          {isAr ? <span dir="rtl" className="font-arabic">{title}</span> : title}
+          {isAr ? (
+            <span dir="rtl" className="font-arabic">
+              {title}
+            </span>
+          ) : (
+            title
+          )}
         </h2>
         <p className="mt-4 max-w-2xl rounded-2xl bg-green-tint px-5 py-4 text-[14.5px] font-medium leading-relaxed text-green-deep">
           {sub}
         </p>
         <div className="mt-6 grid gap-3 sm:grid-cols-3">
           {[
-            { icon: PhoneCall, en: "Immediate", ar: "فوري", d: "Call within 60s of the signal — no SMS, no queue" },
-            { icon: Languages, en: "Multilingual", ar: "متعدد اللغات", d: "AR · EN · HI · UR · TL · ML — dialect-tuned" },
-            { icon: Snowflake, en: "Action-capable", ar: "قادر على التنفيذ", d: "Verifies, freezes the card, hands off — compliantly" },
+            {
+              icon: PhoneCall,
+              en: "Immediate",
+              ar: "فوري",
+              d: "Call within 60s of the signal — no SMS, no queue",
+            },
+            {
+              icon: Languages,
+              en: "Multilingual",
+              ar: "متعدد اللغات",
+              d: "AR · EN · HI · UR · TL · ML — dialect-tuned",
+            },
+            {
+              icon: Snowflake,
+              en: "Action-capable",
+              ar: "قادر على التنفيذ",
+              d: "Verifies, freezes the card, hands off — compliantly",
+            },
           ].map((p) => (
             <div key={p.en} className="rounded-2xl border border-line p-5">
               <p.icon className="h-5 w-5 text-primary" strokeWidth={1.7} />
               <p className="font-display mt-3 text-[16px] font-semibold">{p.en}</p>
-              <p dir="rtl" className="font-arabic mt-0.5 text-[11.5px] text-ink-3">{p.ar}</p>
+              <p dir="rtl" className="font-arabic mt-0.5 text-[11.5px] text-ink-3">
+                {p.ar}
+              </p>
               <p className="mt-2 text-[12px] leading-relaxed text-ink-2">{p.d}</p>
             </div>
           ))}
@@ -336,7 +395,13 @@ function RenderSlide({
     return (
       <div className="flex h-full flex-col justify-center">
         <h2 className={cn(h, "text-3xl sm:text-4xl")}>
-          {isAr ? <span dir="rtl" className="font-arabic">{title}</span> : title}
+          {isAr ? (
+            <span dir="rtl" className="font-arabic">
+              {title}
+            </span>
+          ) : (
+            title
+          )}
         </h2>
         <div className="mt-9 grid gap-2.5 sm:grid-cols-5">
           {[
@@ -350,15 +415,23 @@ function RenderSlide({
               <div
                 className={cn(
                   "h-full rounded-2xl border p-4",
-                  i === 3 ? "border-primary bg-green-tint" : "border-line bg-white"
+                  i === 3 ? "border-primary bg-green-tint" : "border-line bg-white",
                 )}
               >
                 <div className="flex items-center justify-between">
-                  <s.icon className={cn("h-4.5 w-4.5 h-[18px] w-[18px]", i === 3 ? "text-green-deep" : "text-primary")} strokeWidth={1.7} />
+                  <s.icon
+                    className={cn(
+                      "h-4.5 w-4.5 h-[18px] w-[18px]",
+                      i === 3 ? "text-green-deep" : "text-primary",
+                    )}
+                    strokeWidth={1.7}
+                  />
                   <span className="num text-[10px] font-bold text-ink-3">0{s.n}</span>
                 </div>
                 <p className="mt-3 text-[13px] font-semibold">{s.en}</p>
-                <p dir="rtl" className="font-arabic mt-0.5 text-[10.5px] text-ink-3">{s.ar}</p>
+                <p dir="rtl" className="font-arabic mt-0.5 text-[10.5px] text-ink-3">
+                  {s.ar}
+                </p>
                 <p className="num mt-2 text-[10px] text-ink-3">{s.d}</p>
               </div>
               {i < 4 && (
@@ -386,22 +459,52 @@ function RenderSlide({
     return (
       <div className="flex h-full flex-col justify-center">
         <h2 className={cn(h, "text-3xl sm:text-4xl")}>
-          {isAr ? <span dir="rtl" className="font-arabic">{title}</span> : title}
+          {isAr ? (
+            <span dir="rtl" className="font-arabic">
+              {title}
+            </span>
+          ) : (
+            title
+          )}
         </h2>
         <div className="mt-7 grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
           {[
-            { n: "Agent Workflows", d: "Branching logic: verification outcomes → fraud confirmation → actions", core: true },
-            { n: "Eleven v3 TTS", d: "Trustworthy natural voice in multiple languages — kills AI skepticism", core: true },
-            { n: "Scribe v2 Realtime STT", d: "Multilingual transcription + keyterm biasing for merchants & amounts", core: true },
-            { n: "Knowledge Base + RAG", d: "Verification protocols, fraud scenarios, compliant response scripts", core: false },
-            { n: "Webhook Tools", d: "Real-time fraud alerts in; card freeze execution out", core: false },
-            { n: "Twilio Telephony", d: "Immediate outbound calling to registered numbers", core: false },
+            {
+              n: "Agent Workflows",
+              d: "Branching logic: verification outcomes → fraud confirmation → actions",
+              core: true,
+            },
+            {
+              n: "Eleven v3 TTS",
+              d: "Trustworthy natural voice in multiple languages — kills AI skepticism",
+              core: true,
+            },
+            {
+              n: "Scribe v2 Realtime STT",
+              d: "Multilingual transcription + keyterm biasing for merchants & amounts",
+              core: true,
+            },
+            {
+              n: "Knowledge Base + RAG",
+              d: "Verification protocols, fraud scenarios, compliant response scripts",
+              core: false,
+            },
+            {
+              n: "Webhook Tools",
+              d: "Real-time fraud alerts in; card freeze execution out",
+              core: false,
+            },
+            {
+              n: "Twilio Telephony",
+              d: "Immediate outbound calling to registered numbers",
+              core: false,
+            },
           ].map((c) => (
             <div
               key={c.n}
               className={cn(
                 "rounded-2xl border p-4",
-                c.core ? "border-primary/40 bg-green-tint/60" : "border-line bg-white"
+                c.core ? "border-primary/40 bg-green-tint/60" : "border-line bg-white",
               )}
             >
               <div className="flex items-center justify-between">
@@ -422,19 +525,43 @@ function RenderSlide({
     return (
       <div className="flex h-full flex-col justify-center">
         <h2 className={cn(h, "text-3xl sm:text-4xl")}>
-          {isAr ? <span dir="rtl" className="font-arabic">{title}</span> : title}
+          {isAr ? (
+            <span dir="rtl" className="font-arabic">
+              {title}
+            </span>
+          ) : (
+            title
+          )}
         </h2>
         <div className="mt-7 grid gap-3 sm:grid-cols-2">
           {[
-            { n: "Marcus", l: "English", d: "Mature, professional male — calm authority under stress", tint: false },
-            { n: "فاطمة · Fatima", l: "العربية الفصحى + Gulf", d: "Clear, reassuring female — MSA with Gulf dialect tuning", tint: true },
+            {
+              n: "Marcus",
+              l: "English",
+              d: "Mature, professional male — calm authority under stress",
+              tint: false,
+            },
+            {
+              n: "فاطمة · Fatima",
+              l: "العربية الفصحى + Gulf",
+              d: "Clear, reassuring female — MSA with Gulf dialect tuning",
+              tint: true,
+            },
           ].map((v) => (
             <div
               key={v.n}
-              className={cn("rounded-2xl border p-6", v.tint ? "border-primary/40 bg-green-tint/50" : "border-line bg-white")}
+              className={cn(
+                "rounded-2xl border p-6",
+                v.tint ? "border-primary/40 bg-green-tint/50" : "border-line bg-white",
+              )}
             >
               <div className="flex items-center gap-3">
-                <span className={cn("flex h-12 w-12 items-center justify-center rounded-full font-display text-lg font-bold", v.tint ? "bg-primary text-white" : "bg-[#0c110e] text-green-bright")}>
+                <span
+                  className={cn(
+                    "flex h-12 w-12 items-center justify-center rounded-full font-display text-lg font-bold",
+                    v.tint ? "bg-primary text-white" : "bg-[#0c110e] text-green-bright",
+                  )}
+                >
                   {v.n[0]}
                 </span>
                 <div>
@@ -448,7 +575,7 @@ function RenderSlide({
           ))}
         </div>
         <pre className="num mt-5 rounded-2xl bg-[#0c110e] p-5 text-[11.5px] leading-[1.8] text-green-bright">
-{`voice_config = {
+          {`voice_config = {
   "stability": 0.70,          // consistent, steady
   "similarity_boost": 0.75,   // brand-accurate timbre
   "style": 0.30,              // warm, never theatrical
@@ -468,15 +595,29 @@ function RenderSlide({
     return (
       <div className="flex h-full flex-col justify-center">
         <h2 className={cn(h, "text-3xl sm:text-4xl")}>
-          {isAr ? <span dir="rtl" className="font-arabic">{title}</span> : title}
+          {isAr ? (
+            <span dir="rtl" className="font-arabic">
+              {title}
+            </span>
+          ) : (
+            title
+          )}
         </h2>
         <div className="mt-6 space-y-2">
           {[
             { n: "Event Ingestion", d: "webhook listener · queue · validation", icon: Webhook },
-            { n: "Agent Orchestration", d: "ElevenLabs workflows · state · context", icon: BrainCircuit },
+            {
+              n: "Agent Orchestration",
+              d: "ElevenLabs workflows · state · context",
+              icon: BrainCircuit,
+            },
             { n: "Integration", d: "core banking APIs · freeze · history · CRM", icon: Webhook },
             { n: "Telephony", d: "Twilio outbound · quality · fallback", icon: PhoneCall },
-            { n: "Analytics & Audit", d: "recording · transcription · compliance", icon: FileCheck2 },
+            {
+              n: "Analytics & Audit",
+              d: "recording · transcription · compliance",
+              icon: FileCheck2,
+            },
           ].map((l, i) => (
             <div key={l.n} className="flex items-center gap-4">
               <span className="num w-8 text-[10px] text-ink-3">L{i + 1}</span>
@@ -501,22 +642,52 @@ function RenderSlide({
     return (
       <div className="flex h-full flex-col justify-center">
         <h2 className={cn(h, "text-3xl sm:text-4xl")}>
-          {isAr ? <span dir="rtl" className="font-arabic">{title}</span> : title}
+          {isAr ? (
+            <span dir="rtl" className="font-arabic">
+              {title}
+            </span>
+          ) : (
+            title
+          )}
         </h2>
         <div className="mt-6 overflow-hidden rounded-2xl border border-line">
           {[
-            { icon: Lock, g: "No PIN / password requests", m: "prompt prohibition + KB-scoped challenges" },
-            { icon: Snowflake, g: "Pre-approved actions only", m: "one write action (freeze); rest → human" },
-            { icon: Languages, g: "Language consistency", m: "locked after first response, dialect per profile" },
-            { icon: FileCheck2, g: "Audit completeness", m: "recording + transcript + metadata, immutable" },
-            { icon: Clock, g: "Calling-hour compliance", m: "TZ check vs profile; out-of-hours → queued" },
-            { icon: HeartPulse, g: "Vulnerability handling", m: "distress detected → priority human handoff" },
+            {
+              icon: Lock,
+              g: "No PIN / password requests",
+              m: "prompt prohibition + KB-scoped challenges",
+            },
+            {
+              icon: Snowflake,
+              g: "Pre-approved actions only",
+              m: "one write action (freeze); rest → human",
+            },
+            {
+              icon: Languages,
+              g: "Language consistency",
+              m: "locked after first response, dialect per profile",
+            },
+            {
+              icon: FileCheck2,
+              g: "Audit completeness",
+              m: "recording + transcript + metadata, immutable",
+            },
+            {
+              icon: Clock,
+              g: "Calling-hour compliance",
+              m: "TZ check vs profile; out-of-hours → queued",
+            },
+            {
+              icon: HeartPulse,
+              g: "Vulnerability handling",
+              m: "distress detected → priority human handoff",
+            },
           ].map((r, i) => (
             <div
               key={r.g}
               className={cn(
                 "flex items-center gap-4 px-5 py-3.5",
-                i % 2 === 0 ? "bg-white" : "bg-paper"
+                i % 2 === 0 ? "bg-white" : "bg-paper",
               )}
             >
               <r.icon className="h-4 w-4 shrink-0 text-primary" />
@@ -532,7 +703,13 @@ function RenderSlide({
     return (
       <div className="flex h-full flex-col justify-center">
         <h2 className={cn(h, "text-3xl sm:text-4xl")}>
-          {isAr ? <span dir="rtl" className="font-arabic">{title}</span> : title}
+          {isAr ? (
+            <span dir="rtl" className="font-arabic">
+              {title}
+            </span>
+          ) : (
+            title
+          )}
         </h2>
         <div className="mt-7 grid gap-4 sm:grid-cols-2">
           {[
@@ -567,7 +744,8 @@ function RenderSlide({
           ))}
         </div>
         <p className="mt-5 text-[12px] text-ink-3">
-          + operational cost −40% · multilingual coverage 65% → 95% · milestones at 30 / 90 / 365 days
+          + operational cost −40% · multilingual coverage 65% → 95% · milestones at 30 / 90 / 365
+          days
         </p>
       </div>
     );
@@ -576,27 +754,52 @@ function RenderSlide({
     return (
       <div className="flex h-full flex-col justify-center">
         <h2 className={cn(h, "text-3xl sm:text-4xl")}>
-          {isAr ? <span dir="rtl" className="font-arabic">{title}</span> : title}
+          {isAr ? (
+            <span dir="rtl" className="font-arabic">
+              {title}
+            </span>
+          ) : (
+            title
+          )}
         </h2>
         <div className="mt-7 grid gap-3 sm:grid-cols-2">
           {[
-            { en: "AES-256 end-to-end", d: "All voice data encrypted in transit and at rest", ar: "تشفير كامل" },
-            { en: "Tokenized PII", d: "Agent works with references, never raw customer data", ar: "ترميز البيانات" },
-            { en: "Automated retention", d: "Data purged on regulatory schedules, without human touch", ar: "حذف تلقائي" },
-            { en: "RBAC + audit", d: "Role-based dashboard access, every action audited", ar: "صلاحيات" },
+            {
+              en: "AES-256 end-to-end",
+              d: "All voice data encrypted in transit and at rest",
+              ar: "تشفير كامل",
+            },
+            {
+              en: "Tokenized PII",
+              d: "Agent works with references, never raw customer data",
+              ar: "ترميز البيانات",
+            },
+            {
+              en: "Automated retention",
+              d: "Data purged on regulatory schedules, without human touch",
+              ar: "حذف تلقائي",
+            },
+            {
+              en: "RBAC + audit",
+              d: "Role-based dashboard access, every action audited",
+              ar: "صلاحيات",
+            },
           ].map((s) => (
             <div key={s.en} className="flex gap-4 rounded-2xl border border-line p-5">
               <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-primary" strokeWidth={1.7} />
               <div>
                 <p className="text-[14px] font-semibold">{s.en}</p>
                 <p className="mt-1 text-[12px] leading-relaxed text-ink-2">{s.d}</p>
-                <p dir="rtl" className="font-arabic mt-1 text-[11px] text-ink-3">{s.ar}</p>
+                <p dir="rtl" className="font-arabic mt-1 text-[11px] text-ink-3">
+                  {s.ar}
+                </p>
               </div>
             </div>
           ))}
         </div>
         <p className="mt-5 text-[12.5px] text-ink-2">
-          Compliance involved from the design phase — not as reviewers at the end. CBUAE-aligned by construction.
+          Compliance involved from the design phase — not as reviewers at the end. CBUAE-aligned by
+          construction.
         </p>
       </div>
     );
@@ -605,18 +808,36 @@ function RenderSlide({
     return (
       <div className="flex h-full flex-col justify-center">
         <h2 className={cn(h, "text-3xl sm:text-4xl")}>
-          {isAr ? <span dir="rtl" className="font-arabic">{title}</span> : title}
+          {isAr ? (
+            <span dir="rtl" className="font-arabic">
+              {title}
+            </span>
+          ) : (
+            title
+          )}
         </h2>
         <div className="mt-6 space-y-2">
           {[
-            ["Customer trust in AI calls", "Transparent intro · natural voices · one-word human escape"],
-            ["False positive alerts", "High-confidence risk threshold only — never nags legitimate spend"],
+            [
+              "Customer trust in AI calls",
+              "Transparent intro · natural voices · one-word human escape",
+            ],
+            [
+              "False positive alerts",
+              "High-confidence risk threshold only — never nags legitimate spend",
+            ],
             ["Integration complexity", "Standard banking APIs · dedicated integration sprints"],
-            ["Regulatory compliance", "Built-in from design phase · audit trails in core architecture"],
+            [
+              "Regulatory compliance",
+              "Built-in from design phase · audit trails in core architecture",
+            ],
             ["Multilingual accuracy", "Native-speaker testing · continuous dialect feedback loop"],
             ["System availability", "Multi-AZ deployment · 99.99% uptime SLA"],
           ].map(([r, m]) => (
-            <div key={r} className="grid items-center gap-2 rounded-xl border border-line px-5 py-3 sm:grid-cols-[240px_1fr]">
+            <div
+              key={r}
+              className="grid items-center gap-2 rounded-xl border border-line px-5 py-3 sm:grid-cols-[240px_1fr]"
+            >
               <span className="flex items-center gap-2 text-[12.5px] font-semibold">
                 <span className="h-1.5 w-1.5 rounded-full bg-red-soft" />
                 {r}
@@ -636,7 +857,13 @@ function RenderSlide({
       <div className="flex h-full flex-col justify-center">
         <p className="num text-[12px] font-bold text-primary">BY 14 OCTOBER · ١٤ أكتوبر</p>
         <h2 className={cn(h, "mt-3 text-3xl sm:text-4xl")}>
-          {isAr ? <span dir="rtl" className="font-arabic">{title}</span> : title}
+          {isAr ? (
+            <span dir="rtl" className="font-arabic">
+              {title}
+            </span>
+          ) : (
+            title
+          )}
         </h2>
         <div className="mt-7 space-y-2.5">
           {[
@@ -646,7 +873,10 @@ function RenderSlide({
             "Test suite with 90%+ pass rate on primary flows",
             "Demonstrable audit trail + guardrail enforcement",
           ].map((c) => (
-            <div key={c} className="flex items-center gap-3 rounded-xl border border-line bg-white px-5 py-3.5">
+            <div
+              key={c}
+              className="flex items-center gap-3 rounded-xl border border-line bg-white px-5 py-3.5"
+            >
               <span className="flex h-5 w-5 items-center justify-center rounded-full bg-primary">
                 <CheckCheck className="h-3 w-3 text-white" />
               </span>
@@ -661,22 +891,46 @@ function RenderSlide({
     return (
       <div className="flex h-full flex-col justify-center">
         <h2 className={cn(h, "text-3xl sm:text-4xl")}>
-          {isAr ? <span dir="rtl" className="font-arabic">{title}</span> : title}
+          {isAr ? (
+            <span dir="rtl" className="font-arabic">
+              {title}
+            </span>
+          ) : (
+            title
+          )}
         </h2>
         <div className="mt-7 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {[
-            { r: "Team Lead", d: "12 years fraud detection systems at tier-1 banks", ar: "القيادة" },
-            { r: "Conversational AI", d: "Four shipped ElevenLabs implementations", ar: "الذكاء المحادثي" },
+            {
+              r: "Team Lead",
+              d: "12 years fraud detection systems at tier-1 banks",
+              ar: "القيادة",
+            },
+            {
+              r: "Conversational AI",
+              d: "Four shipped ElevenLabs implementations",
+              ar: "الذكاء المحادثي",
+            },
             { r: "Full-stack Engineer", d: "Banking API integration specialist", ar: "الهندسة" },
             { r: "Arabic Linguist + UX", d: "Voice trust across Gulf dialects", ar: "اللغويات" },
             { r: "Compliance", d: "CBUAE regulatory experience", ar: "الامتثال" },
             { r: "Track record", d: "50K+ voice calls / month, deployed", ar: "الخبرة" },
           ].map((m, i) => (
-            <div key={m.r} className={cn("rounded-2xl border p-5", i === 5 ? "border-primary/40 bg-green-tint/60" : "border-line bg-white")}>
-              <p className="num text-[10px] font-bold text-ink-3">{String(i + 1).padStart(2, "0")}</p>
+            <div
+              key={m.r}
+              className={cn(
+                "rounded-2xl border p-5",
+                i === 5 ? "border-primary/40 bg-green-tint/60" : "border-line bg-white",
+              )}
+            >
+              <p className="num text-[10px] font-bold text-ink-3">
+                {String(i + 1).padStart(2, "0")}
+              </p>
               <p className="font-display mt-2 text-[15px] font-semibold">{m.r}</p>
               <p className="mt-1.5 text-[12px] leading-relaxed text-ink-2">{m.d}</p>
-              <p dir="rtl" className="font-arabic mt-1.5 text-[11px] text-ink-3">{m.ar}</p>
+              <p dir="rtl" className="font-arabic mt-1.5 text-[11px] text-ink-3">
+                {m.ar}
+              </p>
             </div>
           ))}
         </div>
@@ -687,7 +941,13 @@ function RenderSlide({
     return (
       <div className="flex h-full flex-col justify-center">
         <h2 className={cn(h, "text-3xl sm:text-4xl")}>
-          {isAr ? <span dir="rtl" className="font-arabic">{title}</span> : title}
+          {isAr ? (
+            <span dir="rtl" className="font-arabic">
+              {title}
+            </span>
+          ) : (
+            title
+          )}
         </h2>
         <div className="mt-7 overflow-hidden rounded-2xl border border-line shadow-lg">
           <div className="flex items-center gap-2 bg-[#0c110e] px-4 py-3">
@@ -695,14 +955,27 @@ function RenderSlide({
             <span className="h-2.5 w-2.5 rounded-full bg-[#febc2e]" />
             <span className="h-2.5 w-2.5 rounded-full bg-[#28c840]" />
             <span className="num ml-3 flex-1 rounded-md bg-white/10 px-3 py-1 text-[11px] text-white/70">
-              securevoice.ai/demo — simulated fraud scenario · full call flow · mock banking integration
+              securevoice.ai/demo — simulated fraud scenario · full call flow · mock banking
+              integration
             </span>
           </div>
           <div className="grid gap-3 bg-paper p-5 sm:grid-cols-3">
             {[
-              { icon: PhoneCall, t: "Trigger alert → call", d: "Watch the agent dial, greet, and lock language" },
-              { icon: FileCheck2, t: "Verify & confirm", d: "Challenge flow, zero secrets, plain-language confirmation" },
-              { icon: Snowflake, t: "Freeze & handoff", d: "API executes freeze; specialist receives context" },
+              {
+                icon: PhoneCall,
+                t: "Trigger alert → call",
+                d: "Watch the agent dial, greet, and lock language",
+              },
+              {
+                icon: FileCheck2,
+                t: "Verify & confirm",
+                d: "Challenge flow, zero secrets, plain-language confirmation",
+              },
+              {
+                icon: Snowflake,
+                t: "Freeze & handoff",
+                d: "API executes freeze; specialist receives context",
+              },
             ].map((c) => (
               <div key={c.t} className="rounded-xl border border-line bg-white p-4">
                 <c.icon className="h-4 w-4 text-primary" />
@@ -735,15 +1008,19 @@ function RenderSlide({
     <div className="flex h-full flex-col justify-center">
       <h2 className={cn(h, "max-w-3xl text-4xl leading-[1.1] sm:text-6xl")}>
         {isAr ? (
-          <span dir="rtl" className="font-arabic">{title}</span>
+          <span dir="rtl" className="font-arabic">
+            {title}
+          </span>
         ) : (
           <>
-            Detection is solved.{" "}
-            <span className="text-primary">Intervention is not.</span>
+            Detection is solved. <span className="text-primary">Intervention is not.</span>
           </>
         )}
       </h2>
-      <p className={cn("mt-6 max-w-xl text-[15.5px] leading-relaxed text-ink-2", arCls)} dir={isAr ? "rtl" : "ltr"}>
+      <p
+        className={cn("mt-6 max-w-xl text-[15.5px] leading-relaxed text-ink-2", arCls)}
+        dir={isAr ? "rtl" : "ltr"}
+      >
         {sub}
       </p>
       <div className="mt-9 flex flex-wrap gap-2.5">

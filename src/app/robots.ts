@@ -36,11 +36,11 @@ import type { MetadataRoute } from "next";
  * nothing.
  */
 export const NO_INDEX = [
-  "/api/",     // every route handler, including the operator-only ones
-  "/v1/",      // the headless aliases rewritten to /api/* by next.config.ts
-  "/inspector",// signature debug tool — operator material
-  "/__clerk/", // Clerk's internal proxy paths
-  "/_next/",   // build output, never content
+  "/api/", // every route handler, including the operator-only ones
+  "/v1/", // the headless aliases rewritten to /api/* by next.config.ts
+  "/inspector", // signature debug tool — operator material
+  "/api/auth/", // Better Auth endpoints, already covered by /api/ but explicit
+  "/_next/", // build output, never content
 ] as const;
 
 /**

@@ -42,7 +42,7 @@ export async function POST(req: Request) {
     // token" from "expired" from "no account" and use that to probe.
     return NextResponse.json(
       { error: "That sign-in link is not valid." },
-      { status: 401, headers: { "Cache-Control": "no-store" } }
+      { status: 401, headers: { "Cache-Control": "no-store" } },
     );
   }
 
@@ -50,7 +50,7 @@ export async function POST(req: Request) {
   if (!identity) {
     return NextResponse.json(
       { error: "No account exists for that address." },
-      { status: 401, headers: { "Cache-Control": "no-store" } }
+      { status: 401, headers: { "Cache-Control": "no-store" } },
     );
   }
 
@@ -70,7 +70,7 @@ export async function POST(req: Request) {
       orgId: identity.orgId,
       name: identity.name,
     },
-    { headers: { "Cache-Control": "no-store" } }
+    { headers: { "Cache-Control": "no-store" } },
   );
   response.cookies.set(SESSION_COOKIE_NAME, token, SESSION_COOKIE_ATTRS);
   return response;

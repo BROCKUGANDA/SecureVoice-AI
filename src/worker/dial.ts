@@ -28,7 +28,8 @@ import { append as auditAppend } from "@/lib/audit-chain";
 import { db } from "@/lib/db";
 import { transitionCase } from "@/lib/case-state-machine";
 
-const WORKER_ID = process.env.DIAL_WORKER_ID ?? `${hostname()}-${process.pid}-${randomUUID().slice(0, 8)}`;
+const WORKER_ID =
+  process.env.DIAL_WORKER_ID ?? `${hostname()}-${process.pid}-${randomUUID().slice(0, 8)}`;
 const POLL_MS = Number(process.env.DIAL_WORKER_POLL_MS ?? 1_000);
 const BATCH = Number(process.env.DIAL_WORKER_BATCH ?? 5);
 const LEASE_MS = Number(process.env.DIAL_WORKER_LEASE_MS ?? 60_000);
@@ -150,7 +151,9 @@ async function tick(): Promise<number> {
 }
 
 async function main(): Promise<void> {
-  console.log(`[dial-worker] ${WORKER_ID} starting — batch ${BATCH}, lease ${LEASE_MS}ms, poll ${POLL_MS}ms`);
+  console.log(
+    `[dial-worker] ${WORKER_ID} starting — batch ${BATCH}, lease ${LEASE_MS}ms, poll ${POLL_MS}ms`,
+  );
 
   if (ONCE) {
     const n = await tick();

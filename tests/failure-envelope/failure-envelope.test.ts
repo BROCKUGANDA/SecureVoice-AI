@@ -19,7 +19,7 @@
  */
 import { test, expect } from "bun:test";
 import { createHmac } from "node:crypto";
-import { FAILURE_CODES } from "@/lib/failures/envelope";
+import { FAILURE_CODES, type FailureCode } from "@/lib/failures/envelope";
 
 process.env.WEBHOOK_SECRET = process.env.WEBHOOK_SECRET ?? "failure-envelope-test-secret";
 
@@ -27,22 +27,22 @@ const SECRET = process.env.WEBHOOK_SECRET;
 const ENVELOPE_KEYS = ["code", "message", "retryable", "requestId", "docsUrl"];
 
 function signed(body: string): Request {
-const t = Math.floor(Date.now() / 1000).toString();
-const v1 = createHmac("sha256", SECRET!).update(`${t}.${body}`).digest("hex");
-return new Request("http://localhost/api/v1/interventions", {
-  method: "POST",
-  headers: {
-    "content-type": "application/json",
-    "sv-signature": `t=${t},v1=${v1}`,
-    "idempotency-key": `failure-envelope-${Date.now()}-${Math.floor(Math.random() * 1e6)}`,
-  },
-  body,
-});
+  const t = Math.floor(Date.now() / 1000).toString();
+  const v1 = createHmac("sha256", SECRET!).update(`${t}.${body}`).digest("hex");
+  return new Request("http://localhost/api/v1/interventions", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "sv-signature": `t=${t},v1=${v1}`,
+      "idempotency-key": `failure-envelope-${Date.now()}-${Math.floor(Math.random() * 1e6)}`,
+    },
+    body,
+  });
 }
 
 /** A signal that fails the strict schema — 422 by contract. */
 function invalidSignal(): Request {
-return signed(JSON.stringify({ transaction_ref: "X", risk_score: 0.94 }));
+  return signed(JSON.stringify({ transaction_ref: "X", risk_score: 0.94 }));
 }
 
 test("a malformed request returns the envelope, not a bare {error}", async () => {
@@ -50,7 +50,7 @@ test("a malformed request returns the envelope, not a bare {error}", async () =>
   const res = await POST(invalidSignal() as never);
   expect(res.status).toBe(422);
 
-  const body = (await res.json()) as Record<string, unknown>;
+  const body = (await res.json()) as { code: FailureCode; requestId: string; retryable: boolean };
   // Every field the contract promises.
   for (const key of ENVELOPE_KEYS) {
     expect(body).toHaveProperty(key);
@@ -67,7 +67,7 @@ test("a malformed request returns the envelope, not a bare {error}", async () =>
 test("the correlation id is returned as a header too, so logs and body agree", async () => {
   const { POST } = await import("@/app/api/v1/interventions/route");
   const res = await POST(invalidSignal() as never);
-  const body = (await res.json()) as Record<string, unknown>;
+  const body = (await res.json()) as { requestId: string };
   expect(res.headers.get("x-request-id")).toBe(body.requestId);
 });
 

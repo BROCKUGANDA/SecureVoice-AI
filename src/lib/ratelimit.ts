@@ -33,7 +33,13 @@ export type ConsumeResult =
  * single-instance (the SecureVoice reference architecture).
  */
 export interface RateLimitStore {
-  consume(scope: string, id: string, cost: number, capacity: number, refillPerSec: number): ConsumeResult;
+  consume(
+    scope: string,
+    id: string,
+    cost: number,
+    capacity: number,
+    refillPerSec: number,
+  ): ConsumeResult;
 }
 
 /* ── In-memory store (default) ── */
@@ -65,7 +71,13 @@ function sweep(now: number): void {
 }
 
 class InMemoryStore implements RateLimitStore {
-  consume(scope: string, id: string, cost: number, capacity: number, refillPerSec: number): ConsumeResult {
+  consume(
+    scope: string,
+    id: string,
+    cost: number,
+    capacity: number,
+    refillPerSec: number,
+  ): ConsumeResult {
     const key = `${safeId(scope)}:${safeId(id)}`;
     const now = Date.now();
     if (++callsSinceSweep >= EVICT_SWEEP_EVERY) {
@@ -110,7 +122,12 @@ export function setRateLimitStore(s: RateLimitStore): void {
  * a demo visitor would be locked out after a handful of requests. Omit it and
  * the historical behaviour is unchanged.
  */
-export function consume(scope: string, id: string, cost = 1, capacityPerHour?: number): ConsumeResult {
+export function consume(
+  scope: string,
+  id: string,
+  cost = 1,
+  capacityPerHour?: number,
+): ConsumeResult {
   // Parens are required: `??` cannot be mixed with `||` without them. An explicit
   // capacity wins even when it is 0 — 0 is a legitimate "allow nothing" budget,
   // which a falsy fallback would silently turn into the default.

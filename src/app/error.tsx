@@ -42,9 +42,7 @@ export default function Error({
           Reload platform
         </button>
       </div>
-      {error.digest && (
-        <p className="num mt-6 text-[10.5px] text-ink-3">REF: {error.digest}</p>
-      )}
+      {error.digest && <p className="num mt-6 text-[10.5px] text-ink-3">REF: {error.digest}</p>}
     </div>
   );
 }

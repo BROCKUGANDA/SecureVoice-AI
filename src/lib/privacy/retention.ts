@@ -123,7 +123,9 @@ const orgKey = (orgId: string | null): string => (orgId === null ? SHARED_ORG_KE
  *  would make a cutoff in the FUTURE and silently shred live cases. */
 function assertDays(name: string, value: number): number {
   if (!Number.isInteger(value) || value < 0) {
-    throw new RetentionConfigError(`${name} must be a whole number of days >= 0, got ${String(value)}`);
+    throw new RetentionConfigError(
+      `${name} must be a whole number of days >= 0, got ${String(value)}`,
+    );
   }
   return value;
 }
@@ -152,7 +154,9 @@ function envList(name: string): string[] {
  * always wins and is visible in `sources`.
  */
 export function configureRetention(orgId: string | null, tiers: TierDays): RetentionPolicy {
-  const next: Required<TierDays> = { ...(OVERRIDES.get(orgKey(orgId)) ?? { audioDays: 0, transcriptDays: 0, caseRecordDays: 0 }) };
+  const next: Required<TierDays> = {
+    ...(OVERRIDES.get(orgKey(orgId)) ?? { audioDays: 0, transcriptDays: 0, caseRecordDays: 0 }),
+  };
   for (const [name, value] of Object.entries(tiers) as [keyof TierDays, number | undefined][]) {
     if (value === undefined) continue;
     next[name] = assertDays(name, value);
@@ -184,7 +188,11 @@ export function isPilotOrg(orgId: string | null): boolean {
  */
 export function retentionPolicy(orgId: string | null): RetentionPolicy {
   const notes: string[] = [];
-  const sources: RetentionPolicy["sources"] = { audio: "default", transcripts: "default", caseRecords: "default" };
+  const sources: RetentionPolicy["sources"] = {
+    audio: "default",
+    transcripts: "default",
+    caseRecords: "default",
+  };
 
   const envAudio = envDays(ENV_AUDIO_DAYS);
   const envTranscript = envDays(ENV_TRANSCRIPT_DAYS);
@@ -276,7 +284,11 @@ export type RetentionMutation = {
 export function assertRetentionMutationAllowed(mutation: RetentionMutation): void {
   if (mutation.target !== "AuditLog") return;
   if (mutation.columns.length > 0 || (mutation.rowsDeleted ?? 0) > 0) {
-    throw new ChainMutationRefusedError(mutation.target, mutation.columns, mutation.rowsDeleted ?? 0);
+    throw new ChainMutationRefusedError(
+      mutation.target,
+      mutation.columns,
+      mutation.rowsDeleted ?? 0,
+    );
   }
 }
 
@@ -334,10 +346,7 @@ export function audioStoreConfigured(): boolean {
 // ── The selector ─────────────────────────────────────────────────────────────
 
 export type TierAction =
-  | "purgeAudio"
-  | "shredPayloadKey"
-  | "deleteCaseRecord"
-  | "chainProtectedAppendOnly";
+  "purgeAudio" | "shredPayloadKey" | "deleteCaseRecord" | "chainProtectedAppendOnly";
 
 export type DueTier = {
   tier: Tier;
@@ -518,7 +527,10 @@ const REPORTED_REFS_CAP = 50;
 
 /** Every org that currently has a case row, plus any org with an explicit
  *  override (so a configured org with zero cases is still evaluated). */
-async function orgsToSweep(explicit: (string | null)[] | undefined, max: number): Promise<(string | null)[]> {
+async function orgsToSweep(
+  explicit: (string | null)[] | undefined,
+  max: number,
+): Promise<(string | null)[]> {
   if (explicit) return explicit.slice(0, max);
   const rows = await db.case.groupBy({ by: ["orgId"] });
   const orgs = new Set<string | null>(rows.map((r) => r.orgId as string | null));
@@ -546,7 +558,9 @@ export async function runRetention(
   const maxBatchesPerTier = opts.maxBatchesPerTier ?? DEFAULT_MAX_BATCHES;
   const maxOrgs = opts.maxOrgs ?? DEFAULT_MAX_ORGS;
   if (!Number.isInteger(batchSize) || batchSize < 1) {
-    throw new RetentionConfigError(`batchSize must be a positive integer, got ${String(batchSize)}`);
+    throw new RetentionConfigError(
+      `batchSize must be a positive integer, got ${String(batchSize)}`,
+    );
   }
   if (!Number.isInteger(maxBatchesPerTier) || maxBatchesPerTier < 1) {
     throw new RetentionConfigError(
@@ -564,8 +578,22 @@ export async function runRetention(
     // by construction, which is exactly the report a DPO wants to read.
     tiers: {
       audio: { tier: "audio", due: 0, acted: 0, batches: 0, truncated: false, caseRefs: [] },
-      transcripts: { tier: "transcripts", due: 0, acted: 0, batches: 0, truncated: false, caseRefs: [] },
-      caseRecords: { tier: "caseRecords", due: 0, acted: 0, batches: 0, truncated: false, caseRefs: [] },
+      transcripts: {
+        tier: "transcripts",
+        due: 0,
+        acted: 0,
+        batches: 0,
+        truncated: false,
+        caseRefs: [],
+      },
+      caseRecords: {
+        tier: "caseRecords",
+        due: 0,
+        acted: 0,
+        batches: 0,
+        truncated: false,
+        caseRefs: [],
+      },
       audit: { tier: "audit", due: 0, acted: 0, batches: 0, truncated: false, caseRefs: [] },
     },
     audioStore: audioStoreConfigured() ? "configured" : "none-configured",
@@ -665,7 +693,10 @@ export async function runRetention(
             report.tiers[tier].caseRefs.push(row.caseRef);
           }
         }
-        cursor = { at: rows[rows.length - 1].createdAt, ref: rows[rows.length - 1].caseRef };
+        // `if (rows.length === 0) break;` above proved this batch is non-empty and
+        // nothing reassigns `rows` in between, so the final element exists.
+        const lastRow = rows[rows.length - 1]!;
+        cursor = { at: lastRow.createdAt, ref: lastRow.caseRef };
         if (rows.length === batchSize) report.tiers[tier].truncated = true;
 
         if (dryRun) continue;
@@ -712,7 +743,11 @@ export async function runRetention(
   return report;
 }
 
-async function applyTierAction(tier: Tier, caseRef: string, report: RetentionRunReport): Promise<boolean> {
+async function applyTierAction(
+  tier: Tier,
+  caseRef: string,
+  report: RetentionRunReport,
+): Promise<boolean> {
   switch (tier) {
     case "audio": {
       if (!audioStoreConfigured()) return false;

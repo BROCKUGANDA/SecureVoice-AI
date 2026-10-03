@@ -39,12 +39,12 @@ systemctl restart docker
 
 ## 2. Firewall (provider cloud firewall if one exists — Akamai/Linode, Hetzner, DigitalOcean all have them — otherwise ufw. Pick one, not both.)
 
-| Inbound | Why |
-| --- | --- |
-| TCP 22 | SSH — restrict to your IP |
-| TCP 80 | ACME HTTP-01 (Let's Encrypt) |
-| TCP 443 | HTTPS |
-| UDP 443 | HTTP/3 (optional) |
+| Inbound | Why                          |
+| ------- | ---------------------------- |
+| TCP 22  | SSH — restrict to your IP    |
+| TCP 80  | ACME HTTP-01 (Let's Encrypt) |
+| TCP 443 | HTTPS                        |
+| UDP 443 | HTTP/3 (optional)            |
 
 Nothing else. **5432, 3000, 4000 must stay closed** — the entire edge trust
 model depends on the origin being unreachable except through Caddy.
@@ -59,35 +59,37 @@ A    voice.example.com   →  <VPS IPv4>
   will attempt issuance over it and fail.
 - Wait for propagation before first boot: `dig +short voice.example.com @1.1.1.1`
 
-## 4. Clerk (before you build — this is a hard blocker)
+## 4. Better Auth (before you build - this is a hard blocker)
 
-`NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` is **inlined into the bundle at build
-time**. If it is not in `.env` when you `docker compose build`, every request
-500s and Caddy never starts. Runtime env cannot fix it — you must rebuild.
+`BETTER_AUTH_SECRET` is read at **runtime**, so unlike the Clerk setup it is not
+inlined into the bundle - but it is still a hard blocker: if it is missing or
+shorter than 32 characters, `src/lib/better-auth.ts` throws at import and every
+request 500s, so Caddy never starts.
 
-**If you already have a domain:** create the production Clerk instance now,
-put `pk_live_…` / `sk_live_…` in `.env`, mark at least one user
-`publicMetadata.role = "operator"`, and never think about this again.
+Generate one per environment and commit it only to that environment's secrets:
 
-**If you don't (the deploy-first path):** a Clerk production instance requires
-DNS verification, so it cannot exist before the domain. Deploy with the dev
-keys (`pk_test`/`sk_test`) — that is a supported, working configuration, and
-`bun run preflight` will keep reminding you the instance is a dev one. The
-swap procedure, when the domain lands:
+    node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
 
-1. Create the production Clerk instance; complete its DNS verification.
-2. Put `pk_live_…` / `sk_live_…` in `.env`.
-3. Rebuild **and** redeploy (the publishable key is build-time inlined):
-   `docker compose build app db-setup && docker compose up -d`
-4. Do this BEFORE onboarding real users. Dev-instance `UserProfile` rows
-   (wallets, BYOK keys) are keyed by dev user IDs and do not carry over —
-   fine for demo data, fatal for real wallets.
-5. Re-create the operator account on the new instance, set
-   `publicMetadata.role = "operator"`, sign in once (the profile syncs on
-   first login), then top up credits if needed:
-   `docker compose exec db psql -U securevoice -c "UPDATE \"UserProfile\" SET credits = 500 WHERE role = 'operator';"`
+`BETTER_AUTH_API_KEY` is optional. Without it the app runs normally and only the
+license-gated Better Auth infra features (dash telemetry) are disabled.
 
-No domain yet for TLS either? Use `<vps-ip>.sslip.io` as `SITE_ADDRESS` —
+**Rotating `BETTER_AUTH_SECRET` invalidates every existing session** and every
+stored credential, because it signs the session cookie and encrypts stored
+credentials. Treat a rotation as a forced logout of all users.
+
+**Provisioning an operator:** sign-up is invite-only
+(`src/lib/auth/signup.ts` refuses public registration). Create the user, add it to
+the Better Auth `organization` for its tenant, and grant the member role there -
+roles come from organization membership, not from a field on the user row. A user
+with no organization gets the default (no-tenant) namespace and cannot reach
+another tenant's data.
+
+**No domain yet?** Nothing here depends on one. Auth is same-origin at
+`/api/auth/*`, so there is no third-party identity instance to create and no DNS
+verification to complete - unlike the retired Clerk flow, which required a
+production instance before real users. Deploy directly.
+
+No domain yet for TLS either? Use `<vps-ip>.sslip.io` as `SITE_ADDRESS` -
 free instant DNS that resolves to your IP; Let's Encrypt issues for it. Swap
 to the real domain later by editing `.env` and restarting Caddy.
 
@@ -110,8 +112,8 @@ POSTGRES_PASSWORD=<openssl rand -base64 24>
 AUTH_SECRET=<openssl rand -base64 48>
 WEBHOOK_SECRET=<openssl rand -hex 32>
 REALTIME_INGEST_SECRET=<openssl rand -base64 32>
-NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_...   # dev for now; pk_live_... once the domain exists (see step 4)
-CLERK_SECRET_KEY=sk_test_...                    # sk_live_... at the same time
+BETTER_AUTH_SECRET=<node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))">   # >=32 chars, runtime env, per environment
+# BETTER_AUTH_API_KEY is optional - enables Better Auth dash telemetry only
 
 # — Safe first-boot defaults —
 ELEVENLABS_DRY_RUN=true            # flip false only when voice keys are in
@@ -142,7 +144,7 @@ curl -I https://voice.example.com/healthz
 ```
 
 `preflight` prints the one table that answers "did we forget anything" —
-including whether voice is DRY-RUN and whether Clerk is still the dev
+including whether voice is DRY-RUN and whether the Better Auth secret is set
 instance. Run it before every demo and every go-live; the same warnings are
 also printed at every app boot (`docker compose logs app | grep config`).
 
@@ -218,10 +220,10 @@ Copy `/srv/backups` off the box. Certs are cheap to re-issue; the database
 
 ## Troubleshooting
 
-| Symptom | Cause |
-| --- | --- |
-| `app` healthy never happens; every page 500s | Clerk publishable key missing at build → set it in `.env` and `docker compose build` again |
-| `caddy` unhealthy | leftover from an old config: the healthcheck probes `/healthz` on itself — confirm `SITE_ADDRESS` matches DNS |
-| 521 / TLS errors | DNS not propagated, AAAA record without IPv6, or port 80 blocked (ACME needs it) |
-| Console shows SSE but never websocket | `REALTIME_INGEST_SECRET` unset, or `REALTIME_URL` overridden to 127.0.0.1 |
-| `db-setup` keeps failing | read `docker compose logs db-setup`; after 3 retries it stays down — fix the cause and `docker compose up db-setup` again |
+| Symptom                                      | Cause                                                                                                                     |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `app` healthy never happens; every page 500s | `BETTER_AUTH_SECRET` missing or <32 chars → set it in `.env` and restart the app                                          |
+| `caddy` unhealthy                            | leftover from an old config: the healthcheck probes `/healthz` on itself — confirm `SITE_ADDRESS` matches DNS             |
+| 521 / TLS errors                             | DNS not propagated, AAAA record without IPv6, or port 80 blocked (ACME needs it)                                          |
+| Console shows SSE but never websocket        | `REALTIME_INGEST_SECRET` unset, or `REALTIME_URL` overridden to 127.0.0.1                                                 |
+| `db-setup` keeps failing                     | read `docker compose logs db-setup`; after 3 retries it stays down — fix the cause and `docker compose up db-setup` again |

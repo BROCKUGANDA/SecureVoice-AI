@@ -19,7 +19,7 @@ a single client-side `view` state held in `src/lib/store.ts`. There is no
 Three consequences run through this entire document:
 
 1. **The console cannot be de-indexed by path.** There is no path to exclude. It
-   is protected by Clerk gating the data, and by never handing a crawler a URL
+   is protected by server-side session gating of the data, and by never handing a crawler a URL
    that resolves to it.
 2. **There are exactly two HTML routes in the tree:** `/` and `/inspector`.
    `/inspector` is a webhook signature-verification debug tool, so `/` is the
@@ -56,11 +56,11 @@ rather than duplicate the existing edge layer is satisfied by extending
 Set in `src/proxy.ts`, path-scoped, with an allowlist so a route added later is
 noindex by default:
 
-| Path | Header |
-| --- | --- |
-| `/`, `/sitemap.xml` | *absent* — indexable |
-| `/api/*`, `/v1/*`, `/inspector`, `/__clerk/*` | `noindex, nofollow` |
-| anything else | `noindex, nofollow` (fail-closed) |
+| Path                                           | Header                            |
+| ---------------------------------------------- | --------------------------------- |
+| `/`, `/sitemap.xml`                            | _absent_ — indexable              |
+| `/api/*`, `/v1/*`, `/inspector`, `/api/auth/*` | `noindex, nofollow`               |
+| anything else                                  | `noindex, nofollow` (fail-closed) |
 
 Absence rather than `index, follow` on the marketing page is deliberate: if the
 header ever disagreed with `src/app/sitemap.ts`, the disagreement would be
@@ -84,7 +84,7 @@ GET /inspector     -> X-Robots-Tag: noindex, nofollow   (200)
 ### `robots.txt` — BLOCKING CONFLICT
 
 `src/app/robots.ts` generates the policy: `Allow: /` with `Disallow:` on
-`/api/`, `/v1/`, `/inspector`, `/__clerk/`, `/_next/`; `Disallow: /` for
+`/api/`, `/v1/`, `/inspector`, `/api/auth/`, `/_next/`; `Disallow: /` for
 GPTBot, ClaudeBot, PerplexityBot and Google-Extended; and an absolute
 `Sitemap:` line.
 
@@ -99,8 +99,8 @@ GET /robots.txt -> HTTP 500
 **Fix: delete `public/robots.txt`.** Its content is fully superseded. It was not
 deleted here because it is outside this work package's granted file scope.
 
-This also retires a false claim. The legacy file opened with *"The app and api
-hosts override this with X-Robots-Tag: noindex headers"* — but no such header
+This also retires a false claim. The legacy file opened with _"The app and api
+hosts override this with X-Robots-Tag: noindex headers"_ — but no such header
 existed anywhere in the repository. The file disallowed nothing app-scoped:
 `Allow: /` plus four AI-crawler blocks. A crawler obeying it exactly was
 welcome to walk `/api/*`. The header is real now.
@@ -130,16 +130,16 @@ Verified live: `GET /sitemap.xml` → 200, one `<loc>`, no `/console`, no `/api`
 
 Measured with `GET http://localhost:3111/` against `next dev`:
 
-| Header | Value |
-| --- | --- |
-| `Content-Security-Policy` | full policy, includes `frame-ancestors 'none'`, `object-src 'none'`, `base-uri 'self'`, `form-action 'self'` |
-| `Strict-Transport-Security` | `max-age=63072000; includeSubDomains; preload` |
-| `X-Frame-Options` | `DENY` |
-| `X-Content-Type-Options` | `nosniff` |
-| `Referrer-Policy` | `strict-origin-when-cross-origin` |
-| `Cross-Origin-Opener-Policy` | `same-origin` |
-| `Cross-Origin-Resource-Policy` | `same-origin` |
-| `Permissions-Policy` | `camera=(), geolocation=(), payment=(), usb=(), midi=(), serial=(), hid=(), display-capture=(), microphone=(self)` |
+| Header                         | Value                                                                                                              |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------ |
+| `Content-Security-Policy`      | full policy, includes `frame-ancestors 'none'`, `object-src 'none'`, `base-uri 'self'`, `form-action 'self'`       |
+| `Strict-Transport-Security`    | `max-age=63072000; includeSubDomains; preload`                                                                     |
+| `X-Frame-Options`              | `DENY`                                                                                                             |
+| `X-Content-Type-Options`       | `nosniff`                                                                                                          |
+| `Referrer-Policy`              | `strict-origin-when-cross-origin`                                                                                  |
+| `Cross-Origin-Opener-Policy`   | `same-origin`                                                                                                      |
+| `Cross-Origin-Resource-Policy` | `same-origin`                                                                                                      |
+| `Permissions-Policy`           | `camera=(), geolocation=(), payment=(), usb=(), midi=(), serial=(), hid=(), display-capture=(), microphone=(self)` |
 
 `frame-ancestors 'none'` is present twice over — in the CSP and as
 `X-Frame-Options: DENY` — and `Caddyfile` repeats HSTS, nosniff, X-Frame-Options
@@ -169,13 +169,13 @@ in development only, correctly gated on `NODE_ENV`), `style-src 'self'
 - That `script-src 'unsafe-inline'` is still required. In a production build
   Next normally hashes or nonces these; that substitution was **not observed**,
   because the build could not complete (see below).
-- `frame-src` for Clerk component iframes — no authenticated Clerk session was
+- `frame-src` is now self-only (the Clerk component iframes are gone) — no authenticated Clerk session was
   available to trigger one.
 - HSTS `preload` — the header is emitted with `preload`, but no token has been
   submitted to any browser vendor.
 
 The honest summary: the policy is **declared and emitted**; it has not been
-**proven not to break Clerk, next/font, or the websocket**. Do that in a browser
+**proven not to break next/font or the websocket**. Do that in a browser
 before a demo, not in this document.
 
 ### Permissions-Policy
@@ -340,7 +340,7 @@ source and, separately, confirmed on the wire by the live block.
 - [ ] **Add `NEXT_PUBLIC_SITE_URL` to `.env.example`** — the sitemap and
       robots.txt origin is currently derived from `SITE_ADDRESS`.
 - [ ] **Replace the `security.txt` placeholder contact.**
-- [ ] Open the app in a browser and confirm the CSP does not block Clerk, fonts
+- [ ] Open the app in a browser and confirm the CSP does not block fonts
       or the websocket. This has not been proven.
 - [ ] Re-run `bun run build` once the concurrent type errors are fixed.
 - [ ] Re-run with `SURFACE_BASE_URL` against the real deployment so the live

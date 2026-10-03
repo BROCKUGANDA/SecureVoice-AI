@@ -53,13 +53,13 @@ export async function POST(req: Request) {
     // Same shape either way; 503 only when the deployment is misconfigured.
     return NextResponse.json(
       { error: "If that address belongs to an account, a sign-in link is on its way." },
-      { status: 202, headers: { "Cache-Control": "no-store" } }
+      { status: 202, headers: { "Cache-Control": "no-store" } },
     );
   }
 
   // Uniform acknowledgement. Never echoes the token.
   return NextResponse.json(
     { ok: true, message: "If that address belongs to an account, a sign-in link is on its way." },
-    { status: 202, headers: { "Cache-Control": "no-store" } }
+    { status: 202, headers: { "Cache-Control": "no-store" } },
   );
 }

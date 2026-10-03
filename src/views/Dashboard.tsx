@@ -49,7 +49,9 @@ export function Dashboard() {
           <div className="flex items-center gap-3">
             <span className="micro text-primary">Agent operations</span>
             <span className="h-px w-10 bg-line" />
-            <span dir="rtl" className="font-arabic text-[13px] text-ink-3">لوحة العمليات</span>
+            <span dir="rtl" className="font-arabic text-[13px] text-ink-3">
+              لوحة العمليات
+            </span>
           </div>
           <h1 className="font-display mt-3 text-3xl font-semibold tracking-tight sm:text-4xl">
             Agent Management Dashboard
@@ -71,7 +73,7 @@ export function Dashboard() {
             onClick={() => setTab(x.id)}
             className={cn(
               "relative flex flex-1 items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-[13px] font-semibold transition",
-              tab === x.id ? "text-white" : "text-ink-2 hover:text-foreground"
+              tab === x.id ? "text-white" : "text-ink-2 hover:text-foreground",
             )}
           >
             {tab === x.id && (
@@ -82,9 +84,7 @@ export function Dashboard() {
               />
             )}
             <x.icon className={cn("relative h-4 w-4", tab === x.id && "text-green-bright")} />
-            <span className="relative whitespace-nowrap">
-              {lang === "ar" ? x.ar : x.en}
-            </span>
+            <span className="relative whitespace-nowrap">{lang === "ar" ? x.ar : x.en}</span>
           </button>
         ))}
       </div>
@@ -155,7 +155,7 @@ function Monitor() {
                 <span
                   className={cn(
                     "flex h-4 w-4 items-center justify-center rounded-full border",
-                    r.ok ? "border-primary bg-primary" : "border-line bg-white"
+                    r.ok ? "border-primary bg-primary" : "border-line bg-white",
                   )}
                 >
                   {r.ok && <span className="h-1.5 w-1.5 rounded-full bg-white" />}
@@ -233,9 +233,7 @@ function Analytics() {
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {KPIS.map((k, i) => {
           const pctGood =
-            k.good === "up"
-              ? (k.current / k.target) * 100
-              : (k.baseline / k.current) * 100;
+            k.good === "up" ? (k.current / k.target) * 100 : (k.baseline / k.current) * 100;
           return (
             <motion.div
               key={k.key}
@@ -245,9 +243,7 @@ function Analytics() {
               className="rounded-2xl border border-line bg-white p-5"
             >
               <div className="flex items-center justify-between">
-                <p className="text-[12px] font-medium text-ink-2">
-                  {t(k.en, k.ar, "en")}
-                </p>
+                <p className="text-[12px] font-medium text-ink-2">{t(k.en, k.ar, "en")}</p>
                 {k.key === "delay" && <Timer className="h-3.5 w-3.5 text-ink-3" />}
                 {k.key === "csat" && <Languages className="h-3.5 w-3.5 text-ink-3" />}
                 {k.key === "prevention" && <ShieldCheck className="h-3.5 w-3.5 text-ink-3" />}
@@ -263,7 +259,9 @@ function Analytics() {
                 <span
                   className={cn(
                     "num ml-auto rounded-full px-2 py-0.5 text-[10.5px] font-semibold",
-                    k.good === "up" ? "bg-green-tint text-green-deep" : "bg-amber-tint text-amber-soft"
+                    k.good === "up"
+                      ? "bg-green-tint text-green-deep"
+                      : "bg-amber-tint text-amber-soft",
                   )}
                 >
                   base {k.baseline}
@@ -271,10 +269,7 @@ function Analytics() {
                 </span>
               </div>
               <div className="mt-3">
-                <Sparkline
-                  data={TREND.map((v) => v * (0.7 + i * 0.1))}
-                  up={k.good === "up"}
-                />
+                <Sparkline data={TREND.map((v) => v * (0.7 + i * 0.1))} up={k.good === "up"} />
               </div>
               <div className="mt-1 h-1 w-full overflow-hidden rounded-full bg-secondary">
                 <motion.div
@@ -312,7 +307,9 @@ function Analytics() {
               <div key={o.label} className="flex items-center gap-2.5 text-[12px]">
                 <span className="h-2.5 w-2.5 rounded-[4px]" style={{ background: o.color }} />
                 <span className="text-ink-2">{o.label}</span>
-                <span dir="rtl" className="font-arabic text-[10.5px] text-ink-3">{o.labelAr}</span>
+                <span dir="rtl" className="font-arabic text-[10.5px] text-ink-3">
+                  {o.labelAr}
+                </span>
                 <span className="num ml-auto font-semibold">{o.pct}%</span>
               </div>
             ))}
@@ -375,7 +372,7 @@ function Config() {
       const u = new SpeechSynthesisUtterance(
         id === "fatima"
           ? "مرحباً، أنا مساعد الأمان في مصرفك. أتصل بخصوص نشاط حديث على حسابك."
-          : "Hello, this is your bank's AI security assistant calling about recent activity on your account."
+          : "Hello, this is your bank's AI security assistant calling about recent activity on your account.",
       );
       u.lang = id === "fatima" ? "ar-SA" : "en-US";
       const voices = window.speechSynthesis.getVoices();
@@ -383,7 +380,10 @@ function Config() {
       if (v) u.voice = v;
       window.speechSynthesis.cancel();
       window.speechSynthesis.speak(u);
-      toast({ title: "Voice preview", description: `Playing ${VOICES.find((v) => v.id === id)?.name} via browser TTS.` });
+      toast({
+        title: "Voice preview",
+        description: `Playing ${VOICES.find((v) => v.id === id)?.name} via browser TTS.`,
+      });
     } catch {
       toast({ title: "Voice preview unavailable", description: "Browser TTS not supported here." });
     }
@@ -394,7 +394,9 @@ function Config() {
       {/* voices */}
       <div className="rounded-3xl border border-line bg-white p-5 sm:p-6">
         <h3 className="text-[14px] font-semibold">Voice personas</h3>
-        <p dir="rtl" className="font-arabic mt-1 text-[11px] text-ink-3">الأصوات المعتمدة</p>
+        <p dir="rtl" className="font-arabic mt-1 text-[11px] text-ink-3">
+          الأصوات المعتمدة
+        </p>
         <div className="mt-4 space-y-3">
           {VOICES.map((v) => (
             <button
@@ -404,13 +406,13 @@ function Config() {
                 "flex w-full items-center gap-4 rounded-2xl border p-4 text-left transition",
                 selectedVoice === v.id
                   ? "border-primary bg-green-tint/50 shadow-[0_10px_26px_-18px_rgba(11,122,85,0.6)]"
-                  : "border-line hover:border-primary/40"
+                  : "border-line hover:border-primary/40",
               )}
             >
               <span
                 className={cn(
                   "flex h-11 w-11 shrink-0 items-center justify-center rounded-full font-display text-[15px] font-bold",
-                  selectedVoice === v.id ? "bg-primary text-white" : "bg-secondary text-ink-2"
+                  selectedVoice === v.id ? "bg-primary text-white" : "bg-secondary text-ink-2",
                 )}
               >
                 {v.name[0]}
@@ -418,7 +420,9 @@ function Config() {
               <span className="min-w-0 flex-1">
                 <span className="flex items-center gap-2">
                   <span className="text-[14px] font-semibold">{v.name}</span>
-                  <span className={cn("text-[12px]", v.id === "fatima" ? "font-arabic" : "text-ink-3")}>
+                  <span
+                    className={cn("text-[12px]", v.id === "fatima" ? "font-arabic" : "text-ink-3")}
+                  >
                     {v.lang}
                   </span>
                 </span>
@@ -457,7 +461,9 @@ function Config() {
         {/* guardrails */}
         <div className="rounded-3xl border border-line bg-white p-5 sm:p-6">
           <h3 className="text-[14px] font-semibold">Guardrails</h3>
-          <p dir="rtl" className="font-arabic mt-1 text-[11px] text-ink-3">ضمانات الامتثال</p>
+          <p dir="rtl" className="font-arabic mt-1 text-[11px] text-ink-3">
+            ضمانات الامتثال
+          </p>
           <div className="mt-4 space-y-1">
             {GUARDRAILS.map((g, i) => (
               <div
@@ -466,7 +472,9 @@ function Config() {
               >
                 <div>
                   <p className="text-[13px] font-medium">{g.en}</p>
-                  <p dir="rtl" className="font-arabic text-[10.5px] text-ink-3">{g.ar}</p>
+                  <p dir="rtl" className="font-arabic text-[10.5px] text-ink-3">
+                    {g.ar}
+                  </p>
                 </div>
                 <Switch
                   checked={guards[i]}
@@ -475,7 +483,8 @@ function Config() {
                     if (!v) {
                       toast({
                         title: "Guardrail disabled",
-                        description: "This action is blocked in production for critical guardrails.",
+                        description:
+                          "This action is blocked in production for critical guardrails.",
                         variant: "destructive",
                       });
                       setGuards((prev) => prev.map((x, j) => (j === i ? true : x)));
@@ -534,9 +543,9 @@ function Compliance() {
       AUDIT_LOG.filter(
         (a) =>
           a.event.toLowerCase().includes(query.toLowerCase()) ||
-          a.detail.toLowerCase().includes(query.toLowerCase())
+          a.detail.toLowerCase().includes(query.toLowerCase()),
       ),
-    [query]
+    [query],
   );
   const pages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const safePage = Math.min(page, pages);
@@ -603,7 +612,10 @@ function Compliance() {
             </thead>
             <tbody>
               {rows.map((a) => (
-                <tr key={a.ts + a.hash} className="border-t border-line/70 align-top transition hover:bg-paper/60">
+                <tr
+                  key={a.ts + a.hash}
+                  className="border-t border-line/70 align-top transition hover:bg-paper/60"
+                >
                   <td className="num py-3 pr-3 text-ink-3">{a.ts}</td>
                   <td className="py-3 pr-3">
                     <span
@@ -613,7 +625,7 @@ function Compliance() {
                           ? "bg-green-tint text-green-deep"
                           : a.event.includes("ALERT")
                             ? "bg-red-tint text-red-soft"
-                            : "bg-secondary text-ink-2"
+                            : "bg-secondary text-ink-2",
                       )}
                     >
                       {a.event}
@@ -631,7 +643,11 @@ function Compliance() {
 
       <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line px-5 py-3.5">
         <span className="text-[11.5px] text-ink-3">
-          Showing {loading ? "—" : `${(safePage - 1) * PAGE_SIZE + 1}–${Math.min(safePage * PAGE_SIZE, filtered.length)} of ${filtered.length}`} sealed entries
+          Showing{" "}
+          {loading
+            ? "—"
+            : `${(safePage - 1) * PAGE_SIZE + 1}–${Math.min(safePage * PAGE_SIZE, filtered.length)} of ${filtered.length}`}{" "}
+          sealed entries
         </span>
         <Pagination page={safePage} pages={pages} onChange={setPage} />
       </div>
@@ -664,7 +680,9 @@ function WebhooksDemo() {
   const [event, setEvent] = useState<string>("account.frozen");
   const [busy, setBusy] = useState(false);
   const [signed, setSigned] = useState<WxState | null>(null);
-  const [check, setCheck] = useState<{ valid: boolean; reason: string; tampered: boolean } | null>(null);
+  const [check, setCheck] = useState<{ valid: boolean; reason: string; tampered: boolean } | null>(
+    null,
+  );
 
   const sign = async () => {
     setBusy(true);
@@ -725,7 +743,7 @@ function WebhooksDemo() {
                 {t(
                   "Real HMAC-SHA256, computed server-side with the same primitives as production deliveries. Sign an event, verify it, then flip a value and watch the signature reject it.",
                   "HMAC-SHA256 حقيقي يُحسب على الخادم بنفس طرائق الإنتاج. وقّع حدثاً، تحقق منه، ثم عدّل قيمة وشاهد التوقيع يرفضها.",
-                  lang
+                  lang,
                 )}
               </p>
             </div>
@@ -740,7 +758,7 @@ function WebhooksDemo() {
                   "rounded-full border px-3 py-1.5 font-mono text-[11px] font-semibold transition",
                   event === e
                     ? "border-primary bg-green-tint text-primary"
-                    : "border-line bg-paper text-ink-2 hover:text-foreground"
+                    : "border-line bg-paper text-ink-2 hover:text-foreground",
                 )}
               >
                 {e}
@@ -759,13 +777,17 @@ function WebhooksDemo() {
           {signed && (
             <div className="mt-5 space-y-3">
               <div>
-                <div className="micro mb-1.5 text-[9px] text-ink-3">RAW PAYLOAD · EXACTLY WHAT THE CONSUMER RECEIVES</div>
+                <div className="micro mb-1.5 text-[9px] text-ink-3">
+                  RAW PAYLOAD · EXACTLY WHAT THE CONSUMER RECEIVES
+                </div>
                 <pre className="max-h-44 overflow-auto rounded-xl bg-[#0c110e] px-4 py-3 font-mono text-[11.5px] leading-relaxed text-white/85 sv-scroll">
-{signed.payload}
+                  {signed.payload}
                 </pre>
               </div>
               <div>
-                <div className="micro mb-1.5 text-[9px] text-ink-3">SIGNATURE HEADER · SV-SIGNATURE</div>
+                <div className="micro mb-1.5 text-[9px] text-ink-3">
+                  SIGNATURE HEADER · SV-SIGNATURE
+                </div>
                 <div className="overflow-x-auto rounded-xl border border-line bg-paper px-4 py-3 font-mono text-[11.5px] text-foreground sv-scroll">
                   <span className="text-ink-3">t={signed.t},</span>
                   <span className="font-semibold text-primary">v1={signed.v1}</span>
@@ -797,7 +819,7 @@ function WebhooksDemo() {
                     "flex items-start gap-2.5 rounded-xl border px-4 py-3",
                     check.valid
                       ? "border-green-200 bg-green-50 text-green-800"
-                      : "border-red-200 bg-red-50 text-red-700"
+                      : "border-red-200 bg-red-50 text-red-700",
                   )}
                 >
                   {check.valid ? (
@@ -833,19 +855,24 @@ function WebhooksDemo() {
               "Compute HMAC-SHA256(secret, `${t}.${rawBody}`) and compare to v1 in constant time.",
             ].map((s, i) => (
               <li key={i} className="flex gap-2.5 text-[12.5px] leading-relaxed text-ink-2">
-                <span className="font-mono text-[11px] font-bold text-primary">{String(i + 1).padStart(2, "0")}</span>
+                <span className="font-mono text-[11px] font-bold text-primary">
+                  {String(i + 1).padStart(2, "0")}
+                </span>
                 {s}
               </li>
             ))}
           </ol>
           <p className="mt-4 border-t border-line/70 pt-3 text-[11.5px] leading-relaxed text-ink-3">
-            The signing secret lives server-side — like the one behind this demo, it is never shipped to the browser. Verification here is constant-time (timingSafeEqual).
+            The signing secret lives server-side — like the one behind this demo, it is never
+            shipped to the browser. Verification here is constant-time (timingSafeEqual).
           </p>
         </div>
         <div className="rounded-3xl border border-line bg-[#0c110e] p-6 text-white">
-          <div className="font-mono text-[10.5px] uppercase tracking-wider text-white/50">verify in 6 lines</div>
+          <div className="font-mono text-[10.5px] uppercase tracking-wider text-white/50">
+            verify in 6 lines
+          </div>
           <pre className="mt-3 overflow-x-auto font-mono text-[11px] leading-relaxed text-white/85 sv-scroll">
-{`const hmac = crypto
+            {`const hmac = crypto
   .createHmac("sha256", secret)
   .update(\`\${t}.${"${rawBody}"}\`)
   .digest("hex");

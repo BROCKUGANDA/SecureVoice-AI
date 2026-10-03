@@ -180,7 +180,11 @@ export function createFixtureSignalSource(
 export const SCRIPTED_TRANSCRIPTS: Readonly<Record<string, readonly TranscriptTurn[]>> = {
   en: [
     { speaker: "agent", text: "This call is recorded to protect you.", atSeconds: 0 },
-    { speaker: "agent", text: "We detected a transaction of AED 2450.00 at SUNRISE ELECTRONICS.", atSeconds: 4 },
+    {
+      speaker: "agent",
+      text: "We detected a transaction of AED 2450.00 at SUNRISE ELECTRONICS.",
+      atSeconds: 4,
+    },
     { speaker: "customer", text: "I never made that purchase.", atSeconds: 9 },
     { speaker: "agent", text: "Is this transaction yours? Please say yes or no.", atSeconds: 11 },
     { speaker: "customer", text: "No, it is not mine.", atSeconds: 15 },
@@ -263,7 +267,13 @@ const E164 = /^\+[1-9]\d{7,14}$/;
 const NOT_E164 = "Destination phone is not E.164";
 
 export type RecordingTelephony = TelephonyProvider & {
-  calls(): Array<{ channel: "voice" | "sms"; to: string; language: string; caseRef: string; sid: string }>;
+  calls(): Array<{
+    channel: "voice" | "sms";
+    to: string;
+    language: string;
+    caseRef: string;
+    sid: string;
+  }>;
 };
 
 /**
@@ -273,9 +283,20 @@ export type RecordingTelephony = TelephonyProvider & {
  * a credential or a cent.
  */
 export function createRecordingTelephony(deps: FakeDeps): RecordingTelephony {
-  const log: Array<{ channel: "voice" | "sms"; to: string; language: string; caseRef: string; sid: string }> = [];
+  const log: Array<{
+    channel: "voice" | "sms";
+    to: string;
+    language: string;
+    caseRef: string;
+    sid: string;
+  }> = [];
 
-  const accept = (channel: "voice" | "sms", to: string, language: string, caseRef: string): TelephonyResult => {
+  const accept = (
+    channel: "voice" | "sms",
+    to: string,
+    language: string,
+    caseRef: string,
+  ): TelephonyResult => {
     if (!E164.test(to)) return { ok: false, status: 422, error: NOT_E164, channel };
     const sid = `CA_fake_${deps.ids.next()}`;
     log.push({ channel, to, language, caseRef, sid });
@@ -313,8 +334,7 @@ export function captureDedupeKey(input: {
   windowMinutes: number;
 }): string {
   const windowMinutes = input.windowMinutes > 0 ? input.windowMinutes : 0;
-  const bucket =
-    windowMinutes > 0 ? Math.floor(input.at.getTime() / (windowMinutes * 60_000)) : 0;
+  const bucket = windowMinutes > 0 ? Math.floor(input.at.getTime() / (windowMinutes * 60_000)) : 0;
   return `${input.orgId ?? "default"}:${input.alertType}:${bucket}`;
 }
 
@@ -337,7 +357,12 @@ export function createCaptureNotificationSink(deps: FakeDeps): CaptureNotificati
       }
       const at = req.at ?? deps.clock.now();
       const windowMinutes = req.windowMinutes ?? 15;
-      const key = captureDedupeKey({ orgId: req.orgId, alertType: req.alertType, at, windowMinutes });
+      const key = captureDedupeKey({
+        orgId: req.orgId,
+        alertType: req.alertType,
+        at,
+        windowMinutes,
+      });
       const existing = byKey.get(key);
       if (existing) {
         existing.count += 1;
@@ -397,7 +422,13 @@ export function createCaptureNotificationSink(deps: FakeDeps): CaptureNotificati
  * `verifyWebhook()`, so nothing can mistake it for a real gateway webhook.
  */
 export type DeterministicPaymentProvider = PaymentProviderPort & {
-  settlements(): Array<{ reference: string; eventId: string; amountMinor: number; currency: string; units: number }>;
+  settlements(): Array<{
+    reference: string;
+    eventId: string;
+    amountMinor: number;
+    currency: string;
+    units: number;
+  }>;
   /**
    * Offline-only settlement. Deliberately NOT reachable through
    * `verifyWebhook`, so no caller can be tricked into treating this as a
@@ -414,27 +445,46 @@ export type DeterministicPaymentProvider = PaymentProviderPort & {
 
 export function createDeterministicPaymentProvider(_deps: FakeDeps): DeterministicPaymentProvider {
   void _deps;
-  const settled = new Map<string, { eventId: string; amountMinor: number; currency: string; units: number }>();
+  const settled = new Map<
+    string,
+    { eventId: string; amountMinor: number; currency: string; units: number }
+  >();
   const refunded = new Set<string>();
-  const log: Array<{ reference: string; eventId: string; amountMinor: number; currency: string; units: number }> = [];
+  const log: Array<{
+    reference: string;
+    eventId: string;
+    amountMinor: number;
+    currency: string;
+    units: number;
+  }> = [];
 
   return {
     id: "deterministic",
     mode: "fake",
 
     async createCheckout(_req: CheckoutRequest): Promise<CheckoutSession> {
-      throw new Error("deterministic: bank transfers are started by issuing a quote, not a checkout URL");
+      throw new Error(
+        "deterministic: bank transfers are started by issuing a quote, not a checkout URL",
+      );
     },
 
     async verifyWebhook(_input: {
       rawBody: Buffer | string;
       headers: Record<string, string | string[] | undefined>;
     }): Promise<WebhookVerification> {
-      return { ok: false, reason: "unsupported_event", detail: "deterministic has no webhook surface" };
+      return {
+        ok: false,
+        reason: "unsupported_event",
+        detail: "deterministic has no webhook surface",
+      };
     },
 
     async chargeStoredAuthorization(_req: ChargeRequest): Promise<ChargeResult> {
-      return { ok: false, reference: "", reason: "deterministic: overage must be invoiced and verified manually" };
+      return {
+        ok: false,
+        reference: "",
+        reason: "deterministic: overage must be invoiced and verified manually",
+      };
     },
 
     async listEntitlements(reference: string): Promise<StoredEntitlement[]> {
@@ -446,7 +496,8 @@ export function createDeterministicPaymentProvider(_deps: FakeDeps): Determinist
     },
 
     async refund(req: RefundRequest): Promise<RefundResult> {
-      if (!settled.has(req.reference)) return { ok: false, reference: req.reference, reason: "not_found" };
+      if (!settled.has(req.reference))
+        return { ok: false, reference: req.reference, reason: "not_found" };
       if (refunded.has(req.reference)) {
         return { ok: false, reference: req.reference, reason: "already_refunded" };
       }
@@ -470,7 +521,8 @@ export function createDeterministicPaymentProvider(_deps: FakeDeps): Determinist
         throw new TypeError("settle.currency must be an ISO-4217 alpha-3 code");
       }
       const existing = settled.get(input.reference);
-      if (existing) return { applied: false, duplicate: true, reference: input.reference, units: 0 };
+      if (existing)
+        return { applied: false, duplicate: true, reference: input.reference, units: 0 };
       const row = {
         eventId: input.eventId,
         amountMinor: input.amountMinor,
@@ -549,7 +601,9 @@ function canonicalizeNested(value: unknown): string {
   if (Array.isArray(value)) return "[" + value.map(canonicalizeNested).join(",") + "]";
   const obj = value as Record<string, unknown>;
   const keys = Object.keys(obj).sort();
-  return "{" + keys.map((k) => JSON.stringify(k) + ":" + canonicalizeNested(obj[k])).join(",") + "}";
+  return (
+    "{" + keys.map((k) => JSON.stringify(k) + ":" + canonicalizeNested(obj[k])).join(",") + "}"
+  );
 }
 
 function canonical(row: Record<string, unknown>): string {
@@ -639,9 +693,7 @@ export function createInMemoryAuditSink(deps: FakeDeps): InMemoryAuditSink {
      * impossible, and that property lives in the storage layer, not here.
      */
     async verifyChain(callRef: string, orgId?: string | null): Promise<ChainVerification> {
-      const all = (byCallRef.get(callRef) ?? []).filter(
-        (r) => (orgId ? r.orgId === orgId : true),
-      );
+      const all = (byCallRef.get(callRef) ?? []).filter((r) => (orgId ? r.orgId === orgId : true));
       const byPrev = new Map<string, ChainRow[]>();
       for (const row of all) {
         const bucket = byPrev.get(row.prevHash ?? GENESIS_HASH);

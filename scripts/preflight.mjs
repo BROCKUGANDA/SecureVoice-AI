@@ -11,19 +11,54 @@
  */
 
 const checks = [];
-const add = (name, ok, detail, blocker = false) =>
-  checks.push({ name, ok, detail, blocker });
+const add = (name, ok, detail, blocker = false) => checks.push({ name, ok, detail, blocker });
 
 const env = process.env;
 const set = (v) => !!(v && v.trim() && !v.includes("..."));
 
-/* ── Identity / auth ── */
-const pk = env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY ?? "";
-const sk = env.CLERK_SECRET_KEY ?? "";
-add("Clerk publishable key", set(pk), set(pk) ? (pk.startsWith("pk_live") ? "production (pk_live)" : "DEV INSTANCE (pk_test) — fine for demo, swap = rebuild + wallet reset") : "MISSING", !set(pk));
-add("Clerk secret key", set(sk), set(sk) ? (sk.startsWith("sk_live") ? "production" : "dev instance") : "MISSING", !set(sk));
-add("AUTH_SECRET (BYOK encryption)", set(env.AUTH_SECRET), set(env.AUTH_SECRET) ? "set" : "MISSING — BYOK storage throws without it", !set(env.AUTH_SECRET));
-add("WEBHOOK_SECRET (ingest signing)", set(env.WEBHOOK_SECRET), set(env.WEBHOOK_SECRET) ? "set" : "MISSING — /api/interventions rejects every signal", !set(env.WEBHOOK_SECRET));
+/* ── Identity / auth (Better Auth) ── */
+// BETTER_AUTH_SECRET signs cookies and encrypts stored credentials, so a weak or
+// absent value is a full auth compromise rather than a config nit. Better Auth
+// only requires >= 32 chars; we hold the line at 32 and report the real length so
+// an operator can see the margin. Previously this block checked Clerk's
+// publishable/secret key pair, which no longer exist.
+const baSecret = env.BETTER_AUTH_SECRET ?? "";
+const baOk = set(baSecret);
+const baWeak = baOk && baSecret.trim().length < 32;
+add(
+  "BETTER_AUTH_SECRET",
+  baOk && !baWeak,
+  !baOk
+    ? "MISSING — every request 500s, better-auth.ts throws at import"
+    : baWeak
+      ? `TOO SHORT (${baSecret.trim().length} chars, need >= 32) — regenerate`
+      : `set (${baSecret.trim().length} chars)`,
+  !baOk || baWeak,
+);
+// A missing API key does not block the demo, but it silently disables the
+// Better Auth license-gated infra features (dash telemetry), so warn loudly
+// rather than hard-failing the preflight.
+const baApi = env.BETTER_AUTH_API_KEY ?? "";
+add(
+  "BETTER_AUTH_API_KEY",
+  set(baApi),
+  set(baApi)
+    ? "set (dash telemetry enabled)"
+    : "MISSING — app runs, but Better Auth infra features are disabled",
+  false,
+);
+add(
+  "AUTH_SECRET (BYOK encryption)",
+  set(env.AUTH_SECRET),
+  set(env.AUTH_SECRET) ? "set" : "MISSING — BYOK storage throws without it",
+  !set(env.AUTH_SECRET),
+);
+add(
+  "WEBHOOK_SECRET (ingest signing)",
+  set(env.WEBHOOK_SECRET),
+  set(env.WEBHOOK_SECRET) ? "set" : "MISSING — /api/interventions rejects every signal",
+  !set(env.WEBHOOK_SECRET),
+);
 
 /* ── Voice provider ── */
 const hasKey = set(env.ELEVENLABS_API_KEY);
@@ -38,22 +73,54 @@ add(
       : "no API key — dev backend only",
   false, // dry-run is a deliberate demo mode, not a blocker
 );
-add("Agent id (ELEVENLABS_AGENT_ID)", set(env.ELEVENLABS_AGENT_ID), set(env.ELEVENLABS_AGENT_ID) ? "set" : "unset — conversational agent path disabled");
-const voices = ["EN", "AR", "HI", "UR", "FR", "SW"].filter((l) => set(env[`ELEVENLABS_VOICE_${l}`]));
-add("Per-language voices", voices.length >= 2, voices.length ? `${voices.join("/")} configured` : "none — prod TTS 422s");
+add(
+  "Agent id (ELEVENLABS_AGENT_ID)",
+  set(env.ELEVENLABS_AGENT_ID),
+  set(env.ELEVENLABS_AGENT_ID) ? "set" : "unset — conversational agent path disabled",
+);
+const voices = ["EN", "AR", "HI", "UR", "FR", "SW"].filter((l) =>
+  set(env[`ELEVENLABS_VOICE_${l}`]),
+);
+add(
+  "Per-language voices",
+  voices.length >= 2,
+  voices.length ? `${voices.join("/")} configured` : "none — prod TTS 422s",
+);
 
 /* ── Telephony ── */
-const twilio = set(env.TWILIO_ACCOUNT_SID) && (set(env.TWILIO_AUTH_TOKEN) || (set(env.TWILIO_API_KEY_SID) && set(env.TWILIO_API_KEY_SECRET)));
-add("Twilio telephony", twilio, twilio ? "configured — REAL calls possible" : "unconfigured — audit-only, nothing dials");
-add("TWILIO_AUTH_TOKEN (inbound webhook verify)", set(env.TWILIO_AUTH_TOKEN), set(env.TWILIO_AUTH_TOKEN) ? "set" : "unset — /api/twilio/turn signatures CANNOT be verified");
+const twilio =
+  set(env.TWILIO_ACCOUNT_SID) &&
+  (set(env.TWILIO_AUTH_TOKEN) || (set(env.TWILIO_API_KEY_SID) && set(env.TWILIO_API_KEY_SECRET)));
+add(
+  "Twilio telephony",
+  twilio,
+  twilio ? "configured — REAL calls possible" : "unconfigured — audit-only, nothing dials",
+);
+add(
+  "TWILIO_AUTH_TOKEN (inbound webhook verify)",
+  set(env.TWILIO_AUTH_TOKEN),
+  set(env.TWILIO_AUTH_TOKEN) ? "set" : "unset — /api/twilio/turn signatures CANNOT be verified",
+);
 
 /* ── Realtime ── */
-add("REALTIME_INGEST_SECRET", set(env.REALTIME_INGEST_SECRET), set(env.REALTIME_INGEST_SECRET) ? "set" : "unset — console falls back to SSE (works, no push)");
+add(
+  "REALTIME_INGEST_SECRET",
+  set(env.REALTIME_INGEST_SECRET),
+  set(env.REALTIME_INGEST_SECRET) ? "set" : "unset — console falls back to SSE (works, no push)",
+);
 
 /* ── Deployment surface ── */
 const site = env.SITE_ADDRESS ?? "";
-add("SITE_ADDRESS", set(site) && site !== "localhost", set(site) && site !== "localhost" ? site : "localhost — internal CA cert, no Let's Encrypt");
-add("Agent tool allow-list", env.AGENT_TOOL_ALLOWED !== "card_freeze,human_handoff", env.AGENT_TOOL_ALLOWED ?? "human_handoff (default)");
+add(
+  "SITE_ADDRESS",
+  set(site) && site !== "localhost",
+  set(site) && site !== "localhost" ? site : "localhost — internal CA cert, no Let's Encrypt",
+);
+add(
+  "Agent tool allow-list",
+  env.AGENT_TOOL_ALLOWED !== "card_freeze,human_handoff",
+  env.AGENT_TOOL_ALLOWED ?? "human_handoff (default)",
+);
 
 /* ── Report ── */
 let blockers = 0;
@@ -67,8 +134,13 @@ console.log("─".repeat(60));
 if (dryRun) {
   console.log("REMINDER: ELEVENLABS_DRY_RUN=true — flip to false for live voice.");
 }
-if (pk.startsWith("pk_test")) {
-  console.log("REMINDER: Clerk dev instance — swap to pk_live/sk_live BEFORE real users (swap = rebuild + wallet reset).");
+if (
+  process.env.BETTER_AUTH_SECRET &&
+  /^(changeme|replace|secret|password)/i.test(process.env.BETTER_AUTH_SECRET.trim())
+) {
+  console.log(
+    "REMINDER: BETTER_AUTH_SECRET looks like a placeholder. Generate a real one — it signs the session cookie.",
+  );
 }
 console.log(blockers ? `\n${blockers} NO-GO blocker(s).\n` : "\nNo hard blockers.\n");
 process.exit(blockers ? 1 : 0);

@@ -361,7 +361,14 @@ export const ADMISSION_BANDS = ["NORMAL", "CONSTRAINED", "SHED"] as const;
 
 /** 202 body when the case was admitted to the voice channel and enqueued. */
 export const INTERVENTION_QUEUED_FIELDS: readonly FieldSpec[] = [
-  { name: "ok", required: true, type: "boolean", description: "Always true on 202.", example: true, enforced: "route.ts armAndDial" },
+  {
+    name: "ok",
+    required: true,
+    type: "boolean",
+    description: "Always true on 202.",
+    example: true,
+    enforced: "route.ts armAndDial",
+  },
   {
     name: "caseRef",
     required: true,
@@ -375,7 +382,8 @@ export const INTERVENTION_QUEUED_FIELDS: readonly FieldSpec[] = [
     name: "transactionRef",
     required: true,
     type: "string",
-    description: "Echo of the submitted transaction_ref, so a producer can correlate without state.",
+    description:
+      "Echo of the submitted transaction_ref, so a producer can correlate without state.",
     example: "FRAUD-2026-08612",
     enforced: "route.ts armAndDial",
   },
@@ -396,8 +404,22 @@ export const INTERVENTION_QUEUED_FIELDS: readonly FieldSpec[] = [
     description: "Durable dial-job id. The worker claims this; a queue drain is visible by id.",
     enforced: "route.ts armAndDial",
   },
-  { name: "language", required: true, type: "string", description: "Echo of the submitted language.", example: "ar", enforced: "route.ts armAndDial" },
-  { name: "riskScore", required: true, type: "number", description: "Echo of the submitted risk_score.", example: 0.94, enforced: "route.ts armAndDial" },
+  {
+    name: "language",
+    required: true,
+    type: "string",
+    description: "Echo of the submitted language.",
+    example: "ar",
+    enforced: "route.ts armAndDial",
+  },
+  {
+    name: "riskScore",
+    required: true,
+    type: "number",
+    description: "Echo of the submitted risk_score.",
+    example: 0.94,
+    enforced: "route.ts armAndDial",
+  },
   {
     name: "delivery",
     required: true,
@@ -417,8 +439,22 @@ export const INTERVENTION_QUEUED_FIELDS: readonly FieldSpec[] = [
 
 /** The `delivery` sub-object of the queued 202. */
 export const DELIVERY_FIELDS: readonly FieldSpec[] = [
-  { name: "channel", required: true, type: "string", enum: ["queued"], description: "Dispatch mechanism.", enforced: "route.ts" },
-  { name: "provider", required: true, type: "string", enum: ["elevenlabs"], description: "Voice provider.", enforced: "route.ts" },
+  {
+    name: "channel",
+    required: true,
+    type: "string",
+    enum: ["queued"],
+    description: "Dispatch mechanism.",
+    enforced: "route.ts",
+  },
+  {
+    name: "provider",
+    required: true,
+    type: "string",
+    enum: ["elevenlabs"],
+    description: "Voice provider.",
+    enforced: "route.ts",
+  },
   {
     name: "to",
     required: true,
@@ -428,7 +464,13 @@ export const DELIVERY_FIELDS: readonly FieldSpec[] = [
     example: "+9715*******67",
     enforced: "src/lib/redact.ts",
   },
-  { name: "jobId", required: true, type: "string", description: "Durable dial-job id.", enforced: "route.ts" },
+  {
+    name: "jobId",
+    required: true,
+    type: "string",
+    description: "Durable dial-job id.",
+    enforced: "route.ts",
+  },
   {
     name: "jobState",
     required: true,
@@ -449,9 +491,28 @@ export const DELIVERY_FIELDS: readonly FieldSpec[] = [
 
 /** 202 body when admission control shed the voice channel. */
 export const INTERVENTION_DEGRADED_FIELDS: readonly FieldSpec[] = [
-  { name: "ok", required: true, type: "boolean", description: "Always true — the signal was accepted.", example: true, enforced: "route.ts armAndDial" },
-  { name: "caseRef", required: true, type: "string", description: "Case reference. The case exists and is auditable.", enforced: "route.ts makeCaseRef" },
-  { name: "transactionRef", required: true, type: "string", description: "Echo of transaction_ref.", enforced: "route.ts armAndDial" },
+  {
+    name: "ok",
+    required: true,
+    type: "boolean",
+    description: "Always true — the signal was accepted.",
+    example: true,
+    enforced: "route.ts armAndDial",
+  },
+  {
+    name: "caseRef",
+    required: true,
+    type: "string",
+    description: "Case reference. The case exists and is auditable.",
+    enforced: "route.ts makeCaseRef",
+  },
+  {
+    name: "transactionRef",
+    required: true,
+    type: "string",
+    description: "Echo of transaction_ref.",
+    enforced: "route.ts armAndDial",
+  },
   {
     name: "status",
     required: true,
@@ -469,7 +530,14 @@ export const INTERVENTION_DEGRADED_FIELDS: readonly FieldSpec[] = [
     description: "The admission decision: band, reason, fallback channel, expected-loss score.",
     enforced: "route.ts armAndDial",
   },
-  { name: "receivedAt", required: true, type: "string", format: "date-time", description: "ISO-8601 instant.", enforced: "route.ts armAndDial" },
+  {
+    name: "receivedAt",
+    required: true,
+    type: "string",
+    format: "date-time",
+    description: "ISO-8601 instant.",
+    enforced: "route.ts armAndDial",
+  },
 ] as const;
 
 export const DEGRADED_FIELDS: readonly FieldSpec[] = [
@@ -481,7 +549,13 @@ export const DEGRADED_FIELDS: readonly FieldSpec[] = [
     description: "Admission band at decision time.",
     enforced: "src/lib/capacity.ts",
   },
-  { name: "reason", required: true, type: "string", description: "Why the voice channel was shed, in prose. Human-facing.", enforced: "src/lib/admission.ts" },
+  {
+    name: "reason",
+    required: true,
+    type: "string",
+    description: "Why the voice channel was shed, in prose. Human-facing.",
+    enforced: "src/lib/admission.ts",
+  },
   {
     name: "fallback",
     required: true,
@@ -494,7 +568,8 @@ export const DEGRADED_FIELDS: readonly FieldSpec[] = [
     name: "expectedLoss",
     required: true,
     type: "integer",
-    description: "Risk x amount, rounded. Drives triage priority. Not a currency amount and not a balance.",
+    description:
+      "Risk x amount, rounded. Drives triage priority. Not a currency amount and not a balance.",
     enforced: "src/lib/capacity.ts expectedLossScore",
   },
 ] as const;
@@ -535,7 +610,8 @@ export const BANK_EVENT_FIELDS: readonly FieldSpec[] = [
     required: true,
     type: "string",
     nullable: true,
-    description: "Case reference, or null for an event with no case. The join key to the bank's own alert.",
+    description:
+      "Case reference, or null for an event with no case. The join key to the bank's own alert.",
     example: "SV-F-7K2M9Q",
     enforced: "src/lib/outbox.ts buildBankEvent",
   },
@@ -568,7 +644,14 @@ export const BANK_EVENT_FIELDS: readonly FieldSpec[] = [
 
 /** `data` for the only emitted type, `case.notified`. */
 export const CASE_NOTIFIED_DATA_FIELDS: readonly FieldSpec[] = [
-  { name: "state", required: true, type: "string", enum: ["NOTIFIED"], description: "Case state at publication.", enforced: "inbound.ts" },
+  {
+    name: "state",
+    required: true,
+    type: "string",
+    enum: ["NOTIFIED"],
+    description: "Case state at publication.",
+    enforced: "inbound.ts",
+  },
   {
     name: "outcome",
     required: true,
@@ -586,11 +669,44 @@ export const CASE_NOTIFIED_DATA_FIELDS: readonly FieldSpec[] = [
     description: "Call duration in seconds, or null if the provider reported none.",
     enforced: "inbound.ts",
   },
-  { name: "freeze_staged", required: true, type: "boolean", description: "Whether a card freeze was STAGED. Staged is not blocked: a human specialist finalises it.", enforced: "inbound.ts" },
-  { name: "freeze_reference", required: true, type: "string", nullable: true, description: "Reference for the staged freeze, when one exists.", enforced: "inbound.ts" },
-  { name: "handoff_queued", required: true, type: "boolean", description: "Whether a fraud specialist was queued.", enforced: "inbound.ts" },
-  { name: "handoff_specialist", required: true, type: "string", nullable: true, description: "Specialist queue or name, when queued.", enforced: "inbound.ts" },
-  { name: "tool_calls_observed", required: true, type: "integer", description: "Count of agent tool invocations during the call.", enforced: "inbound.ts" },
+  {
+    name: "freeze_staged",
+    required: true,
+    type: "boolean",
+    description:
+      "Whether a card freeze was STAGED. Staged is not blocked: a human specialist finalises it.",
+    enforced: "inbound.ts",
+  },
+  {
+    name: "freeze_reference",
+    required: true,
+    type: "string",
+    nullable: true,
+    description: "Reference for the staged freeze, when one exists.",
+    enforced: "inbound.ts",
+  },
+  {
+    name: "handoff_queued",
+    required: true,
+    type: "boolean",
+    description: "Whether a fraud specialist was queued.",
+    enforced: "inbound.ts",
+  },
+  {
+    name: "handoff_specialist",
+    required: true,
+    type: "string",
+    nullable: true,
+    description: "Specialist queue or name, when queued.",
+    enforced: "inbound.ts",
+  },
+  {
+    name: "tool_calls_observed",
+    required: true,
+    type: "integer",
+    description: "Count of agent tool invocations during the call.",
+    enforced: "inbound.ts",
+  },
   {
     name: "audit_ref",
     required: true,
@@ -616,11 +732,18 @@ export const EVIDENCE_FIELDS: readonly FieldSpec[] = [
     required: true,
     type: "string",
     enum: ["withheld"],
-    description: "Always the literal `withheld`. No transcript content ever appears in an outbound event.",
+    description:
+      "Always the literal `withheld`. No transcript content ever appears in an outbound event.",
     example: "withheld",
     enforced: "inbound.ts",
   },
-  { name: "note", required: true, type: "string", description: "Prose explanation of where the evidence lives.", enforced: "inbound.ts" },
+  {
+    name: "note",
+    required: true,
+    type: "string",
+    description: "Prose explanation of where the evidence lives.",
+    enforced: "inbound.ts",
+  },
 ] as const;
 
 /**
@@ -803,7 +926,8 @@ export const ERROR_CODES: readonly ErrorCodeEntry[] = [
     retryable: true,
     meaning:
       "The per-caller budget is spent. Carries `Retry-After` (the ingest computes it from the token bucket; the conformance endpoint clamps it into 1–3600 s).",
-    remediation: "Honour `Retry-After` and retry with jitter. Never in a tight loop — it is your fraud engine's traffic pattern we are bounding.",
+    remediation:
+      "Honour `Retry-After` and retry with jitter. Never in a tight loop — it is your fraud engine's traffic pattern we are bounding.",
   },
   {
     id: "dependency_unavailable",
@@ -840,11 +964,15 @@ export const ERROR_CODES: readonly ErrorCodeEntry[] = [
     literal: "invalid_payload",
     surface: "http_body",
     envelope: "legacy_error_field",
-    reachedFrom: ["POST /api/console/fire (operator)", "POST /api/console/freeze/commit (operator)"],
+    reachedFrom: [
+      "POST /api/console/fire (operator)",
+      "POST /api/console/freeze/commit (operator)",
+    ],
     retryable: false,
     meaning:
       "Legacy `{ error, code }` validation refusal. Emitted by the OPERATOR console routes, not by the canonical ingest — the ingest uses `semantically_invalid`.",
-    remediation: "This row is here so an operator-integration is not surprised. Bank integrations never see it.",
+    remediation:
+      "This row is here so an operator-integration is not surprised. Bank integrations never see it.",
   },
   {
     id: "unknown_field",
@@ -915,7 +1043,8 @@ export const ERROR_CODES: readonly ErrorCodeEntry[] = [
     retryable: false,
     meaning:
       "The destination country is not on this org's allowlist. Raised by BOTH the policy gate and the abuse gate's geography control.",
-    remediation: "Ask your SecureVoice contact to add the country to your org allowlist. It is a configuration change, not a payload change.",
+    remediation:
+      "Ask your SecureVoice contact to add the country to your org allowlist. It is a configuration change, not a payload change.",
   },
   {
     id: "gate_cooldown",
@@ -1007,7 +1136,8 @@ export const ERROR_CODES: readonly ErrorCodeEntry[] = [
     reachedFrom: [INGEST],
     envelopeCode: "policy_precondition",
     retryable: false,
-    meaning: "No geography allowlist is configured for this org, so nothing is diallable. Fails closed.",
+    meaning:
+      "No geography allowlist is configured for this org, so nothing is diallable. Fails closed.",
     remediation: "Operator action: configure the org's allowlist.",
   },
   {
@@ -1046,7 +1176,8 @@ export const ERROR_CODES: readonly ErrorCodeEntry[] = [
     reachedFrom: [INGEST],
     envelopeCode: "policy_precondition",
     retryable: false,
-    meaning: "The E.164 prefix is a shared-cost, premium or non-geographic service range (abuse gate).",
+    meaning:
+      "The E.164 prefix is a shared-cost, premium or non-geographic service range (abuse gate).",
     remediation: "Send a geographic number.",
   },
   {
@@ -1061,7 +1192,8 @@ export const ERROR_CODES: readonly ErrorCodeEntry[] = [
     retryable: false,
     meaning:
       "The org resolved to the demo plan tier and the destination is not on the verified test-number list (abuse gate).",
-    remediation: "On a demo tier, dial only numbers from your verified list. A production tier has no such restriction.",
+    remediation:
+      "On a demo tier, dial only numbers from your verified list. A production tier has no such restriction.",
   },
   {
     id: "gate_test_number_list_empty",
@@ -1099,7 +1231,8 @@ export const ERROR_CODES: readonly ErrorCodeEntry[] = [
     reachedFrom: [INGEST],
     envelopeCode: "policy_precondition",
     retryable: true,
-    meaning: "Too many previously-unseen destination prefixes inside the new-prefix window (abuse gate).",
+    meaning:
+      "Too many previously-unseen destination prefixes inside the new-prefix window (abuse gate).",
     remediation: "Retry after the window. This is the toll-fraud control; do not work around it.",
   },
   {
@@ -1114,7 +1247,8 @@ export const ERROR_CODES: readonly ErrorCodeEntry[] = [
     retryable: true,
     meaning:
       "The attempt rate inside the burst window exceeded the threshold (abuse gate). The envelope's own `retryable` stays false because a cooldown is required; this row's `retryable: true` records that a DELAYED retry is the correct response.",
-    remediation: "Retry with backoff once the burst window clears; this is the attempt-rate control.",
+    remediation:
+      "Retry with backoff once the burst window clears; this is the attempt-rate control.",
   },
   {
     id: "gate_velocity_after_hours",
@@ -1140,7 +1274,8 @@ export const ERROR_CODES: readonly ErrorCodeEntry[] = [
     reachedFrom: [INGEST],
     envelopeCode: "policy_precondition",
     retryable: true,
-    meaning: "The minimum interval between two dials to the same destination has not elapsed (abuse gate).",
+    meaning:
+      "The minimum interval between two dials to the same destination has not elapsed (abuse gate).",
     remediation: "Retry after the cooldown.",
   },
   {
@@ -1302,7 +1437,8 @@ export const ERROR_CODES: readonly ErrorCodeEntry[] = [
     reachedFrom: [INGEST],
     envelopeCode: "semantically_invalid",
     retryable: false,
-    meaning: "A redirect hop left the validated target. Each hop is re-validated before it is dialled.",
+    meaning:
+      "A redirect hop left the validated target. Each hop is re-validated before it is dialled.",
     remediation: "Return 200 directly; do not redirect to another host.",
   },
   {
@@ -1315,8 +1451,10 @@ export const ERROR_CODES: readonly ErrorCodeEntry[] = [
     reachedFrom: [INGEST],
     envelopeCode: "semantically_invalid",
     retryable: false,
-    meaning: "The redirect chain exceeded 5 hops, so the whole delivery was abandoned rather than followed further.",
-    remediation: "Return the payload directly instead of redirecting; more than 5 hops is refused outright.",
+    meaning:
+      "The redirect chain exceeded 5 hops, so the whole delivery was abandoned rather than followed further.",
+    remediation:
+      "Return the payload directly instead of redirecting; more than 5 hops is refused outright.",
   },
 ] as const;
 
@@ -1349,7 +1487,8 @@ export const STATUS_FAILURES: readonly StatusFailureEntry[] = [
     meaning:
       "The retired endpoint's 401. The reason is appended in prose: missing header, malformed header, timestamp outside the 300 s window in either direction, or digest mismatch.",
     retryable: false,
-    remediation: "Sign the exact bytes you send, and sync your clock. Then migrate to /v1/interventions, which returns a machine code.",
+    remediation:
+      "Sign the exact bytes you send, and sync your clock. Then migrate to /v1/interventions, which returns a machine code.",
   },
   {
     id: "retired_producer_key_rejected",
@@ -1367,7 +1506,8 @@ export const STATUS_FAILURES: readonly StatusFailureEntry[] = [
     envelope: "legacy_error_field",
     meaning: "The retired endpoint's 429, with a `Retry-After` header and no code in the body.",
     retryable: true,
-    remediation: "Honour Retry-After, then migrate: the canonical ingest returns `code: rate_limited`.",
+    remediation:
+      "Honour Retry-After, then migrate: the canonical ingest returns `code: rate_limited`.",
   },
   {
     id: "retired_malformed_json",
@@ -1386,7 +1526,8 @@ export const STATUS_FAILURES: readonly StatusFailureEntry[] = [
     meaning:
       "The retired endpoint's 422. NOTE it returns `{ error }` with NO `code` field even for a validation failure — the one place where a bank gets no machine-readable reason at all.",
     retryable: false,
-    remediation: "Read the prose, then migrate to /v1/interventions for `code: semantically_invalid`.",
+    remediation:
+      "Read the prose, then migrate to /v1/interventions for `code: semantically_invalid`.",
   },
   {
     id: "receiver_unconfigured",
@@ -1407,7 +1548,9 @@ export function errorCodesForLiteral(literal: string): readonly ErrorCodeEntry[]
 
 /** Every distinct machine code that can appear in a `code` field. */
 export function bodyErrorCodes(): readonly string[] {
-  return [...new Set(ERROR_CODES.filter((e) => e.code !== null).map((e) => e.code as string))].sort();
+  return [
+    ...new Set(ERROR_CODES.filter((e) => e.code !== null).map((e) => e.code as string)),
+  ].sort();
 }
 
 /**
@@ -1423,11 +1566,9 @@ export function bodyErrorCodes(): readonly string[] {
 export function failureEnvelopeCodes(): readonly string[] {
   return [
     ...new Set(
-      ERROR_CODES.filter((e) => e.envelope === "failure_envelope_v1" && e.surface === "http_body").map(
-        (e) => e.code as string,
-      ),
+      ERROR_CODES.filter(
+        (e) => e.envelope === "failure_envelope_v1" && e.surface === "http_body",
+      ).map((e) => e.code as string),
     ),
   ].sort();
 }
-
-

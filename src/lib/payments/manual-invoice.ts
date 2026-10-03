@@ -60,7 +60,7 @@ export type RecordPaymentInput = {
   /** The bank transfer reference, exactly as it appears on the statement. */
   bankReference: string;
   money: Money;
-  /** Clerk user id of the operator entering the payment. */
+  /** Better Auth user id of the operator entering the payment. */
   recordedBy: string;
   entitlements?: StoredEntitlement[];
   purpose?: string;
@@ -104,11 +104,12 @@ export async function recordPayment(input: RecordPaymentInput): Promise<RecordPa
     RETURNING "id"
   `;
   const duplicate = inserted.length === 0;
+  // Not a duplicate means `inserted.length !== 0`, i.e. the INSERT's
+  // `RETURNING "id"` produced at least this row, so `inserted[0]` is populated.
   const id = duplicate
-    ? (
-        await db.paymentRecord.findUnique({ where: { reference }, select: { id: true } })
-      )?.id ?? ""
-    : inserted[0].id;
+    ? ((await db.paymentRecord.findUnique({ where: { reference }, select: { id: true } }))?.id ??
+      "")
+    : inserted[0]!.id;
 
   await auditPayment({
     reference,
@@ -130,16 +131,27 @@ export async function recordPayment(input: RecordPaymentInput): Promise<RecordPa
 export type VerifyPaymentInput = {
   /** The bank transfer reference being verified. */
   bankReference: string;
-  /** Clerk user id of the operator confirming arrival. Must differ from the recorder. */
+  /** Better Auth user id of the operator confirming arrival. Must differ from the recorder. */
   verifiedBy: string;
   note?: string;
 };
 
 export type VerifyPaymentResult =
-  | { ok: true; reference: string; paymentId: string; unitsCredited: number; alreadyVerified: boolean }
+  | {
+      ok: true;
+      reference: string;
+      paymentId: string;
+      unitsCredited: number;
+      alreadyVerified: boolean;
+    }
   | {
       ok: false;
-      reason: "not_found" | "already_failed" | "self_verification_forbidden" | "missing_recorder" | "invalid_actor";
+      reason:
+        | "not_found"
+        | "already_failed"
+        | "self_verification_forbidden"
+        | "missing_recorder"
+        | "invalid_actor";
       detail?: string;
     };
 
@@ -205,7 +217,13 @@ export async function verifyPayment(input: VerifyPaymentInput): Promise<VerifyPa
   });
 
   if (!settle.applied) {
-    return { ok: true, reference, paymentId: settle.paymentId, unitsCredited: 0, alreadyVerified: true };
+    return {
+      ok: true,
+      reference,
+      paymentId: settle.paymentId,
+      unitsCredited: 0,
+      alreadyVerified: true,
+    };
   }
 
   await auditPayment({
@@ -224,7 +242,13 @@ export async function verifyPayment(input: VerifyPaymentInput): Promise<VerifyPa
     },
   });
 
-  return { ok: true, reference, paymentId: settle.paymentId, unitsCredited: settle.unitsCredited, alreadyVerified: false };
+  return {
+    ok: true,
+    reference,
+    paymentId: settle.paymentId,
+    unitsCredited: settle.unitsCredited,
+    alreadyVerified: false,
+  };
 }
 
 /**
@@ -269,7 +293,10 @@ function sanitizeReference(raw: string | undefined): string | null {
 
 function sanitizeActor(raw: string | undefined): string | null {
   if (typeof raw !== "string") return null;
-  const trimmed = raw.trim().replace(/[^\w.:-]/g, "").slice(0, 64);
+  const trimmed = raw
+    .trim()
+    .replace(/[^\w.:-]/g, "")
+    .slice(0, 64);
   return trimmed === "" ? null : trimmed;
 }
 
@@ -286,14 +313,20 @@ export function createManualInvoiceProvider(): PaymentProvider {
     id: MANUAL_INVOICE_PROVIDER_ID,
 
     async createCheckout(_req: CheckoutRequest): Promise<CheckoutSession> {
-      throw new Error("manualinvoice: bank transfers are started by issuing a quote, not a checkout URL");
+      throw new Error(
+        "manualinvoice: bank transfers are started by issuing a quote, not a checkout URL",
+      );
     },
 
     async verifyWebhook(_input: {
       rawBody: Buffer | string;
       headers: Record<string, string | string[] | undefined>;
     }): Promise<WebhookVerification> {
-      return { ok: false, reason: "unsupported_event", detail: "manualinvoice has no webhook surface" };
+      return {
+        ok: false,
+        reason: "unsupported_event",
+        detail: "manualinvoice has no webhook surface",
+      };
     },
 
     async chargeStoredAuthorization(_req: {
@@ -302,8 +335,15 @@ export function createManualInvoiceProvider(): PaymentProvider {
       money: Money;
       purpose: string;
       requestKey: string;
-    }): Promise<{ ok: true; reference: string; verified: true } | { ok: false; reference: string; reason: string }> {
-      return { ok: false, reference: "", reason: "manualinvoice: overage must be invoiced and verified manually" };
+    }): Promise<
+      | { ok: true; reference: string; verified: true }
+      | { ok: false; reference: string; reason: string }
+    > {
+      return {
+        ok: false,
+        reference: "",
+        reason: "manualinvoice: overage must be invoiced and verified manually",
+      };
     },
 
     async listEntitlements(reference: string): Promise<StoredEntitlement[]> {

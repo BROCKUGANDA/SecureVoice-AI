@@ -121,7 +121,10 @@ export async function admitOrDegrade(args: {
     ).catch((err) => {
       // Never let an audit failure swallow a fraud case: the fallback still
       // goes out. The failure is logged loudly and surfaces in monitoring.
-      console.error("[admission] shed audit append failed:", err instanceof Error ? err.message : err);
+      console.error(
+        "[admission] shed audit append failed:",
+        err instanceof Error ? err.message : err,
+      );
     });
   }
 

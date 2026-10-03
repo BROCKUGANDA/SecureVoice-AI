@@ -40,7 +40,9 @@ export const SEEDED_IDS_ID = "ids.seeded.ulid";
 /** Encode a nonnegative integer as fixed-width Crockford base32, MSB first. */
 export function encodeBase32(value: number, length: number): string {
   if (!Number.isSafeInteger(value) || value < 0) {
-    throw new RangeError(`encodeBase32 requires a non-negative safe integer (got ${String(value)})`);
+    throw new RangeError(
+      `encodeBase32 requires a non-negative safe integer (got ${String(value)})`,
+    );
   }
   let out = "";
   let n = value;
@@ -66,10 +68,13 @@ export function decodeUlidTime(ulid: string): number {
 
 export function assertUlid(ulid: string): string {
   if (typeof ulid !== "string" || ulid.length !== ULID_LENGTH) {
-    throw new TypeError(`ULID must be a ${ULID_LENGTH}-character string (got ${JSON.stringify(ulid)})`);
+    throw new TypeError(
+      `ULID must be a ${ULID_LENGTH}-character string (got ${JSON.stringify(ulid)})`,
+    );
   }
   for (const ch of ulid) {
-    if (CROCKFORD.indexOf(ch) < 0) throw new TypeError(`ULID contains a non-Crockford character: ${ch}`);
+    if (CROCKFORD.indexOf(ch) < 0)
+      throw new TypeError(`ULID contains a non-Crockford character: ${ch}`);
   }
   return ulid;
 }
@@ -95,12 +100,15 @@ function encodeEntropy(bytes: Uint8Array): string {
  * out an id already issued in this millisecond.
  */
 function bumpEntropy(bytes: Uint8Array): void {
+  // The loop bound — `i` starts at `bytes.length - 1` and only decrements while
+  // `i >= 0` — is what proves every index below is in range; the assertions
+  // record that for the checker rather than adding branches that cannot run.
   for (let i = bytes.length - 1; i >= 0; i--) {
-    if (bytes[i] === 0xff) {
+    if (bytes[i]! === 0xff) {
       bytes[i] = 0x00;
       continue;
     }
-    bytes[i] += 1;
+    bytes[i]! += 1;
     return;
   }
   throw new RangeError("ULID entropy exhausted: more than 2^80 ids in one millisecond");

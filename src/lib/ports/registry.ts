@@ -78,7 +78,10 @@ import {
 } from "@/lib/ports/fakes";
 import { append as auditAppend, verifyChain as auditVerifyChain } from "@/lib/audit-chain";
 import { acknowledge as inboxAcknowledge, inbox, notify } from "@/lib/notifications";
-import { createManualInvoiceProvider, MANUAL_INVOICE_PROVIDER_ID } from "@/lib/payments/manual-invoice";
+import {
+  createManualInvoiceProvider,
+  MANUAL_INVOICE_PROVIDER_ID,
+} from "@/lib/payments/manual-invoice";
 import { placeInterventionCall, sendInterventionSms, type DeliveryLang } from "@/lib/twilio";
 import { firstMessageForLanguage, placeOutboundCall } from "@/lib/elevenlabs/outbound-call";
 
@@ -146,7 +149,8 @@ export const PORT_BINDINGS: Record<PortName, PortBinding> = {
       { adapter: "siem", reason: "no SIEM forwarding exists" },
       {
         adapter: "sms",
-        reason: "the SMS channel is `@/lib/twilio`'s sendInterventionSms, reached through the TelephonyProvider port, not as a notification binding",
+        reason:
+          "the SMS channel is `@/lib/twilio`'s sendInterventionSms, reached through the TelephonyProvider port, not as a notification binding",
       },
     ],
   },
@@ -351,7 +355,10 @@ function offlineBindings(
 
 function realBindings(clock: Clock, ids: IdGenerator): Record<PortName, Binding<unknown>> {
   return {
-    RiskSignalSource: bind(httpSignalSource(), "bank-facing POST /v1/interventions; push-only, so the port exposes no pull cursor"),
+    RiskSignalSource: bind(
+      httpSignalSource(),
+      "bank-facing POST /v1/interventions; push-only, so the port exposes no pull cursor",
+    ),
     ConversationProvider: bind(
       elevenLabsConversation(),
       "@/lib/elevenlabs/outbound-call placeOutboundCall; honours ELEVENLABS_DRY_RUN, has no continuity plane and no transcript replay",
@@ -368,13 +375,19 @@ function realBindings(clock: Clock, ids: IdGenerator): Record<PortName, Binding<
       manualInvoiceProvider(),
       `@/lib/payments/manual-invoice — dual-control bank transfer; no gateway, no webhook, no checkout (provider id ${MANUAL_INVOICE_PROVIDER_ID})`,
     ),
-    SecretStore: bind(envSecretStore(), "process.env; names are enumerable, values are read one key at a time"),
+    SecretStore: bind(
+      envSecretStore(),
+      "process.env; names are enumerable, values are read one key at a time",
+    ),
     AuditSink: bind(
       postgresAuditSink(),
       "@/lib/audit-chain append/verifyChain — Postgres append-only, sha256 chain over canonical JSON",
     ),
     Clock: bind(clock, "system wall clock; a fresh Date per call"),
-    IdGenerator: bind(ids, "system ULIDs: 48-bit millisecond prefix plus 80 bits from crypto.randomBytes, bumped within a millisecond"),
+    IdGenerator: bind(
+      ids,
+      "system ULIDs: 48-bit millisecond prefix plus 80 bits from crypto.randomBytes, bumped within a millisecond",
+    ),
   };
 }
 
@@ -532,7 +545,10 @@ function consoleInboxSink(): NotificationSink {
     async acknowledge(id: string, orgId: string | null): Promise<NotificationAck> {
       const res = await inboxAcknowledge(id, orgId);
       if (res.ok) return { ok: true };
-      return { ok: false, error: res.error === "already_acknowledged" ? "already_acknowledged" : "not_found" };
+      return {
+        ok: false,
+        error: res.error === "already_acknowledged" ? "already_acknowledged" : "not_found",
+      };
     },
   };
 }
@@ -550,7 +566,8 @@ function envSecretStore(): SecretStore {
     adapterId: "secret.env",
     mode: "real",
     async get(key) {
-      if (typeof key !== "string" || key.length === 0) return { ok: false, reason: "forbidden" as const };
+      if (typeof key !== "string" || key.length === 0)
+        return { ok: false, reason: "forbidden" as const };
       const value = process.env[key];
       // An empty string is a miss, not a secret: `ELEVENLABS_API_KEY=""` is a
       // deployment mistake and returning "" would let it become an auth header.

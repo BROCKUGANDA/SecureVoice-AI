@@ -1,12 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import {
-  Space_Grotesk,
-  Inter,
-  JetBrains_Mono,
-  IBM_Plex_Sans_Arabic,
-} from "next/font/google";
-import { ClerkProvider } from "@clerk/nextjs";
-import { dark } from "@clerk/themes";
+import { Space_Grotesk, Inter, JetBrains_Mono, IBM_Plex_Sans_Arabic } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "@/components/ui/toaster";
 
@@ -78,15 +71,14 @@ export default function RootLayout({
       <body
         className={`${display.variable} ${sans.variable} ${mono.variable} ${arabic.variable} antialiased bg-background text-foreground`}
       >
-        {/* ClerkProvider sits inside <body> (never wrapping <html>) per Clerk docs */}
-        <ClerkProvider
-          appearance={{ theme: dark }}
-          signInUrl="/auth"
-          signUpUrl="/auth"
-        >
-          {children}
-          <Toaster />
-        </ClerkProvider>
+        {/* Better Auth has no provider component: sessions are read from the
+            database by `auth.api.getSession({ headers })` wherever they are
+            needed, and the browser reads them through `authClient.useSession()`.
+            There is deliberately nothing wrapped around the tree here — a
+            client-side provider would be a cached session, and an authorisation
+            decision must never be taken from one (hazard AU-4). */}
+        {children}
+        <Toaster />
       </body>
     </html>
   );

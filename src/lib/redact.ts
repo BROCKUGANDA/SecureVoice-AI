@@ -40,7 +40,10 @@ export function transcript(input: string): string {
 }
 
 /** Redact a value of known kind. Always returns a tagged placeholder. */
-export function snippet(value: string, kind: "card" | "iban" | "phone" | "email" | "otp" | "pin"): string {
+export function snippet(
+  value: string,
+  kind: "card" | "iban" | "phone" | "email" | "otp" | "pin",
+): string {
   return `[REDACTED:${kind}]`;
 }
 

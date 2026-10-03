@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { verifySignature, WEBHOOK_SIGNATURE_HEADER } from "@/lib/outbox";
 
@@ -61,5 +62,8 @@ export async function GET() {
     orderBy: { receivedAt: "desc" },
     take: 25,
   });
-  return NextResponse.json({ ok: true, events: rows }, { headers: { "Cache-Control": "no-store" } });
+  return NextResponse.json(
+    { ok: true, events: rows },
+    { headers: { "Cache-Control": "no-store" } },
+  );
 }

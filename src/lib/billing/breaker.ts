@@ -83,8 +83,20 @@ export type StopReason =
   | "metering_unavailable";
 
 export type BreakerDecision =
-  | { decision: "allow"; percent: number; threshold: null; window: BudgetWindow | null; windows: WindowState[] }
-  | { decision: "warn"; percent: number; threshold: AlertThreshold; window: BudgetWindow; windows: WindowState[] }
+  | {
+      decision: "allow";
+      percent: number;
+      threshold: null;
+      window: BudgetWindow | null;
+      windows: WindowState[];
+    }
+  | {
+      decision: "warn";
+      percent: number;
+      threshold: AlertThreshold;
+      window: BudgetWindow;
+      windows: WindowState[];
+    }
   | {
       decision: "stop";
       reason: StopReason;
@@ -239,7 +251,12 @@ export async function assertWithinBudget(input: {
   }
 
   const units = input.units;
-  if (typeof units !== "number" || !Number.isInteger(units) || units < 0 || !Number.isSafeInteger(units)) {
+  if (
+    typeof units !== "number" ||
+    !Number.isInteger(units) ||
+    units < 0 ||
+    !Number.isSafeInteger(units)
+  ) {
     // Never throw into a request handler, and never round a float into money.
     return { decision: "stop", reason: "invalid_units", percent: 999, window: null, windows: [] };
   }
@@ -278,24 +295,48 @@ export async function assertWithinBudget(input: {
   } catch {
     // Fail CLOSED. An unmeasurable spend history must not become an
     // authorisation to spend without limit.
-    return { decision: "stop", reason: "metering_unavailable", percent: 999, window: null, windows: states };
+    return {
+      decision: "stop",
+      reason: "metering_unavailable",
+      percent: 999,
+      window: null,
+      windows: states,
+    };
   }
 
   // Hard stop, evaluated in the order the windows bind. A limit of 0 means
   // "spend nothing", not "unlimited".
   for (const state of states) {
     if (state.limitMinor === 0) {
-      return { decision: "stop", reason: "zero_limit", percent: 999, window: state.window, windows: states };
+      return {
+        decision: "stop",
+        reason: "zero_limit",
+        percent: 999,
+        window: state.window,
+        windows: states,
+      };
     }
   }
   for (const state of states) {
     if (percent(state.spentMinor, state.limitMinor) >= HARD_STOP_PERCENT) {
-      return { decision: "stop", reason: "hard_stop", percent: state.currentPercent, window: state.window, windows: states };
+      return {
+        decision: "stop",
+        reason: "hard_stop",
+        percent: state.currentPercent,
+        window: state.window,
+        windows: states,
+      };
     }
   }
   for (const state of states) {
     if (state.projectedPercent > HARD_STOP_PERCENT) {
-      return { decision: "stop", reason: "hard_stop", percent: state.projectedPercent, window: state.window, windows: states };
+      return {
+        decision: "stop",
+        reason: "hard_stop",
+        percent: state.projectedPercent,
+        window: state.window,
+        windows: states,
+      };
     }
   }
 
@@ -330,7 +371,13 @@ export async function assertWithinBudget(input: {
   }
 
   const percentAllow = states.reduce((acc, s) => Math.max(acc, s.projectedPercent), 0);
-  return { decision: "allow", percent: percentAllow, threshold: null, window: null, windows: states };
+  return {
+    decision: "allow",
+    percent: percentAllow,
+    threshold: null,
+    window: null,
+    windows: states,
+  };
 }
 
 /** Convenience wrapper for request handlers: `ok === true` means "spend it". */

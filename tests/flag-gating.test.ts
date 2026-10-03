@@ -35,7 +35,11 @@ async function withEnv(vars: Record<string, string | undefined>, fn: () => Promi
 describe("realtime notifier honours the flags", () => {
   test("does not attempt ingest when the flag is off, even with a URL and secret", async () => {
     await withEnv(
-      { FEATURE_REALTIME: "false", REALTIME_URL: "http://127.0.0.1:59999", REALTIME_INGEST_SECRET: SECRET },
+      {
+        FEATURE_REALTIME: "false",
+        REALTIME_URL: "http://127.0.0.1:59999",
+        REALTIME_INGEST_SECRET: SECRET,
+      },
       async () => {
         const { notifyRealtime } = await import("../src/lib/realtime.ts");
         // Pointed at a closed port: if the gate did not hold, this would try a
@@ -51,7 +55,11 @@ describe("realtime notifier honours the flags", () => {
 
   test("reports not-delivered when the flag is on but the secret is absent", async () => {
     await withEnv(
-      { FEATURE_REALTIME: "true", REALTIME_URL: "http://127.0.0.1:59999", REALTIME_INGEST_SECRET: undefined },
+      {
+        FEATURE_REALTIME: "true",
+        REALTIME_URL: "http://127.0.0.1:59999",
+        REALTIME_INGEST_SECRET: undefined,
+      },
       async () => {
         const { notifyRealtime } = await import("../src/lib/realtime.ts");
         const t0 = Date.now();

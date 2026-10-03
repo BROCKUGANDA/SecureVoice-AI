@@ -96,11 +96,11 @@ test("WP-22 strict schema: unknown fields are REJECTED, never passed through", (
 
   // Prototype-pollution vectors are rejected by the raw preflight, before the
   // schema ever sees them.
-  expect(() => assertShape(JSON.parse('{"caseRef":"SV-F-ABC123","__proto__":{"admin":true}}'))).toThrow(
-    ValidationError
-  );
+  expect(() =>
+    assertShape(JSON.parse('{"caseRef":"SV-F-ABC123","__proto__":{"admin":true}}')),
+  ).toThrow(ValidationError);
   expect(() => parseBody(schema, JSON.parse('{"caseRef":"SV-F-ABC123","constructor":1}'))).toThrow(
-    /Forbidden key/
+    /Forbidden key/,
   );
 
   // And a well-formed body still passes, so we know the guard is not just
@@ -128,7 +128,9 @@ test("WP-22 strict schema: NO type coercion — a string for an int is invalid",
   expect(schema.safeParse({ amountMinor: 5, confirmed: "true" }).success).toBe(false);
   // Numeric strings for a boolean-looking field, and NaN/Infinity.
   expect(schema.safeParse({ amountMinor: Number.NaN, confirmed: true }).success).toBe(false);
-  expect(schema.safeParse({ amountMinor: Number.POSITIVE_INFINITY, confirmed: true }).success).toBe(false);
+  expect(schema.safeParse({ amountMinor: Number.POSITIVE_INFINITY, confirmed: true }).success).toBe(
+    false,
+  );
 
   // The genuinely correct types pass.
   expect(parseBody(schema, { amountMinor: 5, confirmed: true, note: "ok" }).amountMinor).toBe(5);
@@ -139,7 +141,9 @@ test("WP-22 strict schema: money is integer minor units + ISO-4217; a float is r
 
   // A float. Rejected at the schema, not rounded at the call site.
   expect(schema.safeParse({ total: { amountMinor: 12.34, currency: "AED" } }).success).toBe(false);
-  expect(schema.safeParse({ total: { amountMinor: 0.1 + 0.2, currency: "AED" } }).success).toBe(false);
+  expect(schema.safeParse({ total: { amountMinor: 0.1 + 0.2, currency: "AED" } }).success).toBe(
+    false,
+  );
   // A string is not a minor-unit count.
   expect(schema.safeParse({ total: { amountMinor: "2500", currency: "AED" } }).success).toBe(false);
   // An unknown field inside the money object (major-units confusion) is rejected.
@@ -158,7 +162,9 @@ test("WP-22 strict schema: money is integer minor units + ISO-4217; a float is r
 
   // And the range still applies inside money.
   expect(schema.safeParse({ total: { amountMinor: -1, currency: "AED" } }).success).toBe(false);
-  expect(schema.safeParse({ total: { amountMinor: 100_000_001, currency: "AED" } }).success).toBe(false);
+  expect(schema.safeParse({ total: { amountMinor: 100_000_001, currency: "AED" } }).success).toBe(
+    false,
+  );
 });
 
 test("WP-22 strict schema: out-of-range numbers are rejected", () => {
@@ -193,21 +199,27 @@ test("WP-22 strict schema: over-length strings are rejected", () => {
   // The raw preflight caps any string in the payload, even one no schema
   // field reaches — an oversized unknown string should still be refused.
   expect(() => assertShape({ merchant: "A".repeat(LIMITS.maxStringLength + 1) })).toThrow(
-    /String longer than/
+    /String longer than/,
   );
 });
 
 test("WP-22 strict schema: over-long arrays are rejected", () => {
-  const schema = z.strictObject({ caseRefs: boundedArray(boundedString({ max: 64 }), { max: 10 }) });
+  const schema = z.strictObject({
+    caseRefs: boundedArray(boundedString({ max: 64 }), { max: 10 }),
+  });
 
-  expect(schema.safeParse({ caseRefs: Array.from({ length: 11 }, (_, i) => `SV-F-${i}`) }).success).toBe(false);
-  expect(schema.safeParse({ caseRefs: Array.from({ length: 10 }, (_, i) => `SV-F-${i}`) }).success).toBe(true);
+  expect(
+    schema.safeParse({ caseRefs: Array.from({ length: 11 }, (_, i) => `SV-F-${i}`) }).success,
+  ).toBe(false);
+  expect(
+    schema.safeParse({ caseRefs: Array.from({ length: 10 }, (_, i) => `SV-F-${i}`) }).success,
+  ).toBe(true);
 
   // The preflight caps arrays independently of any schema, so an unbounded
   // array is refused before zod walks it.
-  expect(() => assertShape({ blob: Array.from({ length: LIMITS.maxArrayItems + 1 }, () => 1) })).toThrow(
-    /Array longer than/
-  );
+  expect(() =>
+    assertShape({ blob: Array.from({ length: LIMITS.maxArrayItems + 1 }, () => 1) }),
+  ).toThrow(/Array longer than/);
 });
 
 test("WP-22 strict schema: nesting deeper than the depth cap is rejected", () => {
@@ -255,7 +267,9 @@ test("WP-22 strict schema: body-size cap enforced on the transport", async () =>
     headers: { "content-type": "application/json", "content-length": "999999" },
     body: JSON.stringify({ note: "small" }),
   });
-  await expect(readJsonBody(oversizeDeclared, schema, { maxBytes: 1024 })).rejects.toThrow(/exceeds 1024 bytes/);
+  await expect(readJsonBody(oversizeDeclared, schema, { maxBytes: 1024 })).rejects.toThrow(
+    /exceeds 1024 bytes/,
+  );
 
   // Streamed body over the cap with no Content-Length to shortcut on — the
   // reader aborts mid-stream instead of buffering the whole thing. If the
@@ -271,7 +285,9 @@ test("WP-22 strict schema: body-size cap enforced on the transport", async () =>
   } catch {
     // Forbidden header in this runtime — fall through to the same guard.
   }
-  await expect(readJsonBody(oversizeStreamed, schema, { maxBytes: 256 })).rejects.toThrow(/exceeds 256 bytes/);
+  await expect(readJsonBody(oversizeStreamed, schema, { maxBytes: 256 })).rejects.toThrow(
+    /exceeds 256 bytes/,
+  );
 
   // Under the cap: parsed normally.
   const ok = new Request("https://api.example.com/v1/x", {
@@ -316,8 +332,12 @@ test("WP-22 schema: timestamps must be ISO-8601 WITH an offset — naive local t
   const schema = z.strictObject({ occurredAt: isoTimestamp() });
 
   // Offset present: accepted and canonicalised to UTC.
-  expect(parseBody(schema, { occurredAt: "2026-03-14T02:30:00Z" }).occurredAt).toBe("2026-03-14T02:30:00.000Z");
-  expect(parseBody(schema, { occurredAt: "2026-03-14T06:30:00+04:00" }).occurredAt).toBe("2026-03-14T02:30:00.000Z");
+  expect(parseBody(schema, { occurredAt: "2026-03-14T02:30:00Z" }).occurredAt).toBe(
+    "2026-03-14T02:30:00.000Z",
+  );
+  expect(parseBody(schema, { occurredAt: "2026-03-14T06:30:00+04:00" }).occurredAt).toBe(
+    "2026-03-14T02:30:00.000Z",
+  );
 
   // Naive local timestamps: rejected. The same string means a different instant
   // depending on where the server runs.
@@ -359,7 +379,9 @@ test("WP-22 unicode: homoglyph / bidi / zero-width merchant names normalise to s
   // (c) Zero-width padding. "Starbucks" with an invisible character looks
   //     identical to a human but compares unequal to every blacklist and
   //     dedupe check in the system.
-  const zeroWidth = normalizeHostileText("Star\u200Bbucks\uFEFF\u200D\u200C Ltd", { maxGraphemes: 64 });
+  const zeroWidth = normalizeHostileText("Star\u200Bbucks\uFEFF\u200D\u200C Ltd", {
+    maxGraphemes: 64,
+  });
   expect(zeroWidth.value).toBe("Starbucks Ltd");
   expect(zeroWidth.removals).toContain("zero-width");
   expect(zeroWidth.value === "Starbucks Ltd").toBe(true); // dedupe works again
@@ -387,7 +409,9 @@ test("WP-22 unicode: homoglyph / bidi / zero-width merchant names normalise to s
 
   // The conservative behaviour is the documented one: an opt-out exists for
   // callers who would rather see the raw string than a fold.
-  expect(normalizeHostileText("МАРКЕТ Store", { foldHomoglyphs: false }).value).toBe("МАРКЕТ Store");
+  expect(normalizeHostileText("МАРКЕТ Store", { foldHomoglyphs: false }).value).toBe(
+    "МАРКЕТ Store",
+  );
 
   // (f) The whole attack in one string, through the actual schema field an
   //     ingest route would use.
@@ -417,7 +441,9 @@ test("WP-22 unicode: the grapheme cap never splits a cluster and never leaves a 
   expect(countGraphemes(name.value)).toBeLessThanOrEqual(64);
   expect(name.removals).toContain("truncated");
   // No lone surrogate survives anywhere in the output.
-  expect(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?:[^\uD800-\uDBFF]|^)[\uDC00-\uDFFF]/.test(name.value)).toBe(false);
+  expect(
+    /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?:[^\uD800-\uDBFF]|^)[\uDC00-\uDFFF]/.test(name.value),
+  ).toBe(false);
 });
 
 test("WP-22 unicode: mixed-script detection is a usable review signal", () => {
@@ -451,7 +477,9 @@ test("WP-22 SSRF: every listed hostile URL is rejected, and a public host via th
 
   // https://169.254.169.254/latest/meta-data — cloud metadata. One GET from
   // inside the VPC returns IAM credentials.
-  const metadata = await validateOutboundUrl("https://169.254.169.254/latest/meta-data", { resolver });
+  const metadata = await validateOutboundUrl("https://169.254.169.254/latest/meta-data", {
+    resolver,
+  });
   expect(metadata.ok).toBe(false);
   expect((metadata as { code: string }).code).toBe("private_address");
   expect((metadata as { reason: string }).reason).toContain("metadata");
@@ -473,7 +501,9 @@ test("WP-22 SSRF: every listed hostile URL is rejected, and a public host via th
   expect((loopback as { reason: string }).reason).toContain("loopback");
 
   // A PUBLIC host, resolved through the injected stub, is ALLOWED.
-  const publicOk = await validateOutboundUrl("https://callbacks.partner-bank.com/hook", { resolver });
+  const publicOk = await validateOutboundUrl("https://callbacks.partner-bank.com/hook", {
+    resolver,
+  });
   expect(publicOk.ok).toBe(true);
   if (publicOk.ok) {
     expect(publicOk.addresses).toEqual(["93.184.216.34"]);
@@ -482,7 +512,9 @@ test("WP-22 SSRF: every listed hostile URL is rejected, and a public host via th
 
   // Credentials embedded in the URL: a credential leak into our logs and a
   // parser-confusion vector against our own validator.
-  const creds = await validateOutboundUrl("https://user:pass@callbacks.partner-bank.com/hook", { resolver });
+  const creds = await validateOutboundUrl("https://user:pass@callbacks.partner-bank.com/hook", {
+    resolver,
+  });
   expect(creds.ok).toBe(false);
   expect((creds as { code: string }).code).toBe("credentials_in_url");
 
@@ -494,37 +526,73 @@ test("WP-22 SSRF: every listed hostile URL is rejected, and a public host via th
   expect((rebind as { reason: string }).reason).toContain("blocked address");
 
   // A name that resolves nowhere fails closed.
-  const nxdomain = await validateOutboundUrl("https://no-such-host.example-bank.com/hook", { resolver });
+  const nxdomain = await validateOutboundUrl("https://no-such-host.example-bank.com/hook", {
+    resolver,
+  });
   expect(nxdomain.ok).toBe(false);
   expect((nxdomain as { code: string }).code).toBe("dns_failed");
 
   // The two layers are separate and both needed: a public-looking name that
   // resolves internally is caught by DNS (the rebind case above), and an
   // internal-sounding name is refused by name even when it resolves publicly.
-  expect((await validateOutboundUrl("https://callbacks.partner-bank.com/hook", { resolver })).ok).toBe(true);
-  expect((await validateOutboundUrl("https://internal.partner-bank.com/hook", { resolver })).ok).toBe(false);
+  expect(
+    (await validateOutboundUrl("https://callbacks.partner-bank.com/hook", { resolver })).ok,
+  ).toBe(true);
+  expect(
+    (await validateOutboundUrl("https://internal.partner-bank.com/hook", { resolver })).ok,
+  ).toBe(false);
 
   // Non-default ports are refused; the surface stays on 443.
-  const oddPort = await validateOutboundUrl("https://callbacks.partner-bank.com:8443/hook", { resolver });
+  const oddPort = await validateOutboundUrl("https://callbacks.partner-bank.com:8443/hook", {
+    resolver,
+  });
   expect(oddPort.ok).toBe(false);
   expect((oddPort as { code: string }).code).toBe("blocked_port");
 });
 
 test("WP-22 SSRF: the IP classifier covers the ranges the policy claims to cover", () => {
   const blocked = [
-    "0.0.0.0", "10.1.2.3", "127.0.0.1", "127.1.2.3", "169.254.169.254", "169.254.170.2",
-    "169.254.1.1", "172.16.0.1", "172.31.255.255", "192.168.1.1", "100.64.0.1", "100.100.100.200",
-    "192.0.0.192", "224.0.0.1", "239.255.255.255", "255.255.255.255", "240.0.0.1",
-    "::", "::1", "fe80::1", "fc00::1", "fd12:3456::1", "ff02::1",
+    "0.0.0.0",
+    "10.1.2.3",
+    "127.0.0.1",
+    "127.1.2.3",
+    "169.254.169.254",
+    "169.254.170.2",
+    "169.254.1.1",
+    "172.16.0.1",
+    "172.31.255.255",
+    "192.168.1.1",
+    "100.64.0.1",
+    "100.100.100.200",
+    "192.0.0.192",
+    "224.0.0.1",
+    "239.255.255.255",
+    "255.255.255.255",
+    "240.0.0.1",
+    "::",
+    "::1",
+    "fe80::1",
+    "fc00::1",
+    "fd12:3456::1",
+    "ff02::1",
     // IPv4-mapped and NAT64 must be unwrapped, not waved through.
-    "::ffff:127.0.0.1", "::ffff:10.0.0.1", "64:ff9b::169.254.169.254",
-    "2002:c0a8:0101::", "2001:db8::1",
+    "::ffff:127.0.0.1",
+    "::ffff:10.0.0.1",
+    "64:ff9b::169.254.169.254",
+    "2002:c0a8:0101::",
+    "2001:db8::1",
   ];
   for (const ip of blocked) {
     expect(classifyIp(ip), `${ip} must be blocked`).not.toBeNull();
   }
 
-  const allowed = ["93.184.216.34", "8.8.8.8", "172.32.0.1", "172.15.255.255", "2606:2800:220:1:248:1893:25c8:1946"];
+  const allowed = [
+    "93.184.216.34",
+    "8.8.8.8",
+    "172.32.0.1",
+    "172.15.255.255",
+    "2606:2800:220:1:248:1893:25c8:1946",
+  ];
   for (const ip of allowed) {
     expect(classifyIp(ip), `${ip} must be allowed`).toBeNull();
   }
@@ -538,8 +606,13 @@ test("WP-22 SSRF: the URL is RE-VALIDATED after every redirect", async () => {
 
   // A validated URL that 302s to the metadata endpoint was never validated.
   // The injected fetch stands in for the hostile server; no network involved.
+  // `fetch` carries properties (e.g. `preconnect`) a stub cannot provide, so
+  // the double is bridged through unknown rather than pretending to be one.
   const hostileFetch = (async () =>
-    new Response(null, { status: 302, headers: { location: "https://169.254.169.254/latest/meta-data/iam/" } })) as typeof fetch;
+    new Response(null, {
+      status: 302,
+      headers: { location: "https://169.254.169.254/latest/meta-data/iam/" },
+    })) as unknown as typeof fetch;
 
   let thrown: unknown = null;
   try {
@@ -566,7 +639,7 @@ test("WP-22 SSRF: the URL is RE-VALIDATED after every redirect", async () => {
       status: next ? 302 : 200,
       headers: next ? { location: next } : {},
     });
-  }) as typeof fetch;
+  }) as unknown as typeof fetch;
 
   const followed = await followRedirectChain("https://callbacks.partner-bank.com/hook", {
     resolver,
@@ -583,14 +656,14 @@ test("WP-22 SSRF: the URL is RE-VALIDATED after every redirect", async () => {
   // An already-observed chain can be validated without any fetch at all.
   const badChain = await validateRedirectChain(
     ["https://callbacks.partner-bank.com/hook", "https://10.0.0.5/internal"],
-    { resolver }
+    { resolver },
   );
   expect(badChain.ok).toBe(false);
   expect((badChain as { code: string }).code).toBe("redirect_blocked");
 
   const goodChain = await validateRedirectChain(
     ["https://callbacks.partner-bank.com/hook", "https://cdn.partner-bank.com/v2"],
-    { resolver }
+    { resolver },
   );
   expect(goodChain.ok).toBe(true);
 });
@@ -620,7 +693,7 @@ test("WP-22 CSV: a formula-shaped merchant is neutralised; a normal name is unto
   const hostile = toCsv(
     payloads.map((merchant, i) => ({ ref: `SV-F-${i}`, merchant })),
     columns,
-    { bom: false }
+    { bom: false },
   );
 
   const lines = parseCsv(hostile);
@@ -633,7 +706,8 @@ test("WP-22 CSV: a formula-shaped merchant is neutralised; a normal name is unto
     // actually sent — with the single-quote sentinel in front of it.
     expect(merchant).toBe(`'${payloads[i]}`);
     // And no cell anywhere in the document can execute as a formula.
-    for (const cell of line) expect(isFormulaCell(cell), `cell ${JSON.stringify(cell)}`).toBe(false);
+    for (const cell of line)
+      expect(isFormulaCell(cell), `cell ${JSON.stringify(cell)}`).toBe(false);
   }
 
   // A normal name is untouched — same bytes, no quote, no sentinel. A merchant
@@ -642,10 +716,14 @@ test("WP-22 CSV: a formula-shaped merchant is neutralised; a normal name is unto
   const normal = toCsv(
     clean.map((merchant, i) => ({ ref: `SV-F-${i}`, merchant })),
     columns,
-    { bom: false }
+    { bom: false },
   );
   expect(parseCsv(normal)[0]).toEqual(["case_ref", "merchant"]);
-  expect(parseCsv(normal).slice(1).map(([, merchant]) => merchant)).toEqual(clean);
+  expect(
+    parseCsv(normal)
+      .slice(1)
+      .map(([, merchant]) => merchant),
+  ).toEqual(clean);
   expect(normal).toContain("SV-F-0,Starbucks\r\n");
   expect(normal).not.toContain("'Starbucks");
 
@@ -659,9 +737,10 @@ test("WP-22 CSV: a formula-shaped merchant is neutralised; a normal name is unto
   // Embedded quotes, commas and newlines still round-trip through RFC 4180
   // quoting, so neutralising did not corrupt the evidence.
   expect(toCsvField('He said "hi", then\nleft')).toBe('"He said ""hi"", then\nleft"');
-  expect(parseCsv(toCsv([{ ref: "SV-F-0", merchant: 'He said "hi", then\nleft' }], columns))[1][1]).toBe(
-    'He said "hi", then\nleft'
-  );
+  // The fixture has a header row plus one data row, so row index 1 exists.
+  expect(
+    parseCsv(toCsv([{ ref: "SV-F-0", merchant: 'He said "hi", then\nleft' }], columns))[1]![1],
+  ).toBe('He said "hi", then\nleft');
 
   // The negative-number opt-out is available but off by default: a bank
   // analyst still sees -42.00 as text, which is the accepted cost of the fix.
@@ -723,7 +802,9 @@ function parseCsv(document: string): string[][] {
 /** True when a PARSED cell would execute as a formula in a spreadsheet. */
 function isFormulaCell(cell: string): boolean {
   if (cell.startsWith("'")) return false;
-  return ["=", "+", "-", "@", "\t", "\r"].includes(cell[0]);
+  // An empty cell has no first character to inspect and cannot be a formula.
+  if (cell.length === 0) return false;
+  return ["=", "+", "-", "@", "\t", "\r"].includes(cell[0]!);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -737,7 +818,8 @@ test("WP-22 log injection: a newline in user input cannot forge a second log lin
   // fabricated audit record. In a plain-text log this is two lines, and
   // everything downstream — grep, a SIEM rule, a compliance export — now
   // contains a record our application never emitted.
-  const hostileMerchant = "Cafe Rouge\r\n[audit] action=card_freeze approved_by=root status=CONFIRMED_FRAUD";
+  const hostileMerchant =
+    "Cafe Rouge\r\n[audit] action=card_freeze approved_by=root status=CONFIRMED_FRAUD";
 
   const line = safeLog("info", "intervention.received", { merchant: hostileMerchant }, sink);
 
@@ -753,7 +835,7 @@ test("WP-22 log injection: a newline in user input cannot forge a second log lin
   const record = JSON.parse(line) as { msg: string; fields: Record<string, unknown> };
   expect(record.msg).toBe("intervention.received");
   expect(String(record.fields.merchant)).toBe(
-    "Cafe Rouge [audit] action=card_freeze approved_by=root status=CONFIRMED_FRAUD"
+    "Cafe Rouge [audit] action=card_freeze approved_by=root status=CONFIRMED_FRAUD",
   );
   expect(record.fields.merchant).not.toContain("\n");
 
@@ -766,7 +848,12 @@ test("WP-22 log injection: a newline in user input cannot forge a second log lin
   // A newline in the MESSAGE is stripped too. Concatenating user data into a
   // message is not a supported usage — but if someone does it, the log stays
   // one line rather than becoming a forgery vector.
-  const msg = safeLog("warn", "rejected\n[audit] action=card_freeze approved_by=root", undefined, sink);
+  const msg = safeLog(
+    "warn",
+    "rejected\n[audit] action=card_freeze approved_by=root",
+    undefined,
+    sink,
+  );
   expect(msg.split("\n")).toHaveLength(1);
   expect(JSON.parse(msg).msg).toBe("rejected [audit] action=card_freeze approved_by=root");
 
@@ -779,17 +866,25 @@ test("WP-22 log injection: a newline in user input cannot forge a second log lin
       attempts: [1, 2, 3],
       blob: "Z".repeat(5000),
     },
-    sink
+    sink,
   );
   expect(nested.split("\n")).toHaveLength(1);
   const nestedRecord = JSON.parse(nested) as { fields: Record<string, unknown> };
   // The newline becomes a single space, so the forged record stays one field
   // and reads as one run-on line rather than two.
-  expect(((nestedRecord.fields.body as Record<string, unknown>).signal as Record<string, unknown>).merchant).toBe("X Y");
+  expect(
+    ((nestedRecord.fields.body as Record<string, unknown>).signal as Record<string, unknown>)
+      .merchant,
+  ).toBe("X Y");
   expect(String(nestedRecord.fields.blob).length).toBeLessThanOrEqual(512);
 
   // PAN and IBAN are redacted before they become a durable log copy.
-  const redacted = safeLog("info", "customer.updated", { note: "card 4111111111111111 seen" }, sink);
+  const redacted = safeLog(
+    "info",
+    "customer.updated",
+    { note: "card 4111111111111111 seen" },
+    sink,
+  );
   expect(redacted).toContain("[REDACTED]");
   expect(redacted).not.toContain("4111111111111111");
 

@@ -7,8 +7,8 @@
 > does not get signed.
 >
 > **Then get permission to name them.** Add one line to the covering email:
-> *"May we name [Institution] and quote this letter in our submission and
-> demo materials?"* Get the reply in writing, in the same thread. Without it,
+> _"May we name [Institution] and quote this letter in our submission and
+> demo materials?"_ Get the reply in writing, in the same thread. Without it,
 > do not name them anywhere — see `docs/POST-LAUNCH-TODO.md`.
 
 ---
@@ -32,25 +32,25 @@ no commitment of funding, and no exclusivity.**
 
 ### 2. Name of sponsoring executive
 
-| | |
-| --- | --- |
-| Name | [Full name] |
-| Title | [e.g. Head of Fraud and Financial Crime] |
-| Function | [Department] |
-| Email / Telephone | [Contact details] |
+|                   |                                          |
+| ----------------- | ---------------------------------------- |
+| Name              | [Full name]                              |
+| Title             | [e.g. Head of Fraud and Financial Crime] |
+| Function          | [Department]                             |
+| Email / Telephone | [Contact details]                        |
 
 The Institution confirms the individual named above is authorised to sponsor a
 pilot evaluation on its behalf.
 
 ### 3. Proposed scope
 
-| | |
-| --- | --- |
+|                     |                                                              |
+| ------------------- | ------------------------------------------------------------ |
 | Alert type in scope | [e.g. card-not-present retail alerts above [risk threshold]] |
-| Expected volume | [N] alerts per day |
-| Live interventions | Capped at [N] calls per day during Phase 1 |
-| Phase 0 duration | [2] weeks, shadow mode, no calls placed |
-| Indicative start | [DD Month YYYY] |
+| Expected volume     | [N] alerts per day                                           |
+| Live interventions  | Capped at [N] calls per day during Phase 1                   |
+| Phase 0 duration    | [2] weeks, shadow mode, no calls placed                      |
+| Indicative start    | [DD Month YYYY]                                              |
 
 ### 4. What Phase 0 requires from the Institution
 
@@ -92,28 +92,28 @@ arrangement at any time without liability.
 
 The Institution [grants / does not grant] SecureVoice permission to name the
 Institution and to reproduce this letter in submissions, investor materials and
-demonstrations. *[Retain this sentence only if granted. Delete the alternative
-otherwise — an unmarked ambiguity is worse than a clear "no".]*
+demonstrations. _[Retain this sentence only if granted. Delete the alternative
+otherwise — an unmarked ambiguity is worse than a clear "no".]_
 
 ### 10. Contact
 
-| | |
-| --- | --- |
+|                     |                                 |
+| ------------------- | ------------------------------- |
 | SecureVoice contact | [Name, title, email, telephone] |
 
 ---
 
 **Signed for the Institution**
 
-Name: ______________________  Title: ______________________
+Name: ______________________ Title: ______________________
 
-Signature: ____________________  Date: ____________________
+Signature: ____________________ Date: ____________________
 
 **Signed for SecureVoice**
 
-Name: ______________________  Title: ______________________
+Name: ______________________ Title: ______________________
 
-Signature: ____________________  Date: ____________________
+Signature: ____________________ Date: ____________________
 
 ---
 
@@ -122,9 +122,9 @@ Signature: ____________________  Date: ____________________
 If legal blocks even this non-binding letter, in descending order of strength:
 
 1. Signed email from the named executive confirming intent to pilot.
-2. Email from the sponsor with a role-attributed quote: *"Head of Fraud at a
+2. Email from the sponsor with a role-attributed quote: _"Head of Fraud at a
    Ugandan tier-2 bank: 'the hardest part is reaching the customer in the first
-   ninety seconds.'"* — with written permission.
+   ninety seconds.'"_ — with written permission.
 3. A discovery call recorded in the submission at **L1** ("in active
    discussion"), with permission to name.
 

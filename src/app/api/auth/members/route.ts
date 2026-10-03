@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireCapability, requirePrivileged } from "@/lib/auth/guards";
 import { assertMayAssignRole, CapabilityError } from "@/lib/auth/rbac";
@@ -47,8 +48,15 @@ export async function GET(req: NextRequest) {
   const { listOrgMembers } = await import("@/lib/auth/identity");
   const members = await listOrgMembers(authed.orgId);
   return NextResponse.json(
-    { members: members.map((m) => ({ accountId: m.accountId, email: m.email, name: m.name, role: m.role })) },
-    { headers: { "Cache-Control": "no-store" } }
+    {
+      members: members.map((m) => ({
+        accountId: m.accountId,
+        email: m.email,
+        name: m.name,
+        role: m.role,
+      })),
+    },
+    { headers: { "Cache-Control": "no-store" } },
   );
 }
 
@@ -57,7 +65,7 @@ export async function PATCH(req: NextRequest) {
   if (!authed.ok) {
     return NextResponse.json(
       { error: authed.error, code: authed.code },
-      { status: authed.status, headers: { "Cache-Control": "no-store" } }
+      { status: authed.status, headers: { "Cache-Control": "no-store" } },
     );
   }
 
@@ -91,24 +99,20 @@ export async function PATCH(req: NextRequest) {
   }
 
   try {
-    const result = await setRole(
-      target.accountId,
-      authed.orgId,
-      parsed.data.role,
-      async () =>
-        auditAuthEventRequired({
-          intent: AUTH_AUDIT_INTENTS.roleChanged,
-          actorId: authed.identity.accountId,
-          orgId: authed.orgId,
-          note: `role ${target.role} → ${parsed.data.role}`,
-          meta: {
-            targetAccountId: target.accountId,
-            targetEmail: target.email,
-            previousRole: target.role,
-            nextRole: parsed.data.role,
-            by: authed.identity.accountId,
-          },
-        })
+    const result = await setRole(target.accountId, authed.orgId, parsed.data.role, async () =>
+      auditAuthEventRequired({
+        intent: AUTH_AUDIT_INTENTS.roleChanged,
+        actorId: authed.identity.accountId,
+        orgId: authed.orgId,
+        note: `role ${target.role} → ${parsed.data.role}`,
+        meta: {
+          targetAccountId: target.accountId,
+          targetEmail: target.email,
+          previousRole: target.role,
+          nextRole: parsed.data.role,
+          by: authed.identity.accountId,
+        },
+      }),
     );
     return NextResponse.json(
       {
@@ -120,7 +124,7 @@ export async function PATCH(req: NextRequest) {
         revokesAllSessions: true,
         note: "Role changed. Every existing session for that member has been revoked.",
       },
-      { headers: { "Cache-Control": "no-store" } }
+      { headers: { "Cache-Control": "no-store" } },
     );
   } catch (err) {
     if (err instanceof IdentityError) {

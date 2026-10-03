@@ -76,7 +76,7 @@ $appEnv = @{
 }
 foreach ($k in @(
   "AUTH_SECRET","WEBHOOK_SECRET","REALTIME_INGEST_SECRET","REALTIME_ALLOWED_ORIGIN",
-  "CLERK_SECRET_KEY","NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY",
+  "BETTER_AUTH_SECRET","BETTER_AUTH_API_KEY",
   "ELEVENLABS_API_KEY","ELEVENLABS_DRY_RUN","ELEVENLABS_MODEL","ELEVENLABS_STT_MODEL",
   "ELEVENLABS_AGENT_ID","ELEVENLABS_PHONE_NUMBER_ID",
   "ELEVENLABS_VOICE_EN","ELEVENLABS_VOICE_AR","ELEVENLABS_VOICE_HI","ELEVENLABS_VOICE_UR","ELEVENLABS_VOICE_FR","ELEVENLABS_VOICE_SW",
@@ -92,7 +92,7 @@ New-Service "app" @{
   ports = @(@{ name = "http"; internalPort = 3000; public = $false; vpcAccessible = $false; protocol = "HTTP" })
   buildSource = "git"; vcsData = $vcs
   buildSettings = @{ dockerfile = @{ buildEngine = "buildkit"; dockerFilePath = "/Dockerfile"; dockerWorkDir = "/" } }
-  buildArguments = @{ NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY = $envMap["NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY"] }
+  # No auth build args: BETTER_AUTH_* is runtime env (see runtimeEnvironment).
   runtimeEnvironment = $appEnv
   healthChecks = @(@{ protocol = "HTTP"; type = "readinessProbe"; path = "/api/health"; port = 3000; initialDelaySeconds = 20; periodSeconds = 30; timeoutSeconds = 5; failureThreshold = 3; successThreshold = 1 })
 }

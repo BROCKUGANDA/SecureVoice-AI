@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { createHmac, timingSafeEqual } from "crypto";
 import { z } from "zod";
 import { consume as consumeRateLimit, rateLimitId } from "@/lib/ratelimit";
@@ -86,7 +87,11 @@ type ParseOutcome =
   | { kind: "malformed" }
   | { kind: "invalid"; message: string };
 
-function verifySignature(rawBody: string, header: string | null, secret: string): { ok: true } | { ok: false; reason: string } {
+function verifySignature(
+  rawBody: string,
+  header: string | null,
+  secret: string,
+): { ok: true } | { ok: false; reason: string } {
   if (!secret) return { ok: false, reason: "Ingest not configured: set WEBHOOK_SECRET" };
   if (!header) return { ok: false, reason: "Missing SV-Signature header" };
   const m = /^t=(\d{10}),v1=([0-9a-f]{64})$/.exec(header.trim());
@@ -100,7 +105,9 @@ function verifySignature(rawBody: string, header: string | null, secret: string)
   // Required capture group of the regex above (exactly 64 lowercase hex chars), so
   // it cannot actually be undefined here. Asserted rather than branched on.
   const b = Buffer.from(v1!, "hex");
-  return a.length === b.length && timingSafeEqual(a, b) ? { ok: true } : { ok: false, reason: "Digest mismatch" };
+  return a.length === b.length && timingSafeEqual(a, b)
+    ? { ok: true }
+    : { ok: false, reason: "Digest mismatch" };
 }
 
 export async function POST(req: NextRequest) {
@@ -108,7 +115,7 @@ export async function POST(req: NextRequest) {
   if (!rl.ok) {
     return NextResponse.json(
       { error: "Rate limit exceeded; retry later." },
-      { status: 429, headers: { "Retry-After": String(Math.ceil(rl.retryAfterMs / 1000)) } }
+      { status: 429, headers: { "Retry-After": String(Math.ceil(rl.retryAfterMs / 1000)) } },
     );
   }
 
@@ -128,7 +135,10 @@ export async function POST(req: NextRequest) {
       req.headers.get("x-securevoice-signature");
     const sig = verifySignature(rawBody, sigHeader, process.env.WEBHOOK_SECRET ?? "");
     if (!sig.ok) {
-      return NextResponse.json({ error: `Signature verification failed: ${sig.reason}` }, { status: 401 });
+      return NextResponse.json(
+        { error: `Signature verification failed: ${sig.reason}` },
+        { status: 401 },
+      );
     }
   }
 
@@ -139,7 +149,8 @@ export async function POST(req: NextRequest) {
       ? { kind: "ok", data: parsed.data }
       : {
           kind: "invalid",
-          message: `Invalid signal: ${parsed.error.issues[0]?.path.join(".")} ${parsed.error.issues[0]?.message ?? ""}`.trim(),
+          message:
+            `Invalid signal: ${parsed.error.issues[0]?.path.join(".")} ${parsed.error.issues[0]?.message ?? ""}`.trim(),
         };
   } catch {
     outcome = { kind: "malformed" };
@@ -158,7 +169,7 @@ export async function POST(req: NextRequest) {
     if (!verdict.ok) {
       return NextResponse.json(
         { error: `Invalid signal: signal.callbackUrl ${verdict.reason}` },
-        { status: 422 }
+        { status: 422 },
       );
     }
   }
@@ -180,7 +191,7 @@ export async function POST(req: NextRequest) {
         "a Case row is created and the dial is enqueued as a durable job instead of an in-request carrier call",
       ],
     },
-    { status: 410, headers: { "Cache-Control": "no-store" } }
+    { status: 410, headers: { "Cache-Control": "no-store" } },
   );
 }
 
@@ -203,6 +214,6 @@ export async function GET() {
         "SV-Signature: t={unix},v1={hmac_sha256(WEBHOOK_SECRET, '{t}.{rawBody}')}",
       ],
     },
-    { headers: { "Cache-Control": "no-store" } }
+    { headers: { "Cache-Control": "no-store" } },
   );
 }

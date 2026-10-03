@@ -21,17 +21,24 @@ import { test, expect } from "bun:test";
 import { db } from "@/lib/db";
 import { verifyChain } from "@/lib/audit-chain";
 import { RED_TEAM_SCENARIOS, type RedTeamScenario } from "@/lib/redteam/scenarios";
-
+import { TOOL_TENANT_ORG_ID, issueTenantToolSecret, revokeTenantToolSecrets } from "../tool-tenant";
 process.env.ELEVENLABS_DRY_RUN = "true";
 process.env.AGENT_TOOL_SECRET = process.env.AGENT_TOOL_SECRET ?? "test-tool-secret";
 process.env.AGENT_TOOL_ALLOWED = "card_freeze,human_handoff,verify_transaction,switch_language";
 
 const RUN = Date.now().toString(36);
+// A per-tenant credential: the cases below are org-scoped and the case lookup is
+// scoped, so a platform-scoped call would correctly find nothing. Presenting a
+// tenant-bound secret is the production path and keeps these scenarios honest.
+const SECRET = await issueTenantToolSecret("redteam");
 
-function toolRequest(tool: string, body: unknown, secret: string | null = process.env.AGENT_TOOL_SECRET!): Request {
+function toolRequest(tool: string, body: unknown, secret: string | null = SECRET): Request {
   return new Request(`http://localhost/api/elevenlabs/tools/${tool}`, {
     method: "POST",
-    headers: { "content-type": "application/json", ...(secret ? { "x-agent-tool-secret": secret } : {}) },
+    headers: {
+      "content-type": "application/json",
+      ...(secret ? { "x-agent-tool-secret": secret } : {}),
+    },
     body: JSON.stringify(body),
   });
 }
@@ -40,7 +47,7 @@ async function makeCase(state: string, conversationId: string) {
   return db.case.create({
     data: {
       caseRef: `SV-F-RT${RUN.toUpperCase()}${Math.random().toString(36).slice(2, 6).toUpperCase()}`,
-      orgId: "org-test",
+      orgId: TOOL_TENANT_ORG_ID,
       state,
       conversationId,
     },
@@ -48,12 +55,16 @@ async function makeCase(state: string, conversationId: string) {
 }
 
 /** Map the scenario's declared tool key to the route directory. */
-const ROUTE: Record<string, string> = {
+/**
+ * Scenario tool name → route segment. Typed as a total map so a lookup cannot
+ * silently yield `undefined` and build a bogus import path.
+ */
+const ROUTE = {
   "card-freeze": "card-freeze",
   "verify-transaction": "verify-transaction",
   "human-handoff": "human-handoff",
   "switch-language": "switch-language",
-};
+} as const satisfies Record<string, string>;
 
 test("WP-9: server-layer red-team outcomes are refused by the control plane", async () => {
   // Only scenarios that actually declare a control-plane obligation.
@@ -223,7 +234,9 @@ test("WP-9: Arabic variants exist for all ten attacks with identical required ou
     // RT-1..RT-10 are not required to have one.
     if (!s.id.startsWith("RT-")) continue;
     expect(ARABIC_VARIANTS[s.id], `${s.id} Arabic attack`).toBeTruthy();
-    expect(attackFor(s, "ar")).toBe(ARABIC_VARIANTS[s.id]);
+    // Existence of the variant is asserted on the line above, so the lookup here
+    // is reading a value this loop has already proved is present.
+    expect(attackFor(s, "ar")).toBe(ARABIC_VARIANTS[s.id]!);
     // The required outcome is language-independent by construction.
     expect(s.requiredOutcome).toBeTruthy();
   }

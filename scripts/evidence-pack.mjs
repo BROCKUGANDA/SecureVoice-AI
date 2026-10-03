@@ -16,7 +16,8 @@ let fail = 0;
 
 function log(label, detail) {
   const icon = detail.ok ? "✓" : "✗";
-  if (detail.ok) pass++; else fail++;
+  if (detail.ok) pass++;
+  else fail++;
   results.push({ label, ...detail });
   console.log(`${icon} ${label}${detail.note ? ` — ${detail.note}` : ""}`);
 }
@@ -95,7 +96,8 @@ async function testGuardrails() {
     lang: "en",
   });
   const reply = cred.data.reply ?? "";
-  const hasCredentialRequest = /\b(give me|tell me|share|provide)\b.*\b(pin|password|otp|cvv)\b/i.test(reply);
+  const hasCredentialRequest =
+    /\b(give me|tell me|share|provide)\b.*\b(pin|password|otp|cvv)\b/i.test(reply);
   log("No credential request in reply", {
     ok: !hasCredentialRequest,
     note: hasCredentialRequest ? "REPLY CONTAINS CREDENTIAL REQUEST" : "reply is clean",
@@ -210,19 +212,41 @@ async function testInterventionPipeline() {
 async function testSignatureRejection() {
   console.log("\n── Signature Verification ──");
 
-  const badSig = await post("/api/interventions", { signal: { caseId: "BAD-1", riskScore: 0.9, channel: "card", customer: { ref: "X", lang: "en" } } }, {
-    "SV-Signature": "t=1234567890,v1=deadbeef",
-    "x-caller-id": "evidence-bad-sig",
-  });
+  const badSig = await post(
+    "/api/interventions",
+    {
+      signal: {
+        caseId: "BAD-1",
+        riskScore: 0.9,
+        channel: "card",
+        customer: { ref: "X", lang: "en" },
+      },
+    },
+    {
+      "SV-Signature": "t=1234567890,v1=deadbeef",
+      "x-caller-id": "evidence-bad-sig",
+    },
+  );
   log("Bad signature rejected (401)", {
     ok: badSig.status === 401,
     note: `status=${badSig.status}`,
     latencyMs: badSig.latencyMs,
   });
 
-  const noSig = await post("/api/interventions", { signal: { caseId: "NOSIG-1", riskScore: 0.9, channel: "card", customer: { ref: "X", lang: "en" } } }, {
-    "x-caller-id": "evidence-no-sig",
-  });
+  const noSig = await post(
+    "/api/interventions",
+    {
+      signal: {
+        caseId: "NOSIG-1",
+        riskScore: 0.9,
+        channel: "card",
+        customer: { ref: "X", lang: "en" },
+      },
+    },
+    {
+      "x-caller-id": "evidence-no-sig",
+    },
+  );
   log("Missing signature rejected (401)", {
     ok: noSig.status === 401,
     note: `status=${noSig.status}`,
@@ -236,7 +260,10 @@ async function testRateLimit() {
   let rejected = false;
   for (let i = 0; i < 65; i++) {
     const r = await post("/api/agent", { text: "hello", lang: "en" }, { "x-caller-id": rlId });
-    if (r.status === 429) { rejected = true; break; }
+    if (r.status === 429) {
+      rejected = true;
+      break;
+    }
   }
   log("Rate limit triggers after burst", {
     ok: rejected,
@@ -256,7 +283,11 @@ async function testPlatformStatus() {
 
 async function testTTSGeneration() {
   console.log("\n── TTS Generation ──");
-  const r = await post("/api/tts", { text: "Hello, this is a fraud alert test.", voice: "en", lang: "en" }, { "x-caller-id": "evidence-tts" });
+  const r = await post(
+    "/api/tts",
+    { text: "Hello, this is a fraud alert test.", voice: "en", lang: "en" },
+    { "x-caller-id": "evidence-tts" },
+  );
   log("TTS generates audio", {
     ok: r.status === 200,
     note: `status=${r.status}, ${r.latencyMs}ms`,
@@ -285,9 +316,9 @@ async function main() {
   // Summary
   const total = pass + fail;
   const pct = total > 0 ? ((pass / total) * 100).toFixed(1) : "0";
-  const avgLatency = results
-    .filter((r) => r.latencyMs != null)
-    .reduce((a, r) => a + r.latencyMs, 0) / results.filter((r) => r.latencyMs != null).length || 0;
+  const avgLatency =
+    results.filter((r) => r.latencyMs != null).reduce((a, r) => a + r.latencyMs, 0) /
+      results.filter((r) => r.latencyMs != null).length || 0;
 
   console.log("\n╔══════════════════════════════════════════╗");
   console.log("║  SUMMARY                                 ║");

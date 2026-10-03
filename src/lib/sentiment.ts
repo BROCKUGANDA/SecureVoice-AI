@@ -21,29 +21,88 @@ export type SentimentResult = {
 
 const DISTRESS = [
   // en
-  "scared", "afraid", "panicking", "panic", "help me", "help!", "police", "crying", "terrified", "freaking out",
-  "my savings", "all my money", "please help", "i don't know what to do",
+  "scared",
+  "afraid",
+  "panicking",
+  "panic",
+  "help me",
+  "help!",
+  "police",
+  "crying",
+  "terrified",
+  "freaking out",
+  "my savings",
+  "all my money",
+  "please help",
+  "i don't know what to do",
   // ar
-  "أنا خائف", "أنا خائفة", "مساعدة", "الشرطة", "أنا خوف", "كل أموالي", "أنقذوني",
+  "أنا خائف",
+  "أنا خائفة",
+  "مساعدة",
+  "الشرطة",
+  "أنا خوف",
+  "كل أموالي",
+  "أنقذوني",
   // hi
-  "डर गया", "डर गई", "मदद", "पुलिस", "मेरी सारी", "बचाओ",
+  "डर गया",
+  "डर गई",
+  "मदद",
+  "पुलिस",
+  "मेरी सारी",
+  "बचाओ",
   // ur
-  "خوف", "مدد", "پولیس", "میری ساری", "بچاؤ",
+  "خوف",
+  "مدد",
+  "پولیس",
+  "میری ساری",
+  "بچاؤ",
   // fr
-  "j'ai peur", "peur", "au secours", "la police", "tout mon argent", "aidez-moi",
+  "j'ai peur",
+  "peur",
+  "au secours",
+  "la police",
+  "tout mon argent",
+  "aidez-moi",
   // sw
-  "naogopa", "ogopa", "msaada", "polisi", "pesa zote",
+  "naogopa",
+  "ogopa",
+  "msaada",
+  "polisi",
+  "pesa zote",
 ];
 
 const CONFUSION = [
-  "what?", "who is this", "i don't understand", "what do you mean", "confused",
-  "ماذا", "لا أفهم", "من أنت", "क्या", "समझ नहीं", "کیا", "سمجھ نہیں",
-  "quoi", "je ne comprends", "qui êtes", "nini", "sieui", "sielewi",
+  "what?",
+  "who is this",
+  "i don't understand",
+  "what do you mean",
+  "confused",
+  "ماذا",
+  "لا أفهم",
+  "من أنت",
+  "क्या",
+  "समझ नहीं",
+  "کیا",
+  "سمجھ نہیں",
+  "quoi",
+  "je ne comprends",
+  "qui êtes",
+  "nini",
+  "sieui",
+  "sielewi",
 ];
 
 const THIRD_PARTY_PRESSURE = [
-  "someone is telling me", "he is telling me", "she told me to", "the man on the other",
-  "on the phone with me", "أمامي يقول", "कोई कह रहा", "کوئی کہہ", "quelqu'un me dit", "mtu ananiambia",
+  "someone is telling me",
+  "he is telling me",
+  "she told me to",
+  "the man on the other",
+  "on the phone with me",
+  "أمامي يقول",
+  "कोई कह रहा",
+  "کوئی کہہ",
+  "quelqu'un me dit",
+  "mtu ananiambia",
 ];
 
 export function analyzeSentiment(text: string): SentimentResult {
@@ -57,7 +116,11 @@ export function analyzeSentiment(text: string): SentimentResult {
   for (const m of THIRD_PARTY_PRESSURE) {
     if (t.includes(m)) {
       // classic social-engineering tell: the caller is being coached live
-      return { sentiment: "distressed", escalate: true, reason: "possible live coaching / third-party pressure" };
+      return {
+        sentiment: "distressed",
+        escalate: true,
+        reason: "possible live coaching / third-party pressure",
+      };
     }
   }
   for (const m of CONFUSION) {

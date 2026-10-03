@@ -54,7 +54,10 @@ const NO_CREDENTIAL_DENY_PATTERNS: { pattern: RegExp; why: string }[] = [
   { pattern: /\b(otp|one[- ]time|passcode|verification code)\b/i, why: "OTP/passcode request" },
   { pattern: /\b(pin|passcode|password|pwd)\b/i, why: "Credential field request" },
   { pattern: /\b(cvv|cvc|security code)\b/i, why: "Card security code request" },
-  { pattern: /\b(full card number|full pan|16[- ]digit|read me the number)\b/i, why: "Full PAN readback request" },
+  {
+    pattern: /\b(full card number|full pan|16[- ]digit|read me the number)\b/i,
+    why: "Full PAN readback request",
+  },
   { pattern: /\b(expiry|expiration date).*(card|بطاقة|कार्ड)\b/i, why: "Card expiry request" },
 ];
 
@@ -95,12 +98,17 @@ export function auditAgentReply(args: {
   // 2. Opening disclosure must be present in the first agent turn.
   if (args.isOpening) {
     const disclosure =
-      args.lang === "ar" ? OPENING_DISCLOSURE_AR :
-      args.lang === "hi" ? OPENING_DISCLOSURE_HI :
-      args.lang === "ur" ? OPENING_DISCLOSURE_UR :
-      args.lang === "fr" ? OPENING_DISCLOSURE_FR :
-      args.lang === "sw" ? OPENING_DISCLOSURE_SW :
-      OPENING_DISCLOSURE_EN;
+      args.lang === "ar"
+        ? OPENING_DISCLOSURE_AR
+        : args.lang === "hi"
+          ? OPENING_DISCLOSURE_HI
+          : args.lang === "ur"
+            ? OPENING_DISCLOSURE_UR
+            : args.lang === "fr"
+              ? OPENING_DISCLOSURE_FR
+              : args.lang === "sw"
+                ? OPENING_DISCLOSURE_SW
+                : OPENING_DISCLOSURE_EN;
     if (!args.reply.includes(disclosure)) {
       // Compliance violation — fix in place rather than reject.
       args.reply = `${disclosure}. ${args.reply}`;

@@ -55,7 +55,13 @@ import {
   summariseWindow,
   worstSpan,
 } from "@/lib/telemetry/slo";
-import { flushSpansNow, readSpanRecords, recordSpanAndPersist, resetStoreState, storeDiagnostics } from "@/lib/telemetry/store";
+import {
+  flushSpansNow,
+  readSpanRecords,
+  recordSpanAndPersist,
+  resetStoreState,
+  storeDiagnostics,
+} from "@/lib/telemetry/store";
 import { REQUIRED_INTERVENTIONS, buildSloReport } from "@/lib/telemetry/report";
 
 const ROOT = resolve(import.meta.dir, "..", "..");
@@ -144,9 +150,9 @@ describe("percentile maths", () => {
     // "not measured" into "faster than anyone has ever been". The count is
     // legitimately 0; every DURATION is null.
     expect(empty.p95Ms).not.toBe(0);
-    expect([empty.minMs, empty.p50Ms, empty.p95Ms, empty.p99Ms, empty.maxMs, empty.meanMs]).toEqual([
-      null, null, null, null, null, null,
-    ]);
+    expect([empty.minMs, empty.p50Ms, empty.p95Ms, empty.p99Ms, empty.maxMs, empty.meanMs]).toEqual(
+      [null, null, null, null, null, null],
+    );
   });
 
   test("a single sample is every percentile", () => {
@@ -156,7 +162,16 @@ describe("percentile maths", () => {
       expect(got as number).toBe(42);
     }
     const one = summarise([42]);
-    expect(one).toMatchObject({ samples: 1, minMs: 42, p50Ms: 42, p95Ms: 42, p99Ms: 42, maxMs: 42, meanMs: 42, rejected: 0 });
+    expect(one).toMatchObject({
+      samples: 1,
+      minMs: 42,
+      p50Ms: 42,
+      p95Ms: 42,
+      p99Ms: 42,
+      maxMs: 42,
+      meanMs: 42,
+      rejected: 0,
+    });
   });
 
   test("p50 / p95 / p99 over 100 samples are exact", () => {
@@ -296,7 +311,10 @@ describe("span targets", () => {
 
 describe("the recorder", () => {
   test("a valid span produces a fully correlated record", () => {
-    const record = seed({ durationMs: 1_234.5, attributes: { channel: "card", risk: 0.94, live: true } });
+    const record = seed({
+      durationMs: 1_234.5,
+      attributes: { channel: "card", risk: 0.94, live: true },
+    });
     expect(record.span).toBe(TERMINAL_SPAN);
     expect(record.durationMs).toBe(1_234.5);
     expect(record.startedAt).toBe(new Date(BASE).toISOString());
@@ -321,7 +339,10 @@ describe("the recorder", () => {
       ["end before start", { span: TERMINAL_SPAN, startedAtMs: BASE, durationMs: -1 }],
       ["NaN start", { span: TERMINAL_SPAN, startedAtMs: Number.NaN, durationMs: 1 }],
       ["NaN duration", { span: TERMINAL_SPAN, startedAtMs: BASE, durationMs: Number.NaN }],
-      ["infinite duration", { span: TERMINAL_SPAN, startedAtMs: BASE, durationMs: Number.POSITIVE_INFINITY }],
+      [
+        "infinite duration",
+        { span: TERMINAL_SPAN, startedAtMs: BASE, durationMs: Number.POSITIVE_INFINITY },
+      ],
       // 1e15 is still a representable epoch (+033658). MAX_VALUE is not, and
       // `toISOString()` throws on it — the recorder must not.
       ["epoch out of range", { span: TERMINAL_SPAN, startedAtMs: Number.MAX_VALUE, durationMs: 1 }],
@@ -348,8 +369,15 @@ describe("the recorder", () => {
     expect(parseSpanRecord(null)).toBeNull();
     expect(parseSpanRecord({ span: "nope", durationMs: 1, startedAtMs: BASE })).toBeNull();
     expect(parseSpanRecord({ span: TERMINAL_SPAN, durationMs: -1, startedAtMs: BASE })).toBeNull();
-    expect(parseSpanRecord({ span: TERMINAL_SPAN, durationMs: Number.NaN, startedAtMs: BASE })).toBeNull();
-    const good = parseSpanRecord({ span: TERMINAL_SPAN, durationMs: 7, startedAtMs: BASE, interventionId: "i-1" });
+    expect(
+      parseSpanRecord({ span: TERMINAL_SPAN, durationMs: Number.NaN, startedAtMs: BASE }),
+    ).toBeNull();
+    const good = parseSpanRecord({
+      span: TERMINAL_SPAN,
+      durationMs: 7,
+      startedAtMs: BASE,
+      interventionId: "i-1",
+    });
     expect(good?.durationMs).toBe(7);
     expect(good?.traceId).toMatch(/^[0-9a-f]{32}$/);
   });
@@ -359,7 +387,12 @@ describe("the recorder", () => {
     const logPath = join(tmp, "spans.jsonl");
     process.env.TELEMETRY_SPAN_LOG = logPath;
 
-    const written = recordSpanAndPersist({ span: "tool_request_to_response", startedAtMs: BASE, durationMs: 9.25, interventionId: "SV-F-ROUNDTRIP" });
+    const written = recordSpanAndPersist({
+      span: "tool_request_to_response",
+      startedAtMs: BASE,
+      durationMs: 9.25,
+      interventionId: "SV-F-ROUNDTRIP",
+    });
     expect(written).not.toBeNull();
     await flushSpansNow();
 
@@ -378,7 +411,12 @@ describe("the recorder", () => {
     // Point the log AT a directory: mkdir succeeds, append fails with EISDIR.
     process.env.TELEMETRY_SPAN_LOG = tmp;
 
-    const record = recordSpanAndPersist({ span: TERMINAL_SPAN, startedAtMs: BASE, durationMs: 5, interventionId: "SV-F-EISDIR" });
+    const record = recordSpanAndPersist({
+      span: TERMINAL_SPAN,
+      startedAtMs: BASE,
+      durationMs: 5,
+      interventionId: "SV-F-EISDIR",
+    });
     expect(record).not.toBeNull(); // the in-memory ring still has it
     await flushSpansNow();
 
@@ -443,7 +481,12 @@ describe("window summaries", () => {
 
   test("only the terminal span makes an intervention 'complete'", () => {
     const partial = SPAN_DEFINITIONS.filter((d) => d.name !== TERMINAL_SPAN).map((d) =>
-      recordSpan({ span: d.name, startedAtMs: BASE, durationMs: 10, interventionId: "SV-F-PARTIAL" }),
+      recordSpan({
+        span: d.name,
+        startedAtMs: BASE,
+        durationMs: 10,
+        interventionId: "SV-F-PARTIAL",
+      }),
     ) as SpanRecord[];
     expect(countInterventions(partial)).toBe(1);
     expect(completeInterventionIds(partial)).toHaveLength(0);
@@ -453,11 +496,24 @@ describe("window summaries", () => {
   });
 
   test("the window excludes samples older than the requested range", () => {
-    const recent = recordSpan({ span: TERMINAL_SPAN, startedAtMs: BASE + 60_000, durationMs: 10, interventionId: "i-recent" });
-    const old = recordSpan({ span: TERMINAL_SPAN, startedAtMs: BASE, durationMs: 99_000, interventionId: "i-old" });
+    const recent = recordSpan({
+      span: TERMINAL_SPAN,
+      startedAtMs: BASE + 60_000,
+      durationMs: 10,
+      interventionId: "i-recent",
+    });
+    const old = recordSpan({
+      span: TERMINAL_SPAN,
+      startedAtMs: BASE,
+      durationMs: 99_000,
+      interventionId: "i-old",
+    });
     expect(recent).not.toBeNull();
     expect(old).not.toBeNull();
-    const rows = summariseWindow([recent as SpanRecord, old as SpanRecord], { sinceMs: BASE + 60_000, nowMs: BASE + 60_000 });
+    const rows = summariseWindow([recent as SpanRecord, old as SpanRecord], {
+      sinceMs: BASE + 60_000,
+      nowMs: BASE + 60_000,
+    });
     const freeze = rows.find((r) => r.span === TERMINAL_SPAN);
     expect(freeze?.samples).toBe(1);
     expect(freeze?.p95Ms).toBe(10);
@@ -478,8 +534,18 @@ describe("window summaries", () => {
     // the slowest span and still the healthiest one, because its budget is
     // 200× the tool budget. Ranking by raw ms would flag the wrong row.
     const ranked = summariseWindow([
-      recordSpan({ span: TERMINAL_SPAN, startedAtMs: BASE, durationMs: 90_000, interventionId: "r-1" }) as SpanRecord,
-      recordSpan({ span: "tool_request_to_response", startedAtMs: BASE, durationMs: 1_200, interventionId: "r-2" }) as SpanRecord,
+      recordSpan({
+        span: TERMINAL_SPAN,
+        startedAtMs: BASE,
+        durationMs: 90_000,
+        interventionId: "r-1",
+      }) as SpanRecord,
+      recordSpan({
+        span: "tool_request_to_response",
+        startedAtMs: BASE,
+        durationMs: 1_200,
+        interventionId: "r-2",
+      }) as SpanRecord,
     ]);
     expect(worstSpan(ranked)?.span).toBe("tool_request_to_response");
     expect(worstSpan(ranked)?.p95Ms).toBe(1_200);
@@ -528,16 +594,20 @@ describe("the SLO evidence gate", () => {
   });
 
   test("29 interventions fails and 30 passes — the threshold is real", () => {
-    const under = buildSloReport(
-      { ...emptySource, missing: false, records: Array.from({ length: 29 }, (_, i) => completeIntervention(`SV-F-${i}`)).flat() },
-    );
+    const under = buildSloReport({
+      ...emptySource,
+      missing: false,
+      records: Array.from({ length: 29 }, (_, i) => completeIntervention(`SV-F-${i}`)).flat(),
+    });
     expect(under.report.interventions_measured).toBe(29);
     expect(under.report.meets_30_intervention_threshold).toBe(false);
     expect(under.exitCode).toBe(1);
 
-    const at = buildSloReport(
-      { ...emptySource, missing: false, records: Array.from({ length: 30 }, (_, i) => completeIntervention(`SV-F-${i}`)).flat() },
-    );
+    const at = buildSloReport({
+      ...emptySource,
+      missing: false,
+      records: Array.from({ length: 30 }, (_, i) => completeIntervention(`SV-F-${i}`)).flat(),
+    });
     expect(at.report.interventions_measured).toBe(30);
     expect(at.report.meets_30_intervention_threshold).toBe(true);
     expect(at.exitCode).toBe(0);
@@ -547,9 +617,18 @@ describe("the SLO evidence gate", () => {
 
   test("interventions that never reached a freeze do not count", () => {
     const neverFinished = SPAN_DEFINITIONS.filter((d) => d.name !== TERMINAL_SPAN).map((d) =>
-      recordSpan({ span: d.name, startedAtMs: BASE, durationMs: 5, interventionId: `SV-F-OPEN-${d.name}` }),
+      recordSpan({
+        span: d.name,
+        startedAtMs: BASE,
+        durationMs: 5,
+        interventionId: `SV-F-OPEN-${d.name}`,
+      }),
     ) as SpanRecord[];
-    const { report, exitCode } = buildSloReport({ ...emptySource, missing: false, records: neverFinished });
+    const { report, exitCode } = buildSloReport({
+      ...emptySource,
+      missing: false,
+      records: neverFinished,
+    });
     expect(report.interventions_seen).toBe(7);
     expect(report.interventions_measured).toBe(0);
     expect(report.meets_30_intervention_threshold).toBe(false);
@@ -561,8 +640,14 @@ describe("the SLO evidence gate", () => {
     // (Appending ONE slow sample to thirty fast ones would NOT fail: at n=31
     // the 95th percentile is still a fast sample, and pretending otherwise
     // would be a test that flatters the maths.)
-    const records = Array.from({ length: 30 }, (_, i) => completeIntervention(`SV-F-${i}`, 2)).flat();
-    const { report, exitCode, reasons } = buildSloReport({ ...emptySource, missing: false, records });
+    const records = Array.from({ length: 30 }, (_, i) =>
+      completeIntervention(`SV-F-${i}`, 2),
+    ).flat();
+    const { report, exitCode, reasons } = buildSloReport({
+      ...emptySource,
+      missing: false,
+      records,
+    });
     expect(report.meets_30_intervention_threshold).toBe(true);
     expect(report.all_targets_met).toBe(false);
     expect(exitCode).toBe(1);
@@ -576,8 +661,14 @@ describe("the SLO evidence gate", () => {
 
   test("published percentiles equal the maths, computed from the same records", () => {
     const durations = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
-    const records = durations.map((ms, i) =>
-      recordSpan({ span: TERMINAL_SPAN, startedAtMs: BASE + i, durationMs: ms, interventionId: `SV-F-${i}` }) as SpanRecord,
+    const records = durations.map(
+      (ms, i) =>
+        recordSpan({
+          span: TERMINAL_SPAN,
+          startedAtMs: BASE + i,
+          durationMs: ms,
+          interventionId: `SV-F-${i}`,
+        }) as SpanRecord,
     );
     const { report } = buildSloReport({ ...emptySource, missing: false, records });
     const row = report.spans.find((s) => s.name === TERMINAL_SPAN);
@@ -613,11 +704,17 @@ describe("SloPanel", () => {
   // Rendered with react-dom/server rather than a DOM: the interesting behaviour
   // is what the markup DOES NOT contain, and that is easier to assert on a
   // string than through a testing library the repo does not have.
-  const render = (props: Parameters<typeof SloChart>[0]) => renderToStaticMarkup(createElement(SloChart, props));
+  const render = (props: Parameters<typeof SloChart>[0]) =>
+    renderToStaticMarkup(createElement(SloChart, props));
   const baselinePct = logAxisPosition(INDUSTRY_BASELINE.ms);
 
   test("with no data it names the budget and draws no bar at all", () => {
-    const html = render({ spans: summariseWindow([]), baselinePct, hasData: false, snapshot: null });
+    const html = render({
+      spans: summariseWindow([]),
+      baselinePct,
+      hasData: false,
+      snapshot: null,
+    });
     // One "not measured" per row, plus one per aria-label.
     expect(html.split("not measured").length - 1).toBeGreaterThanOrEqual(8);
     expect(html).toContain("No spans recorded in this window");
@@ -633,7 +730,12 @@ describe("SloPanel", () => {
   });
 
   test("with data it shows p50 and p95 and the verdict", () => {
-    const html = render({ spans: summariseWindow(completeIntervention("SV-F-PANEL")), baselinePct, hasData: true, snapshot: null });
+    const html = render({
+      spans: summariseWindow(completeIntervention("SV-F-PANEL")),
+      baselinePct,
+      hasData: true,
+      snapshot: null,
+    });
     expect(html).not.toContain("not measured");
     expect(html).toContain("met"); // verdict pills
     // 10% of the 300 ms budget → p50/p95 both 30 ms on the intake row.
@@ -643,7 +745,12 @@ describe("SloPanel", () => {
   });
 
   test("the rendered p95 positions agree with the axis maths", () => {
-    const html = render({ spans: summariseWindow(completeIntervention("SV-F-POS")), baselinePct, hasData: true, snapshot: null });
+    const html = render({
+      spans: summariseWindow(completeIntervention("SV-F-POS")),
+      baselinePct,
+      hasData: true,
+      snapshot: null,
+    });
     // Every drawn bar width must be the axis position of a real measurement.
     for (const row of summariseWindow(completeIntervention("SV-F-POS2"))) {
       const pct = logAxisPosition(row.p95Ms);
@@ -657,18 +764,26 @@ describe("SloPanel", () => {
 
 describe("scripts/emit-slo.ts (end to end)", () => {
   async function runEmitter(logPath: string, outPath: string, extra: string[] = []) {
-    const proc = Bun.spawn(["bun", "--preload", join(ROOT, "tests", "preload.ts"), EMITTER, ...extra], {
-      cwd: ROOT,
-      env: { ...process.env, TELEMETRY_SPAN_LOG: logPath, SLO_EVIDENCE_PATH: outPath },
-      stdout: "pipe",
-      stderr: "pipe",
-    });
+    const proc = Bun.spawn(
+      ["bun", "--preload", join(ROOT, "tests", "preload.ts"), EMITTER, ...extra],
+      {
+        cwd: ROOT,
+        env: { ...process.env, TELEMETRY_SPAN_LOG: logPath, SLO_EVIDENCE_PATH: outPath },
+        stdout: "pipe",
+        stderr: "pipe",
+      },
+    );
     const [code, stdout, stderr] = await Promise.all([
       proc.exited,
       new Response(proc.stdout).text(),
       new Response(proc.stderr).text(),
     ]);
-    return { code, stdout, stderr, json: JSON.parse(await readFile(outPath, "utf8")) as Record<string, unknown> };
+    return {
+      code,
+      stdout,
+      stderr,
+      json: JSON.parse(await readFile(outPath, "utf8")) as Record<string, unknown>,
+    };
   }
 
   test("with no spans it exits NON-ZERO and writes the real count", async () => {
@@ -760,7 +875,9 @@ describe("scripts/emit-slo.ts (end to end)", () => {
   test("the committed evidence artifact may not claim the threshold it did not reach", async () => {
     // Whatever schema the committed artifact uses, an under-count must not be
     // published as a pass. This is the regression the previous revision failed.
-    const committed = JSON.parse(await readFile(join(ROOT, "evidence", "latency", "slo.json"), "utf8")) as {
+    const committed = JSON.parse(
+      await readFile(join(ROOT, "evidence", "latency", "slo.json"), "utf8"),
+    ) as {
       interventions_measured?: number;
       meets_30_intervention_threshold?: boolean;
     };

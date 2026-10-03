@@ -28,24 +28,25 @@ export async function GET() {
 
   const mem = process.memoryUsage();
 
-// Post-call evidence pipeline freshness (WP-4). A delivery that has not
-// arrived in 24h means the evidence pipeline is silently dead — the same
-// failure mode as hazard H8 (webhook auto-disabled after repeated failures).
-let lastWebhookAt: string | null = null;
-let pendingWebhooks = 0;
-if (dbOk) {
-  try {
-    const last = await db.webhookEvent.findFirst({
-      orderBy: { receivedAt: "desc" },
-      select: { receivedAt: true },
-    });
-    lastWebhookAt = last?.receivedAt.toISOString() ?? null;
-    pendingWebhooks = await db.webhookEvent.count({ where: { processed: false } });
-  } catch {
-    // leave nulls; the freshness check below reports "unknown"
+  // Post-call evidence pipeline freshness (WP-4). A delivery that has not
+  // arrived in 24h means the evidence pipeline is silently dead — the same
+  // failure mode as hazard H8 (webhook auto-disabled after repeated failures).
+  let lastWebhookAt: string | null = null;
+  let pendingWebhooks = 0;
+  if (dbOk) {
+    try {
+      const last = await db.webhookEvent.findFirst({
+        orderBy: { receivedAt: "desc" },
+        select: { receivedAt: true },
+      });
+      lastWebhookAt = last?.receivedAt.toISOString() ?? null;
+      pendingWebhooks = await db.webhookEvent.count({ where: { processed: false } });
+    } catch {
+      // leave nulls; the freshness check below reports "unknown"
+    }
   }
-}
-const webhookFresh = lastWebhookAt !== null && Date.now() - Date.parse(lastWebhookAt) < 24 * 3600 * 1000;
+  const webhookFresh =
+    lastWebhookAt !== null && Date.now() - Date.parse(lastWebhookAt) < 24 * 3600 * 1000;
 
   const voiceProvider = env.elevenLabsApiKey
     ? env.elevenLabsDryRun
@@ -75,6 +76,6 @@ const webhookFresh = lastWebhookAt !== null && Date.now() - Date.parse(lastWebho
       rssMb: Math.round(mem.rss / 1048576),
       ts: new Date().toISOString(),
     },
-    { headers: { "Cache-Control": "no-store" } }
+    { headers: { "Cache-Control": "no-store" } },
   );
 }

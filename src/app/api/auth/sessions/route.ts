@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { requireCapability } from "@/lib/auth/guards";
 import { listIdentitySessions, revokeIdentitySessions } from "@/lib/auth/session";
 import { AUTH_AUDIT_INTENTS, auditAuthEventRequired } from "@/lib/auth/audit";
@@ -44,7 +45,7 @@ export async function GET(req: NextRequest) {
         method: s.method,
       })),
     },
-    { headers: { "Cache-Control": "no-store" } }
+    { headers: { "Cache-Control": "no-store" } },
   );
 }
 
@@ -65,6 +66,6 @@ export async function DELETE(req: NextRequest) {
   });
   return NextResponse.json(
     { ok: true, revoked, scope: "identity" },
-    { headers: { "Cache-Control": "no-store" } }
+    { headers: { "Cache-Control": "no-store" } },
   );
 }

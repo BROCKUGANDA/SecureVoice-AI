@@ -90,11 +90,13 @@ async function withChainLock<T>(callRef: string, fn: () => Promise<T>): Promise<
       for (const [k, p] of CHAIN_LOCKS) {
         if (settledLocks.has(p)) CHAIN_LOCKS.delete(k);
       }
-      // If still over cap (sustained unique-ref flood), drop the oldest half.
+      // Still over cap (sustained unique-ref flood), drop the oldest half.
       if (CHAIN_LOCKS.size > CHAIN_LOCKS_MAX) {
         const sorted = [...CHAIN_LOCKS.keys()];
         for (let i = 0; i < Math.ceil(sorted.length / 2); i++) {
-          CHAIN_LOCKS.delete(sorted[i]);
+          // `i < ceil(len/2)` is at most `len`, so the index always exists.
+          const oldest = sorted[i]!;
+          CHAIN_LOCKS.delete(oldest);
         }
       }
     }
@@ -110,7 +112,10 @@ async function withChainLock<T>(callRef: string, fn: () => Promise<T>): Promise<
 }
 
 /** Append a new entry to the audit chain (serialized per callRef). */
-export async function append(entry: AuditEntry, opts?: { fast?: boolean }): Promise<{ id: string; chainHash: string }> {
+export async function append(
+  entry: AuditEntry,
+  opts?: { fast?: boolean },
+): Promise<{ id: string; chainHash: string }> {
   const clean = sanitize(entry);
   // Concurrency limiter: fire-and-forget appends must never starve the hot
   // path (the combined idempotency+consent check) of a pool connection. At
@@ -127,7 +132,7 @@ export async function append(entry: AuditEntry, opts?: { fast?: boolean }): Prom
 
 const MAX_CONCURRENT_APPENDS = 5;
 let activeAppends = 0;
-let appendQueue: (() => void)[] = [];
+const appendQueue: (() => void)[] = [];
 
 function acquireAppendSlot(): Promise<void> {
   if (activeAppends < MAX_CONCURRENT_APPENDS) {
@@ -146,7 +151,10 @@ function releaseAppendSlot(): void {
   }
 }
 
-async function appendInner(clean: AuditEntry, fast: boolean): Promise<{ id: string; chainHash: string }> {
+async function appendInner(
+  clean: AuditEntry,
+  fast: boolean,
+): Promise<{ id: string; chainHash: string }> {
   const row = await withChainLock(clean.callRef, async () => {
     if (fast) {
       // Fast path: no $transaction. For fire-and-forget appends where the
@@ -163,7 +171,10 @@ async function appendInner(clean: AuditEntry, fast: boolean): Promise<{ id: stri
       });
       const prevHash = last?.chainHash ?? GENESIS_HASH;
       const canonicalMeta = clean.meta ? canonicalizeNested(clean.meta) : undefined;
-      const hash = chainHash(prevHash, { ...clean, meta: canonicalMeta as unknown as Record<string, unknown> | undefined });
+      const hash = chainHash(prevHash, {
+        ...clean,
+        meta: canonicalMeta as unknown as Record<string, unknown> | undefined,
+      });
       return dbAudit.auditLog.create({
         data: {
           callRef: clean.callRef,
@@ -201,7 +212,10 @@ async function appendInner(clean: AuditEntry, fast: boolean): Promise<{ id: stri
       // SAME bytes for hashing AND storage. verifyChain() reads meta verbatim and
       // passes it through, so the chain stays consistent across writes and reads.
       const canonicalMeta = clean.meta ? canonicalizeNested(clean.meta) : undefined;
-      const hash = chainHash(prevHash, { ...clean, meta: canonicalMeta as unknown as Record<string, unknown> | undefined });
+      const hash = chainHash(prevHash, {
+        ...clean,
+        meta: canonicalMeta as unknown as Record<string, unknown> | undefined,
+      });
       return tx.auditLog.create({
         data: {
           callRef: clean.callRef,
@@ -245,7 +259,9 @@ function canonicalizeNested(value: unknown): string {
   if (Array.isArray(value)) return "[" + value.map(canonicalizeNested).join(",") + "]";
   const obj = value as Record<string, unknown>;
   const keys = Object.keys(obj).sort();
-  return "{" + keys.map((k) => JSON.stringify(k) + ":" + canonicalizeNested(obj[k])).join(",") + "}";
+  return (
+    "{" + keys.map((k) => JSON.stringify(k) + ":" + canonicalizeNested(obj[k])).join(",") + "}"
+  );
 }
 
 export type ChainVerification =
@@ -261,7 +277,7 @@ export type ChainVerification =
  */
 export async function verifyChain(
   callRef: string,
-  orgId: string | null | undefined
+  orgId: string | null | undefined,
 ): Promise<ChainVerification> {
   const rows = await dbAudit.auditLog.findMany({
     where: { callRef, ...(orgId ? { orgId } : { OR: [{ orgId: null }, { orgId: "default" }] }) },
@@ -281,10 +297,19 @@ export async function verifyChain(
     const candidates = byPrev.get(prev);
     if (!candidates || candidates.length === 0) break;
     if (candidates.length > 1) {
-      // fork: two rows extend the same link â€” the chain is ambiguous/broken
-      return { ok: false, brokenAt: candidates[1].id, expected: candidates[1].prevHash ?? GENESIS_HASH, actual: candidates[1].chainHash, rows: rows.length };
+      // fork: two rows extend the same link - the chain is ambiguous/broken.
+      // `length > 1` proves index 1 exists.
+      const fork = candidates[1]!;
+      return {
+        ok: false,
+        brokenAt: fork.id,
+        expected: fork.prevHash ?? GENESIS_HASH,
+        actual: fork.chainHash,
+        rows: rows.length,
+      };
     }
-    const row = candidates[0];
+    // The two guards above leave exactly one candidate, so index 0 exists.
+    const row = candidates[0]!;
     // The `meta` column is stored as a JSON STRING (per append() above). We
     // canonicalize it back as that same string so the hash matches. If we
     // JSON.parse(row.meta) and let the serializer re-stringify, the bytes
@@ -308,7 +333,15 @@ export async function verifyChain(
   if (visited.size !== rows.length) {
     // rows exist that no chain link reaches (planted/spliced record)
     const orphan = rows.find((r) => !visited.has(r.id));
-    return { ok: false, brokenAt: orphan?.id ?? rows[0].id, expected: prev, actual: "orphaned row", rows: rows.length };
+    return {
+      ok: false,
+      // Reaching here with `visited.size !== rows.length` proves `rows` is
+      // non-empty, so the fallback index exists.
+      brokenAt: orphan?.id ?? rows[0]!.id,
+      expected: prev,
+      actual: "orphaned row",
+      rows: rows.length,
+    };
   }
   return { ok: true, rows: rows.length };
 }

@@ -10,15 +10,25 @@
 import path from "node:path";
 import { BASE, OUT, run, readJson, writeJson } from "./lib.mjs";
 
-const status = await fetch(BASE + "/api/status", { signal: AbortSignal.timeout(30000) }).then((r) => r.json());
-const guard = { telephony: status.telephony, ingest: status.ingest, voiceProvider: status.voiceProvider, dbLatencyMs: status.dbLatencyMs };
+const status = await fetch(BASE + "/api/status", { signal: AbortSignal.timeout(30000) }).then((r) =>
+  r.json(),
+);
+const guard = {
+  telephony: status.telephony,
+  ingest: status.ingest,
+  voiceProvider: status.voiceProvider,
+  dbLatencyMs: status.dbLatencyMs,
+};
 console.log("platform:", JSON.stringify(guard));
 const problems = [];
 if (!status.ok) problems.push("/api/status not ok");
 if (status.telephony !== "unconfigured") {
-  problems.push("telephony is " + status.telephony + " - restart the capture server with TWILIO_* blanked");
+  problems.push(
+    "telephony is " + status.telephony + " - restart the capture server with TWILIO_* blanked",
+  );
 }
-if (status.voiceProvider !== "elevenlabs") problems.push("voiceProvider is " + status.voiceProvider);
+if (status.voiceProvider !== "elevenlabs")
+  problems.push("voiceProvider is " + status.voiceProvider);
 writeJson(path.join(OUT, "preflight.json"), { at: new Date().toISOString(), guard, problems });
 if (problems.length) {
   console.error("\npreflight failed:\n  - " + problems.join("\n  - "));

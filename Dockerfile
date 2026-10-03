@@ -38,13 +38,28 @@ RUN bun install --frozen-lockfile \
 # ---------- builder: compile the Next.js standalone bundle ----------
 FROM oven/bun:1-slim AS builder
 WORKDIR /app
-ENV NEXT_TELEMETRY_DISABLED=1 \
-    DATABASE_URL=postgresql://securevoice:securevoice@db:5432/securevoice?schema=public
-# NEXT_PUBLIC_* vars are INLINED into the bundle at build time — runtime env has
-# no effect. The Clerk publishable key must therefore arrive as a build arg or
-# clerkMiddleware 500s every request and the stack never becomes healthy.
-ARG NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
-ENV NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
+ENV NEXT_TELEMETRY_DISABLED=1
+# A `db:` host is never reachable from inside a `docker build` run, and the
+# build's page-data collection touches Prisma, so the URL that matters at
+# build time is a LIVE one. Pass it in: `--build-arg BUILD_DATABASE_URL=...`
+# (docker-compose.yml wires this from the host's DATABASE_URL). Falls back to
+# the compose-service placeholder for parity with the previous behaviour.
+ARG BUILD_DATABASE_URL=postgresql://securevoice:securevoice@db:5432/securevoice?schema=public
+# better-auth.ts reads these at module import (it throws if BETTER_AUTH_SECRET
+# is missing or <32 chars), and Next.ts evaluates site modules at page-data
+# collection time — so the build needs them too. .env is dockerignored, which
+# is why `docker compose build` previously threw "BETTER_AUTH_SECRET must be
+# set". Compose passes them in from the host .env.
+ARG BETTER_AUTH_SECRET="replace-with-openssl-rand-base64-32-please!!"
+ARG BETTER_AUTH_URL="https://localhost:3000"
+ENV DATABASE_URL=${BUILD_DATABASE_URL} \
+    BETTER_AUTH_SECRET=${BETTER_AUTH_SECRET} \
+    BETTER_AUTH_URL=${BETTER_AUTH_URL}
+# NOTE: no NEXT_PUBLIC_* auth build arg. Clerk needed one because its publishable
+# key had to be inlined into the client bundle; Better Auth is entirely server-side
+# (BETTER_AUTH_SECRET / BETTER_AUTH_API_KEY), so both are runtime env and the build
+# stays free of auth secrets. Baking a secret into an image layer was the real
+# hazard the old plumbing created.
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 # The client is a build artifact (git- and dockerignored), so the one generated

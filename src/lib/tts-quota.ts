@@ -1,4 +1,4 @@
-﻿import "server-only";
+import "server-only";
 /**
  * Voice-key resolution + per-user platform-key metering, shared by BOTH TTS
  * routes (buffered /api/tts and streaming /api/tts/stream) so neither surface
@@ -20,7 +20,7 @@ import { env, DAILY_CHAR_LIMIT } from "@/lib/config";
 
 export type TtsKeyResolution =
   | { mode: "byok"; keyOverride: string }
-  | { mode: "platform"; clerkUserId: string; usedToday: number }
+  | { mode: "platform"; userId: string; usedToday: number }
   | { mode: "unmetered" }
   /**
    * No profile and no BYOK, so there is no per-user budget to charge.
@@ -53,13 +53,16 @@ export async function resolveTtsKey(): Promise<TtsKeyResolution> {
     // UserProfile row to charge, so `consumeCharQuota` has nothing to
     // decrement and would return ok:true forever.
     return env.elevenLabsApiKey
-      ? { mode: "anonymous", reason: "sign in to use the platform voice key, or supply your own key" }
+      ? {
+          mode: "anonymous",
+          reason: "sign in to use the platform voice key, or supply your own key",
+        }
       : { mode: "unmetered" };
   }
 
   const row = await db.userProfile.findUnique({
-    where: { clerkUserId: profile.clerkUserId },
-    select: { clerkUserId: true, elevenKeyEnc: true, ttsCharsDate: true, ttsCharsToday: true },
+    where: { userId: profile.userId },
+    select: { userId: true, elevenKeyEnc: true, ttsCharsDate: true, ttsCharsToday: true },
   });
   if (!row) {
     // The signed-in user has no profile row, so the per-user daily counter
@@ -78,7 +81,7 @@ export async function resolveTtsKey(): Promise<TtsKeyResolution> {
   if (!env.elevenLabsApiKey) return { mode: "unmetered" };
   const today = new Date().toISOString().slice(0, 10);
   const usedToday = row.ttsCharsDate === today ? row.ttsCharsToday : 0;
-  return { mode: "platform", clerkUserId: row.clerkUserId, usedToday };
+  return { mode: "platform", userId: row.userId, usedToday };
 }
 
 /** Charge `text.length` chars against the daily platform-key budget.
@@ -89,7 +92,7 @@ export async function resolveTtsKey(): Promise<TtsKeyResolution> {
  *  charge instead of adding to the stale total. */
 export async function consumeCharQuota(
   res: TtsKeyResolution,
-  text: string
+  text: string,
 ): Promise<{ ok: true } | { ok: false; usedToday: number }> {
   if (res.mode !== "platform") return { ok: true };
   const today = new Date().toISOString().slice(0, 10);
@@ -104,7 +107,7 @@ export async function consumeCharQuota(
           WHEN "ttsCharsDate" != ${today} THEN ${chars}
           ELSE "ttsCharsToday" + ${chars}
         END
-    WHERE "clerkUserId" = ${res.clerkUserId}
+    WHERE "userId" = ${res.userId}
       AND ("ttsCharsDate" != ${today} OR "ttsCharsToday" + ${chars} <= ${DAILY_CHAR_LIMIT})
   `;
   if (updated === 0) {

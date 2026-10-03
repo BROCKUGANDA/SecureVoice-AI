@@ -78,11 +78,13 @@ export function verifySignature(
   if (!t || !v1) return { ok: false, reason: "malformed_signature" };
   const ts = Number(t);
   if (!Number.isFinite(ts)) return { ok: false, reason: "malformed_timestamp" };
-  if (Math.abs(Date.now() - ts * 1000) > toleranceMs) return { ok: false, reason: "stale_timestamp" };
+  if (Math.abs(Date.now() - ts * 1000) > toleranceMs)
+    return { ok: false, reason: "stale_timestamp" };
   const expected = createHmac("sha256", secret).update(`${t}.${body}`).digest("hex");
   const a = Buffer.from(expected, "hex");
   const b = Buffer.from(v1, "hex");
-  if (a.length !== b.length || !timingSafeEqual(a, b)) return { ok: false, reason: "digest_mismatch" };
+  if (a.length !== b.length || !timingSafeEqual(a, b))
+    return { ok: false, reason: "digest_mismatch" };
   return { ok: true };
 }
 
@@ -135,9 +137,7 @@ export async function enqueueOutbox(
   // The default is applied inside buildBankEvent; passing undefined through
   // would defeat the parameter default and widen the event_id type.
   const built = input.eventId ? buildBankEvent(input, input.eventId) : buildBankEvent(input);
-  const body = input.occurredAt
-    ? { ...built.body, occurred_at: input.occurredAt }
-    : built.body;
+  const body = input.occurredAt ? { ...built.body, occurred_at: input.occurredAt } : built.body;
   const canonical = canonicalJson(body);
   const row = await tx.outboxEvent.create({
     data: {
@@ -158,12 +158,29 @@ export async function enqueueOutbox(
  * pattern. N workers can drain concurrently without a distributed lock, and a
  * killed worker's lease is reclaimed by the `state='SENDING'` sweep below.
  */
-export async function claimBatch(limit = 10, leaseMs = 5 * 60_000): Promise<
-  { id: string; eventType: string; caseRef: string | null; payload: string; targetUrl: string; attempts: number }[]
+export async function claimBatch(
+  limit = 10,
+  leaseMs = 5 * 60_000,
+): Promise<
+  {
+    id: string;
+    eventType: string;
+    caseRef: string | null;
+    payload: string;
+    targetUrl: string;
+    attempts: number;
+  }[]
 > {
   const stale = new Date(Date.now() - leaseMs);
   const rows = await db.$queryRaw<
-    { id: string; eventType: string; caseRef: string | null; payload: string; targetUrl: string; attempts: number }[]
+    {
+      id: string;
+      eventType: string;
+      caseRef: string | null;
+      payload: string;
+      targetUrl: string;
+      attempts: number;
+    }[]
   >`
     UPDATE "OutboxEvent" o
        SET state = 'SENDING', "updatedAt" = now()
@@ -195,7 +212,14 @@ export async function claimBatch(limit = 10, leaseMs = 5 * 60_000): Promise<
 
 /** Exponential backoff with ±20% jitter, clamped to the declared ladder. */
 export function backoffMs(attempts: number, rand: number = Math.random()): number {
-  const base = BACKOFF_LADDER_MS[Math.min(attempts - 1, BACKOFF_LADDER_MS.length - 1)];
+  // Clamp BOTH ends of the index. The upper clamp alone was not enough: an
+  // `attempts` of 0 or less produced a negative index, i.e. `undefined`, and
+  // `undefined * jitter` is NaN — an Invalid Date as `nextAttemptAt`. The only
+  // caller passes `event.attempts + 1` (>= 1), so this only ever turns a
+  // corrupt value into the first rung instead of into a NaN timestamp. The
+  // clamp into [0, length - 1] is what proves the element exists.
+  const index = Math.min(Math.max(attempts - 1, 0), BACKOFF_LADDER_MS.length - 1);
+  const base = BACKOFF_LADDER_MS[index]!;
   const jitter = 0.8 + rand * 0.4;
   return Math.round(base * jitter);
 }
@@ -207,7 +231,14 @@ export type DeliveryResult =
 
 /** Deliver one claimed event. Retryable: network errors, 408, 429, 5xx. */
 export async function deliver(
-  event: { id: string; eventType: string; caseRef: string | null; payload: string; targetUrl: string; attempts: number },
+  event: {
+    id: string;
+    eventType: string;
+    caseRef: string | null;
+    payload: string;
+    targetUrl: string;
+    attempts: number;
+  },
   fetchImpl: typeof fetch = fetch,
   now: Date = new Date(),
 ): Promise<DeliveryResult> {
@@ -220,7 +251,11 @@ export async function deliver(
       method: "POST",
       headers: {
         "content-type": "application/json",
-        [WEBHOOK_SIGNATURE_HEADER]: signPayload(event.payload, Math.floor(now.getTime() / 1000), signingSecret()),
+        [WEBHOOK_SIGNATURE_HEADER]: signPayload(
+          event.payload,
+          Math.floor(now.getTime() / 1000),
+          signingSecret(),
+        ),
       },
       body: event.payload,
     });
@@ -285,7 +320,10 @@ export async function drainOutbox(
 }
 
 /** Admin replay of a dead letter. Re-queues the original row for one more delivery. */
-export async function replayDeadLetter(deadLetterId: string, now: Date = new Date()): Promise<{ ok: boolean; error?: string }> {
+export async function replayDeadLetter(
+  deadLetterId: string,
+  now: Date = new Date(),
+): Promise<{ ok: boolean; error?: string }> {
   const dl = await db.deadLetter.findUnique({ where: { id: deadLetterId } });
   if (!dl) return { ok: false, error: "dead_letter_not_found" };
   if (dl.replayedAt) return { ok: false, error: "already_replayed" };

@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 /**
  * Mint a short-lived websocket grant for the signed-in operator.
  *
- * The realtime service cannot validate a Clerk session, so this endpoint is
+ * The realtime service cannot validate a Better Auth session, so this endpoint is
  * where the app's own auth decision is delegated into a token it can verify. The
  * console calls this immediately before each socket handshake; the grant lives
  * 60s and carries the operator's org plus the channels for the cases they are
@@ -25,7 +25,10 @@ export async function POST(req: Request) {
   // an unauthenticated probe for which features are enabled.
   if (!realtimeConfigured()) {
     return NextResponse.json(
-      { error: "Realtime not configured — set FEATURE_REALTIME=true and REALTIME_INGEST_SECRET to enable the live feed." },
+      {
+        error:
+          "Realtime not configured — set FEATURE_REALTIME=true and REALTIME_INGEST_SECRET to enable the live feed.",
+      },
       { status: 503 },
     );
   }
@@ -51,11 +54,11 @@ export async function POST(req: Request) {
     // An empty grant (org channel only) is valid; a malformed body is not fatal.
   }
 
-  // A Clerk org id looks like `org_…`. With no active organization the session
+  // A Better Auth org id looks like `org_…`. With no active organization the session
   // is single-tenant; derive a stable local namespace so channels still work
   // instead of refusing to mint (the org channel would otherwise be unrepresentable).
   const orgId = guard.profile.orgId ?? "default";
-  const sub = guard.profile.clerkUserId;
+  const sub = guard.profile.userId;
 
   const minted = mintRealtimeToken(orgId, sub, callRefs);
   if (!minted.ok) {

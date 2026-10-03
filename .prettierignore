@@ -1,0 +1,33 @@
+# Generated / vendored trees. Formatting these produces churn that is
+# regenerated on every build and only obscures real diffs.
+node_modules/
+.next/
+out/
+build/
+coverage/
+tool-results/
+
+# Prisma ORM v7 client output: regenerable TypeScript that lives under src/
+# so the bundler can compile it. Same category as tool-results/.
+src/generated/
+
+# Evidence artifacts are machine-written JSON. Prettier would reformat them
+# into a shape the producing script does not emit, so every regeneration
+# would show up as a spurious diff and the artifact would stop being
+# byte-comparable against the run that produced it.
+evidence/
+
+# Lockfiles and generated manifests.
+bun.lockb
+bun.lock
+package-lock.json
+pnpm-lock.yaml
+yarn.lock
+
+# Caddyfile and Compose are not JS/TS; Prettier has no dialect for them and
+# guessing would reformat working infrastructure config.
+Caddyfile
+Caddyfile.*
+docker-compose*.yml
+docker-compose*.yaml
+Dockerfile*

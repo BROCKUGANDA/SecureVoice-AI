@@ -91,7 +91,11 @@ export function deriveChildTimeout(parentBudgetMs: number, opts: DeriveOptions =
   let child: number;
   if (opts.reserveMs !== undefined) {
     if (!Number.isFinite(opts.reserveMs) || opts.reserveMs < 0) {
-      throw new TimeoutBudgetError("reserveMs must be zero or positive", parentBudgetMs, opts.reserveMs);
+      throw new TimeoutBudgetError(
+        "reserveMs must be zero or positive",
+        parentBudgetMs,
+        opts.reserveMs,
+      );
     }
     child = parentBudgetMs - opts.reserveMs;
   } else if (opts.ratio !== undefined) {
@@ -231,14 +235,20 @@ export const TIMEOUT_EDGES: readonly TimeoutEdge[] = [
 
 export type TimeoutViolation = {
   child: string;
-  reason: "not_shorter_than_parent" | "not_derived_from_reserve" | "duplicate_child_budget" | "unknown_parent";
+  reason:
+    | "not_shorter_than_parent"
+    | "not_derived_from_reserve"
+    | "duplicate_child_budget"
+    | "unknown_parent";
 };
 
 /**
  * Audit the declared tree. Returns the violations; an empty array means every
  * outbound call is strictly shorter than the caller waiting on it.
  */
-export function assertTimeoutTree(edges: readonly TimeoutEdge[] = TIMEOUT_EDGES): TimeoutViolation[] {
+export function assertTimeoutTree(
+  edges: readonly TimeoutEdge[] = TIMEOUT_EDGES,
+): TimeoutViolation[] {
   const violations: TimeoutViolation[] = [];
   const parentMsByName = new Map<string, number>();
   const childBudgets = new Map<string, number>();
@@ -305,7 +315,10 @@ export async function withTimeout<T>(
   const timers = opts.timers ?? REAL_TIMERS;
   let handle: unknown;
   const expiry = new Promise<never>((_, reject) => {
-    handle = timers.setTimeout(() => reject(new DependencyTimeoutError(dependency, budgetMs)), budgetMs);
+    handle = timers.setTimeout(
+      () => reject(new DependencyTimeoutError(dependency, budgetMs)),
+      budgetMs,
+    );
   });
   try {
     return await Promise.race([call(), expiry]);
@@ -321,7 +334,10 @@ export async function withTimeout<T>(
  * parent link a cancelled request leaves the outbound call running against a
  * vendor we have already given up on.
  */
-export function budgetSignal(budgetMs: number, parent?: AbortSignal): { signal: AbortSignal; dispose: () => void } {
+export function budgetSignal(
+  budgetMs: number,
+  parent?: AbortSignal,
+): { signal: AbortSignal; dispose: () => void } {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), budgetMs);
   const onParentAbort = (): void => controller.abort();
@@ -341,7 +357,9 @@ export function budgetSignal(budgetMs: number, parent?: AbortSignal): { signal: 
 /** The published form of a timeout: 503 with Retry-After, never a stack. */
 export function envelopeForTimeout(err: unknown, retryAfterSec: number): Failure | null {
   if (err instanceof DependencyTimeoutError) {
-    return dependencyUnavailable(retryAfterSec, { detail: `Budget of ${err.budgetMs} ms expired.` });
+    return dependencyUnavailable(retryAfterSec, {
+      detail: `Budget of ${err.budgetMs} ms expired.`,
+    });
   }
   return null;
 }

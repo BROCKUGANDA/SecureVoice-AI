@@ -65,7 +65,7 @@ export type Fixture = {
 export async function makeAccount(
   role: Role,
   prefix: string,
-  opts: { orgId?: string; password?: string | null; name?: string } = {}
+  opts: { orgId?: string; password?: string | null; name?: string } = {},
 ): Promise<Fixture> {
   const email = testEmail(prefix);
   const orgId = opts.orgId ?? testOrg(prefix);
@@ -76,19 +76,13 @@ export async function makeAccount(
     role,
     orgId,
     passwordHash:
-      opts.password === null
-        ? undefined
-        : await hashPassword(opts.password ?? TEST_PASSWORD),
+      opts.password === null ? undefined : await hashPassword(opts.password ?? TEST_PASSWORD),
   });
   return { identity, email, orgId, role };
 }
 
 /** An account in a specific org — for multi-member revocation tests. */
-export async function makeMember(
-  role: Role,
-  prefix: string,
-  orgId: string
-): Promise<Fixture> {
+export async function makeMember(role: Role, prefix: string, orgId: string): Promise<Fixture> {
   return makeAccount(role, prefix, { orgId });
 }
 
@@ -104,7 +98,7 @@ export type SessionFixture = {
 /** Issue a live session and the cookie header that carries it. */
 export async function makeSession(
   fixture: Fixture,
-  method: AuthMethod = "password"
+  method: AuthMethod = "password",
 ): Promise<SessionFixture> {
   const { record, token } = await issueSession({ identity: fixture.identity, method });
   return {
@@ -127,7 +121,7 @@ export async function makeSession(
  */
 export async function backdateSession(
   sessionFixture: SessionFixture,
-  opts: { issuedAt?: number; lastSeenAt?: number }
+  opts: { issuedAt?: number; lastSeenAt?: number },
 ): Promise<void> {
   const base = sessionFixture.session;
   const next: SessionRecord = {
@@ -141,7 +135,7 @@ export async function backdateSession(
     next.sid,
     next.accountId,
     next,
-    new Date(next.issuedAt + ABSOLUTE_LIFETIME_MS + 3_600_000)
+    new Date(next.issuedAt + ABSOLUTE_LIFETIME_MS + 3_600_000),
   );
 }
 
@@ -153,9 +147,7 @@ export async function backdateSession(
  * that only checked the absolute lifetime would let this session through — which
  * is what makes the test able to distinguish the two.
  */
-export async function makeIdleButNotExpiredSession(
-  fixture: Fixture
-): Promise<SessionFixture> {
+export async function makeIdleButNotExpiredSession(fixture: Fixture): Promise<SessionFixture> {
   const now = Date.now();
   const live = await makeSession(fixture);
   await backdateSession(live, {
@@ -164,13 +156,17 @@ export async function makeIdleButNotExpiredSession(
   });
   // Re-sign so the cookie's issuedAt matches the planted record. The signature is
   // genuine — the server still has to reject this on `lastSeenAt`.
-  const token = signSessionToken(live.session.sid, fixture.identity.accountId, live.session.issuedAt);
+  const token = signSessionToken(
+    live.session.sid,
+    fixture.identity.accountId,
+    live.session.issuedAt,
+  );
   return { ...live, token, cookie: `sv_session=${token}` };
 }
 
 /** A session past its 8-hour absolute lifetime but recently active. */
 export async function makeActiveButAbsolutelyExpiredSession(
-  fixture: Fixture
+  fixture: Fixture,
 ): Promise<SessionFixture> {
   const now = Date.now();
   const live = await makeSession(fixture);
@@ -178,14 +174,20 @@ export async function makeActiveButAbsolutelyExpiredSession(
     issuedAt: now - (ABSOLUTE_LIFETIME_MS + 60 * 1000), // 8h01m ago: past absolute
     lastSeenAt: now - 1000, // 1s ago: NOT idle
   });
-  const token = signSessionToken(live.session.sid, fixture.identity.accountId, live.session.issuedAt);
+  const token = signSessionToken(
+    live.session.sid,
+    fixture.identity.accountId,
+    live.session.issuedAt,
+  );
   return { ...live, token, cookie: `sv_session=${token}` };
 }
 
-/** Assert a session is rejected for a SPECIFIC reason, not merely rejected. */
+/** Assert a session is rejected for a SPECIFIC reason, not merely rejected.
+ *  The token is typed as `verifySession` types it — a missing cookie arrives as
+ *  null/undefined and must still be assertable. */
 export async function expectRejection(
-  token: string,
-  reason: string
+  token: Parameters<typeof verifySession>[0],
+  reason: string,
 ): Promise<void> {
   const check = await verifySession(token);
   if (check.ok) {
@@ -210,7 +212,7 @@ export async function makeInvite(
   role: Role,
   issuedBy: string,
   orgId: string,
-  opts: { email?: string; issuedAgoMs?: number } = {}
+  opts: { email?: string; issuedAgoMs?: number } = {},
 ): Promise<IssuedInvite & { email: string }> {
   const email = opts.email ?? testEmail("invitee");
   const issuedAt = Date.now() - (opts.issuedAgoMs ?? 0);
@@ -229,7 +231,7 @@ export async function makeInvite(
 export async function makeExpiredInvite(
   role: Role,
   issuedBy: string,
-  orgId: string
+  orgId: string,
 ): Promise<IssuedInvite & { email: string }> {
   return makeInvite(role, issuedBy, orgId, {
     issuedAgoMs: INVITE_TTL_MS + 60 * 60 * 1000,

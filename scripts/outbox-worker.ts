@@ -15,7 +15,9 @@ import { drainOutbox } from "../src/lib/outbox";
 
 const args = new Set(process.argv.slice(2));
 const loopArg = process.argv.find((a) => a.startsWith("--loop"));
-const intervalSec = loopArg ? Number(loopArg.split("=")[1] ?? loopArg.replace("--loop", "")) || 10 : 10;
+const intervalSec = loopArg
+  ? Number(loopArg.split("=")[1] ?? loopArg.replace("--loop", "")) || 10
+  : 10;
 const once = args.has("--once") || !args.has("--loop");
 
 async function tick(): Promise<number> {

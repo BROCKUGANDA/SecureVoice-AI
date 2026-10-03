@@ -45,7 +45,9 @@ export function Product() {
           <div className="flex items-center gap-3">
             <span className="micro text-primary">Deep dive</span>
             <span className="h-px w-10 bg-line" />
-            <span dir="rtl" className="font-arabic text-[13px] text-ink-3">تفاصيل التصميم</span>
+            <span dir="rtl" className="font-arabic text-[13px] text-ink-3">
+              تفاصيل التصميم
+            </span>
           </div>
           <h1 className="font-display mt-3 text-3xl font-semibold tracking-tight sm:text-4xl">
             Inside the intervention machine
@@ -60,7 +62,7 @@ export function Product() {
             onClick={() => setSub(x.id)}
             className={cn(
               "relative flex flex-1 items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-[13px] font-semibold transition",
-              sub === x.id ? "text-white" : "text-ink-2 hover:text-foreground"
+              sub === x.id ? "text-white" : "text-ink-2 hover:text-foreground",
             )}
           >
             {sub === x.id && (
@@ -102,7 +104,8 @@ const FLOW = [
     ar: "اتصال صادر فوري",
     t: "T+0 → 60s SLA",
     body: "Agent calls within 60 seconds of the fraud signal, introducing itself transparently as the bank's AI security assistant in the customer's preferred language.",
-    script: "“Hello, this is your bank's AI security assistant calling about recent activity on your account. Is this Ahmed?”",
+    script:
+      "“Hello, this is your bank's AI security assistant calling about recent activity on your account. Is this Ahmed?”",
     rail: "Time-zone check against customer profile before dialing",
   },
   {
@@ -112,7 +115,8 @@ const FLOW = [
     ar: "التحقق من الهوية",
     t: "challenge 2-of-3",
     body: "Bank-approved challenge flow — recent merchants, amounts, dates. No PINs, no passwords, ever. Questions drawn only from the approved bank in the knowledge base.",
-    script: "“Which of these recent transactions do you recognize: AED 45.50 at Carrefour… AED 2,500 at Electronics World?”",
+    script:
+      "“Which of these recent transactions do you recognize: AED 45.50 at Carrefour… AED 2,500 at Electronics World?”",
     rail: "System prompt prohibition + KB-scoped questions",
   },
   {
@@ -122,7 +126,8 @@ const FLOW = [
     ar: "تأكيد الاحتيال",
     t: "plain-language",
     body: "The agent states the detected activity clearly and asks the one question that matters. Sentiment analysis runs continuously on the response.",
-    script: "“We've flagged AED 2,500.00 at Electronics World. Did you authorize this transaction?”",
+    script:
+      "“We've flagged AED 2,500.00 at Electronics World. Did you authorize this transaction?”",
     rail: "Distress signal → priority human handoff",
   },
   {
@@ -132,7 +137,8 @@ const FLOW = [
     ar: "إجراء الحماية",
     t: "POST /freeze",
     body: "If fraud is confirmed, the agent executes the single pre-approved action — a temporary card freeze — and explains exactly what happens next.",
-    script: "“I'll place a temporary freeze on your card now. It's easily reversed once your account is secured.”",
+    script:
+      "“I'll place a temporary freeze on your card now. It's easily reversed once your account is secured.”",
     rail: "Tool scoping: one write action, nothing irreversible",
   },
   {
@@ -166,8 +172,12 @@ function Flow() {
                   <span className="num flex h-7 w-7 items-center justify-center rounded-lg bg-[#0c110e] text-[11px] font-bold text-green-bright sm:hidden">
                     {f.n}
                   </span>
-                  <h3 className="font-display text-[16.5px] font-semibold tracking-tight">{f.en}</h3>
-                  <span dir="rtl" className="font-arabic text-[12px] text-ink-3">{f.ar}</span>
+                  <h3 className="font-display text-[16.5px] font-semibold tracking-tight">
+                    {f.en}
+                  </h3>
+                  <span dir="rtl" className="font-arabic text-[12px] text-ink-3">
+                    {f.ar}
+                  </span>
                   <Chip className="ml-auto">{f.t}</Chip>
                 </div>
                 <p className="mt-3 max-w-2xl text-[13.5px] leading-relaxed text-ink-2">{f.body}</p>
@@ -246,8 +256,8 @@ const APIS = [
     lines: [
       "POST /api/v1/cards/{card_id}/freeze",
       "auth: OAuth 2.0 · JWT",
-      "payload: freeze_type: \"temporary\",",
-      "  reason: \"fraud_suspicion\",",
+      'payload: freeze_type: "temporary",',
+      '  reason: "fraud_suspicion",',
       "  agent_id, verification_method",
     ],
   },
@@ -256,7 +266,7 @@ const APIS = [
     lines: [
       "GET /api/v1/accounts/{id}/transactions",
       "auth: OAuth 2.0 · JWT",
-      "query: limit=5, type=\"recent\"",
+      'query: limit=5, type="recent"',
       "used for: verification challenges",
     ],
   },
@@ -272,10 +282,15 @@ function Architecture() {
               <div className="flex-1 rounded-2xl border border-line bg-white p-5 transition hover:border-primary/30">
                 <div className="flex flex-wrap items-center gap-3">
                   <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-green-tint">
-                    <l.icon className="h-4.5 w-4.5 h-[18px] w-[18px] text-green-deep" strokeWidth={1.7} />
+                    <l.icon
+                      className="h-4.5 w-4.5 h-[18px] w-[18px] text-green-deep"
+                      strokeWidth={1.7}
+                    />
                   </span>
                   <h3 className="text-[14.5px] font-semibold">{l.en}</h3>
-                  <span dir="rtl" className="font-arabic text-[11.5px] text-ink-3">{l.ar}</span>
+                  <span dir="rtl" className="font-arabic text-[11.5px] text-ink-3">
+                    {l.ar}
+                  </span>
                   <Chip className="ml-auto">{l.chip}</Chip>
                 </div>
                 <p className="mt-2.5 text-[12.5px] leading-relaxed text-ink-2">{l.body}</p>
@@ -294,7 +309,9 @@ function Architecture() {
         <Reveal delay={0.1}>
           <div className="rounded-2xl border border-line bg-white p-5">
             <h3 className="text-[14px] font-semibold">Data flow</h3>
-            <p dir="rtl" className="font-arabic mt-1 text-[11px] text-ink-3">تدفق البيانات</p>
+            <p dir="rtl" className="font-arabic mt-1 text-[11px] text-ink-3">
+              تدفق البيانات
+            </p>
             <div className="mt-4 space-y-1.5">
               {[
                 "Fraud Detection System",
@@ -312,12 +329,21 @@ function Architecture() {
                       "rounded-lg border px-3.5 py-2 text-[12px] font-medium",
                       i === 3
                         ? "border-primary/40 bg-green-tint text-green-deep"
-                        : "border-line bg-paper text-ink-2"
+                        : "border-line bg-paper text-ink-2",
                     )}
                   >
                     {n}
                   </div>
-                  {i < 7 && <div className="sv-dots mx-auto h-[6px] w-[2px]" style={{ backgroundImage: "radial-gradient(circle, #b9c4bb 1.2px, transparent 1.2px)", backgroundSize: "2px 8px" }} />}
+                  {i < 7 && (
+                    <div
+                      className="sv-dots mx-auto h-[6px] w-[2px]"
+                      style={{
+                        backgroundImage:
+                          "radial-gradient(circle, #b9c4bb 1.2px, transparent 1.2px)",
+                        backgroundSize: "2px 8px",
+                      }}
+                    />
+                  )}
                 </div>
               ))}
             </div>
@@ -329,7 +355,7 @@ function Architecture() {
             <div className="rounded-2xl border border-line bg-[#0c110e] p-4.5 p-5">
               <p className="num text-[11px] font-semibold text-green-bright">{a.title}</p>
               <pre className="num mt-2 overflow-x-auto text-[10.5px] leading-[1.7] text-white/70">
-{a.lines.join("\n")}
+                {a.lines.join("\n")}
               </pre>
             </div>
           </Reveal>
@@ -386,7 +412,9 @@ function Guardrails() {
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line bg-paper px-6 py-4">
         <div>
           <h3 className="text-[15px] font-semibold">The six guardrails</h3>
-          <p className="text-[12px] text-ink-3">Enforced in architecture, not in policy documents</p>
+          <p className="text-[12px] text-ink-3">
+            Enforced in architecture, not in policy documents
+          </p>
         </div>
         <StatusPill tone="green">CBUAE-aligned · 0 violations / 30 days</StatusPill>
       </div>
@@ -400,8 +428,12 @@ function Guardrails() {
                 </span>
                 <div>
                   <p className="text-[14px] font-semibold leading-snug">{g.en}</p>
-                  <p dir="rtl" className="font-arabic mt-0.5 text-[11.5px] text-ink-3">{g.ar}</p>
-                  <p className="num mt-1.5 text-[10px] text-ink-3">GUARDRAIL {String(i + 1).padStart(2, "0")}</p>
+                  <p dir="rtl" className="font-arabic mt-0.5 text-[11.5px] text-ink-3">
+                    {g.ar}
+                  </p>
+                  <p className="num mt-1.5 text-[10px] text-ink-3">
+                    GUARDRAIL {String(i + 1).padStart(2, "0")}
+                  </p>
                 </div>
               </div>
               <p className="text-[13.5px] leading-relaxed text-ink-2">{g.mech}</p>
@@ -418,9 +450,12 @@ function Guardrails() {
 function Metrics() {
   const maxes: Record<string, number> = { prevention: 100, delay: 2400, verify: 100, csat: 5 };
   const notes: Record<string, string> = {
-    prevention: "Measured as share of confirmed-fraud attempts blocked after detection. Automation lifts the ceiling that human callback speed imposes.",
-    delay: "From fraud signal to live customer contact. The 25× compression is where the prevented losses come from — fraudsters lose their window.",
-    verify: "Share of calls completing identity verification without falling back to manual channels. Multilingual voices drive this up.",
+    prevention:
+      "Measured as share of confirmed-fraud attempts blocked after detection. Automation lifts the ceiling that human callback speed imposes.",
+    delay:
+      "From fraud signal to live customer contact. The 25× compression is where the prevented losses come from — fraudsters lose their window.",
+    verify:
+      "Share of calls completing identity verification without falling back to manual channels. Multilingual voices drive this up.",
     csat: "Post-call survey. Transparent AI introduction + one-word human escape protects the score even when the news is bad.",
   };
   return (
@@ -431,7 +466,9 @@ function Metrics() {
             <div className="h-full rounded-2xl border border-line bg-white p-6">
               <div className="flex items-baseline justify-between">
                 <h3 className="text-[14.5px] font-semibold">{k.en}</h3>
-                <span dir="rtl" className="font-arabic text-[11.5px] text-ink-3">{k.ar}</span>
+                <span dir="rtl" className="font-arabic text-[11.5px] text-ink-3">
+                  {k.ar}
+                </span>
               </div>
               <div className="mt-5">
                 <CompareBar
@@ -456,9 +493,18 @@ function Metrics() {
           <p className="micro text-green-bright">Measurement plan · خطة القياس</p>
           <div className="mt-4 grid gap-4 sm:grid-cols-3">
             {[
-              { t: "30 days", d: "Baseline re-measure · false-positive calibration · dialect tuning cycle 1" },
-              { t: "90 days", d: "Full KPI read vs. baseline · CSAT longitudinal study · compliance audit dry-run" },
-              { t: "12 months", d: "Target confirmation · loss-run report vs. AED 340M baseline · board review pack" },
+              {
+                t: "30 days",
+                d: "Baseline re-measure · false-positive calibration · dialect tuning cycle 1",
+              },
+              {
+                t: "90 days",
+                d: "Full KPI read vs. baseline · CSAT longitudinal study · compliance audit dry-run",
+              },
+              {
+                t: "12 months",
+                d: "Target confirmation · loss-run report vs. AED 340M baseline · board review pack",
+              },
             ].map((m) => (
               <div key={m.t} className="rounded-2xl border border-white/10 bg-white/5 p-4">
                 <p className="num text-[13px] font-bold text-green-bright">{m.t}</p>

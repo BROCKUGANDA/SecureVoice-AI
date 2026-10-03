@@ -86,7 +86,12 @@ describe("WP-20 cross-node fan-out", () => {
 
     // Client connects to node B ONLY.
     const token = sign(
-      { orgId: ORG, sub: "op", chans: [`case:${ORG}:${CALL_REF}`], exp: Math.floor(Date.now() / 1000) + 300 },
+      {
+        orgId: ORG,
+        sub: "op",
+        chans: [`case:${ORG}:${CALL_REF}`],
+        exp: Math.floor(Date.now() / 1000) + 300,
+      },
       SECRET,
     );
     socketB = createClient2(`http://127.0.0.1:${PORT_B}`, {
@@ -101,9 +106,11 @@ describe("WP-20 cross-node fan-out", () => {
       socketB!.once("connect_error", (e: Error) => reject(e));
     });
     const joined = await new Promise<{ ok: boolean }>((resolve, reject) => {
-      socketB!.timeout(5000).emit("join", `case:${ORG}:${CALL_REF}`, (err: unknown, res: { ok: boolean }) =>
-        err ? reject(err) : resolve(res),
-      );
+      socketB!
+        .timeout(5000)
+        .emit("join", `case:${ORG}:${CALL_REF}`, (err: unknown, res: { ok: boolean }) =>
+          err ? reject(err) : resolve(res),
+        );
     });
     expect(joined.ok).toBe(true);
   }, 60_000);
@@ -137,7 +144,10 @@ describe("WP-20 cross-node fan-out", () => {
     expect([200, 202]).toContain(res.status);
 
     const activity = await new Promise<unknown>((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error("node B never received the activity event")), 10_000);
+      const timer = setTimeout(
+        () => reject(new Error("node B never received the activity event")),
+        10_000,
+      );
       socketB!.once("activity", (payload: unknown) => {
         clearTimeout(timer);
         resolve(payload);
@@ -157,11 +167,23 @@ describe("WP-20 cross-node fan-out", () => {
     const PORT_C = 4323;
     const PORT_D = 4324;
     const procC = spawn(process.execPath, ["run", "src/server.ts"], {
-      env: { ...process.env, PORT: String(PORT_C), REALTIME_INGEST_SECRET: SECRET, REALTIME_ALLOWED_ORIGIN: "", REDIS_URL: "" },
+      env: {
+        ...process.env,
+        PORT: String(PORT_C),
+        REALTIME_INGEST_SECRET: SECRET,
+        REALTIME_ALLOWED_ORIGIN: "",
+        REDIS_URL: "",
+      },
       stdio: ["ignore", "pipe", "pipe"],
     });
     const procD = spawn(process.execPath, ["run", "src/server.ts"], {
-      env: { ...process.env, PORT: String(PORT_D), REALTIME_INGEST_SECRET: SECRET, REALTIME_ALLOWED_ORIGIN: "", REDIS_URL: "" },
+      env: {
+        ...process.env,
+        PORT: String(PORT_D),
+        REALTIME_INGEST_SECRET: SECRET,
+        REALTIME_ALLOWED_ORIGIN: "",
+        REDIS_URL: "",
+      },
       stdio: ["ignore", "pipe", "pipe"],
     });
 
@@ -172,7 +194,12 @@ describe("WP-20 cross-node fan-out", () => {
       expect(d.pubsub).toBe("single-node");
 
       const token = sign(
-        { orgId: ORG, sub: "op", chans: [`case:${ORG}:${CALL_REF}`], exp: Math.floor(Date.now() / 1000) + 300 },
+        {
+          orgId: ORG,
+          sub: "op",
+          chans: [`case:${ORG}:${CALL_REF}`],
+          exp: Math.floor(Date.now() / 1000) + 300,
+        },
         SECRET,
       );
       client = createClient2(`http://127.0.0.1:${PORT_D}`, {
@@ -187,9 +214,11 @@ describe("WP-20 cross-node fan-out", () => {
         client!.once("connect_error", (e: Error) => reject(e));
       });
       await new Promise<void>((resolve, reject) => {
-        client!.timeout(5000).emit("join", `case:${ORG}:${CALL_REF}`, (err: unknown, res: { ok: boolean }) =>
-          err ? reject(err) : res.ok ? resolve() : reject(new Error("join refused")),
-        );
+        client!
+          .timeout(5000)
+          .emit("join", `case:${ORG}:${CALL_REF}`, (err: unknown, res: { ok: boolean }) =>
+            err ? reject(err) : res.ok ? resolve() : reject(new Error("join refused")),
+          );
       });
 
       let received = false;
@@ -198,7 +227,12 @@ describe("WP-20 cross-node fan-out", () => {
       });
 
       const signed = signIngest(
-        { kind: "activity", orgId: ORG, callRef: CALL_REF, payload: { type: "state", marker: "no-bus-proof" } },
+        {
+          kind: "activity",
+          orgId: ORG,
+          callRef: CALL_REF,
+          payload: { type: "state", marker: "no-bus-proof" },
+        },
         SECRET,
         Math.floor(Date.now() / 1000),
       );
@@ -212,7 +246,9 @@ describe("WP-20 cross-node fan-out", () => {
 
       await new Promise((r) => setTimeout(r, 2500));
       expect(received).toBe(false);
-      console.log("  confirmed: without the Redis adapter the event never reaches the other node (silent, no error)");
+      console.log(
+        "  confirmed: without the Redis adapter the event never reaches the other node (silent, no error)",
+      );
     } finally {
       client?.close();
       procC.kill();

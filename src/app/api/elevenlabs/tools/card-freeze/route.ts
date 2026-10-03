@@ -1,11 +1,12 @@
-import { NextRequest, NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { z } from "zod";
 import { guardToolCall } from "@/lib/tool-guard";
 import { transitionCase, IllegalTransitionError } from "@/lib/case-state-machine";
 import { recordSpanAndPersist } from "@/lib/telemetry/store";
 import { db } from "@/lib/db";
 import { append as auditAppend } from "@/lib/audit-chain";
-import { badRequest, parseJson, unprocessable, schemaErrorCode } from "@/lib/api-errors"
+import { badRequest, parseJson, unprocessable, schemaErrorCode } from "@/lib/api-errors";
 
 export const dynamic = "force-dynamic";
 
@@ -25,7 +26,10 @@ export async function POST(req: NextRequest) {
 
   const parsed = schema.safeParse(body);
   if (!parsed.success) {
-    return unprocessable("conversation_id, account_id and reason_code are required", schemaErrorCode(parsed.error));
+    return unprocessable(
+      "conversation_id, account_id and reason_code are required",
+      schemaErrorCode(parsed.error),
+    );
   }
 
   const { conversation_id, account_id, reason_code } = parsed.data;
@@ -103,7 +107,13 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     if (err instanceof IllegalTransitionError) {
       return NextResponse.json(
-        { ok: false, staged: false, committed: false, error: `case cannot move from ${guard.state} to FREEZE_STAGED`, code: "illegal_transition" },
+        {
+          ok: false,
+          staged: false,
+          committed: false,
+          error: `case cannot move from ${guard.state} to FREEZE_STAGED`,
+          code: "illegal_transition",
+        },
         { status: 409 },
       );
     }

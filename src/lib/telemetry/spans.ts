@@ -40,13 +40,33 @@ export type SpanDefinition = {
  */
 export const SPAN_DEFINITIONS = [
   { name: "signal_received_to_accepted", label: "signal received → accepted", targetP95Ms: 300 },
-  { name: "signal_accepted_to_provider_accepted", label: "accepted → provider accepted the call", targetP95Ms: 1_500 },
+  {
+    name: "signal_accepted_to_provider_accepted",
+    label: "accepted → provider accepted the call",
+    targetP95Ms: 1_500,
+  },
   { name: "signal_received_to_ringing", label: "signal received → ringing", targetP95Ms: 5_000 },
-  { name: "answered_to_first_agent_word", label: "answered → first agent word", targetP95Ms: 1_200 },
-  { name: "caller_stop_to_agent_audio", label: "caller stops speaking → agent audio begins", targetP95Ms: 1_500 },
+  {
+    name: "answered_to_first_agent_word",
+    label: "answered → first agent word",
+    targetP95Ms: 1_200,
+  },
+  {
+    name: "caller_stop_to_agent_audio",
+    label: "caller stops speaking → agent audio begins",
+    targetP95Ms: 1_500,
+  },
   { name: "tool_request_to_response", label: "tool request → tool response", targetP95Ms: 300 },
-  { name: "fraud_confirmed_to_webhook_delivered", label: "fraud confirmed → bank webhook delivered", targetP95Ms: 2_000 },
-  { name: "signal_received_to_freeze_staged", label: "signal received → freeze staged", targetP95Ms: 60_000 },
+  {
+    name: "fraud_confirmed_to_webhook_delivered",
+    label: "fraud confirmed → bank webhook delivered",
+    targetP95Ms: 2_000,
+  },
+  {
+    name: "signal_received_to_freeze_staged",
+    label: "signal received → freeze staged",
+    targetP95Ms: 60_000,
+  },
 ] as const satisfies readonly SpanDefinition[];
 
 export type SpanName = (typeof SPAN_DEFINITIONS)[number]["name"];
@@ -58,7 +78,10 @@ const DEFINITION_INDEX: ReadonlyMap<string, SpanDefinition> = new Map(
 export const SPAN_NAMES: readonly SpanName[] = SPAN_DEFINITIONS.map((d) => d.name as SpanName);
 
 export const SPAN_TARGETS: Readonly<Record<SpanName, number>> = Object.freeze(
-  Object.fromEntries(SPAN_DEFINITIONS.map((d) => [d.name, d.targetP95Ms])) as Record<SpanName, number>,
+  Object.fromEntries(SPAN_DEFINITIONS.map((d) => [d.name, d.targetP95Ms])) as Record<
+    SpanName,
+    number
+  >,
 );
 
 /**
@@ -243,7 +266,8 @@ export function recordSpan(input: SpanInput): SpanRecord | null {
       endedAtMs = input.endedAtMs ?? startedAtMs;
       durationMs = endedAtMs - startedAtMs;
     }
-    if (!Number.isFinite(durationMs) || !Number.isFinite(endedAtMs)) return reject("non_finite_duration");
+    if (!Number.isFinite(durationMs) || !Number.isFinite(endedAtMs))
+      return reject("non_finite_duration");
     // End before start is a clock bug at the call site. Recording it would
     // publish a negative latency, and a negative latency flatters every
     // percentile it touches — the failure mode that destroys an SLO gate.
@@ -253,7 +277,11 @@ export function recordSpan(input: SpanInput): SpanRecord | null {
     const endedAt = isoOrNull(endedAtMs);
     if (startedAt === null || endedAt === null) return reject("unrepresentable_timestamp");
 
-    const interventionId = clean(input.interventionId) ?? clean(input.caseRef) ?? clean(input.conversationId) ?? "unattributed";
+    const interventionId =
+      clean(input.interventionId) ??
+      clean(input.caseRef) ??
+      clean(input.conversationId) ??
+      "unattributed";
     const traceId = traceIdFor(interventionId);
 
     const record: SpanRecord = Object.freeze({
@@ -304,7 +332,12 @@ export type SpanHandle = {
  */
 export function startSpan(
   span: SpanName | (string & {}),
-  ids: { interventionId?: string | null; conversationId?: string | null; caseRef?: string | null; attributes?: SpanAttributes } = {},
+  ids: {
+    interventionId?: string | null;
+    conversationId?: string | null;
+    caseRef?: string | null;
+    attributes?: SpanAttributes;
+  } = {},
 ): SpanHandle {
   const startedAtMs = Date.now();
   const startMono = monotonicMs();
@@ -318,7 +351,11 @@ export function startSpan(
   return {
     span: safeSpan,
     spanId: "",
-    interventionId: clean(ids.interventionId) ?? clean(ids.caseRef) ?? clean(ids.conversationId) ?? "unattributed",
+    interventionId:
+      clean(ids.interventionId) ??
+      clean(ids.caseRef) ??
+      clean(ids.conversationId) ??
+      "unattributed",
     end(extra) {
       if (closed) return null;
       closed = true;
@@ -390,20 +427,37 @@ function parseSpanRecordUnguarded(raw: unknown): SpanRecord | null {
   if (typeof raw !== "object" || raw === null) return null;
   const o = raw as Record<string, unknown>;
   if (!isSpanName(o.span)) return null;
-  if (typeof o.durationMs !== "number" || !Number.isFinite(o.durationMs) || o.durationMs < 0) return null;
+  if (typeof o.durationMs !== "number" || !Number.isFinite(o.durationMs) || o.durationMs < 0)
+    return null;
   if (typeof o.startedAtMs !== "number" || !Number.isFinite(o.startedAtMs)) return null;
-  const traceId = typeof o.traceId === "string" && /^[0-9a-f]{32}$/.test(o.traceId) ? o.traceId : traceIdFor(String(o.interventionId ?? "unattributed"));
+  const traceId =
+    typeof o.traceId === "string" && /^[0-9a-f]{32}$/.test(o.traceId)
+      ? o.traceId
+      : traceIdFor(String(o.interventionId ?? "unattributed"));
   return {
     v: typeof o.v === "number" ? o.v : SPAN_RECORD_VERSION,
     span: o.span,
-    startedAt: typeof o.startedAt === "string" ? o.startedAt : new Date(o.startedAtMs).toISOString(),
-    endedAt: typeof o.endedAt === "string" ? o.endedAt : new Date(o.startedAtMs + o.durationMs).toISOString(),
+    startedAt:
+      typeof o.startedAt === "string" ? o.startedAt : new Date(o.startedAtMs).toISOString(),
+    endedAt:
+      typeof o.endedAt === "string"
+        ? o.endedAt
+        : new Date(o.startedAtMs + o.durationMs).toISOString(),
     startedAtMs: o.startedAtMs,
-    endedAtMs: typeof o.endedAtMs === "number" && Number.isFinite(o.endedAtMs) ? o.endedAtMs : o.startedAtMs + o.durationMs,
+    endedAtMs:
+      typeof o.endedAtMs === "number" && Number.isFinite(o.endedAtMs)
+        ? o.endedAtMs
+        : o.startedAtMs + o.durationMs,
     durationMs: o.durationMs,
     traceId,
-    spanId: typeof o.spanId === "string" && /^[0-9a-f]{16}$/.test(o.spanId) ? o.spanId : spanIdFor(traceId, o.span, o.startedAtMs),
-    interventionId: typeof o.interventionId === "string" && o.interventionId.length > 0 ? o.interventionId : "unattributed",
+    spanId:
+      typeof o.spanId === "string" && /^[0-9a-f]{16}$/.test(o.spanId)
+        ? o.spanId
+        : spanIdFor(traceId, o.span, o.startedAtMs),
+    interventionId:
+      typeof o.interventionId === "string" && o.interventionId.length > 0
+        ? o.interventionId
+        : "unattributed",
     conversationId: typeof o.conversationId === "string" ? o.conversationId : null,
     caseRef: typeof o.caseRef === "string" ? o.caseRef : null,
     attributes: sanitiseAttributes(o.attributes),
@@ -424,10 +478,7 @@ function parseSpanRecordUnguarded(raw: unknown): SpanRecord | null {
 export const SPAN_KIND_INTERNAL = 1;
 
 export type OtlpAnyValue =
-  | { stringValue: string }
-  | { doubleValue: number }
-  | { boolValue: boolean }
-  | { intValue: string };
+  { stringValue: string } | { doubleValue: number } | { boolValue: boolean } | { intValue: string };
 
 export type OtlpAttribute = { key: string; value: OtlpAnyValue };
 
@@ -474,7 +525,10 @@ export function unixNano(ms: number): string {
  * Convert records to the OTLP/JSON trace payload. Pure, total, and never
  * throws — an exporter that fails to serialise must not take down a request.
  */
-export function toOtlpSpans(records: readonly SpanRecord[], serviceName = TELEMETRY_SERVICE_NAME): OtlpTracePayload {
+export function toOtlpSpans(
+  records: readonly SpanRecord[],
+  serviceName = TELEMETRY_SERVICE_NAME,
+): OtlpTracePayload {
   const spans: OtlpSpan[] = [];
   for (const r of records) {
     try {
@@ -486,7 +540,8 @@ export function toOtlpSpans(records: readonly SpanRecord[], serviceName = TELEME
       ];
       if (r.conversationId) attributes.push(otlpAttribute("sv.conversation_id", r.conversationId));
       if (r.caseRef) attributes.push(otlpAttribute("sv.case_ref", r.caseRef));
-      for (const [key, value] of Object.entries(r.attributes)) attributes.push(otlpAttribute(key, value));
+      for (const [key, value] of Object.entries(r.attributes))
+        attributes.push(otlpAttribute(key, value));
       spans.push({
         traceId: r.traceId,
         spanId: r.spanId,
@@ -507,7 +562,9 @@ export function toOtlpSpans(records: readonly SpanRecord[], serviceName = TELEME
     resourceSpans: [
       {
         resource: { attributes: [otlpAttribute("service.name", serviceName)] },
-        scopeSpans: [{ scope: { name: TELEMETRY_SCOPE.name, version: TELEMETRY_SCOPE.version }, spans }],
+        scopeSpans: [
+          { scope: { name: TELEMETRY_SCOPE.name, version: TELEMETRY_SCOPE.version }, spans },
+        ],
       },
     ],
   };

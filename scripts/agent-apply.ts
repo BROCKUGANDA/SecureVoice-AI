@@ -76,11 +76,17 @@ function resolveValue(v: unknown): unknown {
 async function apiFetch(path: string, init?: RequestInit): Promise<any> {
   const res = await fetch(`${API}${path}`, {
     ...init,
-    headers: { "xi-api-key": API_KEY!, "content-type": "application/json", ...(init?.headers ?? {}) },
+    headers: {
+      "xi-api-key": API_KEY!,
+      "content-type": "application/json",
+      ...(init?.headers ?? {}),
+    },
   });
   const text = await res.text();
   if (!res.ok) {
-    throw new Error(`ElevenLabs ${init?.method ?? "GET"} ${path} → ${res.status}: ${text.slice(0, 500)}`);
+    throw new Error(
+      `ElevenLabs ${init?.method ?? "GET"} ${path} → ${res.status}: ${text.slice(0, 500)}`,
+    );
   }
   return text ? JSON.parse(text) : null;
 }
@@ -101,7 +107,9 @@ async function resolveTools(def: RawDef): Promise<ResolvedTool[]> {
     const envId = process.env[t.id_env as string];
     const id = envId || byName.get(t.name);
     if (!id) {
-      console.warn(`  ⚠ tool ${t.name}: not found (env ${t.id_env} unset, no platform match) — skipping (WP-3 will create it)`);
+      console.warn(
+        `  ⚠ tool ${t.name}: not found (env ${t.id_env} unset, no platform match) — skipping (WP-3 will create it)`,
+      );
       continue;
     }
     resolved.push({ name: t.name, id, response_timeout_secs: t.response_timeout_secs ?? 5 });
@@ -120,7 +128,9 @@ async function resolveKb(def: RawDef): Promise<{ type: string; name: string; id:
     const envId = process.env[d.id_env as string];
     const id = envId || byName.get(d.name);
     if (!id) {
-      console.warn(`  ⚠ KB "${d.name}": not found (env ${d.id_env} unset, no platform match) — skipping`);
+      console.warn(
+        `  ⚠ KB "${d.name}": not found (env ${d.id_env} unset, no platform match) — skipping`,
+      );
       continue;
     }
     resolved.push({ type: d.type, name: d.name, id });
@@ -133,7 +143,7 @@ async function resolveKb(def: RawDef): Promise<{ type: string; name: string; id:
 function buildPatchBody(
   def: RawDef,
   toolIds: string[],
-  kb: { type: string; name: string; id: string }[]
+  kb: { type: string; name: string; id: string }[],
 ): Record<string, unknown> {
   const agent = def.agent as RawDef;
   const languages = def.languages as RawDef;
@@ -217,12 +227,15 @@ function buildPatchBody(
     },
     platform_settings: {
       evaluation: { criteria: def.evaluation_criteria },
-      data_collection: (def.data_collection as RawDef[]).reduce<Record<string, unknown>>((acc, dc) => {
-        const item: Record<string, unknown> = { type: dc.type, description: dc.description };
-        if (dc.enum) item.enum = dc.enum;
-        acc[dc.name] = item;
-        return acc;
-      }, {}),
+      data_collection: (def.data_collection as RawDef[]).reduce<Record<string, unknown>>(
+        (acc, dc) => {
+          const item: Record<string, unknown> = { type: dc.type, description: dc.description };
+          if (dc.enum) item.enum = dc.enum;
+          acc[dc.name] = item;
+          return acc;
+        },
+        {},
+      ),
       privacy: {
         record_voice: privacy.record_voice,
         retention_days: privacy.retention_days,
@@ -277,7 +290,7 @@ function deepDiff(desired: unknown, actual: unknown, path: string, out: Divergen
 function desiredState(
   def: RawDef,
   toolIds: string[],
-  kb: { type: string; name: string; id: string }[]
+  kb: { type: string; name: string; id: string }[],
 ): Record<string, unknown> {
   const agent = def.agent as RawDef;
   const languages = def.languages as RawDef;
@@ -403,7 +416,8 @@ async function configureToolSecrets(def: RawDef, tools: ResolvedTool[]): Promise
             ...current.tool_config.api_schema,
             request_headers: headers,
           },
-          response_timeout_secs: t.response_timeout_secs ?? current.tool_config.response_timeout_secs,
+          response_timeout_secs:
+            t.response_timeout_secs ?? current.tool_config.response_timeout_secs,
           execution_mode: current.tool_config.execution_mode,
           interruption_mode: current.tool_config.interruption_mode,
           pre_tool_speech: current.tool_config.pre_tool_speech,
@@ -436,7 +450,11 @@ async function main() {
   console.log(`  ✓ headers set on: ${toolsConfigured.join(", ")}`);
 
   console.log("▶ Building PATCH body");
-  const patchBody = buildPatchBody(resolved, tools.map((t) => t.id), kb);
+  const patchBody = buildPatchBody(
+    resolved,
+    tools.map((t) => t.id),
+    kb,
+  );
 
   console.log(`▶ PATCH /v1/convai/agents/${AGENT_ID}`);
   const patched = await apiFetch(`/v1/convai/agents/${AGENT_ID}`, {
@@ -450,7 +468,11 @@ async function main() {
   const actual = await apiFetch(`/v1/convai/agents/${AGENT_ID}`);
 
   console.log("▶ Deep-diffing desired vs actual");
-  const desired = desiredState(resolved, tools.map((t) => t.id), kb);
+  const desired = desiredState(
+    resolved,
+    tools.map((t) => t.id),
+    kb,
+  );
   const divergences: Divergence[] = [];
   deepDiff(desired, actual, "", divergences);
 

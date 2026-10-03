@@ -126,8 +126,13 @@ const failCount = () => checks.filter((c) => !c.ok).length;
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
-const TRANSCRIPT = "[user] my card is 4271 1381 3381 1081 and I never called you [agent] we are freezing it";
-const ANALYSIS = { verified_caller: false, spoofed_number: true, notes: "caller claimed to be the bank" };
+const TRANSCRIPT =
+  "[user] my card is 4271 1381 3381 1081 and I never called you [agent] we are freezing it";
+const ANALYSIS = {
+  verified_caller: false,
+  spoofed_number: true,
+  notes: "caller claimed to be the bank",
+};
 /** A string that appears nowhere except inside the plaintext we seal. */
 const PLAINTEXT_MARKER = "4271 1381 3381 1081";
 const SEALED_MARKER = "svp1";
@@ -222,9 +227,7 @@ const preExisting = (before: ChainRowSnapshot[], after: ChainRowSnapshot[]): Cha
 };
 
 const changedRows = (a: ChainRowSnapshot[], b: ChainRowSnapshot[]): string[] =>
-  a
-    .filter((row, i) => JSON.stringify(row) !== JSON.stringify(b[i]))
-    .map((row) => row.id);
+  a.filter((row, i) => JSON.stringify(row) !== JSON.stringify(b[i])).map((row) => row.id);
 
 function fakeAudioStore(seed: (add: (caseRef: string, count: number) => void) => void) {
   const artifacts = new Map<string, AudioArtifact[]>();
@@ -243,7 +246,11 @@ function fakeAudioStore(seed: (add: (caseRef: string, count: number) => void) =>
   seed((caseRef, count) => {
     artifacts.set(
       caseRef,
-      Array.from({ length: count }, (_, i) => ({ id: `${caseRef}-a${i}`, caseRef, bytes: 1024 * (i + 1) })),
+      Array.from({ length: count }, (_, i) => ({
+        id: `${caseRef}-a${i}`,
+        caseRef,
+        bytes: 1024 * (i + 1),
+      })),
     );
   });
   return { store, purged };
@@ -257,9 +264,17 @@ test("per-case data keys are unique, and a ciphertext cannot be replayed into an
   await createCase({ caseRef: a, orgId: ORG_DEFAULT, transcript: TRANSCRIPT });
   await createCase({ caseRef: b, orgId: ORG_DEFAULT, transcript: TRANSCRIPT });
 
-  const sealedA = await sealCasePayload(a, { transcript: TRANSCRIPT, analysis: ANALYSIS }, { reason: "key-isolation" });
+  const sealedA = await sealCasePayload(
+    a,
+    { transcript: TRANSCRIPT, analysis: ANALYSIS },
+    { reason: "key-isolation" },
+  );
   await pace();
-  await sealCasePayload(b, { transcript: TRANSCRIPT, analysis: ANALYSIS }, { reason: "key-isolation" });
+  await sealCasePayload(
+    b,
+    { transcript: TRANSCRIPT, analysis: ANALYSIS },
+    { reason: "key-isolation" },
+  );
   await pace();
 
   const rowA = await db.case.findUnique({ where: { caseRef: a }, select: { dataKeyEnc: true } });
@@ -273,7 +288,11 @@ test("per-case data keys are unique, and a ciphertext cannot be replayed into an
   const keyB = unwrapCaseKey(rowB!.dataKeyEnc, b)!;
   const master = masterKey();
 
-  check("key-bytes-32", keyA.length === 32 && keyB.length === 32, `keyA=${keyA.length}B keyB=${keyB.length}B`);
+  check(
+    "key-bytes-32",
+    keyA.length === 32 && keyB.length === 32,
+    `keyA=${keyA.length}B keyB=${keyB.length}B`,
+  );
   check("keys-differ-bytes", !keyA.equals(keyB), "two cases must not share key material");
   check(
     "keys-differ-from-master",
@@ -290,7 +309,11 @@ test("per-case data keys are unique, and a ciphertext cannot be replayed into an
   // Independent node:crypto check: A's ciphertext must not open under B's key,
   // and must not open under B's caseRef as AAD. This is what "bound to the
   // case" means, proven without the library's own helpers.
-  const metaA = JSON.parse((await sealedRowFor(a))!.meta!) as { iv: string; tag: string; ct: string };
+  const metaA = JSON.parse((await sealedRowFor(a))!.meta!) as {
+    iv: string;
+    tag: string;
+    ct: string;
+  };
   const openWith = (key: Buffer, aad: string): Buffer => {
     const decipher = createDecipheriv("aes-256-gcm", key, Buffer.from(metaA.iv, "base64"));
     decipher.setAAD(Buffer.from(aad, "utf8"));
@@ -310,9 +333,17 @@ test("per-case data keys are unique, and a ciphertext cannot be replayed into an
     foreignCaseRejected = true;
   }
   const selfOpens = openWith(keyA, `${SEALED_MARKER}|${a}`).toString("utf8");
-  check("ciphertext-rejects-foreign-key", foreignKeyRejected, "another case's key must not decrypt it");
+  check(
+    "ciphertext-rejects-foreign-key",
+    foreignKeyRejected,
+    "another case's key must not decrypt it",
+  );
   check("ciphertext-bound-to-case", foreignCaseRejected, "the caseRef is authenticated data");
-  check("ciphertext-opens-for-owner", selfOpens.includes(PLAINTEXT_MARKER), "sanity: the owner key opens it");
+  check(
+    "ciphertext-opens-for-owner",
+    selfOpens.includes(PLAINTEXT_MARKER),
+    "sanity: the owner key opens it",
+  );
 
   // A second call must ADOPT the existing key. A fork here (two keys, one case)
   // would silently make a sealed payload unreadable.
@@ -350,7 +381,12 @@ test("sealed ciphertext never contained the plaintext, anywhere in the row", asy
   );
 
   const sealedRow = rows.find((r) => r.id === sealed.rowId)!;
-  const envelope = JSON.parse(sealedRow.meta!) as { iv: string; tag: string; ct: string; bytes: number };
+  const envelope = JSON.parse(sealedRow.meta!) as {
+    iv: string;
+    tag: string;
+    ct: string;
+    bytes: number;
+  };
   check(
     "no-plaintext-in-redactedText",
     !String(sealedRow.redactedText).includes(PLAINTEXT_MARKER),
@@ -365,7 +401,8 @@ test("sealed ciphertext never contained the plaintext, anywhere in the row", asy
   const raw = Buffer.from(envelope.ct, "base64");
   check(
     "raw-ciphertext-bytes-are-not-plaintext",
-    !raw.includes(Buffer.from(PLAINTEXT_MARKER, "utf8")) && !raw.toString("utf8").includes("transcript"),
+    !raw.includes(Buffer.from(PLAINTEXT_MARKER, "utf8")) &&
+      !raw.toString("utf8").includes("transcript"),
     `${raw.length} ciphertext bytes, no readable content`,
   );
   check(
@@ -410,7 +447,11 @@ test("I-6: erasure destroys the plaintext and the chain still verifies from gene
     `${verificationBefore.ok ? "ok" : "broken"} with ${verificationBefore.rows} rows before erasure`,
   );
 
-  await sealCasePayload(caseRef, { transcript: TRANSCRIPT, analysis: ANALYSIS }, { reason: "post_call_ingest" });
+  await sealCasePayload(
+    caseRef,
+    { transcript: TRANSCRIPT, analysis: ANALYSIS },
+    { reason: "post_call_ingest" },
+  );
   await pace();
   const afterSeal = await chainSnapshot(caseRef);
   check(
@@ -438,8 +479,16 @@ test("I-6: erasure destroys the plaintext and the chain still verifies from gene
       erasedCase?.dataCollectionResults === null,
     `cleared: [${result.clearedColumns.join(", ")}]`,
   );
-  check("data-key-destroyed", erasedCase?.dataKeyEnc === null, "dataKeyEnc is NULL — no durable key copy");
-  check("erased-at-recorded", Boolean(erasedCase?.erasedAt), `erasedAt=${erasedCase?.erasedAt?.toISOString()}`);
+  check(
+    "data-key-destroyed",
+    erasedCase?.dataKeyEnc === null,
+    "dataKeyEnc is NULL — no durable key copy",
+  );
+  check(
+    "erased-at-recorded",
+    Boolean(erasedCase?.erasedAt),
+    `erasedAt=${erasedCase?.erasedAt?.toISOString()}`,
+  );
 
   let threw: unknown = null;
   try {
@@ -455,12 +504,20 @@ test("I-6: erasure destroys the plaintext and the chain still verifies from gene
 
   // (b) The ciphertext survives, and it is inert: no key exists that opens it.
   const ciphertextRow = await sealedRowFor(caseRef);
-  check("ciphertext-row-survives", Boolean(ciphertextRow), "the ciphertext is chained, so it is not deleted");
+  check(
+    "ciphertext-row-survives",
+    Boolean(ciphertextRow),
+    "the ciphertext is chained, so it is not deleted",
+  );
   const envelope = JSON.parse(ciphertextRow!.meta!) as { iv: string; tag: string; ct: string };
   let masterKeyRejected = false;
   let randomKeyRejected = false;
   try {
-    const decipher = createDecipheriv("aes-256-gcm", masterKey(), Buffer.from(envelope.iv, "base64"));
+    const decipher = createDecipheriv(
+      "aes-256-gcm",
+      masterKey(),
+      Buffer.from(envelope.iv, "base64"),
+    );
     decipher.setAAD(Buffer.from(`${SEALED_MARKER}|${caseRef}`, "utf8"));
     decipher.setAuthTag(Buffer.from(envelope.tag, "base64"));
     Buffer.concat([decipher.update(Buffer.from(envelope.ct, "base64")), decipher.final()]);
@@ -468,7 +525,11 @@ test("I-6: erasure destroys the plaintext and the chain still verifies from gene
     masterKeyRejected = true;
   }
   try {
-    const decipher = createDecipheriv("aes-256-gcm", randomBytes(32), Buffer.from(envelope.iv, "base64"));
+    const decipher = createDecipheriv(
+      "aes-256-gcm",
+      randomBytes(32),
+      Buffer.from(envelope.iv, "base64"),
+    );
     decipher.setAAD(Buffer.from(`${SEALED_MARKER}|${caseRef}`, "utf8"));
     decipher.setAuthTag(Buffer.from(envelope.tag, "base64"));
     Buffer.concat([decipher.update(Buffer.from(envelope.ct, "base64")), decipher.final()]);
@@ -516,7 +577,8 @@ test("I-6: erasure destroys the plaintext and the chain still verifies from gene
 
   // (d) NEGATIVE CONTROL — without this, (c) proves nothing. Tamper with one
   // pre-existing row and require verifyChain() to say so.
-  const victim = beforeErase[1];
+  // The chain was verified to hold exactly four rows just above, so index 1 exists.
+  const victim = beforeErase[1]!;
   await db.auditLog.update({
     where: { id: victim.id },
     data: { redactedText: "TAMPERED — this text was never written by the app" },
@@ -525,12 +587,17 @@ test("I-6: erasure destroys the plaintext and the chain still verifies from gene
   check(
     "negative-control-tamper-is-detected",
     tampered.ok === false && tampered.brokenAt === victim.id,
-    tampered.ok ? "tampering went UNDETECTED — the gate above is vacuous" : `detected at ${tampered.brokenAt}`,
+    tampered.ok
+      ? "tampering went UNDETECTED — the gate above is vacuous"
+      : `detected at ${tampered.brokenAt}`,
   );
   expect(tampered.ok).toBe(false);
 
   // Restore the row so the rest of the run sees an intact chain.
-  await db.auditLog.update({ where: { id: victim.id }, data: { redactedText: victim.redactedText } });
+  await db.auditLog.update({
+    where: { id: victim.id },
+    data: { redactedText: victim.redactedText },
+  });
   const restored = await verifyChain(caseRef, ORG_DEFAULT);
   expect(restored.ok).toBe(true);
 
@@ -581,7 +648,9 @@ test("erasure succeeds even with no master key; sealing does not", async () => {
   check(
     "sealing-refuses-without-master-key",
     sealError instanceof MasterKeyUnavailableError,
-    sealError ? `${(sealError as Error).name} names ${"PRIVACY_MASTER_KEY"}` : "sealed without a key!",
+    sealError
+      ? `${(sealError as Error).name} names ${"PRIVACY_MASTER_KEY"}`
+      : "sealed without a key!",
   );
   check(
     "erasure-needs-no-master-key",
@@ -631,7 +700,9 @@ test("retention policy is per organisation, and the pilot rule makes audio due i
   const overridden = retentionPolicy(ORG_OVERRIDE);
   check(
     "per-org-override-applies",
-    overridden.audioDays === 7 && overridden.transcriptDays === 0 && overridden.caseRecordDays === 365,
+    overridden.audioDays === 7 &&
+      overridden.transcriptDays === 0 &&
+      overridden.caseRecordDays === 365,
     `override: audio=${overridden.audioDays} transcripts=${overridden.transcriptDays} records=${overridden.caseRecordDays}`,
   );
   check(
@@ -691,7 +762,10 @@ test("retention is refused any audit-chain mutation, including a redactedText dr
   }
   let caseWriteAllowed = true;
   try {
-    assertRetentionMutationAllowed({ target: "Case", columns: ["transcriptRedacted", "dataKeyEnc"] });
+    assertRetentionMutationAllowed({
+      target: "Case",
+      columns: ["transcriptRedacted", "dataKeyEnc"],
+    });
   } catch {
     caseWriteAllowed = false;
   }
@@ -734,14 +808,23 @@ test("a 0-day audio policy purges immediately, a 30-day policy does not", async 
   const pilotCase = ref("AUDIO0");
   const defaultCase = ref("AUDIO30");
   await createCase({ caseRef: pilotCase, orgId: ORG_PILOT, ageDays: 0, transcript: TRANSCRIPT });
-  await createCase({ caseRef: defaultCase, orgId: ORG_DEFAULT, ageDays: 5, transcript: TRANSCRIPT });
+  await createCase({
+    caseRef: defaultCase,
+    orgId: ORG_DEFAULT,
+    ageDays: 5,
+    transcript: TRANSCRIPT,
+  });
 
   const fake = fakeAudioStore((add) => {
     add(pilotCase, 2);
     add(defaultCase, 3);
   });
   registerAudioStore(fake.store);
-  check("audio-store-registered", audioStoreConfigured(), "the audio tier purges a registered store");
+  check(
+    "audio-store-registered",
+    audioStoreConfigured(),
+    "the audio tier purges a registered store",
+  );
 
   // Both cases are FRESH: the only thing that can make the pilot case due is the
   // 0-day window. Age is therefore not a hidden variable in this assertion.
@@ -777,8 +860,12 @@ test("a 0-day audio policy purges immediately, a 30-day policy does not", async 
   );
   check(
     "pilot-case-payload-intact",
-    (await db.case.findUnique({ where: { caseRef: pilotCase }, select: { transcriptRedacted: true } }))
-      ?.transcriptRedacted === TRANSCRIPT,
+    (
+      await db.case.findUnique({
+        where: { caseRef: pilotCase },
+        select: { transcriptRedacted: true },
+      })
+    )?.transcriptRedacted === TRANSCRIPT,
     "the audio tier does not touch transcripts",
   );
   check(
@@ -805,9 +892,19 @@ test("a 0-day audio policy purges immediately, a 30-day policy does not", async 
 
 test("transcripts shred at 90 days, case records at their window, and the chain survives both", async () => {
   const aged = ref("TIER");
-  await createCase({ caseRef: aged, orgId: ORG_DEFAULT, ageDays: 40, transcript: TRANSCRIPT, analysis: ANALYSIS });
+  await createCase({
+    caseRef: aged,
+    orgId: ORG_DEFAULT,
+    ageDays: 40,
+    transcript: TRANSCRIPT,
+    analysis: ANALYSIS,
+  });
   await seedChain(aged, ORG_DEFAULT, 3);
-  await sealCasePayload(aged, { transcript: TRANSCRIPT, analysis: ANALYSIS }, { reason: "post_call_ingest" });
+  await sealCasePayload(
+    aged,
+    { transcript: TRANSCRIPT, analysis: ANALYSIS },
+    { reason: "post_call_ingest" },
+  );
   await pace();
 
   const before = await chainSnapshot(aged);
@@ -850,7 +947,9 @@ test("transcripts shred at 90 days, case records at their window, and the chain 
   });
   check(
     "transcript-tier-destroys-key-and-text",
-    shredded?.dataKeyEnc === null && shredded?.transcriptRedacted === null && shredded?.erasedAt !== null,
+    shredded?.dataKeyEnc === null &&
+      shredded?.transcriptRedacted === null &&
+      shredded?.erasedAt !== null,
     "dataKeyEnc NULL, transcriptRedacted NULL, erasedAt set",
   );
   check(
@@ -878,7 +977,9 @@ test("transcripts shred at 90 days, case records at their window, and the chain 
   check(
     "retention-kept-chain-verifying-I6",
     verification.ok === true,
-    verification.ok ? `${verification.rows} rows verify from genesis` : `BROKEN at ${verification.brokenAt}`,
+    verification.ok
+      ? `${verification.rows} rows verify from genesis`
+      : `BROKEN at ${verification.brokenAt}`,
   );
   check(
     "retention-self-report-chain-intact",
@@ -898,14 +999,20 @@ test("transcripts shred at 90 days, case records at their window, and the chain 
 
   // Now the record window: an org configured to delete case records now.
   const recordCase = ref("RECORD");
-  await createCase({ caseRef: recordCase, orgId: ORG_OVERRIDE, ageDays: 400, transcript: TRANSCRIPT });
+  await createCase({
+    caseRef: recordCase,
+    orgId: ORG_OVERRIDE,
+    ageDays: 400,
+    transcript: TRANSCRIPT,
+  });
   await seedChain(recordCase, ORG_OVERRIDE, 2);
   configureRetention(ORG_OVERRIDE, { audioDays: 30, transcriptDays: 365, caseRecordDays: 0 });
   const recordBefore = await chainSnapshot(recordCase);
   const recordRun = await runRetention(new Date(), { orgIds: [ORG_OVERRIDE] });
   check(
     "case-record-tier-fires",
-    recordRun.caseRecordsDeleted === 1 && (await db.case.findUnique({ where: { caseRef: recordCase } })) === null,
+    recordRun.caseRecordsDeleted === 1 &&
+      (await db.case.findUnique({ where: { caseRef: recordCase } })) === null,
     "the Case row is gone after its retention window closes",
   );
   const recordAfter = await chainSnapshot(recordCase);
@@ -956,7 +1063,8 @@ test("the sweeper is bounded, resumable, and applies each org's own policy", asy
   );
   check(
     "cursor-does-not-repeat-rows",
-    new Set(oneBatch.tiers.transcripts.caseRefs).size === oneBatch.tiers.transcripts.caseRefs.length,
+    new Set(oneBatch.tiers.transcripts.caseRefs).size ===
+      oneBatch.tiers.transcripts.caseRefs.length,
     "each case appeared in exactly one batch",
   );
 
@@ -970,9 +1078,7 @@ test("the sweeper is bounded, resumable, and applies each org's own policy", asy
   });
   check(
     "resumed-run-finishes-the-backlog",
-    finish.tiers.transcripts.acted >= 3 &&
-      finish.tiers.transcripts.batches === 2 &&
-      acted === 0,
+    finish.tiers.transcripts.acted >= 3 && finish.tiers.transcripts.batches === 2 && acted === 0,
     `${oneBatch.tiers.transcripts.acted} + ${finish.tiers.transcripts.acted} = 5 shredded across ` +
       `${finish.tiers.transcripts.batches} further batch(es); ${acted} case(s) still hold plaintext`,
   );
@@ -999,14 +1105,20 @@ test("the sweeper is bounded, resumable, and applies each org's own policy", asy
     where: { caseRef: patientRef },
     select: { dataKeyEnc: true, erasedAt: true, transcriptRedacted: true },
   });
+  // Both cases were created just above, so both rows exist; without them the
+  // checks below would compare against `undefined` and pass vacuously.
+  if (eagerRow === null || patientRow === null)
+    throw new Error("both fixture cases must exist before the shred checks");
   check(
     "eager-org-shredded",
-    eagerRow?.dataKeyEnc === null && eagerRow.erasedAt !== null && eagerRow.transcriptRedacted === null,
+    eagerRow.dataKeyEnc === null &&
+      eagerRow.erasedAt !== null &&
+      eagerRow.transcriptRedacted === null,
     "org with transcriptDays=0 shreds immediately",
   );
   check(
     "patient-org-untouched",
-    patientRow?.dataKeyEnc !== null &&
+    patientRow.dataKeyEnc !== null &&
       patientRow.erasedAt === null &&
       patientRow.transcriptRedacted === TRANSCRIPT,
     "the same-age, same-org-shaped case in the default org keeps its key and text for another 89 days",
@@ -1034,12 +1146,21 @@ test("the sweeper is bounded, resumable, and applies each org's own policy", asy
 
 test("deleteCaseRecord removes the row and keeps the chain, eraseCase is safe to repeat", async () => {
   const caseRef = ref("DSR");
-  await createCase({ caseRef, orgId: ORG_DEFAULT, ageDays: 3, transcript: TRANSCRIPT, analysis: ANALYSIS });
+  await createCase({
+    caseRef,
+    orgId: ORG_DEFAULT,
+    ageDays: 3,
+    transcript: TRANSCRIPT,
+    analysis: ANALYSIS,
+  });
   await seedChain(caseRef, ORG_DEFAULT, 2);
   await sealCasePayload(caseRef, { transcript: TRANSCRIPT, analysis: ANALYSIS }, { reason: "dsr" });
   await pace();
 
-  const deleted = await deleteCaseRecord(caseRef, { reason: "dsr_request", requestedBy: "dpo@example.test" });
+  const deleted = await deleteCaseRecord(caseRef, {
+    reason: "dsr_request",
+    requestedBy: "dpo@example.test",
+  });
   await pace();
 
   check(
@@ -1071,11 +1192,17 @@ test("deleteCaseRecord removes the row and keeps the chain, eraseCase is safe to
 // ── Evidence ─────────────────────────────────────────────────────────────────
 
 test("evidence artifact is written, well-formed and digest-stable", async () => {
-  check("no-network-calls", HTTP_CALLS === 0, `${HTTP_CALLS} HTTP call(s) attempted during the gate`);
+  check(
+    "no-network-calls",
+    HTTP_CALLS === 0,
+    `${HTTP_CALLS} HTTP call(s) attempted during the gate`,
+  );
   const fingerprint = masterKeyFingerprint();
   check(
     "master-key-in-process",
-    masterKeyConfigured() && /^[0-9a-f]{16}$/.test(fingerprint) && fingerprint !== masterKey().toString("hex"),
+    masterKeyConfigured() &&
+      /^[0-9a-f]{16}$/.test(fingerprint) &&
+      fingerprint !== masterKey().toString("hex"),
     `master key resolved; ops fingerprint ${fingerprint} is a hash, not the key`,
   );
 

@@ -63,13 +63,18 @@ const manifest = JSON.parse(read("public/site.webmanifest")) as Record<string, u
 /**
  * Run the real middleware and read a response header back.
  *
- * `clerkMiddleware` runs fine without Clerk keys in this context ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â it resolves
- * to "signed out" and passes the request through, which is exactly the state an
- * unauthenticated crawler is in. So this exercises the production function, not
- * a reimplementation of it.
+ * The middleware runs fine with no session: it resolves to "signed out" and passes
+ * the request through, which is exactly the state an unauthenticated crawler is in.
+ * So this exercises the production function, not a reimplementation of it.
  */
 async function headersFor(pathname: string): Promise<Headers> {
   const res = await proxy(new NextRequest(`https://surface.test${pathname}`), {} as never);
+  // The middleware may decline a request (null/undefined), which is a legitimate
+  // outcome, so it must be asserted rather than dereferenced.
+  expect(res).toBeDefined();
+  expect(res).not.toBeNull();
+  if (res === null || res === undefined)
+    throw new Error(`the middleware declined to handle ${pathname}`);
   expect(res.status).toBe(200);
   return res.headers;
 }
@@ -81,7 +86,7 @@ const NO_INDEX_PATHS = [
   "/api/metrics", // dependency + queue telemetry
   "/v1/interventions", // the /v1 alias, rewritten to /api/v1/interventions
   "/inspector", // webhook signature debug tool
-  "/__clerk/", // Clerk internal proxy path
+  "/api/auth/get-session", // Better Auth session endpoint
   "/totally/unknown/route", // fail-closed default for anything added later
 ];
 
@@ -125,9 +130,17 @@ describe("indexing: authenticated and API routes are never indexable", () => {
 });
 
 describe("robots.txt", () => {
+  /** `rules` is typed as one rule OR a list; this route returns a list. The element
+   *  type is taken from the route's own return value, since `MetadataRoute` is a
+   *  Next global that this Bun test project does not pull in. */
+  type RobotsRule = Extract<ReturnType<typeof robots>["rules"], unknown[]>[number];
+
+  /** Every rule, always as a list, so callers never branch on the union. */
+  const allRules = () => robots().rules as RobotsRule[];
+
   /** The `User-agent: *` rule. */
   const allCrawlers = () =>
-    robots().rules.find((rule) => {
+    allRules().find((rule) => {
       const ua = Array.isArray(rule.userAgent) ? rule.userAgent : [rule.userAgent];
       return ua.includes("*");
     });
@@ -145,8 +158,8 @@ describe("robots.txt", () => {
   test("never lists a console or API path in an ALLOW position", () => {
     // Negative assertion: an accidentally broad `allow` would still look right
     // in review. Assert the absence of any allow entry naming these.
-    const allows = robots()
-      .rules.flatMap((r) => (Array.isArray(r.allow) ? r.allow : [r.allow]))
+    const allows = allRules()
+      .flatMap((r) => (Array.isArray(r.allow) ? r.allow : [r.allow]))
       .filter(Boolean);
     for (const allow of allows) {
       for (const forbidden of SITEMAP_FORBIDDEN) {
@@ -156,7 +169,7 @@ describe("robots.txt", () => {
   });
 
   test("AI crawlers are denied everything", () => {
-    const rule = robots().rules.find((x) =>
+    const rule = allRules().find((x) =>
       (Array.isArray(x.userAgent) ? x.userAgent : [x.userAgent]).includes("GPTBot"),
     );
     expect(rule?.disallow).toBe("/");
@@ -333,20 +346,36 @@ describe("declared security headers", () => {
   );
 
   test("CSP keeps the directives the app genuinely depends on", () => {
-    // A CSP that breaks Clerk, next/font or the websocket is worse than a weak
-    // one, so these are pinned: removing any of them breaks the product, and
-    // tightening them needs a browser, not a text edit.
+    // A CSP that breaks next/font or the websocket is worse than a weak one, so
+    // these are pinned: removing any of them breaks the product, and tightening
+    // them needs a browser, not a text edit.
     for (const directive of [
       "default-src 'self'",
       "style-src 'self' 'unsafe-inline'", // framer-motion + Tailwind
-      "connect-src", // ElevenLabs + Clerk (+ wss for session sync)
-      "font-src", // next/font self-hosts; Clerk serves fonts
-      "frame-src", // Clerk component iframes
+      "connect-src", // ElevenLabs
+      "font-src",
+      "frame-src",
       "object-src 'none'",
       "base-uri 'self'",
       "form-action 'self'",
     ]) {
       expect(nextConfig).toContain(directive);
+    }
+  });
+
+  test("CSP grants no third-party auth origin", () => {
+    // Regression guard for the Clerk -> Better Auth cutover. Better Auth is served
+    // from THIS origin at /api/auth/*, so every vendor allowance that existed for
+    // the old provider should be gone rather than swapped for a new one. This
+    // fails if someone reintroduces a remote auth origin, which would re-open
+    // script-src and frame-src to a third party for no functional reason.
+    for (const origin of [
+      "api.clerk.com",
+      "clerk.accounts.dev",
+      "img.clerk.com",
+      "fonts.clerk.com",
+    ]) {
+      expect(nextConfig).not.toContain(origin);
     }
   });
 
@@ -491,7 +520,9 @@ describe.skipIf(!BASE_URL)("live deployment (SURFACE_BASE_URL)", () => {
   });
 
   test("the CSP includes frame-ancestors 'none'", async () => {
-    expect((await observed("/")).get("content-security-policy")).toContain("frame-ancestors 'none'");
+    expect((await observed("/")).get("content-security-policy")).toContain(
+      "frame-ancestors 'none'",
+    );
   });
 
   test("a representative API route is noindex", async () => {
@@ -531,7 +562,7 @@ describe("known gaps, asserted so they cannot be forgotten", () => {
     expect(layout).not.toContain("manifest:");
   });
 
-test("CLOSED 2026-10-02: public/robots.txt no longer collides with app/robots.ts", () => {
+  test("CLOSED 2026-10-02: public/robots.txt no longer collides with app/robots.ts", () => {
     // MEASURED, then FIXED. `next dev` served `GET /robots.txt -> 500` with
     // "A conflicting public file and page file was found for path /robots.txt".
     // `public/robots.txt` was removed, leaving `src/app/robots.ts` the single
@@ -545,7 +576,12 @@ test("CLOSED 2026-10-02: public/robots.txt no longer collides with app/robots.ts
     expect(existsSync("src/app/robots.ts")).toBe(true);
 
     // The generated file closes that gap.
-    const allCrawlers = robots().rules.find((rule) => {
+    // `rules` is typed as one rule OR a list; this route returns a list. The
+    // element type comes from the route itself (`MetadataRoute` is a Next
+    // global this Bun test project does not pull in).
+    type RobotsRule = Extract<ReturnType<typeof robots>["rules"], unknown[]>[number];
+    const rules = robots().rules as RobotsRule[];
+    const allCrawlers = rules.find((rule) => {
       const ua = Array.isArray(rule.userAgent) ? rule.userAgent : [rule.userAgent];
       return ua.includes("*");
     });

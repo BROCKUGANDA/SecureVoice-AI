@@ -37,14 +37,17 @@ export function verifySvSignature(
   const expected = createHmac("sha256", secret).update(`${t}.${rawBody}`).digest("hex");
   const a = Buffer.from(expected, "hex");
   const b = Buffer.from(v1, "hex");
-  if (a.length !== b.length || !timingSafeEqual(a, b)) return { ok: false, reason: "digest_mismatch" };
+  if (a.length !== b.length || !timingSafeEqual(a, b))
+    return { ok: false, reason: "digest_mismatch" };
   return { ok: true };
 }
 
 if (import.meta.main) {
   const [, , bodyPath, header, secret] = process.argv;
   if (!bodyPath || !header || !secret) {
-    console.error("usage: bun scripts/verify_sv_signature.ts <raw_body_file> <signature_header> <secret>");
+    console.error(
+      "usage: bun scripts/verify_sv_signature.ts <raw_body_file> <signature_header> <secret>",
+    );
     process.exit(2);
   }
   const verdict = verifySvSignature(readFileSync(bodyPath, "utf8"), header, secret);

@@ -66,8 +66,10 @@ export function isE164(input: string): boolean {
 export function maskE164(e164: string): string {
   const norm = normaliseE164(e164);
   if (!norm) return "[invalid-number]";
+  // `normaliseE164` has already refused anything that is not E.164, so there
+  // are always at least seven significant digits here: the leading-three /
+  // trailing-four split below can never overlap or run off the end.
   const digits = norm.slice(1);
-  if (digits.length <= 4) return `+${"*".repeat(digits.length)}`;
   return `+${digits.slice(0, 3)}****${digits.slice(-4)}`;
 }
 
@@ -108,24 +110,94 @@ export const COUNTRY_BY_CALLING_CODE: Readonly<Record<string, string>> = Object.
   "1": "US", // NANP zone (US/CA treated as one — see note above)
   "7": "RU",
   // 2-digit
-  "20": "EG", "27": "ZA", "30": "GR", "31": "NL", "32": "BE", "33": "FR",
-  "34": "ES", "36": "HU", "39": "IT", "40": "RO", "41": "CH", "43": "AT",
-  "44": "GB", "45": "DK", "46": "SE", "47": "NO", "48": "PL", "49": "DE",
-  "51": "PE", "52": "MX", "53": "CU", "54": "AR", "55": "BR", "56": "CL",
-  "57": "CO", "58": "VE", "60": "MY", "61": "AU", "62": "ID", "63": "PH",
-  "64": "NZ", "65": "SG", "66": "TH", "81": "JP", "82": "KR", "84": "VN",
-  "86": "CN", "90": "TR", "91": "IN", "92": "PK", "93": "AF", "94": "LK",
-  "95": "MM", "98": "IR", "212": "MA", "213": "DZ", "216": "TN", "218": "LY",
-  "220": "GM", "221": "SN", "233": "GH", "234": "NG", "251": "ET",
-  "254": "KE", "255": "TZ", "256": "UG", "260": "ZM", "263": "ZW",
+  "20": "EG",
+  "27": "ZA",
+  "30": "GR",
+  "31": "NL",
+  "32": "BE",
+  "33": "FR",
+  "34": "ES",
+  "36": "HU",
+  "39": "IT",
+  "40": "RO",
+  "41": "CH",
+  "43": "AT",
+  "44": "GB",
+  "45": "DK",
+  "46": "SE",
+  "47": "NO",
+  "48": "PL",
+  "49": "DE",
+  "51": "PE",
+  "52": "MX",
+  "53": "CU",
+  "54": "AR",
+  "55": "BR",
+  "56": "CL",
+  "57": "CO",
+  "58": "VE",
+  "60": "MY",
+  "61": "AU",
+  "62": "ID",
+  "63": "PH",
+  "64": "NZ",
+  "65": "SG",
+  "66": "TH",
+  "81": "JP",
+  "82": "KR",
+  "84": "VN",
+  "86": "CN",
+  "90": "TR",
+  "91": "IN",
+  "92": "PK",
+  "93": "AF",
+  "94": "LK",
+  "95": "MM",
+  "98": "IR",
+  "212": "MA",
+  "213": "DZ",
+  "216": "TN",
+  "218": "LY",
+  "220": "GM",
+  "221": "SN",
+  "233": "GH",
+  "234": "NG",
+  "251": "ET",
+  "254": "KE",
+  "255": "TZ",
+  "256": "UG",
+  "260": "ZM",
+  "263": "ZW",
   // 3-digit
-  "855": "KH", "856": "LA", "880": "BD", "886": "TW", "852": "HK",
-  "853": "MO", "960": "MV",
-  "961": "LB", "962": "JO", "963": "SY", "964": "IQ", "965": "KW",
-  "966": "SA", "967": "YE", "968": "OM", "970": "PS", "971": "AE",
-  "972": "IL", "973": "BH", "974": "QA", "975": "BT", "976": "MN",
-  "977": "NP", "992": "TJ", "993": "TM", "994": "AZ", "995": "GE",
-  "996": "KG", "998": "UZ",
+  "855": "KH",
+  "856": "LA",
+  "880": "BD",
+  "886": "TW",
+  "852": "HK",
+  "853": "MO",
+  "960": "MV",
+  "961": "LB",
+  "962": "JO",
+  "963": "SY",
+  "964": "IQ",
+  "965": "KW",
+  "966": "SA",
+  "967": "YE",
+  "968": "OM",
+  "970": "PS",
+  "971": "AE",
+  "972": "IL",
+  "973": "BH",
+  "974": "QA",
+  "975": "BT",
+  "976": "MN",
+  "977": "NP",
+  "992": "TJ",
+  "993": "TM",
+  "994": "AZ",
+  "995": "GE",
+  "996": "KG",
+  "998": "UZ",
 });
 
 /** Maximum country calling code length in E.164. */
@@ -164,9 +236,7 @@ export function resolveCountry(e164: string, resolver?: CountryResolver | null):
     const norm = normaliseE164(e164);
     if (!norm) return null;
     const value = (resolver ?? defaultResolver)(norm);
-    return typeof value === "string" && /^[A-Za-z]{2}$/.test(value)
-      ? value.toUpperCase()
-      : null;
+    return typeof value === "string" && /^[A-Za-z]{2}$/.test(value) ? value.toUpperCase() : null;
   } catch {
     // A throwing resolver must fail the dial, never the request handler.
     return null;
@@ -214,11 +284,31 @@ export function clearOrgGeoPolicies(): void {
 }
 
 /**
- * Effective policy for an org. Precedence: explicit registry → per-org env
- * (`ABUSE_ALLOWED_COUNTRIES__ORG_ACME`) → global config. An org-specific value
- * replaces only the keys it sets; the hard denylist always survives.
+ * Effective policy for an org. Precedence, highest first:
+ *   1. the per-call `override` (a route that already resolved the tenant),
+ *   2. the in-process registry (`setOrgGeoPolicy`),
+ *   3. the per-org env var (`ABUSE_ALLOWED_COUNTRIES__ORG_ACME`),
+ *   4. the global config.
+ *
+ * A layer REPLACES only the keys it actually sets — an org-specific value that
+ * names an allowlist and nothing else leaves the denylists alone.
+ *
+ * The two deny lists are the exception, and the exception is the point: they
+ * only ever GROW. An `override` can add a country or a prefix to them, but it
+ * can never subtract one, so no caller — per-call override, registry entry or
+ * env var — can switch off the hard denylist. That is what makes honouring the
+ * override safe: the override wins on the ALLOW list (which is the permission)
+ * and is powerless on the DENY lists (which are the safety net).
+ *
+ * The org id is passed RAW to `orgAllowlistEnvName`: that helper is the
+ * published naming convention and does its own upper-casing and non-alphanumeric
+ * folding, whereas `safeOrgKey` exists to bound Map keys and would silently
+ * rename (`acme-ltd/x` → `..._ACME_LTDX`) the variable an operator set.
  */
-export function geoPolicyFor(orgId: string | null | undefined, override?: Partial<GeoPolicy>): GeoPolicy {
+export function geoPolicyFor(
+  orgId: string | null | undefined,
+  override?: Partial<GeoPolicy>,
+): GeoPolicy {
   const cfg = abuseConfig().geo;
   const base: GeoPolicy = {
     allowlist: cfg.allowlist,
@@ -227,15 +317,29 @@ export function geoPolicyFor(orgId: string | null | undefined, override?: Partia
   };
 
   const key = safeOrgKey(orgId);
-  const envAllowlist = key ? (process.env[orgAllowlistEnvName(key)] ?? "").split(",") : [];
+  const envAllowlist =
+    key && orgId ? (process.env[orgAllowlistEnvName(orgId)] ?? "").split(",") : [];
   const envList = envAllowlist.map((s) => s.trim().toUpperCase()).filter(Boolean);
 
   const registered = key ? ORG_POLICIES.get(key) : undefined;
   return {
-    allowlist: registered?.allowlist ?? (envList.length ? envList : base.allowlist),
-    // The denylist only ever grows: config defaults + org additions.
-    denylist: [...new Set([...base.denylist, ...(registered?.denylist ?? [])].map((c) => c.toUpperCase()))],
-    deniedPrefixes: [...new Set([...base.deniedPrefixes, ...(registered?.deniedPrefixes ?? [])])],
+    allowlist:
+      override?.allowlist ?? registered?.allowlist ?? (envList.length ? envList : base.allowlist),
+    // The denylists only ever grow: config defaults + registry + override.
+    denylist: [
+      ...new Set(
+        [...base.denylist, ...(registered?.denylist ?? []), ...(override?.denylist ?? [])].map(
+          (c) => c.toUpperCase(),
+        ),
+      ),
+    ],
+    deniedPrefixes: [
+      ...new Set([
+        ...base.deniedPrefixes,
+        ...(registered?.deniedPrefixes ?? []),
+        ...(override?.deniedPrefixes ?? []),
+      ]),
+    ],
   };
 }
 
@@ -270,7 +374,8 @@ export type GeoInput = {
   resolver?: CountryResolver | null;
 };
 
-const listIsWildcard = (xs: readonly string[]): boolean => xs.some((x) => WILDCARD_TOKENS.has(x.trim().toLowerCase()));
+const listIsWildcard = (xs: readonly string[]): boolean =>
+  xs.some((x) => WILDCARD_TOKENS.has(x.trim().toLowerCase()));
 
 /**
  * May this org dial this destination, geographically?
@@ -289,7 +394,12 @@ const listIsWildcard = (xs: readonly string[]): boolean => xs.some((x) => WILDCA
 export function checkDestinationGeo(input: GeoInput): GeoDecision {
   const norm = normaliseE164(input.e164);
   if (!norm) {
-    return { ok: false, reason: "invalid_e164", detail: "destination is not a valid E.164 number", country: null };
+    return {
+      ok: false,
+      reason: "invalid_e164",
+      detail: "destination is not a valid E.164 number",
+      country: null,
+    };
   }
 
   const policy: GeoPolicy = geoPolicyFor(input.orgId ?? null, input.policy);
@@ -365,7 +475,9 @@ export function checkDestinationGeo(input: GeoInput): GeoDecision {
 /** Convenience: the countries an org may dial right now, denylist removed. */
 export function effectiveAllowlist(orgId: string | null | undefined): string[] {
   const policy = geoPolicyFor(orgId ?? null);
-  return policy.allowlist.map((c) => c.toUpperCase()).filter((c) => !policy.denylist.includes(c) && !listIsWildcard([c]));
+  return policy.allowlist
+    .map((c) => c.toUpperCase())
+    .filter((c) => !policy.denylist.includes(c) && !listIsWildcard([c]));
 }
 
 export type { GeoConfig };

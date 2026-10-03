@@ -1,7 +1,8 @@
 import "server-only";
 import { cpus } from "node:os";
-import { PrismaClient } from '@/generated/prisma/client';
-import { PrismaPg } from '@prisma/adapter-pg';
+import { PrismaClient } from "@/generated/prisma/client";
+import { PrismaPg } from "@prisma/adapter-pg";
+import { recordQuery, type PrismaQueryEvent } from "@/lib/telemetry/query-counter";
 
 // Prisma ORM v7 has no connection pool of its own — `@prisma/adapter-pg` hands
 // every query to a `pg.Pool`, so the knobs that used to be Prisma's become
@@ -22,34 +23,72 @@ import { PrismaPg } from '@prisma/adapter-pg';
 //
 // This schema is Postgres-only (`provider = "postgresql"`), so the adapter
 // manages a real pool against whatever DATABASE_URL the runtime is given.
-const databaseUrl = process.env.DATABASE_URL ?? '';
+const databaseUrl = process.env.DATABASE_URL ?? "";
 const CONNECT_TIMEOUT_MS = 10_000;
 const MAIN_POOL_MAX =
-  Number.parseInt(/[?&]connection_limit=(\d+)/.exec(databaseUrl)?.[1] ?? '', 10) ||
+  Number.parseInt(/[?&]connection_limit=(\d+)/.exec(databaseUrl)?.[1] ?? "", 10) ||
   cpus().length * 2 + 1;
 const AUDIT_POOL_MAX = 5;
 const namedSchema = /[?&]schema=([^&]+)/.exec(databaseUrl)?.[1];
 const adapterSchema = namedSchema ? { schema: namedSchema } : undefined;
 
 const globalForPrisma = globalThis as unknown as {
-  prisma: PrismaClient | undefined
-}
+  prisma: PrismaClient | undefined;
+};
 
-const isProd = process.env.NODE_ENV === 'production'
+const isProd = process.env.NODE_ENV === "production";
 
 export const db =
   globalForPrisma.prisma ??
   new PrismaClient({
-    // Query logging is a dev affordance; in production it leaks query params to
-    // stdout and adds per-query overhead. Errors always surface.
-    log: isProd ? ['error'] : ['query', 'error', 'warn'],
+    // AA-1.1 - query counting.
+    //
+    // The `emit` hook is what makes src/lib/telemetry/query-counter.ts observable.
+    // It is deliberately installed ONLY in non-production: a per-query event for
+    // every statement has a real cost, and paying it on a live path to satisfy a
+    // test would be the wrong trade. `recordQuery` is also a no-op unless a
+    // request is inside `runWithQueryCounter()`, so the counter cannot leak
+    // between concurrent requests.
+    log: isProd ? ["error"] : [{ level: "query", emit: "event" }, "query", "error", "warn"],
     adapter: new PrismaPg(
-      { connectionString: databaseUrl, max: MAIN_POOL_MAX, connectionTimeoutMillis: CONNECT_TIMEOUT_MS },
+      {
+        connectionString: databaseUrl,
+        max: MAIN_POOL_MAX,
+        connectionTimeoutMillis: CONNECT_TIMEOUT_MS,
+      },
       adapterSchema,
     ),
-  })
+  });
 
-if (!isProd) globalForPrisma.prisma = db
+if (!isProd) globalForPrisma.prisma = db;
+
+// AA-1.1 — deliver query events to the counter.
+//
+// Prisma 7 delivers `emit: "event"` events through the client's own event bus,
+// not through a constructor callback: `log: [{ level, emit }]` DECLARES that
+// events are emitted, and `$on('query', cb)` is where they ARRIVE. Omitting the
+// subscription is the failure mode worth naming — the level is declared, no
+// error is raised, and the counter silently observes nothing, so every query
+// budget in tests/routes/query-budgets.ts would pass for the wrong reason.
+//
+// Non-production only, matching the `log` config above: a per-query listener
+// costs something on every request and nothing in production consumes the
+// result. `recordQuery` is itself a no-op unless the current request is inside
+// `runWithQueryCounter()`, so the subscription costs one AsyncLocalStorage
+// lookup per query and cannot leak state between requests.
+// Prisma 7 types `$on` as `<V extends LogOpts>(eventType: V, ...)`, inferring
+// the valid event names from THIS client's `log` config. `isProd` is computed
+// from NODE_ENV, so the type of the `log` array is the union of both branches —
+// and TypeScript then cannot prove "query" is a member of it, collapsing the
+// parameter to `never`. The subscription below is guarded by the same runtime
+// condition and is genuinely absent in production, so the declaration above is
+// accurate; this is purely a typing gap in Prisma's inference, not a bug in
+// the wiring. Cast the event name rather than dropping the listener, which
+// would silently disable query counting and make every budget in
+// tests/routes/query-budgets.ts pass for the wrong reason.
+if (!isProd) {
+  db.$on("query" as Parameters<typeof db.$on>[0], (event: PrismaQueryEvent) => recordQuery(event));
+}
 
 // ── Audit-chain dedicated client ──
 // The audit chain's fire-and-forget appends must never compete with the hot
@@ -57,20 +96,24 @@ if (!isProd) globalForPrisma.prisma = db
 // main pool. A dedicated client with its own small pool isolates the two:
 // a burst of audit writes can never starve the synchronous path.
 const globalForPrismaAudit = globalThis as unknown as {
-  prismaAudit: PrismaClient | undefined
-}
+  prismaAudit: PrismaClient | undefined;
+};
 
 export const dbAudit =
   globalForPrismaAudit.prismaAudit ??
   new PrismaClient({
-    log: isProd ? ['error'] : ['error'],
+    log: isProd ? ["error"] : ["error"],
     adapter: new PrismaPg(
-      { connectionString: databaseUrl, max: AUDIT_POOL_MAX, connectionTimeoutMillis: CONNECT_TIMEOUT_MS },
+      {
+        connectionString: databaseUrl,
+        max: AUDIT_POOL_MAX,
+        connectionTimeoutMillis: CONNECT_TIMEOUT_MS,
+      },
       adapterSchema,
     ),
-  })
+  });
 
-if (!isProd) globalForPrismaAudit.prismaAudit = dbAudit
+if (!isProd) globalForPrismaAudit.prismaAudit = dbAudit;
 
 // ── Boot-time housekeeping (runs once per process) ──
 // Evict expired idempotency keys so the table doesn't grow unboundedly.
@@ -79,7 +122,7 @@ if (isProd) {
   db.idempotencyKey
     .deleteMany({ where: { expiresAt: { lte: new Date() } } })
     .then(({ count }) => {
-      if (count > 0) console.log(`[db] evicted ${count} expired idempotency keys`)
+      if (count > 0) console.log(`[db] evicted ${count} expired idempotency keys`);
     })
-    .catch(() => {})
+    .catch(() => {});
 }

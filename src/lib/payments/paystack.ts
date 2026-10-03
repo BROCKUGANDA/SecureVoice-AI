@@ -145,8 +145,11 @@ export function ulid(now: number = Date.now()): string {
   let random = "";
   const buf = new Uint8Array(16);
   for (let i = 0; i < 16; i++) buf[i] = Math.floor(Math.random() * 256);
-  for (let i = 0; i < 16; i++) {
-    random = ULID_ALPHABET[buf[i] % 32] + random;
+  // `buf` is a fixed 16-byte Uint8Array, so iterating it yields every byte
+  // exactly once, in index order — the same sequence `buf[i]` produced, without
+  // an index access TypeScript cannot prove in bounds.
+  for (const byte of buf) {
+    random = ULID_ALPHABET[byte % 32] + random;
   }
   return (time + random).slice(0, 26);
 }
@@ -167,7 +170,10 @@ export function buildReference(orgId: string, purpose: string): string {
 export function parseReference(reference: string): { orgId: string; purpose: string } | null {
   const m = /^org_([A-Za-z0-9_-]{1,40})_([A-Za-z0-9_-]{1,24})_[0-9A-Z]{26}$/.exec(reference);
   if (!m) return null;
-  return { orgId: m[1], purpose: m[2] };
+  // Both capture groups are mandatory in the pattern above — neither carries a
+  // `?` quantifier and there is no top-level alternation — so a successful match
+  // always populates `m[1]` and `m[2]`.
+  return { orgId: m[1]!, purpose: m[2]! };
 }
 
 // ── HTTP ──────────────────────────────────────────────────────────────────────
@@ -208,7 +214,8 @@ async function request(
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       });
     } catch (err) {
-      if (attempt === MAX_ATTEMPTS) return { ok: false, error: `network_error: ${String(err).slice(0, 200)}` };
+      if (attempt === MAX_ATTEMPTS)
+        return { ok: false, error: `network_error: ${String(err).slice(0, 200)}` };
       await sleep(backoffMs(attempt, cfg.rand));
       continue;
     }
@@ -257,13 +264,17 @@ type NormalizedConfig = {
   rand: () => number;
 };
 
-function requireOk(res: RawResponse, what: string): { ok: true; data: Record<string, unknown> } | { ok: false; error: string } {
+function requireOk(
+  res: RawResponse,
+  what: string,
+): { ok: true; data: Record<string, unknown> } | { ok: false; error: string } {
   if (res.status < 200 || res.status >= 300) {
     const message = (res.body as PaystackErrorBody | null)?.message;
     return { ok: false, error: `${what} HTTP ${res.status}${message ? `: ${message}` : ""}` };
   }
   const data = res.body as Record<string, unknown> | null;
-  if (!data || typeof data !== "object") return { ok: false, error: `${what}: malformed response body` };
+  if (!data || typeof data !== "object")
+    return { ok: false, error: `${what}: malformed response body` };
   if (data.status === false) {
     return { ok: false, error: `${what}: ${String(data.message ?? "provider reported failure")}` };
   }
@@ -350,8 +361,12 @@ export function createPaystackProvider(cfg: PaystackConfig): PaymentProvider {
     // server-side before reporting `verified: true`.
     const verified = await verifyTransaction(reference);
     if (!verified.ok) return { ok: false, reference, reason: verified.error };
-    if (verified.status !== "success") return { ok: false, reference, reason: `status:${verified.status}` };
-    if (verified.money.amountMinor !== money.amountMinor || verified.money.currency !== money.currency) {
+    if (verified.status !== "success")
+      return { ok: false, reference, reason: `status:${verified.status}` };
+    if (
+      verified.money.amountMinor !== money.amountMinor ||
+      verified.money.currency !== money.currency
+    ) {
       return { ok: false, reference, reason: "amount_or_currency_mismatch" };
     }
     return { ok: true, reference, verified: true };
@@ -385,7 +400,9 @@ export function createPaystackProvider(cfg: PaystackConfig): PaymentProvider {
 
       let payload: Record<string, unknown>;
       try {
-        const text = Buffer.isBuffer(input.rawBody) ? input.rawBody.toString("utf8") : input.rawBody;
+        const text = Buffer.isBuffer(input.rawBody)
+          ? input.rawBody.toString("utf8")
+          : input.rawBody;
         const parsed = JSON.parse(text) as unknown;
         if (!parsed || typeof parsed !== "object") return { ok: false, reason: "malformed_body" };
         payload = parsed as Record<string, unknown>;
@@ -426,7 +443,11 @@ export function createPaystackProvider(cfg: PaystackConfig): PaymentProvider {
         eventId: refundReference,
       });
       if (!out.applied) {
-        return { ok: false, reference: req.reference, reason: out.duplicate ? "already_refunded" : "not_found" };
+        return {
+          ok: false,
+          reference: req.reference,
+          reason: out.duplicate ? "already_refunded" : "not_found",
+        };
       }
       return { ok: true, reference: req.reference };
     },
@@ -455,7 +476,8 @@ export async function verifyTransactionServerSide(
   const amountMinor = toInt(data.amount);
   const currency = String(data.currency ?? "");
   if (amountMinor === null) return { ok: false, error: "transaction/verify: non-integer amount" };
-  if (!/^[A-Za-z]{3}$/.test(currency)) return { ok: false, error: "transaction/verify: malformed currency" };
+  if (!/^[A-Za-z]{3}$/.test(currency))
+    return { ok: false, error: "transaction/verify: malformed currency" };
   return { ok: true, status, money: { amountMinor, currency: currency.toUpperCase() } };
 }
 
@@ -518,13 +540,24 @@ export async function onCheckoutComplete(input: {
   expected: Money;
   provider: PaymentProvider;
   /** Server-side re-verification, injected so the gate needs no network. */
-  verify: (reference: string) => Promise<{ ok: true; status: string; money: Money } | { ok: false; error: string }>;
+  verify: (
+    reference: string,
+  ) => Promise<{ ok: true; status: string; money: Money } | { ok: false; error: string }>;
   entitlements?: StoredEntitlement[];
   /** What the browser *claimed*. Recorded for the audit trail, never trusted. */
   claimedStatus?: string | null;
 }): Promise<
   | { ok: true; settled: boolean; reason?: "already_settled" }
-  | { ok: false; reason: "verification_failed" | "not_success" | "amount_mismatch" | "currency_mismatch" | "not_our_reference"; detail?: string }
+  | {
+      ok: false;
+      reason:
+        | "verification_failed"
+        | "not_success"
+        | "amount_mismatch"
+        | "currency_mismatch"
+        | "not_our_reference";
+      detail?: string;
+    }
 > {
   const parsed = parseReference(input.reference);
   if (!parsed) return { ok: false, reason: "not_our_reference" };
@@ -537,7 +570,11 @@ export async function onCheckoutComplete(input: {
     return { ok: false, reason: "not_success", detail: verified.status };
   }
   if (verified.money.amountMinor !== input.expected.amountMinor) {
-    return { ok: false, reason: "amount_mismatch", detail: `${verified.money.amountMinor} != ${input.expected.amountMinor}` };
+    return {
+      ok: false,
+      reason: "amount_mismatch",
+      detail: `${verified.money.amountMinor} != ${input.expected.amountMinor}`,
+    };
   }
   if (verified.money.currency !== input.expected.currency.toUpperCase()) {
     return { ok: false, reason: "currency_mismatch", detail: verified.money.currency };

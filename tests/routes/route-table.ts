@@ -52,6 +52,35 @@ const EXPORT_TO_METHOD: Record<string, HttpMethod> = {
   OPTIONS: "OPTIONS",
 };
 
+/**
+ * Two legal ways a route module exports a handler, and the gate must read both:
+ *
+ *   export async function GET(req) {}                       — the common form
+ *   export const { GET, POST } = toNextJsHandler(auth)      — Better Auth's form
+ *
+ * The destructured form is not hypothetical: `src/app/api/auth/[...all]/route.ts`
+ * uses it. A detector that misses it reports a real, fully working auth surface
+ * as exporting no handlers at all — which is a gate that cries wolf and
+ * therefore gets ignored.
+ */
+function exportsHandler(source: string, name: string): boolean {
+  // Direct form. Anchored on `export` so a bare mention in a comment or a string
+  // never counts.
+  const direct = new RegExp(
+    `export\\s+(?:async\\s+)?(?:function|const|let|var)\\s+${name}\\b`,
+  ).test(source);
+  if (direct) return true;
+  // Destructured form, including renames and defaults:
+  //   export const { GET, POST: PUT_POST, OPTIONS = fallback } = handler
+  const destructured = /export\s+(?:const|let|var)\s*\{([^}]*)\}\s*=/s.exec(source);
+  if (!destructured?.[1]) return false;
+  return destructured[1]
+    .split(",")
+    .map((part) => part.split(":")[0]?.split("=")[0]?.trim())
+    .filter((part): part is string => Boolean(part))
+    .includes(name);
+}
+
 function walk(dir: string, acc: string[] = []): string[] {
   for (const entry of readdirSync(dir)) {
     const full = join(dir, entry);
@@ -83,11 +112,7 @@ export function discoverRoutes(appDir: string): DiscoveredRoute[] {
     const source = readFileSync(file, "utf8");
     const methods: HttpMethod[] = [];
     for (const [name, method] of Object.entries(EXPORT_TO_METHOD)) {
-      // Match the real export form: `export async function GET`, `export const GET`,
-      // `export function GET`. A bare mention of the identifier in a comment or a
-      // string must not count, so the pattern anchors on the export keyword.
-      const re = new RegExp(`export\\s+(?:async\\s+)?(?:function|const|let)\\s+${name}\\b`);
-      if (re.test(source)) methods.push(method);
+      if (exportsHandler(source, name)) methods.push(method);
     }
     const path = toUrlPath(appDir, file);
     // A `GET`-exporting route also answers HEAD without declaring it.
@@ -95,7 +120,10 @@ export function discoverRoutes(appDir: string): DiscoveredRoute[] {
     out.push({
       path,
       methods: methods.sort(),
-      file: file.split(sep).join("/").replace(/^.*?(?=src\/)/, ""),
+      file: file
+        .split(sep)
+        .join("/")
+        .replace(/^.*?(?=src\/)/, ""),
       dynamic: /\[[^\]]+\]/.test(path),
     });
   }
@@ -116,24 +144,37 @@ export function discoverRoutes(appDir: string): DiscoveredRoute[] {
  * can check that claim rather than trust it.
  */
 const PUBLIC_BY_DESIGN: Readonly<Record<string, string>> = {
-  "/api/health": "liveness probe for the container runtime; exposes no data and takes no parameters",
+  "/api/health":
+    "liveness probe for the container runtime; exposes no data and takes no parameters",
   "/api/readyz": "readiness probe for the load balancer; reports dependency health only",
   "/api/meta": "static deployment metadata for the console; no tenant data",
-  "/api/tts/stream": "TTS stream guarded by its own provider-credential path, not an operator session",
-  "/api/twilio/audio": "Twilio media webhook authenticated by Twilio's own signature scheme (tests/webhooks)",
-  "/api/twilio/turn": "Twilio turn credential fetch authenticated by Twilio's signature, not a session",
-  "/api/webhooks/receiver": "our own REFERENCE receiver published for integrators; holds no tenant data",
+  "/api/tts/stream":
+    "TTS stream guarded by its own provider-credential path, not an operator session",
+  "/api/twilio/audio":
+    "Twilio media webhook authenticated by Twilio's own signature scheme (tests/webhooks)",
+  "/api/twilio/turn":
+    "Twilio turn credential fetch authenticated by Twilio's signature, not a session",
+  "/api/webhooks/receiver":
+    "our own REFERENCE receiver published for integrators; holds no tenant data",
   "/api/webhooks/elevenlabs": "inbound ElevenLabs webhook authenticated by the vendor signature",
-  "/api/pilot": "public pilot intake form, deliberately unauthenticated so an institution can enquire before any contract exists",
-  "/api/webhooks": "signing DEMO for integrators; mints a signature over a caller-supplied event name, holds no tenant data and arms nothing",
-  "/api/elevenlabs/signed-url": "agent tool endpoint guarded by the x-agent-tool-secret via authorizeToolCall('signed_url'), not an operator session",
-  "/api/elevenlabs/tools/card-freeze": "agent tool endpoint guarded by the x-agent-tool-secret via guardToolCall, not an operator session",
-  "/api/elevenlabs/tools/human-handoff": "agent tool endpoint guarded by the x-agent-tool-secret via guardToolCall, not an operator session",
-  "/api/elevenlabs/tools/switch-language": "agent tool endpoint guarded by the x-agent-tool-secret via authorizeToolCall, not an operator session",
-  "/api/elevenlabs/tools/verify-transaction": "agent tool endpoint guarded by the x-agent-tool-secret via guardToolCall, not an operator session",
+  "/api/pilot":
+    "public pilot intake form, deliberately unauthenticated so an institution can enquire before any contract exists",
+  "/api/webhooks":
+    "signing DEMO for integrators; mints a signature over a caller-supplied event name, holds no tenant data and arms nothing",
+  "/api/elevenlabs/signed-url":
+    "agent tool endpoint guarded by the x-agent-tool-secret via authorizeToolCall('signed_url'), not an operator session",
+  "/api/elevenlabs/tools/card-freeze":
+    "agent tool endpoint guarded by the x-agent-tool-secret via guardToolCall, not an operator session",
+  "/api/elevenlabs/tools/human-handoff":
+    "agent tool endpoint guarded by the x-agent-tool-secret via guardToolCall, not an operator session",
+  "/api/elevenlabs/tools/switch-language":
+    "agent tool endpoint guarded by the x-agent-tool-secret via authorizeToolCall, not an operator session",
+  "/api/elevenlabs/tools/verify-transaction":
+    "agent tool endpoint guarded by the x-agent-tool-secret via guardToolCall, not an operator session",
   "/openapi": "published contract document (WP-17); schema only, no tenant data",
   "/asyncapi": "published contract document (WP-17); schema only, no tenant data",
-  "/v1/conformance/run": "self-serve bank conformance checker guarded by an org-scoped PRODUCER KEY, not an operator session (src/app/v1/conformance/run/route.ts)",
+  "/v1/conformance/run":
+    "self-serve bank conformance checker guarded by an org-scoped PRODUCER KEY, not an operator session (src/app/v1/conformance/run/route.ts)",
 };
 
 export function isPublicByDesign(path: string): boolean {

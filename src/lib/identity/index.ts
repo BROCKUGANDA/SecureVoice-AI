@@ -1,21 +1,19 @@
 /**
  * Identity seam (WP-11).
  *
- * Clerk remains the platform's identity provider — it is mounted in
- * `src/app/layout.tsx` and backs `src/lib/credits.ts`. This directory holds the
- * mapping between Clerk's identity vocabulary and the WP-11 capability scale, so
- * a single `ROLE_CAPABILITIES` matrix governs both the Clerk path and the
- * first-party session path.
+ * Better Auth is the platform's identity provider (src/lib/better-auth.ts), and
+ * the organization plugin makes the organization the tenant. This directory
+ * holds the mapping between a session's role vocabulary and the WP-11 capability
+ * scale, so a single `ROLE_CAPABILITIES` matrix governs every guard regardless of
+ * which session path authenticated the request.
  *
- * WP-11 does not add a second identity system. See `clerk-bridge.ts` for the
- * full statement of what coexists and what does not.
+ * There is deliberately no second identity provider. See `session-bridge.ts`.
  */
-
 export {
-  allowedClerkRoles,
-  isHonourableClerkRole,
-  mapClerkRole,
-  type ClerkRoleClaims,
-} from "@/lib/identity/clerk-role-map";
+  allowedSessionRoles,
+  isHonourableSessionRole,
+  mapSessionRole,
+  type SessionRoleClaims,
+} from "@/lib/identity/session-role-map";
 
-export { resolveClerkIdentity, resolveConsoleIdentity, type ConsoleIdentity } from "@/lib/identity/clerk-bridge";
+export { resolveSessionIdentity, type ConsoleIdentity } from "@/lib/identity/session-bridge";

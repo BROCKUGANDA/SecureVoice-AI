@@ -20,7 +20,9 @@ import { join } from "node:path";
 import { createHash } from "node:crypto";
 
 const ROOT = process.cwd();
-const LOAD_DB = process.env.LOAD_DATABASE_URL ?? "postgresql://postgres@127.0.0.1:5432/securevoice_load?connection_limit=20";
+const LOAD_DB =
+  process.env.LOAD_DATABASE_URL ??
+  "postgresql://postgres@127.0.0.1:5432/securevoice_load?connection_limit=20";
 const PYTHON = process.env.PYTHON ?? "python";
 
 type Gate = {
@@ -35,23 +37,88 @@ type Gate = {
  * capacity document is checked against the artifact the load gate writes.
  */
 const GATES: Gate[] = [
-  { id: "dial", command: ["test", "tests/e2e/dial.test.ts"], produces: ["evidence/dial/summary.json"] },
-  { id: "tools", command: ["test", "tests/tools/guard.test.ts"], produces: ["evidence/guardrails/tools.json"] },
-  { id: "inbound-webhook", command: ["test", "tests/webhooks/elevenlabs-inbound.test.ts"], produces: ["evidence/guardrails/inbound-webhook.json"] },
-  { id: "outbound-webhook", command: ["test", "tests/webhooks/outbound.test.ts"], produces: ["evidence/guardrails/outbound-webhook.json"] },
-  { id: "redteam", command: ["test", "tests/redteam/redteam.test.ts"], produces: ["evidence/guardrails/redteam-server.json"] },
-  { id: "realtime", command: ["test", "tests/realtime/realtime.test.ts"], produces: ["evidence/realtime/realtime.json"] },
-  { id: "tenancy", command: ["test", "tests/tenancy/isolation.test.ts"], produces: ["evidence/tenancy/isolation.json"] },
-  { id: "billing", command: ["test", "tests/billing/billing.test.ts"], produces: ["evidence/billing/billing.json"] },
-  { id: "abuse", command: ["test", "tests/abuse/abuse.test.ts"], produces: ["evidence/abuse/abuse.json"] },
-  { id: "privacy", command: ["test", "tests/privacy/privacy.test.ts"], produces: ["evidence/privacy/privacy.json"] },
-  { id: "chaos", command: ["test", "tests/chaos/chaos.test.ts"], produces: ["evidence/chaos/results.json"] },
-  { id: "validation", command: ["test", "tests/validation/validation.test.ts"], produces: ["evidence/validation/validation.json"] },
+  {
+    id: "dial",
+    command: ["test", "tests/e2e/dial.test.ts"],
+    produces: ["evidence/dial/summary.json"],
+  },
+  {
+    id: "tools",
+    command: ["test", "tests/tools/guard.test.ts"],
+    produces: ["evidence/guardrails/tools.json"],
+  },
+  {
+    id: "inbound-webhook",
+    command: ["test", "tests/webhooks/elevenlabs-inbound.test.ts"],
+    produces: ["evidence/guardrails/inbound-webhook.json"],
+  },
+  {
+    id: "outbound-webhook",
+    command: ["test", "tests/webhooks/outbound.test.ts"],
+    produces: ["evidence/guardrails/outbound-webhook.json"],
+  },
+  {
+    id: "redteam",
+    command: ["test", "tests/redteam/redteam.test.ts"],
+    produces: ["evidence/guardrails/redteam-server.json"],
+  },
+  {
+    id: "realtime",
+    command: ["test", "tests/realtime/realtime.test.ts"],
+    produces: ["evidence/realtime/realtime.json"],
+  },
+  {
+    id: "tenancy",
+    command: ["test", "tests/tenancy/isolation.test.ts"],
+    produces: ["evidence/tenancy/isolation.json"],
+  },
+  {
+    id: "billing",
+    command: ["test", "tests/billing/billing.test.ts"],
+    produces: ["evidence/billing/billing.json"],
+  },
+  {
+    id: "abuse",
+    command: ["test", "tests/abuse/abuse.test.ts"],
+    produces: ["evidence/abuse/abuse.json"],
+  },
+  {
+    id: "privacy",
+    command: ["test", "tests/privacy/privacy.test.ts"],
+    produces: ["evidence/privacy/privacy.json"],
+  },
+  {
+    id: "chaos",
+    command: ["test", "tests/chaos/chaos.test.ts"],
+    produces: ["evidence/chaos/results.json"],
+  },
+  {
+    id: "validation",
+    command: ["test", "tests/validation/validation.test.ts"],
+    produces: ["evidence/validation/validation.json"],
+  },
   { id: "auth", command: ["test", "tests/auth"], produces: ["evidence/auth/auth.json"] },
-  { id: "load", command: ["test", "tests/load"], produces: ["evidence/load/results.json"], env: { LOAD_DATABASE_URL: LOAD_DB } },
-  { id: "telemetry", command: ["test", "tests/telemetry"], produces: ["evidence/latency/slo.json"] },
-  { id: "surface", command: ["test", "tests/surface"], produces: ["evidence/surface/surface.json"] },
-  { id: "contracts", command: ["test", "tests/contracts"], produces: ["evidence/conformance/contract-gate-run.json"] },
+  {
+    id: "load",
+    command: ["test", "tests/load"],
+    produces: ["evidence/load/results.json"],
+    env: { LOAD_DATABASE_URL: LOAD_DB },
+  },
+  {
+    id: "telemetry",
+    command: ["test", "tests/telemetry"],
+    produces: ["evidence/latency/slo.json"],
+  },
+  {
+    id: "surface",
+    command: ["test", "tests/surface"],
+    produces: ["evidence/surface/surface.json"],
+  },
+  {
+    id: "contracts",
+    command: ["test", "tests/contracts"],
+    produces: ["evidence/conformance/contract-gate-run.json"],
+  },
   { id: "seams", command: ["test", "tests/seams"], produces: ["evidence/seams/seams-run.json"] },
 ];
 
@@ -93,7 +160,11 @@ function runGate(gate: Gate): GateResult {
     assertions: sum(/(\d+) expect\(\) calls/),
     database: gate.env?.LOAD_DATABASE_URL ? "isolated (securevoice_load)" : "shared test database",
     generated_at: new Date().toISOString(),
-    output_tail: out.split("\n").filter((l) => !l.includes("prisma:query")).slice(-30).join("\n"),
+    output_tail: out
+      .split("\n")
+      .filter((l) => !l.includes("prisma:query"))
+      .slice(-30)
+      .join("\n"),
   };
   for (const p of gate.produces) {
     mkdirSync(join(ROOT, p, ".."), { recursive: true });
@@ -134,11 +205,15 @@ for (const gate of GATES) {
 }
 
 // SLO emission runs AFTER telemetry so it reflects the spans just recorded.
-const slo = spawnSync(process.execPath, ["--preload", "./tests/preload.ts", "scripts/emit-slo.ts"], {
-  cwd: ROOT,
-  env: { ...process.env, PYTHON },
-  encoding: "utf8",
-});
+const slo = spawnSync(
+  process.execPath,
+  ["--preload", "./tests/preload.ts", "scripts/emit-slo.ts"],
+  {
+    cwd: ROOT,
+    env: { ...process.env, PYTHON },
+    encoding: "utf8",
+  },
+);
 
 // ── Assemble ────────────────────────────────────────────────────────────────
 mkdirSync("evidence", { recursive: true });
@@ -173,7 +248,8 @@ const criterionMap: { criterion: string; weight: string; answers: string[]; stat
     criterion: "Voice quality, latency and multilingual handling",
     weight: "20%",
     answers: ["evidence/latency/slo.json", "evidence/transcripts/"],
-    state: "latency instrumented and published; slo.json reports honestly when fewer than 30 real interventions exist",
+    state:
+      "latency instrumented and published; slo.json reports honestly when fewer than 30 real interventions exist",
   },
   {
     criterion: "Evidence: test pass rates, transcripts, conversation analysis",
@@ -183,7 +259,8 @@ const criterionMap: { criterion: string; weight: string; answers: string[]; stat
       "evidence/guardrails/redteam-server.json",
       "evidence/guardrails/redteam-platform.json",
     ],
-    state: "control-plane pass rates recorded per gate; agent-layer rows reported unverified rather than counted",
+    state:
+      "control-plane pass rates recorded per gate; agent-layer rows reported unverified rather than counted",
   },
   {
     criterion: "Guardrails demonstrably enforced in the running agent",
@@ -272,7 +349,9 @@ writeFileSync(
   ),
 );
 
-process.stdout.write(`\n[evidence] ${passed}/${results.length} gates passed — wrote evidence/INDEX.md and evidence/results.json\n`);
+process.stdout.write(
+  `\n[evidence] ${passed}/${results.length} gates passed — wrote evidence/INDEX.md and evidence/results.json\n`,
+);
 if (failed.length > 0) {
   process.stderr.write(`[evidence] FAILED gates: ${failed.map((f) => f.id).join(", ")}\n`);
   process.exit(1);

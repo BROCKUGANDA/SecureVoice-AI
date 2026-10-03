@@ -48,15 +48,15 @@ so a re-tag or a typo cannot quietly republish an older number.
 
 `bun run verify` is the local equivalent of the `verify` job:
 
-| Gate | Command | Catches |
-| --- | --- | --- |
-| Lint | `bun run lint` | unused vars, bad hooks, `require` in ESM |
-| Typecheck (app) | `bunx tsc --noEmit -p tsconfig.json` | cross-file type drift |
-| Typecheck (realtime) | `cd mini-services/realtime && bunx tsc -p tsconfig.json` | errors the root project deliberately excludes |
-| Realtime tests | `cd mini-services/realtime && bun test` | 48 cases over grants, channels, ingest signatures, live socket |
-| Build | `bun run build` | Next compile + standalone packaging |
-| Proxy config | `caddy validate` on both Caddyfiles | a proxy typo that only shows at deploy time |
-| Compose parse | `docker compose config` | invalid service graph |
+| Gate                 | Command                                                  | Catches                                                        |
+| -------------------- | -------------------------------------------------------- | -------------------------------------------------------------- |
+| Lint                 | `bun run lint`                                           | unused vars, bad hooks, `require` in ESM                       |
+| Typecheck (app)      | `bunx tsc --noEmit -p tsconfig.json`                     | cross-file type drift                                          |
+| Typecheck (realtime) | `cd mini-services/realtime && bunx tsc -p tsconfig.json` | errors the root project deliberately excludes                  |
+| Realtime tests       | `cd mini-services/realtime && bun test`                  | 48 cases over grants, channels, ingest signatures, live socket |
+| Build                | `bun run build`                                          | Next compile + standalone packaging                            |
+| Proxy config         | `caddy validate` on both Caddyfiles                      | a proxy typo that only shows at deploy time                    |
+| Compose parse        | `docker compose config`                                  | invalid service graph                                          |
 
 The realtime service has its **own** job in CI because it is a separate package
 with its own dependencies and `tsconfig` — the root `tsc` deliberately excludes

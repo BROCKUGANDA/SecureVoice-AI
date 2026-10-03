@@ -56,7 +56,7 @@ export class CapabilityError extends Error {
   constructor(
     public readonly role: Role,
     public readonly capability: Capability,
-    message: string
+    message: string,
   ) {
     super(message);
     this.name = "CapabilityError";
@@ -68,7 +68,7 @@ export class RawSqlDeniedError extends Error {
     super(
       `Raw SQL is not available to role ${role}. Prisma's model layer cannot apply a role or ` +
         `tenant predicate to a hand-written query, so raw access bypasses this guard by ` +
-        `construction. Use rbacDb() or the tenancy scopedDb().`
+        `construction. Use rbacDb() or the tenancy scopedDb().`,
     );
     this.name = "RawSqlDeniedError";
   }
@@ -100,11 +100,7 @@ const WRITE_DELEGATES = new Set([
 /** Explicit capability check. Throws `CapabilityError`. */
 export function assertCapability(role: Role, capability: Capability): void {
   if (!roleHas(role, capability)) {
-    throw new CapabilityError(
-      role,
-      capability,
-      `Role ${role} does not hold ${capability}.`
-    );
+    throw new CapabilityError(role, capability, `Role ${role} does not hold ${capability}.`);
   }
 }
 
@@ -125,25 +121,13 @@ export function hasCapability(role: Role, capability: Capability): boolean {
 export function assertMayAssignRole(actor: Role, currentTarget: Role, nextTarget: Role): void {
   if (actor === "Owner") return;
   if (actor !== "Admin") {
-    throw new CapabilityError(
-      actor,
-      "member:setRole",
-      `Role ${actor} may not change roles.`
-    );
+    throw new CapabilityError(actor, "member:setRole", `Role ${actor} may not change roles.`);
   }
   if (currentTarget === "Owner") {
-    throw new CapabilityError(
-      actor,
-      "member:setRole",
-      "An Admin may not change an Owner's role."
-    );
+    throw new CapabilityError(actor, "member:setRole", "An Admin may not change an Owner's role.");
   }
   if (nextTarget === "Owner") {
-    throw new CapabilityError(
-      actor,
-      "member:setRole",
-      "Only an Owner may grant the Owner role."
-    );
+    throw new CapabilityError(actor, "member:setRole", "Only an Owner may grant the Owner role.");
   }
 }
 
@@ -173,7 +157,7 @@ function guardDelegate(delegate: unknown, role: Role, model: string): unknown {
             throw new CapabilityError(
               role,
               "case:write",
-              `Role ${role} is read-only: ${model}.${method} is not permitted.`
+              `Role ${role} is read-only: ${model}.${method} is not permitted.`,
             );
           }
         : (value as (...args: unknown[]) => unknown).bind(source);

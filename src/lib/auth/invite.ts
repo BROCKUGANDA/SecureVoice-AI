@@ -32,7 +32,7 @@ import "server-only";
  * product using an invite link has. What this module enforces is that the
  * token's own authority stops at its one bound email. An optional
  * `assertedEmail` lets a caller that DOES have an authenticated identity (e.g. a
- * signed-in Clerk user redeeming an invite) bind the two; a mismatch is refused.
+ * signed-in user redeeming an invite) bind the two; a mismatch is refused.
  */
 
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
@@ -100,7 +100,7 @@ export async function issueInvite(input: IssueInviteInput): Promise<IssuedInvite
     hashInviteToken(token),
     "",
     invite,
-    new Date(now + INVITE_RECORD_TTL_MS)
+    new Date(now + INVITE_RECORD_TTL_MS),
   );
 
   await auditAuthEvent({
@@ -108,23 +108,25 @@ export async function issueInvite(input: IssueInviteInput): Promise<IssuedInvite
     actorId: input.issuedBy,
     orgId: input.orgId,
     note: `invited ${invite.email} as ${invite.role}`,
-    meta: { inviteId: invite.inviteId, email: invite.email, role: invite.role, expiresAt: invite.expiresAt },
+    meta: {
+      inviteId: invite.inviteId,
+      email: invite.email,
+      role: invite.role,
+      expiresAt: invite.expiresAt,
+    },
   });
 
   return { invite, token };
 }
 
 export type InviteRejection =
-  | "unknown_invite"
-  | "invite_expired"
-  | "invite_already_used"
-  | "email_mismatch";
+  "unknown_invite" | "invite_expired" | "invite_already_used" | "email_mismatch";
 
 export type AcceptInviteInput = {
   token: string;
   /**
    * Optional. When the caller already has an authenticated email (a signed-in
-   * Clerk user redeeming an invite), it must equal the invite's bound email.
+   * user redeeming an invite), it must equal the invite's bound email.
    */
   assertedEmail?: string;
   /** Overrides the invite's default name. Email and role are never overridable. */
@@ -216,7 +218,7 @@ export async function acceptInvite(input: AcceptInviteInput): Promise<AcceptInvi
     invite.inviteId,
     "",
     { at: now, inviteId: invite.inviteId },
-    new Date(invite.expiresAt + INVITE_RECORD_TTL_MS)
+    new Date(invite.expiresAt + INVITE_RECORD_TTL_MS),
   );
   if (!claim.ok) return reject("invite_already_used");
 
@@ -250,7 +252,10 @@ export async function acceptInvite(input: AcceptInviteInput): Promise<AcceptInvi
 }
 
 /** True when the invite exists, is unexpired, and has not been consumed. */
-export async function inviteStatus(token: string, now = Date.now()): Promise<InviteRejection | "usable"> {
+export async function inviteStatus(
+  token: string,
+  now = Date.now(),
+): Promise<InviteRejection | "usable"> {
   const invite = await read<InviteRecord>(AUTH_SCOPES.invite, hashInviteToken(token.trim()), "");
   if (!invite) return "unknown_invite";
   if (invite.expiresAt <= now) return "invite_expired";

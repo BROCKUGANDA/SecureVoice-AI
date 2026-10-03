@@ -1,6 +1,12 @@
-import { NextRequest, NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { requireSignedIn } from "@/lib/credits";
-import { fetchActivitySince, nextCursor, type ActivityCursor, type OrgScope } from "@/lib/activity-feed";
+import {
+  fetchActivitySince,
+  nextCursor,
+  type ActivityCursor,
+  type OrgScope,
+} from "@/lib/activity-feed";
 
 export const dynamic = "force-dynamic";
 
@@ -50,8 +56,14 @@ export async function GET(req: NextRequest) {
   const cleanup = () => {
     if (closed) return;
     closed = true;
-    if (intervalId) { clearInterval(intervalId); intervalId = null; }
-    if (timeoutId) { clearTimeout(timeoutId); timeoutId = null; }
+    if (intervalId) {
+      clearInterval(intervalId);
+      intervalId = null;
+    }
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+      timeoutId = null;
+    }
     req.signal.removeEventListener("abort", onAbort);
   };
 
@@ -61,7 +73,9 @@ export async function GET(req: NextRequest) {
     start(controller) {
       const close = () => {
         cleanup();
-        try { controller.close(); } catch {}
+        try {
+          controller.close();
+        } catch {}
       };
       const send = (event: string, data: unknown) => {
         if (closed) return;
@@ -81,14 +95,17 @@ export async function GET(req: NextRequest) {
           const rows = await fetchActivitySince({ scope, cursor, take: 20 });
           if (rows.length > 0) {
             cursor = nextCursor(rows);
-            send("activity", rows.map((r) => ({
-              callRef: r.callRef,
-              action: r.action,
-              intent: r.intent,
-              detail: (r.redactedText ?? "").slice(0, 90),
-              at: r.createdAt.toISOString(),
-              id: r.id,
-            })));
+            send(
+              "activity",
+              rows.map((r) => ({
+                callRef: r.callRef,
+                action: r.action,
+                intent: r.intent,
+                detail: (r.redactedText ?? "").slice(0, 90),
+                at: r.createdAt.toISOString(),
+                id: r.id,
+              })),
+            );
           }
         } catch {
           // DB blip — keep the stream alive, next tick retries
@@ -117,7 +134,7 @@ export async function GET(req: NextRequest) {
     headers: {
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-store",
-      "Connection": "keep-alive",
+      Connection: "keep-alive",
       "X-Accel-Buffering": "no", // disable nginx buffering for SSE
     },
   });

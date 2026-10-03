@@ -86,7 +86,7 @@ export class ValidationError extends Error {
   constructor(
     readonly code: ValidationCode,
     message: string,
-    readonly path?: string
+    readonly path?: string,
   ) {
     super(message);
     this.name = "ValidationError";
@@ -126,11 +126,7 @@ export function assertShape(raw: unknown, limits: Limits = {}): void {
 
   const walk = (value: unknown, depth: number, path: string): void => {
     if (depth > maxDepth) {
-      throw new ValidationError(
-        "too_deep",
-        `Body nests deeper than ${maxDepth} levels`,
-        path
-      );
+      throw new ValidationError("too_deep", `Body nests deeper than ${maxDepth} levels`, path);
     }
     if (value === null) return;
 
@@ -141,7 +137,11 @@ export function assertShape(raw: unknown, limits: Limits = {}): void {
         // NaN / ±Infinity survive no JSON round-trip but survive `z.number()`
         // in some configurations; reject here so no schema can be fooled by one.
         if (!Number.isFinite(value)) {
-          throw new ValidationError("unsupported_type", `Non-finite number at ${path || "body"}`, path);
+          throw new ValidationError(
+            "unsupported_type",
+            `Non-finite number at ${path || "body"}`,
+            path,
+          );
         }
         return;
       case "string":
@@ -149,7 +149,7 @@ export function assertShape(raw: unknown, limits: Limits = {}): void {
           throw new ValidationError(
             "string_too_long",
             `String longer than ${maxStringLength} characters at ${path || "body"}`,
-            path
+            path,
           );
         }
         return;
@@ -160,7 +160,7 @@ export function assertShape(raw: unknown, limits: Limits = {}): void {
         throw new ValidationError(
           "unsupported_type",
           `Unsupported value type "${typeof value}" at ${path || "body"}`,
-          path
+          path,
         );
     }
 
@@ -169,7 +169,7 @@ export function assertShape(raw: unknown, limits: Limits = {}): void {
         throw new ValidationError(
           "too_many_items",
           `Array longer than ${maxArrayItems} items at ${path || "body"}`,
-          path
+          path,
         );
       }
       value.forEach((item, i) => walk(item, depth + 1, `${path}[${i}]`));
@@ -181,20 +181,24 @@ export function assertShape(raw: unknown, limits: Limits = {}): void {
       throw new ValidationError(
         "unsupported_type",
         `Expected a plain JSON object at ${path || "body"}`,
-        path
+        path,
       );
     }
 
     for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
       if (FORBIDDEN_KEYS.has(key)) {
-        throw new ValidationError("forbidden_key", `Forbidden key "${key}" in body`, path ? `${path}.${key}` : key);
+        throw new ValidationError(
+          "forbidden_key",
+          `Forbidden key "${key}" in body`,
+          path ? `${path}.${key}` : key,
+        );
       }
       fieldCount += 1;
       if (fieldCount > maxFields) {
         throw new ValidationError(
           "too_many_fields",
           `Body carries more than ${maxFields} fields`,
-          path ? `${path}.${key}` : key
+          path ? `${path}.${key}` : key,
         );
       }
       walk(child, depth + 1, path ? `${path}.${key}` : key);
@@ -272,7 +276,7 @@ export async function readBodyText(req: Request, maxBytes = LIMITS.maxBodyBytes)
 export function parseBody<T>(
   schema: z.ZodType<T>,
   raw: unknown,
-  opts: { limits?: Limits; source?: string } = {}
+  opts: { limits?: Limits; source?: string } = {},
 ): T {
   assertShape(raw, opts.limits);
   const result = schema.safeParse(raw);
@@ -288,9 +292,12 @@ export function parseBody<T>(
 export async function readJsonBody<T>(
   req: Request,
   schema: z.ZodType<T>,
-  opts: { limits?: Limits; maxBytes?: number } = {}
+  opts: { limits?: Limits; maxBytes?: number } = {},
 ): Promise<T> {
-  const raw = await readBodyText(req, opts.maxBytes ?? opts.limits?.maxBodyBytes ?? LIMITS.maxBodyBytes);
+  const raw = await readBodyText(
+    req,
+    opts.maxBytes ?? opts.limits?.maxBodyBytes ?? LIMITS.maxBodyBytes,
+  );
   let data: unknown;
   try {
     data = JSON.parse(raw);
@@ -311,7 +318,7 @@ export async function readJsonBody<T>(
  * pass `pattern` to require a shape (a regex is a constraint, not a coercion).
  */
 export function boundedString(
-  opts: { min?: number; max?: number; pattern?: RegExp; trim?: boolean; message?: string } = {}
+  opts: { min?: number; max?: number; pattern?: RegExp; trim?: boolean; message?: string } = {},
 ): z.ZodString {
   let schema = z.string();
   if (opts.trim) schema = schema.trim();
@@ -322,7 +329,9 @@ export function boundedString(
 }
 
 /** Bounded integer. Rejects floats, string numbers, NaN and ±Infinity. */
-export function boundedInt(opts: { min?: number; max?: number; multipleOf?: number } = {}): z.ZodNumber {
+export function boundedInt(
+  opts: { min?: number; max?: number; multipleOf?: number } = {},
+): z.ZodNumber {
   let schema = z.number().int("must be an integer");
   if (opts.min !== undefined) schema = schema.min(opts.min);
   if (opts.max !== undefined) schema = schema.max(opts.max);
@@ -341,7 +350,7 @@ export function boundedNumber(opts: { min?: number; max?: number } = {}): z.ZodN
 /** Bounded array. `max` is enforced by the schema; the raw preflight also caps it. */
 export function boundedArray<T extends z.ZodType>(
   item: T,
-  opts: { min?: number; max?: number } = {}
+  opts: { min?: number; max?: number } = {},
 ): z.ZodArray<T> {
   let schema = z.array(item);
   if (opts.min !== undefined) schema = schema.min(opts.min);
@@ -361,32 +370,172 @@ export function boundedArray<T extends z.ZodType>(
  * so the fix is a one-line argument and not a redeploy of the whole list.
  */
 export const ISO_4217_CODES: ReadonlySet<string> = new Set([
-  "AED", "AFN", "ALL", "AMD", "ANG", "AOA", "ARS", "AUD", "AWG", "AZN",
-  "BAM", "BBD", "BDT", "BGN", "BHD", "BIF", "BMD", "BND", "BOB", "BOV", "BRL", "BSD", "BTN", "BWP", "BYN", "BZD",
-  "CAD", "CDF", "CHE", "CHF", "CHW", "CLF", "CLP", "CNY", "COP", "COU", "CRC", "CUP", "CVE", "CZK",
-  "DJF", "DKK", "DOP", "DZD",
-  "EGP", "ERN", "ETB", "EUR",
-  "FJD", "FKP",
-  "GBP", "GEL", "GHS", "GIP", "GMD", "GNF", "GTQ", "GYD",
-  "HKD", "HNL", "HTG", "HUF",
-  "IDR", "ILS", "INR", "IQD", "IRR", "ISK",
-  "JMD", "JOD", "JPY",
-  "KES", "KGS", "KHR", "KMF", "KPW", "KRW", "KWD", "KYD", "KZT",
-  "LAK", "LBP", "LKR", "LRD", "LSL", "LYD",
-  "MAD", "MDL", "MGA", "MKD", "MMK", "MNT", "MOP", "MRU", "MUR", "MVR", "MWK", "MXN", "MXV", "MYR", "MZN",
-  "NAD", "NGN", "NIO", "NOK", "NPR", "NZD",
+  "AED",
+  "AFN",
+  "ALL",
+  "AMD",
+  "ANG",
+  "AOA",
+  "ARS",
+  "AUD",
+  "AWG",
+  "AZN",
+  "BAM",
+  "BBD",
+  "BDT",
+  "BGN",
+  "BHD",
+  "BIF",
+  "BMD",
+  "BND",
+  "BOB",
+  "BOV",
+  "BRL",
+  "BSD",
+  "BTN",
+  "BWP",
+  "BYN",
+  "BZD",
+  "CAD",
+  "CDF",
+  "CHE",
+  "CHF",
+  "CHW",
+  "CLF",
+  "CLP",
+  "CNY",
+  "COP",
+  "COU",
+  "CRC",
+  "CUP",
+  "CVE",
+  "CZK",
+  "DJF",
+  "DKK",
+  "DOP",
+  "DZD",
+  "EGP",
+  "ERN",
+  "ETB",
+  "EUR",
+  "FJD",
+  "FKP",
+  "GBP",
+  "GEL",
+  "GHS",
+  "GIP",
+  "GMD",
+  "GNF",
+  "GTQ",
+  "GYD",
+  "HKD",
+  "HNL",
+  "HTG",
+  "HUF",
+  "IDR",
+  "ILS",
+  "INR",
+  "IQD",
+  "IRR",
+  "ISK",
+  "JMD",
+  "JOD",
+  "JPY",
+  "KES",
+  "KGS",
+  "KHR",
+  "KMF",
+  "KPW",
+  "KRW",
+  "KWD",
+  "KYD",
+  "KZT",
+  "LAK",
+  "LBP",
+  "LKR",
+  "LRD",
+  "LSL",
+  "LYD",
+  "MAD",
+  "MDL",
+  "MGA",
+  "MKD",
+  "MMK",
+  "MNT",
+  "MOP",
+  "MRU",
+  "MUR",
+  "MVR",
+  "MWK",
+  "MXN",
+  "MXV",
+  "MYR",
+  "MZN",
+  "NAD",
+  "NGN",
+  "NIO",
+  "NOK",
+  "NPR",
+  "NZD",
   "OMR",
-  "PAB", "PEN", "PGK", "PHP", "PKR", "PLN", "PYG",
+  "PAB",
+  "PEN",
+  "PGK",
+  "PHP",
+  "PKR",
+  "PLN",
+  "PYG",
   "QAR",
-  "RON", "RSD", "RUB", "RWF",
-  "SAR", "SBD", "SCR", "SDG", "SEK", "SGD", "SHP", "SLE", "SOS", "SRD", "SSP", "STN", "SVC", "SYP", "SZL",
-  "THB", "TJS", "TMT", "TND", "TOP", "TRY", "TTD", "TWD", "TZS",
-  "UAH", "UGX", "USD", "USN", "UYI", "UYU", "UYW", "UZS",
-  "VED", "VES", "VND", "VUV",
+  "RON",
+  "RSD",
+  "RUB",
+  "RWF",
+  "SAR",
+  "SBD",
+  "SCR",
+  "SDG",
+  "SEK",
+  "SGD",
+  "SHP",
+  "SLE",
+  "SOS",
+  "SRD",
+  "SSP",
+  "STN",
+  "SVC",
+  "SYP",
+  "SZL",
+  "THB",
+  "TJS",
+  "TMT",
+  "TND",
+  "TOP",
+  "TRY",
+  "TTD",
+  "TWD",
+  "TZS",
+  "UAH",
+  "UGX",
+  "USD",
+  "USN",
+  "UYI",
+  "UYU",
+  "UYW",
+  "UZS",
+  "VED",
+  "VES",
+  "VND",
+  "VUV",
   "WST",
-  "XAF", "XCD", "XCG", "XOF", "XPF",
+  "XAF",
+  "XCD",
+  "XCG",
+  "XOF",
+  "XPF",
   "YER",
-  "ZAR", "ZMW", "ZWG",
+  "ZAR",
+  "ZMW",
+  "ZWG",
 ]);
 
 export const CURRENCY_MESSAGE = "currency must be an active ISO-4217 alphabetic code";
@@ -414,7 +563,7 @@ export function currency(opts: { extra?: readonly string[] } = {}): z.ZodType<st
  * it to 12 is how a 12.34-unit discrepancy becomes a regulatory finding.
  */
 export function money(
-  opts: { min?: number; max?: number; extraCurrencies?: readonly string[] } = {}
+  opts: { min?: number; max?: number; extraCurrencies?: readonly string[] } = {},
 ): z.ZodType<{ amountMinor: number; currency: string }> {
   return z.strictObject({
     amountMinor: boundedInt({
@@ -451,7 +600,11 @@ const PHONE_ALLOWED_RE = /^[+\d\s().\-‐-―−]+$/;
  * that needs per-country correctness should normalise upstream and pass an
  * already-E.164 value; set `stripTrunkPrefix: false` to disable the heuristic.
  */
-export function normaliseE164(raw: string, defaultRegion?: string, stripTrunkPrefix = true): string | null {
+export function normaliseE164(
+  raw: string,
+  defaultRegion?: string,
+  stripTrunkPrefix = true,
+): string | null {
   const trimmed = raw.trim();
   if (!trimmed) return null;
   if (!PHONE_ALLOWED_RE.test(trimmed)) return null;
@@ -476,9 +629,10 @@ export function normaliseE164(raw: string, defaultRegion?: string, stripTrunkPre
  * there is exactly one string form to index, dedupe and compare.
  */
 export function e164Phone(
-  opts: { defaultRegion?: string; stripTrunkPrefix?: boolean } = {}
+  opts: { defaultRegion?: string; stripTrunkPrefix?: boolean } = {},
 ): z.ZodType<string> {
-  const normalise = (value: string) => normaliseE164(value, opts.defaultRegion, opts.stripTrunkPrefix);
+  const normalise = (value: string) =>
+    normaliseE164(value, opts.defaultRegion, opts.stripTrunkPrefix);
   return z
     .string()
     .refine((value) => normalise(value) !== null, E164_MESSAGE)
@@ -488,7 +642,8 @@ export function e164Phone(
 export const TIMESTAMP_MESSAGE = "timestamp must be ISO-8601 with an explicit offset (Z or ±HH:MM)";
 
 /** RFC 3339 shape with a MANDATORY offset. The `T` is required; no space form. */
-const ISO_OFFSET_RE = /^\d{4}-\d{2}-\d{2}[Tt]\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:[Zz]|[+-]\d{2}:?\d{2})$/;
+const ISO_OFFSET_RE =
+  /^\d{4}-\d{2}-\d{2}[Tt]\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:[Zz]|[+-]\d{2}:?\d{2})$/;
 /** Trailing offset, so we can range-check it rather than trusting Date.parse. */
 const OFFSET_TAIL_RE = /([+-])(\d{2}):?(\d{2})$/;
 
@@ -533,7 +688,7 @@ export function displayText(opts: { maxGraphemes?: number } = {}): z.ZodType<str
     .string()
     .refine(
       (value) => countGraphemes(value.normalize("NFKC")) <= (max ?? Number.MAX_SAFE_INTEGER),
-      `display text must be at most ${max ?? LIMITS.maxStringLength} characters`
+      `display text must be at most ${max ?? LIMITS.maxStringLength} characters`,
     )
     .transform((value) => normalizeHostileText(value, { maxGraphemes: max }).value);
 }

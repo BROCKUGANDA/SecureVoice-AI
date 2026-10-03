@@ -20,17 +20,25 @@ import "server-only";
  * action is not theirs to perform is a way to collect credentials for a denied
  * request.
  *
- * ── `requireAuth` vs the existing Clerk guards ──────────────────────────────
- * `requireSignedIn` / `requireOperator` in `src/lib/credits.ts` are Clerk-backed
- * and remain the console's path for Clerk-issued identities. These guards are
+ * ── `requireAuth` vs the existing console session guards ──────────────────────────────
+ * `requireSignedIn` / `requireOperator` in `src/lib/credits.ts` are session-backed
+ * and remain the console's path for signed-in identities. These guards are
  * the FIRST-PARTY path for invite-provisioned operators. They are separate on
  * purpose: this package is not permitted to change `credits.ts`, and a session
- * cookie is not a Clerk session. See `src/lib/identity/clerk-bridge.ts` for the
+ * cookie is not a signed-in session. See `src/lib/identity/session-bridge.ts` for the
  * mapping that puts both vocabularies on one role scale.
  */
 
 import { db } from "@/lib/db";
-import { absoluteRemainingMs, idleRemainingMs, readSessionCookie, revokeSession, verifySession, type SessionCheck, type SessionRecord } from "@/lib/auth/session";
+import {
+  absoluteRemainingMs,
+  idleRemainingMs,
+  readSessionCookie,
+  revokeSession,
+  verifySession,
+  type SessionCheck,
+  type SessionRecord,
+} from "@/lib/auth/session";
 import { getIdentity, type Identity } from "@/lib/auth/identity";
 import { assertCapability, authorizedDb, CapabilityError, type RbacClient } from "@/lib/auth/rbac";
 import { requireStepUp, type StepUpCheck } from "@/lib/auth/stepup";
@@ -42,10 +50,7 @@ import {
   type PrivilegedAction,
   type Role,
 } from "@/lib/auth/roles";
-import {
-  AUTH_AUDIT_INTENTS,
-  auditAuthEvent,
-} from "@/lib/auth/audit";
+import { AUTH_AUDIT_INTENTS, auditAuthEvent } from "@/lib/auth/audit";
 
 /** A denial, in the shape the route handlers in this repo already use. */
 export type AuthDenied = {
@@ -73,13 +78,17 @@ export type Authed = {
  * code path which authenticates a request without running `verifySession` —
  * and therefore no path that skips the idle check.
  */
-export async function requireAuth(cookieHeader: string | null | undefined): Promise<Authed | AuthDenied> {
+export async function requireAuth(
+  cookieHeader: string | null | undefined,
+): Promise<Authed | AuthDenied> {
   const check: SessionCheck = await verifySession(readSessionCookie(cookieHeader));
   if (!check.ok) {
     // 401 for "who are you", 403 for "not any more". Both are the same answer
     // to a browser; the distinction is for the operator reading the log.
     const denied =
-      check.reason === "idle_timeout" || check.reason === "absolute_timeout" || check.reason === "revoked"
+      check.reason === "idle_timeout" ||
+      check.reason === "absolute_timeout" ||
+      check.reason === "revoked"
         ? 403
         : 401;
     await auditAuthEvent({
@@ -103,7 +112,7 @@ export async function requireAuth(cookieHeader: string | null | undefined): Prom
 /** Require a live session holding `capability`. */
 export async function requireCapability(
   cookieHeader: string | null | undefined,
-  capability: Capability
+  capability: Capability,
 ): Promise<Authed | AuthDenied> {
   const authed = await requireAuth(cookieHeader);
   if (!authed.ok) return authed;
@@ -135,7 +144,7 @@ export type PrivilegedAuthed = Authed & { stepUp: StepUpCheck };
  */
 export async function requirePrivileged(
   cookieHeader: string | null | undefined,
-  action: PrivilegedAction
+  action: PrivilegedAction,
 ): Promise<PrivilegedAuthed | AuthDenied> {
   const authed = await requireCapability(cookieHeader, PRIVILEGED_ACTION_CAPABILITY[action]);
   if (!authed.ok) return authed;

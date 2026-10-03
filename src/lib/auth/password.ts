@@ -98,7 +98,11 @@ async function resolveArgon2(): Promise<Argon2Module | null> {
         default?: Argon2Module;
       };
       const candidate = typeof mod.hash === "function" ? mod : mod.default;
-      if (candidate && typeof candidate.hash === "function" && typeof candidate.verify === "function") {
+      if (
+        candidate &&
+        typeof candidate.hash === "function" &&
+        typeof candidate.verify === "function"
+      ) {
         argon2Cache = candidate;
         return argon2Cache;
       }
@@ -166,12 +170,15 @@ function parseScrypt(stored: string): ParsedScrypt | null {
     if (salt.length === 0 || tag.length === 0) return null;
     return { params: SCRYPT_PARAMS, salt, tag };
   }
+  // `parts.length < 3` returned at the top of this function, so index 1 is
+  // defined here — the legacy branch above proves it for the checker rather
+  // than adding a branch that cannot run.
   const params = Object.fromEntries(
-    parts[1]
+    parts[1]!
       .split(",")
       .map((kv) => kv.split("="))
       .filter((kv): kv is [string, string] => kv.length === 2)
-      .map(([k, v]) => [k, Number(v)])
+      .map(([k, v]) => [k, Number(v)]),
   ) as Partial<{ N: number; r: number; p: number }>;
   const salt = Buffer.from(parts[2] ?? "", "base64");
   const tag = Buffer.from(parts[3] ?? "", "base64");
@@ -213,9 +220,7 @@ export async function verifyPassword(plain: string, stored: string): Promise<boo
       });
       // Constant-time, and length-safe: a wrong-length digest must be a failed
       // login, not a thrown TypeError.
-      return (
-        candidate.length === parsed.tag.length && timingSafeEqual(candidate, parsed.tag)
-      );
+      return candidate.length === parsed.tag.length && timingSafeEqual(candidate, parsed.tag);
     }
     return false;
   } catch {
@@ -260,9 +265,7 @@ export function assertUsablePassword(plain: string): void {
     throw new InvalidPasswordError("Password must be a string.");
   }
   if (plain.length < MIN_PASSWORD_LENGTH) {
-    throw new InvalidPasswordError(
-      `Password must be at least ${MIN_PASSWORD_LENGTH} characters.`
-    );
+    throw new InvalidPasswordError(`Password must be at least ${MIN_PASSWORD_LENGTH} characters.`);
   }
   if (plain.length > MAX_PASSWORD_LENGTH) {
     // Bounded input: scrypt's memory use is fixed, but the password itself is

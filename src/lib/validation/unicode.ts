@@ -53,12 +53,7 @@ const WHITESPACE_RE = /\s+/g;
 export const DEFAULT_MAX_GRAPHEMES = 64;
 
 export type RemovalClass =
-  | "bidi"
-  | "zero-width"
-  | "control"
-  | "whitespace"
-  | "truncated"
-  | "confusable";
+  "bidi" | "zero-width" | "control" | "whitespace" | "truncated" | "confusable";
 
 export interface NormalisedText {
   /** Safe to store and to display. Never contains invisible reordering characters. */
@@ -131,7 +126,10 @@ export function countGraphemes(input: string): number {
 }
 
 /** Truncate to at most `max` grapheme clusters without splitting a cluster. */
-export function truncateGraphemes(input: string, max: number): { value: string; truncated: boolean } {
+export function truncateGraphemes(
+  input: string,
+  max: number,
+): { value: string; truncated: boolean } {
   if (countGraphemes(input) <= max) return { value: input, truncated: false };
   const seg = getSegmenter();
   if (seg) {
@@ -225,24 +223,81 @@ export function hasMixedScript(input: string): boolean {
  */
 const CONFUSABLES: Readonly<Record<string, string>> = {
   // Cyrillic → Latin
-  "\u0430": "a", "\u0435": "e", "\u043E": "o", "\u0440": "p", "\u0441": "c",
-  "\u0443": "y", "\u0445": "x", "\u0456": "i", "\u0458": "j", "\u0455": "s",
-  "\u0501": "d", "\u04BB": "h", "\u04CF": "l", "\u051B": "q",
-  "\u0410": "A", "\u0412": "B", "\u0415": "E", "\u041A": "K", "\u041C": "M",
-  "\u041D": "H", "\u041E": "O", "\u0420": "P", "\u0421": "C", "\u0422": "T",
-  "\u0423": "Y", "\u0425": "X", "\u04B0": "Y", "\u04AE": "Y",
+  "\u0430": "a",
+  "\u0435": "e",
+  "\u043E": "o",
+  "\u0440": "p",
+  "\u0441": "c",
+  "\u0443": "y",
+  "\u0445": "x",
+  "\u0456": "i",
+  "\u0458": "j",
+  "\u0455": "s",
+  "\u0501": "d",
+  "\u04BB": "h",
+  "\u04CF": "l",
+  "\u051B": "q",
+  "\u0410": "A",
+  "\u0412": "B",
+  "\u0415": "E",
+  "\u041A": "K",
+  "\u041C": "M",
+  "\u041D": "H",
+  "\u041E": "O",
+  "\u0420": "P",
+  "\u0421": "C",
+  "\u0422": "T",
+  "\u0423": "Y",
+  "\u0425": "X",
+  "\u04B0": "Y",
+  "\u04AE": "Y",
   // Greek → Latin
-  "\u03BF": "o", "\u03BD": "v", "\u03B1": "a", "\u03C1": "p", "\u03C4": "t",
-  "\u03C5": "u", "\u03BA": "k", "\u03B9": "i", "\u03B2": "b", "\u03B5": "e",
-  "\u0391": "A", "\u0392": "B", "\u0395": "E", "\u0396": "Z", "\u0397": "H",
-  "\u0399": "I", "\u039A": "K", "\u039C": "M", "\u039D": "N", "\u039F": "O",
-  "\u03A1": "P", "\u03A4": "T", "\u03A5": "Y", "\u03A7": "X",
+  "\u03BF": "o",
+  "\u03BD": "v",
+  "\u03B1": "a",
+  "\u03C1": "p",
+  "\u03C4": "t",
+  "\u03C5": "u",
+  "\u03BA": "k",
+  "\u03B9": "i",
+  "\u03B2": "b",
+  "\u03B5": "e",
+  "\u0391": "A",
+  "\u0392": "B",
+  "\u0395": "E",
+  "\u0396": "Z",
+  "\u0397": "H",
+  "\u0399": "I",
+  "\u039A": "K",
+  "\u039C": "M",
+  "\u039D": "N",
+  "\u039F": "O",
+  "\u03A1": "P",
+  "\u03A4": "T",
+  "\u03A5": "Y",
+  "\u03A7": "X",
   // Armenian → Latin
-  "\u0585": "o", "\u0561": "w", "\u0581": "g", "\u0584": "p", "\u0578": "n",
-  "\u0570": "h", "\u057D": "s", "\u057C": "u", "\u0566": "q", "\u057F": "n",
+  "\u0585": "o",
+  "\u0561": "w",
+  "\u0581": "g",
+  "\u0584": "p",
+  "\u0578": "n",
+  "\u0570": "h",
+  "\u057D": "s",
+  "\u057C": "u",
+  "\u0566": "q",
+  "\u057F": "n",
   // Cherokee → Latin (the classic "this looks like a normal word" glyphs)
-  "\u13AA": "A", "\u13AC": "E", "\u13B2": "H", "\u13B3": "I", "\u13B5": "L",
-  "\u13B9": "M", "\u13BD": "O", "\u13C0": "P", "\u13C3": "S", "\u13CE": "Y",
+  "\u13AA": "A",
+  "\u13AC": "E",
+  "\u13B2": "H",
+  "\u13B3": "I",
+  "\u13B5": "L",
+  "\u13B9": "M",
+  "\u13BD": "O",
+  "\u13C0": "P",
+  "\u13C3": "S",
+  "\u13CE": "Y",
 };
 
 /**

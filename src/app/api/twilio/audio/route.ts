@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { z } from "zod";
 import { append as auditAppend } from "@/lib/audit-chain";
 import { transcript as redactText } from "@/lib/redact";
@@ -53,7 +54,10 @@ function cacheSet(key: string, buf: Buffer) {
     let oldest = "";
     let oldestAt = Infinity;
     for (const [k, v] of audioCache) {
-      if (v.at < oldestAt) { oldest = k; oldestAt = v.at; }
+      if (v.at < oldestAt) {
+        oldest = k;
+        oldestAt = v.at;
+      }
     }
     if (oldest) audioCache.delete(oldest);
   }
@@ -128,10 +132,10 @@ export async function GET(req: NextRequest) {
       },
     });
   } catch (err) {
-    console.error("[twilio-audio] TTS generation failed:", err instanceof Error ? err.message : err);
-    return NextResponse.json(
-      { error: "Audio generation unavailable" },
-      { status: 503 }
+    console.error(
+      "[twilio-audio] TTS generation failed:",
+      err instanceof Error ? err.message : err,
     );
+    return NextResponse.json({ error: "Audio generation unavailable" }, { status: 503 });
   }
 }

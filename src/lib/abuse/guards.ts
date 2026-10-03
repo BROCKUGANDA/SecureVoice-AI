@@ -49,8 +49,20 @@ import {
   type GeoPolicy,
   type GeoRejectReason,
 } from "./geo";
-import { checkPlanTier, coercePlanTier, type PlanTier, type TierRejectReason } from "./tiers";
-import { evaluate, isOrgPaused, recordAttempt, velocitySnapshot, type VelocityRejectReason } from "./velocity";
+import {
+  checkPlanTier,
+  isPlanTier,
+  planTierFor,
+  type PlanTier,
+  type TierRejectReason,
+} from "./tiers";
+import {
+  evaluate,
+  isOrgPaused,
+  recordAttempt,
+  velocitySnapshot,
+  type VelocityRejectReason,
+} from "./velocity";
 
 /* ── Decision types ───────────────────────────────────────────────────────── */
 
@@ -113,7 +125,15 @@ export type DialGuardInput = {
   e164: string;
   /** Defaults to now. Injected in tests so windows are deterministic. */
   at?: number | Date;
-  /** Defaults to "demo" — the strictest tier, so an unset value fails closed. */
+  /**
+   * OMITTED ⇒ resolved for this org by `planTierFor()`: runtime registry →
+   * `ABUSE_PLAN_TIER__<ORG>` → the deployment default `ABUSE_PLAN_TIER` →
+   * `demo`. That last step is the fail-closed floor and it survives: with
+   * nothing configured, an unset tier is still `demo`.
+   *
+   * SUPPLIED ⇒ used verbatim when it is a real tier, and otherwise ignored
+   * (falls through to the resolver). A bad value is a typo, not a licence.
+   */
   planTier?: PlanTier | string | null;
   /** Per-call geography override (a route that already loaded the tenant). */
   geoPolicy?: Partial<GeoPolicy>;
@@ -277,6 +297,31 @@ function reserveDial(orgKey: string, e164: string, now: number): Reservation {
 }
 
 /* ── The gate ─────────────────────────────────────────────────────────────── */
+/**
+ * The tier THIS call is evaluated at.
+ *
+ * FAILURE DIRECTION — READ THIS BEFORE CHANGING IT:
+ *
+ * An ABSENT `planTier` used to coerce straight to `demo`; it now resolves
+ * through `planTierFor`, so a deployment that sets `ABUSE_PLAN_TIER` (or a
+ * per-org registry entry) grants that tier to callers that omit the argument.
+ * That is STRICTLY MORE PERMISSIVE than before, and it is the documented
+ * purpose of `TierConfig.defaultTier` — but it is opt-in and operator-scoped:
+ * the default is `demo`, so an unconfigured deployment denies exactly what it
+ * denied before. It is NOT a way for one org's tier to reach another, and the
+ * other controls (geo, velocity, both caps) are untouched by a tier.
+ *
+ * A SUPPLIED-but-unrecognised value ("Standard", 42, "") is different: it stays
+ * pinned to `demo` and must never be replaced by the deployment default.
+ * Falling through would mean a typo silently evaluated as whatever the
+ * deployment default happens to be — the exact failure this guards against.
+ */
+function gatePlanTier(orgKey: string, supplied: PlanTier | string | null | undefined): PlanTier {
+  if (supplied !== null && supplied !== undefined) {
+    return isPlanTier(supplied) ? supplied : "demo";
+  }
+  return planTierFor(orgKey);
+}
 
 /**
  * May this organisation dial this destination right now?
@@ -294,8 +339,20 @@ export function assertDialAllowed(input: DialGuardInput): DialGuardDecision {
   const controls: ControlOutcome[] = [];
   const orgKeyForState = safeOrgKey(input.orgId);
 
+  // Which control is executing right now, so the catch-all below can name the
+  // one that actually threw instead of asserting a fixed suspect. Updated
+  // BEFORE the control runs, because a control can fault while reading its own
+  // inputs (a non-string `e164` throws inside `normaliseE164`, before the shape
+  // verdict is even formed).
+  let currentControl: ControlName = "input_shape";
+
   const decide = (
-    extra: Partial<DialGuardDecision> & { allowed: boolean; verdict: DialGuardVerdict; reason: AbuseReason | "ok"; detail: string },
+    extra: Partial<DialGuardDecision> & {
+      allowed: boolean;
+      verdict: DialGuardVerdict;
+      reason: AbuseReason | "ok";
+      detail: string;
+    },
   ): DialGuardDecision => ({
     country: null,
     controls,
@@ -306,11 +363,12 @@ export function assertDialAllowed(input: DialGuardInput): DialGuardDecision {
   });
 
   try {
+    currentControl = "input_shape";
     const atMs = input.at instanceof Date ? input.at.getTime() : (input.at ?? Date.now());
     const now = Number.isFinite(atMs) ? (atMs as number) : Date.now();
     const orgKey = orgKeyForState;
     const norm = normaliseE164(input.e164);
-    const tier = coercePlanTier(input.planTier);
+    const tier = gatePlanTier(orgKey, input.planTier);
     const masked = norm ? maskE164(norm) : maskE164(input.e164);
 
     // 1. Shape — a destination we cannot canonicalise is never dialled, and
@@ -323,9 +381,15 @@ export function assertDialAllowed(input: DialGuardInput): DialGuardDecision {
       controls.push({ control: "input_shape", ok: false, reason, detail });
       return decide({ allowed: false, verdict: "deny", reason, detail });
     }
-    controls.push({ control: "input_shape", ok: true, reason: "ok", detail: `${masked} · tier ${tier}` });
+    controls.push({
+      control: "input_shape",
+      ok: true,
+      reason: "ok",
+      detail: `${masked} · tier ${tier}`,
+    });
 
     // 2. Breaker first — if the org is paused, nothing else is worth computing.
+    currentControl = "breaker";
     if (isOrgPaused(orgKey, now)) {
       const detail = "organisation is auto-paused by the velocity breaker; a human must resume it";
       controls.push({ control: "breaker", ok: false, reason: "org_auto_paused", detail });
@@ -334,6 +398,7 @@ export function assertDialAllowed(input: DialGuardInput): DialGuardDecision {
     controls.push({ control: "breaker", ok: true, reason: "ok", detail: "not paused" });
 
     // 3. Geography (allowlist + denylist + prefix denylist).
+    currentControl = "geo";
     const geo = checkDestinationGeo({
       e164: norm,
       orgId: orgKey,
@@ -342,14 +407,31 @@ export function assertDialAllowed(input: DialGuardInput): DialGuardDecision {
     });
     if (!geo.ok) {
       controls.push({ control: "geo", ok: false, reason: geo.reason, detail: geo.detail });
-      return decide({ allowed: false, verdict: "deny", reason: geo.reason, detail: geo.detail, country: geo.country });
+      return decide({
+        allowed: false,
+        verdict: "deny",
+        reason: geo.reason,
+        detail: geo.detail,
+        country: geo.country,
+      });
     }
     controls.push({ control: "geo", ok: true, reason: "ok", detail: `country ${geo.country}` });
 
     // 4. Plan tier — demo may dial verified test numbers only.
-    const tierDecision = checkPlanTier({ e164: norm, tier, orgId: orgKey, list: input.testNumbers ?? null });
+    currentControl = "plan_tier";
+    const tierDecision = checkPlanTier({
+      e164: norm,
+      tier,
+      orgId: orgKey,
+      list: input.testNumbers ?? null,
+    });
     if (!tierDecision.ok) {
-      controls.push({ control: "plan_tier", ok: false, reason: tierDecision.reason, detail: tierDecision.detail });
+      controls.push({
+        control: "plan_tier",
+        ok: false,
+        reason: tierDecision.reason,
+        detail: tierDecision.detail,
+      });
       return decide({
         allowed: false,
         verdict: "deny",
@@ -362,17 +444,40 @@ export function assertDialAllowed(input: DialGuardInput): DialGuardDecision {
       control: "plan_tier",
       ok: true,
       reason: "ok",
-      detail: tierDecision.restricted ? `tier ${tier}: verified test number` : `tier ${tier}: not restricted by tier`,
+      detail: tierDecision.restricted
+        ? `tier ${tier}: verified test number`
+        : `tier ${tier}: not restricted by tier`,
     });
 
     // 5-7. Cooldown + org cap + global cap, atomically.
+    //
+    // `reserveDial` checks cooldown, then the org cap, then the global cap in
+    // one synchronous step, so a fault inside it cannot be attributed to a
+    // single one of the three; the first is the honest label.
+    currentControl = "cooldown";
     const reservation = reserveDial(orgKey, norm, now);
     if (!reservation.ok) {
-      controls.push({ control: reservation.control, ok: false, reason: reservation.reason, detail: reservation.detail });
-      return decide({ allowed: false, verdict: "deny", reason: reservation.reason, detail: reservation.detail, country: geo.country });
+      controls.push({
+        control: reservation.control,
+        ok: false,
+        reason: reservation.reason,
+        detail: reservation.detail,
+      });
+      return decide({
+        allowed: false,
+        verdict: "deny",
+        reason: reservation.reason,
+        detail: reservation.detail,
+        country: geo.country,
+      });
     }
     const cfg = abuseConfig().concurrency;
-    controls.push({ control: "cooldown", ok: true, reason: "ok", detail: `no active cooldown on ${masked}` });
+    controls.push({
+      control: "cooldown",
+      ok: true,
+      reason: "ok",
+      detail: `no active cooldown on ${masked}`,
+    });
     controls.push({
       control: "org_concurrency",
       ok: true,
@@ -386,6 +491,7 @@ export function assertDialAllowed(input: DialGuardInput): DialGuardDecision {
       detail: `global ${reservation.globalActive}/${cfg.globalCap}`,
     });
 
+    currentControl = "velocity";
     // 8. Velocity — recorded AFTER the cheap controls, so only attempts that
     //    would really have dialled feed the anomaly counters. A scan of
     //    geo-blocked numbers must not be able to auto-pause a legitimate org:
@@ -412,7 +518,12 @@ export function assertDialAllowed(input: DialGuardInput): DialGuardDecision {
     }
 
     if (velocity.action === "warn") {
-      controls.push({ control: "velocity", ok: true, reason: "ok", detail: `warning: ${velocity.reason}` });
+      controls.push({
+        control: "velocity",
+        ok: true,
+        reason: "ok",
+        detail: `warning: ${velocity.reason}`,
+      });
       return decide({
         allowed: true,
         verdict: "warn",
@@ -437,7 +548,10 @@ export function assertDialAllowed(input: DialGuardInput): DialGuardDecision {
     // A guard that throws is an outage; a guard that denies is a decision.
     const detail = `abuse guard failed closed: ${err instanceof Error ? err.message : "unknown error"}`;
     console.error(`[abuse] ${detail}`);
-    controls.push({ control: "velocity", ok: false, reason: "guard_internal_error", detail });
+    // Attributed to the control that was RUNNING, so the status surface sends
+    // an operator to the right place. Recorded as a failure of that control:
+    // it did not pass, whatever it would have said had it returned.
+    controls.push({ control: currentControl, ok: false, reason: "guard_internal_error", detail });
     return decide({ allowed: false, verdict: "deny", reason: "guard_internal_error", detail });
   }
 }

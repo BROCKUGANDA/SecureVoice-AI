@@ -22,9 +22,13 @@ export async function register() {
   // The "did we forget to flip it?" class of failure — loud at every boot,
   // plus `bun run preflight` before any demo or go-live.
   if (process.env.ELEVENLABS_DRY_RUN === "true") {
-    console.warn("[config] ELEVENLABS_DRY_RUN=true — NO real voice. Flip to false before judges or real users.");
+    console.warn(
+      "[config] ELEVENLABS_DRY_RUN=true — NO real voice. Flip to false before judges or real users.",
+    );
   }
-  if (process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY?.startsWith("pk_test")) {
-    console.warn("[config] Clerk DEV instance — swap to pk_live/sk_live before real users (swap = rebuild + wallet reset).");
+  if (!process.env.BETTER_AUTH_SECRET || process.env.BETTER_AUTH_SECRET.length < 32) {
+    console.warn(
+      "[config] BETTER_AUTH_SECRET missing or under 32 chars — auth will throw at import. Generate with: openssl rand -base64 32",
+    );
   }
 }

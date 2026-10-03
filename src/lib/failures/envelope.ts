@@ -108,18 +108,53 @@ export type StatusRule = {
  */
 export const STATUS_DISCIPLINE: Record<FailureCode, StatusRule> = {
   malformed_request: { status: 400, retryable: false, retryAfter: false, disposition: "malformed" },
-  unauthenticated: { status: 401, retryable: false, retryAfter: false, disposition: "unauthenticated" },
+  unauthenticated: {
+    status: 401,
+    retryable: false,
+    retryAfter: false,
+    disposition: "unauthenticated",
+  },
 
-  not_found: { status: 404, retryable: false, retryAfter: false, disposition: "not_found_or_cross_tenant" },
+  not_found: {
+    status: 404,
+    retryable: false,
+    retryAfter: false,
+    disposition: "not_found_or_cross_tenant",
+  },
 
-  state_conflict: { status: 409, retryable: false, retryAfter: false, disposition: "state_precondition" },
-  policy_precondition: { status: 409, retryable: false, retryAfter: false, disposition: "policy_precondition" },
-  unique_conflict: { status: 409, retryable: false, retryAfter: false, disposition: "state_precondition" },
-  reference_conflict: { status: 409, retryable: false, retryAfter: false, disposition: "state_precondition" },
+  state_conflict: {
+    status: 409,
+    retryable: false,
+    retryAfter: false,
+    disposition: "state_precondition",
+  },
+  policy_precondition: {
+    status: 409,
+    retryable: false,
+    retryAfter: false,
+    disposition: "policy_precondition",
+  },
+  unique_conflict: {
+    status: 409,
+    retryable: false,
+    retryAfter: false,
+    disposition: "state_precondition",
+  },
+  reference_conflict: {
+    status: 409,
+    retryable: false,
+    retryAfter: false,
+    disposition: "state_precondition",
+  },
   // The database is healthy; this transaction simply lost its race. 503 would
   // tell the caller the platform is unwell, and a 409 says exactly what
   // happened. `retryable: true` is what makes the retry safe.
-  transaction_contended: { status: 409, retryable: true, retryAfter: false, disposition: "state_precondition" },
+  transaction_contended: {
+    status: 409,
+    retryable: true,
+    retryAfter: false,
+    disposition: "state_precondition",
+  },
   // Refusing an intervention we cannot durably record is a state precondition,
   // not an outage. A 503 with Retry-After would invite the caller to come back
   // and be refused again while the fraud continues.
@@ -131,7 +166,12 @@ export const STATUS_DISCIPLINE: Record<FailureCode, StatusRule> = {
   },
 
   payload_too_large: { status: 413, retryable: false, retryAfter: false, disposition: "too_large" },
-  semantically_invalid: { status: 422, retryable: false, retryAfter: false, disposition: "semantically_invalid" },
+  semantically_invalid: {
+    status: 422,
+    retryable: false,
+    retryAfter: false,
+    disposition: "semantically_invalid",
+  },
 
   rate_limited: { status: 429, retryable: true, retryAfter: true, disposition: "caller_quota" },
 
@@ -218,7 +258,10 @@ export const LEAK_RULES: ReadonlyArray<{ kind: LeakKind; re: RegExp }> = [
   { kind: "sql", re: /\bkey\s*\([^)]*\)\s*=/i },
   { kind: "sql", re: /\bis\s+not\s+present\s+in\s+(?:table|row)\b/i },
   { kind: "sql", re: /\btable\s+"[A-Za-z_][\w]*"/ },
-  { kind: "sql", re: /\b(?:already\s+exists|still\s+referenced\s+from|violates\s+(?:\w+\s+){1,3}constraint)\b/i },
+  {
+    kind: "sql",
+    re: /\b(?:already\s+exists|still\s+referenced\s+from|violates\s+(?:\w+\s+){1,3}constraint)\b/i,
+  },
 
   // ── model prompts ──
   { kind: "model_prompt", re: /^\s*(?:system|assistant|user)\s*:/im },
@@ -238,7 +281,10 @@ export const LEAK_RULES: ReadonlyArray<{ kind: LeakKind; re: RegExp }> = [
     re: /(?<![0-9A-Za-z])[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?![0-9A-Za-z])/i,
   },
   // Our own identifier shapes: prefixed row ids from the schema and the API.
-  { kind: "internal_identifier", re: /\b(?:org|case|call|conv|pilot|user|svb|pay|dead)_[A-Za-z0-9]{6,}\b/ },
+  {
+    kind: "internal_identifier",
+    re: /\b(?:org|case|call|conv|pilot|user|svb|pay|dead)_[A-Za-z0-9]{6,}\b/,
+  },
   { kind: "internal_identifier", re: /\bcuid2?\s*\(|\bcm[a-z0-9]{20,}\b/i },
   { kind: "internal_identifier", re: /\b(?:pk|sk|whsec|svb|sb)_[A-Za-z0-9_]{8,}/ },
   { kind: "internal_identifier", re: /\beyJ[A-Za-z0-9_-]{10,}\./ },
@@ -359,8 +405,8 @@ export type FailureInit = {
 };
 
 const DOCS_BASE = (() => {
-   const raw = process.env.FAILURE_DOCS_BASE_URL?.trim();
-   return raw ? raw.replace(/\/+$/, "") : "https://securevoice.ai/docs/errors";
+  const raw = process.env.FAILURE_DOCS_BASE_URL?.trim();
+  return raw ? raw.replace(/\/+$/, "") : "https://securevoice.ai/docs/errors";
 })();
 
 export function docsUrlFor(code: FailureCode): string {
@@ -430,7 +476,10 @@ export function makeFailure(code: FailureCode, init: FailureInit = {}): Failure 
  * `{ status, headers }` for `NextResponse.json(failure.body, init)` — and for
  * the helpers in `api-errors.ts`, which take the same shape of arguments.
  */
-export function responseInitFor(failure: Failure): { status: number; headers: Record<string, string> } {
+export function responseInitFor(failure: Failure): {
+  status: number;
+  headers: Record<string, string>;
+} {
   return { status: failure.status, headers: failure.headers };
 }
 
@@ -449,8 +498,10 @@ export function scanFailure(failure: Failure): LeakKind[] {
 // One per row of the discipline table. Each owns its public message; a caller
 // supplies at most a short `detail`.
 
-export const malformedRequest = (init?: FailureInit): Failure => makeFailure("malformed_request", init);
-export const unauthenticated = (init?: FailureInit): Failure => makeFailure("unauthenticated", init);
+export const malformedRequest = (init?: FailureInit): Failure =>
+  makeFailure("malformed_request", init);
+export const unauthenticated = (init?: FailureInit): Failure =>
+  makeFailure("unauthenticated", init);
 export const notFound = (init?: FailureInit): Failure => makeFailure("not_found", init);
 
 /**
@@ -476,12 +527,15 @@ export const CROSS_TENANT_CODE: FailureCode = "not_found";
 
 export const stateConflict = (init?: FailureInit): Failure => makeFailure("state_conflict", init);
 export const uniqueConflict = (init?: FailureInit): Failure => makeFailure("unique_conflict", init);
-export const payloadTooLarge = (init?: FailureInit): Failure => makeFailure("payload_too_large", init);
-export const semanticallyInvalid = (init?: FailureInit): Failure => makeFailure("semantically_invalid", init);
+export const payloadTooLarge = (init?: FailureInit): Failure =>
+  makeFailure("payload_too_large", init);
+export const semanticallyInvalid = (init?: FailureInit): Failure =>
+  makeFailure("semantically_invalid", init);
 export const internalBug = (init?: FailureInit): Failure => makeFailure("internal_bug", init);
 
 /** 409, never 500. The single constructor for "the policy gate said no". */
-export const policyPrecondition = (init?: FailureInit): Failure => makeFailure("policy_precondition", init);
+export const policyPrecondition = (init?: FailureInit): Failure =>
+  makeFailure("policy_precondition", init);
 
 /**
  * 409 naming the FIELD, never the value. A `23503` from Postgres reads
@@ -490,10 +544,14 @@ export const policyPrecondition = (init?: FailureInit): Failure => makeFailure("
  * crosses the boundary.
  */
 export const referenceConflict = (field: string, init?: FailureInit): Failure =>
-  makeFailure("reference_conflict", { ...init, detail: `Unusable field: ${assertFieldName(field)}.` });
+  makeFailure("reference_conflict", {
+    ...init,
+    detail: `Unusable field: ${assertFieldName(field)}.`,
+  });
 
 /** 409, `retryable: true` — the transaction lost a race, the data is intact. */
-export const transactionContended = (init?: FailureInit): Failure => makeFailure("transaction_contended", init);
+export const transactionContended = (init?: FailureInit): Failure =>
+  makeFailure("transaction_contended", init);
 
 /**
  * 409, not 503. Refusing an intervention we cannot durably record is a state

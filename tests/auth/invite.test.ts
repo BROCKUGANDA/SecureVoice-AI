@@ -23,11 +23,7 @@
  */
 
 import { afterAll, expect, test } from "bun:test";
-import {
-  acceptInvite,
-  inviteStatus,
-  issueInvite,
-} from "@/lib/auth/invite";
+import { acceptInvite, inviteStatus, issueInvite } from "@/lib/auth/invite";
 import { db } from "@/lib/db";
 import { verifyChain } from "@/lib/audit-chain";
 import { getIdentityByEmail } from "@/lib/auth/identity";
@@ -54,7 +50,7 @@ test("an expired invite is refused", async () => {
   const { invite, token, email } = await makeExpiredInvite(
     "Analyst",
     owner.identity.accountId,
-    owner.orgId
+    owner.orgId,
   );
 
   // The fixture really did produce an expired invitation, via the production
@@ -69,9 +65,7 @@ test("an expired invite is refused", async () => {
 
   // And it must not have created anything.
   expect(await getIdentityByEmail(email)).toBeNull();
-  expect(
-    await db.account.count({ where: { email } })
-  ).toBe(0);
+  expect(await db.account.count({ where: { email } })).toBe(0);
 });
 
 test("an invite inside its 72-hour window is still usable", async () => {
@@ -149,7 +143,7 @@ test("eight concurrent uses of one invite still produce exactly one success", as
   const { token, email } = await makeInvite("Auditor", owner.identity.accountId, owner.orgId);
 
   const attempts = await Promise.all(
-    Array.from({ length: 8 }, () => acceptInvite({ token, password: TEST_PASSWORD }))
+    Array.from({ length: 8 }, () => acceptInvite({ token, password: TEST_PASSWORD })),
   );
 
   const successes = attempts.filter((r) => r.ok);
@@ -263,7 +257,10 @@ test("issuing and consuming an invitation is written to the audit chain", async 
   // Scoped to the org that OWNS these rows: `issueInvite`/`acceptInvite` both
   // append under `invite.orgId`, which is the fixture's own `owner.orgId`.
   // Passing null here would walk the shared namespace and verify zero rows.
-  const afterIssue = await verifyChain(`AUTH-${owner.identity.accountId.replace(/[^\w.:-]/g, "")}`, owner.orgId);
+  const afterIssue = await verifyChain(
+    `AUTH-${owner.identity.accountId.replace(/[^\w.:-]/g, "")}`,
+    owner.orgId,
+  );
   expect(afterIssue.ok).toBe(true);
 
   const result = await acceptInvite({ token });
@@ -274,7 +271,10 @@ test("issuing and consuming an invitation is written to the audit chain", async 
   // question "who provisioned this account" is answerable from the chain.
   // The redemption row is appended with `orgId: invite.orgId` — the same org
   // the account was created into, which is the fixture's `owner.orgId`.
-  const created = await verifyChain(`AUTH-${result.identity.accountId.replace(/[^\w.:-]/g, "")}`, owner.orgId);
+  const created = await verifyChain(
+    `AUTH-${result.identity.accountId.replace(/[^\w.:-]/g, "")}`,
+    owner.orgId,
+  );
   expect(created.ok).toBe(true);
   if (!created.ok) return;
 

@@ -29,7 +29,8 @@ import "server-only";
  *   }
  */
 
-import { NextRequest, NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import {
   makeFailure,
   responseInitFor,
@@ -52,6 +53,7 @@ import {
 } from "@/lib/failures/envelope";
 import { requireAuth, type Authed, type AuthDenied } from "@/lib/auth/guards";
 import { Prisma } from "@/generated/prisma/client";
+import { ZodError, type ZodIssue } from "zod";
 
 /**
  * Convert a Prisma error into a typed Failure.
@@ -119,7 +121,9 @@ export function ok(data: unknown, init?: ResponseInit): NextResponse {
  *
  * Returns Authed (with scoped db) or a Failure for unauthenticated requests.
  */
-export async function requireOrg(req: NextRequest): Promise<Authed | { ok: false; failure: Failure }> {
+export async function requireOrg(
+  req: NextRequest,
+): Promise<Authed | { ok: false; failure: Failure }> {
   const cookie = req.headers.get("cookie");
   const auth = await requireAuth(cookie);
   if (!auth.ok) {
@@ -154,17 +158,59 @@ export async function requireOrgWithCapability(
 }
 
 /**
+ * Read the issue array off a Zod error, or `null` when this is not one.
+ *
+ * Zod **4** renamed the field: `ZodError.errors` (Zod 3) is now `ZodError.issues`.
+ * Keying on `.errors` therefore matched nothing in this repo and every real
+ * validation failure fell through to the generic 500 handler instead of the
+ * promised 422. Both spellings are accepted, with `issues` first, so the
+ * function works against either major version.
+ *
+ * The structural fallback is deliberate rather than lazy: `instanceof` fails
+ * whenever two copies of zod are resolved in one process (a transitive
+ * dependency can pull its own), and in that case a genuine ZodError would be
+ * misclassified as "not a validation error" — the exact failure this guard
+ * exists to catch. An array-valued `issues` on an Error is unambiguous enough
+ * to accept; a non-array is refused, so an unrelated error carrying
+ * `issues: "boom"` is still not treated as a validation failure.
+ */
+function zodIssuesOf(err: unknown): ZodIssue[] | null {
+  if (err instanceof ZodError) return err.issues;
+  if (
+    err instanceof Error &&
+    "issues" in err &&
+    Array.isArray((err as { issues: unknown }).issues)
+  ) {
+    return (err as { issues: ZodIssue[] }).issues;
+  }
+  // Zod 3's spelling, kept so this keeps working if the major is ever reverted.
+  if (
+    err instanceof Error &&
+    "errors" in err &&
+    Array.isArray((err as { errors: unknown }).errors)
+  ) {
+    return (err as { errors: ZodIssue[] }).errors;
+  }
+  return null;
+}
+
+/**
  * Handle Zod validation errors and return a proper 422 response.
  */
 export function handleZodError(err: unknown, requestId?: string): Failure | null {
-  if (err instanceof Error && "errors" in err && Array.isArray((err as any).errors)) {
-    const messages = (err as any).errors
-      .map((e: any) => `${e.path?.join(".") || "root"}: ${e.message}`)
-      .slice(0, 3)
-      .join("; ");
-    return semanticallyInvalid({ requestId, detail: messages });
-  }
-  return null;
+  const issues = zodIssuesOf(err);
+  if (issues === null) return null;
+  const messages = issues
+    // `path` is typed as always-present on a ZodIssue, but the Zod 3 branch and
+    // a hand-rolled error can omit it — an issue with no path is a root-level
+    // failure, not a reason to throw here.
+    .map(
+      (issue) =>
+        `${(issue.path ?? []).map((p) => String(p)).join(".") || "root"}: ${issue.message}`,
+    )
+    .slice(0, 3)
+    .join("; ");
+  return semanticallyInvalid({ requestId, detail: messages });
 }
 
 // Re-export common failure constructors for convenience

@@ -20,10 +20,7 @@ export async function POST(req: Request) {
   if (authed.ok) {
     await logout(authed.session);
   }
-  const response = NextResponse.json(
-    { ok: true },
-    { headers: { "Cache-Control": "no-store" } }
-  );
+  const response = NextResponse.json({ ok: true }, { headers: { "Cache-Control": "no-store" } });
   // Expire the cookie with the same attribute set it was issued under, or a
   // path/domain mismatch means the browser keeps it.
   response.cookies.set(SESSION_COOKIE_NAME, "", { ...SESSION_COOKIE_ATTRS, maxAge: 0 });

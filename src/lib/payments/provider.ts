@@ -93,8 +93,7 @@ export type WebhookRejection =
   | "unsupported_event";
 
 export type WebhookVerification =
-  | { ok: true; event: ProviderEvent }
-  | { ok: false; reason: WebhookRejection; detail?: string };
+  { ok: true; event: ProviderEvent } | { ok: false; reason: WebhookRejection; detail?: string };
 
 export type RefundRequest = {
   reference: string;
@@ -169,13 +168,17 @@ export function assertMoney(money: Money, name = "money"): Money {
   if (!money || typeof money !== "object") throw new TypeError(`${name} is required`);
   const { amountMinor, currency } = money;
   if (typeof amountMinor !== "number" || !Number.isInteger(amountMinor)) {
-    throw new TypeError(`${name}.amountMinor must be an integer minor-unit value (got ${String(amountMinor)})`);
+    throw new TypeError(
+      `${name}.amountMinor must be an integer minor-unit value (got ${String(amountMinor)})`,
+    );
   }
   if (!Number.isSafeInteger(amountMinor)) {
     throw new RangeError(`${name}.amountMinor exceeds the safe integer range`);
   }
   if (typeof currency !== "string" || !/^[A-Za-z]{3}$/.test(currency)) {
-    throw new TypeError(`${name}.currency must be an ISO-4217 alpha-3 code (got ${String(currency)})`);
+    throw new TypeError(
+      `${name}.currency must be an ISO-4217 alpha-3 code (got ${String(currency)})`,
+    );
   }
   return { amountMinor, currency: currency.toUpperCase() };
 }
@@ -188,7 +191,9 @@ export function encodeEntitlements(envelope: EntitlementEnvelope): string {
     entitlements: (envelope.entitlements ?? []).map((e) => ({
       key: e.key,
       ...(e.label === undefined ? {} : { label: e.label }),
-      ...(e.units === undefined ? {} : { units: assertNonNegativeInt(e.units, "entitlement.units") }),
+      ...(e.units === undefined
+        ? {}
+        : { units: assertNonNegativeInt(e.units, "entitlement.units") }),
       ...(e.metadata === undefined ? {} : { metadata: e.metadata }),
     })),
     ...(envelope.recordedBy === undefined ? {} : { recordedBy: envelope.recordedBy }),
@@ -284,7 +289,12 @@ export async function settlePayment(input: SettleInput): Promise<SettleResult> {
       ON CONFLICT ("reference") DO NOTHING
       RETURNING "id"
     `;
-    return { applied: inserted.length === 1, paymentId: inserted[0]?.id ?? "", unitsCredited: 0, duplicate: inserted.length === 0 };
+    return {
+      applied: inserted.length === 1,
+      paymentId: inserted[0]?.id ?? "",
+      unitsCredited: 0,
+      duplicate: inserted.length === 0,
+    };
   }
 
   const entitlements = input.entitlements ?? [];
@@ -320,7 +330,9 @@ export async function settlePayment(input: SettleInput): Promise<SettleResult> {
       let settledId: string;
       let settled: boolean;
       if (inserted.length === 1) {
-        settledId = inserted[0].id;
+        // `inserted.length === 1` is the guard on this branch, so index 0 is the
+        // single row the INSERT ... RETURNING produced.
+        settledId = inserted[0]!.id;
         settled = true;
       } else {
         // The reference already exists (manual invoice: recorded, then verified;
@@ -334,7 +346,8 @@ export async function settlePayment(input: SettleInput): Promise<SettleResult> {
           RETURNING "id"
         `;
         if (flipped.length === 1) {
-          settledId = flipped[0].id;
+          // Same guard: the conditional UPDATE returned exactly one row.
+          settledId = flipped[0]!.id;
           settled = true;
         } else {
           const existing = await tx.paymentRecord.findUnique({

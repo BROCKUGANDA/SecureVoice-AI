@@ -18,7 +18,13 @@
  */
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { setOrgGeoPolicy } from "@/lib/abuse/geo";
-import { clearOrgPlanTiers, clearOrgTestNumbers, planTierFor, setOrgPlanTier, setOrgTestNumbers } from "@/lib/abuse/tiers";
+import {
+  clearOrgPlanTiers,
+  clearOrgTestNumbers,
+  planTierFor,
+  setOrgPlanTier,
+  setOrgTestNumbers,
+} from "@/lib/abuse/tiers";
 import { resetAbuseConfig, setAbuseConfig } from "@/lib/abuse/config";
 import { assertDialAllowed, releaseDialSlot } from "@/lib/abuse/guards";
 

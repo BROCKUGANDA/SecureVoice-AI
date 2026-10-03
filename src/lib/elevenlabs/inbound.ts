@@ -13,7 +13,12 @@ import "server-only";
  */
 
 import { db } from "@/lib/db";
-import { caseByConversation, canTransition, transitionCase, transitionCaseWithOutbox } from "@/lib/case-state-machine";
+import {
+  caseByConversation,
+  canTransition,
+  transitionCase,
+  transitionCaseWithOutbox,
+} from "@/lib/case-state-machine";
 import { append as auditAppend } from "@/lib/audit-chain";
 import * as redact from "@/lib/redact";
 import { settleAttempt } from "@/lib/billing/ledger";
@@ -23,7 +28,37 @@ type WebhookEventRow = {
   eventType: string;
   conversationId: string | null;
   eventTimestamp: number | null;
+  /** Which ElevenLabs agent produced the event — the inbound tenant signal. */
+  agentId: string | null;
 };
+
+/**
+ * Resolve WHICH TENANT an inbound provider event belongs to.
+ *
+ * This is the bleedguard for the webhook path. The delivery authenticates on
+ * one shared platform secret, which proves nothing about tenancy, so the case
+ * correlation used to run unscoped. ElevenLabs names the agent that produced
+ * the event, and each organization records the agent (and phone number) it
+ * dials on, so the event can be attributed to exactly one tenant.
+ *
+ * Returns null when nothing is bound — a single-tenant deployment, or an agent
+ * this platform does not own. Null means the DEFAULT org namespace in
+ * `caseByConversation`, never "any org": an unbound event is confined, not
+ * trusted.
+ */
+async function resolveInboundOrgId(row: WebhookEventRow, data: unknown): Promise<string | null> {
+  const payload = data as { agent_id?: unknown; call_info?: { agent_id?: unknown } } | null;
+  const agentId =
+    (typeof payload?.agent_id === "string" && payload.agent_id) ||
+    (typeof payload?.call_info?.agent_id === "string" && payload.call_info.agent_id) ||
+    row.agentId;
+  if (!agentId) return null;
+  const org = await db.organization.findUnique({
+    where: { elevenAgentId: agentId },
+    select: { id: true },
+  });
+  return org?.id ?? null;
+}
 
 /**
  * Drain unprocessed deliveries (hazard H7: a webhook that was accepted but
@@ -47,7 +82,9 @@ export async function drainPendingWebhooks(limit = 20): Promise<number> {
     if (row.processed) continue;
     // Re-delivery is the recovery path for a stuck row; until the provider is
     // polled, surface the row rather than silently marking it done.
-    console.warn(`[inbound] pending delivery ${row.eventType} ${row.conversationId ?? "(no conversation)"} awaiting redelivery`);
+    console.warn(
+      `[inbound] pending delivery ${row.eventType} ${row.conversationId ?? "(no conversation)"} awaiting redelivery`,
+    );
     drained++;
   }
   return drained;
@@ -58,10 +95,7 @@ export async function drainPendingWebhooks(limit = 20): Promise<number> {
  * the audit entry; the processed=true check is the fast path.) */
 const INFLIGHT = new Map<string, Promise<unknown>>();
 
-export async function processInboundEvent(
-  rowId: string,
-  event: unknown,
-): Promise<void> {
+export async function processInboundEvent(rowId: string, event: unknown): Promise<void> {
   const prev = INFLIGHT.get(rowId) ?? Promise.resolve();
   const run = prev.then(() => processInboundEventInner(rowId, event));
   INFLIGHT.set(
@@ -117,7 +151,10 @@ function extractDurationSeconds(data: any): number | null {
   }
   const turns: any[] = Array.isArray(data?.transcript) ? data.transcript : [];
   const lastMark = turns.reduce(
-    (max, t) => (typeof t?.time_in_call_secs === "number" && t.time_in_call_secs > max ? t.time_in_call_secs : max),
+    (max, t) =>
+      typeof t?.time_in_call_secs === "number" && t.time_in_call_secs > max
+        ? t.time_in_call_secs
+        : max,
     0,
   );
   return turns.length > 0 ? Math.ceil(lastMark) : null;
@@ -139,11 +176,17 @@ function countTools(data: any): { names: string[]; count: number } {
 async function handleTranscription(row: WebhookEventRow, data: any): Promise<void> {
   const conversationId: string | null =
     typeof data?.conversation_id === "string" ? data.conversation_id : row.conversationId;
-  const caseRow = conversationId ? await caseByConversation(conversationId) : null;
+  // The tenant is resolved from the agent this event names — not assumed.
+  // A replayed conversation id can only ever correlate a case in that tenant.
+  const inboundOrgId = await resolveInboundOrgId(row, data);
+  const caseRow = conversationId ? await caseByConversation(conversationId, inboundOrgId) : null;
 
   const turns: any[] = Array.isArray(data?.transcript) ? data.transcript : [];
   const joined = turns
-    .map((t) => `[${typeof t?.role === "string" ? t.role : "unknown"}] ${typeof t?.message === "string" ? t.message : ""}`)
+    .map(
+      (t) =>
+        `[${typeof t?.role === "string" ? t.role : "unknown"}] ${typeof t?.message === "string" ? t.message : ""}`,
+    )
     .join("\n");
   const redactedTranscript = redact.transcript(joined);
 
@@ -157,7 +200,8 @@ async function handleTranscription(row: WebhookEventRow, data: any): Promise<voi
         eventType: row.eventType,
         conversationId: conversationId ?? null,
         reason: "correlation_failed",
-        transcriptRedacted: redact.transcript(String(firstUser?.message ?? "")).slice(0, 500) || null,
+        transcriptRedacted:
+          redact.transcript(String(firstUser?.message ?? "")).slice(0, 500) || null,
         eventTimestamp: row.eventTimestamp,
       },
     });
@@ -166,9 +210,7 @@ async function handleTranscription(row: WebhookEventRow, data: any): Promise<voi
 
   const durationSeconds = extractDurationSeconds(data);
   const outcome =
-    typeof data?.analysis?.call_successful === "string"
-      ? data.analysis.call_successful
-      : null;
+    typeof data?.analysis?.call_successful === "string" ? data.analysis.call_successful : null;
   const { names: toolNames, count: toolCallCount } = countTools(data);
   const evaluation = data?.analysis?.evaluation_criteria_results ?? null;
   const dataCollection = data?.analysis?.data_collection_results ?? null;
@@ -189,9 +231,7 @@ async function handleTranscription(row: WebhookEventRow, data: any): Promise<voi
         toolCalls: toolCallCount,
         toolNames,
         billing:
-          durationSeconds !== null
-            ? { billed_minutes: Math.ceil(durationSeconds / 60) }
-            : null,
+          durationSeconds !== null ? { billed_minutes: Math.ceil(durationSeconds / 60) } : null,
         evaluationKeys: evaluation && typeof evaluation === "object" ? Object.keys(evaluation) : [],
         dataCollectionKeys:
           dataCollection && typeof dataCollection === "object" ? Object.keys(dataCollection) : [],
@@ -266,19 +306,25 @@ async function handleTranscription(row: WebhookEventRow, data: any): Promise<voi
       // unit is the actual charge; duration is recorded alongside it as the
       // margin input the cost model needs, not as the billing unit.
       unitsActual: 1,
-      reason: durationSeconds !== null ? `post_call_reconcile_${durationSeconds}s` : "post_call_reconcile",
+      reason:
+        durationSeconds !== null
+          ? `post_call_reconcile_${durationSeconds}s`
+          : "post_call_reconcile",
     });
   } catch (err) {
     // Metering must never break the evidence pipeline: the ingest is already
     // committed and chained. The reservation stays in place for a later
     // reconcile pass rather than being force-released.
     console.error("[inbound] billing reconciliation failed:", err);
-  }}
+  }
+}
 
 async function handleAudio(row: WebhookEventRow, data: any): Promise<void> {
   const conversationId: string | null =
     typeof data?.conversation_id === "string" ? data.conversation_id : row.conversationId;
-  const caseRow = conversationId ? await caseByConversation(conversationId) : null;
+  // BLEEDGUARD: same tenant resolution as the transcription path.
+  const inboundOrgId = await resolveInboundOrgId(row, data);
+  const caseRow = conversationId ? await caseByConversation(conversationId, inboundOrgId) : null;
   if (!caseRow) {
     await db.webhookQuarantine.create({
       data: {
@@ -311,9 +357,10 @@ async function handleAudio(row: WebhookEventRow, data: any): Promise<void> {
 async function handleInitiationFailure(row: WebhookEventRow, data: any): Promise<void> {
   const conversationId: string | null =
     typeof data?.conversation_id === "string" ? data.conversation_id : row.conversationId;
-  const caseRow = conversationId ? await caseByConversation(conversationId) : null;
-  const failureReason =
-    typeof data?.failure_reason === "string" ? data.failure_reason : "unknown";
+  // BLEEDGUARD: same tenant resolution as the transcription path.
+  const inboundOrgId = await resolveInboundOrgId(row, data);
+  const caseRow = conversationId ? await caseByConversation(conversationId, inboundOrgId) : null;
+  const failureReason = typeof data?.failure_reason === "string" ? data.failure_reason : "unknown";
 
   if (!caseRow) {
     await db.webhookQuarantine.create({

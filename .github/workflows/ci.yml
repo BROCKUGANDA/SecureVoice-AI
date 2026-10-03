@@ -88,6 +88,49 @@ jobs:
         # gate matches what `bun run verify` executes locally.
         run: bun run test
 
+      # Coverage. REPORT-ONLY, deliberately not `continue-on-error: false`.
+      #
+      # scripts/coverage.mjs runs each test file in its own process (the same
+      # reason scripts/run-tests.mjs does — see that file's header), asks each
+      # for an lcov profile, merges them, and checks the result against the
+      # thresholds in that script: 80% overall, 70% unit, 20% integration,
+      # 10% e2e. Integration already clears its bar; unit and e2e do not, so
+      # making this step blocking today would turn every PR red for a number
+      # nobody has moved yet.
+      #
+      # `continue-on-error: true` keeps the measurement honest (the artifact is
+      # produced either way) while leaving the gate itself to be flipped on once
+      # the remaining tiers are actually met — at which point deleting this one
+      # line is the whole change.
+      - name: Coverage report
+        continue-on-error: true
+        run: bun run test:coverage || true
+
+      - name: Upload coverage summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-summary
+          path: |
+            coverage/coverage-summary.txt
+            coverage/coverage.json
+          if-no-files-found: warn
+
+      # AA-1.1 — N+1 / query-budget gate.
+      #
+      # `bun run test` above already runs this file (it discovers every
+      # *.test.ts recursively), so this step is not about coverage — it is about
+      # ATTRIBUTION. The general unit step reports "1 of N files failed"; this
+      # one names the defect class, so a regression reads as "an N+1 was
+      # introduced" instead of an opaque failing assertion in an anonymous run.
+      #
+      # Deliberately DB-free: the gate measures how many queries a handler
+      # issues, which is observable without a live database. That keeps it in
+      # the fast lane and means it cannot be skipped by the unreachable remote
+      # Postgres that currently blocks the DB-backed suites.
+      - name: Query budget (AA-1.1)
+        run: bun test tests/telemetry/query-budget.test.ts
+
       # The test project is separate (it needs `bun:test` types and .ts import
       # extensions the Next app project doesn't allow), so it needs its own
       # typecheck or a type error in a test only shows up at runtime.
@@ -102,28 +145,28 @@ jobs:
       - name: Typecheck
         run: bunx tsc --noEmit -p tsconfig.json
 
-# AA-1.3 — timezone independence.
-#
-# The same suite, run again under a deliberately absurd timezone. Costs one CI
-# step and catches an entire class of billing and scheduling bug that is
-# invisible from the deploy box (UTC) and catastrophic in East Africa, where the
-# operators actually are: a case opened at 23:40 EAT landing in the wrong
-# billing period, or a UTC-authored cutoff firing at the wrong local hour.
-#
-# Kiritimati is UTC+14 (the largest offset in the world) and Niue is UTC-11, so
-# between them they bracket the full 24-hour span and a local-time day bucket
-# cannot accidentally agree in both. The gate spawns its own children with TZ set
-# before exec, because TZ is consumed by the C runtime at process start.
-#
-# Only the timezone-independent suites run here: anything needing Postgres would
-# fail on connection rather than on timezone, and this job exists to isolate one
-# cause of failure.
+      # AA-1.3 — timezone independence.
+      #
+      # The same suite, run again under a deliberately absurd timezone. Costs one CI
+      # step and catches an entire class of billing and scheduling bug that is
+      # invisible from the deploy box (UTC) and catastrophic in East Africa, where the
+      # operators actually are: a case opened at 23:40 EAT landing in the wrong
+      # billing period, or a UTC-authored cutoff firing at the wrong local hour.
+      #
+      # Kiritimati is UTC+14 (the largest offset in the world) and Niue is UTC-11, so
+      # between them they bracket the full 24-hour span and a local-time day bucket
+      # cannot accidentally agree in both. The gate spawns its own children with TZ set
+      # before exec, because TZ is consumed by the C runtime at process start.
+      #
+      # Only the timezone-independent suites run here: anything needing Postgres would
+      # fail on connection rather than on timezone, and this job exists to isolate one
+      # cause of failure.
       - name: Hostile timezone suite
         env:
           TZ: Pacific/Kiritimati
         run: bun test tests/timezone tests/billing tests/telemetry tests/contracts
 
-# Schema drift gate. Twice now a model has landed in schema.prisma with
+      # Schema drift gate. Twice now a model has landed in schema.prisma with
       # no migration: the app deploys, every request returns 200, and the
       # failure only appears when a code path touches the new column — which is
       # the worst possible time to discover it. This step applies every

@@ -6,29 +6,31 @@ import type { NextConfig } from "next";
  *  - script-src 'unsafe-inline' is needed for Next.js's inline bootstrap scripts in
  *    dev; in production Next hashes/nonces these where possible, but the app-shell
  *    rendering (framer-motion inline styles) keeps style-src 'unsafe-inline'.
- *  - connect-src includes ElevenLabs (voice) and Clerk (auth: api.clerk.com +
- *    the dev Frontend API *.clerk.accounts.dev, wss for session sync).
- *  - script/frame/font/img allowances cover the Clerk JS bundle, embedded
- *    component iframes, fonts, and profile images (img.clerk.com).
+ *  - connect-src includes ElevenLabs (voice) only. Authentication is Better
+ *    Auth, served from THIS origin at /api/auth/*, so it needs no cross-origin
+ *    allowance at all.
+ *  - No third-party origins remain in script-src / img-src / font-src / frame-src.
+ *    Those entries existed only for the removed Clerk JS bundle and its embedded
+ *    component iframes. Deleting them narrows the policy rather than swapping one
+ *    vendor for another: every directive that can be reduced was reduced.
  */
 // 'unsafe-eval' is a dev-server requirement (React refresh); it never ships
 // in a production CSP.
 const scriptSrc = [
   "script-src 'self' 'unsafe-inline'",
   ...(process.env.NODE_ENV === "development" ? ["'unsafe-eval'"] : []),
-  "https://clerk.accounts.dev https://*.clerk.accounts.dev https://api.clerk.com",
 ].join(" ");
 
 const CSP = [
   "default-src 'self'",
   scriptSrc,
   "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob: https: https://img.clerk.com https://*.clerk.accounts.dev",
-  "font-src 'self' data: https://fonts.clerk.com https://clerk.accounts.dev https://*.clerk.accounts.dev",
+  "img-src 'self' data: blob: https:",
+  "font-src 'self' data:",
   "media-src 'self' blob:",
-  "connect-src 'self' https://api.elevenlabs.io https://api.clerk.com https://*.clerk.accounts.dev wss://*.clerk.accounts.dev",
+  "connect-src 'self' https://api.elevenlabs.io",
   "worker-src 'self' blob:",
-  "frame-src 'self' https://*.clerk.accounts.dev",
+  "frame-src 'self'",
   "frame-ancestors 'none'",
   "base-uri 'self'",
   "form-action 'self'",

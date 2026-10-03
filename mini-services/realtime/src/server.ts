@@ -55,7 +55,9 @@ const presence = new PresenceRegistry();
 
 function corsOrigin(): string | string[] | boolean {
   if (!ALLOWED_ORIGIN) return true; // no origin configured → dev; log loudly below
-  const list = ALLOWED_ORIGIN.split(",").map((o) => o.trim()).filter(Boolean);
+  const list = ALLOWED_ORIGIN.split(",")
+    .map((o) => o.trim())
+    .filter(Boolean);
   return list.length === 1 ? list[0]! : list;
 }
 
@@ -115,7 +117,8 @@ io.on("connection", (socket) => {
     const [kind, orgPart, callRef] = requested.split(":");
     const orgId = safeSegment(orgPart ?? "", 64);
     const ref = safeSegment(callRef ?? "", 64);
-    const expected = kind === "case" && ref ? caseChannel(orgId, ref) : kind === "org" ? orgChannel(orgId) : "";
+    const expected =
+      kind === "case" && ref ? caseChannel(orgId, ref) : kind === "org" ? orgChannel(orgId) : "";
 
     if (!expected || !socket.data.channels.has(expected)) {
       ack?.({ ok: false, error: "not_in_scope" });
@@ -191,7 +194,11 @@ const httpServer = createServer((req, res) => {
     req.on("end", () => {
       if (res.writableEnded) return;
       const rawBody = Buffer.concat(chunks).toString("utf8");
-      const sig = verifySignature(req.headers["sv-signature"] as string | undefined, rawBody, INGEST_SECRET);
+      const sig = verifySignature(
+        req.headers["sv-signature"] as string | undefined,
+        rawBody,
+        INGEST_SECRET,
+      );
       if (!sig.ok) {
         send(401, { error: "unauthorized" });
         return;
@@ -233,12 +240,16 @@ const pubsub: PubSub = await attachPubSub(io).catch((err: unknown) => {
 
 httpServer.listen(PORT, HOST, () => {
   if (!INGEST_SECRET) {
-    console.warn("[realtime] REALTIME_INGEST_SECRET unset — /ingest and /ws will reject everything");
+    console.warn(
+      "[realtime] REALTIME_INGEST_SECRET unset — /ingest and /ws will reject everything",
+    );
   }
   if (!ALLOWED_ORIGIN) {
     console.warn("[realtime] REALTIME_ALLOWED_ORIGIN unset — accepting any Origin (dev only)");
   }
-  console.log(`[realtime] listening on ${HOST}:${PORT} (socket.io path "${SOCKET_PATH}", pubsub=${pubsub.mode})`);
+  console.log(
+    `[realtime] listening on ${HOST}:${PORT} (socket.io path "${SOCKET_PATH}", pubsub=${pubsub.mode})`,
+  );
 });
 
 for (const sig of ["SIGTERM", "SIGINT"] as const) {

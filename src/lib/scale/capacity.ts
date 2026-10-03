@@ -84,9 +84,7 @@ export const MEAN_CALL_SECONDS = 180;
 // ── Vendor ceilings ──────────────────────────────────────────────────────────
 
 export type CeilingName =
-  | "elevenLabsConcurrentSessions"
-  | "twilioCallsPerSecondPerNumber"
-  | "twilioAccountConcurrency";
+  "elevenLabsConcurrentSessions" | "twilioCallsPerSecondPerNumber" | "twilioAccountConcurrency";
 
 export type VendorCeiling = {
   name: CeilingName;
@@ -117,15 +115,21 @@ const READ_DATE = "2026-10-02";
 
 const CEILING_DEFAULTS: Record<
   CeilingName,
-  { value: number; unit: VendorCeiling["unit"]; vendor: VendorCeiling["vendor"]; source: string; note: string }
+  {
+    value: number;
+    unit: VendorCeiling["unit"];
+    vendor: VendorCeiling["vendor"];
+    source: string;
+    note: string;
+  }
 > = {
   elevenLabsConcurrentSessions: {
     value: ELEVENLABS_MAX_CONCURRENT,
     unit: "concurrent_calls",
     vendor: "elevenlabs",
-    source: "elevenlabs.io/pricing/agents — concurrency by tier (Free 4 · Starter 6 · Creator 10 · Pro 20 · Scale 30 · Business 40)",
-    note:
-      "CALIBRATED against a published tier table, NOT measured against our account: we have never run a real conversation at the ceiling. The default is the FREE tier (4) on purpose — assuming a paid tier is how a demo discovers it was throttled on the day it mattered. Read the real number in the ElevenLabs dashboard (Settings → Usage / Limits) and set ELEVENLABS_MAX_CONCURRENT.",
+    source:
+      "elevenlabs.io/pricing/agents — concurrency by tier (Free 4 · Starter 6 · Creator 10 · Pro 20 · Scale 30 · Business 40)",
+    note: "CALIBRATED against a published tier table, NOT measured against our account: we have never run a real conversation at the ceiling. The default is the FREE tier (4) on purpose — assuming a paid tier is how a demo discovers it was throttled on the day it mattered. Read the real number in the ElevenLabs dashboard (Settings → Usage / Limits) and set ELEVENLABS_MAX_CONCURRENT.",
   },
   twilioCallsPerSecondPerNumber: {
     value: TWILIO_CPS_PER_FROM_NUMBER,
@@ -133,16 +137,15 @@ const CEILING_DEFAULTS: Record<
     vendor: "twilio",
     source:
       "Twilio account-specific voice limit — Twilio Console → Voice → Settings, or support. Not a published fixed number; assigned per account and raised by support.",
-    note:
-      "CALIBRATED as a conservative starting point for a new account, NOT a quoted term. It is PER FROM-NUMBER, which is why from-numbers are a scaling lever and not a detail: N numbers at C cps give N×C. The default (2) is ours, not Twilio's — set TWILIO_CPS_PER_FROM_NUMBER from the console before load testing.",
+    note: "CALIBRATED as a conservative starting point for a new account, NOT a quoted term. It is PER FROM-NUMBER, which is why from-numbers are a scaling lever and not a detail: N numbers at C cps give N×C. The default (2) is ours, not Twilio's — set TWILIO_CPS_PER_FROM_NUMBER from the console before load testing.",
   },
   twilioAccountConcurrency: {
     value: TWILIO_MAX_CONCURRENT_CALLS,
     unit: "concurrent_calls",
     vendor: "twilio",
-    source: "Twilio account-level concurrent calls in flight — Console → Voice → Settings, or support.",
-    note:
-      "CALIBRATED conservative default (10) for a new account, NOT a quoted term. This is an ACCOUNT limit, so unlike the per-number CPS it does not improve by buying numbers. The default (10) is ours — set TWILIO_MAX_CONCURRENT_CALLS from the console.",
+    source:
+      "Twilio account-level concurrent calls in flight — Console → Voice → Settings, or support.",
+    note: "CALIBRATED conservative default (10) for a new account, NOT a quoted term. This is an ACCOUNT limit, so unlike the per-number CPS it does not improve by buying numbers. The default (10) is ours — set TWILIO_MAX_CONCURRENT_CALLS from the console.",
   },
 };
 
@@ -371,7 +374,10 @@ export function projectCapacity(input: CapacityModelInput): CapacityModel {
 
   const peakWindowMinutes = input.peakWindowMinutes ?? null;
   const windowHours = peakWindowMinutes === null ? HOURS_PER_MONTH : peakWindowMinutes / 60;
-  const windowLabel = peakWindowMinutes === null ? "an average month (730 h)" : `a ${peakWindowMinutes}-minute campaign window`;
+  const windowLabel =
+    peakWindowMinutes === null
+      ? "an average month (730 h)"
+      : `a ${peakWindowMinutes}-minute campaign window`;
 
   const interventionsPerMonth = input.cardsPerMonth * input.flagRate;
   const meanPerHour = interventionsPerMonth / windowHours;
@@ -418,7 +424,8 @@ export function projectCapacity(input: CapacityModelInput): CapacityModel {
   const carrierUsd = requiredConcurrent * carrierUsdPerMinute;
   const usdPerHour = conversationalAiUsd + carrierUsd;
 
-  const voiceCoverageOfPeak = requiredConcurrent > 0 ? Math.min(1, burstCeiling / requiredConcurrent) : 1;
+  const voiceCoverageOfPeak =
+    requiredConcurrent > 0 ? Math.min(1, burstCeiling / requiredConcurrent) : 1;
 
   const verdict: string[] = [];
   verdict.push(
@@ -432,7 +439,9 @@ export function projectCapacity(input: CapacityModelInput): CapacityModel {
       `⚠ OVERSUBSCRIBED by ${round(worst.ratio, 2)}× against ${worst.name}: ${worst.statement}. Voice can cover ${(voiceCoverageOfPeak * 100).toFixed(1)}% of the modelled peak even at the 3× burst allowance; the remainder must take the fallback channel (SMS / app push) WITH an audit row per case.`,
     );
   } else {
-    verdict.push(`Within every vendor ceiling. Headroom is held by the admission ladder, not by the vendors.`);
+    verdict.push(
+      `Within every vendor ceiling. Headroom is held by the admission ladder, not by the vendors.`,
+    );
   }
   verdict.push(
     `At the modelled peak the admission ladder sits in ${bandFor(requiredConcurrent)} (CONSTRAINED ≥ ${round(ELEVENLABS_BURST_CEILING * BAND_ENTER_CONSTRAINED_PCT)}, SHED ≥ ${round(ELEVENLABS_BURST_CEILING * BAND_ENTER_SHED_PCT)}).`,
@@ -445,10 +454,32 @@ export function projectCapacity(input: CapacityModelInput): CapacityModel {
 
   return {
     inputs: {
-      cardsPerMonth: { value: input.cardsPerMonth, confidence: "extrapolated", basis: "modelling-assumption", source: "institution-supplied (their card volume); we have no pilot figure yet" },
-      flagRate: { value: input.flagRate, confidence: "extrapolated", basis: "modelling-assumption", source: "institution-supplied; ~0.35% steady state is our planning figure, NOT a measurement" },
-      meanCallSeconds: { value: meanCallSeconds, confidence: "calibrated", basis: "repo-documented", source: "docs/UNIT-ECONOMICS.md §1 (demo-traffic handle time; no pilot distribution yet)" },
-      peakMultiple: { value: peakMultiple, confidence: "extrapolated", basis: "modelling-assumption", source: "our planning figure; replace with the institution's own peak-hour ratio once measured" },
+      cardsPerMonth: {
+        value: input.cardsPerMonth,
+        confidence: "extrapolated",
+        basis: "modelling-assumption",
+        source: "institution-supplied (their card volume); we have no pilot figure yet",
+      },
+      flagRate: {
+        value: input.flagRate,
+        confidence: "extrapolated",
+        basis: "modelling-assumption",
+        source:
+          "institution-supplied; ~0.35% steady state is our planning figure, NOT a measurement",
+      },
+      meanCallSeconds: {
+        value: meanCallSeconds,
+        confidence: "calibrated",
+        basis: "repo-documented",
+        source: "docs/UNIT-ECONOMICS.md §1 (demo-traffic handle time; no pilot distribution yet)",
+      },
+      peakMultiple: {
+        value: peakMultiple,
+        confidence: "extrapolated",
+        basis: "modelling-assumption",
+        source:
+          "our planning figure; replace with the institution's own peak-hour ratio once measured",
+      },
       carrierUsdPerMinute: {
         value: carrierUsdPerMinute,
         confidence: carrierUsdPerMinute === 0 ? "extrapolated" : "calibrated",
@@ -458,15 +489,71 @@ export function projectCapacity(input: CapacityModelInput): CapacityModel {
             ? "EXCLUDED — INPUT REQUIRED (docs/UNIT-ECONOMICS.md §2, Twilio rate card by destination)"
             : "supplied per destination from the Twilio console",
       },
-      fromNumbers: { value: fromNumbers, confidence: "measured", basis: "repo-documented", source: "deployment configuration; buying numbers is the cheapest scale lever on the carrier side" },
+      fromNumbers: {
+        value: fromNumbers,
+        confidence: "measured",
+        basis: "repo-documented",
+        source:
+          "deployment configuration; buying numbers is the cheapest scale lever on the carrier side",
+      },
     },
     steps: [
-      step("interventions_per_month", "cards_per_month × flag_rate", interventionsPerMonth, "interventions/month", "extrapolated", "derived-from-model", "One intervention = one billable voice attempt. This is a VOLUME, not a load."),
-      step("mean_per_hour", `interventions ÷ ${round(windowHours, 2)} h (averaging window)`, meanPerHour, "interventions/hour", "extrapolated", "derived-from-model", `Averaged over ${windowLabel}. Dividing the same volume by 730 h instead of 0.67 h is the difference between a trivial number and a campaign.`),
-      step("peak_per_hour", "mean_per_hour × peak_multiple", peakPerHour, "interventions/hour", "extrapolated", "derived-from-model", peakWindowMinutes === null ? "The whole design question lives in peak_multiple." : "peak_multiple = 1 for a burst: the campaign window IS the peak, so applying an 8× multiple on top would invent a peak nobody is going to send us."),
-      step("peak_per_second", "peak_per_hour ÷ 3600", peakPerSecond, "interventions/second", "extrapolated", "derived-from-model", "Arrival rate at the peak."),
-      step("required_concurrent", "peak_per_second × mean_call_seconds", requiredConcurrent, "concurrent calls", "extrapolated", "derived-from-model", "Little's law. This is the number a vendor ceiling is compared against, and it is invariant under time compression — you cannot make a burst cheaper by speeding up the clock."),
-      step("from_numbers_required", `ceil(peak_per_second ÷ twilio_cps_per_number)`, fromNumbersRequired, "numbers", "extrapolated", "derived-from-model", "Per-NUMBER CPS is a lever; account concurrency is not."),
+      step(
+        "interventions_per_month",
+        "cards_per_month × flag_rate",
+        interventionsPerMonth,
+        "interventions/month",
+        "extrapolated",
+        "derived-from-model",
+        "One intervention = one billable voice attempt. This is a VOLUME, not a load.",
+      ),
+      step(
+        "mean_per_hour",
+        `interventions ÷ ${round(windowHours, 2)} h (averaging window)`,
+        meanPerHour,
+        "interventions/hour",
+        "extrapolated",
+        "derived-from-model",
+        `Averaged over ${windowLabel}. Dividing the same volume by 730 h instead of 0.67 h is the difference between a trivial number and a campaign.`,
+      ),
+      step(
+        "peak_per_hour",
+        "mean_per_hour × peak_multiple",
+        peakPerHour,
+        "interventions/hour",
+        "extrapolated",
+        "derived-from-model",
+        peakWindowMinutes === null
+          ? "The whole design question lives in peak_multiple."
+          : "peak_multiple = 1 for a burst: the campaign window IS the peak, so applying an 8× multiple on top would invent a peak nobody is going to send us.",
+      ),
+      step(
+        "peak_per_second",
+        "peak_per_hour ÷ 3600",
+        peakPerSecond,
+        "interventions/second",
+        "extrapolated",
+        "derived-from-model",
+        "Arrival rate at the peak.",
+      ),
+      step(
+        "required_concurrent",
+        "peak_per_second × mean_call_seconds",
+        requiredConcurrent,
+        "concurrent calls",
+        "extrapolated",
+        "derived-from-model",
+        "Little's law. This is the number a vendor ceiling is compared against, and it is invariant under time compression — you cannot make a burst cheaper by speeding up the clock.",
+      ),
+      step(
+        "from_numbers_required",
+        `ceil(peak_per_second ÷ twilio_cps_per_number)`,
+        fromNumbersRequired,
+        "numbers",
+        "extrapolated",
+        "derived-from-model",
+        "Per-NUMBER CPS is a lever; account concurrency is not.",
+      ),
     ],
     interventionsPerMonth,
     /** The period `interventionsPerMonth` was averaged over. 730 h, or the burst. */
@@ -543,7 +630,10 @@ export function isThrottle(err: unknown): boolean {
   for (const candidate of [e.status, e.statusCode, e.code]) {
     if (candidate === 429) return true;
   }
-  return typeof e.message === "string" && /\b429\b|too many requests|rate.?limit|concurrenc/i.test(e.message);
+  return (
+    typeof e.message === "string" &&
+    /\b429\b|too many requests|rate.?limit|concurrenc/i.test(e.message)
+  );
 }
 
 /** The local gate could not get a slot in time — the caller must degrade. */
@@ -587,9 +677,19 @@ export function throttleBackoffMs(
   return Math.round(half + rand() * half);
 }
 
-export type GateStats = { inFlight: number; ceiling: number; waiters: number; granted: number; timeouts: number };
+export type GateStats = {
+  inFlight: number;
+  ceiling: number;
+  waiters: number;
+  granted: number;
+  timeouts: number;
+};
 
-type Waiter = { resolve: () => void; reject: (err: unknown) => void; timer: ReturnType<typeof setTimeout> };
+type Waiter = {
+  resolve: () => void;
+  reject: (err: unknown) => void;
+  timer: ReturnType<typeof setTimeout>;
+};
 
 /**
  * The client-side semaphore in front of the conversational-AI API.
@@ -611,14 +711,23 @@ export class VendorConcurrencyGate {
   private granted = 0;
   private timeouts = 0;
 
-  constructor(private readonly ceilingFn: () => number = () => vendorCeiling("elevenLabsConcurrentSessions").value) {}
+  constructor(
+    private readonly ceilingFn: () => number = () =>
+      vendorCeiling("elevenLabsConcurrentSessions").value,
+  ) {}
 
   ceiling(): number {
     return Math.max(1, this.ceilingFn());
   }
 
   stats(): GateStats {
-    return { inFlight: this.active, ceiling: this.ceiling(), waiters: this.waiters.length, granted: this.granted, timeouts: this.timeouts };
+    return {
+      inFlight: this.active,
+      ceiling: this.ceiling(),
+      waiters: this.waiters.length,
+      granted: this.granted,
+      timeouts: this.timeouts,
+    };
   }
 
   /**
@@ -705,7 +814,8 @@ export type CeilingCallOptions<T> = {
   onGateTimeout?: (err: VendorCeilingExhaustedError) => void;
 };
 
-const defaultSleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+const defaultSleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
  * Run one vendor call under the conversational-AI ceiling, retrying 429s with
@@ -715,7 +825,9 @@ const defaultSleep = (ms: number): Promise<void> => new Promise((resolve) => set
  * sleep. Holding a slot while sleeping would convert "the vendor is full" into
  * "we are full too", which is how a throttle becomes an outage.
  */
-export async function withElevenLabsCeiling<T>(opts: CeilingCallOptions<T>): Promise<CeilingCallResult<T>> {
+export async function withElevenLabsCeiling<T>(
+  opts: CeilingCallOptions<T>,
+): Promise<CeilingCallResult<T>> {
   const gate = opts.gate ?? elevenLabsGate;
   const maxAttempts = Math.max(1, opts.maxAttempts ?? MAX_THROTTLE_ATTEMPTS);
   const maxWaitMs = opts.maxWaitMs ?? 2_000;

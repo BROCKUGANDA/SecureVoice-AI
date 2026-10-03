@@ -11,15 +11,31 @@ datasource db {
 }
 
 model User {
-  id        String   @id @default(cuid())
-  email     String   @unique
-  name      String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id               String       @id @default(dbgenerated("pg_catalog.gen_random_uuid()")) @db.Uuid
+  email            String       @unique
+  name             String?
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+  emailVerified    Boolean      @default(false)
+  image            String?
+  twoFactorEnabled Boolean?     @default(false)
+  role             String?
+  banned           Boolean?     @default(false)
+  banReason        String?
+  banExpires       DateTime?
+  sessions         Session[]
+  accounts         Account[]
+  members          Member[]
+  invitations      Invitation[]
+  twofactors       TwoFactor[]
+  profile          UserProfile?
+
+  @@map("user")
 }
 
 /// Inbound pilot / partnership requests submitted from the public site.
 /// Minimal personal data by design (PDPL-aware): contact + institution only.
+
 model PilotRequest {
   id          String   @id @default(cuid())
   ref         String   @unique // human-friendly reference, e.g. SV-P-8F3K2
@@ -41,15 +57,16 @@ model PilotRequest {
 /// Persists a (caller, key) â†’ response payload for 24h so a retry is a free
 /// replay rather than a second billable call. Concurrent same-key requests
 /// dedupe via the unique composite key on (scope, key).
+
 model IdempotencyKey {
-  id        String   @id @default(cuid())
-  scope     String   // "tts" | "asr" | "agent" â€” narrows dedup to the right surface
-  key       String   // SHA-256 of the canonical request payload
-  callerId  String   // x-caller-id header (or "anon" if absent)
-  response  String   // JSON-stringified response (TTS: empty + audio stored elsewhere; ASR/agent: full body)
-  statusCode Int     @default(200)
-  expiresAt DateTime
-  createdAt DateTime @default(now())
+  id         String   @id @default(cuid())
+  scope      String // "tts" | "asr" | "agent" â€” narrows dedup to the right surface
+  key        String // SHA-256 of the canonical request payload
+  callerId   String // x-caller-id header (or "anon" if absent)
+  response   String // JSON-stringified response (TTS: empty + audio stored elsewhere; ASR/agent: full body)
+  statusCode Int      @default(200)
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
 
   @@unique([scope, key, callerId])
   @@index([expiresAt])
@@ -58,18 +75,19 @@ model IdempotencyKey {
 /// Tamper-evident call audit log. Every agent turn + TTS call + ASR call
 /// appends one row. chainHash = sha256(prevHash || canonicalRow), so any
 /// modification breaks the chain and `verifyChain()` can detect it.
+
 model AuditLog {
-  id         String   @id @default(cuid())
-  callRef    String   // human reference for the call (e.g. SV-C-8F3K2)
-  action     String   // "tts" | "asr" | "agent" | "freeze" | "handoff"
-  intent     String?  // agent decision (deny_fraud | confirm_authorized | greeting | unclear)
-  callerId   String?  // x-caller-id or "anon"
+  id           String   @id @default(cuid())
+  callRef      String // human reference for the call (e.g. SV-C-8F3K2)
+  action       String // "tts" | "asr" | "agent" | "freeze" | "handoff"
+  intent       String? // agent decision (deny_fraud | confirm_authorized | greeting | unclear)
+  callerId     String? // x-caller-id or "anon"
   redactedText String? // redacted transcript snippet (PII removed)
-  meta       String?  // JSON-stringified metadata (lang, voice, latencyMs, etc.)
-  prevHash   String?  // chain link
-  chainHash  String   @unique
-  orgId      String?  // organization scoping (multi-tenant groundwork)
-  createdAt  DateTime @default(now())
+  meta         String? // JSON-stringified metadata (lang, voice, latencyMs, etc.)
+  prevHash     String? // chain link
+  chainHash    String   @unique
+  orgId        String? // organization scoping (multi-tenant groundwork)
+  createdAt    DateTime @default(now())
 
   @@index([callRef, createdAt])
   @@index([orgId, createdAt])
@@ -78,15 +96,16 @@ model AuditLog {
 
 /// Registered ElevenLabs voice personas with consent metadata.
 /// Cloning endpoints refuse a voice without a recorded consent URL + timestamp.
+
 model Voice {
-  id          String   @id @default(cuid())
-  voiceId     String   @unique // ElevenLabs voice_id or our internal slug
-  language    String   // BCP-47 (en-US, ar-AE, hi-IN, ur-PK, fr-FR, bn-BD)
+  id          String    @id @default(cuid())
+  voiceId     String    @unique // ElevenLabs voice_id or our internal slug
+  language    String // BCP-47 (en-US, ar-AE, hi-IN, ur-PK, fr-FR, bn-BD)
   displayName String
-  isCloned    Boolean  @default(false)
-  consentUrl  String?  // required if isCloned=true
+  isCloned    Boolean   @default(false)
+  consentUrl  String? // required if isCloned=true
   consentAt   DateTime?
-  createdAt   DateTime @default(now())
+  createdAt   DateTime  @default(now())
 }
 
 /// Platform accounts. Two seeded credentials on every fresh database:
@@ -94,18 +113,48 @@ model Voice {
 ///     interventions to their own enrolled phone, inspect audit chains)
 ///   demo@securevoice.ae â€” demo mode (guided simulation only)
 /// Sign-up through the API always creates "demo" role; operator is seed-only.
+
 model Account {
-  id           String   @id @default(cuid())
-  email        String   @unique
-  name         String
-  role         String   @default("demo") // operator | demo
-  passwordHash String   // scrypt$salt$hash (node:crypto)
-  createdAt    DateTime @default(now())
+  id                    String    @id @default(cuid())
+  // Nullable, not required. This table is Better Auth's `account` model (the
+  // CLI merged it into the pre-existing Account model because Prisma model
+  // names are case-insensitively unique), and Better Auth's own credential
+  // signup inserts ONLY accountId/providerId/userId/password/createdAt/
+  // updatedAt. Leaving these three NOT NULL made every Better Auth sign-up
+  // fail with a not-null violation while the first-party scrypt path in
+  // src/lib/auth/password.ts kept working, which is exactly the kind of
+  // half-migrated state that looks fine until a real user tries to log in.
+  //
+  // They are nullable rather than defaulted because a default of "" would
+  // collide with the unique index on the second insert.
+  email                 String?   @unique
+  name                  String?
+  role                  String    @default("demo") // operator | demo
+  // scrypt$salt$hash (node:crypto), written only by the first-party path.
+  // Better Auth's own hashes live in the `password` column below.
+  passwordHash          String?
+  createdAt             DateTime  @default(now())
+  accountId             String
+  providerId            String
+  userId                String    @db.Uuid
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  updatedAt             DateTime  @updatedAt
+
+  @@index([userId])
+  @@map("account")
 }
 
 /// Machine-to-machine producer keys for the headless API. A bank's fraud
 /// engine authenticates with `Authorization: Bearer svb_â€¦` instead of HMAC.
 /// Only the SHA-256 hash is stored â€” the plaintext key is shown once at creation.
+
 model ProducerKey {
   id         String    @id @default(cuid())
   label      String
@@ -118,25 +167,60 @@ model ProducerKey {
   @@index([orgId])
 }
 
-/// Clerk-backed platform profile + prepaid credits wallet (1 credit = 1
-/// intervention signal). The Clerk user is the identity; this row carries the
-/// billing state. Roles mirror Clerk publicMetadata.role at first sync:
+/// Per-tenant agent-tool credentials (bleedguard).
+///
+/// `AGENT_TOOL_SECRET` is one deployment-wide secret, so any caller holding it
+/// could name ANY org's conversation_id and have that case resolved, frozen or
+/// read. This table makes the credential itself carry the tenant: the presented
+/// secret is hashed, the row it matches names the org, and the tool-guard then
+/// scopes the case lookup by that org. A leaked secret now reaches exactly one
+/// tenant instead of all of them.
+///
+/// Mirrors `ProducerKey` deliberately — same hash-only storage, same
+/// revocation column, same last-used stamp — so there is one credential
+/// convention in this codebase rather than two.
+model AgentToolSecret {
+  id           String        @id @default(cuid())
+  label        String
+  keyHash      String        @unique // sha256 of the plaintext svt_ secret
+  orgId        String        @db.Uuid // the ONE tenant this credential may act for
+  organization Organization  @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  revoked      Boolean       @default(false)
+  lastUsedAt   DateTime?
+  createdAt    DateTime      @default(now())
+
+  @@index([orgId])
+}
+
+/// Better Auth-backed platform profile + prepaid credits wallet (1 credit = 1
+/// intervention signal). The Better Auth `user` row is the identity; this row
+/// carries the billing state. Roles come from organization membership
+/// (auth.api.getActiveMember), NOT from a self-editable field on the user row.
 ///   operator â†’ 500 credits Â· demo/analyst â†’ 25 credits
+
 model UserProfile {
-  id          String   @id @default(cuid())
-  clerkUserId String   @unique
-  email       String
-  name        String
-  role        String   @default("demo") // operator | demo
-  orgId       String? // Clerk organization id â€” multi-tenant scoping key
-  orgName     String? // white-label: organization display name
-  orgLogoUrl  String? // white-label: logo shown in the Command Center
-  elevenKeyEnc String? // BYOK ElevenLabs key, AES-256-GCM encrypted at rest
-  ttsCharsDate String? // platform-key voice metering day (YYYY-MM-DD)
-  ttsCharsToday Int     @default(0) // chars synthesized on the platform key today
-  credits     Int      @default(25)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id            String        @id @default(cuid())
+  // References the Better Auth `user` row. Renamed from clerkUserId at the
+  // Clerk -> Better Auth cutover; the column type moves to uuid because
+  // better-auth.ts sets advanced.database.generateId = "uuid" so the tenant
+  // RLS ::uuid cast works on the auth tables without special-casing.
+  userId        String        @unique @db.Uuid
+  user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  email         String
+  name          String
+  role          String        @default("demo") // operator | demo
+  // The organization IS the tenant (hazard AU-3), so this points at the
+  // Better Auth organization row rather than holding a foreign id string.
+  orgId         String?       @db.Uuid
+  org           Organization? @relation(fields: [orgId], references: [id], onDelete: SetNull)
+  orgName       String? // white-label: organization display name
+  orgLogoUrl    String? // white-label: logo shown in the Command Center
+  elevenKeyEnc  String? // BYOK ElevenLabs key, AES-256-GCM encrypted at rest
+  ttsCharsDate  String? // platform-key voice metering day (YYYY-MM-DD)
+  ttsCharsToday Int           @default(0) // chars synthesized on the platform key today
+  credits       Int           @default(25)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
 
   @@index([orgId])
 }
@@ -145,13 +229,14 @@ model UserProfile {
 /// who can receive fraud-intervention calls and alerts on their phone.
 /// PII discipline: phone is stored for dialing (never logged raw â€” audit rows
 /// carry redacted values only), customerRef is the bank's own identifier.
+
 model Customer {
   id              String   @id @default(cuid())
   customerRef     String   @unique // bank's customer identifier (no PII, e.g. CUST-8642)
-  phone           String   // E.164 (+9715â€¦), the dial target
+  phone           String // E.164 (+9715â€¦), the dial target
   lang            String   @default("en") // en | ar | hi | ur
   channel         String   @default("call") // preferred delivery: call | sms
-  consentRecordId String?  // recorded outbound consent (PDPL) â€” required for enroll
+  consentRecordId String? // recorded outbound consent (PDPL) â€” required for enroll
   optedOut        Boolean  @default(false) // STOP honoured instantly, no delete (audit trail)
   orgId           String? // organization scoping (multi-tenant groundwork)
   enrolledAt      DateTime @default(now())
@@ -163,41 +248,42 @@ model Customer {
 
 /// Fraud intervention case â€” the canonical state machine record.
 /// One enum, one writer (src/lib/case-state-machine.ts), no exceptions.
+
 model Case {
-  id            String   @id @default(cuid())
-  caseRef       String   @unique // SV-F-XXXXXX â€” the public case reference
-  orgId         String? // tenant scoping
-  state         String   @default("RECEIVED") // see case-state-machine.ts
-  conversationId String? // ElevenLabs conversation_id â€” join key for post-call webhook
-  transactionRef String?
-  riskScore      Float?
-  language      String   @default("en")
-  phone         String? // E.164, redacted in audit
-  merchant      String? // sanitised
-  amountMinor   Int?
-  currency      String?
-  consentRecordId String?
-  freezeStaged  Boolean  @default(false)
-  freezeReference String?
-  handoffQueued Boolean  @default(false)
-  handoffSpecialist String?
+  id                    String    @id @default(cuid())
+  caseRef               String    @unique // SV-F-XXXXXX â€” the public case reference
+  orgId                 String? // tenant scoping
+  state                 String    @default("RECEIVED") // see case-state-machine.ts
+  conversationId        String? // ElevenLabs conversation_id â€” join key for post-call webhook
+  transactionRef        String?
+  riskScore             Float?
+  language              String    @default("en")
+  phone                 String? // E.164, redacted in audit
+  merchant              String? // sanitised
+  amountMinor           Int?
+  currency              String?
+  consentRecordId       String?
+  freezeStaged          Boolean   @default(false)
+  freezeReference       String?
+  handoffQueued         Boolean   @default(false)
+  handoffSpecialist     String?
   // Post-call ingest (WP-4): the conversation record becomes billing truth
   // and the bank notification. Transcript is stored redacted only (I-10).
-  postCallAt       DateTime?
-  postCallEventType String?
-  outcome          String? // analysis.call_successful / evaluation verdict
-  durationSeconds  Int?   // from the conversation metadata (billing reconcile)
-  transcriptRedacted String?
-  evaluationResults String? // JSON string of analysis.evaluation_criteria_results
+  postCallAt            DateTime?
+  postCallEventType     String?
+  outcome               String? // analysis.call_successful / evaluation verdict
+  durationSeconds       Int? // from the conversation metadata (billing reconcile)
+  transcriptRedacted    String?
+  evaluationResults     String? // JSON string of analysis.evaluation_criteria_results
   dataCollectionResults String? // JSON string of analysis.data_collection_results
   // Crypto-shredding (WP-15). Erasure destroys the data key, which makes every
   // encrypted payload undecryptable while the audit chain â€” which stores only
   // hashes â€” still verifies from genesis. That is how right-to-erasure
   // coexists with an immutable log.
-  dataKeyEnc         String?
-  erasedAt           DateTime?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  dataKeyEnc            String?
+  erasedAt              DateTime?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
 
   @@index([orgId, state])
   @@index([orgId, createdAt])
@@ -208,17 +294,18 @@ model Case {
 /// processing registry and the dedupe record. Unique per
 /// (provider, eventType, conversationId, eventTimestamp): an exact redelivery
 /// is a replay and creates nothing new. Not processed rows may be retried.
+
 model WebhookEvent {
-  id             String   @id @default(cuid())
-  provider       String   @default("elevenlabs")
+  id             String    @id @default(cuid())
+  provider       String    @default("elevenlabs")
   eventType      String
   conversationId String?
   agentId        String?
   eventTimestamp Int?
-  processed      Boolean  @default(false)
+  processed      Boolean   @default(false)
   error          String?
   processedAt    DateTime?
-  receivedAt     DateTime @default(now())
+  receivedAt     DateTime  @default(now())
 
   @@unique([provider, eventType, conversationId, eventTimestamp])
   @@index([processed])
@@ -227,14 +314,15 @@ model WebhookEvent {
 
 /// Inbound webhooks that could not be correlated to a case land here â€” never
 /// silently dropped (WP-4 step 4). Redacted transcript excerpt only.
+
 model WebhookQuarantine {
-  id            String   @id @default(cuid())
-  eventType     String
-  conversationId String?
-  reason        String
+  id                 String   @id @default(cuid())
+  eventType          String
+  conversationId     String?
+  reason             String
   transcriptRedacted String?
-  eventTimestamp Int?
-  createdAt     DateTime @default(now())
+  eventTimestamp     Int?
+  createdAt          DateTime @default(now())
 
   @@index([conversationId])
   @@index([createdAt])
@@ -244,20 +332,21 @@ model WebhookQuarantine {
 /// the SAME transaction, so a verdict can never exist without its delivery.
 /// PENDING -> SENDING -> DELIVERED, or -> DEAD after the retry ladder
 /// exhausts (then a DeadLetter row exists for manual replay).
+
 model OutboxEvent {
-  id            String   @id @default(cuid()) // also the event_id the bank deduplicates on
+  id            String    @id @default(cuid()) // also the event_id the bank deduplicates on
   orgId         String?
   caseRef       String?
-  eventType     String   // e.g. case.notified
-  payload       String   // canonical JSON body actually signed and sent
+  eventType     String // e.g. case.notified
+  payload       String // canonical JSON body actually signed and sent
   targetUrl     String
-  state         String   @default("PENDING") // PENDING | SENDING | DELIVERED | DEAD
-  attempts      Int      @default(0)
-  nextAttemptAt DateTime @default(now())
+  state         String    @default("PENDING") // PENDING | SENDING | DELIVERED | DEAD
+  attempts      Int       @default(0)
+  nextAttemptAt DateTime  @default(now())
   lastError     String?
   deliveredAt   DateTime?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
   @@index([state, nextAttemptAt])
   @@index([caseRef])
@@ -265,17 +354,18 @@ model OutboxEvent {
 
 /// Dead-letter table: deliveries that exhausted the retry ladder.
 /// Manual replay (admin-only endpoint) re-queues the matching OutboxEvent.
+
 model DeadLetter {
-  id        String   @id @default(cuid())
-  eventId   String   @unique // OutboxEvent.id
-  eventType String
-  caseRef   String?
-  payload   String
-  targetUrl String
-  error     String
-  attempts  Int
+  id         String    @id @default(cuid())
+  eventId    String    @unique // OutboxEvent.id
+  eventType  String
+  caseRef    String?
+  payload    String
+  targetUrl  String
+  error      String
+  attempts   Int
   replayedAt DateTime?
-  failedAt  DateTime @default(now())
+  failedAt   DateTime  @default(now())
 
   @@index([failedAt])
 }
@@ -284,6 +374,7 @@ model DeadLetter {
 /// becomes a row, so a campaign burst queues instead of overwhelming the
 /// telephony provider, and a killed worker loses its lease rather than the job.
 /// The unique index on (caseId, attemptNo) is the exactly-once dial guarantee.
+
 model DialJob {
   id             String    @id @default(cuid())
   caseId         String    @map("case_id")
@@ -312,6 +403,7 @@ model DialJob {
 
 /// Deliveries received by the in-app receiver (the /inspector demo surface,
 /// and the fixture a bank integration team can point its own tests at).
+
 model InboundBankEvent {
   id              String   @id @default(cuid())
   eventId         String   @unique
@@ -330,11 +422,12 @@ model InboundBankEvent {
 /// with a count. Escalation advances through the contact ladder until a human
 /// acknowledges it â€” an unacknowledged page is a real capability gap, not a
 /// UI detail.
+
 model Notification {
   id             String    @id @default(cuid())
   orgId          String?
   caseRef        String?
-  alertType      String    // fraud_confirmed | escalation | case_stuck | billing_anomaly
+  alertType      String // fraud_confirmed | escalation | case_stuck | billing_anomaly
   severity       String    @default("info") // page | urgent | info
   title          String
   body           String?
@@ -356,19 +449,20 @@ model Notification {
 /// Append-only usage ledger (WP-13). There is NO mutable credits column: the
 /// balance is the sum of these rows, which is what makes it auditable and race
 /// free. All amounts are INTEGER minor units â€” never floats.
+
 model UsageLedger {
-  id          String   @id @default(cuid())
-  orgId       String?
-  caseRef     String?
-  attemptNo   Int      @default(1)
-  kind        String   // reserve | consume | release | topup | refund
-  units       Int      // signed by kind: reserve/consume/topup positive, release/refund negative
-  reason      String?
+  id           String   @id @default(cuid())
+  orgId        String?
+  caseRef      String?
+  attemptNo    Int      @default(1)
+  kind         String // reserve | consume | release | topup | refund
+  units        Int // signed by kind: reserve/consume/topup positive, release/refund negative
+  reason       String?
   /// Idempotency key: {caseRef}:{attemptNo}:{kind}. The unique index is the
   /// guarantee against double-charging on a retried webhook, not the retry logic.
-  idemKey     String   @unique
+  idemKey      String   @unique
   balanceAfter Int?
-  createdAt   DateTime @default(now())
+  createdAt    DateTime @default(now())
 
   @@index([orgId, createdAt])
   @@index([caseRef])
@@ -376,18 +470,127 @@ model UsageLedger {
 
 /// A settled or pending payment (WP-13). Written by a PaymentProvider adapter
 /// only â€” no domain code touches a gateway type.
+
 model PaymentRecord {
-  id           String   @id @default(cuid())
-  orgId        String?
-  provider     String   // manualinvoice | paystack | flutterwave | paddle
-  reference    String   @unique // our reference, generated by us (idempotency key)
-  amountMinor  Int
-  currency     String
-  status       String   @default("pending") // pending | success | failed | refunded
+  id               String    @id @default(cuid())
+  orgId            String?
+  provider         String // manualinvoice | paystack | flutterwave | paddle
+  reference        String    @unique // our reference, generated by us (idempotency key)
+  amountMinor      Int
+  currency         String
+  status           String    @default("pending") // pending | success | failed | refunded
   entitlementsJson String?
-  verifiedAt   DateTime?
-  verifiedBy   String?  // operator who confirmed a manual invoice (dual control)
-  createdAt    DateTime @default(now())
+  verifiedAt       DateTime?
+  verifiedBy       String? // operator who confirmed a manual invoice (dual control)
+  createdAt        DateTime  @default(now())
 
   @@index([orgId, createdAt])
+}
+
+model Session {
+  id                   String   @id @default(dbgenerated("pg_catalog.gen_random_uuid()")) @db.Uuid
+  expiresAt            DateTime
+  token                String
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  ipAddress            String?
+  userAgent            String?
+  userId               String   @db.Uuid
+  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  activeOrganizationId String?
+  impersonatedBy       String?
+
+  @@unique([token])
+  @@index([userId])
+  @@map("session")
+}
+
+model Verification {
+  id         String   @id @default(dbgenerated("pg_catalog.gen_random_uuid()")) @db.Uuid
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([identifier])
+  @@map("verification")
+}
+
+model Organization {
+  id          String        @id @default(dbgenerated("pg_catalog.gen_random_uuid()")) @db.Uuid
+  name        String
+  slug        String
+  logo        String?
+  createdAt   DateTime
+  metadata    String?
+  members     Member[]
+  invitations Invitation[]
+  profiles    UserProfile[]
+  toolSecrets  AgentToolSecret[]
+  // Provider binding for inbound ElevenLabs events (bleedguard). The webhook
+  // payload names the agent that produced it, so this is the tenant the event
+  // belongs to — which is what lets the post-call correlation resolve the case
+  // org-scoped instead of trusting the shared platform secret.
+  elevenAgentId      String? @unique
+  elevenPhoneNumberId String? @unique
+
+  @@unique([slug])
+  @@map("organization")
+}
+
+model Member {
+  id             String       @id @default(dbgenerated("pg_catalog.gen_random_uuid()")) @db.Uuid
+  organizationId String       @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  userId         String       @db.Uuid
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role           String       @default("member")
+  createdAt      DateTime
+
+  @@index([organizationId])
+  @@index([userId])
+  @@map("member")
+}
+
+model Invitation {
+  id             String       @id @default(dbgenerated("pg_catalog.gen_random_uuid()")) @db.Uuid
+  organizationId String       @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  email          String
+  role           String?
+  status         String       @default("pending")
+  expiresAt      DateTime
+  createdAt      DateTime     @default(now())
+  inviterId      String       @db.Uuid
+  user           User         @relation(fields: [inviterId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([email])
+  @@map("invitation")
+}
+
+model TwoFactor {
+  id                      String    @id @default(dbgenerated("pg_catalog.gen_random_uuid()")) @db.Uuid
+  secret                  String
+  backupCodes             String
+  userId                  String    @db.Uuid
+  user                    User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  verified                Boolean?  @default(true)
+  failedVerificationCount Int?      @default(0)
+  lockedUntil             DateTime?
+
+  @@index([secret])
+  @@index([userId])
+  @@map("twoFactor")
+}
+
+model RateLimit {
+  id          String @id @default(dbgenerated("pg_catalog.gen_random_uuid()")) @db.Uuid
+  key         String
+  count       Int
+  lastRequest BigInt
+
+  @@unique([key])
+  @@map("rateLimit")
 }

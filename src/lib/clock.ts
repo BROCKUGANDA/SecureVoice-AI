@@ -72,7 +72,8 @@ export function fixedClock(at: string | Date = EPOCH_DEFAULT): FixedClock {
       return new Date(origin.getTime());
     },
     step(ms: number): Date {
-      if (!Number.isFinite(ms)) throw new TypeError(`fixedClock.step(ms) requires a finite number (got ${String(ms)})`);
+      if (!Number.isFinite(ms))
+        throw new TypeError(`fixedClock.step(ms) requires a finite number (got ${String(ms)})`);
       // Backwards steps are allowed on purpose: a replay of an out-of-order
       // event must be expressible without a second clock.
       current += Math.trunc(ms);

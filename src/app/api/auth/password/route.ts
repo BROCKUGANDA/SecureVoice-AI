@@ -36,13 +36,18 @@ export async function POST(req: Request) {
   if (!result.ok) {
     return NextResponse.json(
       { error: result.error },
-      { status: 401, headers: { "Cache-Control": "no-store" } }
+      { status: 401, headers: { "Cache-Control": "no-store" } },
     );
   }
 
   const response = NextResponse.json(
-    { ok: true, role: result.identity.role, orgId: result.identity.orgId, name: result.identity.name },
-    { headers: { "Cache-Control": "no-store" } }
+    {
+      ok: true,
+      role: result.identity.role,
+      orgId: result.identity.orgId,
+      name: result.identity.name,
+    },
+    { headers: { "Cache-Control": "no-store" } },
   );
   response.cookies.set(SESSION_COOKIE_NAME, result.session.token, SESSION_COOKIE_ATTRS);
   return response;

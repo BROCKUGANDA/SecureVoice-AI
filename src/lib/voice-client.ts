@@ -107,12 +107,17 @@ export function browserSpeak(text: string, lang: CallLang, rate = 1): void {
     // map every supported call language — falling ur/fr/sw back to an en-US
     // voice renders unintelligible gibberish
     u.lang =
-      lang === "ar" ? "ar-SA"
-      : lang === "hi" ? "hi-IN"
-      : lang === "ur" ? "ur-PK"
-      : lang === "fr" ? "fr-FR"
-      : lang === "sw" ? "sw-KE"
-      : "en-US";
+      lang === "ar"
+        ? "ar-SA"
+        : lang === "hi"
+          ? "hi-IN"
+          : lang === "ur"
+            ? "ur-PK"
+            : lang === "fr"
+              ? "fr-FR"
+              : lang === "sw"
+                ? "sw-KE"
+                : "en-US";
     u.rate = rate;
     const v = synth.getVoices().find((x) => x.lang.startsWith(u.lang.slice(0, 2)));
     if (v) u.voice = v;
@@ -127,7 +132,7 @@ export async function speakText(
   text: string,
   lang: CallLang,
   role: VoiceRole,
-  rate = 1
+  rate = 1,
 ): Promise<boolean> {
   try {
     const url = await fetchSpeechUrl(text, TTS_VOICE[lang][role], lang);
@@ -153,7 +158,7 @@ export async function streamSpeech(
   text: string,
   lang: CallLang,
   role: VoiceRole,
-  rate = 1
+  rate = 1,
 ): Promise<{ streamed: boolean; bargeIn: boolean }> {
   if (typeof MediaSource === "undefined" || !MediaSource.isTypeSupported("audio/mpeg")) {
     await speakText(text, lang, role, rate);
@@ -175,7 +180,9 @@ export async function streamSpeech(
   audio.src = objectUrl;
 
   const cleanup = () => {
-    try { URL.revokeObjectURL(objectUrl); } catch {}
+    try {
+      URL.revokeObjectURL(objectUrl);
+    } catch {}
     stopMicMonitor();
   };
 
@@ -197,10 +204,14 @@ export async function streamSpeech(
           if (appending || sourceBuffer.updating || queue.length === 0) return;
           appending = true;
           const chunk = queue.shift()!;
-          sourceBuffer.addEventListener("updateend", () => {
-            appending = false;
-            flush();
-          }, { once: true });
+          sourceBuffer.addEventListener(
+            "updateend",
+            () => {
+              appending = false;
+              flush();
+            },
+            { once: true },
+          );
           try {
             sourceBuffer.appendBuffer(chunk as unknown as ArrayBuffer);
           } catch {
@@ -212,7 +223,9 @@ export async function streamSpeech(
         // agent's own speaker bleed must NOT trigger a self-cutoff
         startMicMonitor(() => {
           audio.pause();
-          try { mediaSource.endOfStream(); } catch {}
+          try {
+            mediaSource.endOfStream();
+          } catch {}
           done(true);
         });
 
@@ -243,7 +256,9 @@ export async function streamSpeech(
           queue.push(value);
           flush();
         }
-        try { mediaSource.endOfStream(); } catch {}
+        try {
+          mediaSource.endOfStream();
+        } catch {}
         audio.onended = () => done(false);
       } catch {
         stopMicMonitor();
@@ -283,7 +298,10 @@ async function startMicMonitor(onSpeak: () => void): Promise<void> {
       analyser.getByteTimeDomainData(data);
       let sum = 0;
       for (let i = 0; i < data.length; i++) {
-        const v = (data[i] - 128) / 128;
+        // The `i < data.length` loop bound is what proves the index exists;
+        // the assertion records that for the checker rather than adding a
+        // dead branch.
+        const v = (data[i]! - 128) / 128;
         sum += v * v;
       }
       const rms = Math.sqrt(sum / data.length);
@@ -337,7 +355,9 @@ function encodeWav(samples: Float32Array, sampleRate: number): Blob {
   view.setUint32(40, samples.length * 2, true);
   let o = 44;
   for (let i = 0; i < samples.length; i++, o += 2) {
-    const s = Math.max(-1, Math.min(1, samples[i]));
+    // The `i < samples.length` loop bound is what proves the index exists; the
+    // assertion records that for the checker rather than adding a dead branch.
+    const s = Math.max(-1, Math.min(1, samples[i]!));
     view.setInt16(o, s < 0 ? s * 0x8000 : s * 0x7fff, true);
   }
   return new Blob([view], { type: "audio/wav" });

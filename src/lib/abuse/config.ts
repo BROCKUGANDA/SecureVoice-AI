@@ -207,16 +207,21 @@ export const DEFAULT_ABUSE_CONFIG: AbuseConfig = {
   },
 };
 
-function num(name: string, dflt: number, min: number): number {
-  const raw = process.env[name];
+type EnvSource = Record<string, string | undefined>;
+
+function num(env: EnvSource, name: string, dflt: number, min: number): number {
+  const raw = env[name];
   if (raw == null || raw.trim() === "") return dflt;
   const n = Number(raw);
   if (!Number.isFinite(n) || n < min) return dflt;
   return n;
 }
 
-function list(name: string): string[] {
-  return (process.env[name] ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+function list(env: EnvSource, name: string): string[] {
+  return (env[name] ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
 }
 
 function dedupe(xs: readonly string[]): string[] {
@@ -249,36 +254,51 @@ export function resolveAbuseConfig(
     geo: {
       // No allowlist default: empty means "dial nowhere", which is the safe
       // reading of an unset key. Explicit `AE,GB` to open up.
-      allowlist: dedupe(list("ABUSE_ALLOWED_COUNTRIES")),
-      denylist: unionHardDefaults(d.geo.denylist, list("ABUSE_DENIED_COUNTRIES")),
-      deniedPrefixes: unionHardDefaults(d.geo.deniedPrefixes, list("ABUSE_DENIED_PREFIXES")),
+      allowlist: dedupe(list(env, "ABUSE_ALLOWED_COUNTRIES")),
+      denylist: unionHardDefaults(d.geo.denylist, list(env, "ABUSE_DENIED_COUNTRIES")),
+      deniedPrefixes: unionHardDefaults(d.geo.deniedPrefixes, list(env, "ABUSE_DENIED_PREFIXES")),
     },
     tier: {
-      testNumbers: dedupe(list("ABUSE_TEST_NUMBERS")),
+      testNumbers: dedupe(list(env, "ABUSE_TEST_NUMBERS")),
       // Fail closed: an unrecognised value is not a licence to dial, it is a
       // typo, so anything that is not a known tier becomes `demo`.
-      defaultTier: (process.env.ABUSE_PLAN_TIER ?? "demo").trim() || "demo",
+      defaultTier: (env.ABUSE_PLAN_TIER ?? "demo").trim() || "demo",
     },
     velocity: {
-      burstWindowSec: num("ABUSE_BURST_WINDOW_SEC", d.velocity.burstWindowSec, 1),
-      burstRateMax: num("ABUSE_BURST_RATE_MAX", d.velocity.burstRateMax, 1),
-      newPrefixWindowSec: num("ABUSE_NEW_PREFIX_WINDOW_SEC", d.velocity.newPrefixWindowSec, 1),
-      newPrefixBurst: num("ABUSE_NEW_PREFIX_BURST", d.velocity.newPrefixBurst, 1),
-      afterHoursWarn: num("ABUSE_AFTER_HOURS_WARN", d.velocity.afterHoursWarn, 0),
-      afterHoursPause: num("ABUSE_AFTER_HOURS_PAUSE", d.velocity.afterHoursPause, 0),
-      businessHoursStartUtc: num("ABUSE_BUSINESS_HOURS_START_UTC", d.velocity.businessHoursStartUtc, 0),
-      businessHoursEndUtc: num("ABUSE_BUSINESS_HOURS_END_UTC", d.velocity.businessHoursEndUtc, 0),
-      attemptWindowSec: num("ABUSE_ATTEMPT_WINDOW_SEC", d.velocity.attemptWindowSec, 60),
-      maxAttemptsPerOrg: num("ABUSE_MAX_ATTEMPTS_PER_ORG", d.velocity.maxAttemptsPerOrg, 16),
-      maxPrefixesPerOrg: num("ABUSE_MAX_PREFIXES_PER_ORG", d.velocity.maxPrefixesPerOrg, 4),
-      maxTrackedOrgs: num("ABUSE_MAX_TRACKED_ORGS", d.velocity.maxTrackedOrgs, 1),
-      pauseTtlSec: num("ABUSE_PAUSE_TTL_SEC", d.velocity.pauseTtlSec, 0),
+      burstWindowSec: num(env, "ABUSE_BURST_WINDOW_SEC", d.velocity.burstWindowSec, 1),
+      burstRateMax: num(env, "ABUSE_BURST_RATE_MAX", d.velocity.burstRateMax, 1),
+      newPrefixWindowSec: num(env, "ABUSE_NEW_PREFIX_WINDOW_SEC", d.velocity.newPrefixWindowSec, 1),
+      newPrefixBurst: num(env, "ABUSE_NEW_PREFIX_BURST", d.velocity.newPrefixBurst, 1),
+      afterHoursWarn: num(env, "ABUSE_AFTER_HOURS_WARN", d.velocity.afterHoursWarn, 0),
+      afterHoursPause: num(env, "ABUSE_AFTER_HOURS_PAUSE", d.velocity.afterHoursPause, 0),
+      businessHoursStartUtc: num(
+        env,
+        "ABUSE_BUSINESS_HOURS_START_UTC",
+        d.velocity.businessHoursStartUtc,
+        0,
+      ),
+      businessHoursEndUtc: num(
+        env,
+        "ABUSE_BUSINESS_HOURS_END_UTC",
+        d.velocity.businessHoursEndUtc,
+        0,
+      ),
+      attemptWindowSec: num(env, "ABUSE_ATTEMPT_WINDOW_SEC", d.velocity.attemptWindowSec, 60),
+      maxAttemptsPerOrg: num(env, "ABUSE_MAX_ATTEMPTS_PER_ORG", d.velocity.maxAttemptsPerOrg, 16),
+      maxPrefixesPerOrg: num(env, "ABUSE_MAX_PREFIXES_PER_ORG", d.velocity.maxPrefixesPerOrg, 4),
+      maxTrackedOrgs: num(env, "ABUSE_MAX_TRACKED_ORGS", d.velocity.maxTrackedOrgs, 1),
+      pauseTtlSec: num(env, "ABUSE_PAUSE_TTL_SEC", d.velocity.pauseTtlSec, 0),
     },
     concurrency: {
-      cooldownSec: num("ABUSE_COOLDOWN_SEC", d.concurrency.cooldownSec, 0),
-      orgCap: num("ABUSE_ORG_CONCURRENCY_CAP", d.concurrency.orgCap, 1),
-      globalCap: num("ABUSE_GLOBAL_CONCURRENCY_CAP", d.concurrency.globalCap, 1),
-      maxCooldownEntries: num("ABUSE_MAX_COOLDOWN_ENTRIES", d.concurrency.maxCooldownEntries, 1),
+      cooldownSec: num(env, "ABUSE_COOLDOWN_SEC", d.concurrency.cooldownSec, 0),
+      orgCap: num(env, "ABUSE_ORG_CONCURRENCY_CAP", d.concurrency.orgCap, 1),
+      globalCap: num(env, "ABUSE_GLOBAL_CONCURRENCY_CAP", d.concurrency.globalCap, 1),
+      maxCooldownEntries: num(
+        env,
+        "ABUSE_MAX_COOLDOWN_ENTRIES",
+        d.concurrency.maxCooldownEntries,
+        1,
+      ),
     },
   };
 }

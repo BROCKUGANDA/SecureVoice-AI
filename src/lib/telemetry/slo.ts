@@ -88,7 +88,16 @@ export function summarise(values: readonly number[]): Distribution {
     else rejected += 1;
   }
   if (finite.length === 0) {
-    return { samples: 0, rejected, minMs: null, p50Ms: null, p95Ms: null, p99Ms: null, maxMs: null, meanMs: null };
+    return {
+      samples: 0,
+      rejected,
+      minMs: null,
+      p50Ms: null,
+      p95Ms: null,
+      p99Ms: null,
+      maxMs: null,
+      meanMs: null,
+    };
   }
   let total = 0;
   for (const v of finite) total += v;
@@ -107,8 +116,22 @@ export function summarise(values: readonly number[]): Distribution {
 /* ————————————————————————————————— verdicts ————————————————————————————————— */
 
 export type SloVerdict =
-  | { span: SpanName; label: string; targetP95Ms: number; status: "met"; p95Ms: number; headroomMs: number }
-  | { span: SpanName; label: string; targetP95Ms: number; status: "missed"; p95Ms: number; overrunMs: number }
+  | {
+      span: SpanName;
+      label: string;
+      targetP95Ms: number;
+      status: "met";
+      p95Ms: number;
+      headroomMs: number;
+    }
+  | {
+      span: SpanName;
+      label: string;
+      targetP95Ms: number;
+      status: "missed";
+      p95Ms: number;
+      overrunMs: number;
+    }
   | {
       span: SpanName;
       label: string;
@@ -129,10 +152,24 @@ export function meetsTarget(span: SpanName, p95Ms: number | null | undefined): S
   const label = spanLabel(span);
   const target = targetP95Ms(span);
   if (p95Ms === null || p95Ms === undefined) {
-    return { span, label, targetP95Ms: target, status: "no_data", p95Ms: null, reason: "no_spans_recorded" };
+    return {
+      span,
+      label,
+      targetP95Ms: target,
+      status: "no_data",
+      p95Ms: null,
+      reason: "no_spans_recorded",
+    };
   }
   if (typeof p95Ms !== "number" || !Number.isFinite(p95Ms)) {
-    return { span, label, targetP95Ms: target, status: "no_data", p95Ms: null, reason: "p95_not_a_number" };
+    return {
+      span,
+      label,
+      targetP95Ms: target,
+      status: "no_data",
+      p95Ms: null,
+      reason: "p95_not_a_number",
+    };
   }
   if (p95Ms <= target) {
     return { span, label, targetP95Ms: target, status: "met", p95Ms, headroomMs: target - p95Ms };
@@ -179,21 +216,25 @@ export type WindowOptions = {
  * `SPAN_DEFINITIONS` (in order) unless a single span is requested, so the panel
  * and the artifact show an unmeasured span as `no_data` rather than omitting it.
  */
-export function summariseWindow(records: readonly SpanRecord[], options: WindowOptions = {}): SpanWindowSummary[] {
+export function summariseWindow(
+  records: readonly SpanRecord[],
+  options: WindowOptions = {},
+): SpanWindowSummary[] {
   const nowMs = options.nowMs ?? Date.now();
   const wanted = options.span ? [options.span] : [...SPAN_NAMES];
 
   return wanted.map((span) => {
     const target = targetP95Ms(span);
     const samples = records.filter(
-      (r) =>
-        r.span === span &&
-        (options.sinceMs === undefined || r.startedAtMs >= options.sinceMs),
+      (r) => r.span === span && (options.sinceMs === undefined || r.startedAtMs >= options.sinceMs),
     );
     const durations = samples.map((r) => r.durationMs);
     const dist = summarise(durations);
     const interventions = new Set(samples.map((r) => r.interventionId));
-    const latest = samples.reduce((max, r) => Math.max(max, r.startedAtMs), Number.NEGATIVE_INFINITY);
+    const latest = samples.reduce(
+      (max, r) => Math.max(max, r.startedAtMs),
+      Number.NEGATIVE_INFINITY,
+    );
     return {
       span,
       label: spanLabel(span),
@@ -207,7 +248,8 @@ export function summariseWindow(records: readonly SpanRecord[], options: WindowO
       p99Ms: dist.p99Ms,
       maxMs: dist.maxMs,
       meanMs: dist.meanMs,
-      outlierSamples: durations.filter((d) => Number.isFinite(d) && d > target * OUTLIER_FACTOR).length,
+      outlierSamples: durations.filter((d) => Number.isFinite(d) && d > target * OUTLIER_FACTOR)
+        .length,
       meetsSampleFloor: dist.samples >= P95_SAMPLE_FLOOR,
       verdict: meetsTarget(span, dist.p95Ms),
       ageMs: Number.isFinite(latest) ? Math.max(0, nowMs - latest) : null,
@@ -230,7 +272,9 @@ export function completeInterventionIds(records: readonly SpanRecord[]): string[
   return [
     ...new Set(
       records
-        .filter((r) => r.span === TERMINAL_SPAN && Number.isFinite(r.durationMs) && r.durationMs >= 0)
+        .filter(
+          (r) => r.span === TERMINAL_SPAN && Number.isFinite(r.durationMs) && r.durationMs >= 0,
+        )
         .map((r) => r.interventionId),
     ),
   ];
@@ -265,7 +309,14 @@ export function allTargetsMet(summaries: readonly SpanWindowSummary[]): boolean 
 
 /** How many times faster than the industry baseline this p95 is. `null` if unmeasured. */
 export function fasterThanBaselineBy(p95Ms: number | null, baselineMs: number): number | null {
-  if (p95Ms === null || !Number.isFinite(p95Ms) || p95Ms <= 0 || !Number.isFinite(baselineMs) || baselineMs <= 0) return null;
+  if (
+    p95Ms === null ||
+    !Number.isFinite(p95Ms) ||
+    p95Ms <= 0 ||
+    !Number.isFinite(baselineMs) ||
+    baselineMs <= 0
+  )
+    return null;
   return baselineMs / p95Ms;
 }
 

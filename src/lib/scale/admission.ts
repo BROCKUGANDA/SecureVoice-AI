@@ -44,7 +44,14 @@ import { vendorCeilings } from "@/lib/scale/capacity";
 
 // Re-exported, never re-implemented: the band ladder is defined once.
 export type { AdmissionDecision };
-export { admitOrDegrade, activeConversations, admissionSnapshot, admitsVoice, bandFor, expectedLossScore };
+export {
+  admitOrDegrade,
+  activeConversations,
+  admissionSnapshot,
+  admitsVoice,
+  bandFor,
+  expectedLossScore,
+};
 export type { AdmissionBand };
 
 /** The exact metric names WP-19 files them under. */
@@ -122,7 +129,8 @@ export async function scaleMetricsSnapshot(): Promise<ScaleMetrics> {
     gates: { ...gates, headroom: gates.burst_ceiling - active },
     ceilings: vendorCeilings(),
     source: {
-      elevenLabs: "elevenlabs.io/pricing/agents, read 2026-10-02 (tier must be confirmed in the dashboard)",
+      elevenLabs:
+        "elevenlabs.io/pricing/agents, read 2026-10-02 (tier must be confirmed in the dashboard)",
       twilio: "account-specific — Twilio Console → Voice → Settings (not a published number)",
     },
   };
@@ -139,15 +147,13 @@ export async function scaleMetricsSnapshot(): Promise<ScaleMetrics> {
  * if it ever disagreed with `admitOrDegrade`, we would have two admission
  * authorities, which is the failure mode this whole module is arranged to avoid.
  */
-export async function admitAtScale(
-  args: {
-    callRef: string;
-    orgId?: string | null;
-    callerId: string;
-    riskScore: number;
-    amountMinor: number;
-  },
-): Promise<AdmissionDecision & { queueDepthAtDecision: number }> {
+export async function admitAtScale(args: {
+  callRef: string;
+  orgId?: string | null;
+  callerId: string;
+  riskScore: number;
+  amountMinor: number;
+}): Promise<AdmissionDecision & { queueDepthAtDecision: number }> {
   const decision = await admitOrDegrade(args);
   if (!decision.admitted) recordShed(decision.band);
   return { ...decision, queueDepthAtDecision: (await queueDepth()).pending };

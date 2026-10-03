@@ -67,7 +67,17 @@ export function ffprobeDuration(file) {
 export function ffprobeStream(file, kind = "v") {
   const out = execFileSync(
     "ffprobe",
-    ["-v", "error", "-select_streams", kind, "-show_entries", "stream=width,height,r_frame_rate,duration", "-of", "csv=p=0", file],
+    [
+      "-v",
+      "error",
+      "-select_streams",
+      kind,
+      "-show_entries",
+      "stream=width,height,r_frame_rate,duration",
+      "-of",
+      "csv=p=0",
+      file,
+    ],
     { encoding: "utf8" },
   );
   return out.trim();

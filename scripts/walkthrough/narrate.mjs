@@ -57,10 +57,19 @@ async function synthAgent(text, lang) {
 function silence() {
   const data = Buffer.alloc(44100 * 2);
   const h = Buffer.alloc(44);
-  h.write("RIFF", 0); h.writeUInt32LE(36 + data.length, 4); h.write("WAVE", 8);
-  h.write("fmt ", 12); h.writeUInt32LE(16, 16); h.writeUInt16LE(1, 20); h.writeUInt16LE(1, 22);
-  h.writeUInt32LE(44100, 24); h.writeUInt32LE(88200, 28); h.writeUInt16LE(2, 32); h.writeUInt16LE(16, 34);
-  h.write("data", 36); h.writeUInt32LE(data.length, 40);
+  h.write("RIFF", 0);
+  h.writeUInt32LE(36 + data.length, 4);
+  h.write("WAVE", 8);
+  h.write("fmt ", 12);
+  h.writeUInt32LE(16, 16);
+  h.writeUInt16LE(1, 20);
+  h.writeUInt16LE(1, 22);
+  h.writeUInt32LE(44100, 24);
+  h.writeUInt32LE(88200, 28);
+  h.writeUInt16LE(2, 32);
+  h.writeUInt16LE(16, 34);
+  h.write("data", 36);
+  h.writeUInt32LE(data.length, 40);
   return Buffer.concat([h, data]);
 }
 
@@ -98,10 +107,26 @@ for (const sc of scenes) {
 
   e.dur = Math.max(e.narrDur + 0.9, sc.min || 0, ...e.agent.map((a) => a.at + a.dur + 0.6));
   out.push(e);
-  console.log("  " + e.id + "  narr " + e.narrDur.toFixed(1) + "s  scene " + e.dur.toFixed(1) + "s  agent x" + e.agent.length);
+  console.log(
+    "  " +
+      e.id +
+      "  narr " +
+      e.narrDur.toFixed(1) +
+      "s  scene " +
+      e.dur.toFixed(1) +
+      "s  agent x" +
+      e.agent.length,
+  );
 }
 
 const total = out.reduce((s, e) => s + e.dur, 0);
 writeJson(path.join(AUDIO, "timings.json"), { total, chars, dryRun: dry, scenes: out });
 console.log("\ntimings -> " + path.join(AUDIO, "timings.json"));
-console.log("  total " + total.toFixed(1) + "s  ·  " + chars + " chars" + (dry ? "  (dry run, nothing synthesised)" : " of quota"));
+console.log(
+  "  total " +
+    total.toFixed(1) +
+    "s  ·  " +
+    chars +
+    " chars" +
+    (dry ? "  (dry run, nothing synthesised)" : " of quota"),
+);

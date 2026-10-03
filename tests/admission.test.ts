@@ -51,7 +51,7 @@ describe("band selection", () => {
 
 describe("expected loss ordering", () => {
   test("a higher-risk case at the same amount outranks a lower-risk one", () => {
-    expect(expectedLossScore(0.94, 250_000)).toBeGreaterThan(expectedLossScore(0.20, 250_000));
+    expect(expectedLossScore(0.94, 250_000)).toBeGreaterThan(expectedLossScore(0.2, 250_000));
   });
 
   test("a larger amount at the same risk outranks a smaller one", () => {

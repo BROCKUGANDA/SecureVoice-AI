@@ -2,10 +2,26 @@
 
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { useUser } from "@clerk/nextjs";
+import { useSession } from "@/lib/auth-client";
 import {
-  PhoneCall, MessageSquareText, Zap, ShieldCheck, Snowflake, Fingerprint,
-  CheckCircle2, XCircle, Loader2, Radio, History, ArrowRight, Timer, Siren, ClipboardCheck, Coins, Download, Mail,
+  PhoneCall,
+  MessageSquareText,
+  Zap,
+  ShieldCheck,
+  Snowflake,
+  Fingerprint,
+  CheckCircle2,
+  XCircle,
+  Loader2,
+  Radio,
+  History,
+  ArrowRight,
+  Timer,
+  Siren,
+  ClipboardCheck,
+  Coins,
+  Download,
+  Mail,
 } from "lucide-react";
 import { useApp } from "@/lib/store";
 import { Chip, LiveDot, StatusPill } from "@/components/fx/core";
@@ -28,10 +44,24 @@ type FireResponse = {
   caseRef?: string;
   slaDeadline?: string;
   plan?: { action: string; handoff: string; verification: string };
-  delivery?: { channel: string; to?: string; sid?: string; status?: string; failed?: boolean; error?: string; reason?: string; mode?: string };
+  delivery?: {
+    channel: string;
+    to?: string;
+    sid?: string;
+    status?: string;
+    failed?: boolean;
+    error?: string;
+    reason?: string;
+    mode?: string;
+  };
   notes?: string;
   creditsRemaining?: number;
-  signedSignal?: { caseId: string; riskScore: number; channel: string; customer: { ref: string; lang: string } };
+  signedSignal?: {
+    caseId: string;
+    riskScore: number;
+    channel: string;
+    customer: { ref: string; lang: string };
+  };
   error?: string;
 };
 
@@ -47,7 +77,8 @@ function selfRef(email: string): string {
 function SlaClock({ deadline }: { deadline: string }) {
   const [left, setLeft] = useState(60);
   useEffect(() => {
-    const tick = () => setLeft(Math.max(0, Math.round((new Date(deadline).getTime() - Date.now()) / 1000)));
+    const tick = () =>
+      setLeft(Math.max(0, Math.round((new Date(deadline).getTime() - Date.now()) / 1000)));
     tick();
     const iv = setInterval(tick, 500);
     return () => clearInterval(iv);
@@ -59,18 +90,26 @@ function SlaClock({ deadline }: { deadline: string }) {
         <svg viewBox="0 0 44 44" className="h-full w-full -rotate-90">
           <circle cx="22" cy="22" r="19" fill="none" stroke="#e7eae3" strokeWidth="4" />
           <circle
-            cx="22" cy="22" r="19" fill="none"
+            cx="22"
+            cy="22"
+            r="19"
+            fill="none"
             stroke={left > 20 ? "#0b7a55" : "#d64545"}
-            strokeWidth="4" strokeLinecap="round"
+            strokeWidth="4"
+            strokeLinecap="round"
             strokeDasharray={`${(pct / 100) * 119.4} 119.4`}
             className="transition-[stroke-dasharray] duration-500"
           />
         </svg>
-        <span className="num absolute inset-0 flex items-center justify-center text-[11px] font-semibold">{left}s</span>
+        <span className="num absolute inset-0 flex items-center justify-center text-[11px] font-semibold">
+          {left}s
+        </span>
       </div>
       <div>
         <p className="text-[12px] font-semibold">SLA to customer contact</p>
-        <p className="text-[11px] text-ink-3">{left > 0 ? "counting down from signal receipt" : "window elapsed"}</p>
+        <p className="text-[11px] text-ink-3">
+          {left > 0 ? "counting down from signal receipt" : "window elapsed"}
+        </p>
       </div>
     </div>
   );
@@ -91,7 +130,12 @@ function DeliveryCard({ delivery }: { delivery: NonNullable<FireResponse["delive
       <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-[12.5px] text-amber-900">
         <p className="font-semibold">Delivery attempt failed — {delivery.channel}</p>
         <p className="mt-1 leading-snug">{delivery.error?.slice(0, 160)}</p>
-        {geo && <p className="mt-1.5 leading-snug text-amber-700">Trial accounts: enable international calling in the Twilio console (Voice → Geo Permissions), or upgrade.</p>}
+        {geo && (
+          <p className="mt-1.5 leading-snug text-amber-700">
+            Trial accounts: enable international calling in the Twilio console (Voice → Geo
+            Permissions), or upgrade.
+          </p>
+        )}
       </div>
     );
   }
@@ -99,10 +143,13 @@ function DeliveryCard({ delivery }: { delivery: NonNullable<FireResponse["delive
     <div className="rounded-xl border border-[#c4e5d6] bg-green-tint px-4 py-3 text-[12.5px] text-green-deep">
       <p className="flex items-center gap-2 font-semibold">
         <CheckCircle2 className="h-4 w-4" />
-        {delivery.channel === "sms" ? "SMS handed to Twilio" : "Voice call placed"} — {delivery.status ?? "queued"}
+        {delivery.channel === "sms" ? "SMS handed to Twilio" : "Voice call placed"} —{" "}
+        {delivery.status ?? "queued"}
       </p>
       {delivery.sid && <p className="num mt-1 text-[11px] text-green-deep/70">{delivery.sid}</p>}
-      <p className="mt-1 text-[11.5px] text-green-deep/80">Receipt on its way to {delivery.to ?? "your phone"} · sent from your bank&apos;s line.</p>
+      <p className="mt-1 text-[11.5px] text-green-deep/80">
+        Receipt on its way to {delivery.to ?? "your phone"} · sent from your bank&apos;s line.
+      </p>
     </div>
   );
 }
@@ -110,13 +157,37 @@ function DeliveryCard({ delivery }: { delivery: NonNullable<FireResponse["delive
 /* ————— actions-to-take runbook ————— */
 function Runbook({ res }: { res: FireResponse }) {
   const steps = [
-    { icon: Fingerprint, label: "Signal verified", detail: "HMAC-SHA256 signature + replay window", done: true },
-    { icon: ClipboardCheck, label: "Case sealed in audit chain", detail: res.caseRef, done: !!res.caseRef },
-    { icon: Snowflake, label: "Protective action armed", detail: res.plan?.action ?? "—", done: !!res.plan },
     {
-      icon: res.delivery?.channel === "sms" ? MessageSquareText : res.delivery?.channel === "call" ? PhoneCall : Radio,
+      icon: Fingerprint,
+      label: "Signal verified",
+      detail: "HMAC-SHA256 signature + replay window",
+      done: true,
+    },
+    {
+      icon: ClipboardCheck,
+      label: "Case sealed in audit chain",
+      detail: res.caseRef,
+      done: !!res.caseRef,
+    },
+    {
+      icon: Snowflake,
+      label: "Protective action armed",
+      detail: res.plan?.action ?? "—",
+      done: !!res.plan,
+    },
+    {
+      icon:
+        res.delivery?.channel === "sms"
+          ? MessageSquareText
+          : res.delivery?.channel === "call"
+            ? PhoneCall
+            : Radio,
       label: "Customer contacted",
-      detail: res.delivery?.failed ? `attempt failed (${res.delivery.error?.slice(0, 60)}…)` : res.delivery?.sid ? `${res.delivery.channel} · ${res.delivery.status}` : res.delivery?.reason ?? "—",
+      detail: res.delivery?.failed
+        ? `attempt failed (${res.delivery.error?.slice(0, 60)}…)`
+        : res.delivery?.sid
+          ? `${res.delivery.channel} · ${res.delivery.status}`
+          : (res.delivery?.reason ?? "—"),
       done: !res.delivery?.failed && res.delivery?.channel !== "none",
     },
   ];
@@ -135,7 +206,12 @@ function Runbook({ res }: { res: FireResponse }) {
         <ol className="mt-3 space-y-2.5">
           {steps.map((s, i) => (
             <li key={i} className="flex items-start gap-2.5">
-              <span className={cn("mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg", s.done ? "bg-green-tint text-primary" : "bg-paper text-ink-3")}>
+              <span
+                className={cn(
+                  "mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg",
+                  s.done ? "bg-green-tint text-primary" : "bg-paper text-ink-3",
+                )}
+              >
                 <s.icon className="h-3.5 w-3.5" />
               </span>
               <div className="min-w-0">
@@ -151,7 +227,9 @@ function Runbook({ res }: { res: FireResponse }) {
         <ol className="mt-3 space-y-2.5">
           {actions.map((a, i) => (
             <li key={i} className="flex items-start gap-2.5">
-              <span className="num mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-[#0c110e] text-[10px] font-semibold text-green-bright">{i + 1}</span>
+              <span className="num mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-[#0c110e] text-[10px] font-semibold text-green-bright">
+                {i + 1}
+              </span>
               <p className="text-[12.5px] leading-snug text-ink-2">{a}</p>
             </li>
           ))}
@@ -165,11 +243,24 @@ function Runbook({ res }: { res: FireResponse }) {
 
 export function Console() {
   const { lang, setView } = useApp();
-  const { isSignedIn, user, isLoaded } = useUser();
-  const role = (user?.publicMetadata as { role?: string } | undefined)?.role;
+  const { data: session, isPending } = useSession();
+  const user = session?.user;
+  const isSignedIn = Boolean(user);
+  // `isLoaded` becomes `isPending`: Better Auth reports a pending session fetch
+  // where the session reported "loaded". Both mean "do not decide yet" — deciding
+  // early would flash the signed-out screen at a signed-in operator.
+  const isLoaded = !isPending;
+  // Display-only. The capability check that actually gates every console action
+  // happens server-side on each route.
+  const role = session?.session?.activeOrganizationId ? "operator" : undefined;
   const ar = lang === "ar";
 
-  const [status, setStatus] = useState<{ ok?: boolean; telephony?: string; voiceProvider?: string; ingest?: string } | null>(null);
+  const [status, setStatus] = useState<{
+    ok?: boolean;
+    telephony?: string;
+    voiceProvider?: string;
+    ingest?: string;
+  } | null>(null);
   const [phone, setPhone] = useState("");
   const [enrollLang, setEnrollLang] = useState("en");
   const [enrollChannel, setEnrollChannel] = useState<"call" | "sms">("call");
@@ -184,16 +275,29 @@ export function Console() {
   const [firing, setFiring] = useState(false);
   const [res, setRes] = useState<FireResponse | null>(null);
 
-  const [chain, setChain] = useState<{ checking: boolean; result?: ChainVerification } | null>(null);
-  const [cases, setCases] = useState<{ callRef: string; riskScore: number | null; channel: string | null; plannedAction: string | null; at: string }[]>([]);
+  const [chain, setChain] = useState<{ checking: boolean; result?: ChainVerification } | null>(
+    null,
+  );
+  const [cases, setCases] = useState<
+    {
+      callRef: string;
+      riskScore: number | null;
+      channel: string | null;
+      plannedAction: string | null;
+      at: string;
+    }[]
+  >([]);
   const [credits, setCredits] = useState<number | null>(null);
-  const [branding, setBranding] = useState<{ orgName: string | null; orgLogoUrl: string | null } | null>(null);
+  const [branding, setBranding] = useState<{
+    orgName: string | null;
+    orgLogoUrl: string | null;
+  } | null>(null);
   const [liveFeed, setLiveFeed] = useState<string[]>([]);
   // Realtime push path state. "unavailable" is not an error — it means the console
   // is reading the SSE feed instead, which is exactly what it did before.
   const [rtStatus, setRtStatus] = useState<RealtimeStatus>("connecting");
 
-  const email = user?.primaryEmailAddress?.emailAddress ?? "";
+  const email = user?.email ?? "";
   const customerRef = email ? selfRef(email) : "SELF-";
 
   useEffect(() => {
@@ -203,11 +307,17 @@ export function Console() {
     // transports and would otherwise capture them out of scope.
     let es: EventSource | null = null;
     let rt: RealtimeHandle | null = null;
-    fetch("/api/status").then((r) => r.json()).then((d) => alive && setStatus(d)).catch(() => {});
+    fetch("/api/status")
+      .then((r) => r.json())
+      .then((d) => alive && setStatus(d))
+      .catch(() => {});
     if (isSignedIn) {
       fetch("/api/console/me")
         .then((r) => r.json())
-        .then((d: { profile: { credits: number } | null }) => alive && d.profile && setCredits(d.profile.credits))
+        .then(
+          (d: { profile: { credits: number } | null }) =>
+            alive && d.profile && setCredits(d.profile.credits),
+        )
         .catch(() => {});
       fetch("/api/console/settings")
         .then((r) => r.json())
@@ -230,7 +340,11 @@ export function Console() {
           es = new EventSource("/api/console/events");
           es.addEventListener("activity", (ev) => {
             try {
-              const rows = JSON.parse((ev as MessageEvent).data) as { callRef: string; action: string; intent: string | null }[];
+              const rows = JSON.parse((ev as MessageEvent).data) as {
+                callRef: string;
+                action: string;
+                intent: string | null;
+              }[];
               for (const r of rows) pushRow(r.callRef, r.action, r.intent ?? null);
             } catch {}
           });
@@ -300,10 +414,23 @@ export function Console() {
       <div className="flex min-h-[60vh] flex-col items-center justify-center gap-4 px-6 text-center">
         <ShieldCheck className="h-8 w-8 text-primary" />
         <p className="font-display text-xl font-semibold">Sign in to open the Command Center</p>
-        <p className="max-w-sm text-[13px] text-ink-2">The Command Center is available to every provisioned seat — demo explorers and bank operators see the same surface.</p>
+        <p className="max-w-sm text-[13px] text-ink-2">
+          The Command Center is available to every provisioned seat — demo explorers and bank
+          operators see the same surface.
+        </p>
         <div className="flex gap-2">
-          <button onClick={() => setView("auth")} className="rounded-full bg-primary px-6 py-2.5 text-[13px] font-semibold text-white transition hover:bg-green-deep">Sign in</button>
-          <button onClick={() => setView("demo")} className="rounded-full border border-line px-6 py-2.5 text-[13px] font-semibold text-ink-2 transition hover:border-primary/40">Open demo</button>
+          <button
+            onClick={() => setView("auth")}
+            className="rounded-full bg-primary px-6 py-2.5 text-[13px] font-semibold text-white transition hover:bg-green-deep"
+          >
+            Sign in
+          </button>
+          <button
+            onClick={() => setView("demo")}
+            className="rounded-full border border-line px-6 py-2.5 text-[13px] font-semibold text-ink-2 transition hover:border-primary/40"
+          >
+            Open demo
+          </button>
         </div>
       </div>
     );
@@ -321,10 +448,23 @@ export function Console() {
       const r = await fetch("/api/enroll", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ customerRef, phone: trimmed, lang: enrollLang, channel: enrollChannel, consentRecordId: `CN-${customerRef}` }),
+        body: JSON.stringify({
+          customerRef,
+          phone: trimmed,
+          lang: enrollLang,
+          channel: enrollChannel,
+          consentRecordId: `CN-${customerRef}`,
+        }),
       });
-      const d = (await r.json().catch(() => ({}))) as { ok?: boolean; error?: string; message?: string };
-      setEnrollState({ ok: !!d.ok, msg: d.ok ? (d.message ?? "Enrolled") : (d.error ?? "Enrollment failed") });
+      const d = (await r.json().catch(() => ({}))) as {
+        ok?: boolean;
+        error?: string;
+        message?: string;
+      };
+      setEnrollState({
+        ok: !!d.ok,
+        msg: d.ok ? (d.message ?? "Enrolled") : (d.error ?? "Enrollment failed"),
+      });
     } catch {
       setEnrollState({ ok: false, msg: "Network error — try again." });
     } finally {
@@ -348,7 +488,9 @@ export function Console() {
           ...(merchant ? { merchant } : {}),
         }),
       });
-      const data = (await r.json().catch(() => ({ error: "Unreadable response from server" }))) as FireResponse;
+      const data = (await r
+        .json()
+        .catch(() => ({ error: "Unreadable response from server" }))) as FireResponse;
       if (typeof data.creditsRemaining === "number") setCredits(data.creditsRemaining);
       setRes(data);
       // refresh the recent-cases strip (async, outside any effect body)
@@ -370,7 +512,11 @@ export function Console() {
     setChain({ checking: true });
     try {
       const r = await fetch(`/api/console/audit?callRef=${encodeURIComponent(res.caseRef)}`);
-      const d = (await r.json().catch(() => ({ verification: { ok: false, rows: 0, brokenAt: "unparseable" } }))) as { verification: ChainVerification };
+      const d = (await r
+        .json()
+        .catch(() => ({ verification: { ok: false, rows: 0, brokenAt: "unparseable" } }))) as {
+        verification: ChainVerification;
+      };
       setChain({ checking: false, result: d.verification });
     } catch {
       setChain({ checking: false, result: { ok: false, rows: 0, brokenAt: "network" } });
@@ -381,11 +527,17 @@ export function Console() {
     <div className="mx-auto max-w-6xl px-4 py-10 sm:px-6 lg:px-8">
       {/* graceful degradation: DB down → maintenance state, no raw errors */}
       {status && status.ok === false && (
-        <div role="alert" className="mb-6 flex items-center gap-3 rounded-2xl border border-amber-300 bg-amber-50 px-5 py-4">
+        <div
+          role="alert"
+          className="mb-6 flex items-center gap-3 rounded-2xl border border-amber-300 bg-amber-50 px-5 py-4"
+        >
           <Loader2 className="h-5 w-5 animate-spin text-amber-600" />
           <div>
             <p className="text-[13px] font-semibold text-amber-900">System under maintenance</p>
-            <p className="text-[12px] text-amber-800">The case database is not responding — signals are rejected for safety until it recovers. This page retries automatically.</p>
+            <p className="text-[12px] text-amber-800">
+              The case database is not responding — signals are rejected for safety until it
+              recovers. This page retries automatically.
+            </p>
           </div>
         </div>
       )}
@@ -412,14 +564,27 @@ export function Console() {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {role !== "operator" && (
-            <span className="flex items-center gap-1.5 rounded-full bg-amber-tint px-2.5 py-1 text-[10.5px] font-bold uppercase tracking-wide text-amber-soft" title="Sandboxed workspace — seeded data, metered platform key">
+            <span
+              className="flex items-center gap-1.5 rounded-full bg-amber-tint px-2.5 py-1 text-[10.5px] font-bold uppercase tracking-wide text-amber-soft"
+              title="Sandboxed workspace — seeded data, metered platform key"
+            >
               🟡 Demo Mode
             </span>
           )}
-          <Chip className="!text-[10.5px]"><Coins className="h-3 w-3 text-[#8a6d1d]" /> {credits ?? "…"} credits left</Chip>
-          <Chip className="!text-[10.5px]"><PhoneCall className="h-3 w-3 text-primary" /> telephony: {status?.telephony ?? "…"}</Chip>
-          <Chip className="!text-[10.5px]"><Radio className="h-3 w-3 text-primary" /> voice: {status?.voiceProvider?.split(" ")[0] ?? "…"}</Chip>
-          <Chip className="!text-[10.5px]"><Siren className="h-3 w-3 text-primary" /> ingest: {status?.ingest?.split(" ")[0] ?? "…"}</Chip>
+          <Chip className="!text-[10.5px]">
+            <Coins className="h-3 w-3 text-[#8a6d1d]" /> {credits ?? "…"} credits left
+          </Chip>
+          <Chip className="!text-[10.5px]">
+            <PhoneCall className="h-3 w-3 text-primary" /> telephony: {status?.telephony ?? "…"}
+          </Chip>
+          <Chip className="!text-[10.5px]">
+            <Radio className="h-3 w-3 text-primary" /> voice:{" "}
+            {status?.voiceProvider?.split(" ")[0] ?? "…"}
+          </Chip>
+          <Chip className="!text-[10.5px]">
+            <Siren className="h-3 w-3 text-primary" /> ingest:{" "}
+            {status?.ingest?.split(" ")[0] ?? "…"}
+          </Chip>
           <a
             href="mailto:otemaach@gmail.com?subject=SecureVoice%20feedback"
             className="flex items-center gap-1.5 rounded-full border border-line bg-white px-2.5 py-1 text-[10.5px] font-semibold text-ink-2 transition hover:border-primary/40 hover:text-primary"
@@ -429,9 +594,14 @@ export function Console() {
         </div>
         {liveFeed.length > 0 && (
           <div className="mt-4 flex flex-wrap items-center gap-2">
-            <span className="micro flex items-center gap-1.5 text-[9px] text-primary"><LiveDot /> LIVE PIPELINE</span>
+            <span className="micro flex items-center gap-1.5 text-[9px] text-primary">
+              <LiveDot /> LIVE PIPELINE
+            </span>
             {liveFeed.map((line, i) => (
-              <span key={`${line}-${i}`} className="num rounded-full border border-line bg-white px-2.5 py-1 text-[10px] text-ink-2">
+              <span
+                key={`${line}-${i}`}
+                className="num rounded-full border border-line bg-white px-2.5 py-1 text-[10px] text-ink-2"
+              >
                 {line}
               </span>
             ))}
@@ -452,7 +622,8 @@ export function Console() {
                   : "border-line text-ink-3",
             )}
           >
-            feed: {rtStatus === "live" ? "websocket" : rtStatus === "connecting" ? "connecting" : "sse"}
+            feed:{" "}
+            {rtStatus === "live" ? "websocket" : rtStatus === "connecting" ? "connecting" : "sse"}
           </span>
         </div>
       </div>
@@ -462,21 +633,34 @@ export function Console() {
         <div className="space-y-6">
           <div className="rounded-3xl border border-line bg-white p-6">
             <div className="flex items-center gap-2">
-              <span className="num flex h-6 w-6 items-center justify-center rounded-lg bg-green-tint text-[11px] font-semibold text-primary">1</span>
+              <span className="num flex h-6 w-6 items-center justify-center rounded-lg bg-green-tint text-[11px] font-semibold text-primary">
+                1
+              </span>
               <h2 className="font-display text-[15px] font-semibold">Connect your phone</h2>
             </div>
             <p className="mt-1.5 text-[12px] leading-snug text-ink-3">
-              Enrolled as <span className="num text-ink-2">{customerRef}</span> · consent recorded for intervention contact.
+              Enrolled as <span className="num text-ink-2">{customerRef}</span> · consent recorded
+              for intervention contact.
             </p>
             <div className="mt-4 space-y-3.5">
               <div className="space-y-1.5">
                 <Label className="text-[11.5px] font-semibold">Phone (E.164)</Label>
-                <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+971501234567" className={inputCls} inputMode="tel" />
+                <Input
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  placeholder="+971501234567"
+                  className={inputCls}
+                  inputMode="tel"
+                />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
                   <Label className="text-[11.5px] font-semibold">Language</Label>
-                  <select value={enrollLang} onChange={(e) => setEnrollLang(e.target.value)} className={cn(inputCls, "w-full border px-3")}>
+                  <select
+                    value={enrollLang}
+                    onChange={(e) => setEnrollLang(e.target.value)}
+                    className={cn(inputCls, "w-full border px-3")}
+                  >
                     <option value="en">English</option>
                     <option value="ar">العربية</option>
                     <option value="hi">हिन्दी</option>
@@ -489,22 +673,42 @@ export function Console() {
                   <Label className="text-[11.5px] font-semibold">Channel</Label>
                   <div className="flex items-center rounded-xl border border-line bg-paper p-1">
                     {(["call", "sms"] as const).map((c) => (
-                      <button key={c} type="button" onClick={() => setEnrollChannel(c)} aria-pressed={enrollChannel === c}
-                        className={cn("flex-1 rounded-lg px-3 py-1.5 text-[12px] font-semibold transition", enrollChannel === c ? "bg-[#0c110e] text-white" : "text-ink-3")}>
+                      <button
+                        key={c}
+                        type="button"
+                        onClick={() => setEnrollChannel(c)}
+                        aria-pressed={enrollChannel === c}
+                        className={cn(
+                          "flex-1 rounded-lg px-3 py-1.5 text-[12px] font-semibold transition",
+                          enrollChannel === c ? "bg-[#0c110e] text-white" : "text-ink-3",
+                        )}
+                      >
                         {c === "call" ? "Voice call" : "SMS"}
                       </button>
                     ))}
                   </div>
                 </div>
               </div>
-              <button onClick={enroll} disabled={enrolling || !phone.trim()}
-                className="flex w-full items-center justify-center gap-2 rounded-full bg-primary py-2.5 text-[12.5px] font-semibold text-white transition hover:bg-green-deep disabled:opacity-40">
-                {enrolling ? <Loader2 className="h-4 w-4 animate-spin" /> : <PhoneCall className="h-4 w-4" />}
+              <button
+                onClick={enroll}
+                disabled={enrolling || !phone.trim()}
+                className="flex w-full items-center justify-center gap-2 rounded-full bg-primary py-2.5 text-[12.5px] font-semibold text-white transition hover:bg-green-deep disabled:opacity-40"
+              >
+                {enrolling ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <PhoneCall className="h-4 w-4" />
+                )}
                 Enroll this number
               </button>
               {enrollState && (
-                <p role="status" className={cn("rounded-xl px-3.5 py-2.5 text-[12px] font-medium",
-                  enrollState.ok ? "bg-green-tint text-green-deep" : "bg-red-tint text-red-soft")}>
+                <p
+                  role="status"
+                  className={cn(
+                    "rounded-xl px-3.5 py-2.5 text-[12px] font-medium",
+                    enrollState.ok ? "bg-green-tint text-green-deep" : "bg-red-tint text-red-soft",
+                  )}
+                >
                   {enrollState.msg}
                 </p>
               )}
@@ -513,31 +717,57 @@ export function Console() {
 
           <div className="rounded-3xl border border-line bg-white p-6">
             <div className="flex items-center gap-2">
-              <span className="num flex h-6 w-6 items-center justify-center rounded-lg bg-green-tint text-[11px] font-semibold text-primary">2</span>
+              <span className="num flex h-6 w-6 items-center justify-center rounded-lg bg-green-tint text-[11px] font-semibold text-primary">
+                2
+              </span>
               <h2 className="font-display text-[15px] font-semibold">Fire a risk signal</h2>
               <StatusPill tone="gray">signed · replay-protected</StatusPill>
             </div>
             <p className="mt-1.5 text-[12px] leading-snug text-ink-3">
-              The console server signs the exact bytes your fraud engine would send — same HMAC scheme, same endpoint, same audit trail.
+              The console server signs the exact bytes your fraud engine would send — same HMAC
+              scheme, same endpoint, same audit trail.
             </p>
             <div className="mt-4 space-y-3.5">
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
                   <Label className="text-[11.5px] font-semibold">Risk score</Label>
-                  <span className="num text-[12px] font-semibold text-primary">{risk.toFixed(2)}</span>
+                  <span className="num text-[12px] font-semibold text-primary">
+                    {risk.toFixed(2)}
+                  </span>
                 </div>
-                <input type="range" min={0.5} max={0.99} step={0.01} value={risk} onChange={(e) => setRisk(Number(e.target.value))} className="w-full accent-[#0b7a55]" aria-label="Risk score" />
+                <input
+                  type="range"
+                  min={0.5}
+                  max={0.99}
+                  step={0.01}
+                  value={risk}
+                  onChange={(e) => setRisk(Number(e.target.value))}
+                  className="w-full accent-[#0b7a55]"
+                  aria-label="Risk score"
+                />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
                   <Label className="text-[11.5px] font-semibold">Channel</Label>
-                  <select value={channel} onChange={(e) => setChannel(e.target.value)} className={cn(inputCls, "w-full border px-3")}>
-                    {["card", "login", "payment", "transfer", "remittance"].map((c) => <option key={c} value={c}>{c}</option>)}
+                  <select
+                    value={channel}
+                    onChange={(e) => setChannel(e.target.value)}
+                    className={cn(inputCls, "w-full border px-3")}
+                  >
+                    {["card", "login", "payment", "transfer", "remittance"].map((c) => (
+                      <option key={c} value={c}>
+                        {c}
+                      </option>
+                    ))}
                   </select>
                 </div>
                 <div className="space-y-1.5">
                   <Label className="text-[11.5px] font-semibold">Call language</Label>
-                  <select value={fireLang} onChange={(e) => setFireLang(e.target.value)} className={cn(inputCls, "w-full border px-3")}>
+                  <select
+                    value={fireLang}
+                    onChange={(e) => setFireLang(e.target.value)}
+                    className={cn(inputCls, "w-full border px-3")}
+                  >
                     <option value="en">English</option>
                     <option value="ar">العربية</option>
                     <option value="hi">हिन्दी</option>
@@ -550,16 +780,32 @@ export function Console() {
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
                   <Label className="text-[11.5px] font-semibold">Amount (AED)</Label>
-                  <Input value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^\d.]/g, ""))} className={inputCls} inputMode="decimal" />
+                  <Input
+                    value={amount}
+                    onChange={(e) => setAmount(e.target.value.replace(/[^\d.]/g, ""))}
+                    className={inputCls}
+                    inputMode="decimal"
+                  />
                 </div>
                 <div className="space-y-1.5">
                   <Label className="text-[11.5px] font-semibold">Merchant</Label>
-                  <Input value={merchant} onChange={(e) => setMerchant(e.target.value)} className={inputCls} />
+                  <Input
+                    value={merchant}
+                    onChange={(e) => setMerchant(e.target.value)}
+                    className={inputCls}
+                  />
                 </div>
               </div>
-              <button onClick={fire} disabled={firing}
-                className="flex w-full items-center justify-center gap-2 rounded-full bg-[#0c110e] py-3 text-[13px] font-semibold text-white transition hover:bg-black disabled:opacity-50">
-                {firing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4 text-green-bright" />}
+              <button
+                onClick={fire}
+                disabled={firing}
+                className="flex w-full items-center justify-center gap-2 rounded-full bg-[#0c110e] py-3 text-[13px] font-semibold text-white transition hover:bg-black disabled:opacity-50"
+              >
+                {firing ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Zap className="h-4 w-4 text-green-bright" />
+                )}
                 Fire intervention signal
               </button>
             </div>
@@ -570,21 +816,28 @@ export function Console() {
         <div className="space-y-6">
           <div className="rounded-3xl border border-line bg-white p-6">
             <div className="flex items-center gap-2">
-              <span className="num flex h-6 w-6 items-center justify-center rounded-lg bg-green-tint text-[11px] font-semibold text-primary">3</span>
-              <h2 className="font-display text-[15px] font-semibold">Response &amp; actions to take</h2>
+              <span className="num flex h-6 w-6 items-center justify-center rounded-lg bg-green-tint text-[11px] font-semibold text-primary">
+                3
+              </span>
+              <h2 className="font-display text-[15px] font-semibold">
+                Response &amp; actions to take
+              </h2>
             </div>
 
             {!res && (
               <div className="mt-6 flex h-64 flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-line bg-paper/60 text-center">
                 <Siren className="h-6 w-6 text-ink-3" strokeWidth={1.6} />
                 <p className="max-w-[240px] text-[12.5px] leading-snug text-ink-3">
-                  Fire a signal to see the case envelope, the 60-second SLA clock, the live delivery receipt — and exactly what to do next.
+                  Fire a signal to see the case envelope, the 60-second SLA clock, the live delivery
+                  receipt — and exactly what to do next.
                 </p>
               </div>
             )}
 
             {res?.error && !res.caseRef && (
-              <div className="mt-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-[12.5px] font-medium text-red-700">{res.error}</div>
+              <div className="mt-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-[12.5px] font-medium text-red-700">
+                {res.error}
+              </div>
             )}
 
             {res?.caseRef && (
@@ -594,8 +847,12 @@ export function Console() {
                     <p className="micro text-[9px] text-ink-3">CASE REFERENCE</p>
                     <p className="num mt-1 text-xl font-semibold tracking-wider">{res.caseRef}</p>
                     <div className="mt-2 flex flex-wrap gap-1.5">
-                      <StatusPill tone="green"><ShieldCheck className="h-3 w-3" /> {res.plan?.action ?? "armed"}</StatusPill>
-                      <StatusPill tone="amber"><ArrowRight className="h-3 w-3" /> handoff: {res.plan?.handoff ?? "human"}</StatusPill>
+                      <StatusPill tone="green">
+                        <ShieldCheck className="h-3 w-3" /> {res.plan?.action ?? "armed"}
+                      </StatusPill>
+                      <StatusPill tone="amber">
+                        <ArrowRight className="h-3 w-3" /> handoff: {res.plan?.handoff ?? "human"}
+                      </StatusPill>
                     </div>
                   </div>
                   {res.slaDeadline && <SlaClock deadline={res.slaDeadline} />}
@@ -608,15 +865,33 @@ export function Console() {
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2">
-                  <button onClick={verifyChainFor} disabled={chain?.checking}
-                    className="flex items-center gap-2 rounded-full border border-line bg-white px-4 py-2 text-[12px] font-semibold text-ink-2 transition hover:border-primary/40 hover:text-primary disabled:opacity-40">
-                    {chain?.checking ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <History className="h-3.5 w-3.5" />}
+                  <button
+                    onClick={verifyChainFor}
+                    disabled={chain?.checking}
+                    className="flex items-center gap-2 rounded-full border border-line bg-white px-4 py-2 text-[12px] font-semibold text-ink-2 transition hover:border-primary/40 hover:text-primary disabled:opacity-40"
+                  >
+                    {chain?.checking ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <History className="h-3.5 w-3.5" />
+                    )}
                     Verify audit chain
                   </button>
                   {chain?.result && (
-                    <span className={cn("flex items-center gap-1.5 text-[12px] font-semibold", chain.result.ok ? "text-green-deep" : "text-red-soft")}>
-                      {chain.result.ok ? <CheckCircle2 className="h-4 w-4" /> : <XCircle className="h-4 w-4" />}
-                      {chain.result.ok ? `intact — ${chain.result.rows} rows, every link valid` : `BROKEN at ${chain.result.brokenAt}`}
+                    <span
+                      className={cn(
+                        "flex items-center gap-1.5 text-[12px] font-semibold",
+                        chain.result.ok ? "text-green-deep" : "text-red-soft",
+                      )}
+                    >
+                      {chain.result.ok ? (
+                        <CheckCircle2 className="h-4 w-4" />
+                      ) : (
+                        <XCircle className="h-4 w-4" />
+                      )}
+                      {chain.result.ok
+                        ? `intact — ${chain.result.rows} rows, every link valid`
+                        : `BROKEN at ${chain.result.brokenAt}`}
                     </span>
                   )}
                 </div>
@@ -629,7 +904,9 @@ export function Console() {
             <div className="flex items-center justify-between">
               <h2 className="font-display text-[15px] font-semibold">Recent interventions</h2>
               <div className="flex items-center gap-2">
-                <Chip className="!text-[10px]"><Timer className="h-3 w-3" /> SLA 60s</Chip>
+                <Chip className="!text-[10px]">
+                  <Timer className="h-3 w-3" /> SLA 60s
+                </Chip>
                 {cases.length > 0 && (
                   <button
                     onClick={() => {
@@ -645,7 +922,7 @@ export function Console() {
                           channel: c.channel ?? null,
                           plannedAction: c.plannedAction ?? null,
                           at: c.at,
-                        }))
+                        })),
                       );
                       const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
                       const url = URL.createObjectURL(blob);
@@ -668,16 +945,27 @@ export function Console() {
             ) : (
               <ul className="mt-4 space-y-2.5">
                 {cases.slice(0, 6).map((c) => (
-                  <motion.li key={c.callRef} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
-                    className="flex items-center justify-between gap-3 rounded-xl border border-line bg-paper/60 px-3.5 py-2.5">
+                  <motion.li
+                    key={c.callRef}
+                    initial={{ opacity: 0, y: 6 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="flex items-center justify-between gap-3 rounded-xl border border-line bg-paper/60 px-3.5 py-2.5"
+                  >
                     <div className="min-w-0">
                       <p className="num text-[12px] font-semibold">{c.callRef}</p>
                       <p className="truncate text-[11px] text-ink-3">
-                        {c.channel ?? "—"} · {c.plannedAction ?? "—"} · {new Date(c.at).toLocaleTimeString()}
+                        {c.channel ?? "—"} · {c.plannedAction ?? "—"} ·{" "}
+                        {new Date(c.at).toLocaleTimeString()}
                       </p>
                     </div>
-                    <span className={cn("num rounded-full px-2 py-0.5 text-[10.5px] font-semibold",
-                      (c.riskScore ?? 0) >= 0.9 ? "bg-red-tint text-red-soft" : "bg-amber-tint text-amber-soft")}>
+                    <span
+                      className={cn(
+                        "num rounded-full px-2 py-0.5 text-[10.5px] font-semibold",
+                        (c.riskScore ?? 0) >= 0.9
+                          ? "bg-red-tint text-red-soft"
+                          : "bg-amber-tint text-amber-soft",
+                      )}
+                    >
                       {c.riskScore != null ? c.riskScore.toFixed(2) : "—"}
                     </span>
                   </motion.li>

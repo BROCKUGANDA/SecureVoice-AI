@@ -133,7 +133,12 @@ describe("stored time is timezone-independent", () => {
   });
 
   test("budget window boundaries are identical in every zone", () => {
-    for (const field of ["dailyWindowStartMs", "dailyWindowEndMs", "hourlyWindowStartMs", "hourlyWindowEndMs"] as const) {
+    for (const field of [
+      "dailyWindowStartMs",
+      "dailyWindowEndMs",
+      "hourlyWindowStartMs",
+      "hourlyWindowEndMs",
+    ] as const) {
       const values = new Set(readings.map((r) => r.reading[field]));
       expect(values.size, `${field} differs by timezone: ${[...values].join(",")}`).toBe(1);
     }

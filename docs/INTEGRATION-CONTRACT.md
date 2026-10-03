@@ -20,11 +20,11 @@ product.
 Specifically, SecureVoice:
 
 - **Does not terminate ISO 8583 or ISO 20022.** If your core banking speaks only
-  those, this is not a replacement for your authorisation switch — it is *fed by*
+  those, this is not a replacement for your authorisation switch — it is _fed by_
   it. You POST a risk signal; you keep the rails, the ledger, the settlement, the
   scheme membership and the authorisation decision.
-- **Does not approve or decline transactions.** A `202` means *accepted for a
-  verification attempt*. It is not a decision, a recommendation, or a commitment.
+- **Does not approve or decline transactions.** A `202` means _accepted for a
+  verification attempt_. It is not a decision, a recommendation, or a commitment.
   A staged card freeze is **staged**: it is reversible and a human fraud
   specialist finalises it. Nothing here moves money.
 - **Carries no sub-100 ms authorisation SLA, and cannot.** The response you get
@@ -54,22 +54,22 @@ in the contract: **all three speak the identical `/v1/interventions` and bank
 webhook contract**, so moving up a tier is a deployment change and not an
 integration rewrite.
 
-| | **Tier 1 — Hosted** | **Tier 2 — Self-hosted** | **Tier 3 — Embedded** |
-|---|---|---|---|
-| Where the platform runs | SecureVoice's deployment | Your VPC / Kubernetes / compose | Your network, your egress, your telephony |
-| Who provisions the org | **A SecureVoice operator, today** | Operator, once | Operator, once |
-| Your fraud engine connects to | `https://<deployment>/v1/interventions` | Your internal URL | An internal URL, no public ingress at all |
-| Bank events delivered to | `https://your-bank.example/...` | internal | internal; outbound egress allow-listed |
-| Database | Managed | Yours | Yours, colocated with the app |
-| Voice provider key | SecureVoice's | BYOK (your key, AES-256-GCM at rest) | BYOK |
-| Data residency | SecureVoice's region | Your region | Your region |
-| Conformance checker | `POST /v1/conformance/run` | same | same (or run it internally) |
-| Realistic time to first signal | **Half a day** | A day | Two to three days |
-| Honest constraint | No automated self-serve signup exists yet | You run the upgrades | You also own carrier relationships |
+|                                | **Tier 1 — Hosted**                       | **Tier 2 — Self-hosted**             | **Tier 3 — Embedded**                     |
+| ------------------------------ | ----------------------------------------- | ------------------------------------ | ----------------------------------------- |
+| Where the platform runs        | SecureVoice's deployment                  | Your VPC / Kubernetes / compose      | Your network, your egress, your telephony |
+| Who provisions the org         | **A SecureVoice operator, today**         | Operator, once                       | Operator, once                            |
+| Your fraud engine connects to  | `https://<deployment>/v1/interventions`   | Your internal URL                    | An internal URL, no public ingress at all |
+| Bank events delivered to       | `https://your-bank.example/...`           | internal                             | internal; outbound egress allow-listed    |
+| Database                       | Managed                                   | Yours                                | Yours, colocated with the app             |
+| Voice provider key             | SecureVoice's                             | BYOK (your key, AES-256-GCM at rest) | BYOK                                      |
+| Data residency                 | SecureVoice's region                      | Your region                          | Your region                               |
+| Conformance checker            | `POST /v1/conformance/run`                | same                                 | same (or run it internally)               |
+| Realistic time to first signal | **Half a day**                            | A day                                | Two to three days                         |
+| Honest constraint              | No automated self-serve signup exists yet | You run the upgrades                 | You also own carrier relationships        |
 
 **What is honest about Tier 1's provisioning row.** The multi-tenant groundwork
 exists (org-scoped tables, per-team revocable producer keys, BYOK encryption, a
-credits wallet) but the *signup → org → first producer key* flow does not. Today
+credits wallet) but the _signup → org → first producer key_ flow does not. Today
 an operator with console access creates the org and hands you a key. That is a
 product gap, tracked, and it is why Tier 1 says "half a day" and not "five
 minutes". Do not plan a self-serve onboarding funnel on top of this until it
@@ -112,28 +112,28 @@ org-scoped, revocable producer key. They are alternatives, not a pair.
 
 Non-negotiable rules, each of which is enforced rather than documented:
 
-| Rule | Why it is a rejection, not a warning |
-|---|---|
-| `amount` is an **integer in minor units** (2500 = 25.00 AED) | A float here is a rounding bug that surfaces as a disputed amount months later. |
-| `phone` is **E.164** (`+971501234567`) | It is also the input to the geography control, so an un-routable number is refused before any carrier is contacted. |
-| `currency` is **ISO-4217 alphabetic** | Same reason. |
-| `consent_record_id` is **required** | Without a consent record we will not place a call. A customer who has opted out is refused with `409 policy_precondition` and is never dialled. |
-| **Unknown fields are rejected** (`422`) | Silently ignoring a field you believed was stored is how a customer gets no call and no error. This is also what makes "we never receive account numbers" enforceable rather than aspirational. |
-| `Idempotency-Key` is **required and reused** | A replay returns the stored `202` with `duplicate: true` and the `X-Idempotent-Replay: true` header, and creates nothing. A fresh key per retry creates a second case and a second call — the single most common integration bug on this endpoint. |
-| `callback_url` is validated by **resolution, not pattern** | HTTPS only, port 443, no credentials in the URL, and every address it resolves to must be public. Private, loopback, link-local and cloud-metadata targets are refused. A name that resolves into your VPC is the actual attack, and no regex catches it. |
+| Rule                                                         | Why it is a rejection, not a warning                                                                                                                                                                                                                      |
+| ------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `amount` is an **integer in minor units** (2500 = 25.00 AED) | A float here is a rounding bug that surfaces as a disputed amount months later.                                                                                                                                                                           |
+| `phone` is **E.164** (`+971501234567`)                       | It is also the input to the geography control, so an un-routable number is refused before any carrier is contacted.                                                                                                                                       |
+| `currency` is **ISO-4217 alphabetic**                        | Same reason.                                                                                                                                                                                                                                              |
+| `consent_record_id` is **required**                          | Without a consent record we will not place a call. A customer who has opted out is refused with `409 policy_precondition` and is never dialled.                                                                                                           |
+| **Unknown fields are rejected** (`422`)                      | Silently ignoring a field you believed was stored is how a customer gets no call and no error. This is also what makes "we never receive account numbers" enforceable rather than aspirational.                                                           |
+| `Idempotency-Key` is **required and reused**                 | A replay returns the stored `202` with `duplicate: true` and the `X-Idempotent-Replay: true` header, and creates nothing. A fresh key per retry creates a second case and a second call — the single most common integration bug on this endpoint.        |
+| `callback_url` is validated by **resolution, not pattern**   | HTTPS only, port 443, no credentials in the URL, and every address it resolves to must be public. Private, loopback, link-local and cloud-metadata targets are refused. A name that resolves into your VPC is the actual attack, and no regex catches it. |
 
 ### Responses
 
-| Status | Meaning | `code` |
-|---|---|---|
-| `202` | Accepted and **queued**. `status: "queued"` or `status: "degraded_to_async"`. | — |
-| `202` + `duplicate: true` | An idempotent replay of a key we already stored. Not an error. | — |
-| `400` | Unparseable body, or missing/short `Idempotency-Key`. | `malformed_request` |
-| `401` | No acceptable credential. Deliberately ONE code for a bad signature and a revoked key. | `unauthenticated` |
-| `409` | Refused by policy: opt-out, country not allowed, cooldown, cap, spend ceiling, credits. | `policy_precondition` |
-| `422` | Well-formed JSON that failed validation, or a `callback_url` the outbound-URL policy refused. | `semantically_invalid` |
-| `429` | Caller budget spent. Honours `Retry-After`. | `rate_limited` |
-| `503` | A dependency failed while the case was being armed. Honours `Retry-After`. | `dependency_unavailable` |
+| Status                    | Meaning                                                                                       | `code`                   |
+| ------------------------- | --------------------------------------------------------------------------------------------- | ------------------------ |
+| `202`                     | Accepted and **queued**. `status: "queued"` or `status: "degraded_to_async"`.                 | —                        |
+| `202` + `duplicate: true` | An idempotent replay of a key we already stored. Not an error.                                | —                        |
+| `400`                     | Unparseable body, or missing/short `Idempotency-Key`.                                         | `malformed_request`      |
+| `401`                     | No acceptable credential. Deliberately ONE code for a bad signature and a revoked key.        | `unauthenticated`        |
+| `409`                     | Refused by policy: opt-out, country not allowed, cooldown, cap, spend ceiling, credits.       | `policy_precondition`    |
+| `422`                     | Well-formed JSON that failed validation, or a `callback_url` the outbound-URL policy refused. | `semantically_invalid`   |
+| `429`                     | Caller budget spent. Honours `Retry-After`.                                                   | `rate_limited`           |
+| `503`                     | A dependency failed while the case was being armed. Honours `Retry-After`.                    | `dependency_unavailable` |
 
 Errors use one envelope, with every field always present:
 
@@ -154,7 +154,7 @@ Errors use one envelope, with every field always present:
 length-capped, so it is advisory. Two consequences worth internalising:
 
 - `retryable` in the envelope is fixed **per code**, so `policy_precondition` is
-  always `false` — most policy refusals must never be retried. For the *transient*
+  always `false` — most policy refusals must never be retried. For the _transient_
   causes inside it (cooldown, concurrency caps, spend ceiling) a **delayed** retry
   is correct; the cause is named in `message` and the full table, with per-cause
   retryability, is `x-error-catalog` in `GET /openapi`.
@@ -217,16 +217,16 @@ SV-Signature: t={unix_seconds},v1={hex64}
 v1 = HMAC_SHA256(secret, "{t}." + raw_request_bytes)
 ```
 
-| Property | Value |
-|---|---|
-| Algorithm | `HMAC-SHA256`. Fixed — no negotiation, no downgrade. |
-| Signed message | The timestamp, a literal `.`, then the **exact raw bytes**. |
-| Inbound secret | `WEBHOOK_SECRET`, shared out of band. |
-| Outbound secret | `BANK_WEBHOOK_SECRET` — a **different** secret. |
-| Replay window | 300 s, enforced in **both** directions. A future timestamp is refused too. |
-| Comparison | Constant time on both sides. |
-| Header names accepted inbound | `SV-Signature`, `sv-signature`, `x-securevoice-signature`. |
-| Alternative to the secret | `Authorization: Bearer svb_…` — org-scoped, per-team, revocable. |
+| Property                      | Value                                                                      |
+| ----------------------------- | -------------------------------------------------------------------------- |
+| Algorithm                     | `HMAC-SHA256`. Fixed — no negotiation, no downgrade.                       |
+| Signed message                | The timestamp, a literal `.`, then the **exact raw bytes**.                |
+| Inbound secret                | `WEBHOOK_SECRET`, shared out of band.                                      |
+| Outbound secret               | `BANK_WEBHOOK_SECRET` — a **different** secret.                            |
+| Replay window                 | 300 s, enforced in **both** directions. A future timestamp is refused too. |
+| Comparison                    | Constant time on both sides.                                               |
+| Header names accepted inbound | `SV-Signature`, `sv-signature`, `x-securevoice-signature`.                 |
+| Alternative to the secret     | `Authorization: Bearer svb_…` — org-scoped, per-team, revocable.           |
 
 **The one rule that causes every integration failure:** sign the exact bytes you
 transmit. Parse the object, then serialise once, then sign that string and send
@@ -236,11 +236,11 @@ secret and sends people looking in the wrong place for a week.
 
 Reference implementations, all three verified to agree on the same delivery:
 
-| Language | File | For |
-|---|---|---|
-| TypeScript / Bun | `scripts/verify_sv_signature.ts` | Node shops, including us |
-| Python 3 | `scripts/verify_sv_signature.py` | Python shops |
-| **Java** | **`scripts/verify-signatures/SignatureVerifier.java`** | **Core-banking platforms — not optional** |
+| Language         | File                                                   | For                                       |
+| ---------------- | ------------------------------------------------------ | ----------------------------------------- |
+| TypeScript / Bun | `scripts/verify_sv_signature.ts`                       | Node shops, including us                  |
+| Python 3         | `scripts/verify_sv_signature.py`                       | Python shops                              |
+| **Java**         | **`scripts/verify-signatures/SignatureVerifier.java`** | **Core-banking platforms — not optional** |
 
 The Java file is the one to hand to a platform team: JDK-only with no
 dependencies, embeds as a static `verify(byte[], String, String)`, and documents
@@ -255,15 +255,15 @@ This is the list a bank's privacy review asks for, stated as a contract.
 
 **What we accept:**
 
-| Field | Note |
-|---|---|
-| `transaction_ref` | Your own opaque reference. Not an account number. |
-| `risk_score` | 0–1. Used for queue triage, never as a decision. |
-| `language`, `currency`, `amount` | BCP-47 / ISO-4217 / integer minor units. |
-| `phone` | E.164. Required to place the call; returned to you only **redacted**. |
-| `merchant` | Sanitised before it becomes a spoken dynamic variable. |
-| `consent_record_id` | The legal basis for outbound contact. |
-| `org_id`, `callback_url` | Tenancy and delivery routing. |
+| Field                            | Note                                                                  |
+| -------------------------------- | --------------------------------------------------------------------- |
+| `transaction_ref`                | Your own opaque reference. Not an account number.                     |
+| `risk_score`                     | 0–1. Used for queue triage, never as a decision.                      |
+| `language`, `currency`, `amount` | BCP-47 / ISO-4217 / integer minor units.                              |
+| `phone`                          | E.164. Required to place the call; returned to you only **redacted**. |
+| `merchant`                       | Sanitised before it becomes a spoken dynamic variable.                |
+| `consent_record_id`              | The legal basis for outbound contact.                                 |
+| `org_id`, `callback_url`         | Tenancy and delivery routing.                                         |
 
 **What we never send you:**
 
@@ -292,14 +292,14 @@ the pull side carries the evidence.
 
 The envelope carries `schema_version`, currently `2026-10-01`.
 
-**Within a version** — no field is removed, renamed, or retyped. New *optional*
+**Within a version** — no field is removed, renamed, or retyped. New _optional_
 fields may appear, so:
 
 - **Receivers must ignore unknown fields in an EVENT.** (The opposite rule
   applies to the ingest request, where unknown fields are rejected. Asymmetry is
   deliberate: a sender adding a field must not break your parser, while a producer
   sending a field we do not declare must not have it silently dropped.)
-- New *optional* request fields may appear; a new **required** request field is a
+- New _optional_ request fields may appear; a new **required** request field is a
   breaking change and takes a new version.
 
 **A breaking change** requires a new `schema_version`, published in `GET /openapi`
@@ -326,14 +326,14 @@ before the ingest moved and was out of this work package's editing scope.
 
 ### Network requirements
 
-| Direction | Destination | Purpose |
-|---|---|---|
-| Inbound | Your fraud engine → our `443` | `POST /v1/interventions` |
-| Outbound | our deployment → your receiver `443` | Signed bank events |
-| Outbound | our deployment → `api.elevenlabs.io:443` | Voice agent (BYOK in Tiers 2–3) |
-| Outbound | our deployment → `api.twilio.com:443` | Carrier signalling and media |
-| Outbound | our deployment → `api.clerk.com:443`, `*.clerk.accounts.dev:443`, `wss://…` | Staff sign-in (optional — skip with no staff login) |
-| Outbound | our deployment → `api.paystack.co:443` | Credits wallet, if you self-serve top-ups |
+| Direction | Destination                                                                                   | Purpose                                   |
+| --------- | --------------------------------------------------------------------------------------------- | ----------------------------------------- |
+| Inbound   | Your fraud engine → our `443`                                                                 | `POST /v1/interventions`                  |
+| Outbound  | our deployment → your receiver `443`                                                          | Signed bank events                        |
+| Outbound  | our deployment → `api.elevenlabs.io:443`                                                      | Voice agent (BYOK in Tiers 2–3)           |
+| Outbound  | our deployment → `api.twilio.com:443`                                                         | Carrier signalling and media              |
+| (none)    | — staff sign-in is same-origin at `/api/auth/*`; the retired Clerk egress is no longer opened | Identity needs NO outbound egress         |
+| Outbound  | our deployment → `api.paystack.co:443`                                                        | Credits wallet, if you self-serve top-ups |
 
 Self-hosted topology: Caddy is the **only** published port; the app and realtime
 services are reachable only on the internal network. That is what lets the
@@ -345,24 +345,24 @@ forwarded-IP trust is gone.
 
 ### Health and diagnosis
 
-| Check | Use |
-|---|---|
-| `GET /api/health` | Liveness. |
-| `GET /api/readyz` | Readiness — includes the database. |
-| `GET /api/status` | Operator-only: heap, DB latency, telephony mode, queue depth. Not for a bank's dashboard; it is authenticated and no-index. |
-| `GET /openapi`, `GET /asyncapi` | This contract, machine-readable. |
-| `POST /v1/conformance/run` | Grade your receiver. See §7. |
+| Check                           | Use                                                                                                                         |
+| ------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `GET /api/health`               | Liveness.                                                                                                                   |
+| `GET /api/readyz`               | Readiness — includes the database.                                                                                          |
+| `GET /api/status`               | Operator-only: heap, DB latency, telephony mode, queue depth. Not for a bank's dashboard; it is authenticated and no-index. |
+| `GET /openapi`, `GET /asyncapi` | This contract, machine-readable.                                                                                            |
+| `POST /v1/conformance/run`      | Grade your receiver. See §7.                                                                                                |
 
 ### When something looks wrong
 
-| Symptom | Likely cause | First move |
-|---|---|---|
-| `401 unauthenticated` on every signal | Clock skew, or re-serialising the body | Verify NTP; sign the exact transmitted bytes |
-| `422 semantically_invalid` you cannot explain | An undeclared field — usually `account_number` or a nested object | Read `message`; it names the field |
-| `409 policy_precondition` | Consent, geography, cooldown, cap, spend ceiling, credits | Read `message` for the cause; `x-error-catalog` has per-cause retryability |
-| `202 degraded_to_async` | Voice channel shed under load; the case degraded to SMS/app push | Nothing — the case is accepted and auditable. Have an asynchronous step for the cases you cannot lose. |
-| Bank event never arrives | Your receiver answered outside the retryable set, or answered slowly | `408`, `429`, `5xx` and network errors retry for ~21 h; anything else stops the ladder. Slow 2xx is a lost event. |
-| Duplicate bank events | Normal. Retries reuse `event_id` with a byte-identical body. | Dedupe on `event_id`. |
+| Symptom                                       | Likely cause                                                         | First move                                                                                                        |
+| --------------------------------------------- | -------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `401 unauthenticated` on every signal         | Clock skew, or re-serialising the body                               | Verify NTP; sign the exact transmitted bytes                                                                      |
+| `422 semantically_invalid` you cannot explain | An undeclared field — usually `account_number` or a nested object    | Read `message`; it names the field                                                                                |
+| `409 policy_precondition`                     | Consent, geography, cooldown, cap, spend ceiling, credits            | Read `message` for the cause; `x-error-catalog` has per-cause retryability                                        |
+| `202 degraded_to_async`                       | Voice channel shed under load; the case degraded to SMS/app push     | Nothing — the case is accepted and auditable. Have an asynchronous step for the cases you cannot lose.            |
+| Bank event never arrives                      | Your receiver answered outside the retryable set, or answered slowly | `408`, `429`, `5xx` and network errors retry for ~21 h; anything else stops the ladder. Slow 2xx is a lost event. |
+| Duplicate bank events                         | Normal. Retries reuse `event_id` with a byte-identical body.         | Dedupe on `event_id`.                                                                                             |
 
 **Quote these three, in this order, when you raise anything:** the `requestId`
 from the error body (or the `x-request-id` header), the `caseRef` from the `202`,
@@ -387,18 +387,18 @@ curl -X POST https://<deployment>/v1/conformance/run \
        "budget_ms":2000}'
 ```
 
-| Graded check | What it proves |
-|---|---|
-| `signature_verified` | A tampered digest and an unsigned request are both refused with a 4xx. |
-| `idempotency_honoured` | You acknowledge the `event_id` you accepted, so your dedupe key is observable. |
-| `fast_2xx` | A well-formed delivery is acknowledged inside your stated budget. |
-| `replay_handled` | A redelivery of an already-applied `event_id` is **not** applied again, and says so. |
-| `rejects_malformed` | A correctly signed but schema-invalid payload is refused, not acknowledged. |
+| Graded check           | What it proves                                                                       |
+| ---------------------- | ------------------------------------------------------------------------------------ |
+| `signature_verified`   | A tampered digest and an unsigned request are both refused with a 4xx.               |
+| `idempotency_honoured` | You acknowledge the `event_id` you accepted, so your dedupe key is observable.       |
+| `fast_2xx`             | A well-formed delivery is acknowledged inside your stated budget.                    |
+| `replay_handled`       | A redelivery of an already-applied `event_id` is **not** applied again, and says so. |
+| `rejects_malformed`    | A correctly signed but schema-invalid payload is refused, not acknowledged.          |
 
 Notes that decide whether you trust it:
 
 - **`200` means the run completed, not that you passed.** Read `score.verdict`. A
-  failing grade is a *successful run*, which is what makes the report safe to
+  failing grade is a _successful run_, which is what makes the report safe to
   attach.
 - The probes are **signed by the production signer** over the same canonical
   bytes a real delivery uses, so you are graded against the scheme we actually
@@ -417,7 +417,7 @@ Notes that decide whether you trust it:
   field and no error message.
 - A producer key is required: an unauthenticated caller must not be able to make
   our deployment POST to a URL of their choosing. The shared HMAC secret is
-  deliberately *not* accepted here — the secret in this request is *your* receiver
+  deliberately _not_ accepted here — the secret in this request is _your_ receiver
   secret, which we never had.
 - Each run costs five outbound posts to a customer-controlled URL, so the budget
   is 12 per hour per producer key, with `Retry-After` on refusal.

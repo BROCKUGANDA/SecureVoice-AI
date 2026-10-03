@@ -53,7 +53,7 @@ test("the magic-link route never echoes a token, even with no mailer", async () 
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ email }),
-    })
+    }),
   );
 
   // Uniform acknowledgement, so the endpoint is not an account oracle.
@@ -73,14 +73,14 @@ test("the magic-link route answers identically for a known and an unknown addres
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ email: known.email }),
-    })
+    }),
   );
   const unknownRes = await magicLinkPOST(
     new Request("http://t/api/auth/magic-link", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ email: unknown }),
-    })
+    }),
   );
 
   expect(knownRes.status).toBe(unknownRes.status);
@@ -128,9 +128,7 @@ test("concurrent redemptions of one link produce exactly one success", async () 
     captured = i.token;
   });
 
-  const attempts = await Promise.all(
-    Array.from({ length: 6 }, () => redeemMagicLink(captured))
-  );
+  const attempts = await Promise.all(Array.from({ length: 6 }, () => redeemMagicLink(captured)));
   expect(attempts.filter((r) => r.ok)).toHaveLength(1);
 });
 
@@ -179,7 +177,7 @@ test("the verify route cannot sign in without a real token", async () => {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ token: uniq("not-real") }),
-    })
+    }),
   );
   expect(response.status).toBe(401);
 });
@@ -203,7 +201,7 @@ test("the password path sets a session cookie on success", async () => {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ email: account.email, password: TEST_PASSWORD }),
-    })
+    }),
   );
   expect(response.status).toBe(200);
   const cookie = response.headers.get("set-cookie") ?? "";
@@ -254,8 +252,8 @@ test("take(): one of N concurrent callers wins", async () => {
   const key = uniq("take-race");
   const attempts = await Promise.all(
     Array.from({ length: 10 }, () =>
-      take("sv.test.scope", key, "", { ok: true }, PERMANENT_EXPIRY)
-    )
+      take("sv.test.scope", key, "", { ok: true }, PERMANENT_EXPIRY),
+    ),
   );
   expect(attempts.filter((a) => a.ok)).toHaveLength(1);
   expect(attempts.filter((a) => !a.ok).every((a) => a.reason === "already_taken")).toBe(true);
@@ -329,9 +327,10 @@ test("listFor() returns records for one caller only", async () => {
 
   const mine = await listFor<{ mine: boolean }>("sv.test.scope", caller);
   expect(mine.length).toBe(1);
-  expect(mine[0].mine).toBe(true);
+  // Length is asserted to be exactly 1 directly above, so the element is present.
+  expect(mine[0]!.mine).toBe(true);
   // Keys are returned so a caller can act on them (e.g. a revocation sweep).
-  expect(typeof mine[0].key).toBe("string");
+  expect(typeof mine[0]!.key).toBe("string");
 });
 
 test("auth state lives in reserved sv.auth.* namespaces", () => {

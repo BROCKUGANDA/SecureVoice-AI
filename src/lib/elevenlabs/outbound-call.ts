@@ -59,12 +59,18 @@ export function voiceForLanguage(lang: string): string | null {
 /** Resolve the first message for a language from the agent definition. */
 export function firstMessageForLanguage(lang: string): string {
   // These mirror agent/securevoice.agent.yaml — kept in sync by agent:apply.
+  // EN is held in a named constant rather than read back out of the map: a
+  // dot access on an index-signature type is still an element access, so
+  // `messages.en` would be `string | undefined` and the fallback would not
+  // be provably defined.
+  const en =
+    "This call is recorded to protect you. I am your bank's AI security assistant calling about a transaction on your card.";
   const messages: Record<string, string> = {
-    en: "This call is recorded to protect you. I am your bank's AI security assistant calling about a transaction on your card.",
+    en,
     ar: "يتم تسجيل هذه المكالمة لحمايتك. أنا مساعد الأمان الذكي في بنكك، وأتصل بك بخصوص عملية على بطاقتك.",
     hi: "यह कॉल आपकी सुरक्षा के लिए रिकॉर्ड की जा रही है। मैं आपके बैंक का AI सुरक्षा सहायक हूं।",
   };
-  return messages[lang] ?? messages.en;
+  return messages[lang] ?? en;
 }
 
 export async function placeOutboundCall(params: OutboundCallParams): Promise<OutboundCallResult> {
@@ -87,7 +93,9 @@ export async function placeOutboundCall(params: OutboundCallParams): Promise<Out
   const phoneId = phoneNumberId();
   const key = apiKey();
   if (!agent || !phoneId || !key) {
-    throw new Error("ElevenLabs outbound call not configured: set ELEVENLABS_AGENT_ID, ELEVENLABS_PHONE_NUMBER_ID, ELEVENLABS_API_KEY");
+    throw new Error(
+      "ElevenLabs outbound call not configured: set ELEVENLABS_AGENT_ID, ELEVENLABS_PHONE_NUMBER_ID, ELEVENLABS_API_KEY",
+    );
   }
 
   const voiceId = voiceForLanguage(params.language);

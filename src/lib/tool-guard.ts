@@ -33,7 +33,7 @@ export async function guardToolCall(
   toolName: string,
   secret: string | null,
   conversationId: string | null,
-  allowedStates: readonly string[]
+  allowedStates: readonly string[],
 ): Promise<ToolGuardResult> {
   // Latency instrumentation (WP-7): every tool call passes through here,
   // so one recording point covers all four tools AND their refusals -- which
@@ -47,8 +47,10 @@ export async function guardToolCall(
       caseRef: conversationId,
     });
   };
-  // 1. Authentication.
-  const auth = authorizeToolCall(secret, toolName);
+  // 1. Authentication. This also resolves WHICH TENANT the caller acts for —
+  //    a per-tenant credential names exactly one org, and the platform key is
+  //    confined to the default namespace. Both are consumed at step 2.
+  const auth = await authorizeToolCall(secret, toolName);
   if (!auth.ok) {
     recordToolSpan();
     return { ok: false, status: auth.status, error: auth.error, code: "unauthorized" };
@@ -57,23 +59,43 @@ export async function guardToolCall(
   // 2. Case resolution.
   if (!conversationId) {
     recordToolSpan();
-    return { ok: false, status: 409, error: "conversation_id is required", code: "conversation_id_required" };
+    return {
+      ok: false,
+      status: 409,
+      error: "conversation_id is required",
+      code: "conversation_id_required",
+    };
   }
-  const caseRow = await caseByConversation(conversationId);
+  // THE BLEEDGUARD: the tenant resolved from the credential is part of the
+  // lookup, so another org's conversation_id resolves to nothing.
+  const caseRow = await caseByConversation(conversationId, auth.orgId);
   if (!caseRow) {
     recordToolSpan();
-    return { ok: false, status: 409, error: "no live case for this conversation_id", code: "case_not_found" };
+    return {
+      ok: false,
+      status: 409,
+      error: "no live case for this conversation_id",
+      code: "case_not_found",
+    };
   }
 
   // 3. State precondition.
   if (!allowedStates.includes(caseRow.state)) {
-    await auditAppend({
-      callRef: caseRow.caseRef,
-      action: "freeze",
-      intent: `tool_refused_${toolName}`,
-      callerId: "agent-tool",
-      meta: { tool: toolName, state: caseRow.state, allowedStates, reason: "state_precondition_failed" },
-    }, { fast: true }).catch(() => {});
+    await auditAppend(
+      {
+        callRef: caseRow.caseRef,
+        action: "freeze",
+        intent: `tool_refused_${toolName}`,
+        callerId: "agent-tool",
+        meta: {
+          tool: toolName,
+          state: caseRow.state,
+          allowedStates,
+          reason: "state_precondition_failed",
+        },
+      },
+      { fast: true },
+    ).catch(() => {});
     recordToolSpan();
     return {
       ok: false,

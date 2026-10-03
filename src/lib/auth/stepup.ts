@@ -73,7 +73,7 @@ export async function issueStepUp(
   session: SessionRecord,
   verified: ReAuthOutcome,
   method: StepUpMethod,
-  now = Date.now()
+  now = Date.now(),
 ): Promise<StepUpGrant | ReAuthOutcome> {
   if (!verified.ok) {
     await auditAuthEvent({
@@ -85,13 +85,17 @@ export async function issueStepUp(
     });
     return verified;
   }
-  const grant: StepUpGrant = { at: now, method, credentialRef: `${method}:${session.sid.slice(0, 8)}` };
+  const grant: StepUpGrant = {
+    at: now,
+    method,
+    credentialRef: `${method}:${session.sid.slice(0, 8)}`,
+  };
   await put(
     AUTH_SCOPES.stepUp,
     session.sid,
     session.accountId,
     grant,
-    new Date(now + STEP_UP_WINDOW_MS)
+    new Date(now + STEP_UP_WINDOW_MS),
   );
   await auditAuthEvent({
     intent: AUTH_AUDIT_INTENTS.stepUpGranted,
@@ -106,7 +110,7 @@ export async function issueStepUp(
 /** The current grant for this session, or null. */
 export async function currentStepUp(
   session: SessionRecord,
-  now = Date.now()
+  now = Date.now(),
 ): Promise<StepUpGrant | null> {
   const grant = await read<StepUpGrant>(AUTH_SCOPES.stepUp, session.sid, session.accountId);
   if (!grant) return null;
@@ -121,7 +125,12 @@ export async function currentStepUp(
 
 export type StepUpCheck =
   | { ok: true; grant: StepUpGrant }
-  | { ok: false; reason: "step_up_required" | "not_a_privileged_action"; error: string; action: string };
+  | {
+      ok: false;
+      reason: "step_up_required" | "not_a_privileged_action";
+      error: string;
+      action: string;
+    };
 
 /**
  * Assert a fresh step-up for a privileged action.
@@ -133,7 +142,7 @@ export type StepUpCheck =
 export async function requireStepUp(
   session: SessionRecord,
   action: PrivilegedAction,
-  now = Date.now()
+  now = Date.now(),
 ): Promise<StepUpCheck> {
   if (!isPrivilegedAction(action)) {
     return {
@@ -157,7 +166,12 @@ export async function requireStepUp(
     actorId: session.accountId,
     orgId: session.orgId,
     note: `step-up satisfied for ${action}`,
-    meta: { sid: session.sid, action, capability: PRIVILEGED_ACTION_CAPABILITY[action], ageMs: now - grant.at },
+    meta: {
+      sid: session.sid,
+      action,
+      capability: PRIVILEGED_ACTION_CAPABILITY[action],
+      ageMs: now - grant.at,
+    },
   });
   return { ok: true, grant };
 }

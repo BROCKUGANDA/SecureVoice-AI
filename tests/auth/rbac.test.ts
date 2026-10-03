@@ -41,8 +41,9 @@ import {
   type Role,
 } from "@/lib/auth/roles";
 import { requireAuth, requireCapability, requirePrivileged } from "@/lib/auth/guards";
+import { NextRequest } from "next/server";
 import { listOrgMembers } from "@/lib/auth/identity";
-import { isHonourableClerkRole, mapClerkRole } from "@/lib/identity/clerk-role-map";
+import { isHonourableSessionRole, mapSessionRole } from "@/lib/identity/session-role-map";
 import { makeAccount, makeMember, makeSession, cleanupRun } from "./helpers";
 import { GET as invitesGET, POST as invitesPOST } from "@/app/api/auth/invites/route";
 import { GET as exportGET } from "@/app/api/auth/export/route";
@@ -51,6 +52,16 @@ import { GET as membersGET, PATCH as membersPATCH } from "@/app/api/auth/members
 afterAll(async () => {
   await cleanupRun();
 });
+
+/**
+ * The auth routes under test read the session from the cookie jar, so they are
+ * declared as taking a NextRequest. This builds one rather than casting a bare
+ * Request at each call site, which would assert a narrower signature than the
+ * handlers actually require.
+ */
+function authRequest(url: string, init: RequestInit = {}) {
+  return new NextRequest(url, init as ConstructorParameters<typeof NextRequest>[1]);
+}
 
 // ── The matrix ───────────────────────────────────────────────────────────────
 
@@ -143,10 +154,19 @@ test("rbacDb(Auditor).create THROWS — no capability check was performed", asyn
   // No assertCapability call anywhere in this test. The point is that a caller
   // who forgets the check still cannot write.
   const auditor = await makeAccount("Auditor", "auditor");
-  const handle = rbacDb("Auditor");
+  // Loosened exactly as the matrix test below does: what matters here is WHICH
+  // error the guard raises, not the shape of the create payload it intercepts.
+  const handle = rbacDb("Auditor") as unknown as Record<string, Record<string, unknown>>;
 
   expect(() =>
-    handle.account.create({ data: { email: `smuggled-${Date.now()}@x.test`, name: "x", role: "Owner" } })
+    (handle.account!["create"] as (args: unknown) => void)({
+      data: {
+        email: `smuggled-${Date.now()}@x.test`,
+        name: "x",
+        role: "Owner",
+        passwordHash: "scrypt$x$y",
+      },
+    }),
   ).toThrow(CapabilityError);
 
   // And it did not create anything.
@@ -169,7 +189,10 @@ test("rbacDb(Auditor) permits READS — read-only means read-only, not no access
 
   const handle = rbacDb("Auditor");
   // An Auditor's whole job is reading. This must work.
-  const rows = await handle.account.findMany({ where: { email: { endsWith: "@wp11.test" } }, take: 5 });
+  const rows = await handle.account.findMany({
+    where: { email: { endsWith: "@wp11.test" } },
+    take: 5,
+  });
   expect(Array.isArray(rows)).toBe(true);
 });
 
@@ -204,16 +227,16 @@ test("an Analyst is refused by an Admin-only ROUTE", async () => {
   // Analyst cannot have. Both halves are asserted, because "the route returned
   // 403 for some reason" is not the same as "the role stopped it".
   const list = await invitesGET(
-    new Request("http://t/api/auth/invites", { headers: { cookie: session.cookie } })
+    authRequest("http://t/api/auth/invites", { headers: { cookie: session.cookie } }),
   );
   expect(list.status).toBe(200);
 
   const issue = await invitesPOST(
-    new Request("http://t/api/auth/invites", {
+    authRequest("http://t/api/auth/invites", {
       method: "POST",
       headers: { cookie: session.cookie, "content-type": "application/json" },
       body: JSON.stringify({ email: `x-${Date.now()}@wp11.test`, role: "Admin" }),
-    })
+    }),
   );
   // 403 (capability denied) rather than 428 (step-up missing): the Analyst is
   // not permitted the action at all, so there is nothing to confirm.
@@ -226,7 +249,7 @@ test("an Analyst is refused the Admin-only bulk EXPORT route and its data", asyn
   const session = await makeSession(analyst);
 
   const response = await exportGET(
-    new Request("http://t/api/auth/export", { headers: { cookie: session.cookie } })
+    authRequest("http://t/api/auth/export", { headers: { cookie: session.cookie } }),
   );
 
   // Refused. The Analyst HOLDS `export:bulk` (it is queue work, not an
@@ -252,7 +275,7 @@ test("an Analyst's read of the member list shows no member data it may not see",
   // member:read is held by Analyst, so the route answers — but the body must be
   // the member list only, never any operational data.
   const response = await membersGET(
-    new Request("http://t/api/auth/members", { headers: { cookie: session.cookie } })
+    authRequest("http://t/api/auth/members", { headers: { cookie: session.cookie } }),
   );
   expect(response.status).toBe(200);
   const body = (await response.json()) as { members: Array<{ email: string }> };
@@ -270,11 +293,11 @@ test("an Analyst cannot change a role through the members route", async () => {
   const session = await makeSession(analyst);
 
   const response = await membersPATCH(
-    new Request("http://t/api/auth/members", {
+    authRequest("http://t/api/auth/members", {
       method: "PATCH",
       headers: { cookie: session.cookie, "content-type": "application/json" },
       body: JSON.stringify({ accountId: victim.identity.accountId, role: "Owner" }),
-    })
+    }),
   );
   expect(response.status).toBe(403);
 
@@ -310,11 +333,11 @@ test("an Auditor cannot change a role even WITH a fresh step-up", async () => {
   expect(stepUp.ok).toBe(true);
 
   const response = await membersPATCH(
-    new Request("http://t/api/auth/members", {
+    authRequest("http://t/api/auth/members", {
       method: "PATCH",
       headers: { cookie: session.cookie, "content-type": "application/json" },
       body: JSON.stringify({ accountId: victim.identity.accountId, role: "Admin" }),
-    })
+    }),
   );
   expect(response.status).toBe(403);
 
@@ -364,14 +387,14 @@ test("the live role is read from the identity record, not the session snapshot",
   const { put } = await import("@/lib/auth/store");
   const { AUTH_SCOPES } = await import("@/lib/auth/store");
   const identity = (await listOrgMembers(owner.orgId)).find(
-    (m) => m.accountId === admin.identity.accountId
+    (m) => m.accountId === admin.identity.accountId,
   )!;
   await put(
     AUTH_SCOPES.identity,
     identity.accountId,
     owner.orgId,
     { ...identity, role: "Auditor" },
-    new Date("2999-12-31T00:00:00.000Z")
+    new Date("2999-12-31T00:00:00.000Z"),
   );
 
   // The session's snapshotted role is IGNORED. The guard reports the LIVE role
@@ -389,43 +412,43 @@ test("the live role is read from the identity record, not the session snapshot",
 
   // And the demoted handle cannot write.
   expect(() =>
-    guard.db.account.update({ where: { id: admin.identity.accountId }, data: { name: "x" } })
+    guard.db.account.update({ where: { id: admin.identity.accountId }, data: { name: "x" } }),
   ).toThrow(CapabilityError);
 });
 
-// ── Clerk coexistence ────────────────────────────────────────────────────────
+// ── session role mapping ────────────────────────────────────────────────────────
 
-test("Clerk roles map onto the WP-11 scale", () => {
-  expect(mapClerkRole({ role: "operator" })).toBe("Admin");
-  expect(mapClerkRole({ role: "demo" })).toBe("Auditor");
+test("session roles map onto the WP-11 scale", () => {
+  expect(mapSessionRole({ role: "operator" })).toBe("Admin");
+  expect(mapSessionRole({ role: "demo" })).toBe("Auditor");
   // An explicit platform role wins.
-  expect(mapClerkRole({ role: "operator", platformRole: "Owner" })).toBe("Owner");
-  expect(mapClerkRole({ platformRole: "Analyst" })).toBe("Analyst");
+  expect(mapSessionRole({ role: "operator", platformRole: "Owner" })).toBe("Owner");
+  expect(mapSessionRole({ platformRole: "Analyst" })).toBe("Analyst");
 });
 
-test("an unrecognised Clerk role resolves to the LEAST privilege", () => {
+test("an unrecognised session role resolves to the LEAST privilege", () => {
   // Fail-closed is the only safe default in a permission mapping.
-  expect(mapClerkRole({ role: "superadmin" })).toBe("Auditor");
-  expect(mapClerkRole({ role: "operator", platformRole: "root" })).toBe("Admin");
-  expect(mapClerkRole(null)).toBe("Auditor");
-  expect(mapClerkRole(undefined)).toBe("Auditor");
-  expect(mapClerkRole({})).toBe("Auditor");
+  expect(mapSessionRole({ role: "superadmin" })).toBe("Auditor");
+  expect(mapSessionRole({ role: "operator", platformRole: "root" })).toBe("Admin");
+  expect(mapSessionRole(null)).toBe("Auditor");
+  expect(mapSessionRole(undefined)).toBe("Auditor");
+  expect(mapSessionRole({})).toBe("Auditor");
 });
 
-test("a Clerk identity cannot claim the machine ServiceAccount role", () => {
-  expect(isHonourableClerkRole("ServiceAccount")).toBe(false);
-  expect(isHonourableClerkRole("Owner")).toBe(true);
+test("a session identity cannot claim the machine ServiceAccount role", () => {
+  expect(isHonourableSessionRole("ServiceAccount")).toBe(false);
+  expect(isHonourableSessionRole("Owner")).toBe(true);
   // And the mapping refuses to honour it, falling back to the legacy value.
-  expect(mapClerkRole({ role: "operator", platformRole: "ServiceAccount" })).toBe("Admin");
+  expect(mapSessionRole({ role: "operator", platformRole: "ServiceAccount" })).toBe("Admin");
 });
 
-test("the mapped Clerk roles exist in the matrix, so one scale governs both paths", () => {
+test("the mapped session roles exist in the matrix, so one scale governs both paths", () => {
   for (const role of ROLES) {
     expect(ROLE_CAPABILITIES[role]).toBeDefined();
   }
-  // A Clerk-mapped Admin is subject to the same matrix as an invited Admin.
-  expect(roleHas(mapClerkRole({ role: "operator" }), "member:invite")).toBe(true);
-  expect(roleHas(mapClerkRole({ role: "demo" }), "case:write")).toBe(false);
+  // A session-mapped Admin is subject to the same matrix as an invited Admin.
+  expect(roleHas(mapSessionRole({ role: "operator" }), "member:invite")).toBe(true);
+  expect(roleHas(mapSessionRole({ role: "demo" }), "case:write")).toBe(false);
 });
 
 // ── Guard composition ────────────────────────────────────────────────────────
@@ -456,7 +479,7 @@ test("the handle a guard hands back is already role-bound", async () => {
 
   // The Auditor's handle refuses a write without the route having to remember.
   expect(() =>
-    guard.db.account.update({ where: { id: auditor.identity.accountId }, data: { name: "x" } })
+    guard.db.account.update({ where: { id: auditor.identity.accountId }, data: { name: "x" } }),
   ).toThrow(CapabilityError);
 });
 

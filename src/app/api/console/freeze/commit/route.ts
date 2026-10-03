@@ -1,5 +1,6 @@
 import "server-only";
-import { NextRequest, NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { requirePrivileged } from "@/lib/auth/guards";
 import { caseByRef, transitionCase } from "@/lib/case-state-machine";
 import { append } from "@/lib/audit-chain";
@@ -23,14 +24,11 @@ const CommitFreezeBody = z.strictObject({
 export async function POST(req: NextRequest) {
   try {
     // 1. Auth + step-up (commit_freeze requires re-auth)
-    const authed = await requirePrivileged(
-      req.headers.get("cookie"),
-      "commit_freeze"
-    );
+    const authed = await requirePrivileged(req.headers.get("cookie"), "commit_freeze");
     if (!authed.ok) {
       return NextResponse.json(
         { error: authed.error, code: authed.code },
-        { status: authed.status }
+        { status: authed.status },
       );
     }
 
@@ -38,8 +36,12 @@ export async function POST(req: NextRequest) {
     const bodyResult = CommitFreezeBody.safeParse(await req.json());
     if (!bodyResult.success) {
       return NextResponse.json(
-        { error: "Invalid request body", code: "invalid_payload", details: bodyResult.error.issues },
-        { status: 422 }
+        {
+          error: "Invalid request body",
+          code: "invalid_payload",
+          details: bodyResult.error.issues,
+        },
+        { status: 422 },
       );
     }
     const { caseRef, reason } = bodyResult.data;
@@ -49,7 +51,7 @@ export async function POST(req: NextRequest) {
     if (!caseRow) {
       return NextResponse.json(
         { error: `Case not found: ${caseRef}`, code: "case_not_found" },
-        { status: 404 }
+        { status: 404 },
       );
     }
 
@@ -62,7 +64,7 @@ export async function POST(req: NextRequest) {
           caseRef,
           currentState: caseRow.state,
         },
-        { status: 409 }
+        { status: 409 },
       );
     }
 
@@ -106,18 +108,17 @@ export async function POST(req: NextRequest) {
       committedAt: new Date().toISOString(),
       nextState: "ESCALATED",
     });
-
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
     if (err instanceof Error && err.name === "IllegalTransitionError") {
       return NextResponse.json(
         { error: message, code: "state_precondition_failed" },
-        { status: 409 }
+        { status: 409 },
       );
     }
     return NextResponse.json(
       { error: "Internal server error", code: "internal_error" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

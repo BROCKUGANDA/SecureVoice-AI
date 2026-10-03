@@ -63,7 +63,7 @@ export type IssueMagicLinkResult =
 
 export async function issueMagicLink(
   email: string,
-  deliver?: MagicLinkDeliverer
+  deliver?: MagicLinkDeliverer,
 ): Promise<IssueMagicLinkResult> {
   const normalized = normalizeEmail(email);
   if (!normalized.includes("@") || normalized.length > 254) {
@@ -101,7 +101,11 @@ export async function issueMagicLink(
 
 export type RedeemMagicLinkResult =
   | { ok: true; email: string }
-  | { ok: false; reason: "unknown_link" | "link_expired" | "link_already_used" | "no_account"; error: string };
+  | {
+      ok: false;
+      reason: "unknown_link" | "link_expired" | "link_already_used" | "no_account";
+      error: string;
+    };
 
 /**
  * Redeem a magic link, consuming it atomically.
@@ -111,10 +115,11 @@ export type RedeemMagicLinkResult =
  */
 export async function redeemMagicLink(
   token: string,
-  now = Date.now()
+  now = Date.now(),
 ): Promise<RedeemMagicLinkResult> {
   const trimmed = typeof token === "string" ? token.trim() : "";
-  if (!trimmed) return { ok: false, reason: "unknown_link", error: "That sign-in link is not valid." };
+  if (!trimmed)
+    return { ok: false, reason: "unknown_link", error: "That sign-in link is not valid." };
 
   const hash = hashMagicToken(trimmed);
   const record = await read<MagicLinkRecord>(AUTH_SCOPES.magicLink, hash, "");
@@ -127,12 +132,12 @@ export async function redeemMagicLink(
     return { ok: false, reason: "link_expired", error: "That sign-in link has expired." };
   }
 
-const claim = await take(
+  const claim = await take(
     AUTH_SCOPES.magicLinkConsumed,
     hash,
     "",
     { redeemedAt: now, email: record.email },
-    new Date(record.expiresAt)
+    new Date(record.expiresAt),
   );
   if (!claim.ok) {
     return {

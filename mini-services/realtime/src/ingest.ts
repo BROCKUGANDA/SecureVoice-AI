@@ -93,7 +93,11 @@ export function verifySignature(
 }
 
 /** Build the header the app must send for this body. */
-export function signIngest(event: unknown, secret: string, nowSec = Math.floor(Date.now() / 1000)): { body: string; header: string } {
+export function signIngest(
+  event: unknown,
+  secret: string,
+  nowSec = Math.floor(Date.now() / 1000),
+): { body: string; header: string } {
   const body = JSON.stringify(event);
   const v1 = createHmac("sha256", secret).update(`${nowSec}.${body}`).digest("hex");
   return { body, header: `t=${nowSec},v1=${v1}` };
@@ -105,27 +109,34 @@ export function parseIngest(input: unknown): IngestResult {
 
   const raw = input as Record<string, unknown>;
   const kind = raw.kind;
-  if (kind !== "activity" && kind !== "presence") return { ok: false, status: 400, error: "invalid_kind" };
+  if (kind !== "activity" && kind !== "presence")
+    return { ok: false, status: 400, error: "invalid_kind" };
 
   const orgId = typeof raw.orgId === "string" ? clean(raw.orgId, MAX_ORG) : "";
   if (!orgId) return { ok: false, status: 400, error: "invalid_org" };
 
   const callRef = typeof raw.callRef === "string" ? clean(raw.callRef, MAX_CALLREF) : "";
   const channel = callRef ? `case:${orgId}:${callRef}` : `org:${orgId}`;
-  if (!channelBelongsToOrg(channel, orgId)) return { ok: false, status: 403, error: "channel_org_mismatch" };
+  if (!channelBelongsToOrg(channel, orgId))
+    return { ok: false, status: 403, error: "channel_org_mismatch" };
 
   if (kind === "presence") {
     const watchers = Array.isArray(raw.watchers)
-      ? raw.watchers.filter((w): w is string => typeof w === "string").map((w) => clean(w, MAX_ORG)).slice(0, 64)
+      ? raw.watchers
+          .filter((w): w is string => typeof w === "string")
+          .map((w) => clean(w, MAX_ORG))
+          .slice(0, 64)
       : [];
     return { ok: true, channel, event: { kind: "presence", orgId, callRef, watchers } };
   }
 
-  const payload = raw.payload && typeof raw.payload === "object" ? (raw.payload as Record<string, unknown>) : {};
+  const payload =
+    raw.payload && typeof raw.payload === "object" ? (raw.payload as Record<string, unknown>) : {};
   // The payload is redacted by the app before it gets here (src/lib/redact.ts);
   // this cap is the second line of defence, not the first.
   const serialized = JSON.stringify(payload);
-  if (serialized.length > MAX_BODY_BYTES) return { ok: false, status: 413, error: "payload_too_large" };
+  if (serialized.length > MAX_BODY_BYTES)
+    return { ok: false, status: 413, error: "payload_too_large" };
 
   return { ok: true, channel, event: { kind: "activity", orgId, callRef, payload } };
 }

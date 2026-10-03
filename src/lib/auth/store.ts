@@ -136,7 +136,7 @@ export async function put<T>(
   key: string,
   callerId: string,
   value: T,
-  expiresAt: Date
+  expiresAt: Date,
 ): Promise<void> {
   const s = scoped(scope, key, callerId);
   await db.idempotencyKey.upsert({
@@ -181,7 +181,7 @@ export async function take(
   key: string,
   callerId: string,
   value: unknown,
-  expiresAt: Date
+  expiresAt: Date,
 ): Promise<TakeResult> {
   const s = scoped(scope, key, callerId);
   try {
@@ -211,7 +211,7 @@ export async function patch<T>(
   scope: string,
   key: string,
   callerId: string,
-  next: (current: T) => T
+  next: (current: T) => T,
 ): Promise<T | null> {
   const current = await read<T>(scope, key, callerId);
   if (current === null) return null;
@@ -235,7 +235,10 @@ export async function drop(scope: string, key: string, callerId: string): Promis
 }
 
 /** Every record in a scope for one caller. Used to revoke an org in one sweep. */
-export async function listFor<T>(scope: string, callerId: string): Promise<Array<T & { key: string }>> {
+export async function listFor<T>(
+  scope: string,
+  callerId: string,
+): Promise<Array<T & { key: string }>> {
   const s = scoped(scope, "", callerId);
   const rows = await db.idempotencyKey.findMany({
     where: { scope: s.scope, callerId: s.callerId },

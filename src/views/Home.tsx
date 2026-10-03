@@ -27,7 +27,13 @@ import { useApp, t } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { Reveal, Counter, LiveDot, Chip } from "@/components/fx/core";
 import { Waveform, Equalizer } from "@/components/fx/Waveform";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
@@ -180,14 +186,15 @@ export function Home() {
 
             <Reveal delay={0.2}>
               <p dir="rtl" className="font-arabic mt-5 text-[15px] leading-relaxed text-ink-2">
-                وكيل صوتي ذكي يتصل بالعميل بلغته خلال ستين ثانية من إشارة الاحتيال — يتحقق من هويته، يؤكد العملية، ويجمّد البطاقة، ثم يسلم لأخصائي بشري.
+                وكيل صوتي ذكي يتصل بالعميل بلغته خلال ستين ثانية من إشارة الاحتيال — يتحقق من هويته،
+                يؤكد العملية، ويجمّد البطاقة، ثم يسلم لأخصائي بشري.
               </p>
             </Reveal>
             <Reveal delay={0.26}>
               <p className="mt-4 max-w-xl text-[15.5px] leading-relaxed text-ink-2">
-                SecureVoice AI closes the gap between fraud detection and fraud intervention for
-                UAE banks — turning a 38-minute wait into a one-minute call that stops the loss
-                while it is still a phone call away.
+                SecureVoice AI closes the gap between fraud detection and fraud intervention for UAE
+                banks — turning a 38-minute wait into a one-minute call that stops the loss while it
+                is still a phone call away.
               </p>
             </Reveal>
 
@@ -221,7 +228,11 @@ export function Home() {
                   {t("Sign in to run the platform", "سجّل الدخول لتشغيل المنصة", lang)}
                 </button>
                 {" — "}
-                {t("real interventions, your own phone, sealed audit trail.", "تدخلات حقيقية على هاتفك، وسجل تدقيق مختوم.", lang)}
+                {t(
+                  "real interventions, your own phone, sealed audit trail.",
+                  "تدخلات حقيقية على هاتفك، وسجل تدقيق مختوم.",
+                  lang,
+                )}
               </p>
             </Reveal>
 
@@ -282,7 +293,10 @@ export function Home() {
                 <div className="space-y-3 px-5 py-4">
                   <div className="max-w-[85%] rounded-2xl rounded-tl-md bg-secondary px-3.5 py-2.5">
                     <p className="micro mb-1 text-ink-3">Agent · Fatima (AR-Gulf)</p>
-                    <p dir="rtl" className="font-arabic text-[13px] leading-relaxed text-foreground">
+                    <p
+                      dir="rtl"
+                      className="font-arabic text-[13px] leading-relaxed text-foreground"
+                    >
                       أنت لم تُصرح بعملية ٢,٥٠٠ درهم — أهذا صحيح؟
                     </p>
                     <p className="mt-0.5 text-[11.5px] leading-relaxed text-ink-3">
@@ -291,7 +305,10 @@ export function Home() {
                   </div>
                   <div className="ml-auto max-w-[70%] rounded-2xl rounded-tr-md bg-green-tint px-3.5 py-2.5">
                     <p className="micro mb-1 text-green-deep">Customer</p>
-                    <p dir="rtl" className="font-arabic text-[13px] leading-relaxed text-foreground">
+                    <p
+                      dir="rtl"
+                      className="font-arabic text-[13px] leading-relaxed text-foreground"
+                    >
                       صحيح. هذه العملية ليست مني.
                     </p>
                     <p className="mt-0.5 text-[11.5px] leading-relaxed text-ink-3">
@@ -304,7 +321,8 @@ export function Home() {
                 <div className="flex items-center justify-between gap-3 border-t border-line bg-paper px-5 py-3.5">
                   <Chip className="!bg-white">
                     <Lock className="h-3 w-3 text-primary" />
-                    POST /cards/••4417/freeze → <span className="font-semibold text-green-deep">200 OK</span>
+                    POST /cards/••4417/freeze →{" "}
+                    <span className="font-semibold text-green-deep">200 OK</span>
                   </Chip>
                   <Chip className="!bg-white">
                     <Webhook className="h-3 w-3 text-amber-soft" />
@@ -377,8 +395,12 @@ export function Home() {
                       <s.icon className="h-4 w-4" strokeWidth={1.7} />
                     </span>
                   </div>
-                  <p className="font-display mt-4 text-[16.5px] font-semibold tracking-tight">{s.en}</p>
-                  <p dir="rtl" className="font-arabic mt-0.5 text-[12px] text-ink-3">{s.ar}</p>
+                  <p className="font-display mt-4 text-[16.5px] font-semibold tracking-tight">
+                    {s.en}
+                  </p>
+                  <p dir="rtl" className="font-arabic mt-0.5 text-[12px] text-ink-3">
+                    {s.ar}
+                  </p>
                   <p className="mt-2.5 flex-1 text-[13px] leading-relaxed text-ink-2">{s.body}</p>
                   <button
                     onClick={() => (s.view === "demo" ? launchDemo() : setView(s.view))}
@@ -416,13 +438,16 @@ export function Home() {
             <div className="relative p-8 sm:p-12 lg:border-r lg:border-line">
               <p className="micro text-ink-3">Today · manual outreach</p>
               <div className="mt-6 flex items-baseline gap-2">
-                <Counter to={38} className="text-7xl font-semibold tracking-tight text-ink-3 sm:text-8xl" />
+                <Counter
+                  to={38}
+                  className="text-7xl font-semibold tracking-tight text-ink-3 sm:text-8xl"
+                />
                 <span className="num text-2xl text-ink-3">min</span>
               </div>
               <p className="mt-4 max-w-sm text-[14.5px] leading-relaxed text-ink-2">
-                Average delay between fraud detection and customer contact at top UAE banks.
-                Only <span className="num font-semibold">22%</span> of alerts get an immediate
-                response. The fraudster finishes first.
+                Average delay between fraud detection and customer contact at top UAE banks. Only{" "}
+                <span className="num font-semibold">22%</span> of alerts get an immediate response.
+                The fraudster finishes first.
               </p>
               <div className="mt-8 flex items-center gap-2">
                 <span className="h-1.5 w-1.5 rounded-full bg-red-soft" />
@@ -452,9 +477,15 @@ export function Home() {
                   own language, inside a CBUAE-aligned guardrail, with a human one word away.
                 </p>
                 <div className="mt-8 flex flex-wrap gap-2">
-                  <Chip className="!border-white/15 !bg-white/5 !text-white/85">verify · 2/3 challenge</Chip>
-                  <Chip className="!border-white/15 !bg-white/5 !text-white/85">freeze · 240ms</Chip>
-                  <Chip className="!border-white/15 !bg-white/5 !text-white/85">handoff · warm</Chip>
+                  <Chip className="!border-white/15 !bg-white/5 !text-white/85">
+                    verify · 2/3 challenge
+                  </Chip>
+                  <Chip className="!border-white/15 !bg-white/5 !text-white/85">
+                    freeze · 240ms
+                  </Chip>
+                  <Chip className="!border-white/15 !bg-white/5 !text-white/85">
+                    handoff · warm
+                  </Chip>
                 </div>
               </div>
             </div>
@@ -470,7 +501,9 @@ export function Home() {
               <div className="flex items-center gap-3">
                 <span className="micro text-primary">01 · Why it works</span>
                 <span className="h-px w-10 bg-line" />
-                <span dir="rtl" className="font-arabic text-[13px] text-ink-3">لماذا ينجح</span>
+                <span dir="rtl" className="font-arabic text-[13px] text-ink-3">
+                  لماذا ينجح
+                </span>
               </div>
               <h2 className="font-display mt-4 max-w-xl text-3xl font-semibold leading-[1.1] tracking-tight sm:text-4xl">
                 A voice agent banks can actually trust
@@ -491,9 +524,13 @@ export function Home() {
                   <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-green-tint text-green-deep transition-colors group-hover:bg-primary group-hover:text-white">
                     <f.icon className="h-5 w-5" strokeWidth={1.7} />
                   </span>
-                  <span dir="rtl" className="font-arabic text-[12px] text-ink-3">{f.ar}</span>
+                  <span dir="rtl" className="font-arabic text-[12px] text-ink-3">
+                    {f.ar}
+                  </span>
                 </div>
-                <h3 className="font-display mt-5 text-[17px] font-semibold tracking-tight">{f.en}</h3>
+                <h3 className="font-display mt-5 text-[17px] font-semibold tracking-tight">
+                  {f.en}
+                </h3>
                 <p className="mt-2.5 text-[13.5px] leading-relaxed text-ink-2">{f.body}</p>
               </div>
             </Reveal>
@@ -524,9 +561,13 @@ export function Home() {
                 <div className="group relative h-full rounded-2xl border border-line bg-paper p-5 transition-all hover:border-primary/40 hover:bg-white">
                   <div className="flex items-center justify-between">
                     <span className="num text-[12px] font-bold text-primary">{s.n}</span>
-                    <span dir="rtl" className="font-arabic text-[11.5px] text-ink-3">{s.ar}</span>
+                    <span dir="rtl" className="font-arabic text-[11.5px] text-ink-3">
+                      {s.ar}
+                    </span>
                   </div>
-                  <p className="font-display mt-4 text-[15px] font-semibold tracking-tight">{s.en}</p>
+                  <p className="font-display mt-4 text-[15px] font-semibold tracking-tight">
+                    {s.en}
+                  </p>
                   <p className="mt-1.5 text-[12px] leading-relaxed text-ink-2">{s.d}</p>
                   {i < 4 && (
                     <ArrowRight className="absolute -right-[13px] top-1/2 z-10 hidden h-4 w-4 -translate-y-1/2 text-[#b9c4bb] lg:block" />
@@ -549,8 +590,8 @@ export function Home() {
                   Beyond fraud: five regulated voice deployments
                 </h2>
                 <p className="mt-2 max-w-xl text-[13.5px] leading-relaxed text-ink-2">
-                  Governed collections, provider pre-authorisation, support through difficult moments,
-                  multilingual servicing — one guardrailed engine, five configurations.
+                  Governed collections, provider pre-authorisation, support through difficult
+                  moments, multilingual servicing — one guardrailed engine, five configurations.
                 </p>
               </div>
               <button
@@ -564,10 +605,26 @@ export function Home() {
           </Reveal>
           <div className="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             {[
-              { icon: HandCoins, t: "Governed collections", d: "Approved wording, permitted hours, every opt-out honoured — EN · AR · HI · UR." },
-              { icon: FileCheck2, t: "Provider pre-auth intake", d: "Rule-based B2B triage; a qualified employee approves every decision." },
-              { icon: HeartHandshake, t: "Difficult moments", d: "Bereavement & hardship cases handled once, end to end, with memory." },
-              { icon: Globe2, t: "Multilingual servicing", d: "Posted rates, transfer status, salary-card entitlements — in the caller's language." },
+              {
+                icon: HandCoins,
+                t: "Governed collections",
+                d: "Approved wording, permitted hours, every opt-out honoured — EN · AR · HI · UR.",
+              },
+              {
+                icon: FileCheck2,
+                t: "Provider pre-auth intake",
+                d: "Rule-based B2B triage; a qualified employee approves every decision.",
+              },
+              {
+                icon: HeartHandshake,
+                t: "Difficult moments",
+                d: "Bereavement & hardship cases handled once, end to end, with memory.",
+              },
+              {
+                icon: Globe2,
+                t: "Multilingual servicing",
+                d: "Posted rates, transfer status, salary-card entitlements — in the caller's language.",
+              },
             ].map((x, i) => (
               <Reveal key={x.t} delay={i * 0.05}>
                 <button
@@ -575,7 +632,9 @@ export function Home() {
                   className="group h-full w-full rounded-2xl border border-line bg-white p-5 text-left transition-all hover:border-primary/40 hover:shadow-[0_10px_30px_-18px_rgba(11,122,85,0.35)]"
                 >
                   <x.icon className="h-4.5 w-4.5 text-primary" strokeWidth={1.7} />
-                  <p className="font-display mt-3 text-[14.5px] font-semibold tracking-tight">{x.t}</p>
+                  <p className="font-display mt-3 text-[14.5px] font-semibold tracking-tight">
+                    {x.t}
+                  </p>
                   <p className="mt-1.5 text-[12px] leading-relaxed text-ink-2">{x.d}</p>
                 </button>
               </Reveal>
@@ -601,8 +660,12 @@ export function Home() {
                 Don&apos;t read about intervention.{" "}
                 <span className="text-green-bright">Watch it happen.</span>
               </h2>
-              <p dir="rtl" className="font-arabic mx-auto mt-4 max-w-xl text-[14px] leading-relaxed text-white/60">
-                شاهد المحاكاة الحية: تنبيه احتيال، اتصال بالعميل، تحقق من الهوية، تجميد البطاقة، وتسليم لأخصائي — كل ذلك في دقيقة واحدة.
+              <p
+                dir="rtl"
+                className="font-arabic mx-auto mt-4 max-w-xl text-[14px] leading-relaxed text-white/60"
+              >
+                شاهد المحاكاة الحية: تنبيه احتيال، اتصال بالعميل، تحقق من الهوية، تجميد البطاقة،
+                وتسليم لأخصائي — كل ذلك في دقيقة واحدة.
               </p>
               <div className="mt-9 flex flex-wrap items-center justify-center gap-3">
                 <button
@@ -642,41 +705,69 @@ export function Home() {
         {/* pricing tiers */}
         <Reveal delay={0.1}>
           <div className="mt-16">
-            <p className="micro text-center text-[9px] text-white/40">PRICING · PREPAID CREDITS OR MONTHLY</p>
+            <p className="micro text-center text-[9px] text-slate-400">
+              PRICING · PREPAID CREDITS OR MONTHLY
+            </p>
             <div className="mx-auto mt-6 grid max-w-4xl gap-4 sm:grid-cols-3">
               {[
-                { name: "Starter", price: "$490", per: "/mo", detail: "1,000 interventions · 1 bank entity · 6 languages · email support", featured: false },
-                { name: "Pro", price: "$1,490", per: "/mo", detail: "5,000 interventions · 5 entities · streaming voice · priority routing · 99.9% SLA", featured: true },
-                { name: "Enterprise", price: "Custom", per: "", detail: "Unlimited volume · VPC deployment · BYOK · voice clones · CBUAE audit pack", featured: false },
+                {
+                  name: "Starter",
+                  price: "$490",
+                  per: "/mo",
+                  detail: "1,000 interventions · 1 bank entity · 6 languages · email support",
+                  featured: false,
+                },
+                {
+                  name: "Pro",
+                  price: "$1,490",
+                  per: "/mo",
+                  detail:
+                    "5,000 interventions · 5 entities · streaming voice · priority routing · 99.9% SLA",
+                  featured: true,
+                },
+                {
+                  name: "Enterprise",
+                  price: "Custom",
+                  per: "",
+                  detail:
+                    "Unlimited volume · VPC deployment · BYOK · voice clones · CBUAE audit pack",
+                  featured: false,
+                },
               ].map((t) => (
                 <div
                   key={t.name}
                   className={cn(
                     "rounded-3xl border p-6",
                     t.featured
-                      ? "border-green-bright/50 bg-green-bright/[0.08] shadow-[0_20px_60px_-30px_rgba(23,166,115,0.4)]"
-                      : "border-white/15 bg-white/[0.04]"
+                      ? "border-emerald-300/80 bg-emerald-50/60 shadow-[0_20px_60px_-30px_rgba(23,166,115,0.25)]"
+                      : "border-slate-200 bg-white",
                   )}
                 >
                   {t.featured && (
-                    <span className="micro mb-3 inline-block rounded-full bg-green-bright/20 px-2 py-0.5 text-[8.5px] text-green-bright">
+                    <span className="micro mb-3 inline-block rounded-full bg-emerald-100 px-2 py-0.5 text-[8.5px] text-emerald-700">
                       MOST POPULAR
                     </span>
                   )}
-                  <p className="font-display text-[15px] font-semibold text-white">{t.name}</p>
+                  <p className="font-display text-[15px] font-semibold text-slate-900">{t.name}</p>
                   <p className="mt-2">
-                    <span className="font-display text-2xl font-semibold text-white">{t.price}</span>
-                    <span className="text-[12px] text-white/45"> {t.per}</span>
+                    <span className="font-display text-2xl font-semibold text-slate-900">
+                      {t.price}
+                    </span>
+                    <span className="text-[12px] text-slate-500"> {t.per}</span>
                   </p>
-                  <p className="mt-3 text-[11.5px] leading-relaxed text-white/55">{t.detail}</p>
+                  <p className="mt-3 text-[11.5px] leading-relaxed text-slate-600">{t.detail}</p>
                 </div>
               ))}
             </div>
-            <p className="mt-5 text-center text-[11.5px] text-white/40">
+            <p className="mt-5 text-center text-[11.5px] text-slate-500">
+              Plans are shown in USD. At checkout you will be charged the KES equivalent via
+              Paystack; your receipt will list the Ksh amount.
+            </p>
+            <p className="mt-3 text-center text-[11.5px] text-slate-500">
               {t(
                 "Every deployment ships with the tamper-evident audit chain, consent gating, and zero PII storage.",
                 "كل نسخة تشمل سجل التدقيق المختوم وبوابة الموافقة وصفر تخزين للبيانات الشخصية.",
-                lang
+                lang,
               )}
             </p>
           </div>
@@ -691,7 +782,13 @@ export function Home() {
 
 /* ————— pilot booking dialog ————— */
 
-function PilotDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
+function PilotDialog({
+  open,
+  onOpenChange,
+}: {
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+}) {
   const { toast } = useToast();
   const { setView } = useApp();
   const [sent, setSent] = useState(false);
@@ -707,7 +804,10 @@ function PilotDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: 
   // honeypot — hidden from humans; bots tend to fill every field
   const [companyUrl, setCompanyUrl] = useState("");
 
-  const valid = name.trim().length >= 2 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()) && bank.trim().length >= 2;
+  const valid =
+    name.trim().length >= 2 &&
+    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()) &&
+    bank.trim().length >= 2;
 
   const submit = async () => {
     if (!valid || busy) return;
@@ -768,8 +868,8 @@ function PilotDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: 
                 Request received
               </DialogTitle>
               <DialogDescription className="mx-auto mt-2 max-w-xs text-[13.5px] leading-relaxed text-ink-2">
-                Thank you, {name.split(" ")[0]}. Our fraud team will contact you within one
-                business day to scope a 30-day pilot on your card portfolio.
+                Thank you, {name.split(" ")[0]}. Our fraud team will contact you within one business
+                day to scope a 30-day pilot on your card portfolio.
               </DialogDescription>
             </DialogHeader>
             {ref && (
@@ -817,7 +917,9 @@ function PilotDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: 
               />
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
-                  <Label htmlFor="pilot-name" className="text-[12px] font-semibold">Full name</Label>
+                  <Label htmlFor="pilot-name" className="text-[12px] font-semibold">
+                    Full name
+                  </Label>
                   <Input
                     id="pilot-name"
                     value={name}
@@ -829,7 +931,9 @@ function PilotDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: 
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor="pilot-role" className="text-[12px] font-semibold">Role <span className="font-normal text-ink-3">(optional)</span></Label>
+                  <Label htmlFor="pilot-role" className="text-[12px] font-semibold">
+                    Role <span className="font-normal text-ink-3">(optional)</span>
+                  </Label>
                   <Input
                     id="pilot-role"
                     value={role}
@@ -841,7 +945,9 @@ function PilotDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: 
                 </div>
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="pilot-email" className="text-[12px] font-semibold">Work email</Label>
+                <Label htmlFor="pilot-email" className="text-[12px] font-semibold">
+                  Work email
+                </Label>
                 <Input
                   id="pilot-email"
                   type="email"
@@ -850,12 +956,16 @@ function PilotDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: 
                   placeholder="fatima@bank.ae"
                   autoComplete="email"
                   inputMode="email"
-                  aria-invalid={email.trim().length > 0 && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())}
+                  aria-invalid={
+                    email.trim().length > 0 && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())
+                  }
                   className="h-10 rounded-xl border-line bg-paper"
                 />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="pilot-bank" className="text-[12px] font-semibold">Institution</Label>
+                <Label htmlFor="pilot-bank" className="text-[12px] font-semibold">
+                  Institution
+                </Label>
                 <Input
                   id="pilot-bank"
                   value={bank}
@@ -868,7 +978,9 @@ function PilotDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: 
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
-                  <Label htmlFor="pilot-volume" className="text-[12px] font-semibold">Monthly card volume</Label>
+                  <Label htmlFor="pilot-volume" className="text-[12px] font-semibold">
+                    Monthly card volume
+                  </Label>
                   <select
                     id="pilot-volume"
                     value={volume}
@@ -884,9 +996,13 @@ function PilotDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: 
                 </div>
                 <div className="flex items-end pb-0.5">
                   <p className="text-[11px] leading-snug text-ink-3">
-                    Stored securely in our European infrastructure. We never share your details — see our{" "}
+                    Stored securely in our European infrastructure. We never share your details —
+                    see our{" "}
                     <button
-                      onClick={() => { close(false); setView("privacy"); }}
+                      onClick={() => {
+                        close(false);
+                        setView("privacy");
+                      }}
                       className="underline decoration-line underline-offset-2 transition hover:text-primary"
                     >
                       Privacy Policy
@@ -896,7 +1012,10 @@ function PilotDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: 
                 </div>
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="pilot-msg" className="text-[12px] font-semibold">Anything specific to scope? <span className="font-normal text-ink-3">(optional)</span></Label>
+                <Label htmlFor="pilot-msg" className="text-[12px] font-semibold">
+                  Anything specific to scope?{" "}
+                  <span className="font-normal text-ink-3">(optional)</span>
+                </Label>
                 <Textarea
                   id="pilot-msg"
                   value={message}
@@ -907,7 +1026,10 @@ function PilotDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: 
                 />
               </div>
               {error && (
-                <div role="alert" className="rounded-xl border border-red-200 bg-red-50 px-3.5 py-2.5 text-[12.5px] font-medium text-red-700">
+                <div
+                  role="alert"
+                  className="rounded-xl border border-red-200 bg-red-50 px-3.5 py-2.5 text-[12.5px] font-medium text-red-700"
+                >
                   {error}
                 </div>
               )}

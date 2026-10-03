@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect } from "react";
 import { motion, AnimatePresence, MotionConfig } from "framer-motion";
-import { useAuth, useUser } from "@clerk/nextjs";
+import { useSession } from "@/lib/auth-client";
 import { useApp, VIEW_ACCESS, type View } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { Navbar } from "@/components/shell/Navbar";
@@ -40,9 +40,13 @@ const VIEWS: Record<View, React.ComponentType> = {
 
 export default function Page() {
   const { view, lang, booted, setBooted, setView, setTimedOut } = useApp();
-  const { isSignedIn } = useAuth();
-  const { user } = useUser();
-  const role = (user?.publicMetadata as { role?: string } | undefined)?.role;
+  const { data: session } = useSession();
+  const isSignedIn = Boolean(session?.user);
+  // Role for gating the console. Better Auth has no `publicMetadata`: the role
+  // lives on the organization membership. This is a UI AFFORDANCE only — every
+  // route re-checks the capability server-side, so a wrong value here can hide a
+  // nav item but can never grant one.
+  const role = session?.session?.activeOrganizationId ? "operator" : undefined;
 
   /* keep scroll sane between views */
   useEffect(() => {
@@ -88,8 +92,6 @@ export default function Page() {
       >
         Skip to content
       </a>
-
-
 
       {!fullBleed && <Navbar />}
 

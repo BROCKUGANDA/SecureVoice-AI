@@ -103,3 +103,17 @@ docs/walkthrough/poster.png
 scripts/draw-canvas-diagrams.py
 scripts/probe-canvas.py
 scripts/supabase-setup.mjs
+
+# Coverage output. The pre-existing "/coverage" rule does NOT match this
+# directory: a leading slash anchors the pattern, so "/coverage" only ever
+# matched "coverage/", never ".coverage/" -- which is where lcov actually
+# lands. That gap is how 73 lcov.info files reached a commit.
+.coverage/
+
+# Scratch output from ad-hoc probes (see .covprobe2/).
+.covprobe2/
+
+# Prisma/Postgres scratch scripts. One-off data patches (e.g. backfill.mjs,
+# which linked UserProfile rows to Better Auth user rows before migration 6
+# deleted them) are run by hand against a database, not shipped.
+backfill.mjs

@@ -1,9 +1,10 @@
-import { NextRequest, NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { z } from "zod";
 import { guardToolCall } from "@/lib/tool-guard";
 import { canTransition, transitionCase, IllegalTransitionError } from "@/lib/case-state-machine";
 import { append as auditAppend } from "@/lib/audit-chain";
-import { badRequest, parseJson, unprocessable, schemaErrorCode } from "@/lib/api-errors"
+import { badRequest, parseJson, unprocessable, schemaErrorCode } from "@/lib/api-errors";
 
 export const dynamic = "force-dynamic";
 
@@ -27,7 +28,10 @@ export async function POST(req: NextRequest) {
 
   const parsed = schema.safeParse(body);
   if (!parsed.success) {
-    return unprocessable("conversation_id and outcome (confirmed_fraud | confirmed_legitimate | uncertain) are required", schemaErrorCode(parsed.error));
+    return unprocessable(
+      "conversation_id and outcome (confirmed_fraud | confirmed_legitimate | uncertain) are required",
+      schemaErrorCode(parsed.error),
+    );
   }
 
   const { conversation_id, outcome } = parsed.data;
@@ -65,7 +69,11 @@ export async function POST(req: NextRequest) {
       { fast: true },
     ).catch(() => {});
     return NextResponse.json(
-      { ok: false, error: `case cannot move from ${guard.state} to ${to}`, code: "illegal_transition" },
+      {
+        ok: false,
+        error: `case cannot move from ${guard.state} to ${to}`,
+        code: "illegal_transition",
+      },
       { status: 409 },
     );
   }
@@ -102,7 +110,11 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     if (err instanceof IllegalTransitionError) {
       return NextResponse.json(
-        { ok: false, error: `case cannot move from ${guard.state} to ${to}`, code: "illegal_transition" },
+        {
+          ok: false,
+          error: `case cannot move from ${guard.state} to ${to}`,
+          code: "illegal_transition",
+        },
         { status: 409 },
       );
     }

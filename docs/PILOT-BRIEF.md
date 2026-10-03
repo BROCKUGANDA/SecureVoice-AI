@@ -44,10 +44,10 @@ early:
 
 ## Integration surface: two endpoints
 
-| Direction | What |
-| --- | --- |
-| Inbound | `POST /v1/interventions` — your risk signal, HMAC-signed, idempotency-keyed |
-| Outbound | One signed callback with the verdict, case reference and signed transcript link |
+| Direction | What                                                                            |
+| --------- | ------------------------------------------------------------------------------- |
+| Inbound   | `POST /v1/interventions` — your risk signal, HMAC-signed, idempotency-keyed     |
+| Outbound  | One signed callback with the verdict, case reference and signed transcript link |
 
 **That is the whole integration.** No inbound access to your network. No
 connectors. No change to your authorization path. We sit downstream of your fraud
@@ -77,22 +77,22 @@ can act on.
 
 ## Pilot design
 
-| Phase | Duration | What | Gate |
-| --- | --- | --- | --- |
-| **0 · Shadow** | 2 weeks | No calls. Decision + script produced for every alert. | Your review of the readout |
-| **1 · Limited live** | 4 weeks | One alert type. Opt-in cohort. Hard cap of N calls/day. Every dial approved by a human. Kill switch held by you. | Containment vs. control group |
-| **2 · Expanded** | 6 weeks | Auto-dial on the proven alert type. Your fraud team on the console. | Weekly containment report |
+| Phase                | Duration | What                                                                                                             | Gate                          |
+| -------------------- | -------- | ---------------------------------------------------------------------------------------------------------------- | ----------------------------- |
+| **0 · Shadow**       | 2 weeks  | No calls. Decision + script produced for every alert.                                                            | Your review of the readout    |
+| **1 · Limited live** | 4 weeks  | One alert type. Opt-in cohort. Hard cap of N calls/day. Every dial approved by a human. Kill switch held by you. | Containment vs. control group |
+| **2 · Expanded**     | 6 weeks  | Auto-dial on the proven alert type. Your fraud team on the console.                                              | Weekly containment report     |
 
 ### Metrics — agreed before Phase 1, not after
 
-| Metric | Definition |
-| --- | --- |
-| Time to contact | alert fired → customer on the line (**target < 90 s**) |
-| Containment rate | fraud stopped ÷ fraud attempted, **treated cohort vs. a held-out control group** |
-| Contact rate | answered ÷ dialled |
-| False-positive friction | legitimate customers called unnecessarily |
-| Deflection | cases closed with no human agent |
-| Post-call sentiment | customer reaction to being called |
+| Metric                  | Definition                                                                       |
+| ----------------------- | -------------------------------------------------------------------------------- |
+| Time to contact         | alert fired → customer on the line (**target < 90 s**)                           |
+| Containment rate        | fraud stopped ÷ fraud attempted, **treated cohort vs. a held-out control group** |
+| Contact rate            | answered ÷ dialled                                                               |
+| False-positive friction | legitimate customers called unnecessarily                                        |
+| Deflection              | cases closed with no human agent                                                 |
+| Post-call sentiment     | customer reaction to being called                                                |
 
 **A control group is mandatory.** Without one, the pilot yields an anecdote.
 With one, it yields a number your board will act on. It cannot be retrofitted
@@ -118,11 +118,11 @@ ninety seconds.
 
 ## Timeline
 
-| | |
-| --- | --- |
-| Signature | [DD Month YYYY] |
-| Phase 0 starts | [DD Month YYYY] |
-| Phase 0 readout | [DD Month YYYY] |
+|                  |                 |
+| ---------------- | --------------- |
+| Signature        | [DD Month YYYY] |
+| Phase 0 starts   | [DD Month YYYY] |
+| Phase 0 readout  | [DD Month YYYY] |
 | Phase 1 decision | [DD Month YYYY] |
 
 ## What we are asking for now

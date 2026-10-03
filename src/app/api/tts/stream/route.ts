@@ -1,6 +1,13 @@
-import { NextRequest, NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { z } from "zod";
-import { DEV_VOICES, ELEVEN_VOICE_ENV, allowedVoices, isProdVoiceMode, type TtsLang } from "@/lib/elevenlabs/client";
+import {
+  DEV_VOICES,
+  ELEVEN_VOICE_ENV,
+  allowedVoices,
+  isProdVoiceMode,
+  type TtsLang,
+} from "@/lib/elevenlabs/client";
 import { consume as consumeRateLimit, rateLimitId } from "@/lib/ratelimit";
 import { append as auditAppend } from "@/lib/audit-chain";
 import { transcript as redactText } from "@/lib/redact";
@@ -29,9 +36,13 @@ const schema = z.object({
 });
 
 const DEV_SLUG_LANG: Record<string, TtsLang> = {
-  jam: "en", kazi: "hi",
-  tongtong: "ar", chuichui: "ar",
-  douji: "hi", luodo: "ur", xiaochen: "ur",
+  jam: "en",
+  kazi: "hi",
+  tongtong: "ar",
+  chuichui: "ar",
+  douji: "hi",
+  luodo: "ur",
+  xiaochen: "ur",
 };
 
 function resolveVoice(voice: string, lang: TtsLang): string {
@@ -57,7 +68,7 @@ export async function POST(req: NextRequest) {
   if (!rl.ok) {
     return NextResponse.json(
       { error: "Rate limit exceeded; retry later." },
-      { status: 429, headers: { "Retry-After": String(Math.ceil(rl.retryAfterMs / 1000)) } }
+      { status: 429, headers: { "Retry-After": String(Math.ceil(rl.retryAfterMs / 1000)) } },
     );
   }
 
@@ -71,7 +82,11 @@ export async function POST(req: NextRequest) {
   if (!parsed.success) {
     return NextResponse.json({ error: "Invalid TTS stream request" }, { status: 422 });
   }
-  const { text, lang, callRef = `SV-S-${Math.random().toString(36).slice(2, 8).toUpperCase()}` } = parsed.data;
+  const {
+    text,
+    lang,
+    callRef = `SV-S-${Math.random().toString(36).slice(2, 8).toUpperCase()}`,
+  } = parsed.data;
   const voice = resolveVoice(parsed.data.voice, lang);
 
   if (!allowedVoices().has(voice)) {
@@ -82,7 +97,7 @@ export async function POST(req: NextRequest) {
     // dev backend: no streaming — tell the client to use the buffered route
     return NextResponse.json(
       { error: "Streaming unavailable in dev mode — fall back to /api/tts", fallback: true },
-      { status: 501 }
+      { status: 501 },
     );
   }
 
@@ -99,13 +114,16 @@ export async function POST(req: NextRequest) {
   if (keyRes.mode === "platform") {
     const charged = await consumeCharQuota(keyRes, text);
     if (!charged.ok) {
-      return NextResponse.json(quotaExceededResponse(), { status: 429, headers: { "Retry-After": "3600" } });
+      return NextResponse.json(quotaExceededResponse(), {
+        status: 429,
+        headers: { "Retry-After": "3600" },
+      });
     }
   }
   const apiKey = keyRes.mode === "byok" ? keyRes.keyOverride : process.env.ELEVENLABS_API_KEY;
 
   // Per-language model (Swahili → Flash v2.5), matching the buffered route
-  const model = lang === "sw" ? "eleven_flash_v2_5" : process.env.ELEVENLABS_MODEL ?? "eleven_v3";
+  const model = lang === "sw" ? "eleven_flash_v2_5" : (process.env.ELEVENLABS_MODEL ?? "eleven_v3");
 
   const upstream = await fetch(
     `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voice)}/stream?optimize_streaming_latency=3`,
@@ -114,7 +132,7 @@ export async function POST(req: NextRequest) {
       headers: {
         "xi-api-key": apiKey,
         "content-type": "application/json",
-        "accept": "audio/mpeg",
+        accept: "audio/mpeg",
       },
       body: JSON.stringify({
         text,
@@ -122,7 +140,7 @@ export async function POST(req: NextRequest) {
         voice_settings: { stability: 0.5, similarity_boost: 0.75, use_speaker_boost: true },
       }),
       signal: AbortSignal.timeout(25_000),
-    }
+    },
   );
 
   if (!upstream.ok || !upstream.body) {
@@ -132,7 +150,10 @@ export async function POST(req: NextRequest) {
       upstream.status === 401 || upstream.status === 403
         ? "Voice service authentication failed — contact the operator."
         : "Speech streaming is temporarily unavailable — the client will fall back.";
-    return NextResponse.json({ error: generic, fallback: true }, { status: upstream.status === 401 || upstream.status === 403 ? 502 : 503 });
+    return NextResponse.json(
+      { error: generic, fallback: true },
+      { status: upstream.status === 401 || upstream.status === 403 ? 502 : 503 },
+    );
   }
 
   // Audit the stream event (bytes counted as chunks pass; recorded post-hoc

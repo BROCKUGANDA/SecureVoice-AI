@@ -76,7 +76,7 @@ export async function draftAgentReply(args: {
     `The verified conversation state is: ${args.intent} (deny_fraud = caller reports fraud, confirm_authorized = caller confirms the transaction, greeting = first turn, unclear = re-ask).`,
     "If the caller reports fraud: reassure them, confirm the protective hold is in place, and that a specialist will join — they are not liable for unauthorized transactions.",
     "If the caller confirms the transaction: thank them, confirm the review is closed, and remind them their bank will never call asking to move money to a safe account.",
-    "On the FIRST turn you must begin with the exact recording disclosure sentence for your language (e.g. English: \"This call is recorded to protect you.\").",
+    'On the FIRST turn you must begin with the exact recording disclosure sentence for your language (e.g. English: "This call is recorded to protect you.").',
     "Output ONLY the words to be spoken — no labels, no quotes, no stage directions.",
   ].join("\n");
 
@@ -88,7 +88,10 @@ export async function draftAgentReply(args: {
         model: p.model,
         messages: [
           { role: "system", content: system },
-          { role: "user", content: `The caller said (their language may differ — reply in YOUR language): ${args.text.slice(0, 400)}` },
+          {
+            role: "user",
+            content: `The caller said (their language may differ — reply in YOUR language): ${args.text.slice(0, 400)}`,
+          },
         ],
         temperature: 0.3,
         max_tokens: 160,
@@ -101,7 +104,10 @@ export async function draftAgentReply(args: {
     if (!out) return null;
     // voice hygiene: strip markdown artifacts an LLM might emit (TTS reads
     // asterisks/backticks aloud) and enforce the word ceiling
-    out = out.replace(/[*_`#>|]/g, "").replace(/\s+/g, " ").trim();
+    out = out
+      .replace(/[*_`#>|]/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
     const words = out.split(" ");
     if (words.length > MAX_WORDS) out = words.slice(0, MAX_WORDS).join(" ");
     if (out.length < 8) return null;

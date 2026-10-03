@@ -1,8 +1,8 @@
 # Trust model — answering the caller-ID paradox
 
-> *"An anti-fraud system that phones me from a number I don't recognise is
+> _"An anti-fraud system that phones me from a number I don't recognise is
 > indistinguishable from the fraud call it is meant to stop. Why should I
-> answer it?"*
+> answer it?"_
 
 This is the first objection in every meeting, and a fraud head will raise it
 within five minutes. This document is the answer. It is also the cheapest
@@ -14,7 +14,7 @@ addressing it converts scepticism faster than any demo.
 ## 1. Why the objection is legitimate
 
 Caller ID is trivially spoofable. A fraudster running a smishing or SIM-swap
-campaign *will* present your institution's number if they can obtain a
+campaign _will_ present your institution's number if they can obtain a
 credential or persuade an employee to leak it. A customer who has been trained
 to distrust unknown numbers is right to distrust ours, and training them to
 trust "the bank always calls from this number" is exactly the social engineering
@@ -46,8 +46,8 @@ grants, the pilot runs on layers 2–5 alone, which is a viable product.
 ### Layer 2 — Pre-notification, immediately before the dial
 
 Sixty to ninety seconds before the call, the customer receives a push or SMS on
-the channel they already trust: *"Your bank will call you shortly about a
-transaction on your card. The agent will never ask for your PIN or OTP."*
+the channel they already trust: _"Your bank will call you shortly about a
+transaction on your card. The agent will never ask for your PIN or OTP."_
 
 The customer now expects the call. An unsolicited call becomes an expected one,
 which is the entire difference. This works with the institution's existing
@@ -57,7 +57,7 @@ Phase 1, not Phase 3.
 ### Layer 3 — A verification token the customer can check independently
 
 The agent states a case reference, and that reference is confirmable through
-the institution's *own* channels — the app, the authenticated portal, or the
+the institution's _own_ channels — the app, the authenticated portal, or the
 IVR. The customer is never asked to trust the caller; they are given a way to
 check.
 
@@ -76,10 +76,10 @@ verify, and hold. This is not a prompt instruction — it is enforced by the too
 allow-list and the server-side tool guards, and a request for one of those
 values is refused by the server and recorded in the audit chain as a refusal.
 
-The agent also **states this in its opening seconds**: *"I will never ask for
-your PIN or one-time passcode."* Telling the customer what *will not* happen is
+The agent also **states this in its opening seconds**: _"I will never ask for
+your PIN or one-time passcode."_ Telling the customer what _will not_ happen is
 as important as telling them what will — because the fraud call they are being
-protected from *does* ask for exactly those things.
+protected from _does_ ask for exactly those things.
 
 ### Layer 5 — A published callback number
 
@@ -93,7 +93,7 @@ on the line.
 
 1. Disclosure: automated system, calling on behalf of the institution, call recorded.
 2. The reason: a specific transaction, amount and merchant.
-3. The promise: *"I will never ask for your PIN, password, or one-time passcode."*
+3. The promise: _"I will never ask for your PIN, password, or one-time passcode."_
 4. The reference: a case number they can verify in the app.
 5. The action: what is being held, and what happens next.
 
@@ -106,12 +106,12 @@ explicit refusal, and refusal is recorded as an outcome, not an error.
 
 ## 5. What we need from the institution to enable each layer
 
-| Layer | Needs from them | Lead time | Available in |
-| --- | --- | --- | --- |
-| 1 · Institutional caller ID | Written authorisation + carrier verification | weeks | Phase 1–2 |
-| 2 · Pre-notification | Send one push/SMS via their channel | days | Phase 1 |
-| 3 · Verification token | Case reference visible in their app/IVR | 1–2 weeks | Phase 1 |
-| 4 · Structural incapability | Nothing — ours, already built | none | Phase 0 |
-| 5 · Published callback number | A published number | days | Phase 1 |
+| Layer                         | Needs from them                              | Lead time | Available in |
+| ----------------------------- | -------------------------------------------- | --------- | ------------ |
+| 1 · Institutional caller ID   | Written authorisation + carrier verification | weeks     | Phase 1–2    |
+| 2 · Pre-notification          | Send one push/SMS via their channel          | days      | Phase 1      |
+| 3 · Verification token        | Case reference visible in their app/IVR      | 1–2 weeks | Phase 1      |
+| 4 · Structural incapability   | Nothing — ours, already built                | none      | Phase 0      |
+| 5 · Published callback number | A published number                           | days      | Phase 1      |
 
 **Phase 0 needs none of them.** The shadow phase places no calls at all.

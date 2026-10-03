@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { createHmac, randomBytes, timingSafeEqual } from "crypto";
 import { z } from "zod";
 
@@ -50,36 +51,59 @@ function hmac(t: string, payload: string): string {
 
 const SAMPLES: Record<string, (id: string, created: string) => Record<string, unknown>> = {
   "intervention.started": (id, created) => ({
-    event: "intervention.started", id, created,
-    case_id: "FRAUD-2026-08612", trigger: "risk_score>=0.90",
-    channel: "telephony", language_detected: "en",
+    event: "intervention.started",
+    id,
+    created,
+    case_id: "FRAUD-2026-08612",
+    trigger: "risk_score>=0.90",
+    channel: "telephony",
+    language_detected: "en",
   }),
   "identity.verified": (id, created) => ({
-    event: "identity.verified", id, created,
-    case_id: "FRAUD-2026-08612", method: "transaction_challenge",
-    score: "2of3", pin_otp_requested: false,
+    event: "identity.verified",
+    id,
+    created,
+    case_id: "FRAUD-2026-08612",
+    method: "transaction_challenge",
+    score: "2of3",
+    pin_otp_requested: false,
   }),
   "account.frozen": (id, created) => ({
-    event: "account.frozen", id, created,
+    event: "account.frozen",
+    id,
+    created,
     case_id: "FRAUD-2026-08612",
     endpoint: { type: "card", last4: "4417" },
-    reason_code: "FRAUD_CONFIRMED_BY_CUSTOMER", risk_score: 0.94,
+    reason_code: "FRAUD_CONFIRMED_BY_CUSTOMER",
+    risk_score: 0.94,
   }),
   "customer.confirmed": (id, created) => ({
-    event: "customer.confirmed", id, created,
-    case_id: "FRAUD-2026-08612", transaction: "TRX-99127",
-    action_taken: "none", review_closed: true,
+    event: "customer.confirmed",
+    id,
+    created,
+    case_id: "FRAUD-2026-08612",
+    transaction: "TRX-99127",
+    action_taken: "none",
+    review_closed: true,
   }),
   "case.closed": (id, created) => ({
-    event: "case.closed", id, created,
-    case_id: "FRAUD-2026-08612", outcome: "fraud_confirmed",
-    action_taken: "card_freeze", prevented_loss_aed: 2500,
+    event: "case.closed",
+    id,
+    created,
+    case_id: "FRAUD-2026-08612",
+    outcome: "fraud_confirmed",
+    action_taken: "card_freeze",
+    prevented_loss_aed: 2500,
     audit_hash: "b7f2e91c",
   }),
   "escalated.human": (id, created) => ({
-    event: "escalated.human", id, created,
-    case_id: "FRAUD-2026-08612", reason: "customer_request",
-    handoff_sla_seconds: 30, specialist: "fraud_desk_02",
+    event: "escalated.human",
+    id,
+    created,
+    case_id: "FRAUD-2026-08612",
+    reason: "customer_request",
+    handoff_sla_seconds: 30,
+    specialist: "fraud_desk_02",
   }),
 };
 
@@ -121,7 +145,7 @@ export async function POST(req: NextRequest) {
     if (!m) {
       return NextResponse.json(
         { valid: false, reason: "Malformed signature header — expected t={unix},v1={hex64}" },
-        { status: 200 }
+        { status: 200 },
       );
     }
     const [, t, v1] = m;
@@ -148,6 +172,6 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json(
     { error: "action must be sign{event} or verify{payload,header}" },
-    { status: 422 }
+    { status: 422 },
   );
 }

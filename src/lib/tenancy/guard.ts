@@ -43,7 +43,7 @@ import "server-only";
  *                             site.
  *
  * ── The shared namespace ────────────────────────────────────────────────────
- * A session with no Clerk organization is the default state of the reference
+ * A session with no active organization is the default state of the reference
  * deployment. It is NOT "sees everything": it shares the un-namespaced rows
  * (`orgId IS NULL`, e.g. seeded demo data) plus the literal `"default"`
  * namespace. Passing `null` to `scopedDb()` throws — you must say "shared" out
@@ -106,32 +106,40 @@ export const PLATFORM_MODELS: Readonly<Record<string, PlatformModelDeclaration>>
       "Public-site lead captured before an organization exists. Scoping it by org would be a guess; the ops-only triage read goes through TENANCY_BYPASS.",
   },
   IdempotencyKey: {
-    reason: "Dedupe store keyed by (scope, sha256(payload), callerId) — the caller IS the partition, and a replay must resolve identically for the same caller.",
+    reason:
+      "Dedupe store keyed by (scope, sha256(payload), callerId) — the caller IS the partition, and a replay must resolve identically for the same caller.",
   },
   Voice: {
-    reason: "Platform voice catalogue shared by every tenant (BYOK keys select from it); the per-tenant secret is UserProfile.elevenKeyEnc, not the voice row.",
+    reason:
+      "Platform voice catalogue shared by every tenant (BYOK keys select from it); the per-tenant secret is UserProfile.elevenKeyEnc, not the voice row.",
   },
   Account: {
-    reason: "Legacy local platform accounts (operator/demo) superseded by Clerk + UserProfile; no tenant data on the row.",
+    reason:
+      "Legacy local platform accounts (operator/demo) superseded by Better Auth + UserProfile; no tenant data on the row.",
   },
   User: {
-    reason: "Legacy pre-Clerk identity table, unreferenced by the request path; retained for migration only.",
+    reason:
+      "Legacy pre-Better-Auth identity table, unreferenced by the request path; retained for migration only.",
   },
   WebhookEvent: {
-    reason: "Inbound provider delivery registry, deduped on (provider, eventType, conversationId, eventTimestamp) — a provider event belongs to no org until correlated to a Case.",
+    reason:
+      "Inbound provider delivery registry, deduped on (provider, eventType, conversationId, eventTimestamp) — a provider event belongs to no org until correlated to a Case.",
   },
   WebhookQuarantine: {
-    reason: "Uncorrelatable inbound events by definition: quarantined precisely BECAUSE no Case (and therefore no org) could be established.",
+    reason:
+      "Uncorrelatable inbound events by definition: quarantined precisely BECAUSE no Case (and therefore no org) could be established.",
   },
   DeadLetter: {
-    reason: "Replay queue keyed by OutboxEvent.id. The org lives on the OutboxEvent row; DeadLetter stores only the failed payload for operator replay.",
+    reason:
+      "Replay queue keyed by OutboxEvent.id. The org lives on the OutboxEvent row; DeadLetter stores only the failed payload for operator replay.",
   },
   DialJob: {
     reason:
       "The dial queue. It carries NO orgId column: prisma/schema.prisma declares no DialJob model at all, the generated client's DialJobSelect has no orgId, and information_schema confirms the `\"DialJob\"` table has none. (`dial_job`, snake_case, is a different table carrying org_id; src/lib/scale/queue.ts drives it with raw SQL and never goes through Prisma.) Registering it as a TENANT model would make the guard inject an orgId predicate that Prisma rejects at query time, and the model's absence from schema.prisma means the $extends hook would never even fire for it. The org is recoverable by joining caseRef to the Case row, and a worker legitimately claims across ALL orgs — exactly like lib.outbox.claim-batch — so a request-scoped scope is the wrong abstraction.",
   },
   InboundBankEvent: {
-    reason: "Operator-facing delivery inspector (the /inspector surface); shows a bank what we sent them, scoped by deployment access, not by tenant.",
+    reason:
+      "Operator-facing delivery inspector (the /inspector surface); shows a bank what we sent them, scoped by deployment access, not by tenant.",
   },
 });
 
@@ -201,7 +209,8 @@ export function orgScopeFor(orgId: string | null | undefined): OrgScope {
 /** Normalise + validate a scope at runtime (the type system is not enough). */
 export function assertScope(scope: unknown, model = "scope"): OrgScope {
   if (scope && typeof scope === "object") {
-    if ("shared" in scope && (scope as { shared?: unknown }).shared === true) return { shared: true };
+    if ("shared" in scope && (scope as { shared?: unknown }).shared === true)
+      return { shared: true };
     const orgId = (scope as { orgId?: unknown }).orgId;
     if (typeof orgId === "string" && orgId.trim().length > 0) return { orgId };
   }
@@ -233,7 +242,9 @@ function scopeFromArg(scope: OrgScope | string): OrgScope {
 export function scopeWhere(scope: OrgScope): Record<string, unknown> {
   // Prisma's `in` filter rejects null members, so the shared namespace is an OR
   // — identical to the rule the console routes already apply by hand.
-  return "orgId" in scope ? { orgId: scope.orgId } : { OR: [{ orgId: null }, { orgId: DEFAULT_ORG_ID }] };
+  return "orgId" in scope
+    ? { orgId: scope.orgId }
+    : { OR: [{ orgId: null }, { orgId: DEFAULT_ORG_ID }] };
 }
 
 // ── Predicate inspection ─────────────────────────────────────────────────────
@@ -358,10 +369,16 @@ export function applyTenancy(client: PrismaClient, scopeInput: OrgScope | string
   const predicate = scopeWhere(scope);
   const legalOrgs = "orgId" in scope ? [scope.orgId] : [null, DEFAULT_ORG_ID];
 
-  const guardWhere = (model: string, operation: string, where: unknown): Record<string, unknown> => {
-    const caller = (where && typeof where === "object" && !Array.isArray(where)
-      ? (where as Record<string, unknown>)
-      : {}) as Record<string, unknown>;
+  const guardWhere = (
+    model: string,
+    operation: string,
+    where: unknown,
+  ): Record<string, unknown> => {
+    const caller = (
+      where && typeof where === "object" && !Array.isArray(where)
+        ? (where as Record<string, unknown>)
+        : {}
+    ) as Record<string, unknown>;
     if (where !== undefined && (!where || typeof where !== "object" || Array.isArray(where))) {
       throw new TenancyScopeError(
         "missing_org_predicate",
@@ -435,7 +452,10 @@ export function applyTenancy(client: PrismaClient, scopeInput: OrgScope | string
 
           if (CREATE_OPERATIONS.has(operation)) {
             if (Array.isArray(args?.data)) {
-              return query({ ...args, data: args.data.map((d: any) => stampOrg(model, operation, d)) });
+              return query({
+                ...args,
+                data: args.data.map((d: any) => stampOrg(model, operation, d)),
+              });
             }
             return query({ ...args, data: stampOrg(model, operation, args?.data) });
           }
@@ -465,10 +485,9 @@ function assertScopedUpdate(
   update: unknown,
   legalOrgs: readonly (string | null)[],
 ): Record<string, unknown> {
-  const data = (update && typeof update === "object" ? (update as Record<string, unknown>) : {}) as Record<
-    string,
-    unknown
-  >;
+  const data = (
+    update && typeof update === "object" ? (update as Record<string, unknown>) : {}
+  ) as Record<string, unknown>;
   const next = data[ORG_FIELD];
   if (next !== undefined && !legalOrgs.includes(next as string | null)) {
     throw new TenancyScopeError(

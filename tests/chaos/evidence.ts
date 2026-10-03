@@ -105,7 +105,9 @@ export function sortedMatrixRows(): MatrixRow[] {
 }
 
 export function sortedBreakerRows(): BreakerRow[] {
-  return [...breakerRows].sort((a, b) => (a.dependency < b.dependency ? -1 : a.dependency > b.dependency ? 1 : 0));
+  return [...breakerRows].sort((a, b) =>
+    a.dependency < b.dependency ? -1 : a.dependency > b.dependency ? 1 : 0,
+  );
 }
 
 /** Build the artifact. Pure with respect to the filesystem. */
@@ -121,7 +123,8 @@ export function buildEvidence(): Record<string, unknown> {
     determinism: {
       wallClockIncluded: false,
       randomIdentifiersIncluded: false,
-      sortOrder: "sections by id, checks by (area, name), matrix rows by id, breakers by dependency",
+      sortOrder:
+        "sections by id, checks by (area, name), matrix rows by id, breakers by dependency",
       note: "No timestamp and no run id is recorded. The artifact must be byte-identical for an identical set of outcomes, so a clock reading would make every diff meaningless.",
     },
     database: {
@@ -137,8 +140,14 @@ export function buildEvidence(): Record<string, unknown> {
         passed: allChecks.length - failed.length,
         failed: failed.length,
       },
-      matrixRows: { total: sortedMatrixRows().length, ok: sortedMatrixRows().filter((r) => r.ok).length },
-      breakers: { total: sortedBreakerRows().length, ok: sortedBreakerRows().filter((r) => r.ok).length },
+      matrixRows: {
+        total: sortedMatrixRows().length,
+        ok: sortedMatrixRows().filter((r) => r.ok).length,
+      },
+      breakers: {
+        total: sortedBreakerRows().length,
+        ok: sortedBreakerRows().filter((r) => r.ok).length,
+      },
       failedChecks: failed.map((c) => ({ area: c.area, name: c.name, detail: c.detail })),
     },
     checks: allChecks,

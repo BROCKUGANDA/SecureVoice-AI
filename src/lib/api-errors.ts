@@ -55,17 +55,20 @@ export function unprocessable(error: string, code = "invalid_payload"): NextResp
 export function paymentRequired(error: string, extra?: Record<string, unknown>): NextResponse {
   return NextResponse.json(
     { error, ...extra },
-    { status: 402, headers: { "X-Credits-Balance": "0" } }
+    { status: 402, headers: { "X-Credits-Balance": "0" } },
   );
 }
 
-export function tooManyRequests(error = "Rate limit exceeded; retry later.", retryAfterSec?: number): NextResponse {
+export function tooManyRequests(
+  error = "Rate limit exceeded; retry later.",
+  retryAfterSec?: number,
+): NextResponse {
   return NextResponse.json(
     { error },
     {
       status: 429,
       headers: retryAfterSec !== undefined ? { "Retry-After": String(retryAfterSec) } : {},
-    }
+    },
   );
 }
 

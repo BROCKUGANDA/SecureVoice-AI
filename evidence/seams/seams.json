@@ -962,12 +962,12 @@
   ],
   "unreportedPorts": [],
   "digest": "8249ae9930372b03874f635d86c2152439c9bb6743cdd7327102fea4b442e9c8",
-  "generatedAt": "2026-10-02T21:58:39.912Z",
+  "generatedAt": "2026-10-03T05:01:58.722Z",
   "run": {
-    "id": "muri8zjk",
-    "org": "org-seams-muri8zjk",
-    "caseRef": "SV-F-SEAMSMURI8ZJK",
-    "chainRef": "SEAMCHAIN-muri8zjk"
+    "id": "murxcgt2",
+    "org": "org-seams-murxcgt2",
+    "caseRef": "SV-F-SEAMSMURXCGT2",
+    "chainRef": "SEAMCHAIN-murxcgt2"
   },
   "commands": {
     "test": "bun test tests/seams",

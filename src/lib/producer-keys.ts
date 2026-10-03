@@ -19,8 +19,7 @@ export function hashProducerKey(key: string): string {
 }
 
 export type ProducerAuth =
-  | { ok: true; callerId: string; orgId: string | null; keyId: string }
-  | { ok: false };
+  { ok: true; callerId: string; orgId: string | null; keyId: string } | { ok: false };
 
 /** Verify a Bearer svb_ key against the stored hashes. */
 export async function verifyProducerKey(bearer: string | null): Promise<ProducerAuth> {
@@ -31,6 +30,8 @@ export async function verifyProducerKey(bearer: string | null): Promise<Producer
   });
   if (!row || row.revoked) return { ok: false };
   // fire-and-forget last-used stamp — never blocks the request path
-  void db.producerKey.update({ where: { id: row.id }, data: { lastUsedAt: new Date() } }).catch(() => {});
+  void db.producerKey
+    .update({ where: { id: row.id }, data: { lastUsedAt: new Date() } })
+    .catch(() => {});
   return { ok: true, callerId: `pk:${row.id.slice(0, 12)}`, orgId: row.orgId, keyId: row.id };
 }

@@ -6,13 +6,23 @@
  * those timestamps, so pacing can be re-trimmed without re-recording anything.
  *
  * The browser runs on a private persistent profile under out/.profile, so the
- * Clerk session established in the sign-in scene survives every later take.
+ * The session established in the sign-in scene survives every later take.
  *
  * Usage: node capture.mjs [sceneId ...]
  */
 import fs from "node:fs";
 import path from "node:path";
-import { BASE, OUT, PROFILE, VIEWPORT, VIDEO, ensureDirs, readJson, sleep, writeJson } from "./lib.mjs";
+import {
+  BASE,
+  OUT,
+  PROFILE,
+  VIEWPORT,
+  VIDEO,
+  ensureDirs,
+  readJson,
+  sleep,
+  writeJson,
+} from "./lib.mjs";
 import { FORBIDDEN, scenes } from "./scenes.mjs";
 
 const timings = readJson(path.join(OUT, "audio", "timings.json"));
@@ -24,7 +34,7 @@ const { chromium } = await import("playwright");
 ensureDirs();
 fs.rmSync(VIDEO, { recursive: true, force: true });
 fs.mkdirSync(VIDEO, { recursive: true });
-// The Clerk session lives in this profile; a take without it cannot show the
+// The session lives in this profile; a take without it cannot show the
 // Command Center, the live call or the audit chain, so fail before recording.
 if (!only.length && !process.argv.includes("--signed-out")) {
   console.log("  (full take reuses the seeded profile from login.mjs)");
@@ -93,10 +103,17 @@ async function runStep(st) {
   } else if (st.scroll) {
     await smoothScroll(st.scroll.y, st.scroll.ms);
   } else if (st.cursor) {
-    const box = await page.getByText(st.cursor, { exact: false }).first().boundingBox().catch(() => null);
+    const box = await page
+      .getByText(st.cursor, { exact: false })
+      .first()
+      .boundingBox()
+      .catch(() => null);
     if (box) {
       for (let i = 1; i <= 18; i++) {
-        await page.mouse.move(120 + ((box.x + box.width / 2 - 120) * i) / 18, 120 + ((box.y + box.height / 2 - 120) * i) / 18);
+        await page.mouse.move(
+          120 + ((box.x + box.width / 2 - 120) * i) / 18,
+          120 + ((box.y + box.height / 2 - 120) * i) / 18,
+        );
         await sleep(16);
       }
     }
@@ -107,10 +124,18 @@ await page.goto(BASE, { waitUntil: "domcontentloaded" });
 await page.waitForSelector("header", { timeout: 60000 });
 await sleep(5000); // the app's own boot screen runs before the shell appears
 
-const http = await page.evaluate(() => fetch("/api/console/events", { credentials: "include" }).then((r) => r.status).catch(() => 0));
+const http = await page.evaluate(() =>
+  fetch("/api/console/events", { credentials: "include" })
+    .then((r) => r.status)
+    .catch(() => 0),
+);
 if (http !== 200 && !process.argv.includes("--signed-out")) {
   await ctx.close();
-  throw new Error("no live operator session in this profile (server said " + http + ") - run node login.mjs first");
+  throw new Error(
+    "no live operator session in this profile (server said " +
+      http +
+      ") - run node login.mjs first",
+  );
 }
 
 const t0 = Date.now();
@@ -125,7 +150,8 @@ for (const sc of queue) {
   console.log(`  ${sc.id}  at ${start.toFixed(1)}s, budget ${budget.toFixed(1)}s`);
 
   for (const st of sc.steps || []) {
-    const label = st.nav || st.click || st.chip || st.text || (st.sleep ? "sleep " + st.sleep : "scroll");
+    const label =
+      st.nav || st.click || st.chip || st.text || (st.sleep ? "sleep " + st.sleep : "scroll");
     try {
       await runStep(st);
     } catch (e) {

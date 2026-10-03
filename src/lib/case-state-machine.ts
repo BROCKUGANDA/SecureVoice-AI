@@ -19,11 +19,27 @@ import { notify } from "@/lib/notifications";
 import { notifyRealtime } from "@/lib/realtime";
 
 export const CASE_STATES = [
-  "RECEIVED", "SCREENED", "DIALING", "RINGING", "ANSWERED",
-  "DISCLOSED", "VERIFYING", "CONFIRMED_LEGITIMATE", "CONFIRMED_FRAUD",
-  "UNCERTAIN", "FREEZE_STAGED", "ESCALATED", "NOTIFIED", "CLOSED",
-  "REJECTED", "NO_ANSWER", "BUSY", "FAILED", "VOICEMAIL",
-  "RETRY_SCHEDULED", "EXHAUSTED",
+  "RECEIVED",
+  "SCREENED",
+  "DIALING",
+  "RINGING",
+  "ANSWERED",
+  "DISCLOSED",
+  "VERIFYING",
+  "CONFIRMED_LEGITIMATE",
+  "CONFIRMED_FRAUD",
+  "UNCERTAIN",
+  "FREEZE_STAGED",
+  "ESCALATED",
+  "NOTIFIED",
+  "CLOSED",
+  "REJECTED",
+  "NO_ANSWER",
+  "BUSY",
+  "FAILED",
+  "VOICEMAIL",
+  "RETRY_SCHEDULED",
+  "EXHAUSTED",
 ] as const;
 
 export type CaseState = (typeof CASE_STATES)[number];
@@ -60,7 +76,7 @@ export function canTransition(from: string, to: string): boolean {
 export class IllegalTransitionError extends Error {
   constructor(
     public from: string,
-    public to: string
+    public to: string,
   ) {
     super(`Illegal case transition: ${from} → ${to}`);
     this.name = "IllegalTransitionError";
@@ -71,7 +87,7 @@ export class IllegalTransitionError extends Error {
 export async function transitionCase(
   caseRef: string,
   to: string,
-  meta?: Record<string, unknown>
+  meta?: Record<string, unknown>,
 ): Promise<{ id: string; state: string }> {
   const row = await db.case.findUnique({ where: { caseRef } });
   if (!row) throw new Error(`Case not found: ${caseRef}`);
@@ -131,7 +147,10 @@ async function recordTransition(
     },
     { fast: true },
   ).catch((err) => {
-    console.error("[case-state] transition audit failed:", err instanceof Error ? err.message : err);
+    console.error(
+      "[case-state] transition audit failed:",
+      err instanceof Error ? err.message : err,
+    );
   });
 
   // Emit an in-app notification for states that require human attention (WP-20)
@@ -168,7 +187,10 @@ async function recordTransition(
 export async function transitionCaseWithOutbox(
   caseRef: string,
   to: string,
-  opts: { meta?: Record<string, unknown>; outbox: BankEventInput & { eventId?: string; occurredAt?: string } },
+  opts: {
+    meta?: Record<string, unknown>;
+    outbox: BankEventInput & { eventId?: string; occurredAt?: string };
+  },
 ): Promise<{ id: string; state: string; eventId: string }> {
   const row = await db.case.findUnique({ where: { caseRef } });
   if (!row) throw new Error(`Case not found: ${caseRef}`);
@@ -187,7 +209,7 @@ export async function transitionCaseWithOutbox(
   });
 }
 
-/** Create a case in RECEIVED state. */export async function createCase(data: {
+/** Create a case in RECEIVED state. */ export async function createCase(data: {
   caseRef: string;
   orgId?: string | null;
   transactionRef?: string;
@@ -242,20 +264,24 @@ export async function caseByRef(caseRef: string, orgId: string | null | undefine
 /**
  * Look up a case by conversation_id — the join key for the post-call webhook.
  *
- * Deliberately NOT org-scoped, and this is the residual cross-tenant risk
- * recorded in docs/GAP-REGISTER.md. Both production callers resolve a case they
- * are correlating AGAINST, not listing:
+ * Org-scoped, with the same predicate shape as `caseByRef`, `verifyChain` and
+ * `acknowledge`. A null/absent `orgId` means the DEFAULT org namespace, never
+ * "any org" — which is the point: the tenant is part of the lookup, so a
+ * conversation id belonging to another tenant resolves to nothing.
  *
- *   - `src/lib/elevenlabs/inbound.ts` correlates an inbound provider event.
- *   - `src/lib/tool-guard.ts` resolves the case the agent is acting on.
- *
- * Neither has a tenant identity to scope by: the webhook is authenticated by a
- * shared platform secret, and the agent tools by a single global
- * `AGENT_TOOL_SECRET`. There is no tenant to check until per-tenant tool
- * secrets exist (docs/POST-LAUNCH-TODO.md §5). Adding a scope parameter today
- * would mean passing null and calling it scoped — the same false assurance the
- * four org predicates were removed for.
+ * Why this could not be scoped before: neither caller had a tenant to scope
+ * by. `guardToolCall` now does, because `authorizeToolCall` resolves the org
+ * from the presented per-tenant credential, so a leaked tool secret reaches
+ * exactly one tenant. The ElevenLabs webhook still authenticates on the shared
+ * platform secret and passes `null`, which confines it to the default
+ * namespace — a real boundary, and the residual shared-secret risk for inbound
+ * provider events is recorded in docs/GAP-REGISTER.md.
  */
-export async function caseByConversation(conversationId: string) {
-  return db.case.findFirst({ where: { conversationId } });
+export async function caseByConversation(conversationId: string, orgId: string | null | undefined) {
+  return db.case.findFirst({
+    where: {
+      conversationId,
+      ...(orgId ? { orgId } : { OR: [{ orgId: null }, { orgId: "default" }] }),
+    },
+  });
 }

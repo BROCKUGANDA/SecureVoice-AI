@@ -125,7 +125,13 @@ export type SloEvidence = {
   industry_baseline: { label: string; ms: number; kind: string; sources: readonly string[] };
   spans: SloSpanRow[];
   spans_not_measured: SpanName[];
-  worst: { name: SpanName; label: string; p95_ms: number; target_p95_ms: number; ratio: number } | null;
+  worst: {
+    name: SpanName;
+    label: string;
+    p95_ms: number;
+    target_p95_ms: number;
+    ratio: number;
+  } | null;
   all_targets_met: boolean | null;
   gate: {
     meets_30_intervention_threshold: boolean;
@@ -167,13 +173,20 @@ export type SloReportResult = {
  * filesystem (the caller supplies the records), so the gate is testable without
  * a disk and without inventing data.
  */
-export function buildSloReport(source: SpanReadSource, options: SloReportOptions = {}): SloReportResult {
+export function buildSloReport(
+  source: SpanReadSource,
+  options: SloReportOptions = {},
+): SloReportResult {
   const nowMs = options.nowMs ?? Date.now();
   const required = options.requiredInterventions ?? REQUIRED_INTERVENTIONS;
   const sinceMs =
-    options.windowMinutes !== undefined && options.windowMinutes !== null ? nowMs - options.windowMinutes * 60_000 : undefined;
+    options.windowMinutes !== undefined && options.windowMinutes !== null
+      ? nowMs - options.windowMinutes * 60_000
+      : undefined;
 
-  const records = source.records.filter((r) => (sinceMs === undefined ? true : r.startedAtMs >= sinceMs));
+  const records = source.records.filter((r) =>
+    sinceMs === undefined ? true : r.startedAtMs >= sinceMs,
+  );
 
   const summaries = summariseWindow(records, { sinceMs, nowMs });
   const rows = summaries.map(toRow);
@@ -186,7 +199,9 @@ export function buildSloReport(source: SpanReadSource, options: SloReportOptions
 
   const reasons: string[] = [];
   if (source.missing) {
-    reasons.push(`No span log at ${spanLogDisplayPath()} - nothing has ever been recorded by this instance.`);
+    reasons.push(
+      `No span log at ${spanLogDisplayPath()} - nothing has ever been recorded by this instance.`,
+    );
   } else if (source.error) {
     reasons.push(`Span log unreadable: ${source.error}`);
   }
@@ -224,7 +239,12 @@ export function buildSloReport(source: SpanReadSource, options: SloReportOptions
       log_missing: source.missing,
       read_error: source.error,
     },
-    persistence: { kind: "file", path: spanLogDisplayPath(), note: PERSISTENCE_NOTE, max_read_bytes: MAX_READ_BYTES },
+    persistence: {
+      kind: "file",
+      path: spanLogDisplayPath(),
+      note: PERSISTENCE_NOTE,
+      max_read_bytes: MAX_READ_BYTES,
+    },
     intervention_definition: {
       unit: "distinct interventionId",
       terminal_span: TERMINAL_SPAN,
@@ -247,7 +267,13 @@ export function buildSloReport(source: SpanReadSource, options: SloReportOptions
     spans_not_measured: rows.filter((r) => r.value_kind === "not_measured").map((r) => r.name),
     worst:
       worst && worstP95 !== null
-        ? { name: worst.span, label: worst.label, p95_ms: worstP95, target_p95_ms: worst.targetP95Ms, ratio: worstP95 / worst.targetP95Ms }
+        ? {
+            name: worst.span,
+            label: worst.label,
+            p95_ms: worstP95,
+            target_p95_ms: worst.targetP95Ms,
+            ratio: worstP95 / worst.targetP95Ms,
+          }
         : null,
     all_targets_met: allTargetsMet(summaries),
     gate: {
@@ -265,7 +291,9 @@ export function buildSloReport(source: SpanReadSource, options: SloReportOptions
 
 export async function loadSloSource(options: SloReportOptions = {}): Promise<SpanReadSource> {
   const read = await readSpanRecords(
-    options.interventions && options.interventions > 0 ? { interventions: options.interventions } : {},
+    options.interventions && options.interventions > 0
+      ? { interventions: options.interventions }
+      : {},
   );
   return {
     records: read.records,
@@ -302,8 +330,12 @@ export async function latencyBlock(
   const nowMs = Date.now();
   const sinceMs = windowMinutes === null ? undefined : nowMs - windowMinutes * 60_000;
 
-  const read = await readSpanRecords(interventionsLimit && interventionsLimit > 0 ? { interventions: interventionsLimit } : {});
-  const records = read.records.filter((r) => (sinceMs === undefined ? true : r.startedAtMs >= sinceMs));
+  const read = await readSpanRecords(
+    interventionsLimit && interventionsLimit > 0 ? { interventions: interventionsLimit } : {},
+  );
+  const records = read.records.filter((r) =>
+    sinceMs === undefined ? true : r.startedAtMs >= sinceMs,
+  );
   const summaries = summariseWindow(records, { sinceMs, nowMs });
   const complete = completeInterventionIds(records);
   const health = telemetryHealth();
@@ -311,7 +343,9 @@ export async function latencyBlock(
   const snapshot: SloWindowSnapshot = {
     ok: records.length > 0 && read.error === null,
     generatedAt: new Date(nowMs).toISOString(),
-    source: read.missing ? "no span log on this instance yet" : `recorded spans from ${spanLogDisplayPath()} (file-backed local log)`,
+    source: read.missing
+      ? "no span log on this instance yet"
+      : `recorded spans from ${spanLogDisplayPath()} (file-backed local log)`,
     windowMinutes,
     interventionsLimit,
     interventionsSeen: countInterventions(records),
@@ -334,6 +368,7 @@ export async function latencyBlock(
   };
 
   if (read.error) snapshot.error = `span_log_unreadable: ${read.error}`;
-  else if (read.malformedLines > 0) snapshot.error = `span_log_has_${read.malformedLines}_unreadable_line(s)`;
+  else if (read.malformedLines > 0)
+    snapshot.error = `span_log_has_${read.malformedLines}_unreadable_line(s)`;
   return snapshot;
 }

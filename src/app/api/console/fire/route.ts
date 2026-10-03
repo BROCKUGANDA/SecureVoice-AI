@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { createHmac, randomUUID } from "crypto";
 import { z } from "zod";
 import { db } from "@/lib/db";
@@ -13,7 +14,7 @@ export const dynamic = "force-dynamic";
  * Operator Console — fire a risk signal through the REAL production path.
  *
  * Gates, in order:
- *   1. Clerk session (signed in)                        → 401
+ *   1. session (signed in)                        → 401
  *   2. Prepaid credits wallet: 1 credit per intervention → 402 when empty
  *   3. Rate limit per operator                          → 429
  *   4. The operator's own ENROLLED customer             → 409 when there is
@@ -66,14 +67,27 @@ const CURRENCY = "AED";
 const MINOR_UNITS_PER_MAJOR = 100;
 
 /**
+ * The band a signal always lands in when nothing higher matches — the lowest
+ * threshold in ACTION_PLAN. Named so the lookup's fallback is a value the
+ * compiler can prove exists, rather than a positional index into the table
+ * that no guard covers. The table's terminal row IS this value, so the two
+ * cannot drift apart.
+ */
+const TERMINAL_BAND = {
+  threshold: 0,
+  action: "verify_only",
+  handoff: "fraud_specialist",
+};
+
+/**
  * The action bands the Console's runbook renders. Presentation only: what is
  * actually armed is decided upstream, by the policy gate, the abuse gate and
- * the case state machine — not by this table.
+ * the case state machine — not from this table.
  */
-const ACTION_PLAN: { threshold: number; action: string; handoff: string }[] = [
-  { threshold: 0.90, action: "card_freeze_temporary", handoff: "fraud_specialist" },
+const ACTION_PLAN: readonly { threshold: number; action: string; handoff: string }[] = [
+  { threshold: 0.9, action: "card_freeze_temporary", handoff: "fraud_specialist" },
   { threshold: 0.75, action: "transfer_hold_24h", handoff: "fraud_specialist" },
-  { threshold: 0, action: "verify_only", handoff: "fraud_specialist" },
+  TERMINAL_BAND,
 ];
 
 /**
@@ -93,7 +107,12 @@ function toMinorUnits(amountAed: number | undefined): number {
  * `selfRef()` in src/views/Console.tsx, which posts it to /api/enroll.
  */
 function selfCustomerRef(email: string): string {
-  return `SELF-${email.split("@")[0].replace(/\W/g, "").slice(0, 24) || "operator"}`;
+  // `String.prototype.split` always returns at least one element, so this
+  // fallback is unreachable in practice; it exists so the handler cannot
+  // throw on a malformed address, and preserves today's behaviour if it ever
+  // could.
+  const local = email.split("@")[0] ?? email;
+  return `SELF-${local.replace(/\W/g, "").slice(0, 24) || "operator"}`;
 }
 
 export async function POST(req: NextRequest) {
@@ -112,11 +131,11 @@ export async function POST(req: NextRequest) {
   // intervention was not accepted — including the refusals below and the rate
   // limit, which are not upstream failures but are equally "nothing was
   // armed", so the operator must not pay for them.
-  const claimed = await deductCredit(profile.clerkUserId);
+  const claimed = await deductCredit(profile.userId);
   if (claimed < 0) {
     return paymentRequired(
       "Insufficient credits — your wallet is empty. Contact your administrator to top up.",
-      { credits: 0 }
+      { credits: 0 },
     );
   }
 
@@ -126,12 +145,15 @@ export async function POST(req: NextRequest) {
    * (src/views/Console.tsx:352), so a refusal that omitted it would leave the
    * operator staring at a balance one lower than reality.
    */
-  const refundAnd = async (payload: Record<string, unknown>, status: number): Promise<NextResponse> => {
-    const creditsRemaining = await refundCredit(profile.clerkUserId);
+  const refundAnd = async (
+    payload: Record<string, unknown>,
+    status: number,
+  ): Promise<NextResponse> => {
+    const creditsRemaining = await refundCredit(profile.userId);
     return NextResponse.json({ ...payload, creditsRemaining }, { status });
   };
 
-  const rl = consumeRateLimit("console-fire", profile.clerkUserId);
+  const rl = consumeRateLimit("console-fire", profile.userId);
   if (!rl.ok) {
     return refundAnd({ error: "Rate limit exceeded; retry later." }, 429);
   }
@@ -143,8 +165,11 @@ export async function POST(req: NextRequest) {
   if (!parsed.success) {
     const first = parsed.error.issues[0];
     return refundAnd(
-      { error: `Invalid signal: ${first?.path.join(".")} ${first?.message ?? ""}`.trim(), code: "invalid_payload" },
-      422
+      {
+        error: `Invalid signal: ${first?.path.join(".")} ${first?.message ?? ""}`.trim(),
+        code: "invalid_payload",
+      },
+      422,
     );
   }
 
@@ -152,10 +177,9 @@ export async function POST(req: NextRequest) {
   if (!secret) {
     return refundAnd(
       { error: "WEBHOOK_SECRET not configured — ingest is unarmed (see /api/status)." },
-      503
+      503,
     );
   }
-
 
   const d = parsed.data;
 
@@ -183,12 +207,11 @@ export async function POST(req: NextRequest) {
   if (!enrolled) {
     return refundAnd(
       {
-        error:
-          `No enrolled customer for ${customerRef} in this workspace. Step 1 of the Console — "Connect your phone" — enrolls one; the platform will not invent a destination.`,
+        error: `No enrolled customer for ${customerRef} in this workspace. Step 1 of the Console — "Connect your phone" — enrolls one; the platform will not invent a destination.`,
         code: "customer_not_enrolled",
         customerRef,
       },
-      409
+      409,
     );
   }
 
@@ -204,7 +227,7 @@ export async function POST(req: NextRequest) {
         code: "consent_opted_out",
         customerRef,
       },
-      409
+      409,
     );
   }
 
@@ -220,7 +243,7 @@ export async function POST(req: NextRequest) {
         code: "consent_record_missing",
         customerRef,
       },
-      409
+      409,
     );
   }
 
@@ -229,11 +252,12 @@ export async function POST(req: NextRequest) {
   if (!/^\+[1-9]\d{7,14}$/.test(enrolled.phone)) {
     return refundAnd(
       {
-        error: "The enrolled phone number is not E.164. Re-enroll with a number like +971501234567.",
+        error:
+          "The enrolled phone number is not E.164. Re-enroll with a number like +971501234567.",
         code: "customer_phone_invalid",
         customerRef,
       },
-      422
+      422,
     );
   }
 
@@ -271,23 +295,28 @@ export async function POST(req: NextRequest) {
         // Required by the v1 ingest (min 8 chars); tied to the transaction
         // reference so it is stable for this fire and unique across fires.
         "Idempotency-Key": `console:${transactionRef}`,
-        "x-caller-id": `console:${profile.clerkUserId.slice(0, 40)}`,
+        "x-caller-id": `console:${profile.userId.slice(0, 40)}`,
       },
       body: rawBody,
       signal: AbortSignal.timeout(30_000),
     });
   } catch (err) {
     // Network/timeout before a verdict — the claimed credit is refunded.
-    await refundCredit(profile.clerkUserId);
+    await refundCredit(profile.userId);
     console.error("[console-fire] upstream unreachable:", err instanceof Error ? err.message : err);
-    return upstreamError("Intervention path unreachable — credit refunded, nothing was armed.", 503);
+    return upstreamError(
+      "Intervention path unreachable — credit refunded, nothing was armed.",
+      503,
+    );
   }
-  const data = (await upstream.json().catch(() => ({ error: "unparseable upstream response" }))) as Record<string, unknown>;
+  const data = (await upstream
+    .json()
+    .catch(() => ({ error: "unparseable upstream response" }))) as Record<string, unknown>;
 
   // The credit was claimed before the upstream call; a non-accepted
   // intervention costs the operator nothing — refund it atomically.
   if (upstream.status !== 202) {
-    const credits = await refundCredit(profile.clerkUserId);
+    const credits = await refundCredit(profile.userId);
     return NextResponse.json(
       {
         ...data,
@@ -297,7 +326,7 @@ export async function POST(req: NextRequest) {
         notes:
           "Rejected upstream — the policy, consent or abuse gate refused this signal. No case was armed.",
       },
-      { status: upstream.status }
+      { status: upstream.status },
     );
   }
 
@@ -308,7 +337,7 @@ export async function POST(req: NextRequest) {
   // Deterministic action band for the runbook. Presentation only — what is
   // actually armed was decided upstream, from consent, policy, amount and
   // the abuse controls, not from this table.
-  const plan = ACTION_PLAN.find((p) => d.riskScore >= p.threshold) ?? ACTION_PLAN[ACTION_PLAN.length - 1];
+  const plan = ACTION_PLAN.find((p) => d.riskScore >= p.threshold) ?? TERMINAL_BAND;
   return NextResponse.json(
     {
       ...data,
@@ -319,7 +348,8 @@ export async function POST(req: NextRequest) {
       plan: {
         action: plan.action,
         handoff: plan.handoff,
-        verification: "bank-approved challenge flow (merchant/amount/date) — no PIN, no OTP, no password",
+        verification:
+          "bank-approved challenge flow (merchant/amount/date) — no PIN, no OTP, no password",
       },
       // The exact object that was signed and forwarded. Display only.
       signedSignal: signal,
@@ -330,6 +360,6 @@ export async function POST(req: NextRequest) {
           : "Verification-only path: the case is SCREENED and a dial job is queued; no irreversible action without human approval.",
       creditsRemaining: claimed,
     },
-    { status: 202 }
+    { status: 202 },
   );
 }

@@ -70,7 +70,7 @@ export class IdentityError extends Error {
       | "invalid_role"
       | "no_such_member"
       | "last_owner"
-      | "role_ceiling"
+      | "role_ceiling",
   ) {
     super(message);
     this.name = "IdentityError";
@@ -99,7 +99,7 @@ function orgOrDefault(orgId: string | null | undefined): string {
  */
 export async function getIdentity(
   accountId: string,
-  orgId?: string | null
+  orgId?: string | null,
 ): Promise<Identity | null> {
   const org = orgOrDefault(orgId);
   const stored = await read<Identity>(AUTH_SCOPES.identity, accountId, org);
@@ -109,6 +109,12 @@ export async function getIdentity(
     select: { id: true, email: true, name: true, role: true, createdAt: true },
   });
   if (!account) return null;
+  // email/name are nullable on the model because Better Auth's own credential
+  // signup does not write them (see the Account model). A row created by
+  // Better Auth instead of the first-party path is therefore not a first-party
+  // Identity and is rejected here rather than being given a placeholder that
+  // would silently authenticate a user with a fabricated address.
+  if (!account.email || !account.name) return null;
   return {
     accountId: account.id,
     email: account.email,
@@ -167,26 +173,52 @@ export async function createIdentity(input: CreateIdentityInput): Promise<Identi
   if (!CONSOLE_ROLES.includes(role)) {
     throw new IdentityError(
       `Role ${role} does not hold an interactive session and cannot be created here.`,
-      "role_ceiling"
+      "role_ceiling",
     );
   }
   const orgId = orgOrDefault(input.orgId);
 
+  // ── Better Auth shape ─────────────────────────────────────────────────────
+  // `Account` is now Better Auth's credential table, so a row is
+  // (userId, providerId, accountId) and it is REQUIRED to reference a `User`.
+  // A first-party invited operator has no Better Auth session yet, so this
+  // creates the backing `user` first and then attaches a `credential` account
+  // to it — the same two-row shape Better Auth's own email/password signup
+  // produces. Doing it in one nested write keeps it atomic: an Account with no
+  // User is not a state this codebase can reach.
+  //
+  // `passwordHash` stays required and is written here because the first-party
+  // auth store (src/lib/auth/password.ts) verifies scrypt digests against it;
+  // Better Auth's own hash column is left null because we do not use its
+  // credential verifier for these accounts.
   const account = await db.account.create({
     data: {
-      id: input.accountId,
+      user: {
+        create: {
+          email,
+          name: input.name,
+          emailVerified: true,
+        },
+      },
       email,
       name: input.name,
       role,
       passwordHash: input.passwordHash ?? "",
+      // Better Auth identifies a credential account by the provider plus the
+      // account-scoped id. Email/password uses the literal provider "credential".
+      providerId: "credential",
+      accountId: input.accountId ?? email,
     },
     select: { id: true, email: true, name: true, role: true, createdAt: true },
   });
 
+  // Non-null because this row was just created by the first-party path with
+  // both values written explicitly; the nullable-on-read path above is the one
+  // that has to defend against a Better Auth-created row.
   const identity: Identity = {
     accountId: account.id,
-    email: account.email,
-    name: account.name,
+    email: account.email ?? email,
+    name: account.name ?? input.name,
     role,
     orgId,
     roleEpoch: 1,
@@ -226,7 +258,7 @@ export async function setRole(
   accountId: string,
   orgId: string | null | undefined,
   nextRole: Role,
-  auditRequired: () => Promise<void>
+  auditRequired: () => Promise<void>,
 ): Promise<SetRoleResult> {
   const org = orgOrDefault(orgId);
   const role = assertRole(nextRole);
@@ -243,7 +275,7 @@ export async function setRole(
     if (owners.length <= 1) {
       throw new IdentityError(
         "This is the only Owner in the organization. Promote another member first.",
-        "last_owner"
+        "last_owner",
       );
     }
   }
@@ -285,7 +317,7 @@ export type RevokeOrgResult = { revokedSessions: number; members: number; orgEpo
  * responder means.
  */
 export async function revokeOrgSessions(
-  orgId: string | null | undefined
+  orgId: string | null | undefined,
 ): Promise<RevokeOrgResult> {
   const org = orgOrDefault(orgId);
   const members = await listOrgMembers(org);

@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
 
@@ -8,7 +9,7 @@ export const dynamic = "force-dynamic";
 const WINDOW_MS = 60 * 60 * 1000; // 1 hour
 const MAX_PER_WINDOW = 6;
 const MAX_TRACKED_IPS = 10_000; // bound memory; XFF is spoofable, so an
-                                // attacker cycling fake IPs can't grow this forever
+// attacker cycling fake IPs can't grow this forever
 const hits = new Map<string, number[]>();
 
 function rateLimited(ip: string): boolean {
@@ -73,7 +74,7 @@ export async function POST(req: NextRequest) {
   if (rateLimited(ip)) {
     return NextResponse.json(
       { ok: false, error: "Too many requests. Please try again later." },
-      { status: 429 }
+      { status: 429 },
     );
   }
 
@@ -89,7 +90,7 @@ export async function POST(req: NextRequest) {
     const first = parsed.error.issues[0];
     return NextResponse.json(
       { ok: false, error: first?.message ?? "Please check the form and try again." },
-      { status: 422 }
+      { status: 422 },
     );
   }
 
@@ -127,6 +128,6 @@ export async function POST(req: NextRequest) {
   }
   return NextResponse.json(
     { ok: false, error: "We could not save your request. Please try again shortly." },
-    { status: 500 }
+    { status: 500 },
   );
 }

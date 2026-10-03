@@ -72,13 +72,22 @@ function LiveStatusBand() {
           value: status.ok ? t("Operational", "تعمل", lang) : t("Degraded", "متدهورة", lang),
           pulse: status.ok,
         },
-        { label: t("Database round-trip", "زمن قاعدة البيانات", lang), value: `${status.dbLatencyMs ?? "—"} ms` },
+        {
+          label: t("Database round-trip", "زمن قاعدة البيانات", lang),
+          value: `${status.dbLatencyMs ?? "—"} ms`,
+        },
         { label: t("Region", "المنطقة", lang), value: status.region },
         { label: t("Build", "الإصدار", lang), value: `v${status.version}` },
-        { label: t("Memory footprint", "استهلاك الذاكرة", lang), value: status.rssMb ? fmtMem(status.rssMb) : "—" },
+        {
+          label: t("Memory footprint", "استهلاك الذاكرة", lang),
+          value: status.rssMb ? fmtMem(status.rssMb) : "—",
+        },
       ]
     : [
-        { label: t("API service", "خدمة الواجهة", lang), value: t("Probing…", "جارٍ الفحص…", lang) },
+        {
+          label: t("API service", "خدمة الواجهة", lang),
+          value: t("Probing…", "جارٍ الفحص…", lang),
+        },
         { label: t("Database round-trip", "زمن قاعدة البيانات", lang), value: "—" },
         { label: t("Region", "المنطقة", lang), value: "—" },
         { label: t("Build", "الإصدار", lang), value: "—" },
@@ -86,10 +95,12 @@ function LiveStatusBand() {
       ];
 
   return (
-    <div className={cn(
-      "mt-8 rounded-3xl border p-6 sm:p-7",
-      err ? "border-red-200 bg-red-50/60" : "border-line bg-white"
-    )}>
+    <div
+      className={cn(
+        "mt-8 rounded-3xl border p-6 sm:p-7",
+        err ? "border-red-200 bg-red-50/60" : "border-line bg-white",
+      )}
+    >
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2.5">
           <HeartPulse className={cn("h-4 w-4", err ? "text-red-600" : "text-primary")} />
@@ -98,7 +109,11 @@ function LiveStatusBand() {
           </span>
         </div>
         <span className="font-mono text-[10.5px] text-ink-3">
-          {t("measured on this page, every 20s — not a mock", "قياس حقيقي كل ٢٠ ثانية — ليس عرضاً", lang)}
+          {t(
+            "measured on this page, every 20s — not a mock",
+            "قياس حقيقي كل ٢٠ ثانية — ليس عرضاً",
+            lang,
+          )}
         </span>
       </div>
 
@@ -108,7 +123,9 @@ function LiveStatusBand() {
             <div className="micro text-[9px] text-ink-3">{c.label.toUpperCase()}</div>
             <div className="mt-1.5 flex items-center gap-1.5 font-mono text-[13px] font-semibold">
               {c.pulse && <span className="sv-pulse-ring h-2 w-2 rounded-full bg-primary" />}
-              <span className={cn(err && c.label.includes("service") && "text-red-600")}>{c.value}</span>
+              <span className={cn(err && c.label.includes("service") && "text-red-600")}>
+                {c.value}
+              </span>
             </div>
           </div>
         ))}
@@ -129,16 +146,22 @@ export function Security() {
         <div className="flex items-center gap-3">
           <span className="micro text-primary">Security &amp; Trust</span>
           <span className="h-px w-10 bg-line" />
-          <span dir="rtl" className="font-arabic text-[13px] text-ink-3">الأمن والثقة</span>
+          <span dir="rtl" className="font-arabic text-[13px] text-ink-3">
+            الأمن والثقة
+          </span>
         </div>
         <h1 className="font-display mt-3 text-3xl font-semibold tracking-tight sm:text-4xl">
-          {t("Built for the regulator, proven in the region", "مصمم للجهات التنظيمية ومُثبت في المنطقة", lang)}
+          {t(
+            "Built for the regulator, proven in the region",
+            "مصمم للجهات التنظيمية ومُثبت في المنطقة",
+            lang,
+          )}
         </h1>
         <p className="mt-3 text-[15px] leading-relaxed text-ink-2">
           {t(
             "A fraud-intervention agent speaks to your customers in their most anxious moment. That only works inside a security posture banks can sign off: UAE data residency, PDPL-aligned processing, deterministic and auditable decisions, and a hard rule that the agent never asks for credentials.",
             "يتحدث وكيل مكافحة الاحتيال مع عملائك في أكثر لحظاتهم قلقاً. هذا لا يعمل إلا داخل منظومة أمنية يمكن للبنوك المصادقة عليها: إقامة البيانات في دولة الإمارات، ومعالجة متوافقة مع قانون حماية البيانات، وقرارات حتمية قابلة للتدقيق، وقاعدة صارمة بعدم طلب أي بيانات اعتماد.",
-            lang
+            lang,
           )}
         </p>
       </div>
@@ -179,7 +202,7 @@ export function Security() {
             {
               icon: KeyRound,
               title: "Enterprise auth",
-              body: "Sessions run on Clerk: verified email/phone sign-in, brute-force lockout, and a 15-minute idle-timeout guard. Roles are provisioned — there is no public sign-up.",
+              body: "Sessions are self-hosted on our own infrastructure (no third-party identity processor). Verified email sign-in, brute-force lockout, a 15-minute idle timeout and a hard 8-hour session ceiling, so no credential token outlives a working day. Roles are provisioned by invitation — there is no public sign-up.",
               tag: "RBAC",
             },
             {
@@ -204,7 +227,9 @@ export function Security() {
             <Reveal key={c.title} delay={i * 0.05}>
               <div className="flex h-full flex-col rounded-3xl border border-line bg-white p-6">
                 <c.icon className="h-5 w-5 text-primary" strokeWidth={1.7} />
-                <div className="font-display mt-3.5 text-[15.5px] font-semibold tracking-tight">{c.title}</div>
+                <div className="font-display mt-3.5 text-[15.5px] font-semibold tracking-tight">
+                  {c.title}
+                </div>
                 <span className="mt-1.5 w-fit rounded-full bg-green-tint px-2.5 py-0.5 font-mono text-[9.5px] font-bold uppercase tracking-wide text-primary">
                   {c.tag}
                 </span>
@@ -278,11 +303,15 @@ export function Security() {
               {t(
                 "The agent never asks for PINs, passwords, OTPs or full card numbers. This is not a prompt instruction — it is structural: the classifier has no branch that can produce such a request, and the signed guardrail policy makes any deviation fail closed.",
                 "الوكيل لا يطلب أبداً رمز PIN أو كلمة مرور أو OTP أو رقم البطاقة كاملاً. ليست تعليماً نصياً — بل قيد بنيوي: لا يوجد مسار في المصنّف ينتج مثل هذا الطلب، وسياسة الضمانات الموقّعة تجعل أي انحراف يفشل بأمان.",
-                lang
+                lang,
               )}
             </p>
-            <div dir="rtl" className="mt-4 border-t border-white/10 pt-4 font-arabic text-[13px] leading-relaxed text-white/60">
-              لا يطلب الوكيل رمزاً سرياً ولا كلمة مرور ولا رقم بطاقة — قيد بنيوي مضمّن في التصنّف نفسه، لا مجرد تعليمات نصية.
+            <div
+              dir="rtl"
+              className="mt-4 border-t border-white/10 pt-4 font-arabic text-[13px] leading-relaxed text-white/60"
+            >
+              لا يطلب الوكيل رمزاً سرياً ولا كلمة مرور ولا رقم بطاقة — قيد بنيوي مضمّن في التصنّف
+              نفسه، لا مجرد تعليمات نصية.
             </div>
           </div>
 
@@ -295,13 +324,16 @@ export function Security() {
               {t(
                 "Found something? Report to otemaach@gmail.com (PGP key on request). We acknowledge within 24 hours, triage within 72, and credit researchers who follow scope rules. No legal action for good-faith research that avoids service degradation and never touches customer data.",
                 "وجدت ثغرة؟ أرسل إلى otemaach@gmail.com. نؤكد الاستلام خلال ٢٤ ساعة ونصنّفها خلال ٧٢، ونشكر الباحثين الملتزمين بالنطاق دون إجراءات قانونية للأبحاث بحسن نية.",
-                lang
+                lang,
               )}
             </p>
             <div className="mt-4 rounded-xl border border-line bg-paper p-4 font-mono text-[11.5px] leading-relaxed text-ink-2">
-              Contact: otemaach@gmail.com<br />
-              Encryption: PGP · key ID 0x5ECURE<br />
-              Preferred languages: EN, AR<br />
+              Contact: otemaach@gmail.com
+              <br />
+              Encryption: PGP · key ID 0x5ECURE
+              <br />
+              Preferred languages: EN, AR
+              <br />
               Response SLA: 24h ack · 72h triage
             </div>
           </div>
@@ -317,7 +349,11 @@ export function Security() {
                   {t("Read the Privacy Policy", "اقرأ سياسة الخصوصية", lang)}
                 </div>
                 <div className="text-[12px] text-ink-3">
-                  {t("What we collect, why, and how little of it.", "ما نجمعه، ولماذا، وبأقل قدر ممكن.", lang)}
+                  {t(
+                    "What we collect, why, and how little of it.",
+                    "ما نجمعه، ولماذا، وبأقل قدر ممكن.",
+                    lang,
+                  )}
                 </div>
               </div>
             </div>

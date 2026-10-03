@@ -40,7 +40,8 @@ const ALL_ROUTES = discoverRoutes("src/app");
  * enough to match everything would swallow the whole table and leave this suite
  * green while asserting nothing, which the tests below pin against.
  */
-const DB_BACKED = /^(\/api\/(console|auth|metrics|status|v1|tts|agent|asr|enroll|interventions|pilot)|\/v1\/|\/api$)/;
+const DB_BACKED =
+  /^(\/api\/(console|auth|metrics|status|v1|tts|agent|asr|enroll|interventions|pilot)|\/v1\/|\/api$)/;
 
 describe("the route table is derived, not declared", () => {
   test("discovery finds routes, so a sweep over an empty table cannot pass", () => {
@@ -88,9 +89,9 @@ describe("authorization coverage", () => {
   test("no route is left unaccounted for", () => {
     // THE anti-staleness check. A new route is discovered automatically and, until
     // somebody classifies it, it appears here rather than being silently uncovered.
-    const unproven = ALL_ROUTES.filter((r) => !isPublicByDesign(r.path) && !DB_BACKED.test(r.path)).map(
-      (r) => r.path,
-    );
+    const unproven = ALL_ROUTES.filter(
+      (r) => !isPublicByDesign(r.path) && !DB_BACKED.test(r.path),
+    ).map((r) => r.path);
     expect(unproven, "neither public-by-design nor claimed by a DB-backed suite").toEqual([]);
   });
 
@@ -103,6 +104,7 @@ describe("authorization coverage", () => {
       "/api",
       "/api/agent",
       "/api/asr",
+      "/api/auth/[...all]",
       "/api/auth/export",
       "/api/auth/invites",
       "/api/auth/invites/accept",
@@ -140,12 +142,14 @@ describe("authorization coverage", () => {
 
     // Every listed path must actually match the pattern...
     for (const path of EXPLICIT_DB_BACKED) {
-      expect(DB_BACKED.test(path), `${path} is listed but the pattern does not match it`).toBe(true);
+      expect(DB_BACKED.test(path), `${path} is listed but the pattern does not match it`).toBe(
+        true,
+      );
     }
     // ...and the pattern must not match anything the list has not accounted for.
-    const matched = ALL_ROUTES.filter((r) => DB_BACKED.test(r.path) && !isPublicByDesign(r.path)).map(
-      (r) => r.path,
-    );
+    const matched = ALL_ROUTES.filter(
+      (r) => DB_BACKED.test(r.path) && !isPublicByDesign(r.path),
+    ).map((r) => r.path);
     const unlisted = matched.filter((p) => !EXPLICIT_DB_BACKED.has(p));
     expect(unlisted, "the pattern matches routes the pinned list does not name").toEqual([]);
 

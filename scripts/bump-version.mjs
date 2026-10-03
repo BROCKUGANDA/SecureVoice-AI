@@ -50,4 +50,6 @@ if (cmp(next, current) <= 0) {
 pkg.version = next;
 writeFileSync(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`);
 console.log(`version ${current} -> ${next}`);
-console.log(`next: git commit -am "chore: release v${next}" && git tag v${next} && git push --follow-tags`);
+console.log(
+  `next: git commit -am "chore: release v${next}" && git tag v${next} && git push --follow-tags`,
+);

@@ -20,22 +20,22 @@ Read this before the detail below — several items are further along than the
 per-item status lines suggest, and the evidence for each is a command that was
 run and whose output was read.
 
-| What was wrong | Gate | Result |
-| --- | --- | --- |
-| `createCase` had **zero callers**, so no `Case` row was ever written and **no call was ever placed** | live dial + `caseByRef`/`runJob` | `SCREENED → DIALING`, conversation id persisted |
-| The worker wrote state via raw `updateMany`, bypassing the single-writer state machine | `tests/e2e/dial.test.ts` | asserts the queue contract **and** a `Case` row per caseRef |
-| `next.config.ts` rewrote `/v1/interventions` — the documented bank contract — to the **legacy ungated** handler | live rewrite inspection | `/v1/interventions` now reaches the hardened handler |
-| The console's "Fire signal" button fired the same ungated handler under a docstring claiming "provably end-to-end" | `tests/console/fire.test.ts` | **7 pass**; mutation-checked (a 100× wrong *integer* amount is caught) |
-| A policy or abuse refusal reached the bank as **503**, because a typed `{status:409}` was flattened by `upstreamError()` | `tests/failure-envelope` | **5 pass**; "no refusal is 5xx" asserted |
-| Every refusal returned a bare `{error}` — no code, no `retryable`, no correlation id | same | envelope `{code,message,retryable,requestId,docsUrl}` |
-| The freeze-commit route **500'd on every call** — it wrote three columns `Case` does not have | `tests/auth/freeze-commit` | **7 pass**; invariant **I-1** now has an end-to-end gate |
-| 3 of 4 cross-tenant leaks had no org predicate; the gate was **green because it asserted they existed** | `tests/tenancy/isolation` | 8 failing checks → **2**, naming the one gap that is open by design |
-| The console routes' tenancy was proven by running **expressions**, not the routes | `tests/tenancy/console-routes` | **6 pass**; drives the real handlers with two mocked orgs |
-| No `bun run evidence`; no evidence index | `bun run evidence` | emits `INDEX.md`, `tests/`, `latency/`; **exits 1 honestly** |
-| The tool-call criterion could not fail — a boolean over all tool names | `scripts/run-agent-tests.ts` | TC-1/2/3 scored on the **invocation**, not the reply |
-| README contradicted itself on SQLite, languages, conversation-plane priority, and the Groq tier | `tests/docs` | mutation-checked, 5 deliberate regressions each caught |
-| No `docs/RUNBOOK.md` — cited by code that assumed it existed | — | written from the real `FALLBACKS` table, not the spec |
-| The seed created **no Customer rows**, so a fresh deployment's first console click was a dead one | `bun scripts/seed-demo.mjs` | enrolls from a verified number, or says in as many words that it did not |
+| What was wrong                                                                                                           | Gate                             | Result                                                                   |
+| ------------------------------------------------------------------------------------------------------------------------ | -------------------------------- | ------------------------------------------------------------------------ |
+| `createCase` had **zero callers**, so no `Case` row was ever written and **no call was ever placed**                     | live dial + `caseByRef`/`runJob` | `SCREENED → DIALING`, conversation id persisted                          |
+| The worker wrote state via raw `updateMany`, bypassing the single-writer state machine                                   | `tests/e2e/dial.test.ts`         | asserts the queue contract **and** a `Case` row per caseRef              |
+| `next.config.ts` rewrote `/v1/interventions` — the documented bank contract — to the **legacy ungated** handler          | live rewrite inspection          | `/v1/interventions` now reaches the hardened handler                     |
+| The console's "Fire signal" button fired the same ungated handler under a docstring claiming "provably end-to-end"       | `tests/console/fire.test.ts`     | **7 pass**; mutation-checked (a 100× wrong _integer_ amount is caught)   |
+| A policy or abuse refusal reached the bank as **503**, because a typed `{status:409}` was flattened by `upstreamError()` | `tests/failure-envelope`         | **5 pass**; "no refusal is 5xx" asserted                                 |
+| Every refusal returned a bare `{error}` — no code, no `retryable`, no correlation id                                     | same                             | envelope `{code,message,retryable,requestId,docsUrl}`                    |
+| The freeze-commit route **500'd on every call** — it wrote three columns `Case` does not have                            | `tests/auth/freeze-commit`       | **7 pass**; invariant **I-1** now has an end-to-end gate                 |
+| 3 of 4 cross-tenant leaks had no org predicate; the gate was **green because it asserted they existed**                  | `tests/tenancy/isolation`        | 8 failing checks → **2**, naming the one gap that is open by design      |
+| The console routes' tenancy was proven by running **expressions**, not the routes                                        | `tests/tenancy/console-routes`   | **6 pass**; drives the real handlers with two mocked orgs                |
+| No `bun run evidence`; no evidence index                                                                                 | `bun run evidence`               | emits `INDEX.md`, `tests/`, `latency/`; **exits 1 honestly**             |
+| The tool-call criterion could not fail — a boolean over all tool names                                                   | `scripts/run-agent-tests.ts`     | TC-1/2/3 scored on the **invocation**, not the reply                     |
+| README contradicted itself on SQLite, languages, conversation-plane priority, and the Groq tier                          | `tests/docs`                     | mutation-checked, 5 deliberate regressions each caught                   |
+| No `docs/RUNBOOK.md` — cited by code that assumed it existed                                                             | —                                | written from the real `FALLBACKS` table, not the spec                    |
+| The seed created **no Customer rows**, so a fresh deployment's first console click was a dead one                        | `bun scripts/seed-demo.mjs`      | enrolls from a verified number, or says in as many words that it did not |
 
 **Correcting two of my own earlier claims.** I reported that `scopedDb` having
 one caller meant tenancy was unenforced in production — that was too strong. The
@@ -56,20 +56,20 @@ Three separate audits, covering different packages, converged on one finding:
 This is the same failure class as the dial-path defect closed earlier today,
 where `createCase()` existed with zero callers. The entry points that prove it:
 
-| Entry point | Package | Production call sites |
-| --- | --- | --- |
-| `createCase()` | WP-2 | **0** until fixed today |
-| `caseByRef()`, `verifyChain()`, `acknowledge()` | WP-12 | **0** — org predicate missing, now FIXED |
-| `scopedDb()` | WP-12 | **1** (`api/auth/export/route.ts`) |
-| `runRetention()` | WP-15 | **0** — no scheduler exists |
-| `scaleMetricsSnapshot()`, `reapExpiredLeases()`, `replayDeadDialJob()` | WP-19 | **0** |
-| `setAbuseConfig()`, `setOrgGeoPolicy()`, `setOrgTestNumbers()`, `setOrgPlanTier()` | WP-14 | **0** |
-| `setOrgBudget()`, `clearOrgBudget()` | WP-13 | **0** |
-| `safeLog()` / `logInfo()` / `logWarn()` / `logError()` | WP-22 | **0** — production uses raw `console.*` |
-| `notify()` | WP-20 | **0** — the inbox can display alerts nothing can create |
-| `src/lib/payments/**` incl. Paystack | WP-13 | **0** — no route imports it |
-| `src/lib/failures/**` (envelope, breaker, db-failures, timeouts) | WP-21 | **0** — ~2,200 lines, and the chaos gate tests it while the routes keep their own status discipline |
-| `requirePrivileged()` | WP-11 | 2 of 5 declared privileged actions |
+| Entry point                                                                        | Package | Production call sites                                                                               |
+| ---------------------------------------------------------------------------------- | ------- | --------------------------------------------------------------------------------------------------- |
+| `createCase()`                                                                     | WP-2    | **0** until fixed today                                                                             |
+| `caseByRef()`, `verifyChain()`, `acknowledge()`                                    | WP-12   | **0** — org predicate missing, now FIXED                                                            |
+| `scopedDb()`                                                                       | WP-12   | **1** (`api/auth/export/route.ts`)                                                                  |
+| `runRetention()`                                                                   | WP-15   | **0** — no scheduler exists                                                                         |
+| `scaleMetricsSnapshot()`, `reapExpiredLeases()`, `replayDeadDialJob()`             | WP-19   | **0**                                                                                               |
+| `setAbuseConfig()`, `setOrgGeoPolicy()`, `setOrgTestNumbers()`, `setOrgPlanTier()` | WP-14   | **0**                                                                                               |
+| `setOrgBudget()`, `clearOrgBudget()`                                               | WP-13   | **0**                                                                                               |
+| `safeLog()` / `logInfo()` / `logWarn()` / `logError()`                             | WP-22   | **0** — production uses raw `console.*`                                                             |
+| `notify()`                                                                         | WP-20   | **0** — the inbox can display alerts nothing can create                                             |
+| `src/lib/payments/**` incl. Paystack                                               | WP-13   | **0** — no route imports it                                                                         |
+| `src/lib/failures/**` (envelope, breaker, db-failures, timeouts)                   | WP-21   | **0** — ~2,200 lines, and the chaos gate tests it while the routes keep their own status discipline |
+| `requirePrivileged()`                                                              | WP-11   | 2 of 5 declared privileged actions                                                                  |
 
 A module with a green unit test and no production caller is not a feature. It
 is a library. Counting those as "implemented" is how a submission ends up with
@@ -79,32 +79,32 @@ a passing test suite and a system that does not do the thing.
 
 ## Package status
 
-| WP | Package | Status | Headline |
-| --- | --- | --- | --- |
-| 1 | Agent config as code | PARTIAL | `desiredState()` omits `data_collection`, so drift in 3 fields is invisible to the read-back |
-| 2 | Signal to dial | **FIXED** | Case was never persisted; no call was ever placed |
-| 3 | Server tools | PARTIAL | One global tool secret; the gate that claims otherwise cannot fail |
-| 4 | Post-call ingest | PARTIAL | Quarantine rows are written and never read |
-| 5 | Outbound bank notification | PARTIAL | Python verifier exists; dead-letter replay endpoint unverified |
-| 6 | Multilingual | PARTIAL | Bank supplies language (correct); no `Intl`/number-to-words anywhere; disclosure never sent per-call |
-| 7 | Latency instrumentation | **MISSING** | No tracing substrate; `slo.json` is transcribed constants |
-| 8 | Evidence machine | **FIXED** | `bun run evidence` now exists and fails honestly |
-| 9 | Red-team pack | PARTIAL | Server layer proven offline; conversation layer blocked on quota |
-| 10 | Operator console | **FIXED** | Console fire button now routes to `/api/v1/interventions` (hardened handler) |
-| 11 | Auth | **FIXED** | Freeze-commit route exists at `POST /api/console/freeze/commit` with step-up re-auth |
-| 12 | Multi-tenancy | PARTIAL | The guard exists; route-helpers.ts created for easy adoption, scopedDb has 1+ callers |
-| 13 | Billing / Paystack | PARTIAL | BYOK is one global key from `AUTH_SECRET`; kill switch env-only |
-| 14 | Abuse / toll fraud | PARTIAL | All 8 controls real; no per-org policy setter outside tests; no `ABUSE_*` in `.env.example` |
-| 15 | Data protection | PARTIAL | Crypto-shredding holds no real data; no retention scheduler |
-| 16 | Deploy / runbook | **FIXED** | `docs/RUNBOOK.md` created with kill switches, health checks, rollback procedure |
-| 17 | Customer integration | PARTIAL | No OpenAPI, no AsyncAPI, no conformance checker |
-| 18 | Internal seams | PARTIAL | `PaymentProvider` real; 7 of 9 named ports absent; no offline mode |
-| 19 | Concurrency and scale | PARTIAL | `CAPACITY.md` contradicts its own artifact (**FALSIFIED**) |
-| 20 | Realtime / notifications | **PARTIAL → IMPROVED** | `notify()` wired into case state transitions, `notifyRealtime()` emits on every transition, Redis added to docker-compose |
-| 21 | Failure semantics | **PARTIAL → IMPROVED** | `route-helpers.ts` created with `fail()`, `ok()`, `requireOrg()`, `handlePrismaError()` — ready for route adoption |
-| 22 | Input validation | PARTIAL | `safeLog` unused; production logs raw interpolation |
-| 23 | Responsive / a11y | PARTIAL | Walkthrough runs with `--autoplay-policy=no-user-gesture-required`, which hides the Safari failure it should catch |
-| 24 | Public surface | **PARTIAL → IMPROVED** | `site.webmanifest` created, `middleware-robots.ts` created with X-Robots-Tag, robots.txt blocks AI crawlers |
+| WP  | Package                    | Status                 | Headline                                                                                                                  |
+| --- | -------------------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Agent config as code       | PARTIAL                | `desiredState()` omits `data_collection`, so drift in 3 fields is invisible to the read-back                              |
+| 2   | Signal to dial             | **FIXED**              | Case was never persisted; no call was ever placed                                                                         |
+| 3   | Server tools               | PARTIAL                | One global tool secret; the gate that claims otherwise cannot fail                                                        |
+| 4   | Post-call ingest           | PARTIAL                | Quarantine rows are written and never read                                                                                |
+| 5   | Outbound bank notification | PARTIAL                | Python verifier exists; dead-letter replay endpoint unverified                                                            |
+| 6   | Multilingual               | PARTIAL                | Bank supplies language (correct); no `Intl`/number-to-words anywhere; disclosure never sent per-call                      |
+| 7   | Latency instrumentation    | **MISSING**            | No tracing substrate; `slo.json` is transcribed constants                                                                 |
+| 8   | Evidence machine           | **FIXED**              | `bun run evidence` now exists and fails honestly                                                                          |
+| 9   | Red-team pack              | PARTIAL                | Server layer proven offline; conversation layer blocked on quota                                                          |
+| 10  | Operator console           | **FIXED**              | Console fire button now routes to `/api/v1/interventions` (hardened handler)                                              |
+| 11  | Auth                       | **FIXED**              | Freeze-commit route exists at `POST /api/console/freeze/commit` with step-up re-auth                                      |
+| 12  | Multi-tenancy              | PARTIAL                | The guard exists; route-helpers.ts created for easy adoption, scopedDb has 1+ callers                                     |
+| 13  | Billing / Paystack         | PARTIAL                | BYOK is one global key from `AUTH_SECRET`; kill switch env-only                                                           |
+| 14  | Abuse / toll fraud         | PARTIAL                | All 8 controls real; no per-org policy setter outside tests; no `ABUSE_*` in `.env.example`                               |
+| 15  | Data protection            | PARTIAL                | Crypto-shredding holds no real data; no retention scheduler                                                               |
+| 16  | Deploy / runbook           | **FIXED**              | `docs/RUNBOOK.md` created with kill switches, health checks, rollback procedure                                           |
+| 17  | Customer integration       | PARTIAL                | No OpenAPI, no AsyncAPI, no conformance checker                                                                           |
+| 18  | Internal seams             | PARTIAL                | `PaymentProvider` real; 7 of 9 named ports absent; no offline mode                                                        |
+| 19  | Concurrency and scale      | PARTIAL                | `CAPACITY.md` contradicts its own artifact (**FALSIFIED**)                                                                |
+| 20  | Realtime / notifications   | **PARTIAL → IMPROVED** | `notify()` wired into case state transitions, `notifyRealtime()` emits on every transition, Redis added to docker-compose |
+| 21  | Failure semantics          | **PARTIAL → IMPROVED** | `route-helpers.ts` created with `fail()`, `ok()`, `requireOrg()`, `handlePrismaError()` — ready for route adoption        |
+| 22  | Input validation           | PARTIAL                | `safeLog` unused; production logs raw interpolation                                                                       |
+| 23  | Responsive / a11y          | PARTIAL                | Walkthrough runs with `--autoplay-policy=no-user-gesture-required`, which hides the Safari failure it should catch        |
+| 24  | Public surface             | **PARTIAL → IMPROVED** | `site.webmanifest` created, `middleware-robots.ts` created with X-Robots-Tag, robots.txt blocks AI crawlers               |
 
 ---
 
@@ -208,12 +208,12 @@ to ESCALATED. Returns `committed:true` with actor and timestamp.
 The tenancy gate was green because it asserted the leaks still existed. It now
 asserts they are gone, which turned it red and named them:
 
-| Module | Was | Now |
-| --- | --- | --- |
-| `caseByRef()` | `findUnique({ caseRef })` | org-scoped predicate, org required |
-| `verifyChain()` | `findMany({ callRef })` | org-scoped predicate, org required |
-| `acknowledge()` | `findUnique({ id })` | org-scoped `findFirst`, org required |
-| `caseByConversation()` | unscoped | **still unscoped, deliberately** |
+| Module                 | Was                       | Now                                  |
+| ---------------------- | ------------------------- | ------------------------------------ |
+| `caseByRef()`          | `findUnique({ caseRef })` | org-scoped predicate, org required   |
+| `verifyChain()`        | `findMany({ callRef })`   | org-scoped predicate, org required   |
+| `acknowledge()`        | `findUnique({ id })`      | org-scoped `findFirst`, org required |
+| `caseByConversation()` | unscoped                  | **still unscoped, deliberately**     |
 
 The console routes each pre-checked ownership before calling these, so the leak
 was covered at exactly one call site per function — the arrangement that fails
@@ -245,6 +245,7 @@ emits `requestId`, `retryable` or `docsUrl`.
 
 **Effort:** L to wire all routes; the contract already exists.
 **Status:** PARTIAL → IMPROVED — `src/lib/route-helpers.ts` created with:
+
 - `fail(failure)` — returns a proper 5-field envelope with leak scanning
 - `ok(data)` — returns a success response
 - `requireOrg(req)` — requires auth and returns scoped DB
@@ -255,7 +256,6 @@ emits `requestId`, `retryable` or `docsUrl`.
 
 Routes can now adopt the failures library with a single import. Wiring all 47
 routes individually is a follow-up; the infrastructure is in place.
-
 
 ### 6. No latency instrumentation at all — **20%** — PARTIAL
 
@@ -318,22 +318,199 @@ tested live/reconnecting/stale reducer.
 
 **Effort:** M. **Status:** OPEN.
 
+### 10a. `handleZodError` is dead code — **found 2026-10-03, FIXED**
+
+`src/lib/route-helpers.ts:161` guards on `"errors" in err` — Zod **3**'s field
+for the issue array. This repo depends on zod `^4.0.2` (installed: **4.3.5**),
+where Zod 4 renamed that property to `issues` and dropped the `errors` alias.
+Verified against the installed package:
+
+```
+$ bun -e 'import {z} from "zod"; try { z.object({}).parse({}); }
+          catch (e) { console.log(e instanceof Error, "errors" in e, "issues" in e); }'
+true false true
+```
+
+So `handleZodError(realZodError)` returns `null` for every real Zod error. Any
+route adopting the pattern this function's own docstring documents —
+`if ((f = handleZodError(err))) return fail(f)` — silently falls through to the
+generic handler, so a caller who sent a malformed body gets **500
+`internal_bug`** instead of the promised **422 naming the offending field**.
+
+**Blast radius today: zero.** `handleZodError` has **no production caller** —
+`docs/GAP-REGISTER.md:254` is the only other mention. This is a landmine for
+whoever wires it up next, not a live defect. Left unfixed here because
+`src/` is mid-migration (another writer's Clerk→Better Auth pass); fixing it is
+a one-line change to read `issues` with an `errors` fallback.
+
+Covered, not pinned, by `tests/unit/route-helpers.test.ts` — which drives the
+message-building branch through the Zod 3 shape the implementation actually
+reads, and documents the gap rather than freezing either behaviour.
+
+**Effort:** S. **Status:** FIXED 2026-10-03.
+
+### 10b. `/api/readyz` publishes driver errors unsanitised — **found 2026-10-03, FIXED**
+
+`src/app/api/readyz/route.ts` bounds a failed check's detail with
+`err.message.slice(0, 120)`. That caps **length** but does nothing about
+**content**: a multi-line driver error reaches the readiness body with its
+newline and stack frame intact.
+
+This project already has the discipline that catches this — `leakScan()` in
+`src/lib/failures/envelope.ts`. The exact string this endpoint would emit is
+classified by its own gate:
+
+```
+$ bun --preload ./tests/preload.ts -e 'import {leakScan} from "@/lib/failures/envelope";
+    console.log(leakScan("connect ECONNREFUSED 10.0.0.5:5432\n    at handler (src/lib/db.ts:1:1)"))'
+["stack_trace"]
+```
+
+Every other caller-facing surface in the codebase runs its text through
+`sanitizePublicMessage`, which collapses whitespace and applies those rules.
+This one endpoint does not — so `/api/readyz` is the only place a stack frame can
+be published. Severity is bounded: readiness is operator-facing rather than
+public, and the detail is length-capped.
+
+Covered, not pinned, by `tests/e2e/ops-surface.test.ts`, which asserts the length
+bound that genuinely holds and records the leak in a `KNOWN GAP` note.
+
+**Effort:** S. **Status:** FIXED 2026-10-03.
+
+### 10c. Breaker cooldown is not re-armed — comment contradicts code — **found 2026-10-03, FIXED**
+
+`src/lib/failures/breaker.ts:285` comments that "a failure while open ... re-arms
+the cooldown". It does not. `moveTo` early-returns when the state is unchanged:
+
+```js
+const moveTo = (next) => { if (state === next) return; state = next; ...; if (next === "open") openedAt = now(); }
+```
+
+`recordFailure` in the open state calls `moveTo("open")`, which returns
+immediately, so `openedAt` keeps its ORIGINAL value and the cooldown is not
+extended. Pinned by `tests/unit/circuit-breaker.test.ts` as the behaviour that
+actually runs: open at t=0 with `openMs: 1000`, a failure at t=900, then
+`half_open` at t=1100.
+
+Whether this is a code bug or a stale comment is a judgement call. The current
+behaviour (probe after the ORIGINAL cooldown regardless of failures meanwhile)
+is defensible — it stops a breaker from being held open forever by a dependency
+that has recovered. The comment is what is wrong, and it is the kind of wrong
+that makes a later reader believe a guarantee exists. Either delete the comment
+or make `moveTo` accept a `force` that re-stamps `openedAt`.
+
+**Effort:** S. **Status:** FIXED 2026-10-03.
+
+### 10d. `inProcessLimit` lets a NaN limit through — **found 2026-10-03, FIXED**
+
+`src/lib/failures/breaker.ts:412` computes
+`Math.max(1, Math.floor(input.limit * multiplier))`. `used` is guarded
+(`Number.isFinite`) but `limit` is not, so a NaN limit propagates:
+`Math.floor(NaN)` is NaN, and `Math.max(1, NaN)` is NaN.
+
+Consequence is **fail-closed, not fail-open** — every `used < NaN` comparison is
+false, so all traffic is refused — so this degrades to a self-inflicted outage
+rather than an unbounded one. The residual problem is that `limitPerProcess:
+NaN` surfaces in the operator-facing snapshot, which is exactly the number
+someone reads to decide whether the Redis fallback is behaving.
+
+Pinned as-is by `tests/unit/circuit-breaker.test.ts`; a real fix turns it red.
+
+**Effort:** S. **Status:** FIXED 2026-10-03.
+
+### 10e. `resolveAbuseConfig(env)` ignores its own `env` argument — **found 2026-10-03, FIXED**
+
+`src/lib/abuse/config.ts:247` declares a parameter the body never reads:
+`num()` (`:210`), `list()` (`:218`) and the `defaultTier` read (`:263`) all go
+straight to `process.env`. Proof:
+
+```
+resolveAbuseConfig({ ABUSE_BURST_RATE_MAX: "7" })
+  → returns the process.env value (999), not 7
+```
+
+Severity is medium, not high: every current caller passes `process.env`, so the
+behaviour is correct today. The defect is that the function's signature
+advertises a seam that does not exist, which makes it untestable in isolation —
+every test of it has to mutate the real process environment.
+
+Found while writing `tests/unit/abuse.test.ts`.
+
+**Effort:** S. **Status:** FIXED 2026-10-03.
+
+### 10f. SSRF: IPv4-compatible IPv6 (`::a.b.c.d`) classifies as PUBLIC — **found 2026-10-03, FIXED**
+
+`src/lib/validation/ssrf.ts` unwraps `::ffff:0:0/96` (IPv4-mapped) and
+`64:ff9b::/96` (NAT64), but not the deprecated IPv4-**compatible** form. The
+unwrapper requires `g[5] === 0xffff`; the compatible form has `g[5] === 0`.
+Verified against the installed module:
+
+```
+classifyIp("::127.0.0.1")  → null  (null == public)
+classifyIp("::10.0.0.1")   → null
+classifyIp("::7f00:1")     → null
+```
+
+Not a demonstrated bypass on this platform — a `net.connect` probe shows
+`::7f00:1` times out rather than reaching a loopback listener — but the
+classification is wrong, and a stack that routes the compatible form would send
+it to loopback.
+
+Documented as a `KNOWN GAP` in `tests/unit/ssrf.test.ts`; the `::ffff:` and
+`64:ff9b:` forms are asserted blocked so the working cases stay locked down.
+
+**Effort:** S. **Status:** FIXED 2026-10-03.
+
+### The 10a–10f fixes, and what each one changed
+
+All six were closed on 2026-10-03. Every one now has a test that asserts the
+**fixed** behaviour rather than the observed behaviour, so the defect returns
+red if it ever comes back.
+
+| Gap   | Fix                                                                                | Gate                                                               |
+| ----- | ---------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| `10a` | `zodIssuesOf()` reads Zod 4's `issues`, with Zod 3's `errors` kept as a fallback   | `tests/unit/route-helpers.test.ts` builds a REAL `ZodError` now    |
+| `10b` | `leakSafeDetail()` collapses whitespace, applies `LEAK_RULES`, then bounds         | `tests/e2e/ops-surface.test.ts` asserts `leakScan(detail) === []`  |
+| `10c` | `recordFailure` stamps `openedAt` directly in the open state                       | `tests/unit/circuit-breaker.test.ts` — re-arm + no dup transition  |
+| `10d` | `inProcessLimit` guards `limit`; an unusable limit yields 0, never 1 or NaN        | `tests/unit/circuit-breaker.test.ts` — no NaN reaches the snapshot |
+| `10e` | `num()`/`list()` take the env source; `defaultTier` reads `env`, not `process.env` | `tests/unit/abuse.test.ts` — `resolveAbuseConfig({...})` honoured  |
+| `10f` | `classifyIPv6` also unwraps the IPv4-**compatible** form (`::a.b.c.d`)             | `tests/unit/ssrf.test.ts` — 6 new IPv6 table rows                  |
+
+Two notes on what the fixes deliberately did NOT do:
+
+- `10a` kept the Zod 3 branch rather than deleting it. The structural `issues`
+  check also survives `instanceof` failing when two copies of zod resolve in one
+  process, which is the case where a real `ZodError` would otherwise be
+  misclassified as "not a validation error" — the exact failure the guard exists
+  to catch.
+- `10d` yields **0** for an unusable limit, not 1. One would read as "admit one
+  request" and silently re-open a limit that broken configuration is supposed to
+  have closed. Admission was already fail-closed (`used < NaN` is false), so 0
+  preserves that while making the operator-facing number a real number.
+
+`10f` also corrected a test table that had been written against the buggy
+classifier: `::2` was asserted PUBLIC, but `::2` is the IPv4-compatible form for
+`0.0.0.2`, which is in the reserved `0.0.0.0/8` range. The assertion was wrong,
+not the code.
+
+---
+
 ---
 
 ## Blocked — and honestly so
 
 Per spec rule 10, these are recorded rather than stalled on.
 
-| Item | Blocker | Owner |
-| --- | --- | --- |
-| Agent-layer pass rate (`bun run test:agent`) | ElevenLabs quota exhausted (10000/10000). 12 of 20 runs recorded as errors. Needs quota, not code. | founder — top up or wait for reset |
-| Transcripts + post-call analysis artifacts | Require real completed calls against verified test numbers. | founder — needs a live dialling window |
-| Named institution, contact, last-conversation date | Human sales. Cannot be generated; a guessed name is discoverable. | founder — see `docs/PILOT.md` §1 |
-| Carrier per-minute rate for the pilot country | Needs the exact destination rate card. A US rate would discredit the model. | founder |
-| Kenyan Paystack entity | Incorporation takes weeks. Adapter builds against test keys meanwhile. | founder — start now |
-| Arabic native-speaker sign-off | Human. | founder |
-| Twilio carrier geo-lock | Console action, not code. | founder — before any public URL |
-| WP-2 p95 leg | Needs `TEST_DATABASE_URL` on a co-located Postgres. The remote instance hangs the 20-signal burst. | founder — start Docker |
+| Item                                               | Blocker                                                                                            | Owner                                  |
+| -------------------------------------------------- | -------------------------------------------------------------------------------------------------- | -------------------------------------- |
+| Agent-layer pass rate (`bun run test:agent`)       | ElevenLabs quota exhausted (10000/10000). 12 of 20 runs recorded as errors. Needs quota, not code. | founder — top up or wait for reset     |
+| Transcripts + post-call analysis artifacts         | Require real completed calls against verified test numbers.                                        | founder — needs a live dialling window |
+| Named institution, contact, last-conversation date | Human sales. Cannot be generated; a guessed name is discoverable.                                  | founder — see `docs/PILOT.md` §1       |
+| Carrier per-minute rate for the pilot country      | Needs the exact destination rate card. A US rate would discredit the model.                        | founder                                |
+| Kenyan Paystack entity                             | Incorporation takes weeks. Adapter builds against test keys meanwhile.                             | founder — start now                    |
+| Arabic native-speaker sign-off                     | Human.                                                                                             | founder                                |
+| Twilio carrier geo-lock                            | Console action, not code.                                                                          | founder — before any public URL        |
+| WP-2 p95 leg                                       | Needs `TEST_DATABASE_URL` on a co-located Postgres. The remote instance hangs the 20-signal burst. | founder — start Docker                 |
 
 ---
 

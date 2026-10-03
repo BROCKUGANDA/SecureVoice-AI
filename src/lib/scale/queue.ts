@@ -30,7 +30,7 @@ import "server-only";
  * means the SQL and the model cannot drift apart silently: the column list is
  * asserted against `information_schema` by the load gate, so a migration that
  * does not match this module fails loudly rather than at 3am.
-* ────────────────────────────────────────────────────────────────────────────
+ * ────────────────────────────────────────────────────────────────────────────
  *
  * ── Time: everything is the DATABASE clock, and that is not a style choice ────
  * Every deadline this module writes (`available_at`, `lease_expires_at`,
@@ -130,7 +130,11 @@ const COLUMNS_QUALIFIED = `j.id, j.case_id, j.case_ref, j.org_id, j.attempt_no, 
 function isMissingTable(err: unknown): boolean {
   const e = err as { code?: unknown; message?: unknown };
   if (e?.code === "P2021") return true;
-  return typeof e?.message === "string" && /dial_job/.test(e.message) && /does not exist/i.test(e.message);
+  return (
+    typeof e?.message === "string" &&
+    /dial_job/.test(e.message) &&
+    /does not exist/i.test(e.message)
+  );
 }
 
 function rethrow(err: unknown, op: string): never {
@@ -183,7 +187,8 @@ export async function enqueueDialJob(input: {
   /** Delay before the job becomes claimable. 0 (default) = due now. */
   availableInMs?: number;
 }): Promise<EnqueueResult> {
-  if (!input.caseId || !input.caseRef) throw new TypeError("enqueueDialJob requires caseId and caseRef");
+  if (!input.caseId || !input.caseRef)
+    throw new TypeError("enqueueDialJob requires caseId and caseRef");
   const attemptNo = input.attemptNo ?? 1;
   if (!Number.isInteger(attemptNo) || attemptNo < 1) {
     throw new RangeError(`attemptNo must be a positive integer (got ${String(input.attemptNo)})`);
@@ -225,7 +230,9 @@ export async function enqueueDialJob(input: {
     if (!hit) {
       // ON CONFLICT fired but the row is not readable — only possible if another
       // transaction deleted it in between. Retrying the insert is correct.
-      throw new Error(`dial_job conflict for case ${input.caseRef} attempt ${attemptNo} but no row was found`);
+      throw new Error(
+        `dial_job conflict for case ${input.caseRef} attempt ${attemptNo} but no row was found`,
+      );
     }
     return { id: hit.id, created: false, retries: hit.retries, state: hit.state };
   } catch (err) {
@@ -418,7 +425,13 @@ export type FailOutcome =
  * that have a durable row and no voice slot, i.e. the backlog a regulator would
  * ask about.
  */
-export async function queueDepth(): Promise<{ pending: number; claimed: number; done: number; dead: number; total: number }> {
+export async function queueDepth(): Promise<{
+  pending: number;
+  claimed: number;
+  done: number;
+  dead: number;
+  total: number;
+}> {
   try {
     const rows = await db.$queryRaw<{ state: DialJobState; n: number }[]>`
       SELECT state, count(*)::int AS n FROM "dial_job" GROUP BY state
@@ -496,7 +509,11 @@ export async function replayDeadDialJob(id: string): Promise<{ ok: boolean; reas
  * @returns true if the worker owns the job (and the lease is now `leaseMs` long
  *          from now); false if it does not, in which case do NOT place the call.
  */
-export async function renewClaim(jobId: string, workerId: string, leaseMs = DEFAULT_LEASE_MS): Promise<boolean> {
+export async function renewClaim(
+  jobId: string,
+  workerId: string,
+  leaseMs = DEFAULT_LEASE_MS,
+): Promise<boolean> {
   try {
     const rows = await db.$queryRawUnsafe<{ id: string }[]>(
       `UPDATE "dial_job"
@@ -573,7 +590,15 @@ export async function drainDialQueue(args: {
   maxAttempts?: number;
   rand?: () => number;
 }): Promise<DrainResult> {
-  const out: DrainResult = { claimed: 0, done: 0, retried: 0, dead: 0, crashed: 0, lost: 0, skipped: 0 };
+  const out: DrainResult = {
+    claimed: 0,
+    done: 0,
+    retried: 0,
+    dead: 0,
+    crashed: 0,
+    lost: 0,
+    skipped: 0,
+  };
   const jobs = await claimDialJobs({
     workerId: args.workerId,
     limit: args.limit ?? 10,
@@ -606,7 +631,11 @@ export async function drainDialQueue(args: {
       // (otherwise the lease holds the row until it expires) and still counted
       // separately, so a bug cannot hide inside the retry statistics.
       out.crashed++;
-      outcome = { ok: false, error: `handler crashed: ${err instanceof Error ? err.message : String(err)}`, retryable: true };
+      outcome = {
+        ok: false,
+        error: `handler crashed: ${err instanceof Error ? err.message : String(err)}`,
+        retryable: true,
+      };
     }
     if (outcome.ok) {
       if (await completeDialJob(job.id)) out.done++;

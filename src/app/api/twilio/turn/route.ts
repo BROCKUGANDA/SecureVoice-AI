@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { z } from "zod";
 import { append as auditAppend } from "@/lib/audit-chain";
 import { transcript as redactText } from "@/lib/redact";
@@ -29,32 +30,86 @@ export const dynamic = "force-dynamic";
 /* ── Intent classification (same keywords as /api/agent) ── */
 
 const DENY = [
-  "not mine", "not me", "didn't", "did not", "never did", "i did not make", "i didn't make",
-  "fraud", "scam", "stolen", "unauthorized", "stop it", "stop the", "freeze", "block it",
-  "that wasn't me", "that was not me", "not authorized",
-  "ليست عمليتي", "ليست لي", "لم أقم", "احتيال", "نصب", "مسروقة", "غير مصرح",
-  "मेरा नहीं", "मैंने नहीं", "धोखा", "फ्रॉड", "चोरी",
-  "میرا نہیں", "میں نے نہیں", "فراڈ", "چوری",
-  "pas la mienne", "je n'ai pas", "fraude", "volé",
-  "si yangu", "sikufanya", "utapeli", "wizi",
+  "not mine",
+  "not me",
+  "didn't",
+  "did not",
+  "never did",
+  "i did not make",
+  "i didn't make",
+  "fraud",
+  "scam",
+  "stolen",
+  "unauthorized",
+  "stop it",
+  "stop the",
+  "freeze",
+  "block it",
+  "that wasn't me",
+  "that was not me",
+  "not authorized",
+  "ليست عمليتي",
+  "ليست لي",
+  "لم أقم",
+  "احتيال",
+  "نصب",
+  "مسروقة",
+  "غير مصرح",
+  "मेरा नहीं",
+  "मैंने नहीं",
+  "धोखा",
+  "फ्रॉड",
+  "चोरी",
+  "میرا نہیں",
+  "میں نے نہیں",
+  "فراڈ",
+  "چوری",
+  "pas la mienne",
+  "je n'ai pas",
+  "fraude",
+  "volé",
+  "si yangu",
+  "sikufanya",
+  "utapeli",
+  "wizi",
 ];
 
 const CONFIRM = [
-  "mine", "i did", "i authorized", "i made it", "it was me", "that was me",
-  "عمليتي", "أنا قمت", "نعم",
-  "मेरा है", "मैंने किया",
-  "میرا ہے", "میں نے کیا",
-  "c'est la mienne", "j'ai fait", "c'était moi",
-  "ni yangu", "nilifanya",
+  "mine",
+  "i did",
+  "i authorized",
+  "i made it",
+  "it was me",
+  "that was me",
+  "عمليتي",
+  "أنا قمت",
+  "نعم",
+  "मेरा है",
+  "मैंने किया",
+  "میرا ہے",
+  "میں نے کیا",
+  "c'est la mienne",
+  "j'ai fait",
+  "c'était moi",
+  "ni yangu",
+  "nilifanya",
 ];
 
 const GREETING = [
-  "hello", "hi there", "good morning", "hey",
-  "مرحبا", "السلام", "اهلا",
+  "hello",
+  "hi there",
+  "good morning",
+  "hey",
+  "مرحبا",
+  "السلام",
+  "اهلا",
   "नमस्ते",
-  "ہیلو", "سلام",
-  "bonjour", "salut",
-  "habari", "hujambo",
+  "ہیلو",
+  "سلام",
+  "bonjour",
+  "salut",
+  "habari",
+  "hujambo",
 ];
 
 type Intent = "deny_fraud" | "confirm_authorized" | "greeting" | "unclear";
@@ -107,8 +162,9 @@ const REPLIES: Record<Intent, Record<string, string>> = {
 /* ── TwiML helpers ── */
 
 function escapeXml(s: string): string {
-  return s.replace(/[<>&'"]/g, (c) =>
-    ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", "'": "&apos;", '"': "&quot;" })[c] ?? c
+  return s.replace(
+    /[<>&'"]/g,
+    (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", "'": "&apos;", '"': "&quot;" })[c] ?? c,
   );
 }
 
@@ -151,7 +207,7 @@ export async function POST(req: NextRequest) {
   } catch {
     return new NextResponse(
       `<?xml version="1.0" encoding="UTF-8"?><Response><Hangup/></Response>`,
-      { status: 400, headers: { "Content-Type": "text/xml" } }
+      { status: 400, headers: { "Content-Type": "text/xml" } },
     );
   }
 
@@ -160,32 +216,34 @@ export async function POST(req: NextRequest) {
   // and burning the LLM budget. Verified when TWILIO_AUTH_TOKEN is configured
   // (set it — API-key mode alone cannot verify inbound webhooks).
   const params: Record<string, string> = {};
-  form.forEach((v, k) => { params[k] = String(v); });
+  form.forEach((v, k) => {
+    params[k] = String(v);
+  });
   const proto = req.headers.get("x-forwarded-proto") ?? "https";
   const fullUrl = `${proto}://${req.headers.get("host")}${req.nextUrl.pathname}${req.nextUrl.search}`;
   const sigOk = verifyTwilioSignature(fullUrl, params, req.headers.get("x-twilio-signature"));
   if (sigOk === false) {
     return new NextResponse(
       `<?xml version="1.0" encoding="UTF-8"?><Response><Hangup/></Response>`,
-      { status: 403, headers: { "Content-Type": "text/xml" } }
+      { status: 403, headers: { "Content-Type": "text/xml" } },
     );
   }
   if (sigOk === null) {
-    console.warn("[twilio-turn] TWILIO_AUTH_TOKEN not set — inbound webhook signatures cannot be verified");
+    console.warn(
+      "[twilio-turn] TWILIO_AUTH_TOKEN not set — inbound webhook signatures cannot be verified",
+    );
   }
 
   const callSid = String(form.get("CallSid") ?? req.nextUrl.searchParams.get("callSid") ?? "");
   const speechResult = String(form.get("SpeechResult") ?? "").trim();
   const confidence = Number(form.get("Confidence") ?? "0");
-  const lang = String(
-    form.get("lang") ?? req.nextUrl.searchParams.get("lang") ?? "en"
-  ).slice(0, 2);
+  const lang = String(form.get("lang") ?? req.nextUrl.searchParams.get("lang") ?? "en").slice(0, 2);
 
   const rl = consumeRateLimit("twilio-turn", callSid || callerId);
   if (!rl.ok) {
     return new NextResponse(
       `<?xml version="1.0" encoding="UTF-8"?><Response><Say>Thank you. Goodbye.</Say><Hangup/></Response>`,
-      { headers: { "Content-Type": "text/xml" } }
+      { headers: { "Content-Type": "text/xml" } },
     );
   }
 
@@ -194,7 +252,7 @@ export async function POST(req: NextRequest) {
     const { voice, language } = VOICE[lang] ?? VOICE.en;
     return new NextResponse(
       `<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="${voice}" language="${language}">I didn't catch that. Is there a transaction you do not recognize? Say not mine, or it's mine.</Say><Gather input="speech" action="/api/twilio/turn?callSid=${escapeXml(callSid)}&lang=${lang}" method="POST" speechTimeout="auto" language="${language}"></Gather><Say voice="${voice}" language="${language}">Thank you. Goodbye.</Say><Hangup/></Response>`,
-      { headers: { "Content-Type": "text/xml" } }
+      { headers: { "Content-Type": "text/xml" } },
     );
   }
 
@@ -204,10 +262,7 @@ export async function POST(req: NextRequest) {
   const sentiment = analyzeSentiment(speechResult);
 
   // Determine if the call should end
-  const endCall =
-    intent === "deny_fraud" ||
-    intent === "confirm_authorized" ||
-    sentiment.escalate;
+  const endCall = intent === "deny_fraud" || intent === "confirm_authorized" || sentiment.escalate;
 
   // Get the scripted reply; try LLM rephrase if configured
   const scripted = REPLIES[intent][lang] ?? REPLIES[intent].en;
@@ -226,11 +281,7 @@ export async function POST(req: NextRequest) {
   });
 
   const reply = audited.reply;
-  const action = endCall
-    ? intent === "deny_fraud"
-      ? "card_freeze"
-      : "none"
-    : "clarify";
+  const action = endCall ? (intent === "deny_fraud" ? "card_freeze" : "none") : "clarify";
 
   // Audit the turn
   try {

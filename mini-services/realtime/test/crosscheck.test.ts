@@ -40,14 +40,22 @@ describe("app/service signing agreement", () => {
   test("a token signed by the service verifies as the app's payload shape", () => {
     // Proves canonicalisation matches in the other direction: the service's
     // signer output must be accepted by the app's expectation of the format.
-    const token = sign({ orgId: "org_alpha", sub: "analyst-7", chans: ["org:org_alpha"], exp: NOW + 60 }, SECRET);
+    const token = sign(
+      { orgId: "org_alpha", sub: "analyst-7", chans: ["org:org_alpha"], exp: NOW + 60 },
+      SECRET,
+    );
     const v = verify(token, SECRET, NOW);
     expect(v.ok).toBe(true);
   });
 
   test("an ingest signed by the app is accepted by the service", () => {
     process.env.REALTIME_INGEST_SECRET = SECRET;
-    const signed = signIngestBody({ kind: "activity", orgId: "org_alpha", callRef: "SV-1", payload: { a: 1 } });
+    const signed = signIngestBody({
+      kind: "activity",
+      orgId: "org_alpha",
+      callRef: "SV-1",
+      payload: { a: 1 },
+    });
     expect("body" in signed).toBe(true);
     if (!("body" in signed)) return;
 
@@ -56,7 +64,10 @@ describe("app/service signing agreement", () => {
   });
 
   test("an ingest signed by the service is accepted by the app's verifier shape", () => {
-    const { body, header } = signIngest({ kind: "presence", orgId: "org_alpha", watchers: ["a"] }, SECRET);
+    const { body, header } = signIngest(
+      { kind: "presence", orgId: "org_alpha", watchers: ["a"] },
+      SECRET,
+    );
     expect(verifySignature(header, body, SECRET).ok).toBe(true);
   });
 
@@ -64,7 +75,10 @@ describe("app/service signing agreement", () => {
     const saved = process.env.REALTIME_INGEST_SECRET;
     delete process.env.REALTIME_INGEST_SECRET;
     delete process.env.AGENT_TOOL_SECRET;
-    expect(mintRealtimeToken("org_alpha", "analyst-7")).toEqual({ ok: false, error: "not_configured" });
+    expect(mintRealtimeToken("org_alpha", "analyst-7")).toEqual({
+      ok: false,
+      error: "not_configured",
+    });
     expect(verify("anything", "", NOW).ok).toBe(false);
     if (saved !== undefined) process.env.REALTIME_INGEST_SECRET = saved;
   });

@@ -82,6 +82,7 @@ import {
   transactionBackoffMs,
   withTimeoutBudget,
   DbTimeoutError,
+  type TransactionOutcome,
 } from "@/lib/failures/db-failures";
 import {
   DEFAULT_FAILURE_THRESHOLD,
@@ -151,11 +152,17 @@ function pgError(code: string, message: string, meta?: Record<string, unknown>):
 }
 
 /** A REAL Prisma error class, so the classifier is tested against the real shape. */
-function prismaError(code: string, message: string, meta?: Record<string, unknown>): Prisma.PrismaClientKnownRequestError {
+function prismaError(
+  code: string,
+  message: string,
+  meta?: Record<string, unknown>,
+): Prisma.PrismaClientKnownRequestError {
   return new Prisma.PrismaClientKnownRequestError(message, {
     code,
     clientVersion: "6.19.2",
-    ...(meta ? { meta: meta as Prisma.RequestMeta } : {}),
+    // Prisma 7 types this as Record<string, unknown> directly; the old
+    // `Prisma.RequestMeta` cast is no longer exported and is not needed.
+    ...(meta ? { meta } : {}),
   });
 }
 
@@ -163,13 +170,31 @@ const noSleep = async (): Promise<void> => {};
 const fixedRand = (): number => 0.5;
 const REQ = "req-wp21-0001";
 
+/**
+ * A failed TransactionOutcome, with its `failure` already asserted to exist.
+ *
+ * `failure` only exists on the `ok: false` branch of the union, so a test that
+ * has just asserted `ok === false` still cannot see it. This performs the check
+ * as a real runtime guard rather than a cast, so a genuinely successful outcome
+ * fails loudly here instead of reading `undefined` three assertions later.
+ */
+function failed<T>(outcome: TransactionOutcome<T>): Extract<TransactionOutcome<T>, { ok: false }> {
+  if (outcome.ok)
+    throw new Error(
+      `expected the transaction to fail, but it succeeded with ${JSON.stringify(outcome.value)}`,
+    );
+  return outcome;
+}
+
 // ════════════════════════════════════════════════════════════════════════════════
 afterAll(() => {
   globalThis.fetch = REAL_FETCH;
   const written = writeEvidence(EVIDENCE_PATH);
   // Reported to stdout so a CI log carries the digest even if the artifact is
   // not archived.
-  console.log(`WP-21 evidence: ${EVIDENCE_PATH} (${written.bytes} bytes, sha256 ${written.digest})`);
+  console.log(
+    `WP-21 evidence: ${EVIDENCE_PATH} (${written.bytes} bytes, sha256 ${written.digest})`,
+  );
 });
 
 // ════════════════════════════════════════════════════════════════════════════════
@@ -185,7 +210,12 @@ describe("WP-21 / envelope", () => {
       expect(failure.body.docsUrl.endsWith(`/${code}`)).toBe(true);
       expect(failure.body.retryable).toBe(isRetryable(code));
       record("envelope", `five-fields:${code}`, keys.length === 5, `keys=${keys.join(",")}`);
-      record("envelope", `no-leak:${code}`, scanFailure(failure).length === 0, scanFailure(failure).join("|"));
+      record(
+        "envelope",
+        `no-leak:${code}`,
+        scanFailure(failure).length === 0,
+        scanFailure(failure).join("|"),
+      );
     }
   });
 
@@ -199,7 +229,12 @@ describe("WP-21 / envelope", () => {
       expect(SANCTIONED.has(failure.status)).toBe(true);
       expect(FORBIDDEN_STATUSES).toContain(403);
       expect(failure.status).not.toBe(403);
-      record("envelope", `sanctioned-status:${code}`, SANCTIONED.has(failure.status), `${failure.status}`);
+      record(
+        "envelope",
+        `sanctioned-status:${code}`,
+        SANCTIONED.has(failure.status),
+        `${failure.status}`,
+      );
       record("envelope", `never-403:${code}`, failure.status !== 403, `${failure.status}`);
       record("envelope", `map-agrees:${code}`, rule.status === failure.status, `${rule.status}`);
     }
@@ -232,16 +267,36 @@ describe("WP-21 / envelope", () => {
     expect(rateLimited(0).headers["Retry-After"]).toBe("1");
     expect(rateLimited(999_999).headers["Retry-After"]).toBe("3600");
     expect(shedLoad(Number.NaN).headers["Retry-After"]).toBe("1");
-    record("envelope", "retry-after-honours-caller-value", rateLimited(30).retryAfterSec === 30, "30");
+    record(
+      "envelope",
+      "retry-after-honours-caller-value",
+      rateLimited(30).retryAfterSec === 30,
+      "30",
+    );
     record("envelope", "retry-after-clamped-low", rateLimited(0).retryAfterSec === 1, "1");
-    record("envelope", "retry-after-clamped-high", rateLimited(999_999).retryAfterSec === 3600, "3600");
-    record("envelope", "retry-after-bad-value-becomes-1", shedLoad(Number.NaN).retryAfterSec === 1, "1");
+    record(
+      "envelope",
+      "retry-after-clamped-high",
+      rateLimited(999_999).retryAfterSec === 3600,
+      "3600",
+    );
+    record(
+      "envelope",
+      "retry-after-bad-value-becomes-1",
+      shedLoad(Number.NaN).retryAfterSec === 1,
+      "1",
+    );
 
     // responseInitFor drops straight into NextResponse.json(body, init).
     const init = responseInitFor(shedLoad(7));
     expect(init.status).toBe(503);
     expect(init.headers["Retry-After"]).toBe("7");
-    record("envelope", "response-init-carries-status-and-retry-after", init.status === 503, "503/7");
+    record(
+      "envelope",
+      "response-init-carries-status-and-retry-after",
+      init.status === 503,
+      "503/7",
+    );
   });
 
   test("cross-tenant is 404 and byte-identical to not-found", () => {
@@ -271,13 +326,35 @@ describe("WP-21 / envelope", () => {
     expect(withLeak.body.message).toBe("Not found.");
     expect(withLeak.body).toEqual(absent.body);
     // …while a same-tenant miss may still carry a caller-safe detail.
-    expect(notFound({ requestId: REQ, detail: "Case not found." }).body.message).toContain("Case not found.");
+    expect(notFound({ requestId: REQ, detail: "Case not found." }).body.message).toContain(
+      "Case not found.",
+    );
     record("envelope", "cross-tenant-is-404", foreign.status === 404, String(foreign.status));
-    record("envelope", "cross-tenant-body-identical", canonicalJson(foreign.body) === canonicalJson(absent.body), "identical");
+    record(
+      "envelope",
+      "cross-tenant-body-identical",
+      canonicalJson(foreign.body) === canonicalJson(absent.body),
+      "identical",
+    );
     record("envelope", "cross-tenant-never-403", foreign.status !== 403, String(foreign.status));
-    record("envelope", "cross-tenant-has-no-distinct-code", !FAILURE_CODES.some((c) => /cross_tenant/i.test(c)), CROSS_TENANT_CODE);
-    record("envelope", "cross-tenant-detail-cannot-leak", scanFailure(withLeak).length === 0, withLeak.body.message);
-    record("envelope", "cross-tenant-detail-is-dropped", canonicalJson(withLeak.body) === canonicalJson(absent.body), "identical");
+    record(
+      "envelope",
+      "cross-tenant-has-no-distinct-code",
+      !FAILURE_CODES.some((c) => /cross_tenant/i.test(c)),
+      CROSS_TENANT_CODE,
+    );
+    record(
+      "envelope",
+      "cross-tenant-detail-cannot-leak",
+      scanFailure(withLeak).length === 0,
+      withLeak.body.message,
+    );
+    record(
+      "envelope",
+      "cross-tenant-detail-is-dropped",
+      canonicalJson(withLeak.body) === canonicalJson(absent.body),
+      "identical",
+    );
   });
 
   test("requestId is an opaque token, or it is replaced", () => {
@@ -296,17 +373,53 @@ describe("WP-21 / envelope", () => {
     expect(replacedUuid).not.toBe("6f0d2c1a-1111-2222-3333-444455556666");
     expect(replacedSpaces).not.toBe("bad id with spaces");
     // Every replacement is a fresh, publishable token.
-    for (const token of [replacedHex, replacedUuid, replacedSpaces, normaliseRequestId(undefined), normaliseRequestId("")]) {
+    for (const token of [
+      replacedHex,
+      replacedUuid,
+      replacedSpaces,
+      normaliseRequestId(undefined),
+      normaliseRequestId(""),
+    ]) {
       expect(requestIdIsOpaque(token)).toBe(true);
     }
     // Two calls never produce the same token.
     expect(normaliseRequestId(undefined)).not.toBe(normaliseRequestId(undefined));
-    record("envelope", "request-id-opaque-passthrough", normaliseRequestId("req-abc-123") === "req-abc-123", "passthrough");
-    record("envelope", "request-id-rejects-internal-identifier", replacedHex !== "a1b2c3d4e5f60718293a4b5c6d7e8f90", "replaced");
-    record("envelope", "request-id-rejects-uuid", replacedUuid !== "6f0d2c1a-1111-2222-3333-444455556666", "replaced");
-    record("envelope", "request-id-rejects-unsafe-shape", replacedSpaces !== "bad id with spaces", "replaced");
-    record("envelope", "request-id-replacements-are-opaque", requestIdIsOpaque(replacedHex) && requestIdIsOpaque(replacedUuid), "opaque");
-    record("envelope", "request-id-replacements-are-unique", normaliseRequestId(undefined) !== normaliseRequestId(undefined), "unique");
+    record(
+      "envelope",
+      "request-id-opaque-passthrough",
+      normaliseRequestId("req-abc-123") === "req-abc-123",
+      "passthrough",
+    );
+    record(
+      "envelope",
+      "request-id-rejects-internal-identifier",
+      replacedHex !== "a1b2c3d4e5f60718293a4b5c6d7e8f90",
+      "replaced",
+    );
+    record(
+      "envelope",
+      "request-id-rejects-uuid",
+      replacedUuid !== "6f0d2c1a-1111-2222-3333-444455556666",
+      "replaced",
+    );
+    record(
+      "envelope",
+      "request-id-rejects-unsafe-shape",
+      replacedSpaces !== "bad id with spaces",
+      "replaced",
+    );
+    record(
+      "envelope",
+      "request-id-replacements-are-opaque",
+      requestIdIsOpaque(replacedHex) && requestIdIsOpaque(replacedUuid),
+      "opaque",
+    );
+    record(
+      "envelope",
+      "request-id-replacements-are-unique",
+      normaliseRequestId(undefined) !== normaliseRequestId(undefined),
+      "unique",
+    );
   });
 
   // ── NEGATIVE CONTROL for the leak scanner ───────────────────────────────────
@@ -316,21 +429,24 @@ describe("WP-21 / envelope", () => {
     const RULE_SAMPLES: ReadonlyArray<{ kind: LeakKind; text: string }> = [
       { kind: "stack_trace", text: "Error: boom\n    at handler (/srv/app/outbox.ts:214:9)" },
       { kind: "stack_trace", text: "thrown from at Object.<anonymous> (src/lib/db.ts:10:4)" },
-      { kind: "stack_trace", text: "frames in /srv/app/node_modules/@prisma/client/runtime/library.js" },
+      {
+        kind: "stack_trace",
+        text: "frames in /srv/app/node_modules/@prisma/client/runtime/library.js",
+      },
       { kind: "stack_trace", text: "raised at src/lib/billing/ledger.ts:301:19" },
       { kind: "stack_trace", text: "TypeError: cannot read properties of undefined\n  at pool" },
       { kind: "stack_trace", text: "query metadata at prisma://localhost:5432/db" },
-      { kind: "sql", text: "select 1 from \"UsageLedger\" where \"orgId\" = 'org_a'" },
-      { kind: "sql", text: "INSERT INTO \"AuditLog\" (\"callRef\") VALUES ('SV-1')" },
+      { kind: "sql", text: 'select 1 from "UsageLedger" where "orgId" = \'org_a\'' },
+      { kind: "sql", text: 'INSERT INTO "AuditLog" ("callRef") VALUES (\'SV-1\')' },
       { kind: "sql", text: "Unique constraint failed on the fields: (`idemKey`)" },
-      { kind: "sql", text: "violates foreign key constraint \"Case_orgId_fkey\"" },
-      { kind: "sql", text: "ON CONFLICT (\"reference\") DO NOTHING" },
-      { kind: "sql", text: "where \"orgId\" = $1" },
+      { kind: "sql", text: 'violates foreign key constraint "Case_orgId_fkey"' },
+      { kind: "sql", text: 'ON CONFLICT ("reference") DO NOTHING' },
+      { kind: "sql", text: 'where "orgId" = $1' },
       { kind: "sql", text: "cast to ::jsonb failed" },
       { kind: "sql", text: "SELECT ... FOR UPDATE SKIP LOCKED" },
       // The 23503 message shape. This one sample covers three rules, all of
       // which have to be load-bearing or the offending value escapes.
-      { kind: "sql", text: "violates not-null constraint on the column \"units\"" },
+      { kind: "sql", text: 'violates not-null constraint on the column "units"' },
       // The 23503 message shape. This one sample covers three rules, all of
       // which have to be load-bearing or the offending value escapes.
       {
@@ -357,7 +473,12 @@ describe("WP-21 / envelope", () => {
     for (const rule of LEAK_RULES) {
       const matching = RULE_SAMPLES.filter((s) => s.kind === rule.kind && rule.re.test(s.text));
       expect(matching.length).toBeGreaterThanOrEqual(1);
-      record("envelope", `scanner-fires:${rule.kind}:${rule.re.source.slice(0, 40)}`, matching.length > 0, matching[0]?.text.slice(0, 80) ?? "no sample fires");
+      record(
+        "envelope",
+        `scanner-fires:${rule.kind}:${rule.re.source.slice(0, 40)}`,
+        matching.length > 0,
+        matching[0]?.text.slice(0, 80) ?? "no sample fires",
+      );
     }
 
     // Every sample IS reported by the scanner, and the kinds covered are exactly
@@ -368,25 +489,72 @@ describe("WP-21 / envelope", () => {
       expect(found).toContain(sample.kind);
       for (const kind of found) covered.add(kind);
       // …and the envelope refuses to publish it.
-      const published = makeFailure("semantically_invalid", { requestId: REQ, detail: sample.text });
+      const published = makeFailure("semantically_invalid", {
+        requestId: REQ,
+        detail: sample.text,
+      });
       expect(scanFailure(published)).toEqual([]);
-      record("envelope", `sample-detected:${sample.kind}:${sample.text.slice(0, 32)}`, found.includes(sample.kind), found.join("|"));
-      record("envelope", `sample-redacted:${sample.kind}:${sample.text.slice(0, 32)}`, scanFailure(published).length === 0, published.body.message);
+      record(
+        "envelope",
+        `sample-detected:${sample.kind}:${sample.text.slice(0, 32)}`,
+        found.includes(sample.kind),
+        found.join("|"),
+      );
+      record(
+        "envelope",
+        `sample-redacted:${sample.kind}:${sample.text.slice(0, 32)}`,
+        scanFailure(published).length === 0,
+        published.body.message,
+      );
     }
-    expect([...covered].sort()).toEqual(["internal_identifier", "internal_timestamp", "model_prompt", "oversized", "sql", "stack_trace"]);
-    record("envelope", "scanner-covers-every-leak-kind", covered.size === 6, [...covered].sort().join(","));
+    expect([...covered].sort()).toEqual([
+      "internal_identifier",
+      "internal_timestamp",
+      "model_prompt",
+      "oversized",
+      "sql",
+      "stack_trace",
+    ]);
+    record(
+      "envelope",
+      "scanner-covers-every-leak-kind",
+      covered.size === 6,
+      [...covered].sort().join(","),
+    );
 
     // A driver message with a value in it — the classic 23503 leak — is dropped.
-    const fk = pgError(PG.FOREIGN_KEY_VIOLATION, `Key (orgId)=(org_9f2c4a17e0b34d55) is not present in table "Case"`);
-    const publishedFk = makeFailure("reference_conflict", { requestId: REQ, detail: String(fk.message) });
+    const fk = pgError(
+      PG.FOREIGN_KEY_VIOLATION,
+      `Key (orgId)=(org_9f2c4a17e0b34d55) is not present in table "Case"`,
+    );
+    const publishedFk = makeFailure("reference_conflict", {
+      requestId: REQ,
+      detail: String(fk.message),
+    });
     expect(publishedFk.body.message).not.toContain("org_9f2c4a17e0b34d55");
     expect(scanFailure(publishedFk)).toEqual([]);
-    record("envelope", "fk-value-never-published", !publishedFk.body.message.includes("org_9f2c"), publishedFk.body.message);
+    record(
+      "envelope",
+      "fk-value-never-published",
+      !publishedFk.body.message.includes("org_9f2c"),
+      publishedFk.body.message,
+    );
 
     // Sanitisation degrades to the code's own message rather than to nothing.
-    expect(sanitizePublicMessage("", "state_conflict")).toBe(STATUS_DISCIPLINE.state_conflict ? "The record is not in a state that permits this request." : "");
-    expect(sanitizePublicMessage("   ", "state_conflict")).toBe("The record is not in a state that permits this request.");
-    record("envelope", "empty-detail-falls-back-to-public-message", sanitizePublicMessage("   ", "state_conflict").length > 0, "fallback");
+    expect(sanitizePublicMessage("", "state_conflict")).toBe(
+      STATUS_DISCIPLINE.state_conflict
+        ? "The record is not in a state that permits this request."
+        : "",
+    );
+    expect(sanitizePublicMessage("   ", "state_conflict")).toBe(
+      "The record is not in a state that permits this request.",
+    );
+    record(
+      "envelope",
+      "empty-detail-falls-back-to-public-message",
+      sanitizePublicMessage("   ", "state_conflict").length > 0,
+      "fallback",
+    );
   });
 
   test("the status discipline agrees with the helpers already in api-errors.ts", async () => {
@@ -405,18 +573,33 @@ describe("WP-21 / envelope", () => {
     for (const [code, apiStatus] of pairs) {
       const ours = statusForCode(code as FailureCode);
       expect(ours).toBe(apiStatus);
-      record("envelope", `agrees-with-api-errors:${code}`, ours === apiStatus, `${ours} vs ${apiStatus}`);
+      record(
+        "envelope",
+        `agrees-with-api-errors:${code}`,
+        ours === apiStatus,
+        `${ours} vs ${apiStatus}`,
+      );
     }
 
     // 403 exists in api-errors.ts for ROLE gating inside your own tenant, and is
     // reachable from no code here. `crossTenantNotFound` is the reason.
     expect(api.forbidden("x").status).toBe(403);
     expect(FAILURE_CODES.some((c) => statusForCode(c) === 403)).toBe(false);
-    record("envelope", "403-reserved-for-role-gating-not-tenancy", true, "api-errors.forbidden=403, no code maps to it");
+    record(
+      "envelope",
+      "403-reserved-for-role-gating-not-tenancy",
+      true,
+      "api-errors.forbidden=403, no code maps to it",
+    );
 
     // Retry-After survives the hand-off.
     expect(api.tooManyRequests("x", 3).headers.get("Retry-After")).toBe("3");
-    record("envelope", "api-errors-already-carries-retry-after", api.tooManyRequests("x", 3).headers.get("Retry-After") === "3", "3");
+    record(
+      "envelope",
+      "api-errors-already-carries-retry-after",
+      api.tooManyRequests("x", 3).headers.get("Retry-After") === "3",
+      "3",
+    );
   });
 
   test("recordSection: envelope evidence is written", () => {
@@ -427,8 +610,8 @@ describe("WP-21 / envelope", () => {
       maxMessageChars: MAX_MESSAGE_CHARS,
       policyRefusalCodes: [...POLICY_REFUSAL_CODES].sort(),
       policyRefusalStatus: statusForCode("policy_precondition"),
-      statusDiscipline: FAILURE_CODES.map((code) => ({ code, ...STATUS_DISCIPLINE[code] })).sort((a, b) =>
-        a.code < b.code ? -1 : 1,
+      statusDiscipline: FAILURE_CODES.map((code) => ({ code, ...STATUS_DISCIPLINE[code] })).sort(
+        (a, b) => (a.code < b.code ? -1 : 1),
       ),
     });
     expect(true).toBe(true);
@@ -438,12 +621,22 @@ describe("WP-21 / envelope", () => {
 // ════════════════════════════════════════════════════════════════════════════════
 describe("WP-21 / database failure matrix", () => {
   test("row 1 — pool exhausted: shed with 503 + Retry-After, never queue behind a connection", async () => {
-    const raw = classifyDatabaseError(pgError(PG.TOO_MANY_CONNECTIONS, "sorry, too many clients already"));
-    const viaPrisma = classifyDatabaseError(prismaError(PRISMA.POOL_TIMEOUT, "Timed out fetching a new connection from the connection pool"));
+    const raw = classifyDatabaseError(
+      pgError(PG.TOO_MANY_CONNECTIONS, "sorry, too many clients already"),
+    );
+    const viaPrisma = classifyDatabaseError(
+      prismaError(
+        PRISMA.POOL_TIMEOUT,
+        "Timed out fetching a new connection from the connection pool",
+      ),
+    );
     expect(raw.kind).toBe("pool_exhausted");
     expect(viaPrisma.kind).toBe("pool_exhausted");
 
-    const decision = handlePoolExhausted({ err: pgError(PG.TOO_MANY_CONNECTIONS, "too many clients"), requestId: REQ });
+    const decision = handlePoolExhausted({
+      err: pgError(PG.TOO_MANY_CONNECTIONS, "too many clients"),
+      requestId: REQ,
+    });
     expect(decision.action).toBe("shed");
     expect(decision.failure.status).toBe(503);
     expect(decision.failure.headers["Retry-After"]).toBeDefined();
@@ -467,14 +660,40 @@ describe("WP-21 / database failure matrix", () => {
     expect(attempts).toBe(1);
     expect(slept).toEqual([]);
     expect(outcome.ok).toBe(false);
-    expect(outcome.failure.status).toBe(503);
+    const shed = failed(outcome);
+    expect(shed.failure.status).toBe(503);
     record("matrix", "pool:classifies-53300", raw.kind === "pool_exhausted", raw.kind);
     record("matrix", "pool:classifies-p2024", viaPrisma.kind === "pool_exhausted", viaPrisma.kind);
-    record("matrix", "pool:sheds-with-503", decision.failure.status === 503, String(decision.failure.status));
-    record("matrix", "pool:retry-after-present", decision.failure.headers["Retry-After"] !== undefined, String(decision.failure.headers["Retry-After"]));
-    record("matrix", "pool:never-queues-behind-connection", decision.queuedBehindConnection === false, `maxWait=${decision.maxWaitMsRecommended}`);
-    record("matrix", "pool:never-retried", attempts === 1 && slept.length === 0, `attempts=${attempts} sleeps=${slept.length}`);
-    record("matrix", "pool:not-a-500", decision.failure.status !== 500, String(decision.failure.status));
+    record(
+      "matrix",
+      "pool:sheds-with-503",
+      decision.failure.status === 503,
+      String(decision.failure.status),
+    );
+    record(
+      "matrix",
+      "pool:retry-after-present",
+      decision.failure.headers["Retry-After"] !== undefined,
+      String(decision.failure.headers["Retry-After"]),
+    );
+    record(
+      "matrix",
+      "pool:never-queues-behind-connection",
+      decision.queuedBehindConnection === false,
+      `maxWait=${decision.maxWaitMsRecommended}`,
+    );
+    record(
+      "matrix",
+      "pool:never-retried",
+      attempts === 1 && slept.length === 0,
+      `attempts=${attempts} sleeps=${slept.length}`,
+    );
+    record(
+      "matrix",
+      "pool:not-a-500",
+      decision.failure.status !== 500,
+      String(decision.failure.status),
+    );
 
     recordMatrixRow({
       id: "pool_exhausted",
@@ -490,14 +709,25 @@ describe("WP-21 / database failure matrix", () => {
   });
 
   test("row 2 — statement timeout: typed timeout, never a hanging request", async () => {
-    const viaCancel = classifyDatabaseError(pgError(PG.QUERY_CANCELED, "canceling statement due to statement timeout"));
-    const viaLock = classifyDatabaseError(pgError(PG.LOCK_NOT_AVAILABLE, 'could not obtain lock on row in relation "Case"'));
-    const viaPrisma = classifyDatabaseError(prismaError(PRISMA.OPERATION_TIMEOUT, "Timed out reaching the database server"));
+    const viaCancel = classifyDatabaseError(
+      pgError(PG.QUERY_CANCELED, "canceling statement due to statement timeout"),
+    );
+    const viaLock = classifyDatabaseError(
+      pgError(PG.LOCK_NOT_AVAILABLE, 'could not obtain lock on row in relation "Case"'),
+    );
+    const viaPrisma = classifyDatabaseError(
+      prismaError(PRISMA.OPERATION_TIMEOUT, "Timed out reaching the database server"),
+    );
     expect(viaCancel.kind).toBe("statement_timeout");
     expect(viaLock.kind).toBe("statement_timeout");
     expect(viaPrisma.kind).toBe("statement_timeout");
 
-    const decision = handleStatementTimeout({ err: viaCancelInput(), requestId: REQ, budgetMs: 300, elapsedMs: 300 });
+    const decision = handleStatementTimeout({
+      err: viaCancelInput(),
+      requestId: REQ,
+      budgetMs: 300,
+      elapsedMs: 300,
+    });
     expect(decision.action).toBe("abandon");
     expect(decision.abandoned).toBe(true);
     expect(decision.failure.status).toBe(503);
@@ -530,9 +760,13 @@ describe("WP-21 / database failure matrix", () => {
     // The call's own error propagates as itself — a timeout is not a summary.
     let own: unknown = null;
     try {
-      await withTimeoutBudget(async () => {
-        throw pgError(PG.UNIQUE_VIOLATION, "duplicate key");
-      }, 1_000, { timers });
+      await withTimeoutBudget(
+        async () => {
+          throw pgError(PG.UNIQUE_VIOLATION, "duplicate key");
+        },
+        1_000,
+        { timers },
+      );
     } catch (err) {
       own = err;
     }
@@ -541,14 +775,49 @@ describe("WP-21 / database failure matrix", () => {
     expect(clearedAfterOwnError).toBe(2);
 
     expect(() => withTimeoutBudget(async () => 1, 0)).toThrow();
-    record("matrix", "timeout:classifies-57014", viaCancel.kind === "statement_timeout", viaCancel.kind);
-    record("matrix", "timeout:classifies-55P03", viaLock.kind === "statement_timeout", viaLock.kind);
-    record("matrix", "timeout:classifies-p2028", viaPrisma.kind === "statement_timeout", viaPrisma.kind);
-    record("matrix", "timeout:typed-and-abandoned", decision.abandoned === true, decision.failure.body.code);
-    record("matrix", "timeout:never-hangs", thrown instanceof DbTimeoutError, `abandoned within the 5 s assertion bound, elapsedMs<5000`);
+    record(
+      "matrix",
+      "timeout:classifies-57014",
+      viaCancel.kind === "statement_timeout",
+      viaCancel.kind,
+    );
+    record(
+      "matrix",
+      "timeout:classifies-55P03",
+      viaLock.kind === "statement_timeout",
+      viaLock.kind,
+    );
+    record(
+      "matrix",
+      "timeout:classifies-p2028",
+      viaPrisma.kind === "statement_timeout",
+      viaPrisma.kind,
+    );
+    record(
+      "matrix",
+      "timeout:typed-and-abandoned",
+      decision.abandoned === true,
+      decision.failure.body.code,
+    );
+    record(
+      "matrix",
+      "timeout:never-hangs",
+      thrown instanceof DbTimeoutError,
+      `abandoned within the 5 s assertion bound, elapsedMs<5000`,
+    );
     record("matrix", "timeout:happy-path-unchanged", true, "value");
-    record("matrix", "timeout:timer-cleared-on-both-exits", clearedAfterHappyPath === 1 && clearedAfterOwnError === 2, `${clearedAfterHappyPath}/${clearedAfterOwnError}`);
-    record("matrix", "timeout:own-error-propagates", (own as { code?: string }).code === PG.UNIQUE_VIOLATION, "23505");
+    record(
+      "matrix",
+      "timeout:timer-cleared-on-both-exits",
+      clearedAfterHappyPath === 1 && clearedAfterOwnError === 2,
+      `${clearedAfterHappyPath}/${clearedAfterOwnError}`,
+    );
+    record(
+      "matrix",
+      "timeout:own-error-propagates",
+      (own as { code?: string }).code === PG.UNIQUE_VIOLATION,
+      "23505",
+    );
     record("matrix", "timeout:non-positive-budget-rejected", true, "RangeError");
 
     recordMatrixRow({
@@ -556,13 +825,20 @@ describe("WP-21 / database failure matrix", () => {
       condition: "Statement timeout",
       required: "Typed timeout error, never a hanging request.",
       observed: `abandoned at budget with DbTimeoutError inside the 5 s assertion bound; 503 + Retry-After ${decision.failure.headers["Retry-After"]}; own errors propagate unchanged`,
-      ok: decision.abandoned === true && thrown instanceof DbTimeoutError && decision.failure.status === 503,
+      ok:
+        decision.abandoned === true &&
+        thrown instanceof DbTimeoutError &&
+        decision.failure.status === 503,
     });
   });
 
   test("row 3 — deadlock 40P01: retry the transaction up to three times, with jitter", async () => {
-    expect(classifyDatabaseError(pgError(PG.DEADLOCK_DETECTED, "deadlock detected")).kind).toBe("deadlock");
-    const decision = handleTransactionConflict({ err: pgError(PG.DEADLOCK_DETECTED, "deadlock detected") });
+    expect(classifyDatabaseError(pgError(PG.DEADLOCK_DETECTED, "deadlock detected")).kind).toBe(
+      "deadlock",
+    );
+    const decision = handleTransactionConflict({
+      err: pgError(PG.DEADLOCK_DETECTED, "deadlock detected"),
+    });
     expect(decision.action).toBe("retry");
     expect(decision.kind).toBe("deadlock");
     expect(decision.failure).toBeNull();
@@ -595,13 +871,14 @@ describe("WP-21 / database failure matrix", () => {
       },
     );
     expect(exhausted.ok).toBe(false);
+    const deadlockFailure = failed(exhausted);
     expect(exhausted.attempts).toBe(MAX_TX_RETRIES + 1);
     expect(retries).toEqual([1, 2, 3]);
     expect(sleeps).toHaveLength(MAX_TX_RETRIES);
-    expect(exhausted.failure.status).toBe(409);
-    expect(exhausted.failure.body.code).toBe("transaction_contended");
-    expect(exhausted.failure.body.retryable).toBe(true);
-    expect(exhausted.failure.status).not.toBe(500);
+    expect(deadlockFailure.failure.status).toBe(409);
+    expect(deadlockFailure.failure.body.code).toBe("transaction_contended");
+    expect(deadlockFailure.failure.body.retryable).toBe(true);
+    expect(deadlockFailure.failure.status).not.toBe(500);
 
     // The jitter is real: the same ladder produces different delays for
     // different draws, and each draw stays inside half the exponential bound.
@@ -614,27 +891,80 @@ describe("WP-21 / database failure matrix", () => {
     expect(transactionBackoffMs(3, () => 1)).toBeGreaterThan(transactionBackoffMs(2, () => 1));
     expect(transactionBackoffMs(1, () => 0.5)).toBe(Math.round(25 * 0.75));
     record("matrix", "deadlock:classifies-40P01", true, "40P01");
-    record("matrix", "deadlock:retries-then-succeeds", recovered.ok && recovered.attempts === 3, `attempts=${recovered.attempts}`);
-    record("matrix", "deadlock:max-three-retries", exhausted.attempts === MAX_TX_RETRIES + 1 && retries.length === 3, `attempts=${exhausted.attempts} retries=${retries.length}`);
-    record("matrix", "deadlock:exhausted-is-409", exhausted.failure.status === 409, String(exhausted.failure.status));
-    record("matrix", "deadlock:exhausted-is-retryable", exhausted.failure.body.retryable === true, "retryable=true");
-    record("matrix", "deadlock:exhausted-not-500", exhausted.failure.status !== 500, String(exhausted.failure.status));
-    record("matrix", "deadlock:on-retry-called-per-retry", retries.length === MAX_TX_RETRIES, retries.join(","));
-    record("matrix", "deadlock:jitter-varies-with-draw", lo < mid && mid < hi, `${lo}/${mid}/${hi}`);
-    record("matrix", "deadlock:backoff-is-exponential", transactionBackoffMs(3, () => 1) > transactionBackoffMs(1, () => 1), "monotonic");
+    record(
+      "matrix",
+      "deadlock:retries-then-succeeds",
+      recovered.ok && recovered.attempts === 3,
+      `attempts=${recovered.attempts}`,
+    );
+    record(
+      "matrix",
+      "deadlock:max-three-retries",
+      exhausted.attempts === MAX_TX_RETRIES + 1 && retries.length === 3,
+      `attempts=${exhausted.attempts} retries=${retries.length}`,
+    );
+    record(
+      "matrix",
+      "deadlock:exhausted-is-409",
+      deadlockFailure.failure.status === 409,
+      String(deadlockFailure.failure.status),
+    );
+    record(
+      "matrix",
+      "deadlock:exhausted-is-retryable",
+      deadlockFailure.failure.body.retryable === true,
+      "retryable=true",
+    );
+    record(
+      "matrix",
+      "deadlock:exhausted-not-500",
+      deadlockFailure.failure.status !== 500,
+      String(deadlockFailure.failure.status),
+    );
+    record(
+      "matrix",
+      "deadlock:on-retry-called-per-retry",
+      retries.length === MAX_TX_RETRIES,
+      retries.join(","),
+    );
+    record(
+      "matrix",
+      "deadlock:jitter-varies-with-draw",
+      lo < mid && mid < hi,
+      `${lo}/${mid}/${hi}`,
+    );
+    record(
+      "matrix",
+      "deadlock:backoff-is-exponential",
+      transactionBackoffMs(3, () => 1) > transactionBackoffMs(1, () => 1),
+      "monotonic",
+    );
 
     recordMatrixRow({
       id: "deadlock_40P01",
       condition: "Deadlock (40P01)",
       required: "Retry the transaction up to three times with jitter.",
-      observed: `recovered after 2 retries; always-deadlocking transaction attempted ${exhausted.attempts} times (${retries.length} jittered retries) then answered ${exhausted.failure.status}`,
-      ok: recovered.ok && retries.length === MAX_TX_RETRIES && exhausted.failure.status === 409 && exhausted.failure.status !== 500,
+      observed: `recovered after 2 retries; always-deadlocking transaction attempted ${exhausted.attempts} times (${retries.length} jittered retries) then answered ${deadlockFailure.failure.status}`,
+      // The status is read through a widened local so the "never a 500" half of the
+      // claim stays a real runtime check rather than a comparison TypeScript can
+      // prove impossible once `=== 409` has already pinned the type.
+      ok:
+        recovered.ok &&
+        retries.length === MAX_TX_RETRIES &&
+        (deadlockFailure.failure.status as number) === 409 &&
+        (deadlockFailure.failure.status as number) !== 500,
     });
   });
 
   test("row 4 — serialization failure 40001: the same retry path", async () => {
-    expect(classifyDatabaseError(pgError(PG.SERIALIZATION_FAILURE, "could not serialize access due to concurrent update")).kind).toBe("serialization_failure");
-    const decision = handleTransactionConflict({ err: pgError(PG.SERIALIZATION_FAILURE, "could not serialize access") });
+    expect(
+      classifyDatabaseError(
+        pgError(PG.SERIALIZATION_FAILURE, "could not serialize access due to concurrent update"),
+      ).kind,
+    ).toBe("serialization_failure");
+    const decision = handleTransactionConflict({
+      err: pgError(PG.SERIALIZATION_FAILURE, "could not serialize access"),
+    });
     expect(decision.action).toBe("retry");
     expect(decision.kind).toBe("serialization_failure");
 
@@ -658,8 +988,9 @@ describe("WP-21 / database failure matrix", () => {
       { sleep: noSleep, rand: fixedRand, requestId: REQ },
     );
     expect(calls).toBe(MAX_TX_RETRIES + 1);
-    expect(exhausted.failure.status).toBe(409);
-    expect(exhausted.failure.body.code).toBe("transaction_contended");
+    const serializationFailure = failed(exhausted);
+    expect(serializationFailure.failure.status).toBe(409);
+    expect(serializationFailure.failure.body.code).toBe("transaction_contended");
 
     // Only these two kinds are replayable, and the asymmetry is the point:
     // replaying a unique violation cannot succeed, and replaying a pool
@@ -668,31 +999,73 @@ describe("WP-21 / database failure matrix", () => {
       expect(isRetryableTransactionConflict(kind)).toBe(true);
       record("matrix", "retryable-kind:" + kind, true, kind);
     }
-    for (const kind of ["unique_violation", "pool_exhausted", "statement_timeout", "foreign_key_violation", "check_violation", "record_not_found", "primary_unreachable", "unknown"] as const) {
+    for (const kind of [
+      "unique_violation",
+      "pool_exhausted",
+      "statement_timeout",
+      "foreign_key_violation",
+      "check_violation",
+      "record_not_found",
+      "primary_unreachable",
+      "unknown",
+    ] as const) {
       expect(isRetryableTransactionConflict(kind)).toBe(false);
       // …and a 23505 is reported as not-retryable by the conflict handler,
       // which is what stops the runner from replaying it.
-      expect(handleTransactionConflict({ err: pgError(PG.UNIQUE_VIOLATION, "x") }).action).toBe("fail");
+      expect(handleTransactionConflict({ err: pgError(PG.UNIQUE_VIOLATION, "x") }).action).toBe(
+        "fail",
+      );
       record("matrix", `not-retryable:${kind}`, !isRetryableTransactionConflict(kind), kind);
     }
     record("matrix", "serialization:classifies-40001", true, "40001");
-    record("matrix", "serialization:retries-then-succeeds", recovered.ok && recovered.attempts === 2, `attempts=${recovered.attempts}`);
-    record("matrix", "serialization:same-ladder-as-deadlock", exhausted.attempts === MAX_TX_RETRIES + 1, `attempts=${exhausted.attempts}`);
-    record("matrix", "serialization:exhausted-is-409", exhausted.failure.status === 409, String(exhausted.failure.status));
-    record("matrix", "serialization:unique-violation-is-not-retried", handleTransactionConflict({ err: pgError(PG.UNIQUE_VIOLATION, "x") }).action === "fail", "asymmetry");
+    record(
+      "matrix",
+      "serialization:retries-then-succeeds",
+      recovered.ok && recovered.attempts === 2,
+      `attempts=${recovered.attempts}`,
+    );
+    record(
+      "matrix",
+      "serialization:same-ladder-as-deadlock",
+      exhausted.attempts === MAX_TX_RETRIES + 1,
+      `attempts=${exhausted.attempts}`,
+    );
+    record(
+      "matrix",
+      "serialization:exhausted-is-409",
+      serializationFailure.failure.status === 409,
+      String(serializationFailure.failure.status),
+    );
+    record(
+      "matrix",
+      "serialization:unique-violation-is-not-retried",
+      handleTransactionConflict({ err: pgError(PG.UNIQUE_VIOLATION, "x") }).action === "fail",
+      "asymmetry",
+    );
 
     recordMatrixRow({
       id: "serialization_40001",
       condition: "Serialization failure (40001)",
       required: "Same retry path.",
-      observed: `same runner, same constant (${MAX_TX_RETRIES} retries / ${MAX_TX_RETRIES + 1} attempts), exhausted → ${exhausted.failure.status}`,
-      ok: recovered.ok && exhausted.attempts === MAX_TX_RETRIES + 1 && exhausted.failure.status === 409,
+      observed: `same runner, same constant (${MAX_TX_RETRIES} retries / ${MAX_TX_RETRIES + 1} attempts), exhausted → ${serializationFailure.failure.status}`,
+      ok:
+        recovered.ok &&
+        exhausted.attempts === MAX_TX_RETRIES + 1 &&
+        serializationFailure.failure.status === 409,
     });
   });
 
   test("row 5 — unique violation 23505: idempotency replay or a typed 409, never a 500", async () => {
-    const raw = pgError(PG.UNIQUE_VIOLATION, 'duplicate key value violates unique constraint "UsageLedger_idemKey_key"', { target: ["idemKey"] });
-    const viaPrisma = prismaError(PRISMA.UNIQUE_CONSTRAINT, "Unique constraint failed on the fields: (`idemKey`)", { target: ["idemKey"] });
+    const raw = pgError(
+      PG.UNIQUE_VIOLATION,
+      'duplicate key value violates unique constraint "UsageLedger_idemKey_key"',
+      { target: ["idemKey"] },
+    );
+    const viaPrisma = prismaError(
+      PRISMA.UNIQUE_CONSTRAINT,
+      "Unique constraint failed on the fields: (`idemKey`)",
+      { target: ["idemKey"] },
+    );
     for (const err of [raw, viaPrisma]) {
       const classification = classifyDatabaseError(err);
       expect(classification.kind).toBe("unique_violation");
@@ -700,14 +1073,25 @@ describe("WP-21 / database failure matrix", () => {
     }
     // A bare Prisma-style compound name is normalised to the bare field, and a
     // generated constraint name is normalised to the column inside it.
-    expect(fieldsOf(prismaError(PRISMA.UNIQUE_CONSTRAINT, "Unique constraint failed", { target: "UsageLedger_orgId_idemKey_key" }))).toEqual([
-      "idemKey",
-    ]);
-    expect(fieldsOf(pgError(PG.FOREIGN_KEY_VIOLATION, 'violates foreign key constraint "Case_orgId_fkey"'))).toEqual(["orgId"]);
-    expect(fieldsOf(prismaError(PRISMA.UNIQUE_CONSTRAINT, "Unique constraint failed", { target: ["orgId", "idemKey"] }))).toEqual([
-      "idemKey",
-      "orgId",
-    ]);
+    expect(
+      fieldsOf(
+        prismaError(PRISMA.UNIQUE_CONSTRAINT, "Unique constraint failed", {
+          target: "UsageLedger_orgId_idemKey_key",
+        }),
+      ),
+    ).toEqual(["idemKey"]);
+    expect(
+      fieldsOf(
+        pgError(PG.FOREIGN_KEY_VIOLATION, 'violates foreign key constraint "Case_orgId_fkey"'),
+      ),
+    ).toEqual(["orgId"]);
+    expect(
+      fieldsOf(
+        prismaError(PRISMA.UNIQUE_CONSTRAINT, "Unique constraint failed", {
+          target: ["orgId", "idemKey"],
+        }),
+      ),
+    ).toEqual(["idemKey", "orgId"]);
 
     const stored = { status: 200, body: { replayed: true, caseRef: "SV-WP21" } };
     let lookups = 0;
@@ -728,20 +1112,36 @@ describe("WP-21 / database failure matrix", () => {
     expect(lookedUpFields).toEqual(["idemKey"]);
 
     // No stored answer: a typed 409.
-    const conflicted = await handleUniqueViolation({ err: raw, requestId: REQ, lookupIdempotent: async () => null });
+    const conflicted = await handleUniqueViolation({
+      err: raw,
+      requestId: REQ,
+      lookupIdempotent: async () => null,
+    });
     expect(conflicted.action).toBe("conflict");
+    // `failure` is genuinely nullable on these decisions, so a conflict that
+    // carried no failure must fail here rather than three assertions later.
+    if (conflicted.failure === null)
+      throw new Error("a unique conflict must publish a failure, not null");
     expect(conflicted.failure.status).toBe(409);
     expect(conflicted.failure.body.code).toBe("unique_conflict");
     expect(conflicted.failure.body.retryable).toBe(false);
 
     // No idempotency store at all: still a 409, never a 500.
     const bare = await handleUniqueViolation({ err: raw, requestId: REQ });
+    if (bare.failure === null)
+      throw new Error("a bare unique violation must publish a failure, not null");
     expect(bare.failure.status).toBe(409);
     expect(bare.failure.status).not.toBe(500);
 
     // A stored non-2xx is not an idempotent answer; it must not be replayed.
-    const poisoned = await handleUniqueViolation({ err: raw, requestId: REQ, lookupIdempotent: async () => ({ status: 500, body: {} }) });
+    const poisoned = await handleUniqueViolation({
+      err: raw,
+      requestId: REQ,
+      lookupIdempotent: async () => ({ status: 500, body: {} }),
+    });
     expect(poisoned.action).toBe("conflict");
+    if (poisoned.failure === null)
+      throw new Error("a poisoned replay must publish a failure, not null");
     expect(poisoned.failure.status).toBe(409);
 
     for (const decision of [replayed, conflicted, bare, poisoned]) {
@@ -753,15 +1153,55 @@ describe("WP-21 / database failure matrix", () => {
         expect(decision.failure.status).not.toBe(500);
         expect(scanFailure(decision.failure)).toEqual([]);
       }
-      record("matrix", "unique:decision-is-never-500", decision.failure === null || decision.failure.status !== 500, decision.action);
+      record(
+        "matrix",
+        "unique:decision-is-never-500",
+        decision.failure === null || decision.failure.status !== 500,
+        decision.action,
+      );
     }
-    record("matrix", "unique:classifies-23505", classifyDatabaseError(raw).kind === "unique_violation", "23505");
-    record("matrix", "unique:classifies-p2002", classifyDatabaseError(viaPrisma).kind === "unique_violation", "P2002");
-    record("matrix", "unique:routes-to-idempotency-replay", replayed.action === "replay_idempotent" && lookups === 1, `lookups=${lookups}`);
-    record("matrix", "unique:typed-409-without-replay", conflicted.failure?.status === 409, String(conflicted.failure?.status));
-    record("matrix", "unique:409-without-a-store", bare.failure?.status === 409, String(bare.failure?.status));
-    record("matrix", "unique:non-2xx-not-replayed", poisoned.action === "conflict", poisoned.action);
-    record("matrix", "unique:never-a-500", [replayed, conflicted, bare, poisoned].every((d) => d.failure?.status !== 500), "all non-500");
+    record(
+      "matrix",
+      "unique:classifies-23505",
+      classifyDatabaseError(raw).kind === "unique_violation",
+      "23505",
+    );
+    record(
+      "matrix",
+      "unique:classifies-p2002",
+      classifyDatabaseError(viaPrisma).kind === "unique_violation",
+      "P2002",
+    );
+    record(
+      "matrix",
+      "unique:routes-to-idempotency-replay",
+      replayed.action === "replay_idempotent" && lookups === 1,
+      `lookups=${lookups}`,
+    );
+    record(
+      "matrix",
+      "unique:typed-409-without-replay",
+      conflicted.failure?.status === 409,
+      String(conflicted.failure?.status),
+    );
+    record(
+      "matrix",
+      "unique:409-without-a-store",
+      bare.failure?.status === 409,
+      String(bare.failure?.status),
+    );
+    record(
+      "matrix",
+      "unique:non-2xx-not-replayed",
+      poisoned.action === "conflict",
+      poisoned.action,
+    );
+    record(
+      "matrix",
+      "unique:never-a-500",
+      [replayed, conflicted, bare, poisoned].every((d) => d.failure?.status !== 500),
+      "all non-500",
+    );
 
     recordMatrixRow({
       id: "unique_violation_23505",
@@ -782,7 +1222,11 @@ describe("WP-21 / database failure matrix", () => {
       PG.FOREIGN_KEY_VIOLATION,
       `insert or update on table "Case" violates foreign key constraint "Case_orgId_fkey"\nKey (orgId)=(${FOREIGN_VALUE}) is not present in table "Organisation".`,
     );
-    const viaPrisma = prismaError(PRISMA.FOREIGN_KEY_CONSTRAINT, "Foreign key constraint failed on the field: `caseRef`", { field_name: "caseRef" });
+    const viaPrisma = prismaError(
+      PRISMA.FOREIGN_KEY_CONSTRAINT,
+      "Foreign key constraint failed on the field: `caseRef`",
+      { field_name: "caseRef" },
+    );
 
     expect(classifyDatabaseError(raw).kind).toBe("foreign_key_violation");
     expect(classifyDatabaseError(viaPrisma).kind).toBe("foreign_key_violation");
@@ -803,35 +1247,88 @@ describe("WP-21 / database failure matrix", () => {
     expect(fieldOf(viaPrisma)).toBe("caseRef");
 
     // Nothing extractable: 409 anyway, with no guessed field.
-    const opaque = handleReferenceViolation({ err: pgError(PG.FOREIGN_KEY_VIOLATION, "violates foreign key constraint"), requestId: REQ });
+    const opaque = handleReferenceViolation({
+      err: pgError(PG.FOREIGN_KEY_VIOLATION, "violates foreign key constraint"),
+      requestId: REQ,
+    });
     expect(opaque.failure.status).toBe(409);
     expect(opaque.field).toBeNull();
     expect(scanFailure(opaque.failure)).toEqual([]);
 
-    record("matrix", "fk:classifies-23503", classifyDatabaseError(raw).kind === "foreign_key_violation", "23503");
-    record("matrix", "fk:classifies-p2003", classifyDatabaseError(viaPrisma).kind === "foreign_key_violation", "P2003");
+    record(
+      "matrix",
+      "fk:classifies-23503",
+      classifyDatabaseError(raw).kind === "foreign_key_violation",
+      "23503",
+    );
+    record(
+      "matrix",
+      "fk:classifies-p2003",
+      classifyDatabaseError(viaPrisma).kind === "foreign_key_violation",
+      "P2003",
+    );
     record("matrix", "fk:is-409", fromRaw.failure.status === 409, String(fromRaw.failure.status));
-    record("matrix", "fk:names-the-field", fromRaw.field === "orgId" && fromPrisma.field === "caseRef", "orgId/caseRef");
-    record("matrix", "fk:field-name-in-message", fromRaw.failure.body.message.includes("orgId"), fromRaw.failure.body.message);
-    record("matrix", "fk:never-publishes-the-value", !fromRaw.failure.body.message.includes(FOREIGN_VALUE), "no value");
-    record("matrix", "fk:never-publishes-the-table", !fromRaw.failure.body.message.includes("Organisation"), "no table");
-    record("matrix", "fk:unidentifiable-is-still-409", opaque.failure.status === 409 && opaque.field === null, "409/null");
+    record(
+      "matrix",
+      "fk:names-the-field",
+      fromRaw.field === "orgId" && fromPrisma.field === "caseRef",
+      "orgId/caseRef",
+    );
+    record(
+      "matrix",
+      "fk:field-name-in-message",
+      fromRaw.failure.body.message.includes("orgId"),
+      fromRaw.failure.body.message,
+    );
+    record(
+      "matrix",
+      "fk:never-publishes-the-value",
+      !fromRaw.failure.body.message.includes(FOREIGN_VALUE),
+      "no value",
+    );
+    record(
+      "matrix",
+      "fk:never-publishes-the-table",
+      !fromRaw.failure.body.message.includes("Organisation"),
+      "no table",
+    );
+    record(
+      "matrix",
+      "fk:unidentifiable-is-still-409",
+      opaque.failure.status === 409 && opaque.field === null,
+      "409/null",
+    );
 
     recordMatrixRow({
       id: "foreign_key_23503",
       condition: "Foreign-key violation (23503)",
       required: "409 naming the field.",
       observed: `409 reference_conflict naming orgId (driver) / caseRef (Prisma meta.field_name); the offending value and the table name are never published`,
-      ok: fromRaw.failure.status === 409 && fromRaw.field === "orgId" && !fromRaw.failure.body.message.includes(FOREIGN_VALUE),
+      ok:
+        fromRaw.failure.status === 409 &&
+        fromRaw.field === "orgId" &&
+        !fromRaw.failure.body.message.includes(FOREIGN_VALUE),
     });
   });
 
   test("row 7 — primary unreachable: read-only degraded mode REFUSES new interventions", async () => {
-    expect(classifyDatabaseError(pgError(PG.CONNECTION_FAILURE, "server closed the connection unexpectedly")).kind).toBe("primary_unreachable");
-    expect(classifyDatabaseError(pgError(PG.CANNOT_CONNECT_NOW, "the database system is shutting down")).kind).toBe("primary_unreachable");
-    const refused = Object.assign(new Error("connect ECONNREFUSED 127.0.0.1:5432"), { code: "ECONNREFUSED" });
+    expect(
+      classifyDatabaseError(
+        pgError(PG.CONNECTION_FAILURE, "server closed the connection unexpectedly"),
+      ).kind,
+    ).toBe("primary_unreachable");
+    expect(
+      classifyDatabaseError(pgError(PG.CANNOT_CONNECT_NOW, "the database system is shutting down"))
+        .kind,
+    ).toBe("primary_unreachable");
+    const refused = Object.assign(new Error("connect ECONNREFUSED 127.0.0.1:5432"), {
+      code: "ECONNREFUSED",
+    });
     expect(classifyDatabaseError(refused).kind).toBe("primary_unreachable");
-    expect(classifyDatabaseError(prismaError(PRISMA.CANNOT_REACH_SERVER, "Can't reach database server")).kind).toBe("primary_unreachable");
+    expect(
+      classifyDatabaseError(prismaError(PRISMA.CANNOT_REACH_SERVER, "Can't reach database server"))
+        .kind,
+    ).toBe("primary_unreachable");
 
     // The shape a route handler uses: ask, then act only if admitted.
     let writes = 0;
@@ -880,16 +1377,72 @@ describe("WP-21 / database failure matrix", () => {
     expect(down.failure?.headers["Retry-After"]).toBeDefined();
 
     record("matrix", "primary:classifies-connection-lost", true, "08006/57P03/ECONNREFUSED/P1001");
-    record("matrix", "primary:reads-still-served", degraded.health.readsAllowed === true, "reads=true");
-    record("matrix", "primary:intervention-refused", degraded.placed === false && degraded.health.interventionsAllowed === false, "refused");
-    record("matrix", "primary:no-write-attempted", writes === writesBeforeDegraded, `writes=${writes}`);
-    record("matrix", "primary:refusal-is-409", degraded.failure?.status === 409, String(degraded.failure?.status));
-    record("matrix", "primary:refusal-not-a-500", degraded.failure?.status !== 500, String(degraded.failure?.status));
-    record("matrix", "primary:refusal-not-retryable", degraded.failure?.body.retryable === false, "retryable=false");
-    record("matrix", "primary:refusal-has-no-retry-after", degraded.failure?.retryAfterSec === null, "null");
-    record("matrix", "primary:refusal-names-fallback", degraded.health.fallback === "sms" && degraded.failure?.body.message.includes("sms"), "sms");
-    record("matrix", "primary:down-is-503-with-retry-after", down.failure?.status === 503 && down.failure?.headers["Retry-After"] !== undefined, "503");
-    record("matrix", "primary:up-allows-everything", healthy.placed && healthy.health.failure === null, "healthy");
+    record(
+      "matrix",
+      "primary:reads-still-served",
+      degraded.health.readsAllowed === true,
+      "reads=true",
+    );
+    record(
+      "matrix",
+      "primary:intervention-refused",
+      degraded.placed === false && degraded.health.interventionsAllowed === false,
+      "refused",
+    );
+    record(
+      "matrix",
+      "primary:no-write-attempted",
+      writes === writesBeforeDegraded,
+      `writes=${writes}`,
+    );
+    record(
+      "matrix",
+      "primary:refusal-is-409",
+      degraded.failure?.status === 409,
+      String(degraded.failure?.status),
+    );
+    record(
+      "matrix",
+      "primary:refusal-not-a-500",
+      degraded.failure?.status !== 500,
+      String(degraded.failure?.status),
+    );
+    record(
+      "matrix",
+      "primary:refusal-not-retryable",
+      degraded.failure?.body.retryable === false,
+      "retryable=false",
+    );
+    // The optional chain makes the whole expression `boolean | undefined`, so it is
+    // collapsed explicitly for `record`'s boolean parameter.
+    record(
+      "matrix",
+      "primary:refusal-has-no-retry-after",
+      Boolean(degraded.failure?.retryAfterSec === null),
+      "null",
+    );
+    record(
+      "matrix",
+      "primary:refusal-names-fallback",
+      Boolean(degraded.health.fallback === "sms" && degraded.failure?.body.message.includes("sms")),
+      "sms",
+    );
+    // The optional chain makes the whole expression `boolean | undefined`, so it is
+    // collapsed explicitly for `record`'s boolean parameter.
+    record(
+      "matrix",
+      "primary:down-is-503-with-retry-after",
+      Boolean(down.failure?.status === 503 && down.failure?.headers["Retry-After"] !== undefined),
+      "503",
+    );
+    // `placed` is optional on the decision, so it is compared explicitly rather than
+    // passed through as a possibly-undefined boolean.
+    record(
+      "matrix",
+      "primary:up-allows-everything",
+      healthy.placed === true && healthy.health.failure === null,
+      "healthy",
+    );
 
     recordMatrixRow({
       id: "primary_unreachable",
@@ -900,8 +1453,11 @@ describe("WP-21 / database failure matrix", () => {
         degraded.health.readsAllowed === true &&
         degraded.placed === false &&
         writes === writesBeforeDegraded &&
-        degraded.failure?.status === 409 &&
-        degraded.failure?.status !== 500,
+        // Widened for the same reason as the deadlock row above: the "never a 500" half
+        // must stay a real runtime check, not a comparison TypeScript can prove
+        // impossible once `=== 409` has pinned the type.
+        (degraded.failure?.status as number | undefined) === 409 &&
+        (degraded.failure?.status as number | undefined) !== 500,
     });
   });
 
@@ -932,23 +1488,58 @@ describe("WP-21 / database failure matrix", () => {
     // Nonsense input is clamped, not propagated.
     expect(evaluateReplicaLag({ lagMs: -5, thresholdMs: 2_000 }).lagMs).toBe(0);
     expect(evaluateReplicaLag({ lagMs: Number.NaN, thresholdMs: 2_000 }).lagMs).toBe(0);
-    expect(evaluateReplicaLag({ lagMs: Number.POSITIVE_INFINITY, thresholdMs: 2_000 }).lagMs).toBe(0);
+    expect(evaluateReplicaLag({ lagMs: Number.POSITIVE_INFINITY, thresholdMs: 2_000 }).lagMs).toBe(
+      0,
+    );
     // The default mode is the one that cannot show a stale number as current.
     expect(evaluateReplicaLag({ lagMs: 5_000 }).readFrom).toBe("primary");
 
-    record("matrix", "replica:under-threshold-reads-replica", fresh.readFrom === "replica" && !fresh.stale, "replica");
-    record("matrix", "replica:boundary-is-not-stale", evaluateReplicaLag({ lagMs: 2_000, thresholdMs: 2_000 }).stale === false, "at-threshold");
-    record("matrix", "replica:fails-back-to-primary", failedBack.readFrom === "primary" && failedBack.failedBack, "primary");
-    record("matrix", "replica:or-carries-a-banner", bannered.banner !== null && bannered.banner.lagMs === 9_400, "banner");
-    record("matrix", "replica:default-mode-fails-back", evaluateReplicaLag({ lagMs: 5_000 }).readFrom === "primary", "primary");
-    record("matrix", "replica:bad-input-clamped", evaluateReplicaLag({ lagMs: Number.NaN }).lagMs === 0, "clamped");
+    record(
+      "matrix",
+      "replica:under-threshold-reads-replica",
+      fresh.readFrom === "replica" && !fresh.stale,
+      "replica",
+    );
+    record(
+      "matrix",
+      "replica:boundary-is-not-stale",
+      evaluateReplicaLag({ lagMs: 2_000, thresholdMs: 2_000 }).stale === false,
+      "at-threshold",
+    );
+    record(
+      "matrix",
+      "replica:fails-back-to-primary",
+      failedBack.readFrom === "primary" && failedBack.failedBack,
+      "primary",
+    );
+    record(
+      "matrix",
+      "replica:or-carries-a-banner",
+      bannered.banner !== null && bannered.banner.lagMs === 9_400,
+      "banner",
+    );
+    record(
+      "matrix",
+      "replica:default-mode-fails-back",
+      evaluateReplicaLag({ lagMs: 5_000 }).readFrom === "primary",
+      "primary",
+    );
+    record(
+      "matrix",
+      "replica:bad-input-clamped",
+      evaluateReplicaLag({ lagMs: Number.NaN }).lagMs === 0,
+      "clamped",
+    );
 
     recordMatrixRow({
       id: "replica_lag",
       condition: "Replica lag past threshold",
       required: "Fail reads back to primary or show a staleness banner.",
       observed: `120 ms → replica, not stale; 9 400 ms → primary (failedBack) or replica + banner{lagMs:9400,thresholdMs:2000}; default mode is fail_back`,
-      ok: fresh.readFrom === "replica" && failedBack.readFrom === "primary" && bannered.banner !== null,
+      ok:
+        fresh.readFrom === "replica" &&
+        failedBack.readFrom === "primary" &&
+        bannered.banner !== null,
     });
   });
 
@@ -994,7 +1585,12 @@ describe("WP-21 / database failure matrix", () => {
       expect(decision.refused).not.toContain("audit_chain");
       expect(admitWrite(decision, "audit_chain")).toBe(true);
       expect(decision.auditChainAdmitted).toBe(true);
-      record("matrix", `audit-admitted-at-${pct}pct`, admitWrite(decision, "audit_chain"), decision.level);
+      record(
+        "matrix",
+        `audit-admitted-at-${pct}pct`,
+        admitWrite(decision, "audit_chain"),
+        decision.level,
+      );
     }
     const full = evaluateStoragePressure({ diskUsedPct: 100, walUsedPct: 100 });
     expect(full.level).toBe("critical");
@@ -1007,19 +1603,69 @@ describe("WP-21 / database failure matrix", () => {
     expect(admitWrite(elevated, "bulk_export")).toBe(true);
 
     // Bad input is clamped rather than propagated as a percentage.
-    expect(evaluateStoragePressure({ diskUsedPct: Number.NaN, walUsedPct: -3 }).peakUsedPct).toBe(0);
+    expect(evaluateStoragePressure({ diskUsedPct: Number.NaN, walUsedPct: -3 }).peakUsedPct).toBe(
+      0,
+    );
     expect(evaluateStoragePressure({ diskUsedPct: 250, walUsedPct: 0 }).peakUsedPct).toBe(100);
 
-    record("matrix", "storage:quiet-below-70", quiet.level === "normal" && quiet.shouldAlert === false, "normal");
-    record("matrix", "storage:alerts-at-70", atThreshold.shouldAlert && alerts[0] === "elevated:data_volume_at_70pct", alerts[0]);
-    record("matrix", "storage:alerts-for-disk-and-wal", both.alerts.length === 2, both.alerts.join("+"));
-    record("matrix", "storage:critical-sheds-expendable-writes", critical.refused.length === 2, critical.refused.join(","));
-    record("matrix", "storage:audit-chain-always-admitted", critical.admitted.includes("audit_chain"), "audit_chain");
-    record("matrix", "storage:audit-chain-never-refused", !critical.refused.includes("audit_chain"), "not refused");
-    record("matrix", "storage:audit-is-first-in-priority", critical.priority[0] === "audit_chain", "audit_chain");
-    record("matrix", "storage:pressure-sheds-503", atThreshold.failure?.status === 503, String(atThreshold.failure?.status));
+    record(
+      "matrix",
+      "storage:quiet-below-70",
+      quiet.level === "normal" && quiet.shouldAlert === false,
+      "normal",
+    );
+    // The alert sink that filled `alerts` is the one `atThreshold` was given, so an
+    // alerting evaluation has already pushed at least one entry.
+    record(
+      "matrix",
+      "storage:alerts-at-70",
+      atThreshold.shouldAlert && alerts[0] === "elevated:data_volume_at_70pct",
+      alerts[0] ?? "no alert raised",
+    );
+    record(
+      "matrix",
+      "storage:alerts-for-disk-and-wal",
+      both.alerts.length === 2,
+      both.alerts.join("+"),
+    );
+    record(
+      "matrix",
+      "storage:critical-sheds-expendable-writes",
+      critical.refused.length === 2,
+      critical.refused.join(","),
+    );
+    record(
+      "matrix",
+      "storage:audit-chain-always-admitted",
+      critical.admitted.includes("audit_chain"),
+      "audit_chain",
+    );
+    record(
+      "matrix",
+      "storage:audit-chain-never-refused",
+      !critical.refused.includes("audit_chain"),
+      "not refused",
+    );
+    record(
+      "matrix",
+      "storage:audit-is-first-in-priority",
+      critical.priority[0] === "audit_chain",
+      "audit_chain",
+    );
+    record(
+      "matrix",
+      "storage:pressure-sheds-503",
+      atThreshold.failure?.status === 503,
+      String(atThreshold.failure?.status),
+    );
     record("matrix", "storage:alert-injected-and-counted", alerts.length === 3, alerts.join("|"));
-    record("matrix", "storage:bad-input-clamped", evaluateStoragePressure({ diskUsedPct: Number.NaN }).peakUsedPct === 0, "clamped");
+    // walUsedPct is a required input; 0 keeps the clamp being asserted the NaN one.
+    record(
+      "matrix",
+      "storage:bad-input-clamped",
+      evaluateStoragePressure({ diskUsedPct: Number.NaN, walUsedPct: 0 }).peakUsedPct === 0,
+      "clamped",
+    );
 
     recordMatrixRow({
       id: "disk_or_wal_pressure",
@@ -1042,7 +1688,9 @@ describe("WP-21 / database failure matrix", () => {
     expect(sqlstateOf(prismaError(PRISMA.OPERATION_TIMEOUT, "x"))).toBe(PG.QUERY_CANCELED);
     expect(sqlstateOf(prismaError(PRISMA.CANNOT_REACH_SERVER, "x"))).toBe(PG.CONNECTION_FAILURE);
     expect(sqlstateOf(prismaError(PRISMA.RECORD_NOT_FOUND, "x"))).toBeNull();
-    expect(classifyDatabaseError(prismaError(PRISMA.RECORD_NOT_FOUND, "no row")).kind).toBe("record_not_found");
+    expect(classifyDatabaseError(prismaError(PRISMA.RECORD_NOT_FOUND, "no row")).kind).toBe(
+      "record_not_found",
+    );
     expect(sqlstateOf(null)).toBeNull();
     expect(sqlstateOf("not an error")).toBeNull();
     expect(sqlstateOf({})).toBeNull();
@@ -1050,10 +1698,30 @@ describe("WP-21 / database failure matrix", () => {
     expect(classifyDatabaseError(null).kind).toBe("not_a_database_error");
     // An unmapped Prisma code is `unknown`, never a guessed SQLSTATE.
     expect(sqlstateOf(prismaError("P9999", "x"))).toBeNull();
-    record("matrix", "classifier:reads-sqlstate", sqlstateOf(pgError("23503", "x")) === "23503", "23503");
-    record("matrix", "classifier:reads-prisma-code", classifyDatabaseError(prismaError(PRISMA.UNIQUE_CONSTRAINT, "x")).kind === "unique_violation", "P2002");
-    record("matrix", "classifier:unmapped-prisma-code-is-unknown", sqlstateOf(prismaError("P9999", "x")) === null, "null");
-    record("matrix", "classifier:non-errors-are-not-db-errors", classifyDatabaseError(null).kind === "not_a_database_error", "not_a_database_error");
+    record(
+      "matrix",
+      "classifier:reads-sqlstate",
+      sqlstateOf(pgError("23503", "x")) === "23503",
+      "23503",
+    );
+    record(
+      "matrix",
+      "classifier:reads-prisma-code",
+      classifyDatabaseError(prismaError(PRISMA.UNIQUE_CONSTRAINT, "x")).kind === "unique_violation",
+      "P2002",
+    );
+    record(
+      "matrix",
+      "classifier:unmapped-prisma-code-is-unknown",
+      sqlstateOf(prismaError("P9999", "x")) === null,
+      "null",
+    );
+    record(
+      "matrix",
+      "classifier:non-errors-are-not-db-errors",
+      classifyDatabaseError(null).kind === "not_a_database_error",
+      "not_a_database_error",
+    );
   });
 
   test("recordSection: matrix evidence is written", () => {
@@ -1071,7 +1739,10 @@ describe("WP-21 / database failure matrix", () => {
         writeClasses: [...WRITE_CLASSES],
         neverSacrificed: ["audit_chain"],
       },
-      replicaLag: { defaultThresholdMs: DEFAULT_REPLICA_LAG_THRESHOLD_MS, defaultMode: "fail_back" },
+      replicaLag: {
+        defaultThresholdMs: DEFAULT_REPLICA_LAG_THRESHOLD_MS,
+        defaultMode: "fail_back",
+      },
       syntheticErrorsOnly: true,
     });
     expect(sortedMatrixRows()).toHaveLength(9);
@@ -1095,7 +1766,12 @@ describe("WP-21 / dependency breakers", () => {
       expect(decl.channel).toBeTruthy();
 
       clock.at = 1_000;
-      const breaker = createBreaker(dependency, { failureThreshold: 3, openMs: 10_000, halfOpenProbes: 2, now });
+      const breaker = createBreaker(dependency, {
+        failureThreshold: 3,
+        openMs: 10_000,
+        halfOpenProbes: 2,
+        now,
+      });
       expect(breaker.state()).toBe("closed");
       expect(DEFAULT_FAILURE_THRESHOLD).toBe(5);
 
@@ -1238,15 +1914,60 @@ describe("WP-21 / dependency breakers", () => {
         primaryCalls === 1 &&
         fallbackCalls === 1;
 
-      record("breaker", `${dependency}:declared-fallback-present`, typeof decl.declared === "string" && decl.declared.length > 0, decl.declared);
-      record("breaker", `${dependency}:opens-at-threshold`, transitionsAtOpen.includes("open"), transitionsAtOpen.join(">"));
-      record("breaker", `${dependency}:half-open-admits-probes`, probeA.probe && probeC.allowed === false, `probes=2`);
-      record("breaker", `${dependency}:probe-closes-on-success`, breaker.state() === "closed", "closed");
-      record("breaker", `${dependency}:failed-probe-reopens`, true, "re-opened with a fresh cooldown");
-      record("breaker", `${dependency}:fallback-invoked-while-open`, fallbackCalls === 1 && guarded.source === "fallback", String(guarded.value));
-      record("breaker", `${dependency}:primary-not-attempted-while-open`, primaryCalls === 1, `primaryCalls=${primaryCalls}`);
-      record("breaker", `${dependency}:503-with-retry-after`, refused.failure?.headers["Retry-After"] === String(decl.retryAfterSec), String(refused.failure?.headers["Retry-After"]));
-      record("breaker", `${dependency}:lifecycle-reaches-half-open`, stages.some((s) => s.includes("half_open")), observed);
+      record(
+        "breaker",
+        `${dependency}:declared-fallback-present`,
+        typeof decl.declared === "string" && decl.declared.length > 0,
+        decl.declared,
+      );
+      record(
+        "breaker",
+        `${dependency}:opens-at-threshold`,
+        transitionsAtOpen.includes("open"),
+        transitionsAtOpen.join(">"),
+      );
+      record(
+        "breaker",
+        `${dependency}:half-open-admits-probes`,
+        probeA.probe && probeC.allowed === false,
+        `probes=2`,
+      );
+      record(
+        "breaker",
+        `${dependency}:probe-closes-on-success`,
+        breaker.state() === "closed",
+        "closed",
+      );
+      record(
+        "breaker",
+        `${dependency}:failed-probe-reopens`,
+        true,
+        "re-opened with a fresh cooldown",
+      );
+      record(
+        "breaker",
+        `${dependency}:fallback-invoked-while-open`,
+        fallbackCalls === 1 && guarded.source === "fallback",
+        String(guarded.value),
+      );
+      record(
+        "breaker",
+        `${dependency}:primary-not-attempted-while-open`,
+        primaryCalls === 1,
+        `primaryCalls=${primaryCalls}`,
+      );
+      record(
+        "breaker",
+        `${dependency}:503-with-retry-after`,
+        refused.failure?.headers["Retry-After"] === String(decl.retryAfterSec),
+        String(refused.failure?.headers["Retry-After"]),
+      );
+      record(
+        "breaker",
+        `${dependency}:lifecycle-reaches-half-open`,
+        stages.some((s) => s.includes("half_open")),
+        observed,
+      );
 
       recordBreakerRow({
         dependency,
@@ -1267,7 +1988,9 @@ describe("WP-21 / dependency breakers", () => {
   }
 
   test("the declarations are the brief's, verbatim", () => {
-    expect(FALLBACKS.conversation_plane.declared).toBe("conversation plane down → continuity pipeline or SMS");
+    expect(FALLBACKS.conversation_plane.declared).toBe(
+      "conversation plane down → continuity pipeline or SMS",
+    );
     expect(FALLBACKS.conversation_plane.channel).toBe("continuity_pipeline");
     expect(FALLBACKS.conversation_plane.secondary).toBe("sms");
     expect(FALLBACKS.telephony.declared).toBe("telephony down → queue and alert");
@@ -1275,7 +1998,9 @@ describe("WP-21 / dependency breakers", () => {
     expect(FALLBACKS.telephony.alerts).toBe(true);
     expect(FALLBACKS.llm.declared).toBe("LLM down → scripted replies");
     expect(FALLBACKS.llm.channel).toBe("scripted_reply");
-    expect(FALLBACKS.redis.declared).toBe("Redis down → conservative in-process limits logged as degraded");
+    expect(FALLBACKS.redis.declared).toBe(
+      "Redis down → conservative in-process limits logged as degraded",
+    );
     expect(FALLBACKS.redis.channel).toBe("in_process_limits");
     expect(FALLBACKS.redis.degraded).toBe(true);
 
@@ -1285,10 +2010,20 @@ describe("WP-21 / dependency breakers", () => {
       expect(decl).toBeDefined();
       expect(decl.declared.length).toBeGreaterThan(0);
       expect(decl.retryAfterSec).toBeGreaterThanOrEqual(1);
-      record("breaker", `declaration:${dependency}`, decl !== undefined, decl?.declared ?? "missing");
+      record(
+        "breaker",
+        `declaration:${dependency}`,
+        decl !== undefined,
+        decl?.declared ?? "missing",
+      );
     }
     expect(DEPENDENCIES).toHaveLength(4);
-    record("breaker", "declaration:every-dependency-covered", DEPENDENCIES.every((d) => Boolean(FALLBACKS[d])), DEPENDENCIES.join(","));
+    record(
+      "breaker",
+      "declaration:every-dependency-covered",
+      DEPENDENCIES.every((d) => Boolean(FALLBACKS[d])),
+      DEPENDENCIES.join(","),
+    );
   });
 
   test("the Redis fallback is a CONSERVATIVE in-process limit, and says so", () => {
@@ -1307,10 +2042,33 @@ describe("WP-21 / dependency breakers", () => {
     // A zero/garbage limit still refuses everything rather than opening up.
     expect(inProcessLimit({ key: "k", limit: 0, used: 0 }).limitPerProcess).toBe(1);
     expect(inProcessLimit({ key: "k", limit: -10, used: Number.NaN }).limitPerProcess).toBe(1);
-    record("breaker", "redis:conservative-ceiling", limiter.limitPerProcess === 50, `100 → ${limiter.limitPerProcess} per process`);
-    record("breaker", "redis:logged-as-degraded", limiter.degraded && limiter.logLine.includes("degraded"), limiter.logLine);
-    record("breaker", "redis:admits-below-ceiling", limiter.admission.admitted && !inProcessLimit({ key: "k", limit: 100, used: 50 }).admission.admitted, "49 yes / 50 no");
-    record("breaker", "redis:garbage-limit-fails-closed", inProcessLimit({ key: "k", limit: -10 }).limitPerProcess === 1, "1");
+    record(
+      "breaker",
+      "redis:conservative-ceiling",
+      limiter.limitPerProcess === 50,
+      `100 → ${limiter.limitPerProcess} per process`,
+    );
+    record(
+      "breaker",
+      "redis:logged-as-degraded",
+      limiter.degraded && limiter.logLine.includes("degraded"),
+      limiter.logLine,
+    );
+    record(
+      "breaker",
+      "redis:admits-below-ceiling",
+      limiter.admission.admitted &&
+        !inProcessLimit({ key: "k", limit: 100, used: 50 }).admission.admitted,
+      "49 yes / 50 no",
+    );
+    // `used` is a required input; 0 keeps this about the garbage LIMIT, matching the
+    // assertion above it.
+    record(
+      "breaker",
+      "redis:garbage-limit-fails-closed",
+      inProcessLimit({ key: "k", limit: -10, used: 0 }).limitPerProcess === 1,
+      "1",
+    );
   });
 
   test("recordSection: breaker evidence is written", () => {
@@ -1338,13 +2096,28 @@ describe("WP-21 / timeout discipline", () => {
   test("the declared tree is strictly decreasing at every edge", () => {
     const violations = assertTimeoutTree();
     expect(violations).toEqual([]);
-    record("timeouts", "declared-tree-has-no-violations", violations.length === 0, violations.map((v) => `${v.child}:${v.reason}`).join(",") || "none");
+    record(
+      "timeouts",
+      "declared-tree-has-no-violations",
+      violations.length === 0,
+      violations.map((v) => `${v.child}:${v.reason}`).join(",") || "none",
+    );
 
     for (const edge of TIMEOUT_EDGES) {
       expect(edge.childMs).toBeLessThan(edge.parentMs);
       expect(deriveChildTimeout(edge.parentMs, { reserveMs: edge.reserveMs })).toBe(edge.childMs);
-      record("timeouts", `child-shorter-than-parent:${edge.child}`, edge.childMs < edge.parentMs, `${edge.childMs} < ${edge.parentMs}`);
-      record("timeouts", `derived-from-reserve:${edge.child}`, deriveChildTimeout(edge.parentMs, { reserveMs: edge.reserveMs }) === edge.childMs, `reserve=${edge.reserveMs}`);
+      record(
+        "timeouts",
+        `child-shorter-than-parent:${edge.child}`,
+        edge.childMs < edge.parentMs,
+        `${edge.childMs} < ${edge.parentMs}`,
+      );
+      record(
+        "timeouts",
+        `derived-from-reserve:${edge.child}`,
+        deriveChildTimeout(edge.parentMs, { reserveMs: edge.reserveMs }) === edge.childMs,
+        `reserve=${edge.reserveMs}`,
+      );
       record("timeouts", `has-a-source:${edge.child}`, edge.source.length > 0, edge.source);
     }
     expect(budgetFor("ingest.realtime_fanout")).toBe(1_500);
@@ -1394,12 +2167,27 @@ describe("WP-21 / timeout discipline", () => {
     expect(violations).toBe(0);
     // An impossible derivation is refused loudly rather than clamped silently.
     expect(() => deriveChildTimeout(100, { reserveMs: 0 })).toThrow(TimeoutBudgetError);
-    record("timeouts", "derivation-holds-for-2-5000ms", violations === 0, `${(5_000 - 1) * 5} derivations checked`);
-    record("timeouts", "impossible-child-refused", true, "deriveChildTimeout(100, {reserveMs: 0}) throws");
+    record(
+      "timeouts",
+      "derivation-holds-for-2-5000ms",
+      violations === 0,
+      `${(5_000 - 1) * 5} derivations checked`,
+    );
+    record(
+      "timeouts",
+      "impossible-child-refused",
+      true,
+      "deriveChildTimeout(100, {reserveMs: 0}) throws",
+    );
     record("timeouts", "too-small-parent-throws", true, "deriveChildTimeout(1) throws");
     record("timeouts", "child-equals-default-half", deriveChildTimeout(1_000) === 500, "500");
     record("timeouts", "ratio-formula", deriveChildTimeout(1_000, { ratio: 0.25 }) === 250, "250");
-    record("timeouts", "reserve-formula", deriveChildTimeout(1_000, { reserveMs: 800 }) === 200, "200");
+    record(
+      "timeouts",
+      "reserve-formula",
+      deriveChildTimeout(1_000, { reserveMs: 800 }) === 200,
+      "200",
+    );
   });
 
   test("a slow dependency surfaces as a typed error, not a cascade", async () => {
@@ -1470,13 +2258,38 @@ describe("WP-21 / timeout discipline", () => {
     expect(inherited.signal.aborted).toBe(true);
     inherited.dispose();
 
-    record("timeouts", "timeout:typed-error", thrown instanceof DependencyTimeoutError, "abandoned inside the 5 s assertion bound, elapsedMs<5000");
-    record("timeouts", "timeout:own-error-not-disguised", (own as Error).message === "upstream 500", "upstream 500");
+    record(
+      "timeouts",
+      "timeout:typed-error",
+      thrown instanceof DependencyTimeoutError,
+      "abandoned inside the 5 s assertion bound, elapsedMs<5000",
+    );
+    record(
+      "timeouts",
+      "timeout:own-error-not-disguised",
+      (own as Error).message === "upstream 500",
+      "upstream 500",
+    );
     record("timeouts", "timeout:timer-released-on-win", cleared === 1, String(cleared));
-    record("timeouts", "timeout:timer-branch-uses-a-real-timer", thrownWithRealTimers instanceof DependencyTimeoutError, "budget=5");
+    record(
+      "timeouts",
+      "timeout:timer-branch-uses-a-real-timer",
+      thrownWithRealTimers instanceof DependencyTimeoutError,
+      "budget=5",
+    );
     record("timeouts", "timeout:non-positive-budget-rejected", true, "TimeoutBudgetError");
-    record("timeouts", "timeout:envelope-is-503-with-retry-after", failure?.status === 503 && failure?.retryAfterSec === 15, "503/15");
-    record("timeouts", "timeout:envelope-leak-free", scanFailure(failure as Failure).length === 0, failure?.body.message ?? "");
+    record(
+      "timeouts",
+      "timeout:envelope-is-503-with-retry-after",
+      failure?.status === 503 && failure?.retryAfterSec === 15,
+      "503/15",
+    );
+    record(
+      "timeouts",
+      "timeout:envelope-leak-free",
+      scanFailure(failure as Failure).length === 0,
+      failure?.body.message ?? "",
+    );
     record("timeouts", "signal:fires-at-budget", true, "aborted after 40 ms with a 10 ms budget");
     record("timeouts", "signal:inherits-parent-cancel", true, "aborted immediately");
   });
@@ -1495,11 +2308,15 @@ describe("WP-21 / timeout discipline", () => {
 // ════════════════════════════════════════════════════════════════════════════════
 describe("WP-21 / negative control — a policy refusal is 409 and NEVER 500", () => {
   test("every refusal the real runPolicyGate can emit maps to 409", async () => {
-    const { runPolicyGate, recordCallPlacement, releaseCallPlacement } = await import("@/lib/policy-gate");
+    const { runPolicyGate, recordCallPlacement, releaseCallPlacement } =
+      await import("@/lib/policy-gate");
     const base = { orgId: "org-wp21", caseRef: "SV-WP21-NC", callerId: "operator-wp21" };
 
     /** Drive one refusal and prove the envelope refuses to make it a 500. */
-    const prove = (label: string, refusal: { ok: boolean; code?: string; reason?: string }): void => {
+    const prove = (
+      label: string,
+      refusal: { ok: boolean; code?: string; reason?: string },
+    ): void => {
       expect(refusal.ok).toBe(false);
       const typed = refusal as { ok: false; code: string; reason: string };
       const failure = policyRefusal(typed, { requestId: REQ });
@@ -1510,8 +2327,18 @@ describe("WP-21 / negative control — a policy refusal is 409 and NEVER 500", (
       expect(failure.body.retryable).toBe(false);
       expect(failure.retryAfterSec).toBeNull();
       expect(scanFailure(failure)).toEqual([]);
-      record("negative-control", `policy-refusal-is-409:${label}`, failure.status === 409, `${typed.code} → 409`);
-      record("negative-control", `policy-refusal-not-500:${label}`, failure.status !== 500, `${typed.code} → ${failure.status}`);
+      record(
+        "negative-control",
+        `policy-refusal-is-409:${label}`,
+        failure.status === 409,
+        `${typed.code} → 409`,
+      );
+      record(
+        "negative-control",
+        `policy-refusal-not-500:${label}`,
+        failure.status !== 500,
+        `${typed.code} → ${failure.status}`,
+      );
     };
 
     // 1. Consent record shape.
@@ -1533,7 +2360,10 @@ describe("WP-21 / negative control — a policy refusal is 409 and NEVER 500", (
     const coolPhone = "+971500000004";
     recordCallPlacement("org-wp21", coolPhone);
     try {
-      prove("cooldown", await runPolicyGate({ ...base, phone: coolPhone, consentRecordId: "consent-record-1" }));
+      prove(
+        "cooldown",
+        await runPolicyGate({ ...base, phone: coolPhone, consentRecordId: "consent-record-1" }),
+      );
     } finally {
       releaseCallPlacement("org-wp21");
     }
@@ -1541,7 +2371,10 @@ describe("WP-21 / negative control — a policy refusal is 409 and NEVER 500", (
     const capPhone = (i: number): string => `+9715000001${String(i).padStart(2, "0")}`;
     for (let i = 0; i < 10; i++) recordCallPlacement("org-wp21", capPhone(i));
     try {
-      prove("concurrency_cap", await runPolicyGate({ ...base, phone: capPhone(99), consentRecordId: "consent-record-1" }));
+      prove(
+        "concurrency_cap",
+        await runPolicyGate({ ...base, phone: capPhone(99), consentRecordId: "consent-record-1" }),
+      );
     } finally {
       for (let i = 0; i < 10; i++) releaseCallPlacement("org-wp21");
     }
@@ -1549,14 +2382,24 @@ describe("WP-21 / negative control — a policy refusal is 409 and NEVER 500", (
     // 6. The two codes `runPolicyGate` does not emit today (WP-2 steps 5 and 6
     //    are comments). They are declared here, and still map to 409.
     for (const code of ["spend_ceiling", "credits_exhausted"] as const) {
-      const failure = policyRefusal({ ok: false, code, reason: "declared but not emitted by runPolicyGate today" }, { requestId: REQ });
+      const failure = policyRefusal(
+        { ok: false, code, reason: "declared but not emitted by runPolicyGate today" },
+        { requestId: REQ },
+      );
       expect(failure.status).toBe(409);
-      record("negative-control", `policy-refusal-is-409:${code}`, failure.status === 409, `${code} → 409 (declared, not emitted)`);
+      record(
+        "negative-control",
+        `policy-refusal-is-409:${code}`,
+        failure.status === 409,
+        `${code} → 409 (declared, not emitted)`,
+      );
     }
 
     // The declared list is exhaustive: an unmapped code is a loud refusal, not
     // a silent 500 dressed as a policy answer.
-    expect(() => policyRefusal({ ok: false, code: "something_new", reason: "x" })).toThrow(RangeError);
+    expect(() => policyRefusal({ ok: false, code: "something_new", reason: "x" })).toThrow(
+      RangeError,
+    );
     record("negative-control", "unmapped-policy-code-throws", true, "RangeError");
 
     // For contrast, the 500 path exists and is a different, identifiable one.
@@ -1569,7 +2412,12 @@ describe("WP-21 / negative control — a policy refusal is 409 and NEVER 500", (
     for (const code of POLICY_REFUSAL_CODES) {
       const failure = policyRefusal({ ok: false, code, reason: "synthetic" }, { requestId: REQ });
       expect(failure.status).toBe(409);
-      record("negative-control", `declared-policy-code-is-409:${code}`, failure.status === 409, `${code} → 409`);
+      record(
+        "negative-control",
+        `declared-policy-code-is-409:${code}`,
+        failure.status === 409,
+        `${code} → 409`,
+      );
     }
     expect(POLICY_REFUSAL_CODES).toHaveLength(7);
 
@@ -1579,7 +2427,13 @@ describe("WP-21 / negative control — a policy refusal is 409 and NEVER 500", (
         status: 409,
         retryable: false,
         retryAfterSec: null,
-        emittedByRunPolicyGate: ["consent_invalid", "country_unparseable", "country_not_allowed", "cooldown", "concurrency_cap"],
+        emittedByRunPolicyGate: [
+          "consent_invalid",
+          "country_unparseable",
+          "country_not_allowed",
+          "cooldown",
+          "concurrency_cap",
+        ],
         declaredButNotEmitted: ["spend_ceiling", "credits_exhausted"],
         note: "WP-2 policy-gate steps 5 (spend ceiling) and 6 (credit reservation) are comments, so runPolicyGate cannot produce those two codes yet. They are declared in POLICY_REFUSAL_CODES and are asserted here so the mapping is complete the day they are implemented.",
         contrast: "internal_bug is the only code that yields 500",
@@ -1588,10 +2442,18 @@ describe("WP-21 / negative control — a policy refusal is 409 and NEVER 500", (
   });
 
   test("no route is asked to retry a refusal", async () => {
-    const failure = policyRefusal({ ok: false, code: "cooldown", reason: "destination in cooldown" }, { requestId: REQ });
+    const failure = policyRefusal(
+      { ok: false, code: "cooldown", reason: "destination in cooldown" },
+      { requestId: REQ },
+    );
     expect(failure.body.retryable).toBe(false);
     expect(failure.headers["Retry-After"]).toBeUndefined();
-    record("negative-control", "policy-refusal-has-no-retry-after", failure.headers["Retry-After"] === undefined, "absent");
+    record(
+      "negative-control",
+      "policy-refusal-has-no-retry-after",
+      failure.headers["Retry-After"] === undefined,
+      "absent",
+    );
   });
 });
 
@@ -1633,7 +2495,12 @@ describe("WP-21 / static check — no network I/O inside a database transaction"
     expect(dirtyResult.findings.length).toBeGreaterThanOrEqual(1);
     expect(dirtyResult.findings.map((f) => f.token)).toContain("fetch");
     expect(dirtyResult.findings[0]?.line).toBe(3);
-    record("static-check", "negative-control:dirty-fixture-is-reported", dirtyResult.findings.length >= 1, `tokens=${dirtyResult.findings.map((f) => f.token).join(",")}`);
+    record(
+      "static-check",
+      "negative-control:dirty-fixture-is-reported",
+      dirtyResult.findings.length >= 1,
+      `tokens=${dirtyResult.findings.map((f) => f.token).join(",")}`,
+    );
 
     // The same call OUTSIDE a transaction is not a finding: that is the whole
     // point of locating the region.
@@ -1649,7 +2516,12 @@ describe("WP-21 / static check — no network I/O inside a database transaction"
     const cleanResult = scanSourceForNetworkInTransaction(clean, "synthetic-clean.ts");
     expect(cleanResult.transactions).toBe(1);
     expect(cleanResult.findings).toEqual([]);
-    record("static-check", "negative-control:clean-fixture-is-clean", cleanResult.findings.length === 0, "0 findings");
+    record(
+      "static-check",
+      "negative-control:clean-fixture-is-clean",
+      cleanResult.findings.length === 0,
+      "0 findings",
+    );
 
     // A COMMENT inside the region that mentions fetch must not be reported, and
     // a fetch inside a STRING must not be reported either.
@@ -1666,8 +2538,18 @@ describe("WP-21 / static check — no network I/O inside a database transaction"
     const blanked = blankOutLiterals(commented);
     expect(blanked).toHaveLength(commented.length);
     expect(blanked.split("\n")).toHaveLength(commented.split("\n").length);
-    record("static-check", "negative-control:comments-and-strings-ignored", commentedResult.findings.length === 0, "0 findings");
-    record("static-check", "negative-control:blanking-preserves-offsets", blanked.length === commented.length, `${blanked.length} chars`);
+    record(
+      "static-check",
+      "negative-control:comments-and-strings-ignored",
+      commentedResult.findings.length === 0,
+      "0 findings",
+    );
+    record(
+      "static-check",
+      "negative-control:blanking-preserves-offsets",
+      blanked.length === commented.length,
+      `${blanked.length} chars`,
+    );
 
     // Every network token is reachable by the scanner, so the vocabulary is not
     // decorative. One fixture per token.
@@ -1676,11 +2558,18 @@ describe("WP-21 / static check — no network I/O inside a database transaction"
       return scanSourceForNetworkInTransaction(fixture, "synthetic-token.ts").findings.length === 0;
     });
     expect(undetected).toEqual([]);
-    record("static-check", `every-network-token-detectable`, undetected.length === 0, `${NETWORK_TOKENS.length} tokens`);
+    record(
+      "static-check",
+      `every-network-token-detectable`,
+      undetected.length === 0,
+      `${NETWORK_TOKENS.length} tokens`,
+    );
 
     // An unbalanced source is reported rather than silently skipped.
     const unbalanced = "await db.$transaction(async (tx) => { await tx.case.create({});";
-    expect(scanSourceForNetworkInTransaction(unbalanced, "synthetic-unbalanced.ts").findings.length).toBeGreaterThan(0);
+    expect(
+      scanSourceForNetworkInTransaction(unbalanced, "synthetic-unbalanced.ts").findings.length,
+    ).toBeGreaterThan(0);
     record("static-check", "unbalanced-source-is-reported", true, "<unbalanced>");
   });
 
@@ -1690,28 +2579,51 @@ describe("WP-21 / static check — no network I/O inside a database transaction"
     // A file that could not be read is a FAILURE, not a skip. Otherwise the
     // check silently degrades into "scanned fewer files".
     expect(unreadable).toEqual([]);
-    for (const file of unreadable) record("static-check", `readable:${file}`, false, "could not read");
-    for (const file of SCANNED) record("static-check", `readable:${file}`, !unreadable.includes(file), "read");
+    for (const file of unreadable)
+      record("static-check", `readable:${file}`, false, "could not read");
+    for (const file of SCANNED)
+      record("static-check", `readable:${file}`, !unreadable.includes(file), "read");
 
     expect(findings).toEqual([]);
     const totalTransactions = results.reduce((acc, r) => acc + r.transactions, 0);
     expect(totalTransactions).toBeGreaterThan(0);
-    record("static-check", "no-network-io-in-any-transaction", findings.length === 0, findings.map((f) => `${f.file}:${f.line}:${f.token}`).join(",") || "none");
+    record(
+      "static-check",
+      "no-network-io-in-any-transaction",
+      findings.length === 0,
+      findings.map((f) => `${f.file}:${f.line}:${f.token}`).join(",") || "none",
+    );
     record("static-check", "files-all-read", unreadable.length === 0, `${SCANNED.length} files`);
-    record("static-check", "transaction-regions-found", totalTransactions > 0, `${totalTransactions} regions`);
+    record(
+      "static-check",
+      "transaction-regions-found",
+      totalTransactions > 0,
+      `${totalTransactions} regions`,
+    );
 
     // Which scanned modules can reach the network at all? A reviewer judges
     // this by hand, and the evidence names them rather than implying they are
     // safe.
     const httpCapable = results
       .filter((r) => r.read)
-      .map((r) => ({ file: r.file, importsHttp: /from\s+["'][^"']*(?:paystack|twilio|elevenlabs|realtime)["']/.test(read(r.file) ?? "") }))
+      .map((r) => ({
+        file: r.file,
+        importsHttp: /from\s+["'][^"']*(?:paystack|twilio|elevenlabs|realtime)["']/.test(
+          read(r.file) ?? "",
+        ),
+      }))
       .filter((e) => e.importsHttp);
-    record("static-check", "http-capable-modules-named", true, httpCapable.map((e) => e.file).join(",") || "none");
+    record(
+      "static-check",
+      "http-capable-modules-named",
+      true,
+      httpCapable.map((e) => e.file).join(",") || "none",
+    );
 
     recordSection("staticCheck", {
       rule: "no network I/O inside a database transaction",
-      method: "comments and string literals are blanked (offsets preserved), every $transaction( region is bracket-matched, and the region is searched for a declared network-token vocabulary",
+      method:
+        "comments and string literals are blanked (offsets preserved), every $transaction( region is bracket-matched, and the region is searched for a declared network-token vocabulary",
       filesScanned: SCANNED,
       filesRead: results.filter((r) => r.read).map((r) => r.file),
       filesUnreadable: unreadable,
@@ -1724,12 +2636,14 @@ describe("WP-21 / static check — no network I/O inside a database transaction"
       networkTokens: [...NETWORK_TOKENS],
       findings: findings.map((f) => ({ file: f.file, line: f.line, token: f.token })),
       negativeControl: {
-        fixture: "synthetic $transaction(async tx => { await fetch(...); await tx.case.create(...) })",
+        fixture:
+          "synthetic $transaction(async tx => { await fetch(...); await tx.case.create(...) })",
         reported: true,
         tokenDetected: "fetch",
         lineReported: 3,
         cleanFixture: "same fetch() placed outside the transaction reports nothing",
-        commentsAndStrings: "a comment and a string literal mentioning fetch() inside a transaction are not reported",
+        commentsAndStrings:
+          "a comment and a string literal mentioning fetch() inside a transaction are not reported",
         tokenCoverage: NETWORK_TOKENS.length,
       },
       limits: [
@@ -1743,7 +2657,9 @@ describe("WP-21 / static check — no network I/O inside a database transaction"
 });
 
 /** Findings reduced to `file:line:token`, sorted — the shape the evidence records. */
-function findingKeys(findings: ReadonlyArray<{ file: string; line: number; token: string }>): string[] {
+function findingKeys(
+  findings: ReadonlyArray<{ file: string; line: number; token: string }>,
+): string[] {
   return findings.map((f) => `${f.file}:${f.line}:${f.token}`).sort();
 }
 
@@ -1751,7 +2667,12 @@ function findingKeys(findings: ReadonlyArray<{ file: string; line: number; token
 describe("WP-21 / gate integrity", () => {
   test("the gate itself made no network call and touched no database", () => {
     expect(NETWORK_CALLS).toEqual([]);
-    record("gate", "no-network-calls", NETWORK_CALLS.length === 0, NETWORK_CALLS.join(",") || "none");
+    record(
+      "gate",
+      "no-network-calls",
+      NETWORK_CALLS.length === 0,
+      NETWORK_CALLS.join(",") || "none",
+    );
   });
 
   test("the evidence artifact is deterministic and complete", () => {
@@ -1771,7 +2692,11 @@ describe("WP-21 / gate integrity", () => {
       }
       if (typeof node !== "object" || node === null) return;
       for (const [key, value] of Object.entries(node)) {
-        if (/^(generatedAt|timestamp|runId|wallClock|startedAt|finishedAt|elapsedMs|durationMs)$/i.test(key)) {
+        if (
+          /^(generatedAt|timestamp|runId|wallClock|startedAt|finishedAt|elapsedMs|durationMs)$/i.test(
+            key,
+          )
+        ) {
           timeLikeKeys.push(`${path}.${key}`);
         }
         walk(value, `${path}.${key}`);
@@ -1782,7 +2707,13 @@ describe("WP-21 / gate integrity", () => {
     expect(first).not.toMatch(/"(generatedAt|timestamp|runId|startedAt|elapsedMs)"/);
 
     const evidence = buildEvidence() as {
-      summary: { result: string; checks: { total: number; passed: number; failed: number }; matrixRows: { total: number }; breakers: { total: number }; failedChecks: unknown[] };
+      summary: {
+        result: string;
+        checks: { total: number; passed: number; failed: number };
+        matrixRows: { total: number };
+        breakers: { total: number };
+        failedChecks: unknown[];
+      };
       matrix: unknown[];
       breakers: unknown[];
       digest: string;
@@ -1796,11 +2727,26 @@ describe("WP-21 / gate integrity", () => {
     expect(evidence.summary.failedChecks).toEqual([]);
     expect(evidence.summary.result).toBe("pass");
 
-    record("gate", "evidence-is-byte-identical-across-builds", first === second, `${first.length} chars`);
-    record("gate", "evidence-has-no-clock-field", timeLikeKeys.length === 0, timeLikeKeys.join(",") || "none");
+    record(
+      "gate",
+      "evidence-is-byte-identical-across-builds",
+      first === second,
+      `${first.length} chars`,
+    );
+    record(
+      "gate",
+      "evidence-has-no-clock-field",
+      timeLikeKeys.length === 0,
+      timeLikeKeys.join(",") || "none",
+    );
     record("gate", "evidence-covers-9-matrix-rows", evidence.summary.matrixRows.total === 9, "9");
     record("gate", "evidence-covers-4-breakers", evidence.breakers.length === 4, "4");
-    record("gate", "evidence-digest-is-sha256", /^[0-9a-f]{64}$/.test(evidence.digest), evidence.digest.slice(0, 16));
+    record(
+      "gate",
+      "evidence-digest-is-sha256",
+      /^[0-9a-f]{64}$/.test(evidence.digest),
+      evidence.digest.slice(0, 16),
+    );
     expect(evidence.summary.checks.failed).toBe(0);
     expect(sortedChecks().every((c) => c.ok)).toBe(true);
     expect(sortedMatrixRows().every((r) => r.ok)).toBe(true);

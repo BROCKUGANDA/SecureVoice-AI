@@ -78,8 +78,20 @@ export type VelocityMetrics = {
 };
 
 export type VelocityVerdict =
-  | { action: "allow"; reason: null; signals: VelocitySignal[]; alreadyPaused: false; metrics: VelocityMetrics }
-  | { action: "warn"; reason: Exclude<VelocityRejectReason, "org_auto_paused">; signals: VelocitySignal[]; alreadyPaused: false; metrics: VelocityMetrics }
+  | {
+      action: "allow";
+      reason: null;
+      signals: VelocitySignal[];
+      alreadyPaused: false;
+      metrics: VelocityMetrics;
+    }
+  | {
+      action: "warn";
+      reason: Exclude<VelocityRejectReason, "org_auto_paused">;
+      signals: VelocitySignal[];
+      alreadyPaused: false;
+      metrics: VelocityMetrics;
+    }
   | {
       action: "auto_pause";
       reason: VelocityRejectReason;
@@ -365,11 +377,37 @@ export function recordAttempt(input: RecordAttemptInput): void {
 export type EvaluateInput = { orgId: string; at?: number | Date };
 
 /**
+ * Is a count threshold in use?
+ *
+ * `0` is the OFF value for every velocity threshold, not the strictest one.
+ * `n >= 0` is true for every org on every evaluation, so a knob that was
+ * never really configured — an operator who set `ABUSE_AFTER_HOURS_WARN=0`
+ * meaning "do not warn me" — instead warned (and, a few lines further down,
+ * paused) EVERY org on EVERY dial, at any hour. A threshold of zero is not a
+ * tighter threshold; it is a switch, and it now reads as one.
+ *
+ * The count itself is already scoped: `afterHoursAttempts` counts only
+ * attempts that HAPPENED outside business hours, so a non-zero count is proof
+ * of out-of-hours activity. Gating on the evaluation instant's `afterHours`
+ * flag as well would be wrong — an org that dialled all night is exactly who
+ * an operator needs warned about when they read this at 10:00.
+ */
+function thresholdArmed(threshold: number): boolean {
+  return threshold > 0;
+}
+
+/**
  * Evaluate the velocity verdict for an org at an instant.
  *
  * Side effects: an `auto_pause` opens the breaker (once) and emits one alert.
  * A `warn` emits one alert. A second evaluation while already paused does not
  * re-alert — a flood of alerts is how a real one gets ignored.
+ *
+ * A threshold of `0` means that signal is OFF, not "tripped constantly" — see
+ * `thresholdArmed`. The out-of-hours thresholds in particular are 0-by-
+ * mistake the dangerous ones: zero out-of-hours attempts is the normal state
+ * of a healthy tenant, so a 0 that fired would be a permanent false positive
+ * rather than a tighter guard.
  */
 export function evaluate(input: EvaluateInput): VelocityVerdict {
   const cfg = abuseConfig().velocity;
@@ -407,7 +445,13 @@ export function evaluate(input: EvaluateInput): VelocityVerdict {
   }
 
   if (pauseStore.isPaused(key, now)) {
-    return { action: "auto_pause", reason: "org_auto_paused", signals: [], alreadyPaused: true, metrics };
+    return {
+      action: "auto_pause",
+      reason: "org_auto_paused",
+      signals: [],
+      alreadyPaused: true,
+      metrics,
+    };
   }
 
   // All tripped signals are reported, not just the deciding one — an operator
@@ -415,9 +459,17 @@ export function evaluate(input: EvaluateInput): VelocityVerdict {
   const signals: VelocitySignal[] = [];
   if (newPrefixes >= cfg.newPrefixBurst) signals.push("new_destination_prefix");
   if (burstAttempts >= cfg.burstRateMax) signals.push("burst_rate");
-  if (afterHoursAttempts >= cfg.afterHoursWarn) signals.push("out_of_hours_volume");
+  if (thresholdArmed(cfg.afterHoursWarn) && afterHoursAttempts >= cfg.afterHoursWarn) {
+    signals.push("out_of_hours_volume");
+  }
 
-  const allow: VelocityVerdict = { action: "allow", reason: null, signals: [], alreadyPaused: false, metrics };
+  const allow: VelocityVerdict = {
+    action: "allow",
+    reason: null,
+    signals: [],
+    alreadyPaused: false,
+    metrics,
+  };
   if (signals.length === 0) return allow;
 
   const pause = (reason: Exclude<VelocityRejectReason, "org_auto_paused">): VelocityVerdict => {
@@ -449,8 +501,10 @@ export function evaluate(input: EvaluateInput): VelocityVerdict {
   if (burstAttempts >= cfg.burstRateMax) return pause("velocity_burst_rate");
 
   // Weakest signal: warn first, auto-pause only past the higher threshold.
-  if (afterHoursAttempts >= cfg.afterHoursPause) return pause("velocity_after_hours");
-  if (afterHoursAttempts >= cfg.afterHoursWarn) {
+  if (thresholdArmed(cfg.afterHoursPause) && afterHoursAttempts >= cfg.afterHoursPause) {
+    return pause("velocity_after_hours");
+  }
+  if (thresholdArmed(cfg.afterHoursWarn) && afterHoursAttempts >= cfg.afterHoursWarn) {
     const reason = "velocity_after_hours" as const;
     emit({
       id: `abuse-${now.toString(36)}-${++alertSeq}`,
@@ -477,14 +531,20 @@ export function isOrgPaused(orgId: string, at?: number | Date): boolean {
 }
 
 /** Open the breaker by hand (support action / an external detector). */
-export function pauseOrg(orgId: string, options: { reason?: PauseRecord["reason"]; detail?: string; at?: number | Date } = {}): boolean {
+export function pauseOrg(
+  orgId: string,
+  options: { reason?: PauseRecord["reason"]; detail?: string; at?: number | Date } = {},
+): boolean {
   const key = safeOrgKey(orgId);
   if (!key) return false;
   const now = toMs(options.at, Date.now());
   pauseStore.pause({
     orgId: key,
     at: now,
-    expiresAt: abuseConfig().velocity.pauseTtlSec > 0 ? now + abuseConfig().velocity.pauseTtlSec * 1000 : null,
+    expiresAt:
+      abuseConfig().velocity.pauseTtlSec > 0
+        ? now + abuseConfig().velocity.pauseTtlSec * 1000
+        : null,
     reason: options.reason ?? "manual",
     signals: [],
     detail: options.detail ?? "paused by operator",

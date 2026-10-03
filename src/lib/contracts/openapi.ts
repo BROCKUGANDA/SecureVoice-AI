@@ -51,7 +51,11 @@ import {
   type FieldSpec,
   type JsonSchema,
 } from "./schema";
-import { CONFORMANCE_CHECK_IDS, CONFORMANCE_REPORT_VERSION, CONFORMANCE_REQUIREMENTS } from "./conformance";
+import {
+  CONFORMANCE_CHECK_IDS,
+  CONFORMANCE_REPORT_VERSION,
+  CONFORMANCE_REQUIREMENTS,
+} from "./conformance";
 import { DELIVERY_ATTEMPT_LADDER_MS, EVENT_TYPES } from "./asyncapi";
 // The envelope's full code vocabulary. Imported here — rather than duplicated as
 // a constant in `schema.ts` — so the published `code` enum cannot drift from the
@@ -63,7 +67,10 @@ import { FAILURE_CODES } from "@/lib/failures/envelope";
 const INGEST = `POST ${PUBLIC_INGEST_PATH}`;
 const CONFORMANCE_OP = `POST ${CONFORMANCE_PATH}`;
 
-function objectSchema(fields: readonly FieldSpec[], opts: { strict?: boolean; title?: string; description?: string } = {}): JsonSchema {
+function objectSchema(
+  fields: readonly FieldSpec[],
+  opts: { strict?: boolean; title?: string; description?: string } = {},
+): JsonSchema {
   const properties: Record<string, JsonSchema> = {};
   for (const field of fields) {
     const node: JsonSchema = { type: field.type, description: field.description };
@@ -135,7 +142,8 @@ function failureSchema(description: string): JsonSchema {
       docsUrl: {
         type: "string",
         format: "uri",
-        description: "Per-code documentation URL. Base is FAILURE_DOCS_BASE_URL, default https://securevoice.ai/docs/errors.",
+        description:
+          "Per-code documentation URL. Base is FAILURE_DOCS_BASE_URL, default https://securevoice.ai/docs/errors.",
       },
     },
   };
@@ -150,7 +158,8 @@ function legacyErrorSchema(description: string): JsonSchema {
     properties: {
       error: {
         type: "string",
-        description: "Human-readable reason. There may be NO `code` field at all — on this envelope, error handling must not assume one.",
+        description:
+          "Human-readable reason. There may be NO `code` field at all — on this envelope, error handling must not assume one.",
       },
       code: {
         type: "string",
@@ -161,13 +170,20 @@ function legacyErrorSchema(description: string): JsonSchema {
   };
 }
 
-function jsonResponse(description: string, schema: JsonSchema, extra: Record<string, unknown> = {}): Record<string, unknown> {
+function jsonResponse(
+  description: string,
+  schema: JsonSchema,
+  extra: Record<string, unknown> = {},
+): Record<string, unknown> {
   return { description, content: { "application/json": { schema } }, ...extra };
 }
 
 /** The headers every `failure_envelope_v1` response carries. */
 const FAILURE_HEADERS = {
-  "x-request-id": { description: "Correlation id; equals the body's `requestId`.", schema: { type: "string" } },
+  "x-request-id": {
+    description: "Correlation id; equals the body's `requestId`.",
+    schema: { type: "string" },
+  },
   "Retry-After": {
     description: "Seconds to wait. Present on rate_limited (429) and dependency_unavailable (503).",
     schema: { type: "integer" },
@@ -175,13 +191,13 @@ const FAILURE_HEADERS = {
 };
 
 /** A response built from a catalogued body code. */
-function codeResponse(
-  code: string,
-  status: number,
-): Record<string, unknown> | null {
+function codeResponse(code: string, status: number): Record<string, unknown> | null {
   const first = ERROR_CODES.find((e) => e.code === code && e.surface === "http_body");
   if (!first) return null;
-  const headers = status === 429 || status === 503 ? FAILURE_HEADERS : { "x-request-id": FAILURE_HEADERS["x-request-id"] };
+  const headers =
+    status === 429 || status === 503
+      ? FAILURE_HEADERS
+      : { "x-request-id": FAILURE_HEADERS["x-request-id"] };
   return {
     description: `${first.meaning}\n\nRetryable: ${first.retryable}. Remediation: ${first.remediation}`,
     headers,
@@ -246,7 +262,9 @@ function buildComponents(): Record<string, unknown> {
           ``,
           `${SIGNATURE_SCHEME.bodyRule}`,
           ``,
-          "Reference implementations: " + SIGNATURE_SCHEME.referenceImplementations.join("; ") + ".",
+          "Reference implementations: " +
+            SIGNATURE_SCHEME.referenceImplementations.join("; ") +
+            ".",
         ].join("\n"),
       },
       ProducerKey: {
@@ -333,15 +351,30 @@ function buildComponents(): Record<string, unknown> {
         title: "ErrorCatalogEntry",
         type: "object",
         description: "One row of the typed error catalog, emitted verbatim at `x-error-catalog`.",
-        required: ["id", "status", "code", "literal", "surface", "envelope", "reachedFrom", "retryable", "meaning", "remediation"],
+        required: [
+          "id",
+          "status",
+          "code",
+          "literal",
+          "surface",
+          "envelope",
+          "reachedFrom",
+          "retryable",
+          "meaning",
+          "remediation",
+        ],
         properties: {
           id: { type: "string" },
           status: { type: "integer" },
           code: {
             type: ["string", "null"],
-            description: "The machine code as it appears in the `code` field, or null when the code field carries something else.",
+            description:
+              "The machine code as it appears in the `code` field, or null when the code field carries something else.",
           },
-          literal: { type: "string", description: "The verbatim string in the source that produces this code." },
+          literal: {
+            type: "string",
+            description: "The verbatim string in the source that produces this code.",
+          },
           surface: {
             type: "string",
             enum: ["http_body", "http_message", "audit_chain"],
@@ -351,7 +384,8 @@ function buildComponents(): Record<string, unknown> {
           envelope: {
             type: "string",
             enum: ["failure_envelope_v1", "legacy_error_field"],
-            description: "Which body shape produces it. A producer's error handling must know whether `code` exists.",
+            description:
+              "Which body shape produces it. A producer's error handling must know whether `code` exists.",
           },
           reachedFrom: {
             type: "array",
@@ -386,7 +420,15 @@ function buildComponents(): Record<string, unknown> {
           ...((objectSchema(BANK_EVENT_FIELDS).properties ?? {}) as Record<string, JsonSchema>),
           data: { $ref: "#/components/schemas/CaseNotifiedData" },
         },
-        required: ["schema_version", "event_id", "event_type", "case_ref", "org_id", "occurred_at", "data"],
+        required: [
+          "schema_version",
+          "event_id",
+          "event_type",
+          "case_ref",
+          "org_id",
+          "occurred_at",
+          "data",
+        ],
       },
       CaseNotifiedData: objectSchema(CASE_NOTIFIED_DATA_FIELDS, {
         title: "CaseNotifiedData",
@@ -395,7 +437,8 @@ function buildComponents(): Record<string, unknown> {
       }),
       EvidencePointer: objectSchema(EVIDENCE_FIELDS, {
         title: "EvidencePointer",
-        description: "A pointer to evidence, not the evidence. `transcript` is invariantly `withheld`.",
+        description:
+          "A pointer to evidence, not the evidence. `transcript` is invariantly `withheld`.",
       }),
       ConformanceRunRequest: {
         type: "object",
@@ -414,14 +457,16 @@ function buildComponents(): Record<string, unknown> {
           secret: {
             type: "string",
             minLength: 8,
-            description: "The shared signing secret for that receiver. Transmitted over TLS, never persisted, never echoed in the report.",
+            description:
+              "The shared signing secret for that receiver. Transmitted over TLS, never persisted, never echoed in the report.",
           },
           budget_ms: {
             type: "integer",
             minimum: 100,
             maximum: 10000,
             default: 2000,
-            description: "Latency budget for the `fast_2xx` check. Not a contractual SLA — it is YOUR receiver's budget, which we grade.",
+            description:
+              "Latency budget for the `fast_2xx` check. Not a contractual SLA — it is YOUR receiver's budget, which we grade.",
           },
         },
       },
@@ -429,7 +474,15 @@ function buildComponents(): Record<string, unknown> {
         type: "object",
         description:
           "A scored, attachable report. Safe to re-run: every probe carries a fresh event_id except the deliberate replay pair.",
-        required: ["report_version", "run_id", "generated_at", "target", "budget_ms", "checks", "score"],
+        required: [
+          "report_version",
+          "run_id",
+          "generated_at",
+          "target",
+          "budget_ms",
+          "checks",
+          "score",
+        ],
         properties: {
           report_version: { type: "string", const: CONFORMANCE_REPORT_VERSION },
           run_id: { type: "string", description: "Unique per run; prefixes every probe event_id." },
@@ -458,12 +511,16 @@ function buildComponents(): Record<string, unknown> {
           },
           probes: {
             type: "array",
-            description: "Raw observation per probe. Carries status and latency, never the signature or the secret.",
+            description:
+              "Raw observation per probe. Carries status and latency, never the signature or the secret.",
             items: {
               type: "object",
               properties: {
                 seq: { type: "integer" },
-                kind: { type: "string", enum: ["valid_delivery", "replay", "tampered_signature", "unsigned", "malformed"] },
+                kind: {
+                  type: "string",
+                  enum: ["valid_delivery", "replay", "tampered_signature", "unsigned", "malformed"],
+                },
                 status: { type: "integer" },
                 latency_ms: { type: "integer" },
                 signed: { type: "boolean" },
@@ -482,11 +539,15 @@ function buildComponents(): Record<string, unknown> {
           id: { type: "string", enum: [...CONFORMANCE_CHECK_IDS] },
           title: { type: "string" },
           status: { type: "string", enum: ["pass", "fail"] },
-          observed: { type: "string", description: "What we actually saw. No verdict without an observation." },
+          observed: {
+            type: "string",
+            description: "What we actually saw. No verdict without an observation.",
+          },
           requirement: {
             type: "string",
             enum: Object.values(CONFORMANCE_REQUIREMENTS),
-            description: "The normative sentence from CONFORMANCE_REQUIREMENTS this check grades against.",
+            description:
+              "The normative sentence from CONFORMANCE_REQUIREMENTS this check grades against.",
           },
         },
       },
@@ -536,7 +597,14 @@ export function buildOpenApiDocument(): Record<string, unknown> {
       "202": jsonResponse(
         `Accepted. Also returned for a replay of an already-stored ${IDEMPOTENCY_HEADER} (see InterventionReplay202).`,
         { $ref: "#/components/schemas/InterventionReplay202" },
-        { headers: { [REPLAY_RESPONSE_HEADER]: { description: `Present and "true" only on a replay.`, schema: { type: "string" } } } },
+        {
+          headers: {
+            [REPLAY_RESPONSE_HEADER]: {
+              description: `Present and "true" only on a replay.`,
+              schema: { type: "string" },
+            },
+          },
+        },
       ),
       "400": coded("malformed_request", 400),
       "401": coded("unauthenticated", 401),
@@ -553,9 +621,9 @@ export function buildOpenApiDocument(): Record<string, unknown> {
       "rate_limited",
       "dependency_unavailable",
     ],
-    "x-error-causes": ERROR_CODES.filter((e) => e.surface === "http_message" && e.reachedFrom.includes(INGEST)).map(
-      (e) => e.literal,
-    ),
+    "x-error-causes": ERROR_CODES.filter(
+      (e) => e.surface === "http_message" && e.reachedFrom.includes(INGEST),
+    ).map((e) => e.literal),
   };
 
   const doc: Record<string, unknown> = {
@@ -596,13 +664,18 @@ export function buildOpenApiDocument(): Record<string, unknown> {
     servers: [
       {
         url: "https://voice.example.com",
-        description:
-          `Public deployment. The documented ingest path is ${PUBLIC_INGEST_PATH}; the application path ${APP_INGEST_PATH} is live and equivalent (next.config.ts rewrites the former onto the latter). Do not hardcode either — resolve it from this document.`,
+        description: `Public deployment. The documented ingest path is ${PUBLIC_INGEST_PATH}; the application path ${APP_INGEST_PATH} is live and equivalent (next.config.ts rewrites the former onto the latter). Do not hardcode either — resolve it from this document.`,
       },
     ],
     tags: [
-      { name: "ingest", description: "Bank → SecureVoice. Risk signals that arm a verification call." },
-      { name: "conformance", description: "Self-serve grading of YOUR receiver against this contract." },
+      {
+        name: "ingest",
+        description: "Bank → SecureVoice. Risk signals that arm a verification call.",
+      },
+      {
+        name: "conformance",
+        description: "Self-serve grading of YOUR receiver against this contract.",
+      },
       { name: "meta", description: "Machine-readable descriptions of this contract." },
     ],
     paths: {
@@ -616,7 +689,10 @@ export function buildOpenApiDocument(): Record<string, unknown> {
           tags: ["ingest"],
           security: [],
           responses: {
-            "200": jsonResponse("Discovery document.", { type: "object", additionalProperties: true }),
+            "200": jsonResponse("Discovery document.", {
+              type: "object",
+              additionalProperties: true,
+            }),
           },
         },
       },
@@ -667,7 +743,11 @@ export function buildOpenApiDocument(): Record<string, unknown> {
           security: [{ ProducerKey: [] }],
           requestBody: {
             required: true,
-            content: { "application/json": { schema: { $ref: "#/components/schemas/ConformanceRunRequest" } } },
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/ConformanceRunRequest" },
+              },
+            },
           },
           responses: {
             "200": jsonResponse(
@@ -690,7 +770,10 @@ export function buildOpenApiDocument(): Record<string, unknown> {
           tags: ["meta"],
           security: [],
           responses: {
-            "200": jsonResponse("OpenAPI 3.1 document.", { type: "object", additionalProperties: true }),
+            "200": jsonResponse("OpenAPI 3.1 document.", {
+              type: "object",
+              additionalProperties: true,
+            }),
           },
         },
       },
@@ -703,7 +786,10 @@ export function buildOpenApiDocument(): Record<string, unknown> {
           tags: ["meta"],
           security: [],
           responses: {
-            "200": jsonResponse("AsyncAPI 3.0 document.", { type: "object", additionalProperties: true }),
+            "200": jsonResponse("AsyncAPI 3.0 document.", {
+              type: "object",
+              additionalProperties: true,
+            }),
           },
         },
       },

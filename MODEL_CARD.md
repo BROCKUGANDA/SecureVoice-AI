@@ -13,13 +13,13 @@ training/provenance, evaluation, limitations, and mitigations.
 SecureVoice is a fraud-intervention voice agent for banks. One call pipeline,
 three layers:
 
-| Layer | Component | Provider | Deterministic? |
-|---|---|---|---|
-| Decide | Intent routing (`src/app/api/agent/route.ts`) | — | ✅ keyword/state machine, server-side |
-| Decide | Compliance guardrails (`src/lib/compliance/policy.ts`) | — | ✅ server-enforced, no toggle |
-| Phrase | Reply drafting (`src/lib/llm.ts`) | Groq (default) / Gemini (fallback) | ❌ generative, audited post-hoc |
-| Speak | TTS | ElevenLabs (`multilingual_v2`, Swahili → `flash_v2_5`) | — |
-| Listen | ASR | ElevenLabs Scribe → Deepgram nova-2 → dev fallback | — |
+| Layer  | Component                                              | Provider                                               | Deterministic?                        |
+| ------ | ------------------------------------------------------ | ------------------------------------------------------ | ------------------------------------- |
+| Decide | Intent routing (`src/app/api/agent/route.ts`)          | —                                                      | ✅ keyword/state machine, server-side |
+| Decide | Compliance guardrails (`src/lib/compliance/policy.ts`) | —                                                      | ✅ server-enforced, no toggle         |
+| Phrase | Reply drafting (`src/lib/llm.ts`)                      | Groq (default) / Gemini (fallback)                     | ❌ generative, audited post-hoc       |
+| Speak  | TTS                                                    | ElevenLabs (`multilingual_v2`, Swahili → `flash_v2_5`) | —                                     |
+| Listen | ASR                                                    | ElevenLabs Scribe → Deepgram nova-2 → dev fallback     | —                                     |
 
 **The LLM never decides an action.** Intent classification (deny_fraud /
 confirm_authorized / greeting / unclear) and the action mapping (freeze /
@@ -46,14 +46,14 @@ behavior is identical without any LLM key.
 
 ## 4. Models & provenance
 
-| Field | Value |
-|---|---|
-| Default LLM | `qwen/qwen3.8-27b` served by Groq (LPUs) — **preview tier**: Groq's documentation warns preview models "should not be used in production environments as they may be discontinued at short notice" |
-| Fallback LLM | `gemini-1.5-flash` via Gemini's OpenAI-compatible endpoint |
+| Field                     | Value                                                                                                                                                                                                                                                                                                                                                   |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Default LLM               | `qwen/qwen3.8-27b` served by Groq (LPUs) — **preview tier**: Groq's documentation warns preview models "should not be used in production environments as they may be discontinued at short notice"                                                                                                                                                      |
+| Fallback LLM              | `gemini-1.5-flash` via Gemini's OpenAI-compatible endpoint                                                                                                                                                                                                                                                                                              |
 | Model selection rationale | ~400 ms round trips; clean spoken-style output. `llama-3.1-8b-instant` is a production-tier Groq model (confirmed in Groq's current Production Models table, 2026-10) and is the drop-in substitute whenever the preview default is withdrawn; `gpt-oss-120b` spends its token budget on reasoning and returns empty voice content at low `max_tokens`. |
-| Training data | Not disclosed by the providers; base models used zero-shot with a system prompt — no fine-tuning on customer data |
-| Voice models | ElevenLabs `eleven_multilingual_v2` (29 languages) + `eleven_flash_v2_5` (Swahili), preset voice per language |
-| ASR models | ElevenLabs Scribe → Deepgram nova-2 (language hints; unsupported pins → `multi`) |
+| Training data             | Not disclosed by the providers; base models used zero-shot with a system prompt — no fine-tuning on customer data                                                                                                                                                                                                                                       |
+| Voice models              | ElevenLabs `eleven_multilingual_v2` (29 languages) + `eleven_flash_v2_5` (Swahili), preset voice per language                                                                                                                                                                                                                                           |
+| ASR models                | ElevenLabs Scribe → Deepgram nova-2 (language hints; unsupported pins → `multi`)                                                                                                                                                                                                                                                                        |
 
 ## 5. Prompt contract (the voice rules)
 
@@ -70,22 +70,22 @@ Every LLM draft is generated under, and audited against, these rules:
 
 ## 6. Evaluation
 
-| Check | Method | Status |
-|---|---|---|
+| Check                          | Method                                                                                       | Status                                                                                                                                                                                                                     |
+| ------------------------------ | -------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Language correctness (6 langs) | Live `POST /api/agent` turn-API runs per language; replies must be in the requested language | spot-checked at demo freeze (fr/sw live; ar/hi/ur scripted + LLM spot checks). **No recorded conversation artifact is committed** — only English and Arabic have a recorded end-to-end conversation in the evidence bundle |
-| Latency | LLM draft round-trip (Groq) and the scripted-path reply | **not yet measured** as a p95 — the `0.4–0.9 s` figure is an observed draft range on a handful of runs, not a distribution; scripted path is a synchronous in-process lookup |
-| Credential-asking resistance | Post-generation deny-pattern scan + prompt-injection scanner on user input | enforced server-side, cannot be disabled |
-| Safety fallback | Kill the key → full behavior identical, scripted replies | verified |
+| Latency                        | LLM draft round-trip (Groq) and the scripted-path reply                                      | **not yet measured** as a p95 — the `0.4–0.9 s` figure is an observed draft range on a handful of runs, not a distribution; scripted path is a synchronous in-process lookup                                               |
+| Credential-asking resistance   | Post-generation deny-pattern scan + prompt-injection scanner on user input                   | enforced server-side, cannot be disabled                                                                                                                                                                                   |
+| Safety fallback                | Kill the key → full behavior identical, scripted replies                                     | verified                                                                                                                                                                                                                   |
 
 ## 7. Known limitations & mitigations
 
-| Limitation | Mitigation |
-|---|---|
-| Base models may hallucinate phrasing | Compliance scan + word ceiling + scripted fallback on any failure |
-| LLM availability/latency varies | 8 s hard timeout → scripted reply; nothing blocks on the model |
-| Free-tier quota | Deterministic path is free; BYOK and daily meters on voice; the LLM only drafts ≤ 50-word replies (small token cost) |
-| Language quality in ur/sw is provider-dependent | Gemini fallback documented; scripted replies are native-language and always available |
-| PII leakage into logs | All text is redacted (`src/lib/redact.ts`) before audit/webhook persistence |
+| Limitation                                      | Mitigation                                                                                                           |
+| ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| Base models may hallucinate phrasing            | Compliance scan + word ceiling + scripted fallback on any failure                                                    |
+| LLM availability/latency varies                 | 8 s hard timeout → scripted reply; nothing blocks on the model                                                       |
+| Free-tier quota                                 | Deterministic path is free; BYOK and daily meters on voice; the LLM only drafts ≤ 50-word replies (small token cost) |
+| Language quality in ur/sw is provider-dependent | Gemini fallback documented; scripted replies are native-language and always available                                |
+| PII leakage into logs                           | All text is redacted (`src/lib/redact.ts`) before audit/webhook persistence                                          |
 
 ## 8. Runtime deployment
 

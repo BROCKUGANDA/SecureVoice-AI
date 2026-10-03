@@ -24,7 +24,8 @@ export default async function InspectorPage() {
       <main className="mx-auto max-w-3xl px-6 py-24 text-center">
         <h1 className="text-2xl font-semibold">/inspector</h1>
         <p className="mt-3 text-sm opacity-70">
-          Operator access required. Sign in as the operator account to watch signed bank webhooks land.
+          Operator access required. Sign in as the operator account to watch signed bank webhooks
+          land.
         </p>
         <p className="mt-6 text-xs opacity-50">{guard.error}</p>
       </main>
@@ -38,7 +39,9 @@ export default async function InspectorPage() {
   });
 
   const rows: InspectorRow[] = stored.map((r) => {
-    const verdict = secret ? verifySignature(r.signatureHeader, r.body, secret) : { ok: false as const, reason: "receiver_unconfigured" };
+    const verdict = secret
+      ? verifySignature(r.signatureHeader, r.body, secret)
+      : { ok: false as const, reason: "receiver_unconfigured" };
     return {
       eventId: r.eventId,
       eventType: r.eventType,
@@ -57,8 +60,9 @@ export default async function InspectorPage() {
       <header className="mb-8">
         <h1 className="text-2xl font-semibold">Webhook inspector</h1>
         <p className="mt-2 text-sm opacity-70">
-          Signed bank notifications received by <code className="opacity-90">POST /api/webhooks/receiver</code>.
-          Each verdict below is recomputed on the server from the raw body — the same check a bank runs.
+          Signed bank notifications received by{" "}
+          <code className="opacity-90">POST /api/webhooks/receiver</code>. Each verdict below is
+          recomputed on the server from the raw body — the same check a bank runs.
         </p>
       </header>
       <Inspector initialRows={rows} />

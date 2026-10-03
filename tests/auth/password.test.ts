@@ -50,7 +50,7 @@ test("the live algorithm is reported explicitly", async () => {
 
 test("a stored hash ALWAYS names its algorithm in the first field", async () => {
   const stored = await hashPassword(SAMPLE);
-  const algorithm = stored.split("$")[0];
+  const algorithm = stored.split("$")[0]!; // the hash always has at least one "$" field
   expect(algorithm).toBe(await passwordHashingAlgorithm());
   // And it is one of the two real names — never a vague "hash" or "kdf".
   expect(["scrypt", "argon2id"]).toContain(algorithm);

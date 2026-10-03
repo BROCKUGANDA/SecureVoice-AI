@@ -1,11 +1,12 @@
-import { NextRequest, NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { z } from "zod";
 import { Prisma } from "@/generated/prisma/client";
 import { authorizeToolCall } from "@/lib/agent-tool-auth";
 import { CASE_STATES } from "@/lib/case-state-machine";
 import { append as auditAppend } from "@/lib/audit-chain";
 import { db } from "@/lib/db";
-import { badRequest, parseJson, unprocessable, schemaErrorCode } from "@/lib/api-errors"
+import { badRequest, parseJson, unprocessable, schemaErrorCode } from "@/lib/api-errors";
 
 export const dynamic = "force-dynamic";
 
@@ -17,7 +18,10 @@ const schema = z.strictObject({
     .string()
     .min(2)
     .max(16)
-    .regex(/^[a-zA-Z]{2,3}(-[a-zA-Z0-9]{2,8})*$/, "language must be a BCP-47 tag such as en, ar, hi or ur-AE"),
+    .regex(
+      /^[a-zA-Z]{2,3}(-[a-zA-Z0-9]{2,8})*$/,
+      "language must be a BCP-47 tag such as en, ar, hi or ur-AE",
+    ),
 });
 
 /**
@@ -34,14 +38,17 @@ export async function POST(req: NextRequest) {
 
   const parsed = schema.safeParse(body);
   if (!parsed.success) {
-    return unprocessable("conversation_id and a valid language tag are required", schemaErrorCode(parsed.error));
+    return unprocessable(
+      "conversation_id and a valid language tag are required",
+      schemaErrorCode(parsed.error),
+    );
   }
 
   const { conversation_id } = parsed.data;
   const language = parsed.data.language.toLowerCase();
 
   // In-memory — no database round trip.
-  const auth = authorizeToolCall(req.headers.get("x-agent-tool-secret"), TOOL_NAME);
+  const auth = await authorizeToolCall(req.headers.get("x-agent-tool-secret"), TOOL_NAME);
   if (!auth.ok) {
     return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status });
   }
@@ -74,18 +81,29 @@ export async function POST(req: NextRequest) {
       WHERE "conversationId" = ${conversation_id} LIMIT 1
     `);
     if (existing.length > 0) {
+      // `existing.length > 0` above proves index 0 exists.
+      const existingCase = existing[0]!;
       await auditAppend(
         {
-          callRef: existing[0].caseRef,
+          callRef: existingCase.caseRef,
           action: "agent",
           intent: `tool_refused_${TOOL_NAME}`,
           callerId: "agent-tool",
-          meta: { tool: TOOL_NAME, state: existing[0].state, allowedStates: CASE_STATES, reason: "state_precondition_failed" },
+          meta: {
+            tool: TOOL_NAME,
+            state: existingCase.state,
+            allowedStates: CASE_STATES,
+            reason: "state_precondition_failed",
+          },
         },
         { fast: true },
       ).catch(() => {});
       return NextResponse.json(
-        { ok: false, error: `tool ${TOOL_NAME} cannot act on a case in state ${existing[0].state}`, code: "state_precondition_failed" },
+        {
+          ok: false,
+          error: `tool ${TOOL_NAME} cannot act on a case in state ${existingCase.state}`,
+          code: "state_precondition_failed",
+        },
         { status: 409 },
       );
     }
@@ -95,18 +113,22 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const { caseRef, state } = rows[0];
+  // `rows.length === 0` above returns on every branch, so rows has >= 1 row.
+  const { caseRef, state } = rows[0]!;
 
   // Fire-and-forget: a reversible language preference must not add a second
   // round trip to the conversational critical path; the per-callRef chain lock
   // still serialises it behind any other append for this conversation.
-  void auditAppend({
-    callRef: caseRef,
-    action: "agent",
-    intent: "switch_language",
-    callerId: "agent-tool",
-    meta: { tool: TOOL_NAME, to_language: language, state, source: "elevenlabs_agent_tool" },
-  }, { fast: true }).catch(() => {});
+  void auditAppend(
+    {
+      callRef: caseRef,
+      action: "agent",
+      intent: "switch_language",
+      callerId: "agent-tool",
+      meta: { tool: TOOL_NAME, to_language: language, state, source: "elevenlabs_agent_tool" },
+    },
+    { fast: true },
+  ).catch(() => {});
 
   return NextResponse.json({
     ok: true,

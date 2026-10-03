@@ -182,16 +182,16 @@ export class CaseErasedError extends PayloadUnavailableError {
 
 export class PayloadNotSealedError extends PayloadUnavailableError {
   constructor(caseRef: string) {
-    super(caseRef, "no sealed payload exists for this case (sealCasePayload has not run, or the case holds no payload)");
+    super(
+      caseRef,
+      "no sealed payload exists for this case (sealCasePayload has not run, or the case holds no payload)",
+    );
     this.name = "PayloadNotSealedError";
   }
 }
 
 export class PayloadUndecryptableError extends PayloadUnavailableError {
-  constructor(
-    caseRef: string,
-    message: string,
-  ) {
+  constructor(caseRef: string, message: string) {
     super(caseRef, `ciphertext could not be decrypted: ${message}`);
     this.name = "PayloadUndecryptableError";
   }
@@ -283,17 +283,10 @@ function seal(key: Buffer, aad: string, plaintext: Buffer): RawEnvelope {
 }
 
 function open(key: Buffer, aad: string, envelope: Envelope): Buffer {
-  const decipher = createDecipheriv(
-    "aes-256-gcm",
-    key,
-    Buffer.from(envelope.iv, "base64"),
-  );
+  const decipher = createDecipheriv("aes-256-gcm", key, Buffer.from(envelope.iv, "base64"));
   decipher.setAAD(Buffer.from(aad, "utf8"));
   decipher.setAuthTag(Buffer.from(envelope.tag, "base64"));
-  return Buffer.concat([
-    decipher.update(Buffer.from(envelope.ct, "base64")),
-    decipher.final(),
-  ]);
+  return Buffer.concat([decipher.update(Buffer.from(envelope.ct, "base64")), decipher.final()]);
 }
 
 /** The data key is bound to its case: a wrapped key cannot be moved between cases. */
@@ -340,7 +333,10 @@ type WrappedCaseKey = { caseRef: string; wrapped: string; fingerprint: string; c
  * nobody can look up), so this must never fall back to "just make another one".
  */
 async function loadOrCreateWrappedKey(caseRef: string): Promise<WrappedCaseKey> {
-  const existing = await db.case.findUnique({ where: { caseRef }, select: { dataKeyEnc: true, erasedAt: true } });
+  const existing = await db.case.findUnique({
+    where: { caseRef },
+    select: { dataKeyEnc: true, erasedAt: true },
+  });
   if (!existing) throw new CaseNotFoundError(caseRef);
   if (existing.erasedAt) throw new CaseErasedError(caseRef);
   if (existing.dataKeyEnc) {
@@ -385,7 +381,9 @@ async function loadOrCreateWrappedKey(caseRef: string): Promise<WrappedCaseKey> 
       };
     }
   }
-  throw new Error(`Could not establish a data key for ${caseRef} after 3 attempts (concurrent writers?)`);
+  throw new Error(
+    `Could not establish a data key for ${caseRef} after 3 attempts (concurrent writers?)`,
+  );
 }
 
 /** The public form: a fingerprint, never key material. */
@@ -458,7 +456,10 @@ export async function sealCasePayload(
   input: SealInput,
   opts: SealOptions = {},
 ): Promise<SealResult> {
-  const row = await db.case.findUnique({ where: { caseRef }, select: { orgId: true, erasedAt: true } });
+  const row = await db.case.findUnique({
+    where: { caseRef },
+    select: { orgId: true, erasedAt: true },
+  });
   if (!row) throw new CaseNotFoundError(caseRef);
   if (row.erasedAt) throw new CaseErasedError(caseRef);
 
@@ -613,7 +614,10 @@ export async function readCasePayload(caseRef: string): Promise<SealedPayload> {
 
   let decoded: { transcript: string | null; analysis: unknown };
   try {
-    decoded = JSON.parse(plaintext.toString("utf8")) as { transcript: string | null; analysis: unknown };
+    decoded = JSON.parse(plaintext.toString("utf8")) as {
+      transcript: string | null;
+      analysis: unknown;
+    };
   } finally {
     zeroize(plaintext);
   }
@@ -647,7 +651,8 @@ export type ErasureResult = {
   clearedColumns: string[];
   keyDestroyed: boolean;
   ciphertextRows: number;
-  chainEvent: { rowId: string; chainHash: string } | { rowId: null; chainHash: null; error: string };
+  chainEvent:
+    { rowId: string; chainHash: string } | { rowId: null; chainHash: null; error: string };
 };
 
 /** Null every payload column that actually held data, reporting which. */
@@ -686,7 +691,10 @@ async function countSealedRows(callRef: string): Promise<number> {
  *      evidence, the destruction is the obligation. A witness that failed to
  *      write is logged and reported, never retried by hiding the erasure.
  */
-export async function eraseCase(caseRef: string, opts: ErasureOptions = {}): Promise<ErasureResult> {
+export async function eraseCase(
+  caseRef: string,
+  opts: ErasureOptions = {},
+): Promise<ErasureResult> {
   const row = await db.case.findUnique({ where: { caseRef } });
   if (!row) throw new CaseNotFoundError(caseRef);
   if (row.erasedAt) {
@@ -697,7 +705,11 @@ export async function eraseCase(caseRef: string, opts: ErasureOptions = {}): Pro
       clearedColumns: [],
       keyDestroyed: false,
       ciphertextRows: await countSealedRows(caseRef),
-      chainEvent: { rowId: null, chainHash: null, error: "already erased; no second witness appended" },
+      chainEvent: {
+        rowId: null,
+        chainHash: null,
+        error: "already erased; no second witness appended",
+      },
     };
   }
 
@@ -718,7 +730,13 @@ export async function eraseCase(caseRef: string, opts: ErasureOptions = {}): Pro
     const cleared = await clearPayloadColumns(tx, caseRef);
     await tx.case.update({
       where: { caseRef },
-      data: { dataKeyEnc: null, erasedAt, transcriptRedacted: null, evaluationResults: null, dataCollectionResults: null },
+      data: {
+        dataKeyEnc: null,
+        erasedAt,
+        transcriptRedacted: null,
+        evaluationResults: null,
+        dataCollectionResults: null,
+      },
       select: { id: true },
     });
     return cleared;
@@ -771,7 +789,10 @@ export async function eraseCase(caseRef: string, opts: ErasureOptions = {}): Pro
  * the case's audit rows keep verifying on their own. Any payload or key is
  * shredded first so the ciphertext left in the chain is already inert.
  */
-export async function deleteCaseRecord(caseRef: string, opts: ErasureOptions = {}): Promise<{
+export async function deleteCaseRecord(
+  caseRef: string,
+  opts: ErasureOptions = {},
+): Promise<{
   caseRef: string;
   clearedColumns: string[];
   keyDestroyed: boolean;

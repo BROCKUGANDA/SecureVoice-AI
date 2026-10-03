@@ -77,9 +77,6 @@ services:
     build:
       context: .
       target: builder
-      args:
-        # Inlined into the Next.js bundle at build time â€” see Dockerfile.
-        NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY:-}
     logging: *default-logging
     environment:
       # Built from PARTS, not interpolated as a whole: a stray DATABASE_URL in a
@@ -168,8 +165,9 @@ services:
       context: .
       target: runner
       args:
-        # Inlined into the Next.js bundle at build time â€” see Dockerfile.
-        NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY:-}
+        BUILD_DATABASE_URL: ${DATABASE_URL:-postgresql://securevoice:securevoice@db:5432/securevoice?schema=public}
+        BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set in .env}
+        BETTER_AUTH_URL: ${BETTER_AUTH_URL:-https://localhost:3000}
     # IMAGE lets a release job smoke-test the image it just published instead of a
     # locally rebuilt copy. Unset (the normal case) => build from source.
     # `${VAR:-}` with no value yields an empty string, and compose treats that as
@@ -248,8 +246,6 @@ services:
     build:
       context: .
       target: runner
-      args:
-        NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY:-}
     logging: *default-logging
     environment:
       HOSTNAME: 0.0.0.0

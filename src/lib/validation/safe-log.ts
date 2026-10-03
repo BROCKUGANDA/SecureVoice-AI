@@ -116,7 +116,9 @@ export function sanitiseLogValue(value: unknown, depth = 0, limits: LogLimits = 
   }
 
   if (Array.isArray(value)) {
-    const kept = value.slice(0, maxEntries).map((item) => sanitiseLogValue(item, depth + 1, limits));
+    const kept = value
+      .slice(0, maxEntries)
+      .map((item) => sanitiseLogValue(item, depth + 1, limits));
     if (value.length > maxEntries) kept.push(`[+${value.length - maxEntries} more]`);
     return kept;
   }
@@ -143,7 +145,7 @@ export function sanitiseLogValue(value: unknown, depth = 0, limits: LogLimits = 
 /** Sanitise a field bag. Field names are sanitised too — they come from code, but a mapping key does not. */
 export function sanitiseLogFields(
   fields: Record<string, unknown> | undefined,
-  limits: LogLimits = {}
+  limits: LogLimits = {},
 ): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   if (!fields) return out;
@@ -192,7 +194,7 @@ export function safeLog(
   level: LogLevel,
   msg: string,
   fields?: Record<string, unknown>,
-  sink: LogSink = consoleSink
+  sink: LogSink = consoleSink,
 ): string {
   const record: LogRecord = {
     level,

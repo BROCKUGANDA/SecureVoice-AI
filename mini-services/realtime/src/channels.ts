@@ -41,7 +41,7 @@ export function orgChannel(orgId: string): string {
  * stripped here even though the audit chain's safeKey() allows them. Allowing
  * them would let `orgId = "a:case:org_b"` produce a five-segment name that the
  * three-part join parser could never reconstruct — an unjoinable channel, and a
- * latent cross-org confusion bug. Org ids are Clerk ids (`org_…`) and call refs
+ * latent cross-org confusion bug. Org ids are Better Auth org ids (`org_…`) and call refs
  * are `SV-…`, so nothing legitimate is lost.
  */
 export function safeSegment(v: string, max: number): string {

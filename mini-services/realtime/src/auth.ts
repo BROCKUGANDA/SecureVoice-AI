@@ -1,7 +1,7 @@
 /**
  * Realtime grant tokens.
  *
- * The realtime service cannot validate a Clerk session — Clerk lives in the
+ * The realtime service cannot validate a Better Auth session — Clerk lives in the
  * Next.js app, and the socket server holds no user records. So the trust
  * decision is delegated:
  *
@@ -90,7 +90,11 @@ export function sign(payload: GrantPayload, secret: string): string {
  * Verify a grant. Every failure returns the same 401 at the HTTP boundary; the
  * `reason` exists for logs and tests, never for the caller.
  */
-export function verify(token: string | undefined | null, secret: string, nowSec = Math.floor(Date.now() / 1000)): VerifiedGrant {
+export function verify(
+  token: string | undefined | null,
+  secret: string,
+  nowSec = Math.floor(Date.now() / 1000),
+): VerifiedGrant {
   if (!secret) return { ok: false, reason: "malformed" };
   if (!token) return { ok: false, reason: "malformed" };
 

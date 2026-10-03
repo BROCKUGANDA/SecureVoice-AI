@@ -1,4 +1,3 @@
-import { clerkMiddleware } from "@clerk/nextjs/server";
 import { NextResponse, type NextRequest } from "next/server";
 import { consume } from "@/lib/ratelimit";
 
@@ -22,7 +21,7 @@ import { consume } from "@/lib/ratelimit";
  *      proxy sets, and only when Caddy identifies itself on the connection.
  *   3. Geo + language resolution — turn proxy-supplied facts into headers the app
  *      can read, without pulling in a geo library or requiring a CDN.
- *   4. Pre-auth rate limiting — runs before Clerk and before any body is parsed,
+ *   4. Pre-auth rate limiting - runs before any session lookup and before any body is parsed,
  *      so a scraper never reaches an expensive handler.
  *   5. Oversize-body reject — 413 with the real limit, instead of letting a huge
  *      body get buffered and then fail JSON parsing with a confusing 400.
@@ -102,8 +101,11 @@ function resolveLanguage(req: NextRequest): string | null {
   for (const part of header.split(",")) {
     const tag = part.split(";")[0]?.trim().toLowerCase();
     if (!tag) continue;
-    const base = tag.split("-")[0];
-    if (SUPPORTED.includes(base as (typeof SUPPORTED)[number])) return base;
+    // `split` always yields at least one element, so element 0 is the primary
+    // subtag; `?? null` keeps the "not one of ours" case explicit instead of
+    // asserting an index that can be missing.
+    const base = tag.split("-")[0] ?? null;
+    if (base && SUPPORTED.includes(base as (typeof SUPPORTED)[number])) return base;
   }
   return null;
 }
@@ -147,7 +149,7 @@ function reject(
  * the authenticated Command Center — from one client-side `view` state, with no
  * `usePathname`, no `router.push`, and no `history.pushState` anywhere in the
  * tree. So the console cannot be de-indexed by path: there is no path to
- * exclude. What protects it is (a) Clerk gating the data and (b) never handing
+ * exclude. What protects it is (a) the session guard gating the data and (b) never handing
  * a crawler a URL that resolves to it.
  *
  * That leaves exactly two HTML routes in the tree — `/` and `/inspector` — and
@@ -268,7 +270,28 @@ export function applySurfaceHeaders(res: NextResponse, pathname: string): NextRe
   return res;
 }
 
-export default clerkMiddleware((_auth, req) => {
+/**
+ * Edge middleware.
+ *
+ * Previously this was `clerkMiddleware(handler)`, which wrapped our
+ * handler in Clerk's session machinery. It no longer is: Better Auth resolves the
+ * session inside the route (src/app/api/auth/[...all]/route.ts) and in each
+ * guard via `auth.api.getSession({ headers })`.
+ *
+ * That is not a downgrade in protection — it is the documented Better Auth pattern,
+ * and it is stronger in one respect: an edge cookie-presence check is a routing
+ * optimisation, not authorisation. Leaving Clerk in the middleware would also have
+ * meant two identity systems live at once (hazard AU-7), which is how
+ * privilege-escalation bugs happen.
+ *
+ * The handler below never used the auth argument, so unwrapping is behaviour-
+ * preserving for every path except the `/__clerk/*` proxy, which no longer exists.
+ *
+ * Note for the reader who looks for Clerk here and does not find it: session
+ * presence is NOT checked in this file, deliberately. Every page, route handler
+ * and Server Action performs its own authoritative `getSession`.
+ */
+export default function proxy(req: NextRequest): NextResponse {
   const requestId = req.headers.get(REQUEST_ID)?.slice(0, 64) || crypto.randomUUID();
   const pathname = req.nextUrl.pathname;
 
@@ -281,7 +304,7 @@ export default clerkMiddleware((_auth, req) => {
     return reject(req, 413, "payload_too_large", requestId);
   }
 
-  // 2. Pre-auth rate limit, before Clerk touches the session and before any
+  // 2. Pre-auth rate limit, before any session lookup and before any body is
   //    handler runs. Keyed by resolved client IP so one noisy caller cannot
   //    exhaust a shared bucket.
   if (!RL_EXEMPT.some((re) => re.test(pathname))) {
@@ -303,19 +326,19 @@ export default clerkMiddleware((_auth, req) => {
   const country = resolveCountry(req);
   if (country) headers.set("x-securevoice-country", country);
 
-// NextResponse.next({ request: { headers } }) makes these visible UPSTREAM to
+  // NextResponse.next({ request: { headers } }) makes these visible UPSTREAM to
   // the route handler. Passing them as `headers` instead would expose them to
   // the client, which is why the distinction matters.
   const res = NextResponse.next({ request: { headers } });
   res.headers.set(REQUEST_ID, requestId);
   return applySurfaceHeaders(res, pathname);
-});
-
+}
 export const config = {
   matcher: [
-    // Clerk's auto-proxy path must come after the API matcher
+    // Static assets and Next internals are excluded; everything else gets the
+    // request id, client ip, language, country and surface headers. The
+    // `/__clerk/*` proxy matcher that used to sit here is gone with Clerk.
     "/((?!_next|[^?]*\\.(?:html?|css|js(?!on)|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest|mp3|wav)).*)",
     "/(api|trpc)(.*)",
-    "/__clerk/:path*",
   ],
 };

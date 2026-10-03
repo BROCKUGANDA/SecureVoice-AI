@@ -16,8 +16,8 @@ on:
     tags: ["v*"]
 
 permissions:
-  contents: write   # create the GitHub release
-  packages: write   # push to GHCR
+  contents: write # create the GitHub release
+  packages: write # push to GHCR
 
 jobs:
   release:

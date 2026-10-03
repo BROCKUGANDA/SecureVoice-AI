@@ -49,8 +49,7 @@ export const ELEVENLABS_MAX_CONCURRENT = (() => {
  * `ELEVENLABS_BURST_MULTIPLIER`, then shed.
  */
 const ELEVENLABS_BURST_MULTIPLIER = 3;
-export const ELEVENLABS_BURST_CEILING =
-  ELEVENLABS_MAX_CONCURRENT * ELEVENLABS_BURST_MULTIPLIER;
+export const ELEVENLABS_BURST_CEILING = ELEVENLABS_MAX_CONCURRENT * ELEVENLABS_BURST_MULTIPLIER;
 
 /**
  * ─────────────────────────────────────────────────────────────────────────────
@@ -118,7 +117,8 @@ export type AdmissionBand = "NORMAL" | "CONSTRAINED" | "SHED";
  */
 export function bandFor(activeConversations: number): AdmissionBand {
   if (activeConversations >= ELEVENLABS_BURST_CEILING * BAND_ENTER_SHED_PCT) return "SHED";
-  if (activeConversations >= ELEVENLABS_BURST_CEILING * BAND_ENTER_CONSTRAINED_PCT) return "CONSTRAINED";
+  if (activeConversations >= ELEVENLABS_BURST_CEILING * BAND_ENTER_CONSTRAINED_PCT)
+    return "CONSTRAINED";
   return "NORMAL";
 }
 
@@ -136,11 +136,17 @@ export function admitsVoice(
 ): { admitted: boolean; fallback: "sms" | "app_push" | null; reason: string } {
   if (band === "NORMAL") return { admitted: true, fallback: null, reason: "normal_capacity" };
   if (band === "CONSTRAINED") {
-    if (expectedLoss >= shedThreshold) return { admitted: true, fallback: null, reason: "constrained_above_threshold" };
-    return { admitted: false, fallback: "sms", reason: "constrained_below_expected_loss_threshold" };
+    if (expectedLoss >= shedThreshold)
+      return { admitted: true, fallback: null, reason: "constrained_above_threshold" };
+    return {
+      admitted: false,
+      fallback: "sms",
+      reason: "constrained_below_expected_loss_threshold",
+    };
   }
   // SHED — voice reserved for the top tier only.
-  if (expectedLoss >= shedThreshold * 4) return { admitted: true, fallback: null, reason: "shed_top_tier_exception" };
+  if (expectedLoss >= shedThreshold * 4)
+    return { admitted: true, fallback: null, reason: "shed_top_tier_exception" };
   return { admitted: false, fallback: "app_push", reason: "shed_voice_reserved_for_top_tier" };
 }
 

@@ -66,7 +66,10 @@ function isClaim(row: { response: string }): boolean {
 
 /** Deserialize a stored response; a corrupt row is treated as absent (and
  *  deleted) rather than 500ing every replay of that key for 24h. */
-function tryDeserialize<T>(deserialize: (s: string) => T, s: string): { ok: true; value: T } | { ok: false } {
+function tryDeserialize<T>(
+  deserialize: (s: string) => T,
+  s: string,
+): { ok: true; value: T } | { ok: false } {
   try {
     return { ok: true, value: deserialize(s) };
   } catch {
@@ -74,7 +77,9 @@ function tryDeserialize<T>(deserialize: (s: string) => T, s: string): { ok: true
   }
 }
 
-export async function withIdempotency<T>(opts: IdempotencyOptions<T>): Promise<IdempotencyResult<T>> {
+export async function withIdempotency<T>(
+  opts: IdempotencyOptions<T>,
+): Promise<IdempotencyResult<T>> {
   const key = hashKey(opts.key);
   const serialize = opts.serialize ?? ((v: T) => JSON.stringify(v));
   const deserialize = opts.deserialize ?? ((s: string) => JSON.parse(s) as T);
@@ -205,8 +210,8 @@ export async function withIdempotencyFast<T>(opts: {
   // 2. Execute and store. The create is fire-and-forget: the response is
   //    returned before the idempotency row lands. A replay that arrives
   //    before the create completes will re-execute fn() — acceptable because
-    //    fn() is idempotent by construction (the signal's own transaction is
-    //    the real dedup). This keeps the critical path to two round-trips.
+  //    fn() is idempotent by construction (the signal's own transaction is
+  //    the real dedup). This keeps the critical path to two round-trips.
   try {
     const value = await opts.fn();
     // Fire-and-forget the store. If it loses a race to a concurrent request,
@@ -230,5 +235,10 @@ export async function withIdempotencyFast<T>(opts: {
 }
 
 function isUniqueViolation(err: unknown): boolean {
-  return typeof err === "object" && err !== null && "code" in err && (err as { code?: string }).code === "23505";
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    "code" in err &&
+    (err as { code?: string }).code === "23505"
+  );
 }

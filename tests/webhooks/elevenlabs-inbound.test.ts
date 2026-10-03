@@ -39,7 +39,11 @@ function postCallPayload(conversationId: string = CONV_ID): string {
       transcript: [
         { role: "agent", message: "We detected a charge of AED 2500. Did you make it?" },
         { role: "user", message: "No. My card number is 4242 4242 4242 4242." },
-        { role: "agent", message: "I will stage a temporary freeze, thank you.", tool_calls: [{ tool_name: "verify_transaction" }] },
+        {
+          role: "agent",
+          message: "I will stage a temporary freeze, thank you.",
+          tool_calls: [{ tool_name: "verify_transaction" }],
+        },
         { role: "user", message: "And the OTP they sent me was 88213. My CVV is 7342." },
       ],
       analysis: {

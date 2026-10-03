@@ -133,10 +133,15 @@ function mockPaystack(
   const http: HttpClient = async (url, init) => {
     const method = String(init.method ?? "GET");
     const path = new URL(url).pathname;
-    const body = typeof init.body === "string" ? (JSON.parse(init.body) as Record<string, unknown>) : null;
+    const body =
+      typeof init.body === "string" ? (JSON.parse(init.body) as Record<string, unknown>) : null;
     calls.push({ method, path, body });
 
-    if (options.rateLimit && options.rateLimit.path === path && rateLimitHits.length < options.rateLimit.times) {
+    if (
+      options.rateLimit &&
+      options.rateLimit.path === path &&
+      rateLimitHits.length < options.rateLimit.times
+    ) {
       rateLimitHits.push(rateLimitHits.length);
       return json({ status: false, message: "rate limited" }, 429);
     }
@@ -150,13 +155,16 @@ function mockPaystack(
       return json({
         status: true,
         message: "Authorization URL created",
-        data: { authorization_url: "https://checkout.paystack.test/abc", access_code: "access_test_1", reference: body?.reference },
+        data: {
+          authorization_url: "https://checkout.paystack.test/abc",
+          access_code: "access_test_1",
+          reference: body?.reference,
+        },
       });
     }
     if (method === "GET" && path.startsWith("/transaction/verify/")) {
       const reference = decodeURIComponent(path.slice("/transaction/verify/".length));
-      const seen =
-        options.verifyStatus?.(reference) ??
+      const seen = options.verifyStatus?.(reference) ??
         known.get(reference) ?? { status: "failed", amountMinor: 0, currency: "AED" };
       return json({
         status: true,
@@ -177,7 +185,12 @@ function mockPaystack(
       });
       return json({
         status: true,
-        data: { reference: body?.reference, status: "success", amount: body?.amount, currency: body?.currency },
+        data: {
+          reference: body?.reference,
+          status: "success",
+          amount: body?.amount,
+          currency: body?.currency,
+        },
       });
     }
     if (method === "POST" && path === "/transaction/refund") {
@@ -200,7 +213,9 @@ function signedWebhook(payload: Record<string, unknown>): { raw: Buffer; signatu
   return { raw, signature: paystackDigest(raw, SECRET) };
 }
 
-const entitlements: StoredEntitlement[] = [{ key: "platform_licence", label: "Platform licence", units: 0 }];
+const entitlements: StoredEntitlement[] = [
+  { key: "platform_licence", label: "Platform licence", units: 0 },
+];
 
 beforeAll(() => {
   process.env.PAYSTACK_ALLOW_LIVE_KEYS = "0";
@@ -262,7 +277,12 @@ test("WP-13: 100 concurrent reservations never oversell", async () => {
   //       negative at any point any caller could observe ──
   const extra = await Promise.all(
     Array.from({ length: CAPACITY }, (_, i) =>
-      reserve({ orgId: org, caseRef: `RACE2-${RUN}-${i}`, unitsEstimate: 1, reason: "oversell attempt" }),
+      reserve({
+        orgId: org,
+        caseRef: `RACE2-${RUN}-${i}`,
+        unitsEstimate: 1,
+        reason: "oversell attempt",
+      }),
     ),
   );
   expect(extra.every((w) => !w.ok)).toBe(true);
@@ -299,7 +319,12 @@ test("WP-13: partial fills never oversell — 250 units of capacity, 100 x 30 re
 
   const writes = await Promise.all(
     Array.from({ length: 100 }, (_, i) =>
-      reserve({ orgId: org, caseRef: `PART-${RUN}-${i}`, unitsEstimate: 30, reason: "oversized reservation" }),
+      reserve({
+        orgId: org,
+        caseRef: `PART-${RUN}-${i}`,
+        unitsEstimate: 30,
+        reason: "oversized reservation",
+      }),
     ),
   );
 
@@ -315,7 +340,9 @@ test("WP-13: partial fills never oversell — 250 units of capacity, 100 x 30 re
   expect(await balance(org)).toBe(10);
 
   // A 10-unit hold still fits in the 10 left; an 11-unit hold does not.
-  expect((await reserve({ orgId: org, caseRef: `PART-FIT-${RUN}`, unitsEstimate: 10 })).ok).toBe(true);
+  expect((await reserve({ orgId: org, caseRef: `PART-FIT-${RUN}`, unitsEstimate: 10 })).ok).toBe(
+    true,
+  );
   const doesNot = await reserve({ orgId: org, caseRef: `PART-OVER-${RUN}`, unitsEstimate: 11 });
   expect(doesNot.ok).toBe(false);
   expect(await balance(org)).toBe(0);
@@ -329,7 +356,12 @@ test("WP-13: reconciliation is exact after a mixed reserve/consume/release seque
 
   // Case 1: estimate 900 units, actually used 420.
   const caseRef = `SV-WP13-${RUN}`;
-  const reserved = await reserve({ orgId: org, caseRef, unitsEstimate: 900, reason: "dial estimate" });
+  const reserved = await reserve({
+    orgId: org,
+    caseRef,
+    unitsEstimate: 900,
+    reason: "dial estimate",
+  });
   expect(reserved.ok).toBe(true);
   if (!reserved.ok) throw new Error("unreachable");
   expect(reserved.snapshot.available).toBe(99_100);
@@ -374,7 +406,12 @@ test("WP-13: reconciliation is exact after a mixed reserve/consume/release seque
   // dip the organisation below zero.
   const overRef = `SV-WP13-OVER-${RUN}`;
   await reserve({ orgId: org, caseRef: overRef, unitsEstimate: 10, reason: "dial estimate" });
-  const overConsume = await consume({ orgId: org, caseRef: overRef, unitsActual: 50, reason: "bad report" });
+  const overConsume = await consume({
+    orgId: org,
+    caseRef: overRef,
+    unitsActual: 50,
+    reason: "bad report",
+  });
   expect(overConsume.ok).toBe(false);
   if (!overConsume.ok) expect(overConsume.reason).toBe("insufficient_hold");
   await release({ orgId: org, caseRef: overRef, units: 10, reason: "unwind" });
@@ -434,7 +471,12 @@ test("WP-13: reconciliation is exact after a mixed reserve/consume/release seque
 test("WP-13: replayed Paystack webhook charges once; SHA-256, re-serialised bodies and forgeries are rejected", async () => {
   const org = `${ORG}-paystack`;
   const { http, calls } = mockPaystack();
-  const provider = createPaystackProvider({ secretKey: SECRET, http, sleep: noSleep, rand: fixedRand });
+  const provider = createPaystackProvider({
+    secretKey: SECRET,
+    http,
+    sleep: noSleep,
+    rand: fixedRand,
+  });
   const cfg = paystackConfig({ secretKey: SECRET, http, sleep: noSleep, rand: fixedRand });
 
   // ── checkout: OUR reference, our shape, integer minor units ──
@@ -483,7 +525,10 @@ test("WP-13: replayed Paystack webhook charges once; SHA-256, re-serialised bodi
     },
   });
 
-  const first = await provider.verifyWebhook({ rawBody: raw, headers: { [PAYSTACK_SIGNATURE_HEADER]: signature } });
+  const first = await provider.verifyWebhook({
+    rawBody: raw,
+    headers: { [PAYSTACK_SIGNATURE_HEADER]: signature },
+  });
   expect(first.ok).toBe(true);
   if (!first.ok) throw new Error("unreachable");
   expect(first.event.eventId).toBe(`evt_${RUN}_1`);
@@ -583,14 +628,22 @@ test("WP-13: replayed Paystack webhook charges once; SHA-256, re-serialised bodi
   const wrongKey = paystackDigest(raw, `${SECRET}x`);
   expect(wrongKey).not.toBe(signature);
   expect(
-    (await provider.verifyWebhook({ rawBody: raw, headers: { [PAYSTACK_SIGNATURE_HEADER]: wrongKey } })).ok,
+    (
+      await provider.verifyWebhook({
+        rawBody: raw,
+        headers: { [PAYSTACK_SIGNATURE_HEADER]: wrongKey },
+      })
+    ).ok,
   ).toBe(false);
 
   // ── missing / malformed headers ──
   const missing = await provider.verifyWebhook({ rawBody: raw, headers: {} });
   if (missing.ok) throw new Error("unreachable");
   expect(missing.reason).toBe("missing_signature");
-  const malformed = await provider.verifyWebhook({ rawBody: raw, headers: { [PAYSTACK_SIGNATURE_HEADER]: "not-hex" } });
+  const malformed = await provider.verifyWebhook({
+    rawBody: raw,
+    headers: { [PAYSTACK_SIGNATURE_HEADER]: "not-hex" },
+  });
   if (malformed.ok) throw new Error("unreachable");
   expect(malformed.reason).toBe("malformed_signature");
 
@@ -607,7 +660,13 @@ test("WP-13: replayed Paystack webhook charges once; SHA-256, re-serialised bodi
   if (junkResult.ok) throw new Error("unreachable");
   expect(junkResult.reason).toBe("unsupported_event");
   // A float amount is not a money amount.
-  expect(decodeEvent({ event: "charge.success", id: "1", data: { reference: "r", amount: 1.5, currency: "AED" } })).toBeNull();
+  expect(
+    decodeEvent({
+      event: "charge.success",
+      id: "1",
+      data: { reference: "r", amount: 1.5, currency: "AED" },
+    }),
+  ).toBeNull();
 
   // ── the browser callback is NEVER trusted ──
   // The reference is the one OUR checkout generated; the buyer returns it in the
@@ -630,7 +689,11 @@ test("WP-13: replayed Paystack webhook charges once; SHA-256, re-serialised bodi
     reference: callbackRef,
     expected: { amountMinor: callbackAmount, currency: "AED" },
     provider,
-    verify: async () => ({ ok: true, status: "success", money: { amountMinor: 1, currency: "AED" } }),
+    verify: async () => ({
+      ok: true,
+      status: "success",
+      money: { amountMinor: 1, currency: "AED" },
+    }),
     claimedStatus: "success",
   });
   expect(amountMismatch.ok).toBe(false);
@@ -642,7 +705,11 @@ test("WP-13: replayed Paystack webhook charges once; SHA-256, re-serialised bodi
     reference: callbackRef,
     expected: { amountMinor: callbackAmount, currency: "AED" },
     provider,
-    verify: async () => ({ ok: true, status: "success", money: { amountMinor: callbackAmount, currency: "NGN" } }),
+    verify: async () => ({
+      ok: true,
+      status: "success",
+      money: { amountMinor: callbackAmount, currency: "NGN" },
+    }),
     claimedStatus: "success",
   });
   if (currencyMismatch.ok) throw new Error("unreachable");
@@ -653,7 +720,11 @@ test("WP-13: replayed Paystack webhook charges once; SHA-256, re-serialised bodi
     reference: callbackRef,
     expected: { amountMinor: callbackAmount, currency: "AED" },
     provider,
-    verify: async () => ({ ok: true, status: "failed", money: { amountMinor: callbackAmount, currency: "AED" } }),
+    verify: async () => ({
+      ok: true,
+      status: "failed",
+      money: { amountMinor: callbackAmount, currency: "AED" },
+    }),
     claimedStatus: "success",
   });
   expect(notSuccess.ok).toBe(false);
@@ -715,7 +786,12 @@ test("WP-13: replayed Paystack webhook charges once; SHA-256, re-serialised bodi
 
   // ── 429 is retried with jittered backoff, then succeeds ──
   const rl = mockPaystack({ rateLimit: { path: "/transaction/initialize", times: 2 } });
-  const rlProvider = createPaystackProvider({ secretKey: SECRET, http: rl.http, sleep: noSleep, rand: fixedRand });
+  const rlProvider = createPaystackProvider({
+    secretKey: SECRET,
+    http: rl.http,
+    sleep: noSleep,
+    rand: fixedRand,
+  });
   const rlSession = await rlProvider.createCheckout({
     orgId: org,
     purpose: "topup",
@@ -733,7 +809,9 @@ test("WP-13: replayed Paystack webhook charges once; SHA-256, re-serialised bodi
   expect(backoffMs(1, () => 1)).toBeGreaterThan(backoffMs(1, () => 0));
 
   // A live key is refused outright unless explicitly overridden.
-  expect(() => createPaystackProvider({ secretKey: "sk_live_abcdef", http })).toThrow(/test-keys-only/);
+  expect(() => createPaystackProvider({ secretKey: "sk_live_abcdef", http })).toThrow(
+    /test-keys-only/,
+  );
 
   // Nothing in this test left the process.
   expect(NETWORK_CALLS).toEqual([]);
@@ -780,10 +858,16 @@ test("WP-13: manual invoice enforces dual control and audit-chains both actions"
   if (selfVerify.ok) throw new Error("unreachable");
   expect(selfVerify.reason).toBe("self_verification_forbidden");
   expect(await balance(org)).toBe(0);
-  expect((await db.paymentRecord.findUnique({ where: { reference: bankRef } }))?.status).toBe("pending");
+  expect((await db.paymentRecord.findUnique({ where: { reference: bankRef } }))?.status).toBe(
+    "pending",
+  );
 
   // ── a DIFFERENT operator may ──
-  const verified = await verifyPayment({ bankReference: bankRef, verifiedBy: operatorB, note: "seen on statement" });
+  const verified = await verifyPayment({
+    bankReference: bankRef,
+    verifiedBy: operatorB,
+    note: "seen on statement",
+  });
   expect(verified.ok).toBe(true);
   if (!verified.ok) throw new Error("unreachable");
   expect(verified.unitsCredited).toBe(500_000);
@@ -815,7 +899,11 @@ test("WP-13: manual invoice enforces dual control and audit-chains both actions"
   expect(intents).toContain("payment_selfverify_blocked");
   expect(intents).toContain("payment_verified");
   // The BLOCKED self-verification is on the record, not swallowed.
-  expect(await db.auditLog.count({ where: { callRef: `PAY-${bankRef}`, intent: "payment_selfverify_blocked" } })).toBe(1);
+  expect(
+    await db.auditLog.count({
+      where: { callRef: `PAY-${bankRef}`, intent: "payment_selfverify_blocked" },
+    }),
+  ).toBe(1);
   // Chain hashes are distinct — these are real links, not duplicate rows.
   expect(new Set(auditRows.map((r) => r.chainHash)).size).toBe(auditRows.length);
 
@@ -865,7 +953,8 @@ test("WP-13: the breaker stops the 101st call and alerts at 60/80/95", async () 
 
   // ── one call per 1% of the cap. The decision is taken BEFORE its own units
   //    land, which is exactly what a request handler sees. ──
-  const decisions: { call: number; decision: string; threshold: number | null; percent: number }[] = [];
+  const decisions: { call: number; decision: string; threshold: number | null; percent: number }[] =
+    [];
   for (let call = 1; call <= 101; call++) {
     const d = await assertWithinBudget({ orgId: org, units: 1_000, now });
     decisions.push({
@@ -889,7 +978,12 @@ test("WP-13: the breaker stops the 101st call and alerts at 60/80/95", async () 
       }
     }
     if (maySpend(d)) {
-      await topup({ orgId: org, units: 1_000, eventId: `brk-${RUN}-${call}`, reason: `spend ${call}` });
+      await topup({
+        orgId: org,
+        units: 1_000,
+        eventId: `brk-${RUN}-${call}`,
+        reason: `spend ${call}`,
+      });
     }
   }
 
@@ -934,7 +1028,9 @@ test("WP-13: the breaker stops the 101st call and alerts at 60/80/95", async () 
     expect(afterFlip.decision).toBe("stop");
     if (afterFlip.decision === "stop") expect(afterFlip.reason).toBe("kill_switch");
     // It stops EVERY org, not just the one under test, and with no DB work at all.
-    expect((await assertWithinBudget({ orgId: `${ORG}-totally-different`, units: 1, now })).decision).toBe("stop");
+    expect(
+      (await assertWithinBudget({ orgId: `${ORG}-totally-different`, units: 1, now })).decision,
+    ).toBe("stop");
   } finally {
     delete process.env[KILL_SWITCH_ENV];
   }
@@ -959,7 +1055,9 @@ test("WP-13: the breaker stops the 101st call and alerts at 60/80/95", async () 
   } finally {
     delete process.env[HOURLY_LIMIT_ENV];
   }
-  expect((await assertWithinBudget({ orgId: `${ORG}-badenv`, units: 1, now })).decision).toBe("allow");
+  expect((await assertWithinBudget({ orgId: `${ORG}-badenv`, units: 1, now })).decision).toBe(
+    "allow",
+  );
 
   // A zero limit means "spend nothing", not "unlimited".
   setOrgBudget(org, { hourlyMinor: 0, dailyMinor: 0 });
@@ -996,7 +1094,12 @@ test("WP-13: the breaker stops the 101st call and alerts at 60/80/95", async () 
   // A refund is NEGATIVE spend — it is stored signed.
   const refundOrg = `${ORG}-refundsign`;
   await topup({ orgId: refundOrg, units: 10_000, eventId: `brk-rf1-${RUN}` });
-  const refundWrite = await refund({ orgId: refundOrg, units: 2_000, eventId: `brk-rf2-${RUN}`, reason: "goodwill" });
+  const refundWrite = await refund({
+    orgId: refundOrg,
+    units: 2_000,
+    eventId: `brk-rf2-${RUN}`,
+    reason: "goodwill",
+  });
   expect(refundWrite.ok).toBe(true);
   const afterRefund = await assertWithinBudget({ orgId: refundOrg, units: 1_000, now });
   expect(afterRefund.windows.find((w) => w.window === "daily")?.spentMinor).toBe(8_000);
@@ -1036,11 +1139,26 @@ test("WP-13: invariant I-8 — the balance IS the sum of the ledger, with no cac
     await release({ orgId: org, caseRef, units: 300, reason: "aborted" });
   }
   // ...2 holds still in flight when the clock is read...
-  await reserve({ orgId: org, caseRef: `I8-LIVE-1-${RUN}`, unitsEstimate: 900, reason: "in flight" });
-  await reserve({ orgId: org, caseRef: `I8-LIVE-2-${RUN}`, unitsEstimate: 400, reason: "in flight" });
+  await reserve({
+    orgId: org,
+    caseRef: `I8-LIVE-1-${RUN}`,
+    unitsEstimate: 900,
+    reason: "in flight",
+  });
+  await reserve({
+    orgId: org,
+    caseRef: `I8-LIVE-2-${RUN}`,
+    unitsEstimate: 400,
+    reason: "in flight",
+  });
   // ...and a goodwill refund.
   await topup({ orgId: org, units: 30_000, eventId: `i8-topup3-${RUN}` });
-  const refunded = await refund({ orgId: org, units: 5_000, eventId: `i8-refund-${RUN}`, reason: "goodwill" });
+  const refunded = await refund({
+    orgId: org,
+    units: 5_000,
+    eventId: `i8-refund-${RUN}`,
+    reason: "goodwill",
+  });
   expect(refunded.ok).toBe(true);
 
   // ── hand-derive every aggregate from the raw rows ──
@@ -1049,7 +1167,7 @@ test("WP-13: invariant I-8 — the balance IS the sum of the ledger, with no cac
   const sumBy = (k: string) => rows.filter((r) => r.kind === k).reduce((a, r) => a + r.units, 0);
   const expectedConsumed = consumedPerCall.reduce((a, b) => a + b, 0);
   const expectedReserved = 20 * 500 + 5 * 300 + 900 + 400;
-  const expectedReleased = -((20 * 500 - expectedConsumed) + 5 * 300);
+  const expectedReleased = -(20 * 500 - expectedConsumed + 5 * 300);
 
   expect(sumBy("consume")).toBe(expectedConsumed);
   expect(sumBy("reserve")).toBe(expectedReserved);
@@ -1068,7 +1186,9 @@ test("WP-13: invariant I-8 — the balance IS the sum of the ledger, with no cac
   expect(wallet - held).toBe(live);
   expect(live).toBe(130_000 - expectedConsumed - 5_000 - 1_300);
   // Signed journal total: no weighting, just the stored column.
-  expect(await ledgerSum(org)).toBe(130_000 + expectedReserved + expectedConsumed + expectedReleased - 5_000);
+  expect(await ledgerSum(org)).toBe(
+    130_000 + expectedReserved + expectedConsumed + expectedReleased - 5_000,
+  );
 
   // ── reconciliation against the value MATERIALISED at write time ──
   const rec = await reconcile(org);
@@ -1084,7 +1204,8 @@ test("WP-13: invariant I-8 — the balance IS the sum of the ledger, with no cac
   // ── the ledger is APPEND-ONLY: the newest row's balanceAfter equals the live
   //    balance, so an operator reading either number sees the same thing ──
   const ordered = [...rows].sort(
-    (a, b) => a.createdAt.getTime() - b.createdAt.getTime() || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
+    (a, b) =>
+      a.createdAt.getTime() - b.createdAt.getTime() || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
   );
   expect(ordered[ordered.length - 1]!.balanceAfter).toBe(live);
 
@@ -1110,7 +1231,11 @@ test("WP-13: invariant I-8 — the balance IS the sum of the ledger, with no cac
   expect(() => unitsForDurationMs(1.5, 60)).toThrow(/integer/);
 
   // A hand-waved refund cannot refund more than was paid in.
-  const overRefund = await refund({ orgId: org, units: 10_000_000, eventId: `i8-overrefund-${RUN}` });
+  const overRefund = await refund({
+    orgId: org,
+    units: 10_000_000,
+    eventId: `i8-overrefund-${RUN}`,
+  });
   expect(overRefund.ok).toBe(false);
   if (!overRefund.ok) expect(overRefund.reason).toBe("insufficient_wallet");
   expect(await balance(org)).toBe(live);

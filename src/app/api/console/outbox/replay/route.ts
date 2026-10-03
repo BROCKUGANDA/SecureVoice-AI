@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireOperator } from "@/lib/credits";
 import { replayDeadLetter } from "@/lib/outbox";
@@ -53,5 +54,8 @@ export async function GET() {
     return NextResponse.json({ error: guard.error }, { status: guard.status });
   }
   const rows = await db.deadLetter.findMany({ orderBy: { failedAt: "desc" }, take: 50 });
-  return NextResponse.json({ ok: true, deadLetters: rows }, { headers: { "Cache-Control": "no-store" } });
+  return NextResponse.json(
+    { ok: true, deadLetters: rows },
+    { headers: { "Cache-Control": "no-store" } },
+  );
 }

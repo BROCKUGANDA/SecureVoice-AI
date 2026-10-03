@@ -283,9 +283,14 @@ export function createBreaker(dependency: Dependency, config: BreakerConfig = {}
         return;
       }
       // A failure while open (a probe that was already in flight when the
-      // breaker opened) re-arms the cooldown.
+      // breaker opened) re-arms the cooldown. `moveTo` early-returns when the
+      // state is unchanged, so calling it here would NOT restamp `openedAt` and
+      // the re-arm this comment promises would silently never happen — the
+      // breaker would go half-open on the ORIGINAL deadline regardless of what
+      // kept failing. Stamp the clock directly instead. No transition is
+      // pushed, because the state genuinely did not change.
       probesInFlight = Math.max(0, probesInFlight - 1);
-      moveTo("open");
+      openedAt = now();
     },
 
     reset(): void {
@@ -348,7 +353,13 @@ export async function withDeclaredFallback<T>(
   const permit = breaker.permit();
 
   if (!permit.allowed) {
-    return { source: "fallback", value: options.fallback(), failure: permit.failure, fallback, wasProbe: false };
+    return {
+      source: "fallback",
+      value: options.fallback(),
+      failure: permit.failure,
+      fallback,
+      wasProbe: false,
+    };
   }
 
   try {
@@ -403,7 +414,19 @@ export function inProcessLimit(input: {
   multiplier?: number;
 }): InProcessLimiter {
   const multiplier = input.multiplier ?? IN_PROCESS_LIMIT_CEILING;
-  const limitPerProcess = Math.max(1, Math.floor(input.limit * multiplier));
+  // Both `limit` and `used` are caller-supplied, so both are guarded. `used`
+  // always was; `limit` did not, and `Math.floor(NaN)` is NaN while
+  // `Math.max(1, NaN)` is also NaN — so `limitPerProcess` reached the operator
+  // snapshot as NaN. Admission was already fail-closed (`used < NaN` is false,
+  // so everything refused), but the number an operator reads to decide whether
+  // the Redis fallback is behaving was not a number.
+  //
+  // An unusable limit now yields 0 rather than 1: 1 would read as "one request
+  // admitted" and silently re-open a limit that configuration is supposed to
+  // have closed. Zero keeps the existing fail-closed behaviour and is at least
+  // a value an operator can read.
+  const limitOk = Number.isFinite(input.limit) && input.limit >= 0;
+  const limitPerProcess = limitOk ? Math.max(1, Math.floor(input.limit * multiplier)) : 0;
   const used = Number.isFinite(input.used) ? Math.max(0, input.used) : 0;
   return {
     limitPerProcess,

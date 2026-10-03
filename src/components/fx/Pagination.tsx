@@ -53,12 +53,12 @@ export function Pagination({
               "num h-8 min-w-8 rounded-lg border px-2 text-[12px] transition",
               page === it
                 ? "border-primary bg-primary text-white font-semibold"
-                : "border-line bg-white text-ink-2 hover:border-primary/40 hover:text-primary"
+                : "border-line bg-white text-ink-2 hover:border-primary/40 hover:text-primary",
             )}
           >
             {it}
           </button>
-        )
+        ),
       )}
       <button
         onClick={() => onChange(Math.min(pages, page + 1))}

@@ -79,7 +79,8 @@ export async function exportOtlp(
   opts: { endpoint?: string | null; fetchImpl?: typeof fetch; timeout?: number } = {},
 ): Promise<OtlpExportVerdict> {
   const endpoint = opts.endpoint === undefined ? otlpEndpoint() : opts.endpoint;
-  if (!endpoint) return { attempted: false, reason: "not_configured", endpoint: null, records: records.length };
+  if (!endpoint)
+    return { attempted: false, reason: "not_configured", endpoint: null, records: records.length };
   if (records.length === 0) return { attempted: false, reason: "no_records", endpoint, records: 0 };
 
   const url = endpoint.endsWith(OTLP_TRACES_PATH) ? endpoint : `${endpoint}${OTLP_TRACES_PATH}`;
@@ -105,12 +106,26 @@ export async function exportOtlp(
       const delivered = status >= 200 && status < 300;
       return delivered
         ? { attempted: true, delivered: true, endpoint: url, records: records.length, status }
-        : { attempted: true, delivered: false, endpoint: url, records: records.length, status, error: `collector_http_${status}` };
+        : {
+            attempted: true,
+            delivered: false,
+            endpoint: url,
+            records: records.length,
+            status,
+            error: `collector_http_${status}`,
+          };
     } finally {
       clearTimeout(timer);
     }
   } catch (err) {
     const message = err instanceof Error ? err.message.slice(0, 200) : String(err).slice(0, 200);
-    return { attempted: true, delivered: false, endpoint: url, records: records.length, status: null, error: message };
+    return {
+      attempted: true,
+      delivered: false,
+      endpoint: url,
+      records: records.length,
+      status: null,
+      error: message,
+    };
   }
 }

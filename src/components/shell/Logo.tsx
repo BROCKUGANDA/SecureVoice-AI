@@ -39,7 +39,15 @@ export function LogoMark({
       {tile && (
         <>
           <rect width="48" height="48" rx="13" fill="#0c110e" />
-          <rect x="0.5" y="0.5" width="47" height="47" rx="12.5" stroke="white" strokeOpacity="0.06" />
+          <rect
+            x="0.5"
+            y="0.5"
+            width="47"
+            height="47"
+            rx="12.5"
+            stroke="white"
+            strokeOpacity="0.06"
+          />
         </>
       )}
 

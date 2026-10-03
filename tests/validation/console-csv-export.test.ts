@@ -60,7 +60,10 @@ function countFields(record: string): number {
 
 /** Split a document into records, stripping the UTF-8 BOM first. */
 function records(csv: string): string[] {
-  return csv.replace(/^﻿/, "").split("\r\n").filter((line) => line.length > 0);
+  return csv
+    .replace(/^﻿/, "")
+    .split("\r\n")
+    .filter((line) => line.length > 0);
 }
 
 test("console export: a formula-shaped value is neutralised, not emitted raw", () => {
@@ -96,7 +99,9 @@ test("console export: every spreadsheet formula trigger is neutralised", () => {
 
 test("console export: a formula in ANY column is neutralised, not just planned_action", () => {
   // callRef and channel are also derived from the bank's payload.
-  const csv = interventionsCsv([row({ callRef: "=1+1", channel: "@SUM(A1:A9)", plannedAction: "+cmd" })]);
+  const csv = interventionsCsv([
+    row({ callRef: "=1+1", channel: "@SUM(A1:A9)", plannedAction: "+cmd" }),
+  ]);
   expect(csv).not.toMatch(/^[=+@]/m);
   expect(csv).toContain("'=1+1");
   expect(csv).toContain("'@SUM(A1:A9)");

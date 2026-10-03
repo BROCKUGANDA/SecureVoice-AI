@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { createHmac, timingSafeEqual } from "crypto";
 import { z } from "zod";
 import { db } from "@/lib/db";
@@ -96,7 +97,11 @@ function makeCaseRef(): string {
   return `SV-F-${s}`;
 }
 
-function verifySignature(rawBody: string, header: string | null, secret: string): { ok: true } | { ok: false; reason: string } {
+function verifySignature(
+  rawBody: string,
+  header: string | null,
+  secret: string,
+): { ok: true } | { ok: false; reason: string } {
   if (!secret) return { ok: false, reason: "Ingest not configured: set WEBHOOK_SECRET" };
   if (!header) return { ok: false, reason: "Missing SV-Signature header" };
   const m = /^t=(\d{10}),v1=([0-9a-f]{64})$/.exec(header.trim());
@@ -112,7 +117,9 @@ function verifySignature(rawBody: string, header: string | null, secret: string)
   // and we returned above, or it carries both captures. The assertion records that
   // invariant for the type checker instead of adding a branch that cannot run.
   const b = Buffer.from(v1!, "hex");
-  return a.length === b.length && timingSafeEqual(a, b) ? { ok: true } : { ok: false, reason: "Digest mismatch" };
+  return a.length === b.length && timingSafeEqual(a, b)
+    ? { ok: true }
+    : { ok: false, reason: "Digest mismatch" };
 }
 
 function hashKey(raw: string): string {
@@ -138,7 +145,10 @@ export async function POST(req: NextRequest) {
     }
     bearerAuth = { callerId: producer.callerId, orgId: producer.orgId };
   } else {
-    const sigHeader = req.headers.get("sv-signature") || req.headers.get("SV-Signature") || req.headers.get("x-securevoice-signature");
+    const sigHeader =
+      req.headers.get("sv-signature") ||
+      req.headers.get("SV-Signature") ||
+      req.headers.get("x-securevoice-signature");
     const sig = verifySignature(rawBody, sigHeader, process.env.WEBHOOK_SECRET ?? "");
     if (!sig.ok) {
       return failure("unauthenticated", { detail: `signature rejected: ${sig.reason}` });
@@ -147,7 +157,9 @@ export async function POST(req: NextRequest) {
 
   const idemKey = req.headers.get("idempotency-key");
   if (!idemKey || idemKey.trim().length < 8) {
-    return failure("malformed_request", { detail: "Idempotency-Key header is required, min 8 characters" });
+    return failure("malformed_request", {
+      detail: "Idempotency-Key header is required, min 8 characters",
+    });
   }
 
   let parsed: ReturnType<typeof schema.safeParse>;
@@ -158,7 +170,9 @@ export async function POST(req: NextRequest) {
   }
   if (!parsed.success) {
     const first = parsed.error.issues[0];
-    return failure("semantically_invalid", { detail: `${first?.path.join(".")} ${first?.message ?? ""}`.trim() });
+    return failure("semantically_invalid", {
+      detail: `${first?.path.join(".")} ${first?.message ?? ""}`.trim(),
+    });
   }
   const signal: Signal = parsed.data;
 
@@ -170,7 +184,9 @@ export async function POST(req: NextRequest) {
   if (signal.callback_url) {
     const verdict = await validateOutboundUrl(signal.callback_url);
     if (!verdict.ok) {
-      return failure("semantically_invalid", { detail: `callback_url rejected: ${verdict.reason}` });
+      return failure("semantically_invalid", {
+        detail: `callback_url rejected: ${verdict.reason}`,
+      });
     }
   }
   const orgId = bearerAuth?.orgId ?? signal.org_id ?? null;
@@ -180,7 +196,9 @@ export async function POST(req: NextRequest) {
   // â”€â”€ Combined check: idempotency + consent in ONE DB round-trip â”€â”€
   // The remote DB's ~1.2 s/round-trip dominates the latency budget, so the
   // two reads that used to be sequential are now a single raw query.
-  const combined = await db.$queryRaw<{ idem_response: string | null; consent_opted_out: boolean | null }[]>`
+  const combined = await db.$queryRaw<
+    { idem_response: string | null; consent_opted_out: boolean | null }[]
+  >`
     SELECT
       (SELECT response FROM "IdempotencyKey"
        WHERE scope = 'interventions' AND key = ${idemHash} AND "callerId" = ${effectiveCallerId}
@@ -197,7 +215,7 @@ export async function POST(req: NextRequest) {
       const stored = JSON.parse(combined[0].idem_response);
       return NextResponse.json(
         { ...stored.envelope, duplicate: true },
-        { status: 202, headers: { "Cache-Control": "no-store", "X-Idempotent-Replay": "true" } }
+        { status: 202, headers: { "Cache-Control": "no-store", "X-Idempotent-Replay": "true" } },
       );
     } catch {
       // Corrupt stored response â€” fall through to re-execute.
@@ -207,35 +225,47 @@ export async function POST(req: NextRequest) {
   // Consent: the customer has opted out.
   if (combined[0]?.consent_opted_out === true) {
     const caseRef = makeCaseRef();
-    void auditAppend({
-      callRef: caseRef,
-      action: "freeze",
-      intent: "policy_consent_opted_out",
-      callerId: effectiveCallerId,
-      meta: { reason: "customer has opted out", code: "consent_opted_out" },
-      orgId: orgId ?? undefined,
-    }, { fast: true }).catch(() => {});
+    void auditAppend(
+      {
+        callRef: caseRef,
+        action: "freeze",
+        intent: "policy_consent_opted_out",
+        callerId: effectiveCallerId,
+        meta: { reason: "customer has opted out", code: "consent_opted_out" },
+        orgId: orgId ?? undefined,
+      },
+      { fast: true },
+    ).catch(() => {});
     // Consent refusal is a POLICY decision, not a fault. 409, never 5xx.
     return failure("policy_precondition", { detail: "consent_opted_out" });
   }
 
   // â”€â”€ Execute: policy gate + call placement â”€â”€
   try {
-    const { envelope, acceptedAt } = await armAndDial(signal, orgId, effectiveCallerId, started, idemHash, idemKey.trim());
+    const { envelope, acceptedAt } = await armAndDial(
+      signal,
+      orgId,
+      effectiveCallerId,
+      started,
+      idemHash,
+      idemKey.trim(),
+    );
     // Store the response fire-and-forget, deferred until after the response
     // is sent so it never competes with the next signal's combined check for
     // a connection from the pool.
     setImmediate(() => {
-      void db.idempotencyKey.create({
-        data: {
-          scope: "interventions",
-          key: idemHash,
-          callerId: effectiveCallerId,
-          response: JSON.stringify({ envelope }),
-          statusCode: 202,
-          expiresAt: new Date(Date.now() + IDEMPOTENCY_TTL_MS),
-        },
-      }).catch(() => {});
+      void db.idempotencyKey
+        .create({
+          data: {
+            scope: "interventions",
+            key: idemHash,
+            callerId: effectiveCallerId,
+            response: JSON.stringify({ envelope }),
+            statusCode: 202,
+            expiresAt: new Date(Date.now() + IDEMPOTENCY_TTL_MS),
+          },
+        })
+        .catch(() => {});
     });
     // Latency instrumentation (WP-7). Two spans, both measured on real
     // executions of this path â€” never synthesised:
@@ -279,9 +309,12 @@ export async function POST(req: NextRequest) {
     if (typeof typed.status === "number" && typeof typed.code === "string") {
       const status = typed.status;
       const detail = typeof typed.message === "string" ? typed.message : typed.code;
-      return failure(status >= 400 && status < 500 ? "policy_precondition" : "dependency_unavailable", {
-        detail: `${typed.code}: ${detail}`,
-      });
+      return failure(
+        status >= 400 && status < 500 ? "policy_precondition" : "dependency_unavailable",
+        {
+          detail: `${typed.code}: ${detail}`,
+        },
+      );
     }
     console.error("[v1/interventions] arming failed:", err instanceof Error ? err.message : err);
     return failure("dependency_unavailable", { detail: "case recording failed" });
@@ -316,14 +349,13 @@ async function armAndDial(
   effectiveCallerId: string,
   started: number,
   idemHash: string,
-  idemKey: string
+  idemKey: string,
 ): Promise<ArmResult> {
   const caseRef = makeCaseRef();
   let dialSlot: number | null = null;
   // Stamped the moment the deterministic gate passes, so the provider span
   // measures what the caller actually waits on rather than collapsing to 0.
   let acceptedAt = 0;
-
 
   // Policy gate â€” deterministic, fail-fast, audited either way.
   const gate = await runPolicyGate({
@@ -334,14 +366,17 @@ async function armAndDial(
     callerId: effectiveCallerId,
   });
   if (!gate.ok) {
-    void auditAppend({
-      callRef: caseRef,
-      action: "freeze",
-      intent: `policy_rejected_${gate.code}`,
-      callerId: effectiveCallerId,
-      meta: { reason: gate.reason, code: gate.code, transactionRef: signal.transaction_ref },
-      orgId: orgId ?? undefined,
-    }, { fast: true }).catch(() => {});
+    void auditAppend(
+      {
+        callRef: caseRef,
+        action: "freeze",
+        intent: `policy_rejected_${gate.code}`,
+        callerId: effectiveCallerId,
+        meta: { reason: gate.reason, code: gate.code, transactionRef: signal.transaction_ref },
+        orgId: orgId ?? undefined,
+      },
+      { fast: true },
+    ).catch(() => {});
     const err = new Error(gate.reason) as Error & { status: number; code: string };
     err.status = 409;
     err.code = gate.code;
@@ -372,20 +407,23 @@ async function armAndDial(
     planTier: planTierFor(abuseOrg),
   });
   if (!abuse.allowed) {
-    void auditAppend({
-      callRef: caseRef,
-      action: "freeze",
-      intent: `abuse_rejected_${abuse.reason}`,
-      callerId: effectiveCallerId,
-      meta: {
-        reason: abuse.reason,
-        detail: abuse.detail,
-        country: abuse.country,
-        controls: abuse.controls.map((c) => ({ control: c.control, ok: c.ok, reason: c.reason })),
-        transactionRef: signal.transaction_ref,
+    void auditAppend(
+      {
+        callRef: caseRef,
+        action: "freeze",
+        intent: `abuse_rejected_${abuse.reason}`,
+        callerId: effectiveCallerId,
+        meta: {
+          reason: abuse.reason,
+          detail: abuse.detail,
+          country: abuse.country,
+          controls: abuse.controls.map((c) => ({ control: c.control, ok: c.ok, reason: c.reason })),
+          transactionRef: signal.transaction_ref,
+        },
+        orgId: orgId ?? undefined,
       },
-      orgId: orgId ?? undefined,
-    }, { fast: true }).catch(() => {});
+      { fast: true },
+    ).catch(() => {});
     const err = new Error(abuse.detail) as Error & { status: number; code: string };
     err.status = 409;
     err.code = abuse.reason;
@@ -421,24 +459,29 @@ async function armAndDial(
   await transitionCase(caseRef, "SCREENED");
 
   // Audit: signal received + policy passed (single append, fire-and-forget).
-  void auditAppend({
-    callRef: caseRef,
-    action: "freeze",
-    intent: "signal_received",
-    callerId: effectiveCallerId,
-    redactedText: redactText(`${signal.transaction_ref} Â· ${signal.phone.replace(/\d(?=\d{4})/g, "*")} Â· ${signal.risk_score}`),
-    meta: {
-      transactionRef: signal.transaction_ref,
-      riskScore: signal.risk_score,
-      language: signal.language,
-      currency: signal.currency,
-      amountMinor: signal.amount,
-      policy: "passed",
+  void auditAppend(
+    {
+      callRef: caseRef,
+      action: "freeze",
+      intent: "signal_received",
+      callerId: effectiveCallerId,
+      redactedText: redactText(
+        `${signal.transaction_ref} Â· ${signal.phone.replace(/\d(?=\d{4})/g, "*")} Â· ${signal.risk_score}`,
+      ),
+      meta: {
+        transactionRef: signal.transaction_ref,
+        riskScore: signal.risk_score,
+        language: signal.language,
+        currency: signal.currency,
+        amountMinor: signal.amount,
+        policy: "passed",
+        orgId: orgId ?? undefined,
+        latencyMs: Date.now() - started,
+      },
       orgId: orgId ?? undefined,
-      latencyMs: Date.now() - started,
     },
-    orgId: orgId ?? undefined,
-  }, { fast: true }).catch(() => {});
+    { fast: true },
+  ).catch(() => {});
 
   // Admission control â€” capacity is a policy decision, and it is audited like
   // one. Runs AFTER the policy gate (a case we must not call should never
@@ -453,21 +496,24 @@ async function armAndDial(
   });
   if (!admission.admitted) {
     const fallback = admission.fallback ?? "sms";
-    void auditAppend({
-      callRef: caseRef,
-      action: "handoff",
-      intent: "degraded_to_async",
-      callerId: effectiveCallerId,
-      redactedText: `capacity ${admission.band}; fallback=${fallback}`,
-      meta: {
-        band: admission.band,
-        reason: admission.reason,
-        fallback,
-        expectedLoss: admission.expectedLoss,
-        activeConversations: admission.activeConversations,
+    void auditAppend(
+      {
+        callRef: caseRef,
+        action: "handoff",
+        intent: "degraded_to_async",
+        callerId: effectiveCallerId,
+        redactedText: `capacity ${admission.band}; fallback=${fallback}`,
+        meta: {
+          band: admission.band,
+          reason: admission.reason,
+          fallback,
+          expectedLoss: admission.expectedLoss,
+          activeConversations: admission.activeConversations,
+        },
+        orgId: orgId ?? undefined,
       },
-      orgId: orgId ?? undefined,
-    }, { fast: true }).catch(() => {});
+      { fast: true },
+    ).catch(() => {});
     const envelope = {
       ok: true,
       caseRef,
@@ -494,7 +540,7 @@ async function armAndDial(
     transaction_ref: signal.transaction_ref,
   });
 
-// Durable queue (S-1). The request handler ENQUEUES and returns; the call is
+  // Durable queue (S-1). The request handler ENQUEUES and returns; the call is
   // placed by a worker that claims the job. Placing it inline would make the
   // bank's fraud engine the rate limiter of our telephony account, leave a
   // carrier call holding a web request, and give a campaign burst nowhere to
@@ -514,8 +560,8 @@ async function armAndDial(
       // Expected-loss triage: a higher-value alert is dialled first when the
       // queue is draining faster than the provider allows.
       priority: Math.round(
-        (Number.isFinite(signal.risk_score) ? Math.min(Math.max(signal.risk_score, 0), 1) : 0) *
-          (signal.amount ?? 0) /
+        ((Number.isFinite(signal.risk_score) ? Math.min(Math.max(signal.risk_score, 0), 1) : 0) *
+          (signal.amount ?? 0)) /
           100,
       ),
       // Sanitised dial inputs only â€” never transcript content (invariant I-10).
@@ -538,29 +584,35 @@ async function armAndDial(
     };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    void auditAppend({
-      callRef: caseRef,
-      action: "handoff",
-      intent: "enqueue_failed",
-      callerId: effectiveCallerId,
-      meta: { error: msg.slice(0, 200) },
-      orgId: orgId ?? undefined,
-    }, { fast: true }).catch(() => {});
+    void auditAppend(
+      {
+        callRef: caseRef,
+        action: "handoff",
+        intent: "enqueue_failed",
+        callerId: effectiveCallerId,
+        meta: { error: msg.slice(0, 200) },
+        orgId: orgId ?? undefined,
+      },
+      { fast: true },
+    ).catch(() => {});
     throw err;
   }
 
   // Persist the conversation_id against the case â€” the join key for WP-4.
-  void auditAppend({
-    callRef: caseRef,
-    action: "handoff",
-    intent: "delivery_call",
-    callerId: effectiveCallerId,
-    redactedText: redactText(signal.phone),
-    meta: { delivery, conversationId: delivery.conversationId, latencyMs: Date.now() - started },
-    orgId: orgId ?? undefined,
-  }, { fast: true }).catch(() => {});
+  void auditAppend(
+    {
+      callRef: caseRef,
+      action: "handoff",
+      intent: "delivery_call",
+      callerId: effectiveCallerId,
+      redactedText: redactText(signal.phone),
+      meta: { delivery, conversationId: delivery.conversationId, latencyMs: Date.now() - started },
+      orgId: orgId ?? undefined,
+    },
+    { fast: true },
+  ).catch(() => {});
 
-// Emit case.queued on the realtime channel. The state is QUEUED, not DIALING â€”
+  // Emit case.queued on the realtime channel. The state is QUEUED, not DIALING â€”
   // the call has not been placed yet, and a console that claims otherwise is
   // lying to the operator watching it.
   notifyRealtime({
@@ -618,6 +670,6 @@ export async function GET() {
       },
       response: "202 Accepted â€” { caseRef, conversationId, status: 'dialing' }",
     },
-    { headers: { "Cache-Control": "no-store" } }
+    { headers: { "Cache-Control": "no-store" } },
   );
 }

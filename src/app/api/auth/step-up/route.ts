@@ -43,7 +43,7 @@ export async function POST(req: Request) {
   if (!authed.ok) {
     return NextResponse.json(
       { error: authed.error, code: authed.code },
-      { status: authed.status, headers: { "Cache-Control": "no-store" } }
+      { status: authed.status, headers: { "Cache-Control": "no-store" } },
     );
   }
 
@@ -73,9 +73,7 @@ export async function POST(req: Request) {
     const ok = account?.passwordHash
       ? await verifyPassword(parsed.data.password, account.passwordHash)
       : false;
-    verified = ok
-      ? { ok: true }
-      : { ok: false, error: "That password is not correct." };
+    verified = ok ? { ok: true } : { ok: false, error: "That password is not correct." };
   } else {
     method = "magic_link";
     // Deferred import avoids a cycle: magic-link reads identity, guards reads
@@ -92,7 +90,7 @@ export async function POST(req: Request) {
   if ("ok" in grant && grant.ok === false) {
     return NextResponse.json(
       { error: grant.error, code: "step_up_failed" },
-      { status: 401, headers: { "Cache-Control": "no-store" } }
+      { status: 401, headers: { "Cache-Control": "no-store" } },
     );
   }
 
@@ -103,6 +101,6 @@ export async function POST(req: Request) {
       windowMs: STEP_UP_WINDOW_MS,
       note: `Re-authenticated. Privileged actions are unlocked for ${Math.round(STEP_UP_WINDOW_MS / 1000)} seconds.`,
     },
-    { headers: { "Cache-Control": "no-store" } }
+    { headers: { "Cache-Control": "no-store" } },
   );
 }

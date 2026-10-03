@@ -60,15 +60,11 @@ function channelsFor(orgId: string, callRefs: string[]): string[] {
 /**
  * Mint a grant for one signed-in operator.
  *
- * @param orgId   Clerk organization id the session is scoped to
+ * @param orgId   Better Auth organization id the session is scoped to
  * @param sub     operator identifier, used for the presence roster
  * @param callRefs cases to subscribe to in addition to the org-wide channel
  */
-export function mintRealtimeToken(
-  orgId: string,
-  sub: string,
-  callRefs: string[] = [],
-): MintResult {
+export function mintRealtimeToken(orgId: string, sub: string, callRefs: string[] = []): MintResult {
   const secret = ingestSecret();
   if (!secret) return { ok: false, error: "not_configured" };
 

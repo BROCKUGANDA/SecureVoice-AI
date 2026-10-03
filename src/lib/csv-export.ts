@@ -74,7 +74,9 @@ const DEFAULTS = {
 /** True when the first character makes this cell a formula in a spreadsheet. */
 export function isFormulaShaped(value: string): boolean {
   if (value.length === 0) return false;
-  return (FORMULA_TRIGGERS as readonly string[]).includes(value[0]);
+  // The `value.length === 0` guard above is what proves index 0 exists; the
+  // assertion records that for the checker rather than adding a dead branch.
+  return (FORMULA_TRIGGERS as readonly string[]).includes(value[0]!);
 }
 
 /**
@@ -124,7 +126,8 @@ export function toCsvField(value: unknown, opts: CsvOptions = {}): string {
   if (text.length > maxCellLength) text = text.slice(0, maxCellLength);
 
   const neutralised = neutraliseFormula(text, opts);
-  const needsQuotes = MUST_QUOTE_RE.test(neutralised) || neutralised !== text || /^\s|\s$/.test(neutralised);
+  const needsQuotes =
+    MUST_QUOTE_RE.test(neutralised) || neutralised !== text || /^\s|\s$/.test(neutralised);
   if (!needsQuotes) return neutralised;
 
   // RFC 4180: a literal quote inside a quoted field is doubled.
@@ -152,7 +155,7 @@ export interface CsvColumn<Row> {
 export function toCsv<Row>(
   rows: readonly Row[],
   columns: readonly CsvColumn<Row>[],
-  opts: CsvOptions = {}
+  opts: CsvOptions = {},
 ): string {
   const maxRows = opts.maxRows ?? DEFAULTS.maxRows;
   if (rows.length > maxRows) {
@@ -189,7 +192,10 @@ export function toCsv<Row>(
  * response headers on our own origin.
  */
 export function csvContentDisposition(filename: string): string {
-  const ascii = filename.replace(/[^\x20-\x7E]/g, "_").replace(/["\\]/g, "_").replace(/[\r\n]/g, "");
+  const ascii = filename
+    .replace(/[^\x20-\x7E]/g, "_")
+    .replace(/["\\]/g, "_")
+    .replace(/[\r\n]/g, "");
   const utf8 = encodeURIComponent(filename).replace(/['()]/g, escape);
   return `attachment; filename="${ascii}"; filename*=UTF-8''${utf8}`;
 }
@@ -227,6 +233,6 @@ export function interventionsCsv(rows: readonly InterventionExportRow[]): string
       { header: "planned_action", value: (r) => r.plannedAction ?? "" },
       { header: "fired_at", value: (r) => new Date(r.at).toISOString() },
     ],
-    {}
+    {},
   );
 }

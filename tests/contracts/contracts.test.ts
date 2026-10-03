@@ -83,7 +83,8 @@ import {
   failureEnvelopeCodes,
 } from "@/lib/contracts/schema";
 
-const read = (rel: string) => readFileSync(fileURLToPath(new URL(`../../${rel}`, import.meta.url)), "utf8");
+const read = (rel: string) =>
+  readFileSync(fileURLToPath(new URL(`../../${rel}`, import.meta.url)), "utf8");
 
 const INTERVENTIONS_ROUTE = read("src/app/api/v1/interventions/route.ts");
 const RETIRED_ROUTE = read("src/app/api/interventions/route.ts");
@@ -125,23 +126,38 @@ type FakeOptions = {
  * avoid, and the reason the verifier is imported rather than copied.
  */
 function fakeReceiver(options: FakeOptions = {}) {
-  const opts: Required<Pick<FakeOptions, "verify" | "echoEventId" | "idempotent" | "chargeEveryDelivery" | "malformed">> = {
+  const opts: Required<
+    Pick<
+      FakeOptions,
+      "verify" | "echoEventId" | "idempotent" | "chargeEveryDelivery" | "malformed" | "latencyMs"
+    >
+  > = {
     verify: true,
     echoEventId: true,
     idempotent: true,
     chargeEveryDelivery: false,
     malformed: "reject",
+    latencyMs: 4,
     ...options,
   };
   const applied: string[] = [];
   const seen = new Set<string>();
 
-  const transport: ConformanceTransport = async (req: TransportRequest): Promise<TransportResponse> => {
+  const transport: ConformanceTransport = async (
+    req: TransportRequest,
+  ): Promise<TransportResponse> => {
     const header = req.headers[SIGNATURE_HEADER] ?? req.headers[WEBHOOK_SIGNATURE_HEADER];
-    const verdict = opts.verify ? verifySignature(header ?? null, req.body, SECRET) : { ok: true as const };
+    const verdict = opts.verify
+      ? verifySignature(header ?? null, req.body, SECRET)
+      : { ok: true as const };
 
     if (!verdict.ok) {
-      return { status: 401, headers: {}, body: JSON.stringify({ error: "signature_verification_failed" }), latencyMs: 3 };
+      return {
+        status: 401,
+        headers: {},
+        body: JSON.stringify({ error: "signature_verification_failed" }),
+        latencyMs: 3,
+      };
     }
 
     const parsed = JSON.parse(req.body) as Record<string, unknown>;
@@ -151,8 +167,18 @@ function fakeReceiver(options: FakeOptions = {}) {
     // A signed payload whose `data` is not an object is schema-invalid.
     if (typeof data !== "object" || data === null || Array.isArray(data)) {
       return opts.malformed === "reject"
-        ? { status: 422, headers: {}, body: JSON.stringify({ error: "invalid_event" }), latencyMs: 4 }
-        : { status: 202, headers: {}, body: JSON.stringify({ ok: true, stored: true }), latencyMs: 4 };
+        ? {
+            status: 422,
+            headers: {},
+            body: JSON.stringify({ error: "invalid_event" }),
+            latencyMs: 4,
+          }
+        : {
+            status: 202,
+            headers: {},
+            body: JSON.stringify({ ok: true, stored: true }),
+            latencyMs: 4,
+          };
     }
 
     const replay = seen.has(eventId);
@@ -165,7 +191,11 @@ function fakeReceiver(options: FakeOptions = {}) {
       return {
         status: 202,
         headers: {},
-        body: JSON.stringify({ ok: true, duplicate: true, ...(opts.echoEventId ? { event_id: eventId } : {}) }),
+        body: JSON.stringify({
+          ok: true,
+          duplicate: true,
+          ...(opts.echoEventId ? { event_id: eventId } : {}),
+        }),
         latencyMs: 4,
       };
     }
@@ -178,7 +208,9 @@ function fakeReceiver(options: FakeOptions = {}) {
       body: JSON.stringify({
         ok: true,
         ...(opts.echoEventId ? { event_id: eventId } : {}),
-        ...(opts.chargeEveryDelivery ? { charged: true, applied_count: applied.filter((e) => e === eventId).length } : {}),
+        ...(opts.chargeEveryDelivery
+          ? { charged: true, applied_count: applied.filter((e) => e === eventId).length }
+          : {}),
       }),
       latencyMs: opts.latencyMs ?? 4,
     };
@@ -203,8 +235,10 @@ async function runFake(options: FakeOptions = {}, budgetMs?: number) {
   return { report, applied };
 }
 
-const checkStatus = (report: { checks: readonly { id: string; status: string }[] }, id: string): string | undefined =>
-  report.checks.find((c) => c.id === id)?.status;
+const checkStatus = (
+  report: { checks: readonly { id: string; status: string }[] },
+  id: string,
+): string | undefined => report.checks.find((c) => c.id === id)?.status;
 
 const failing = (report: { checks: readonly { id: string; status: string }[] }): string[] =>
   report.checks.filter((c) => c.status === "fail").map((c) => c.id);
@@ -281,7 +315,11 @@ describe("OpenAPI document", () => {
     // src/app/api/v1/**, src/app/v1/** and the retired ingest are the surface a
     // bank touches. An undocumented one is a producer that reads the spec and
     // never learns the endpoint exists.
-    for (const route of ["src/app/api/v1/interventions", "src/app/api/interventions", "src/app/v1/conformance/run"]) {
+    for (const route of [
+      "src/app/api/v1/interventions",
+      "src/app/api/interventions",
+      "src/app/v1/conformance/run",
+    ]) {
       const path = route.replace("src/app", "");
       const documented = Object.keys(json.paths);
       expect(
@@ -299,12 +337,14 @@ describe("OpenAPI document", () => {
       const abs = fileURLToPath(new URL(`../../${file}`, import.meta.url));
       const source = existsSync(abs) ? readFileSync(abs, "utf8") : "";
       for (const verb of Object.keys(item)) {
-        expect(verb, `${path} documents ${verb.toUpperCase()} but the route may not export it`).toMatch(
-          /^(get|post|put|patch|delete)$/,
-        );
-        expect(source, `${path} documents ${verb.toUpperCase()} but the route does not export it`).toContain(
-          `export async function ${verb.toUpperCase()}`,
-        );
+        expect(
+          verb,
+          `${path} documents ${verb.toUpperCase()} but the route may not export it`,
+        ).toMatch(/^(get|post|put|patch|delete)$/);
+        expect(
+          source,
+          `${path} documents ${verb.toUpperCase()} but the route does not export it`,
+        ).toContain(`export async function ${verb.toUpperCase()}`);
       }
     }
   });
@@ -324,7 +364,9 @@ describe("OpenAPI document", () => {
     expect(definition.required).toBe(true);
     expect(definition.schema.minLength).toBe(IDEMPOTENCY_MIN_LENGTH);
     // The replay marker is part of the 202 contract, not an implementation detail.
-    expect(JSON.stringify(json.paths[PUBLIC_INGEST_PATH].post.responses)).toContain(REPLAY_RESPONSE_HEADER);
+    expect(JSON.stringify(json.paths[PUBLIC_INGEST_PATH].post.responses)).toContain(
+      REPLAY_RESPONSE_HEADER,
+    );
   });
 
   test("the HMAC scheme is documented in components.securitySchemes and used by the operation", () => {
@@ -336,14 +378,20 @@ describe("OpenAPI document", () => {
     expect(schemes.SvSignature.description).toContain(String(REPLAY_WINDOW_SECONDS));
     expect(schemes.SvSignature.description).toContain("WEBHOOK_SECRET");
     expect(schemes.ProducerKey.scheme).toBe("bearer");
-    expect(json.paths[PUBLIC_INGEST_PATH].post.security).toEqual([{ SvSignature: [] }, { ProducerKey: [] }]);
+    expect(json.paths[PUBLIC_INGEST_PATH].post.security).toEqual([
+      { SvSignature: [] },
+      { ProducerKey: [] },
+    ]);
   });
 
   test("the error envelope documents every failure code, with no invented value", () => {
     const schema = json.components.schemas.FailureEnvelope;
     expect(schema.required).toEqual(["code", "message", "retryable", "requestId", "docsUrl"]);
     for (const code of failureEnvelopeCodes()) {
-      expect(schema.properties.code.enum, `${code} is catalogued but not in the envelope schema`).toContain(code);
+      expect(
+        schema.properties.code.enum,
+        `${code} is catalogued but not in the envelope schema`,
+      ).toContain(code);
       for (const defined of FAILURE_CODES) expect(schema.properties.code.enum).toContain(defined);
     }
     // The legacy envelope is a DIFFERENT schema, and the doc says so.
@@ -359,8 +407,12 @@ describe("OpenAPI document", () => {
       expect(ingest[status].content["application/json"].schema.$ref).toBe(failureSchema);
     }
     const retired = json.paths[RETIRED_INGEST_PATH].post.responses;
-    expect(retired["410"].content["application/json"].schema.$ref).toBe("#/components/schemas/LegacyError");
-    expect(retired["422"].content["application/json"].schema.$ref).toBe("#/components/schemas/LegacyError");
+    expect(retired["410"].content["application/json"].schema.$ref).toBe(
+      "#/components/schemas/LegacyError",
+    );
+    expect(retired["422"].content["application/json"].schema.$ref).toBe(
+      "#/components/schemas/LegacyError",
+    );
   });
 
   test("Retry-After is documented on 429 and 503 only", () => {
@@ -377,7 +429,9 @@ describe("OpenAPI document", () => {
 
   test("the outbound event schema is present and dated with the real SCHEMA_VERSION", () => {
     const envelope = json.components.schemas.BankEventEnvelope;
-    expect(Object.keys(envelope.properties).sort()).toEqual(BANK_EVENT_FIELDS.map((f) => f.name).sort());
+    expect(Object.keys(envelope.properties).sort()).toEqual(
+      BANK_EVENT_FIELDS.map((f) => f.name).sort(),
+    );
     expect(envelope.properties.schema_version.description).toContain(SCHEMA_VERSION);
     expect(envelope.properties.event_id.description).toMatch(/dedupe key/i);
   });
@@ -400,7 +454,9 @@ describe("OpenAPI document", () => {
   test("the 202 is described as a queue, never as a placed call", () => {
     const description = json.paths[PUBLIC_INGEST_PATH].post.description;
     expect(description).toMatch(/durab/i);
-    expect(json.components.schemas.InterventionQueued202.properties.status.enum).toEqual(["queued"]);
+    expect(json.components.schemas.InterventionQueued202.properties.status.enum).toEqual([
+      "queued",
+    ]);
     // The implementation really does say "queued" and not "dialing".
     expect(INTERVENTIONS_ROUTE).toContain('status: "queued"');
     expect(INTERVENTIONS_ROUTE).not.toContain('status: "dialing"');
@@ -413,7 +469,9 @@ describe("OpenAPI document", () => {
 
 describe("inbound signal matches the implementation", () => {
   const ZOD_BLOCK =
-    /const schema = z\s*\n?\s*\.object\(\{([\s\S]*?)\n {2}\}\)\s*\n\s*\.strict\(\);/.exec(INTERVENTIONS_ROUTE);
+    /const schema = z\s*\n?\s*\.object\(\{([\s\S]*?)\n {2}\}\)\s*\n\s*\.strict\(\);/.exec(
+      INTERVENTIONS_ROUTE,
+    );
 
   test("the zod literal could be located at all", () => {
     expect(ZOD_BLOCK, "could not locate the zod schema literal in the ingest route").toBeDefined();
@@ -445,9 +503,10 @@ describe("inbound signal matches the implementation", () => {
       const entry = entries.get(field.name);
       expect(entry, `no zod entry for ${field.name}`).toBeDefined();
       const isOptional = /\.optional\(\)/.test(entry!);
-      expect(isOptional, `${field.name}: contract required=${!field.required}, zod optional=${isOptional}`).toBe(
-        !field.required,
-      );
+      expect(
+        isOptional,
+        `${field.name}: contract required=${!field.required}, zod optional=${isOptional}`,
+      ).toBe(!field.required);
     }
   });
 
@@ -465,7 +524,9 @@ describe("inbound signal matches the implementation", () => {
       ["org_id", ".trim().min(2).max(64)"],
     ];
     for (const [field, snippet] of expects) {
-      expect(INTERVENTIONS_ROUTE, `the route no longer shows "${snippet}" for ${field}`).toContain(snippet);
+      expect(INTERVENTIONS_ROUTE, `the route no longer shows "${snippet}" for ${field}`).toContain(
+        snippet,
+      );
     }
     // The patterns in the document must be the patterns in the code, character
     // for character — a regex difference is a validation difference.
@@ -491,9 +552,10 @@ describe("inbound signal matches the implementation", () => {
   test("every field names the file that enforces it, and that file exists", () => {
     for (const field of RISK_SIGNAL_FIELDS) {
       const file = field.enforced.split(" ")[0]!;
-      expect(existsSync(fileURLToPath(new URL(`../../${file}`, import.meta.url))), `${field.name} → ${file}`).toBe(
-        true,
-      );
+      expect(
+        existsSync(fileURLToPath(new URL(`../../${file}`, import.meta.url))),
+        `${field.name} → ${file}`,
+      ).toBe(true);
     }
   });
 
@@ -509,9 +571,18 @@ describe("inbound signal matches the implementation", () => {
     ]) {
       expect(INTERVENTIONS_ROUTE, `the route no longer contains ${snippet}`).toContain(snippet);
     }
-    expect(json.components.schemas.InterventionQueued202.properties.status.enum).toEqual(["queued"]);
-    expect(json.components.schemas.InterventionDegraded202.properties.status.enum).toEqual(["degraded_to_async"]);
-    expect(json.components.schemas.Delivery.properties.jobState.enum).toEqual(["PENDING", "CLAIMED", "DONE", "DEAD"]);
+    expect(json.components.schemas.InterventionQueued202.properties.status.enum).toEqual([
+      "queued",
+    ]);
+    expect(json.components.schemas.InterventionDegraded202.properties.status.enum).toEqual([
+      "degraded_to_async",
+    ]);
+    expect(json.components.schemas.Delivery.properties.jobState.enum).toEqual([
+      "PENDING",
+      "CLAIMED",
+      "DONE",
+      "DEAD",
+    ]);
     expect(json.components.schemas.Delivery.properties.provider.enum).toEqual(["elevenlabs"]);
     expect(json.components.schemas.Degraded.properties.fallback.enum).toEqual(["sms", "app_push"]);
   });
@@ -520,7 +591,12 @@ describe("inbound signal matches the implementation", () => {
 describe("outbound bank event matches the implementation", () => {
   test("a real buildBankEvent has exactly the documented envelope keys", () => {
     const { body } = buildBankEvent(
-      { eventType: "case.notified", caseRef: "SV-F-7K2M9Q", orgId: "bank-core-uae", data: { state: "NOTIFIED" } },
+      {
+        eventType: "case.notified",
+        caseRef: "SV-F-7K2M9Q",
+        orgId: "bank-core-uae",
+        data: { state: "NOTIFIED" },
+      },
       "11111111-2222-3333-4444-555555555555",
     );
     expect(Object.keys(body).sort()).toEqual(BANK_EVENT_FIELDS.map((f) => f.name).sort());
@@ -555,7 +631,10 @@ describe("outbound bank event matches the implementation", () => {
   });
 
   test("the signed bytes are the canonical bytes, and the real signer agrees", () => {
-    const { body, canonical } = buildBankEvent({ eventType: "case.notified", data: { b: 1, a: 2 } }, "abc");
+    const { body, canonical } = buildBankEvent(
+      { eventType: "case.notified", data: { b: 1, a: 2 } },
+      "abc",
+    );
     expect(canonical).toBe(canonicalJson(body));
     // Keys sorted at every depth, which is what makes the bytes reproducible.
     expect(canonical.indexOf('"case_ref"')).toBeLessThan(canonical.indexOf('"data"'));
@@ -582,8 +661,21 @@ describe("outbound bank event matches the implementation", () => {
     }
     expect(inbound).toContain('transcript: "withheld"');
     const data = json.components.schemas.CaseNotifiedData;
-    for (const field of ["state", "outcome", "duration_seconds", "freeze_staged", "freeze_reference", "handoff_queued", "handoff_specialist", "tool_calls_observed", "audit_ref", "evidence"]) {
-      expect(Object.keys(data.properties), `data.${field} is missing from the spec`).toContain(field);
+    for (const field of [
+      "state",
+      "outcome",
+      "duration_seconds",
+      "freeze_staged",
+      "freeze_reference",
+      "handoff_queued",
+      "handoff_specialist",
+      "tool_calls_observed",
+      "audit_ref",
+      "evidence",
+    ]) {
+      expect(Object.keys(data.properties), `data.${field} is missing from the spec`).toContain(
+        field,
+      );
     }
   });
 });
@@ -594,7 +686,17 @@ describe("outbound bank event matches the implementation", () => {
 
 describe("data minimisation", () => {
   test("nothing on the never-sent list appears in the outbound event", () => {
-    const forbidden = ["account", "iban", "balance", "card", "pan", "transcript_text", "recording", "dob", "secret"];
+    const forbidden = [
+      "account",
+      "iban",
+      "balance",
+      "card",
+      "pan",
+      "transcript_text",
+      "recording",
+      "dob",
+      "secret",
+    ];
     const outbound = [
       ...BANK_EVENT_FIELDS.map((f) => f.name),
       ...Object.keys(json.components.schemas.CaseNotifiedData.properties),
@@ -610,7 +712,9 @@ describe("data minimisation", () => {
   });
 
   test("the transcript is a pointer, and `withheld` is the only legal value", () => {
-    expect(json.components.schemas.EvidencePointer.properties.transcript.enum).toEqual(["withheld"]);
+    expect(json.components.schemas.EvidencePointer.properties.transcript.enum).toEqual([
+      "withheld",
+    ]);
     expect(read("src/lib/elevenlabs/inbound.ts")).toContain('transcript: "withheld"');
   });
 
@@ -659,9 +763,10 @@ function literals(sources: Record<string, string>, ...patterns: RegExp[]): Set<s
 
 /** `failure("code"` in a route — the ONLY way the envelope builder is called. */
 const emittedEnvelopeCodes = new Set(
-  [...INTERVENTIONS_ROUTE.matchAll(/\bfailure\(\s*"([a-z0-9_]+)"/g), ...CONFORMANCE_ROUTE.matchAll(/\bfailure\(\s*"([a-z0-9_]+)"/g)].map(
-    (m) => m[1]!,
-  ),
+  [
+    ...INTERVENTIONS_ROUTE.matchAll(/\bfailure\(\s*"([a-z0-9_]+)"/g),
+    ...CONFORMANCE_ROUTE.matchAll(/\bfailure\(\s*"([a-z0-9_]+)"/g),
+  ].map((m) => m[1]!),
 );
 
 /**
@@ -688,7 +793,11 @@ const legacyCodeLiterals = literals(
 );
 
 /** Gate and SSRF reasons. `ok` is the success sentinel, not a code. */
-const reasonLiterals = literals(REASON_SOURCES, /^\s*\|\s*"([a-z0-9_]+)"/gm, /code:\s*"([a-z0-9_]+)"/g);
+const reasonLiterals = literals(
+  REASON_SOURCES,
+  /^\s*\|\s*"([a-z0-9_]+)"/gm,
+  /code:\s*"([a-z0-9_]+)"/g,
+);
 reasonLiterals.delete("ok");
 
 /**
@@ -734,9 +843,10 @@ function declaredControlNames(): Set<string> {
  * how a real, customer-visible refusal reason quietly disappears from the spec.
  */
 const detailCauseLiterals = new Set(
-  [...INTERVENTIONS_ROUTE.matchAll(/detail:\s*"([a-z0-9_]+)"/g), ...CONFORMANCE_ROUTE.matchAll(/detail:\s*"([a-z0-9_]+)"/g)].map(
-    (m) => m[1]!,
-  ),
+  [
+    ...INTERVENTIONS_ROUTE.matchAll(/detail:\s*"([a-z0-9_]+)"/g),
+    ...CONFORMANCE_ROUTE.matchAll(/detail:\s*"([a-z0-9_]+)"/g),
+  ].map((m) => m[1]!),
 );
 for (const cause of detailCauseLiterals) reasonLiterals.add(cause);
 
@@ -753,13 +863,18 @@ describe("error catalog covers every code the code actually returns", () => {
     expect(missing, `emitted but uncatalogued: ${missing.join(", ")}`).toEqual([]);
     // And every one of them is a REAL envelope code, not one we invented.
     for (const code of emittedEnvelopeCodes) {
-      expect(FAILURE_CODES, `${code} is not a FailureCode`).toContain(code);
+      // The set holds whatever the routes literally pass to `failure(...)`, which
+      // is a plain string until this assertion proves it is a real FailureCode.
+      expect(FAILURE_CODES as readonly string[], `${code} is not a FailureCode`).toContain(code);
     }
   });
 
   test("every catalogued envelope code exists in the failure envelope", () => {
     for (const code of failureEnvelopeCodes()) {
-      expect(FAILURE_CODES, `${code} is catalogued but not a FailureCode`).toContain(code);
+      expect(
+        FAILURE_CODES as readonly string[],
+        `${code} is catalogued but not a FailureCode`,
+      ).toContain(code);
     }
   });
 
@@ -802,9 +917,7 @@ describe("error catalog covers every code the code actually returns", () => {
     // `cooldown` is the known overlap: a control name that is also a documented
     // refusal cause, so it is declared but intentionally NOT excluded.
     const declared = declaredControlNames();
-    expect([...CONTROL_NAMES].sort()).toEqual(
-      [...declared].filter((c) => c !== "cooldown").sort(),
-    );
+    expect([...CONTROL_NAMES].sort()).toEqual([...declared].filter((c) => c !== "cooldown").sort());
     expect(declared.has("cooldown")).toBe(true);
 
     const catalogued = new Set(ERROR_CODES.map((e) => e.literal));
@@ -814,8 +927,13 @@ describe("error catalog covers every code the code actually returns", () => {
 
   test("every catalog entry has a literal that exists in the source", () => {
     const known = new Set([...emittedEnvelopeCodes, ...legacyCodeLiterals, ...reasonLiterals]);
-    const phantom = ERROR_CODES.filter((e) => !known.has(e.literal)).map((e) => `${e.id} (${e.literal})`);
-    expect(phantom, `catalog entries with no matching literal in any source: ${phantom.join(", ")}`).toEqual([]);
+    const phantom = ERROR_CODES.filter((e) => !known.has(e.literal)).map(
+      (e) => `${e.id} (${e.literal})`,
+    );
+    expect(
+      phantom,
+      `catalog entries with no matching literal in any source: ${phantom.join(", ")}`,
+    ).toEqual([]);
   });
 
   test("surface and envelope agree: a body code has a code, a cause does not", () => {
@@ -824,12 +942,17 @@ describe("error catalog covers every code the code actually returns", () => {
         expect(entry.code, `${entry.id} is an http_body code but has code: null`).not.toBeNull();
         expect(entry.envelopeCode, `${entry.id} should not need an envelopeCode`).toBeUndefined();
         expect(
-          entry.envelope === "failure_envelope_v1" ? emittedEnvelopeCodes.has(entry.literal!) : legacyCodeLiterals.has(entry.literal!),
+          entry.envelope === "failure_envelope_v1"
+            ? emittedEnvelopeCodes.has(entry.literal!)
+            : legacyCodeLiterals.has(entry.literal!),
           `${entry.literal} is claimed as a body code on the ${entry.envelope} envelope but is not emitted as one`,
         ).toBe(true);
       } else {
         expect(entry.code, `${entry.id} is ${entry.surface} but carries a body code`).toBeNull();
-        expect(entry.envelopeCode, `${entry.id} is ${entry.surface} and needs no envelopeCode`).toBeDefined();
+        expect(
+          entry.envelopeCode,
+          `${entry.id} is ${entry.surface} and needs no envelopeCode`,
+        ).toBeDefined();
       }
     }
   });
@@ -848,9 +971,14 @@ describe("error catalog covers every code the code actually returns", () => {
   });
 
   test("a catalogued status is the status the envelope's discipline table gives", () => {
-    for (const entry of ERROR_CODES.filter((e) => e.surface === "http_body" && e.envelope === "failure_envelope_v1")) {
+    for (const entry of ERROR_CODES.filter(
+      (e) => e.surface === "http_body" && e.envelope === "failure_envelope_v1",
+    )) {
       const rule = STATUS_DISCIPLINE[entry.code as keyof typeof STATUS_DISCIPLINE];
-      expect(entry.status, `${entry.id}: catalog says ${entry.status}, discipline says ${rule.status}`).toBe(rule.status);
+      expect(
+        entry.status,
+        `${entry.id}: catalog says ${entry.status}, discipline says ${rule.status}`,
+      ).toBe(rule.status);
     }
   });
 
@@ -865,27 +993,53 @@ describe("error catalog covers every code the code actually returns", () => {
     expect(cooldown.meaning).toMatch(/envelope|retry/i);
 
     // The unconditional no-retries.
-    for (const literal of ["semantically_invalid", "malformed_request", "unauthenticated", "endpoint_retired", "credits_exhausted", "country_denied"]) {
-      expect(ERROR_CODES.find((e) => e.literal === literal)!.retryable, `${literal} must not be retryable`).toBe(false);
+    for (const literal of [
+      "semantically_invalid",
+      "malformed_request",
+      "unauthenticated",
+      "endpoint_retired",
+      "credits_exhausted",
+      "country_denied",
+    ]) {
+      expect(
+        ERROR_CODES.find((e) => e.literal === literal)!.retryable,
+        `${literal} must not be retryable`,
+      ).toBe(false);
     }
   });
 
   test("every envelope response really is built by makeFailure", () => {
-    const failure = makeFailure("unauthenticated", { detail: "signature rejected: Digest mismatch" });
+    const failure = makeFailure("unauthenticated", {
+      detail: "signature rejected: Digest mismatch",
+    });
     expect(failure.status).toBe(401);
-    expect(Object.keys(failure.body).sort()).toEqual(["code", "docsUrl", "message", "requestId", "retryable"]);
+    expect(Object.keys(failure.body).sort()).toEqual([
+      "code",
+      "docsUrl",
+      "message",
+      "requestId",
+      "retryable",
+    ]);
     expect(failure.headers["x-request-id"]).toBe(failure.body.requestId);
     // The documented envelope matches the real body field-for-field.
     // `.sort()` on the array itself, not `Object.keys(...).sort()` — `required` is
     // a JSON-Schema array, and `Object.keys` on an array returns index strings.
-    expect([...json.components.schemas.FailureEnvelope.required].sort()).toEqual(Object.keys(failure.body).sort());
+    expect([...json.components.schemas.FailureEnvelope.required].sort()).toEqual(
+      Object.keys(failure.body).sort(),
+    );
     expect(failure.body.docsUrl).toContain("unauthenticated");
   });
 
   test("status-only failures quote a message the source really returns", () => {
-    const all = [...Object.values(CODE_SOURCES), ...Object.values(REASON_SOURCES), RECEIVER_ROUTE].join("\n");
+    const all = [
+      ...Object.values(CODE_SOURCES),
+      ...Object.values(REASON_SOURCES),
+      RECEIVER_ROUTE,
+    ].join("\n");
     for (const failure of STATUS_FAILURES) {
-      expect(all, `${failure.id}: "${failure.errorExample}" is in no source`).toContain(failure.errorExample);
+      expect(all, `${failure.id}: "${failure.errorExample}" is in no source`).toContain(
+        failure.errorExample,
+      );
       expect(failure.meaning.length, failure.id).toBeGreaterThan(20);
       expect(failure.envelope).toBe("legacy_error_field");
     }
@@ -913,7 +1067,10 @@ describe("error catalog covers every code the code actually returns", () => {
   test("the catalog is published in the OpenAPI document", () => {
     expect(json["x-error-catalog"]).toHaveLength(ERROR_CODES.length);
     expect(json["x-status-failures"]).toHaveLength(STATUS_FAILURES.length);
-    expect(Object.keys(json["x-error-envelopes"]).sort()).toEqual(["failure_envelope_v1", "legacy_error_field"]);
+    expect(Object.keys(json["x-error-envelopes"]).sort()).toEqual([
+      "failure_envelope_v1",
+      "legacy_error_field",
+    ]);
     expect(failureEnvelopeCodes()).toContain("policy_precondition");
     expect(bodyErrorCodes()).toContain("endpoint_retired");
   });
@@ -961,7 +1118,9 @@ describe("AsyncAPI document (outbound webhook surface)", () => {
     expect(Object.keys(asyncapi.components.schemas.BankEventEnvelope.properties).sort()).toEqual(
       BANK_EVENT_FIELDS.map((f) => f.name).sort(),
     );
-    expect(asyncapi.components.messages.CaseNotified.correlationId.location).toBe("$message.payload#/event_id");
+    expect(asyncapi.components.messages.CaseNotified.correlationId.location).toBe(
+      "$message.payload#/event_id",
+    );
   });
 
   test("only event types the codebase emits are listed", () => {
@@ -1029,7 +1188,10 @@ describe("conformance checker grades a good receiver", () => {
       if (index === 2) {
         // Deliberately wrong — and wrong in exactly one nibble, so the tamper is
         // the digest rather than a malformed header.
-        expect(verifySignature(signature!, req.body, SECRET)).toMatchObject({ ok: false, reason: "digest_mismatch" });
+        expect(verifySignature(signature!, req.body, SECRET)).toMatchObject({
+          ok: false,
+          reason: "digest_mismatch",
+        });
         continue;
       }
       if (index === 3) {
@@ -1064,9 +1226,10 @@ describe("conformance checker grades a good receiver", () => {
     expect(valid.data.outcome).toBe("conformance_probe");
     expect(valid.data.evidence.transcript).toBe("withheld");
     for (const name of Object.keys(valid.data)) {
-      expect(Object.keys(json.components.schemas.CaseNotifiedData.properties), `data.${name} is not in the spec`).toContain(
-        name,
-      );
+      expect(
+        Object.keys(json.components.schemas.CaseNotifiedData.properties),
+        `data.${name} is not in the spec`,
+      ).toContain(name);
     }
     // And the malformed probe is unambiguously invalid.
     expect(typeof (JSON.parse(seen[4]!.body) as Record<string, unknown>).data).toBe("string");
@@ -1081,7 +1244,11 @@ describe("conformance checker grades a good receiver", () => {
   });
 
   test("a receiver that never answers fails every check and still returns a report", async () => {
-    const report = await runConformance({ receiverUrl: RECEIVER_URL, secret: SECRET, transport: deadTransport });
+    const report = await runConformance({
+      receiverUrl: RECEIVER_URL,
+      secret: SECRET,
+      transport: deadTransport,
+    });
     expect(failing(report)).toEqual([...CONFORMANCE_CHECK_IDS]);
     expect(report.score.verdict).toBe("non_conforming");
     expect(report.probes.every((p) => p.status === 0)).toBe(true);
@@ -1101,7 +1268,9 @@ describe("conformance checker catches each deliberate failure", () => {
     const { report } = await runFake({ echoEventId: false });
     expect(checkStatus(report, "idempotency_honoured")).toBe("fail");
     expect(failing(report)).toEqual(["idempotency_honoured"]);
-    expect(report.checks.find((c) => c.id === "idempotency_honoured")!.observed).toMatch(/dedupe key/);
+    expect(report.checks.find((c) => c.id === "idempotency_honoured")!.observed).toMatch(
+      /dedupe key/,
+    );
   });
 
   test("a receiver slower than its budget fails fast_2xx — and only that", async () => {
@@ -1109,7 +1278,9 @@ describe("conformance checker catches each deliberate failure", () => {
     expect(checkStatus(report, "fast_2xx")).toBe("fail");
     expect(failing(report)).toEqual(["fast_2xx"]);
     expect(report.checks.find((c) => c.id === "fast_2xx")!.observed).toContain("5000ms");
-    expect(report.checks.find((c) => c.id === "fast_2xx")!.observed).toContain(`${DEFAULT_BUDGET_MS}ms`);
+    expect(report.checks.find((c) => c.id === "fast_2xx")!.observed).toContain(
+      `${DEFAULT_BUDGET_MS}ms`,
+    );
   });
 
   test("a budget above the latency passes — the check measures the budget, not a constant", async () => {
@@ -1124,14 +1295,18 @@ describe("conformance checker catches each deliberate failure", () => {
     // The double-charge is real in the fake: applied twice for one event_id.
     expect(applied).toHaveLength(2);
     expect(new Set(applied).size).toBe(1);
-    expect(report.checks.find((c) => c.id === "replay_handled")!.observed).toMatch(/applies the event twice/);
+    expect(report.checks.find((c) => c.id === "replay_handled")!.observed).toMatch(
+      /applies the event twice/,
+    );
   });
 
   test("a receiver that acknowledges malformed payloads fails rejects_malformed — and only that", async () => {
     const { report } = await runFake({ malformed: "accept" });
     expect(checkStatus(report, "rejects_malformed")).toBe("fail");
     expect(failing(report)).toEqual(["rejects_malformed"]);
-    expect(report.checks.find((c) => c.id === "rejects_malformed")!.observed).toMatch(/ACKNOWLEDGED/);
+    expect(report.checks.find((c) => c.id === "rejects_malformed")!.observed).toMatch(
+      /ACKNOWLEDGED/,
+    );
   });
 
   test("a receiver that marks a replay but with an unrecognised marker still fails", async () => {
@@ -1163,8 +1338,16 @@ describe("conformance checker catches each deliberate failure", () => {
 
   test("the report is safe to run repeatedly", async () => {
     const { seen, wrapper } = await spyTransport();
-    const first = await runConformance({ receiverUrl: RECEIVER_URL, secret: SECRET, transport: wrapper });
-    const second = await runConformance({ receiverUrl: RECEIVER_URL, secret: SECRET, transport: wrapper });
+    const first = await runConformance({
+      receiverUrl: RECEIVER_URL,
+      secret: SECRET,
+      transport: wrapper,
+    });
+    const second = await runConformance({
+      receiverUrl: RECEIVER_URL,
+      secret: SECRET,
+      transport: wrapper,
+    });
     expect(first.run_id).not.toBe(second.run_id);
 
     // 10 deliveries over two runs. Within a run only the replay pair shares an
@@ -1174,7 +1357,9 @@ describe("conformance checker catches each deliberate failure", () => {
     const firstIds = new Set(first.probes.map((p) => p.event_id));
     expect(firstIds.size).toBe(2); // valid/replay/tampered/unsigned share one; malformed is its own
     for (const id of second.probes.map((p) => p.event_id)) expect(firstIds.has(id)).toBe(false);
-    expect(new Set(seen.map((r) => (JSON.parse(r.body) as { event_id: string }).event_id)).size).toBe(4);
+    expect(
+      new Set(seen.map((r) => (JSON.parse(r.body) as { event_id: string }).event_id)).size,
+    ).toBe(4);
     expect(second.score.verdict).toBe("conforming");
   });
 });
@@ -1194,7 +1379,11 @@ describe("the checker has no network capability of its own", () => {
   });
 
   test("runConformance has no optional transport parameter", () => {
-    expect(/export async function runConformance\(opts: RunConformanceOptions\)/.test(CONFORMANCE_SOURCE)).toBe(true);
+    expect(
+      /export async function runConformance\(opts: RunConformanceOptions\)/.test(
+        CONFORMANCE_SOURCE,
+      ),
+    ).toBe(true);
     expect(/transport\?:/.test(CONFORMANCE_SOURCE)).toBe(false);
     expect(/= fetch\b/.test(CONFORMANCE_SOURCE)).toBe(false);
   });
@@ -1286,7 +1475,9 @@ describe("SSRF: a blocked target is refused before any probe", () => {
     expect(seen).toHaveLength(5);
     // The bank's org id is echoed on every schema-valid probe (the malformed one
     // deliberately carries none, so its shape stays unambiguous).
-    for (const call of seen.filter((r) => typeof (JSON.parse(r.body) as { data: unknown }).data === "object")) {
+    for (const call of seen.filter(
+      (r) => typeof (JSON.parse(r.body) as { data: unknown }).data === "object",
+    )) {
       expect((JSON.parse(call.body) as { org_id: string }).org_id).toBe("bank-core-uae");
     }
   });
@@ -1294,7 +1485,11 @@ describe("SSRF: a blocked target is refused before any probe", () => {
 
 describe("conformance request validation and auth", () => {
   const baseDeps = {
-    validateUrl: async (raw: string) => ({ ok: true as const, url: new URL(raw), addresses: ["93.184.216.34"] }),
+    validateUrl: async (raw: string) => ({
+      ok: true as const,
+      url: new URL(raw),
+      addresses: ["93.184.216.34"],
+    }),
     authenticate: async () => ({ ok: true as const, callerId: "pk:test", orgId: null }),
     rateLimit: () => ({ ok: true as const }),
   };
@@ -1303,8 +1498,16 @@ describe("conformance request validation and auth", () => {
   };
 
   test("a missing receiver_url or a short secret is refused as malformed_request", async () => {
-    for (const input of [{}, { receiver_url: RECEIVER_URL }, { secret: "short" }, { receiver_url: "", secret: SECRET }]) {
-      const outcome = await handleConformanceRun(input, { ...baseDeps, transport: spyTransportNever });
+    for (const input of [
+      {},
+      { receiver_url: RECEIVER_URL },
+      { secret: "short" },
+      { receiver_url: "", secret: SECRET },
+    ]) {
+      const outcome = await handleConformanceRun(input, {
+        ...baseDeps,
+        transport: spyTransportNever,
+      });
       expect(refusal(outcome).code).toBe("malformed_request");
       expect(STATUS_DISCIPLINE[refusal(outcome).code].status).toBe(400);
     }
@@ -1313,7 +1516,11 @@ describe("conformance request validation and auth", () => {
   test("an unauthenticated caller is refused and nothing is dialled", async () => {
     const outcome = await handleConformanceRun(
       { receiver_url: RECEIVER_URL, secret: SECRET },
-      { ...baseDeps, transport: spyTransportNever, authenticate: async () => ({ ok: false, reason: "revoked" }) },
+      {
+        ...baseDeps,
+        transport: spyTransportNever,
+        authenticate: async () => ({ ok: false, reason: "revoked" }),
+      },
     );
     expect(refusal(outcome).code).toBe("unauthenticated");
     expect(STATUS_DISCIPLINE[refusal(outcome).code].status).toBe(401);
@@ -1322,7 +1529,11 @@ describe("conformance request validation and auth", () => {
   test("the rate limit is enforced before any probe, with a retry-after", async () => {
     const outcome = await handleConformanceRun(
       { receiver_url: RECEIVER_URL, secret: SECRET },
-      { ...baseDeps, transport: spyTransportNever, rateLimit: () => ({ ok: false as const, retryAfterSec: 42 }) },
+      {
+        ...baseDeps,
+        transport: spyTransportNever,
+        rateLimit: () => ({ ok: false as const, retryAfterSec: 42 }),
+      },
     );
     const r = refusal(outcome);
     expect(r.code).toBe("rate_limited");

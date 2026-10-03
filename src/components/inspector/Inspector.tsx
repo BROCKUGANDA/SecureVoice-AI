@@ -82,7 +82,9 @@ export function Inspector({ initialRows }: { initialRows: InspectorRow[] }) {
             </span>
             <span className="font-mono text-xs opacity-70">{r.eventType}</span>
             {r.caseRef ? <span className="font-mono text-xs opacity-50">{r.caseRef}</span> : null}
-            <span className="ml-auto text-[11px] opacity-40">{new Date(r.receivedAt).toLocaleTimeString()}</span>
+            <span className="ml-auto text-[11px] opacity-40">
+              {new Date(r.receivedAt).toLocaleTimeString()}
+            </span>
           </div>
           <p className="mt-2 text-xs opacity-70">{r.reason}</p>
           <div className="mt-3">

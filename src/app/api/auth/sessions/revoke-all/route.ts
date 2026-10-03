@@ -31,7 +31,7 @@ export async function POST(req: Request) {
   if (!authed.ok) {
     return NextResponse.json(
       { error: authed.error, code: authed.code },
-      { status: authed.status, headers: { "Cache-Control": "no-store" } }
+      { status: authed.status, headers: { "Cache-Control": "no-store" } },
     );
   }
 
@@ -53,6 +53,6 @@ export async function POST(req: Request) {
       orgId: authed.orgId,
       note: "Every session in this organization has been revoked, including the caller's.",
     },
-    { headers: { "Cache-Control": "no-store" } }
+    { headers: { "Cache-Control": "no-store" } },
   );
 }

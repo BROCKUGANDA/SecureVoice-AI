@@ -73,116 +73,144 @@ function commitRequest(cookie: string, caseRef: string, reason?: string): NextRe
   });
 }
 
-test("I-1: a staged freeze is committed by the second actor and the case escalates", async () => {
-  const owner = await makeAccount("Owner", "i1-commit-ok");
-  const caseRef = `SV-I1-${Date.now().toString(36)}`;
-  await stagedCase(caseRef, owner.orgId);
+test(
+  "I-1: a staged freeze is committed by the second actor and the case escalates",
+  async () => {
+    const owner = await makeAccount("Owner", "i1-commit-ok");
+    const caseRef = `SV-I1-${Date.now().toString(36)}`;
+    await stagedCase(caseRef, owner.orgId);
 
-  const session = await steppedSession(owner);
-  const res = await commitPOST(commitRequest(session.cookie, caseRef, "confirmed by customer"));
-  expect(res.status).toBe(200);
-  const body = (await res.json()) as { committed: boolean; caseRef: string; nextState: string };
+    const session = await steppedSession(owner);
+    const res = await commitPOST(commitRequest(session.cookie, caseRef, "confirmed by customer"));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { committed: boolean; caseRef: string; nextState: string };
 
-  expect(body.committed).toBe(true);
-  expect(body.caseRef).toBe(caseRef);
-  // The freeze is committed; the case moves to escalation, not to CLOSED.
-  expect(body.nextState).toBe("ESCALATED");
+    expect(body.committed).toBe(true);
+    expect(body.caseRef).toBe(caseRef);
+    // The freeze is committed; the case moves to escalation, not to CLOSED.
+    expect(body.nextState).toBe("ESCALATED");
 
-  const row = await caseByRef(caseRef, owner.orgId);
-  expect(row?.state).toBe("ESCALATED");
-}, DB_STEP_TIMEOUT_MS);
+    const row = await caseByRef(caseRef, owner.orgId);
+    expect(row?.state).toBe("ESCALATED");
+  },
+  DB_STEP_TIMEOUT_MS,
+);
 
-test("I-1: the commit is refused WITHOUT a fresh step-up", async () => {
-  const owner = await makeAccount("Owner", "i1-nostepup");
-  const caseRef = `SV-I1-${Date.now().toString(36)}`;
-  await stagedCase(caseRef, owner.orgId);
+test(
+  "I-1: the commit is refused WITHOUT a fresh step-up",
+  async () => {
+    const owner = await makeAccount("Owner", "i1-nostepup");
+    const caseRef = `SV-I1-${Date.now().toString(36)}`;
+    await stagedCase(caseRef, owner.orgId);
 
-  // A valid Owner session, no step-up. It passes every ROLE check — which is
-  // exactly why step-up exists.
-  const session = await makeSession(owner);
-  const res = await commitPOST(commitRequest(session.cookie, caseRef));
+    // A valid Owner session, no step-up. It passes every ROLE check — which is
+    // exactly why step-up exists.
+    const session = await makeSession(owner);
+    const res = await commitPOST(commitRequest(session.cookie, caseRef));
 
-  expect(res.status).toBe(428);
-  // And nothing moved: the freeze is still staged, still reversible.
-  const row = await caseByRef(caseRef, owner.orgId);
-  expect(row?.state).toBe("FREEZE_STAGED");
-}, DB_STEP_TIMEOUT_MS);
+    expect(res.status).toBe(428);
+    // And nothing moved: the freeze is still staged, still reversible.
+    const row = await caseByRef(caseRef, owner.orgId);
+    expect(row?.state).toBe("FREEZE_STAGED");
+  },
+  DB_STEP_TIMEOUT_MS,
+);
 
-test("I-1: another tenant's staged freeze is INVISIBLE, not merely uncommittable", async () => {
-  const victim = await makeAccount("Owner", "i1-victim");
-  const attacker = await makeAccount("Owner", "i1-attacker");
-  const caseRef = `SV-I1-${Date.now().toString(36)}`;
-  await stagedCase(caseRef, victim.orgId);
+test(
+  "I-1: another tenant's staged freeze is INVISIBLE, not merely uncommittable",
+  async () => {
+    const victim = await makeAccount("Owner", "i1-victim");
+    const attacker = await makeAccount("Owner", "i1-attacker");
+    const caseRef = `SV-I1-${Date.now().toString(36)}`;
+    await stagedCase(caseRef, victim.orgId);
 
-  const session = await steppedSession(attacker);
-  const res = await commitPOST(commitRequest(session.cookie, caseRef));
+    const session = await steppedSession(attacker);
+    const res = await commitPOST(commitRequest(session.cookie, caseRef));
 
-  // 404, never 403: a 403 confirms the case exists, which is itself a leak.
-  expect(res.status).toBe(404);
-  const row = await caseByRef(caseRef, victim.orgId);
-  expect(row?.state).toBe("FREEZE_STAGED");
-}, DB_STEP_TIMEOUT_MS);
+    // 404, never 403: a 403 confirms the case exists, which is itself a leak.
+    expect(res.status).toBe(404);
+    const row = await caseByRef(caseRef, victim.orgId);
+    expect(row?.state).toBe("FREEZE_STAGED");
+  },
+  DB_STEP_TIMEOUT_MS,
+);
 
-test("I-1: a freeze can only be committed from FREEZE_STAGED", async () => {
-  const owner = await makeAccount("Owner", "i1-wrongstate");
-  const caseRef = `SV-I1-${Date.now().toString(36)}`;
-  await createCase({ caseRef, orgId: owner.orgId, phone: "+971500000123" });
-  // Parked in SCREENED — never confirmed as fraud.
-  await transitionCase(caseRef, "SCREENED");
+test(
+  "I-1: a freeze can only be committed from FREEZE_STAGED",
+  async () => {
+    const owner = await makeAccount("Owner", "i1-wrongstate");
+    const caseRef = `SV-I1-${Date.now().toString(36)}`;
+    await createCase({ caseRef, orgId: owner.orgId, phone: "+971500000123" });
+    // Parked in SCREENED — never confirmed as fraud.
+    await transitionCase(caseRef, "SCREENED");
 
-  const session = await steppedSession(owner);
-  const res = await commitPOST(commitRequest(session.cookie, caseRef));
+    const session = await steppedSession(owner);
+    const res = await commitPOST(commitRequest(session.cookie, caseRef));
 
-  expect(res.status).toBe(409);
-  const body = (await res.json()) as { code: string };
-  expect(body.code).toBe("state_precondition_failed");
-  const row = await caseByRef(caseRef, owner.orgId);
-  expect(row?.state).toBe("SCREENED");
-}, DB_STEP_TIMEOUT_MS);
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as { code: string };
+    expect(body.code).toBe("state_precondition_failed");
+    const row = await caseByRef(caseRef, owner.orgId);
+    expect(row?.state).toBe("SCREENED");
+  },
+  DB_STEP_TIMEOUT_MS,
+);
 
-test("I-1: the commit leaves an audit trail that still verifies from genesis", async () => {
-  const owner = await makeAccount("Owner", "i1-chain");
-  const caseRef = `SV-I1-${Date.now().toString(36)}`;
-  await stagedCase(caseRef, owner.orgId);
-  const session = await steppedSession(owner);
+test(
+  "I-1: the commit leaves an audit trail that still verifies from genesis",
+  async () => {
+    const owner = await makeAccount("Owner", "i1-chain");
+    const caseRef = `SV-I1-${Date.now().toString(36)}`;
+    await stagedCase(caseRef, owner.orgId);
+    const session = await steppedSession(owner);
 
-  const res = await commitPOST(commitRequest(session.cookie, caseRef, "chain check"));
-  expect(res.status).toBe(200);
+    const res = await commitPOST(commitRequest(session.cookie, caseRef, "chain check"));
+    expect(res.status).toBe(200);
 
-  const verification = await verifyChain(caseRef, owner.orgId);
-  expect(verification.ok).toBe(true);
-}, DB_STEP_TIMEOUT_MS);
+    const verification = await verifyChain(caseRef, owner.orgId);
+    expect(verification.ok).toBe(true);
+  },
+  DB_STEP_TIMEOUT_MS,
+);
 
-test("I-1: the commit body rejects unknown fields rather than ignoring them", async () => {
-  const owner = await makeAccount("Owner", "i1-strict");
-  const caseRef = `SV-I1-${Date.now().toString(36)}`;
-  await stagedCase(caseRef, owner.orgId);
-  const session = await steppedSession(owner);
+test(
+  "I-1: the commit body rejects unknown fields rather than ignoring them",
+  async () => {
+    const owner = await makeAccount("Owner", "i1-strict");
+    const caseRef = `SV-I1-${Date.now().toString(36)}`;
+    await stagedCase(caseRef, owner.orgId);
+    const session = await steppedSession(owner);
 
-  const res = await commitPOST(
-    new NextRequest("http://localhost/api/console/freeze/commit", {
-      method: "POST",
-      headers: { cookie: session.cookie, "content-type": "application/json" },
-      body: JSON.stringify({ caseRef, committed: true, force: true }),
-    }),
-  );
+    const res = await commitPOST(
+      new NextRequest("http://localhost/api/console/freeze/commit", {
+        method: "POST",
+        headers: { cookie: session.cookie, "content-type": "application/json" },
+        body: JSON.stringify({ caseRef, committed: true, force: true }),
+      }),
+    );
 
-  expect(res.status).toBe(422);
-  const row = await caseByRef(caseRef, owner.orgId);
-  expect(row?.state).toBe("FREEZE_STAGED");
-}, DB_STEP_TIMEOUT_MS);
+    expect(res.status).toBe(422);
+    const row = await caseByRef(caseRef, owner.orgId);
+    expect(row?.state).toBe("FREEZE_STAGED");
+  },
+  DB_STEP_TIMEOUT_MS,
+);
 
-test("I-1: an Auditor cannot commit a freeze, even with a valid step-up", async () => {
-  // Auditor is the read-only role banks always need. Holding a step-up must not
-  // promote it — the capability check runs first and independently.
-  const auditor = await makeMember("Auditor", "i1-auditor", "unused-org-for-auditor");
-  const caseRef = `SV-I1-${Date.now().toString(36)}`;
-  await stagedCase(caseRef, auditor.orgId);
+test(
+  "I-1: an Auditor cannot commit a freeze, even with a valid step-up",
+  async () => {
+    // Auditor is the read-only role banks always need. Holding a step-up must not
+    // promote it — the capability check runs first and independently.
+    const auditor = await makeMember("Auditor", "i1-auditor", "unused-org-for-auditor");
+    const caseRef = `SV-I1-${Date.now().toString(36)}`;
+    await stagedCase(caseRef, auditor.orgId);
 
-  const session = await steppedSession(auditor);
-  const res = await commitPOST(commitRequest(session.cookie, caseRef));
+    const session = await steppedSession(auditor);
+    const res = await commitPOST(commitRequest(session.cookie, caseRef));
 
-  expect(res.status).toBe(403);
-  const row = await caseByRef(caseRef, auditor.orgId);
-  expect(row?.state).toBe("FREEZE_STAGED");
-}, DB_STEP_TIMEOUT_MS);
+    expect(res.status).toBe(403);
+    const row = await caseByRef(caseRef, auditor.orgId);
+    expect(row?.state).toBe("FREEZE_STAGED");
+  },
+  DB_STEP_TIMEOUT_MS,
+);

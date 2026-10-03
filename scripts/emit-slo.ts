@@ -60,14 +60,20 @@ const windowMinutes = flag("window", null);
 const interventions = flag("interventions", null);
 const minInterventions = flag("min", REQUIRED_INTERVENTIONS) ?? REQUIRED_INTERVENTIONS;
 
-const outPath = resolve(process.env.SLO_EVIDENCE_PATH ?? join(ROOT, "evidence", "latency", "slo.json"));
+const outPath = resolve(
+  process.env.SLO_EVIDENCE_PATH ?? join(ROOT, "evidence", "latency", "slo.json"),
+);
 
 // Anything the recorder queued in this process is made durable BEFORE reading,
 // so a script that recorded a span and immediately emitted cannot under-report.
 await flushSpansNow();
 
 const source = await loadSloSource({ windowMinutes, interventions });
-const { report, ok, exitCode, reasons } = buildSloReport(source, { windowMinutes, interventions, requiredInterventions: minInterventions });
+const { report, ok, exitCode, reasons } = buildSloReport(source, {
+  windowMinutes,
+  interventions,
+  requiredInterventions: minInterventions,
+});
 
 await mkdir(dirname(outPath), { recursive: true });
 await writeFile(outPath, `${JSON.stringify(report, null, 2)}\n`, "utf8");
@@ -78,34 +84,49 @@ const pad = (s: string, n: number) => (s.length >= n ? s : s + " ".repeat(n - s.
 const padStart = (s: string, n: number) => (s.length >= n ? s : " ".repeat(n - s.length) + s);
 
 console.log(`[slo] ${outPath}`);
-console.log(`[slo] log: ${report.source.log}  (${source.recordsRead} record(s)${source.truncated ? ", tail-truncated" : ""}${source.malformedLines > 0 ? `, ${source.malformedLines} unreadable line(s)` : ""}${source.missing ? ", file missing" : ""})`);
+console.log(
+  `[slo] log: ${report.source.log}  (${source.recordsRead} record(s)${source.truncated ? ", tail-truncated" : ""}${source.malformedLines > 0 ? `, ${source.malformedLines} unreadable line(s)` : ""}${source.missing ? ", file missing" : ""})`,
+);
 console.log(
   `[slo] interventions: ${report.interventions_measured} complete (terminal span "${report.intervention_definition.terminal_span}") ` +
     `of ${minInterventions} required · ${report.interventions_seen} seen with at least one span`,
 );
 console.log("");
-console.log(`  ${pad("span", 46)}${padStart("p50", 11)}${padStart("p95", 11)}${padStart("budget", 11)}  verdict`);
+console.log(
+  `  ${pad("span", 46)}${padStart("p50", 11)}${padStart("p95", 11)}${padStart("budget", 11)}  verdict`,
+);
 for (const row of report.spans) {
-  const ms = (v: number | null) => (v === null ? "—" : v >= 1000 ? `${(v / 1000).toFixed(2)}s` : `${Math.round(v)}ms`);
+  const ms = (v: number | null) =>
+    v === null ? "—" : v >= 1000 ? `${(v / 1000).toFixed(2)}s` : `${Math.round(v)}ms`;
   console.log(
     `  ${pad(row.label, 46)}${padStart(ms(row.p50_ms), 11)}${padStart(ms(row.p95_ms), 11)}${padStart(ms(row.target_p95_ms), 11)}  ${row.verdict} (${row.value_kind}, n=${row.samples})`,
   );
 }
 console.log("");
-console.log(`[slo] baseline: ${report.industry_baseline.label} (${report.industry_baseline.kind}) — ${report.industry_baseline.sources[0]}`);
+console.log(
+  `[slo] baseline: ${report.industry_baseline.label} (${report.industry_baseline.kind}) — ${report.industry_baseline.sources[0]}`,
+);
 
-const notMeasured = report.spans_not_measured.filter((n) => !SPAN_DEFINITIONS.some((d) => d.name === n));
+const notMeasured = report.spans_not_measured.filter(
+  (n) => !SPAN_DEFINITIONS.some((d) => d.name === n),
+);
 if (notMeasured.length > 0) {
   console.error(`[slo] WARNING unknown span names in the artifact: ${notMeasured.join(", ")}`);
 }
 if (report.spans_not_measured.length > 0) {
-  console.log(`[slo] not measured (${report.spans_not_measured.length}/${report.spans.length}): ${report.spans_not_measured.join(", ")}`);
-  console.log("[slo] these are NOT passes. `all_targets_met` is null while any span is unmeasured.");
+  console.log(
+    `[slo] not measured (${report.spans_not_measured.length}/${report.spans.length}): ${report.spans_not_measured.join(", ")}`,
+  );
+  console.log(
+    "[slo] these are NOT passes. `all_targets_met` is null while any span is unmeasured.",
+  );
 }
 
 if (reasons.length === 0) {
   console.log("");
-  console.log(`[slo] PASS — ${report.interventions_measured} real interventions, every measured span inside budget.`);
+  console.log(
+    `[slo] PASS — ${report.interventions_measured} real interventions, every measured span inside budget.`,
+  );
   process.exit(0);
 }
 
@@ -113,5 +134,7 @@ console.error("");
 console.error(`[slo] FAIL — the evidence does not meet the definition of done:`);
 for (const reason of reasons) console.error(`[slo]   • ${reason}`);
 console.error(`[slo] wrote the artifact anyway: ${outPath}`);
-console.error(`[slo] required: ${minInterventions} real interventions (currently ${report.interventions_measured}).`);
+console.error(
+  `[slo] required: ${minInterventions} real interventions (currently ${report.interventions_measured}).`,
+);
 process.exit(exitCode);

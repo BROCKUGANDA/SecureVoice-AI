@@ -54,11 +54,11 @@ import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { db } from "@/lib/db";
+import type { TenancyScopeError } from "@/lib/tenancy/guard";
 import {
   PLATFORM_MODELS,
   TENANCY_BYPASS,
   TENANTED_MODELS,
-  TenancyScopeError,
   assertScoped,
   hasOrgPredicate,
   inScopeTransaction,
@@ -208,8 +208,16 @@ function invariantChecks(entry: ReadPath, raw: RawOutcome): Check[] {
       break;
     case "foreign-probe-404":
       out.push(
-        check("recorded-foreign-probe-is-404", raw.http?.status === 404, `recorded status ${raw.http?.status} contradicts verdict foreign-probe-404`),
-        check("recorded-foreign-probe-is-not-403", raw.http?.status !== 403, "a 403 confirms existence and must never be the cross-tenant answer"),
+        check(
+          "recorded-foreign-probe-is-404",
+          raw.http?.status === 404,
+          `recorded status ${raw.http?.status} contradicts verdict foreign-probe-404`,
+        ),
+        check(
+          "recorded-foreign-probe-is-not-403",
+          raw.http?.status !== 403,
+          "a 403 confirms existence and must never be the cross-tenant answer",
+        ),
       );
       break;
     case "identity-keyed":
@@ -236,18 +244,21 @@ function invariantChecks(entry: ReadPath, raw: RawOutcome): Check[] {
 
 // ── Pinned sets — a change here is a change to the tenancy contract ─────────
 //
-// The four OPEN gaps. Two more were closed on 2026-10-02 (the ingest customer
-// lookup and the enroll opt-out branch); their entries were reclassified to
-// `asserted` and their probes now exercise the production handler with the org
-// predicate in place, plus a negative control proving the pre-fix unscoped
-// expression still leaks. Removing a name from this list is a deliberate act:
-// the gate will not notice on its own.
-const PINNED_GAPS = [
-  "lib.audit-chain.verify",
-  "lib.case.by-conversation",
-  "lib.case.by-ref",
-  "lib.notifications.acknowledge",
-].sort();
+// There are no OPEN cross-tenant gaps. Every entry that was one has been closed
+// and reclassified to `asserted`:
+//
+//   2026-10-02  ingest customer lookup, enroll opt-out branch
+//   2026-10-03  lib.case.by-ref, lib.audit-chain.verify,
+//               lib.notifications.acknowledge — all three already applied the
+//               caller's org in the predicate; the matrix was stale.
+//   2026-10-03  lib.case.by-conversation — genuinely unscoped. Closed by making
+//               the credential carry the tenant (AgentToolSecret) and passing
+//               that org into the lookup.
+//
+// The pin is kept, and kept EMPTY, deliberately: a newly declared gap still
+// fails this gate, and a closed gap quietly re-added fails it too. Removing the
+// list altogether would lose both.
+const PINNED_GAPS: string[] = [];
 
 const PINNED_GLOBAL = ["console.outbox.dead-letters", "lib.outbox.claim-batch"].sort();
 
@@ -266,7 +277,9 @@ const EVIDENCE_PATH = resolve(import.meta.dir, "..", "..", "evidence", "tenancy"
 function canonical(value: unknown): string {
   if (value === null || typeof value !== "object") return JSON.stringify(value) ?? "null";
   if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
-  const entries = Object.entries(value as Record<string, unknown>).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+  const entries = Object.entries(value as Record<string, unknown>).sort(([a], [b]) =>
+    a < b ? -1 : a > b ? 1 : 0,
+  );
   return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${canonical(v)}`).join(",")}}`;
 }
 
@@ -296,8 +309,8 @@ function buildArtifact(paths: PathOutcome[]): Record<string, unknown> {
       declaredGlobal: paths.filter((p) => p.coverage === "declared-global").length,
     },
     checks: { total: allChecks.length, passed, failed: allChecks.length - passed },
-    http404Asserted: paths.filter(
-      (p) => p.directions.some((d) => d.checks.some((c) => c.name === "foreign-probe-is-404")),
+    http404Asserted: paths.filter((p) =>
+      p.directions.some((d) => d.checks.some((c) => c.name === "foreign-probe-is-404")),
     ).length,
     never403Asserted: paths.reduce(
       (n, p) => n + p.directions.filter((d) => d.checks.some((c) => c.name === "never-403")).length,
@@ -330,7 +343,9 @@ function buildArtifact(paths: PathOutcome[]): Record<string, unknown> {
       module: p.module,
       read: p.read,
       probeField: p.probe.field,
-      http: p.http ? { method: p.http.method, route: p.http.route, probeParam: p.http.probeParam } : null,
+      http: p.http
+        ? { method: p.http.method, route: p.http.route, probeParam: p.http.probeParam }
+        : null,
     })),
     paths,
   };
@@ -390,12 +405,22 @@ test("WP-12 · matrix fails closed: canonical list and matrix are the same set",
 
   // A tenant model with no promised read path is an unowned tenant: fail.
   for (const model of TENANTED_MODELS) {
-    expect(canonicalModels(), `tenant model ${model} has no read path in the matrix`).toContain(model);
+    expect(canonicalModels(), `tenant model ${model} has no read path in the matrix`).toContain(
+      model,
+    );
   }
 
   // The gap set is pinned: a new gap fails, a fixed gap fails until reclassified.
-  expect(ISOLATION_MATRIX.filter((p) => p.coverage === "declared-gap").map((p) => p.id).sort()).toEqual(PINNED_GAPS);
-  expect(ISOLATION_MATRIX.filter((p) => p.coverage === "declared-global").map((p) => p.id).sort()).toEqual(PINNED_GLOBAL);
+  expect(
+    ISOLATION_MATRIX.filter((p) => p.coverage === "declared-gap")
+      .map((p) => p.id)
+      .sort(),
+  ).toEqual(PINNED_GAPS);
+  expect(
+    ISOLATION_MATRIX.filter((p) => p.coverage === "declared-global")
+      .map((p) => p.id)
+      .sort(),
+  ).toEqual(PINNED_GLOBAL);
   // Every pinned gap must actually document itself.
   for (const id of PINNED_GAPS) {
     expect(matrixEntry(id).notes).toContain("GAP");
@@ -445,7 +470,9 @@ test("WP-12 · guard is fail-closed: an unscoped read is refused, not served", a
     } catch (err) {
       caught = err;
     }
-    expect(isTenancyScopeError(caught), `${model} with an unscoped where must be refused`).toBe(true);
+    expect(isTenancyScopeError(caught), `${model} with an unscoped where must be refused`).toBe(
+      true,
+    );
     expect((caught as TenancyScopeError).reason).toBe("missing_org_predicate");
     expect((caught as TenancyScopeError).model).toBe(model);
     expect((caught as TenancyScopeError).message).toContain(model);
@@ -477,15 +504,21 @@ test("WP-12 · guard is fail-closed: an unscoped read is refused, not served", a
   const asA = scopedDb({ orgId: ORG.A });
   expect((await asA.case.findFirst({ where: { caseRef: ID.caseRef.A } }))?.orgId).toBe(ORG.A);
   expect(await asA.case.findFirst({ where: { caseRef: ID.caseRef.B } })).toBeNull();
-  expect(await asA.case.findMany({ where: { caseRef: { in: [ID.caseRef.A, ID.caseRef.B] } } })).toHaveLength(1);
+  expect(
+    await asA.case.findMany({ where: { caseRef: { in: [ID.caseRef.A, ID.caseRef.B] } } }),
+  ).toHaveLength(1);
   expect(await asA.auditLog.count({ where: { callRef: ID.callRef.B } })).toBe(0);
   expect(await asA.auditLog.count({ where: { callRef: ID.callRef.A } })).toBe(1);
   expect(await asA.customer.count()).toBe(4);
   expect(await asA.notification.count()).toBe(3);
   expect(await asA.producerKey.count()).toBe(2);
   // Symmetric: B sees only B.
-  expect(await scopedDb({ orgId: ORG.B }).case.findFirst({ where: { caseRef: ID.caseRef.A } })).toBeNull();
-  expect(await scopedDb(orgScopeFor(ORG.B)).case.findFirst({ where: { caseRef: ID.caseRef.B } })).not.toBeNull();
+  expect(
+    await scopedDb({ orgId: ORG.B }).case.findFirst({ where: { caseRef: ID.caseRef.A } }),
+  ).toBeNull();
+  expect(
+    await scopedDb(orgScopeFor(ORG.B)).case.findFirst({ where: { caseRef: ID.caseRef.B } }),
+  ).not.toBeNull();
 
   // 8. An explicit foreign org in `where` is refused at the client, not
   //    silently answered with zero rows.
@@ -508,7 +541,9 @@ test("WP-12 · guard is fail-closed: an unscoped read is refused, not served", a
   expect(created.orgId).toBe(ORG.A);
   let writeCross: unknown = null;
   try {
-    await asA.customer.create({ data: { customerRef: `CUST-GUARD-X-${RUN}`, phone: CONSENT_PHONE, orgId: ORG.B } });
+    await asA.customer.create({
+      data: { customerRef: `CUST-GUARD-X-${RUN}`, phone: CONSENT_PHONE, orgId: ORG.B },
+    });
   } catch (err) {
     writeCross = err;
   }
@@ -621,7 +656,9 @@ test("WP-12 · isolation: every read path × both orgs", async () => {
       read: entry.read,
       probeField: entry.probe.field,
       probeInvoke: entry.probe.invoke,
-      http: entry.http ? { method: entry.http.method, route: entry.http.route, probeParam: entry.http.probeParam } : null,
+      http: entry.http
+        ? { method: entry.http.method, route: entry.http.route, probeParam: entry.http.probeParam }
+        : null,
       notes: entry.notes,
       directions,
       ok: directions.every((d) => d.ok),
@@ -695,7 +732,8 @@ test("WP-12 · isolation: every read path × both orgs", async () => {
 
   // Direction count: every path is probed both ways, always.
   expect(paths.length).toBe(CANONICAL_READ_PATHS.length);
-  for (const p of paths) expect(p.directions.map((d) => d.direction)).toEqual(["A-reads-B", "B-reads-A"]);
+  for (const p of paths)
+    expect(p.directions.map((d) => d.direction)).toEqual(["A-reads-B", "B-reads-A"]);
 
   // The two orgs must be genuinely distinct tenants, or nothing above means
   // anything.
@@ -730,7 +768,9 @@ test("WP-12 · evidence artifact is deterministic and well-formed", () => {
     expect(p.directions.map((d: any) => d.direction)).toEqual(["A-reads-B", "B-reads-A"]);
     for (const d of p.directions) {
       expect(d.checks.length).toBeGreaterThan(0);
-      expect(d.checks.every((c: any) => typeof c.name === "string" && typeof c.ok === "boolean")).toBe(true);
+      expect(
+        d.checks.every((c: any) => typeof c.name === "string" && typeof c.ok === "boolean"),
+      ).toBe(true);
     }
   }
 
@@ -745,16 +785,21 @@ test("WP-12 · evidence artifact is deterministic and well-formed", () => {
   const failedChecks = allChecks.filter((c: any) => !c.ok);
   expect(
     failedChecks.every((c: any) => c.name === "declared-gap-is-still-open"),
-    `unexpected non-gap failures: ${failedChecks.filter((c: any) => c.name !== "declared-gap-is-still-open").map((c: any) => c.name).join(", ")}`,
+    `unexpected non-gap failures: ${failedChecks
+      .filter((c: any) => c.name !== "declared-gap-is-still-open")
+      .map((c: any) => c.name)
+      .join(", ")}`,
   ).toBe(true);
   // Every declared gap is probed both ways, so an open gap is exactly one
   // failure per direction per gap. If a gap were closed this count drops, and
   // the matrix entry must be reclassified at the same time.
-  expect(failedChecks.length).toBe(
-    PINNED_GAPS.filter((id) => !closedGaps.has(id)).length * 2,
-  );
+  expect(failedChecks.length).toBe(PINNED_GAPS.filter((id) => !closedGaps.has(id)).length * 2);
   expect(parsed.summary.coverage.declaredGap).toBe(PINNED_GAPS.length);
-  expect(parsed.summary.coverage.asserted + parsed.summary.coverage.declaredGap + parsed.summary.coverage.declaredGlobal).toBe(parsed.paths.length);
+  expect(
+    parsed.summary.coverage.asserted +
+      parsed.summary.coverage.declaredGap +
+      parsed.summary.coverage.declaredGlobal,
+  ).toBe(parsed.paths.length);
   expect(parsed.summary.unscopedReadPaths.map((p: any) => p.path).sort()).toEqual(PINNED_GAPS);
   // 404-not-403 was asserted explicitly, in both directions, for every
   // id-shaped HTTP probe.

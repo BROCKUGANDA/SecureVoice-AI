@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireOperator } from "@/lib/credits";
 import { db } from "@/lib/db";
@@ -26,7 +27,14 @@ export async function GET() {
   const keys = await db.producerKey.findMany({
     where: orgScope,
     orderBy: { createdAt: "desc" },
-    select: { id: true, label: true, orgId: true, revoked: true, lastUsedAt: true, createdAt: true },
+    select: {
+      id: true,
+      label: true,
+      orgId: true,
+      revoked: true,
+      lastUsedAt: true,
+      createdAt: true,
+    },
     take: 20,
   });
   return NextResponse.json({ keys }, { headers: { "Cache-Control": "no-store" } });
@@ -47,7 +55,11 @@ export async function POST(req: NextRequest) {
   }
   const plaintext = generateProducerKey();
   const row = await db.producerKey.create({
-    data: { label: parsed.data.label, keyHash: hashProducerKey(plaintext), orgId: guard.profile.orgId },
+    data: {
+      label: parsed.data.label,
+      keyHash: hashProducerKey(plaintext),
+      orgId: guard.profile.orgId,
+    },
     select: { id: true, label: true, createdAt: true },
   });
   // Issuing a credential is a security event. The key itself is never in the
@@ -57,12 +69,17 @@ export async function POST(req: NextRequest) {
     callRef: `PRODKEY-${row.id.slice(0, 24)}`,
     action: "consent",
     intent: "producer_key_issued",
-    callerId: guard.profile.clerkUserId,
+    callerId: guard.profile.userId,
     redactedText: `issued "${parsed.data.label}"`,
     meta: { keyId: row.id, label: parsed.data.label, orgId: guard.profile.orgId ?? undefined },
     orgId: guard.profile.orgId ?? undefined,
   });
-  return NextResponse.json({ ok: true, key: plaintext, ...row, note: "Copy it now — it is shown only once." });
+  return NextResponse.json({
+    ok: true,
+    key: plaintext,
+    ...row,
+    note: "Copy it now — it is shown only once.",
+  });
 }
 
 export async function DELETE(req: NextRequest) {
@@ -86,7 +103,7 @@ export async function DELETE(req: NextRequest) {
     callRef: `PRODKEY-${id.slice(0, 24)}`,
     action: "consent",
     intent: "producer_key_revoked",
-    callerId: guard.profile.clerkUserId,
+    callerId: guard.profile.userId,
     redactedText: "revoked",
     meta: { keyId: id, orgId: guard.profile.orgId ?? undefined },
     orgId: guard.profile.orgId ?? undefined,

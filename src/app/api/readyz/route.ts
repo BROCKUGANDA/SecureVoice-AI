@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import "server-only";
+import { LEAK_RULES } from "@/lib/failures/envelope";
 import { db } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
@@ -23,7 +24,6 @@ export const dynamic = "force-dynamic";
  * and a non-empty `checks`, so a monitoring system can alert on the detail
  * without the container being killed for it.
  */
-
 type Check = {
   name: string;
   ok: boolean;
@@ -31,6 +31,32 @@ type Check = {
   detail?: string | number;
   ms?: number;
 };
+
+/**
+ * Reduce a thrown error to text an unauthenticated HTTP client may read.
+ *
+ * `err.message.slice(0, 120)` bounded the LENGTH and nothing else: a multi-line
+ * driver error reached this body with its newline and stack frame intact, and
+ * the exact string it produced is classified `stack_trace` by the project's own
+ * `leakScan()`. Every other caller-facing surface in this codebase runs its
+ * text through the same leak rules; this endpoint did not, which made it the
+ * one place a stack frame could be published.
+ *
+ * Whitespace is collapsed first — so a detail cannot forge extra lines in a
+ * log or a dashboard — then every leak rule is applied, then the result is
+ * bounded. The rules are reused rather than re-listed, so a leak class added to
+ * the envelope automatically applies here too. The surviving text still says
+ * WHICH dependency failed; the point is only to strip credentials, DSNs and
+ * stack frames.
+ */
+function leakSafeDetail(raw: string): string {
+  let out = raw.replace(/\s+/g, " ").trim();
+  for (const rule of LEAK_RULES) {
+    // `re` carries no /g flag, so lastIndex never persists across calls.
+    if (rule.re.test(out)) out = out.replace(new RegExp(rule.re.source, "gi"), "[redacted]");
+  }
+  return out.slice(0, 120).trim() || "error";
+}
 
 const OUTBOX_BACKLOG_WARN_SECONDS = 300; // 5 minutes
 const AUDIT_STALE_WARN_SECONDS = 3600; // 1 hour
@@ -50,7 +76,12 @@ export async function GET() {
     try {
       check = await fn();
     } catch (err) {
-      check = { name, ok: false, fatal, detail: err instanceof Error ? err.message.slice(0, 120) : "error" };
+      check = {
+        name,
+        ok: false,
+        fatal,
+        detail: err instanceof Error ? leakSafeDetail(err.message) : "error",
+      };
     }
     check.ms = Date.now() - t0;
     checks.push(check);
@@ -84,7 +115,10 @@ export async function GET() {
   // broken even though every request returns 200 — this is the alert that
   // catches it.
   await timed("audit_chain", false, async () => {
-    const last = await db.auditLog.findFirst({ orderBy: { createdAt: "desc" }, select: { createdAt: true } });
+    const last = await db.auditLog.findFirst({
+      orderBy: { createdAt: "desc" },
+      select: { createdAt: true },
+    });
     const ageSec = last ? Math.round((Date.now() - last.createdAt.getTime()) / 1000) : -1;
     return {
       name: "audit_chain",

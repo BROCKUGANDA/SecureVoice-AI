@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { ElevenLabsClient } from "@elevenlabs/elevenlabs-js";
 import { Prisma } from "@/generated/prisma/client";
 import { db } from "@/lib/db";
@@ -42,7 +43,8 @@ export async function POST(req: NextRequest) {
 
   const data = event?.data ?? {};
   const eventType: string = event?.type ?? "unknown";
-  const conversationId: string | null = typeof data.conversation_id === "string" ? data.conversation_id : null;
+  const conversationId: string | null =
+    typeof data.conversation_id === "string" ? data.conversation_id : null;
   const agentId: string | null = typeof data.agent_id === "string" ? data.agent_id : null;
   const eventTimestamp: number | null =
     typeof event?.event_timestamp === "number"

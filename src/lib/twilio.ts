@@ -39,8 +39,10 @@ function creds(): TwilioCreds {
   if (!mode || mode === "unconfigured") throw new Error("Twilio not configured");
   return {
     accountSid: process.env.TWILIO_ACCOUNT_SID!,
-    username: mode === "api-key" ? process.env.TWILIO_API_KEY_SID! : process.env.TWILIO_ACCOUNT_SID!,
-    password: mode === "api-key" ? process.env.TWILIO_API_KEY_SECRET! : process.env.TWILIO_AUTH_TOKEN!,
+    username:
+      mode === "api-key" ? process.env.TWILIO_API_KEY_SID! : process.env.TWILIO_ACCOUNT_SID!,
+    password:
+      mode === "api-key" ? process.env.TWILIO_API_KEY_SECRET! : process.env.TWILIO_AUTH_TOKEN!,
     from: process.env.TWILIO_FROM_NUMBER!,
   };
 }
@@ -104,8 +106,9 @@ const SCRIPT: Record<DeliveryLang, (amount: string, merchant: string) => string>
 };
 
 function escapeXml(s: string): string {
-  return s.replace(/[<>&'"]/g, (c) =>
-    ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", "'": "&apos;", '"': "&quot;" })[c] ?? c
+  return s.replace(
+    /[<>&'"]/g,
+    (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", "'": "&apos;", '"': "&quot;" })[c] ?? c,
   );
 }
 
@@ -125,7 +128,7 @@ export function interventionTwiml(
   amount?: string,
   merchant?: string,
   origin?: string,
-  callRef?: string
+  callRef?: string,
 ): string {
   const { voice, language } = VOICE[lang] ?? VOICE.en;
   const text = (SCRIPT[lang] ?? SCRIPT.en)(amount ?? "", merchant ?? "");
@@ -164,7 +167,12 @@ export function signAudioParams(text: string, lang: string, callRef: string): st
 }
 
 /** Constant-time check of a sig produced by signAudioParams. */
-export function verifyAudioSignature(text: string, lang: string, callRef: string, sig: string): boolean {
+export function verifyAudioSignature(
+  text: string,
+  lang: string,
+  callRef: string,
+  sig: string,
+): boolean {
   const expected = signAudioParams(text, lang, callRef);
   if (!expected) return false;
   const a = Buffer.from(expected);
@@ -204,14 +212,22 @@ export function verifyTwilioSignature(
 
 /* ————— REST calls ————— */
 
-async function twilioPost(accountSid: string, username: string, password: string, path: string, params: Record<string, string>): Promise<{ ok: true; data: Record<string, unknown> } | { ok: false; status: number; error: string }> {
+async function twilioPost(
+  accountSid: string,
+  username: string,
+  password: string,
+  path: string,
+  params: Record<string, string>,
+): Promise<
+  { ok: true; data: Record<string, unknown> } | { ok: false; status: number; error: string }
+> {
   const body = new URLSearchParams(params).toString();
   const auth = Buffer.from(`${username}:${password}`).toString("base64");
   try {
     const r = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${accountSid}/${path}`, {
       method: "POST",
       headers: {
-        "Authorization": `Basic ${auth}`,
+        Authorization: `Basic ${auth}`,
         "Content-Type": "application/x-www-form-urlencoded",
       },
       body,
@@ -236,8 +252,7 @@ async function twilioPost(accountSid: string, username: string, password: string
 }
 
 export type CallResult =
-  | { ok: true; sid: string; status: string }
-  | { ok: false; error: string; status: number };
+  { ok: true; sid: string; status: string } | { ok: false; error: string; status: number };
 
 /** Place the fraud-intervention voice call to an enrolled customer.
  *  The call is bidirectional: opening message → Gather → conversation loop. */

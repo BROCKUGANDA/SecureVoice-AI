@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { requirePrivileged } from "@/lib/auth/guards";
 import { scopedDb, orgScopeFor } from "@/lib/tenancy/guard";
 import { toCsv, csvContentDisposition } from "@/lib/csv-export";
@@ -36,15 +37,12 @@ export async function GET(req: NextRequest) {
       { error: authed.error, code: authed.code },
       // 403 when the role is wrong, 428 when only the step-up is missing, so the
       // console can distinguish "not allowed" from "confirm it's you".
-      { status: authed.status, headers: { "Cache-Control": "no-store" } }
+      { status: authed.status, headers: { "Cache-Control": "no-store" } },
     );
   }
 
   const url = new URL(req.url);
-  const take = Math.min(
-    Math.max(Number(url.searchParams.get("take") ?? "500") || 500, 1),
-    5_000
-  );
+  const take = Math.min(Math.max(Number(url.searchParams.get("take") ?? "500") || 500, 1), 5_000);
 
   const rows = await scopedDb(orgScopeFor(authed.orgId)).case.findMany({
     select: {
@@ -77,7 +75,7 @@ export async function GET(req: NextRequest) {
       { header: "createdAt", value: (r) => r.createdAt.toISOString() },
       { header: "postCallAt", value: (r) => r.postCallAt?.toISOString() ?? "" },
     ],
-    {}
+    {},
   );
 
   return new NextResponse(csv, {

@@ -12,11 +12,16 @@ import { readdirSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 
 const dir = new URL("../tests/", import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1");
+// Optional path filters: `bun scripts/run-tests.mjs tenancy e2e` runs only the
+// suites whose path contains one of them. Bare `bun run test` passes none, so
+// the default gate still runs everything.
+const filters = process.argv.slice(2).filter((a) => !a.startsWith("-"));
 // Recursive: gate tests live in subdirectories (tests/e2e, tests/tools,
 // tests/webhooks) and every *.test.ts must run in `bun run test`.
 const files = readdirSync(dir, { recursive: true })
   .filter((f) => String(f).endsWith(".test.ts"))
   .map((f) => String(f).split("\\").join("/"))
+  .filter((f) => filters.length === 0 || filters.some((x) => f.includes(x)))
   // Ordering is a real dependency, not an accident of the alphabet:
   // `docs/load-artifact-consistency.test.ts` checks docs/CAPACITY.md against
   // `evidence/load/results.json`, so the load gate must produce that artifact
@@ -45,6 +50,7 @@ for (const f of files) {
       process.env.LOAD_DATABASE_URL ??
       "postgresql://postgres@127.0.0.1:5432/securevoice_load?connection_limit=20";
   }
+
   const r = spawnSync(process.execPath, ["test", `tests/${f}`], { stdio: "inherit", env });
   if (r.status !== 0) failed = 1;
 }

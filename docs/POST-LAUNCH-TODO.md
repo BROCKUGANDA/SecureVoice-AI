@@ -24,9 +24,9 @@ because it ties you to an IP-shaped domain and looks temporary to a bank.
 
 4. Verify: `curl -s https://voice.yourdomain.com/healthz` → `ok`, and
    `docker compose ps` shows caddy healthy.
-5. Update Clerk: add the new domain to the production instance's allowed
-   origins (Applications → your app → Allowed origins), and set the
-   sign-in/sign-up URLs to the new host.
+5. Better Auth: `BETTER_AUTH_URL` (or `APP_URL`) must already point at the new
+   host, and that origin must be in `trustedOrigins` (src/lib/better-auth.ts).
+   Auth is same-origin, so there is no third-party console to update.
 6. ElevenLabs: update the agent's tool webhook + post-call webhook base URLs
    to the new domain, and re-run `bun run agent:apply && bun run agent:snapshot`.
 7. Twilio: update the webhook/voice URL if one is configured (the inline-TwiML
@@ -35,14 +35,15 @@ because it ties you to an IP-shaped domain and looks temporary to a bank.
 **Do not run `docker compose down -v`** — that destroys the database volume and
 the ACME account.
 
-## 2. Operator account on the production Clerk instance
+## 2. Operator account in production
 
-The dev-instance wallets were orphaned by the Clerk swap (expected).
+Sign-up is invite-only, so there is no self-serve account path any more.
 
-1. Sign up at the site.
-2. Clerk dashboard → Users → your user → Public metadata → `{"role":"operator"}`.
-3. Sign out and back in (the profile syncs on login; operator wallets start at
-   500 credits).
+1. Create the user (directly, or via the invite flow in Settings).
+2. Better Auth: add the user to the tenant's `organization` and grant the
+   operator/admin role THERE. Roles come from organization membership, not from
+   a field on the user row, so a user with no organization has no role.
+3. Top up credits if needed (operator wallets start at 500 credits).
 
 ## 3. Housekeeping
 
@@ -85,7 +86,7 @@ closed with `403 tool_scope_unconfigured` for every tool.
 - Move from one global secret to a per-tool map, e.g. `AGENT_TOOL_SECRETS` as
   `card_freeze=…,human_handoff=…`, keeping the single-value name working as a
   wildcard for one release so deployments do not break on upgrade.
-- `authorizeToolCall` selects the expected secret *by tool name* before
+- `authorizeToolCall` selects the expected secret _by tool name_ before
   comparing, and returns 401 when the tool has no entry — a missing entry must be
   a refusal, never a fall-through to a shared value.
 - Keep the allow-list as the second, independent condition. Scoping without it

@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 
 import { consume as consumeRateLimit } from "@/lib/ratelimit";
 import { verifyProducerKey } from "@/lib/producer-keys";
@@ -77,7 +78,10 @@ function refuse(
   detail: string,
   retryAfterSec?: number,
 ): NextResponse {
-  const failure = makeFailure(code, { detail, ...(retryAfterSec === undefined ? {} : { retryAfterSec }) });
+  const failure = makeFailure(code, {
+    detail,
+    ...(retryAfterSec === undefined ? {} : { retryAfterSec }),
+  });
   return json(failure.body, failure.status, failure.headers);
 }
 
@@ -95,7 +99,9 @@ function headersToRecord(headers: Headers): Record<string, string | undefined> {
  * transport can assert a latency without sleeping: the checker grades whatever
  * number the transport returns.
  */
-const realTransport: ConformanceTransport = async (request: TransportRequest): Promise<TransportResponse> => {
+const realTransport: ConformanceTransport = async (
+  request: TransportRequest,
+): Promise<TransportResponse> => {
   const startedAt = Date.now();
   const response = await safeFetch(request.url, {
     method: request.method,
@@ -135,7 +141,9 @@ export async function POST(req: NextRequest) {
       transport: realTransport,
       validateUrl: (raw) => validateOutboundUrl(raw),
       authenticate: async () => {
-        const token = authorization?.startsWith("Bearer ") ? authorization.slice("Bearer ".length) : null;
+        const token = authorization?.startsWith("Bearer ")
+          ? authorization.slice("Bearer ".length)
+          : null;
         const auth = await verifyProducerKey(token);
         return auth.ok
           ? { ok: true as const, callerId: auth.callerId, orgId: auth.orgId }
@@ -153,7 +161,10 @@ export async function POST(req: NextRequest) {
         );
         return result.ok
           ? { ok: true as const }
-          : { ok: false as const, retryAfterSec: Math.max(1, Math.ceil(result.retryAfterMs / 1000)) };
+          : {
+              ok: false as const,
+              retryAfterSec: Math.max(1, Math.ceil(result.retryAfterMs / 1000)),
+            };
       },
     },
   );
@@ -181,9 +192,12 @@ export async function GET() {
   return json(
     {
       endpoint: "POST /v1/conformance/run",
-      auth: ["Authorization: Bearer svb_… (org-scoped producer key; the shared HMAC secret is NOT accepted)"],
+      auth: [
+        "Authorization: Bearer svb_… (org-scoped producer key; the shared HMAC secret is NOT accepted)",
+      ],
       body: {
-        receiver_url: "https URL of your receiver — SSRF-validated (https, port 443, public addresses only)",
+        receiver_url:
+          "https URL of your receiver — SSRF-validated (https, port 443, public addresses only)",
         secret: "the signing secret YOUR receiver verifies with; never stored, never returned",
         budget_ms: `optional ${MIN_BUDGET_MS}–${MAX_BUDGET_MS}ms latency budget for the fast_2xx check`,
         org_id: "optional; echoed as org_id on every probe",

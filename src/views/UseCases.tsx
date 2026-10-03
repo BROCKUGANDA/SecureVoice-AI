@@ -76,11 +76,16 @@ const USE_CASES: {
       "Approved wording only, within permitted calling hours",
       "No pressure — every opt-out honoured",
     ],
-    outScope: [
-      "Disputes, hardship claims and vulnerability signals — passed to a human agent",
+    outScope: ["Disputes, hardship claims and vulnerability signals — passed to a human agent"],
+    personas: [
+      "Head of Collections & Recoveries",
+      "Chief Distribution Officer, insurer",
+      "Head of Compliance Operations",
     ],
-    personas: ["Head of Collections & Recoveries", "Chief Distribution Officer, insurer", "Head of Compliance Operations"],
-    status: { label: "Pilot pipeline", sub: "Arabic, Hindi & Urdu voices shipping today — same guardrail engine" },
+    status: {
+      label: "Pilot pipeline",
+      sub: "Arabic, Hindi & Urdu voices shipping today — same guardrail engine",
+    },
   },
   {
     id: "preauth",
@@ -102,7 +107,11 @@ const USE_CASES: {
     outScope: [
       "Agent-to-agent dialling — removes the human from the call and requires its own written sign-off",
     ],
-    personas: ["Chief Claims Officer, health insurer", "Head of Broker Distribution", "Head of SME Banking"],
+    personas: [
+      "Chief Claims Officer, health insurer",
+      "Head of Broker Distribution",
+      "Head of SME Banking",
+    ],
     status: { label: "Reference build", sub: "Same guardrail engine, B2B intake flow" },
   },
   {
@@ -122,10 +131,11 @@ const USE_CASES: {
       "Long-running, sensitive cases handled across multiple calls",
       "Process information stated from the institution's published facts",
     ],
-    outScope: [
-      "Legal or financial advice — always routed to a qualified person",
+    outScope: ["Legal or financial advice — always routed to a qualified person"],
+    personas: [
+      "Head of Customer Experience, retail & private bank",
+      "Chief Claims Officer, life insurer",
     ],
-    personas: ["Head of Customer Experience, retail & private bank", "Chief Claims Officer, life insurer"],
     status: { label: "Reference build", sub: "Case-state engine, multi-call memory" },
   },
   {
@@ -141,13 +151,15 @@ const USE_CASES: {
       "Posted remittance rates, transfer status, salary-card entitlements",
       "One call, one answer — no queue, no language surcharge",
     ],
-    inScope: [
-      "Factual questions answered in a single call from published information",
-    ],
+    inScope: ["Factual questions answered in a single call from published information"],
     outScope: [
       "Product recommendations or financial decisions — advice requests and complaints route to a human agent",
     ],
-    personas: ["Chief Operating Officer, exchange house", "Chief Customer Officer, insurer", "Head of Retail Banking"],
+    personas: [
+      "Chief Operating Officer, exchange house",
+      "Chief Customer Officer, insurer",
+      "Head of Retail Banking",
+    ],
     status: { label: "Pilot pipeline", sub: "All four voices live in the demo today" },
   },
 ];
@@ -164,7 +176,9 @@ export function UseCases() {
         <div className="flex items-center gap-3">
           <span className="micro text-primary">Use cases</span>
           <span className="h-px w-10 bg-line" />
-          <span dir="rtl" className="font-arabic text-[13px] text-ink-3">حالات الاستخدام</span>
+          <span dir="rtl" className="font-arabic text-[13px] text-ink-3">
+            حالات الاستخدام
+          </span>
         </div>
         <h1 className="font-display mt-3 text-3xl font-semibold tracking-tight sm:text-4xl">
           {t("One platform, five regulated conversations", "منصة واحدة، خمس محادثات منظّمة", lang)}
@@ -173,7 +187,7 @@ export function UseCases() {
           {t(
             "Every deployment shares the same spine: the customer's own language, a guardrail policy the institution signs, protective actions that are pre-approved, and a human in the loop for anything the agent must not decide alone. Only the conversation changes.",
             "كل نشر يشترك في الأساس نفسه: لغة العميل، وسياسة ضمانات يوقّعها المؤسسة، وإجراءات محددة سلفاً، وبشر يعتمد كل ما لا يقرره الوكيل. يتغير الحوار فقط.",
-            lang
+            lang,
           )}
         </p>
       </div>
@@ -202,7 +216,7 @@ export function UseCases() {
                       <span
                         className={cn(
                           "rounded-full px-2.5 py-0.5 font-mono text-[9.5px] font-bold uppercase tracking-wide",
-                          u.status.live ? "bg-primary text-white" : "bg-green-tint text-primary"
+                          u.status.live ? "bg-primary text-white" : "bg-green-tint text-primary",
                         )}
                       >
                         {u.status.label}
@@ -230,7 +244,10 @@ export function UseCases() {
                   <ul className="mt-2.5 space-y-2">
                     {u.agent.map((a) => (
                       <li key={a} className="flex gap-2.5 text-[13px] leading-relaxed text-ink-2">
-                        <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" strokeWidth={2.4} />
+                        <Check
+                          className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary"
+                          strokeWidth={2.4}
+                        />
                         {a}
                       </li>
                     ))}
@@ -273,7 +290,10 @@ export function UseCases() {
                     </div>
                     <div className="mt-2 flex flex-wrap gap-1.5">
                       {u.personas.map((p) => (
-                        <span key={p} className="rounded-full border border-line bg-white px-2.5 py-1 text-[11px] font-medium text-ink-2">
+                        <span
+                          key={p}
+                          className="rounded-full border border-line bg-white px-2.5 py-1 text-[11px] font-medium text-ink-2"
+                        >
                           {p}
                         </span>
                       ))}
@@ -297,7 +317,7 @@ export function UseCases() {
               {t(
                 "Four languages, three triggerable fraud cases, one guardrailed engine — 61 seconds, signal to freeze.",
                 "أربع لغات، ثلاث حالات احتيال قابلة للتفعيل، محرك واحد خاضع للضمانات — ٦١ ثانية من الإشارة إلى التجميد.",
-                lang
+                lang,
               )}
             </p>
           </div>

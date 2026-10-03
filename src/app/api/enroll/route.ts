@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { consume as consumeRateLimit, rateLimitId } from "@/lib/ratelimit";
@@ -21,7 +22,7 @@ export const dynamic = "force-dynamic";
  *
  * Auth (same three modes as /api/interventions — enroll writes PII, it is NOT
  * a public surface):
- *   a) Clerk session (the operator Console)
+ *   a) session (the operator Console)
  *   b) Bearer producer key — Authorization: Bearer svb_…
  *   c) HMAC — SV-Signature: t={unix},v1={hmac(WEBHOOK_SECRET, "{t}.{rawBody}")}
  *
@@ -35,7 +36,12 @@ const REPLAY_WINDOW_SEC = 300;
 
 const schema = z.object({
   action: z.literal("enroll").default("enroll"),
-  customerRef: z.string().trim().min(2).max(64).regex(/^[\w.:-]+$/),
+  customerRef: z
+    .string()
+    .trim()
+    .min(2)
+    .max(64)
+    .regex(/^[\w.:-]+$/),
   phone: z.string().trim().min(8).max(16),
   lang: z.enum(["en", "ar", "hi", "ur", "fr", "sw"]).default("en"),
   channel: z.enum(["call", "sms"]).default("call"),
@@ -47,13 +53,21 @@ const schema = z.object({
 
 const optoutSchema = z.object({
   action: z.literal("optout"),
-  customerRef: z.string().trim().min(2).max(64).regex(/^[\w.:-]+$/),
+  customerRef: z
+    .string()
+    .trim()
+    .min(2)
+    .max(64)
+    .regex(/^[\w.:-]+$/),
 });
 
 /** Operator session / Bearer / HMAC — at least one must pass.
- *  A bare Clerk session is NOT enough: demo-role accounts are self-serve, and
+ *  A bare session is NOT enough: demo-role accounts are self-serve, and
  *  enrollment writes real phone numbers into a live dial-out system. */
-async function authorize(req: NextRequest, rawBody: string): Promise<{ ok: boolean; orgId: string | null }> {
+async function authorize(
+  req: NextRequest,
+  rawBody: string,
+): Promise<{ ok: boolean; orgId: string | null }> {
   const profile = await getProfile();
   if (profile?.role === "operator") return { ok: true, orgId: profile.orgId };
   const bearer = req.headers.get("authorization");
@@ -90,7 +104,7 @@ export async function POST(req: NextRequest) {
   if (!rl.ok) {
     return NextResponse.json(
       { error: "Rate limit exceeded; retry later." },
-      { status: 429, headers: { "Retry-After": String(Math.ceil(rl.retryAfterMs / 1000)) } }
+      { status: 429, headers: { "Retry-After": String(Math.ceil(rl.retryAfterMs / 1000)) } },
     );
   }
 
@@ -100,7 +114,7 @@ export async function POST(req: NextRequest) {
   if (!authz.ok) {
     return NextResponse.json(
       { error: "Operator session, Bearer svb_ producer key, or SV-Signature HMAC required." },
-      { status: 401 }
+      { status: 401 },
     );
   }
 
@@ -134,9 +148,16 @@ export async function POST(req: NextRequest) {
       meta: { optedOut: true, rowsUpdated: row.count },
     }).catch(() => {});
     if (row.count === 0) {
-      return NextResponse.json({ ok: false, error: "Unknown customerRef — nothing to opt out" }, { status: 404 });
+      return NextResponse.json(
+        { ok: false, error: "Unknown customerRef — nothing to opt out" },
+        { status: 404 },
+      );
     }
-    return NextResponse.json({ ok: true, action: "optout", message: "You will receive no further calls or messages." });
+    return NextResponse.json({
+      ok: true,
+      action: "optout",
+      message: "You will receive no further calls or messages.",
+    });
   }
 
   // ————— enroll path —————
@@ -145,14 +166,14 @@ export async function POST(req: NextRequest) {
     const first = parsed.error.issues[0];
     return NextResponse.json(
       { error: `Invalid enrollment: ${first?.path.join(".")} ${first?.message ?? ""}`.trim() },
-      { status: 422 }
+      { status: 422 },
     );
   }
   const d = parsed.data;
   if (!isE164(d.phone)) {
     return NextResponse.json(
       { error: "phone must be E.164 format, e.g. +971501234567 (+, country code, 8–15 digits)" },
-      { status: 422 }
+      { status: 422 },
     );
   }
 
@@ -164,8 +185,11 @@ export async function POST(req: NextRequest) {
   }
   if (existing?.optedOut && !d.reconsent) {
     return NextResponse.json(
-      { error: "Customer previously opted out — re-enrollment requires reconsent:true (deliberate re-consent)." },
-      { status: 409 }
+      {
+        error:
+          "Customer previously opted out — re-enrollment requires reconsent:true (deliberate re-consent).",
+      },
+      { status: 409 },
     );
   }
 
@@ -199,15 +223,18 @@ export async function POST(req: NextRequest) {
     // phone NEVER raw — run the redactor before persistence (PII_REDACTION policy)
     redactedText: redactText(`${d.customerRef} · ${d.phone}`),
     meta: { lang: row.lang, channel: row.channel, consentRecordId: d.consentRecordId },
-  }).catch((err) => console.error("[enroll] audit append failed:", err instanceof Error ? err.message : err));
+  }).catch((err) =>
+    console.error("[enroll] audit append failed:", err instanceof Error ? err.message : err),
+  );
 
   return NextResponse.json({
     ok: true,
     customerRef: row.customerRef,
     lang: row.lang,
     channel: row.channel,
-    delivery: "live (Twilio)" , // /api/status reports the provider mode; delivery activates when configured
-    message: "Enrolled — you will be called/alerted on this number for time-critical fraud interventions.",
+    delivery: "live (Twilio)", // /api/status reports the provider mode; delivery activates when configured
+    message:
+      "Enrolled — you will be called/alerted on this number for time-critical fraud interventions.",
   });
 }
 
@@ -217,12 +244,22 @@ export async function GET() {
     {
       endpoint: "POST /api/enroll",
       actions: {
-        enroll: { customerRef: "your customer id (no PII)", phone: "E.164 (+9715…)", lang: "en|ar|hi|ur|fr|sw", channel: "call|sms", consentRecordId: "your consent record id" },
+        enroll: {
+          customerRef: "your customer id (no PII)",
+          phone: "E.164 (+9715…)",
+          lang: "en|ar|hi|ur|fr|sw",
+          channel: "call|sms",
+          consentRecordId: "your consent record id",
+        },
         optout: { customerRef: "your customer id" },
       },
       auth: "Operator session | Bearer svb_… | SV-Signature HMAC (same scheme as /api/interventions)",
-      notes: ["Re-enrollment after opt-out = deliberate re-consent.", "Phones are stored for dialing, never logged raw.", "Delivery requires Twilio env vars — see /api/status 'telephony'."],
+      notes: [
+        "Re-enrollment after opt-out = deliberate re-consent.",
+        "Phones are stored for dialing, never logged raw.",
+        "Delivery requires Twilio env vars — see /api/status 'telephony'.",
+      ],
     },
-    { headers: { "Cache-Control": "no-store" } }
+    { headers: { "Cache-Control": "no-store" } },
   );
 }

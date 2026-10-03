@@ -18,14 +18,7 @@ import type { ScenarioKind, ScenarioMeta } from "./scenario-types";
 
 export type { ScenarioKind, ScenarioMeta } from "./scenario-types";
 
-export type Phase =
-  | "alert"
-  | "dial"
-  | "intro"
-  | "verify"
-  | "confirm"
-  | "action"
-  | "handoff";
+export type Phase = "alert" | "dial" | "intro" | "verify" | "confirm" | "action" | "handoff";
 
 export type CallLang = "en" | "ar" | "hi" | "ur" | "fr" | "sw";
 
@@ -364,11 +357,24 @@ const PACKS: Record<ScenarioKind, Pack> = {
 export function buildScenario(kind: ScenarioKind): ScenarioEvent[] {
   const m = SCENARIO_LIBRARY.find((s) => s.kind === kind)!;
   const p = PACKS[kind];
-  const first = m.customer.split(" ")[0];
+  // `split` always yields at least one element, so element 0 is the customer's
+  // given name; the `?? m.customer` fallback keeps the Urdu templated lines
+  // (UrLine takes `first: string`) honest if `customer` is ever blank rather
+  // than asserting an index that can be missing.
+  const first = m.customer.split(" ")[0] ?? m.customer;
 
   const events: ScenarioEvent[] = [
     // — 0 · FRAUD SIGNAL —
-    { id: "e01", t: 0, phase: "alert", speaker: "system", tag: "webhook · POST /fraud/alerts", en: p.alert[0], ar: p.alert[1], hi: p.alert[2] },
+    {
+      id: "e01",
+      t: 0,
+      phase: "alert",
+      speaker: "system",
+      tag: "webhook · POST /fraud/alerts",
+      en: p.alert[0],
+      ar: p.alert[1],
+      hi: p.alert[2],
+    },
     {
       id: "e02",
       t: 2,
@@ -381,8 +387,26 @@ export function buildScenario(kind: ScenarioKind): ScenarioEvent[] {
     },
 
     // — 1 · OUTBOUND CALL —
-    { id: "e03", t: 4, phase: "dial", speaker: "system", tag: "telephony · twilio", en: p.dial[0], ar: p.dial[1], hi: p.dial[2] },
-    { id: "e04", t: 6, phase: "dial", speaker: "system", tag: "status", en: p.connected[0], ar: p.connected[1], hi: p.connected[2] },
+    {
+      id: "e03",
+      t: 4,
+      phase: "dial",
+      speaker: "system",
+      tag: "telephony · twilio",
+      en: p.dial[0],
+      ar: p.dial[1],
+      hi: p.dial[2],
+    },
+    {
+      id: "e04",
+      t: 6,
+      phase: "dial",
+      speaker: "system",
+      tag: "status",
+      en: p.connected[0],
+      ar: p.connected[1],
+      hi: p.connected[2],
+    },
 
     // — 2 · INTRODUCTION —
     {
@@ -405,18 +429,84 @@ export function buildScenario(kind: ScenarioKind): ScenarioEvent[] {
     },
 
     // — 3 · VERIFICATION —
-    { id: "e07", t: 18, phase: "verify", speaker: "agent", en: p.verify[0], ar: p.verify[1], hi: p.verify[2] },
-    { id: "e08", t: 28, phase: "verify", speaker: "customer", en: p.verifyAns[0], ar: p.verifyAns[1], hi: p.verifyAns[2] },
-    { id: "e09", t: 33, phase: "verify", speaker: "system", tag: "scribe v2 · stt", en: p.verifyOk[0], ar: p.verifyOk[1], hi: p.verifyOk[2] },
+    {
+      id: "e07",
+      t: 18,
+      phase: "verify",
+      speaker: "agent",
+      en: p.verify[0],
+      ar: p.verify[1],
+      hi: p.verify[2],
+    },
+    {
+      id: "e08",
+      t: 28,
+      phase: "verify",
+      speaker: "customer",
+      en: p.verifyAns[0],
+      ar: p.verifyAns[1],
+      hi: p.verifyAns[2],
+    },
+    {
+      id: "e09",
+      t: 33,
+      phase: "verify",
+      speaker: "system",
+      tag: "scribe v2 · stt",
+      en: p.verifyOk[0],
+      ar: p.verifyOk[1],
+      hi: p.verifyOk[2],
+    },
 
     // — 4 · FRAUD CONFIRMATION —
-    { id: "e10", t: 36, phase: "confirm", speaker: "agent", en: p.confirm[0], ar: p.confirm[1], hi: p.confirm[2] },
-    { id: "e11", t: 42, phase: "confirm", speaker: "customer", en: p.confirmAns[0], ar: p.confirmAns[1], hi: p.confirmAns[2] },
+    {
+      id: "e10",
+      t: 36,
+      phase: "confirm",
+      speaker: "agent",
+      en: p.confirm[0],
+      ar: p.confirm[1],
+      hi: p.confirm[2],
+    },
+    {
+      id: "e11",
+      t: 42,
+      phase: "confirm",
+      speaker: "customer",
+      en: p.confirmAns[0],
+      ar: p.confirmAns[1],
+      hi: p.confirmAns[2],
+    },
 
     // — 5 · PROTECTIVE ACTION —
-    { id: "e12", t: 45, phase: "action", speaker: "agent", en: p.protect[0], ar: p.protect[1], hi: p.protect[2] },
-    { id: "e13", t: 50, phase: "action", speaker: "api", tag: p.apiTag, en: p.api[0], ar: p.api[1], hi: p.api[2] },
-    { id: "e14", t: 53, phase: "action", speaker: "agent", en: p.done[0], ar: p.done[1], hi: p.done[2] },
+    {
+      id: "e12",
+      t: 45,
+      phase: "action",
+      speaker: "agent",
+      en: p.protect[0],
+      ar: p.protect[1],
+      hi: p.protect[2],
+    },
+    {
+      id: "e13",
+      t: 50,
+      phase: "action",
+      speaker: "api",
+      tag: p.apiTag,
+      en: p.api[0],
+      ar: p.api[1],
+      hi: p.api[2],
+    },
+    {
+      id: "e14",
+      t: 53,
+      phase: "action",
+      speaker: "agent",
+      en: p.done[0],
+      ar: p.done[1],
+      hi: p.done[2],
+    },
 
     // — 6 · HUMAN HANDOFF —
     {

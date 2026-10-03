@@ -1,4 +1,4 @@
-'use client';
+"use client";
 
 /**
  * Browser-side realtime client for the Command Center.

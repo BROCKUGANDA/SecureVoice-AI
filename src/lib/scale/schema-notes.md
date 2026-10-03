@@ -9,16 +9,16 @@
 > reconciliation; everything below it describes the model `src/lib/scale/queue.ts`
 > actually queries.
 >
-> | | This WP (`2_dialjob`) | Competing (`4_dialqueue`) |
-> |---|---|---|
-> | Table | `dial_job` (snake_case, `@@map`) | `DialJob` (PascalCase, no `@@map`) |
-> | Case key | `case_id` (Case.id) + `case_ref` | `case_ref` only |
-> | Attempt columns | `attempt_no` (identity, unique) + `retries` (ladder) | `attemptNo` (unique) + `attempts` |
-> | States | `PENDING · CLAIMED · DONE · DEAD` | `QUEUED · LEASED · PLACED · FAILED · DEAD` |
-> | Tenant scoping | `org_id` | **absent** |
-> | Dial payload | `payload` (sanitised JSON) | `conversationId` / `callSid` result columns |
-> | Claim owner | `claimed_by` | **absent** — nothing records which worker leased a row |
-> | Terminal timestamp | `completed_at` | `placedAt` |
+> |                    | This WP (`2_dialjob`)                                | Competing (`4_dialqueue`)                              |
+> | ------------------ | ---------------------------------------------------- | ------------------------------------------------------ |
+> | Table              | `dial_job` (snake_case, `@@map`)                     | `DialJob` (PascalCase, no `@@map`)                     |
+> | Case key           | `case_id` (Case.id) + `case_ref`                     | `case_ref` only                                        |
+> | Attempt columns    | `attempt_no` (identity, unique) + `retries` (ladder) | `attemptNo` (unique) + `attempts`                      |
+> | States             | `PENDING · CLAIMED · DONE · DEAD`                    | `QUEUED · LEASED · PLACED · FAILED · DEAD`             |
+> | Tenant scoping     | `org_id`                                             | **absent**                                             |
+> | Dial payload       | `payload` (sanitised JSON)                           | `conversationId` / `callSid` result columns            |
+> | Claim owner        | `claimed_by`                                         | **absent** — nothing records which worker leased a row |
+> | Terminal timestamp | `completed_at`                                       | `placedAt`                                             |
 >
 > **Consequence right now:** `prisma/migrations/2_dial_job/migration.sql` creates
 > a table the schema does not declare, and `4_dialqueue` creates a table nothing in
@@ -46,10 +46,10 @@
 **Status of my side: migration written, not applied to any shared database beyond
 my own test database; the model block is below.**
 
-| # | What | Where | Consequence if skipped |
-|---|---|---|---|
-| 1 | `DialJob` model block (§1) | `prisma/schema.prisma` | `db.dialJob` never exists; the queue keeps working via raw SQL, and the migration drift gate fails |
-| 2 | Apply the migration (§3) | your database | every `dial_job` read/write fails with `relation "dial_job" does not exist`; `src/lib/scale/queue.ts` rethrows that as a message pointing here |
+| #   | What                       | Where                  | Consequence if skipped                                                                                                                         |
+| --- | -------------------------- | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | `DialJob` model block (§1) | `prisma/schema.prisma` | `db.dialJob` never exists; the queue keeps working via raw SQL, and the migration drift gate fails                                             |
+| 2   | Apply the migration (§3)   | your database          | every `dial_job` read/write fails with `relation "dial_job" does not exist`; `src/lib/scale/queue.ts` rethrows that as a message pointing here |
 
 ---
 
@@ -157,13 +157,13 @@ that can delete the evidence is not one this table can afford.
 **`attempt_no` and `retries` are two different counters, on purpose.**
 `attempt_no` is the job's identity and is unique per case — that uniqueness is
 what makes enqueue idempotent (`ON CONFLICT ("case_id","attempt_no") DO
-NOTHING`). `retries` is how many times *this row* has failed, and it is what the
+NOTHING`). `retries` is how many times _this row_ has failed, and it is what the
 bounded-attempts ladder walks. Collapsing them would mean a retry changed the
 row's unique key, and a retried signal could then insert a second row for the
 same case: the exact double-dial the unique index exists to prevent.
 
 **`DEAD` is a state, not a table.** The existing `DeadLetter` model is keyed to
-`OutboxEvent.id` and exists to replay a bank *webhook delivery*. Replaying a dial
+`OutboxEvent.id` and exists to replay a bank _webhook delivery_. Replaying a dial
 job means "try to reach this customer again", which is `replayDeadDialJob`:
 reset to `PENDING`, retry ladder untouched. A second table would have meant a
 second lifecycle to keep consistent. If a bank later wants dead-lettered dials in
@@ -198,7 +198,7 @@ metric.
 ## 5. Four things a re-implementation must not get wrong
 
 Each of these was found by the Layer A gate, not by review. They are properties of
-the *code*, not of the schema, so they survive any of the three resolutions above.
+the _code_, not of the schema, so they survive any of the three resolutions above.
 
 1. **`FOR UPDATE SKIP LOCKED` alone is not a claim.** Re-assert the claim
    condition on the `UPDATE`'s target so PENDING → CLAIMED is an atomic
@@ -209,7 +209,7 @@ the *code*, not of the schema, so they survive any of the three resolutions abov
    time while `now()` is local wall time. On this repo's UTC+3 host every lease
    was written three hours in the past and the queue never drained.
 3. **Re-verify ownership immediately before the call** (`renewClaim`), and size
-   the lease to outlast the *call*, not the claim — a 120 s lease around a 180 s
+   the lease to outlast the _call_, not the claim — a 120 s lease around a 180 s
    conversation is a guaranteed double-dial.
 4. **Bounded attempts must not throw when the row has moved on.** A worker whose
    lease expired mid-call is a normal event; it is counted (`lost`), not fatal to

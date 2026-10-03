@@ -13,7 +13,7 @@ system with no fraud, which is the most dangerous state this platform can be in.
 
 ## 0. Audit append failure
 
-*Referenced from `src/app/api/agent/route.ts`.*
+_Referenced from `src/app/api/agent/route.ts`._
 
 The audit chain is append-only and a write that fails must never be swallowed.
 `append()` is called fire-and-forget (`{ fast: true }`) on hot paths, so a
@@ -37,11 +37,11 @@ looks intact and proves nothing.
 
 ## 1. Triage: which endpoint answers your question
 
-| Endpoint | Answers | Consumer |
-| --- | --- | --- |
-| `GET /api/health` | Is the process alive? No dependency checks. | Container runtime |
-| `GET /api/readyz` | Can this instance serve? Checks database, outbox backlog, audit-chain freshness, voice-provider config. | Load balancer, compose |
-| `GET /api/status` | Deep diagnostics: telephony mode, admission capacity, 24h webhook freshness. Operator-gated. | You, during an incident |
+| Endpoint          | Answers                                                                                                 | Consumer                |
+| ----------------- | ------------------------------------------------------------------------------------------------------- | ----------------------- |
+| `GET /api/health` | Is the process alive? No dependency checks.                                                             | Container runtime       |
+| `GET /api/readyz` | Can this instance serve? Checks database, outbox backlog, audit-chain freshness, voice-provider config. | Load balancer, compose  |
+| `GET /api/status` | Deep diagnostics: telephony mode, admission capacity, 24h webhook freshness. Operator-gated.            | You, during an incident |
 
 Do not wire `/api/status` into monitoring. It requires an operator session, so a
 probe against it returns an auth failure rather than a health answer.
@@ -55,15 +55,15 @@ serve?", not "is everything healthy?". Global health belongs to `/api/status`.
 
 ## 2. When each dependency fails
 
-| Dependency | Failsafe (do not act) | Failover (switch to) | Declared in |
-| --- | --- | --- | --- |
-| **Conversation plane** (ElevenLabs) | Do not dial. Case holds in queue, audit row written, breaker opens. | `continuity_pipeline`, then SMS | `src/lib/failures/breaker.ts` |
-| **Telephony** (Twilio) | Case → `DIAL_FAILED`, bounded backoff. | `queued` + alert — the work is not lost, it waits | same |
-| **LLM** (Groq) | No model-generated phrasing. | `scripted_reply` — fixed text, no model in the loop | same |
-| **Redis** | Admission control fails **closed**: shed to the top risk band only. | `in_process_limits`, logged as degraded | same |
-| **Postgres primary** | Read-only safe mode. Refuse new interventions explicitly. | Replica promotion — *not built* | `db-failures.ts` |
-| **Post-call webhook lost** | Reconciliation sweep polls conversation status for any case non-terminal past its expected end. | — | `src/lib/outbox.ts` |
-| **Operator console down** | In-flight calls continue. The call path does not depend on the UI. | — | — |
+| Dependency                          | Failsafe (do not act)                                                                           | Failover (switch to)                                | Declared in                   |
+| ----------------------------------- | ----------------------------------------------------------------------------------------------- | --------------------------------------------------- | ----------------------------- |
+| **Conversation plane** (ElevenLabs) | Do not dial. Case holds in queue, audit row written, breaker opens.                             | `continuity_pipeline`, then SMS                     | `src/lib/failures/breaker.ts` |
+| **Telephony** (Twilio)              | Case → `DIAL_FAILED`, bounded backoff.                                                          | `queued` + alert — the work is not lost, it waits   | same                          |
+| **LLM** (Groq)                      | No model-generated phrasing.                                                                    | `scripted_reply` — fixed text, no model in the loop | same                          |
+| **Redis**                           | Admission control fails **closed**: shed to the top risk band only.                             | `in_process_limits`, logged as degraded             | same                          |
+| **Postgres primary**                | Read-only safe mode. Refuse new interventions explicitly.                                       | Replica promotion — _not built_                     | `db-failures.ts`              |
+| **Post-call webhook lost**          | Reconciliation sweep polls conversation status for any case non-terminal past its expected end. | —                                                   | `src/lib/outbox.ts`           |
+| **Operator console down**           | In-flight calls continue. The call path does not depend on the UI.                              | —                                                   | —                             |
 
 Every one of these preserves the intervention: the customer's fraud is still
 stopped, by a cruder channel, and the case audit records which.
@@ -76,8 +76,8 @@ is by image tag. There is no multi-region failover; that is roadmap.
 
 ## 3. Kill switches
 
-| Switch | Where | Deploy needed? | Effect |
-| --- | --- | --- | --- |
+| Switch                | Where              | Deploy needed?                 | Effect                                           |
+| --------------------- | ------------------ | ------------------------------ | ------------------------------------------------ |
 | `BILLING_KILL_SWITCH` | env, read per call | **No** — set it and it is live | Stops all metered billing and credit reservation |
 
 `BILLING_KILL_SWITCH` is the **only** genuinely deploy-free kill switch today.
@@ -177,13 +177,13 @@ the one criterion worth 30%.
 
 ⬜ **INPUT REQUIRED** — fill before the demo.
 
-| Role | Name | Contact | Covers |
-| --- | --- | --- | --- |
-| Platform on-call | ⬜ | ⬜ | Sev 1 |
-| Database / Supabase | ⬜ | ⬜ | P1001, connection exhaustion |
-| ElevenLabs support | ⬜ | ⬜ | Conversation plane outage, quota |
-| Twilio support | ⬜ | ⬜ | DDI failures, concurrency limits |
-| Institutional contact | ⬜ | ⬜ | Pilot |
+| Role                  | Name | Contact | Covers                           |
+| --------------------- | ---- | ------- | -------------------------------- |
+| Platform on-call      | ⬜   | ⬜      | Sev 1                            |
+| Database / Supabase   | ⬜   | ⬜      | P1001, connection exhaustion     |
+| ElevenLabs support    | ⬜   | ⬜      | Conversation plane outage, quota |
+| Twilio support        | ⬜   | ⬜      | DDI failures, concurrency limits |
+| Institutional contact | ⬜   | ⬜      | Pilot                            |
 
 ---
 

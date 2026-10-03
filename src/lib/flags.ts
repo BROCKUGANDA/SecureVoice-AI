@@ -190,7 +190,11 @@ export function clientFlags(): Record<string, boolean> {
 }
 
 /** One flag's value plus where it came from. Used by the debug route. */
-export function describeFlag(name: FlagName): { value: boolean; source: FlagSource; envVar: string } {
+export function describeFlag(name: FlagName): {
+  value: boolean;
+  source: FlagSource;
+  envVar: string;
+} {
   const legacy = LEGACY_OVERRIDES[name];
   if (legacy && process.env[legacy.envVar] !== undefined) {
     return { value: flag(name), source: "env", envVar: legacy.envVar };

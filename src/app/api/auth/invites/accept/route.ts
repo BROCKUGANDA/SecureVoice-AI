@@ -36,10 +36,7 @@ export async function POST(req: Request) {
   }
   const parsed = acceptSchema.safeParse(body);
   if (!parsed.success) {
-    return NextResponse.json(
-      { error: "A valid invitation token is required" },
-      { status: 422 }
-    );
+    return NextResponse.json({ error: "A valid invitation token is required" }, { status: 422 });
   }
 
   const result = await acceptInvite({
@@ -54,7 +51,7 @@ export async function POST(req: Request) {
     // guesses were real invitations.
     return NextResponse.json(
       { error: result.error, code: result.reason },
-      { status: 410, headers: { "Cache-Control": "no-store" } }
+      { status: 410, headers: { "Cache-Control": "no-store" } },
     );
   }
 
@@ -67,15 +64,11 @@ export async function POST(req: Request) {
       orgId: result.identity.orgId,
       passwordSet: Boolean(parsed.data.password),
     },
-    { status: 201, headers: { "Cache-Control": "no-store" } }
+    { status: 201, headers: { "Cache-Control": "no-store" } },
   );
   // Signing the new member straight in: they have just proved they hold the
   // invitation, so requiring a second sign-in round trip adds friction without
   // adding assurance.
-  response.cookies.set(
-    SESSION_COOKIE_NAME,
-    result.session.token,
-    SESSION_COOKIE_ATTRS
-  );
+  response.cookies.set(SESSION_COOKIE_NAME, result.session.token, SESSION_COOKIE_ATTRS);
   return response;
 }

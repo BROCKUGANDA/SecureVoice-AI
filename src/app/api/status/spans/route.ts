@@ -57,7 +57,11 @@ export async function GET(req: Request) {
     // rather than inferred, so the operator knows which one they are looking at.
     if (url.searchParams.get("scope") === "memory") {
       return NextResponse.json(
-        { ...block, source: "in-process span ring (this Node process only; nothing durable)", records: recentSpans(2000).length },
+        {
+          ...block,
+          source: "in-process span ring (this Node process only; nothing durable)",
+          records: recentSpans(2000).length,
+        },
         { headers: noStore },
       );
     }
@@ -66,11 +70,19 @@ export async function GET(req: Request) {
     // A telemetry read must not present as a 500 with a stack trace to an
     // operator mid-incident. Say the read failed and why, in one line.
     const message = err instanceof Error ? err.message.slice(0, 200) : String(err).slice(0, 200);
-    return NextResponse.json({ ok: false, error: `latency_block_unavailable: ${message}` }, { status: 500, headers: noStore });
+    return NextResponse.json(
+      { ok: false, error: `latency_block_unavailable: ${message}` },
+      { status: 500, headers: noStore },
+    );
   }
 }
 
-function clampInt(raw: string | null, min: number, max: number, fallback: number | null): number | null {
+function clampInt(
+  raw: string | null,
+  min: number,
+  max: number,
+  fallback: number | null,
+): number | null {
   if (raw === null) return fallback;
   const value = Number(raw);
   if (!Number.isFinite(value)) return fallback;

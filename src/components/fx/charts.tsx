@@ -41,7 +41,12 @@ export function TrendChart({
 
   return (
     <div className={cn("relative", className)}>
-      <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-auto" role="img" aria-label="Prevented loss trend">
+      <svg
+        viewBox={`0 0 ${W} ${H}`}
+        className="w-full h-auto"
+        role="img"
+        aria-label="Prevented loss trend"
+      >
         <defs>
           <linearGradient id="trendFill" x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stopColor="#0b7a55" stopOpacity="0.18" />
@@ -118,10 +123,18 @@ export function TrendChart({
         {labels &&
           pts.map(([x], i) =>
             i % 2 === 0 ? (
-              <text key={i} x={x} y={H - 4} textAnchor="middle" fontSize="9.5" fill="#79857c" fontFamily="var(--font-mono)">
+              <text
+                key={i}
+                x={x}
+                y={H - 4}
+                textAnchor="middle"
+                fontSize="9.5"
+                fill="#79857c"
+                fontFamily="var(--font-mono)"
+              >
                 {labels[i]}
               </text>
-            ) : null
+            ) : null,
           )}
       </svg>
     </div>
@@ -143,7 +156,11 @@ export function HBars({
           <div className="flex items-baseline justify-between mb-1.5">
             <div className="flex items-baseline gap-2">
               <span className="text-[13px] font-medium text-foreground">{it.label}</span>
-              {it.sub && <span className="font-arabic text-[11px] text-ink-3" dir="rtl">{it.sub}</span>}
+              {it.sub && (
+                <span className="font-arabic text-[11px] text-ink-3" dir="rtl">
+                  {it.sub}
+                </span>
+              )}
             </div>
             <span className="num text-[12px] text-ink-2">{it.pct}%</span>
           </div>
@@ -212,15 +229,7 @@ export function Donut({
 }
 
 /* ————— Gauge (half arc) ————— */
-export function Gauge({
-  pct,
-  size = 170,
-  label,
-}: {
-  pct: number;
-  size?: number;
-  label?: string;
-}) {
+export function Gauge({ pct, size = 170, label }: { pct: number; size?: number; label?: string }) {
   const r = 62;
   const arcLen = Math.PI * r;
   return (
@@ -272,8 +281,7 @@ export function CompareBar({
   unit: string;
   delay?: number;
 }) {
-  const fmt = (v: number) =>
-    v >= 1000 ? `${Math.round(v).toLocaleString()}` : `${v}`;
+  const fmt = (v: number) => (v >= 1000 ? `${Math.round(v).toLocaleString()}` : `${v}`);
   const bw = (baseline / max) * 100;
   const cw = (current / max) * 100;
   const tw = (target / max) * 100;
@@ -284,8 +292,21 @@ export function CompareBar({
   return (
     <div className="space-y-2">
       <Row label="Baseline" w={bw} cls="bg-[#c9d2ca]" val={fmtUnit(baseline)} delay={delay} />
-      <Row label="Now" w={cw} cls={good === "up" ? "bg-primary" : "bg-amber-soft"} val={fmtUnit(current)} delay={delay + 0.12} />
-      <Row label="Target" w={tw} cls="bg-green-deep/85" val={fmtUnit(target)} dashed delay={delay + 0.24} />
+      <Row
+        label="Now"
+        w={cw}
+        cls={good === "up" ? "bg-primary" : "bg-amber-soft"}
+        val={fmtUnit(current)}
+        delay={delay + 0.12}
+      />
+      <Row
+        label="Target"
+        w={tw}
+        cls="bg-green-deep/85"
+        val={fmtUnit(target)}
+        dashed
+        delay={delay + 0.24}
+      />
     </div>
   );
 }
@@ -313,7 +334,10 @@ function Row({
           className={cn("h-full rounded-[5px]", cls)}
           style={
             dashed
-              ? { backgroundImage: "repeating-linear-gradient(135deg, rgba(255,255,255,.28) 0 5px, transparent 5px 10px)" }
+              ? {
+                  backgroundImage:
+                    "repeating-linear-gradient(135deg, rgba(255,255,255,.28) 0 5px, transparent 5px 10px)",
+                }
               : undefined
           }
           initial={{ width: 0 }}

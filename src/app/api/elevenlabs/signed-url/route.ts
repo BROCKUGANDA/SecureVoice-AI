@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { z } from "zod";
 import { authorizeToolCall } from "@/lib/agent-tool-auth";
 import { badRequest, parseJson, upstreamError } from "@/lib/api-errors";
@@ -25,7 +26,7 @@ const schema = z.object({
 });
 
 export async function POST(req: NextRequest) {
-  const auth = authorizeToolCall(req.headers.get("x-agent-tool-secret"), "signed_url");
+  const auth = await authorizeToolCall(req.headers.get("x-agent-tool-secret"), "signed_url");
   if (!auth.ok) {
     return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status });
   }

@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireCapability, requirePrivileged } from "@/lib/auth/guards";
 import { issueInvite } from "@/lib/auth/invite";
@@ -45,7 +46,7 @@ export async function GET(req: NextRequest) {
         orgId: m.orgId,
       })),
     },
-    { headers: { "Cache-Control": "no-store" } }
+    { headers: { "Cache-Control": "no-store" } },
   );
 }
 
@@ -55,7 +56,7 @@ export async function POST(req: NextRequest) {
   if (!authed.ok) {
     return NextResponse.json(
       { error: authed.error, code: authed.code },
-      { status: authed.status, headers: { "Cache-Control": "no-store" } }
+      { status: authed.status, headers: { "Cache-Control": "no-store" } },
     );
   }
 
@@ -78,14 +79,11 @@ export async function POST(req: NextRequest) {
   if (!isRole(role) || !CONSOLE_ROLES.includes(role)) {
     return NextResponse.json(
       { error: `role must be one of: ${CONSOLE_ROLES.join(", ")}` },
-      { status: 422 }
+      { status: 422 },
     );
   }
   if (role === "Owner" && authed.role !== "Owner") {
-    return NextResponse.json(
-      { error: "Only an Owner may invite another Owner." },
-      { status: 403 }
-    );
+    return NextResponse.json({ error: "Only an Owner may invite another Owner." }, { status: 403 });
   }
 
   const { invite, token } = await issueInvite({
@@ -111,7 +109,7 @@ export async function POST(req: NextRequest) {
       token,
       note: "Single use. Bound to this email. Expires in 72 hours.",
     },
-    { status: 201, headers: { "Cache-Control": "no-store" } }
+    { status: 201, headers: { "Cache-Control": "no-store" } },
   );
 }
 
@@ -124,6 +122,6 @@ export async function HEAD(req: NextRequest) {
   const status = await inviteStatus(token);
   return NextResponse.json(
     { status },
-    { status: status === "usable" ? 200 : 410, headers: { "Cache-Control": "no-store" } }
+    { status: status === "usable" ? 200 : 410, headers: { "Cache-Control": "no-store" } },
   );
 }

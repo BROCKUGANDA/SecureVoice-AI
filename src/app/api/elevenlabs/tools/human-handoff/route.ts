@@ -1,11 +1,12 @@
-import { NextRequest, NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { z } from "zod";
 import { guardToolCall } from "@/lib/tool-guard";
 import { canTransition, transitionCase, IllegalTransitionError } from "@/lib/case-state-machine";
 import { append as auditAppend } from "@/lib/audit-chain";
 import { db } from "@/lib/db";
 import { transcript as redactText } from "@/lib/redact";
-import { badRequest, parseJson, unprocessable, schemaErrorCode } from "@/lib/api-errors"
+import { badRequest, parseJson, unprocessable, schemaErrorCode } from "@/lib/api-errors";
 
 export const dynamic = "force-dynamic";
 
@@ -32,7 +33,8 @@ export async function POST(req: NextRequest) {
   if (body === null) return badRequest("Invalid JSON body");
 
   const parsed = schema.safeParse(body);
-  if (!parsed.success) return unprocessable("conversation_id and summary are required", schemaErrorCode(parsed.error));
+  if (!parsed.success)
+    return unprocessable("conversation_id and summary are required", schemaErrorCode(parsed.error));
 
   const { conversation_id, summary } = parsed.data;
 

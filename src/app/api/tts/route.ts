@@ -1,12 +1,27 @@
-import { NextRequest, NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { z } from "zod";
-import { tts as elevenTts, UpstreamError, DEV_VOICES, ELEVEN_VOICE_ENV, allowedVoices, isProdVoiceMode, type TtsLang } from "@/lib/elevenlabs/client";
+import {
+  tts as elevenTts,
+  UpstreamError,
+  DEV_VOICES,
+  ELEVEN_VOICE_ENV,
+  allowedVoices,
+  isProdVoiceMode,
+  type TtsLang,
+} from "@/lib/elevenlabs/client";
 import { consume as consumeRateLimit, rateLimitId } from "@/lib/ratelimit";
 import { append as auditAppend } from "@/lib/audit-chain";
 import { transcript as redactText } from "@/lib/redact";
 import { resolveTtsKey, consumeCharQuota, quotaExceededResponse } from "@/lib/tts-quota";
 import { SUPPORTED_LANGS, MAX_TTS_CHARS } from "@/lib/config";
-import { badRequest, tooManyRequests, unprocessable, upstreamError, parseJson } from "@/lib/api-errors";
+import {
+  badRequest,
+  tooManyRequests,
+  unprocessable,
+  upstreamError,
+  parseJson,
+} from "@/lib/api-errors";
 
 export const dynamic = "force-dynamic";
 
@@ -37,9 +52,13 @@ const schema = z.object({
  *  language's configured ElevenLabs voice, so the same frontend works in
  *  both modes without changes. */
 const DEV_SLUG_LANG: Record<string, TtsLang> = {
-  jam: "en", kazi: "hi",
-  tongtong: "ar", chuichui: "ar",
-  douji: "hi", luodo: "ur", xiaochen: "ur",
+  jam: "en",
+  kazi: "hi",
+  tongtong: "ar",
+  chuichui: "ar",
+  douji: "hi",
+  luodo: "ur",
+  xiaochen: "ur",
 };
 
 /** Resolve the requested voice to the id sent upstream. */
@@ -75,7 +94,12 @@ export async function POST(req: NextRequest) {
   if (!parsed.success) {
     return unprocessable("Invalid TTS request");
   }
-  const { text, speed, lang, callRef = `SV-T-${Math.random().toString(36).slice(2, 8).toUpperCase()}` } = parsed.data;
+  const {
+    text,
+    speed,
+    lang,
+    callRef = `SV-T-${Math.random().toString(36).slice(2, 8).toUpperCase()}`,
+  } = parsed.data;
 
   // 2. Resolve + validate the voice against the current backend's registry
   const voice = resolveVoice(parsed.data.voice, lang);
@@ -84,7 +108,10 @@ export async function POST(req: NextRequest) {
     const hint = isProdVoiceMode()
       ? "voice must be a language key (en|ar|hi|ur|fr|sw) or a configured ElevenLabs voice_id (set ELEVENLABS_VOICE_EN/AR/HI/UR)"
       : `voice must be a language key (en|ar|hi|ur|fr|sw) or a dev voice (${[...DEV_VOICES].join(", ")})`;
-    return NextResponse.json({ error: `Unknown voice '${parsed.data.voice}'. ${hint}` }, { status: 422 });
+    return NextResponse.json(
+      { error: `Unknown voice '${parsed.data.voice}'. ${hint}` },
+      { status: 422 },
+    );
   }
 
   // 3. Rate-limit BEFORE the upstream call (the wrapper has its own, but a
@@ -114,14 +141,17 @@ export async function POST(req: NextRequest) {
   const keyOverride = keyRes.mode === "byok" ? keyRes.keyOverride : undefined;
 
   try {
-    const result = await elevenTts({
-      text,
-      voice,
-      speed,
-      lang,
-      callerId,
-      callRef,
-    }, { keyOverride });
+    const result = await elevenTts(
+      {
+        text,
+        voice,
+        speed,
+        lang,
+        callerId,
+        callRef,
+      },
+      { keyOverride },
+    );
 
     // 5. Audit-chain append — redacted text only
     auditAppend({
@@ -159,13 +189,19 @@ export async function POST(req: NextRequest) {
       // body) stays in server logs — clients get a coarse, safe message.
       console.error("[tts] upstream error:", err.status, err.message);
       if (err.status === 429) {
-        return NextResponse.json({ error: "Rate limit exceeded; retry later." }, { status: 429, headers: { "Retry-After": "60" } });
+        return NextResponse.json(
+          { error: "Rate limit exceeded; retry later." },
+          { status: 429, headers: { "Retry-After": "60" } },
+        );
       }
       const generic =
         err.status === 401 || err.status === 403
           ? "Voice service authentication failed — contact the operator."
           : "Speech synthesis is temporarily unavailable — try again shortly.";
-      return NextResponse.json({ error: generic }, { status: err.status === 401 || err.status === 403 ? 502 : 503 });
+      return NextResponse.json(
+        { error: generic },
+        { status: err.status === 401 || err.status === 403 ? 502 : 503 },
+      );
     }
     console.error("[tts] generation failed:", err instanceof Error ? err.message : err);
     return NextResponse.json({ error: "Speech generation unavailable" }, { status: 503 });

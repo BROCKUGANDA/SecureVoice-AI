@@ -45,7 +45,9 @@ export function dedupeKeyFor(input: {
 }): string {
   const windowMinutes = input.windowMinutes ?? 15;
   const bucket =
-    windowMinutes > 0 ? Math.floor((input.at ?? new Date()).getTime() / (windowMinutes * 60_000)) : 0;
+    windowMinutes > 0
+      ? Math.floor((input.at ?? new Date()).getTime() / (windowMinutes * 60_000))
+      : 0;
   return `${input.orgId ?? "default"}:${input.alertType}:${bucket}`;
 }
 
@@ -64,7 +66,9 @@ export type NotifyInput = {
  * Record (or aggregate into) a notification and fan it out.
  * Returns whether this call created a new item or folded into an existing one.
  */
-export async function notify(input: NotifyInput): Promise<{ id: string; deduplicated: boolean; count: number }> {
+export async function notify(
+  input: NotifyInput,
+): Promise<{ id: string; deduplicated: boolean; count: number }> {
   const dedupeKey = dedupeKeyFor(input);
   const existing = await db.notification.findUnique({ where: { dedupeKey } });
   const row = existing
@@ -115,7 +119,7 @@ export async function notify(input: NotifyInput): Promise<{ id: string; deduplic
  */
 export async function acknowledge(
   notificationId: string,
-  orgId: string | null | undefined
+  orgId: string | null | undefined,
 ): Promise<{ ok: boolean; error?: string }> {
   const scope = orgId ? { orgId } : { OR: [{ orgId: null }, { orgId: "default" }] };
   const row = await db.notification.findFirst({ where: { id: notificationId, ...scope } });

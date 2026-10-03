@@ -35,6 +35,17 @@ import { POST as stepUpPOST } from "@/app/api/auth/step-up/route";
 import { POST as invitesPOST } from "@/app/api/auth/invites/route";
 import { GET as exportGET } from "@/app/api/auth/export/route";
 import { cleanupRun, makeAccount, makeMember, makeSession, TEST_PASSWORD } from "./helpers";
+import { NextRequest } from "next/server";
+
+/**
+ * The invite and export routes read the session from the cookie jar, so they are
+ * declared as taking a NextRequest. This builds one rather than casting a bare
+ * Request at each call site, which would assert a narrower signature than the
+ * handlers actually require.
+ */
+function authRequest(url: string, init: RequestInit = {}) {
+  return new NextRequest(url, init as ConstructorParameters<typeof NextRequest>[1]);
+}
 
 afterAll(async () => {
   await cleanupRun();
@@ -50,15 +61,16 @@ const SUFFICIENT_ROLE = "Owner" as const;
 // ── Every privileged action needs one ────────────────────────────────────────
 
 test("the five privileged actions are exactly the ones the brief names", () => {
-  expect([...PRIVILEGED_ACTIONS].sort()).toEqual(
-    [
-      "change_byok_credential",
-      "commit_freeze",
-      "export_bulk_data",
-      "invite_admin",
-      "rotate_producer_key",
-    ].sort()
-  );
+  // Annotated as PrivilegedAction[] because `.sort()` widens a literal array to
+  // string[], which `expect` cannot reconcile with the union `toEqual` demands.
+  const named: PrivilegedAction[] = [
+    "change_byok_credential",
+    "commit_freeze",
+    "export_bulk_data",
+    "invite_admin",
+    "rotate_producer_key",
+  ];
+  expect([...PRIVILEGED_ACTIONS].sort()).toEqual(named.sort());
 });
 
 test("every privileged action maps to a real capability", () => {
@@ -80,7 +92,9 @@ test("the step-up window is short", () => {
  *  fresh step-up is allowed. */
 async function assertActionGated(
   action: PrivilegedAction,
-  capability: keyof typeof PRIVILEGED_ACTION_CAPABILITY
+  // The capability each action is bound to. This is the VALUE type of the map,
+  // not `keyof` — the callers pass capabilities ("case:write"), not action names.
+  capability: (typeof PRIVILEGED_ACTION_CAPABILITY)[PrivilegedAction],
 ) {
   // ── (1) refused without a step-up ──
   const withoutGrant = await makeAccount(SUFFICIENT_ROLE, `nogate-${action}`);
@@ -91,7 +105,10 @@ async function assertActionGated(
   // 428, not 403: the role IS permitted; a precondition is unmet.
   expect(denied.status).toBe(428);
   expect(denied.code).toBe("step_up_required");
-  void capability;
+  // The caller names the capability this action is bound to, and the map is the
+  // source of truth for that binding. Asserting it here is what stops a
+  // refactor from quietly re-pointing an action at the wrong capability.
+  expect(PRIVILEGED_ACTION_CAPABILITY[action]).toBe(capability);
 
   // ── (2) allowed with a fresh step-up ──
   const withGrant = await makeAccount(SUFFICIENT_ROLE, `gate-${action}`);
@@ -200,7 +217,7 @@ test("a step-up is destroyed when a role change revokes the session", async () =
       actorId: owner.identity.accountId,
       orgId: owner.orgId,
       note: "demoted",
-    })
+    }),
   );
 
   // The session is dead, so the grant it carried is unreachable — the grant is
@@ -218,7 +235,7 @@ test("a failed re-authentication does not grant a step-up", async () => {
   const result = await issueStepUp(
     authed.session,
     { ok: false, error: "That password is not correct." },
-    "password"
+    "password",
   );
   expect("ok" in result && result.ok === false).toBe(true);
   expect(await currentStepUp(authed.session)).toBeNull();
@@ -232,10 +249,7 @@ test("an unknown action name is refused rather than defaulted to allowed", async
   if (!authed.ok) throw new Error("unreachable");
   await issueStepUp(authed.session, { ok: true }, "password");
 
-  const bogus = await requireStepUp(
-    authed.session,
-    "just_do_it" as PrivilegedAction
-  );
+  const bogus = await requireStepUp(authed.session, "just_do_it" as PrivilegedAction);
   expect(bogus.ok).toBe(false);
   if (bogus.ok) throw new Error("unreachable");
   expect(bogus.reason).toBe("not_a_privileged_action");
@@ -249,11 +263,11 @@ test("POST /api/auth/step-up with the real password unlocks a gated route", asyn
 
   // Before: refused.
   const before = await invitesPOST(
-    new Request("http://t/api/auth/invites", {
+    authRequest("http://t/api/auth/invites", {
       method: "POST",
       headers: { cookie: session.cookie, "content-type": "application/json" },
       body: JSON.stringify({ email: `stepup-${Date.now()}@wp11.test`, role: "Analyst" }),
-    })
+    }),
   );
   expect(before.status).toBe(428);
 
@@ -263,17 +277,17 @@ test("POST /api/auth/step-up with the real password unlocks a gated route", asyn
       method: "POST",
       headers: { cookie: session.cookie, "content-type": "application/json" },
       body: JSON.stringify({ password: TEST_PASSWORD }),
-    })
+    }),
   );
   expect(stepped.status).toBe(200);
 
   // After: allowed.
   const after = await invitesPOST(
-    new Request("http://t/api/auth/invites", {
+    authRequest("http://t/api/auth/invites", {
       method: "POST",
       headers: { cookie: session.cookie, "content-type": "application/json" },
       body: JSON.stringify({ email: `stepped-${Date.now()}@wp11.test`, role: "Analyst" }),
-    })
+    }),
   );
   expect(after.status).toBe(201);
 });
@@ -287,16 +301,16 @@ test("a WRONG password does not unlock a gated route", async () => {
       method: "POST",
       headers: { cookie: session.cookie, "content-type": "application/json" },
       body: JSON.stringify({ password: "not-the-password-at-all" }),
-    })
+    }),
   );
   expect(stepped.status).toBe(401);
 
   const stillGated = await invitesPOST(
-    new Request("http://t/api/auth/invites", {
+    authRequest("http://t/api/auth/invites", {
       method: "POST",
       headers: { cookie: session.cookie, "content-type": "application/json" },
       body: JSON.stringify({ email: `nope-${Date.now()}@wp11.test`, role: "Analyst" }),
-    })
+    }),
   );
   expect(stillGated.status).toBe(428);
 });
@@ -307,7 +321,7 @@ test("step-up cannot be requested without a live session", async () => {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ password: TEST_PASSWORD }),
-    })
+    }),
   );
   expect(response.status).toBe(401);
 });
@@ -317,7 +331,7 @@ test("the export route is gated end to end: 428 then 200", async () => {
   const session = await makeSession(owner);
 
   const before = await exportGET(
-    new Request("http://t/api/auth/export", { headers: { cookie: session.cookie } })
+    authRequest("http://t/api/auth/export", { headers: { cookie: session.cookie } }),
   );
   expect(before.status).toBe(428);
 
@@ -326,7 +340,7 @@ test("the export route is gated end to end: 428 then 200", async () => {
   await issueStepUp(authed.session, { ok: true }, "password");
 
   const after = await exportGET(
-    new Request("http://t/api/auth/export", { headers: { cookie: session.cookie } })
+    authRequest("http://t/api/auth/export", { headers: { cookie: session.cookie } }),
   );
   expect(after.status).toBe(200);
   expect(after.headers.get("content-type")).toContain("text/csv");

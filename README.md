@@ -30,10 +30,10 @@ Today, when a bank's fraud engine flags a transaction, the case lands in a Tier�
 **SecureVoice AI closes that gap.** The moment a risk signal arrives (`POST /api/interventions`), the platform:
 
 1. Places an **outbound voice call to the customer within seconds** — live over Twilio, in the customer's own language.
-2. Runs a **guardrailed, streaming voice agent** (ElevenLabs neural voices) that verifies the transaction — *"You did not authorize the AED 2,500 transaction — is that correct?"*
+2. Runs a **guardrailed, streaming voice agent** (ElevenLabs neural voices) that verifies the transaction — _"You did not authorize the AED 2,500 transaction — is that correct?"_
 3. On confirmation, **freezes the account, escalates to a human specialist, and streams every phase transition back to the bank** via signed webhooks — with a tamper-evident **audit chain** recording the entire interaction.
 
-> **Compliance by construction:** every call opens with a disclosure, the agent *never* requests PINs/OTPs/passwords (server-enforced, not prompt-enforced), and all PII is redacted before persistence.
+> **Compliance by construction:** every call opens with a disclosure, the agent _never_ requests PINs/OTPs/passwords (server-enforced, not prompt-enforced), and all PII is redacted before persistence.
 
 ## Features
 
@@ -99,7 +99,7 @@ docker compose up --build
 
 > **No SQLite mode.** `prisma/schema.prisma` declares `provider = "postgresql"`, and
 > Prisma rejects a `file:` URL against it (`P1012: the URL must start with the protocol
-> postgresql://`). Verified empirically — don't be misled by older notes that mention
+postgresql://`). Verified empirically — don't be misled by older notes that mention
 > `prisma/db/custom.db`; this schema has always been Postgres-only.
 
 ### Topology
@@ -116,26 +116,26 @@ the trust model in `src/proxy.ts` sound: it believes `X-Forwarded-For` only when
 request carries the marker Caddy sets, and a direct-to-origin caller can forge
 anything else.
 
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `SITE_ADDRESS` | `localhost` | Domain Caddy issues a certificate for. Must resolve to the host. |
-| `ACME_EMAIL` | `admin@example.com` | Let's Encrypt expiry notices. |
-| `REALTIME_INGEST_SECRET` | falls back to `AGENT_TOOL_SECRET` | HMAC key shared by app and realtime. Unset ⇒ realtime refuses every connection and the console silently uses SSE. |
-| `REALTIME_URL` | `http://realtime:4000` | Internal service address. **Never `localhost`** — inside the app container that is the app container. |
-| `REALTIME_ALLOWED_ORIGIN` | empty (any) | Comma-separated browser origins the socket accepts. |
-| `EDGE_RATE_LIMIT_PER_HOUR` | `600` | Pre-auth edge budget per client IP. Separate from the expensive-call API limit. |
+| Variable                   | Default                           | Purpose                                                                                                           |
+| -------------------------- | --------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `SITE_ADDRESS`             | `localhost`                       | Domain Caddy issues a certificate for. Must resolve to the host.                                                  |
+| `ACME_EMAIL`               | `admin@example.com`               | Let's Encrypt expiry notices.                                                                                     |
+| `REALTIME_INGEST_SECRET`   | falls back to `AGENT_TOOL_SECRET` | HMAC key shared by app and realtime. Unset ⇒ realtime refuses every connection and the console silently uses SSE. |
+| `REALTIME_URL`             | `http://realtime:4000`            | Internal service address. **Never `localhost`** — inside the app container that is the app container.             |
+| `REALTIME_ALLOWED_ORIGIN`  | empty (any)                       | Comma-separated browser origins the socket accepts.                                                               |
+| `EDGE_RATE_LIMIT_PER_HOUR` | `600`                             | Pre-auth edge budget per client IP. Separate from the expensive-call API limit.                                   |
 
 ### Feature flags
 
 Every runtime switch is declared in `src/lib/flags.ts` — one file answers
 "what is switchable in this deployment?", which is not otherwise greppable.
 
-| Flag | Default | Effect |
-| --- | --- | --- |
-| `FEATURE_REALTIME` | `false` | Signed push to the realtime service. Needs `REALTIME_INGEST_SECRET` too — both or neither, because the service rejects every handshake without a secret. |
-| `FEATURE_CONSOLE_LIVE_FEED` | `false` | Console live feed over the websocket. Off means SSE, which is what shipped first. |
-| `FEATURE_PII_REDACTION` | `true` | Redact PII in logs, audit rows, webhook payloads. Turning this off writes customer transcripts in the clear — local debugging only. |
-| `FEATURE_ELEVEN_LABS_LIVE` | `false` | Real neural voice. `ELEVENLABS_DRY_RUN` still wins when set, since the provider client reads it directly. |
+| Flag                        | Default | Effect                                                                                                                                                   |
+| --------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `FEATURE_REALTIME`          | `false` | Signed push to the realtime service. Needs `REALTIME_INGEST_SECRET` too — both or neither, because the service rejects every handshake without a secret. |
+| `FEATURE_CONSOLE_LIVE_FEED` | `false` | Console live feed over the websocket. Off means SSE, which is what shipped first.                                                                        |
+| `FEATURE_PII_REDACTION`     | `true`  | Redact PII in logs, audit rows, webhook payloads. Turning this off writes customer transcripts in the clear — local debugging only.                      |
+| `FEATURE_ELEVEN_LABS_LIVE`  | `false` | Real neural voice. `ELEVENLABS_DRY_RUN` still wins when set, since the provider client reads it directly.                                                |
 
 Values are strictly `"true"` / `"false"`. Anything else throws at read time
 rather than reading as "disabled" — a typo that silently disables realtime is
@@ -179,7 +179,7 @@ docker run -p 3000:3000 \
 
 ## Demo walkthrough
 
-1. **Land on the pitch page** — *"Fraud detected. Call placed. Frozen. In 60 seconds."*
+1. **Land on the pitch page** — _"Fraud detected. Call placed. Frozen. In 60 seconds."_
 2. **Launch the live demo** — a seeded intervention case appears in the **Command Center** (operator view) with live status transitions.
 3. **Trigger an intervention** — the pilot flow places a real outbound call/SMS (Twilio trial: verified numbers only) or runs the simulated stream when keys are absent.
 4. **Watch the voice agent work** — streaming TTS with barge-in, guardrail chips ("No PINs requested"), Arabic voice live on the call.
@@ -188,18 +188,18 @@ docker run -p 3000:3000 \
 
 ## API surface
 
-| Route | Purpose |
-|---|---|
-| `POST /api/interventions` · `/v1/interventions` | Bank fraud engine ingests a risk signal (HMAC-signed) → case created, SLA clock starts |
-| `POST /api/enroll` · `/v1/enroll` | Enroll a customer for real Twilio delivery (requires a `consentRecordId`) |
-| `POST /api/agent` | Guardrailed conversation turn API used during a live call |
-| `POST /api/tts` · `POST /api/tts/stream` · `POST /api/asr` | Neural TTS / speech-to-text, language-routed voice IDs, rate-limited |
-| `POST /api/pilot` | Guided pilot / lead capture |
-| `POST /api/webhooks` | Signed outbound phase-transition events back to the bank |
-| `POST /api/elevenlabs/tools/card-freeze` | ElevenLabs agent tool → **stages** a reversible freeze (always `committed:false`) |
-| `POST /api/elevenlabs/tools/human-handoff` | ElevenLabs agent tool → queue a fraud specialist |
-| `POST /api/elevenlabs/signed-url` | Mint a 15-min browser session credential; pins `ELEVENLABS_AGENT_ID` |
-| `GET /api/status` · `GET /api/health` · `GET /api/console/audit` | Status, liveness, audit chain export |
+| Route                                                            | Purpose                                                                                |
+| ---------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| `POST /api/interventions` · `/v1/interventions`                  | Bank fraud engine ingests a risk signal (HMAC-signed) → case created, SLA clock starts |
+| `POST /api/enroll` · `/v1/enroll`                                | Enroll a customer for real Twilio delivery (requires a `consentRecordId`)              |
+| `POST /api/agent`                                                | Guardrailed conversation turn API used during a live call                              |
+| `POST /api/tts` · `POST /api/tts/stream` · `POST /api/asr`       | Neural TTS / speech-to-text, language-routed voice IDs, rate-limited                   |
+| `POST /api/pilot`                                                | Guided pilot / lead capture                                                            |
+| `POST /api/webhooks`                                             | Signed outbound phase-transition events back to the bank                               |
+| `POST /api/elevenlabs/tools/card-freeze`                         | ElevenLabs agent tool → **stages** a reversible freeze (always `committed:false`)      |
+| `POST /api/elevenlabs/tools/human-handoff`                       | ElevenLabs agent tool → queue a fraud specialist                                       |
+| `POST /api/elevenlabs/signed-url`                                | Mint a 15-min browser session credential; pins `ELEVENLABS_AGENT_ID`                   |
+| `GET /api/status` · `GET /api/health` · `GET /api/console/audit` | Status, liveness, audit chain export                                                   |
 
 Full request/response examples are on the in-app **Docs** page. For signing, enrolment,
 tool authorisation, and self-serve onboarding see **[docs/INTEGRATION.md](docs/INTEGRATION.md)**.
@@ -221,7 +221,7 @@ what carries a conversation whenever the platform agent is not the thing speakin
 keyword/state-machine intent router and Polly/Google voices; and the **browser demo**, which
 posts each turn to `POST /api/agent` and the audio to `/api/tts`.
 
-Be precise about what is *not* a step-down: the dial worker never silently degrades to the
+Be precise about what is _not_ a step-down: the dial worker never silently degrades to the
 continuity path. `placeOutboundCall()` either dials the platform agent, or — in dry-run
 (`ELEVENLABS_DRY_RUN=true`, mirrored by `FEATURE_ELEVEN_LABS_LIVE`, see
 [`src/lib/flags.ts`](src/lib/flags.ts)) — returns a synthetic `conversation_id` and places no
@@ -230,7 +230,7 @@ dead-letters through the audited queue rather than dialling a customer nobody is
 
 **What is lost on the continuity path:** the agent's autonomous tool calls. Nothing on this
 path can invoke `verify_transaction`, `card_freeze`, `human_handoff` or `switch_language` —
-the deterministic router *reports* an intent (`deny_fraud` → `card_freeze`,
+the deterministic router _reports_ an intent (`deny_fraud` → `card_freeze`,
 sentiment escalation → `human_handoff`) and the write action must be driven by the caller
 against `/api/elevenlabs/tools/*` rather than by the conversation itself. Everything
 load-bearing for the guardrail claim survives: disclosure, the no-credential rule, PII
@@ -322,14 +322,18 @@ export function verifySvSignature(
 ): { ok: true } | { ok: false; reason: string } {
   if (!header) return { ok: false, reason: "missing_signature" };
   const parts = Object.fromEntries(
-    header.split(",").map((p) => p.trim().split("=")).filter((p) => p.length === 2),
+    header
+      .split(",")
+      .map((p) => p.trim().split("="))
+      .filter((p) => p.length === 2),
   ) as Record<string, string>;
   const { t, v1 } = parts;
   if (!t || !v1) return { ok: false, reason: "malformed_signature" };
   if (Math.abs(Date.now() / 1000 - Number(t)) > toleranceSec)
     return { ok: false, reason: "stale_timestamp" };
   const expected = createHmac("sha256", secret).update(`${t}.${rawBody}`).digest("hex");
-  const a = Buffer.from(expected, "hex"), b = Buffer.from(v1, "hex");
+  const a = Buffer.from(expected, "hex"),
+    b = Buffer.from(v1, "hex");
   if (a.length !== b.length || !timingSafeEqual(a, b))
     return { ok: false, reason: "digest_mismatch" };
   return { ok: true };
@@ -369,22 +373,22 @@ dead-letter after six attempts; an operator can replay a dead letter from
 
 Everything is opt-in: **no keys required to run the demo** (dry-run + audit-only mode).
 
-| Variable | Purpose |
-|---|---|
-| `DATABASE_URL` | **PostgreSQL** connection string (the Prisma datasource, `provider = "postgresql"`). There is no SQLite mode — see [Quickstart](#quickstart). |
-| `ELEVENLABS_AGENT_ID` | The ElevenLabs agent the browser may connect to. `/api/elevenlabs/signed-url` rejects any other id (403). |
-| `AGENT_TOOL_SECRET` | Shared secret the agent must present on webhook tool calls (`x-agent-tool-secret`). |
-| `AGENT_TOOL_ALLOWED` | Comma-separated tool allow-list, e.g. `card_freeze,human_handoff`. **One global list, not per-tool scoping — see [Tool authorisation](#tool-authorisation).** |
-| `ELEVENLABS_API_KEY` / `ELEVENLABS_DRY_RUN` | Neural voice; `DRY_RUN=true` serves the dev backend without burning quota |
-| `ELEVENLABS_MODEL` / `ELEVENLABS_STT_MODEL` | Model overrides (`eleven_v3`, `scribe_v2`) |
-| `ELEVENLABS_VOICE_EN/AR/HI/UR` | Per-language voice IDs |
-| `TWILIO_ACCOUNT_SID` / `TWILIO_API_KEY_*` / `TWILIO_FROM_NUMBER` | Real call + SMS delivery |
-| `WEBHOOK_SECRET` | Signs outbound events & verifies inbound risk signals |
-| `AUTH_SECRET` | Session cookie signing (384-bit) |
-| `GROQ_API_KEY` / `GROQ_MODEL` | **Optional** live LLM reply layer — drafts the agent's spoken lines in the customer's language (default `qwen/qwen3.8-27b`, a Groq **preview-tier** model that Groq's own docs warn "should not be used in production environments as they may be discontinued at short notice"). Server-side only; never commit a key. |
-| `GEMINI_API_KEY` / `GEMINI_MODEL` | Optional LLM fallback when no Groq key is present (`gemini-1.5-flash`) |
-| `RATE_LIMIT_PER_HOUR` | Per-caller TTS/ASR/agent budget |
-| `COMPLIANCE_*` | Server-enforced compliance flags (disclosure, no credential requests, PII redaction) |
+| Variable                                                         | Purpose                                                                                                                                                                                                                                                                                                                 |
+| ---------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DATABASE_URL`                                                   | **PostgreSQL** connection string (the Prisma datasource, `provider = "postgresql"`). There is no SQLite mode — see [Quickstart](#quickstart).                                                                                                                                                                           |
+| `ELEVENLABS_AGENT_ID`                                            | The ElevenLabs agent the browser may connect to. `/api/elevenlabs/signed-url` rejects any other id (403).                                                                                                                                                                                                               |
+| `AGENT_TOOL_SECRET`                                              | Shared secret the agent must present on webhook tool calls (`x-agent-tool-secret`).                                                                                                                                                                                                                                     |
+| `AGENT_TOOL_ALLOWED`                                             | Comma-separated tool allow-list, e.g. `card_freeze,human_handoff`. **One global list, not per-tool scoping — see [Tool authorisation](#tool-authorisation).**                                                                                                                                                           |
+| `ELEVENLABS_API_KEY` / `ELEVENLABS_DRY_RUN`                      | Neural voice; `DRY_RUN=true` serves the dev backend without burning quota                                                                                                                                                                                                                                               |
+| `ELEVENLABS_MODEL` / `ELEVENLABS_STT_MODEL`                      | Model overrides (`eleven_v3`, `scribe_v2`)                                                                                                                                                                                                                                                                              |
+| `ELEVENLABS_VOICE_EN/AR/HI/UR`                                   | Per-language voice IDs                                                                                                                                                                                                                                                                                                  |
+| `TWILIO_ACCOUNT_SID` / `TWILIO_API_KEY_*` / `TWILIO_FROM_NUMBER` | Real call + SMS delivery                                                                                                                                                                                                                                                                                                |
+| `WEBHOOK_SECRET`                                                 | Signs outbound events & verifies inbound risk signals                                                                                                                                                                                                                                                                   |
+| `AUTH_SECRET`                                                    | Session cookie signing (384-bit)                                                                                                                                                                                                                                                                                        |
+| `GROQ_API_KEY` / `GROQ_MODEL`                                    | **Optional** live LLM reply layer — drafts the agent's spoken lines in the customer's language (default `qwen/qwen3.8-27b`, a Groq **preview-tier** model that Groq's own docs warn "should not be used in production environments as they may be discontinued at short notice"). Server-side only; never commit a key. |
+| `GEMINI_API_KEY` / `GEMINI_MODEL`                                | Optional LLM fallback when no Groq key is present (`gemini-1.5-flash`)                                                                                                                                                                                                                                                  |
+| `RATE_LIMIT_PER_HOUR`                                            | Per-caller TTS/ASR/agent budget                                                                                                                                                                                                                                                                                         |
+| `COMPLIANCE_*`                                                   | Server-enforced compliance flags (disclosure, no credential requests, PII redaction)                                                                                                                                                                                                                                    |
 
 See [.env.example](.env.example) for the annotated reference.
 
@@ -401,7 +405,7 @@ enforce: if `human_handoff` is in the list, the same secret reaches `card_freeze
 `scripts/agent-apply.ts:382-417` writes that one value into every tool's
 `request_headers`, which is how it works in practice.
 
-What the allow-list *does* buy is fail-closed narrowing of the whole surface at once:
+What the allow-list _does_ buy is fail-closed narrowing of the whole surface at once:
 an unset list gives `403 tool_scope_unconfigured` for **every** tool, so a deployment
 that has not been scoped yet cannot reach any privileged action. The secret comparison
 is also constant-time and length-safe (both sides SHA-256'd, then `timingSafeEqual`).
@@ -412,7 +416,7 @@ follow-up work, tracked in [docs/POST-LAUNCH-TODO.md](docs/POST-LAUNCH-TODO.md).
 
 ## The LLM reply layer (optional)
 
-The agent's **intent routing and compliance guardrails are deterministic server-side code** — an LLM never decides to freeze a card, and a refusal cannot be prompted away. When `GROQ_API_KEY` (or `GEMINI_API_KEY`) is set, the model only *rephrases* the verified reply in the customer's language under strict voice rules, then passes the same compliance scan as the scripted replies. It runs on the **continuity path only** — its language set is the pipeline's own, `en / ar / hi / ur / fr / sw` ([`src/lib/config.ts`](src/lib/config.ts)), not the ElevenLabs agent's `en / ar / hi`:
+The agent's **intent routing and compliance guardrails are deterministic server-side code** — an LLM never decides to freeze a card, and a refusal cannot be prompted away. When `GROQ_API_KEY` (or `GEMINI_API_KEY`) is set, the model only _rephrases_ the verified reply in the customer's language under strict voice rules, then passes the same compliance scan as the scripted replies. It runs on the **continuity path only** — its language set is the pipeline's own, `en / ar / hi / ur / fr / sw` ([`src/lib/config.ts`](src/lib/config.ts)), not the ElevenLabs agent's `en / ar / hi`:
 
 - ≤ 50 words — sized for a phone call, not a chat window
 - no markdown, asterisks, or emojis — TTS reads punctuation literally
@@ -429,13 +433,13 @@ not yet measured — a target printed next to a measurement is how a submission 
 claiming performance it never observed. Sources: [docs/VERIFICATION.md](docs/VERIFICATION.md)
 and the per-suite commands below.
 
-| Leg | Target | Measured | Status |
-|---|---|---|---|
-| Risk signal accepted → provider accepted (call placement) | p95 < 1,500 ms | **p95 551 ms** over 20 signals | ✅ MEASURED — `bun test tests/e2e/dial.test.ts` |
-| Server tool round-trip (agent → `/api/elevenlabs/tools/*` → agent) | p95 < 300 ms | **p95 9 ms** over 200 calls, co-located Postgres (db floor p95 3 ms) | ✅ MEASURED — `bun test tests/tools/guard.test.ts` |
-| Signal accepted → first audio the customer hears | < 60 s (the headline claim) | — | ⬜ **not yet measured** — needs a live PSTN call, which the evidence bundle does not contain |
-| Call end → post-call webhook ingested, case reconciled | < 30 s | — | ⬜ **not yet measured** — no end-to-end timing harness exists |
-| Verdict enqueued → first delivery attempt to the bank | < 5 s | — | ⬜ **not yet measured** — the outbox gate asserts retry/dead-letter *behaviour*, not delivery latency |
+| Leg                                                                | Target                      | Measured                                                             | Status                                                                                                |
+| ------------------------------------------------------------------ | --------------------------- | -------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| Risk signal accepted → provider accepted (call placement)          | p95 < 1,500 ms              | **p95 551 ms** over 20 signals                                       | ✅ MEASURED — `bun test tests/e2e/dial.test.ts`                                                       |
+| Server tool round-trip (agent → `/api/elevenlabs/tools/*` → agent) | p95 < 300 ms                | **p95 9 ms** over 200 calls, co-located Postgres (db floor p95 3 ms) | ✅ MEASURED — `bun test tests/tools/guard.test.ts`                                                    |
+| Signal accepted → first audio the customer hears                   | < 60 s (the headline claim) | —                                                                    | ⬜ **not yet measured** — needs a live PSTN call, which the evidence bundle does not contain          |
+| Call end → post-call webhook ingested, case reconciled             | < 30 s                      | —                                                                    | ⬜ **not yet measured** — no end-to-end timing harness exists                                         |
+| Verdict enqueued → first delivery attempt to the bank              | < 5 s                       | —                                                                    | ⬜ **not yet measured** — the outbox gate asserts retry/dead-letter _behaviour_, not delivery latency |
 
 The tool latency figure is only meaningful against a co-located database. The same suite
 pointed at a remote Postgres measured p95 592 ms with a 294 ms database floor — 97 % of that
@@ -452,11 +456,11 @@ a measured one.
 
 ## Branching model
 
-| Branch | Role |
-|---|---|
-| `main` | Submission-ready, stable — the branch judges review |
-| `staging` | Pre-release integration & verification screenshots |
-| `dev` | Active development |
+| Branch    | Role                                                |
+| --------- | --------------------------------------------------- |
+| `main`    | Submission-ready, stable — the branch judges review |
+| `staging` | Pre-release integration & verification screenshots  |
+| `dev`     | Active development                                  |
 
 ---
 

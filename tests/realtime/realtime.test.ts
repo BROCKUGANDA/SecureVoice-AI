@@ -16,9 +16,22 @@
 import { test, expect } from "bun:test";
 import { db } from "@/lib/db";
 import { fetchActivitySince, nextCursor } from "@/lib/activity-feed";
-import { notify, acknowledge, advanceEscalations, dedupeKeyFor, inbox, SEVERITY_SLA_MS } from "@/lib/notifications";
+import {
+  notify,
+  acknowledge,
+  advanceEscalations,
+  dedupeKeyFor,
+  inbox,
+  SEVERITY_SLA_MS,
+} from "@/lib/notifications";
 import { append, verifyChain } from "@/lib/audit-chain";
-import { reduceConnection, tickConnection, describeConnection, initialConnectionState, STALE_AFTER_MS } from "@/lib/connection-state";
+import {
+  reduceConnection,
+  tickConnection,
+  describeConnection,
+  initialConnectionState,
+  STALE_AFTER_MS,
+} from "@/lib/connection-state";
 
 process.env.ELEVENLABS_DRY_RUN = "true";
 process.env.AGENT_TOOL_SECRET = process.env.AGENT_TOOL_SECRET ?? "test-tool-secret";
@@ -38,21 +51,39 @@ test("WP-20: tenancy, resume, inbox dedupe, acknowledgement escalation", async (
   // Fixture events go through the real audit chain so the rows this test
   // reads are exactly the rows production writes (and remain verifiable).
   const seed = async (callRef: string, intent: string, orgId: string, at?: Date) => {
-    await append({ callRef, action: "agent", intent, callerId: "realtime-test", orgId, meta: { at: at?.toISOString() } }, { fast: true });
+    await append(
+      {
+        callRef,
+        action: "agent",
+        intent,
+        callerId: "realtime-test",
+        orgId,
+        meta: { at: at?.toISOString() },
+      },
+      { fast: true },
+    );
     return db.auditLog.findFirst({ where: { callRef }, orderBy: { createdAt: "desc" } });
   };
   const a1 = await seed(`SV-A1-${RUN}`, "a1", ORG_A);
   const a2 = await seed(`SV-A2-${RUN}`, "a2", ORG_A);
   const b1 = await seed(`SV-B1-${RUN}`, "b1", ORG_B);
+  // Each seed just wrote a row through the real audit chain, and the three
+  // assertions above prove findFirst returned one, so the reads below are safe.
   expect(a1).not.toBeNull();
   expect(a2).not.toBeNull();
   expect(b1).not.toBeNull();
 
-  const feedA = await fetchActivitySince({ scope: { orgId: ORG_A }, cursor: { createdAt: new Date(a1.createdAt.getTime() - 1000), id: "" } });
-  const feedB = await fetchActivitySince({ scope: { orgId: ORG_B }, cursor: { createdAt: new Date(b1.createdAt.getTime() - 1000), id: "" } });
+  const feedA = await fetchActivitySince({
+    scope: { orgId: ORG_A },
+    cursor: { createdAt: new Date(a1!.createdAt.getTime() - 1000), id: "" },
+  });
+  const feedB = await fetchActivitySince({
+    scope: { orgId: ORG_B },
+    cursor: { createdAt: new Date(b1!.createdAt.getTime() - 1000), id: "" },
+  });
 
-  expect(feedA.map((r) => r.id)).toEqual([a1.id, a2.id]);
-  expect(feedB.map((r) => r.id)).toEqual([b1.id]);
+  expect(feedA.map((r) => r.id)).toEqual([a1!.id, a2!.id]);
+  expect(feedB.map((r) => r.id)).toEqual([b1!.id]);
   expect(feedA.some((r) => r.orgId === ORG_B)).toBe(false);
 
   // ── 2. Resume: a 30 s gap replays everything missed, nothing more ──────
@@ -61,23 +92,50 @@ test("WP-20: tenancy, resume, inbox dedupe, acknowledgement escalation", async (
   for (let i = 0; i < 3; i++) {
     missed.push(await seed(`SV-MISS-${RUN}-${i}`, `missed_${i}`, ORG_A));
   }
-  const resumed = await fetchActivitySince({ scope: { orgId: ORG_A }, cursor: nextCursor(feedA), take: 50 });
-  expect(resumed.map((r) => r.id)).toEqual(missed.map((r) => r.id));
+  const resumed = await fetchActivitySince({
+    scope: { orgId: ORG_A },
+    cursor: nextCursor(feedA),
+    take: 50,
+  });
+  expect(resumed.map((r) => r.id)).toEqual(missed.map((r) => r!.id));
 
   // Replaying from the same cursor twice is stable (idempotent reconnect).
-  const resumedAgain = await fetchActivitySince({ scope: { orgId: ORG_A }, cursor: nextCursor(feedA), take: 50 });
+  const resumedAgain = await fetchActivitySince({
+    scope: { orgId: ORG_A },
+    cursor: nextCursor(feedA),
+    take: 50,
+  });
   expect(resumedAgain.map((r) => r.id)).toEqual(resumed.map((r) => r.id));
 
   // An org-less session sees default rows only, never another org's.
-  const shared = await fetchActivitySince({ scope: { shared: true }, cursor: { createdAt: new Date(0), id: "" }, take: 100 });
+  const shared = await fetchActivitySince({
+    scope: { shared: true },
+    cursor: { createdAt: new Date(0), id: "" },
+    take: 100,
+  });
   expect(shared.some((r) => r.orgId === ORG_A || r.orgId === ORG_B)).toBe(false);
 
   // ── 3. A burst collapses into one inbox item with the real count ────────
   const at = new Date("2026-10-02T09:30:00.000Z");
-  const first = await notify({ orgId: ORG_A, alertType: "fraud_confirmed", severity: "page", title: "Fraud confirmed", caseRef: `SV-F-${RUN}`, windowMinutes: 15, at });
+  const first = await notify({
+    orgId: ORG_A,
+    alertType: "fraud_confirmed",
+    severity: "page",
+    title: "Fraud confirmed",
+    caseRef: `SV-F-${RUN}`,
+    windowMinutes: 15,
+    at,
+  });
   expect(first.deduplicated).toBe(false);
   for (let i = 0; i < 7; i++) {
-    const more = await notify({ orgId: ORG_A, alertType: "fraud_confirmed", severity: "page", title: "Fraud confirmed", windowMinutes: 15, at });
+    const more = await notify({
+      orgId: ORG_A,
+      alertType: "fraud_confirmed",
+      severity: "page",
+      title: "Fraud confirmed",
+      windowMinutes: 15,
+      at,
+    });
     expect(more.deduplicated).toBe(true);
   }
   const burst = await inbox(ORG_A);
@@ -93,17 +151,19 @@ test("WP-20: tenancy, resume, inbox dedupe, acknowledgement escalation", async (
 
   const hop1 = await advanceEscalations(new Date(at.getTime() + sla + 1));
   expect(hop1).toHaveLength(1);
-  expect(hop1[0].toContact).toBe("fraud_desk");
-  expect(hop1[0].contactIndex).toBe(1);
+  expect(hop1[0]!.toContact).toBe("fraud_desk");
+  expect(hop1[0]!.contactIndex).toBe(1);
 
   // A second hop only after another full SLA, and never past the ladder.
   const notYet = await advanceEscalations(new Date(at.getTime() + sla + 2));
   expect(notYet).toHaveLength(0);
   const hop2 = await advanceEscalations(new Date(at.getTime() + sla * 2 + 5));
-  expect(hop2[0].toContact).toBe("head_of_risk");
+  expect(hop2).toHaveLength(1);
+  expect(hop2[0]!.toContact).toBe("head_of_risk");
   const hop3 = await advanceEscalations(new Date(at.getTime() + sla * 3 + 10));
-  expect(hop3[0].terminal).toBe(true);
-  expect(hop3[0].toContact).toBeNull();
+  expect(hop3).toHaveLength(1);
+  expect(hop3[0]!.terminal).toBe(true);
+  expect(hop3[0]!.toContact).toBeNull();
 
   // Every hop is in the tamper-evident chain.
   // `advanceEscalations` appends each hop with `orgId: n.orgId`, and this
@@ -112,7 +172,15 @@ test("WP-20: tenancy, resume, inbox dedupe, acknowledgement escalation", async (
   expect(chain.ok).toBe(true);
 
   // An acknowledged notification is terminal: no further hops, ever.
-  const acked = await notify({ orgId: ORG_A, alertType: "case_stuck", severity: "page", title: "Stuck case", caseRef: `SV-S-${RUN}`, windowMinutes: 0, at });
+  const acked = await notify({
+    orgId: ORG_A,
+    alertType: "case_stuck",
+    severity: "page",
+    title: "Stuck case",
+    caseRef: `SV-S-${RUN}`,
+    windowMinutes: 0,
+    at,
+  });
   // `acked` was notified under ORG_A, so ORG_A is the org that owns the row.
   expect((await acknowledge(acked.id, ORG_A)).ok).toBe(true);
   expect((await acknowledge(acked.id, ORG_A)).error).toBe("already_acknowledged");

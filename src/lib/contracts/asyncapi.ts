@@ -78,7 +78,8 @@ const ENVELOPE_FIELDS: readonly FieldSpec[] = [
     name: "case_ref",
     required: true,
     type: "string",
-    description: "Case reference, or null. Join key to the bank's own alert (the transaction_ref they sent).",
+    description:
+      "Case reference, or null. Join key to the bank's own alert (the transaction_ref they sent).",
     enforced: "src/lib/outbox.ts buildBankEvent",
   },
   {
@@ -217,7 +218,8 @@ export function buildAsyncApiDocument(): Record<string, unknown> {
               "sv-signature": { type: "string", pattern: "^t=[0-9]{10},v1=[0-9a-f]{64}$" },
               "content-type": { type: "string", const: "application/json" },
             },
-            description: "Header properties are lower-cased by HTTP; `SV-Signature` arrives as `sv-signature`.",
+            description:
+              "Header properties are lower-cased by HTTP; `SV-Signature` arrives as `sv-signature`.",
           },
           payload: { $ref: "#/components/schemas/BankEventEnvelope" },
           correlationId: {

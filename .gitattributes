@@ -1,0 +1,29 @@
+# Normalize line endings in the repository itself.
+#
+# Without this, Windows checkouts convert LF to CRLF, which makes Prettier's
+# endOfLine: "lf" report every single file as unformatted even though nothing
+# changed. Git was already warning "LF will be replaced by CRLF the next time
+# Git touches it" on every commit, so the index was LF and only the working
+# copy was CRLF: this makes the working copy agree with the index.
+* text=auto eol=lf
+
+# Binary files that must never be line-ending normalized. Renormalizing these
+# corrupts them.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.pdf binary
+*.zip binary
+*.gz binary
+*.mp3 binary
+*.wav binary
+*.webm binary
+*.mp4 binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.otf binary
+*.eot binary

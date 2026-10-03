@@ -5,7 +5,7 @@
 > contact, the date of your last conversation, and their fraud-loss figures.**
 > They are marked `⬜ INPUT REQUIRED` throughout and are deliberately left blank.
 >
-> The Stage 2 rubric states plainly that *"we will approach banks" scores zero*.
+> The Stage 2 rubric states plainly that _"we will approach banks" scores zero_.
 > We are not going to fill those four boxes with a plausible-sounding guess.
 > A named institution without a real conversation behind it is worse than an
 > honest blank: it is discoverable, and it ends the relationship when it is
@@ -22,16 +22,16 @@
 
 ## 1. The named institution
 
-| Field | Value |
-| --- | --- |
-| Institution | ⬜ **INPUT REQUIRED** |
-| Contact (named human) | ⬜ **INPUT REQUIRED** |
-| Role | Head of Fraud / Fraud Risk Manager preferred — *not* the CIO, who routes you to procurement, and *not* the CEO except at tier-3 institutions |
-| Date of last conversation | ⬜ **INPUT REQUIRED** |
-| Permission to name them publicly | ⬜ **INPUT REQUIRED** — written, in the same thread as the LOI |
-| Commitment level (see §7) | ⬜ **INPUT REQUIRED** |
+| Field                            | Value                                                                                                                                        |
+| -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| Institution                      | ⬜ **INPUT REQUIRED**                                                                                                                        |
+| Contact (named human)            | ⬜ **INPUT REQUIRED**                                                                                                                        |
+| Role                             | Head of Fraud / Fraud Risk Manager preferred — _not_ the CIO, who routes you to procurement, and _not_ the CEO except at tier-3 institutions |
+| Date of last conversation        | ⬜ **INPUT REQUIRED**                                                                                                                        |
+| Permission to name them publicly | ⬜ **INPUT REQUIRED** — written, in the same thread as the LOI                                                                               |
+| Commitment level (see §7)        | ⬜ **INPUT REQUIRED**                                                                                                                        |
 
-**Target set.** Insurers first. Track 1 is Banking *and* Insurance, almost
+**Target set.** Insurers first. Track 1 is Banking _and_ Insurance, almost
 every entrant will chase banks, and insurers have real voice-channel fraud —
 claims fraud, premium diversion, policyholder impersonation — with far less
 competition for attention. That gap is the arbitrage. Second: tier-2/3 banks
@@ -45,8 +45,8 @@ Full 25-name list with a named human per institution: ⬜ **INPUT REQUIRED**.
 
 ⬜ **INPUT REQUIRED** — two sentences, quoted with consent.
 
-Capture it on the call by asking directly: *"what did your worst fraud week
-this year look like?"* A practitioner's sentence in their own words is worth
+Capture it on the call by asking directly: _"what did your worst fraud week
+this year look like?"_ A practitioner's sentence in their own words is worth
 more in this document than a paragraph of ours, and you cannot reconstruct it
 afterwards.
 
@@ -54,17 +54,17 @@ afterwards.
 
 ⬜ **INPUT REQUIRED** — all four are the institution's, not ours:
 
-| Metric | Their figure |
-| --- | --- |
-| Card / policy volume per month | ⬜ |
-| Current flag rate | ⬜ |
-| Mean time from alert to customer contact | ⬜ |
-| Average fraud loss per uncontested case | ⬜ |
+| Metric                                   | Their figure |
+| ---------------------------------------- | ------------ |
+| Card / policy volume per month           | ⬜           |
+| Current flag rate                        | ⬜           |
+| Mean time from alert to customer contact | ⬜           |
+| Average fraud loss per uncontested case  | ⬜           |
 
 We have planning figures (0.35% flag rate on 200,000 transactions/month) but
 they are **ours, not theirs**, and the honest opening line in the first meeting
-is *"these are the assumptions we modelled — send us yours and we will re-run
-the model."* A fraud head who corrects your assumptions is a fraud head who is
+is _"these are the assumptions we modelled — send us yours and we will re-run
+the model."_ A fraud head who corrects your assumptions is a fraud head who is
 taking the meeting seriously.
 
 ---
@@ -101,10 +101,10 @@ Phase 0 carries no risk for them.
 
 Two endpoints, no core-banking change.
 
-| Direction | Endpoint | Notes |
-| --- | --- | --- |
-| Inbound | `POST /v1/interventions` | HMAC-signed, `Idempotency-Key` required, strict schema, unknown fields rejected |
-| Outbound | signed webhook | `SV-Signature: t=…,v1=…` over `{timestamp}.{canonical_body}`; TypeScript and Python reference implementations in the README, both executed by the WP-5 gate |
+| Direction | Endpoint                 | Notes                                                                                                                                                       |
+| --------- | ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Inbound   | `POST /v1/interventions` | HMAC-signed, `Idempotency-Key` required, strict schema, unknown fields rejected                                                                             |
+| Outbound  | signed webhook           | `SV-Signature: t=…,v1=…` over `{timestamp}.{canonical_body}`; TypeScript and Python reference implementations in the README, both executed by the WP-5 gate |
 
 Tier 0 (observe) is the pilot entry point. Never lead with Tier 2.
 
@@ -114,7 +114,7 @@ Tier 0 (observe) is the pilot entry point. Never lead with Tier 2.
 
 ## 4. 90-day pilot design
 
-### Phase 0 — Shadow (weeks 1–2) · *their risk: zero*
+### Phase 0 — Shadow (weeks 1–2) · _their risk: zero_
 
 They send pseudonymised historical or mirrored live alerts. We produce the
 intervention decision and the script we **would** have used. No calls placed.
@@ -136,14 +136,14 @@ Weekly containment report. Defined SLA.
 
 ### Metrics — agreed before Phase 1 starts
 
-| Metric | Definition |
-| --- | --- |
-| Contact rate | answered ÷ dialled |
-| Time to contact | alert fired → customer on the line (target < 90 s) |
-| Containment rate | fraud stopped ÷ fraud attempted, treated cohort vs control |
-| False-positive friction | legitimate customers called unnecessarily |
-| Deflection | cases resolved without a human agent |
-| Post-call sentiment | customer reaction to being called |
+| Metric                  | Definition                                                 |
+| ----------------------- | ---------------------------------------------------------- |
+| Contact rate            | answered ÷ dialled                                         |
+| Time to contact         | alert fired → customer on the line (target < 90 s)         |
+| Containment rate        | fraud stopped ÷ fraud attempted, treated cohort vs control |
+| False-positive friction | legitimate customers called unnecessarily                  |
+| Deflection              | cases resolved without a human agent                       |
+| Post-call sentiment     | customer reaction to being called                          |
 
 **Insist on a holdout control group.** Without one the pilot produces an
 anecdote; with one it produces a number the board will act on. This goes in the
@@ -170,10 +170,10 @@ ROI multiple = (containment_rate × average_loss_prevented) ÷ cost_per_interven
 
 Two costs per 3-minute intervention, both sourced 2026-10-02:
 
-| Component | Cost |
-| --- | --- |
-| Conversational AI (ElevenLabs Agents, Business tier) | **$0.080/min → $0.24/call** |
-| Outbound voice (carrier) | ⬜ **INPUT REQUIRED** — destination-specific per-minute rate |
+| Component                                            | Cost                                                         |
+| ---------------------------------------------------- | ------------------------------------------------------------ |
+| Conversational AI (ElevenLabs Agents, Business tier) | **$0.080/min → $0.24/call**                                  |
+| Outbound voice (carrier)                             | ⬜ **INPUT REQUIRED** — destination-specific per-minute rate |
 
 The carrier rate is the one a banker will know to the decimal, and East African
 mobile termination is expensive enough that a US domestic rate would discredit
@@ -198,10 +198,10 @@ The claim is not "we handle N concurrent calls". It is:
 
 Worked from the model, with every input labelled EXTRAPOLATED or CALIBRATED:
 
-| Case | Required concurrency | Verdict |
-| --- | --- | --- |
-| Steady state (200k txn/mo, 0.35% flag, 8× peak) | **0.38** | Trivial — and stopping here is how a platform meets a real campaign |
-| Burst (8,000 customers in 40 min at 35% flag) | **210** | **5.25× over** the ElevenLabs Business ceiling of 40 |
+| Case                                            | Required concurrency | Verdict                                                             |
+| ----------------------------------------------- | -------------------- | ------------------------------------------------------------------- |
+| Steady state (200k txn/mo, 0.35% flag, 8× peak) | **0.38**             | Trivial — and stopping here is how a platform meets a real campaign |
+| Burst (8,000 customers in 40 min at 35% flag)   | **210**              | **5.25× over** the ElevenLabs Business ceiling of 40                |
 
 Voice covers **57%** of that campaign. The remaining ~1,200 customers in a bank
 whose cards are being attacked must be reached another way, in minutes, while
@@ -221,12 +221,12 @@ already supports VPC deployment inside the bank's perimeter.
 
 ## 7. Integrity ladder — state it at its true level
 
-| Level | What you have | Claim you may make |
-| --- | --- | --- |
-| **L1** | Discovery call with a named contact | "In active discussion with [institution], [role]" — only with written permission to name |
-| **L2** | Letter of intent or support on letterhead | "Named pilot commitment from [institution]" + attach the letter |
-| **L3** | Signed pilot agreement | "Contracted pilot, starting [date]" |
-| **L4** | Shadow deployment on their data | "Pilot in production shadow mode since [date]" |
+| Level  | What you have                             | Claim you may make                                                                       |
+| ------ | ----------------------------------------- | ---------------------------------------------------------------------------------------- |
+| **L1** | Discovery call with a named contact       | "In active discussion with [institution], [role]" — only with written permission to name |
+| **L2** | Letter of intent or support on letterhead | "Named pilot commitment from [institution]" + attach the letter                          |
+| **L3** | Signed pilot agreement                    | "Contracted pilot, starting [date]"                                                      |
+| **L4** | Shadow deployment on their data           | "Pilot in production shadow mode since [date]"                                           |
 
 ⬜ **INPUT REQUIRED** — which level are we actually at today?
 
@@ -268,14 +268,14 @@ Full treatment: **[`docs/TRUST-MODEL.md`](TRUST-MODEL.md)**.
 
 Everything below is a real gap, not a formality.
 
-| Artifact | Status |
-| --- | --- |
-| Named institution + contact + date | ⬜ INPUT REQUIRED |
-| 25-name target list with a named human each | ⬜ INPUT REQUIRED |
-| Their fraud loss per uncontested case | ⬜ INPUT REQUIRED |
-| Carrier per-minute rate for the pilot country | ⬜ INPUT REQUIRED |
-| LOI sent | ⬜ INPUT REQUIRED — template exists at `docs/LOI-TEMPLATE.md` |
-| Phase 0 shadow readout | ⬜ INPUT REQUIRED — needs their data |
+| Artifact                                      | Status                                                        |
+| --------------------------------------------- | ------------------------------------------------------------- |
+| Named institution + contact + date            | ⬜ INPUT REQUIRED                                             |
+| 25-name target list with a named human each   | ⬜ INPUT REQUIRED                                             |
+| Their fraud loss per uncontested case         | ⬜ INPUT REQUIRED                                             |
+| Carrier per-minute rate for the pilot country | ⬜ INPUT REQUIRED                                             |
+| LOI sent                                      | ⬜ INPUT REQUIRED — template exists at `docs/LOI-TEMPLATE.md` |
+| Phase 0 shadow readout                        | ⬜ INPUT REQUIRED — needs their data                          |
 
 Supporting artifacts that **do** exist: `docs/PILOT-BRIEF.md`,
 `docs/LOI-TEMPLATE.md`, `docs/SECURITY-QUESTIONNAIRE.md`,

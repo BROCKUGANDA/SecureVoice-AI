@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireOperator } from "@/lib/credits";
 import { db } from "@/lib/db";
@@ -25,10 +26,14 @@ const schema = z.object({
   elevenKey: z.string().trim().min(20).max(80).optional(),
 });
 
-async function readSettings(): Promise<{ settings: Record<string, unknown> } | { error: { status: number; error: string } }> {
+async function readSettings(): Promise<
+  { settings: Record<string, unknown> } | { error: { status: number; error: string } }
+> {
   const guard = await requireOperator();
   if (!guard.ok) return { error: { status: guard.status, error: guard.error } };
-  const row = await db.userProfile.findUnique({ where: { clerkUserId: guard.profile.clerkUserId } });
+  const row = await db.userProfile.findUnique({
+    where: { userId: guard.profile.userId },
+  });
   if (!row) return { error: { status: 404, error: "Profile not found" } };
   const key = row.elevenKeyEnc ? decryptSecret(row.elevenKeyEnc) : null;
   return {
@@ -63,7 +68,10 @@ export async function POST(req: NextRequest) {
   const parsed = schema.safeParse(body);
   if (!parsed.success) {
     const first = parsed.error.issues[0];
-    return NextResponse.json({ error: `${first?.path.join(".")} ${first?.message ?? "invalid"}` }, { status: 422 });
+    return NextResponse.json(
+      { error: `${first?.path.join(".")} ${first?.message ?? "invalid"}` },
+      { status: 422 },
+    );
   }
   const d = parsed.data;
 
@@ -75,7 +83,7 @@ export async function POST(req: NextRequest) {
     data.elevenKeyEnc = encryptSecret(d.elevenKey);
   }
 
-  await db.userProfile.update({ where: { clerkUserId: guard.profile.clerkUserId }, data });
+  await db.userProfile.update({ where: { userId: guard.profile.userId }, data });
 
   // Storing or rotating a vendor credential is a security event, so it is
   // recorded like one. The KEY ITSELF IS NEVER LOGGED — only that it changed
@@ -85,10 +93,10 @@ export async function POST(req: NextRequest) {
   const touched = Object.keys(data);
   if (touched.length > 0) {
     await auditAppend({
-      callRef: `SETTINGS-${guard.profile.clerkUserId.slice(0, 24)}`,
+      callRef: `SETTINGS-${guard.profile.userId.slice(0, 24)}`,
       action: "consent",
       intent: d.elevenKey !== undefined ? "by_key_set" : "settings_update",
-      callerId: guard.profile.clerkUserId,
+      callerId: guard.profile.userId,
       redactedText: touched
         .map((f) => (f === "elevenKeyEnc" ? `elevenKey=***${maskKey(d.elevenKey ?? "")}` : f))
         .join(", "),
@@ -119,16 +127,16 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ error: "field must be elevenKey" }, { status: 422 });
   }
   await db.userProfile.update({
-    where: { clerkUserId: guard.profile.clerkUserId },
+    where: { userId: guard.profile.userId },
     data: { elevenKeyEnc: null },
   });
   // Removal of a stored vendor credential is audited for the same reason as
   // setting it: both are the events a security reviewer asks to see.
   await auditAppend({
-    callRef: `SETTINGS-${guard.profile.clerkUserId.slice(0, 24)}`,
+    callRef: `SETTINGS-${guard.profile.userId.slice(0, 24)}`,
     action: "consent",
     intent: "by_key_removed",
-    callerId: guard.profile.clerkUserId,
+    callerId: guard.profile.userId,
     redactedText: "elevenKey removed",
     meta: { fields: ["elevenKeyEnc"], byokChanged: true, orgId: guard.profile.orgId ?? undefined },
     orgId: guard.profile.orgId ?? undefined,

@@ -2,14 +2,14 @@
 
 Two separate questions, and they have different answers:
 
-| You want to… | Use | Difficulty |
-|---|---|---|
-| **Call SecureVoice** from your fraud engine / core banking | [`POST /api/interventions`](#1-bank--fraud-engine--core-banking) — signed webhook | Half a day |
-| **Let SecureVoice call your customers** | [`POST /api/enroll`](#2-customer-enrolment-for-outbound-calls) | An hour |
-| **Receive every phase transition** back in your systems | [`POST /api/webhooks`](#3-outbound-events-back-to-your-bank) | An hour |
-| **Run it inside your own VPC / cloud** | [`docker compose`](#5-run-it-yourself) | A day |
-| **Give your staff their own console + keys** | [Multi-tenant onboarding](#6-multi-tenant--self-serve-onboarding) | Product work |
-| **Use it right now, no deployment** | [`securevoice.ai`](#7-use-the-hosted-demo) | Seconds |
+| You want to…                                               | Use                                                                               | Difficulty   |
+| ---------------------------------------------------------- | --------------------------------------------------------------------------------- | ------------ |
+| **Call SecureVoice** from your fraud engine / core banking | [`POST /api/interventions`](#1-bank--fraud-engine--core-banking) — signed webhook | Half a day   |
+| **Let SecureVoice call your customers**                    | [`POST /api/enroll`](#2-customer-enrolment-for-outbound-calls)                    | An hour      |
+| **Receive every phase transition** back in your systems    | [`POST /api/webhooks`](#3-outbound-events-back-to-your-bank)                      | An hour      |
+| **Run it inside your own VPC / cloud**                     | [`docker compose`](#5-run-it-yourself)                                            | A day        |
+| **Give your staff their own console + keys**               | [Multi-tenant onboarding](#6-multi-tenant--self-serve-onboarding)                 | Product work |
+| **Use it right now, no deployment**                        | [`securevoice.ai`](#7-use-the-hosted-demo)                                        | Seconds      |
 
 ---
 
@@ -114,7 +114,7 @@ a call.
 ```
 
 `lang` accepts `en · ar · hi · ur · fr · sw`. `channel` is `call` or `sms`.
-Opt-out is first-class and immediate. It is the *same* endpoint with a different body:
+Opt-out is first-class and immediate. It is the _same_ endpoint with a different body:
 
 ```json
 { "action": "optout", "customerRef": "CUST-8642" }
@@ -134,14 +134,14 @@ unrestricted delivery use a paid account and set `TWILIO_*` in your deployment.
 `SV-Signature` header proves authenticity, and **PII is redacted before signing**, so
 you receive evidence, not customer data.
 
-| Event | Meaning |
-|---|---|
-| `intervention.started` | case accepted, SLA clock running |
-| `identity.verified` | customer passed the zero-knowledge check |
-| `customer.confirmed` | customer said "yes, that was me" |
-| `account.frozen` | freeze staged — **see the human-approval note below** |
-| `escalated.human` | specialist queued, `sla_seconds` included |
-| `case.closed` | terminal state, with `action_taken` and `prevented_loss_aed` |
+| Event                  | Meaning                                                      |
+| ---------------------- | ------------------------------------------------------------ |
+| `intervention.started` | case accepted, SLA clock running                             |
+| `identity.verified`    | customer passed the zero-knowledge check                     |
+| `customer.confirmed`   | customer said "yes, that was me"                             |
+| `account.frozen`       | freeze staged — **see the human-approval note below**        |
+| `escalated.human`      | specialist queued, `sla_seconds` included                    |
+| `case.closed`          | terminal state, with `action_taken` and `prevented_loss_aed` |
 
 > **`account.frozen` does not mean the card is blocked.** The agent can only stage a
 > reversible `pending_specialist` state. A human fraud specialist finalises it in the
@@ -157,11 +157,11 @@ machine) to drive actions, it calls your deployment over signed webhooks.
 
 ### Tool endpoints
 
-| Endpoint | What it does | Irreversible? |
-|---|---|---|
-| `POST /api/elevenlabs/tools/card-freeze` | stages a reversible freeze request | **No** — returns `committed:false` |
-| `POST /api/elevenlabs/tools/human-handoff` | queues a fraud specialist | No |
-| `POST /api/elevenlabs/signed-url` | mints a browser session credential | No |
+| Endpoint                                   | What it does                       | Irreversible?                      |
+| ------------------------------------------ | ---------------------------------- | ---------------------------------- |
+| `POST /api/elevenlabs/tools/card-freeze`   | stages a reversible freeze request | **No** — returns `committed:false` |
+| `POST /api/elevenlabs/tools/human-handoff` | queues a fraud specialist          | No                                 |
+| `POST /api/elevenlabs/signed-url`          | mints a browser session credential | No                                 |
 
 ### Authentication
 
@@ -198,13 +198,13 @@ never reaches client-side code. It also **pins** the agent: any `agent_id` other
 
 Verified behaviour (see [`evidence/guardrails-runtime-2026-10-01.json`](evidence/guardrails-runtime-2026-10-01.json)):
 
-| Call | Result |
-|---|---|
-| no secret / wrong secret | `401 unauthorized` |
-| `card_freeze` authorized | `200`, `committed:false`, `stage:pending_specialist` |
-| `human_handoff` | `200`, `sla_seconds:30` |
-| signed URL, non-pinned agent | `403 agent_not_allowed` |
-| signed URL, websocket / webrtc | `200` real credential |
+| Call                           | Result                                               |
+| ------------------------------ | ---------------------------------------------------- |
+| no secret / wrong secret       | `401 unauthorized`                                   |
+| `card_freeze` authorized       | `200`, `committed:false`, `stage:pending_specialist` |
+| `human_handoff`                | `200`, `sla_seconds:30`                              |
+| signed URL, non-pinned agent   | `403 agent_not_allowed`                              |
+| signed URL, websocket / webrtc | `200` real credential                                |
 
 ---
 
@@ -244,7 +244,7 @@ If you need the app on a bare port for local work:
 docker compose --profile direct up --build   # publishes :3000, no TLS
 ```
 
-Convenient on a laptop, but then the origin *is* reachable on its own, every
+Convenient on a laptop, but then the origin _is_ reachable on its own, every
 forwarded-IP header is forgeable, and the edge layer collapses to one shared
 rate-limit bucket. Don't ship that profile.
 
@@ -281,7 +281,7 @@ only already-redacted, already-authorised events move through it.
 ### Point it at your own database
 
 > **Read this before editing `.env`.** Docker Compose auto-loads `./.env` for
-> *variable interpolation*, so a `DATABASE_URL` you set for host-side Prisma
+> _variable interpolation_, so a `DATABASE_URL` you set for host-side Prisma
 > commands does **not** redirect the containers — `docker-compose.yml` hard-codes
 > the internal `db:5432` URL on purpose, so `db-setup` and `app` can never end up
 > pointed at different databases. The app's runtime secrets still come from `.env`
@@ -317,15 +317,15 @@ not.** This is the honest state as of this commit — read it before planning ar
 
 ### What already works
 
-| Piece | State |
-|---|---|
-| `orgId` scoping on `AuditLog`, `Customer`, `ProducerKey`, `UserProfile` | ✅ in the schema |
-| Per-team producer keys, revocable, `orgId`-scoped | ✅ `/api/console/producer-keys` |
-| **BYOK** — a bank brings its own ElevenLabs key | ✅ AES-256-GCM encrypted at rest, Console → Settings |
-| Per-organisation branding | ✅ |
-| Credits wallet per organisation | ✅ |
-| Clerk organisations for staff login | ✅ |
-| Lead capture (`PilotRequest`) | ✅ `/api/pilot` |
+| Piece                                                                   | State                                                |
+| ----------------------------------------------------------------------- | ---------------------------------------------------- |
+| `orgId` scoping on `AuditLog`, `Customer`, `ProducerKey`, `UserProfile` | ✅ in the schema                                     |
+| Per-team producer keys, revocable, `orgId`-scoped                       | ✅ `/api/console/producer-keys`                      |
+| **BYOK** — a bank brings its own ElevenLabs key                         | ✅ AES-256-GCM encrypted at rest, Console → Settings |
+| Per-organisation branding                                               | ✅                                                   |
+| Credits wallet per organisation                                         | ✅                                                   |
+| Organisations for staff login                                           | ✅                                                   |
+| Lead capture (`PilotRequest`)                                           | ✅ `/api/pilot`                                      |
 
 ### What is missing to let a stranger self-serve
 
@@ -341,7 +341,7 @@ not.** This is the honest state as of this commit — read it before planning ar
 ```
 POST /api/pilot                      → creates PilotRequest (already live)
   ↓ operator approval (already live, Console)
-org + Clerk organization created       ← INSERT here
+org + Better Auth organization created       ← INSERT here
   ↓ auto-mint
 first ProducerKey handed to the bank   ← INSERT here (nonce + one-time display)
   ↓ bank runs
@@ -370,11 +370,11 @@ Twilio numbers are dialled and no ElevenLabs quota is burned unless you supply k
 
 ## Troubleshooting
 
-| Symptom | Cause |
-|---|---|
-| `401` from `/api/interventions` | Signature mismatch. Sign the **exact raw body**, not a re-serialised object. Check the replay window. |
-| `P1001` from Prisma on a healthy DB | Direct DB host is IPv6-only and your host has no IPv6 route. Use the IPv4 pooler. |
-| Tool call returns `405` | ElevenLabs signed-URL endpoints are `GET` with `agent_id` as a **query param**, not a JSON body. (Already handled in `/api/elevenlabs/signed-url`.) |
-| Agent has no tools available | Free-tier accounts get HTTP 200 while silently dropping `tool_ids`. Attach tools in the ElevenLabs **dashboard**, not the API. |
-| Every route 404s after a restart | Stale Turbopack `.next`. `rm -rf .next`. |
-| `env_file` warning in compose | `.env` is absent. It is optional by design. |
+| Symptom                             | Cause                                                                                                                                               |
+| ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `401` from `/api/interventions`     | Signature mismatch. Sign the **exact raw body**, not a re-serialised object. Check the replay window.                                               |
+| `P1001` from Prisma on a healthy DB | Direct DB host is IPv6-only and your host has no IPv6 route. Use the IPv4 pooler.                                                                   |
+| Tool call returns `405`             | ElevenLabs signed-URL endpoints are `GET` with `agent_id` as a **query param**, not a JSON body. (Already handled in `/api/elevenlabs/signed-url`.) |
+| Agent has no tools available        | Free-tier accounts get HTTP 200 while silently dropping `tool_ids`. Attach tools in the ElevenLabs **dashboard**, not the API.                      |
+| Every route 404s after a restart    | Stale Turbopack `.next`. `rm -rf .next`.                                                                                                            |
+| `env_file` warning in compose       | `.env` is absent. It is optional by design.                                                                                                         |

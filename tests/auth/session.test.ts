@@ -267,7 +267,7 @@ test("a role change revokes every existing session for that identity", async () 
       actorId: owner.identity.accountId,
       orgId: owner.orgId,
       note: "promoted",
-    })
+    }),
   );
 
   // Both are dead, even though both were fresh and neither was revoked by id.
@@ -292,7 +292,7 @@ test("a demotion revokes the session too, so the old role cannot be used", async
       actorId: owner.identity.accountId,
       orgId: owner.orgId,
       note: "demoted",
-    })
+    }),
   );
 
   const after = await requireAuth(live.cookie);
@@ -312,7 +312,7 @@ test("an UPGRADE also revokes, because the pre-promotion session had the lower r
       actorId: owner.identity.accountId,
       orgId: owner.orgId,
       note: "promoted",
-    })
+    }),
   );
 
   // A session issued while they were an Analyst does not survive the promotion.
@@ -345,7 +345,7 @@ test("a role change in one org does not revoke sessions in another", async () =>
       actorId: orgA.identity.accountId,
       orgId: orgA.orgId,
       note: "demoted in A only",
-    })
+    }),
   );
 
   await expectRejection(inA.token, "revoked");
@@ -449,6 +449,6 @@ async function persistSession(live: { session: SessionRecord }): Promise<void> {
     live.session.sid,
     live.session.accountId,
     live.session,
-    new Date(live.session.issuedAt + SESSION_RECORD_TTL_MS)
+    new Date(live.session.issuedAt + SESSION_RECORD_TTL_MS),
   );
 }

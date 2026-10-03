@@ -43,10 +43,7 @@
  */
 
 export type IsolationVerdict =
-  | "foreign-probe-empty"
-  | "foreign-probe-404"
-  | "identity-keyed"
-  | "platform-global";
+  "foreign-probe-empty" | "foreign-probe-404" | "identity-keyed" | "platform-global";
 
 export type ReadPathCoverage = "asserted" | "declared-gap" | "declared-global";
 
@@ -150,7 +147,8 @@ export const CANONICAL_READ_PATHS: readonly CanonicalReadPath[] = Object.freeze(
   {
     id: "identity.producer-key",
     model: "ProducerKey",
-    obligation: "A producer key authenticates as exactly one org, and resolves as nothing under any other scope.",
+    obligation:
+      "A producer key authenticates as exactly one org, and resolves as nothing under any other scope.",
   },
   {
     id: "lib.case.by-ref",
@@ -190,17 +188,20 @@ export const CANONICAL_READ_PATHS: readonly CanonicalReadPath[] = Object.freeze(
   {
     id: "pilot.leads",
     model: "PilotRequest",
-    obligation: "Public-site leads are global; the triage read is an explicit bypass, never a tenant read.",
+    obligation:
+      "Public-site leads are global; the triage read is an explicit bypass, never a tenant read.",
   },
   {
     id: "console.outbox.dead-letters",
     model: "DeadLetter",
-    obligation: "The replay console is operator-scoped at the deployment level; the model carries no orgId.",
+    obligation:
+      "The replay console is operator-scoped at the deployment level; the model carries no orgId.",
   },
   {
     id: "lib.billing.org-ledger",
     model: "UsageLedger",
-    obligation: "An org-scoped read of the usage ledger cannot resolve another org's money movements.",
+    obligation:
+      "An org-scoped read of the usage ledger cannot resolve another org's money movements.",
   },
   {
     id: "lib.payments.record-by-reference",
@@ -221,11 +222,17 @@ export const ISOLATION_MATRIX: readonly ReadPath[] = Object.freeze([
     read: "GET",
     probe: {
       field: "callRef",
-      invoke: "GET /api/console/audit as org A; the response `cases[]` must not contain org B's callRef.",
+      invoke:
+        "GET /api/console/audit as org A; the response `cases[]` must not contain org B's callRef.",
     },
     verdict: "foreign-probe-empty",
     coverage: "asserted",
-    http: { method: "GET", route: "/api/console/audit", probeLocation: "query", probeParam: "callRef" },
+    http: {
+      method: "GET",
+      route: "/api/console/audit",
+      probeLocation: "query",
+      probeParam: "callRef",
+    },
     notes:
       "Scoping lives in the route's `orgScope` (line 30). Both directions are probed because the shared/`default` fallback is the branch most likely to leak.",
   },
@@ -238,11 +245,17 @@ export const ISOLATION_MATRIX: readonly ReadPath[] = Object.freeze([
     read: "GET",
     probe: {
       field: "callRef",
-      invoke: "GET /api/console/audit?callRef=<other org's callRef> as org A — must be 404, not 403.",
+      invoke:
+        "GET /api/console/audit?callRef=<other org's callRef> as org A — must be 404, not 403.",
     },
     verdict: "foreign-probe-404",
     coverage: "asserted",
-    http: { method: "GET", route: "/api/console/audit", probeLocation: "query", probeParam: "callRef" },
+    http: {
+      method: "GET",
+      route: "/api/console/audit",
+      probeLocation: "query",
+      probeParam: "callRef",
+    },
     notes:
       "Route does an org-scoped findFirst before verifyChain (lines 34-47). The 404-not-403 assertion is the point: a 403 confirms the caseRef exists.",
   },
@@ -276,7 +289,12 @@ export const ISOLATION_MATRIX: readonly ReadPath[] = Object.freeze([
     },
     verdict: "foreign-probe-empty",
     coverage: "asserted",
-    http: { method: "GET", route: "/api/console/producer-keys", probeLocation: "query", probeParam: "" },
+    http: {
+      method: "GET",
+      route: "/api/console/producer-keys",
+      probeLocation: "query",
+      probeParam: "",
+    },
     notes: "orgScope is applied to the where clause (route lines 22-27).",
   },
   {
@@ -288,7 +306,8 @@ export const ISOLATION_MATRIX: readonly ReadPath[] = Object.freeze([
     read: "DELETE",
     probe: {
       field: "id",
-      invoke: "DELETE /api/console/producer-keys?id=<org B's key id> as org A — must be 404 and must not revoke it.",
+      invoke:
+        "DELETE /api/console/producer-keys?id=<org B's key id> as org A — must be 404 and must not revoke it.",
     },
     verdict: "foreign-probe-404",
     coverage: "asserted",
@@ -310,12 +329,14 @@ export const ISOLATION_MATRIX: readonly ReadPath[] = Object.freeze([
     read: "GET",
     probe: {
       field: "id",
-      invoke: "GET /api/console/inbox as org A; `notifications[]` must not contain org B's alert id.",
+      invoke:
+        "GET /api/console/inbox as org A; `notifications[]` must not contain org B's alert id.",
     },
     verdict: "foreign-probe-empty",
     coverage: "asserted",
     http: { method: "GET", route: "/api/console/inbox", probeLocation: "query", probeParam: "" },
-    notes: "Delegates to notifications.inbox(orgId), which ORs the shared namespace when orgId is null.",
+    notes:
+      "Delegates to notifications.inbox(orgId), which ORs the shared namespace when orgId is null.",
   },
   {
     id: "console.inbox.acknowledge",
@@ -356,7 +377,7 @@ export const ISOLATION_MATRIX: readonly ReadPath[] = Object.freeze([
     coverage: "asserted",
     http: { method: "GET", route: "/api/console/settings", probeLocation: "query", probeParam: "" },
     notes:
-      "Identity-keyed read with no id-shaped probe: the route can only ever pass its own clerkUserId, so the cross-tenant probe is a SENTINEL orgName written onto the other org's profile. Both directions return 200 for the caller's own profile and neither response may contain the other org's sentinel. Deliberately NOT a 404 assertion — there is no identifier in the request for a 404 to hide, and claiming otherwise would be a fake assertion. The four genuinely id-shaped paths (console.audit.case-chain, console.producer-keys.revoke, console.inbox.acknowledge, api.enroll.customer-by-ref) carry the 404-never-403 assertion.",
+      "Identity-keyed read with no id-shaped probe: the route can only ever pass its own userId, so the cross-tenant probe is a SENTINEL orgName written onto the other org's profile. Both directions return 200 for the caller's own profile and neither response may contain the other org's sentinel. Deliberately NOT a 404 assertion — there is no identifier in the request for a 404 to hide, and claiming otherwise would be a fake assertion. The four genuinely id-shaped paths (console.audit.case-chain, console.producer-keys.revoke, console.inbox.acknowledge, api.enroll.customer-by-ref) carry the 404-never-403 assertion.",
   },
   {
     id: "identity.user-profile",
@@ -367,12 +388,13 @@ export const ISOLATION_MATRIX: readonly ReadPath[] = Object.freeze([
     read: "getProfile",
     probe: {
       field: "orgName",
-      invoke: "getProfile() as org A's session must resolve orgId=A and never surface org B's profile values.",
+      invoke:
+        "getProfile() as org A's session must resolve orgId=A and never surface org B's profile values.",
     },
     verdict: "foreign-probe-empty",
     coverage: "asserted",
     notes:
-      "The Clerk session claim is the only source of orgId here, and the upsert is keyed by clerkUserId — a session cannot address another org's row.",
+      "The session claim is the only source of orgId here, and the upsert is keyed by userId — a session cannot address another org's row.",
   },
   {
     id: "identity.producer-key",
@@ -400,12 +422,13 @@ export const ISOLATION_MATRIX: readonly ReadPath[] = Object.freeze([
     read: "caseByRef",
     probe: {
       field: "caseRef",
-      invoke: "caseByRef(org B's caseRef) currently returns org B's case. The scoped equivalent must return null.",
+      invoke:
+        "caseByRef(org B's caseRef, org A) must return null — the tenant is part of the lookup.",
     },
     verdict: "foreign-probe-empty",
-    coverage: "declared-gap",
+    coverage: "asserted",
     notes:
-      "GAP: `db.case.findUnique({ where: { caseRef } })` (line 157) has no org predicate. No HTTP route currently calls it with attacker-controlled input, and the fix is outside this work package's write scope. Guard equivalent probed in the same run: scopedDb({ orgId: A }).case.findFirst({ where: { caseRef: B } }) is null.",
+      "Was a declared gap: `db.case.findUnique({ where: { caseRef } })` had no org predicate. Closed — caseByRef now takes the caller's org and applies the same default-namespace predicate as caseByConversation, verifyChain and acknowledge. No HTTP route calls it with attacker-controlled input, so the exposure was latent rather than live.",
   },
   {
     id: "lib.case.by-conversation",
@@ -417,12 +440,12 @@ export const ISOLATION_MATRIX: readonly ReadPath[] = Object.freeze([
     probe: {
       field: "conversationId",
       invoke:
-        "caseByConversation(org B's conversationId) currently returns org B's case. The scoped equivalent must return null.",
+        "caseByConversation(org B's conversationId, org A) must return null — the tenant resolved from the caller's credential is part of the lookup.",
     },
     verdict: "foreign-probe-empty",
-    coverage: "declared-gap",
+    coverage: "asserted",
     notes:
-      "GAP: `db.case.findFirst({ where: { conversationId } })` (line 152) has no org predicate. This is the post-call webhook join key, so a replayed foreign conversation id would attach a foreign case to the wrong org's record. Guard equivalent probed in the same run.",
+      "Was a declared gap: `db.case.findFirst({ where: { conversationId } })` had no org predicate, so a caller holding the single deployment-wide AGENT_TOOL_SECRET could name any tenant's conversation_id and have that case resolved, frozen or read. Closed by making the credential carry the tenant — `authorizeToolCall` resolves an org from a per-tenant AgentToolSecret (hash-only, ProducerKey convention), and the platform key resolves to the DEFAULT namespace rather than 'any org'. The lookup now takes that org, so another tenant's conversation_id resolves to nothing. The ElevenLabs webhook still authenticates on the shared platform secret and passes null, which confines it to the default namespace; that residual shared-secret exposure is recorded in docs/GAP-REGISTER.md.",
   },
   {
     id: "api.enroll.customer-by-ref",
@@ -437,7 +460,12 @@ export const ISOLATION_MATRIX: readonly ReadPath[] = Object.freeze([
     },
     verdict: "foreign-probe-404",
     coverage: "asserted",
-    http: { method: "POST", route: "/api/enroll", probeLocation: "body", probeParam: "customerRef" },
+    http: {
+      method: "POST",
+      route: "/api/enroll",
+      probeLocation: "body",
+      probeParam: "customerRef",
+    },
     notes:
       "The read is unscoped but the route then compares `existing.orgId` to the caller's and answers 404 (route lines 151-154). The gate also re-reads the row to prove org B's phone/consent were not re-pointed.",
   },
@@ -455,7 +483,12 @@ export const ISOLATION_MATRIX: readonly ReadPath[] = Object.freeze([
     },
     verdict: "foreign-probe-404",
     coverage: "asserted",
-    http: { method: "POST", route: "/api/enroll", probeLocation: "body", probeParam: "customerRef" },
+    http: {
+      method: "POST",
+      route: "/api/enroll",
+      probeLocation: "body",
+      probeParam: "customerRef",
+    },
     notes:
       "FIXED 2026-10-02 (was a declared gap): the opt-out branch now scopes by org — `where: { customerRef, orgId }` for a tenant-bound caller, and the shared rows only for an org-less one. A producer naming another tenant's customerRef now updates 0 rows and is answered 404, which is also why `rowsUpdated` can no longer confirm existence. Probed through the real route handler over the headless-producer auth path — a Clerk operator session short-circuits `authorize()` before the Bearer branch, so the probe uses a demo-role seat — in both directions, with a control proving the same call succeeds for the caller's own customer and a negative control proving the pre-fix unscoped expression still reaches and mutates the foreign row.",
   },
@@ -473,7 +506,12 @@ export const ISOLATION_MATRIX: readonly ReadPath[] = Object.freeze([
     },
     verdict: "foreign-probe-empty",
     coverage: "asserted",
-    http: { method: "POST", route: "/api/interventions", probeLocation: "body", probeParam: "customer.ref" },
+    http: {
+      method: "POST",
+      route: "/api/interventions",
+      probeLocation: "body",
+      probeParam: "customer.ref",
+    },
     notes:
       "FIXED 2026-10-02 (was the highest-severity gap in this matrix): the ingest lookup is now `db.customer.findFirst({ where: { customerRef, orgId } })` for a tenant-bound caller, and the shared rows only otherwise. Probed by executing both of the route's exact expressions against the fixtures (tenant-bound branch AND org-less branch) plus a negative control proving the pre-fix unscoped expression still resolves the other org's customer. Still not driven end to end, because a full request needs the live telephony pipeline — the expression, not the request, is what crosses the tenant boundary.",
   },
@@ -487,12 +525,12 @@ export const ISOLATION_MATRIX: readonly ReadPath[] = Object.freeze([
     probe: {
       field: "callRef",
       invoke:
-        "verifyChain(org B's callRef) currently walks and returns org B's rows; the console route's own pre-check is what protects it.",
+        "verifyChain(org B's callRef, org A) must return no rows from org B — the tenant is part of the walk.",
     },
     verdict: "foreign-probe-empty",
-    coverage: "declared-gap",
+    coverage: "asserted",
     notes:
-      "GAP (defence in depth, not currently exploitable): `verifyChain` reads by callRef alone (line 263). The only caller, /api/console/audit, org-checks first, so the route is safe today. The function would return a foreign chain to any future caller that skipped the pre-check. Guard equivalent probed in the same run.",
+      "Was a declared gap (defence in depth): verifyChain read by callRef alone, relying on /api/console/audit to org-check first. Closed — verifyChain now takes the caller's org and filters the walk, so a future caller cannot be handed a foreign chain by forgetting a pre-check.",
   },
   {
     id: "lib.notifications.acknowledge",
@@ -503,12 +541,13 @@ export const ISOLATION_MATRIX: readonly ReadPath[] = Object.freeze([
     read: "acknowledge",
     probe: {
       field: "id",
-      invoke: "acknowledge(org B's alert id) currently succeeds; the route's own pre-check is what protects it.",
+      invoke:
+        "acknowledge(org B's alert id, org A) must return not_found — the tenant is part of the predicate.",
     },
     verdict: "foreign-probe-empty",
-    coverage: "declared-gap",
+    coverage: "asserted",
     notes:
-      "GAP (defence in depth, not currently exploitable): `acknowledge` reads by id alone (line 110). The only caller pre-checks against the caller's own inbox, so the route is safe today. The evidence records this so a future caller that skips the pre-check is a test failure, not a breach.",
+      "Was a declared gap (defence in depth): acknowledge read by id alone, relying on the route to pre-check. Closed — acknowledge now applies the caller's org inside the predicate itself, so a future caller cannot acknowledge another tenant's alert by skipping a pre-check.",
   },
   {
     id: "pilot.leads",
@@ -536,11 +575,17 @@ export const ISOLATION_MATRIX: readonly ReadPath[] = Object.freeze([
     read: "GET",
     probe: {
       field: "caseRef",
-      invoke: "GET /api/console/outbox/replay lists rows regardless of caseRef org — the model carries no orgId.",
+      invoke:
+        "GET /api/console/outbox/replay lists rows regardless of caseRef org — the model carries no orgId.",
     },
     verdict: "platform-global",
     coverage: "declared-global",
-    http: { method: "GET", route: "/api/console/outbox/replay", probeLocation: "query", probeParam: "" },
+    http: {
+      method: "GET",
+      route: "/api/console/outbox/replay",
+      probeLocation: "query",
+      probeParam: "",
+    },
     notes:
       "NOT PROBED, deliberately: GET drains nothing but POST with `all: true` replays every unreplayed dead letter, and a probe would mutate shared delivery state that the WP-5 gate also asserts on. `DeadLetter` is declared in PLATFORM_MODELS (the org lives on the OutboxEvent row) and the route is operator-gated. Flagged as a real residual risk: any future multi-operator deployment needs this scoped.",
   },
@@ -570,7 +615,8 @@ export const ISOLATION_MATRIX: readonly ReadPath[] = Object.freeze([
     read: "scopedDb(orgScopeFor(org)).usageLedger.findMany",
     probe: {
       field: "idemKey",
-      invoke: "Read the other org's ledger idemKey through this org's scoped client — must resolve to nothing.",
+      invoke:
+        "Read the other org's ledger idemKey through this org's scoped client — must resolve to nothing.",
     },
     verdict: "foreign-probe-empty",
     coverage: "asserted",
@@ -586,7 +632,8 @@ export const ISOLATION_MATRIX: readonly ReadPath[] = Object.freeze([
     read: "scopedDb(orgScopeFor(org)).paymentRecord.findFirst",
     probe: {
       field: "reference",
-      invoke: "Resolve the other org's globally-unique payment `reference` through this org's scoped client — must resolve to nothing.",
+      invoke:
+        "Resolve the other org's globally-unique payment `reference` through this org's scoped client — must resolve to nothing.",
     },
     verdict: "foreign-probe-empty",
     coverage: "asserted",
@@ -621,5 +668,7 @@ export function declaredGaps(): ReadPath[] {
 }
 
 export function isHttpPath(id: string): boolean {
-  return ISOLATION_MATRIX.some((p) => p.id === id && p.kind === "http" && p.verdict === "foreign-probe-404");
+  return ISOLATION_MATRIX.some(
+    (p) => p.id === id && p.kind === "http" && p.verdict === "foreign-probe-404",
+  );
 }

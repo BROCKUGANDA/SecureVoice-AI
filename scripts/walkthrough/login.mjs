@@ -1,7 +1,7 @@
 /**
  * One-time seeded sign-in for the capture profile.
  *
- * Sign-in works now: the app's one-click login completes Clerk's device-trust
+ * Sign-in works now: the app's one-click login completes the identity flow
  * step itself, so this run only has to happen once per machine — it lands the
  * session in out/.profile, and every recorded take then runs unattended.
  *
@@ -11,7 +11,8 @@ import { BASE, PROFILE, VIEWPORT, ensureDirs, sleep } from "./lib.mjs";
 const { chromium } = await import("playwright");
 ensureDirs();
 const ctx = await chromium.launchPersistentContext(PROFILE, {
-  headless: false, viewport: VIEWPORT,
+  headless: false,
+  viewport: VIEWPORT,
   args: ["--autoplay-policy=no-user-gesture-required"],
 });
 const page = ctx.pages()[0] || (await ctx.newPage());
@@ -19,10 +20,15 @@ await page.goto(BASE, { waitUntil: "domcontentloaded" });
 await page.waitForSelector("header");
 
 const live = async () =>
-  page.evaluate(async () => {
-    const r = await fetch("/api/console/events", { credentials: "include", signal: AbortSignal.timeout(4000) });
-    return r.status;
-  }).catch(() => 0);
+  page
+    .evaluate(async () => {
+      const r = await fetch("/api/console/events", {
+        credentials: "include",
+        signal: AbortSignal.timeout(4000),
+      });
+      return r.status;
+    })
+    .catch(() => 0);
 
 console.log("\n  Sign in as the operator in the browser window.");
 console.log("  Waiting for the server to accept the session (up to 5 minutes)...");
@@ -36,6 +42,8 @@ for (let i = 0; i < 300; i++) {
   }
   await sleep(2000);
 }
-console.error("  no live session after 5 minutes - run again, or fix the pending-session bug first.");
+console.error(
+  "  no live session after 5 minutes - run again, or fix the pending-session bug first.",
+);
 await ctx.close();
 process.exit(1);

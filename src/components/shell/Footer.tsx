@@ -77,7 +77,9 @@ export function Footer() {
               otemaach@gmail.com
             </a>
             <p className="mt-2.5 text-[11px] leading-snug text-ink-3">
-              {ar ? "للبنوك وشركات التأمين — تجارب ميدانية متاحة" : "For banks & insurers — pilot programs open"}
+              {ar
+                ? "للبنوك وشركات التأمين — تجارب ميدانية متاحة"
+                : "For banks & insurers — pilot programs open"}
             </p>
           </div>
         </div>

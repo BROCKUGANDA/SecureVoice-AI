@@ -6,7 +6,7 @@
  * per canonical read path; the gate fails if a canonical path has no driver
  * here, which is what makes it fail closed on a new read path.
  *
- * The Clerk mock is installed HERE, at module scope, on purpose: it has to be
+ * The session mock is installed HERE, at module scope, on purpose: it has to be
  * registered before any module that calls `auth()` / `currentUser()` is
  * imported. Every such import in this file is a dynamic `await import()` inside
  * a driver, so the mock is always in place first.
@@ -18,6 +18,7 @@
 import { afterAll, beforeAll, mock } from "bun:test";
 import { NextRequest } from "next/server";
 import { db } from "@/lib/db";
+import { createHash } from "node:crypto";
 import {
   PLATFORM_MODELS,
   TENANCY_BYPASS,
@@ -26,7 +27,7 @@ import {
   scopeWhere,
   scopedDb,
 } from "@/lib/tenancy/guard";
-// ── Session (Clerk is mocked; the org claim is the only thing under test) ────
+// ── Session (the resolver is mocked; the org claim is the only thing under test) ────
 
 /**
  * `role` is a real variable here, not decoration. `/api/enroll`'s `authorize()`
@@ -35,21 +36,24 @@ import {
  * a route's Bearer path therefore requires a non-operator seat, which is what
  * `asProducer()` below arranges.
  */
-const session = { userId: "", orgId: null as string | null, role: "operator" as "operator" | "demo" };
+const session = {
+  userId: "",
+  orgId: null as string | null,
+  role: "operator" as "operator" | "demo",
+};
 
-mock.module("@clerk/nextjs/server", () => ({
-  auth: async () => ({
-    userId: session.userId,
-    sessionClaims: session.orgId ? { o: { id: session.orgId } } : {},
-  }),
-  currentUser: async () => ({
-    id: session.userId,
-    primaryEmailAddress: { emailAddress: `${session.userId}@tenancy-probe.invalid` },
-    emailAddresses: [{ emailAddress: `${session.userId}@tenancy-probe.invalid` }],
-    firstName: "Tenancy",
-    lastName: "Probe",
-    publicMetadata: { role: session.role },
-  }),
+mock.module("@/lib/credits", () => ({
+  getProfile: async () =>
+    session.orgId
+      ? {
+          userId: session.userId,
+          email: `${session.userId}@tenancy-probe.invalid`,
+          name: "Tenancy Probe",
+          role: session.role,
+          orgId: session.orgId,
+          credits: 500,
+        }
+      : null,
 }));
 
 export type Side = "A" | "B";
@@ -69,7 +73,7 @@ const restore = (prev: SessionSnapshot): void => {
 /** Run `fn` as the given org's operator session, then restore. */
 export async function asOrg<T>(org: Side, fn: () => Promise<T>): Promise<T> {
   const prev = snapshot();
-  session.userId = org === "A" ? ID.clerkUserId.A : ID.clerkUserId.B;
+  session.userId = org === "A" ? ID.userId.A : ID.userId.B;
   session.orgId = org === "A" ? ORG.A : ORG.B;
   session.role = "operator";
   try {
@@ -86,9 +90,12 @@ export async function asOrg<T>(org: Side, fn: () => Promise<T>): Promise<T> {
  * KEY rather than from a console session — so the probe tests tenant scoping
  * where an attacker would apply it.
  */
-export async function asProducer<T>(org: Side, fn: (bearer: string, callerId: string) => Promise<T>): Promise<T> {
+export async function asProducer<T>(
+  org: Side,
+  fn: (bearer: string, callerId: string) => Promise<T>,
+): Promise<T> {
   const prev = snapshot();
-  session.userId = ID.clerkUserId[org];
+  session.userId = ID.userId[org];
   session.orgId = org === "A" ? ORG.A : ORG.B;
   session.role = "demo";
   try {
@@ -103,7 +110,22 @@ export async function asProducer<T>(org: Side, fn: (bearer: string, callerId: st
 /** Unique per run, so repeated runs never collide on a unique index. */
 export const RUN = Date.now().toString(36);
 
-export const ORG: Record<Side, string> = { A: `org-tenancy-a-${RUN}`, B: `org-tenancy-b-${RUN}` };
+// Postgres uuid segments are hex-only, but RUN is base36 and carries letters
+// outside [a-f]. It is hashed rather than transliterated so the fixtures keep
+// their per-run uniqueness while producing a value the uuid columns accept.
+const RUN_HEX = createHash("sha256").update(RUN).digest("hex");
+const uuidFor = (tag: string): string =>
+  `${tag
+    .replace(/[^a-f0-9]/gi, "")
+    .slice(0, 8)
+    .padEnd(8, "0")
+    .toLowerCase()}-0000-4000-8000-${RUN_HEX.slice(0, 12)}`;
+
+// `UserProfile.orgId` is `@db.Uuid` and carries a foreign key to the Better
+// Auth `organization` row (hazard AU-3: the organization IS the tenant). Most
+// other models in these probes keep `orgId` as text, and a uuid is valid text,
+// so one uuid-shaped constant serves both without special-casing.
+export const ORG: Record<Side, string> = { A: uuidFor("0a0a0a0a"), B: uuidFor("0b0b0b0b") };
 
 export const ID = {
   callRef: { A: `SV-C-TA-${RUN}`, B: `SV-C-TB-${RUN}` },
@@ -116,7 +138,11 @@ export const ID = {
   // tenant-bound caller names its OWN customer, otherwise a blanket 404 would
   // satisfy the cross-tenant assertion without isolating anything.
   controlGapCustomerRef: { A: `CUST-CTRLGAP-TA-${RUN}`, B: `CUST-CTRLGAP-TB-${RUN}` },
-  clerkUserId: { A: `clerk_tenancy_a_${RUN}`, B: `clerk_tenancy_b_${RUN}` },
+  // UUID-shaped: `UserProfile.userId` is `@db.Uuid` after the Better Auth cutover.
+  userId: {
+    A: "aaaaaaaa-0000-4000-8000-000000000001",
+    B: "bbbbbbbb-0000-4000-8000-000000000002",
+  },
   orgName: { A: `ORG-A-SENTINEL-${RUN}`, B: `ORG-B-SENTINEL-${RUN}` },
   dedupeKey: { A: `tenancy-a-${RUN}`, B: `tenancy-b-${RUN}` },
   notificationId: {} as Record<Side, string>,
@@ -158,6 +184,27 @@ beforeAll(async () => {
   const { generateProducerKey, hashProducerKey } = await import("@/lib/producer-keys");
 
   for (const side of ["A", "B"] as const) {
+    // The tenant row itself. `UserProfile.orgId` references it, so the profile
+    // fixtures below cannot be written until it exists.
+    await db.organization.create({
+      data: {
+        id: ORG[side],
+        name: ID.orgName[side],
+        slug: `tenancy-${side.toLowerCase()}-${RUN_HEX.slice(0, 12)}`,
+        createdAt: new Date(),
+      },
+    });
+    // `UserProfile.userId` references the Better Auth `user` row, so the
+    // profile fixture below cannot be written until this exists.
+    await db.user.create({
+      data: {
+        id: ID.userId[side],
+        email: `${ID.userId[side]}@tenancy-probe.invalid`,
+        name: `Tenancy Probe ${side}`,
+        emailVerified: true,
+      },
+    });
+
     // Audit chain rows, written by the real chain writer so the chain verifies.
     // `action: "freeze"` is what the case-list read filters on.
     const row = await append(
@@ -171,7 +218,10 @@ beforeAll(async () => {
       },
       { fast: true },
     );
-    const stored = await db.auditLog.findUnique({ where: { id: row.id }, select: { createdAt: true } });
+    const stored = await db.auditLog.findUnique({
+      where: { id: row.id },
+      select: { createdAt: true },
+    });
     AUDIT_AT[side] = stored?.createdAt ?? AUDIT_AT[side];
 
     await db.case.create({
@@ -192,14 +242,19 @@ beforeAll(async () => {
       ID.controlGapCustomerRef[side],
     ]) {
       await db.customer.create({
-        data: { customerRef: ref, phone: CONSENT_PHONE, orgId: ORG[side], consentRecordId: CONSENT_ID },
+        data: {
+          customerRef: ref,
+          phone: CONSENT_PHONE,
+          orgId: ORG[side],
+          consentRecordId: CONSENT_ID,
+        },
       });
     }
 
     await db.userProfile.create({
       data: {
-        clerkUserId: ID.clerkUserId[side],
-        email: `${ID.clerkUserId[side]}@tenancy-probe.invalid`,
+        userId: ID.userId[side],
+        email: `${ID.userId[side]}@tenancy-probe.invalid`,
         name: `Tenancy Probe ${side}`,
         role: "operator",
         orgId: ORG[side],
@@ -255,7 +310,11 @@ beforeAll(async () => {
     ID.producerKeyHash[side] = hashProducerKey(ID.producerKeyPlaintext[side]);
     ID.producerKeyId[side] = (
       await db.producerKey.create({
-        data: { label: `tenancy-probe-${side}`, keyHash: ID.producerKeyHash[side], orgId: ORG[side] },
+        data: {
+          label: `tenancy-probe-${side}`,
+          keyHash: ID.producerKeyHash[side],
+          orgId: ORG[side],
+        },
         select: { id: true },
       })
     ).id;
@@ -308,6 +367,11 @@ afterAll(async () => {
   await db.userProfile.deleteMany({ where: { orgId: orgs } });
   await db.usageLedger.deleteMany({ where: { orgId: orgs } });
   await db.paymentRecord.deleteMany({ where: { orgId: orgs } });
+  // Last: the tenant row the profile fixtures point at, so the delete above is
+  // not blocked by the foreign key.
+  await db.organization.deleteMany({ where: { id: { in: [ORG.A, ORG.B] } } });
+  // And the auth rows the profiles cascade from.
+  await db.user.deleteMany({ where: { id: { in: [ID.userId.A, ID.userId.B] } } });
   if (PILOT_REF) await db.pilotRequest.deleteMany({ where: { ref: PILOT_REF } });
   await db.$disconnect();
 }, 60_000);
@@ -397,7 +461,8 @@ export const DRIVERS: Record<string, Driver> = {
       guardEquivalent: {
         applied: true,
         empty: leaked === null,
-        detail: "scopedDb({ orgId }).usageLedger.findFirst({ where: { idemKey } }) returns nothing for the other org",
+        detail:
+          "scopedDb({ orgId }).usageLedger.findFirst({ where: { idemKey } }) returns nothing for the other org",
       },
       checks: [
         check(
@@ -405,13 +470,21 @@ export const DRIVERS: Record<string, Driver> = {
           leaked === null,
           "scopedDb({ orgId }).usageLedger must not resolve the probe org's ledger row",
         ),
-        check("control-own-ledger-row-resolved", control?.orgId === own, "the caller's own row must resolve, or the assertion above is vacuous"),
+        check(
+          "control-own-ledger-row-resolved",
+          control?.orgId === own,
+          "the caller's own row must resolve, or the assertion above is vacuous",
+        ),
         check(
           "scoped-listing-contains-only-own-org",
           all.every((r) => r.orgId === own),
           `scoped listing returned ${all.length} rows, ${all.filter((r) => r.orgId !== own).length} of them foreign`,
         ),
-        check("scoped-listing-is-non-empty", all.length > 0, "an empty listing would make the filter assertion vacuous"),
+        check(
+          "scoped-listing-is-non-empty",
+          all.length > 0,
+          "an empty listing would make the filter assertion vacuous",
+        ),
       ],
     };
   },
@@ -454,7 +527,8 @@ export const DRIVERS: Record<string, Driver> = {
       guardEquivalent: {
         applied: true,
         empty: leaked === null,
-        detail: "scopedDb({ orgId }).paymentRecord.findFirst({ where: { reference } }) returns nothing for the other org",
+        detail:
+          "scopedDb({ orgId }).paymentRecord.findFirst({ where: { reference } }) returns nothing for the other org",
       },
       checks: [
         check(
@@ -462,7 +536,11 @@ export const DRIVERS: Record<string, Driver> = {
           leaked === null,
           "scopedDb({ orgId }).paymentRecord must not resolve the probe org's settlement from its reference alone",
         ),
-        check("control-own-payment-record-resolved", control?.orgId === own, "the caller's own record must resolve, or the assertion above is vacuous"),
+        check(
+          "control-own-payment-record-resolved",
+          control?.orgId === own,
+          "the caller's own record must resolve, or the assertion above is vacuous",
+        ),
         check(
           "NEGATIVE-CONTROL-unscoped-read-reaches-foreign-row",
           unscoped?.orgId === ORG[them(dir)],
@@ -534,9 +612,21 @@ export const DRIVERS: Record<string, Driver> = {
         detail: "route performs the org-scoped findFirst before verifyChain",
       },
       checks: [
-        check("foreign-probe-is-404", foreign.status === 404, `expected 404, got ${foreign.status}`),
-        check("never-403", foreign.status !== 403, "a 403 confirms the caseRef exists — 404 must be indistinguishable from 'no such case'"),
-        check("control-own-chain-200", control.status === 200, `expected 200 for the caller's own chain, got ${control.status}`),
+        check(
+          "foreign-probe-is-404",
+          foreign.status === 404,
+          `expected 404, got ${foreign.status}`,
+        ),
+        check(
+          "never-403",
+          foreign.status !== 403,
+          "a 403 confirms the caseRef exists — 404 must be indistinguishable from 'no such case'",
+        ),
+        check(
+          "control-own-chain-200",
+          control.status === 200,
+          `expected 200 for the caller's own chain, got ${control.status}`,
+        ),
       ],
     };
   },
@@ -567,9 +657,21 @@ export const DRIVERS: Record<string, Driver> = {
         detail: "the scope is a required argument of the read model, not an optional filter",
       },
       checks: [
-        check("control-own-row-in-window", rows.some((r) => r.callRef === ID.callRef[me(dir)]), "own row must be in the window or the foreign check is vacuous"),
-        check("foreign-callRef-absent", foreignRows.length === 0, `${foreignRows.length} foreign row(s) leaked into the activity feed`),
-        check("every-row-in-scope", foreignOrgRows.length === 0, `${foreignOrgRows.length} row(s) carried a foreign orgId`),
+        check(
+          "control-own-row-in-window",
+          rows.some((r) => r.callRef === ID.callRef[me(dir)]),
+          "own row must be in the window or the foreign check is vacuous",
+        ),
+        check(
+          "foreign-callRef-absent",
+          foreignRows.length === 0,
+          `${foreignRows.length} foreign row(s) leaked into the activity feed`,
+        ),
+        check(
+          "every-row-in-scope",
+          foreignOrgRows.length === 0,
+          `${foreignOrgRows.length} row(s) carried a foreign orgId`,
+        ),
       ],
     };
   },
@@ -595,8 +697,16 @@ export const DRIVERS: Record<string, Driver> = {
       },
       checks: [
         check("http-2xx", res.status === 200, `expected 200, got ${res.status}`),
-        check("control-own-key-listed", keys.some((k) => k.id === ID.producerKeyId[me(dir)]), "own key must be listed or the foreign check is vacuous"),
-        check("foreign-key-id-absent", !keys.some((k) => k.id === ID.producerKeyId[them(dir)]), "the other org's producer key must not be listed"),
+        check(
+          "control-own-key-listed",
+          keys.some((k) => k.id === ID.producerKeyId[me(dir)]),
+          "own key must be listed or the foreign check is vacuous",
+        ),
+        check(
+          "foreign-key-id-absent",
+          !keys.some((k) => k.id === ID.producerKeyId[them(dir)]),
+          "the other org's producer key must not be listed",
+        ),
       ],
     };
   },
@@ -607,9 +717,16 @@ export const DRIVERS: Record<string, Driver> = {
     const res = await asOrg(me(dir), () =>
       DELETE(req("DELETE", "/api/console/producer-keys", { query: { id: foreignId } })),
     );
-    const after = await db.producerKey.findUnique({ where: { id: foreignId }, select: { revoked: true } });
+    const after = await db.producerKey.findUnique({
+      where: { id: foreignId },
+      select: { revoked: true },
+    });
     const control = await asOrg(me(dir), () =>
-      DELETE(req("DELETE", "/api/console/producer-keys", { query: { id: ID.controlProducerKeyId[me(dir)] } })),
+      DELETE(
+        req("DELETE", "/api/console/producer-keys", {
+          query: { id: ID.controlProducerKeyId[me(dir)] },
+        }),
+      ),
     );
     return {
       probed: true,
@@ -623,14 +740,28 @@ export const DRIVERS: Record<string, Driver> = {
       foreignMutated: after?.revoked === true,
       guardEquivalent: {
         applied: true,
-        empty: (await scopedDb({ orgId: ORG[me(dir)] }).producerKey.updateMany({ where: { id: foreignId }, data: { revoked: true } })).count === 0,
+        empty:
+          (
+            await scopedDb({ orgId: ORG[me(dir)] }).producerKey.updateMany({
+              where: { id: foreignId },
+              data: { revoked: true },
+            })
+          ).count === 0,
         detail: "scoped updateMany against the foreign key id matches zero rows",
       },
       checks: [
         check("foreign-probe-is-404", res.status === 404, `expected 404, got ${res.status}`),
         check("never-403", res.status !== 403, "a 403 confirms the key id exists"),
-        check("foreign-key-not-revoked", after?.revoked === false, "the other org's key must still be unrevoked"),
-        check("control-own-key-revoked-200", control.status === 200, `expected 200 revoking the caller's own key, got ${control.status}`),
+        check(
+          "foreign-key-not-revoked",
+          after?.revoked === false,
+          "the other org's key must still be unrevoked",
+        ),
+        check(
+          "control-own-key-revoked-200",
+          control.status === 200,
+          `expected 200 revoking the caller's own key, got ${control.status}`,
+        ),
       ],
     };
   },
@@ -656,8 +787,16 @@ export const DRIVERS: Record<string, Driver> = {
       },
       checks: [
         check("http-2xx", res.status === 200, `expected 200, got ${res.status}`),
-        check("control-own-alert-listed", rows.some((n) => n.id === ID.notificationId[me(dir)]), "own alert must be listed or the foreign check is vacuous"),
-        check("foreign-alert-id-absent", !rows.some((n) => n.id === ID.notificationId[them(dir)]), "the other org's alert must not appear in the inbox"),
+        check(
+          "control-own-alert-listed",
+          rows.some((n) => n.id === ID.notificationId[me(dir)]),
+          "own alert must be listed or the foreign check is vacuous",
+        ),
+        check(
+          "foreign-alert-id-absent",
+          !rows.some((n) => n.id === ID.notificationId[them(dir)]),
+          "the other org's alert must not appear in the inbox",
+        ),
       ],
     };
   },
@@ -668,9 +807,16 @@ export const DRIVERS: Record<string, Driver> = {
     const res = await asOrg(me(dir), () =>
       POST(req("POST", "/api/console/inbox", { body: { action: "acknowledge", id: foreignId } })),
     );
-    const after = await db.notification.findUnique({ where: { id: foreignId }, select: { acknowledgedAt: true } });
+    const after = await db.notification.findUnique({
+      where: { id: foreignId },
+      select: { acknowledgedAt: true },
+    });
     const control = await asOrg(me(dir), () =>
-      POST(req("POST", "/api/console/inbox", { body: { action: "acknowledge", id: ID.controlNotificationId[me(dir)] } })),
+      POST(
+        req("POST", "/api/console/inbox", {
+          body: { action: "acknowledge", id: ID.controlNotificationId[me(dir)] },
+        }),
+      ),
     );
     return {
       probed: true,
@@ -684,14 +830,28 @@ export const DRIVERS: Record<string, Driver> = {
       foreignMutated: after?.acknowledgedAt !== null,
       guardEquivalent: {
         applied: true,
-        empty: (await scopedDb({ orgId: ORG[me(dir)] }).notification.updateMany({ where: { id: foreignId }, data: { acknowledgedAt: new Date() } })).count === 0,
+        empty:
+          (
+            await scopedDb({ orgId: ORG[me(dir)] }).notification.updateMany({
+              where: { id: foreignId },
+              data: { acknowledgedAt: new Date() },
+            })
+          ).count === 0,
         detail: "scoped updateMany against the foreign alert id matches zero rows",
       },
       checks: [
         check("foreign-probe-is-404", res.status === 404, `expected 404, got ${res.status}`),
         check("never-403", res.status !== 403, "a 403 confirms the alert id exists"),
-        check("foreign-alert-not-acknowledged", after?.acknowledgedAt === null, "the other org's alert must remain unacknowledged"),
-        check("control-own-alert-ack-200", control.status === 200, `expected 200 acknowledging the caller's own alert, got ${control.status}`),
+        check(
+          "foreign-alert-not-acknowledged",
+          after?.acknowledgedAt === null,
+          "the other org's alert must remain unacknowledged",
+        ),
+        check(
+          "control-own-alert-ack-200",
+          control.status === 200,
+          `expected 200 acknowledging the caller's own alert, got ${control.status}`,
+        ),
       ],
     };
   },
@@ -713,13 +873,24 @@ export const DRIVERS: Record<string, Driver> = {
       foreignVisible: text.includes(ID.orgName[them(dir)]),
       guardEquivalent: {
         applied: true,
-        empty: (await scopedDb({ orgId: ORG[me(dir)] }).userProfile.findFirst({ where: { orgName: ID.orgName[them(dir)] } })) === null,
+        empty:
+          (await scopedDb({ orgId: ORG[me(dir)] }).userProfile.findFirst({
+            where: { orgName: ID.orgName[them(dir)] },
+          })) === null,
         detail: "scoped findFirst for the foreign org's sentinel orgName returns nothing",
       },
       checks: [
         check("http-2xx", res.status === 200, `expected 200, got ${res.status}`),
-        check("control-own-sentinel-visible", controlText.includes(ID.orgName[them(dir)]), "the org's own sentinel must be returned, or the foreign check is vacuous"),
-        check("foreign-sentinel-absent", !text.includes(ID.orgName[them(dir)]), "settings must not contain the other org's white-label state"),
+        check(
+          "control-own-sentinel-visible",
+          controlText.includes(ID.orgName[them(dir)]),
+          "the org's own sentinel must be returned, or the foreign check is vacuous",
+        ),
+        check(
+          "foreign-sentinel-absent",
+          !text.includes(ID.orgName[them(dir)]),
+          "settings must not contain the other org's white-label state",
+        ),
       ],
     };
   },
@@ -728,26 +899,42 @@ export const DRIVERS: Record<string, Driver> = {
     const { getProfile } = await import("@/lib/credits");
     const profile = await asOrg(me(dir), () => getProfile());
     const foreignRow = await scopedDb({ orgId: ORG[me(dir)] }).userProfile.findFirst({
-      where: { clerkUserId: ID.clerkUserId[them(dir)] },
+      where: { userId: ID.userId[them(dir)] },
     });
     return {
       probed: true,
       control: {
-        described: "getProfile resolves the caller's own org and clerk id",
+        described: "getProfile resolves the caller's own org and user id",
         status: null,
-        ownVisible: profile?.orgId === ORG[me(dir)] && profile?.clerkUserId === ID.clerkUserId[me(dir)],
+        ownVisible: profile?.orgId === ORG[me(dir)] && profile?.userId === ID.userId[me(dir)],
       },
-      foreignVisible: profile?.orgId === ORG[them(dir)] || profile?.clerkUserId === ID.clerkUserId[them(dir)],
+      foreignVisible: profile?.orgId === ORG[them(dir)] || profile?.userId === ID.userId[them(dir)],
       guardEquivalent: {
         applied: true,
         empty: foreignRow === null,
-        detail: "the other org's clerkUserId resolves to nothing under the caller's scope",
+        detail: "the other org's userId resolves to nothing under the caller's scope",
       },
       checks: [
-        check("resolves-own-org", profile?.orgId === ORG[me(dir)], "getProfile must resolve the session's own orgId"),
-        check("resolves-own-identity", profile?.clerkUserId === ID.clerkUserId[me(dir)], "getProfile must resolve the session's own clerkUserId"),
-        check("no-foreign-identity", !(profile?.orgId === ORG[them(dir)] || profile?.clerkUserId === ID.clerkUserId[them(dir)]), "the resolved profile must not be the other org's"),
-        check("guard-refuses-foreign-clerk-id", foreignRow === null, "scoped findFirst for the other org's clerkUserId must be empty"),
+        check(
+          "resolves-own-org",
+          profile?.orgId === ORG[me(dir)],
+          "getProfile must resolve the session's own orgId",
+        ),
+        check(
+          "resolves-own-identity",
+          profile?.userId === ID.userId[me(dir)],
+          "getProfile must resolve the session's own userId",
+        ),
+        check(
+          "no-foreign-identity",
+          !(profile?.orgId === ORG[them(dir)] || profile?.userId === ID.userId[them(dir)]),
+          "the resolved profile must not be the other org's",
+        ),
+        check(
+          "guard-refuses-foreign-user-id",
+          foreignRow === null,
+          "scoped findFirst for the other org's userId must be empty",
+        ),
       ],
     };
   },
@@ -775,9 +962,21 @@ export const DRIVERS: Record<string, Driver> = {
         detail: "the foreign keyHash resolves to nothing under the caller's scope",
       },
       checks: [
-        check("key-authenticates-as-its-own-org", auth.ok === true && auth.orgId === ORG[them(dir)], "a producer key must authenticate as exactly the org it was issued to"),
-        check("own-key-authenticates-as-own-org", ownAuth.ok === true && ownAuth.orgId === ORG[me(dir)], "the caller's own key must authenticate as the caller's org"),
-        check("foreign-keyhash-invisible-in-scope", resolved === null, "the other org's keyHash must not resolve under the caller's scope"),
+        check(
+          "key-authenticates-as-its-own-org",
+          auth.ok === true && auth.orgId === ORG[them(dir)],
+          "a producer key must authenticate as exactly the org it was issued to",
+        ),
+        check(
+          "own-key-authenticates-as-own-org",
+          ownAuth.ok === true && ownAuth.orgId === ORG[me(dir)],
+          "the caller's own key must authenticate as the caller's org",
+        ),
+        check(
+          "foreign-keyhash-invisible-in-scope",
+          resolved === null,
+          "the other org's keyHash must not resolve under the caller's scope",
+        ),
         check("unknown-key-refused", bogus.ok === false, "an unknown key must not authenticate"),
       ],
     };
@@ -790,31 +989,48 @@ export const DRIVERS: Record<string, Driver> = {
     // correctly-scoped lookup returns nothing: that absence IS the probe.
     const leaked = await caseByRef(ID.caseRef[them(dir)], ORG[me(dir)]);
     const own = await caseByRef(ID.caseRef[me(dir)], ORG[me(dir)]);
-    const guarded = await scopedDb({ orgId: ORG[me(dir)] }).case.findFirst({ where: { caseRef: ID.caseRef[them(dir)] } });
+    const guarded = await scopedDb({ orgId: ORG[me(dir)] }).case.findFirst({
+      where: { caseRef: ID.caseRef[them(dir)] },
+    });
     return {
       probed: true,
-      control: { described: "caseByRef returns the caller's own case", status: null, ownVisible: own !== null },
+      control: {
+        described: "caseByRef returns the caller's own case",
+        status: null,
+        ownVisible: own !== null,
+      },
       foreignVisible: leaked !== null,
       guardEquivalent: {
         applied: true,
         empty: guarded === null,
-        detail: "scopedDb(orgId).case.findFirst({ where: { caseRef } }) returns null for the foreign ref",
+        detail:
+          "scopedDb(orgId).case.findFirst({ where: { caseRef } }) returns null for the foreign ref",
       },
       checks: [
         // The former DECLARED-GAP-still-unscoped check asserted the leak
         // REPRODUCED, which contradicted isolation.test.ts's assertion that it
         // is gone. Removed; isolation.test.ts owns that assertion and reports a
         // stale gap entry when a declared gap stops leaking.
-        check("control-own-case-returned", own !== null, "the caller's own case must resolve, or the gap assertion is meaningless"),
-        check("guard-closes-the-gap", guarded === null, "the scoped equivalent must return nothing for the foreign caseRef"),
+        check(
+          "control-own-case-returned",
+          own !== null,
+          "the caller's own case must resolve, or the gap assertion is meaningless",
+        ),
+        check(
+          "guard-closes-the-gap",
+          guarded === null,
+          "the scoped equivalent must return nothing for the foreign caseRef",
+        ),
       ],
     };
   },
 
   "lib.case.by-conversation": async (dir) => {
     const { caseByConversation } = await import("@/lib/case-state-machine");
-    const leaked = await caseByConversation(ID.conversationId[them(dir)]);
-    const own = await caseByConversation(ID.conversationId[me(dir)]);
+    // The bleedguard: the caller's tenant is passed IN, exactly as
+    // guardToolCall does with the org resolved from its credential.
+    const leaked = await caseByConversation(ID.conversationId[them(dir)], ORG[me(dir)]);
+    const own = await caseByConversation(ID.conversationId[me(dir)], ORG[me(dir)]);
     const guarded = await scopedDb({ orgId: ORG[me(dir)] }).case.findFirst({
       where: { conversationId: ID.conversationId[them(dir)] },
     });
@@ -829,12 +1045,25 @@ export const DRIVERS: Record<string, Driver> = {
       guardEquivalent: {
         applied: true,
         empty: guarded === null,
-        detail: "scopedDb(orgId).case.findFirst({ where: { conversationId } }) returns null for the foreign id",
+        detail:
+          "scopedDb(orgId).case.findFirst({ where: { conversationId } }) returns null for the foreign id",
       },
       checks: [
-        check("DECLARED-GAP-still-unscoped", leaked !== null, "caseByConversation has no org predicate — if this passes, the gap is fixed and the entry must be reclassified"),
-        check("control-own-case-returned", own !== null, "the caller's own case must resolve, or the gap assertion is meaningless"),
-        check("guard-closes-the-gap", guarded === null, "the scoped equivalent must return nothing for the foreign conversation id"),
+        check(
+          "org-scoped-foreign-id-invisible",
+          leaked === null,
+          "the caller's tenant is part of the lookup, so the foreign conversation id must resolve to nothing",
+        ),
+        check(
+          "control-own-case-returned",
+          own !== null,
+          "the caller's own case must resolve, or the gap assertion is meaningless",
+        ),
+        check(
+          "guard-closes-the-gap",
+          guarded === null,
+          "the scoped equivalent must return nothing for the foreign conversation id",
+        ),
       ],
     };
   },
@@ -845,15 +1074,32 @@ export const DRIVERS: Record<string, Driver> = {
     const res = await asOrg(me(dir), () =>
       POST(
         req("POST", "/api/enroll", {
-          body: { action: "enroll", customerRef: foreignRef, phone: CONSENT_PHONE, lang: "en", channel: "call", consentRecordId: CONSENT_ID },
+          body: {
+            action: "enroll",
+            customerRef: foreignRef,
+            phone: CONSENT_PHONE,
+            lang: "en",
+            channel: "call",
+            consentRecordId: CONSENT_ID,
+          },
         }),
       ),
     );
-    const after = await db.customer.findUnique({ where: { customerRef: foreignRef }, select: { orgId: true, phone: true } });
+    const after = await db.customer.findUnique({
+      where: { customerRef: foreignRef },
+      select: { orgId: true, phone: true },
+    });
     const control = await asOrg(me(dir), () =>
       POST(
         req("POST", "/api/enroll", {
-          body: { action: "enroll", customerRef: ID.controlCustomerRef[me(dir)], phone: CONSENT_PHONE, lang: "en", channel: "call", consentRecordId: CONSENT_ID },
+          body: {
+            action: "enroll",
+            customerRef: ID.controlCustomerRef[me(dir)],
+            phone: CONSENT_PHONE,
+            lang: "en",
+            channel: "call",
+            consentRecordId: CONSENT_ID,
+          },
         }),
       ),
     );
@@ -869,14 +1115,25 @@ export const DRIVERS: Record<string, Driver> = {
       foreignMutated: after?.orgId !== ORG[them(dir)] || after?.phone !== CONSENT_PHONE,
       guardEquivalent: {
         applied: true,
-        empty: (await scopedDb({ orgId: ORG[me(dir)] }).customer.findFirst({ where: { customerRef: foreignRef } })) === null,
+        empty:
+          (await scopedDb({ orgId: ORG[me(dir)] }).customer.findFirst({
+            where: { customerRef: foreignRef },
+          })) === null,
         detail: "scoped findFirst for the foreign customerRef returns nothing",
       },
       checks: [
         check("foreign-probe-is-404", res.status === 404, `expected 404, got ${res.status}`),
         check("never-403", res.status !== 403, "a 403 confirms the customerRef exists"),
-        check("foreign-customer-not-repointed", after?.orgId === ORG[them(dir)] && after?.phone === CONSENT_PHONE, "the other org's customer must keep its org and phone"),
-        check("control-own-enroll-200", control.status === 200, `expected 200 enrolling the caller's own customer, got ${control.status}`),
+        check(
+          "foreign-customer-not-repointed",
+          after?.orgId === ORG[them(dir)] && after?.phone === CONSENT_PHONE,
+          "the other org's customer must keep its org and phone",
+        ),
+        check(
+          "control-own-enroll-200",
+          control.status === 200,
+          `expected 200 enrolling the caller's own customer, got ${control.status}`,
+        ),
       ],
     };
   },
@@ -900,14 +1157,18 @@ export const DRIVERS: Record<string, Driver> = {
     // Authenticated as THIS org (not the row's owner). If this probe ever
     // returns 200 the scoping is gone; if it returns 404 for everyone, the
     // control below catches the route having simply stopped working.
-    const res = await asProducer(me(dir), (bearer, callerId) => optout(bearer, callerId, foreignRef));
+    const res = await asProducer(me(dir), (bearer, callerId) =>
+      optout(bearer, callerId, foreignRef),
+    );
     const after = await db.customer.findUnique({
       where: { customerRef: foreignRef },
       select: { optedOut: true, orgId: true },
     });
 
     // ── 2. Control: the same call naming the org's OWN ref must succeed ─────
-    const control = await asProducer(me(dir), (bearer, callerId) => optout(bearer, callerId, ownRef));
+    const control = await asProducer(me(dir), (bearer, callerId) =>
+      optout(bearer, callerId, ownRef),
+    );
     const controlAfter = await db.customer.findUnique({
       where: { customerRef: ownRef },
       select: { optedOut: true, orgId: true },
@@ -943,25 +1204,61 @@ export const DRIVERS: Record<string, Driver> = {
       control: {
         described: "the tenant-bound producer opts out its OWN customer and gets 200",
         status: control.status,
-        ownVisible: control.status === 200 && controlAfter?.optedOut === true && controlAfter?.orgId === ORG[me(dir)],
+        ownVisible:
+          control.status === 200 &&
+          controlAfter?.optedOut === true &&
+          controlAfter?.orgId === ORG[me(dir)],
       },
       foreignVisible: res.status === 200,
       foreignMutated: after?.optedOut === true,
       guardEquivalent: {
         applied: true,
         empty: guarded.count === 0,
-        detail: "the guard's injected predicate matches zero rows for the foreign customerRef — the same answer the route now gives",
+        detail:
+          "the guard's injected predicate matches zero rows for the foreign customerRef — the same answer the route now gives",
       },
       checks: [
-        check("foreign-probe-is-404", res.status === 404, `expected 404 "Unknown customerRef", got ${res.status}`),
-        check("never-403", res.status !== 403, "a 403 confirms the customerRef exists; the route must answer 404 like an unknown ref"),
-        check("foreign-row-not-mutated", after?.optedOut === false, "the other org's customer must keep optedOut=false — rows updated must not reach it"),
-        check("foreign-row-still-theirs", after?.orgId === ORG[them(dir)], "the foreign row's orgId must be unchanged"),
-        check("control-own-optout-succeeds", control.status === 200, `expected 200 opting out the caller's own customer, got ${control.status}`),
-        check("control-own-row-mutated", controlAfter?.optedOut === true, "the caller's own customer must actually be opted out, or the 404 above is vacuous"),
+        check(
+          "foreign-probe-is-404",
+          res.status === 404,
+          `expected 404 "Unknown customerRef", got ${res.status}`,
+        ),
+        check(
+          "never-403",
+          res.status !== 403,
+          "a 403 confirms the customerRef exists; the route must answer 404 like an unknown ref",
+        ),
+        check(
+          "foreign-row-not-mutated",
+          after?.optedOut === false,
+          "the other org's customer must keep optedOut=false — rows updated must not reach it",
+        ),
+        check(
+          "foreign-row-still-theirs",
+          after?.orgId === ORG[them(dir)],
+          "the foreign row's orgId must be unchanged",
+        ),
+        check(
+          "control-own-optout-succeeds",
+          control.status === 200,
+          `expected 200 opting out the caller's own customer, got ${control.status}`,
+        ),
+        check(
+          "control-own-row-mutated",
+          controlAfter?.optedOut === true,
+          "the caller's own customer must actually be opted out, or the 404 above is vacuous",
+        ),
         // Negative controls — the scoping is what prevents the mutation.
-        check("NEGATIVE-CONTROL-unscoped-read-reaches-foreign-row", unscopedRead?.orgId === ORG[them(dir)], "the unscoped expression must still resolve the other org's customer, or the isolation assertion is vacuous"),
-        check("NEGATIVE-CONTROL-unscoped-write-mutates-foreign-row", unscopedWrite.count === 1 && afterControl?.optedOut === true, "the unscoped expression must still be able to flip the other org's consent — this is the defect the org predicate removes"),
+        check(
+          "NEGATIVE-CONTROL-unscoped-read-reaches-foreign-row",
+          unscopedRead?.orgId === ORG[them(dir)],
+          "the unscoped expression must still resolve the other org's customer, or the isolation assertion is vacuous",
+        ),
+        check(
+          "NEGATIVE-CONTROL-unscoped-write-mutates-foreign-row",
+          unscopedWrite.count === 1 && afterControl?.optedOut === true,
+          "the unscoped expression must still be able to flip the other org's consent — this is the defect the org predicate removes",
+        ),
       ],
     };
   },
@@ -973,14 +1270,21 @@ export const DRIVERS: Record<string, Driver> = {
     // org-less branch — rather than a paraphrase of them.
     const ownRef = ID.customerRef[me(dir)];
     const foreignRef = ID.customerRef[them(dir)];
-    const tenantBound = await db.customer.findFirst({ where: { customerRef: foreignRef, orgId: ORG[me(dir)] } });
+    const tenantBound = await db.customer.findFirst({
+      where: { customerRef: foreignRef, orgId: ORG[me(dir)] },
+    });
     const orgLess = await db.customer.findFirst({
       where: { customerRef: foreignRef, OR: [{ orgId: null }, { orgId: "default" }] },
     });
-    const control = await db.customer.findFirst({ where: { customerRef: ownRef, orgId: ORG[me(dir)] } });
+    const control = await db.customer.findFirst({
+      where: { customerRef: ownRef, orgId: ORG[me(dir)] },
+    });
 
     // Negative control: the pre-fix expression, which is the defect.
-    const unscoped = await db.customer.findFirst({ where: { customerRef: foreignRef }, select: { orgId: true } });
+    const unscoped = await db.customer.findFirst({
+      where: { customerRef: foreignRef },
+      select: { orgId: true },
+    });
 
     return {
       probed: true,
@@ -992,7 +1296,10 @@ export const DRIVERS: Record<string, Driver> = {
       foreignVisible: tenantBound !== null,
       guardEquivalent: {
         applied: true,
-        empty: (await scopedDb({ orgId: ORG[me(dir)] }).customer.findFirst({ where: { customerRef: foreignRef } })) === null,
+        empty:
+          (await scopedDb({ orgId: ORG[me(dir)] }).customer.findFirst({
+            where: { customerRef: foreignRef },
+          })) === null,
         detail: "the guard's injected predicate returns nothing for the foreign customerRef",
       },
       checks: [
@@ -1006,7 +1313,11 @@ export const DRIVERS: Record<string, Driver> = {
           orgLess === null,
           `${INTERVENTIONS_CUSTOMER_LOOKUP_ORGLESS} must not resolve a named org's customer either`,
         ),
-        check("control-own-customer-resolved", control?.orgId === ORG[me(dir)], "the caller's own customer must resolve, or the assertions above are vacuous"),
+        check(
+          "control-own-customer-resolved",
+          control?.orgId === ORG[me(dir)],
+          "the caller's own customer must resolve, or the assertions above are vacuous",
+        ),
         check(
           "NEGATIVE-CONTROL-unscoped-lookup-reaches-foreign-row",
           unscoped?.orgId === ORG[them(dir)],
@@ -1041,7 +1352,11 @@ export const DRIVERS: Record<string, Driver> = {
         // The former DECLARED-GAP-verifyChain-walks-foreign-rows check asserted
         // the leak REPRODUCED, contradicting isolation.test.ts. Removed; that
         // suite owns the assertion and reports a stale gap when one stops leaking.
-        check("guard-closes-the-gap", guarded === null, "the scoped equivalent must return nothing for the foreign callRef"),
+        check(
+          "guard-closes-the-gap",
+          guarded === null,
+          "the scoped equivalent must return nothing for the foreign callRef",
+        ),
       ],
     };
   },
@@ -1052,7 +1367,10 @@ export const DRIVERS: Record<string, Driver> = {
     // The probing org again: acknowledging the victim's alert while holding
     // only `me(dir)`'s identity must not reach it.
     const result = await acknowledge(foreignId, ORG[me(dir)]);
-    const after = await db.notification.findUnique({ where: { id: foreignId }, select: { acknowledgedAt: true } });
+    const after = await db.notification.findUnique({
+      where: { id: foreignId },
+      select: { acknowledgedAt: true },
+    });
     const guarded = await scopedDb({ orgId: ORG[me(dir)] }).notification.updateMany({
       where: { id: foreignId },
       data: { acknowledgedAt: new Date() },
@@ -1070,7 +1388,11 @@ export const DRIVERS: Record<string, Driver> = {
         // The former DECLARED-GAP-acknowledge-acts-on-foreign-alert check
         // asserted the cross-tenant write REPRODUCED, contradicting
         // isolation.test.ts. Removed for the same reason.
-        check("guard-closes-the-gap", guarded.count === 0, "the scoped equivalent must match zero rows"),
+        check(
+          "guard-closes-the-gap",
+          guarded.count === 0,
+          "the scoped equivalent must match zero rows",
+        ),
       ],
     };
   },
@@ -1080,7 +1402,11 @@ export const DRIVERS: Record<string, Driver> = {
     if (!PILOT_REF) {
       const created = await POST(
         req("POST", "/api/pilot", {
-          body: { name: "Tenancy Probe", email: `probe-${RUN}@tenancy-probe.invalid`, institution: "Probe Bank" },
+          body: {
+            name: "Tenancy Probe",
+            email: `probe-${RUN}@tenancy-probe.invalid`,
+            institution: "Probe Bank",
+          },
         }),
       );
       PILOT_REF = ((await created.json()) as { ref: string }).ref;
@@ -1116,10 +1442,26 @@ export const DRIVERS: Record<string, Driver> = {
         detail: "TENANCY_BYPASS is the sanctioned non-scoped read for a declared platform model",
       },
       checks: [
-        check("public-route-created-the-lead", rows.length === 1, "the lead must be readable through the declared bypass"),
-        check("bypass-refuses-tenant-model", refused, "TENANCY_BYPASS must refuse every model in TENANTED_MODELS"),
-        check("bypass-log-holds-only-platform-models", log.every((b) => Object.prototype.hasOwnProperty.call(PLATFORM_MODELS, b.model)), "no bypass may target a tenant model"),
-        check("bypass-log-non-empty", log.length > 0, "the bypass must be recorded, so it can be audited"),
+        check(
+          "public-route-created-the-lead",
+          rows.length === 1,
+          "the lead must be readable through the declared bypass",
+        ),
+        check(
+          "bypass-refuses-tenant-model",
+          refused,
+          "TENANCY_BYPASS must refuse every model in TENANTED_MODELS",
+        ),
+        check(
+          "bypass-log-holds-only-platform-models",
+          log.every((b) => Object.prototype.hasOwnProperty.call(PLATFORM_MODELS, b.model)),
+          "no bypass may target a tenant model",
+        ),
+        check(
+          "bypass-log-non-empty",
+          log.length > 0,
+          "the bypass must be recorded, so it can be audited",
+        ),
       ],
     };
   },
@@ -1135,7 +1477,8 @@ export const DRIVERS: Record<string, Driver> = {
     checks: [
       check(
         "declared-platform-model-with-reason",
-        typeof PLATFORM_MODELS.DeadLetter?.reason === "string" && PLATFORM_MODELS.DeadLetter.reason.length > 20,
+        typeof PLATFORM_MODELS.DeadLetter?.reason === "string" &&
+          PLATFORM_MODELS.DeadLetter.reason.length > 20,
         "DeadLetter must be declared in PLATFORM_MODELS with a written reason",
       ),
     ],

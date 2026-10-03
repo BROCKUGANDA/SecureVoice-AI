@@ -129,10 +129,7 @@ export type LedgerSnapshot = {
 };
 
 export type LedgerRefusal =
-  | "insufficient_available"
-  | "insufficient_hold"
-  | "insufficient_wallet"
-  | "unknown_kind";
+  "insufficient_available" | "insufficient_hold" | "insufficient_wallet" | "unknown_kind";
 
 export type LedgerWrite =
   | { ok: true; duplicate: boolean; entry: LedgerEntry; snapshot: LedgerSnapshot }
@@ -367,50 +364,58 @@ async function appendTx(tx: Prisma.TransactionClient, input: AppendInput): Promi
     // single-process promise chain would not survive two app instances.
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`ledger:${input.orgId}`}))`;
 
-      const before = await snapshotIn(tx, input.orgId);
+    const before = await snapshotIn(tx, input.orgId);
 
-      // Idempotent replay short-circuits BEFORE the guard. A retried webhook
-      // re-offers the exact movement that already landed; it must be answered
-      // with the original result, not refused for lack of funds it never
-      // needed. (Reserve-then-refill-then-retry is the shape that would
-      // otherwise credit correctly but report a spurious failure.)
-      const replay = await tx.usageLedger.findUnique({
-        where: { idemKey: input.idemKey },
-        select: {
-          id: true, orgId: true, caseRef: true, attemptNo: true, kind: true,
-          units: true, reason: true, idemKey: true, balanceAfter: true, createdAt: true,
-        },
-      });
-      if (replay) {
-        return { ok: true as const, duplicate: true, entry: replay, snapshot: before };
+    // Idempotent replay short-circuits BEFORE the guard. A retried webhook
+    // re-offers the exact movement that already landed; it must be answered
+    // with the original result, not refused for lack of funds it never
+    // needed. (Reserve-then-refill-then-retry is the shape that would
+    // otherwise credit correctly but report a spurious failure.)
+    const replay = await tx.usageLedger.findUnique({
+      where: { idemKey: input.idemKey },
+      select: {
+        id: true,
+        orgId: true,
+        caseRef: true,
+        attemptNo: true,
+        kind: true,
+        units: true,
+        reason: true,
+        idemKey: true,
+        balanceAfter: true,
+        createdAt: true,
+      },
+    });
+    if (replay) {
+      return { ok: true as const, duplicate: true, entry: replay, snapshot: before };
+    }
+
+    const guard = guardFor({ kind: input.kind, units: input.units });
+    if (guard && !input.force) {
+      const pool = before[guard.pool];
+      if (pool < guard.units) {
+        return {
+          ok: false as const,
+          reason: (guard.pool === "available"
+            ? "insufficient_available"
+            : guard.pool === "held"
+              ? "insufficient_hold"
+              : "insufficient_wallet") as LedgerRefusal,
+          snapshot: before,
+        };
       }
+    }
 
-      const guard = guardFor({ kind: input.kind, units: input.units });
-      if (guard && !input.force) {
-        const pool = before[guard.pool];
-        if (pool < guard.units) {
-          return {
-            ok: false as const,
-            reason: (guard.pool === "available"
-              ? "insufficient_available"
-              : guard.pool === "held"
-                ? "insufficient_hold"
-                : "insufficient_wallet") as LedgerRefusal,
-            snapshot: before,
-          };
-        }
-      }
+    // createdAt is stamped here, AFTER the lock is held. Postgres' now() is
+    // the *transaction* timestamp, which can predate a writer that already
+    // serialised ahead of us; the application clock at lock-acquisition time
+    // is the true commit order, which the chain check in reconcile() relies on.
+    const now = new Date();
+    // Callers pass a magnitude; the ledger stores the signed delta.
+    const stored = STORE_SIGN[input.kind] * input.units;
+    const balanceAfter = before.available + deltaAvailable(input.kind, stored);
 
-      // createdAt is stamped here, AFTER the lock is held. Postgres' now() is
-      // the *transaction* timestamp, which can predate a writer that already
-      // serialised ahead of us; the application clock at lock-acquisition time
-      // is the true commit order, which the chain check in reconcile() relies on.
-      const now = new Date();
-      // Callers pass a magnitude; the ledger stores the signed delta.
-      const stored = STORE_SIGN[input.kind] * input.units;
-      const balanceAfter = before.available + deltaAvailable(input.kind, stored);
-
-      const inserted = await tx.$queryRaw<LedgerEntry[]>`
+    const inserted = await tx.$queryRaw<LedgerEntry[]>`
         INSERT INTO "UsageLedger"
           ("id", "orgId", "caseRef", "attemptNo", "kind", "units", "reason", "idemKey", "balanceAfter", "createdAt")
         VALUES (${newLedgerId(now)}, ${input.orgId}, ${input.caseRef}, ${input.attemptNo},
@@ -419,27 +424,41 @@ async function appendTx(tx: Prisma.TransactionClient, input: AppendInput): Promi
         RETURNING "id", "orgId", "caseRef", "attemptNo", "kind", "units", "reason", "idemKey", "balanceAfter", "createdAt"
       `;
 
-      if (inserted.length === 1) {
-        return {
-          ok: true as const,
-          duplicate: false,
-          entry: inserted[0],
-          snapshot: afterSnapshot(before, input.kind, stored),
-        };
-      }
+    if (inserted.length === 1) {
+      return {
+        ok: true as const,
+        duplicate: false,
+        // `inserted.length === 1` is the guard that proves element 0 exists; the
+        // assertion records that for the checker rather than adding a dead
+        // branch. (Zero rows falls through to the ON CONFLICT path below.)
+        entry: inserted[0]!,
+        snapshot: afterSnapshot(before, input.kind, stored),
+      };
+    }
 
-      // ON CONFLICT DO NOTHING fired: this exact movement already exists. The
-      // unique index — not this code path — is what made it idempotent.
-      const existing = await tx.usageLedger.findUnique({
-        where: { idemKey: input.idemKey },
-        select: { id: true, orgId: true, caseRef: true, attemptNo: true, kind: true, units: true, reason: true, idemKey: true, balanceAfter: true, createdAt: true },
-      });
-      if (!existing) {
-        // Unreachable while the row is invisible to us (a concurrent uncommitted
-        // writer on the same org cannot exist — the lock serialises them).
-        throw new Error("ledger: idempotency conflict but no row found");
-      }
-      return { ok: true as const, duplicate: true, entry: existing, snapshot: before };
+    // ON CONFLICT DO NOTHING fired: this exact movement already exists. The
+    // unique index — not this code path — is what made it idempotent.
+    const existing = await tx.usageLedger.findUnique({
+      where: { idemKey: input.idemKey },
+      select: {
+        id: true,
+        orgId: true,
+        caseRef: true,
+        attemptNo: true,
+        kind: true,
+        units: true,
+        reason: true,
+        idemKey: true,
+        balanceAfter: true,
+        createdAt: true,
+      },
+    });
+    if (!existing) {
+      // Unreachable while the row is invisible to us (a concurrent uncommitted
+      // writer on the same org cannot exist — the lock serialises them).
+      throw new Error("ledger: idempotency conflict but no row found");
+    }
+    return { ok: true as const, duplicate: true, entry: existing, snapshot: before };
   }
 }
 
@@ -732,8 +751,10 @@ export async function reconcile(
     running -= deltaAvailable(assertKind(row.kind), row.units);
   }
 
-  if (derived.held < 0) findings.push(`held is negative (${derived.held}): a hold was over-released`);
-  if (derived.available < 0) findings.push(`available is negative (${derived.available}): oversold`);
+  if (derived.held < 0)
+    findings.push(`held is negative (${derived.held}): a hold was over-released`);
+  if (derived.available < 0)
+    findings.push(`available is negative (${derived.available}): oversold`);
 
   return {
     invariant: "I-8",

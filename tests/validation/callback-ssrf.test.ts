@@ -102,7 +102,10 @@ test("SSRF: a redirect into the private network is refused before that hop is di
   const requested: string[] = [];
   const fetchImpl = (async (url: string) => {
     requested.push(url);
-    return new Response(null, { status: 302, headers: { location: "https://169.254.169.254/latest/" } });
+    return new Response(null, {
+      status: 302,
+      headers: { location: "https://169.254.169.254/latest/" },
+    });
   }) as unknown as typeof fetch;
 
   let threw: unknown = null;
@@ -159,7 +162,10 @@ test("LIVE ROUTE /v1/interventions: a callback_url resolving to a metadata endpo
   const { POST } = await import("@/app/api/v1/interventions/route");
 
   const res = await POST(
-    signed("/api/v1/interventions", v1Signal({ callback_url: "https://metadata.bank-domain.com/latest/meta-data/" })) as never
+    signed(
+      "/api/v1/interventions",
+      v1Signal({ callback_url: "https://metadata.bank-domain.com/latest/meta-data/" }),
+    ) as never,
   );
 
   // 422, not 202: the signal is refused before any case is persisted or dialled.
@@ -178,7 +184,10 @@ test("LIVE ROUTE /v1/interventions: a callback_url resolving to a private addres
   const { POST } = await import("@/app/api/v1/interventions/route");
 
   const res = await POST(
-    signed("/api/v1/interventions", v1Signal({ callback_url: "https://internal.bank-domain.com/hook" })) as never
+    signed(
+      "/api/v1/interventions",
+      v1Signal({ callback_url: "https://internal.bank-domain.com/hook" }),
+    ) as never,
   );
 
   expect(res.status).toBe(422);
@@ -205,7 +214,7 @@ test("LIVE ROUTE /interventions: a callbackUrl resolving to a metadata endpoint 
         transaction: { amountAed: 2500, merchant: "Electronics World" },
         callbackUrl: "https://metadata.bank-domain.com/latest/meta-data/",
       },
-    }) as never
+    }) as never,
   );
 
   expect(res.status).toBe(422);

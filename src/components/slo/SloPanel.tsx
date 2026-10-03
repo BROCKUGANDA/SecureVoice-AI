@@ -25,7 +25,15 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
-import { Activity, AlertTriangle, CheckCircle2, CircleSlash, RefreshCw, Timer, XCircle } from "lucide-react";
+import {
+  Activity,
+  AlertTriangle,
+  CheckCircle2,
+  CircleSlash,
+  RefreshCw,
+  Timer,
+  XCircle,
+} from "lucide-react";
 import { Chip, LiveDot, StatusPill } from "@/components/fx/core";
 import { cn } from "@/lib/utils";
 import {
@@ -48,7 +56,12 @@ type SloPanelProps = {
   className?: string;
 };
 
-export function SloPanel({ windowMinutes, interventions = 50, pollMs = 15_000, className }: SloPanelProps) {
+export function SloPanel({
+  windowMinutes,
+  interventions = 50,
+  pollMs = 15_000,
+  className,
+}: SloPanelProps) {
   const [snapshot, setSnapshot] = useState<SloWindowSnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -60,8 +73,12 @@ export function SloPanel({ windowMinutes, interventions = 50, pollMs = 15_000, c
       try {
         const params = new URLSearchParams({ interventions: String(interventions) });
         if (windowMinutes !== undefined) params.set("windowMinutes", String(windowMinutes));
-        const res = await fetch(`/api/status/spans?${params.toString()}`, { signal, cache: "no-store" });
-        const body = (await res.json().catch(() => null)) as (SloWindowSnapshot & { error?: string }) | null;
+        const res = await fetch(`/api/status/spans?${params.toString()}`, {
+          signal,
+          cache: "no-store",
+        });
+        const body = (await res.json().catch(() => null)) as
+          (SloWindowSnapshot & { error?: string }) | null;
         if (!res.ok || !body) {
           setError(`latency feed unavailable (HTTP ${res.status})`);
         } else {
@@ -72,7 +89,8 @@ export function SloPanel({ windowMinutes, interventions = 50, pollMs = 15_000, c
           setError(body.error ?? null);
         }
       } catch (err) {
-        if ((err as Error)?.name !== "AbortError") setError("latency feed unreachable — showing the last good snapshot");
+        if ((err as Error)?.name !== "AbortError")
+          setError("latency feed unreachable — showing the last good snapshot");
       } finally {
         setLoading(false);
         setRefreshing(false);
@@ -100,14 +118,19 @@ export function SloPanel({ windowMinutes, interventions = 50, pollMs = 15_000, c
   const speedup = fasterThanBaselineBy(worstP95, INDUSTRY_BASELINE.ms);
 
   return (
-    <section className={cn("rounded-3xl border border-line bg-white p-6", className)} aria-label="Latency SLO panel">
+    <section
+      className={cn("rounded-3xl border border-line bg-white p-6", className)}
+      aria-label="Latency SLO panel"
+    >
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="flex items-center gap-2.5">
             <span className="micro text-[9px] text-primary">LATENCY SLO</span>
             {hasData && !error && <LiveDot />}
           </div>
-          <h2 className="font-display mt-2 text-[15px] font-semibold">Interventions, measured against the 38-minute baseline</h2>
+          <h2 className="font-display mt-2 text-[15px] font-semibold">
+            Interventions, measured against the 38-minute baseline
+          </h2>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Chip className="!text-[10.5px]">
@@ -143,7 +166,8 @@ export function SloPanel({ windowMinutes, interventions = 50, pollMs = 15_000, c
         </span>
         {hasData && worstP95 !== null ? (
           <span className="num text-[13px] font-semibold text-primary">
-            ours: {fmtMs(worstP95)} on the worst span{speedup !== null && ` · ${Math.round(speedup)}× faster`}
+            ours: {fmtMs(worstP95)} on the worst span
+            {speedup !== null && ` · ${Math.round(speedup)}× faster`}
           </span>
         ) : (
           <span className="text-[11.5px] font-medium text-ink-3">ours: not measured yet</span>
@@ -151,7 +175,10 @@ export function SloPanel({ windowMinutes, interventions = 50, pollMs = 15_000, c
       </div>
 
       {error && (
-        <p role="status" className="mt-3 flex items-start gap-2 rounded-xl border border-amber-300 bg-amber-50 px-3.5 py-2.5 text-[12px] text-amber-900">
+        <p
+          role="status"
+          className="mt-3 flex items-start gap-2 rounded-xl border border-amber-300 bg-amber-50 px-3.5 py-2.5 text-[12px] text-amber-900"
+        >
           <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           {error}
         </p>
@@ -178,12 +205,14 @@ export function SloPanel({ windowMinutes, interventions = 50, pollMs = 15_000, c
           <span className="h-3 w-px bg-amber-soft" /> budget (p95 target)
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="h-4 border-l border-dashed border-ink-3" /> {INDUSTRY_BASELINE.label} baseline
+          <span className="h-4 border-l border-dashed border-ink-3" /> {INDUSTRY_BASELINE.label}{" "}
+          baseline
         </span>
       </footer>
 
       <p className="mt-3 text-[10.5px] leading-relaxed text-ink-3">
-        Log axis, {fmtMs(AXIS_MAX_MS)} full scale. Spans with fewer than 30 samples publish their p95 but mark it untrusted.
+        Log axis, {fmtMs(AXIS_MAX_MS)} full scale. Spans with fewer than 30 samples publish their
+        p95 but mark it untrusted.
         {snapshot ? ` Source: ${snapshot.source}.` : ""}
       </p>
     </section>
@@ -220,9 +249,9 @@ export function SloChart({
             No spans recorded in this window
           </p>
           <p className="mt-1 text-[11.5px] leading-relaxed text-ink-3">
-            Every row below is a <span className="font-semibold">budget</span>, not a measurement. The bars and the verdict are
-            absent on purpose: a zero-length bar would read as &quot;instant&quot;, and this panel does not draw a number it has
-            not observed.
+            Every row below is a <span className="font-semibold">budget</span>, not a measurement.
+            The bars and the verdict are absent on purpose: a zero-length bar would read as
+            &quot;instant&quot;, and this panel does not draw a number it has not observed.
             {snapshot?.source ? ` (${snapshot.source})` : ""}
           </p>
         </div>
@@ -288,20 +317,33 @@ function Row({ summary, baselinePct }: { summary: SpanWindowSummary; baselinePct
           />
         )}
         {targetPct !== null && (
-          <span aria-hidden className="absolute inset-y-1 w-px bg-amber-soft" style={{ left: `${targetPct}%` }} />
+          <span
+            aria-hidden
+            className="absolute inset-y-1 w-px bg-amber-soft"
+            style={{ left: `${targetPct}%` }}
+          />
         )}
         {p95Pct !== null && (
           <span
             aria-hidden
-            className={cn("absolute inset-y-[5px] left-0 rounded-full", missed ? "bg-red-soft/70" : "bg-primary")}
+            className={cn(
+              "absolute inset-y-[5px] left-0 rounded-full",
+              missed ? "bg-red-soft/70" : "bg-primary",
+            )}
             style={{ width: `${p95Pct}%` }}
           />
         )}
         {p50Pct !== null && (
-          <span aria-hidden className="absolute inset-y-0 w-px bg-primary/70" style={{ left: `${p50Pct}%` }} />
+          <span
+            aria-hidden
+            className="absolute inset-y-0 w-px bg-primary/70"
+            style={{ left: `${p50Pct}%` }}
+          />
         )}
         {!measured && (
-          <span className="absolute inset-0 flex items-center pl-2.5 text-[10.5px] font-medium text-ink-3">not measured</span>
+          <span className="absolute inset-0 flex items-center pl-2.5 text-[10.5px] font-medium text-ink-3">
+            not measured
+          </span>
         )}
       </div>
 
@@ -321,7 +363,9 @@ function Row({ summary, baselinePct }: { summary: SpanWindowSummary; baselinePct
             </StatusPill>
           )}
           {!measured && <StatusPill tone="gray">no data</StatusPill>}
-          {measured && !summary.meetsSampleFloor && <StatusPill tone="amber">n={summary.samples}</StatusPill>}
+          {measured && !summary.meetsSampleFloor && (
+            <StatusPill tone="amber">n={summary.samples}</StatusPill>
+          )}
         </div>
       </div>
     </div>

@@ -60,7 +60,13 @@ const TTS_BUCKET = "tts-upstream";
 
 /** z-ai dev-backend voice slugs (dry-run mode only). */
 export const DEV_VOICES = new Set([
-  "tongtong", "chuichui", "xiaochen", "jam", "kazi", "douji", "luodo",
+  "tongtong",
+  "chuichui",
+  "xiaochen",
+  "jam",
+  "kazi",
+  "douji",
+  "luodo",
 ]);
 
 /**
@@ -126,7 +132,10 @@ function ttsCacheSet(req: TtsRequest, buf: Buffer, ct: string) {
     let oldestKey = "";
     let oldest = Infinity;
     for (const [k, v] of TTS_CACHE) {
-      if (v.at < oldest) { oldest = v.at; oldestKey = k; }
+      if (v.at < oldest) {
+        oldest = v.at;
+        oldestKey = k;
+      }
     }
     if (oldestKey) TTS_CACHE.delete(oldestKey);
   }
@@ -146,7 +155,7 @@ export async function tts(req: TtsRequest, opts?: { keyOverride?: string }): Pro
     throw new UpstreamError(
       `Rate limit exceeded for caller ${req.callerId}; retry in ${Math.ceil(rl.retryAfterMs / 1000)}s`,
       429,
-      "rate_limited"
+      "rate_limited",
     );
   }
 
@@ -185,7 +194,13 @@ export async function tts(req: TtsRequest, opts?: { keyOverride?: string }): Pro
       };
     },
     serialize: (v) =>
-      JSON.stringify({ a: v.audio.toString("base64"), ct: v.contentType, m: v.model, voice: v.voice, bytes: v.bytes }),
+      JSON.stringify({
+        a: v.audio.toString("base64"),
+        ct: v.contentType,
+        m: v.model,
+        voice: v.voice,
+        bytes: v.bytes,
+      }),
     deserialize: (s) => {
       const o = JSON.parse(s) as { a: string; ct: string; m: string; voice: string; bytes: number };
       return {
@@ -202,7 +217,10 @@ export async function tts(req: TtsRequest, opts?: { keyOverride?: string }): Pro
   return result.value;
 }
 
-async function callUpstreamTts(req: TtsRequest, keyOverride?: string): Promise<{ buf: Buffer; ct: string }> {
+async function callUpstreamTts(
+  req: TtsRequest,
+  keyOverride?: string,
+): Promise<{ buf: Buffer; ct: string }> {
   if (!env.elevenLabsDryRun && keyOverride) {
     return { buf: await callElevenLabsTts(req, keyOverride), ct: "audio/mpeg" };
   }
@@ -233,8 +251,8 @@ const SILENT_WAV: Buffer = (() => {
   buf.write("WAVE", 8);
   buf.write("fmt ", 12);
   buf.writeUInt32LE(16, 16);
-  buf.writeUInt16LE(1, 20);   // PCM
-  buf.writeUInt16LE(1, 22);   // mono
+  buf.writeUInt16LE(1, 20); // PCM
+  buf.writeUInt16LE(1, 22); // mono
   buf.writeUInt32LE(sampleRate, 24);
   buf.writeUInt32LE(sampleRate * 2, 28);
   buf.writeUInt16LE(2, 32);
@@ -267,27 +285,40 @@ async function callZaiTts(req: TtsRequest): Promise<Buffer> {
 async function callElevenLabsTts(req: TtsRequest, keyOverride?: string): Promise<Buffer> {
   const key = keyOverride ?? env.elevenLabsApiKey!;
   const model = MODEL_FOR_LANG[req.lang] ?? env.elevenLabsModel;
-  const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(req.voice)}`, {
-    method: "POST",
-    headers: {
-      "xi-api-key": key,
-      "content-type": "application/json",
-      "accept": "audio/mpeg",
+  const r = await fetch(
+    `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(req.voice)}`,
+    {
+      method: "POST",
+      headers: {
+        "xi-api-key": key,
+        "content-type": "application/json",
+        accept: "audio/mpeg",
+      },
+      body: JSON.stringify({
+        text: req.text,
+        model_id: model,
+        voice_settings: {
+          stability: 0.5,
+          similarity_boost: 0.75,
+          use_speaker_boost: true,
+          speed: req.speed ?? 1.0,
+        },
+      }),
+      signal: AbortSignal.timeout(25_000),
     },
-    body: JSON.stringify({
-      text: req.text,
-      model_id: model,
-      voice_settings: { stability: 0.5, similarity_boost: 0.75, use_speaker_boost: true, speed: req.speed ?? 1.0 },
-    }),
-    signal: AbortSignal.timeout(25_000),
-  });
+  );
   if (!r.ok) {
     const detail = await r.text().catch(() => "");
-    throw new UpstreamError(`ElevenLabs ${r.status}: ${detail.slice(0, 200)}`, r.status, "upstream");
+    throw new UpstreamError(
+      `ElevenLabs ${r.status}: ${detail.slice(0, 200)}`,
+      r.status,
+      "upstream",
+    );
   }
   const ab = await r.arrayBuffer();
   const buf = Buffer.from(new Uint8Array(ab));
-  if (buf.length < 512) throw new UpstreamError("ElevenLabs returned empty audio", 502, "empty_audio");
+  if (buf.length < 512)
+    throw new UpstreamError("ElevenLabs returned empty audio", 502, "empty_audio");
   return buf;
 }
 

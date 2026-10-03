@@ -119,10 +119,14 @@ function classifyIPv4(octets: IPv4Octets): BlockReason | null {
   if (a === 169 && b === 254 && c === 169 && d === 254) {
     return "cloud metadata endpoint (169.254.169.254) — AWS/GCP/Azure/DigitalOcean IMDS";
   }
-  if (a === 169 && b === 254 && c === 170 && d === 2) return "AWS ECS task metadata endpoint (169.254.170.2)";
-  if (a === 169 && b === 254 && c === 169 && d === 253) return "AWS VPC DNS resolver (169.254.169.253)";
-  if (a === 100 && b === 100 && c === 100 && d === 200) return "Alibaba Cloud metadata endpoint (100.100.100.200)";
-  if (a === 192 && b === 0 && c === 0 && d === 192) return "Oracle Cloud metadata endpoint (192.0.0.192)";
+  if (a === 169 && b === 254 && c === 170 && d === 2)
+    return "AWS ECS task metadata endpoint (169.254.170.2)";
+  if (a === 169 && b === 254 && c === 169 && d === 253)
+    return "AWS VPC DNS resolver (169.254.169.253)";
+  if (a === 100 && b === 100 && c === 100 && d === 200)
+    return "Alibaba Cloud metadata endpoint (100.100.100.200)";
+  if (a === 192 && b === 0 && c === 0 && d === 192)
+    return "Oracle Cloud metadata endpoint (192.0.0.192)";
 
   if (a === 0) return "unspecified / this-network (0.0.0.0/8)";
   if (a === 10) return "private (RFC 1918 10.0.0.0/8)";
@@ -130,7 +134,8 @@ function classifyIPv4(octets: IPv4Octets): BlockReason | null {
   if (a === 169 && b === 254) return "link-local (169.254.0.0/16) — includes cloud metadata";
   if (a === 172 && b >= 16 && b <= 31) return "private (RFC 1918 172.16.0.0/12)";
   if (a === 192 && b === 168) return "private (RFC 1918 192.168.0.0/16)";
-  if (a === 100 && b >= 64 && b <= 127) return "carrier-grade NAT / shared address space (100.64.0.0/10)";
+  if (a === 100 && b >= 64 && b <= 127)
+    return "carrier-grade NAT / shared address space (100.64.0.0/10)";
   if (a === 192 && b === 0 && c === 0) return "IETF protocol assignments (192.0.0.0/24)";
   if (a === 192 && b === 0 && c === 2) return "documentation range (192.0.2.0/24)";
   if (a === 192 && b === 88 && c === 99) return "6to4 relay anycast (192.88.99.0/24)";
@@ -222,7 +227,11 @@ function expandIPv6(input: string): IPv6Groups | null {
   // Splice the zero run in exactly where "::" was.
   // Spliced to exactly 8 groups: `fill` was computed as 8 - groups.length and
   // the overflow checks above reject any head that would overshoot.
-  return [...groups.slice(0, tailStart), ...new Array<number>(fill).fill(0), ...groups.slice(tailStart)] as unknown as IPv6Groups;
+  return [
+    ...groups.slice(0, tailStart),
+    ...new Array<number>(fill).fill(0),
+    ...groups.slice(tailStart),
+  ] as unknown as IPv6Groups;
 }
 
 function classifyIPv6(g: IPv6Groups): BlockReason | null {
@@ -239,8 +248,19 @@ function classifyIPv6(g: IPv6Groups): BlockReason | null {
   // network-specific prefixes (/32 through /64) need per-operator data we do
   // not have; an operator using one should reject v6 literals by policy.
   const isIpv4Mapped = g.slice(0, 5).every((x) => x === 0) && g[5] === 0xffff;
+  // IPv4-COMPATIBLE (the deprecated `::a.b.c.d`, where g[5] is 0 rather than
+  // 0xffff) reaches the same v4 stack over the same tunnelling trick, so it has
+  // to be unwrapped too. It was missed because the check above only recognised
+  // the MAPPED form, and `::ffff:0:0/96` does not cover it.
+  //
+  // `::` and `::1` are already returned above, and both have g[5] === 0, so
+  // excluding them here is not redundant — without the guard, `::1` would be
+  // reported as "IPv4-mapped to 0.0.0.1" and lose its own accurate reason.
+  // `::` and `::1` both have every low group zero too, so requiring the last
+  // two groups to be non-zero excludes exactly the degenerate cases.
+  const isIpv4Compatible = g.slice(0, 6).every((x) => x === 0) && (g[6] !== 0 || g[7] !== 0);
   const isNat64WellKnown = hi === 0x0064 && second === 0xff9b;
-  if (isIpv4Mapped || isNat64WellKnown) {
+  if (isIpv4Mapped || isIpv4Compatible || isNat64WellKnown) {
     const embedded = classifyIPv4([g[6] >> 8, g[6] & 0xff, g[7] >> 8, g[7] & 0xff]);
     return embedded ? `IPv4-mapped IPv6 to a blocked address (${embedded})` : null;
   }
@@ -308,7 +328,7 @@ const DEFAULT_ALLOWED_PORTS: readonly number[] = [443];
 export class SsrfBlockedError extends Error {
   constructor(
     readonly code: SsrfCode,
-    message: string
+    message: string,
   ) {
     super(message);
     this.name = "SsrfBlockedError";
@@ -329,7 +349,7 @@ function isBlockedHostname(host: string): boolean {
  */
 export async function validateOutboundUrl(
   raw: string | URL,
-  opts: SsrfOptions = {}
+  opts: SsrfOptions = {},
 ): Promise<UrlVerdict> {
   const resolver = opts.resolver ?? defaultResolver;
   const allowedPorts = opts.allowedPorts ?? DEFAULT_ALLOWED_PORTS;
@@ -343,10 +363,20 @@ export async function validateOutboundUrl(
   }
 
   if (url.protocol !== "https:") {
-    return { ok: false, code: "not_https", reason: `scheme "${url.protocol}" is not https`, host: url.hostname };
+    return {
+      ok: false,
+      code: "not_https",
+      reason: `scheme "${url.protocol}" is not https`,
+      host: url.hostname,
+    };
   }
   if (url.username || url.password) {
-    return { ok: false, code: "credentials_in_url", reason: "URL must not embed credentials", host: url.hostname };
+    return {
+      ok: false,
+      code: "credentials_in_url",
+      reason: "URL must not embed credentials",
+      host: url.hostname,
+    };
   }
 
   const port = url.port === "" ? 443 : Number(url.port);
@@ -363,25 +393,40 @@ export async function validateOutboundUrl(
   const host = url.hostname.toLowerCase().replace(/^\[/, "").replace(/\]$/, "");
 
   if (isBlockedHostname(host)) {
-    return { ok: false, code: "blocked_hostname", reason: `hostname "${host}" is internal-only`, host };
+    return {
+      ok: false,
+      code: "blocked_hostname",
+      reason: `hostname "${host}" is internal-only`,
+      host,
+    };
   }
 
   // IP literal — no DNS needed, and no DNS to poison.
   const v4 = parseIPv4(host);
   if (v4) {
     const reason = classifyIPv4(v4);
-    return reason ? { ok: false, code: "private_address", reason, host } : { ok: true, url, addresses: [host] };
+    return reason
+      ? { ok: false, code: "private_address", reason, host }
+      : { ok: true, url, addresses: [host] };
   }
   if (host.includes(":")) {
     const groups = expandIPv6(host);
-    if (!groups) return { ok: false, code: "malformed_url", reason: `unparseable IPv6 host "${host}"`, host };
+    if (!groups)
+      return { ok: false, code: "malformed_url", reason: `unparseable IPv6 host "${host}"`, host };
     const reason = classifyIPv6(groups);
-    return reason ? { ok: false, code: "private_address", reason, host } : { ok: true, url, addresses: [host] };
+    return reason
+      ? { ok: false, code: "private_address", reason, host }
+      : { ok: true, url, addresses: [host] };
   }
 
   // A bare label with no dot cannot be a public FQDN.
   if (!host.includes(".") || /\.$/.test(host)) {
-    return { ok: false, code: "blocked_hostname", reason: `hostname "${host}" is not a fully qualified name`, host };
+    return {
+      ok: false,
+      code: "blocked_hostname",
+      reason: `hostname "${host}" is not a fully qualified name`,
+      host,
+    };
   }
 
   let resolved: readonly ResolvedHost[];
@@ -396,14 +441,24 @@ export async function validateOutboundUrl(
     return { ok: false, code: "no_addresses", reason: "hostname resolved to no addresses", host };
   }
   if (resolved.length > maxAddresses) {
-    return { ok: false, code: "private_address", reason: `hostname resolves to ${resolved.length} addresses (cap ${maxAddresses})`, host };
+    return {
+      ok: false,
+      code: "private_address",
+      reason: `hostname resolves to ${resolved.length} addresses (cap ${maxAddresses})`,
+      host,
+    };
   }
 
   const addresses: string[] = [];
   for (const entry of resolved) {
     const reason = classifyIp(entry.address);
     if (reason) {
-      return { ok: false, code: "private_address", reason: `"${host}" resolves to a blocked address (${reason})`, host };
+      return {
+        ok: false,
+        code: "private_address",
+        reason: `"${host}" resolves to a blocked address (${reason})`,
+        host,
+      };
     }
     addresses.push(entry.address);
   }
@@ -430,7 +485,7 @@ export interface FollowOptions extends SsrfOptions {
  */
 export async function validateRedirectChain(
   chain: readonly (string | URL)[],
-  opts: SsrfOptions = {}
+  opts: SsrfOptions = {},
 ): Promise<UrlVerdict> {
   if (chain.length === 0) {
     return { ok: false, code: "malformed_url", reason: "empty redirect chain" };
@@ -442,7 +497,11 @@ export async function validateRedirectChain(
       // Distinguish "the entry point was bad" from "a redirect went bad".
       return index === 0
         ? verdict
-        : { ...verdict, code: "redirect_blocked", reason: `redirect target rejected — ${verdict.reason}` };
+        : {
+            ...verdict,
+            code: "redirect_blocked",
+            reason: `redirect target rejected — ${verdict.reason}`,
+          };
     }
     last = verdict;
   }
@@ -464,7 +523,7 @@ export interface FollowResult {
  */
 export async function followRedirectChain(
   start: string | URL,
-  opts: FollowOptions = {}
+  opts: FollowOptions = {},
 ): Promise<FollowResult> {
   const maxRedirects = opts.maxRedirects ?? 5;
   const doFetch = opts.fetchImpl ?? fetch;
@@ -489,7 +548,10 @@ export async function followRedirectChain(
     const next = new URL(location, current.url);
     const verdict = await validateOutboundUrl(next, opts);
     if (!verdict.ok) {
-      throw new SsrfBlockedError("redirect_blocked", `redirect target rejected — ${verdict.reason}`);
+      throw new SsrfBlockedError(
+        "redirect_blocked",
+        `redirect target rejected — ${verdict.reason}`,
+      );
     }
     chain.push(verdict.url.toString());
     current = verdict;
@@ -509,14 +571,19 @@ export async function followRedirectChain(
 export async function safeFetch(
   url: string | URL,
   init: RequestInit = {},
-  opts: FollowOptions = {}
+  opts: FollowOptions = {},
 ): Promise<Response> {
   const maxRedirects = opts.maxRedirects ?? 5;
   const doFetch = opts.fetchImpl ?? fetch;
   const timeoutMs = opts.timeoutMs;
 
   let signal = init.signal ?? undefined;
-  if (timeoutMs !== undefined && !signal && typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function") {
+  if (
+    timeoutMs !== undefined &&
+    !signal &&
+    typeof AbortSignal !== "undefined" &&
+    typeof AbortSignal.timeout === "function"
+  ) {
     signal = AbortSignal.timeout(timeoutMs);
   }
 
@@ -533,7 +600,8 @@ export async function safeFetch(
       throw new SsrfBlockedError("too_many_redirects", `exceeded ${maxRedirects} redirects`);
     }
     const next = await validateOutboundUrl(new URL(location, current.url), opts);
-    if (!next.ok) throw new SsrfBlockedError("redirect_blocked", `redirect target rejected — ${next.reason}`);
+    if (!next.ok)
+      throw new SsrfBlockedError("redirect_blocked", `redirect target rejected — ${next.reason}`);
     current = next;
   }
 }

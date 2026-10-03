@@ -53,7 +53,10 @@ const MAX_ENTRIES_PER_ORG = 500;
  * `+`, empty), which would otherwise match everything.
  */
 export function normaliseTestNumberEntry(raw: string): string | null {
-  const cleaned = (raw ?? "").trim().replace(/[\s().-]/g, "").replace(/^00/, "+");
+  const cleaned = (raw ?? "")
+    .trim()
+    .replace(/[\s().-]/g, "")
+    .replace(/^00/, "+");
   if (!cleaned) return null;
   const withPlus = cleaned.startsWith("+") ? cleaned : `+${cleaned}`;
   const isPrefix = withPlus.endsWith("*");
@@ -105,6 +108,15 @@ const ORG_PLAN_TIERS = new Map<string, PlanTier>();
  * `config.orgAllowlistEnvName()`'s `ABUSE_ALLOWED_COUNTRIES__<ORG>`. This is
  * the production persistence mechanism; the registry above is what a tenant
  * service or a test injects.
+ *
+ * Takes the RAW org id, never a `safeOrgKey`-sanitised one. This function is
+ * the published naming convention — it is what an operator reads to know which
+ * variable to set — so it must derive the name from the id the tenant actually
+ * has. `safeOrgKey` is a Map-key bound: it strips characters outright
+ * (`acme-ltd/x` → `acme-ltdx`), which would make the resolver read
+ * `ABUSE_PLAN_TIER__ACME_LTDX` while this function advertises
+ * `ABUSE_PLAN_TIER__ACME_LTD_X`. `planTierFor` therefore passes `orgId`
+ * through unchanged.
  */
 export function orgPlanTierEnvName(orgId: string): string {
   return `ABUSE_PLAN_TIER__${orgId.toUpperCase().replace(/[^A-Z0-9]/g, "_")}`;
@@ -158,7 +170,9 @@ export function planTierFor(
   if (key) {
     const registered = ORG_PLAN_TIERS.get(key);
     if (registered) return registered;
-    const env = process.env[orgPlanTierEnvName(key)];
+    // RAW org id, not `key`: see orgPlanTierEnvName. The `key` guard above
+    // still applies — a malformed org id reads no per-org variable at all.
+    const env = process.env[orgPlanTierEnvName(orgId ?? "")];
     if (isPlanTier(env)) return env;
   }
   return coercePlanTier(abuseConfig().tier.defaultTier);
@@ -230,8 +244,7 @@ export type TierRejectReason =
   | "test_number_list_empty";
 
 export type TierDecision =
-  | { ok: true; restricted: boolean }
-  | { ok: false; reason: TierRejectReason; detail: string };
+  { ok: true; restricted: boolean } | { ok: false; reason: TierRejectReason; detail: string };
 
 export type TierInput = TestNumberOptions & {
   e164: string;

@@ -30,7 +30,14 @@ import "server-only";
 import { appendFile, mkdir, open, stat } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 
-import { parseSpanRecord, recordSpan, type SpanInput, type SpanRecord, type SpanRecorderDiagnostics, telemetryDiagnostics } from "./spans";
+import {
+  parseSpanRecord,
+  recordSpan,
+  type SpanInput,
+  type SpanRecord,
+  type SpanRecorderDiagnostics,
+  telemetryDiagnostics,
+} from "./spans";
 
 /** Debounce so one intervention's eight spans land in a single append. */
 const FLUSH_DEBOUNCE_MS = 50;
@@ -43,7 +50,8 @@ export const MAX_READ_BYTES = 8 * 1024 * 1024;
 
 export function spanLogPath(): string {
   const configured = process.env.TELEMETRY_SPAN_LOG;
-  if (typeof configured === "string" && configured.trim().length > 0) return resolve(configured.trim());
+  if (typeof configured === "string" && configured.trim().length > 0)
+    return resolve(configured.trim());
   return resolve(join(process.cwd(), "evidence", "latency", "spans.jsonl"));
 }
 
@@ -198,7 +206,15 @@ export type ReadOptions = {
  */
 export async function readSpanRecords(options: ReadOptions = {}): Promise<SpanReadResult> {
   const path = spanLogPath();
-  const base: SpanReadResult = { records: [], path, malformedLines: 0, truncated: false, bytesRead: 0, missing: false, error: null };
+  const base: SpanReadResult = {
+    records: [],
+    path,
+    malformedLines: 0,
+    truncated: false,
+    bytesRead: 0,
+    missing: false,
+    error: null,
+  };
 
   let text: string;
   let truncated = false;
@@ -221,7 +237,10 @@ export async function readSpanRecords(options: ReadOptions = {}): Promise<SpanRe
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code;
     if (code === "ENOENT") return { ...base, missing: true };
-    return { ...base, error: err instanceof Error ? err.message.slice(0, 200) : String(err).slice(0, 200) };
+    return {
+      ...base,
+      error: err instanceof Error ? err.message.slice(0, 200) : String(err).slice(0, 200),
+    };
   }
 
   const lines = text.split("\n");

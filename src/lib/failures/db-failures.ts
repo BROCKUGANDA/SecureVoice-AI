@@ -138,9 +138,15 @@ const PRISMA_TO_KIND: Record<string, DatabaseFailureKind> = {
   [PRISMA.RECORD_NOT_FOUND]: "record_not_found",
 };
 
-
 /** Node/driver-level codes with no SQLSTATE. */
-const NODE_NETWORK_CODES = new Set(["ECONNREFUSED", "ECONNRESET", "ENOTFOUND", "EAI_AGAIN", "ETIMEDOUT", "EPIPE"]);
+const NODE_NETWORK_CODES = new Set([
+  "ECONNREFUSED",
+  "ECONNRESET",
+  "ENOTFOUND",
+  "EAI_AGAIN",
+  "ETIMEDOUT",
+  "EPIPE",
+]);
 
 /** The timeout that applies when a caller does not name one. */
 export const DEFAULT_SHED_RETRY_AFTER_SEC = 2;
@@ -182,7 +188,9 @@ export function sqlstateOf(err: unknown): string | null {
 export function prismaCodeOf(err: unknown): string | null {
   if (typeof err !== "object" || err === null) return null;
   const code = (err as DbErrorLike).code;
-  return typeof code === "string" && /^P\d{4}$/.test(code.trim().toUpperCase()) ? code.trim().toUpperCase() : null;
+  return typeof code === "string" && /^P\d{4}$/.test(code.trim().toUpperCase())
+    ? code.trim().toUpperCase()
+    : null;
 }
 
 function metaOf(err: unknown): Record<string, unknown> {
@@ -240,7 +248,10 @@ function normaliseFieldToken(token: string): string | null {
   if (cleaned === "") return null;
   if (!/^[A-Za-z_][\w]*$/.test(cleaned)) return null;
   const segments = cleaned.split("_");
-  if (segments.length >= 2 && CONSTRAINT_SUFFIXES.has(segments[segments.length - 1]!.toLowerCase())) {
+  if (
+    segments.length >= 2 &&
+    CONSTRAINT_SUFFIXES.has(segments[segments.length - 1]!.toLowerCase())
+  ) {
     // `Case_orgId_fkey` -> [Case, orgId] -> orgId.
     // `UsageLedger_orgId_idemKey_key` -> [.., idemKey] -> idemKey.
     return segments[segments.length - 2]!;
@@ -292,7 +303,8 @@ export function fieldsOf(err: unknown): string[] {
 export function fieldOf(err: unknown): string | null {
   const meta = metaOf(err);
   const direct = meta.field_name;
-  if (typeof direct === "string" && /^[A-Za-z_][A-Za-z0-9_]{0,62}$/.test(direct.trim())) return direct.trim();
+  if (typeof direct === "string" && /^[A-Za-z_][A-Za-z0-9_]{0,62}$/.test(direct.trim()))
+    return direct.trim();
   const all = fieldsOf(err);
   return all.length > 0 ? all[0]! : null;
 }
@@ -331,7 +343,9 @@ export function classifyDatabaseError(err: unknown): DatabaseClassification {
   const prismaCode = prismaCodeOf(err);
   const sqlstate = sqlstateOf(err);
   const rawCode =
-    typeof (err as DbErrorLike | null)?.code === "string" ? ((err as DbErrorLike).code as string).toUpperCase() : "";
+    typeof (err as DbErrorLike | null)?.code === "string"
+      ? ((err as DbErrorLike).code as string).toUpperCase()
+      : "";
   const driver: DatabaseClassification["driver"] = prismaCode
     ? "prisma"
     : NODE_NETWORK_CODES.has(rawCode)
@@ -387,7 +401,10 @@ export function classifyDatabaseError(err: unknown): DatabaseClassification {
       break;
   }
 
-  if (err instanceof Error || (typeof err === "object" && err !== null && typeof messageOf(err) === "string")) {
+  if (
+    err instanceof Error ||
+    (typeof err === "object" && err !== null && typeof messageOf(err) === "string")
+  ) {
     return { kind: "unknown", sqlstate, fields: [], driver };
   }
   if (err === null || err === undefined || typeof err !== "object") {
@@ -506,9 +523,15 @@ export class DbTimeoutError extends Error {
 export async function withTimeoutBudget<T>(
   fn: () => Promise<T>,
   budgetMs: number,
-  opts: { timers?: { setTimeout: (fn: () => void, ms: number) => unknown; clearTimeout: (h: unknown) => void } } = {},
+  opts: {
+    timers?: {
+      setTimeout: (fn: () => void, ms: number) => unknown;
+      clearTimeout: (h: unknown) => void;
+    };
+  } = {},
 ): Promise<T> {
-  if (!Number.isFinite(budgetMs) || budgetMs <= 0) throw new RangeError("budgetMs must be positive");
+  if (!Number.isFinite(budgetMs) || budgetMs <= 0)
+    throw new RangeError("budgetMs must be positive");
   const timers = opts.timers ?? {
     setTimeout: (cb: () => void, ms: number) => setTimeout(cb, ms),
     clearTimeout: (h: unknown) => clearTimeout(h as ReturnType<typeof setTimeout>),
@@ -562,10 +585,18 @@ export type TransactionConflictDecision = {
 };
 
 /** Classify one conflict and say whether the runner should try again. */
-export function handleTransactionConflict(input: { err: unknown; requestId?: string | null }): TransactionConflictDecision {
+export function handleTransactionConflict(input: {
+  err: unknown;
+  requestId?: string | null;
+}): TransactionConflictDecision {
   const classification = classifyDatabaseError(input.err);
   if (!isRetryableTransactionConflict(classification.kind)) {
-    return { action: "fail", failure: null, sqlstate: classification.sqlstate, kind: "not_retryable" };
+    return {
+      action: "fail",
+      failure: null,
+      sqlstate: classification.sqlstate,
+      kind: "not_retryable",
+    };
   }
   const kind = classification.kind === "deadlock" ? "deadlock" : "serialization_failure";
   return { action: "retry", failure: null, sqlstate: classification.sqlstate, kind };
@@ -591,10 +622,16 @@ export type TransactionRunnerOptions = {
   baseBackoffMs?: number;
   requestId?: string | null;
   /** Observability hook. Called once per retry, before the sleep. */
-  onRetry?: (info: { retryNumber: number; sqlstate: string | null; kind: DatabaseFailureKind; delayMs: number }) => void;
+  onRetry?: (info: {
+    retryNumber: number;
+    sqlstate: string | null;
+    kind: DatabaseFailureKind;
+    delayMs: number;
+  }) => void;
 };
 
-const defaultSleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+const defaultSleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
  * The retry path both conflict rows share.
@@ -626,7 +663,7 @@ export async function runTransactionWithRetry<T>(
       const classification = classifyDatabaseError(err);
       const decision = handleTransactionConflict({ err, requestId: opts.requestId });
 
-if (decision.action !== "retry" || attempt === retries + 1) {
+      if (decision.action !== "retry" || attempt === retries + 1) {
         const failure = isRetryableTransactionConflict(classification.kind)
           ? // Survived the full ladder: the data is fine, this transaction
             // simply keeps losing. 409 + retryable, not a 503 (the database
@@ -639,7 +676,12 @@ if (decision.action !== "retry" || attempt === retries + 1) {
       const delayMs = transactionBackoffMs(attempt, rand, baseBackoffMs);
       retriedOn.push(classification.sqlstate ?? classification.kind);
       backoffsMs.push(delayMs);
-      opts.onRetry?.({ retryNumber: attempt, sqlstate: classification.sqlstate, kind: classification.kind, delayMs });
+      opts.onRetry?.({
+        retryNumber: attempt,
+        sqlstate: classification.sqlstate,
+        kind: classification.kind,
+        delayMs,
+      });
       await sleep(delayMs);
     }
   }
@@ -655,7 +697,11 @@ if (decision.action !== "retry" || attempt === retries + 1) {
  * is reached only for `unknown` — a driver error this matrix does not
  * recognise, which is a genuine bug on our side and is logged as one.
  */
-function failureForKind(kind: DatabaseFailureKind, err: unknown, requestId: string | null): Failure {
+function failureForKind(
+  kind: DatabaseFailureKind,
+  err: unknown,
+  requestId: string | null,
+): Failure {
   switch (kind) {
     case "pool_exhausted":
       return handlePoolExhausted({ err, requestId }).failure;
@@ -672,11 +718,17 @@ function failureForKind(kind: DatabaseFailureKind, err: unknown, requestId: stri
       // it fall through to the `default` arm would be a 500 for "not there".
       return makeFailure("not_found", { requestId });
     case "primary_unreachable":
-      return makeFailure("dependency_unavailable", { requestId, retryAfterSec: DEFAULT_SHED_RETRY_AFTER_SEC });
+      return makeFailure("dependency_unavailable", {
+        requestId,
+        retryAfterSec: DEFAULT_SHED_RETRY_AFTER_SEC,
+      });
     case "storage_full":
       return (
         evaluateStoragePressure({ diskUsedPct: 99, walUsedPct: 99, requestId }).failure ??
-        makeFailure("dependency_unavailable", { requestId, retryAfterSec: DEFAULT_SHED_RETRY_AFTER_SEC })
+        makeFailure("dependency_unavailable", {
+          requestId,
+          retryAfterSec: DEFAULT_SHED_RETRY_AFTER_SEC,
+        })
       );
     default:
       return makeFailure("internal_bug", { requestId });
@@ -724,7 +776,13 @@ export async function handleUniqueViolation(input: {
   if (input.lookupIdempotent) {
     const replay = await input.lookupIdempotent(fields);
     if (replay && replay.status >= 200 && replay.status < 300) {
-      return { action: "replay_idempotent", failure: null, replay, fields, sqlstate: classification.sqlstate };
+      return {
+        action: "replay_idempotent",
+        failure: null,
+        replay,
+        fields,
+        sqlstate: classification.sqlstate,
+      };
     }
   }
 
@@ -756,7 +814,10 @@ export type ReferenceViolationDecision = {
  * safe column name can be extracted, the field is reported as `null` rather
  * than guessing.
  */
-export function handleReferenceViolation(input: { err: unknown; requestId?: string | null }): ReferenceViolationDecision {
+export function handleReferenceViolation(input: {
+  err: unknown;
+  requestId?: string | null;
+}): ReferenceViolationDecision {
   const classification = classifyDatabaseError(input.err);
   const extracted = fieldOf(input.err);
   let field: string | null = null;
@@ -770,7 +831,10 @@ export function handleReferenceViolation(input: { err: unknown; requestId?: stri
   const failure =
     field === null
       ? makeFailure("reference_conflict", { requestId: input.requestId })
-      : makeFailure("reference_conflict", { requestId: input.requestId, detail: `Unusable field: ${field}.` });
+      : makeFailure("reference_conflict", {
+          requestId: input.requestId,
+          detail: `Unusable field: ${field}.`,
+        });
   return { action: "conflict", failure, field, sqlstate: classification.sqlstate };
 }
 
@@ -844,7 +908,9 @@ export function evaluatePrimaryHealth(input: {
     readsAllowed: true,
     writesAllowed: false,
     interventionsAllowed: false,
-    failure: interventionRefused(`Contact the customer by ${fallback} instead.`, { requestId: input.requestId }),
+    failure: interventionRefused(`Contact the customer by ${fallback} instead.`, {
+      requestId: input.requestId,
+    }),
     fallback,
     reason: "read_only_degraded",
   };
@@ -855,8 +921,14 @@ export function evaluatePrimaryHealth(input: {
  * attempt a write when `interventionsAllowed` is false — which is why this
  * returns a boolean rather than a failure the caller may ignore.
  */
-export function admitIntervention(health: PrimaryHealthDecision): { admitted: boolean; failure: Failure | null } {
-  return { admitted: health.interventionsAllowed, failure: health.interventionsAllowed ? null : health.failure };
+export function admitIntervention(health: PrimaryHealthDecision): {
+  admitted: boolean;
+  failure: Failure | null;
+} {
+  return {
+    admitted: health.interventionsAllowed,
+    failure: health.interventionsAllowed ? null : health.failure,
+  };
 }
 
 // ── Row: replica lag ──────────────────────────────────────────────────────────
@@ -897,7 +969,14 @@ export function evaluateReplicaLag(input: {
   const stale = lagMs > thresholdMs;
 
   if (!stale) {
-    return { lagMs, thresholdMs, stale: false, readFrom: "replica", failedBack: false, banner: null };
+    return {
+      lagMs,
+      thresholdMs,
+      stale: false,
+      readFrom: "replica",
+      failedBack: false,
+      banner: null,
+    };
   }
   if (mode === "banner") {
     return {
@@ -964,7 +1043,11 @@ export type StoragePressureDecision = {
   auditChainAdmitted: true;
 };
 
-export type StorageAlertSink = (alert: { level: StoragePressureLevel; peakUsedPct: number; alerts: string[] }) => void;
+export type StorageAlertSink = (alert: {
+  level: StoragePressureLevel;
+  peakUsedPct: number;
+  alerts: string[];
+}) => void;
 
 function clampPct(v: unknown): number {
   const n = typeof v === "number" && Number.isFinite(v) ? v : Number.NaN;
@@ -1003,9 +1086,7 @@ export function evaluateStoragePressure(input: {
 
   // The audit chain is admitted first at every level, including critical. The
   // only classes refused under pressure are the ones we declared expendable.
-  const refused = new Set<WriteClass>(
-    level === "critical" ? [...WRITE_CLASSES_SACRIFICED] : [],
-  );
+  const refused = new Set<WriteClass>(level === "critical" ? [...WRITE_CLASSES_SACRIFICED] : []);
   for (const cls of NEVER_SACRIFICED) refused.delete(cls);
 
   const admitted = WRITE_CLASSES.filter((cls) => !refused.has(cls));

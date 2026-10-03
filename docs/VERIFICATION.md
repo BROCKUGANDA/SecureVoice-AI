@@ -15,10 +15,10 @@ just claimed.
 
 ### Gate: idempotency
 
-| Cycle | version_id | snapshot sha256 | divergences |
-|---|---|---|---|
-| 1 | `agtvrsn_5201m3xcsepdfdeaynyzdty8jn6c` | `587112bd6949baa2002db99b17c76548214f63523498c7678339a876d5d9e3a7` | 0 |
-| 2 | `agtvrsn_0401m3xcsnyaeqbr5vkf4s6fffsp` | `587112bd6949baa2002db99b17c76548214f63523498c7678339a876d5d9e3a7` | 0 |
+| Cycle | version_id                             | snapshot sha256                                                    | divergences |
+| ----- | -------------------------------------- | ------------------------------------------------------------------ | ----------- |
+| 1     | `agtvrsn_5201m3xcsepdfdeaynyzdty8jn6c` | `587112bd6949baa2002db99b17c76548214f63523498c7678339a876d5d9e3a7` | 0           |
+| 2     | `agtvrsn_0401m3xcsnyaeqbr5vkf4s6fffsp` | `587112bd6949baa2002db99b17c76548214f63523498c7678339a876d5d9e3a7` | 0           |
 
 **Result:** identical sha256 across both cycles, zero divergences on every
 apply. The agent configuration is fully described by
@@ -65,6 +65,7 @@ length 64.
 **Result:** 1 pass, 0 fail — p95 signal→provider 551 ms (target < 1500 ms), 20/20 signals dialed, idempotent replay verified, audit chains verified from genesis.
 
 ### What was built
+
 - `POST /v1/interventions` — canonical bank-facing endpoint. Strict schema (E.164 phone, ISO-4217 currency, integer minor-unit amount, BCP-47 language, `transaction_ref`, `consent_record_id`), unknown fields rejected, no type coercion.
 - `Idempotency-Key` header required; replay returns the stored response with `duplicate: true` and creates nothing.
 - Policy gate (`src/lib/policy-gate.ts`) — consent → country allowlist → cooldown → concurrency → spend → credits, fail-fast with typed reason, audited either way.
@@ -74,6 +75,7 @@ length 64.
 - `src/lib/sanitize-untrusted.ts` — dynamic-variable sanitiser (invariant I-4).
 
 ### Latency architecture
+
 - Combined idempotency+consent check: one raw SQL round-trip.
 - Audit chain: dedicated Prisma client (`dbAudit`, 5-connection pool) so fire-and-forget appends never starve the hot path.
 - Idempotency store: deferred with `setImmediate` so it never blocks the response.
@@ -94,10 +96,10 @@ Postgres **co-located with the app**. The dev Supabase database is ~270 ms
 round-trip away, which makes the gate physically impossible regardless of
 code — one round trip alone is 90 % of the budget. Measured evidence:
 
-| Path | RTT per round trip | p95 over 200 calls |
-|---|---|---|
-| Co-located Postgres (gate run above) | ~2–6 ms | **11 ms** |
-| Remote Supabase, 1-round-trip hot path | 270 ms (raw pg: 268–289 ms) | 304–605 ms |
+| Path                                   | RTT per round trip          | p95 over 200 calls |
+| -------------------------------------- | --------------------------- | ------------------ |
+| Co-located Postgres (gate run above)   | ~2–6 ms                     | **11 ms**          |
+| Remote Supabase, 1-round-trip hot path | 270 ms (raw pg: 268–289 ms) | 304–605 ms         |
 
 `tests/preload.ts` honours `TEST_DATABASE_URL`, so the gate runs against a
 co-located database when one is provided and falls back to `DATABASE_URL`
@@ -105,6 +107,7 @@ co-located database when one is provided and falls back to `DATABASE_URL`
 secrets, audit chains) is topology-independent and passes on either database.
 
 ### What was built
+
 - `prisma/schema.prisma` — `Case` model (the conversation↔case join key for the agent tools).
 - `src/lib/case-state-machine.ts` — single writer for case state; `TRANSITIONS` table enforces invariant **I-2** (`stage_card_freeze` executable only from `CONFIRMED_FRAUD`).
 - `src/lib/tool-guard.ts` — shared `guardToolCall`: auth (`timingSafeEqual` + per-tool allow-list) → case resolution → state precondition. Every refusal is a typed 409/401, never a 500, and every refusal is appended to the audit chain **before** returning.
@@ -121,6 +124,7 @@ secrets, audit chains) is topology-independent and passes on either database.
   Unique `RUN_ID`-suffixed conversation ids so repeated runs never collide.
 
 ### Artifacts
+
 - `tests/tools/guard.test.ts` — the WP-3 gate
 - `src/lib/tool-guard.ts`, `src/lib/case-state-machine.ts`
 - `src/app/api/elevenlabs/tools/*/route.ts` (four tools)
@@ -134,6 +138,7 @@ secrets, audit chains) is topology-independent and passes on either database.
 **Result:** 1 pass, 0 fail — 22 assertions, 2.5 s. Forged signature → 401; valid signature with a stale timestamp → 401; exact replay → `duplicate: true` with **zero** additional audit rows; synthetic PAN / OTP / CVV absent from the stored transcript; case advanced `CONFIRMED_FRAUD → NOTIFIED`; audit chain verifies from genesis after ingest (I-6); an uncorrelatable conversation lands in quarantine with a redacted excerpt (never dropped).
 
 ### What was built
+
 - `src/app/api/webhooks/elevenlabs/route.ts` — verifies `ElevenLabs-Signature: t=…,v0=…` with the **platform SDK's `constructEvent`** (`@elevenlabs/elevenlabs-js@2.70.0`, installed for this), not a hand-rolled HMAC. A verification failure is a 401 — never a 5xx. The handler then does the minimum: dedupe + persist the delivery, and returns 2xx immediately; all heavy work is fired without `await`.
 - `src/lib/elevenlabs/inbound.ts` — processing for `post_call_transcription`, `post_call_audio` and `call_initiation_failure`, handled separately.
   - Transcript is redacted through `src/lib/redact.ts` **before** anything is stored (I-10). The raw payload is never persisted, so a quarantine row can only ever hold a redacted excerpt.
@@ -152,11 +157,13 @@ secrets, audit chains) is topology-independent and passes on either database.
 The delivery identity is the platform's own envelope — `(provider, eventType, conversationId, eventTimestamp)`, not a hash of the body. A redelivery with the same envelope returns `duplicate: true` and writes nothing; a redelivery of a row that was accepted but failed processing is re-processed, which is what makes the platform's retry ladder useful instead of losing evidence.
 
 ### Notes and deviations
+
 - Timestamp freshness is the SDK's 30-minute tolerance. Egress-IP pinning is not configured (documented as optional in the brief).
 - Processing runs in-process off the enqueue. That is deliberate for a single-node deploy and is paired with the persisted delivery registry plus `drainPendingWebhooks()`; WP-5's outbox makes the whole egress path durable.
 - `ELEVENLABS_WEBHOOK_SECRET` was added to `.env` / `.env.example` with a 64-char hex development value. Production must replace it with the secret ElevenLabs generates for the webhook endpoint.
 
 ### Artifacts
+
 - `tests/webhooks/elevenlabs-inbound.test.ts` — the WP-4 gate
 - `src/app/api/webhooks/elevenlabs/route.ts`, `src/lib/elevenlabs/inbound.ts`
 
@@ -169,8 +176,9 @@ The delivery identity is the platform's own envelope — `(provider, eventType, 
 **Result:** 1 pass, 0 fail — 50 assertions, ~300 ms. Delivery survives a receiver returning **500 three times** and lands on the fourth; the retry ladder is backoff-jittered (`nextAttemptAt` moves into the future, first step 60 s); a sixth failure **dead-letters** the event; the **dead-letter replay produces exactly one additional delivery** and a second replay of the same letter is refused; the signature verifies in a **second language implementation (CPython)** — and rejects a forged signature and a tampered body there too; the state transition and the outbox row commit in one transaction; our own receiver accepts a real delivery, records it once, and 401s a forgery.
 
 ### What was built
+
 - `src/lib/outbox.ts` — the whole egress path.
-  - **Transactional outbox.** `enqueueOutbox(tx, …)` takes the *transaction client*, so the case transition and the delivery row commit together. `case-state-machine.ts` gains `transitionCaseWithOutbox()` as the only sanctioned way to publish a verdict; WP-4's `NOTIFIED` transition now goes through it. No request handler ever awaits a `fetch`.
+  - **Transactional outbox.** `enqueueOutbox(tx, …)` takes the _transaction client_, so the case transition and the delivery row commit together. `case-state-machine.ts` gains `transitionCaseWithOutbox()` as the only sanctioned way to publish a verdict; WP-4's `NOTIFIED` transition now goes through it. No request handler ever awaits a `fetch`.
   - **`FOR UPDATE SKIP LOCKED` claiming** — N workers drain concurrently with no distributed lock, and a killed worker's lease is reclaimed by a stale-`SENDING` sweep.
   - **Retry ladder** `60s · 5m · 30m · 2h · 3h · 12h` (±20% jitter), six attempts over ~24 h, then `DEAD` plus a `DeadLetter` row. Replay is an admin action that re-queues exactly once.
   - **Signing**: `SV-Signature: t={unix},v1={hex}` where `v1 = HMAC-SHA256({t}.{canonical_body})`, computed at delivery time over the exact bytes sent. Bodies are sorted-key canonical JSON, so signer and verifier agree byte-for-byte.
@@ -182,14 +190,17 @@ The delivery identity is the platform's own envelope — `(provider, eventType, 
 - Reference verifiers shipped in-repo and **both executed by the gate**: `scripts/verify_sv_signature.ts` and `scripts/verify_sv_signature.py`. Snippets for both languages are published in the README.
 
 ### Isolation fix found by the gate
-The first full-suite run failed while the gate passed standalone: `claimBatch` claims the oldest *due* row, and WP-4 legitimately leaves a `PENDING` verdict it never delivers. The gate now drains the shared queue on entry and asserts it claimed its own event by id, so it measures what it creates rather than whatever is next in line.
+
+The first full-suite run failed while the gate passed standalone: `claimBatch` claims the oldest _due_ row, and WP-4 legitimately leaves a `PENDING` verdict it never delivers. The gate now drains the shared queue on entry and asserts it claimed its own event by id, so it measures what it creates rather than whatever is next in line.
 
 ### Notes and deviations
+
 - The gate **fails** when no Python interpreter is found rather than skipping the cross-language check. On this machine it resolves to the bundled CPython 3.13; set `PYTHON` to override.
 - Java is deliberately **not** in this package — the brief names it as a WP-17 integration artifact, and a third implementation adds little while the sprint still owes WP-6 through WP-24.
 - `BANK_WEBHOOK_SECRET` / `BANK_WEBHOOK_URL` were added to `.env` and `.env.example`; the URL defaults to our own receiver so the demo needs no external service.
 
 ### Artifacts
+
 - `tests/webhooks/outbound.test.ts` — the WP-5 gate
 - `src/lib/outbox.ts`, `src/lib/case-state-machine.ts` (`transitionCaseWithOutbox`)
 - `src/app/api/webhooks/receiver/route.ts`, `src/app/api/console/outbox/replay/route.ts`
@@ -202,14 +213,14 @@ The first full-suite run failed while the gate passed standalone: `claimBatch` c
 
 `bun run test` — all green (one process per file, co-located Postgres):
 
-| Gate | Result |
-|---|---|
-| WP-2 risk signal → dial | 1 pass — p95 signal→provider 551 ms (< 1500 ms) |
-| WP-3 server tools | 1 pass — p95 11 ms over 200 calls (< 300 ms) |
-| WP-4 post-call ingest | 1 pass — forged rejected, replay idempotent, OTP redacted, chain verifies |
-| WP-5 outbound notification | 1 pass — retries, dead-letter, single replay, cross-language signature |
-| WP-20 realtime slice | 1 pass — tenancy, resume, inbox dedupe, ack-escalation; cross-node **verified** over Redis |
-| flag/feature suites | 30 pass |
+| Gate                       | Result                                                                                     |
+| -------------------------- | ------------------------------------------------------------------------------------------ |
+| WP-2 risk signal → dial    | 1 pass — p95 signal→provider 551 ms (< 1500 ms)                                            |
+| WP-3 server tools          | 1 pass — p95 11 ms over 200 calls (< 300 ms)                                               |
+| WP-4 post-call ingest      | 1 pass — forged rejected, replay idempotent, OTP redacted, chain verifies                  |
+| WP-5 outbound notification | 1 pass — retries, dead-letter, single replay, cross-language signature                     |
+| WP-20 realtime slice       | 1 pass — tenancy, resume, inbox dedupe, ack-escalation; cross-node **verified** over Redis |
+| flag/feature suites        | 30 pass                                                                                    |
 
 `bunx tsc --noEmit` clean; `bun run build` succeeds with `/inspector`, `/api/webhooks/elevenlabs`, `/api/webhooks/receiver` and `/api/console/outbox/replay` registered.
 
@@ -222,6 +233,7 @@ The first full-suite run failed while the gate passed standalone: `claimBatch` c
 **Result:** 1 pass, 0 fail — 40 assertions. Org B never receives Org A's events; a client that missed three events replays **every one** of them on reconnect; a burst of 8 alerts collapses into ONE inbox item with `count: 8`; an unacknowledged page advances `fraud_oncall → fraud_desk → head_of_risk → exhausted`, an acknowledged one never advances, and every hop verifies in the audit chain. Realtime service: 48 pass, 0 fail across 5 files, three consecutive clean runs.
 
 ### What was built
+
 - **Resumability, tested where it is used.** The activity feed's read model moved out of the SSE handler into `src/lib/activity-feed.ts`, so the shipped query — not a copy of it — is what the gate exercises. The cursor is `(createdAt, id)`, because two rows can share a millisecond and a timestamp-only cursor silently drops the second. The test asserts exactly that case.
 - **Tenancy as a required argument.** `fetchActivitySince({ scope })` takes an `OrgScope`; there is no "unscoped" call to forget. Org-less sessions get the default rows only, asserted in the gate.
 - **In-app inbox + severity routing + acknowledgement-driven escalation** (`src/lib/notifications.ts`, `Notification` table). Alerts dedupe on `{orgId}:{alertType}:{window}` and increment a count, so a smishing wave is one alert carrying the real number. Escalation advances through a contact ladder on SLA expiry and stops permanently on acknowledgement; each hop is written to the audit chain, because "we paged on-call and nobody came" is a post-incident-review fact.
@@ -240,7 +252,7 @@ confirmed: without the Redis adapter the event never reaches the other node (sil
 
 Both directions are asserted, and both matter:
 
-- **Positive** — with `REDIS_URL` set, `/readyz` on *both* instances reports `pubsub: redis` (the test asserts it, so it cannot pass by accident on a single process), and the event crosses the node boundary.
+- **Positive** — with `REDIS_URL` set, `/readyz` on _both_ instances reports `pubsub: redis` (the test asserts it, so it cannot pass by accident on a single process), and the event crosses the node boundary.
 - **Negative** — with no `REDIS_URL`, two instances both report `single-node` and the client on B receives **nothing, with no error**. That is the hazard itself: a console that silently stops updating looks identical to a quiet day.
 
 The gate refuses to run rather than skip: if `REDIS_URL` is unreachable it prints why and exits non-zero. `node-redis` is pinned to v4 because v6 negotiates RESP3 (`HELLO`), which Redis 5 does not implement.
@@ -254,6 +266,7 @@ cd mini-services/realtime && bun test                      # includes the cross-
 ```
 
 ### Room scoping — already present, now proven
+
 The service derived channels from the org id and validated membership on every join before this package; the gate now proves the tenant property end to end rather than leaving it as a design claim.
 
 ---
@@ -269,11 +282,11 @@ The service derived channels from the org id and validated membership on every j
 1. **`/api/interventions` resolved another org's customer** — `db.customer.findUnique({ where: { customerRef } })` had no org predicate, so a signal naming a rival tenant's `customerRef` resolved **that tenant's phone number and dialled it**. Now `findFirst({ where: { customerRef, orgId } })`, with org-less callers restricted to shared rows.
 2. **`/api/enroll` opt-out mutated another org's consent** — `updateMany({ where: { customerRef } })` with no org check, so any authenticated producer could stop a rival's customers, and the returned row count confirmed existence. Now org-scoped; a foreign ref updates 0 rows and returns **404**.
 
-Both are re-probed through the **production route handler** with a producer-key session, and the gate was verified to still catch a regression: authenticating the probe as the *owner* of the target row returns 200 and the gate goes red — proving the 404 comes from the tenant boundary, not from a route that refuses everything.
+Both are re-probed through the **production route handler** with a producer-key session, and the gate was verified to still catch a regression: authenticating the probe as the _owner_ of the target row returns 200 and the gate goes red — proving the 404 comes from the tenant boundary, not from a route that refuses everything.
 
 ### The gate fails closed, both directions
 
-A new canonical read path with no matrix entry fails; a tenant model with no read path fails; an injected cross-tenant leak fails. And a *fixed* gap fails until its entry is reclassified, so a stale "known issue" cannot outlive the fix. Coverage: 14 asserted · 4 declared gaps · 2 declared-global.
+A new canonical read path with no matrix entry fails; a tenant model with no read path fails; an injected cross-tenant leak fails. And a _fixed_ gap fails until its entry is reclassified, so a stale "known issue" cannot outlive the fix. Coverage: 14 asserted · 4 declared gaps · 2 declared-global.
 
 ### Declared gaps still open (defence-in-depth, no live path)
 
@@ -312,7 +325,7 @@ Denied with a typed reason: disallowed country, demo tier dialling an unverified
 `assertDialAllowed()` runs on `/v1/interventions` after consent and before any carrier call; a refusal is an audited **409**, never a 500. Two consequences were found by wiring it rather than by reading it:
 
 - **Concurrency slots needed a lease.** A reservation is normally released by the post-call webhook — best-effort, and it may be another process, or may never arrive. Without an expiry, one lost release would wedge an organisation's dialling permanently. Slots now carry a 15-minute lease reclaimed on the next decision, and a failed placement releases immediately. A simulated (dry-run) call releases at placement, because no webhook will ever arrive for a call that did not happen.
-- **The defaults are fail-closed, which broke the WP-2 gate until the test declared intent.** With no allowlist, *nothing* is diallable; with no test-number list, the demo tier dials nothing. The dial gate now registers its twenty destinations and its country allowlist explicitly — the same thing an operator does before a rehearsal.
+- **The defaults are fail-closed, which broke the WP-2 gate until the test declared intent.** With no allowlist, _nothing_ is diallable; with no test-number list, the demo tier dials nothing. The dial gate now registers its twenty destinations and its country allowlist explicitly — the same thing an operator does before a rehearsal.
 
 ### Manual, not automated — and not pretended otherwise
 
@@ -332,7 +345,7 @@ This is the question a bank's DPO asks, and the answer is structural rather than
 
 1. **The chain never holds personal data** — audit rows are PII-free at write time, so erasure never has to touch a hashed field.
 2. **Erasure destroys a key, not a record.** Each case's payload is sealed under a per-case AES-256-GCM key wrapped by an environment master key. Erasure destroys the per-case key and **appends** a `privacy_erasure_v1` row; no chained field is written.
-3. **Re-deriving hashes after a delete was rejected on purpose.** Recomputing `chainHash` after removing a row yields a chain indistinguishable from an untouched one — destroying the single property the chain exists to provide. The sweeper therefore *refuses* any `AuditLog` mutation, including the tempting `redactedText` drop.
+3. **Re-deriving hashes after a delete was rejected on purpose.** Recomputing `chainHash` after removing a row yields a chain indistinguishable from an untouched one — destroying the single property the chain exists to provide. The sweeper therefore _refuses_ any `AuditLog` mutation, including the tempting `redactedText` drop.
 4. **The witness outlives the key.** `erasedAt` lives in the row the key lived in (a restored backup would resurrect the key); the appended row does not.
 
 The gate proves this non-vacuously: a negative control tampers with a pre-existing row and asserts `verifyChain` reports it, and both erasure and retention assert every pre-existing row is **byte-identical** afterwards.
@@ -350,7 +363,7 @@ Gaps recorded: no per-org policy persistence (env/programmatic only), no master-
 - **One envelope, mechanically enforced.** A 31-rule leak scanner refuses stack traces, SQL, model prompts and internal identifiers; status discipline covers 400/401/404/409/413/422/429/503/500 and **forbids 403**, because a 403 confirms existence where a 404 denies it. A policy refusal can only ever produce 409 — `policyRefusal()` has no other path — and the gate drives five **real** refusals through it.
 - **All 9 database failure rows** implemented with their declared behaviour, including the one that matters most in a fraud system: **primary unreachable ⇒ read-only degraded mode that explicitly refuses new interventions**, because accepting a signal you cannot act on is the worst available outcome.
 - **4 breakers** with half-open probing and a declared fallback each.
-- **No network I/O inside a transaction**, proven statically: 7 `$transaction` regions across 10 modules, zero findings, with a negative control proving the scanner reports a synthetic violation. Limits recorded (a network call made by a function *called from* a transaction is invisible to a static scan).
+- **No network I/O inside a transaction**, proven statically: 7 `$transaction` regions across 10 modules, zero findings, with a negative control proving the scanner reports a synthetic violation. Limits recorded (a network call made by a function _called from_ a transaction is invisible to a static scan).
 
 Open: routes still emit the older `{ error }` bodies, so the envelope is agreed-with rather than adopted everywhere; declared timeout budgets are not yet enforced at call sites; `spend_ceiling` and `credits_exhausted` were declared-but-unemittable until this batch wired them into the policy gate.
 
@@ -466,7 +479,7 @@ Four findings changed the design, all verified against the bundled Next.js 16 do
 
 Headers were verified **on a running server**, not declared: CSP (incl. `frame-ancestors 'none'`), HSTS, nosniff, `Referrer-Policy`, COOP/CORP, per-path `Permissions-Policy`, and `X-Robots-Tag` on `/api/status`, `/v1/status`, `/inspector`, `/api/metrics`. Two manifest bugs fixed: every install icon 404'd (the referenced PNGs have never existed) and `theme_color` contradicted the layout's viewport. One measured bug fixed in the proxy: `/sitemap.xml` was being served `noindex`.
 
-**Not verified, and stated as such:** the CSP is confirmed *emitted* but never confirmed non-breaking in a browser against Clerk, fonts and the websocket — no signed-in session was available. `security.txt` carries a placeholder contact, which is worse than no file and should be replaced before submission.
+**Not verified, and stated as such:** the CSP is confirmed _emitted_ but never confirmed non-breaking in a browser against fonts and the websocket — no signed-in session was available. `security.txt` carries a placeholder contact, which is worse than no file and should be replaced before submission.
 
 ---
 
@@ -477,19 +490,19 @@ Headers were verified **on a running server**, not declared: CSP (incl. `frame-a
 
 The instrumentation existed but nothing recorded spans, so the artifact correctly read zero. Two call sites are now wired, both measuring real executions of the shipped path:
 
-| Boundary | Where | Notes |
-|---|---|---|
-| `signal_received_to_accepted` | `POST /api/v1/interventions` | stamped when the request arrives, closed when the deterministic gate passes |
-| `signal_accepted_to_provider_accepted` | same | closed after the durable dial-queue enqueue; the gate timestamp is carried out on the envelope so the interval measures what the caller actually waits on |
-| `tool_request_to_response` | `src/lib/tool-guard.ts` | one recording point covers **all four tools and every refusal** — a slow refusal is still dead air on the call |
+| Boundary                               | Where                        | Notes                                                                                                                                                     |
+| -------------------------------------- | ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `signal_received_to_accepted`          | `POST /api/v1/interventions` | stamped when the request arrives, closed when the deterministic gate passes                                                                               |
+| `signal_accepted_to_provider_accepted` | same                         | closed after the durable dial-queue enqueue; the gate timestamp is carried out on the envelope so the interval measures what the caller actually waits on |
+| `tool_request_to_response`             | `src/lib/tool-guard.ts`      | one recording point covers **all four tools and every refusal** — a slow refusal is still dead air on the call                                            |
 
 **Measured, from 21 real interventions:**
 
-| Span | p50 | p95 | Target |
-|---|---|---|---|
-| signal received → accepted | 8 ms | **12 ms** | 300 ms |
+| Span                                | p50  | p95       | Target  |
+| ----------------------------------- | ---- | --------- | ------- |
+| signal received → accepted          | 8 ms | **12 ms** | 300 ms  |
 | signal accepted → provider accepted | 6 ms | **11 ms** | 1500 ms |
-| tool request → response (n=6) | 1 ms | **5 ms** | 300 ms |
+| tool request → response (n=6)       | 1 ms | **5 ms**  | 300 ms  |
 
 The emitter **still exits non-zero**, and that remains correct: five spans (`signal_received_to_ringing`, `answered_to_first_agent_word`, `caller_stop_to_agent_audio`, `fraud_confirmed_to_webhook_delivered`, `signal_received_to_freeze_staged`) require a live conversation, and the brief counts an intervention only when `signal_received_to_freeze_staged` completes — 0 of the required 30. Those spans are reported `not_measured`, never as passes.
 
@@ -515,7 +528,8 @@ The offline mode completes a full intervention through the **real** policy gate,
 An honest note from that work: the seeded ULID generator initially lost monotonicity. The gate caught it and the generator was fixed rather than the check weakened.
 
 ### The old runbook was fabricated
-`docs/RUNBOOK.md` documented five kill switches — `live_dialing`, `outbound_webhooks`, `llm_phrasing`, `byok`, `spend_ceiling`. **None existed**; `src/lib/flags.ts` has exactly four flags, and the features route returns only one. The runbook was rewritten from the repository's real flags, env vars and probes. The genuine kill switches here are mostly *absence of a credential*: blank `TWILIO_*` for audit-only mode, blank `GROQ_API_KEY`/`GEMINI_API_KEY` for scripted replies, blank `BANK_WEBHOOK_URL` to pause dispatch. The P1001/IPv6 trap and the literal freeze dates are recorded.
+
+`docs/RUNBOOK.md` documented five kill switches — `live_dialing`, `outbound_webhooks`, `llm_phrasing`, `byok`, `spend_ceiling`. **None existed**; `src/lib/flags.ts` has exactly four flags, and the features route returns only one. The runbook was rewritten from the repository's real flags, env vars and probes. The genuine kill switches here are mostly _absence of a credential_: blank `TWILIO_*` for audit-only mode, blank `GROQ_API_KEY`/`GEMINI_API_KEY` for scripted replies, blank `BANK_WEBHOOK_URL` to pause dispatch. The P1001/IPv6 trap and the literal freeze dates are recorded.
 
 ---
 
@@ -524,7 +538,7 @@ An honest note from that work: the seeded ULID generator initially lost monotoni
 The three remaining gate failures are not logic errors. **Every suite shares `securevoice_test`**, and suites create and delete rows that other suites assert on, so the failing set changes between runs. Fixed so far:
 
 - the capacity gate now runs against **its own database** (`securevoice_load`), because a capacity number contaminated by another suite is not a capacity number, and it is now **reproducible across consecutive runs**;
-- the runner's ordering dependency is now explicit (`load/` before `docs/`, because the capacity document is checked against the artifact the load gate writes) — previously alphabetical order compared the document against the *previous* run's numbers;
+- the runner's ordering dependency is now explicit (`load/` before `docs/`, because the capacity document is checked against the artifact the load gate writes) — previously alphabetical order compared the document against the _previous_ run's numbers;
 - `tenancy`, `load` and `surface` each pass when run on their own.
 
 The remaining fix is to give the other suites isolated databases too. That is a refactor, not a patch, and it is the highest-value next task: without it the suite is not reliably green and a judge's first `bun run test` is a coin flip.
@@ -737,13 +751,13 @@ discredit the whole model.
 The technical README is graded. Four live contradictions, plus two missing
 artifacts.
 
-| Item | Before | After |
-| --- | --- | --- |
-| SQLite | Configuration table claimed an absolute `file:` URL works for SQLite — false, Prisma rejects it with P1012 against a `postgresql` provider | Claim deleted. `file:` now appears in the README only in the two correct statements that Prisma **rejects** it. The correct claims were not softened. |
-| Languages | Features said Hindi and Urdu live with French/Bengali/Swahili on the roadmap; the LLM section listed all six. Bengali appears nowhere in the code. | One true statement per path, each attributed to its source: the ElevenLabs agent is `en / ar / hi` (`agent/securevoice.agent.yaml`); the continuity pipeline additionally `ur / fr / sw` (`src/lib/config.ts`). Only English and Arabic have a recorded end-to-end conversation. |
-| Conversation plane | Heading read "Run the ElevenLabs agent (optional, needs an account)" and "The platform works standalone with the built-in voice pipeline instead" — the exact inverse of the required positioning | Heading is now "The ElevenLabs conversation plane (primary)". A continuity-path subsection states the trigger (inbound Twilio turns, browser demo) and the capability lost — nothing on that path can invoke the four tools; the deterministic router only *reports* an intent. Flag names verified against `src/lib/flags.ts`. |
-| Groq model | `qwen/qwen3.8-27b` presented without qualification; `MODEL_CARD.md` claimed `llama-3.1-8b-instant` was retired from Groq — demonstrably false | Every mention carries the preview-tier disclosure with Groq's own warning. The Llama-3.1 claim is corrected to the true statement. |
-| Missing | No evidence link; no latency table | `evidence/INDEX.md` linked. Latency table publishes two measured spans (signal-accepted to provider-accepted 551 ms; tool round-trip p95 9 ms) and three explicitly **not yet measured**. The remote-DB caveat is stated so the 9 ms figure cannot be read as topology-independent. |
+| Item               | Before                                                                                                                                                                                            | After                                                                                                                                                                                                                                                                                                                           |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| SQLite             | Configuration table claimed an absolute `file:` URL works for SQLite — false, Prisma rejects it with P1012 against a `postgresql` provider                                                        | Claim deleted. `file:` now appears in the README only in the two correct statements that Prisma **rejects** it. The correct claims were not softened.                                                                                                                                                                           |
+| Languages          | Features said Hindi and Urdu live with French/Bengali/Swahili on the roadmap; the LLM section listed all six. Bengali appears nowhere in the code.                                                | One true statement per path, each attributed to its source: the ElevenLabs agent is `en / ar / hi` (`agent/securevoice.agent.yaml`); the continuity pipeline additionally `ur / fr / sw` (`src/lib/config.ts`). Only English and Arabic have a recorded end-to-end conversation.                                                |
+| Conversation plane | Heading read "Run the ElevenLabs agent (optional, needs an account)" and "The platform works standalone with the built-in voice pipeline instead" — the exact inverse of the required positioning | Heading is now "The ElevenLabs conversation plane (primary)". A continuity-path subsection states the trigger (inbound Twilio turns, browser demo) and the capability lost — nothing on that path can invoke the four tools; the deterministic router only _reports_ an intent. Flag names verified against `src/lib/flags.ts`. |
+| Groq model         | `qwen/qwen3.8-27b` presented without qualification; `MODEL_CARD.md` claimed `llama-3.1-8b-instant` was retired from Groq — demonstrably false                                                     | Every mention carries the preview-tier disclosure with Groq's own warning. The Llama-3.1 claim is corrected to the true statement.                                                                                                                                                                                              |
+| Missing            | No evidence link; no latency table                                                                                                                                                                | `evidence/INDEX.md` linked. Latency table publishes two measured spans (signal-accepted to provider-accepted 551 ms; tool round-trip p95 9 ms) and three explicitly **not yet measured**. The remote-DB caveat is stated so the 9 ms figure cannot be read as topology-independent.                                             |
 
 **Gate: `bun test tests/docs/docs-accuracy.test.ts` — 12 pass, 0 fail, 42
 expect() calls, 134 ms.** The assertions derive the language sets from
@@ -759,12 +773,12 @@ reverting the Llama model-card claim.
 The same failure class as `createCase` — a correct, self-tested library with no
 production call site.
 
-| Item | Before | After |
-| --- | --- | --- |
-| `planTier` | Never passed to `assertDialAllowed`, which defaults an unset tier to the strictest — so **every live signal evaluated as the `demo` tier** and legitimate production dials could be refused | `planTierFor(abuseOrg)` resolves the org's real tier at the call site. |
-| SSRF on `callback_url` | The one live path validated with a ~15-line string check and no DNS resolution, so a hostname resolving to a private, loopback, link-local or cloud-metadata address passed | The live path now runs `validateOutboundUrl`, which resolves DNS and re-validates. The cheap `https://` string check remains only as a first-pass schema filter. |
-| CSV formula injection | The console's export button bypassed the neutraliser, so a merchant name starting `=`, `+`, `-` or `@` executed in Excel when a bank analyst opened the export | `Console.tsx` imports `interventionsCsv` from the helper, so the shipped path goes through it. |
-| Tenancy registry | `UsageLedger` and `PaymentRecord` carry `orgId` but were in neither registry. `DialJob` likewise. | `UsageLedger` and `PaymentRecord` added to `TENANTED_MODELS`. `DialJob` placed in `PLATFORM_MODELS` **with its reason stated**, because `prisma/schema.prisma` declares no `DialJob` model at all, the table has no `orgId` column, and a worker legitimately claims across every org exactly as `lib.outbox.claim-batch` does. Registering it as a tenant model would make the guard inject an org predicate Prisma rejects at query time. |
+| Item                   | Before                                                                                                                                                                                      | After                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `planTier`             | Never passed to `assertDialAllowed`, which defaults an unset tier to the strictest — so **every live signal evaluated as the `demo` tier** and legitimate production dials could be refused | `planTierFor(abuseOrg)` resolves the org's real tier at the call site.                                                                                                                                                                                                                                                                                                                                                                      |
+| SSRF on `callback_url` | The one live path validated with a ~15-line string check and no DNS resolution, so a hostname resolving to a private, loopback, link-local or cloud-metadata address passed                 | The live path now runs `validateOutboundUrl`, which resolves DNS and re-validates. The cheap `https://` string check remains only as a first-pass schema filter.                                                                                                                                                                                                                                                                            |
+| CSV formula injection  | The console's export button bypassed the neutraliser, so a merchant name starting `=`, `+`, `-` or `@` executed in Excel when a bank analyst opened the export                              | `Console.tsx` imports `interventionsCsv` from the helper, so the shipped path goes through it.                                                                                                                                                                                                                                                                                                                                              |
+| Tenancy registry       | `UsageLedger` and `PaymentRecord` carry `orgId` but were in neither registry. `DialJob` likewise.                                                                                           | `UsageLedger` and `PaymentRecord` added to `TENANTED_MODELS`. `DialJob` placed in `PLATFORM_MODELS` **with its reason stated**, because `prisma/schema.prisma` declares no `DialJob` model at all, the table has no `orgId` column, and a worker legitimately claims across every org exactly as `lib.outbox.claim-batch` does. Registering it as a tenant model would make the guard inject an org predicate Prisma rejects at query time. |
 
 **Gates:** `bun test tests/validation` — **44 pass, 0 fail, 326 expect() calls**,
 covering all four (plus the pre-existing validation suite) in 1.96 s.
@@ -847,7 +861,7 @@ No phone number is ever fabricated and there is no fallback to the ungated path.
 
 **Gate: `bun test tests/console/fire.test.ts` — 7 pass, 0 fail, 55 expect()
 calls, 34 s.** Mutation-checked, not merely green: reverting the amount to a
-float gives 4 pass / 3 fail (upstream 422); changing it to a valid *integer* that
+float gives 4 pass / 3 fail (upstream 422); changing it to a valid _integer_ that
 is 100x wrong gives 5 pass / 2 fail (`Expected: 250050 / Received: 2501`). The
 exact-value assertion bites independently of the schema. Tenant scoping is
 asserted end-to-end by re-pointing the console's customer at another org's row:
@@ -880,30 +894,30 @@ accepted case.
 - `docs/CAPACITY.md` §7 quoted a load run no artifact had ever recorded. **The
   audit's premise was corrected by verification:** the committed artifact was
   stale, but the working-tree artifact had since been re-recorded, and the
-  *document* was the thing that matched neither. Corrected, and gated by a new
+  _document_ was the thing that matched neither. Corrected, and gated by a new
   `tests/docs/load-artifact-consistency.test.ts` which **fails when the defect is
   reintroduced** (verified: restoring the bad numbers produces
   `load: section 7's quoted split ranges are internally consistent with the
-  artifact` → 9 pass 1 fail).
+artifact` → 9 pass 1 fail).
 
 ### 5. Two gates that could not fail — now they can
 
 - `tests/tenancy/isolation.test.ts` required `DECLARED-GAP-still-unscoped` to be
-  **true**: green *because* the gap was open. It now asserts the leak is
+  **true**: green _because_ the gap was open. It now asserts the leak is
   **gone**. The probes and artifact are unchanged; only the verdict moved.
 - `tests/tenancy/probe-registry.ts` still contains three driver-level checks
-  asserting the leak *reproduces*, which now contradict the gate-level
+  asserting the leak _reproduces_, which now contradict the gate-level
   verdict. Recorded for cleanup.
 
 **The tenancy isolation suite is now RED, deliberately.** It is red because
 four cross-tenant leaks are genuinely open:
 
-| Module | Line | Query |
-| --- | --- | --- |
-| `caseByRef` | `case-state-machine.ts:190` | `findUnique({ where: { caseRef } })` — no org predicate |
+| Module               | Line                        | Query                                                         |
+| -------------------- | --------------------------- | ------------------------------------------------------------- |
+| `caseByRef`          | `case-state-machine.ts:190` | `findUnique({ where: { caseRef } })` — no org predicate       |
 | `caseByConversation` | `case-state-machine.ts:185` | `findFirst({ where: { conversationId } })` — no org predicate |
-| `verifyChain` | `audit-chain.ts:262` | `findMany({ where: { callRef } })` — no org predicate |
-| `acknowledge` | `notifications.ts:109` | `findUnique({ where: { id } })` — no org predicate |
+| `verifyChain`        | `audit-chain.ts:262`        | `findMany({ where: { callRef } })` — no org predicate         |
+| `acknowledge`        | `notifications.ts:109`      | `findUnique({ where: { id } })` — no org predicate            |
 
 A red gate naming four real leaks is worth more than a green gate asserting
 they are expected. Fixing them means changing four signatures and every
@@ -959,12 +973,12 @@ existed**. `tests/tenancy/isolation.test.ts` required
 `DECLARED-GAP-still-unscoped` to be true. Changing only the verdict — the probes
 and the artifact untouched — made it red and named four genuine leaks:
 
-| Module | Line | Query as it was |
-| --- | --- | --- |
-| `caseByRef` | `case-state-machine.ts:190` | `findUnique({ where: { caseRef } })` |
+| Module               | Line                        | Query as it was                            |
+| -------------------- | --------------------------- | ------------------------------------------ |
+| `caseByRef`          | `case-state-machine.ts:190` | `findUnique({ where: { caseRef } })`       |
 | `caseByConversation` | `case-state-machine.ts:185` | `findFirst({ where: { conversationId } })` |
-| `verifyChain` | `audit-chain.ts:262` | `findMany({ where: { callRef } })` |
-| `acknowledge` | `notifications.ts:109` | `findUnique({ where: { id } })` |
+| `verifyChain`        | `audit-chain.ts:262`        | `findMany({ where: { callRef } })`         |
+| `acknowledge`        | `notifications.ts:109`      | `findUnique({ where: { id } })`            |
 
 Not one had an org predicate. Each console route pre-checked ownership and
 returned 404 before calling the function, so the leak was covered at exactly
@@ -977,7 +991,7 @@ caller appears, and that a judge finds in a twenty-minute vendor review.
 apply it in the query, using the convention the console routes already used:
 
 ```ts
-orgId ? { orgId } : { OR: [{ orgId: null }, { orgId: "default" }] }
+orgId ? { orgId } : { OR: [{ orgId: null }, { orgId: "default" }] };
 ```
 
 Making it required is the point. An optional scope is a scope that will be
@@ -1014,7 +1028,7 @@ KNOWN OPEN CROSS-TENANT GAPS (2 failing checks, 3 gaps closed):
 
 The suite is **still red**, and that is correct: it is red for the one gap that
 genuinely remains, and it names it. Three driver-level checks in
-`tests/tenancy/probe-registry.ts` that asserted the leak *reproduces* were
+`tests/tenancy/probe-registry.ts` that asserted the leak _reproduces_ were
 deleted so the artifact no longer records both "gap open: ok=true" and
 "gap open: ok=false" for the same path. The fourth was deliberately **kept** —
 it belongs to `by-conversation`, which is still open, and deleting it would
@@ -1238,15 +1252,15 @@ that only asserted success would pass against a route that refuses everything,
 and one that only asserted refusal would pass against a route that is always
 broken:
 
-| Assertion | Proves |
-| --- | --- |
-| Commit succeeds from `FREEZE_STAGED`, case → `ESCALATED` | the happy path runs at all |
-| Refused **without** a fresh step-up (428), case stays `FREEZE_STAGED` | a valid Owner cookie is not enough; the freeze stays reversible |
-| Another tenant's staged freeze → **404, not 403** | a 403 confirms the case exists, which is the leak |
-| Refused from `SCREENED` with `state_precondition_failed` (409) | only fraud confirmation can be committed |
-| Unknown body fields rejected (422), case unmoved | `.strictObject` holds on the commit path |
-| An **Auditor** with a valid step-up is refused (403) | step-up does not substitute for the capability |
-| Chain verifies from genesis after commit | a freeze that commits with nothing in the chain is indistinguishable from one that never happened |
+| Assertion                                                             | Proves                                                                                            |
+| --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| Commit succeeds from `FREEZE_STAGED`, case → `ESCALATED`              | the happy path runs at all                                                                        |
+| Refused **without** a fresh step-up (428), case stays `FREEZE_STAGED` | a valid Owner cookie is not enough; the freeze stays reversible                                   |
+| Another tenant's staged freeze → **404, not 403**                     | a 403 confirms the case exists, which is the leak                                                 |
+| Refused from `SCREENED` with `state_precondition_failed` (409)        | only fraud confirmation can be committed                                                          |
+| Unknown body fields rejected (422), case unmoved                      | `.strictObject` holds on the commit path                                                          |
+| An **Auditor** with a valid step-up is refused (403)                  | step-up does not substitute for the capability                                                    |
+| Chain verifies from genesis after commit                              | a freeze that commits with nothing in the chain is indistinguishable from one that never happened |
 
 Each test drives eight sequential case-state transitions plus audit appends
 against a ~280 ms remote database, so each carries an explicit 60 s budget — the
@@ -1326,7 +1340,7 @@ done — 305 audit rows total
 ```
 
 **The number is deliberately not fabricated.** Seeding a plausible E.164 that
-belongs to a real stranger would make the dial path *look* working while
+belongs to a real stranger would make the dial path _look_ working while
 putting a call to an uninvolved person into your demo evidence. That is worse
 than a visible refusal, and it is the kind of thing a judge would find out.
 
@@ -1379,17 +1393,17 @@ shipped path is never the thing that was exercised.
 ### Closed
 
 `tests/tenancy/console-routes.test.ts` — **6 pass, 0 fail** — drives the real
-handlers with Clerk mocked to two organisations, and asserts each cannot see or
+handlers with the session resolver mocked to two organisations, and asserts each cannot see or
 touch the other's data:
 
-| Assertion | Proves |
-| --- | --- |
-| `producer-keys` as org A lists `key-a`, **never** `key-b` | the other org's key is absent, not merely unusable |
-| `producer-keys` as org B sees the mirror image | the scoping is symmetric, not one-directional |
-| `inbox` as org A contains `alert-a`, not `alert-b` | the feed is org-scoped |
-| acknowledging org B's alert → **404, and the row stays unacknowledged** | the write is refused AND had no effect |
-| `settings` cannot surface or write org B's profile | no client-supplied id is honoured |
-| `audit` on org B's `caseRef` → **404** | never 403, which would confirm existence |
+| Assertion                                                               | Proves                                             |
+| ----------------------------------------------------------------------- | -------------------------------------------------- |
+| `producer-keys` as org A lists `key-a`, **never** `key-b`               | the other org's key is absent, not merely unusable |
+| `producer-keys` as org B sees the mirror image                          | the scoping is symmetric, not one-directional      |
+| `inbox` as org A contains `alert-a`, not `alert-b`                      | the feed is org-scoped                             |
+| acknowledging org B's alert → **404, and the row stays unacknowledged** | the write is refused AND had no effect             |
+| `settings` cannot surface or write org B's profile                      | no client-supplied id is honoured                  |
+| `audit` on org B's `caseRef` → **404**                                  | never 403, which would confirm existence           |
 
 **404, not 403, throughout.** A 403 discloses the ID space; that disclosure is
 itself the leak.
@@ -1478,11 +1492,11 @@ and both routes compile clean.
 ### What this session closed instead
 
 `tests/tenancy/console-routes.test.ts` — **6 pass, 0 fail** — closing the gap
-that the console routes' tenancy was *asserted* rather than proven. The
+that the console routes' tenancy was _asserted_ rather than proven. The
 isolation matrix exercises the lookup expressions against fixtures, which
 proves Prisma honours `{orgId}` but not that the route passes the right org. A
 route computing the correct predicate and querying with the wrong one would
-have passed every existing check. These drive the real handlers with Clerk
+have passed every existing check. These drive the real handlers with the session
 mocked to two orgs and assert 404-never-403 across producer keys, the inbox,
 the acknowledge write, settings, and the audit walk.
 
@@ -1519,3 +1533,76 @@ tests/tenancy/isolation         3 gaps closed, 1 named gap open (by design)
 tests/docs                     12 pass  1 fail  <- load artifact conflict
 bun run evidence               exits 1 — 12 agent runs unexecuted (quota)
 ```
+
+---
+
+## AA-1.1 — query budgets and the N+1 gate
+
+**The claim under test:** no route issues an unbounded number of database
+queries, and an N+1 introduced today fails CI.
+
+**Why it is needed.** An N+1 is the most common way a correct query layer
+becomes slow. Every functional test still passes — every answer is still right —
+so correctness assertions can never catch it. Only counting the queries can.
+
+**What was built.**
+
+| Piece                                        | Where                                  |
+| -------------------------------------------- | -------------------------------------- |
+| Request-scoped counter (`AsyncLocalStorage`) | `src/lib/telemetry/query-counter.ts`   |
+| Prisma wiring (`$on('query')`, dev only)     | `src/lib/db.ts`                        |
+| Per-route budgets + reasons                  | `tests/routes/query-budgets.ts`        |
+| The gate                                     | `tests/telemetry/query-budget.test.ts` |
+
+**Why `AsyncLocalStorage` and not a global.** A module-level counter cannot
+survive `await`, so two concurrent requests interleave into the same number and
+whichever finishes last wins. The gate asserts this directly: two interleaved
+requests are measured independently (2 and 1) and neither sees the other's
+queries.
+
+**Mutation-tested — the gate is not vacuous.** Four mutations were applied and
+each was caught:
+
+| Mutation                                                | Caught by                                                       |
+| ------------------------------------------------------- | --------------------------------------------------------------- |
+| `AsyncLocalStorage` → a global counter                  | _concurrent requests are counted independently_ (+2 more)       |
+| add a stale budget for a deleted route                  | _no override exists for a route that no longer exists_          |
+| emit query events in production (`? ["error","query"]`) | _the counter stays out of the production query path_ (+1 more)  |
+| delete the `$on('query')` subscription                  | _db.ts declares the query level AND subscribes to it_ (+1 more) |
+
+That last one matters most: `log: [{ emit: 'event', level: 'query' }]` **without**
+a `$on('query')` subscription is legal, silent, and makes every budget pass while
+the counter has never seen a query. The gate asserts the subscription exists.
+
+**Two real bugs the work surfaced, both fixed:**
+
+1. Prisma 7's `LogDefinition.emit` is the string `'stdout' | 'event'`, not a
+   callback. The first wiring (`emit: (event) => …`) was not a valid config and
+   broke the contracts suite with
+   `PrismaClientConstructorValidationError: Invalid value undefined for "emit"`.
+   The correct Prisma 7 shape is `log: [{ level, emit: 'event' }]` **plus**
+   `db.$on('query', cb)` — verified against the installed type definitions
+   (`node_modules/@prisma/client/runtime/client.d.ts`) and the Prisma docs, not
+   assumed.
+2. My own test asserted a handler's `15` (minutes) against the policy constant in
+   seconds, and a fake `db` recorded no queries at all — so four tests passed for
+   the wrong reason. Both were caught by the suite itself and corrected rather
+   than adjusted until green.
+
+**State.**
+
+```
+tsc  app        0 errors
+tsc  tests      0 errors   (the previously-red test-typecheck gate is now clean)
+eslint          PASS
+tests/telemetry/query-budget   23 pass  0 fail
+```
+
+**Not verified, and stated as such.** The gate is DB-free by design: it proves
+the counter is request-scoped and that the N+1 _shape_ scales, but it has not
+measured a real route's real query count against its budget, because the remote
+Postgres is unreachable (`WP-2 p95 leg`, same blocker as every DB-backed suite).
+Wiring is asserted structurally against `src/lib/db.ts` for the same reason. Once
+local Postgres exists, the next step is to drive a few real handlers inside
+`runWithQueryCounter()` and record their actual counts as the baseline — at which
+point the budgets stop being declared estimates and start being measurements.

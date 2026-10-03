@@ -102,12 +102,44 @@ const s7 = section7();
 const numbersIn = (text: string) =>
   [...text.matchAll(/\d[\d,]*/g)].map((m) => Number(m[0].replace(/,/g, "")));
 
-/** The §7 table row whose first cell is exactly `label`. */
-function row(label: string): string {
-  const hit = s7.split(/\r?\n/).find((l) => l.trim().startsWith(`| ${label} |`));
-  expect(hit, `docs/CAPACITY.md §7 has no table row labelled "${label}"`).toBeDefined();
-  return hit!;
+/** Strips markdown emphasis and collapses whitespace from a table cell. */
+const normalizeCell = (s: string) => s.replace(/[*`]/g, "").replace(/\s+/g, " ").trim();
+
+/** Splits a markdown table row into trimmed cells, or null if it is not one. */
+function cellsOf(line: string): string[] | null {
+  const t = line.trim();
+  if (!t.startsWith("|")) return null;
+  const body = t.endsWith("|") ? t.slice(1, -1) : t.slice(1);
+  return body.split("|").map((c) => c.trim());
 }
+
+/**
+ * The §7 table row whose first cell is `label`, returned as its cells.
+ *
+ * This parses the row instead of matching the literal string `| label |`, and
+ * that is a correction rather than a convenience. Prettier aligns markdown
+ * tables, padding each cell out to the column width, so `| Dialled |` becomes
+ * `| Dialled                    |` in the committed document. A `startsWith`
+ * match then reports the row as MISSING — and because this is a consistency
+ * gate whose job is to prove the prose was not quietly reworded, the honest
+ * reading is the opposite one: a formatting pass must not be able to
+ * masquerade as evidence that a claim was deleted.
+ *
+ * Emphasis is normalized too, because the label may be written `Errors` or
+ * `**Errors**` depending on whether the author bolded the invariant, and that
+ * is presentation, not content.
+ */
+function row(label: string): string[] {
+  const want = normalizeCell(label);
+  for (const line of s7.split(/\r?\n/)) {
+    const cells = cellsOf(line);
+    if (cells && cells.length > 1 && normalizeCell(cells[0]) === want) return cells;
+  }
+  throw new Error(`docs/CAPACITY.md §7 has no table row labelled "${label}"`);
+}
+
+/** The value cells of a §7 row, joined back into one searchable string. */
+const rowValues = (label: string) => row(label).slice(1).join(" | ");
 
 test("load: §7 describes a run that actually completed", () => {
   // The headline failure: prose quoting "0 errors, 0 dead-lettered" over an
@@ -140,22 +172,26 @@ test("load: the accounting invariants §7 leads with hold in the artifact", () =
 
 test("load: §7 states those invariants, so the reader is not left to assume them", () => {
   // Each of these is a claim §7 makes in prose or table form. If one is dropped
-  // the gate does not silently pass on a thinner document.
-  expect(s7).toContain("| `summary.cases_accounted_exactly` | `true` |");
-  expect(s7).toMatch(/Jobs dead-lettered \/ lost \/ double-claimed \| \*\*0 \/ 0 \/ 0\*\*/);
-  expect(s7).toMatch(/Audit chains verified from genesis \| 25\/25/);
-  expect(s7).toMatch(/Errors, both scenarios \| \*\*0\*\*/);
+  // the gate does not silently pass on a thinner document. Matched through the
+  // cell parser so that Prettier's table alignment cannot be mistaken for a
+  // removed claim: `row` throws when the label is absent, which is the point.
+  expect(rowValues("`summary.cases_accounted_exactly`")).toContain("true");
+  expect(rowValues("Jobs dead-lettered / lost / double-claimed")).toMatch(
+    /\b0\s*\/\s*0\s*\/\s*0\b/,
+  );
+  expect(rowValues("Audit chains verified from genesis")).toMatch(/25\s*\/\s*25/);
+  expect(rowValues("Errors, both scenarios")).toMatch(/\b0\b/);
 });
 
 test("load: §7's quoted dead-letter and error figures are the artifact's", () => {
   // The specific row that shipped the false claim. All four cells, in order.
-  expect(numbersIn(row("Jobs done / dead-lettered / lost / double-claimed"))).toEqual([
+  expect(numbersIn(rowValues("Jobs done / dead-lettered / lost / double-claimed"))).toEqual([
     artifact.scenarios.burst.queue.jobs_done,
     artifact.scenarios.burst.queue.jobs_dead,
     artifact.scenarios.burst.queue.jobs_lost_before_settlement,
     0,
   ]);
-  expect(numbersIn(row("**Errors**"))).toContain(artifact.scenarios.burst.errors);
+  expect(numbersIn(rowValues("Errors"))).toContain(artifact.scenarios.burst.errors);
 });
 
 test("load: §7's accounting block states the artifact's own invariants", () => {
@@ -186,7 +222,7 @@ test("load: §7's accounting block states the artifact's own invariants", () => 
 test("load: the vendor ceiling was reached, not inferred", () => {
   expect(artifact.summary.burst_vendor_max_concurrent).toBe(40);
   expect(artifact.scenarios.burst.vendor.max_concurrent_sessions_observed).toBe(40);
-  expect(row("Max concurrent sessions the vendor double ever saw")).toContain("40 of 40");
+  expect(rowValues("Max concurrent sessions the vendor double ever saw")).toContain("40 of 40");
 });
 
 test("load: §7 says the shed split moves between runs instead of pinning it", () => {
@@ -207,7 +243,9 @@ test("load: §7's quoted split ranges are internally consistent with the artifac
   // sum to the campaign, and the current run must fall inside both. This is the
   // check that catches a flattering invention such as "1,118 dialled, 82 shed".
   const range = (label: string) => {
-    const m = row(label).match(/([\d,]+)[^\d|]+([\d,]+)/);
+    // Read the range out of the row's VALUE cells, not the whole line, so the
+    // label itself can never contribute a number to the comparison.
+    const m = rowValues(label).match(/([\d,]+)[^\d|]+([\d,]+)/);
     expect(m, `§7's "${label}" row states no observed range`).not.toBeNull();
     // Both groups are required (non-optional) captures, so a match always fills them.
     return [Number(m![1]!.replace(/,/g, "")), Number(m![2]!.replace(/,/g, ""))] as const;

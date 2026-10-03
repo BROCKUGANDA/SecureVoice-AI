@@ -1,0 +1,8 @@
+# State and secrets must never be committed. A state file holds the Linode
+# token-adjacent resource IDs and, once you add a backend, credentials.
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!prod.tfvars.example
+crash.log

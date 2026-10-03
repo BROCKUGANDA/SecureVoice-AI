@@ -1,0 +1,41 @@
+# Copy to prod.tfvars and edit. Never commit the real one.
+#
+#   terraform plan  -var-file=prod.tfvars
+#   terraform apply -var-file=prod.tfvars
+
+name        = "securevoice"
+deploy_env  = "prod"
+region      = "de"           # closest to where calls are answered
+
+# g6-standard-2 is 4 vCPU / 8 GB — the size docs/DEPLOY.md says the current
+# deployment uses. g6-nanode-1 (2 GB) will NOT build; see the swap note below.
+instance_type = "g6-standard-2"
+disk_size_mb  = 81920
+
+# 2G, because `next build` OOMs at 4 GB without it.
+swap_size_mb = 2048
+
+# REQUIRED. Terraform fails validation on an empty list rather than opening
+# SSH to the internet. Narrow this to your own egress IP(s).
+allow_ssh_from = [
+  "203.0.113.10/32", # your office/VPN egress
+]
+
+# Bootstrap escape hatch for the very first boot, before your key is installed.
+# Set to true, apply, install the key, then set it BACK to false and re-apply.
+# `outputs.ssh_is_open_to_world` tells you if you left it on.
+allow_ssh_from_anywhere = false
+
+# Leave empty. The app publishes no ports; every entry here widens the edge.
+extra_open_ports = []
+
+# Off by default: a fraud case database is PII-bearing, so where backups live
+# is a decision rather than a default.
+enable_backups = false
+
+# Provide your own key and Terraform will not generate one:
+#   ssh-keygen -t ed25519 -C securevoice
+# ssh_public_key = "ssh-ed25519 AAAA... securevoice"
+ssh_public_key = null
+
+tags = ["securevoice", "prod", "terraform"]

@@ -31,6 +31,7 @@ import { afterAll, describe, expect, mock, test } from "bun:test";
 import { z } from "zod";
 import { leakScan } from "@/lib/failures/envelope";
 import { db } from "@/lib/db";
+import * as realCredits from "@/lib/credits";
 import { GET as healthGet } from "@/app/api/health/route";
 import { GET as readyzGet } from "@/app/api/readyz/route";
 import { GET as statusGet } from "@/app/api/status/route";
@@ -42,6 +43,10 @@ import { GET as statusGet } from "@/app/api/status/route";
 // of these tests is that an ANONYMOUS caller is refused — which is precisely
 // the null case.
 mock.module("@/lib/credits", () => ({
+  // Spread the real module: console routes import `requireOperator` /
+  // `requireSignedIn` from it too, so a wholesale replacement makes them fail
+  // to link instead of failing the assertion.
+  ...realCredits,
   getProfile: async () => null,
 }));
 

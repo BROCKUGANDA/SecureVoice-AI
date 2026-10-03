@@ -126,7 +126,11 @@
 	}
 
 	handle {
-		reverse_proxy app:3000 {
+		# `APP_UPSTREAM` is what makes this a BLUE/GREEN deployment: it names the
+		# colour currently serving traffic (app-blue:3000 or app-green:3000), and
+		# `scripts/deploy.mjs` is its only writer. The `app:3000` default keeps a
+		# plain `docker compose up` working unchanged on a single-colour stack.
+		reverse_proxy {$APP_UPSTREAM:app:3000} {
 			import forwarded_headers
 			# Next.js handles its own compression; double-compressing a streamed
 			# response only adds latency.

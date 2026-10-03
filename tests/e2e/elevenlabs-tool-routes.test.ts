@@ -92,6 +92,7 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { Prisma } from "@/generated/prisma/client";
 import { db, dbAudit } from "@/lib/db";
+import { leakScan } from "@/lib/failures/envelope";
 import { append as auditAppend } from "@/lib/audit-chain";
 import { POST as cardFreeze } from "@/app/api/elevenlabs/tools/card-freeze/route";
 import { POST as verifyTransaction } from "@/app/api/elevenlabs/tools/verify-transaction/route";
@@ -1322,14 +1323,45 @@ describe("POST /api/elevenlabs/signed-url", () => {
     expect(upstream.call).toBeNull();
   });
 
-  test("an upstream failure is a 503 with a bounded detail", async () => {
+  test("an upstream failure is a 503 with a bounded, leak-checked detail", async () => {
     respondWith("x".repeat(5_000), 500);
     const res = await call(SIGNED, {}, SECRET);
     expect(res.status).toBe(503);
     const detail = ((await res.json()) as { error: string }).error;
     expect(detail.startsWith("ElevenLabs 500: ")).toBe(true);
-    expect(detail).toHaveLength("ElevenLabs 500: ".length + 200);
+    // Bound TIGHTENED from 200 to 160, because the detail now goes through
+    // `leakSafeText` rather than a bare `.slice()`. The status prefix stays, so an
+    // operator still sees which vendor and which status failed.
+    expect(detail).toHaveLength("ElevenLabs 500: ".length + 160);
     expect(detail).not.toContain("test-elevenlabs-api-key");
+    // The stronger property: whatever survived is publishable under the
+    // project's own leak gate, not merely short.
+    expect(leakScan(detail)).toEqual([]);
+  });
+
+  test("a leaky upstream body is redacted rather than echoed", async () => {
+    // The defect this closed: `upstreamError()` does not sanitise, and this route
+    // was handing it 200 raw characters of vendor response body. Asserted
+    // against the leak classes `leakSafeText` actually enforces — a stack frame
+    // and a credential — rather than an arbitrary hostname, which is not a leak
+    // class this project has chosen to redact.
+    respondWith("connect ECONNREFUSED db.internal:5432\n    at pool (src/x.ts:1:1)", 502);
+    const res = await call(SIGNED, {}, SECRET);
+    const detail = ((await res.json()) as { error: string }).error;
+    expect(detail).toContain("ElevenLabs 502");
+    // The stack frame is gone, and the body is a single line.
+    expect(detail).not.toContain("src/x.ts:1:1");
+    expect(detail).not.toContain("\n");
+    expect(leakScan(detail)).toEqual([]);
+  });
+
+  test("a credential in an upstream body is redacted", async () => {
+    // The rule that let real Stripe keys through until it was fixed.
+    respondWith("upstream rejected key sk-live-abc123def", 502);
+    const res = await call(SIGNED, {}, SECRET);
+    const detail = ((await res.json()) as { error: string }).error;
+    expect(detail).not.toContain("sk-live-abc123def");
+    expect(leakScan(detail)).toEqual([]);
   });
 
   test("an upstream 200 with no credential is a 503, not a 200 with a null url", async () => {

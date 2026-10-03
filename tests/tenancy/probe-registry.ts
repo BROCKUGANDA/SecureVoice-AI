@@ -19,6 +19,7 @@ import { afterAll, beforeAll, mock } from "bun:test";
 import { NextRequest } from "next/server";
 import { db } from "@/lib/db";
 import { createHash } from "node:crypto";
+import * as realCredits from "@/lib/credits";
 import {
   PLATFORM_MODELS,
   TENANCY_BYPASS,
@@ -43,6 +44,12 @@ const session = {
 };
 
 mock.module("@/lib/credits", () => ({
+  // The console routes under this harness import `requireOperator` and
+  // `requireSignedIn` from this module, and those call `getProfile()`
+  // internally. Replacing the module wholesale drops them, and every console
+  // probe then fails to link with "Export named 'requireOperator' not found".
+  // Spread the real module; override only the seam under test.
+  ...realCredits,
   getProfile: async () =>
     session.orgId
       ? {

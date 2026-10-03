@@ -79,11 +79,9 @@ services:
       target: builder
     logging: *default-logging
     environment:
-      # Built from PARTS, not interpolated as a whole: a stray DATABASE_URL in a
-      # developer's .env (e.g. a remote Supabase host) must not redirect the
-      # schema push away from the bundled Postgres. Rotate the parts via
-      # POSTGRES_USER / POSTGRES_PASSWORD / POSTGRES_DB in .env.
-      DATABASE_URL: postgresql://${POSTGRES_USER:-securevoice}:${POSTGRES_PASSWORD:-securevoice}@db:5432/${POSTGRES_DB:-securevoice}?schema=public
+      # Use the same DATABASE_URL as the rest of the stack — .env is the single
+      # source of truth, all containers hit the same Postgres (Supabase).
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL must be set in .env}
       # Seed the demo case history on first boot. Idempotent per callRef; set
       # SEED_DEMO=false in .env for a clean production database.
       SEED_DEMO: ${SEED_DEMO:-true}
@@ -108,7 +106,7 @@ services:
     logging: *default-logging
     mem_limit: 512m
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-securevoice}:${POSTGRES_PASSWORD:-securevoice}@db:5432/${POSTGRES_DB:-securevoice}?schema=public
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL must be set in .env}
       NODE_ENV: production
       ELEVENLABS_DRY_RUN: ${ELEVENLABS_DRY_RUN:-true}
       ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
@@ -165,7 +163,7 @@ services:
       context: .
       target: runner
       args:
-        BUILD_DATABASE_URL: ${DATABASE_URL:-postgresql://securevoice:securevoice@db:5432/securevoice?schema=public}
+        BUILD_DATABASE_URL: ${DATABASE_URL:?DATABASE_URL must be set in .env}
         BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set in .env}
         BETTER_AUTH_URL: ${BETTER_AUTH_URL:-https://localhost:3000}
     # IMAGE lets a release job smoke-test the image it just published instead of a
@@ -179,7 +177,7 @@ services:
     environment:
       HOSTNAME: 0.0.0.0
       # Built from parts â€” see db-setup for why a whole-URL interpolation is unsafe.
-      DATABASE_URL: postgresql://${POSTGRES_USER:-securevoice}:${POSTGRES_PASSWORD:-securevoice}@db:5432/${POSTGRES_DB:-securevoice}?schema=public
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL must be set in .env}
       # Internal service name, NEVER localhost: inside the app container,
       # localhost is the app container. Empty = realtime disabled, console uses SSE.
       REALTIME_URL: ${REALTIME_URL:-http://realtime:4000}
@@ -249,7 +247,7 @@ services:
     logging: *default-logging
     environment:
       HOSTNAME: 0.0.0.0
-      DATABASE_URL: postgresql://${POSTGRES_USER:-securevoice}:${POSTGRES_PASSWORD:-securevoice}@db:5432/${POSTGRES_DB:-securevoice}?schema=public
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL must be set in .env}
     env_file:
       - path: .env
         required: false

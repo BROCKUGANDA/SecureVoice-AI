@@ -51,7 +51,29 @@ for (const f of files) {
       "postgresql://postgres@127.0.0.1:5432/securevoice_load?connection_limit=20";
   }
 
-  const r = spawnSync(process.execPath, ["test", `tests/${f}`], { stdio: "inherit", env });
+  // Per-test timeout. Bun defaults to 5_000ms, which is unrealistically tight
+  // for the DB-backed gates: the shared test database is a REMOTE Postgres at
+  // roughly a 2-second round trip, and several suites open a transaction per
+  // row. Measured on tests/privacy/privacy.test.ts against that database:
+  //
+  //     bun test tests/privacy/privacy.test.ts
+  //       2 pass / 9 fail   — every failure at exactly ~5000ms
+  //     bun test tests/privacy/privacy.test.ts --timeout 120000
+  //      11 pass / 0 fail
+  //
+  // Those nine were never broken; they were being killed by the clock
+  // mid-flight. A failure that lands uniformly ON the ceiling is a harness
+  // artefact, not a defect, and left unset it turns a green suite red on any
+  // machine slower than the developer's.
+  //
+  // Set here rather than only in bunfig.toml because the flag is honoured
+  // everywhere `bun run test` is the entry point, including a bare `bun test`
+  // from an editor or CI. Per-gate latency budgets (WP-2's p95, the tool p95)
+  // declare their own explicit timeout and are unaffected.
+  const r = spawnSync(process.execPath, ["test", `tests/${f}`, "--timeout", "120000"], {
+    stdio: "inherit",
+    env,
+  });
   if (r.status !== 0) failed = 1;
 }
 process.exit(failed);

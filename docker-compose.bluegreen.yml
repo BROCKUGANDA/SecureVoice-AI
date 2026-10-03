@@ -1,0 +1,166 @@
+# ---------------------------------------------------------------------------
+# SecureVoice AI — blue/green deployment slots
+#
+# An OVERRIDE file. Merge it with the base stack:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.bluegreen.yml up -d
+#
+# Why slots rather than a rolling update: a fraud intervention that is mid-call
+# during a bad deploy drops a live customer call. Blue/green brings the new
+# image up ALONGSIDE the running one, proves it on its own healthcheck, and only
+# then moves traffic. The old colour stays up and warm for the soak window, so a
+# rollback is a second traffic flip rather than a cold rebuild.
+#
+# ── What this does NOT do ─────────────────────────────────────────────────────
+# It does not run database migrations. A migration is not reversible by
+# flipping traffic back, so blue/green gives you a safe ROLLBACK only for
+# application code. Migrate first, separately, under `db-setup`; see
+# `docs/DEPLOY.md` for the ordering rule.
+#
+# ── The active colour ─────────────────────────────────────────────────────────
+# Caddy reads `APP_UPSTREAM` (see `Caddyfile`, `reverse_proxy {$APP_UPSTREAM}`),
+# and `scripts/deploy.mjs` is the only thing that writes it. It resolves the
+# service name inside the compose project network, so no host port is published
+# for either colour — which is what keeps the `src/proxy.ts` X-Forwarded-For
+# trust model sound.
+# ---------------------------------------------------------------------------
+name: securevoice-bluegreen
+
+x-app-slot: &app-slot
+  build:
+    context: .
+    target: runner
+  image: ${IMAGE:?set IMAGE to the release tag being promoted, e.g. ghcr.io/...:v0.4.0}
+  restart: unless-stopped
+  logging:
+    driver: json-file
+    options: { max-size: "10m", max-file: "5" }
+  mem_limit: 1g
+  environment:
+    HOSTNAME: 0.0.0.0
+    DATABASE_URL: ${DATABASE_URL:?DATABASE_URL must be set in .env}
+    REALTIME_URL: ${REALTIME_URL:-http://realtime:4000}
+    REALTIME_INGEST_SECRET: ${REALTIME_INGEST_SECRET:-}
+    # Proven at boot in the response body and on /api/health, so a rollback can
+    # prove which build is actually serving rather than trusting a tag.
+    SECUREVOICE_RELEASE: ${IMAGE:?set IMAGE}
+  env_file:
+    - path: .env
+      required: false
+  expose:
+    - "3000"
+  depends_on:
+    realtime:
+      condition: service_started
+  healthcheck:
+    # Readiness, not liveness: an instance must reach its database before it may
+    # take traffic. `/api/health` stays a pure process probe for uptime monitors,
+    # and that asymmetry is asserted in tests/ops.
+    test: ["CMD", "bun", "-e", "fetch('http://127.0.0.1:3000/api/readyz').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+    interval: 10s
+    timeout: 5s
+    # Deliberately short: the deploy script gates on the FIRST healthy result, so
+    # a slow start must be reported as not-healthy rather than waited out.
+    retries: 12
+    start_period: 20s
+
+services:
+  # ── the two colour slots ────────────────────────────────────────────────────
+  app-blue:
+    <<: *app-slot
+    # Coarse container-level alias, so `docker compose logs app-blue` and
+    # `docker inspect` identify the colour without reading the release tag.
+    hostname: app-blue
+    container_name: securevoice-app-blue
+    networks:
+      default:
+        aliases: [app-blue]
+
+  app-green:
+    <<: *app-slot
+    hostname: app-green
+    container_name: securevoice-app-green
+    networks:
+      default:
+        aliases: [app-green]
+
+  # ── traffic ─────────────────────────────────────────────────────────────────
+  # Only caddy is public. Both colours are `expose`-only, never `ports`.
+  caddy:
+    image: ${CADDY_IMAGE:-caddy:2-alpine}
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "5" }
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      # Written by scripts/deploy.mjs. Never hand-edit: the deploy script is the
+      # single writer so a rollback cannot race a manual change.
+      APP_UPSTREAM: ${APP_UPSTREAM:?set APP_UPSTREAM, or run scripts/deploy.mjs}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - db
+      - realtime
+
+  realtime:
+    image: ${REALTIME_IMAGE:-securevoice-realtime:local}
+    build:
+      context: ./mini-services/realtime
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "5" }
+    expose:
+      - "4000"
+    environment:
+      PORT: "4000"
+      REALTIME_INGEST_SECRET: ${REALTIME_INGEST_SECRET:-}
+      REALTIME_URL: ${REALTIME_URL:-http://realtime:4000}
+
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "5" }
+    mem_limit: 2g
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-securevoice}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-securevoice}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-securevoice} -d ${POSTGRES_DB:-securevoice}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # Reuse the base stack's one-shot migration job so a slot never starts against
+  # a schema it does not understand.
+  db-setup:
+    image: securevoice-ai-app:local
+    build:
+      context: .
+      target: runner
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL must be set in .env}
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set in .env}
+    env_file:
+      - path: .env
+        required: false
+    command: ["bun", "scripts/db-setup.ts"]
+    restart: "no"
+
+volumes:
+  db-data:
+  caddy-data:
+  caddy-config:

@@ -175,8 +175,13 @@ mock.module("@/lib/producer-keys", () => ({
 // case. Deliberately NOT restored: this stub is the shared anonymous identity,
 // and leaving it in place is what the rest of the group already expects.
 mock.module("@/lib/credits", () => ({
+  // Spread the real module so `requireOperator` / `requireSignedIn` survive;
+  // replacing it wholesale breaks every console route that imports them.
+  ...realCredits,
   getProfile: async () => null,
 }));
+
+import * as realCredits from "@/lib/credits";
 
 // Restore the snapshots: `tests/validation/callback-ssrf.test.ts` drives the real
 // redirect guard, and a leaked stub turns its "a 302 into the private network is

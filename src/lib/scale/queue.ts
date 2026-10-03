@@ -283,25 +283,43 @@ export async function claimDialJobs(opts: {
   limit?: number;
   leaseMs?: number;
 }): Promise<DialJob[]> {
-  const limit = Math.max(1, Math.trunc(opts.limit ?? 10));
+  // The limit is INLINED rather than bound as `$n`. That is a safety choice, not
+  // the bug fix: a LIMIT placeholder depends on the driver inferring a numeric
+  // type for an otherwise untyped parameter, and `limit` is already coerced to a
+  // safe integer here, so inlining removes the inference entirely. (The over-claim
+  // that WP-19's gate caught was NOT this — it was the derived-table shape, fixed
+  // in the statement below.) Keep the coercion above: it is what makes inlining
+  // safe, and a NaN would otherwise render as a syntax error.
+  const requested = Number(opts.limit ?? 10);
+  const limit = Number.isFinite(requested) ? Math.max(1, Math.trunc(requested)) : 10;
   try {
     // $queryRawUnsafe, not the tagged form: the column list in RETURNING and the
     // INTERVAL expression are literal SQL, so this mixes SQL text with $params.
+    //
+    // The claim is a CTE, not a derived table. `UPDATE … FROM (SELECT … FOR
+    // UPDATE SKIP LOCKED LIMIT n)` binds correctly when one statement runs alone
+    // but over-claims when two run concurrently: Postgres re-evaluates the
+    // sub-select for the outer row (EvalPlanQual), so each worker could be
+    // handed far more than the `limit` it asked for — which defeats the entire
+    // point of SKIP LOCKED and lets one worker drain the queue. Hoisting the
+    // locking select into a WITH clause materialises it once, so the LIMIT is a
+    // hard cap under concurrency as well as in isolation.
     return await db.$queryRawUnsafe<DialJob[]>(
-      `UPDATE "dial_job" j
+      `WITH claimed AS (
+         SELECT id FROM "dial_job"
+          WHERE (state = 'PENDING' AND available_at <= now())
+             OR (state = 'CLAIMED' AND lease_expires_at IS NOT NULL AND lease_expires_at < now())
+          ORDER BY priority DESC, available_at ASC, created_at ASC
+          FOR UPDATE SKIP LOCKED
+          LIMIT ${limit}
+       )
+       UPDATE "dial_job" j
           SET state = 'CLAIMED',
               claimed_by = $1,
               lease_expires_at = ${nowPlusMs(2)},
               updated_at = now()
-         FROM (
-           SELECT id FROM "dial_job"
-            WHERE (state = 'PENDING' AND available_at <= now())
-               OR (state = 'CLAIMED' AND lease_expires_at IS NOT NULL AND lease_expires_at < now())
-            ORDER BY priority DESC, available_at ASC, created_at ASC
-            FOR UPDATE SKIP LOCKED
-            LIMIT $3
-         ) AS cand
-        WHERE j.id = cand.id
+         FROM claimed
+        WHERE j.id = claimed.id
           AND (
             (j.state = 'PENDING' AND j.available_at <= now())
             OR (j.state = 'CLAIMED' AND j.lease_expires_at IS NOT NULL AND j.lease_expires_at < now())
@@ -309,7 +327,6 @@ export async function claimDialJobs(opts: {
        RETURNING ${COLUMNS_QUALIFIED}`,
       opts.workerId,
       Math.max(0, Math.trunc(opts.leaseMs ?? DEFAULT_LEASE_MS)),
-      limit,
     );
   } catch (err) {
     return rethrow(err, "claimDialJobs");

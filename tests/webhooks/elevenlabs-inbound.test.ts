@@ -21,6 +21,8 @@ process.env.ELEVENLABS_WEBHOOK_SECRET =
 
 const RUN_ID = Date.now().toString(36);
 const CONV_ID = `conv-webhook-${RUN_ID}`;
+/** The agent the payload names; the Organization below is bound to it. */
+const INBOUND_AGENT_ID = "agent_test";
 const WEBHOOK_SECRET = process.env.ELEVENLABS_WEBHOOK_SECRET!;
 
 function sign(body: string, t: string): string {
@@ -87,6 +89,25 @@ test("WP-4: post-call ingest verifies, dedupes, redacts, notifies", async () => 
       conversationId: CONV_ID,
     },
   });
+
+  // The inbound bleedguard resolves the tenant from the agent the event names,
+  // so the fixture has to mirror production: a real Organization bound to the
+  // agent, and the case owned by THAT org. Seeding the case against a bare
+  // "org-test" string that no organization claims made the scoped lookup
+  // correctly resolve nothing.
+  const INBOUND_ORG_ID = "cccccccc-0000-4000-8000-cccccccccccc";
+  await db.organization.upsert({
+    where: { id: INBOUND_ORG_ID },
+    create: {
+      id: INBOUND_ORG_ID,
+      name: "Inbound Test Tenant",
+      slug: `inbound-test-${RUN_ID}`,
+      createdAt: new Date(),
+      elevenAgentId: INBOUND_AGENT_ID,
+    },
+    update: { elevenAgentId: INBOUND_AGENT_ID },
+  });
+  await db.case.update({ where: { id: c.id }, data: { orgId: INBOUND_ORG_ID } });
 
   const body = postCallPayload();
 

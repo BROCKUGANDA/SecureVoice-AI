@@ -38,7 +38,9 @@
     "test:e2e": "bun scripts/run-tests.mjs e2e surface",
     "test:coverage": "bun scripts/coverage.mjs",
     "test:coverage:fast": "bun scripts/coverage.mjs --fast",
-    "test:coverage:unit": "bun scripts/coverage.mjs unit --fast"
+    "test:coverage:unit": "bun scripts/coverage.mjs unit --fast",
+    "deploy": "bun scripts/deploy.mjs",
+    "deploy:status": "bun scripts/deploy.mjs status"
   },
   "dependencies": {
     "@better-auth/infra": "^0.4.14",

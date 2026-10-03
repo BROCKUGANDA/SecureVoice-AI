@@ -1,0 +1,11 @@
+# Test runner image: Bun plus a CPython interpreter.
+#
+# tests/webhooks/outbound.test.ts verifies the delivery signature with a SECOND
+# implementation in Python, and deliberately FAILS rather than skipping when no
+# interpreter is present. Installing python3 at test time made that gate flip on
+# and off depending on apt's exit status; baking it in makes it deterministic.
+FROM oven/bun:1.4.2
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends python3 \
+    && rm -rf /var/lib/apt/lists/*
+ENV PYTHON=python3

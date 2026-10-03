@@ -2039,9 +2039,21 @@ describe("WP-21 / dependency breakers", () => {
     // per-process counters under-count by the number of processes.
     expect(limiter.limitPerProcess).toBeLessThan(100);
     expect(limiter.limitPerProcess).toBe(Math.floor(100 * IN_PROCESS_LIMIT_CEILING));
-    // A zero/garbage limit still refuses everything rather than opening up.
+    // A legitimate ZERO limit still gets the floor of 1, so a zero cap means
+    // "one probe", not "never runs".
     expect(inProcessLimit({ key: "k", limit: 0, used: 0 }).limitPerProcess).toBe(1);
-    expect(inProcessLimit({ key: "k", limit: -10, used: Number.NaN }).limitPerProcess).toBe(1);
+    // An UNUSABLE limit (negative, NaN, Infinity) now yields 0 rather than NaN.
+    // Both refuse everything, but 0 is a number an operator can read in the
+    // snapshot where NaN is not — and 1 would read as "one request admitted",
+    // the opposite of what broken configuration should say.
+    for (const bad of [-10, Number.NaN, Number.POSITIVE_INFINITY]) {
+      const l = inProcessLimit({ key: "k", limit: bad, used: Number.NaN });
+      expect({ bad, limit: l.limitPerProcess, admitted: l.admission.admitted }).toEqual({
+        bad,
+        limit: 0,
+        admitted: false,
+      });
+    }
     record(
       "breaker",
       "redis:conservative-ceiling",
@@ -2062,12 +2074,15 @@ describe("WP-21 / dependency breakers", () => {
       "49 yes / 50 no",
     );
     // `used` is a required input; 0 keeps this about the garbage LIMIT, matching the
-    // assertion above it.
+    // assertion above it. A negative limit is UNUSABLE, so it collapses to 0 —
+    // not 1. One would read as "one request admitted" and quietly re-open a limit
+    // that broken configuration is supposed to have closed; zero is the
+    // fail-closed direction and is still a number an operator can read.
     record(
       "breaker",
       "redis:garbage-limit-fails-closed",
-      inProcessLimit({ key: "k", limit: -10, used: 0 }).limitPerProcess === 1,
-      "1",
+      inProcessLimit({ key: "k", limit: -10, used: 0 }).limitPerProcess === 0,
+      "0",
     );
   });
 

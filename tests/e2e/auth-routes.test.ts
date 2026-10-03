@@ -87,6 +87,7 @@ import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { z } from "zod";
 import { AUTH_SCOPES, PERMANENT_EXPIRY, drop, put } from "@/lib/auth/store";
 import { db } from "@/lib/db";
+import * as realCredits from "@/lib/credits";
 import { signSessionToken, type SessionRecord } from "@/lib/auth/session";
 import { ABSOLUTE_LIFETIME_MS, IDLE_TIMEOUT_MS, SESSION_COOKIE_NAME } from "@/lib/auth/constants";
 import { GET as meGet } from "@/app/api/auth/me/route";
@@ -131,6 +132,9 @@ mock.module("@/lib/audit-chain", () => ({
 // it. Nothing on these routes calls it; it is present so this file matches the
 // established pattern rather than relying on an import graph that may change.
 mock.module("@/lib/credits", () => ({
+  // Spread the real module so `requireOperator` / `requireSignedIn` survive;
+  // replacing it wholesale breaks every console route that imports them.
+  ...realCredits,
   getProfile: async () => null,
 }));
 

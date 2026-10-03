@@ -363,7 +363,12 @@ function installFake(table_: FakeDialJobTable): void {
     value: async (sql: string, ...params: unknown[]): Promise<unknown[]> => {
       record(sql, params);
       if (sql.includes("FOR UPDATE SKIP LOCKED")) {
-        const [workerId, leaseMs, limit] = params as [string, number, number];
+        const [workerId, leaseMs, boundLimit] = params as [string, number, number | undefined];
+        // The claim limit is INLINED into the statement, so the fake reads it the
+        // way Postgres does — from the SQL text. Falling back to a bound third
+        // parameter keeps this honest if the statement ever goes back to `$n`.
+        const inline = /LIMIT\s+(\d+)/i.exec(sql);
+        const limit = inline ? Number(inline[1]) : boundLimit;
         // Yield before the pop so two drains genuinely INTERLEAVE and
         // contend for the same rows, the way two workers contend for
         // SKIP LOCKED. The pop itself stays synchronous, which is what
@@ -1377,7 +1382,7 @@ describe("claimDialJobs â€” eligibility, ordering, and the limit", () => {
     await claimDialJobs({ workerId: "w1", limit: 1 });
     const sql = table.sqlMatching("FOR UPDATE SKIP LOCKED")[0]?.sql ?? "";
     expect(sql).not.toBe("");
-    const targetWhere = sql.slice(sql.indexOf("WHERE j.id = cand.id"));
+    const targetWhere = sql.slice(sql.indexOf("WHERE j.id = claimed.id"));
     expect(targetWhere).toContain("j.state = 'PENDING' AND j.available_at <= now()");
     expect(targetWhere).toContain("j.state = 'CLAIMED'");
     expect(targetWhere).toContain("j.lease_expires_at < now()");

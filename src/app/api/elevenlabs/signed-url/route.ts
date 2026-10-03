@@ -2,7 +2,9 @@ import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { authorizeToolCall } from "@/lib/agent-tool-auth";
+import { append as auditAppend } from "@/lib/audit-chain";
 import { badRequest, parseJson, upstreamError } from "@/lib/api-errors";
+import { leakSafeText } from "@/lib/failures/envelope";
 import { env } from "@/lib/config";
 
 export const dynamic = "force-dynamic";
@@ -61,13 +63,42 @@ export async function POST(req: NextRequest) {
   });
 
   if (!res.ok) {
+    // The upstream body is echoed to the caller, so it goes through the same
+    // leak rules as every other caller-facing string. `upstreamError()` does not
+    // sanitise, and 200 raw characters of a vendor response can carry a key, an
+    // internal hostname or a stack. Keep the status (the useful part) and
+    // redact the rest.
     const detail = await res.text().catch(() => "");
-    return upstreamError(`ElevenLabs ${res.status}: ${detail.slice(0, 200)}`);
+    return upstreamError(`ElevenLabs ${res.status}: ${leakSafeText(detail, 160) || "no detail"}`);
   }
 
   const data = (await res.json()) as { signed_url?: string; token?: string };
   const credential = data.signed_url ?? data.token;
   if (!credential) return upstreamError("ElevenLabs returned no connection credential");
+
+  // This endpoint used to be the ONLY agent-tool route with no audit-chain
+  // write — `card_freeze`, `human-handoff`, `verify-transaction` and
+  // `switch_language` all append, this one did not. It is also the one that
+  // MINTS THE LIVE CREDENTIAL: the signed URL is what opens the WebSocket to
+  // the real agent. An unaudited credential mint on a product whose pitch
+  // includes an immutable audit chain is exactly what an auditor asks about,
+  // so the mint is now sealed into the chain like every other tool action.
+  //
+  // There is no `conversation_id` here, so there is no case to hang it off; the
+  // route-level marker below is sanitised and capped by `audit-chain`, and
+  // `callerId` carries the resolved tenant so the row is still attributable.
+  await auditAppend({
+    callRef: "AGENT-SIGNED-URL",
+    action: "agent",
+    intent: "signed_url_minted",
+    callerId: auth.orgId ?? (auth.platform ? "platform" : undefined),
+    orgId: auth.orgId ?? undefined,
+    meta: {
+      agentId: requested,
+      connectionType: parsed.data.connection_type,
+      expiresInSecs: 900,
+    },
+  });
 
   return NextResponse.json({
     ok: true,

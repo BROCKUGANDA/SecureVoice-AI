@@ -1,5 +1,12 @@
 -- Bind inbound ElevenLabs events to a tenant.
 --
+-- NOTE ON THE DIRECTORY NAME. Prisma applies migrations in LEXICOGRAPHIC order,
+-- so a directory named `10_…` sorts BEFORE `2_dial_job` — and therefore before
+-- `5_better_auth_core`, which is what creates the `organization` table. That
+-- fails with 42P01 on any fresh database. The `9z_` prefix is deliberate: it
+-- sorts after every other entry in this directory.
+
+--
 -- Bleedguard, second half. Per-tenant tool secrets closed the AGENT TOOL path:
 -- the credential names the org, so the case lookup is tenant-scoped. The inbound
 -- WEBHOOK path had no such signal — it authenticates on one shared platform

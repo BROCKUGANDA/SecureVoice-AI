@@ -41,12 +41,18 @@ type WebhookEventRow = {
  * the event, and each organization records the agent (and phone number) it
  * dials on, so the event can be attributed to exactly one tenant.
  *
+ * The payload's own `agent_id` is authoritative over the stored row: a wrong or
+ * tampered envelope column must never widen the scope.
+ *
  * Returns null when nothing is bound — a single-tenant deployment, or an agent
  * this platform does not own. Null means the DEFAULT org namespace in
  * `caseByConversation`, never "any org": an unbound event is confined, not
  * trusted.
  */
-async function resolveInboundOrgId(row: WebhookEventRow, data: unknown): Promise<string | null> {
+export async function resolveInboundOrgId(
+  row: WebhookEventRow,
+  data: unknown,
+): Promise<string | null> {
   const payload = data as { agent_id?: unknown; call_info?: { agent_id?: unknown } } | null;
   const agentId =
     (typeof payload?.agent_id === "string" && payload.agent_id) ||

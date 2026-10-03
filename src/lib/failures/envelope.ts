@@ -286,7 +286,13 @@ export const LEAK_RULES: ReadonlyArray<{ kind: LeakKind; re: RegExp }> = [
     re: /\b(?:org|case|call|conv|pilot|user|svb|pay|dead)_[A-Za-z0-9]{6,}\b/,
   },
   { kind: "internal_identifier", re: /\bcuid2?\s*\(|\bcm[a-z0-9]{20,}\b/i },
-  { kind: "internal_identifier", re: /\b(?:pk|sk|whsec|svb|sb)_[A-Za-z0-9_]{8,}/ },
+  // The SEPARATOR is `[_-]` and the body class includes `-`, because real
+  // provider keys are dash-separated: Stripe ships `sk-live-…` / `sk-proj-…` /
+  // `pk_live_…`. The previous rule required a literal underscore after the
+  // prefix AND a body with no dashes, so it matched `whsec_…` and `pk_live_…`
+  // but let every real Stripe key straight through. Found by asserting on a
+  // vendor-shaped body rather than a synthetic one.
+  { kind: "internal_identifier", re: /\b(?:pk|sk|rk|whsec|svb|sb)[_-][A-Za-z0-9_-]{8,}/ },
   { kind: "internal_identifier", re: /\beyJ[A-Za-z0-9_-]{10,}\./ },
   { kind: "internal_identifier", re: /\bpostgres(?:ql)?:\/\/\S+/i },
 
@@ -310,6 +316,37 @@ export function leakScan(text: string): LeakKind[] {
     if (rule.re.test(text)) found.add(rule.kind);
   }
   return [...found].sort();
+}
+
+/**
+ * Reduce arbitrary text to something safe to hand an unauthenticated caller.
+ *
+ * Whitespace is collapsed first — so a value cannot forge extra lines in a log
+ * or a dashboard — then every `LEAK_RULES` rule is applied, then the result is
+ * bounded. The rules are REUSED rather than re-listed, so a leak class added to
+ * the envelope automatically applies everywhere this is called.
+ *
+ * This exists because two endpoints each grew their own ad-hoc defence and both
+ * got it slightly wrong:
+ *   · `/api/readyz` bounded a thrown driver error with `.slice(0, 120)`, which
+ *     caps LENGTH and nothing else — a multi-line stack reached the body intact.
+ *   · `/api/elevenlabs/signed-url` echoed 200 characters of a raw upstream
+ *     response body straight into its JSON, through `upstreamError()`, which
+ *     does not sanitise.
+ *
+ * `sanitizePublicMessage` is the other half of this discipline: it is for a
+ * message that should read as English, and falls back to a code's canned text.
+ * This one is for a diagnostic fragment that must stay diagnostic — it keeps
+ * whatever survived redaction rather than replacing the whole thing, because
+ * "which dependency broke" is the reason the string exists.
+ */
+export function leakSafeText(raw: string, max = MAX_MESSAGE_CHARS): string {
+  let out = raw.replace(/\s+/g, " ").trim();
+  for (const rule of LEAK_RULES) {
+    // `re` carries no /g flag, so lastIndex never persists across calls.
+    if (rule.re.test(out)) out = out.replace(new RegExp(rule.re.source, "gi"), "[redacted]");
+  }
+  return out.slice(0, max).trim();
 }
 
 /**

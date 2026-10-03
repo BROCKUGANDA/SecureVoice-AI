@@ -31,6 +31,7 @@ import {
   assertFieldName,
   crossTenantNotFound,
   internalBug,
+  leakSafeText,
   leakScan,
   makeFailure,
   malformedRequest,
@@ -216,6 +217,36 @@ describe("leak scanner", () => {
   test("clean text scans empty", () => {
     expect(leakScan("The requested record does not exist.")).toEqual([]);
     expect(leakScan("")).toEqual([]);
+  });
+
+  // The provider-key rule required an underscore separator and a dash-free
+  // body, so it matched `whsec_…` but let every REAL Stripe key through —
+  // Stripe ships `sk-live-…` / `sk-proj-…`. Found by asserting on a
+  // vendor-shaped body rather than a synthetic one.
+  test("real provider key formats are classified as internal identifiers", () => {
+    for (const key of [
+      "sk-live-abc123",
+      "sk-proj-AAAABBBBCCCCDDDD",
+      "rk_live_1234567890",
+      "pk_live_1234567890",
+      "whsec_abcdefgh12345678",
+      "sb_secret_abcdefghijkl",
+    ]) {
+      expect({ key, kinds: leakScan(key) }).toEqual({
+        key,
+        kinds: ["internal_identifier"],
+      });
+    }
+  });
+
+  test("leakSafeText removes a vendor key from a real upstream error body", () => {
+    // The shape `/api/elevenlabs/signed-url` used to echo verbatim.
+    const raw =
+      "connect ECONNREFUSED db.internal:5432\n    at pool (src/lib/db.ts:12:3) api_key=sk-live-abc123";
+    const safe = leakSafeText(raw, 160);
+    expect(safe).not.toContain("sk-live-abc123");
+    expect(safe).not.toContain("\n");
+    expect(leakScan(safe)).toEqual([]);
   });
 
   test("every declared leak RULE fires on a real offender", () => {

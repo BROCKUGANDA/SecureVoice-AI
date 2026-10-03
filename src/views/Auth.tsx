@@ -43,22 +43,39 @@ import { cn } from "@/lib/utils";
  * nothing and provisions operators by invitation only
  * (src/lib/auth/signup.ts is invite-only).
  */
+/**
+ * Quick-access entries rendered as one-click buttons.
+ *
+ * There is deliberately NO operator entry here any more.
+ *
+ * It used to carry `operator+clerk_test@securevoice.ae` with its password
+ * written literally in this file. That value is shipped to every browser that
+ * loads the sign-in page, so it was not a shortcut for judges — it was a
+ * published credential for an account holding 500 credits and the ability to
+ * place real intervention calls. Reading it took one devtools glance. The demo
+ * account is a published credential too, which is the point of it, but it is
+ * simulation-only, capped, and rate-limited; the operator account is not a
+ * thing you publish.
+ *
+ * Operators sign in through the form below, which is the same form a bank uses.
+ */
 const SEEDED = [
-  {
-    role: "operator",
-    label: "Full platform access",
-    email: "operator+clerk_test@securevoice.ae",
-    password: "SV-Operator-2026!",
-    note: "Command Center — fire real interventions to your own phone, inspect the audit chain. 500 credits.",
-  },
   {
     role: "demo",
     label: "Demo mode",
-    email: "demo+clerk_test@securevoice.ae",
-    password: "SV-Demo-2026!Judge",
-    note: "Guided simulation — the full 60-second story with sample data. 25 credits.",
+    email: process.env.NEXT_PUBLIC_DEMO_LOGIN_EMAIL ?? "",
+    password: process.env.NEXT_PUBLIC_DEMO_LOGIN_PASSWORD ?? "",
+    note: "Guided simulation - the full 60-second story with sample data. 25 credits.",
   },
 ] as const;
+
+/**
+ * The demo shortcut is only rendered when its credentials were actually
+ * provisioned. A judge on a deployment where the demo account was removed (or
+ * never seeded) should get the sign-in form and a clear message, not a button
+ * that fails with "invalid credentials" and looks broken.
+ */
+const DEMO_READY = SEEDED[0].email !== "" && SEEDED[0].password !== "";
 
 /**
  * Turn a Better Auth client error into something a non-engineer can act on.
@@ -448,33 +465,33 @@ export function Auth() {
                 to continue.
               </div>
             )}
-            {/* one-click access for evaluators */}
-            <div className="mx-auto mb-6 flex max-w-4xl flex-wrap items-center justify-center gap-2">
-              {SEEDED.map((s) => (
-                <button
-                  key={s.role}
-                  onClick={() => quickLogin(s.email, s.password, s.role)}
-                  disabled={quickBusy !== null}
-                  className={cn(
-                    "flex items-center gap-2 rounded-full px-4 py-2 text-[12px] font-semibold transition disabled:opacity-50",
-                    s.role === "operator"
-                      ? "border border-[#c9a227]/40 bg-[#c9a227]/10 text-[#e8c95a] hover:bg-[#c9a227]/20"
-                      : "border border-green-bright/30 bg-green-bright/10 text-green-bright hover:bg-green-bright/20",
-                  )}
-                >
-                  {quickBusy === s.role ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <KeyRound className="h-3.5 w-3.5" />
-                  )}
-                  {quickBusy === s.role
-                    ? "Signing in…"
-                    : s.role === "operator"
-                      ? "One-click operator login"
-                      : "One-click demo login"}
-                </button>
-              ))}
-            </div>
+            {/* one-click access for evaluators — demo account only */}
+            {DEMO_READY && (
+              <div className="mx-auto mb-6 flex max-w-4xl flex-wrap items-center justify-center gap-2">
+                {SEEDED.map((s) => (
+                  <button
+                    key={s.role}
+                    onClick={() => quickLogin(s.email, s.password, s.role)}
+                    disabled={quickBusy !== null}
+                    className={cn(
+                      "flex items-center gap-2 rounded-full border border-green-bright/30 bg-green-bright/10 px-4 py-2 text-[12px] font-semibold text-green-bright transition hover:bg-green-bright/20 disabled:opacity-50",
+                    )}
+                  >
+                    {quickBusy === s.role ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <KeyRound className="h-3.5 w-3.5" />
+                    )}
+                    {quickBusy === s.role ? "Signing in…" : "One-click demo login"}
+                  </button>
+                ))}
+              </div>
+            )}
+            {!DEMO_READY && (
+              <p className="mx-auto mb-6 max-w-4xl rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2.5 text-center text-[12.5px] text-ink-3">
+                Demo shortcut is not enabled on this deployment. Sign in with an account below.
+              </p>
+            )}
             {quickErr && (
               <p
                 role="alert"

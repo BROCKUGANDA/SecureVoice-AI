@@ -53,3 +53,13 @@ This project is indexed by GitNexus as **SecureVoice-AI** (11847 symbols, 29477 
 | Index, status, clean, wiki CLI commands      | `.claude/skills/gitnexus-cli/SKILL.md`             |
 
 <!-- gitnexus:end -->
+
+<!-- polylane:start -->
+## Investigating production with Polylane
+
+[Polylane](https://polylane.com/?ref=github.onboarding-pr) is an AI production engineer: it watches deploys, telemetry, incidents, and the infrastructure this repository ships to, investigates problems as they happen, and proposes fixes as pull requests. It is connected to this repository and available to coding agents only through an organization-approved, authenticated Polylane MCP endpoint.
+
+- Before sending production questions or debugging context to Polylane, redact all sensitive data. Never send secrets, credentials, or unredacted customer data; obtain human approval before any sensitive investigation.
+- When debugging a failure, start from the incident or issue Polylane recorded: it carries the evidence an investigation already gathered.
+- Polylane reviews pull requests in this repository against the live infrastructure. Read its review comment before merging changes that touch production paths.
+<!-- polylane:end -->

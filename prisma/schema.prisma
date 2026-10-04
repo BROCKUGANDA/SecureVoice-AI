@@ -54,13 +54,13 @@ model PilotRequest {
 }
 
 /// Idempotency-Key store for upstream API calls (TTS, ASR, agent turns).
-/// Persists a (caller, key) â†’ response payload for 24h so a retry is a free
+/// Persists a (caller, key) → response payload for 24h so a retry is a free
 /// replay rather than a second billable call. Concurrent same-key requests
 /// dedupe via the unique composite key on (scope, key).
 
 model IdempotencyKey {
   id         String   @id @default(cuid())
-  scope      String // "tts" | "asr" | "agent" â€” narrows dedup to the right surface
+  scope      String // "tts" | "asr" | "agent" — narrows dedup to the right surface
   key        String // SHA-256 of the canonical request payload
   callerId   String // x-caller-id header (or "anon" if absent)
   response   String // JSON-stringified response (TTS: empty + audio stored elsewhere; ASR/agent: full body)
@@ -109,9 +109,9 @@ model Voice {
 }
 
 /// Platform accounts. Two seeded credentials on every fresh database:
-///   operator@securevoice.ae â€” full platform access (Command Center: fire real
+///   operator@securevoice.ae — full platform access (Command Center: fire real
 ///     interventions to their own enrolled phone, inspect audit chains)
-///   demo@securevoice.ae â€” demo mode (guided simulation only)
+///   demo@securevoice.ae — demo mode (guided simulation only)
 /// Sign-up through the API always creates "demo" role; operator is seed-only.
 
 model Account {
@@ -152,8 +152,8 @@ model Account {
 }
 
 /// Machine-to-machine producer keys for the headless API. A bank's fraud
-/// engine authenticates with `Authorization: Bearer svb_â€¦` instead of HMAC.
-/// Only the SHA-256 hash is stored â€” the plaintext key is shown once at creation.
+/// engine authenticates with `Authorization: Bearer svb_¦` instead of HMAC.
+/// Only the SHA-256 hash is stored — the plaintext key is shown once at creation.
 
 model ProducerKey {
   id         String    @id @default(cuid())
@@ -196,7 +196,7 @@ model AgentToolSecret {
 /// intervention signal). The Better Auth `user` row is the identity; this row
 /// carries the billing state. Roles come from organization membership
 /// (auth.api.getActiveMember), NOT from a self-editable field on the user row.
-///   operator â†’ 500 credits Â· demo/analyst â†’ 25 credits
+///   operator → 500 credits · demo/analyst → 25 credits
 
 model UserProfile {
   id            String        @id @default(cuid())
@@ -227,16 +227,16 @@ model UserProfile {
 
 /// Enrolled customer for live delivery (voice/SMS). A bank's signed-up customer
 /// who can receive fraud-intervention calls and alerts on their phone.
-/// PII discipline: phone is stored for dialing (never logged raw â€” audit rows
+/// PII discipline: phone is stored for dialing (never logged raw — audit rows
 /// carry redacted values only), customerRef is the bank's own identifier.
 
 model Customer {
   id              String   @id @default(cuid())
   customerRef     String   @unique // bank's customer identifier (no PII, e.g. CUST-8642)
-  phone           String // E.164 (+9715â€¦), the dial target
+  phone           String // E.164 (+9715¦), the dial target
   lang            String   @default("en") // en | ar | hi | ur
   channel         String   @default("call") // preferred delivery: call | sms
-  consentRecordId String? // recorded outbound consent (PDPL) â€” required for enroll
+  consentRecordId String? // recorded outbound consent (PDPL) — required for enroll
   optedOut        Boolean  @default(false) // STOP honoured instantly, no delete (audit trail)
   orgId           String? // organization scoping (multi-tenant groundwork)
   enrolledAt      DateTime @default(now())
@@ -246,15 +246,15 @@ model Customer {
   @@index([orgId])
 }
 
-/// Fraud intervention case â€” the canonical state machine record.
+/// Fraud intervention case — the canonical state machine record.
 /// One enum, one writer (src/lib/case-state-machine.ts), no exceptions.
 
 model Case {
   id                    String    @id @default(cuid())
-  caseRef               String    @unique // SV-F-XXXXXX â€” the public case reference
+  caseRef               String    @unique // SV-F-XXXXXX — the public case reference
   orgId                 String? // tenant scoping
   state                 String    @default("RECEIVED") // see case-state-machine.ts
-  conversationId        String? // ElevenLabs conversation_id â€” join key for post-call webhook
+  conversationId        String? // ElevenLabs conversation_id — join key for post-call webhook
   transactionRef        String?
   riskScore             Float?
   language              String    @default("en")
@@ -277,8 +277,8 @@ model Case {
   evaluationResults     String? // JSON string of analysis.evaluation_criteria_results
   dataCollectionResults String? // JSON string of analysis.data_collection_results
   // Crypto-shredding (WP-15). Erasure destroys the data key, which makes every
-  // encrypted payload undecryptable while the audit chain â€” which stores only
-  // hashes â€” still verifies from genesis. That is how right-to-erasure
+  // encrypted payload undecryptable while the audit chain — which stores only
+  // hashes — still verifies from genesis. That is how right-to-erasure
   // coexists with an immutable log.
   dataKeyEnc            String?
   erasedAt              DateTime?
@@ -305,7 +305,7 @@ model Case {
   @@index([conversationId])
 }
 
-/// One row per inbound ElevenLabs delivery (verified signature) â€” the
+/// One row per inbound ElevenLabs delivery (verified signature) — the
 /// processing registry and the dedupe record. Unique per
 /// (provider, eventType, conversationId, eventTimestamp): an exact redelivery
 /// is a replay and creates nothing new. Not processed rows may be retried.
@@ -327,7 +327,7 @@ model WebhookEvent {
   @@index([conversationId])
 }
 
-/// Inbound webhooks that could not be correlated to a case land here â€” never
+/// Inbound webhooks that could not be correlated to a case land here — never
 /// silently dropped (WP-4 step 4). Redacted transcript excerpt only.
 
 model WebhookQuarantine {
@@ -435,7 +435,7 @@ model InboundBankEvent {
 /// In-app notification inbox (WP-20). One row per (org, alert type, window) so
 /// a burst that would otherwise page a human 500 times arrives as ONE alert
 /// with a count. Escalation advances through the contact ladder until a human
-/// acknowledges it â€” an unacknowledged page is a real capability gap, not a
+/// acknowledges it — an unacknowledged page is a real capability gap, not a
 /// UI detail.
 
 model Notification {
@@ -463,7 +463,7 @@ model Notification {
 
 /// Append-only usage ledger (WP-13). There is NO mutable credits column: the
 /// balance is the sum of these rows, which is what makes it auditable and race
-/// free. All amounts are INTEGER minor units â€” never floats.
+/// free. All amounts are INTEGER minor units — never floats.
 
 model UsageLedger {
   id           String   @id @default(cuid())
@@ -484,7 +484,7 @@ model UsageLedger {
 }
 
 /// A settled or pending payment (WP-13). Written by a PaymentProvider adapter
-/// only â€” no domain code touches a gateway type.
+/// only — no domain code touches a gateway type.
 
 model PaymentRecord {
   id               String    @id @default(cuid())

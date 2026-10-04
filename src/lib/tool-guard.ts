@@ -3,12 +3,12 @@ import "server-only";
  * Shared guard for all ElevenLabs server tools. Every tool call passes
  * through here before it reaches the tool handler. The guard enforces:
  *
- *   1. Authentication â€” x-agent-tool-secret against the per-tool allow-list.
- *   2. Case resolution â€” the conversation_id must map to a live case.
- *   3. State precondition â€” the case must be in a state the tool may act on.
+ *   1. Authentication — x-agent-tool-secret against the per-tool allow-list.
+ *   2. Case resolution — the conversation_id must map to a live case.
+ *   3. State precondition — the case must be in a state the tool may act on.
  *
  * A refusal is a typed 409, never a 500. Every refusal is written to the
- * audit chain before returning â€” a refused freeze attempt is the most
+ * audit chain before returning — a refused freeze attempt is the most
  * valuable audit entry a judge will see (WP-3 step 3, invariant I-2).
  */
 

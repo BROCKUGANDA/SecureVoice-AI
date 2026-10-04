@@ -1,26 +1,26 @@
 /**
- * GATE â€” the operator console's "Fire intervention signal" button traverses the
+ * GATE — the operator console's "Fire intervention signal" button traverses the
  * hardened path. This is the button a judge presses, so what it exercises is
  * the product.
  *
  * The defect this file exists to prevent: `src/app/api/console/fire/route.ts`
  * used to build a demo-shaped signal and POST it to `/api/interventions`, an
  * older second ingest with NO policy gate, NO abuse gate, NO `Case` row and NO
- * durable queue â€” which placed the carrier call inside the web request. Its
+ * durable queue — which placed the carrier call inside the web request. Its
  * own docstring claimed "the identical flow, provably end to end", which was
  * false. A green build proved nothing about the guardrails because the one
  * surface a human touches was exempt from all of them.
  *
  * What is asserted here, and why each can actually FAIL:
  *
- *   1. A fired signal produces a `Case` row in SCREENED â€” the case state
+ *   1. A fired signal produces a `Case` row in SCREENED — the case state
  *      machine is now ENTERED. The old path minted a caseRef and wrote no row,
  *      so this assertion is false against the defect, not merely absent.
- *   2. A `dial_job` row exists for that caseRef â€” the DURABLE QUEUE is used,
+ *   2. A `dial_job` row exists for that caseRef — the DURABLE QUEUE is used,
  *      not an in-request carrier call. Asserting the row (rather than the
  *      response field) is what makes this independent of what the handler
  *      claims it did.
- *   3. An opted-out enrolled customer is REFUSED, with nothing persisted â€” so
+ *   3. An opted-out enrolled customer is REFUSED, with nothing persisted — so
  *      consent is enforced on this path and not merely forwarded upstream.
  *   4. NO enrolled customer is REFUSED, with nothing persisted. `runPolicyGate`
  *      only checks the consent record's SHAPE; a consent id that resolves to no
@@ -28,18 +28,18 @@
  *      console therefore has to refuse explicitly, and this is the assertion
  *      that would catch its removal.
  *   5. `amount` reaches the hardened ingest as an INTEGER in minor units, at
- *      the exact expected value â€” the console form collects MAJOR units, so
+ *      the exact expected value — the console form collects MAJOR units, so
  *      forwarding it unchanged is a 100x error and forwarding a fraction is a
  *      schema rejection.
  *   6. The forwarded body is v1-SHAPED and the exact signed bytes are what
  *      upstream verified, and the request carried an `Idempotency-Key` (the v1
  *      route rejects without one).
  *   7. The retired `/api/interventions` refuses with a typed 410 and arms
- *      nothing â€” the ungated carrier-call surface is closed.
+ *      nothing — the ungated carrier-call surface is closed.
  *
  * Environment: a real remote Postgres (DATABASE_URL, ~280 ms/round-trip) and
  * The session is MOCKED at module scope, before any module that calls
- * `auth()` / `currentUser()` is imported â€” the same discipline
+ * `auth()` / `currentUser()` is imported — the same discipline
  * `tests/tenancy/probe-registry.ts` documents.
  *
  *   bun test tests/console/fire.test.ts
@@ -59,7 +59,7 @@ import { POST as retiredPost } from "@/app/api/interventions/route";
 // The CONSOLE route is the one module still imported with `await import()`
 // inside `fire()`, on purpose: it transitively imports the session resolver
 // (@clerk/nextjs/server), and the `mock.module` above must be registered
-// before any such module is evaluated â€” a static import would be hoisted
+// before any such module is evaluated — a static import would be hoisted
 // above the mock. Same discipline as tests/tenancy/probe-registry.ts.
 
 process.env.ELEVENLABS_DRY_RUN = "true";
@@ -86,7 +86,7 @@ const session = { orgId: ORG as string | null };
 // scoping without coupling the test to Better Auth's API shape.
 //
 // USER_ID is a UUID because `UserProfile.userId` is `@db.Uuid` after the
-// cutover â€” a non-UUID string here is rejected by Postgres before the route runs.
+// cutover — a non-UUID string here is rejected by Postgres before the route runs.
 mock.module("@/lib/credits", () => ({
   // The console routes import `requireOperator` / `requireSignedIn` /
   // `deductCredit` / `refundCredit` from this same module. Replacing it
@@ -143,13 +143,13 @@ let consoleUnreachable = 0;
 beforeAll(async () => {
   // The dial gate fails CLOSED with no geo allowlist and no verified test
   // number list, so a deployment declares where it will call. These are UAE
-  // test numbers in distinct blocks â€” the same declaration an operator makes
+  // test numbers in distinct blocks — the same declaration an operator makes
   // before a rehearsal, and the reason the console can be exercised at all.
   setOrgGeoPolicy(ORG, { allowlist: ["AE"] });
   setOrgTestNumbers(ORG, [PHONE.live, PHONE.optedOut, PHONE.foreign, "+971501110000"]);
   // This is a gate run, not a fraud wave. WP-14's velocity breaker
   // auto-pauses on a burst inside 60 s, which is right for a smishing campaign
-  // and wrong for a synthetic scenario â€” so the ceiling is raised explicitly
+  // and wrong for a synthetic scenario — so the ceiling is raised explicitly
   // rather than the production default being weakened.
   setAbuseConfig({ velocity: { burstRateMax: 100, newPrefixBurst: 100 } });
 
@@ -226,7 +226,7 @@ afterAll(async () => {
  * The console forwards over `fetch` to `${req.nextUrl.origin}/api/v1/interventions`.
  * There is no HTTP server in a unit test, so `fetch` is intercepted and handed
  * to the REAL hardened route handler. The gates under test are therefore the
- * production ones â€” this is not a stub of the thing being asserted.
+ * production ones — this is not a stub of the thing being asserted.
  */
 async function installFetchBridge(): Promise<void> {
   const realFetch = globalThis.fetch;
@@ -334,7 +334,7 @@ test("console fire: the forwarded signal is v1-shaped, signed over the exact byt
 
   const parsed = JSON.parse(sent!.rawBody) as Record<string, unknown>;
 
-  // v1 contract fields, and ONLY those â€” the v1 schema is `.strict()` and
+  // v1 contract fields, and ONLY those — the v1 schema is `.strict()` and
   // rejects unknown fields, so the presence of `signal` (the old wrapper) or of
   // `amountAed` would make the upstream 422. That this request was accepted at
   // all is the proof the body is v1-shaped; these asserts name the fields.
@@ -353,7 +353,7 @@ test("console fire: the forwarded signal is v1-shaped, signed over the exact byt
   expect(Number.isInteger(parsed.amount)).toBe(true);
   expect(parsed.amount).toBe(250050);
 
-  // The signature covers the EXACT bytes sent â€” verified independently here, so
+  // The signature covers the EXACT bytes sent — verified independently here, so
   // this asserts the console's signing, not just the upstream's acceptance.
   const sv = /^t=(\d{10}),v1=([0-9a-f]{64})$/.exec(
     sent!.headers["SV-Signature"] ?? sent!.headers["sv-signature"] ?? "",
@@ -412,7 +412,7 @@ test("console fire: an opted-out enrolled customer is refused and nothing is per
   });
 }, 180_000);
 
-test("console fire: no enrolled customer is refused â€” the policy gate does NOT catch this", async () => {
+test("console fire: no enrolled customer is refused — the policy gate does NOT catch this", async () => {
   await db.customer.deleteMany({ where: { customerRef: { startsWith: CUSTOMER_REF } } });
   const before = await db.case.count({ where: { orgId: ORG } });
   captured = [];
@@ -424,7 +424,7 @@ test("console fire: no enrolled customer is refused â€” the policy gate doe
   // `runPolicyGate` (src/lib/policy-gate.ts:141-146) checks only the consent
   // record's SHAPE. The opted-out check is the v1 route's raw query, where a
   // consent id resolving to no Customer row yields NULL and PASSES. So an
-  // unenrolled operator's signal is NOT refused by any gate â€” the console has
+  // unenrolled operator's signal is NOT refused by any gate — the console has
   // to refuse it, and it must refuse rather than invent a destination.
   expect(res.status).toBe(409);
   const body = (await res.json()) as Record<string, unknown>;
@@ -440,7 +440,7 @@ test("console fire: a customer enrolled under ANOTHER org resolves to nothing", 
   // Same customerRef, a different org. The console's lookup is the exact
   // tenant-scoped expression /api/interventions issues
   // (`findFirst({ customerRef, orgId })`), so a ref belonging to another org
-  // must resolve to NOTHING â€” never to that org's phone number.
+  // must resolve to NOTHING — never to that org's phone number.
   const otherOrg = `${ORG}-OTHER`;
   await db.customer.deleteMany({ where: { customerRef: { startsWith: CUSTOMER_REF } } });
   await db.customer.create({

@@ -11,8 +11,8 @@ import { db } from "@/lib/db";
  * to connect"), so the run fails with a connection error that looks like a
  * ledger bug and is not one.
  *
- * Rather than quietly reducing N â€” which would keep the suite green while
- * quietly weakening the one claim these tests exist to make â€” they are SKIPPED
+ * Rather than quietly reducing N — which would keep the suite green while
+ * quietly weakening the one claim these tests exist to make — they are SKIPPED
  * with a loud warning when the target cannot host the concurrency. A skipped
  * concurrency test says nothing; a passing reduced-N one says something false.
  * The assertion is only proven where production runs: co-located Postgres.
@@ -107,7 +107,7 @@ const ORG = `org-${RUN}`;
 const DAY_MS = 86_400_000;
 
 /**
- * Weight of each kind's STORED (signed) value in `available` â€” the mirror of
+ * Weight of each kind's STORED (signed) value in `available` — the mirror of
  * `AVAILABLE_WEIGHT` in ledger.ts. Recomputed here independently so the gate
  * is checking the implementation, not restating it.
  */
@@ -122,7 +122,7 @@ const AVAILABLE_SIGN: Record<string, number> = {
 // â”€â”€ network tripwire â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Armed before any adapter is constructed. The Paystack adapter takes an
 // injected HTTP client, so the only way out of this process is
-// `globalThis.fetch` â€” which now throws with an unmistakable message.
+// `globalThis.fetch` — which now throws with an unmistakable message.
 const REAL_FETCH = globalThis.fetch;
 const NETWORK_CALLS: string[] = [];
 globalThis.fetch = ((input: unknown) => {
@@ -237,7 +237,7 @@ function mockPaystack(
 /**
  * The exact bytes Paystack would send, plus its correct SHA-512 signature.
  * Deliberately pretty-printed so that any parse -> re-stringify round trip
- * produces DIFFERENT bytes â€” which is what makes negative case #2 meaningful.
+ * produces DIFFERENT bytes — which is what makes negative case #2 meaningful.
  */
 function signedWebhook(payload: Record<string, unknown>): { raw: Buffer; signature: string } {
   const text = JSON.stringify(payload, null, 2);
@@ -261,7 +261,7 @@ test.skipIf(!NEEDS_MANY_CONNECTIONS)(
     const CAPACITY = 100;
 
     // Buy exactly 100 units. 100 simultaneous holds of 1 unit must all succeed and
-    // the 101st must be refused â€” not one unit more, not one unit less.
+    // the 101st must be refused — not one unit more, not one unit less.
     await topup({ orgId: org, units: CAPACITY, eventId: `race-topup-${RUN}` });
 
     // A genuinely concurrent race: all 100 promises are in flight before any of
@@ -350,7 +350,7 @@ test.skipIf(!NEEDS_MANY_CONNECTIONS)(
 
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 test.skipIf(!NEEDS_MANY_CONNECTIONS)(
-  "WP-13: partial fills never oversell â€” 250 units of capacity, 100 x 30 requested",
+  "WP-13: partial fills never oversell — 250 units of capacity, 100 x 30 requested",
   async () => {
     const org = `${ORG}-partial`;
     await topup({ orgId: org, units: 250, eventId: `partial-topup-${RUN}` });
@@ -435,7 +435,7 @@ test("WP-13: reconciliation is exact after a mixed reserve/consume/release seque
     `${caseRef}:1:release`,
   ]);
 
-  // Case 2: aborted call â€” reserve 500, release all 500. Net zero.
+  // Case 2: aborted call — reserve 500, release all 500. Net zero.
   const abortRef = `SV-WP13-ABORT-${RUN}`;
   await reserve({ orgId: org, caseRef: abortRef, unitsEstimate: 500, reason: "dial estimate" });
   expect((await snapshot(org)).held).toBe(500);
@@ -540,7 +540,7 @@ test("WP-13: replayed Paystack webhook charges once; SHA-256, re-serialised bodi
   expect(initBody?.amount).toBe(250_000);
   expect(initBody?.currency).toBe("AED");
   expect(Number.isInteger(initBody?.amount)).toBe(true);
-  // Two checkouts get two distinct references â€” we never let a client pick one.
+  // Two checkouts get two distinct references — we never let a client pick one.
   const second = await provider.createCheckout({
     orgId: org,
     purpose: "topup",
@@ -784,7 +784,7 @@ test("WP-13: replayed Paystack webhook charges once; SHA-256, re-serialised bodi
   if (notOurs.ok) throw new Error("unreachable");
   expect(notOurs.reason).toBe("not_our_reference");
 
-  // The genuine return path settles â€” through the REAL server-side verify.
+  // The genuine return path settles — through the REAL server-side verify.
   const genuineVerify = () => verifyTransactionServerSide(cfg, callbackRef);
   const good = await onCheckoutComplete({
     reference: callbackRef,
@@ -930,7 +930,7 @@ test("WP-13: manual invoice enforces dual control and audit-chains both actions"
 
   // â”€â”€ both actions are audit-chained under one callRef â”€â”€
   // `recordPayment`/`verifyPayment` audit under `input.orgId`, which for this
-  // fixture is `org` â€” the same string passed to every call above.
+  // fixture is `org` — the same string passed to every call above.
   const chain = await verifyChain(`PAY-${bankRef}`, org);
   expect(chain.ok).toBe(true);
   const auditRows = await db.auditLog.findMany({ where: { callRef: `PAY-${bankRef}` } });
@@ -944,7 +944,7 @@ test("WP-13: manual invoice enforces dual control and audit-chains both actions"
       where: { callRef: `PAY-${bankRef}`, intent: "payment_selfverify_blocked" },
     }),
   ).toBe(1);
-  // Chain hashes are distinct â€” these are real links, not duplicate rows.
+  // Chain hashes are distinct — these are real links, not duplicate rows.
   expect(new Set(auditRows.map((r) => r.chainHash)).size).toBe(auditRows.length);
 
   // An unknown reference is refused, not invented.
@@ -1057,7 +1057,7 @@ test.skipIf(!NEEDS_MANY_CONNECTIONS)(
     // â”€â”€ the 101st call is stopped â”€â”€
     expect(at(101).decision).toBe("stop");
 
-    // Exactly 100 units' worth of spend exists â€” the 101st was refused.
+    // Exactly 100 units' worth of spend exists — the 101st was refused.
     const spent = await db.usageLedger.aggregate({
       where: { orgId: org, kind: { in: ["topup", "consume", "refund"] } },
       _sum: { units: true },
@@ -1132,12 +1132,12 @@ test.skipIf(!NEEDS_MANY_CONNECTIONS)(
     const holdDecision = await assertWithinBudget({ orgId: holdOrg, units: 1_000, now });
     expect(holdDecision.decision).toBe("allow");
     expect(holdDecision.windows.find((w) => w.window === "daily")?.spentMinor).toBe(5_000);
-    // â€¦but the CONSUME that settles it is spend.
+    // ¦but the CONSUME that settles it is spend.
     await consume({ orgId: holdOrg, caseRef: `BRK-HOLD-${RUN}`, unitsActual: 5_000 });
     const afterConsume = await assertWithinBudget({ orgId: holdOrg, units: 1_000, now });
     expect(afterConsume.windows.find((w) => w.window === "daily")?.spentMinor).toBe(10_000);
 
-    // A refund is NEGATIVE spend â€” it is stored signed.
+    // A refund is NEGATIVE spend — it is stored signed.
     const refundOrg = `${ORG}-refundsign`;
     await topup({ orgId: refundOrg, units: 10_000, eventId: `brk-rf1-${RUN}` });
     const refundWrite = await refund({
@@ -1168,7 +1168,7 @@ test.skipIf(!NEEDS_MANY_CONNECTIONS)(
 );
 
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-test("WP-13: invariant I-8 â€” the balance IS the sum of the ledger, with no cached column", async () => {
+test("WP-13: invariant I-8 — the balance IS the sum of the ledger, with no cached column", async () => {
   const org = `${ORG}-i8`;
 
   // Prepaid money...
@@ -1262,7 +1262,7 @@ test("WP-13: invariant I-8 â€” the balance IS the sum of the ledger, with n
   expect(ordered[ordered.length - 1]!.balanceAfter).toBe(live);
 
   // EVERY row's balanceAfter equals the running balance implied by the rows
-  // above it â€” there is no cached column anywhere in the chain to drift.
+  // above it — there is no cached column anywhere in the chain to drift.
   let running = 0;
   for (const row of ordered) {
     running += AVAILABLE_SIGN[row.kind]! * row.units;

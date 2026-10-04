@@ -1,6 +1,6 @@
 import "server-only";
 /**
- * Guards for the live conversation turn Ã¢â‚¬â€ the highest-adversarial-input path in
+ * Guards for the live conversation turn Ã¢â‚¬ the highest-adversarial-input path in
  * the product.
  *
  * ## The gap this closes
@@ -31,8 +31,8 @@ import "server-only";
  * sentence that keeps this defensible in a fraud call is gone.
  *
  * `spokenOutputIsSafe()` checks what is about to be synthesised and refuses it.
- * A refusal is not a failure mode here Ã¢â‚¬â€ `llm.ts` already falls back to a
- * scripted reply whenever this returns null Ã¢â‚¬â€ so failing closed costs a robotic
+ * A refusal is not a failure mode here Ã¢â‚¬ `llm.ts` already falls back to a
+ * scripted reply whenever this returns null Ã¢â‚¬ so failing closed costs a robotic
  * sentence instead of a regulatory incident.
  */
 
@@ -114,7 +114,7 @@ export function wrapCallerText(raw: string, maxLen = MAX_CALLER_TEXT): string {
 
 /**
  * True when the text looks like a deliberate instruction-injection attempt.
- * Used to AUDIT the attempt Ã¢â‚¬â€ never to change how the caller is served, because
+ * Used to AUDIT the attempt Ã¢â‚¬ never to change how the caller is served, because
  * refusing to talk to someone who says "ignore previous instructions" would let
  * a caller mute the agent with a word.
  */

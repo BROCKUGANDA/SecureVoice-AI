@@ -6,14 +6,14 @@
  * `verifyChain()` detects and reports with the exact broken row id.
  *
  * Why a hash chain rather than just timestamps:
- *   - A timestamp can be edited after the fact; a hash chain cannot â€” you'd
+ *   - A timestamp can be edited after the fact; a hash chain cannot — you'd
  *     have to recompute every subsequent hash, which the database constraints
  *     (chainHash @unique) make detectable.
  *   - CBUAE Consumer Protection + UAE PDPL both expect an immutable record of
  *     AI-driven customer interaction; a hash-chained log is the standard
  *     evidence-of-record mechanism.
  *
- * Storage: lives in `AuditLog` (Prisma) â€” see prisma/schema.prisma.
+ * Storage: lives in `AuditLog` (Prisma) — see prisma/schema.prisma.
  */
 
 import { createHash } from "node:crypto";
@@ -29,7 +29,7 @@ export type AuditEntry = {
   callerId?: string;
   redactedText?: string;
   meta?: Record<string, unknown>;
-  orgId?: string; // organization scoping â€” sealed into the chain like any other field
+  orgId?: string; // organization scoping — sealed into the chain like any other field
 };
 
 /** Cap + sanitize an untrusted caller-supplied key. Prevents oversized or
@@ -68,7 +68,7 @@ function chainHash(prev: string, row: AuditEntry): string {
 }
 
 /**
- * Per-callRef append mutex. append() is read-last-hash â†’ compute â†’ create;
+ * Per-callRef append mutex. append() is read-last-hash → compute → create;
  * two concurrent appends for the SAME callRef could otherwise read the same
  * prevHash and fork the chain. Serializing them per callRef (single-node
  * deployment) removes the race without a DB round-trip per insert. The map is
@@ -159,7 +159,7 @@ async function appendInner(
     if (fast) {
       // Fast path: no $transaction. For fire-and-forget appends where the
       // callRef is unique per request (e.g. a fraud case), there is no
-      // cross-writer contention on the chain head â€” the in-process lock above
+      // cross-writer contention on the chain head — the in-process lock above
       // serialises same-ref appends, and different refs never collide. This
       // avoids the dedicated connection a $transaction requires, which is the
       // difference between a 200 ms append and a 5 s timeout against a remote
@@ -198,7 +198,7 @@ async function appendInner(
     // dominant cost of a tool call (see docs/SUBMISSION.md, tool-call latency).
     return dbAudit.$transaction(async (tx) => {
       // DB-level chain lock: serialize appends per callRef across ALL writers,
-      // not just this process. The in-process mutex above is only a fast path â€”
+      // not just this process. The in-process mutex above is only a fast path —
       // a second replica (or worker) would otherwise read the same prevHash and
       // fork the chain, which verifyChain() then reports as tampering.
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${clean.callRef}))`;
@@ -208,7 +208,7 @@ async function appendInner(
         select: { chainHash: true },
       });
       const prevHash = last?.chainHash ?? GENESIS_HASH;
-      // Compute the canonical form of meta ONCE â€” sort nested keys â€” then use the
+      // Compute the canonical form of meta ONCE — sort nested keys — then use the
       // SAME bytes for hashing AND storage. verifyChain() reads meta verbatim and
       // passes it through, so the chain stays consistent across writes and reads.
       const canonicalMeta = clean.meta ? canonicalizeNested(clean.meta) : undefined;
@@ -236,7 +236,7 @@ async function appendInner(
   // Push to the Command Center AFTER the chain write has committed, and outside
   // the transaction: a websocket fan-out must not be able to hold a database
   // transaction open, lengthen the write, or fail it. notifyRealtime() never
-  // rejects â€” if the realtime service is down the console falls back to SSE and
+  // rejects — if the realtime service is down the console falls back to SSE and
   // this record is unaffected.
   void notifyRealtime({
     orgId: clean.orgId,
@@ -269,8 +269,8 @@ export type ChainVerification =
   | { ok: false; brokenAt: string; expected: string; actual: string; rows: number };
 
 /**
- * Walk a call's audit chain by FOLLOWING the prev-hash links (genesis â†’ each
- * child), not by createdAt order â€” two rows can share a millisecond timestamp,
+ * Walk a call's audit chain by FOLLOWING the prev-hash links (genesis → each
+ * child), not by createdAt order — two rows can share a millisecond timestamp,
  * which makes timestamp-ordered verification ambiguous. Also detects a fork
  * (two rows claiming the same prevHash) and orphaned rows that hang off no
  * link in the chain.

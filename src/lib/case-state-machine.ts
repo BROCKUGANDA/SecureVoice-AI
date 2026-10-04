@@ -1,16 +1,16 @@
 import "server-only";
 /**
- * Canonical case state machine â€” the ONE writer for case state.
+ * Canonical case state machine — the ONE writer for case state.
  *
  * One enum, one writer, no exceptions. Illegal transitions throw and are
  * logged. The state machine is the enforcement point for invariant I-2:
  * `stage_card_freeze` is executable only from CONFIRMED_FRAUD.
  *
- *   RECEIVED â†’ SCREENED â†’ DIALING â†’ RINGING â†’ ANSWERED â†’ DISCLOSED â†’ VERIFYING
- *   VERIFYING â†’ CONFIRMED_LEGITIMATE | CONFIRMED_FRAUD | UNCERTAIN
- *   CONFIRMED_FRAUD â†’ FREEZE_STAGED â†’ ESCALATED â†’ NOTIFIED â†’ CLOSED
- *   CONFIRMED_LEGITIMATE â†’ NOTIFIED â†’ CLOSED
- *   UNCERTAIN â†’ ESCALATED â†’ NOTIFIED â†’ CLOSED
+ *   RECEIVED → SCREENED → DIALING → RINGING → ANSWERED → DISCLOSED → VERIFYING
+ *   VERIFYING → CONFIRMED_LEGITIMATE | CONFIRMED_FRAUD | UNCERTAIN
+ *   CONFIRMED_FRAUD → FREEZE_STAGED → ESCALATED → NOTIFIED → CLOSED
+ *   CONFIRMED_LEGITIMATE → NOTIFIED → CLOSED
+ *   UNCERTAIN → ESCALATED → NOTIFIED → CLOSED
  */
 
 import { db } from "@/lib/db";
@@ -78,7 +78,7 @@ export class IllegalTransitionError extends Error {
     public from: string,
     public to: string,
   ) {
-    super(`Illegal case transition: ${from} â†’ ${to}`);
+    super(`Illegal case transition: ${from} → ${to}`);
     this.name = "IllegalTransitionError";
   }
 }
@@ -111,7 +111,7 @@ export async function transitionCase(
  * The route handlers already write their own narrative rows ("signal_received",
  * "delivery_call"), and those are what a reader reads. This is the other half:
  * a mechanical, complete record of the state machine itself, produced at the
- * only place state can change â€” so a transition cannot happen without leaving a
+ * only place state can change — so a transition cannot happen without leaving a
  * trace, no matter which caller performed it or what it forgot to log.
  */
 /**
@@ -141,7 +141,7 @@ async function recordTransition(
       callRef: caseRef,
       action: "agent",
       intent: `transition_${from.toLowerCase()}_to_${to.toLowerCase()}`,
-      redactedText: `${from} â†’ ${to}`,
+      redactedText: `${from} → ${to}`,
       meta: { from, to, ...(meta ?? {}) },
       orgId: orgId ?? undefined,
     },
@@ -243,7 +243,7 @@ export async function transitionCaseWithOutbox(
   } catch (err) {
     // The unique index on (orgId, transactionRef) is the ATOMIC backstop against
     // two signals dialling one transaction. It fires precisely when the policy
-    // gate's read-based fast path lost a race â€” two requests, different
+    // gate's read-based fast path lost a race — two requests, different
     // Idempotency-Keys, same transaction, both read "no prior case".
     //
     // Without this catch that unique violation escapes as an unhandled 500. That
@@ -281,7 +281,7 @@ export async function transitionCaseWithOutbox(
  * `orgId` is REQUIRED. This used to take only the ref and return whatever row
  * carried it, which meant any caller holding another tenant's caseRef got that
  * tenant's case. The console routes each pre-checked the org and returned 404
- * before calling this â€” so the leak was covered at every call site, which is
+ * before calling this — so the leak was covered at every call site, which is
  * exactly the arrangement that fails the moment a fourth call site appears.
  * The predicate now lives here, once.
  *
@@ -296,11 +296,11 @@ export async function caseByRef(caseRef: string, orgId: string | null | undefine
 }
 
 /**
- * Look up a case by conversation_id â€” the join key for the post-call webhook.
+ * Look up a case by conversation_id — the join key for the post-call webhook.
  *
  * Org-scoped, with the same predicate shape as `caseByRef`, `verifyChain` and
  * `acknowledge`. A null/absent `orgId` means the DEFAULT org namespace, never
- * "any org" â€” which is the point: the tenant is part of the lookup, so a
+ * "any org" — which is the point: the tenant is part of the lookup, so a
  * conversation id belonging to another tenant resolves to nothing.
  *
  * Why this could not be scoped before: neither caller had a tenant to scope
@@ -308,7 +308,7 @@ export async function caseByRef(caseRef: string, orgId: string | null | undefine
  * from the presented per-tenant credential, so a leaked tool secret reaches
  * exactly one tenant. The ElevenLabs webhook still authenticates on the shared
  * platform secret and passes `null`, which confines it to the default
- * namespace â€” a real boundary, and the residual shared-secret risk for inbound
+ * namespace — a real boundary, and the residual shared-secret risk for inbound
  * provider events is recorded in docs/GAP-REGISTER.md.
  */
 export async function caseByConversation(conversationId: string, orgId: string | null | undefined) {

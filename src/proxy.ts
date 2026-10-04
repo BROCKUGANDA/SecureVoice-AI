@@ -2,10 +2,10 @@ import { NextResponse, type NextRequest } from "next/server";
 import { consume } from "@/lib/ratelimit";
 
 /**
- * Edge layer â€” runs before every route resolves (Next.js 16 renamed this file
+ * Edge layer — runs before every route resolves (Next.js 16 renamed this file
  * from `middleware.ts` to `proxy.ts`).
  *
- * RUNTIME NOTE â€” read before assuming anything about "the edge": in Next 16 the
+ * RUNTIME NOTE — read before assuming anything about "the edge": in Next 16 the
  * Edge Runtime is DEPRECATED. `export const runtime = "edge"` is deprecated and
  * setting `runtime` inside a proxy file throws. This file therefore runs on the
  * Node runtime, inside the same process, before the route handler. It is a
@@ -15,20 +15,20 @@ import { consume } from "@/lib/ratelimit";
  * What belongs here is anything that can reject or enrich a request for CHEAPER
  * than the route would:
  *
- *   1. Request identity â€” mint or forward `x-request-id` so one id ties the
+ *   1. Request identity — mint or forward `x-request-id` so one id ties the
  *      reverse proxy, this layer, and every log line for a request together.
- *   2. Client-IP trust â€” resolve the real client IP only from headers the reverse
+ *   2. Client-IP trust — resolve the real client IP only from headers the reverse
  *      proxy sets, and only when Caddy identifies itself on the connection.
- *   3. Geo + language resolution â€” turn proxy-supplied facts into headers the app
+ *   3. Geo + language resolution — turn proxy-supplied facts into headers the app
  *      can read, without pulling in a geo library or requiring a CDN.
  *   4. Pre-auth rate limiting - runs before any session lookup and before any body is parsed,
  *      so a scraper never reaches an expensive handler.
- *   5. Oversize-body reject â€” 413 with the real limit, instead of letting a huge
+ *   5. Oversize-body reject — 413 with the real limit, instead of letting a huge
  *      body get buffered and then fail JSON parsing with a confusing 400.
  *
  * What does NOT belong here: authorization. Route handlers already guard
  * themselves (requireSignedIn / requireOperator), and a matcher change or a
- * Server Function move can silently drop proxy coverage â€” so this layer is never
+ * Server Function move can silently drop proxy coverage — so this layer is never
  * the only thing standing between a caller and data.
  */
 
@@ -47,7 +47,7 @@ const REQUEST_ID = "x-request-id";
 const EDGE_RATE_PER_HOUR = Number(process.env.EDGE_RATE_LIMIT_PER_HOUR) || 600;
 
 /**
- * Paths exempt from the rate limiter â€” infrastructure probes and static assets,
+ * Paths exempt from the rate limiter — infrastructure probes and static assets,
  * which would otherwise consume a shared bucket.
  */
 const RL_EXEMPT = [/^\/api\/health$/, /^\/_next\//, /^\/favicon\.ico$/, /^\/robots\.txt$/];
@@ -55,19 +55,19 @@ const RL_EXEMPT = [/^\/api\/health$/, /^\/_next\//, /^\/favicon\.ico$/, /^\/robo
 /**
  * Hard ceiling on any request body. Set above experimental.proxyClientMaxBodySize
  * in next.config.ts is NOT possible (that one is a framework cap), so this is
- * kept in step with it â€” 40MB, above /api/asr's own 34MB limit.
+ * kept in step with it — 40MB, above /api/asr's own 34MB limit.
  */
 const MAX_BODY_BYTES = 40_000_000;
 
 /**
  * Is this request known to have arrived through the reverse proxy?
  *
- * The marker header is trivially forgeable, so this is NOT authentication â€” it
+ * The marker header is trivially forgeable, so this is NOT authentication — it
  * only decides whether we believe the client-IP headers. The reasoning: on a
  * correctly deployed stack the origin listens only on the compose network and is
  * not reachable from the internet, so the only way in is through Caddy, which
  * always sets the marker. Anyone who reaches the origin directly could forge
- * both, and the real fix is at the network layer (do not publish the port) â€”
+ * both, and the real fix is at the network layer (do not publish the port) —
  * but we still fail towards "no trusted IP", so a forged header cannot buy extra
  * rate-limit budget.
  */
@@ -81,7 +81,7 @@ function cameThroughProxy(req: NextRequest): boolean {
  * X-Forwarded-For is a list whose left-most entry is the original client. We
  * take one entry, cap its length, and only when the request came through the
  * proxy. This value becomes a rate-limit key, and unbounded attacker-chosen keys
- * are a memory-exhaustion vector â€” hence the sanitise + length cap.
+ * are a memory-exhaustion vector — hence the sanitise + length cap.
  */
 function clientIp(req: NextRequest): string {
   if (!cameThroughProxy(req)) return "direct";
@@ -145,14 +145,14 @@ function reject(
  *
  * The reason is structural, and it is the single most important thing to
  * understand about this app's public surface: there is no `/console` URL.
- * `src/app/page.tsx` renders EVERY view â€” marketing, docs, security, legal AND
- * the authenticated Command Center â€” from one client-side `view` state, with no
+ * `src/app/page.tsx` renders EVERY view — marketing, docs, security, legal AND
+ * the authenticated Command Center — from one client-side `view` state, with no
  * `usePathname`, no `router.push`, and no `history.pushState` anywhere in the
  * tree. So the console cannot be de-indexed by path: there is no path to
  * exclude. What protects it is (a) the session guard gating the data and (b) never handing
  * a crawler a URL that resolves to it.
  *
- * That leaves exactly two HTML routes in the tree â€” `/` and `/inspector` â€” and
+ * That leaves exactly two HTML routes in the tree — `/` and `/inspector` — and
  * `/inspector` is a signature-verification debug tool, so `/` is the only
  * indexable page.
  *
@@ -175,14 +175,14 @@ export const INDEXABLE_PATHS: readonly string[] = ["/", "/sitemap.xml"];
 /**
  * Where the microphone is permitted.
  *
- * READ THIS BEFORE "TIGHTENING" IT â€” this list looks longer than it should be,
+ * READ THIS BEFORE "TIGHTENING" IT — this list looks longer than it should be,
  * and shortening it silently breaks the product.
  *
  * `navigator.mediaDevices.getUserMedia` is called in exactly two places:
  * `src/views/Demo.tsx` and `src/lib/voice-client.ts`. Both are reachable from
  * the `demo` VIEW, which `src/app/page.tsx` renders at path `/`. So in the
  * current single-page architecture the microphone consumer IS `/`, and denying
- * it there is denying it to the entire demo â€” the one thing this app exists to
+ * it there is denying it to the entire demo — the one thing this app exists to
  * show.
  *
  * The policy is still written as an allowlist rather than a blanket
@@ -221,7 +221,7 @@ function isIndexable(pathname: string): boolean {
  *
  * `nofollow` is paired with `noindex` deliberately. These responses carry
  * operator dashboards, DB latency, heap size and the Command Center's audit
- * chain â€” following links out of them would let a crawler walk from a leaked
+ * chain — following links out of them would let a crawler walk from a leaked
  * internal URL to the rest of the site.
  */
 export function robotsTagFor(pathname: string): string | null {
@@ -241,7 +241,7 @@ export function robotsTagFor(pathname: string): string | null {
  *                       microphone=(self)          <- this function's value, ONCE
  *   GET /api/status  -> Permissions-Policy: ... microphone=()   <- this function's
  *
- * So the proxy's response header REPLACES the one from `headers()` â€” it does
+ * So the proxy's response header REPLACES the one from `headers()` — it does
  * not append and the two do not intersect. That makes this the authoritative
  * definition of the policy, which is why the per-path half lives here: the
  * config's global value is dead on every path this file matches. Empirically
@@ -260,7 +260,7 @@ export function permissionsPolicyFor(pathname: string): string {
  * Apply the surface headers to a response.
  *
  * Split out from the middleware body so the early-return paths (413/429) get
- * the same treatment as the normal one â€” a rejection that skipped this would
+ * the same treatment as the normal one — a rejection that skipped this would
  * leak a robots-invisible error page exactly when something has gone wrong.
  */
 export function applySurfaceHeaders(res: NextResponse, pathname: string): NextResponse {
@@ -278,7 +278,7 @@ export function applySurfaceHeaders(res: NextResponse, pathname: string): NextRe
  * session inside the route (src/app/api/auth/[...all]/route.ts) and in each
  * guard via `auth.api.getSession({ headers })`.
  *
- * That is not a downgrade in protection â€” it is the documented Better Auth pattern,
+ * That is not a downgrade in protection — it is the documented Better Auth pattern,
  * and it is stronger in one respect: an edge cookie-presence check is a routing
  * optimisation, not authorisation. Leaving Clerk in the middleware would also have
  * meant two identity systems live at once (hazard AU-7), which is how
@@ -295,7 +295,7 @@ export default function proxy(req: NextRequest): NextResponse {
   const requestId = req.headers.get(REQUEST_ID)?.slice(0, 64) || crypto.randomUUID();
   const pathname = req.nextUrl.pathname;
 
-  // 1. Oversize body â€” reject before anything buffers it. Announced via
+  // 1. Oversize body — reject before anything buffers it. Announced via
   //    content-length, so this costs nothing for clients that send it (all of
   //    them in practice). Chunked uploads without the header still rely on the
   //    proxyClientMaxBodySize cap in next.config.ts.

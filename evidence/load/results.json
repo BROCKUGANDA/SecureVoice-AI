@@ -13,7 +13,7 @@
       "wallClockIncluded": true,
       "randomIdentifiersIncluded": false,
       "note": "Latency percentiles are wall-clock measurements and therefore differ between runs — that is the point of the artifact. Every DECISION input is seeded (mulberry32 from the run id): which case is throttled, each case's risk and amount, and the backoff jitter. Two runs make the same decisions; only the timings differ.",
-      "seededFrom": "mutmplo4qm"
+      "seededFrom": "muu0nhwk5q"
     },
     "network": {
       "calls": 0,
@@ -374,7 +374,7 @@
   "metrics_snapshot_at_end": {
     "queue_depth": 0,
     "active_conversations": 0,
-    "shed_count": 573,
+    "shed_count": 689,
     "band": "NORMAL",
     "gates": {
       "constrained_at": 84,
@@ -429,7 +429,7 @@
   "scenarios": {
     "steady": {
       "name": "steady",
-      "case_ref_prefix": "SV-LA-mutmplo4qm-steady",
+      "case_ref_prefix": "SV-LA-muu0nhwk5q-steady",
       "cases_in": 300,
       "offered_concurrency": 8,
       "dialled": 300,
@@ -442,39 +442,39 @@
       "latency": {
         "end_to_end_enqueue_to_accounted": {
           "samples": 300,
-          "min_ms": 435.7,
-          "p50_ms": 1779,
-          "p95_ms": 2800.8,
-          "p99_ms": 2874.7,
-          "max_ms": 2895.2,
-          "mean_ms": 1755.5
+          "min_ms": 614.4,
+          "p50_ms": 2101.8,
+          "p95_ms": 3735.4,
+          "p99_ms": 3876.7,
+          "max_ms": 3880.9,
+          "mean_ms": 2211.9
         },
         "admission_decision_including_gauge_count": {
           "samples": 300,
-          "min_ms": 0.6,
-          "p50_ms": 1.4,
-          "p95_ms": 6.6,
-          "p99_ms": 19.3,
-          "max_ms": 21.3,
-          "mean_ms": 2.3
+          "min_ms": 0.7,
+          "p50_ms": 3.4,
+          "p95_ms": 8.7,
+          "p99_ms": 25.1,
+          "max_ms": 31,
+          "mean_ms": 4
         },
         "vendor_call_including_synthetic_hold": {
           "samples": 300,
           "min_ms": 30,
-          "p50_ms": 30.6,
-          "p95_ms": 31.6,
+          "p50_ms": 30.7,
+          "p95_ms": 31.8,
           "p99_ms": 32.5,
-          "max_ms": 56.8,
-          "mean_ms": 30.9
+          "max_ms": 35.3,
+          "mean_ms": 30.8
         }
       },
       "queue": {
         "max_depth": 300,
         "end_depth": 0,
-        "samples": 26,
-        "depth_p50": 163,
-        "depth_p95": 295,
-        "depth_mean": 164,
+        "samples": 34,
+        "depth_p50": 137,
+        "depth_p95": 297,
+        "depth_mean": 152.4,
         "jobs_done": 300,
         "jobs_retried": 0,
         "jobs_dead": 0,
@@ -485,7 +485,7 @@
       "gauge": {
         "baseline_at_start": 0,
         "peak_observed": 7,
-        "peak_own_in_flight": 6,
+        "peak_own_in_flight": 7,
         "end": 0,
         "bands_seen": [
           "NORMAL"
@@ -497,81 +497,80 @@
         "max_concurrent_sessions_observed": 8,
         "gate_timeouts": 0,
         "backoff_delays_ms_sample": [
-          237,
-          146,
-          162,
-          137,
-          132,
-          204,
-          174,
-          219,
-          195,
-          160,
-          173,
-          133,
-          193,
-          216,
+          149,
+          245,
+          225,
+          225,
+          152,
           158,
-          132,
-          238
+          193,
+          231,
+          204,
+          181,
+          184,
+          211,
+          161,
+          238,
+          125,
+          199,
+          215
         ],
-        "backoff_delay_min_ms": 132,
-        "backoff_delay_max_ms": 238,
+        "backoff_delay_min_ms": 125,
+        "backoff_delay_max_ms": 245,
         "backoff_attempts": 17
       },
-      "wall_clock_ms": 2900
+      "wall_clock_ms": 3890
     },
     "burst": {
       "name": "burst",
-      "case_ref_prefix": "SV-LA-mutmplo4qm-burst",
+      "case_ref_prefix": "SV-LA-muu0nhwk5q-burst",
       "cases_in": 1200,
       "offered_concurrency": 224,
-      "dialled": 627,
-      "shed": 573,
+      "dialled": 511,
+      "shed": 689,
       "errors": 0,
       "by_reason": {
-        "shed_voice_reserved_for_top_tier": 549,
-        "constrained_below_expected_loss_threshold": 24
+        "shed_voice_reserved_for_top_tier": 689
       },
       "error_rate": 0,
-      "shed_rate": 0.4775,
-      "dialled_rate": 0.5225,
+      "shed_rate": 0.5742,
+      "dialled_rate": 0.4258,
       "latency": {
         "end_to_end_enqueue_to_accounted": {
           "samples": 1200,
-          "min_ms": 1062.4,
-          "p50_ms": 3463.5,
-          "p95_ms": 4821.6,
-          "p99_ms": 4923.9,
-          "max_ms": 4937,
-          "mean_ms": 3351.4
+          "min_ms": 1823.3,
+          "p50_ms": 5784.3,
+          "p95_ms": 8207.7,
+          "p99_ms": 8309.8,
+          "max_ms": 8336.7,
+          "mean_ms": 5769.3
         },
         "admission_decision_including_gauge_count": {
           "samples": 1200,
-          "min_ms": 2.5,
-          "p50_ms": 59,
-          "p95_ms": 226.6,
-          "p99_ms": 256.7,
-          "max_ms": 274.1,
-          "mean_ms": 100.7
+          "min_ms": 5.3,
+          "p50_ms": 338.8,
+          "p95_ms": 431.3,
+          "p99_ms": 451.5,
+          "max_ms": 475.1,
+          "mean_ms": 249.2
         },
         "vendor_call_including_synthetic_hold": {
-          "samples": 627,
-          "min_ms": 120,
-          "p50_ms": 227.8,
-          "p95_ms": 573.4,
-          "p99_ms": 706.3,
-          "max_ms": 803.4,
-          "mean_ms": 258.3
+          "samples": 511,
+          "min_ms": 120.2,
+          "p50_ms": 127,
+          "p95_ms": 555.2,
+          "p99_ms": 672.2,
+          "max_ms": 696.9,
+          "mean_ms": 235.7
         }
       },
       "queue": {
         "max_depth": 1200,
         "end_depth": 0,
-        "samples": 44,
-        "depth_p50": 837,
+        "samples": 74,
+        "depth_p50": 830,
         "depth_p95": 1200,
-        "depth_mean": 774.4,
+        "depth_mean": 785.7,
         "jobs_done": 1200,
         "jobs_retried": 0,
         "jobs_dead": 0,
@@ -581,8 +580,8 @@
       },
       "gauge": {
         "baseline_at_start": 0,
-        "peak_observed": 188,
-        "peak_own_in_flight": 184,
+        "peak_observed": 209,
+        "peak_own_in_flight": 186,
         "end": 0,
         "bands_seen": [
           "CONSTRAINED",
@@ -591,58 +590,46 @@
         ]
       },
       "vendor": {
-        "placed": 627,
-        "throttled_429": 41,
+        "placed": 511,
+        "throttled_429": 29,
         "max_concurrent_sessions_observed": 40,
         "gate_timeouts": 0,
         "backoff_delays_ms_sample": [
           129,
-          227,
-          199,
-          197,
-          185,
-          196,
-          164,
-          177,
-          136,
-          246,
-          247,
-          203,
+          215,
+          219,
+          244,
+          221,
+          176,
+          193,
+          157,
+          202,
+          133,
+          135,
+          160,
+          172,
           194,
-          237,
-          214,
-          236,
-          137,
-          173,
-          213,
-          231,
+          234,
+          199,
+          185,
+          184,
+          204,
+          198,
+          217,
+          157,
           223,
           208,
-          182,
-          169,
-          143,
-          217,
-          211,
-          177,
+          179,
           190,
-          245,
-          147,
-          201,
-          235,
-          228,
-          185,
-          194,
-          218,
-          212,
-          234,
-          197,
-          199
+          233,
+          226,
+          139
         ],
         "backoff_delay_min_ms": 129,
-        "backoff_delay_max_ms": 247,
-        "backoff_attempts": 41
+        "backoff_delay_max_ms": 244,
+        "backoff_attempts": 29
       },
-      "wall_clock_ms": 4946
+      "wall_clock_ms": 8347
     }
   },
   "accounting": {
@@ -672,11 +659,11 @@
       "casesIn": 1200,
       "casesFound": 1200,
       "byState": {
-        "RECEIVED": 573,
-        "CONFIRMED_FRAUD": 627
+        "RECEIVED": 689,
+        "CONFIRMED_FRAUD": 511
       },
-      "dialled": 627,
-      "shedWithAuditRow": 573,
+      "dialled": 511,
+      "shedWithAuditRow": 689,
       "shedWithoutAuditRow": 0,
       "unaccountedInFlight": 0,
       "unaccountedRefs": [],
@@ -685,8 +672,7 @@
         "DONE": 1200
       },
       "shedIntents": {
-        "admission_shed_shed": 549,
-        "admission_constrained_shed": 24
+        "admission_shed_shed": 689
       },
       "chainSample": {
         "checked": 25,
@@ -699,9 +685,9 @@
     "steady_error_rate": 0,
     "steady_shed_rate": 0,
     "burst_error_rate": 0,
-    "burst_shed_rate": 0.4775,
-    "burst_peak_own_in_flight": 184,
-    "burst_peak_gauge": 188,
+    "burst_shed_rate": 0.5742,
+    "burst_peak_own_in_flight": 186,
+    "burst_peak_gauge": 209,
     "burst_vendor_max_concurrent": 40,
     "cases_accounted_exactly": true
   }

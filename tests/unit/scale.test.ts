@@ -1,21 +1,21 @@
 /**
- * UNIT â€” the WP-19 scale layer: `src/lib/scale/capacity.ts` and
+ * UNIT — the WP-19 scale layer: `src/lib/scale/capacity.ts` and
  * `src/lib/scale/queue.ts`.
  *
  * Neither module is a data structure with an obvious contract, so the header
  * states what each one actually IS, because writing tests against the wrong
  * mental model is worse than writing none:
  *
- *   Â· `scale/capacity.ts` is a CAPACITY PROJECTION, not an admission controller.
+ *   · `scale/capacity.ts` is a CAPACITY PROJECTION, not an admission controller.
  *     `projectCapacity()` takes a card volume and a flag rate and returns the
  *     concurrent calls that volume implies at its peak, compared against three
- *     vendor ceilings. It never admits or refuses a case â€” `src/lib/capacity.ts`
+ *     vendor ceilings. It never admits or refuses a case — `src/lib/capacity.ts`
  *     does that, and that file has its own suite. What this file decides is
  *     which number a bank is shown, so the properties pinned below are about
  *     the ARITHMETIC and the LABELLING: monotonicity in demand and in headroom,
  *     the exact side of every threshold, and what a degenerate input does to a
  *     figure somebody will quote.
- *   Â· `scale/queue.ts` is NOT an in-memory queue. It is raw SQL over a
+ *   · `scale/queue.ts` is NOT an in-memory queue. It is raw SQL over a
  *     `dial_job` table, so FIFO order, claim eligibility and exactly-once are
  *     enforced by Postgres, not by JavaScript. The testable contract is
  *     therefore the module's own arithmetic (the retry ladder, the limits, the
@@ -33,7 +33,7 @@
  *
  * â”€â”€ KNOWN GAP (bug, not asserted as correct) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
  * `projectCapacity` does not guard its own denominators, so a degenerate input
- * can put `NaN`/`Infinity` in a decision field or â€” worse â€” read as NOT
+ * can put `NaN`/`Infinity` in a decision field or — worse — read as NOT
  * oversubscribed. Three concrete instances, all at
  * `src/lib/scale/capacity.ts:388-416` / `:578-582`, all reproduced by the
  * "degenerate configuration" tests below, which pin CURRENT behaviour:
@@ -41,20 +41,20 @@
  *   1. `cardsPerMonth: NaN` (or `0` with `peakWindowMinutes: 0`, so the
  *      averaging window is 0 h) makes every `ceilingRatios` entry NaN.
  *      `oversubscribed` is `worst.ratio > 1`, and `NaN > 1` is false, so the
- *      verdict renders "Within every vendor ceiling" â€” the model fails toward
+ *      verdict renders "Within every vendor ceiling" — the model fails toward
  *      ADMITTING on an input it cannot compute. `bandAtPeak` is likewise
  *      "NORMAL" because every `>=` comparison against NaN is false.
  *   2. `fromNumbers: 0` divides by zero: `ceilingRatios
  *      .twilioCallsPerSecondPerNumber` is `Infinity` and
  *      `requiredHourlyBillingCeilingMinor` can be `NaN`. `fromNumbersRequired`
- *      IS guarded (`Math.max(1, â€¦)`, line 388) but the ratio at line 581 is not.
+ *      IS guarded (`Math.max(1, ¦)`, line 388) but the ratio at line 581 is not.
  *   3. Negative inputs (`flagRate`, `cardsPerMonth`, `meanCallSeconds`,
  *      `fromNumbers`) produce negative ratios, so `oversubscribed` is false and
  *      the model again reports headroom it does not have.
  *
  * The vendor-ceiling guards DO exist and are pinned as guards: a malformed env
  * override falls back to the default (`capacity.ts:182-189`), the gate's
- * ceiling is `Math.max(1, â€¦)` (`:720`), the claim limit is `Math.max(1, â€¦)`
+ * ceiling is `Math.max(1, ¦)` (`:720`), the claim limit is `Math.max(1, ¦)`
  * (`queue.ts:286`), the retry ladder clamps its index (`queue.ts:148`), and
  * `voiceCoverageOfPeak` has an explicit `requiredConcurrent > 0` branch
  * (`capacity.ts:427`). The gaps are the arithmetic inside `projectCapacity`,
@@ -62,14 +62,14 @@
  *
  * Two more, both in the queue layer and both marked where they are pinned:
  * `Math.max(1, NaN)` is NaN, so a NaN gate ceiling rejects every caller
- * including the first (`capacity.ts:720` â€” the safe direction, but the floor
+ * including the first (`capacity.ts:720` — the safe direction, but the floor
  * was clearly meant to catch it); and a FRACTIONAL retry count skips the
  * ladder's array lookup to its `?? last-element` fallback, so `retries = 1.5`
  * waits 600 s where `retries = 1` waits 30 s (`queue.ts:147-150`).
  *
  * â”€â”€ KNOWN GAP (accounting, deliberate) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
- * When `completeDialJob` returns false â€” the row was settled by somebody else
- * between the claim and the completion â€” `drainDialQueue` increments NO counter:
+ * When `completeDialJob` returns false — the row was settled by somebody else
+ * between the claim and the completion — `drainDialQueue` increments NO counter:
  * not `done`, and not `lost`. `lost` is reserved for the `SETTLED` branch of
  * `failDialJob` (`queue.ts:651-653`). The totals still reconcile (claimed ==
  * done + retried + dead + lost + skipped), so this is an observability gap, not
@@ -347,7 +347,7 @@ function record(sql: string, params: unknown[]): void {
 }
 
 /**
- * Join a tagged template (`db.$queryRaw\`â€¦\``) back into SQL text + params so the
+ * Join a tagged template (`db.$queryRaw\`¦\``) back into SQL text + params so the
  * fake can dispatch on the same statement the module really sends.
  */
 function untag(strings: TemplateStringsArray, values: unknown[]): RawCall {
@@ -414,7 +414,7 @@ function installFake(table_: FakeDialJobTable): void {
         );
       }
       if (sql.includes("RETURNING retries")) {
-        // `SET â€¦ last_error = $1 â€¦ WHERE id = $2`: error first, id second.
+        // `SET ¦ last_error = $1 ¦ WHERE id = $2`: error first, id second.
         const [error, id] = params as [string, string];
         const retries = table.incrementRetries(id, error);
         return Promise.resolve(retries === null ? [] : [{ retries }]);
@@ -491,10 +491,10 @@ async function seed(input: {
 }
 
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-// scale/capacity.ts â€” the projection
+// scale/capacity.ts — the projection
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
-describe("projectCapacity â€” the worked example, hand-computed", () => {
+describe("projectCapacity — the worked example, hand-computed", () => {
   // 100,000 cards Ã— 0.35% = 350 interventions per month.
   //   mean/hour  = 350 Ã· 730        = 0.4794520547945205
   //   peak/hour  = Ã— 8              = 3.835616438356164
@@ -503,7 +503,7 @@ describe("projectCapacity â€” the worked example, hand-computed", () => {
   //              = 0.1917808219178082
   // Cost: in an hour at peak, talk-minutes = concurrent calls, so
   //   0.1917808219178082 Ã— $0.08/min = $0.015342465753424657
-  //   billing ceiling = ceil($0.0153â€¦ Ã— 100) = 2 minor units.
+  //   billing ceiling = ceil($0.0153¦ Ã— 100) = 2 minor units.
   test("every step matches the arithmetic the module documents", () => {
     const m = projectCapacity(STEADY);
     expect(m.interventionsPerMonth).toBe(350);
@@ -538,10 +538,10 @@ describe("projectCapacity â€” the worked example, hand-computed", () => {
     expect(byId.get("from_numbers_required")).toBe(m.fromNumbersRequired);
   });
 
-  test("concurrency is invariant under time compression â€” the whole point", () => {
+  test("concurrency is invariant under time compression — the whole point", () => {
     // The same 350 interventions, delivered in 40 minutes instead of
     // averaged over 730 hours. 350 Ã· (40/60) = 525/hour, Ã— 1 (the campaign
-    // IS the peak) Ã· 3600 Ã— 180 = 26.25 concurrent calls â€” 137Ã— the steady
+    // IS the peak) Ã· 3600 Ã— 180 = 26.25 concurrent calls — 137Ã— the steady
     // state. Nothing about the burst is cheaper; only the clock moved.
     const burst = projectCapacity({
       cardsPerMonth: 100_000,
@@ -580,7 +580,7 @@ describe("projectCapacity â€” the worked example, hand-computed", () => {
   });
 });
 
-describe("projectCapacity â€” thresholds are enforced on both sides", () => {
+describe("projectCapacity — thresholds are enforced on both sides", () => {
   test("oversubscribed is STRICTLY greater than the ceiling: at the ceiling passes, one over fails", () => {
     const atCeiling = projectCapacity({
       cardsPerMonth: cardsForConcurrency(EL_PLAN),
@@ -677,7 +677,7 @@ describe("projectCapacity â€” thresholds are enforced on both sides", () =>
   });
 });
 
-describe("projectCapacity â€” capacity math is monotonic", () => {
+describe("projectCapacity — capacity math is monotonic", () => {
   test("more demand never yields less work and never improves a ratio", () => {
     let previousConc = -1;
     let previousRatio = -1;
@@ -730,7 +730,7 @@ describe("projectCapacity â€” capacity math is monotonic", () => {
   });
 
   test("from_numbers_required is a whole number, and never fewer than one", () => {
-    // ceil(peakPerSecond Ã· 2 cps), floored at 1 â€” so a quiet platform still
+    // ceil(peakPerSecond Ã· 2 cps), floored at 1 — so a quiet platform still
     // needs one number to place any call at all.
     expect(projectCapacity(STEADY).fromNumbersRequired).toBe(1);
     expect(projectCapacity({ cardsPerMonth: 0, flagRate: 0 }).fromNumbersRequired).toBe(1);
@@ -748,7 +748,7 @@ describe("projectCapacity â€” capacity math is monotonic", () => {
   });
 });
 
-describe("projectCapacity â€” degenerate configuration", () => {
+describe("projectCapacity — degenerate configuration", () => {
   // See the file header: these pin CURRENT behaviour, which fails toward
   // ADMITTING on negative and NaN inputs. Do not "fix" a failing test here
   // without changing src/lib/scale/capacity.ts first.
@@ -779,9 +779,9 @@ describe("projectCapacity â€” degenerate configuration", () => {
 
   test("zero from-numbers divides by zero in the ratio but is floored in from_numbers_required", () => {
     const m = projectCapacity({ ...STEADY, fromNumbers: 0 });
-    // `Math.max(1, â€¦)` protects the reported numberâ€¦
+    // `Math.max(1, ¦)` protects the reported number¦
     expect(m.fromNumbersRequired).toBe(1);
-    // â€¦but not the ratio, which is a decision field.
+    // ¦but not the ratio, which is a decision field.
     expect(m.ceilingRatios.twilioCallsPerSecondPerNumber).toBe(Infinity);
     expect(m.bindingConstraint.name).toBe("twilioCallsPerSecondPerNumber");
     expect(m.bindingConstraint.oversubscribed).toBe(true);
@@ -815,7 +815,7 @@ describe("projectCapacity â€” degenerate configuration", () => {
   });
 });
 
-describe("vendorCeiling â€” the env override is read at call time and fails safe", () => {
+describe("vendorCeiling — the env override is read at call time and fails safe", () => {
   const KEYS = [
     "ELEVENLABS_MAX_CONCURRENT",
     "TWILIO_CPS_PER_FROM_NUMBER",
@@ -863,7 +863,7 @@ describe("vendorCeiling â€” the env override is read at call time and fails
     expect(vendorCeiling("twilioAccountConcurrency").value).toBe(TWILIO_CONCURRENCY);
     process.env.TWILIO_MAX_CONCURRENT_CALLS = "40";
     expect(vendorCeiling("twilioAccountConcurrency").value).toBe(40);
-    // â€¦and the projection moves with it, because it reads the ceiling per call.
+    // ¦and the projection moves with it, because it reads the ceiling per call.
     expect(projectCapacity(STEADY).ceilingRatios.twilioAccountConcurrency).toBeCloseTo(
       0.1917808219178082 / 40,
       12,
@@ -881,7 +881,7 @@ describe("vendorCeiling â€” the env override is read at call time and fails
   });
 });
 
-describe("VendorConcurrencyGate â€” a bounded, FIFO, per-process semaphore", () => {
+describe("VendorConcurrencyGate — a bounded, FIFO, per-process semaphore", () => {
   test("a zero or negative ceiling is floored at one so the caller can never deadlock", async () => {
     for (const raw of [0, -5]) {
       expect(new VendorConcurrencyGate(() => raw).ceiling()).toBe(1);
@@ -985,9 +985,9 @@ describe("VendorConcurrencyGate â€” a bounded, FIFO, per-process semaphore"
   });
 });
 
-describe("throttleBackoffMs â€” equal jitter with a hard cap", () => {
+describe("throttleBackoffMs — equal jitter with a hard cap", () => {
   test("half the delay is fixed, half is random, and the floor is base/2", () => {
-    // attempt 1 â†’ exponential = 250, half = 125: [125, 250].
+    // attempt 1 → exponential = 250, half = 125: [125, 250].
     expect(throttleBackoffMs(1, () => 0)).toBe(125);
     expect(throttleBackoffMs(1, () => 0.5)).toBe(188);
     expect(throttleBackoffMs(1, () => 1)).toBe(250);
@@ -1014,10 +1014,10 @@ describe("throttleBackoffMs â€” equal jitter with a hard cap", () => {
   });
 
   test("an explicit base and cap are honoured", () => {
-    // base 1000: rungs 1000, 2000, 4000, â€¦ halved for the fixed component.
+    // base 1000: rungs 1000, 2000, 4000, ¦ halved for the fixed component.
     expect(throttleBackoffMs(1, () => 0.5, 1000, 100_000)).toBe(750);
     expect(throttleBackoffMs(4, () => 0.5, 1000, 100_000)).toBe(6000);
-    // 1000 Ã— 2^8 = 256_000 saturates at the 100_000 cap â†’ [50_000, 100_000].
+    // 1000 Ã— 2^8 = 256_000 saturates at the 100_000 cap → [50_000, 100_000].
     expect(throttleBackoffMs(9, () => 0.5, 1000, 100_000)).toBe(75_000);
     expect(throttleBackoffMs(9, () => 0, 1000, 100_000)).toBe(50_000);
     expect(throttleBackoffMs(9, () => 1, 1000, 100_000)).toBe(100_000);
@@ -1045,7 +1045,7 @@ describe("isThrottle", () => {
   });
 });
 
-describe("withElevenLabsCeiling â€” retry, degrade, and release before sleeping", () => {
+describe("withElevenLabsCeiling — retry, degrade, and release before sleeping", () => {
   const sleepCalls: number[] = [];
   const sleep = async (ms: number): Promise<void> => {
     sleepCalls.push(ms);
@@ -1107,7 +1107,7 @@ describe("withElevenLabsCeiling â€” retry, degrade, and release before slee
     expect(inFlightWhenSlept).toBe(0);
   });
 
-  test("a non-throttle error is not retried â€” it would fail the same way twice", async () => {
+  test("a non-throttle error is not retried — it would fail the same way twice", async () => {
     const gate = new VendorConcurrencyGate(() => 2);
     let calls = 0;
     await expect(
@@ -1183,10 +1183,10 @@ describe("withElevenLabsCeiling â€” retry, degrade, and release before slee
 });
 
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-// scale/queue.ts â€” the durable dial queue
+// scale/queue.ts — the durable dial queue
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
-describe("dialJobBackoffMs â€” the bounded retry ladder", () => {
+describe("dialJobBackoffMs — the bounded retry ladder", () => {
   test("rungs are the declared ladder, and the jitter band is Â±20%", () => {
     expect([...DIAL_RETRY_LADDER_MS]).toEqual([30_000, 120_000, 600_000]);
     expect(MAX_DIAL_ATTEMPTS).toBe(3);
@@ -1198,10 +1198,10 @@ describe("dialJobBackoffMs â€” the bounded retry ladder", () => {
   });
 
   test("the ladder index is clamped at both ends", () => {
-    // Below the first rung there is nothing to accelerate, so it stays at 30sâ€¦
+    // Below the first rung there is nothing to accelerate, so it stays at 30s¦
     expect(dialJobBackoffMs(0, () => 0.5)).toBe(30_000);
     expect(dialJobBackoffMs(-10, () => 0.5)).toBe(30_000);
-    // â€¦and past the last rung it saturates at the longest delay, which is
+    // ¦and past the last rung it saturates at the longest delay, which is
     // what stops an undiallable number being retried for ever.
     expect(dialJobBackoffMs(4, () => 0.5)).toBe(600_000);
     expect(dialJobBackoffMs(99, () => 0.5)).toBe(600_000);
@@ -1209,7 +1209,7 @@ describe("dialJobBackoffMs â€” the bounded retry ladder", () => {
 
   test("a FRACTIONAL retry count skips to the LAST rung (reported bug)", () => {
     // `Math.min(1.5, 3) - 1` is 0.5, which is not an array index, so the
-    // `?? last-element` fallback fires: 1.5 â†’ 600s where 1 â†’ 30s and 2 â†’
+    // `?? last-element` fallback fires: 1.5 → 600s where 1 → 30s and 2 →
     // 120s. Retries is always an integer in the database, so this is only
     // reachable by a caller, but a 20Ã— jump is a surprising direction.
     expect(dialJobBackoffMs(1.5, () => 0.5)).toBe(600_000);
@@ -1231,7 +1231,7 @@ describe("dialJobBackoffMs â€” the bounded retry ladder", () => {
   });
 });
 
-describe("enqueueDialJob â€” idempotent on (case_id, attempt_no)", () => {
+describe("enqueueDialJob — idempotent on (case_id, attempt_no)", () => {
   test("the first write creates the row and reports PENDING", async () => {
     const res = await enqueueDialJob({ caseId: "case-1", caseRef: "SV-1" });
     expect(res.created).toBe(true);
@@ -1260,7 +1260,7 @@ describe("enqueueDialJob â€” idempotent on (case_id, attempt_no)", () => {
     expect(table.calls.filter((c) => c.sql.includes("UPDATE"))).toHaveLength(0);
   });
 
-  test("a claimed row survives a replayed signal â€” a re-dial is the failure mode", async () => {
+  test("a claimed row survives a replayed signal — a re-dial is the failure mode", async () => {
     const enqueued = await enqueueDialJob({ caseId: "case-3", caseRef: "SV-3" });
     await claimDialJobs({ workerId: "w1", limit: 1 });
     const replay = await enqueueDialJob({ caseId: "case-3", caseRef: "SV-3" });
@@ -1305,7 +1305,7 @@ describe("enqueueDialJob â€” idempotent on (case_id, attempt_no)", () => {
   });
 });
 
-describe("claimDialJobs â€” eligibility, ordering, and the limit", () => {
+describe("claimDialJobs — eligibility, ordering, and the limit", () => {
   test("an empty queue returns an empty array, never a throw and never undefined", async () => {
     const claimed = await claimDialJobs({ workerId: "w1" });
     expect(claimed).toEqual([]);
@@ -1362,7 +1362,7 @@ describe("claimDialJobs â€” eligibility, ordering, and the limit", () => {
     expect(DEFAULT_LEASE_MS).toBe(60_000);
   });
 
-  test("an expired lease makes a CLAIMED row claimable again â€” no sweeper needed", async () => {
+  test("an expired lease makes a CLAIMED row claimable again — no sweeper needed", async () => {
     const id = await seed({ caseId: "c1" });
     const first = await claimDialJobs({ workerId: "w1", limit: 1, leaseMs: 1000 });
     expect(first[0]?.claimed_by).toBe("w1");
@@ -1393,7 +1393,7 @@ describe("claimDialJobs â€” eligibility, ordering, and the limit", () => {
   });
 });
 
-describe("renewClaim â€” the exactly-once gate", () => {
+describe("renewClaim — the exactly-once gate", () => {
   test("the owner extends its own lease", async () => {
     const id = await seed({ caseId: "c1" });
     await claimDialJobs({ workerId: "w1", limit: 1, leaseMs: 1000 });
@@ -1421,7 +1421,7 @@ describe("renewClaim â€” the exactly-once gate", () => {
   });
 });
 
-describe("completeDialJob â€” idempotent, and it never resurrects a dead letter", () => {
+describe("completeDialJob — idempotent, and it never resurrects a dead letter", () => {
   test("a claimed row completes once", async () => {
     const id = await seed({ caseId: "c1" });
     await claimDialJobs({ workerId: "w1", limit: 1 });
@@ -1448,7 +1448,7 @@ describe("completeDialJob â€” idempotent, and it never resurrects a dead le
   });
 });
 
-describe("failDialJob â€” the bounded ladder", () => {
+describe("failDialJob — the bounded ladder", () => {
   async function claimOne(caseId: string): Promise<string> {
     const id = await seed({ caseId });
     await claimDialJobs({ workerId: "w1", limit: 1 });
@@ -1457,7 +1457,7 @@ describe("failDialJob â€” the bounded ladder", () => {
 
   test("retries climb to DEAD on the MAX_DIAL_ATTEMPTS-th failure", async () => {
     // `rand` is pinned to the top of the jitter band, so the ladder is
-    // exactly 36 s, 144 s, then DEAD â€” and the backoff is applied to the
+    // exactly 36 s, 144 s, then DEAD — and the backoff is applied to the
     // injected clock, not to wall time.
     const rand = () => 1;
     const id = await claimOne("c1");
@@ -1559,7 +1559,7 @@ describe("queue depth, reaping and replay", () => {
     expect(depth.pending).toBe(2);
     expect(depth.claimed).toBe(1);
     expect(depth.total).toBe(3);
-    // A delayed row is PENDING but not claimable â€” the backlog is real.
+    // A delayed row is PENDING but not claimable — the backlog is real.
     expect(await outstandingJobs()).toBe(3);
   });
 
@@ -1597,7 +1597,7 @@ describe("queue depth, reaping and replay", () => {
   });
 });
 
-describe("drainDialQueue â€” the accounting contract", () => {
+describe("drainDialQueue — the accounting contract", () => {
   test("an empty queue drains to all zeros and never calls the handler", async () => {
     let calls = 0;
     const out = await drainDialQueue({
@@ -1800,7 +1800,7 @@ describe("drainDialQueue â€” the accounting contract", () => {
         },
       });
     // The fake's claim yields before it pops, so all three drains are in
-    // flight against the same table before any of them takes a row â€” the
+    // flight against the same table before any of them takes a row — the
     // property under test, not an accident of scheduling.
     const results = await Promise.all([drain("w1"), drain("w2"), drain("w3")]);
 
@@ -1812,7 +1812,7 @@ describe("drainDialQueue â€” the accounting contract", () => {
     expect(results.reduce((n, r) => n + r.lost + r.skipped + r.dead + r.retried, 0)).toBe(0);
     expect(await outstandingJobs()).toBe(0);
     // `FOR UPDATE SKIP LOCKED` hands the whole locked set to the first
-    // worker that arrives, so the split need not be even â€” only disjoint.
+    // worker that arrives, so the split need not be even — only disjoint.
     const perWorker = new Map<string, number>();
     for (const list of handledBy.values()) {
       const worker = list[0]!;
@@ -1878,7 +1878,7 @@ describe("drainDialQueue â€” the accounting contract", () => {
       handler: async () => ({ ok: false, error: "busy" }),
       rand: () => 1,
     });
-    // rand() = 1 â†’ the top of the jitter band: 30s Ã— 1.2 = 36s.
+    // rand() = 1 → the top of the jitter band: 30s Ã— 1.2 = 36s.
     expect((await dialJobById((await queueRows())[0]!.id))?.available_at.getTime()).toBe(
       table.now + 36_000,
     );

@@ -121,7 +121,7 @@ describe("indexing: authenticated and API routes are never indexable", () => {
     expect(robotsTagFor("/api/")).toBe("noindex, nofollow");
   });
 
-  test("/sitemap.xml is not noindex ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â it is the public SEO surface", () => {
+  test("/sitemap.xml is not noindex ÃƒÂ¢Ã¢šÂ¬Ã¢â‚¬Â it is the public SEO surface", () => {
     // Measured, not assumed: the proxy matcher DOES run for /sitemap.xml, so
     // before it was allowlisted the generated sitemap was served with
     // `X-Robots-Tag: noindex, nofollow` on a live server.
@@ -188,7 +188,7 @@ describe("sitemap", () => {
   const entries = sitemap();
 
   test("declares exactly the paths the proxy allows to be indexed", () => {
-    // Note /sitemap.xml is indexable but is NOT a sitemap entry ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â a sitemap
+    // Note /sitemap.xml is indexable but is NOT a sitemap entry ÃƒÂ¢Ã¢šÂ¬Ã¢â‚¬Â a sitemap
     // listing itself is noise. So the two lists are related, not identical.
     const paths = entries.map((e) => new URL(e.url).pathname).sort();
     for (const path of paths) {
@@ -255,7 +255,7 @@ describe("Permissions-Policy", () => {
     },
   );
 
-  test("/ allows the microphone ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â because that is where the demo view lives", () => {
+  test("/ allows the microphone ÃƒÂ¢Ã¢šÂ¬Ã¢â‚¬Â because that is where the demo view lives", () => {
     // Honest counterweight to the test above. `getUserMedia` is called from
     // src/views/Demo.tsx and src/lib/voice-client.ts, both reachable from the
     // `demo` VIEW, which src/app/page.tsx renders at path `/`. Denying the mic
@@ -331,7 +331,7 @@ describe("declared security headers", () => {
   ];
 
   test.each(REQUIRED)("declares $header", ({ header }) => {
-    // Presence of the declaration, not of the emitted value ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â see the source
+    // Presence of the declaration, not of the emitted value ÃƒÂ¢Ã¢šÂ¬Ã¢â‚¬Â see the source
     // label and the SURFACE.md table for what that does and does not prove.
     const source = REQUIRED.find((r) => r.header === header)!.source;
     expect(nextConfig.includes(`"${header}"`) || source === "proxy").toBe(true);
@@ -397,7 +397,7 @@ describe("web app manifest", () => {
 
   test("every declared icon exists in public/", () => {
     // The previous manifest declared /favicon-192.png and /favicon-512.png.
-    // Neither file has ever existed in public/ ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â only logo.svg does ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â so every
+    // Neither file has ever existed in public/ ÃƒÂ¢Ã¢šÂ¬Ã¢â‚¬Â only logo.svg does ÃƒÂ¢Ã¢šÂ¬Ã¢â‚¬Â so every
     // install icon 404'd. This is the assertion that caught it.
     const icons = manifest.icons as Array<{ src: string }>;
     expect(icons.length).toBeGreaterThan(0);
@@ -486,7 +486,7 @@ describe("origin resolution", () => {
 });
 
 /**
- * Live check ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â opt-in.
+ * Live check ÃƒÂ¢Ã¢šÂ¬Ã¢â‚¬Â opt-in.
  *
  * This is the ONLY way to observe the `next.config.ts` headers (CSP, HSTS,
  * nosniff, Referrer-Policy, X-Frame-Options) on real responses, because the

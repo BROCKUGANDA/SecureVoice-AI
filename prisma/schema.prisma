@@ -97,6 +97,30 @@ model AuditLog {
 /// Registered ElevenLabs voice personas with consent metadata.
 /// Cloning endpoints refuse a voice without a recorded consent URL + timestamp.
 
+model OnboardingState {
+  userId         String    @id @db.Uuid
+  /// Steps the user has completed, newest last. A JSON array of step ids rather
+  /// than a row per step: the list is read and written as one unit, it is tiny,
+  /// and it keeps "has this user finished onboarding" to a single indexed read
+  /// instead of a count() on the hot path of every page load.
+  completedSteps String    @default("[]")
+  /// Set when the user explicitly skips. Distinct from "finished": a returning
+  /// user who skipped must never be shown the tour again, but must still be able
+  /// to open the guide deliberately. Collapsing these two states is how you get
+  /// either a tour that nags a power user or a guide nobody can find.
+  skippedAt      DateTime?
+  /// Monotonic count of sessions completed, used only to prove the "skip
+  /// returning users" rule is doing something rather than being decorative.
+  completedAt    DateTime?
+  updatedAt      DateTime  @updatedAt
+}
+
+/// Per-user onboarding progress.
+///
+/// Signup is invite-only, so every account here was invited by a bank, and an
+/// invited operator arrives with no idea what the console does. This records how
+/// far through the guide they are so progress is RESUMABLE rather than restarted,
+/// and so a returning user is not made to sit through it again.
 model Voice {
   id          String    @id @default(cuid())
   voiceId     String    @unique // ElevenLabs voice_id or our internal slug

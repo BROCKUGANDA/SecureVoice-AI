@@ -271,3 +271,70 @@ from the bank's internal systems.
       announce itself.
 - [ ] **Full suite has not been run green end to end** since the test database
       was reset. Individual files pass; the aggregate has not been confirmed.
+
+---
+
+## 9. Database latency: measured, not guessed
+
+`scripts/db-latency-probe.ts` separates the three costs that all present as "the
+database is slow". Measured against the hosted Postgres:
+
+| Cost                                    | Measured     |
+| --------------------------------------- | ------------ |
+| Cold connect (TCP + TLS)                | **1271 ms**  |
+| Warm query round-trip                   | **277 ms**   |
+| Server-side execution (admission gauge) | **0.015 ms** |
+| Server-side execution (audit scan)      | **0.047 ms** |
+
+### Connection pooling: already correct, nothing to fix
+
+- Exactly two `PrismaClient` instances exist (main pool and the audit pool),
+  both module-level singletons held on `globalThis`, so they survive dev HMR.
+- Pool sizes are derived from `connection_limit` in `DATABASE_URL`, falling back
+  to `cpus * 2 + 1`; the audit pool is capped at 5.
+- No route, worker or script constructs a client per request, so the 1271 ms
+  handshake is paid once per process rather than per query.
+
+**There is no pooling bug here.** If you want more headroom under concurrency,
+the lever is a larger pool (bounded by the provider's connection limit) or the
+provider's transaction-mode pooler on port 6543. If you move to the transaction
+pooler, note that it does **not** support prepared statements, so the driver
+adapter must be configured for it (`pgbouncer=true` on the URL, or an empty
+statement cache) or queries will fail at runtime rather than degrade.
+
+### Why indexing is not the answer
+
+At 156 `Case` rows and 983 `AuditLog` rows every hot query is already an index-only
+scan. There is nothing to add. An index cannot make a 277 ms network round-trip
+faster; it only speeds work that was never the bottleneck.
+
+### What actually moves the number
+
+1. **Co-locate the database.** This is the whole fix. The deployed host has
+   Postgres in the same compose network and measures single-digit milliseconds;
+   the hosted test database is the reason the number looks like 277 ms.
+2. **Fewer round-trips per request** � batch related reads into one query, as the
+   intervention ingest already does by folding the idempotency and consent reads
+   into a single statement.
+3. **Cache reference data** � `src/lib/cache.ts` adds a TTL cache with
+   single-flight de-duplication. Authorization decisions, consent state and
+   anything gating money or a call are deliberately excluded: a cached "has not
+   opted out" is a compliance breach waiting for an expiry.
+4. **Do not cache audio or transcript in the database.** The TTS cache is already
+   in-process and bounded (`TTS_CACHE_TTL_MS`, `TTS_CACHE_MAX`).
+
+---
+
+## 10. Judging rubric � how the current build scores
+
+Kept here so the gap list stays honest against the criteria rather than against
+our own roadmap.
+
+| Dimension  | Where we stand                                                                              | Honest gap                                                                                                                                                                                          |
+| ---------- | ------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Problem    | Narrow and high-stakes: a fraud victim's call, a 60-second window                           | Strong. Keep the caller-ID paradox framing.                                                                                                                                                         |
+| Innovation | Deterministic guardrail decision surface, tamper-evident audit chain, honest capacity model | The differentiator is _trustworthiness_, which is hard to demo in 3 minutes. Needs a scripted moment.                                                                                               |
+| Execution  | Live on a real VPS, real integrations, 455 chaos checks                                     | `tests/e2e/dial.test.ts` latency gate fails against the hosted test DB (see �5). The demo path itself works.                                                                                        |
+| Usability  | Clean console, quick nav, six live languages                                                | Responsive behaviour was reasoned from code, not tested on devices. Touch targets unaudited.                                                                                                        |
+| Impact     | Quantified prevented-loss figures, measured latency                                         | Figures come from the artifact, and the artifact is a synthetic bank. A pilot reference would be stronger.                                                                                          |
+| Pitch      | Sharp hook, live demo                                                                       | Now that the one-click **operator** login is gone, the judge path is the demo shortcut. Confirm `NEXT_PUBLIC_DEMO_LOGIN_*` is set on the deployed host before demoing, or judges see "not enabled". |

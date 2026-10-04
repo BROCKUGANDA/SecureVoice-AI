@@ -64,7 +64,7 @@ describe("elevenlabs webhook ingest rejection logging", () => {
     expect(record.fields.provider).toBe("elevenlabs");
     expect(record.fields.outcome).toBe("signature_verification_failed");
     expect(record.fields.signatureHeaderPresent).toBe(true);
-    expect(record.fields.bodyBytes).toBe(BODY.length);
+    expect(record.fields.bodyBytes).toBe(new TextEncoder().encode(BODY).byteLength);
   });
 
   test("a missing signature header is recorded as absent, not merely rejected", async () => {

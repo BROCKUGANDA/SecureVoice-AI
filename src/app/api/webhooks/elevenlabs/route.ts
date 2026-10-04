@@ -45,7 +45,7 @@ export async function POST(req: NextRequest) {
       provider: "elevenlabs",
       outcome: "signature_verification_failed",
       signatureHeaderPresent: sigHeader !== null,
-      bodyBytes: raw.length,
+      bodyBytes: new TextEncoder().encode(raw).byteLength,
       error: err,
     });
     return NextResponse.json({ error: "invalid_signature" }, { status: 401 });

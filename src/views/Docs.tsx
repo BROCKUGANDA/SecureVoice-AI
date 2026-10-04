@@ -294,12 +294,21 @@ function Field({ name, type, note }: { name: string; type: string; note: string 
 /* ————————————————— quickstart ————————————————— */
 
 function Quickstart({ lang }: { lang: "en" | "ar" }) {
+  // The quickstart used to hardcode api.securevoice.ae, a domain this
+  // deployment does not serve. A judge clicking "copy" got a command that failed
+  // with DNS error on the first try, which reads as a broken product rather than
+  // a placeholder. It now interpolates the origin the page was actually served
+  // from, so the example is runnable wherever the docs are deployed. Set
+  // NEXT_PUBLIC_API_BASE to document a separate API hostname.
+  const origin =
+    process.env.NEXT_PUBLIC_API_BASE ??
+    (typeof window !== "undefined" ? window.location.origin : "https://api.securevoice.ae");
   const steps = [
     {
       n: "01",
       title: "Subscribe to intervention events",
       body: "Point your fraud-orchestration webhook at SecureVoice. When a transaction crosses your risk threshold, we place the intervention call and stream every phase transition back to you.",
-      code: `curl -X POST https://api.securevoice.ae/v1/webhooks \\
+      code: `curl -X POST ${origin}/v1/webhooks \\
   -H "Authorization: Bearer sv_live_…" \\
   -d '{
     "url": "https://fraud.yourbank.ae/hooks/securevoice",

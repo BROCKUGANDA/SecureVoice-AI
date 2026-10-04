@@ -285,6 +285,21 @@ model Case {
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt
 
+  // One intervention call per bank transaction.
+  //
+  // This is the ATOMIC backstop behind the policy gate's transaction_repeat
+  // check. A read cannot settle a race: two signals carrying different
+  // Idempotency-Keys but the same transaction_ref can both read "no prior case"
+  // and both proceed to dial, and a fraud victim then receives two "your card is
+  // frozen" calls about one transaction. The unique index is what makes the
+  // second INSERT fail at the database, which is the only place a race can
+  // actually be decided.
+  //
+  // Partial (WHERE transactionRef IS NOT NULL) because the column is nullable:
+  // a plain composite unique would treat every NULL as a distinct value in
+  // Postgres anyway, but the partial form states the intent and keeps the index
+  // small when many cases predate the field.
+  @@unique([orgId, transactionRef], map: "Case_orgId_transactionRef_key")
   @@index([orgId, state])
   @@index([orgId, createdAt])
   @@index([conversationId])

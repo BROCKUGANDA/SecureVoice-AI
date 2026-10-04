@@ -425,6 +425,9 @@ async function armAndDial(
     consentRecordId: signal.consent_record_id,
     caseRef,
     callerId: effectiveCallerId,
+    // Checked independently of the Idempotency-Key: a bank that sends one
+    // transaction under two different keys must still produce one call.
+    transactionRef: signal.transaction_ref,
   });
   if (!gate.ok) {
     void auditAppend(

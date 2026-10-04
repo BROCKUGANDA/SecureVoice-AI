@@ -1062,6 +1062,21 @@ export const ERROR_CODES: readonly ErrorCodeEntry[] = [
       "Retry after the cooldown window. Do not switch `transaction_ref` to evade it — the cooldown is per destination, by design, and that is the toll-fraud control.",
   },
   {
+    id: "gate_transaction_repeat",
+    status: 409,
+    code: null,
+    literal: "transaction_repeat",
+    surface: "http_message",
+    envelope: "failure_envelope_v1",
+    reachedFrom: [INGEST],
+    envelopeCode: "policy_precondition",
+    retryable: false,
+    meaning:
+      "This `transaction_ref` already has a case, so a call has already been placed for it. Refused because a second call would tell the same fraud victim their card is frozen twice about one transaction. Checked independently of `Idempotency-Key`: a new key is a new signal as far as the key is concerned, and one transaction must still produce one call.",
+    remediation:
+      "Treat the original case as authoritative and read its outcome rather than re-sending. If you genuinely need a second intervention for the same transaction, use a distinct `transaction_ref` so the intent is visible in the ledger.",
+  },
+  {
     id: "gate_idempotent_request_in_flight",
     status: 409,
     code: null,

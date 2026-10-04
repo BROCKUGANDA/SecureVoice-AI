@@ -469,6 +469,39 @@ Verified by mutation: injecting `export const leaked = clerkMiddleware` into
       allowlisted with that reason. It should be deleted once its consumer is
       identified � rewriting a script whose only consumer is unknown would be
       guessing.
-- [ ] **`scripts/walkthrough/out/story.json` narration claims "Clerk holds the
-      identity".** That is now false, and it is demo material a judge may read or
-      hear. The output is generated, so fix the generator, not the artifact.
+- [x] **`scripts/walkthrough/out/story.json` claimed "Clerk holds the identity".**
+      Checked: the SOURCE is already correct — `scenes.mjs` says "Self-hosted
+      identity - no stored passwords". The stale wording is in the generated
+      `out/` directory, which is gitignored and was produced before the cutover.
+      No code change needed; re-run the walkthrough to regenerate the artifact
+      before any demo.
+
+---
+
+## 13. Transaction-level dedup (closed)
+
+`transaction_ref` had no uniqueness guarantee, so a bank sending one transaction
+under two different `Idempotency-Key`s was dialled twice. The key only protects
+against the same REQUEST being retried; it does nothing for a retry storm with a
+fresh key per attempt, two fraud engines racing, or an integration bug that
+regenerates the header. Both signals passed the idempotency claim and both
+reached the dial path � a fraud victim receiving two "your card is frozen" calls
+about one transaction, which is the exact failure this product exists to prevent.
+
+Closed at both levels, because one of them is not enough:
+
+1. **Fast path** � the policy gate refuses a repeated `transaction_ref` with the
+   typed code `transaction_repeat`, placed as step 0 so no credits are reserved
+   for a signal that was always going to be rejected.
+2. **Atomic backstop** � a partial unique index on `Case(orgId, transactionRef)`.
+   A read cannot settle a race; only the database can. Two concurrent signals with
+   different keys both read "no prior case", and the second INSERT fails at the
+   index.
+
+The migration quarantines pre-existing duplicates rather than dropping them, and
+keeps the EARLIEST row: that is the one that was actually dialled, so it is the
+one whose audit chain and call recording exist. Zero duplicates existed across
+235 cases, so this was a no-op on the current database.
+
+Catalogued as `transaction_repeat` � the error catalog gate caught the new code,
+which is it doing its job.

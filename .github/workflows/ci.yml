@@ -46,6 +46,16 @@ jobs:
         with:
           node-version: 20
 
+      # tests/webhooks/outbound.test.ts verifies the bank webhook signature a
+      # SECOND time in Python, against scripts/verify_sv_signature.py. That gate
+      # deliberately FAILS rather than skipping when the interpreter is missing
+      # (a gate that silently skips its own check is worse than no gate), so CI
+      # has to provide one or every push is red for a reason that has nothing to
+      # do with the change under test.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
       # Prisma needs a syntactically valid URL at generate time. It is never
       # dialled during a build — this is the same value the Dockerfile bakes in.
       - name: Install dependencies
@@ -87,6 +97,17 @@ jobs:
         # `bun test tests/`, so each file gets a clean module registry and the
         # gate matches what `bun run verify` executes locally.
         run: bun run test
+
+      # The hosted test database caps simultaneous connections well below the
+      # ~100 the WP-13 oversell tests need, and they now SKIP themselves with a
+      # loud warning when the target is a hosted tier. Say so explicitly here so
+      # nobody reads a green run as "oversell is proven" -- it is only proven
+      # where the concurrency actually happened.
+      - name: Note on concurrency-gate coverage
+        run: |
+          echo "WP-13 oversell assertions are skipped against hosted tiers."
+          echo "They are unproven there, not proven safe. Verify against"
+          echo "co-located Postgres before relying on them."
 
       # Coverage. REPORT-ONLY, deliberately not `continue-on-error: false`.
       #

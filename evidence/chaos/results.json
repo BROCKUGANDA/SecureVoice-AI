@@ -414,7 +414,7 @@
         "file": "src/lib/audit-chain.ts",
         "transactions": 1,
         "regions": [
-          "197-231"
+          "199-233"
         ],
         "findings": []
       },
@@ -450,8 +450,8 @@
         "file": "src/lib/outbox.ts",
         "transactions": 2,
         "regions": [
-          "271-289",
-          "323-329"
+          "278-296",
+          "330-336"
         ],
         "findings": []
       },
@@ -471,7 +471,7 @@
         "file": "src/lib/payments/provider.ts",
         "transactions": 1,
         "regions": [
-          "316-385"
+          "316-388"
         ],
         "findings": []
       },
@@ -813,7 +813,7 @@
       "area": "breaker",
       "name": "redis:garbage-limit-fails-closed",
       "ok": true,
-      "detail": "1"
+      "detail": "0"
     },
     {
       "area": "breaker",
@@ -2053,7 +2053,7 @@
     },
     {
       "area": "envelope",
-      "name": "scanner-fires:internal_identifier:\\b(?:pk|sk|whsec|svb|sb)_[A-Za-z0-9_]{8,",
+      "name": "scanner-fires:internal_identifier:\\b(?:pk|sk|rk|whsec|svb|sb)[_-][A-Za-z0-",
       "ok": true,
       "detail": "key sk_live_0123456789abcdef rejected"
     },
@@ -2241,7 +2241,7 @@
       "area": "gate",
       "name": "evidence-digest-is-sha256",
       "ok": true,
-      "detail": "0cda42ffcd04ca90"
+      "detail": "4fa85f4889214b53"
     },
     {
       "area": "gate",
@@ -3367,5 +3367,5 @@
     }
   ],
   "digestAlgorithm": "sha256",
-  "digest": "9568d9d1c2962d412130da8a79fb388fea3e5ae22e4eef73e79dbd7479249769"
+  "digest": "1fe87dbba48379d74201133295975c89829f5543a1878812f65e5d31dda45511"
 }

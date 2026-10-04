@@ -408,3 +408,22 @@ absolute 1500 ms budget is still asserted at its true value.
 Measured on the remote test database: p95 5443 ms against a 291 ms floor
 (18.7x). Before: failing at 5756 ms with the gate unable to distinguish our code
 from the network.
+
+### Full suite: state as of this pass
+
+`bun run test` is green except for ONE failure, and it is environmental:
+
+- **WP-5 (outbox / cross-language signature)** fails locally with "no Python
+  interpreter found". The test deliberately FAILS rather than skipping when the
+  interpreter is absent -- a gate that silently skips its own check is worse than
+  no gate -- so the fix was to give it one: CI now installs Python 3.12 via
+  `actions/setup-python`. On this machine there is no Python at all, so the leg
+  is unproven locally and will run in CI.
+
+Confirmed NOT broken, worth recording because both looked like failures:
+
+- The invite suite "timed out at 5000ms" when invoked directly. It is not
+  failing: `scripts/run-tests.mjs` already passes `--timeout 120000`, and with
+  that flag all 14 tests pass. Bun's 5 s default is a local-filesystem assumption
+  and this suite runs against a ~277 ms-round-trip database. Do not "fix" this
+  by editing the tests or adding a global timeout -- it is already correct.

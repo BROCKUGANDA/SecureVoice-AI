@@ -1062,6 +1062,21 @@ export const ERROR_CODES: readonly ErrorCodeEntry[] = [
       "Retry after the cooldown window. Do not switch `transaction_ref` to evade it — the cooldown is per destination, by design, and that is the toll-fraud control.",
   },
   {
+    id: "gate_idempotent_request_in_flight",
+    status: 409,
+    code: null,
+    literal: "idempotent_request_in_flight",
+    surface: "http_message",
+    envelope: "failure_envelope_v1",
+    reachedFrom: [INGEST],
+    envelopeCode: "policy_precondition",
+    retryable: true,
+    meaning:
+      "A request with this `Idempotency-Key` is already being executed. The key is claimed atomically before any side effect, so a concurrent duplicate loses the claim and is refused here rather than placing a second call to the same customer. Seeing this means the FIRST request is still in progress, not that it failed.",
+    remediation:
+      "Retry the identical request with the SAME `Idempotency-Key` after a short delay. It will then receive the stored response with `X-Idempotent-Replay: true` instead of dialling again. Do NOT retry with a new key: a fresh key is a fresh signal and will place a second call, which is the exact toll-fraud failure this claim exists to prevent.",
+  },
+  {
     id: "gate_concurrency_cap",
     status: 409,
     code: null,

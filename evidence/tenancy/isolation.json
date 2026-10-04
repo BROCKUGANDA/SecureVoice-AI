@@ -2,57 +2,36 @@
   "schemaVersion": 1,
   "gate": "WP-12 multi-tenancy isolation",
   "digestAlgorithm": "sha256",
-  "digest": "99d306eff666ff491ed59d55c2ce095f06b1ed99031a5e72c78c6d3b1ccba36d",
-  "generatedAt": "2026-10-02T21:58:42.306Z",
+  "digest": "f91255ce6900e348fd83981a860a85d6461f59047bfaa585a9b36696eddf6cf5",
+  "generatedAt": "2026-10-04T08:30:22.496Z",
   "run": {
-    "id": "muri916g",
+    "id": "mutk7o6m",
     "orgs": {
-      "A": "org-tenancy-a-muri916g",
-      "B": "org-tenancy-b-muri916g"
+      "A": "0a0a0a0a-0000-4000-8000-69467628e535",
+      "B": "0b0b0b0b-0000-4000-8000-69467628e535"
     },
-    "database": "TEST_DATABASE_URL",
+    "database": "DATABASE_URL",
     "note": "identifiers above are per-run; the digest covers the deterministic core only"
   },
   "summary": {
-    "result": "fail",
+    "result": "pass",
     "pathsDeclared": 22,
     "pathsProbed": 20,
     "directionsProbed": 40,
     "coverage": {
-      "asserted": 16,
-      "declaredGap": 4,
+      "asserted": 20,
+      "declaredGap": 0,
       "declaredGlobal": 2
     },
     "checks": {
       "total": 198,
-      "passed": 196,
-      "failed": 2
+      "passed": 198,
+      "failed": 0
     },
     "http404Asserted": 5,
     "never403Asserted": 10,
     "tenantModelsDeclared": 9,
-    "unscopedReadPaths": [
-      {
-        "path": "lib.audit-chain.verify",
-        "module": "src/lib/audit-chain.ts",
-        "read": "verifyChain"
-      },
-      {
-        "path": "lib.case.by-conversation",
-        "module": "src/lib/case-state-machine.ts",
-        "read": "caseByConversation"
-      },
-      {
-        "path": "lib.case.by-ref",
-        "module": "src/lib/case-state-machine.ts",
-        "read": "caseByRef"
-      },
-      {
-        "path": "lib.notifications.acknowledge",
-        "module": "src/lib/notifications.ts",
-        "read": "acknowledge"
-      }
-    ]
+    "unscopedReadPaths": []
   },
   "canonicalReadPaths": [
     {
@@ -309,7 +288,7 @@
       "id": "lib.case.by-ref",
       "model": "Case",
       "verdict": "foreign-probe-empty",
-      "coverage": "declared-gap",
+      "coverage": "asserted",
       "kind": "library",
       "module": "src/lib/case-state-machine.ts",
       "read": "caseByRef",
@@ -320,7 +299,7 @@
       "id": "lib.case.by-conversation",
       "model": "Case",
       "verdict": "foreign-probe-empty",
-      "coverage": "declared-gap",
+      "coverage": "asserted",
       "kind": "library",
       "module": "src/lib/case-state-machine.ts",
       "read": "caseByConversation",
@@ -376,7 +355,7 @@
       "id": "lib.audit-chain.verify",
       "model": "AuditLog",
       "verdict": "foreign-probe-empty",
-      "coverage": "declared-gap",
+      "coverage": "asserted",
       "kind": "library",
       "module": "src/lib/audit-chain.ts",
       "read": "verifyChain",
@@ -387,7 +366,7 @@
       "id": "lib.notifications.acknowledge",
       "model": "Notification",
       "verdict": "foreign-probe-empty",
-      "coverage": "declared-gap",
+      "coverage": "asserted",
       "kind": "library",
       "module": "src/lib/notifications.ts",
       "read": "acknowledge",
@@ -1838,7 +1817,7 @@
         "route": "/api/console/settings",
         "probeParam": ""
       },
-      "notes": "Identity-keyed read with no id-shaped probe: the route can only ever pass its own clerkUserId, so the cross-tenant probe is a SENTINEL orgName written onto the other org's profile. Both directions return 200 for the caller's own profile and neither response may contain the other org's sentinel. Deliberately NOT a 404 assertion — there is no identifier in the request for a 404 to hide, and claiming otherwise would be a fake assertion. The four genuinely id-shaped paths (console.audit.case-chain, console.producer-keys.revoke, console.inbox.acknowledge, api.enroll.customer-by-ref) carry the 404-never-403 assertion.",
+      "notes": "Identity-keyed read with no id-shaped probe: the route can only ever pass its own userId, so the cross-tenant probe is a SENTINEL orgName written onto the other org's profile. Both directions return 200 for the caller's own profile and neither response may contain the other org's sentinel. Deliberately NOT a 404 assertion — there is no identifier in the request for a 404 to hide, and claiming otherwise would be a fake assertion. The four genuinely id-shaped paths (console.audit.case-chain, console.producer-keys.revoke, console.inbox.acknowledge, api.enroll.customer-by-ref) carry the 404-never-403 assertion.",
       "directions": [
         {
           "direction": "A-reads-B",
@@ -2064,7 +2043,7 @@
       "probeField": "orgName",
       "probeInvoke": "getProfile() as org A's session must resolve orgId=A and never surface org B's profile values.",
       "http": null,
-      "notes": "The Clerk session claim is the only source of orgId here, and the upsert is keyed by clerkUserId — a session cannot address another org's row.",
+      "notes": "The session claim is the only source of orgId here, and the upsert is keyed by userId — a session cannot address another org's row.",
       "directions": [
         {
           "direction": "A-reads-B",
@@ -2074,7 +2053,7 @@
           "axisApplicable": true,
           "http": null,
           "control": {
-            "described": "getProfile resolves the caller's own org and clerk id",
+            "described": "getProfile resolves the caller's own org and user id",
             "status": null,
             "ownVisible": true
           },
@@ -2083,7 +2062,7 @@
           "guardEquivalent": {
             "applied": true,
             "empty": true,
-            "detail": "the other org's clerkUserId resolves to nothing under the caller's scope"
+            "detail": "the other org's userId resolves to nothing under the caller's scope"
           },
           "checks": [
             {
@@ -2094,7 +2073,7 @@
             {
               "name": "resolves-own-identity",
               "ok": true,
-              "detail": "getProfile must resolve the session's own clerkUserId"
+              "detail": "getProfile must resolve the session's own userId"
             },
             {
               "name": "no-foreign-identity",
@@ -2102,9 +2081,9 @@
               "detail": "the resolved profile must not be the other org's"
             },
             {
-              "name": "guard-refuses-foreign-clerk-id",
+              "name": "guard-refuses-foreign-user-id",
               "ok": true,
-              "detail": "scoped findFirst for the other org's clerkUserId must be empty"
+              "detail": "scoped findFirst for the other org's userId must be empty"
             },
             {
               "name": "recorded-foreign-probe-is-empty",
@@ -2123,7 +2102,7 @@
           "axisApplicable": true,
           "http": null,
           "control": {
-            "described": "getProfile resolves the caller's own org and clerk id",
+            "described": "getProfile resolves the caller's own org and user id",
             "status": null,
             "ownVisible": true
           },
@@ -2132,7 +2111,7 @@
           "guardEquivalent": {
             "applied": true,
             "empty": true,
-            "detail": "the other org's clerkUserId resolves to nothing under the caller's scope"
+            "detail": "the other org's userId resolves to nothing under the caller's scope"
           },
           "checks": [
             {
@@ -2143,7 +2122,7 @@
             {
               "name": "resolves-own-identity",
               "ok": true,
-              "detail": "getProfile must resolve the session's own clerkUserId"
+              "detail": "getProfile must resolve the session's own userId"
             },
             {
               "name": "no-foreign-identity",
@@ -2151,9 +2130,9 @@
               "detail": "the resolved profile must not be the other org's"
             },
             {
-              "name": "guard-refuses-foreign-clerk-id",
+              "name": "guard-refuses-foreign-user-id",
               "ok": true,
-              "detail": "scoped findFirst for the other org's clerkUserId must be empty"
+              "detail": "scoped findFirst for the other org's userId must be empty"
             },
             {
               "name": "recorded-foreign-probe-is-empty",
@@ -2172,13 +2151,13 @@
       "title": "Tamper-evidence chain walk",
       "model": "AuditLog",
       "verdict": "foreign-probe-empty",
-      "coverage": "declared-gap",
+      "coverage": "asserted",
       "module": "src/lib/audit-chain.ts",
       "read": "verifyChain",
       "probeField": "callRef",
-      "probeInvoke": "verifyChain(org B's callRef) currently walks and returns org B's rows; the console route's own pre-check is what protects it.",
+      "probeInvoke": "verifyChain(org B's callRef, org A) must return no rows from org B — the tenant is part of the walk.",
       "http": null,
-      "notes": "GAP (defence in depth, not currently exploitable): `verifyChain` reads by callRef alone (line 263). The only caller, /api/console/audit, org-checks first, so the route is safe today. The function would return a foreign chain to any future caller that skipped the pre-check. Guard equivalent probed in the same run.",
+      "notes": "Was a declared gap (defence in depth): verifyChain read by callRef alone, relying on /api/console/audit to org-check first. Closed — verifyChain now takes the caller's org and filters the walk, so a future caller cannot be handed a foreign chain by forgetting a pre-check.",
       "directions": [
         {
           "direction": "A-reads-B",
@@ -2206,9 +2185,9 @@
               "detail": "the scoped equivalent must return nothing for the foreign callRef"
             },
             {
-              "name": "declared-gap-is-still-open",
+              "name": "recorded-foreign-probe-is-empty",
               "ok": true,
-              "detail": "lib.audit-chain.verify no longer leaks; reclassify it from declared-gap so the artifact stops advertising an open gap."
+              "detail": "foreignVisible=false contradicts verdict foreign-probe-empty"
             }
           ],
           "ok": true,
@@ -2240,9 +2219,9 @@
               "detail": "the scoped equivalent must return nothing for the foreign callRef"
             },
             {
-              "name": "declared-gap-is-still-open",
+              "name": "recorded-foreign-probe-is-empty",
               "ok": true,
-              "detail": "lib.audit-chain.verify no longer leaks; reclassify it from declared-gap so the artifact stops advertising an open gap."
+              "detail": "foreignVisible=false contradicts verdict foreign-probe-empty"
             }
           ],
           "ok": true,
@@ -2370,13 +2349,13 @@
       "title": "Case lookup by provider conversation id",
       "model": "Case",
       "verdict": "foreign-probe-empty",
-      "coverage": "declared-gap",
+      "coverage": "asserted",
       "module": "src/lib/case-state-machine.ts",
       "read": "caseByConversation",
       "probeField": "conversationId",
-      "probeInvoke": "caseByConversation(org B's conversationId) currently returns org B's case. The scoped equivalent must return null.",
+      "probeInvoke": "caseByConversation(org B's conversationId, org A) must return null — the tenant resolved from the caller's credential is part of the lookup.",
       "http": null,
-      "notes": "GAP: `db.case.findFirst({ where: { conversationId } })` (line 152) has no org predicate. This is the post-call webhook join key, so a replayed foreign conversation id would attach a foreign case to the wrong org's record. Guard equivalent probed in the same run.",
+      "notes": "Was a declared gap: `db.case.findFirst({ where: { conversationId } })` had no org predicate, so a caller holding the single deployment-wide AGENT_TOOL_SECRET could name any tenant's conversation_id and have that case resolved, frozen or read. Closed on both inbound paths. TOOL path: `authorizeToolCall` resolves an org from a per-tenant AgentToolSecret (hash-only, ProducerKey convention) and the platform key resolves to the DEFAULT namespace rather than 'any org'. WEBHOOK path: ElevenLabs names the agent that produced the event, and Organization records the agent (and phone number) it dials on, so `resolveInboundOrgId` attributes the event to exactly one tenant; the payload's agent_id outranks the stored envelope column so a tampered row cannot widen scope. An unbound agent still resolves to the default namespace — confined, not trusted.",
       "directions": [
         {
           "direction": "A-reads-B",
@@ -2390,7 +2369,7 @@
             "status": null,
             "ownVisible": true
           },
-          "foreignVisible": true,
+          "foreignVisible": false,
           "foreignMutated": null,
           "guardEquivalent": {
             "applied": true,
@@ -2399,9 +2378,9 @@
           },
           "checks": [
             {
-              "name": "DECLARED-GAP-still-unscoped",
+              "name": "org-scoped-foreign-id-invisible",
               "ok": true,
-              "detail": "caseByConversation has no org predicate — if this passes, the gap is fixed and the entry must be reclassified"
+              "detail": "the caller's tenant is part of the lookup, so the foreign conversation id must resolve to nothing"
             },
             {
               "name": "control-own-case-returned",
@@ -2414,12 +2393,12 @@
               "detail": "the scoped equivalent must return nothing for the foreign conversation id"
             },
             {
-              "name": "declared-gap-is-still-open",
-              "ok": false,
-              "detail": "KNOWN OPEN GAP: lib.case.by-conversation still returns the other org's row (caseByConversation). Fix the read, then reclassify this matrix entry."
+              "name": "recorded-foreign-probe-is-empty",
+              "ok": true,
+              "detail": "foreignVisible=false contradicts verdict foreign-probe-empty"
             }
           ],
-          "ok": false,
+          "ok": true,
           "error": null
         },
         {
@@ -2434,7 +2413,7 @@
             "status": null,
             "ownVisible": true
           },
-          "foreignVisible": true,
+          "foreignVisible": false,
           "foreignMutated": null,
           "guardEquivalent": {
             "applied": true,
@@ -2443,9 +2422,9 @@
           },
           "checks": [
             {
-              "name": "DECLARED-GAP-still-unscoped",
+              "name": "org-scoped-foreign-id-invisible",
               "ok": true,
-              "detail": "caseByConversation has no org predicate — if this passes, the gap is fixed and the entry must be reclassified"
+              "detail": "the caller's tenant is part of the lookup, so the foreign conversation id must resolve to nothing"
             },
             {
               "name": "control-own-case-returned",
@@ -2458,29 +2437,29 @@
               "detail": "the scoped equivalent must return nothing for the foreign conversation id"
             },
             {
-              "name": "declared-gap-is-still-open",
-              "ok": false,
-              "detail": "KNOWN OPEN GAP: lib.case.by-conversation still returns the other org's row (caseByConversation). Fix the read, then reclassify this matrix entry."
+              "name": "recorded-foreign-probe-is-empty",
+              "ok": true,
+              "detail": "foreignVisible=false contradicts verdict foreign-probe-empty"
             }
           ],
-          "ok": false,
+          "ok": true,
           "error": null
         }
       ],
-      "ok": false
+      "ok": true
     },
     {
       "path": "lib.case.by-ref",
       "title": "Case lookup by public reference",
       "model": "Case",
       "verdict": "foreign-probe-empty",
-      "coverage": "declared-gap",
+      "coverage": "asserted",
       "module": "src/lib/case-state-machine.ts",
       "read": "caseByRef",
       "probeField": "caseRef",
-      "probeInvoke": "caseByRef(org B's caseRef) currently returns org B's case. The scoped equivalent must return null.",
+      "probeInvoke": "caseByRef(org B's caseRef, org A) must return null — the tenant is part of the lookup.",
       "http": null,
-      "notes": "GAP: `db.case.findUnique({ where: { caseRef } })` (line 157) has no org predicate. No HTTP route currently calls it with attacker-controlled input, and the fix is outside this work package's write scope. Guard equivalent probed in the same run: scopedDb({ orgId: A }).case.findFirst({ where: { caseRef: B } }) is null.",
+      "notes": "Was a declared gap: `db.case.findUnique({ where: { caseRef } })` had no org predicate. Closed — caseByRef now takes the caller's org and applies the same default-namespace predicate as caseByConversation, verifyChain and acknowledge. No HTTP route calls it with attacker-controlled input, so the exposure was latent rather than live.",
       "directions": [
         {
           "direction": "A-reads-B",
@@ -2513,9 +2492,9 @@
               "detail": "the scoped equivalent must return nothing for the foreign caseRef"
             },
             {
-              "name": "declared-gap-is-still-open",
+              "name": "recorded-foreign-probe-is-empty",
               "ok": true,
-              "detail": "lib.case.by-ref no longer leaks; reclassify it from declared-gap so the artifact stops advertising an open gap."
+              "detail": "foreignVisible=false contradicts verdict foreign-probe-empty"
             }
           ],
           "ok": true,
@@ -2552,9 +2531,9 @@
               "detail": "the scoped equivalent must return nothing for the foreign caseRef"
             },
             {
-              "name": "declared-gap-is-still-open",
+              "name": "recorded-foreign-probe-is-empty",
               "ok": true,
-              "detail": "lib.case.by-ref no longer leaks; reclassify it from declared-gap so the artifact stops advertising an open gap."
+              "detail": "foreignVisible=false contradicts verdict foreign-probe-empty"
             }
           ],
           "ok": true,
@@ -2568,13 +2547,13 @@
       "title": "Alert acknowledgement (library)",
       "model": "Notification",
       "verdict": "foreign-probe-empty",
-      "coverage": "declared-gap",
+      "coverage": "asserted",
       "module": "src/lib/notifications.ts",
       "read": "acknowledge",
       "probeField": "id",
-      "probeInvoke": "acknowledge(org B's alert id) currently succeeds; the route's own pre-check is what protects it.",
+      "probeInvoke": "acknowledge(org B's alert id, org A) must return not_found — the tenant is part of the predicate.",
       "http": null,
-      "notes": "GAP (defence in depth, not currently exploitable): `acknowledge` reads by id alone (line 110). The only caller pre-checks against the caller's own inbox, so the route is safe today. The evidence records this so a future caller that skips the pre-check is a test failure, not a breach.",
+      "notes": "Was a declared gap (defence in depth): acknowledge read by id alone, relying on the route to pre-check. Closed — acknowledge now applies the caller's org inside the predicate itself, so a future caller cannot acknowledge another tenant's alert by skipping a pre-check.",
       "directions": [
         {
           "direction": "A-reads-B",
@@ -2598,9 +2577,9 @@
               "detail": "the scoped equivalent must match zero rows"
             },
             {
-              "name": "declared-gap-is-still-open",
+              "name": "recorded-foreign-probe-is-empty",
               "ok": true,
-              "detail": "lib.notifications.acknowledge no longer leaks; reclassify it from declared-gap so the artifact stops advertising an open gap."
+              "detail": "foreignVisible=false contradicts verdict foreign-probe-empty"
             }
           ],
           "ok": true,
@@ -2628,9 +2607,9 @@
               "detail": "the scoped equivalent must match zero rows"
             },
             {
-              "name": "declared-gap-is-still-open",
+              "name": "recorded-foreign-probe-is-empty",
               "ok": true,
-              "detail": "lib.notifications.acknowledge no longer leaks; reclassify it from declared-gap so the artifact stops advertising an open gap."
+              "detail": "foreignVisible=false contradicts verdict foreign-probe-empty"
             }
           ],
           "ok": true,

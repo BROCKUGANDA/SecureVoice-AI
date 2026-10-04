@@ -152,12 +152,25 @@ green next to stale data.
 
 ### Still open
 
-- [ ] **No exponential backoff anywhere.** Retries are fixed-interval. A database
-      blip gets hammered at a constant rate from every instance.
+- [x] **Exponential backoff — already implemented; this entry was wrong.**
+      `src/lib/outbox.ts` has a six-step retry ladder (`BACKOFF_LADDER_MS`:
+      +1m, +5m, +30m, +2h, +3h, +12h) with `MAX_ATTEMPTS = 6`, so a delivery is
+      retried over roughly 21 hours before it dead-letters. Retries are NOT
+      fixed-interval and a database blip is not hammered at a constant rate.
+      Correcting this because a TODO list that lists finished work as missing
+      is worse than no list: it sends the next person to re-verify something that
+      is already true.
 - [ ] **No circuit breaker on provider calls.** ElevenLabs and Twilio failures
       surface as errors; they do not trip an open circuit.
-- [ ] **Dead-letter alerting.** The dead-letter table exists. Nothing pages when
-      it fills.
+- [x] **Dead-letter visibility — already implemented; the remaining part is
+      alerting, which is infrastructure, not application code.** `/api/metrics`
+      exports `sv_outbox_dead_letter` and `sv_dial_queue_dead`, so a filling
+      dead-letter table is observable today. What is genuinely missing is a
+      _rule_ that pages someone, and this repository has no monitoring stack to
+      put one in — no Prometheus rules, no alertmanager, no PagerDuty wiring. That
+      is a deployment decision: pick the monitoring stack, then alert on
+      `sv_outbox_dead_letter > 0` and on any increase in `sv_dial_queue_dead`.
+      A dead-lettered webhook is a bank that was never told.
 - [ ] **`/api/meta` reported a version it could not know.** It read
       `process.env.npm_package_version`, which is an npm lifecycle variable and
       is undefined under `bun .next/standalone/server.js`. It fell back to a

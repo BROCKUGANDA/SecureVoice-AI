@@ -427,3 +427,48 @@ Confirmed NOT broken, worth recording because both looked like failures:
   that flag all 14 tests pass. Bun's 5 s default is a local-filesystem assumption
   and this suite runs against a ~277 ms-round-trip database. Do not "fix" this
   by editing the tests or adding a global timeout -- it is already correct.
+
+---
+
+## 12. Clerk -> Better Auth cutover: CLOSED
+
+The cutover was already complete in code; what was missing was the mechanism that
+keeps it complete.
+
+Verified: zero Clerk references in executable code. Not in `package.json`, not in
+`node_modules`, no `@clerk/*` import, no `ClerkProvider`, no `clerkMiddleware`,
+no `CLERK_*` env var, no CSP allowance. The middleware is Better Auth.
+
+**`scripts/assert-no-clerk.mjs` now asserts this in CI** (`bun run auth:cutover`,
+also in `verify` and `release:check`). Without it the work decays silently: one
+leftover `clerkMiddleware` on a single route segment is an UNAUTHENTICATED route
+that compiles, typechecks, and still passes every test covering it. Nothing else
+in CI would notice.
+
+Two design points worth knowing:
+
+- **Comments are stripped before scanning.** A naive `grep -ri` fails forever
+  here, because the migration left deliberate notes in `src/proxy.ts`,
+  `next.config.ts` and `src/views/Auth.tsx` explaining what was removed � one
+  aimed squarely at whoever comes looking later. Those comments are worth
+  keeping; a comment is documentation, a call is a vulnerability.
+- **Exclusions each carry a reason**, because an unexplained exclusion is just a
+  hole in a security gate. Applied migrations are excluded because they are
+  immutable history � rewriting an applied migration to hide the old `clerkUserId`
+  column would be falsifying the record and would break every environment that
+  has already run them.
+
+Verified by mutation: injecting `export const leaked = clerkMiddleware` into
+`src/proxy.ts` fails the gate; removing it passes.
+
+### Found by that gate, still open
+
+- [ ] **`scripts/supabase-setup.mjs` is stale.** It seeds a pre-Better-Auth
+      schema: an `organizations` table with a `clerkId` column and a `users`
+      table, neither of which matches the current Prisma models. Currently
+      allowlisted with that reason. It should be deleted once its consumer is
+      identified � rewriting a script whose only consumer is unknown would be
+      guessing.
+- [ ] **`scripts/walkthrough/out/story.json` narration claims "Clerk holds the
+      identity".** That is now false, and it is demo material a judge may read or
+      hear. The output is generated, so fix the generator, not the artifact.

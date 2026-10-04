@@ -98,6 +98,14 @@ jobs:
         # gate matches what `bun run verify` executes locally.
         run: bun run test
 
+      # The Clerk -> Better Auth cutover removed every runtime trace of Clerk.
+      # That work is invisible from here on and decays easily: one leftover
+      # clerkMiddleware on a single route segment is an UNAUTHENTICATED route
+      # that compiles, typechecks, and still passes every test covering it.
+      # Asserted mechanically rather than remembered.
+      - name: Assert no Clerk in executable code
+        run: bun scripts/assert-no-clerk.mjs
+
       # The hosted test database caps simultaneous connections well below the
       # ~100 the WP-13 oversell tests need, and they now SKIP themselves with a
       # loud warning when the target is a hosted tier. Say so explicitly here so

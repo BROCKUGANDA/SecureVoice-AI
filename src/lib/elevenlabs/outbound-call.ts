@@ -17,6 +17,8 @@ import "server-only";
  */
 
 import { elevenLabsFetch } from "@/lib/elevenlabs/egress";
+import { VOICEMAIL_INSURER } from "@/lib/outreach-copy";
+import { VOCAB, type InstitutionType } from "@/lib/institution-types";
 import {
   OPENING_DISCLOSURE_AR,
   OPENING_DISCLOSURE_EN,
@@ -35,6 +37,8 @@ export type OutboundCallParams = {
   caseRef: string;
   /** Sanitised dynamic variables — see sanitize-untrusted.ts. */
   dynamicVariables: Record<string, unknown>;
+  /** The tenant's institution type. Absent means "bank", the default tenant. */
+  institution?: InstitutionType;
 };
 
 export type OutboundCallResult = {
@@ -142,9 +146,17 @@ const VOICEMAIL_MESSAGES: Record<CallLanguage, string> = {
   sw: "Habari, mimi ni msaidizi wa usalama wa kiotomatiki wa AI wa benki yako. Tulijaribu kukupigia kuhusu muamala wa hivi karibuni kwenye kadi yako. Usipoutambua muamala wa hivi karibuni, tafadhali piga simu benki yako sasa kwa namba iliyo nyuma ya kadi yako. Hatutakuomba kamwe PIN wala msimbo wa matumizi moja. Asante.",
 };
 
-/** The voicemail message for a language, or null when it is not callable. */
-export function voicemailMessageForLanguage(lang: string): string | null {
-  return isCallLanguage(lang) ? VOICEMAIL_MESSAGES[lang] : null;
+/**
+ * The voicemail message for a language, or null when it is not callable.
+ * `institution` selects the bank wording ("your card") or the insurer wording
+ * ("your policy or claim"); anything else is a bank, the tenant default.
+ */
+export function voicemailMessageForLanguage(
+  lang: string,
+  institution: InstitutionType = "bank",
+): string | null {
+  if (!isCallLanguage(lang)) return null;
+  return institution === "insurer" ? VOICEMAIL_INSURER[lang] : VOICEMAIL_MESSAGES[lang];
 }
 
 export async function placeOutboundCall(params: OutboundCallParams): Promise<OutboundCallResult> {
@@ -194,9 +206,16 @@ export async function placeOutboundCall(params: OutboundCallParams): Promise<Out
       // `voicemail_message` is spread LAST so a caller-supplied dynamic variable
       // can never replace what a mailbox hears: the agent's voicemail_detection
       // tool reads exactly this key, and it must stay the generic, PII-free text.
+      // `institution_type` / `institution_noun` / `account_noun` are constants
+      // from VOCAB, set here (not taken from the caller) so the words the agent
+      // uses for the tenant can never be steered by a producer's payload.
       dynamic_variables: {
         ...params.dynamicVariables,
-        voicemail_message: voicemailMessageForLanguage(params.language) ?? "",
+        institution_type: params.institution ?? "bank",
+        institution_noun: VOCAB[params.institution ?? "bank"].institution,
+        account_noun: VOCAB[params.institution ?? "bank"].account,
+        voicemail_message:
+          voicemailMessageForLanguage(params.language, params.institution ?? "bank") ?? "",
       },
       conversation_config_override: {
         tts: { voice_id: voiceId },

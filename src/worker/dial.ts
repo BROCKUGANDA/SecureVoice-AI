@@ -27,7 +27,9 @@ import { placeOutboundCall } from "@/lib/elevenlabs/outbound-call";
 import { append as auditAppend } from "@/lib/audit-chain";
 import { db } from "@/lib/db";
 import { transitionCase } from "@/lib/case-state-machine";
-import { sendUnreachableSms } from "@/lib/elevenlabs/sms-fallback";
+import { markVoiceFailed } from "@/lib/elevenlabs/sms-fallback";
+import { getInstitutionType } from "@/lib/institution";
+import { sweepExpiredSmsCases } from "@/lib/sms-verdict";
 
 const WORKER_ID =
   process.env.DIAL_WORKER_ID ?? `${hostname()}-${process.pid}-${randomUUID().slice(0, 8)}`;
@@ -69,7 +71,7 @@ async function handle(job: DialJob): Promise<DialOutcome> {
 
   const existing = await db.case.findFirst({
     where: { caseRef: job.case_ref },
-    select: { conversationId: true, state: true, phone: true },
+    select: { conversationId: true, state: true, phone: true, signalKind: true },
   });
   if (existing?.conversationId) {
     // Already placed by a worker that died before writing it down.
@@ -100,6 +102,9 @@ async function handle(job: DialJob): Promise<DialOutcome> {
   }
 
   try {
+    // A bank says "your card", an insurer says "your policy". Resolved per tenant,
+    // and a lookup fault falls back to the default rather than blocking the call.
+    const institution = await getInstitutionType(job.org_id);
     const result = await placeOutboundCall({
       toNumber: to,
       language: payload.language ?? "en",
@@ -107,6 +112,7 @@ async function handle(job: DialJob): Promise<DialOutcome> {
       amount: payload.amount ?? undefined,
       currency: payload.currency ?? undefined,
       caseRef: job.case_ref,
+      institution,
       dynamicVariables: {
         case_id: job.case_id,
         case_ref: job.case_ref,
@@ -114,6 +120,7 @@ async function handle(job: DialJob): Promise<DialOutcome> {
         amount: payload.amount ?? 0,
         currency: payload.currency ?? "",
         transaction_ref: payload.transaction_ref ?? "",
+        signal_kind: existing?.signalKind ?? "",
       },
     });
 
@@ -164,22 +171,32 @@ async function handle(job: DialJob): Promise<DialOutcome> {
 
 /**
  * The voice channel has definitively failed for this case (every attempt spent,
- * or the number was undiallable). SMS is the only way left to reach the
- * customer, so try it - once, honestly worded, never in dry-run. All of those
- * rules live in `sendUnreachableSms`; this only supplies the amount the voice
- * agent would have read.
+ * or the number was undiallable). The customer is reachable only by SMS now, and
+ * the bank must still hear what happened. Every rule - blind-ping wording, dry-run,
+ * opt-out, once per case, bank event when SMS is impossible - lives in
+ * `markVoiceFailed`.
  */
 async function onDead(job: DialJob): Promise<void> {
-  const payload = parsePayload(job);
-  await sendUnreachableSms({
-    caseRef: job.case_ref,
-    reason: "dial_exhausted",
-    amount: payload.amount ?? null,
-    currency: payload.currency ?? null,
-  });
+  await markVoiceFailed({ caseRef: job.case_ref, reason: "dial_exhausted" });
+}
+
+/** How often to look for SMS windows that have closed with no reply. */
+const SWEEP_EVERY_MS = Number(process.env.SMS_SWEEP_EVERY_MS ?? 60_000);
+let lastSweepAt = 0;
+
+async function maybeSweep(): Promise<void> {
+  if (Date.now() - lastSweepAt < SWEEP_EVERY_MS) return;
+  lastSweepAt = Date.now();
+  try {
+    const n = await sweepExpiredSmsCases();
+    if (n > 0) console.log(`[dial-worker] resolved ${n} unanswered SMS case(s) to the bank`);
+  } catch (err) {
+    console.error("[dial-worker] sms sweep failed:", err instanceof Error ? err.message : err);
+  }
 }
 
 async function tick(): Promise<number> {
+  await maybeSweep();
   const result = await drainDialQueue({
     workerId: WORKER_ID,
     handler: handle,

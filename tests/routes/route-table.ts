@@ -154,6 +154,8 @@ const PUBLIC_BY_DESIGN: Readonly<Record<string, string>> = {
     "Twilio media webhook authenticated by Twilio's own signature scheme (tests/webhooks)",
   "/api/twilio/turn":
     "Twilio turn credential fetch authenticated by Twilio's signature, not a session",
+  "/api/sms/inbound":
+    "Twilio inbound-SMS webhook authenticated by X-Twilio-Signature (fails closed without it), not a session",
   "/api/webhooks/receiver":
     "our own REFERENCE receiver published for integrators; holds no tenant data",
   "/api/webhooks/elevenlabs": "inbound ElevenLabs webhook authenticated by the vendor signature",

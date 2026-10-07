@@ -300,6 +300,14 @@ model Case {
   transcriptRedacted    String?
   evaluationResults     String? // JSON string of analysis.evaluation_criteria_results
   dataCollectionResults String? // JSON string of analysis.data_collection_results
+  // Reachability. When the voice call does not reach a human the platform sends
+  // a "blind ping" SMS (no merchant, no amount) and waits for YES / NO. These
+  // columns are additive and nullable - see 9zz_unreachable_resolution.
+  cardLast4             String? // lets the customer recognise the alert without a merchant/amount
+  signalKind            String? // card_transaction | claim_payout | policy_change | account_takeover
+  smsSentAt             DateTime? // anchors the 24h reply window
+  resolutionMethod      String? // voice_call | sms_reply_yes | sms_reply_no | unreachable_no_reply | ...
+  customerResponse      String? // "yes" | "no" | null (null = the customer never answered)
   // Crypto-shredding (WP-15). Erasure destroys the data key, which makes every
   // encrypted payload undecryptable while the audit chain — which stores only
   // hashes — still verifies from genesis. That is how right-to-erasure
@@ -327,6 +335,15 @@ model Case {
   @@index([orgId, state])
   @@index([orgId, createdAt])
   @@index([conversationId])
+  @@index([phone, smsSentAt], map: "Case_phone_smsSentAt_idx")
+}
+
+/// A phone number that replied STOP. Never texted again by this platform,
+/// whichever tenant's case fires next: the opt-out belongs to the person.
+model SmsSuppression {
+  phone     String   @id // E.164
+  reason    String
+  createdAt DateTime @default(now())
 }
 
 /// One row per inbound ElevenLabs delivery (verified signature) — the
@@ -573,6 +590,10 @@ model Organization {
   // org-scoped instead of trusting the shared platform secret.
   elevenAgentId       String?           @unique
   elevenPhoneNumberId String?           @unique
+  // "bank" | "insurer". Both are tenants, operators and vendors of the platform;
+  // this only changes how the institution is spoken about to ITS customers
+  // ("your card" vs "your policy"). Default keeps every existing tenant a bank.
+  institutionType     String            @default("bank")
 
   @@unique([slug])
   @@map("organization")

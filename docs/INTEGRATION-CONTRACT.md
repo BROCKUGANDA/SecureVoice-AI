@@ -186,10 +186,30 @@ content-type: application/json
     "handoff_specialist": null,
     "tool_calls_observed": 2,
     "audit_ref": "SV-F-7K2M9Q",
+    "resolution_method": "voice_call",
+    "customer_response": null,
     "evidence": { "transcript": "withheld", "note": "…" }
   }
 }
 ```
+
+`resolution_method` and `customer_response` are **additive and optional**. `state`
+is unchanged, so a receiver that ignores them behaves exactly as before — but note
+the `data` object is declared strict in the OpenAPI document, so a receiver that
+validates with `additionalProperties: false` must add both fields.
+
+| `resolution_method`            | Meaning                                                                                                  |
+| ------------------------------ | -------------------------------------------------------------------------------------------------------- |
+| `voice_call`                   | Resolved on the call. The verdict is in `outcome`.                                                       |
+| `sms_reply_yes`                | Voice failed; the customer answered the fallback SMS **YES**.                                            |
+| `sms_reply_no`                 | Voice failed; the customer answered **NO**. `handoff_queued` is `true`; nothing is frozen automatically. |
+| `unreachable_no_reply`         | Voice failed, the SMS went out, and nobody answered within 24 hours.                                     |
+| `voice_failed_sms_unavailable` | Voice failed and no SMS could be sent (opted out, SMS not configured, invalid number, provider error).   |
+
+An SMS reply proves possession of the phone, **not identity** (SIM swap, a lost
+handset, a family member). Treat `sms_reply_*` as evidence for your fraud team, not
+as an authorisation. The fallback SMS itself carries no merchant and no amount, only
+the last four digits you supply as `ref_last4`.
 
 Your receiver's obligations, in the order they are most often got wrong:
 
@@ -263,6 +283,8 @@ This is the list a bank's privacy review asks for, stated as a contract.
 | `phone`                          | E.164. Required to place the call; returned to you only **redacted**. |
 | `merchant`                       | Sanitised before it becomes a spoken dynamic variable.                |
 | `consent_record_id`              | The legal basis for outbound contact.                                 |
+| `signal_kind`                    | Optional: `card_transaction`, `claim_payout`, `policy_change`, `account_takeover`. Insurers use the claim / policy kinds. |
+| `ref_last4`                      | Optional: exactly four digits of a card, policy or account reference. Lets the customer recognise the fallback SMS. Never a longer number. |
 | `org_id`, `callback_url`         | Tenancy and delivery routing.                                         |
 
 **What we never send you:**

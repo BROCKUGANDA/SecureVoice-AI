@@ -20,6 +20,7 @@ import { makeFailure, type FailureCode, type FailureInit } from "@/lib/failures/
 
 import { notifyRealtime } from "@/lib/realtime";
 import { createCase, transitionCase } from "@/lib/case-state-machine";
+import { SIGNAL_KINDS } from "@/lib/institution-types";
 
 /**
  * One error shape for the whole bank-facing surface: `{ code, message,
@@ -76,6 +77,11 @@ const schema = z
     currency: z.string().regex(/^[A-Z]{3}$/, "currency must be ISO-4217"),
     amount: z.number().int().min(0, "amount must be a non-negative integer in minor units"),
     merchant: z.string().trim().max(120).optional(),
+    signal_kind: z.enum(SIGNAL_KINDS).optional(),
+    ref_last4: z
+      .string()
+      .regex(/^\d{4}$/, "ref_last4 must be exactly four digits")
+      .optional(),
     consent_record_id: z.string().trim().min(4).max(64),
     callback_url: z
       .string()
@@ -519,6 +525,8 @@ async function armAndDial(
     amountMinor: signal.amount,
     currency: signal.currency,
     consentRecordId: signal.consent_record_id,
+    cardLast4: signal.ref_last4 ?? null,
+    signalKind: signal.signal_kind ?? null,
   });
   await transitionCase(caseRef, "SCREENED");
 
@@ -729,6 +737,10 @@ export async function GET() {
         phone: "E.164 (+9715ÃƒÂ¢Ã¢šÂ¬Ã‚Â¦)",
         currency: "ISO-4217 (AED, USD, ÃƒÂ¢Ã¢šÂ¬Ã‚Â¦)",
         amount: "integer minor units (fils/cents)",
+        signal_kind:
+          "card_transaction | claim_payout | policy_change | account_takeover (optional; insurers use claim_payout / policy_change)",
+        ref_last4:
+          "exactly 4 digits (optional) - last four of the card / policy / account reference; lets the customer recognise the fallback SMS, which never carries a merchant or amount",
         merchant: "string? ÃƒÂ¢Ã¢šÂ¬Ã¢â‚¬Â sanitised before it becomes a dynamic variable",
         consent_record_id: "string (4-64) ÃƒÂ¢Ã¢šÂ¬Ã¢â‚¬Â required for outbound contact",
         callback_url: "https URL? ÃƒÂ¢Ã¢šÂ¬Ã¢â‚¬Â post-call outcome delivery",

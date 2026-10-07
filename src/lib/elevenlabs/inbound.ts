@@ -16,13 +16,14 @@ import { db } from "@/lib/db";
 import {
   caseByConversation,
   canTransition,
-  transitionCase,
   transitionCaseWithOutbox,
 } from "@/lib/case-state-machine";
 import { append as auditAppend } from "@/lib/audit-chain";
 import * as redact from "@/lib/redact";
 import { settleAttempt } from "@/lib/billing/ledger";
-import { sendUnreachableSms } from "@/lib/elevenlabs/sms-fallback";
+import { markVoiceFailed } from "@/lib/elevenlabs/sms-fallback";
+import { neutraliseStrings, screenForMemory } from "@/lib/memory-guard";
+import { recordStrike } from "@/lib/abuse/bad-actor";
 
 type WebhookEventRow = {
   id: string;
@@ -237,6 +238,18 @@ async function handleTranscription(row: WebhookEventRow, data: any): Promise<voi
   const dataCollection = data?.analysis?.data_collection_results ?? null;
   const voicemail = isVoicemailCall(data, toolNames);
 
+  // MEMORY-POISONING SCREEN. What the customer said is about to become stored
+  // history that later readers - a human reviewer, a summary, the next call -
+  // will treat as fact. Score the CUSTOMER's turns only (the agent's own words
+  // are ours). The transcript itself is evidence and is never rewritten; the
+  // derived analysis below is neutralised if it carries an instruction, and the
+  // attempt is audited and counted against the caller.
+  const customerText = turns
+    .filter((t) => t?.role === "user" && typeof t?.message === "string")
+    .map((t) => String(t.message))
+    .join("\n");
+  const memoryRisk = screenForMemory(customerText);
+
   // Audit-before-return discipline: the ingest record is written before any
   // database mutation below, mirroring the guard refusals from WP-3.
   await auditAppend(
@@ -253,6 +266,10 @@ async function handleTranscription(row: WebhookEventRow, data: any): Promise<voi
         toolCalls: toolCallCount,
         toolNames,
         voicemail,
+        memoryRisk:
+          memoryRisk.verdict === "clean"
+            ? "clean"
+            : { verdict: memoryRisk.verdict, score: memoryRisk.score, reasons: memoryRisk.reasons },
         billing:
           durationSeconds !== null ? { billed_minutes: Math.ceil(durationSeconds / 60) } : null,
         evaluationKeys: evaluation && typeof evaluation === "object" ? Object.keys(evaluation) : [],
@@ -277,23 +294,46 @@ async function handleTranscription(row: WebhookEventRow, data: any): Promise<voi
       // beside them. Redacting only the transcript left a path where a customer
       // could repeat their card number and it would be stored verbatim in the
       // results column.
-      evaluationResults: evaluation !== null ? JSON.stringify(redact.payload(evaluation)) : null,
+      // These two are DERIVED text (an LLM summarising what the customer said),
+      // which is what a later reader treats as trusted memory. Neutralised after
+      // redaction; a benign payload round-trips unchanged.
+      evaluationResults:
+        evaluation !== null
+          ? JSON.stringify(neutraliseStrings(redact.payload(evaluation)).value)
+          : null,
       dataCollectionResults:
-        dataCollection !== null ? JSON.stringify(redact.payload(dataCollection)) : null,
+        dataCollection !== null
+          ? JSON.stringify(neutraliseStrings(redact.payload(dataCollection)).value)
+          : null,
     },
   });
 
-  // A voicemail box heard a deliberately generic message (no amount, no
-  // merchant), so the customer does not yet know a transaction needs attention.
-  // Text them. The helper owns every guard (dry-run, already-engaged, once per
-  // case) and never throws, so it cannot disturb the evidence pipeline below.
+  if (memoryRisk.verdict === "poisoned") {
+    // A strike keyed on the CASE (never the raw phone number: bad-actor.ts hashes
+    // its keys) so repeated attempts against one customer's line escalate.
+    recordStrike(`case:${caseRow.caseRef}`, 3);
+    void auditAppend(
+      {
+        callRef: caseRow.caseRef,
+        action: "agent",
+        intent: "memory_poisoning_suspected",
+        callerId: "elevenlabs-webhook",
+        redactedText: `reasons=${memoryRisk.reasons.join(",")}`,
+        meta: { score: memoryRisk.score, reasons: memoryRisk.reasons },
+        orgId: caseRow.orgId ?? undefined,
+      },
+      { fast: true },
+    ).catch(() => {});
+  }
+
+  // The voice channel did not reach a human (answering machine, or the provider
+  // reported busy / no-answer). Text the customer a blind ping and open the 24h
+  // reply window; if no SMS can be sent the bank is told at once. The helper owns
+  // every guard and never throws, so it cannot disturb the evidence pipeline.
+  let voiceFailed = false;
   if (voicemail) {
-    await sendUnreachableSms({
-      caseRef: caseRow.caseRef,
-      reason: "voicemail",
-      amount: caseRow.amountMinor,
-      currency: caseRow.currency,
-    });
+    voiceFailed = true;
+    await markVoiceFailed({ caseRef: caseRow.caseRef, reason: "voicemail" });
   }
 
   // Verdict delivery triggers WP-5. Transitions to NOTIFIED only where the
@@ -304,7 +344,12 @@ async function handleTranscription(row: WebhookEventRow, data: any): Promise<voi
   // verdict can never reach NOTIFIED without a delivery row behind it. The
   // payload carries the verdict and an audit reference only — never transcript
   // content (hazard H28: the bank pulls evidence, we never push it).
-  if (canTransition(caseRow.state, "NOTIFIED")) {
+  //
+  // Skipped when the voice channel failed: that case is now UNREACHABLE and is
+  // published by src/lib/sms-verdict.ts when the customer replies (or 24h pass),
+  // with a resolution_method that says so. Publishing it here too would tell the
+  // bank "resolved on the call" about a call nobody answered.
+  if (!voiceFailed && canTransition(caseRow.state, "NOTIFIED")) {
     try {
       await transitionCaseWithOutbox(caseRow.caseRef, "NOTIFIED", {
         outbox: {
@@ -322,6 +367,10 @@ async function handleTranscription(row: WebhookEventRow, data: any): Promise<voi
             handoff_specialist: caseRow.handoffSpecialist,
             tool_calls_observed: toolCallCount,
             audit_ref: caseRow.caseRef,
+            // Additive (see CASE_NOTIFIED_DATA_FIELDS): how the case got here.
+            // A receiver that ignores these two behaves exactly as before.
+            resolution_method: "voice_call",
+            customer_response: null,
             evidence: {
               transcript: "withheld",
               note: "redacted transcript and audit chain are retrievable via the signed case export; no transcript content is included in outbound events",
@@ -427,11 +476,11 @@ async function handleInitiationFailure(row: WebhookEventRow, data: any): Promise
     },
     { fast: true },
   );
-  if (canTransition(caseRow.state, "FAILED")) {
-    try {
-      await transitionCase(caseRow.caseRef, "FAILED");
-    } catch (err) {
-      console.error("[inbound] case transition to FAILED failed:", err);
-    }
-  }
+  // Busy / no-answer / could not initiate: the customer was NOT reached. This used
+  // to land in terminal FAILED, which told nobody - not the customer, not the bank.
+  // It now takes the same fallback as a voicemail: blind-ping SMS, 24h window, and
+  // a bank event either way. When the fallback declines it is because the customer
+  // was already engaged or already texted - neither of which is a "failed" call, so
+  // there is deliberately no FAILED branch left here.
+  await markVoiceFailed({ caseRef: caseRow.caseRef, reason: "no_answer" });
 }

@@ -21,6 +21,8 @@ import "server-only";
 
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { twilioMode, isTwilioConfigured } from "@/lib/config";
+import { blindPingSms } from "@/lib/outreach-copy";
+import type { InstitutionType } from "@/lib/institution-types";
 
 export { twilioMode, isTwilioConfigured };
 export type { TwilioMode } from "@/lib/config";
@@ -276,63 +278,63 @@ export async function placeInterventionCall(args: {
 }
 
 /**
- * "We could not reach you" SMS, sent when the voice channel has failed (the dial
- * job dead-lettered, or the call reached a voicemail box).
+ * The blind-ping SMS sent when the voice channel has failed (the dial job
+ * dead-lettered, or the call reached a voicemail box).
  *
- * Deliberately NOT a "reply YES / NO" message: there is no inbound-SMS handler,
- * and a prompt the platform cannot act on would tell a fraud victim that a reply
- * had registered when it had not. The one safe instruction is to call the bank
- * on the number printed on the card - never a number or link we supply, which is
- * exactly what a phisher would put in this message.
- *
- * The merchant is omitted on purpose: an SMS sits on a lock screen and in
- * carrier logs, so it carries the minimum (amount, when known) and nothing a
- * stranger could use to build a convincing follow-up scam.
+ * It carries NO merchant and NO amount - see src/lib/outreach-copy.ts for why -
+ * and invites exactly one reply, YES or NO, which src/lib/sms-verdict.ts parses.
+ * Kept as a named export here because this module is where SMS leaves the
+ * building; the wording itself lives with the rest of the customer-facing copy.
  */
-export function unreachableSmsBody(lang: DeliveryLang, amount?: string): string {
-  const a = amount?.trim() ?? "";
-  switch (lang) {
-    case "ar":
-      return `SecureVoice AI: حاولنا الاتصال بك بخصوص عملية مشبوهة على بطاقتك${a ? ` (${a})` : ""}. يرجى الاتصال بمصرفك الآن على الرقم المطبوع خلف بطاقتك. لن نطلب منك رمز PIN أو OTP أبداً.`;
-    case "hi":
-      return `SecureVoice AI: हमने आपके कार्ड पर संदिग्ध लेनदेन${a ? ` (${a})` : ""} के बारे में आपसे संपर्क करने की कोशिश की। कृपया अपने कार्ड के पीछे दिए नंबर पर अभी अपने बैंक को कॉल करें। हम कभी PIN या OTP नहीं मांगेंगे।`;
-    case "ur":
-      return `SecureVoice AI: ہم نے آپ کے کارڈ پر مشکوک لین دین${a ? ` (${a})` : ""} کے بارے میں آپ سے رابطہ کرنے کی کوشش کی۔ براہ کرم اپنے کارڈ کے پیچھے دیے گئے نمبر پر ابھی اپنے بینک کو کال کریں۔ ہم کبھی PIN یا OTP نہیں مانگیں گے۔`;
-    case "fr":
-      return `SecureVoice AI : nous avons tenté de vous joindre au sujet d'une transaction suspecte sur votre carte${a ? ` (${a})` : ""}. Appelez votre banque dès maintenant au numéro figurant au dos de votre carte. Nous ne vous demanderons jamais votre code PIN ou OTP.`;
-    case "sw":
-      return `SecureVoice AI: Tulijaribu kukupigia kuhusu muamala wa kutuhumu kwenye kadi yako${a ? ` (${a})` : ""}. Tafadhali piga simu benki yako sasa kwa namba iliyo nyuma ya kadi yako. Hatutakuomba PIN au OTP kamwe.`;
-    default:
-      return `SecureVoice AI: we tried to reach you about a suspicious transaction on your card${a ? ` (${a})` : ""}. Please call your bank now using the number on the back of your card. We will never ask for your PIN or OTP.`;
-  }
+export function unreachableSmsBody(
+  lang: DeliveryLang,
+  opts: { last4?: string | null; institution?: InstitutionType } = {},
+): string {
+  return blindPingSms(lang, opts);
 }
 
-/** Send the fraud-alert SMS (fallback / opt-in channel). */
+/**
+ * SMS NEVER CARRIES A MERCHANT OR AN AMOUNT. SMS is unencrypted, sits on lock
+ * screens and passes through carrier logs; if the customer's phone is already
+ * compromised, a merchant name and amount are exactly what a scammer needs for a
+ * convincing follow-up. `amount` and `merchant` are still ACCEPTED, so existing
+ * callers keep compiling, but they are ignored here - enforced at the one place
+ * every text leaves the platform, so no caller can reintroduce the leak.
+ */
 export async function sendInterventionSms(args: {
   to: string;
   lang: DeliveryLang;
   caseRef: string;
+  /** @deprecated Ignored. SMS never carries an amount. */
   amount?: string;
+  /** @deprecated Ignored. SMS never carries a merchant. */
   merchant?: string;
   /** `unreachable` = the voice channel failed; see `unreachableSmsBody`. */
   kind?: "heads_up" | "unreachable";
+  /** Blind-ping only: last four digits of the card, so the customer recognises it. */
+  last4?: string | null;
+  /** Blind-ping only: wording for a bank ("card") or an insurer ("policy"). */
+  institution?: InstitutionType;
 }): Promise<CallResult> {
   const c = creds();
   if (!isE164(args.to)) return { ok: false, status: 422, error: "Destination phone is not E.164" };
   const body =
     args.kind === "unreachable"
-      ? unreachableSmsBody(args.lang, args.amount)
+      ? unreachableSmsBody(args.lang, {
+          last4: args.last4 ?? null,
+          institution: args.institution ?? "bank",
+        })
       : args.lang === "ar"
-        ? `SecureVoice AI: نشاط مشبوه على حسابك${args.amount ? ` بمبلغ ${args.amount}` : ""}. المرجع ${args.caseRef}. توقع مكالمة تحقق من مصرفك. لا تشارك رمز PIN أو OTP أبداً.`
+        ? `SecureVoice AI: نشاط مشبوه على حسابك. المرجع ${args.caseRef}. توقع مكالمة تحقق من مصرفك. لا تشارك رمز PIN أو OTP أبداً.`
         : args.lang === "hi"
-          ? `SecureVoice AI: आपके खाते पर संदिग्ध गतिविधि${args.amount ? ` (${args.amount})` : ""}. संदर्भ ${args.caseRef}. अपने बैंक से वेरिफिकेशन कॉल की अपेक्षा करें। PIN या OTP साझा न करें।`
+          ? `SecureVoice AI: आपके खाते पर संदिग्ध गतिविधि. संदर्भ ${args.caseRef}. अपने बैंक से वेरिफिकेशन कॉल की अपेक्षा करें। PIN या OTP साझा न करें।`
           : args.lang === "ur"
-            ? `SecureVoice AI: آپ کے اکاؤنٹ پر مشکوک سرگرمی${args.amount ? ` (${args.amount})` : ""}. حوالہ ${args.caseRef}. اپنے بینک کی تصدیقی کال کی توقع رکھیں۔ PIN یا OTP شیئر نہ کریں۔`
+            ? `SecureVoice AI: آپ کے اکاؤنٹ پر مشکوک سرگرمی. حوالہ ${args.caseRef}. اپنے بینک کی تصدیقی کال کی توقع رکھیں۔ PIN یا OTP شیئر نہ کریں۔`
             : args.lang === "fr"
-              ? `SecureVoice AI : Activité suspecte sur votre compte${args.amount ? ` (${args.amount})` : ""}. Réf ${args.caseRef}. Attendez-vous à un appel de vérification de votre banque. Ne partagez jamais vos codes PIN ou OTP.`
+              ? `SecureVoice AI : Activité suspecte sur votre compte. Réf ${args.caseRef}. Attendez-vous à un appel de vérification de votre banque. Ne partagez jamais vos codes PIN ou OTP.`
               : args.lang === "sw"
-                ? `SecureVoice AI: Shughuli ya kutuhumu kwenye akaunti yako${args.amount ? ` (${args.amount})` : ""}. Ref ${args.caseRef}. Subiri simu ya uthibitisho kutoka benki yako. Usishiriki PIN au OTP.`
-                : `SecureVoice AI: Suspicious activity on your account${args.amount ? ` (${args.amount})` : ""}. Ref ${args.caseRef}. Expect a verification call from your bank. Never share PINs or OTPs.`;
+                ? `SecureVoice AI: Shughuli ya kutuhumu kwenye akaunti yako. Ref ${args.caseRef}. Subiri simu ya uthibitisho kutoka benki yako. Usishiriki PIN au OTP.`
+                : `SecureVoice AI: Suspicious activity on your account. Ref ${args.caseRef}. Expect a verification call from your bank. Never share PINs or OTPs.`;
   const res = await twilioPost(c.accountSid, c.username, c.password, "Messages.json", {
     To: args.to,
     From: c.from,

@@ -305,6 +305,26 @@ export const RISK_SIGNAL_FIELDS: readonly FieldSpec[] = [
     enforced: INGEST_SCHEMA,
   },
   {
+    name: "signal_kind",
+    required: false,
+    type: "string",
+    enum: ["card_transaction", "claim_payout", "policy_change", "account_takeover"],
+    description:
+      "What kind of risk signal this is. Optional: when absent the call is worded for a card transaction. Insurers send `claim_payout` (a payout redirected to a new account) or `policy_change` (beneficiary / surrender request); both institution types may send `account_takeover`. Only changes how the case is described to the customer - the protective step is still a staged hold a human confirms.",
+    example: "claim_payout",
+    enforced: INGEST_SCHEMA,
+  },
+  {
+    name: "ref_last4",
+    required: false,
+    type: "string",
+    pattern: "^\\d{4}$",
+    description:
+      "Last four digits of the card, policy or account reference (named `ref_`, not `card_`: the inbound schema deliberately has no field that reads as an account identifier). Optional. Lets the customer recognise the fallback SMS, which deliberately carries NO merchant and NO amount. Exactly four digits - never a longer number: the platform must not hold a PAN.",
+    example: "4242",
+    enforced: INGEST_SCHEMA,
+  },
+  {
     name: "callback_url",
     required: false,
     type: "string",
@@ -642,6 +662,19 @@ export const BANK_EVENT_FIELDS: readonly FieldSpec[] = [
   },
 ] as const;
 
+/**
+ * How a case reached NOTIFIED. A closed set, so a receiver can switch on it
+ * exhaustively; adding a value is a contract change and goes through here.
+ */
+export const RESOLUTION_METHODS = [
+  "voice_call",
+  "sms_reply_yes",
+  "sms_reply_no",
+  "unreachable_no_reply",
+  "voice_failed_sms_unavailable",
+] as const;
+export type ResolutionMethod = (typeof RESOLUTION_METHODS)[number];
+
 /** `data` for the only emitted type, `case.notified`. */
 export const CASE_NOTIFIED_DATA_FIELDS: readonly FieldSpec[] = [
   {
@@ -715,6 +748,27 @@ export const CASE_NOTIFIED_DATA_FIELDS: readonly FieldSpec[] = [
       "Reference the bank can quote in a ticket to pull the full, redacted audit chain through the signed case export. This is the pull-based evidence model: we push the verdict, the bank pulls evidence.",
     example: "SV-F-7K2M9Q",
     enforced: "inbound.ts",
+  },
+  {
+    name: "resolution_method",
+    required: false,
+    type: "string",
+    enum: RESOLUTION_METHODS,
+    description:
+      "HOW the case reached NOTIFIED. ADDITIVE and optional: `state` is unchanged, so a receiver that ignores this field behaves exactly as before. Always emitted by this platform. `voice_call` = resolved on the call; `sms_reply_yes` / `sms_reply_no` = the customer answered the blind-ping SMS; `unreachable_no_reply` = voice failed, the SMS went out and nobody answered within 24h; `voice_failed_sms_unavailable` = voice failed and no SMS could be sent (number opted out, SMS not configured, invalid number or provider error). An SMS reply proves possession of the phone, not identity - treat `sms_reply_*` as evidence for your fraud team, not as an authorisation.",
+    example: "sms_reply_no",
+    enforced: "sms-verdict.ts",
+  },
+  {
+    name: "customer_response",
+    required: false,
+    type: "string",
+    nullable: true,
+    enum: ["yes", "no"],
+    description:
+      "The customer's answer when it was given over SMS: `yes` (the activity was theirs) or `no` (it was not). `null` when the customer never answered or the case was resolved on the call - in that case the call's verdict is in `outcome`. ADDITIVE and optional.",
+    example: "no",
+    enforced: "sms-verdict.ts",
   },
   {
     name: "evidence",

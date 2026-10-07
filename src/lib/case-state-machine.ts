@@ -40,6 +40,10 @@ export const CASE_STATES = [
   "VOICEMAIL",
   "RETRY_SCHEDULED",
   "EXHAUSTED",
+  // Voice failed (voicemail, no answer, dead-lettered dial) and the blind-ping
+  // SMS is out; waiting up to 24h for YES / NO. NOT terminal: it is the only
+  // state a later reply, or the expiry sweep, can move forward.
+  "UNREACHABLE",
 ] as const;
 
 export type CaseState = (typeof CASE_STATES)[number];
@@ -47,9 +51,11 @@ export type CaseState = (typeof CASE_STATES)[number];
 /** The single transition table. Any (from, to) not listed here is illegal. */
 const TRANSITIONS: Record<string, readonly string[]> = {
   RECEIVED: ["SCREENED", "REJECTED"],
-  SCREENED: ["DIALING", "REJECTED"],
-  DIALING: ["RINGING", "NO_ANSWER", "BUSY", "FAILED", "VOICEMAIL"],
-  RINGING: ["ANSWERED", "NO_ANSWER", "BUSY", "VOICEMAIL"],
+  // SCREENED -> UNREACHABLE: the dial job dead-lettered before any call connected.
+  SCREENED: ["DIALING", "REJECTED", "UNREACHABLE"],
+  // DIALING -> UNREACHABLE: the provider reported busy / no-answer / failure.
+  DIALING: ["RINGING", "NO_ANSWER", "BUSY", "FAILED", "VOICEMAIL", "UNREACHABLE"],
+  RINGING: ["ANSWERED", "NO_ANSWER", "BUSY", "VOICEMAIL", "UNREACHABLE"],
   ANSWERED: ["DISCLOSED", "NO_ANSWER"],
   DISCLOSED: ["VERIFYING", "CONFIRMED_LEGITIMATE", "CONFIRMED_FRAUD", "UNCERTAIN", "CLOSED"],
   VERIFYING: ["CONFIRMED_LEGITIMATE", "CONFIRMED_FRAUD", "UNCERTAIN"],
@@ -59,9 +65,15 @@ const TRANSITIONS: Record<string, readonly string[]> = {
   FREEZE_STAGED: ["ESCALATED", "NOTIFIED", "CLOSED"],
   ESCALATED: ["NOTIFIED", "CLOSED"],
   NOTIFIED: ["CLOSED"],
-  NO_ANSWER: ["RETRY_SCHEDULED", "EXHAUSTED"],
-  BUSY: ["RETRY_SCHEDULED", "EXHAUSTED"],
-  VOICEMAIL: ["RETRY_SCHEDULED", "EXHAUSTED"],
+  NO_ANSWER: ["RETRY_SCHEDULED", "EXHAUSTED", "UNREACHABLE"],
+  BUSY: ["RETRY_SCHEDULED", "EXHAUSTED", "UNREACHABLE"],
+  VOICEMAIL: ["RETRY_SCHEDULED", "EXHAUSTED", "UNREACHABLE"],
+  // The only way out is NOTIFIED, written in ONE transaction with the bank's
+  // outbound event (transitionCaseWithOutbox). That is deliberate: a customer's
+  // SMS reply, or 24h of silence, must never leave a case in a half-resolved
+  // state with no event behind it. The `resolution_method` on that event says
+  // HOW it resolved (sms_reply_yes / sms_reply_no / unreachable_no_reply / ...).
+  UNREACHABLE: ["NOTIFIED"],
   RETRY_SCHEDULED: ["DIALING", "EXHAUSTED"],
   REJECTED: [],
   FAILED: [],
@@ -124,6 +136,7 @@ const SEVERITY_FOR_STATE: Record<string, "page" | "urgent" | "info"> = {
   ESCALATED: "urgent",
   FAILED: "urgent",
   EXHAUSTED: "urgent",
+  UNREACHABLE: "urgent",
   REJECTED: "info",
   CLOSED: "info",
 };
@@ -221,6 +234,10 @@ export async function transitionCaseWithOutbox(
   currency?: string;
   consentRecordId?: string;
   conversationId?: string | null;
+  /** Last four digits of the card, so the customer can recognise a blind-ping SMS. */
+  cardLast4?: string | null;
+  /** card_transaction | claim_payout | policy_change | account_takeover */
+  signalKind?: string | null;
 }): Promise<{ id: string; caseRef: string; state: string }> {
   try {
     return await db.case.create({
@@ -237,6 +254,8 @@ export async function transitionCaseWithOutbox(
         currency: data.currency ?? null,
         consentRecordId: data.consentRecordId ?? null,
         conversationId: data.conversationId ?? null,
+        cardLast4: data.cardLast4 ?? null,
+        signalKind: data.signalKind ?? null,
       },
       select: { id: true, caseRef: true, state: true },
     });

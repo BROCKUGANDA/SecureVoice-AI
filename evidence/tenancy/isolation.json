@@ -3,12 +3,12 @@
   "gate": "WP-12 multi-tenancy isolation",
   "digestAlgorithm": "sha256",
   "digest": "f91255ce6900e348fd83981a860a85d6461f59047bfaa585a9b36696eddf6cf5",
-  "generatedAt": "2026-10-04T16:34:12.591Z",
+  "generatedAt": "2026-10-06T20:23:05.411Z",
   "run": {
-    "id": "muu1hu64",
+    "id": "mux4jwuj",
     "orgs": {
-      "A": "0a0a0a0a-0000-4000-8000-af36cc1a1837",
-      "B": "0b0b0b0b-0000-4000-8000-af36cc1a1837"
+      "A": "0a0a0a0a-0000-4000-8000-6e140ca25a07",
+      "B": "0b0b0b0b-0000-4000-8000-6e140ca25a07"
     },
     "database": "DATABASE_URL",
     "note": "identifiers above are per-run; the digest covers the deterministic core only"

@@ -66,6 +66,47 @@ export const FLAG_NAMES = [
    * the feed itself stays on the SSE fallback during a rollout.
    */
   "consoleLiveFeed",
+
+  /* ── Compliance & Safety ──────────────────────────────────────────────── */
+
+  /**
+   * Opening disclosure: "this call is being recorded". Required by law in many
+   * jurisdictions before any recording begins. Defaults ON — a deployment with
+   * this off is knowingly violating wiretapping law, so it must be an explicit
+   * choice, and the flag() reader throws on anything other than "true"/"false".
+   */
+  "complianceDisclosure",
+
+  /**
+   * Never request credentials (PIN, password, OTP, CVV) from a caller. Defaults
+   * ON — the voice-agent guardrails enforce this, but the flag makes it visible
+   * in the registry so a reviewer can answer "what cannot be disabled?" without
+   * grepping source for regex.
+   */
+  "complianceNoSecrets",
+
+  /**
+   * PII redaction on every outbound wire (logs, audit rows, webhook payloads).
+   * Defaults ON; consolidates COMPLIANCE_PII_REDACTION into the flag registry.
+   */
+  "compliancePiiRedaction",
+
+  /* ── Deployment ───────────────────────────────────────────────────────── */
+
+  /**
+   * Seed the demo case history on first boot. Mirrors SEED_DEMO; the flag is
+   * the auditable surface and the env var is the input. Defaults OFF so a
+   * fresh deployment is empty, not full of synthetic cases.
+   */
+  "seedDemo",
+
+  /**
+   * Webhook signature verification: when ON (default), an inbound risk signal
+   * without a valid SV-Signature is refused before any processing. Turning this
+   * OFF is a debugging affordance for a local harness only — it disables source
+   * authentication on the ingestion gateway, so it must default to true.
+   */
+  "webhookStrictSignatures",
 ] as const;
 
 export type FlagName = (typeof FLAG_NAMES)[number];
@@ -80,6 +121,11 @@ const DEFAULTS: Record<FlagName, boolean> = {
   elevenLabsLive: false,
   piiRedaction: true,
   consoleLiveFeed: false,
+  complianceDisclosure: true,
+  complianceNoSecrets: true,
+  compliancePiiRedaction: true,
+  seedDemo: false,
+  webhookStrictSignatures: true,
 };
 
 /** Why a flag resolved the way it did — surfaced by `describeFlag()`. */
@@ -108,6 +154,14 @@ function parseBool(envVar: string, raw: string): boolean {
  */
 const LEGACY_OVERRIDES: Partial<Record<FlagName, { envVar: string; invert: boolean }>> = {
   elevenLabsLive: { envVar: "ELEVENLABS_DRY_RUN", invert: true },
+  /** COMPLIANCE_PII_REDACTION and FEATURE_PII_REDACTION are the same switch. */
+  piiRedaction: { envVar: "COMPLIANCE_PII_REDACTION", invert: false },
+  /** COMPLIANCE_OPENING_DISCLOSURE backs the complianceDisclosure flag. */
+  complianceDisclosure: { envVar: "COMPLIANCE_OPENING_DISCLOSURE", invert: false },
+  /** COMPLIANCE_NO_CREDENTIAL_REQUESTS backs the complianceNoSecrets flag. */
+  complianceNoSecrets: { envVar: "COMPLIANCE_NO_CREDENTIAL_REQUESTS", invert: false },
+  /** SEED_DEMO is the input for the seedDemo flag. */
+  seedDemo: { envVar: "SEED_DEMO", invert: false },
 };
 
 /** The env var name a flag reads, e.g. `consoleLiveFeed` → `FEATURE_CONSOLE_LIVE_FEED`. */
@@ -205,4 +259,43 @@ export function describeFlag(name: FlagName): {
     source: process.env[envVar] !== undefined ? "env" : "default",
     envVar,
   };
+}
+
+/* ── Convenience accessors ─────────────────────────────────────────────────── */
+
+/**
+ * Opening disclosure gate. Safe defaults to true on a bad value so a typo'd
+ * env var never silently disables a legal requirement.
+ */
+export function openingDisclosureEnabled(): boolean {
+  return safeFlag("complianceDisclosure");
+}
+
+/**
+ * Credential-request gate. Safe defaults to true.
+ */
+export function noCredentialRequests(): boolean {
+  return safeFlag("complianceNoSecrets");
+}
+
+/**
+ * PII redaction gate. Safe defaults to true.
+ */
+export function piiRedactionEnabled(): boolean {
+  return safeFlag("piiRedaction");
+}
+
+/**
+ * Webhook signature enforcement. Safe defaults to true — a malformed value
+ * does NOT open the ingestion gateway.
+ */
+export function webhookSignaturesEnforced(): boolean {
+  return safeFlag("webhookStrictSignatures");
+}
+
+/**
+ * Demo seeding. Safe flag: on a bad value, does NOT seed (empty deployment).
+ */
+export function demoSeedEnabled(): boolean {
+  return safeFlag("seedDemo");
 }

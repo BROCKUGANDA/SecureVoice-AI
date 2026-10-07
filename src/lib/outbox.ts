@@ -23,6 +23,7 @@ import "server-only";
 import { createHash, createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import type { Prisma } from "@/generated/prisma/client";
 import { db } from "@/lib/db";
+import { env } from "@/lib/config";
 
 export const WEBHOOK_SIGNATURE_HEADER = "sv-signature";
 export const SCHEMA_VERSION = "2026-10-01";
@@ -97,10 +98,7 @@ export type BankEventInput = {
 };
 
 export function bankEventUrl(): string {
-  return (
-    process.env.BANK_WEBHOOK_URL ??
-    `http://127.0.0.1:${process.env.PORT ?? 3000}/api/webhooks/receiver`
-  );
+  return process.env.BANK_WEBHOOK_URL ?? `${env.appBaseUrl}/api/webhooks/receiver`;
 }
 
 export function signingSecret(): string {
@@ -258,6 +256,9 @@ export async function deliver(
         ),
       },
       body: event.payload,
+      // A slow bank server must not hang the worker. 10s is generous for a
+      // webhook delivery; the retry ladder handles transient failures.
+      signal: AbortSignal.timeout(10_000),
     });
     status = res.status;
     ok = res.status >= 200 && res.status < 300;

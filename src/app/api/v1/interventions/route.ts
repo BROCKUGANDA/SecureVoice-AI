@@ -24,6 +24,7 @@ import { makeFailure, type FailureCode, type FailureInit } from "@/lib/failures/
 import { notifyRealtime } from "@/lib/realtime";
 import { createCase, transitionCase } from "@/lib/case-state-machine";
 import { SIGNAL_KINDS } from "@/lib/institution-types";
+import { replayWindowSec, IDEMPOTENCY_TTL_HOURS } from "@/lib/config";
 
 /**
  * One error shape for the whole bank-facing surface: `{ code, message,
@@ -68,8 +69,9 @@ export const dynamic = "force-dynamic";
  * path: one DB round-trip + the (dry-run) call placement.
  */
 
-const REPLAY_WINDOW_SEC = 300;
-const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000;
+/* ── Idempotency / replay guard ── */
+const REPLAY_WINDOW_SEC = replayWindowSec();
+const IDEMPOTENCY_TTL_MS = IDEMPOTENCY_TTL_HOURS * 60 * 60 * 1_000;
 
 /**
  * How long the dial job waits before it becomes claimable, so the pre-
@@ -89,7 +91,6 @@ export function preNotificationLeadMs(): number {
   if (!Number.isFinite(raw) || raw <= 0) return 0;
   return Math.min(Math.trunc(raw), 300) * 1000;
 }
-
 /** The SMS language set; anything unmapped falls back to English. */
 export function deliveryLang(lang: string): "en" | "ar" | "hi" | "ur" | "fr" | "sw" {
   return (["en", "ar", "hi", "ur", "fr", "sw"] as const).includes(lang as never)
@@ -148,10 +149,11 @@ function verifySignature(
   const expected = createHmac("sha256", secret).update(`${t}.${rawBody}`).digest("hex");
   const a = Buffer.from(expected, "hex");
   // `v1` is a required capture group of the regex above (exactly 64 lowercase hex
-  // chars), so it can never actually be undefined here Ã¢â‚¬ the match either fails
-  // and we returned above, or it carries both captures. The assertion records that
-  // invariant for the type checker instead of adding a branch that cannot run.
-  const b = Buffer.from(v1!, "hex");
+  // chars), so it can never actually be undefined here — the match either fails
+  // and we returned above, or it carries both captures. The explicit check
+  // records that invariant at runtime rather than relying on the type checker.
+  if (!v1) return { ok: false, reason: "Malformed SV-Signature" };
+  const b = Buffer.from(v1, "hex");
   return a.length === b.length && timingSafeEqual(a, b)
     ? { ok: true }
     : { ok: false, reason: "Digest mismatch" };

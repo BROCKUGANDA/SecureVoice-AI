@@ -43,7 +43,11 @@ import { degradedMeter, type Meter, redis, sharedMeterConfigured } from "@/lib/r
 
 const log = (...a: unknown[]) => console.error("[elevenlabs/egress]", ...a);
 
-const HOST = "https://api.elevenlabs.io";
+/** Base URL — overridable via ELEVENLABS_API_BASE_URL so a gateway/proxy can sit
+ * in front of the vendor. Read per call so a redeploy-free config change works. */
+function baseUrl(): string {
+  return env.elevenLabsBaseUrl;
+}
 
 /* ── Monthly account budget (10,000 chars/month on the demo tier) ─────────── */
 
@@ -221,11 +225,19 @@ export const commercialUseAttested = (): boolean =>
 /* ── Retry ladder ──────────────────────────────────────────────────────────── */
 
 const RETRY_STATUS = new Set([429, 500, 502, 503, 504, 529]);
-/** Base ladder mirrors src/lib/outbox.ts. */
-const BACKOFF_MS = [250, 500, 1_000, 2_000, 4_000, 8_000] as const;
-const DEFAULT_MAX_RETRIES = 2;
+/** Base ladder mirrors src/lib/outbox.ts. Overridable via ELEVENLABS_BACKOFF_MS as a
+ * comma-separated list of millisecond steps. */
+const BACKOFF_MS = ((): readonly number[] => {
+  const raw = process.env.ELEVENLABS_BACKOFF_MS;
+  if (raw) {
+    const parsed = raw.split(",").map((s) => Number(s.trim()));
+    if (parsed.every((n) => Number.isFinite(n) && n > 0)) return parsed as readonly number[];
+  }
+  return [250, 500, 1_000, 2_000, 4_000, 8_000] as const;
+})();
+const DEFAULT_MAX_RETRIES = Number(process.env.ELEVENLABS_MAX_RETRIES) || 2;
 /** A hostile or misconfigured `Retry-After` must not park a request for ever. */
-const MAX_RETRY_WAIT_MS = 10_000;
+const MAX_RETRY_WAIT_MS = Number(process.env.ELEVENLABS_MAX_RETRY_WAIT_MS) || 10_000;
 
 /** Equal jitter: half the step is fixed, half is random. */
 export function backoffMs(attempt: number, rand: number = Math.random()): number {
@@ -426,7 +438,7 @@ async function guardedRequest(o: RequestOptions): Promise<GuardOutcome> {
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), timeoutMs);
         try {
-          const res = await fetch(`${HOST}${o.path}`, {
+          const res = await fetch(`${baseUrl()}${o.path}`, {
             method: o.method,
             headers,
             body: o.rawBody ?? (o.body !== undefined ? JSON.stringify(o.body) : undefined),

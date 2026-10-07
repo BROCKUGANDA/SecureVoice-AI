@@ -219,7 +219,11 @@ export async function tts(req: TtsRequest, opts?: { keyOverride?: string }): Pro
   //    Buffer and would corrupt replays for 24h).
   const result = await withIdempotency<TtsResult>({
     scope: TTS_SCOPE,
-    key: JSON.stringify({ text: redactText(req.text), voice: req.voice, speed: req.speed ?? 1 }),
+    key: JSON.stringify({
+      text: redactText(req.text),
+      voice: req.voice,
+      speed: req.speed ?? env.voiceDefaultSpeed,
+    }),
     callerId: req.callerId,
     fn: async () => {
       const { buf, ct } = await callUpstreamTts(req, opts?.keyOverride);
@@ -231,7 +235,7 @@ export async function tts(req: TtsRequest, opts?: { keyOverride?: string }): Pro
         cached: false,
         replayed: false,
         voice: req.voice,
-        model: process.env.ELEVENLABS_DRY_RUN === "true" ? "z-ai:dev" : "elevenlabs:prod",
+        model: env.elevenLabsDryRun ? "z-ai:dev" : "elevenlabs:prod",
       };
     },
     serialize: (v) =>
@@ -315,7 +319,9 @@ async function callZaiTts(req: TtsRequest): Promise<Buffer> {
       response_format: "wav",
       stream: false,
     }),
-    new Promise<never>((_, rej) => setTimeout(() => rej(new Error("TTS timeout")), 25_000)),
+    new Promise<never>((_, rej) =>
+      setTimeout(() => rej(new Error("TTS timeout")), env.ttsTimeoutMs),
+    ),
   ]);
   const ab = await (res as Response).arrayBuffer();
   const buf = Buffer.from(new Uint8Array(ab));
@@ -341,16 +347,16 @@ async function callElevenLabsTts(req: TtsRequest, keyOverride?: string): Promise
         text: req.text,
         model_id: model,
         voice_settings: {
-          stability: 0.5,
-          similarity_boost: 0.75,
-          use_speaker_boost: true,
-          speed: req.speed ?? 1.0,
+          stability: env.voiceStability,
+          similarity_boost: env.voiceSimilarityBoost,
+          use_speaker_boost: env.voiceUseSpeakerBoost,
+          speed: req.speed ?? env.voiceDefaultSpeed,
         },
       }),
       billableChars: keyOverride ? 0 : req.text.length,
       apiKey: keyOverride,
       callerId: req.callerId,
-      timeoutMs: 25_000,
+      timeoutMs: env.ttsTimeoutMs,
       maxRetries: 2,
     },
   );

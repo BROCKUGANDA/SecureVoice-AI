@@ -14,7 +14,7 @@ import { consume as consumeRateLimit, rateLimitId } from "@/lib/ratelimit";
 import { append as auditAppend } from "@/lib/audit-chain";
 import { transcript as redactText } from "@/lib/redact";
 import { resolveTtsKey, consumeCharQuota, quotaExceededResponse } from "@/lib/tts-quota";
-import { SUPPORTED_LANGS, MAX_TTS_CHARS } from "@/lib/config";
+import { SUPPORTED_LANGS, maxTtsChars } from "@/lib/config";
 import {
   badRequest,
   tooManyRequests,
@@ -37,7 +37,7 @@ export const dynamic = "force-dynamic";
  */
 
 const LANGS = new Set<string>(SUPPORTED_LANGS);
-const MAX_CHARS = MAX_TTS_CHARS;
+const MAX_CHARS = maxTtsChars();
 
 const schema = z.object({
   text: z.string().min(1).max(MAX_CHARS),

@@ -20,9 +20,7 @@ import { detectInjectionAttempt, spokenOutputIsSafe, wrapCallerText } from "@/li
  */
 
 import type { TtsLang } from "@/lib/elevenlabs/client";
-import { env, MAX_AGENT_WORDS } from "@/lib/config";
-
-const TIMEOUT_MS = 8_000;
+import { env, maxAgentWords } from "@/lib/config";
 
 /** Intents whose reply is a commitment and must be the vetted script, verbatim. */
 const SCRIPTED_ONLY: ReadonlySet<string> = new Set([
@@ -31,7 +29,7 @@ const SCRIPTED_ONLY: ReadonlySet<string> = new Set([
   "doubt",
   "handoff",
 ]);
-const MAX_WORDS = MAX_AGENT_WORDS;
+const MAX_WORDS = maxAgentWords();
 
 /** The configured LLM provider, or null when no key is set. Groq first
  *  (fastest voice feel), Gemini second (most generous free tier, strong
@@ -43,16 +41,14 @@ function provider(): { url: string; key: string; model: string } | null {
   // move is a config change instead of a rebuild. The defaults are unchanged.
   if (env.groqApiKey) {
     return {
-      url: process.env.GROQ_BASE_URL ?? "https://api.groq.com/openai/v1/chat/completions",
+      url: env.groqBaseUrl,
       key: env.groqApiKey,
       model: env.groqModel,
     };
   }
   if (env.geminiApiKey) {
     return {
-      url:
-        process.env.GEMINI_BASE_URL ??
-        "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+      url: env.geminiBaseUrl,
       key: env.geminiApiKey,
       model: env.geminiModel,
     };
@@ -142,10 +138,10 @@ export async function draftAgentReply(args: {
             content: `The caller said (their language may differ - reply in YOUR language): ${safeCallerText}`,
           },
         ],
-        temperature: 0.3,
-        max_tokens: 160,
+        temperature: env.groqTemperature,
+        max_tokens: env.groqMaxTokens,
       }),
-      signal: AbortSignal.timeout(TIMEOUT_MS),
+      signal: AbortSignal.timeout(env.groqTimeoutMs),
     });
     if (!r.ok) return null;
     const data = (await r.json()) as { choices?: { message?: { content?: string } }[] };

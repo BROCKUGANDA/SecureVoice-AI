@@ -81,7 +81,7 @@ services:
     environment:
       # Use the same DATABASE_URL as the rest of the stack — .env is the single
       # source of truth, all containers hit the same Postgres (Supabase).
-      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL must be set in .env}
+      DATABASE_URL: ${DATABASE_URL:-postgresql://${POSTGRES_USER:-securevoice}:${POSTGRES_PASSWORD:-securevoice}@db:5432/${POSTGRES_DB:-securevoice}}
       # Seed the demo case history on first boot. Idempotent per callRef; set
       # SEED_DEMO=false in .env for a clean production database.
       SEED_DEMO: ${SEED_DEMO:-true}
@@ -106,7 +106,7 @@ services:
     logging: *default-logging
     mem_limit: 512m
     environment:
-      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL must be set in .env}
+      DATABASE_URL: ${DATABASE_URL:-postgresql://${POSTGRES_USER:-securevoice}:${POSTGRES_PASSWORD:-securevoice}@db:5432/${POSTGRES_DB:-securevoice}}
       # Durable ElevenLabs character meter. Defaults to the compose redis
       # service; unset it and the guard falls back to per-process counting,
       # which it logs as degraded rather than hiding.
@@ -117,6 +117,7 @@ services:
       # without this explicit acknowledgement, so it is stated here rather than
       # weakened globally.
       DB_ALLOW_PLAINTEXT_PRIVATE_NETWORK: "true"
+      REQUIRE_VPS_DATABASE: ${REQUIRE_VPS_DATABASE:-false}
       ELEVENLABS_DRY_RUN: ${ELEVENLABS_DRY_RUN:-true}
       ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
       ELEVENLABS_AGENT_ID: ${ELEVENLABS_AGENT_ID:-}
@@ -174,7 +175,7 @@ services:
       context: .
       target: runner
       args:
-        BUILD_DATABASE_URL: ${DATABASE_URL:?DATABASE_URL must be set in .env}
+        BUILD_DATABASE_URL: ${DATABASE_URL:-postgresql://${POSTGRES_USER:-securevoice}:${POSTGRES_PASSWORD:-securevoice}@db:5432/${POSTGRES_DB:-securevoice}}
         BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set in .env}
         BETTER_AUTH_URL: ${BETTER_AUTH_URL:-https://localhost:3000}
     # IMAGE lets a release job smoke-test the image it just published instead of a
@@ -188,13 +189,15 @@ services:
     environment:
       HOSTNAME: 0.0.0.0
       # Built from parts â€” see db-setup for why a whole-URL interpolation is unsafe.
-      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL must be set in .env}
+      DATABASE_URL: ${DATABASE_URL:-postgresql://${POSTGRES_USER:-securevoice}:${POSTGRES_PASSWORD:-securevoice}@db:5432/${POSTGRES_DB:-securevoice}}
       # Durable ElevenLabs character meter (10k/month account ceiling). With it
       # unset the guard degrades to a per-process count at a tightened ceiling
       # and logs `degraded: in-process budget limit active`.
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
       # Private-network database with no server certificate; see dial-worker.
       DB_ALLOW_PLAINTEXT_PRIVATE_NETWORK: "true"
+      # Opt-in: refuse to boot production against anything but the VPS Postgres.
+      REQUIRE_VPS_DATABASE: ${REQUIRE_VPS_DATABASE:-false}
       # Internal service name, NEVER localhost: inside the app container,
       # localhost is the app container. Empty = realtime disabled, console uses SSE.
       REALTIME_URL: ${REALTIME_URL:-http://realtime:4000}
@@ -266,7 +269,7 @@ services:
     logging: *default-logging
     environment:
       HOSTNAME: 0.0.0.0
-      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL must be set in .env}
+      DATABASE_URL: ${DATABASE_URL:-postgresql://${POSTGRES_USER:-securevoice}:${POSTGRES_PASSWORD:-securevoice}@db:5432/${POSTGRES_DB:-securevoice}}
     env_file:
       - path: .env
         required: false

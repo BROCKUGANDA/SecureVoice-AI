@@ -3,6 +3,8 @@ import { NextResponse } from "next/server";
 import "server-only";
 import { leakSafeText } from "@/lib/failures/envelope";
 import { db } from "@/lib/db";
+import { classifyDatabaseUrl } from "@/lib/db-target";
+import { auth } from "@/lib/better-auth";
 
 export const dynamic = "force-dynamic";
 
@@ -63,7 +65,32 @@ export async function GET() {
 
   await timed("database", true, async () => {
     await db.$queryRaw`SELECT 1`;
-    return { name: "database", ok: true, fatal: true };
+    // `detail` is the coarse CLASS of database (vps-container, managed-supabase,
+    // ...), never a host or credential. It answers "is production on the VPS
+    // Postgres?" with one curl against the live instance, which a .env file you
+    // cannot see from here cannot.
+    return {
+      name: "database",
+      ok: true,
+      fatal: true,
+      detail: classifyDatabaseUrl(process.env.DATABASE_URL),
+    };
+  });
+
+  // Auth wiring, as the running process sees it. The Better Auth dashboard says
+  // "organization / dash plugin not enabled" when it cannot find them on the
+  // instance it is pointed at; this reports what THIS instance actually loaded,
+  // so the two can be compared without guessing. Non-fatal: it is a diagnostic.
+  await timed("auth", false, async () => {
+    const ids = (auth.options.plugins ?? []).map((p: { id?: string }) => p.id).filter(Boolean);
+    const hasKey = Boolean(process.env.BETTER_AUTH_API_KEY);
+    const ok = ids.includes("organization") && ids.includes("dash") && hasKey;
+    return {
+      name: "auth",
+      ok,
+      fatal: false,
+      detail: `plugins=${ids.join(",")} dashApiKey=${hasKey ? "set" : "MISSING"}`,
+    };
   });
 
   // Bank-notification backlog. Fatal=false: a wedged outbox degrades the

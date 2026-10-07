@@ -53,6 +53,16 @@ agent:
     never adds urgency, a b2b call never authorises anything, and only fraud
     verification may stage a protective action.
 
+    LIVE TRANSFER VS SPECIALIST QUEUE
+    Two tools hand a caller to a human. human_handoff queues a specialist who
+    follows up. warm_transfer bridges the caller to a specialist's phone RIGHT
+    NOW: say "I am transferring you to a human agent" first, then call it — the
+    AI audio ends the moment it fires. Use warm_transfer when the caller asks
+    for a person now or the call category instructs a transfer; use
+    human_handoff when the specialist-joins-later framing is right (fraud
+    verification, distress escalation). If warm_transfer reports it degraded,
+    tell the caller a specialist will follow up instead.
+
     IDENTITY AND OPENING
     Before anything else, tell the customer: this call is recorded to protect
     them, and you are the bank's AI security assistant. Then deliver the
@@ -270,6 +280,10 @@ tools:
   - name: human_handoff
     id_env: ELEVENLABS_TOOL_HUMAN_HANDOFF
     description: Queue a human fraud specialist to join the call. Use when the customer is distressed, asks for a person, or the verdict is uncertain.
+    response_timeout_secs: 5
+  - name: warm_transfer
+    id_env: ELEVENLABS_TOOL_WARM_TRANSFER
+    description: Bridge the live call to a human specialist's phone. Say that you are transferring the caller FIRST, then call this tool - the AI leg ends when it fires. Degrades to the specialist queue when no live number is configured.
     response_timeout_secs: 5
   - name: verify_transaction
     id_env: ELEVENLABS_TOOL_VERIFY_TRANSACTION

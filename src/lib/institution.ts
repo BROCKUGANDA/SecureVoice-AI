@@ -62,6 +62,36 @@ export async function getInstitutionContext(
   }
 }
 
+/** The E.164 shape every transfer destination must satisfy. */
+const E164 = /^\+[1-9]\d{6,14}$/;
+
+/**
+ * The live-transfer destination for a tenant: `transferPhone` in the org's
+ * `metadata` JSON (operator-set in the console's data model), falling back to
+ * the deployment-wide HUMAN_AGENT_PHONE. Null means "no live transfer is
+ * configured" — the warm_transfer tool then degrades to the queue semantics
+ * instead of bridging the customer to nobody.
+ */
+export async function getTransferNumber(orgId: string | null | undefined): Promise<string | null> {
+  let fromOrg: string | null = null;
+  if (orgId) {
+    try {
+      const org = await db.organization.findUnique({
+        where: { id: orgId },
+        select: { metadata: true },
+      });
+      const meta = org?.metadata ? (JSON.parse(org.metadata) as Record<string, unknown>) : null;
+      const phone = meta?.transferPhone;
+      if (typeof phone === "string" && E164.test(phone)) fromOrg = phone;
+    } catch {
+      // Malformed metadata or a lookup fault: fall through to the env default.
+    }
+  }
+  if (fromOrg) return fromOrg;
+  const envPhone = process.env.HUMAN_AGENT_PHONE;
+  return envPhone && E164.test(envPhone) ? envPhone : null;
+}
+
 /** Set a tenant's institution type. Rejects anything outside the closed set. */
 export async function setInstitutionType(
   orgId: string,

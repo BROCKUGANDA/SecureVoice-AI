@@ -308,6 +308,9 @@ model Case {
   // WHY the institution is calling (src/lib/call-categories.ts). Null reads as
   // the audited default (time_critical_fraud) — see asCallCategory.
   callCategory          String?
+  // The Twilio call-leg sid, persisted at dial time. The warm_transfer tool
+  // rewrites this leg's TwiML to bridge the customer to a live human.
+  callSid               String?
   smsSentAt             DateTime? // anchors the 24h reply window
   resolutionMethod      String? // voice_call | sms_reply_yes | sms_reply_no | unreachable_no_reply | ...
   customerResponse      String? // "yes" | "no" | null (null = the customer never answered)

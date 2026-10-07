@@ -187,8 +187,12 @@ async function handle(job: DialJob): Promise<DialOutcome> {
     // could reach DIALING with nothing in the chain saying it did.
     // transitionCase writes the row, the legality check and the audit entry
     // together, and throws IllegalTransitionError rather than forcing a state
-    // the table forbids.
-    await transitionCase(job.case_ref, "DIALING", { conversationId: result.conversationId });
+    // the table forbids. The Twilio call-leg sid rides along: it is what the
+    // warm_transfer tool rewrites to bridge the customer to a live human.
+    await transitionCase(job.case_ref, "DIALING", {
+      conversationId: result.conversationId,
+      callSid: result.callSid,
+    });
 
     void auditAppend({
       callRef: job.case_ref,

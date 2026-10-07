@@ -319,6 +319,56 @@ export async function placeInterventionCall(args: {
 }
 
 /**
+ * The hold audio a customer hears while Twilio dials the specialist. The agent
+ * has already said the transfer line in the caller's language before the tool
+ * fired (killing the AI leg is inherent to a TwiML update), so this is hold
+ * audio, not the disclosure of the transfer.
+ */
+export function buildTransferTwiml(from: string, specialist: string): string {
+  return (
+    "<Response>" +
+    '<Say voice="Polly.Amy">Connecting you to a specialist now. Please hold.</Say>' +
+    `<Dial callerId="${from}"><Number>${specialist}</Number></Dial>` +
+    "</Response>"
+  );
+}
+
+export type TransferResult =
+  { ok: true; sid: string; status: string } | { ok: false; error: string; status: number };
+
+/**
+ * Warm-transfer a LIVE call to a human: rewrite the Twilio call leg's TwiML so
+ * the customer is bridged to the specialist's phone. The ElevenLabs agent leg
+ * dies with the update — by design; the agent has already said its goodbye and
+ * the tool is invoked only after it has.
+ *
+ * Live-fire gate is at `twilioPost`, the same choke point as calls and SMS: an
+ * unattested deployment is refused (403) and the caller degrades to the queue
+ * semantics rather than hanging the customer.
+ */
+export async function transferCallToSpecialist(args: {
+  callSid: string;
+  specialist: string;
+}): Promise<TransferResult> {
+  if (!/^CA[0-9a-f]{32}$/.test(args.callSid)) {
+    return { ok: false, status: 422, error: "callSid is not a Twilio call sid" };
+  }
+  if (!isE164(args.specialist)) {
+    return { ok: false, status: 422, error: "specialist number is not E.164" };
+  }
+  const c = creds();
+  const res = await twilioPost(c.accountSid, c.username, c.password, `Calls/${args.callSid}.json`, {
+    Twiml: buildTransferTwiml(c.from, args.specialist),
+  });
+  if (!res.ok) return { ok: false, status: res.status, error: res.error };
+  return {
+    ok: true,
+    sid: String(res.data.sid ?? args.callSid),
+    status: String(res.data.status ?? "queued"),
+  };
+}
+
+/**
  * The blind-ping SMS sent when the voice channel has failed (the dial job
  * dead-lettered, or the call reached a voicemail box).
  *

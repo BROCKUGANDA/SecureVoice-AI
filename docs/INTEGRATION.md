@@ -123,6 +123,15 @@ Opt-out is first-class and immediate. It is the _same_ endpoint with a different
 That persists a do-not-call flag the platform honours on every subsequent
 intervention — the intervention is refused rather than re-dialled.
 
+What your customers see when we call: **your own published number**. The
+platform agent dials from a phone number imported from your SIP trunk
+(`ELEVENLABS_PHONE_NUMBER_ID` — the one-time import call is documented in
+`.env.example`), and the Twilio-side intervention calls present
+`TWILIO_FROM_NUMBER`. Both must be numbers you are authorised to present —
+Layer 1 of `docs/TRUST-MODEL.md`. Until your carrier grants that
+authorisation the pilot runs on the remaining four layers, which is a viable
+product.
+
 Twilio trial accounts can only dial numbers verified in the Twilio console. For
 unrestricted delivery use a paid account and set `TWILIO_*` in your deployment.
 

@@ -213,6 +213,13 @@ the platform agent; the agent then owns the conversation, calling our server-sid
 as it verifies the customer. Set `ELEVENLABS_API_KEY`, `ELEVENLABS_AGENT_ID` and
 `ELEVENLABS_PHONE_NUMBER_ID` in `.env` to place a real one.
 
+The phone number id is the caller ID the customer sees. It is imported once from
+the institution's own SIP trunk — `POST /v1/convai/phone-numbers` with
+`provider: "sip_trunk"` and the trunk's INVITE address — and the platform
+presents that DID to every customer it dials: the same number their fraud team
+calls from. That is Layer 1 of [docs/TRUST-MODEL.md](docs/TRUST-MODEL.md): the
+number must be genuinely the institution's, carrier-verified, never rented.
+
 ### Continuity path — when the platform is not on the call
 
 The built-in voice pipeline is the **continuity** path, not an alternative to the agent. It is

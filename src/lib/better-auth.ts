@@ -123,7 +123,27 @@ export const auth = betterAuth({
     // makes them decorative.
     storage: "database",
   },
-  plugins: [organization(), twoFactor(), admin(), dash(), sentinel()],
+  // `twoFactor()` with no options stores the OTP a user types into
+  // `verification.value` as PLAINTEXT (better-auth 1.7.7,
+  // plugins/two-factor/otp/index.mjs: `storeOTP: "plain"` is the default). A
+  // code read out of the database is a second factor that works, for as long as
+  // its window lasts, against anyone holding a row.
+  //
+  // Hashed is the correct mode here, not encrypted: the code is compared for
+  // equality exactly once and never needs to be recovered, so nothing is lost
+  // that a fraud desk would want back. The plugin's verify path hashes the
+  // user's input the same way, and a resend rotates rather than reusing.
+  //
+  // Not a claim about the TOTP secret or the backup codes — both are already
+  // symmetric-encrypted by the plugin before they are written, with no option
+  // to turn that off. See docs/SECURITY.md for what remains plaintext.
+  plugins: [
+    organization(),
+    twoFactor({ otpOptions: { storeOTP: "hashed" } }),
+    admin(),
+    dash(),
+    sentinel(),
+  ],
 });
 
 export type AuthSession = typeof auth.$Infer.Session;

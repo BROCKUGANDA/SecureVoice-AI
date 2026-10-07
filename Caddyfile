@@ -125,6 +125,25 @@
 		respond "ok" 200
 	}
 
+	# API gateway surface. `/v1/*` is the path a bank integrates against
+	# (docs/INTEGRATION-CONTRACT.md); it maps onto the app's `/api/v1/*` handler
+	# so exactly one implementation exists and the public contract is a stable,
+	# short, version-first path.
+	#
+	# Kept deliberately narrow:
+	#   - A Caddy path matcher is anchored at the start of the path, so this can
+	#     NEVER capture `/api/v1/*`. Do not rewrite it to a wildcard.
+	#   - Authentication is NOT done here. The producer key is verified per route
+	#     in the app, because that is where tenancy is resolved; a key that
+	#     terminates at the edge would be a second, divergent implementation.
+	handle /v1/* {
+		rewrite * /api{uri}
+		reverse_proxy {$APP_UPSTREAM:app:3000} {
+			import forwarded_headers
+			flush_interval -1
+		}
+	}
+
 	handle {
 		# `APP_UPSTREAM` is what makes this a BLUE/GREEN deployment: it names the
 		# colour currently serving traffic (app-blue:3000 or app-green:3000), and

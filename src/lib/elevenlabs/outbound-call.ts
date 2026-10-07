@@ -121,7 +121,7 @@ const INTRO_BANK: Record<CallLanguage, string> = {
   hi: "मैं आपके बैंक का AI सुरक्षा सहायक हूं, और आपके कार्ड पर एक लेनदेन के बारे में बात करने के लिए कॉल कर रहा हूं।",
   ur: "میں آپ کے بینک کا AI سیکیورٹی اسسٹنٹ ہوں, اور آپ کے کارڈ پر ایک لین دین کے بارے میں بات کرنے کے لیے کال کر رہا ہوں۔",
   fr: "Je suis l'assistant sécurité IA de votre banque, et je vous appelle au sujet d'une transaction sur votre carte.",
-  sw: "Mimi ni msaidizi wa usalama wa AI wa benki yako, nikukupigia kuhusu muamala kwenye kadi yako.",
+  sw: "Mimi ni msaidizi wa usalama wa AI wa benki yako, nakupigia simu kuhusu muamala kwenye kadi yako.",
 };
 
 const INTRO_INSURER: Record<CallLanguage, string> = {
@@ -130,7 +130,7 @@ const INTRO_INSURER: Record<CallLanguage, string> = {
   hi: "मैं आपकी बीमा कंपनी का AI सुरक्षा सहायक हूं, और आपकी पॉलिसी पर गतिविधि के बारे में बात करने के लिए कॉल कर रहा हूं।",
   ur: "میں آپ کی انشورنس کمپنی کا AI سیکیورٹی اسسٹنٹ ہوں، اور آپ کی پالیسی پر سرگرمی کے بارے میں بات کرنے کے لیے کال کر رہا ہوں۔",
   fr: "Je suis l'assistant sécurité IA de votre assureur, et je vous appelle au sujet d'une activité sur votre police.",
-  sw: "Mimi ni msaidizi wa usalama wa AI wa kampuni yako ya bima, nikukupigia kuhusu shughuli kwenye sera yako.",
+  sw: "Mimi ni msaidizi wa usalama wa AI wa kampuni yako ya bima, nakupigia simu kuhusu shughuli kwenye sera yako.",
 };
 
 const OPENING_DISCLOSURE: Record<CallLanguage, string> = {
@@ -183,7 +183,7 @@ const VOICEMAIL_MESSAGES: Record<CallLanguage, string> = {
   hi: "नमस्ते, मैं आपके बैंक का स्वचालित AI सुरक्षा सहायक हूं। हमने आपके कार्ड पर हाल के एक लेनदेन के बारे में आपसे संपर्क करने की कोशिश की। यदि आप अपने कार्ड पर हाल के किसी लेनदेन को नहीं पहचानते, तो कृपया अपने कार्ड के पीछे दिए नंबर पर अभी अपने बैंक को कॉल करें। हम कभी आपका PIN या वन-टाइम पासकोड नहीं मांगेंगे। धन्यवाद।",
   ur: "ہیلو، میں آپ کے بینک کا خودکار AI سیکیورٹی اسسٹنٹ ہوں۔ ہم نے آپ کے کارڈ پر حالیہ لین دین کے بارے میں آپ سے رابطہ کرنے کی کوشش کی۔ اگر آپ اپنے کارڈ پر کسی حالیہ لین دین کو نہیں پہچانتے تو براہ کرم اپنے کارڈ کے پیچھے دیے گئے نمبر پر ابھی اپنے بینک کو کال کریں۔ ہم کبھی آپ سے PIN یا ون ٹائم کوڈ نہیں مانگیں گے۔ شکریہ۔",
   fr: "Bonjour, je suis l'assistant de sécurité automatisé par IA de votre banque. Nous avons essayé de vous joindre au sujet d'une transaction récente sur votre carte. Si vous ne reconnaissez pas une transaction récente, veuillez appeler votre banque dès maintenant au numéro figurant au dos de votre carte. Nous ne vous demanderons jamais votre code PIN ni votre code à usage unique. Merci.",
-  sw: "Habari, mimi ni msaidizi wa usalama wa kiotomatiki wa AI wa benki yako. Tulijaribu kukupigia kuhusu muamala wa hivi karibuni kwenye kadi yako. Usipoutambua muamala wa hivi karibuni, tafadhali piga simu benki yako sasa kwa namba iliyo nyuma ya kadi yako. Hatutakuomba kamwe PIN wala msimbo wa matumizi moja. Asante.",
+  sw: "Habari, mimi ni msaidizi wa usalama wa kiotomatiki wa AI wa benki yako. Tulijaribu kukupigia simu kuhusu muamala wa hivi karibuni kwenye kadi yako. Usipoutambua muamala wa hivi karibuni, tafadhali piga simu kwa benki yako sasa kwa namba iliyo nyuma ya kadi yako. Hatutakuomba kamwe PIN wala msimbo wa matumizi moja. Asante.",
 };
 
 /**

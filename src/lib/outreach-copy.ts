@@ -96,7 +96,7 @@ export const VOICEMAIL_INSURER: Record<OutreachLang, string> = {
   hi: "नमस्ते, मैं आपकी बीमा कंपनी का स्वचालित AI सुरक्षा सहायक हूं। हमने आपकी पॉलिसी या क्लेम पर हाल की गतिविधि के बारे में आपसे संपर्क करने की कोशिश की। यदि आप हाल की किसी गतिविधि को नहीं पहचानते, तो कृपया अपनी पॉलिसी दस्तावेज़ों में दिए नंबर पर अभी अपनी बीमा कंपनी को कॉल करें। हम कभी आपका PIN, पासवर्ड या वन-टाइम पासकोड नहीं मांगेंगे। धन्यवाद।",
   ur: "ہیلو، میں آپ کی انشورنس کمپنی کا خودکار AI سیکیورٹی اسسٹنٹ ہوں۔ ہم نے آپ کی پالیسی یا کلیم پر حالیہ سرگرمی کے بارے میں آپ سے رابطہ کرنے کی کوشش کی۔ اگر آپ کسی حالیہ سرگرمی کو نہیں پہچانتے تو براہ کرم اپنی پالیسی دستاویزات میں دیے گئے نمبر پر ابھی اپنی انشورنس کمپنی کو کال کریں۔ ہم کبھی آپ سے PIN، پاس ورڈ یا ون ٹائم کوڈ نہیں مانگیں گے۔ شکریہ۔",
   fr: "Bonjour, je suis l'assistant de sécurité automatisé par IA de votre assureur. Nous avons essayé de vous joindre au sujet d'une activité récente sur votre contrat ou votre sinistre. Si vous ne reconnaissez pas une activité récente, veuillez appeler votre assureur dès maintenant au numéro figurant sur vos documents de contrat. Nous ne vous demanderons jamais votre code PIN, votre mot de passe ni votre code à usage unique. Merci.",
-  sw: "Habari, mimi ni msaidizi wa usalama wa kiotomatiki wa AI wa kampuni yako ya bima. Tulijaribu kukupigia kuhusu shughuli ya hivi karibuni kwenye bima au madai yako. Usipoitambua shughuli ya hivi karibuni, tafadhali piga simu kampuni yako ya bima sasa kwa namba iliyo kwenye nyaraka za bima yako. Hatutakuomba kamwe PIN, nenosiri wala msimbo wa matumizi moja. Asante.",
+  sw: "Habari, mimi ni msaidizi wa usalama wa kiotomatiki wa AI wa kampuni yako ya bima. Tulijaribu kukupigia simu kuhusu shughuli ya hivi karibuni kwenye bima au madai yako. Usipoitambua shughuli ya hivi karibuni, tafadhali piga simu kwa kampuni yako ya bima sasa kwa namba iliyo kwenye nyaraka za bima yako. Hatutakuomba kamwe PIN, nenosiri wala msimbo wa matumizi moja. Asante.",
 };
 
 /** Confirmation texts sent back after a valid YES / NO. Still no merchant, no amount. */
@@ -136,7 +136,7 @@ export const SMS_REPLY: Record<
     hi: "यह अलर्ट समाप्त हो चुका है। कृपया अपने कार्ड या पॉलिसी दस्तावेज़ पर दिए नंबर पर संस्था को कॉल करें।",
     ur: "یہ الرٹ ختم ہو چکا ہے۔ براہ کرم اپنے کارڈ یا پالیسی دستاویزات پر دیے گئے نمبر پر ادارے کو کال کریں۔",
     fr: "Cette alerte a expiré. Veuillez appeler votre établissement au numéro figurant sur votre carte ou vos documents.",
-    sw: "Tahadhari hii imeisha muda. Tafadhali piga simu taasisi yako kwa namba iliyo kwenye kadi au nyaraka zako.",
+    sw: "Tahadhari hii muda wake umeisha. Tafadhali piga simu taasisi yako kwa namba iliyo kwenye kadi au nyaraka zako.",
   },
   unknown: {
     en: "We have no open alert for this number. If you are worried about your account, call the number on your card or policy documents.",
@@ -144,7 +144,7 @@ export const SMS_REPLY: Record<
     hi: "इस नंबर के लिए कोई खुला अलर्ट नहीं है। यदि आप चिंतित हैं तो अपने कार्ड या पॉलिसी दस्तावेज़ पर दिए नंबर पर कॉल करें।",
     ur: "اس نمبر کے لیے کوئی کھلا الرٹ نہیں ہے۔ فکر ہو تو اپنے کارڈ یا پالیسی دستاویزات پر دیے گئے نمبر پر کال کریں۔",
     fr: "Aucune alerte ouverte pour ce numéro. En cas de doute, appelez le numéro figurant sur votre carte ou vos documents.",
-    sw: "Hakuna tahadhari wazi kwa namba hii. Ukiwa na wasiwasi, piga namba iliyo kwenye kadi au nyaraka zako.",
+    sw: "Hakuna tahadhari iliyo wazi kwa namba hii. Ukiwa na wasiwasi, piga simu kwa namba iliyo kwenye kadi au nyaraka zako.",
   },
   // More than one institution has an open alert for this number, so a bare
   // YES / NO could be applied to the wrong one. Fail safe: apply to NONE.

@@ -118,6 +118,10 @@ services:
       # weakened globally.
       DB_ALLOW_PLAINTEXT_PRIVATE_NETWORK: "true"
       REQUIRE_VPS_DATABASE: ${REQUIRE_VPS_DATABASE:-false}
+      # Per-case envelope encryption (WP-15). Unset in compose means the ingest
+      # stores no evidence payload at all — set PRIVACY_MASTER_KEY in .env to
+      # enable sealed transcripts. Never defaulted: see .env.example.
+      PRIVACY_MASTER_KEY: ${PRIVACY_MASTER_KEY:-}
       ELEVENLABS_DRY_RUN: ${ELEVENLABS_DRY_RUN:-true}
       ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
       ELEVENLABS_AGENT_ID: ${ELEVENLABS_AGENT_ID:-}

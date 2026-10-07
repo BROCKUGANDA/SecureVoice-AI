@@ -4,6 +4,11 @@ import { verifyProducerKey } from "@/lib/producer-keys";
 import { consume as consumeRateLimit } from "@/lib/ratelimit";
 import { append as auditAppend } from "@/lib/audit-chain";
 import { gatewayFailure, gatewayJson } from "@/lib/gateway";
+import {
+  CaseErasedError,
+  PayloadNotSealedError,
+  readCasePayload,
+} from "@/lib/privacy/crypto-shred";
 
 export const dynamic = "force-dynamic";
 
@@ -107,9 +112,34 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
   };
 
   if (wantsTranscript) {
-    // Stored REDACTED (PAN, phone, email, OTP stripped before storage), and an
-    // erased case (right-to-erasure) has no transcript to give.
-    body.transcript_redacted = row.erasedAt ? null : row.transcriptRedacted;
+    // Stored REDACTED (PAN, phone, email, OTP stripped before storage). Since
+    // WP-15 the durable copy is SEALED: the post-call ingest clears the
+    // plaintext columns once the ciphertext is in the chain, so an un-erased
+    // case with no plaintext column is decrypted here, on demand, under the
+    // per-case data key.
+    if (row.erasedAt) {
+      // An erased case (right-to-erasure) has no transcript to give.
+      body.transcript_redacted = null;
+    } else if (row.transcriptRedacted !== null) {
+      body.transcript_redacted = row.transcriptRedacted;
+    } else {
+      try {
+        body.transcript_redacted = (await readCasePayload(row.caseRef)).transcript;
+      } catch (error) {
+        // "No transcript" is reserved for erased or never-sealed cases; a
+        // payload that EXISTS but cannot be opened is an operator condition
+        // (key unconfigured or rotated away) and must say so.
+        if (error instanceof PayloadNotSealedError || error instanceof CaseErasedError) {
+          body.transcript_redacted = null;
+        } else {
+          return gatewayFailure("dependency_unavailable", req, {
+            detail: `evidence payload is sealed and could not be decrypted: ${
+              error instanceof Error ? error.message : "unknown"
+            }`,
+          });
+        }
+      }
+    }
     body.erased = Boolean(row.erasedAt);
     // Evidence leaving the platform is an auditable event: who pulled what.
     await auditAppend(

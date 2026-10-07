@@ -24,6 +24,7 @@ import { settleAttempt } from "@/lib/billing/ledger";
 import { markVoiceFailed } from "@/lib/elevenlabs/sms-fallback";
 import { neutraliseStrings, screenForMemory } from "@/lib/memory-guard";
 import { recordStrike } from "@/lib/abuse/bad-actor";
+import { masterKeyConfigured, sealCasePayload } from "@/lib/privacy/crypto-shred";
 
 type WebhookEventRow = {
   id: string;
@@ -281,6 +282,24 @@ async function handleTranscription(row: WebhookEventRow, data: any): Promise<voi
     { fast: true },
   );
 
+  // The evidence payload is SEALED, not stored as plaintext (WP-15). The chain
+  // row carries transcript + analysis as AES-256-GCM ciphertext under a
+  // per-case data key (src/lib/privacy/crypto-shred.ts), and the Case columns
+  // are cleared once that ciphertext is durable — so at rest, the readable
+  // transcript exists nowhere. There is deliberately NO plaintext fallback:
+  // without PRIVACY_MASTER_KEY the operational fields still land and the
+  // payload is not stored at all, which is the fail-closed direction for a
+  // regulated payload.
+  const canSeal = masterKeyConfigured();
+  // The vendor's evaluation and data-collection payloads are free text from a
+  // recorded conversation, so they carry the same risk as the transcript beside
+  // them — and they are DERIVED text a later reader treats as trusted memory.
+  // Redacted, then neutralised; a benign payload round-trips unchanged.
+  const evaluationRedacted =
+    evaluation !== null ? neutraliseStrings(redact.payload(evaluation)).value : null;
+  const dataCollectionRedacted =
+    dataCollection !== null ? neutraliseStrings(redact.payload(dataCollection)).value : null;
+
   await db.case.update({
     where: { id: caseRow.id },
     data: {
@@ -288,25 +307,52 @@ async function handleTranscription(row: WebhookEventRow, data: any): Promise<voi
       postCallEventType: row.eventType,
       outcome,
       durationSeconds,
-      transcriptRedacted: redactedTranscript,
-      // The vendor's evaluation and data-collection payloads are free text from
-      // a recorded conversation, so they carry the same risk as the transcript
-      // beside them. Redacting only the transcript left a path where a customer
-      // could repeat their card number and it would be stored verbatim in the
-      // results column.
-      // These two are DERIVED text (an LLM summarising what the customer said),
-      // which is what a later reader treats as trusted memory. Neutralised after
-      // redaction; a benign payload round-trips unchanged.
+      transcriptRedacted: canSeal ? redactedTranscript : null,
       evaluationResults:
-        evaluation !== null
-          ? JSON.stringify(neutraliseStrings(redact.payload(evaluation)).value)
-          : null,
+        canSeal && evaluationRedacted !== null ? JSON.stringify(evaluationRedacted) : null,
       dataCollectionResults:
-        dataCollection !== null
-          ? JSON.stringify(neutraliseStrings(redact.payload(dataCollection)).value)
-          : null,
+        canSeal && dataCollectionRedacted !== null ? JSON.stringify(dataCollectionRedacted) : null,
     },
   });
+
+  if (canSeal) {
+    // Ordering is the crash-safety property: the ciphertext row is appended
+    // FIRST and only then are the plaintext columns cleared, so a failure in
+    // between leaves the plaintext standing (privacy-safe — the copy exists and
+    // retention still selects it via holdsPayloadWhere) instead of dropping the
+    // only one. Sealing failure never throws here: the webhook handler's later
+    // steps must not be re-driven by a redelivery.
+    try {
+      await sealCasePayload(
+        caseRow.caseRef,
+        {
+          transcript: redactedTranscript,
+          analysis: { evaluation: evaluationRedacted, data_collection: dataCollectionRedacted },
+        },
+        { clearPlaintext: true, reason: "post_call_ingest" },
+      );
+    } catch (error) {
+      console.error(
+        "[elevenlabs/inbound] payload seal failed, plaintext retained:",
+        caseRow.caseRef,
+        error instanceof Error ? error.message : error,
+      );
+    }
+  } else {
+    // No master key, no plaintext — and the drop is on the record, not silent.
+    await auditAppend(
+      {
+        callRef: caseRow.caseRef,
+        action: "agent",
+        intent: "payload_unsealed_dropped",
+        callerId: "elevenlabs-webhook",
+        redactedText: "evidence payload not stored: PRIVACY_MASTER_KEY unconfigured",
+        meta: { eventType: row.eventType },
+        orgId: caseRow.orgId ?? undefined,
+      },
+      { fast: true },
+    ).catch(() => {});
+  }
 
   if (memoryRisk.verdict === "poisoned") {
     // A strike keyed on the CASE (never the raw phone number: bad-actor.ts hashes

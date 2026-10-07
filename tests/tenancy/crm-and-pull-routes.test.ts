@@ -368,3 +368,68 @@ test("v1 pull: an erased case yields no transcript and says so", async () => {
   // Restore so the ordering of later assertions is not a trap.
   await client.case.update({ where: { caseRef: REF_A }, data: { erasedAt: null } });
 }, 90_000);
+
+test("v1 pull: a SEALED case decrypts the transcript on demand, under the per-case key", async () => {
+  await seed();
+  const savedKey = process.env.PRIVACY_MASTER_KEY;
+  delete process.env.PRIVACY_MASTER_KEY;
+  try {
+    // This suite runs without a master key (the preload deletes it); the sealed
+    // path provisions one explicitly, exactly as a deployment must.
+    process.env.PRIVACY_MASTER_KEY = "b".repeat(64);
+
+    const sealedRef = `SV-F-${RUN_HEX.slice(12, 18).toUpperCase()}`;
+    await db.case.create({
+      data: {
+        caseRef: sealedRef,
+        orgId: ORG_A,
+        state: "NOTIFIED",
+        outcome: "confirmed_fraud",
+        // Null because the post-call ingest cleared them after sealing: the
+        // payload exists only as ciphertext in the audit chain.
+        transcriptRedacted: null,
+      } as never,
+    });
+    const { sealCasePayload } = await import("@/lib/privacy/crypto-shred");
+    await sealCasePayload(
+      sealedRef,
+      { transcript: "[REDACTED] caller disputed charge on card 4242 for merchant ACME STORE" },
+      { reason: "post_call_ingest" },
+    );
+
+    const { res, text } = await pull(sealedRef, PLAINTEXT_KEY_A, "?include=transcript");
+    expect(res.status).toBe(200);
+    const body = JSON.parse(text) as Record<string, unknown>;
+    expect(typeof body.transcript_redacted).toBe("string");
+    expect(body.transcript_redacted).toContain("[REDACTED]");
+    expect(body.erased).toBe(false);
+  } finally {
+    if (savedKey !== undefined) process.env.PRIVACY_MASTER_KEY = savedKey;
+  }
+}, 90_000);
+
+test("v1 pull: a sealed payload that cannot be decrypted is a 503, not a silent empty", async () => {
+  await seed();
+  const savedKey = process.env.PRIVACY_MASTER_KEY;
+  delete process.env.PRIVACY_MASTER_KEY;
+  try {
+    // Sealed under one key, read under another — the operator rotated or lost
+    // the master key. "null transcript" is reserved for erased/never-sealed;
+    // an unreadable payload must say it is an operator condition.
+    process.env.PRIVACY_MASTER_KEY = "c".repeat(64);
+    const sealedRef = `SV-F-${RUN_HEX.slice(18, 24).toUpperCase()}`;
+    await db.case.create({
+      data: { caseRef: sealedRef, orgId: ORG_A, state: "NOTIFIED" } as never,
+    });
+    const { sealCasePayload } = await import("@/lib/privacy/crypto-shred");
+    await sealCasePayload(sealedRef, { transcript: "[REDACTED] sealed under the old key" });
+
+    process.env.PRIVACY_MASTER_KEY = "d".repeat(64);
+    const { res, text } = await pull(sealedRef, PLAINTEXT_KEY_A, "?include=transcript");
+    expect(res.status).toBe(503);
+    expect(text).toContain("dependency_unavailable");
+    expect(text).toContain("sealed");
+  } finally {
+    if (savedKey !== undefined) process.env.PRIVACY_MASTER_KEY = savedKey;
+  }
+}, 90_000);

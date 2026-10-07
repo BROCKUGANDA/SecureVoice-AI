@@ -31,6 +31,12 @@ process.env.ELEVENLABS_COMMERCIAL_USE ??= "true";
 // handset. See tests/unit/twilio-live-send-guard.test.ts.
 delete process.env.TWILIO_LIVE_SEND;
 
+// Same hard floor for the per-case master key (WP-15): a real `.env` has one,
+// and a suite that seals without setting it explicitly would silently depend
+// on operator config. Suites that exercise sealing set their own (tests/privacy,
+// tests/webhooks); the post-call ingest test also asserts the key-less drop.
+delete process.env.PRIVACY_MASTER_KEY;
+
 // Latency gates (docs/VERIFICATION.md WP-3) assume the production topology
 // from docs/HETZNER.md: Postgres co-located with the app. When a caller
 // provides TEST_DATABASE_URL, every test runs against that database instead

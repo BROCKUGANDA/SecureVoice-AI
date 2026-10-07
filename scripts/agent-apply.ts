@@ -72,6 +72,29 @@ function resolveValue(v: unknown): unknown {
   return v;
 }
 
+/**
+ * The agent's built-in system tools. One builder feeds BOTH the PATCH body and
+ * the desired-state diff, so what is sent and what is verified cannot drift.
+ *
+ * `description` is deliberately omitted: a blank description makes the platform
+ * use its tool-specific default prompt for when to fire, and an explicit "" would
+ * then diverge from the stored default on the read-back diff.
+ */
+function builtInTools(def: RawDef): Record<string, unknown> {
+  const voicemail = def.voicemail as RawDef | undefined;
+  if (!voicemail?.message) return {};
+  return {
+    voicemail_detection: {
+      type: "system",
+      name: "voicemail_detection",
+      params: {
+        system_tool_type: "voicemail_detection",
+        voicemail_message: voicemail.message,
+      },
+    },
+  };
+}
+
 // ── HTTP helpers ─────────────────────────────────────────────────────────────
 
 async function apiFetch(path: string, init?: RequestInit): Promise<any> {
@@ -196,6 +219,7 @@ function buildPatchBody(
           timezone: agent.timezone,
           ignore_default_personality: agent.ignore_default_personality,
           tool_ids: toolIds,
+          built_in_tools: builtInTools(def),
           knowledge_base: kb,
           rag: { enabled: rag.enabled, include_source_urls: rag.include_source_urls },
         },
@@ -217,6 +241,7 @@ function buildPatchBody(
       },
       turn: {
         turn_timeout: turn.turn_timeout,
+        silence_end_call_timeout: turn.silence_end_call_timeout,
         turn_eagerness: turn.turn_eagerness,
         speculative_turn: turn.speculative_turn,
         turn_model: turn.turn_model,
@@ -333,6 +358,7 @@ function desiredState(
     rag: { enabled: rag.enabled, include_source_urls: rag.include_source_urls },
   };
   if (toolIds.length > 0) prompt.tool_ids = toolIds;
+  if (Object.keys(builtInTools(def)).length > 0) prompt.built_in_tools = builtInTools(def);
   if (kb.length > 0) prompt.knowledge_base = kb;
 
   return {
@@ -362,6 +388,7 @@ function desiredState(
       },
       turn: {
         turn_timeout: turn.turn_timeout,
+        silence_end_call_timeout: turn.silence_end_call_timeout,
         turn_eagerness: turn.turn_eagerness,
         speculative_turn: turn.speculative_turn,
         turn_model: turn.turn_model,

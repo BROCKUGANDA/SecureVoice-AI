@@ -27,6 +27,7 @@ import { placeOutboundCall } from "@/lib/elevenlabs/outbound-call";
 import { append as auditAppend } from "@/lib/audit-chain";
 import { db } from "@/lib/db";
 import { transitionCase } from "@/lib/case-state-machine";
+import { sendUnreachableSms } from "@/lib/elevenlabs/sms-fallback";
 
 const WORKER_ID =
   process.env.DIAL_WORKER_ID ?? `${hostname()}-${process.pid}-${randomUUID().slice(0, 8)}`;
@@ -161,10 +162,28 @@ async function handle(job: DialJob): Promise<DialOutcome> {
   }
 }
 
+/**
+ * The voice channel has definitively failed for this case (every attempt spent,
+ * or the number was undiallable). SMS is the only way left to reach the
+ * customer, so try it - once, honestly worded, never in dry-run. All of those
+ * rules live in `sendUnreachableSms`; this only supplies the amount the voice
+ * agent would have read.
+ */
+async function onDead(job: DialJob): Promise<void> {
+  const payload = parsePayload(job);
+  await sendUnreachableSms({
+    caseRef: job.case_ref,
+    reason: "dial_exhausted",
+    amount: payload.amount ?? null,
+    currency: payload.currency ?? null,
+  });
+}
+
 async function tick(): Promise<number> {
   const result = await drainDialQueue({
     workerId: WORKER_ID,
     handler: handle,
+    onDead,
     limit: BATCH,
     leaseMs: LEASE_MS,
   });

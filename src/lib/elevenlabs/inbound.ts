@@ -22,6 +22,7 @@ import {
 import { append as auditAppend } from "@/lib/audit-chain";
 import * as redact from "@/lib/redact";
 import { settleAttempt } from "@/lib/billing/ledger";
+import { sendUnreachableSms } from "@/lib/elevenlabs/sms-fallback";
 
 type WebhookEventRow = {
   id: string;
@@ -179,6 +180,20 @@ function countTools(data: any): { names: string[]; count: number } {
   return { names, count: names.length };
 }
 
+/**
+ * Did this conversation end at an answering machine?
+ *
+ * The agent's `voicemail_detection` system tool is the source of truth: when it
+ * fires, the platform leaves the configured message and ends the call. The
+ * termination reason is a second signal for the case where the tool call is not
+ * itemised in the transcript.
+ */
+export function isVoicemailCall(data: any, toolNames: readonly string[]): boolean {
+  if (toolNames.includes("voicemail_detection")) return true;
+  const reason = data?.metadata?.termination_reason;
+  return typeof reason === "string" && /voicemail/i.test(reason);
+}
+
 async function handleTranscription(row: WebhookEventRow, data: any): Promise<void> {
   const conversationId: string | null =
     typeof data?.conversation_id === "string" ? data.conversation_id : row.conversationId;
@@ -220,6 +235,7 @@ async function handleTranscription(row: WebhookEventRow, data: any): Promise<voi
   const { names: toolNames, count: toolCallCount } = countTools(data);
   const evaluation = data?.analysis?.evaluation_criteria_results ?? null;
   const dataCollection = data?.analysis?.data_collection_results ?? null;
+  const voicemail = isVoicemailCall(data, toolNames);
 
   // Audit-before-return discipline: the ingest record is written before any
   // database mutation below, mirroring the guard refusals from WP-3.
@@ -236,6 +252,7 @@ async function handleTranscription(row: WebhookEventRow, data: any): Promise<voi
         outcome,
         toolCalls: toolCallCount,
         toolNames,
+        voicemail,
         billing:
           durationSeconds !== null ? { billed_minutes: Math.ceil(durationSeconds / 60) } : null,
         evaluationKeys: evaluation && typeof evaluation === "object" ? Object.keys(evaluation) : [],
@@ -260,12 +277,24 @@ async function handleTranscription(row: WebhookEventRow, data: any): Promise<voi
       // beside them. Redacting only the transcript left a path where a customer
       // could repeat their card number and it would be stored verbatim in the
       // results column.
-      evaluationResults:
-        evaluation !== null ? JSON.stringify(redact.payload(evaluation)) : null,
+      evaluationResults: evaluation !== null ? JSON.stringify(redact.payload(evaluation)) : null,
       dataCollectionResults:
         dataCollection !== null ? JSON.stringify(redact.payload(dataCollection)) : null,
     },
   });
+
+  // A voicemail box heard a deliberately generic message (no amount, no
+  // merchant), so the customer does not yet know a transaction needs attention.
+  // Text them. The helper owns every guard (dry-run, already-engaged, once per
+  // case) and never throws, so it cannot disturb the evidence pipeline below.
+  if (voicemail) {
+    await sendUnreachableSms({
+      caseRef: caseRow.caseRef,
+      reason: "voicemail",
+      amount: caseRow.amountMinor,
+      currency: caseRow.currency,
+    });
+  }
 
   // Verdict delivery triggers WP-5. Transitions to NOTIFIED only where the
   // current state allows it (e.g. CONFIRMED_FRAUD/CONFIRMED_LEGITIMATE/

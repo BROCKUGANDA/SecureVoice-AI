@@ -83,8 +83,24 @@ export const MAX_DIAL_ATTEMPTS = 3;
 /** How long a claim is good for. A worker killed mid-call loses at most this. */
 export const DEFAULT_LEASE_MS = 60_000;
 
-/** Retry ladder for a failed attempt. Jittered by `dialJobBackoffMs`. */
-export const DIAL_RETRY_LADDER_MS = [30_000, 120_000, 600_000] as const;
+/**
+ * Retry ladder for a failed attempt. Jittered by `dialJobBackoffMs`.
+ *
+ * Carrier-protection rule: never place more than TWO calls to one customer in
+ * any five-minute window. Carriers flag numbers that re-dial inside that window
+ * as robocall spam and start sending every later call to voicemail - which is
+ * the one outcome a fraud-intervention call cannot afford.
+ *
+ * Attempts land at t0, t0 + L1, t0 + L1 + L2. The first two rungs must therefore
+ * sum to MORE than 300s even at the bottom of the -20% jitter band:
+ *   0.8 * (150s + 300s) = 360s > 300s.
+ * The previous 30s/120s ladder put three calls inside 2.5 minutes.
+ * tests/unit/scale.test.ts pins this against `CALL_RATE_WINDOW_MS`.
+ */
+export const DIAL_RETRY_LADDER_MS = [150_000, 300_000, 600_000] as const;
+
+/** The carrier rate window the ladder above is sized against. */
+export const CALL_RATE_WINDOW_MS = 5 * 60_000;
 
 /**
  * What a human sees when the table is missing. The migration ships with this
@@ -602,6 +618,15 @@ export async function drainDialQueue(args: {
   handler: (job: DialJob) => Promise<DialOutcome>;
   /** Ownership gate. `false` ⇒ do not run the handler for this job. */
   beforeHandler?: (job: DialJob) => Promise<boolean>;
+  /**
+   * Called once when a job is dead-lettered by THIS drain - the point where the
+   * voice channel has definitively failed and a fallback channel (SMS) is the
+   * only way left to reach the customer. It runs after the row is settled, so a
+   * slow or failing fallback can never hold a lease or undo the dead-letter.
+   * A throw is swallowed: the fallback is best-effort and the DEAD row is the
+   * record of truth.
+   */
+  onDead?: (job: DialJob, error: string) => Promise<void>;
   limit?: number;
   leaseMs?: number;
   maxAttempts?: number;
@@ -665,8 +690,16 @@ export async function drainDialQueue(args: {
       rand: args.rand,
       dead: outcome.retryable === false,
     });
-    if (settled.outcome === "DEAD") out.dead++;
-    else if (settled.outcome === "RETRY") out.retried++;
+    if (settled.outcome === "DEAD") {
+      out.dead++;
+      if (args.onDead) {
+        try {
+          await args.onDead(job, outcome.error);
+        } catch {
+          // best-effort by contract - see `onDead` above
+        }
+      }
+    } else if (settled.outcome === "RETRY") out.retried++;
     else out.lost++; // reclaimed or removed under us — counted, never thrown
   }
   return out;

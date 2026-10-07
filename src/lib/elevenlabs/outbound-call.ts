@@ -112,6 +112,41 @@ export function firstMessageForLanguage(lang: string): string | null {
   return isCallLanguage(lang) ? FIRST_MESSAGES[lang] : null;
 }
 
+/**
+ * What an answering machine hears, per language. The agent's
+ * `voicemail_detection` tool reads this out (via the `voicemail_message` dynamic
+ * variable) and then ends the call, so the conversational agent never burns
+ * minutes talking to a mailbox.
+ *
+ * It is deliberately GENERIC: no amount, no merchant, no case reference. A
+ * voicemail box is not the customer - it can be a shared family line, an
+ * office assistant or a mailbox someone else can replay - and "your card was
+ * used for AED 2,500 at Electronics World" is exactly the detail a scammer
+ * wants to hear before ringing back as "the bank". It carries only:
+ *   - that the caller is an automated AI assistant (never pass as a human),
+ *   - a call to action that uses a number the customer ALREADY HOLDS (the one
+ *     on their card) - never a number or link we supply, which a phisher would
+ *     imitate,
+ *   - the promise never to ask for a PIN or one-time code.
+ * An SMS follows via `sendUnreachableSms`.
+ *
+ * ur/fr/sw wording needs native-speaker sign-off before a production pilot, as
+ * with FIRST_MESSAGES.
+ */
+const VOICEMAIL_MESSAGES: Record<CallLanguage, string> = {
+  en: "Hello, this is your bank's automated AI security assistant. We tried to reach you about a recent transaction on your card. If you do not recognise a recent card transaction, please call your bank now using the number on the back of your card. We will never ask for your PIN or one-time passcode. Thank you.",
+  ar: "مرحباً، أنا مساعد الأمان الآلي المعتمد على الذكاء الاصطناعي في مصرفك. حاولنا الاتصال بك بخصوص عملية حديثة على بطاقتك. إذا لم تتعرّف على عملية حديثة على بطاقتك، يرجى الاتصال بمصرفك الآن على الرقم المطبوع خلف بطاقتك. لن نطلب منك أبداً رمز PIN أو رمز التحقق لمرة واحدة. شكراً لك.",
+  hi: "नमस्ते, मैं आपके बैंक का स्वचालित AI सुरक्षा सहायक हूं। हमने आपके कार्ड पर हाल के एक लेनदेन के बारे में आपसे संपर्क करने की कोशिश की। यदि आप अपने कार्ड पर हाल के किसी लेनदेन को नहीं पहचानते, तो कृपया अपने कार्ड के पीछे दिए नंबर पर अभी अपने बैंक को कॉल करें। हम कभी आपका PIN या वन-टाइम पासकोड नहीं मांगेंगे। धन्यवाद।",
+  ur: "ہیلو، میں آپ کے بینک کا خودکار AI سیکیورٹی اسسٹنٹ ہوں۔ ہم نے آپ کے کارڈ پر حالیہ لین دین کے بارے میں آپ سے رابطہ کرنے کی کوشش کی۔ اگر آپ اپنے کارڈ پر کسی حالیہ لین دین کو نہیں پہچانتے تو براہ کرم اپنے کارڈ کے پیچھے دیے گئے نمبر پر ابھی اپنے بینک کو کال کریں۔ ہم کبھی آپ سے PIN یا ون ٹائم کوڈ نہیں مانگیں گے۔ شکریہ۔",
+  fr: "Bonjour, je suis l'assistant de sécurité automatisé par IA de votre banque. Nous avons essayé de vous joindre au sujet d'une transaction récente sur votre carte. Si vous ne reconnaissez pas une transaction récente, veuillez appeler votre banque dès maintenant au numéro figurant au dos de votre carte. Nous ne vous demanderons jamais votre code PIN ni votre code à usage unique. Merci.",
+  sw: "Habari, mimi ni msaidizi wa usalama wa kiotomatiki wa AI wa benki yako. Tulijaribu kukupigia kuhusu muamala wa hivi karibuni kwenye kadi yako. Usipoutambua muamala wa hivi karibuni, tafadhali piga simu benki yako sasa kwa namba iliyo nyuma ya kadi yako. Hatutakuomba kamwe PIN wala msimbo wa matumizi moja. Asante.",
+};
+
+/** The voicemail message for a language, or null when it is not callable. */
+export function voicemailMessageForLanguage(lang: string): string | null {
+  return isCallLanguage(lang) ? VOICEMAIL_MESSAGES[lang] : null;
+}
+
 export async function placeOutboundCall(params: OutboundCallParams): Promise<OutboundCallResult> {
   const dryRun = isDryRun();
 
@@ -156,7 +191,13 @@ export async function placeOutboundCall(params: OutboundCallParams): Promise<Out
     agent_phone_number_id: phoneId,
     to_number: params.toNumber,
     conversation_initiation_client_data: {
-      dynamic_variables: params.dynamicVariables,
+      // `voicemail_message` is spread LAST so a caller-supplied dynamic variable
+      // can never replace what a mailbox hears: the agent's voicemail_detection
+      // tool reads exactly this key, and it must stay the generic, PII-free text.
+      dynamic_variables: {
+        ...params.dynamicVariables,
+        voicemail_message: voicemailMessageForLanguage(params.language) ?? "",
+      },
       conversation_config_override: {
         tts: { voice_id: voiceId },
         agent: {

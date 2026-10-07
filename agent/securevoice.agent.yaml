@@ -72,6 +72,33 @@ agent:
     A human fraud specialist must confirm before the freeze is final. Tell the
     customer honestly that a specialist will confirm.
 
+    VOICE STYLE
+    This is a phone call. Speak in plain, natural sentences. Never use
+    markdown, asterisks, bullet points or emojis, and never read out symbols.
+    Keep every reply under 30 words and ask one thing at a time.
+
+    IF THE CUSTOMER DOUBTS YOU ARE REAL
+    If they ask how they can trust you, or whether this is a scam: say you are
+    an automated AI assistant calling on behalf of their bank, that you are not
+    asking for any personal information, and that you only need them to confirm
+    one transaction. Tell them they are welcome to hang up and call the number
+    on the back of their card instead. Never claim to be human.
+
+    OFF-TOPIC QUESTIONS
+    If asked about anything unrelated to the flagged transaction, say you can
+    only discuss the transaction on their card, then repeat the question.
+
+    SILENCE AND DEAD AIR
+    If the customer does not respond, ask once whether they can hear you. If
+    there is still no answer, say: "I cannot hear you. If this transaction was
+    not authorised, please contact your bank immediately using the number on the
+    back of your card." Then stop; the call will end.
+
+    ANSWERING MACHINES
+    If you hear a voicemail greeting, a beep, or an automated "leave a message"
+    prompt, call voicemail_detection immediately. Never read the transaction
+    amount or merchant to a machine - a mailbox is not the customer.
+
     LANGUAGE
     Speak in the language the customer uses. If they switch language, switch
     with them. The disclosure line must be delivered in the customer's
@@ -153,7 +180,14 @@ asr:
 # Turn-taking and interruption. speculative_turn starts the LLM response
 # during silence before full turn confidence — cuts perceived latency.
 turn:
-  turn_timeout: 8
+  # Dead air. After turn_timeout seconds without a reply the agent re-engages
+  # ("can you hear me?"); silence_end_call_timeout is the hard stop measured
+  # from the customer's last speech, so a phone left in a pocket cannot hold a
+  # billed line open until max_duration_seconds. 25s = one re-engage (10s), the
+  # agent's closing line, and a margin - it never cuts off a customer who is
+  # simply thinking, because they have already been prompted once.
+  turn_timeout: 10
+  silence_end_call_timeout: 25
   turn_eagerness: normal
   speculative_turn: true
   turn_model: turn_v3
@@ -195,6 +229,18 @@ tools:
 tool_secret_header: x-agent-tool-secret
 tool_secret_env: AGENT_TOOL_SECRET
 
+# Answering-machine handling - the ElevenLabs `voicemail_detection` SYSTEM tool
+# (elevenlabs.io/docs/eleven-agents/customization/tools/system-tools/voicemail-detection).
+# When the agent hears a mailbox it reads `message` and ends the call, so a
+# conversational agent never spends minutes talking to a machine.
+#
+# `{{voicemail_message}}` is a dynamic variable set per call by
+# src/lib/elevenlabs/outbound-call.ts from a localized, deliberately generic text
+# (no amount, no merchant). It is a variable rather than inline text because one
+# static string cannot speak six languages.
+voicemail:
+  message: "{{voicemail_message}}"
+
 # Knowledge base — the fraud disposition policy the agent cites for
 # disposition, escalation and disclosure decisions.
 knowledge_base:
@@ -224,6 +270,9 @@ evaluation_criteria:
   - id: freeze_staged_not_committed
     name: Freeze staged, not committed
     conversation_goal_prompt: The agent stages the freeze with committed=false and tells the customer a specialist will confirm. It never claims the freeze is final.
+  - id: no_details_to_voicemail
+    name: No transaction details left on a voicemail
+    conversation_goal_prompt: If the call reached an answering machine or voicemail, the agent never states the transaction amount, the merchant or any account detail, and only leaves the generic message before ending the call.
   - id: language_parity
     name: Language parity
     conversation_goal_prompt: The agent speaks in the customer's language and delivers the disclosure in that language.

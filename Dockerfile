@@ -55,7 +55,13 @@ ARG BUILD_DATABASE_URL=postgresql://securevoice:securevoice@db:5432/securevoice?
 # collection time — so the build needs them too. .env is dockerignored, which
 # is why `docker compose build` previously threw "BETTER_AUTH_SECRET must be
 # set". Compose passes them in from the host .env.
-ARG BETTER_AUTH_SECRET="replace-with-openssl-rand-base64-32-please!!"
+#
+# BETTER_AUTH_SECRET deliberately has NO default. A placeholder would either
+# fail the 32-char guard (pointless) or pass it while being world-known — and
+# either way the value persists in the image layer history via the ENV below.
+# A bare `docker build` without --build-arg now fails loudly at better-auth's
+# import guard; docker-compose.yml requires the secret from .env with `:?`.
+ARG BETTER_AUTH_SECRET
 ARG BETTER_AUTH_URL="https://localhost:3000"
 ENV DATABASE_URL=${BUILD_DATABASE_URL} \
     BETTER_AUTH_SECRET=${BETTER_AUTH_SECRET} \

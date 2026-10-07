@@ -59,10 +59,11 @@ services:
     mem_limit: 1g
     environment:
       # Credentials interpolate from .env (Compose auto-loads it for
-      # interpolation). Defaults keep the zero-config demo bootable; a public
-      # deployment MUST set POSTGRES_PASSWORD in .env.
+      # interpolation). POSTGRES_PASSWORD is REQUIRED with no default: a known
+      # fallback password on a public deployment is a compromised database, and
+      # the volume bakes the role password at first boot (see .env.example).
       POSTGRES_USER: ${POSTGRES_USER:-securevoice}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-securevoice}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set a strong POSTGRES_PASSWORD in .env}
       POSTGRES_DB: ${POSTGRES_DB:-securevoice}
     volumes:
       - db-data:/var/lib/postgresql/data
@@ -79,13 +80,13 @@ services:
       target: builder
       args:
         BUILD_DATABASE_URL: ${DATABASE_URL}
-        BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
+        BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET in .env}
         BETTER_AUTH_URL: ${BETTER_AUTH_URL:-https://localhost:3000}
     logging: *default-logging
     environment:
       # Use the same DATABASE_URL as the rest of the stack — .env is the single
       # source of truth, all containers hit the same Postgres (Supabase).
-      DATABASE_URL: ${DATABASE_URL:-postgresql://${POSTGRES_USER:-securevoice}:${POSTGRES_PASSWORD:-securevoice}@db:5432/${POSTGRES_DB:-securevoice}}
+      DATABASE_URL: ${DATABASE_URL:-postgresql://${POSTGRES_USER:-securevoice}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-securevoice}}
       # The compose database is a container on a private network with no server
       # certificate; see dial-worker for why the acknowledgement lives here.
       DB_ALLOW_PLAINTEXT_PRIVATE_NETWORK: "true"
@@ -111,13 +112,13 @@ services:
       target: builder   # full source tree: the worker is a script, not a bundle
       args:
         BUILD_DATABASE_URL: ${DATABASE_URL}
-        BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
+        BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET in .env}
         BETTER_AUTH_URL: ${BETTER_AUTH_URL:-https://localhost:3000}
     restart: unless-stopped
     logging: *default-logging
     mem_limit: 512m
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgresql://${POSTGRES_USER:-securevoice}:${POSTGRES_PASSWORD:-securevoice}@db:5432/${POSTGRES_DB:-securevoice}}
+      DATABASE_URL: ${DATABASE_URL:-postgresql://${POSTGRES_USER:-securevoice}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-securevoice}}
       # Durable ElevenLabs character meter. Defaults to the compose redis
       # service; unset it and the guard falls back to per-process counting,
       # which it logs as degraded rather than hiding.
@@ -167,13 +168,13 @@ services:
       target: builder   # full source tree: the worker is a script, not a bundle
       args:
         BUILD_DATABASE_URL: ${DATABASE_URL}
-        BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
+        BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET in .env}
         BETTER_AUTH_URL: ${BETTER_AUTH_URL:-https://localhost:3000}
     restart: unless-stopped
     logging: *default-logging
     mem_limit: 256m
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgresql://${POSTGRES_USER:-securevoice}:${POSTGRES_PASSWORD:-securevoice}@db:5432/${POSTGRES_DB:-securevoice}}
+      DATABASE_URL: ${DATABASE_URL:-postgresql://${POSTGRES_USER:-securevoice}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-securevoice}}
       NODE_ENV: production
       # The compose database is a container on a private network with no server
       # certificate; see dial-worker for why the acknowledgement lives here.
@@ -222,7 +223,7 @@ services:
       context: .
       target: runner
       args:
-        BUILD_DATABASE_URL: ${DATABASE_URL:-postgresql://${POSTGRES_USER:-securevoice}:${POSTGRES_PASSWORD:-securevoice}@db:5432/${POSTGRES_DB:-securevoice}}
+        BUILD_DATABASE_URL: ${DATABASE_URL:-postgresql://${POSTGRES_USER:-securevoice}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-securevoice}}
         BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set in .env}
         BETTER_AUTH_URL: ${BETTER_AUTH_URL:-https://localhost:3000}
     # IMAGE lets a release job smoke-test the image it just published instead of a
@@ -236,7 +237,7 @@ services:
     environment:
       HOSTNAME: 0.0.0.0
       # Built from parts â€” see db-setup for why a whole-URL interpolation is unsafe.
-      DATABASE_URL: ${DATABASE_URL:-postgresql://${POSTGRES_USER:-securevoice}:${POSTGRES_PASSWORD:-securevoice}@db:5432/${POSTGRES_DB:-securevoice}}
+      DATABASE_URL: ${DATABASE_URL:-postgresql://${POSTGRES_USER:-securevoice}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-securevoice}}
       # Durable ElevenLabs character meter (10k/month account ceiling). With it
       # unset the guard degrades to a per-process count at a tightened ceiling
       # and logs `degraded: in-process budget limit active`.
@@ -318,12 +319,12 @@ services:
       target: runner
       args:
         BUILD_DATABASE_URL: ${DATABASE_URL}
-        BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
+        BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET in .env}
         BETTER_AUTH_URL: ${BETTER_AUTH_URL:-https://localhost:3000}
     logging: *default-logging
     environment:
       HOSTNAME: 0.0.0.0
-      DATABASE_URL: ${DATABASE_URL:-postgresql://${POSTGRES_USER:-securevoice}:${POSTGRES_PASSWORD:-securevoice}@db:5432/${POSTGRES_DB:-securevoice}}
+      DATABASE_URL: ${DATABASE_URL:-postgresql://${POSTGRES_USER:-securevoice}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-securevoice}}
     env_file:
       - path: .env
         required: false

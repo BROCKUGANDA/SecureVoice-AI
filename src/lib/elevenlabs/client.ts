@@ -105,6 +105,19 @@ const MODEL_FOR_LANG: Partial<Record<TtsLang, string>> = {
 };
 
 /**
+ * The one TTS model for a language. Both TTS routes resolve through this.
+ *
+ * Exported because the streaming route used to carry its own copy of this
+ * decision — `lang === "sw" ? "eleven_flash_v2_5" : …` — which meant the
+ * streaming path ignored ELEVENLABS_MODEL for every language except Swahili
+ * and selected a model that cannot speak Swahili at all (see the note above
+ * MODEL_FOR_LANG). One table, one answer, no per-route re-derivation.
+ */
+export function resolveTtsModel(lang: TtsLang): string {
+  return MODEL_FOR_LANG[lang] ?? env.elevenLabsModel;
+}
+
+/**
  * Which TTS model can voice which caller language. Exported so the docs and the
  * gate are checked against the same table the client uses, rather than a claim
  * restated in markdown.
@@ -314,7 +327,7 @@ async function callElevenLabsTts(req: TtsRequest, keyOverride?: string): Promise
   // Every billable byte goes through the shared egress guard: egress throttle,
   // monthly account budget, conversation-plane breaker, jittered retry.
   const { fetchUpstreamBinary } = await import("@/lib/elevenlabs/egress");
-  const model = MODEL_FOR_LANG[req.lang] ?? env.elevenLabsModel;
+  const model = resolveTtsModel(req.lang);
 
   // A BYOK caller spends their own quota, not the platform's 10k, so nothing is
   // reserved — but the key must be THEIRS. Passing it through `apiKey` is what

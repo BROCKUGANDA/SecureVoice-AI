@@ -6,6 +6,7 @@ import {
   ELEVEN_VOICE_ENV,
   allowedVoices,
   isProdVoiceMode,
+  resolveTtsModel,
   type TtsLang,
 } from "@/lib/elevenlabs/client";
 import { consume as consumeRateLimit, rateLimitId } from "@/lib/ratelimit";
@@ -123,8 +124,10 @@ export async function POST(req: NextRequest) {
   }
   const apiKey = keyRes.mode === "byok" ? keyRes.keyOverride : process.env.ELEVENLABS_API_KEY;
 
-  // Per-language model (Swahili → Flash v2.5), matching the buffered route.
-  const model = lang === "sw" ? "eleven_flash_v2_5" : (process.env.ELEVENLABS_MODEL ?? "eleven_v3");
+  // Resolved from the same table the buffered route uses. This used to re-derive
+  // the model locally (`sw` → flash v2.5), which ignored ELEVENLABS_MODEL for
+  // every other language and picked a model that cannot speak Swahili.
+  const model = resolveTtsModel(lang);
 
   const upstream = await fetchUpstreamBinary(
     "POST",

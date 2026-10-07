@@ -392,5 +392,9 @@ overrides:
     agent:
       language: true
       first_message: true
-      prompt: true
+      # `prompt` is an OBJECT override (PromptAgentAPIModelOverrideConfig), not a
+      # leaf boolean — the per-call category prompt arrives as
+      # agent.prompt.prompt. The whitelist mirrors that shape one level down.
+      prompt:
+        prompt: true
       max_conversation_duration_message: true

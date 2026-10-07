@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { useApp } from "@/lib/store";
 import { Chip } from "@/components/fx/core";
+import { CrmSection } from "@/views/settings/CrmSection";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
@@ -418,6 +419,8 @@ export function Settings() {
                     </ul>
                   )}
                 </div>
+
+                <CrmSection busy={busy} setBusy={setBusy} setMsg={setMsg} />
               </div>
             )}
 

@@ -41,6 +41,8 @@ import { SMS_REPLY, type OutreachLang } from "@/lib/outreach-copy";
 import { screenForMemory } from "@/lib/memory-guard";
 import { checkBadActor, recordStrike } from "@/lib/abuse/bad-actor";
 import type { ResolutionMethod } from "@/lib/contracts/schema";
+import { getInstitutionType } from "@/lib/institution";
+import { createHandoffTicket } from "@/lib/crm";
 
 /** How long after the SMS a reply is still accepted, and when the sweep gives up. */
 export const REPLY_WINDOW_MS = 24 * 60 * 60_000;
@@ -175,7 +177,15 @@ export async function publishResolution(args: {
 }): Promise<boolean> {
   const row = await db.case.findFirst({
     where: { caseRef: args.caseRef },
-    select: { orgId: true, state: true, freezeStaged: true, freezeReference: true },
+    select: {
+      orgId: true,
+      state: true,
+      freezeStaged: true,
+      freezeReference: true,
+      language: true,
+      signalKind: true,
+      transactionRef: true,
+    },
   });
   if (!row || row.state !== "UNREACHABLE") return false;
 
@@ -237,6 +247,29 @@ export async function publishResolution(args: {
       body: "Customer reported the activity as fraud over SMS. Human review required; nothing has been frozen automatically.",
       caseRef: args.caseRef,
     }).catch(() => {});
+
+    // Open a ticket in the institution's own CRM (Zendesk / Salesforce / webhook).
+    // References only - no phone, merchant, amount or transcript, because the
+    // operator pulls the case through the CRM's own login. Never throws or waits:
+    // returning from publishResolution, not opening the ticket, is the webhook's
+    // critical path. The 300-token budget is a few ms.
+    if (row.orgId) {
+      const institutionType = await getInstitutionType(row.orgId);
+      void createHandoffTicket({
+        caseRef: args.caseRef,
+        orgId: row.orgId,
+        institutionType,
+        signalKind: row.signalKind,
+        reason: "sms_reply_no",
+        priority: "urgent",
+        language: row.language,
+        transactionRef: row.transactionRef,
+        resolutionMethod: args.method,
+        customerResponse: args.customerResponse,
+        auditRef: args.caseRef,
+        consoleUrl: null,
+      }).catch(() => {});
+    }
   }
   return true;
 }

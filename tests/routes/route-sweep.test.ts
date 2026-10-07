@@ -118,6 +118,7 @@ describe("authorization coverage", () => {
       "/api/auth/sessions/revoke-all",
       "/api/auth/step-up",
       "/api/console/audit",
+      "/api/console/crm",
       "/api/console/events",
       "/api/console/features",
       "/api/console/fire",
@@ -137,6 +138,7 @@ describe("authorization coverage", () => {
       "/api/tts",
       "/api/tts/stream",
       "/api/v1/interventions",
+      "/api/v1/interventions/[id]",
       "/api/onboarding",
       "/v1/conformance/run",
     ]);

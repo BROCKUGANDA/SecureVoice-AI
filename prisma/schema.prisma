@@ -654,3 +654,23 @@ model RateLimit {
   @@unique([key])
   @@map("rateLimit")
 }
+
+/// An institution's connection to ITS OWN CRM (Zendesk / Salesforce / signed
+/// webhook). When a case needs a human, SecureVoice opens a ticket there. The
+/// credentials are encrypted at rest (AES-256-GCM, the same envelope as the BYOK
+/// key) and never returned by any API: only a masked summary is.
+model CrmConnection {
+  id         String    @id @default(cuid())
+  orgId      String
+  provider   String // zendesk | salesforce | webhook
+  configEnc  String // AES-GCM(JSON config) - never plaintext
+  enabled    Boolean   @default(true)
+  lastStatus String? // ok | error
+  lastError  String?
+  lastSyncAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@unique([orgId, provider])
+  @@index([orgId])
+}

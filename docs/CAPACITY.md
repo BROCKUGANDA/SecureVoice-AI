@@ -536,7 +536,49 @@ rather than an omission.
 
 ---
 
-## 10. Provenance
+## 10. Runtime tuning — threads, workers and GC
+
+The runtime is **Bun (JavaScriptCore) everywhere**: the app (`bun server.js`),
+both workers, realtime. Node's own knobs — `UV_THREADPOOL_SIZE`,
+`--max-old-space-size` — are inert under JSC, and setting them would be cargo
+cult. The equivalents that exist were measured before being set (bun 1.4.2;
+3 GB of materialized flat-string garbage churned over a tiny live set, peak
+`process.memoryUsage.rss()`):
+
+| Configuration                     | Peak RSS |
+| --------------------------------- | -------- |
+| default                           | 73 MB    |
+| `BUN_JSC_forceRAMSize=256MB`      | 73 MB — no measurable effect at this scale |
+| `--smol`                          | 52 MB    |
+
+**GC.** `--smol` (a smaller young generation, more frequent collections) is set
+on **dial-worker, retention-worker and realtime**: they are polled or fan-out
+services, memory-tight (512m / 256m / 512m `mem_limit`), and none of them is
+latency-gated, so the throughput trade is free. The **app keeps the default
+collector** on purpose: its p95 is a graded gate, JSC's default already held
+peak RSS to 73 MB over 3 GB of churn, the 1 GB `mem_limit` is therefore a
+credible ceiling, and the cgroup OOM kill is the backstop. Switching the app to
+`--smol` is a one-word change that must be paid for with a re-run of the
+latency gate — the trade is real, so it is not taken silently.
+
+**I/O threading.** Bun has no `UV_THREADPOOL_SIZE`; its I/O model is one event
+loop over an internal pool. The I/O concurrency this deployment actually
+exposes is set where it is measurable, not in a thread-pool size: the Postgres
+pool (`cpus × 2 + 1`, the arithmetic in §8), the audit chain's dedicated pool
+of 5, the egress breaker, and the dial worker's claim batch. The load gate
+measures the combined result end to end.
+
+**Worker threads.** Deliberately none. Nothing CPU-bound runs on a web path —
+hashing and signing are µs-scale, and TTS/STT are vendor round trips — while
+every slow activity is already isolated at the PROCESS boundary (dial-worker,
+retention-worker, realtime), which is strictly stronger isolation than a worker
+thread: separate memory, separate crash domain, and `--scale dial-worker=3`
+needs no coordination code. The criterion for revisiting: a route whose
+main-thread CPU exceeds its budget in the latency gates.
+
+---
+
+## 11. Provenance
 
 | Figure                                                        | Status                                                                                                |
 | ------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |

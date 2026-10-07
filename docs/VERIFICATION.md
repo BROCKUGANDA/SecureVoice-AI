@@ -1682,3 +1682,40 @@ the compose redis is plaintext by explicit acknowledgment on a private network
 vendor claim, not our proof. And the edge certificate is Let's Encrypt for
 `57.130.80.158.sslip.io` — a convenience domain that validates today; a
 production name is the same open item as the submission's placeholder URL.
+
+## 2026-10-07 — Runtime tuning: measured before set
+
+**Date:** 2026-10-07
+**Commands:** Bun RSS probes (transient scripts, run in `bun 1.4.2`): 3 GB of
+materialized flat-string garbage churned over a tiny live set, peak
+`process.memoryUsage.rss()` per configuration.
+
+**What was measured.** default peak **73 MB** · `BUN_JSC_forceRAMSize=256MB`
+peak **73 MB** (no measurable effect) · `--smol` peak **52 MB**. Retained-heap
+and released-floor probes (200 MB live; floor after releasing 300 MB) showed no
+difference across configurations — the policy knobs bind under churn, not at
+rest.
+
+**What was set from the measurement.** `--smol` on dial-worker,
+retention-worker and realtime (compose CMDs + realtime Dockerfile) — idle or
+fan-out services in tight `mem_limit` boxes, none latency-gated. The app
+deliberately keeps the default collector: its p95 is a graded gate, and JSC's
+default already capped churn peak at 73 MB, so the 1 GB limit is credible
+without paying the throughput trade. Documented with this reasoning in
+docs/CAPACITY.md §10, alongside the I/O-concurrency story (no
+`UV_THREADPOOL_SIZE` under Bun; the real knobs are the pg pool, the audit pool
+of 5 and the breaker) and the worker-threads decision (none; process-level
+isolation already exists and is stronger).
+
+**A false zero, caught.** The first churn probe used untouched
+`"…".repeat(n)` strings: JSC ropes those, so 300 MB of "allocation" never
+materialized and every configuration reported an identical 41 MB — a
+measurement of my own method, not of the collector. Caught by refusing to
+believe that 270 MB of strings fit in 41 MB of RSS; the probe was rebuilt with
+a per-string materializing access (`charCodeAt` at the far index) before any
+conclusion was drawn.
+
+**Not verified, and stated as such.** Peak RSS was probed with synthetic
+garbage, not the production workload; the numbers bound GC *policy*, not the
+app's real live set (pools, caches, connections) — that is what the load gate
+and the VPS's own memory metrics will show in production.

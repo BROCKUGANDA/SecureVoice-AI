@@ -151,8 +151,10 @@ services:
       redis:
         condition: service_healthy
     # The preload neutralises the Next-only `server-only` marker for this plain Bun
-    # process; see scripts/worker-preload.ts for why that is safe.
-    command: ["bun", "--preload", "./scripts/worker-preload.ts", "src/worker/dial.ts"]
+    # process; see scripts/worker-preload.ts for why that is safe. --smol trades a
+    # little throughput for a measurably smaller heap (docs/CAPACITY.md §10) — the
+    # right trade for a polled worker inside a 512m box.
+    command: ["bun", "--smol", "--preload", "./scripts/worker-preload.ts", "src/worker/dial.ts"]
 
   # Retention sweeper. The privacy tiers (audio purge, payload-key shred,
   # case-record delete) erase on the clock whether or not anyone remembers —
@@ -181,7 +183,8 @@ services:
     depends_on:
       db-setup:
         condition: service_completed_successfully
-    command: ["bun", "--preload", "./scripts/worker-preload.ts", "src/worker/retention.ts"]
+    # --smol: measured heap trade, see docs/CAPACITY.md §10 (256m box, idle sweeper).
+    command: ["bun", "--smol", "--preload", "./scripts/worker-preload.ts", "src/worker/retention.ts"]
 
   # Command Center push path. Separate image, separate trust boundary, and
   # independently restartable: a hung socket layer must never take the API with it.

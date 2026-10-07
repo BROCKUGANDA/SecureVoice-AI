@@ -83,7 +83,7 @@ HMAC producers may instead declare `orgId` in the payload.
 }
 ```
 
-`signal.channel` is the *transaction* type, not the delivery channel: it must be one of
+`signal.channel` is the _transaction_ type, not the delivery channel: it must be one of
 `card · login · payment · transfer · remittance`. Delivery channel comes from the
 enrollment record.
 

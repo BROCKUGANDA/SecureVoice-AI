@@ -17,8 +17,8 @@ import type { NextConfig } from "next";
 // 'unsafe-eval' is a dev-server requirement (React refresh); it never ships
 // in a production CSP.
 const scriptSrc = [
-  "script-src 'self' 'unsafe-inline'",
-  ...(process.env.NODE_ENV === "development" ? ["'unsafe-eval'"] : []),
+  "script-src 'self'",
+  ...(process.env.NODE_ENV === "development" ? ["'unsafe-inline'", "'unsafe-eval'"] : []),
 ].join(" ");
 
 const CSP = [
@@ -47,7 +47,7 @@ const securityHeaders = [
   { key: "Cross-Origin-Resource-Policy", value: "same-origin" },
   {
     key: "Permissions-Policy",
-    value: "camera=(), microphone=(self), geolocation=(), payment=()",
+    value: "camera=(), microphone=(), geolocation=(), payment=()",
   },
   { key: "X-DNS-Prefetch-Control", value: "on" },
 ];

@@ -117,7 +117,7 @@ export async function POST(req: NextRequest) {
     meta: {
       agentId: requested,
       connectionType: parsed.data.connection_type,
-      expiresInSecs: 900,
+      expiresInSecs: env.signedUrlTtlSecs,
     },
   });
 
@@ -126,6 +126,6 @@ export async function POST(req: NextRequest) {
     agent_id: requested,
     connection_type: parsed.data.connection_type,
     credential,
-    expires_in_secs: 900,
+    expires_in_secs: env.signedUrlTtlSecs,
   });
 }

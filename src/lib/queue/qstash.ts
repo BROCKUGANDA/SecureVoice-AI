@@ -17,6 +17,7 @@ import "server-only";
 
 import { Client } from "@upstash/qstash";
 import type { JobEnvelope } from "./envelope";
+import { env } from "@/lib/config";
 
 export const QSTASH_TOKEN = process.env.QSTASH_TOKEN ?? "";
 export const DISPATCH_PATH = "/api/queue/dispatch";
@@ -51,7 +52,7 @@ export function qstashClient(): Client {
 export function appBaseUrl(): string {
   const explicit = process.env.QUEUE_PUBLIC_URL ?? process.env.BETTER_AUTH_URL;
   if (explicit && explicit.trim()) return explicit.replace(/\/$/, "");
-  return "http://localhost:3000";
+  return env.appBaseUrl;
 }
 
 export const FAILURE_CALLBACK_PATH = "/api/queue/dead-letter";
@@ -79,7 +80,7 @@ export async function publishEnvelope(
   const result = await client.publishJSON({
     url,
     body: envelope,
-    retries: 4,
+    retries: Number(process.env.QSTASH_RETRIES) || 4,
     deduplicationId: envelope.idempotencyKey,
     failureCallback: `${appBaseUrl()}${FAILURE_CALLBACK_PATH}`,
   });

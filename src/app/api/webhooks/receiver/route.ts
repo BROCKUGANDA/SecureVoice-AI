@@ -2,6 +2,7 @@ import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { verifySignature, WEBHOOK_SIGNATURE_HEADER } from "@/lib/outbox";
+import { payload as redactPayload } from "@/lib/redact";
 
 export const dynamic = "force-dynamic";
 
@@ -38,6 +39,21 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: verdict.reason }, { status: 401 });
   }
 
+  // Redact the body before storing. The bank's webhook payload may contain PII
+  // (customer names, transaction details, etc.). Storing the raw body would
+  // violate PDPL/GDPR. The redact module masks known PII patterns.
+  let redactedBody: string;
+  try {
+    const parsedBody = JSON.parse(body);
+    redactedBody = JSON.stringify(redactPayload(parsedBody));
+  } catch {
+    // If the body isn't valid JSON, store a redacted string version
+    redactedBody = body.replace(
+      /[<>&'"]/g,
+      (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", "'": "&apos;", '"': "&quot;" })[c] ?? c,
+    );
+  }
+
   await db.inboundBankEvent.upsert({
     where: { eventId: String(parsed.event_id ?? "") },
     create: {
@@ -46,7 +62,7 @@ export async function POST(req: NextRequest) {
       caseRef: parsed.case_ref ?? null,
       signatureValid: true,
       signatureHeader: header,
-      body,
+      body: redactedBody,
     },
     // A redelivery updates nothing that matters: the payload is byte-identical
     // for the same event_id because the signature covers it.

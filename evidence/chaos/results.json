@@ -449,8 +449,8 @@
         "file": "src/lib/outbox.ts",
         "transactions": 2,
         "regions": [
-          "281-299",
-          "333-339"
+          "282-300",
+          "334-340"
         ],
         "findings": []
       },
@@ -2240,7 +2240,7 @@
       "area": "gate",
       "name": "evidence-digest-is-sha256",
       "ok": true,
-      "detail": "844453e5f48b4ff5"
+      "detail": "8b9608d690d16212"
     },
     {
       "area": "gate",
@@ -3366,5 +3366,5 @@
     }
   ],
   "digestAlgorithm": "sha256",
-  "digest": "e879253a6bd5a1c61e88f0707c34e32acd202e78840552bc0b3527d68f9cab5f"
+  "digest": "67b597308061e3b70d6e84588eaf4d8d8bc0f124664644c68896be2e658e9e11"
 }

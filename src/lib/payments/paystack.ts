@@ -60,11 +60,13 @@ export const PAYSTACK_SIGNATURE_HEADER = "x-paystack-signature";
 export const PAYSTACK_ALLOW_LIVE_ENV = "PAYSTACK_ALLOW_LIVE_KEYS";
 export const SECRET_KEY_ENV = "PAYSTACK_SECRET_KEY";
 
-const DEFAULT_BASE_URL = "https://api.paystack.co";
+function defaultBaseUrl(): string {
+  return process.env.PAYSTACK_BASE_URL ?? "https://api.paystack.co";
+}
 /** Paystack rate limits aggressively; three attempts is the documented ceiling. */
-const MAX_ATTEMPTS = 3;
-const BASE_BACKOFF_MS = 250;
-const REQUEST_TIMEOUT_MS = 10_000;
+const MAX_ATTEMPTS = Number(process.env.PAYSTACK_MAX_ATTEMPTS) || 3;
+const BASE_BACKOFF_MS = Number(process.env.PAYSTACK_BACKOFF_BASE_MS) || 250;
+const REQUEST_TIMEOUT_MS = Number(process.env.PAYSTACK_REQUEST_TIMEOUT_MS) || 10_000;
 
 export type HttpClient = (url: string, init: RequestInit) => Promise<Response>;
 export type Sleep = (ms: number) => Promise<void>;
@@ -299,7 +301,7 @@ function normalizeConfig(cfg: PaystackConfig): NormalizedConfig {
   }
   return {
     secretKey: cfg.secretKey,
-    baseUrl: (cfg.baseUrl ?? DEFAULT_BASE_URL).replace(/\/+$/, ""),
+    baseUrl: (cfg.baseUrl ?? defaultBaseUrl()).replace(/\/+$/, ""),
     http: cfg.http,
     sleep: cfg.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms))),
     rand: cfg.rand ?? Math.random,

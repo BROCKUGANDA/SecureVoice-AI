@@ -86,8 +86,11 @@ export async function POST(req: NextRequest) {
   }
 
   // Per-sender budget, so one handset cannot hammer the case lookup.
+  // Validate E.164 before using as a rate-limit key — an unbounded string
+  // would let an attacker create unlimited Redis keys and exhaust memory.
   const from = String(params.From ?? "");
-  const rl = consumeRateLimit("sms-inbound", from || ip, 1, 30);
+  const rateKey = /^\+[1-9]\d{7,14}$/.test(from) ? from : ip;
+  const rl = consumeRateLimit("sms-inbound", rateKey, 1, 30);
   if (!rl.ok) return twiml(null);
 
   try {

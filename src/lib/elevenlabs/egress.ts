@@ -335,7 +335,7 @@ function sleep(ms: number): Promise<void> {
  */
 async function guardedRequest(o: RequestOptions): Promise<GuardOutcome> {
   const callerId = o.callerId ?? "platform";
-  const timeoutMs = o.timeoutMs ?? 25_000;
+  const timeoutMs = o.timeoutMs ?? env.ttsTimeoutMs;
   const maxRetries = o.maxRetries ?? DEFAULT_MAX_RETRIES;
   const apiKey = o.apiKey ?? env.elevenLabsApiKey;
 

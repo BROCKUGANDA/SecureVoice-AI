@@ -30,6 +30,7 @@ import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { openRealtime, type RealtimeHandle, type RealtimeStatus } from "@/lib/realtime-client";
 import { interventionsCsv } from "@/lib/csv-export";
+import { LiveOpsPanel, type TranscriptLine, type LiveCall } from "@/components/ops/LiveOpsPanel";
 
 /**
  * Operator Command Center — run the platform for real, on your own information:
@@ -296,9 +297,60 @@ export function Console() {
   // Realtime push path state. "unavailable" is not an error — it means the console
   // is reading the SSE feed instead, which is exactly what it did before.
   const [rtStatus, setRtStatus] = useState<RealtimeStatus>("connecting");
+  // Live Operations panel state — transcript lines for the active call.
+  const [transcript, setTranscript] = useState<TranscriptLine[]>([]);
+  const [activeCallRef, setActiveCallRef] = useState<string | null>(null);
+  const [liveCall, setLiveCall] = useState<LiveCall | null>(null);
 
   const email = user?.email ?? "";
   const customerRef = email ? selfRef(email) : "SELF-";
+
+  // Live Operations: poll the audit chain for the active call's transcript.
+  // The post_call_ingest row carries the redacted transcript in redactedText.
+  // We poll every 3s and parse it into lines for the LiveOpsPanel.
+  const pollTranscript = async (caseRef: string) => {
+    try {
+      const r = await fetch(`/api/console/audit?callRef=${encodeURIComponent(caseRef)}`);
+      if (!r.ok) return;
+      const d = (await r.json()) as {
+        rows: { action: string; intent: string; redactedText: string | null }[];
+      };
+      const ingestRow = d.rows.find((row) => row.intent === "post_call_ingest");
+      if (!ingestRow?.redactedText) return;
+      const lines: TranscriptLine[] = ingestRow.redactedText
+        .split("\n")
+        .filter((l) => l.trim())
+        .map((l, i) => {
+          const roleMatch = l.match(/^\[(agent|user|system)\]\s*(.*)$/);
+          if (roleMatch) {
+            return {
+              id: `${caseRef}-t-${i}`,
+              speaker: roleMatch[1] as "agent" | "customer" | "system",
+              text: roleMatch[2] ?? "",
+              ts: new Date().toISOString(),
+            };
+          }
+          return {
+            id: `${caseRef}-t-${i}`,
+            speaker: "system" as const,
+            text: l,
+            ts: new Date().toISOString(),
+          };
+        });
+      if (lines.length > 0) {
+        setTranscript(lines);
+        setLiveCall({
+          caseRef,
+          riskScore: null,
+          lang: "en",
+          state: "ANSWERED",
+          startedAt: new Date().toISOString(),
+          durationSecs: 0,
+          transcript: lines,
+        });
+      }
+    } catch {}
+  };
 
   useEffect(() => {
     // async fetches resolve outside the effect body — no synchronous setState
@@ -398,6 +450,11 @@ export function Console() {
       // reconnecting after the operator navigates away.
       es?.close();
       rt?.close();
+      // Clean up transcript polling interval
+      if ((window as any).__transcriptPoll) {
+        clearInterval((window as any).__transcriptPoll);
+        (window as any).__transcriptPoll = undefined;
+      }
     };
   }, [isSignedIn, role]);
 
@@ -493,6 +550,19 @@ export function Console() {
         .catch(() => ({ error: "Unreadable response from server" }))) as FireResponse;
       if (typeof data.creditsRemaining === "number") setCredits(data.creditsRemaining);
       setRes(data);
+      // Start live transcript polling for the fired case
+      if (data.caseRef) {
+        setActiveCallRef(data.caseRef);
+        setTranscript([]);
+        setLiveCall(null);
+        // Poll immediately, then every 3s
+        void pollTranscript(data.caseRef);
+        const iv = setInterval(() => {
+          void pollTranscript(data.caseRef!);
+        }, 3000);
+        // Store interval for cleanup
+        (window as any).__transcriptPoll = iv;
+      }
       // refresh the recent-cases strip (async, outside any effect body)
       (async () => {
         try {
@@ -974,6 +1044,16 @@ export function Console() {
             )}
           </div>
         </div>
+      </div>
+
+      {/* ————— Live Operations panel ————— */}
+      <div className="mt-6">
+        <LiveOpsPanel
+          activeCallRef={activeCallRef}
+          transcript={transcript}
+          call={liveCall}
+          rtStatus={rtStatus}
+        />
       </div>
     </div>
   );

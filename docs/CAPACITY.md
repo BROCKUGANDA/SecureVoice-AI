@@ -545,11 +545,11 @@ cult. The equivalents that exist were measured before being set (bun 1.4.2;
 3 GB of materialized flat-string garbage churned over a tiny live set, peak
 `process.memoryUsage.rss()`):
 
-| Configuration                     | Peak RSS |
-| --------------------------------- | -------- |
-| default                           | 73 MB    |
-| `BUN_JSC_forceRAMSize=256MB`      | 73 MB — no measurable effect at this scale |
-| `--smol`                          | 52 MB    |
+| Configuration                | Peak RSS                                   |
+| ---------------------------- | ------------------------------------------ |
+| default                      | 73 MB                                      |
+| `BUN_JSC_forceRAMSize=256MB` | 73 MB — no measurable effect at this scale |
+| `--smol`                     | 52 MB                                      |
 
 **GC.** `--smol` (a smaller young generation, more frequent collections) is set
 on **dial-worker, retention-worker and realtime**: they are polled or fan-out

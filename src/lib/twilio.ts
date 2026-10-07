@@ -20,7 +20,7 @@ import "server-only";
  */
 
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { twilioMode, isTwilioConfigured, env as cfg } from "@/lib/config";
+import { twilioMode, isTwilioConfigured } from "@/lib/config";
 import { blindPingSms } from "@/lib/outreach-copy";
 import type { InstitutionType } from "@/lib/institution-types";
 
@@ -295,11 +295,12 @@ export type CallResult =
 /** Place the fraud-intervention voice call to an enrolled customer.
  *  The call is bidirectional: opening message → Gather → conversation loop.
  *
- *  Pre-production guard: only a `production` deployment may dial a real
- *  number. Under APP_ENV=staging this returns 403 and Twilio is never
- *  contacted, so a pre-prod demo cannot reach a customer. It fails LOUDLY
- *  rather than silently simulating, because a 403 in staging is a signal
- *  that the environment is wired correctly. */
+ *  Live-fire gate is at `twilioPost` (liveSendAttested), the one choke point
+ *  both calls and SMS pass through, not here: a `TWILIO_LIVE_SEND=false` or
+ *  unset account must surface the actionable refusal that names the switch,
+ *  and an attested-but-unreachable number must still 422 before any request
+ *  is built. Pre-production safety (staging/development never dials a real
+ *  customer) is carried by that same gate, which is default-deny. */
 export async function placeInterventionCall(args: {
   to: string;
   lang: DeliveryLang;
@@ -308,9 +309,6 @@ export async function placeInterventionCall(args: {
   origin?: string; // deployment URL for ElevenLabs <Play>
   callRef?: string; // audit chain reference
 }): Promise<CallResult> {
-  if (!cfg.canContactRealNumbers) {
-    return { ok: false, status: 403, error: `outbound_calls_disabled_${cfg.appEnv}` };
-  }
   const c = creds();
   if (!isE164(args.to)) return { ok: false, status: 422, error: "Destination phone is not E.164" };
   const res = await twilioPost(c.accountSid, c.username, c.password, "Calls.json", {
@@ -347,7 +345,10 @@ export function unreachableSmsBody(
  * every text leaves the platform, so no caller can reintroduce the leak.
  */
 /** Send the fraud-alert SMS (fallback / opt-in channel).
- *  Same pre-production guard as calls: staging never messages a real number. */
+ *  Live-fire gate is at `twilioPost` (liveSendAttested), the one choke point
+ *  both calls and SMS pass through, so a pre-production deployment that has not
+ *  stated `TWILIO_LIVE_SEND=true` is refused there with an actionable refusal
+ *  and Twilio is never contacted. */
 export async function sendInterventionSms(args: {
   to: string;
   lang: DeliveryLang;
@@ -363,9 +364,6 @@ export async function sendInterventionSms(args: {
   /** Blind-ping only: wording for a bank ("card") or an insurer ("policy"). */
   institution?: InstitutionType;
 }): Promise<CallResult> {
-  if (!cfg.canContactRealNumbers) {
-    return { ok: false, status: 403, error: `outbound_sms_disabled_${cfg.appEnv}` };
-  }
   const c = creds();
   if (!isE164(args.to)) return { ok: false, status: 422, error: "Destination phone is not E.164" };
   const body =

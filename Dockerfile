@@ -39,6 +39,11 @@ RUN bun install --frozen-lockfile \
 FROM oven/bun:1-slim AS builder
 WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
+# Build-time page-data collection only instantiates the Prisma client; it does
+# not dial it. Allowing this on the throwaway builder layer stops src/lib/db.ts's
+# production guard from rejecting the private-network placeholder URL — the
+# runtime images keep their own per-service acknowledgement in docker-compose.yml.
+ENV DB_ALLOW_PLAINTEXT_PRIVATE_NETWORK=true
 # A `db:` host is never reachable from inside a `docker build` run, and the
 # build's page-data collection touches Prisma, so the URL that matters at
 # build time is a LIVE one. Pass it in: `--build-arg BUILD_DATABASE_URL=...`

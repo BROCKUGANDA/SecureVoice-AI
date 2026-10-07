@@ -72,10 +72,12 @@ jobs:
       # a typo in release.yml is ever executed. actionlint checks both files —
       # an undefined action input otherwise fails only at release time, which is
       # the worst possible moment to find out.
+      # No `args`: a docker:// action gets its arguments straight from `docker
+      # run`, so a shell glob like `.github/workflows/*.yml` arrives verbatim,
+      # actionlint tries to open a file with literal asterisks, and the step
+      # exits 3. With no args it discovers the workflows itself.
       - name: Lint workflow definitions
         uses: docker://rhysd/actionlint:1.7.12
-        with:
-          args: .github/workflows/*.yml
 
       - name: Realtime service — install
         working-directory: mini-services/realtime
@@ -265,7 +267,7 @@ jobs:
       # Caddy is the only published port, so this is the real ingress path.
       - name: HTTPS through Caddy
         run: |
-          for i in $(seq 1 30); do
+          for _ in $(seq 1 30); do
             code=$(curl -sk -o /dev/null -w '%{http_code}' https://localhost/api/health || true)
             [ "$code" = "200" ] && break
             sleep 5

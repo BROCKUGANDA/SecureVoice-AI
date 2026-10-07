@@ -1,0 +1,147 @@
+# ---------------------------------------------------------------------------
+# SecureVoice AI — production deploy (OVH: 57.130.80.158)
+#
+# Gated on the CI workflow having passed for this exact commit. That gate is
+# expressed with `workflow_run`, not `needs`: `needs` resolves jobs inside ONE
+# workflow and would fail validation against a workflow name. `workflow_run` is
+# the only way to say "run after another workflow finished, and only if it
+# passed".
+#
+# How the code gets there: the deploy host has the repo cloned and a read-only
+# GitHub deploy key, and this workflow's SSH key is authorised on the host. The
+# workflow hands over the commit CI verified; the host pulls it itself. GitHub
+# never holds credentials for the box — the box holds read-only credentials and
+# pulls, so a compromised Actions runner cannot push to the repo.
+# ---------------------------------------------------------------------------
+name: Deploy
+
+on:
+  # Fires when CI completes, for any conclusion — the gate below filters.
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+  # Ship current main without a new commit (recovery from a failed deploy).
+  workflow_dispatch:
+    inputs:
+      target_sha:
+        description: "Commit to deploy (defaults to the current main tip)"
+        required: false
+        type: string
+
+# Never two deploys at once — a half-finished swap racing another half-finished
+# swap is how a deploy box ends up serving a commit nobody chose.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    name: Gate on CI
+    # Cheap, no runner needed: the point is to express "do not deploy unless CI
+    # passed for this commit" as a job that can block the next one.
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.pick.outputs.sha }}
+    steps:
+      - name: Check CI result
+        id: pick
+        env:
+          EVENT: ${{ github.event_name }}
+          CI_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          CI_SHA: ${{ github.event.workflow_run.head_sha }}
+          CI_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          DISPATCH_SHA: ${{ inputs.target_sha }}
+        run: |
+          set -euo pipefail
+
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            SHA="${DISPATCH_SHA:-origin/main}"
+            if [ "$SHA" = "origin/main" ]; then
+              SHA=$(git ls-remote https://github.com/BROCKUGANDA/SecureVoice-AI.git refs/heads/main | cut -f1)
+            fi
+            echo "Manual deploy of $SHA — bypassing the CI gate deliberately."
+            echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # A PR run reports the PR's head SHA, which is not what main serves.
+          # Only the main-branch run is evidence about this commit.
+          if [ "$CI_BRANCH" != "main" ]; then
+            echo "CI ran for '$CI_BRANCH', not main — not deploying."
+            echo "sha=skip" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Cancelled CI is not a pass. Neither is skipped, nor a red run on a
+          # gate nobody read.
+          if [ "$CI_CONCLUSION" != "success" ]; then
+            echo "CI concluded '$CI_CONCLUSION' — refusing to deploy."
+            echo "sha=skip" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "CI passed for $CI_SHA."
+          echo "sha=$CI_SHA" >> "$GITHUB_OUTPUT"
+
+  deploy:
+    name: Deploy to production
+    needs: gate
+    if: needs.gate.outputs.sha != 'skip'
+    runs-on: ubuntu-latest
+    # A full image build is the bulk of this; 45 min leaves room for a cold
+    # base-image pull plus a rebuild if a rollback is needed.
+    timeout-minutes: 45
+    environment: production
+
+    steps:
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          # The script pulls this exact commit, not whatever main is at fetch
+          # time. That is the difference between "the build that passed" and
+          # "something that was on main a minute ago".
+          script_stop: true
+          envs: TARGET_SHA
+          script: bash -lc '/home/ubuntu/deploy.sh'
+        env:
+          TARGET_SHA: ${{ needs.gate.outputs.sha }}
+
+      # The deploy script already health-checks through Caddy from inside the
+      # host. This repeats it from OUTSIDE, which is the part the script cannot
+      # see: whether the world can reach 443. A host-local 200 behind a
+      # firewalled port is exactly the failure that must not pass silently.
+      - name: Verify from outside the host
+        run: |
+          set -euo pipefail
+          CODE=000
+          for _ in $(seq 1 10); do
+            CODE=$(curl -sk -o /dev/null -w '%{http_code}' \
+              "https://${{ secrets.DEPLOY_SITE }}/api/health" || true)
+            [ "$CODE" = "200" ] && break
+            sleep 10
+          done
+          echo "external api/health: $CODE"
+          test "$CODE" = "200"
+
+      - name: Deployed state
+        if: always()
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script_stop: false
+          script: |
+            cd /home/ubuntu/securevoice-ai
+            echo "--- commit ---"
+            git rev-parse HEAD
+            echo "--- containers ---"
+            sudo docker compose ps
+            echo "--- app logs (last 40) ---"
+            sudo docker compose logs app --no-log-prefix | tail -n 40

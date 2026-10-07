@@ -250,6 +250,7 @@ function buildPatchBody(
       conversation: {
         max_duration_seconds: conversation.max_duration_seconds,
         client_events: conversation.client_events,
+        dtmf_input_settings: conversation.dtmf_input_settings,
       },
       language_presets: langPresets,
     },
@@ -396,6 +397,7 @@ function desiredState(
       },
       conversation: {
         max_duration_seconds: conversation.max_duration_seconds,
+        dtmf_input_settings: conversation.dtmf_input_settings,
       },
       language_presets: langPresets,
     },

@@ -125,6 +125,14 @@ agent:
     prompt, call voicemail_detection immediately. Never read the transaction
     amount or merchant to a machine - a mailbox is not the customer.
 
+    KEYPAD INPUT
+    Some customers can answer but not talk. If they press keys instead of
+    speaking: 1 means YES (that transaction is theirs), 2 means NO (it was
+    fraud), 0 means they want a human. Treat key 1 exactly like a spoken "yes
+    it was me" and key 2 exactly like a spoken "no it was not me" - never as a
+    PIN, code, or anything sensitive. If the keys are ambiguous, ask the
+    question again in speech.
+
     LANGUAGE
     Speak in the language the customer uses. If they switch language, switch
     with them. The disclosure line must be delivered in the customer's
@@ -231,6 +239,14 @@ conversation:
     - user_transcript
     - agent_response_correction
     - agent_tool_response
+  # Keypad fallback: some customers answer a fraud call but cannot speak freely
+  # (transit, shared office, driving). `dtmf_input_settings` lets them press
+  # rather than talk; the prompt below maps 1/2 to the same answers.
+  # `#` ends input immediately, so the agent is not left waiting for more digits.
+  dtmf_input_settings:
+    dtmf_input_timeout: 2
+    hash_terminator: true
+    redact_input: false
 
 # Server tools — the guardrail boundary (WP-3). IDs resolve from the
 # environment; the secret header is attached from AGENT_TOOL_SECRET so the

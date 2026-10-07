@@ -1,15 +1,15 @@
 /**
  * E2E — the wallet gate on the production dial path.
  *
- * WHY THIS FILE EXISTS. `tests/chaos/chaos.test.ts` carries a hand-written
- * snapshot saying `credits_exhausted` is "declaredButNotEmitted", with the note
- * that policy-gate step 6 "is a comment, so runPolicyGate cannot produce those
- * two codes yet". Reading `src/lib/policy-gate.ts:302-329` shows step 6 IS
- * implemented — a balance check and an atomic ledger reserve. So one of the two
- * is wrong, and a snapshot that is maintained by hand rather than measured will
- * always drift that way.
+ * This file is the runtime proof behind the chaos snapshot's
+ * `emittedByRunPolicyGate` entry for `credits_exhausted`: the code is declared
+ * in POLICY_REFUSAL_CODES and implemented at policy-gate step 6, but a code
+ * that nothing drives through the real route is a comment wearing a test's
+ * clothes. (The snapshot once listed it under `declaredButNotEmitted` while
+ * step 6 was already implemented — a hand-maintained snapshot drifted until a
+ * measured one corrected it.)
  *
- * This file decides it by driving the real route:
+ * Driving the real route:
  *
  *   · An organisation with a genuinely zero ledger balance is refused, and the
  *     refusal is a 409 policy refusal — not a 503 that would tell the bank to
@@ -23,7 +23,9 @@
  * ledger rows and the suite shares one database — reusing "unscoped" would make
  * the zero-balance premise depend on what an earlier run left behind.
  *
- *   bun test tests/e2e/interventions-credits-gate.test.ts
+ *   bun scripts/run-tests.mjs interventions-credits
+ * (not a bare `bun test`: the remote test database's round trips exceed bun's
+ * 5 000 ms default per-test timeout — see scripts/run-tests.mjs)
  */
 import { expect, test } from "bun:test";
 import { createHmac } from "node:crypto";

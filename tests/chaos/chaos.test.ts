@@ -2394,11 +2394,14 @@ describe("WP-21 / negative control — a policy refusal is 409 and NEVER 500", (
       for (let i = 0; i < 10; i++) releaseCallPlacement("org-wp21");
     }
 
-    // 6. The two codes `runPolicyGate` does not emit today (WP-2 steps 5 and 6
-    //    are comments). They are declared here, and still map to 409.
+    // 6. `spend_ceiling` and `credits_exhausted` are emitted by the real gate
+    //    (steps 5 and 6 are implemented, not comments) — but reaching them via
+    //    this harness needs ledger state, so here they are asserted as the
+    //    synthetic-code mapping: whatever the gate emits, the envelope maps to
+    //    409 and never to a retryable 500.
     for (const code of ["spend_ceiling", "credits_exhausted"] as const) {
       const failure = policyRefusal(
-        { ok: false, code, reason: "declared but not emitted by runPolicyGate today" },
+        { ok: false, code, reason: "mapping check: emitted by policy-gate steps 5/6" },
         { requestId: REQ },
       );
       expect(failure.status).toBe(409);
@@ -2406,7 +2409,7 @@ describe("WP-21 / negative control — a policy refusal is 409 and NEVER 500", (
         "negative-control",
         `policy-refusal-is-409:${code}`,
         failure.status === 409,
-        `${code} → 409 (declared, not emitted)`,
+        `${code} → 409 (emitted by runPolicyGate)`,
       );
     }
 
@@ -2448,9 +2451,11 @@ describe("WP-21 / negative control — a policy refusal is 409 and NEVER 500", (
           "country_not_allowed",
           "cooldown",
           "concurrency_cap",
+          "spend_ceiling",
+          "credits_exhausted",
         ],
-        declaredButNotEmitted: ["spend_ceiling", "credits_exhausted"],
-        note: "WP-2 policy-gate steps 5 (spend ceiling) and 6 (credit reservation) are comments, so runPolicyGate cannot produce those two codes yet. They are declared in POLICY_REFUSAL_CODES and are asserted here so the mapping is complete the day they are implemented.",
+        declaredButNotEmitted: [],
+        note: "All seven declared codes are emitted by runPolicyGate. credits_exhausted is proven through the real route in tests/e2e/interventions-credits-gate.test.ts (zero balance → 409, one credit → one dial, concurrent signals → exactly one paid call). spend_ceiling is emitted by policy-gate step 5 on a spend-breaker stop (breaker covered in tests/billing and tests/unit/billing-breaker); no suite yet drives the gate itself into a stop, so this file asserts only its 409 mapping.",
         contrast: "internal_bug is the only code that yields 500",
       },
     });

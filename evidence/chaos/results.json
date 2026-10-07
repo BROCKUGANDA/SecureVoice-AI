@@ -371,13 +371,12 @@
         "country_unparseable",
         "country_not_allowed",
         "cooldown",
-        "concurrency_cap"
-      ],
-      "declaredButNotEmitted": [
+        "concurrency_cap",
         "spend_ceiling",
         "credits_exhausted"
       ],
-      "note": "WP-2 policy-gate steps 5 (spend ceiling) and 6 (credit reservation) are comments, so runPolicyGate cannot produce those two codes yet. They are declared in POLICY_REFUSAL_CODES and are asserted here so the mapping is complete the day they are implemented.",
+      "declaredButNotEmitted": [],
+      "note": "All seven declared codes are emitted by runPolicyGate. credits_exhausted is proven through the real route in tests/e2e/interventions-credits-gate.test.ts (zero balance → 409, one credit → one dial, concurrent signals → exactly one paid call). spend_ceiling is emitted by policy-gate step 5 on a spend-breaker stop (breaker covered in tests/billing and tests/unit/billing-breaker); no suite yet drives the gate itself into a stop, so this file asserts only its 409 mapping.",
       "contrast": "internal_bug is the only code that yields 500"
     }
   },
@@ -436,7 +435,7 @@
         "file": "src/lib/case-state-machine.ts",
         "transactions": 1,
         "regions": [
-          "201-209"
+          "214-222"
         ],
         "findings": []
       },
@@ -2241,7 +2240,7 @@
       "area": "gate",
       "name": "evidence-digest-is-sha256",
       "ok": true,
-      "detail": "4fa85f4889214b53"
+      "detail": "0d8226a7404cd7bf"
     },
     {
       "area": "gate",
@@ -2253,7 +2252,7 @@
       "area": "gate",
       "name": "evidence-is-byte-identical-across-builds",
       "ok": true,
-      "detail": "65242 chars"
+      "detail": "65466 chars"
     },
     {
       "area": "gate",
@@ -2937,13 +2936,13 @@
       "area": "negative-control",
       "name": "policy-refusal-is-409:credits_exhausted",
       "ok": true,
-      "detail": "credits_exhausted → 409 (declared, not emitted)"
+      "detail": "credits_exhausted → 409 (emitted by runPolicyGate)"
     },
     {
       "area": "negative-control",
       "name": "policy-refusal-is-409:spend_ceiling",
       "ok": true,
-      "detail": "spend_ceiling → 409 (declared, not emitted)"
+      "detail": "spend_ceiling → 409 (emitted by runPolicyGate)"
     },
     {
       "area": "negative-control",
@@ -3367,5 +3366,5 @@
     }
   ],
   "digestAlgorithm": "sha256",
-  "digest": "1fe87dbba48379d74201133295975c89829f5543a1878812f65e5d31dda45511"
+  "digest": "58c0bc64ddcac24d9b479169d8481c75984f4f9229a40e4c4d582c9d4c0c85a6"
 }

@@ -305,6 +305,15 @@ export async function runPolicyGate(input: PolicyGateInput): Promise<PolicyGateR
   //    mutable counter: the unique idempotency key {caseRef}:1:reserve means a
   //    retried signal cannot reserve twice, and the balance remains the sum of
   //    the ledger (invariant I-8). Reconciled on the post-call webhook.
+  //
+  //    The balance read above is a fast path, not the authority. The ledger
+  //    serialises every writer per organisation on an advisory lock and refuses
+  //    the movement itself when the pool is short — which is the only way two
+  //    concurrent signals against one remaining credit stay at one paid call.
+  //    Refusal comes back as a VALUE ({ ok: false }), never a throw, so
+  //    treating the await as the decision would let the loser sail through:
+  //    the bank would be told a customer is being called that nobody paid for.
+  //    The reservation result IS the decision.
   const available = await ledgerBalance(orgKey);
   if (available < 1) {
     await audit("freeze", "policy_credits_exhausted", { available });
@@ -314,18 +323,22 @@ export async function runPolicyGate(input: PolicyGateInput): Promise<PolicyGateR
       code: "credits_exhausted",
     };
   }
-  try {
-    await reserveCredits({
-      orgId: orgKey,
-      caseRef: input.caseRef,
-      unitsEstimate: 1,
-      reason: "intervention_attempt",
-    });
-  } catch (err) {
+  const reservation = await reserveCredits({
+    orgId: orgKey,
+    caseRef: input.caseRef,
+    unitsEstimate: 1,
+    reason: "intervention_attempt",
+  });
+  if (!reservation.ok) {
     // A lost race for the last credit, a closed window, an unknown org: a typed
-    // refusal, never a 500 on the dial path.
-    await audit("freeze", "policy_credits_exhausted", { error: String(err).slice(0, 120) });
-    return { ok: false, reason: "credit reservation refused", code: "credits_exhausted" };
+    // refusal, never a 500 on the dial path. `duplicate: true` is a success —
+    // the ledger answered a retried signal with the movement it already stored.
+    await audit("freeze", "policy_credits_exhausted", { reason: reservation.reason });
+    return {
+      ok: false,
+      reason: "no credits remaining for this organisation",
+      code: "credits_exhausted",
+    };
   }
 
   // The success audit entry is written by the route handler (combined with

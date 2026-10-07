@@ -78,14 +78,9 @@ const VOLATILE_KEYS = new Set([
  * renamed header cannot slip past.
  */
 const SECRET_HEADER_KEYS = new Set(
-  [
-    "x-agent-tool-secret",
-    "authorization",
-    "cookie",
-    "api-key",
-    "api_key",
-    "x-api-key",
-  ].map((k) => k.toLowerCase()),
+  ["x-agent-tool-secret", "authorization", "cookie", "api-key", "api_key", "x-api-key"].map((k) =>
+    k.toLowerCase(),
+  ),
 );
 const REDACTED = "[REDACTED]";
 

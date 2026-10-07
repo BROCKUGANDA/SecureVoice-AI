@@ -57,7 +57,11 @@ function hostOf(url: string): string {
 
   // `lastIndexOf(x, -1)` clamps to 0 and would return index 0 again forever for a
   // string that starts with "@", so the step must stop explicitly at 0.
-  for (let at = rest.lastIndexOf("@"); at >= 0; at = at === 0 ? -1 : rest.lastIndexOf("@", at - 1)) {
+  for (
+    let at = rest.lastIndexOf("@");
+    at >= 0;
+    at = at === 0 ? -1 : rest.lastIndexOf("@", at - 1)
+  ) {
     const m = shape.exec(rest.slice(at + 1));
     if (m) return m[1]!.replace(/^\[|\]$/g, "").toLowerCase();
   }

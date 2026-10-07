@@ -275,17 +275,17 @@ This is the list a bank's privacy review asks for, stated as a contract.
 
 **What we accept:**
 
-| Field                            | Note                                                                  |
-| -------------------------------- | --------------------------------------------------------------------- |
-| `transaction_ref`                | Your own opaque reference. Not an account number.                     |
-| `risk_score`                     | 0–1. Used for queue triage, never as a decision.                      |
-| `language`, `currency`, `amount` | BCP-47 / ISO-4217 / integer minor units.                              |
-| `phone`                          | E.164. Required to place the call; returned to you only **redacted**. |
-| `merchant`                       | Sanitised before it becomes a spoken dynamic variable.                |
-| `consent_record_id`              | The legal basis for outbound contact.                                 |
-| `signal_kind`                    | Optional: `card_transaction`, `claim_payout`, `policy_change`, `account_takeover`. Insurers use the claim / policy kinds. |
+| Field                            | Note                                                                                                                                       |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `transaction_ref`                | Your own opaque reference. Not an account number.                                                                                          |
+| `risk_score`                     | 0–1. Used for queue triage, never as a decision.                                                                                           |
+| `language`, `currency`, `amount` | BCP-47 / ISO-4217 / integer minor units.                                                                                                   |
+| `phone`                          | E.164. Required to place the call; returned to you only **redacted**.                                                                      |
+| `merchant`                       | Sanitised before it becomes a spoken dynamic variable.                                                                                     |
+| `consent_record_id`              | The legal basis for outbound contact.                                                                                                      |
+| `signal_kind`                    | Optional: `card_transaction`, `claim_payout`, `policy_change`, `account_takeover`. Insurers use the claim / policy kinds.                  |
 | `ref_last4`                      | Optional: exactly four digits of a card, policy or account reference. Lets the customer recognise the fallback SMS. Never a longer number. |
-| `org_id`, `callback_url`         | Tenancy and delivery routing.                                         |
+| `org_id`, `callback_url`         | Tenancy and delivery routing.                                                                                                              |
 
 **What we never send you:**
 

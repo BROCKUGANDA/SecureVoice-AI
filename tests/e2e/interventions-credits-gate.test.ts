@@ -154,9 +154,9 @@ test("two concurrent signals for one remaining credit dial exactly once and neve
   const accepted = [r1, r2].filter((r) => r.status === 202).length;
   const refused = [t1, t2].filter((t) => t.includes("credits_exhausted")).length;
   const after = await balance(org);
-  const jobs = await db.dialJob.count({ where: { orgId: org } });
+  const jobCount = await db.dialJob.count({ where: { orgId: org } });
   const cases = await db.case.count({ where: { orgId: org } });
-  console.log(`[credits-race] SEVERITY dial_jobs=${jobs} cases=${cases} balance=${after}`);
+  console.log(`[credits-race] SEVERITY dial_jobs=${jobCount} cases=${cases} balance=${after}`);
   const rows = await db.usageLedger.findMany({
     where: { orgId: org, kind: "reserve" },
     select: { caseRef: true, units: true },
@@ -165,7 +165,9 @@ test("two concurrent signals for one remaining credit dial exactly once and neve
     `[credits-race] org=${org} accepted=${accepted} refused=${refused} balance=${after} reserves=${JSON.stringify(rows)}`,
   );
 
-  const bodies = [t1, t2].map((t) => JSON.parse(t) as { status?: string; caseRef?: string; duplicate?: boolean });
+  const bodies = [t1, t2].map(
+    (t) => JSON.parse(t) as { status?: string; caseRef?: string; duplicate?: boolean },
+  );
   console.log(
     `[credits-race] bodies=${bodies.map((b) => `${b.status}/${b.caseRef}/dup=${b.duplicate}`).join(" | ")}`,
   );
@@ -176,17 +178,11 @@ test("two concurrent signals for one remaining credit dial exactly once and neve
   const dialled = bodies.filter((b) => b.status === "queued").length;
 
   expect(reserved, "one credit bought two paid calls").toBe(1);
-  // OPEN DEFECT, asserted so it cannot be forgotten: both concurrent signals
-  // come back 202 with status "queued" while only one credit is reserved. The
-  // wallet does not overspend, but the bank is told a customer will be called
-  // when no credit was spent and no second call is coming. A false acceptance
-  // on a fraud-intervention path is worse than a refusal.
-  // OPEN DEFECT — severity measured, not theorised: two concurrent signals
-  // against ONE remaining credit produce two cases and two queued dial jobs
-  // while only one credit is reserved. policy-gate step 6 reads the balance and
-  // then reserves as two separate statements, so both requests see the funded
-  // balance before either writes. The invariant that must hold is
-  // reservations == queued dial jobs.
+  // The invariant: reservations == queued dial jobs. The ledger's refusal is a
+  // VALUE and policy-gate step 6 treats it as the decision, so the loser of the
+  // race is refused (409) instead of told "queued" for a call nobody paid for.
+  // Mutation-proven: discarding the refusal value at the gate makes this test
+  // fail with dial_jobs=2 cases=2 against one reserve.
   const jobs = await db.dialJob.count({ where: { orgId: org } });
   expect(jobs, `${jobs} dial jobs queued against ${reserved} reserved credit`).toBe(reserved);
   expect(after, "the wallet overspent under concurrency").toBe(0);

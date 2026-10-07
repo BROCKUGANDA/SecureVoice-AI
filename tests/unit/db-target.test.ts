@@ -13,7 +13,11 @@ import { assertDatabaseTarget, classifyDatabaseUrl, isSelfHosted } from "@/lib/d
 
 describe("classifyDatabaseUrl", () => {
   const cases: Array<[string, string, ReturnType<typeof classifyDatabaseUrl>]> = [
-    ["compose db service", "postgresql://securevoice:securevoice@db:5432/securevoice", "vps-container"],
+    [
+      "compose db service",
+      "postgresql://securevoice:securevoice@db:5432/securevoice",
+      "vps-container",
+    ],
     ["compose postgres alias", "postgresql://u:p@postgres:5432/x", "vps-container"],
     ["localhost", "postgresql://u:p@localhost:5432/x", "loopback"],
     ["127.0.0.1", "postgresql://u:p@127.0.0.1:5432/x?sslmode=disable", "loopback"],
@@ -22,8 +26,16 @@ describe("classifyDatabaseUrl", () => {
     ["RFC1918 172.16/12", "postgresql://u:p@172.20.0.5:5432/x", "private-network"],
     ["RFC1918 192.168/16", "postgresql://u:p@192.168.1.9:5432/x", "private-network"],
     [".internal", "postgresql://u:p@pg.vps.internal:5432/x", "private-network"],
-    ["supabase direct", "postgresql://postgres:pw@db.abcdefgh.supabase.co:5432/postgres", "managed-supabase"],
-    ["supabase pooler", "postgresql://postgres.ref:pw@aws-0-eu.pooler.supabase.com:6543/postgres", "managed-supabase"],
+    [
+      "supabase direct",
+      "postgresql://postgres:pw@db.abcdefgh.supabase.co:5432/postgres",
+      "managed-supabase",
+    ],
+    [
+      "supabase pooler",
+      "postgresql://postgres.ref:pw@aws-0-eu.pooler.supabase.com:6543/postgres",
+      "managed-supabase",
+    ],
     ["neon", "postgresql://u:p@ep-cool-123.eu-central-1.aws.neon.tech/x", "managed-neon"],
     ["rds", "postgresql://u:p@mydb.abc.eu-west-1.rds.amazonaws.com:5432/x", "managed-rds"],
     ["public hostname", "postgresql://u:p@pg.example.com:5432/x", "external"],
@@ -41,7 +53,9 @@ describe("classifyDatabaseUrl", () => {
   });
 
   test("a hostile suffix cannot pass as a managed or self-hosted host", () => {
-    expect(classifyDatabaseUrl("postgresql://u:p@evil-supabase.co.attacker.com:5432/x")).toBe("external");
+    expect(classifyDatabaseUrl("postgresql://u:p@evil-supabase.co.attacker.com:5432/x")).toBe(
+      "external",
+    );
     expect(classifyDatabaseUrl("postgresql://u:p@db.attacker.com:5432/x")).toBe("external");
     expect(classifyDatabaseUrl("postgresql://u:p@dbx:5432/x")).toBe("external");
   });
@@ -77,7 +91,13 @@ describe("isSelfHosted", () => {
     for (const k of ["vps-container", "loopback", "private-network"] as const) {
       expect(isSelfHosted(k), k).toBe(true);
     }
-    for (const k of ["managed-supabase", "managed-neon", "managed-rds", "external", "unset"] as const) {
+    for (const k of [
+      "managed-supabase",
+      "managed-neon",
+      "managed-rds",
+      "external",
+      "unset",
+    ] as const) {
       expect(isSelfHosted(k), k).toBe(false);
     }
   });
@@ -102,7 +122,9 @@ describe("assertDatabaseTarget (opt-in)", () => {
     expect(() => assertDatabaseTarget(SUPA, env)).toThrow(/managed-supabase/);
     expect(() => assertDatabaseTarget(SUPA, env)).toThrow(/Moving the database onto the VPS/);
     expect(() => assertDatabaseTarget(undefined, env)).toThrow(/unset/);
-    expect(() => assertDatabaseTarget("postgresql://u:p@pg.example.com/x", env)).toThrow(/external/);
+    expect(() => assertDatabaseTarget("postgresql://u:p@pg.example.com/x", env)).toThrow(
+      /external/,
+    );
   });
 
   test("when opted in, the VPS database passes", () => {

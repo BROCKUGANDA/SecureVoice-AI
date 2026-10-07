@@ -1,0 +1,223 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1480 1040" font-family="ui-sans-serif, system-ui, Segoe UI, Helvetica, Arial, sans-serif">
+  <rect width="1480" height="1040" fill="#ffffff"/>
+
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#475569"/>
+    </marker>
+    <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#b91c1c"/>
+    </marker>
+  </defs>
+
+  <text x="40" y="44" font-size="26" font-weight="700" fill="#0f172a">SecureVoice AI — technical architecture</text>
+  <text x="40" y="70" font-size="14" fill="#475569">One page, Stage 2. Every box is something that exists in this repo or a vendor the code actually calls. Edges carry the protocol named on them.</text>
+
+  <!-- ═══ COLUMN 1 · CHANNELS / EDGE / BANK ═══════════════════════ -->
+  <g>
+    <rect x="40" y="92" width="400" height="286" rx="10" fill="#f8fafc" stroke="#cbd5e1"/>
+    <text x="58" y="116" font-size="13" font-weight="700" letter-spacing="0.6" fill="#334155">CHANNELS</text>
+
+    <rect x="58" y="130" width="180" height="48" rx="6" fill="#ffffff" stroke="#94a3b8"/>
+    <text x="148" y="150" font-size="13" text-anchor="middle" fill="#0f172a">Customer phone</text>
+    <text x="148" y="168" font-size="11" text-anchor="middle" fill="#64748b">PSTN · +971 test lines</text>
+
+    <rect x="248" y="130" width="174" height="48" rx="6" fill="#ffffff" stroke="#94a3b8"/>
+    <text x="335" y="150" font-size="13" text-anchor="middle" fill="#0f172a">Browser / web SDK</text>
+    <text x="335" y="168" font-size="11" text-anchor="middle" fill="#64748b">HTTPS · WSS · WebRTC</text>
+
+    <rect x="58" y="190" width="364" height="48" rx="6" fill="#ffffff" stroke="#94a3b8"/>
+    <text x="240" y="210" font-size="13" text-anchor="middle" fill="#0f172a">Specialist console (Command Center)</text>
+    <text x="240" y="228" font-size="11" text-anchor="middle" fill="#64748b">live case state, handoffs, SLA over socket.io</text>
+
+    <rect x="58" y="250" width="364" height="48" rx="6" fill="#ffffff" stroke="#94a3b8"/>
+    <text x="240" y="270" font-size="13" text-anchor="middle" fill="#0f172a">Bank risk signal → POST /v1/interventions</text>
+    <text x="240" y="288" font-size="11" text-anchor="middle" fill="#64748b">HMAC-SHA256 · replay-protected · idempotency-keyed</text>
+
+    <text x="58" y="330" font-size="11" fill="#64748b">Recording notice is spoken in the agent's first</text>
+    <text x="58" y="348" font-size="11" fill="#64748b">message, in the language the call runs in.</text>
+  </g>
+
+  <g>
+    <rect x="40" y="396" width="400" height="86" rx="10" fill="#eef2ff" stroke="#6366f1"/>
+    <text x="58" y="420" font-size="13" font-weight="700" letter-spacing="0.6" fill="#3730a3">EDGE · Caddy</text>
+    <text x="58" y="442" font-size="12" fill="#334155">The only published port. TLS + HSTS + CSP,</text>
+    <text x="58" y="460" font-size="12" fill="#334155">:80/:443 → app + realtime.</text>
+  </g>
+
+  <g>
+    <rect x="40" y="502" width="400" height="342" rx="10" fill="#faf5ff" stroke="#c084fc"/>
+    <text x="58" y="526" font-size="13" font-weight="700" letter-spacing="0.6" fill="#6b21a8">INSTITUTION SYSTEMS · bank-owned</text>
+
+    <rect x="58" y="542" width="364" height="52" rx="6" fill="#ffffff" stroke="#a855f7"/>
+    <text x="240" y="562" font-size="13" text-anchor="middle" fill="#0f172a">Card processor freeze API</text>
+    <text x="240" y="580" font-size="11" text-anchor="middle" fill="#6b21a8">the high-stakes action the agent may request</text>
+
+    <rect x="58" y="606" width="176" height="52" rx="6" fill="#ffffff" stroke="#a855f7"/>
+    <text x="146" y="626" font-size="13" text-anchor="middle" fill="#0f172a">Bank CRM</text>
+    <text x="146" y="644" font-size="11" text-anchor="middle" fill="#6b21a8">signed webhook</text>
+
+    <rect x="246" y="606" width="176" height="52" rx="6" fill="#ffffff" stroke="#a855f7"/>
+    <text x="334" y="626" font-size="13" text-anchor="middle" fill="#0f172a">Bank SIEM</text>
+    <text x="334" y="644" font-size="11" text-anchor="middle" fill="#6b21a8">signed webhook</text>
+
+    <rect x="58" y="670" width="364" height="52" rx="6" fill="#ffffff" stroke="#a855f7"/>
+    <text x="240" y="690" font-size="13" text-anchor="middle" fill="#0f172a">Consent registry</text>
+    <text x="240" y="708" font-size="11" text-anchor="middle" fill="#6b21a8">opt-out is a policy refusal (409), never a 5xx</text>
+
+    <text x="58" y="748" font-size="11" fill="#6b21a8">Outside our trust boundary: we call out over</text>
+    <text x="58" y="766" font-size="11" fill="#6b21a8">signed webhooks and never read a bank store.</text>
+  </g>
+
+  <!-- ═══ COLUMN 2 · VENDOR / STATE ═══════════════════════════════ -->
+  <g>
+    <rect x="480" y="92" width="400" height="390" rx="10" fill="#fff7ed" stroke="#fdba74"/>
+    <text x="498" y="116" font-size="13" font-weight="700" letter-spacing="0.6" fill="#9a3412">ELEVENLABS AGENTS PLATFORM · vendor</text>
+
+    <rect x="498" y="130" width="364" height="52" rx="6" fill="#ffffff" stroke="#fb923c"/>
+    <text x="680" y="150" font-size="13" text-anchor="middle" fill="#0f172a">Conversation loop (agent_3601…thzdp)</text>
+    <text x="680" y="168" font-size="11" text-anchor="middle" fill="#9a3412">gpt-4o-mini · scribe_realtime ASR · trust_context</text>
+
+    <rect x="498" y="194" width="176" height="52" rx="6" fill="#ffffff" stroke="#fb923c"/>
+    <text x="586" y="214" font-size="13" text-anchor="middle" fill="#0f172a">TTS voices</text>
+    <text x="586" y="232" font-size="11" text-anchor="middle" fill="#9a3412">EN AR HI UR FR SW</text>
+
+    <rect x="686" y="194" width="176" height="52" rx="6" fill="#ffffff" stroke="#fb923c"/>
+    <text x="774" y="214" font-size="13" text-anchor="middle" fill="#0f172a">STT · knowledge base</text>
+    <text x="774" y="232" font-size="11" text-anchor="middle" fill="#9a3412">Scribe v2 · 2 docs, RAG</text>
+
+    <rect x="498" y="258" width="364" height="52" rx="6" fill="#ffffff" stroke="#fb923c"/>
+    <text x="680" y="278" font-size="13" text-anchor="middle" fill="#0f172a">2 attached tools (server-side)</text>
+    <text x="680" y="296" font-size="11" text-anchor="middle" fill="#9a3412">card_freeze · human_handoff — signed back to us</text>
+
+    <rect x="498" y="322" width="364" height="52" rx="6" fill="#ffffff" stroke="#fb923c"/>
+    <text x="680" y="342" font-size="13" text-anchor="middle" fill="#0f172a">Outbound dial + post-call webhook</text>
+    <text x="680" y="360" font-size="11" text-anchor="middle" fill="#9a3412">/v1/convai/twilio/outbound-call · transcript on end</text>
+
+    <rect x="498" y="392" width="364" height="76" rx="6" fill="#fef2f2" stroke="#dc2626"/>
+    <text x="680" y="414" font-size="13" text-anchor="middle" font-weight="700" fill="#991b1b">Account ceiling: 10,000 characters / month</text>
+    <text x="680" y="434" font-size="11" text-anchor="middle" fill="#991b1b">Every arrow into this column is metered by the</text>
+    <text x="680" y="452" font-size="11" text-anchor="middle" fill="#991b1b">egress guard. A BYOK org spends its own quota.</text>
+  </g>
+
+  <g>
+    <rect x="480" y="502" width="400" height="342" rx="10" fill="#f1f5f9" stroke="#94a3b8"/>
+    <text x="498" y="526" font-size="13" font-weight="700" letter-spacing="0.6" fill="#334155">STATE · docker compose services</text>
+
+    <rect x="498" y="542" width="364" height="76" rx="6" fill="#ffffff" stroke="#64748b"/>
+    <text x="680" y="562" font-size="13" text-anchor="middle" fill="#0f172a">Postgres 16 + Prisma migrations</text>
+    <text x="680" y="582" font-size="11" text-anchor="middle" fill="#475569">Case · AuditLog · dial_job · UsageLedger · IdempotencyKey</text>
+    <text x="680" y="600" font-size="11" text-anchor="middle" fill="#475569">tenant-scoped; migrate deploy, never db push</text>
+
+    <rect x="498" y="630" width="364" height="76" rx="6" fill="#ffffff" stroke="#64748b"/>
+    <text x="680" y="650" font-size="13" text-anchor="middle" fill="#0f172a">Redis 7 — the durable char meter</text>
+    <text x="680" y="670" font-size="11" text-anchor="middle" fill="#475569">holds the monthly count across restarts and instances,</text>
+    <text x="680" y="688" font-size="11" text-anchor="middle" fill="#475569">via REDIS_URL. Unreachable → tightened in-process limit.</text>
+
+    <rect x="498" y="718" width="364" height="76" rx="6" fill="#ffffff" stroke="#64748b"/>
+    <text x="680" y="738" font-size="13" text-anchor="middle" fill="#0f172a">realtime — Bun + socket.io</text>
+    <text x="680" y="758" font-size="11" text-anchor="middle" fill="#475569">holds a signing secret, NO database client;</text>
+    <text x="680" y="776" font-size="11" text-anchor="middle" fill="#475569">moves already-redacted events and nothing else</text>
+  </g>
+
+  <!-- ═══ COLUMN 3 · APP ══════════════════════════════════════════ -->
+  <g>
+    <rect x="920" y="92" width="520" height="752" rx="10" fill="#f0fdf4" stroke="#86efac"/>
+    <text x="938" y="116" font-size="13" font-weight="700" letter-spacing="0.6" fill="#166534">SECUREVOICE APP · Next.js standalone on Bun</text>
+
+    <rect x="938" y="130" width="484" height="112" rx="6" fill="#dc2626"/>
+    <text x="1180" y="152" font-size="14" text-anchor="middle" font-weight="700" fill="#ffffff">ElevenLabs egress guard</text>
+    <text x="1180" y="172" font-size="11" text-anchor="middle" fill="#fee2e2">src/lib/elevenlabs/egress.ts — the only code holding a socket to the vendor</text>
+    <text x="1180" y="192" font-size="11" text-anchor="middle" fill="#fee2e2">1 per-caller throttle → 2 monthly char budget (fail-closed, refunds on rejection)</text>
+    <text x="1180" y="210" font-size="11" text-anchor="middle" fill="#fee2e2">3 conversation_plane breaker → 4 retry with equal-jitter backoff, Retry-After</text>
+    <text x="1180" y="228" font-size="11" text-anchor="middle" fill="#fee2e2">a non-2xx is never returned to a caller as an empty success</text>
+
+    <rect x="938" y="256" width="238" height="86" rx="6" fill="#ffffff" stroke="#4ade80"/>
+    <text x="1057" y="276" font-size="13" text-anchor="middle" fill="#0f172a">Voice routes</text>
+    <text x="1057" y="296" font-size="11" text-anchor="middle" fill="#166534">/api/tts · /api/tts/stream · /api/asr</text>
+    <text x="1057" y="314" font-size="11" text-anchor="middle" fill="#166534">three-vendor STT chain</text>
+    <text x="1057" y="332" font-size="11" text-anchor="middle" fill="#166534">per-user daily char quota, BYOK first</text>
+
+    <rect x="1184" y="256" width="238" height="86" rx="6" fill="#ffffff" stroke="#4ade80"/>
+    <text x="1303" y="276" font-size="13" text-anchor="middle" fill="#0f172a">Agent tool endpoints</text>
+    <text x="1303" y="296" font-size="11" text-anchor="middle" fill="#166534">card_freeze · human_handoff</text>
+    <text x="1303" y="314" font-size="11" text-anchor="middle" fill="#166534">verify_transaction · switch_language</text>
+    <text x="1303" y="332" font-size="11" text-anchor="middle" fill="#166534">signed-url broker</text>
+
+    <rect x="938" y="356" width="238" height="72" rx="6" fill="#ffffff" stroke="#4ade80"/>
+    <text x="1057" y="376" font-size="13" text-anchor="middle" fill="#0f172a">Continuity plane</text>
+    <text x="1057" y="396" font-size="11" text-anchor="middle" fill="#166534">/api/agent · /api/twilio/turn</text>
+    <text x="1057" y="414" font-size="11" text-anchor="middle" fill="#166534">declared fallback: pipeline → SMS</text>
+
+    <rect x="1184" y="356" width="238" height="72" rx="6" fill="#ffffff" stroke="#4ade80"/>
+    <text x="1303" y="376" font-size="13" text-anchor="middle" fill="#0f172a">Webhooks in</text>
+    <text x="1303" y="396" font-size="11" text-anchor="middle" fill="#166534">post-call, tenant-scoped by agent id</text>
+    <text x="1303" y="414" font-size="11" text-anchor="middle" fill="#166534">Twilio delivery status</text>
+
+    <rect x="938" y="442" width="484" height="68" rx="6" fill="#ffffff" stroke="#4ade80"/>
+    <text x="1180" y="462" font-size="13" text-anchor="middle" fill="#0f172a">Case state machine — the ONE writer</text>
+    <text x="1180" y="482" font-size="11" text-anchor="middle" fill="#166534">SCREENED → DIALING → … → CLOSED · one intervention call per bank</text>
+    <text x="1180" y="500" font-size="11" text-anchor="middle" fill="#166534">transaction, enforced atomically rather than read-then-write</text>
+
+    <rect x="938" y="524" width="484" height="86" rx="6" fill="#ffffff" stroke="#4ade80"/>
+    <text x="1180" y="544" font-size="13" text-anchor="middle" fill="#0f172a">Durable workers</text>
+    <text x="1180" y="564" font-size="11" text-anchor="middle" fill="#166534">dial-worker: FOR UPDATE SKIP LOCKED claim, lease expiry, dead-letter</text>
+    <text x="1180" y="582" font-size="11" text-anchor="middle" fill="#166534">outbox: verdict → bank delivery, exponential backoff, bounded retries</text>
+    <text x="1180" y="600" font-size="11" text-anchor="middle" fill="#166534">a failed dial is recorded and retried — never quietly re-routed</text>
+
+    <rect x="938" y="624" width="484" height="68" rx="6" fill="#ffffff" stroke="#4ade80"/>
+    <text x="1180" y="644" font-size="13" text-anchor="middle" fill="#0f172a">Trust layer</text>
+    <text x="1180" y="664" font-size="11" text-anchor="middle" fill="#166534">tenant predicate on every query · PII redacted before it is stored</text>
+    <text x="1180" y="682" font-size="11" text-anchor="middle" fill="#166534">vendor key never leaves the server · prompt-injection guard on live turns</text>
+
+    <rect x="938" y="706" width="484" height="68" rx="6" fill="#ffffff" stroke="#4ade80"/>
+    <text x="1180" y="726" font-size="13" text-anchor="middle" fill="#0f172a">Append-only audit chain</text>
+    <text x="1180" y="746" font-size="11" text-anchor="middle" fill="#166534">hashed, tamper-evident row per action</text>
+    <text x="1180" y="764" font-size="11" text-anchor="middle" fill="#166534">a freeze that cannot be audited is refused (503), not allowed through</text>
+  </g>
+
+  <!-- ═══ EDGES ═══════════════════════════════════════════════════ -->
+  <g stroke="#475569" stroke-width="2" fill="none">
+    <!-- channels → vendor conversation loop -->
+    <path d="M422 154 L498 154" marker-end="url(#a)"/>
+    <!-- vendor → app guard -->
+    <path d="M862 186 L938 186" marker-end="url(#a)"/>
+    <!-- app tools → vendor tools -->
+    <path d="M862 284 L938 284" marker-end="url(#a)"/>
+    <!-- bank signal leaves the channel column and enters the edge -->
+    <path d="M380 298 L380 396" marker-end="url(#a)"/>
+    <!-- edge → app, routed in the corridor between the two middle columns -->
+    <path d="M440 439 L462 439 L462 492 L912 492" marker-end="url(#a)"/>
+    <!-- app internals -->
+    <path d="M1180 242 L1180 256" marker-end="url(#a)"/>
+    <path d="M1057 342 L1057 356" marker-end="url(#a)"/>
+    <path d="M1303 342 L1303 356" marker-end="url(#a)"/>
+    <path d="M1180 428 L1180 442" marker-end="url(#a)"/>
+    <path d="M1180 510 L1180 524" marker-end="url(#a)"/>
+    <path d="M1180 610 L1180 624" marker-end="url(#a)"/>
+    <path d="M1180 692 L1180 706" marker-end="url(#a)"/>
+    <!-- app → postgres -->
+    <path d="M938 580 L862 580" marker-end="url(#a)"/>
+    <!-- guard → durable meter -->
+    <path d="M938 668 L862 668" marker-end="url(#a)"/>
+    <!-- outbox → bank, along the corridor under every box -->
+    <path d="M1180 844 L1180 866 L300 866 L300 844" marker-end="url(#a)"/>
+  </g>
+
+  <!-- breaker open → declared continuity plane (labelled in the legend) -->
+  <g stroke="#b91c1c" stroke-width="2" stroke-dasharray="7 5" fill="none">
+    <path d="M938 214 L900 214 L900 392 L938 392" marker-end="url(#ar)"/>
+  </g>
+
+  <text x="740" y="860" font-size="11" fill="#475569">signed post-call verdict → CRM / SIEM</text>
+
+  <!-- ═══ LEGEND ═══════════════════════════════════════════════════ -->
+  <g>
+    <rect x="40" y="884" width="1400" height="120" rx="10" fill="#f8fafc" stroke="#cbd5e1"/>
+    <text x="58" y="908" font-size="13" font-weight="700" letter-spacing="0.6" fill="#334155">READ THIS DIAGRAM</text>
+    <text x="58" y="930" font-size="12" fill="#334155">Solid grey arrow — a call the code makes today, in the direction drawn. Red dashed arrow — the declared continuity path, taken only while the ElevenLabs breaker is open.</text>
+    <text x="58" y="950" font-size="12" fill="#334155">The guard writes its monthly character count to Redis, so the 10,000 ceiling survives a restart. If Redis is unreachable the guard narrows to a tightened per-process limit and logs it as degraded — it does not refuse every call.</text>
+    <text x="58" y="970" font-size="12" fill="#334155">Every arrow crossing into the vendor column passes through the single red guard box. There is no second door: a test asserts no other file may fetch api.elevenlabs.io.</text>
+    <text x="58" y="992" font-size="11" fill="#64748b">Sources: docker-compose.yml · src/lib/elevenlabs/egress.ts · src/worker/dial.ts · src/lib/case-state-machine.ts · prisma/schema.prisma</text>
+  </g>
+</svg>

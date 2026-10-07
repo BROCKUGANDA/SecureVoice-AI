@@ -359,8 +359,8 @@ across the runs recorded on 2026-10-02; end-to-end p50 / p95 / p99 **2.3–2.9 /
 | Offered concurrency                                        | **224 workers**                                           | MEASURED |
 | Peak conversations in flight (this run's cases only)       | 78–184                                                    | MEASURED |
 | Bands entered                                              | NORMAL → CONSTRAINED → **SHED**                           | MEASURED |
-| Dialled                                                    | 485–1,108                                                 | MEASURED |
-| Shed with an audit row                                     | 92–715                                                    | MEASURED |
+| Dialled                                                    | 485–1,193                                                 | MEASURED |
+| Shed with an audit row                                     | 7–715                                                     | MEASURED |
 | **Errors**                                                 | **0 — error rate 0.00%** (target < 1%)                    | MEASURED |
 | Max concurrent sessions the vendor double ever saw         | **40 of 40**                                              | MEASURED |
 | Gate timeouts                                              | 0                                                         | MEASURED |

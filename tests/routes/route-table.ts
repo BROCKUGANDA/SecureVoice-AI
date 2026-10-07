@@ -177,6 +177,10 @@ const PUBLIC_BY_DESIGN: Readonly<Record<string, string>> = {
   "/asyncapi": "published contract document (WP-17); schema only, no tenant data",
   "/v1/conformance/run":
     "self-serve bank conformance checker guarded by an org-scoped PRODUCER KEY, not an operator session (src/app/v1/conformance/run/route.ts)",
+  "/api/queue/dispatch":
+    "internal QStash dispatch endpoint; authenticates the request by QStash Upstash-Signature, never by a session",
+  "/api/queue/dead-letter":
+    "internal QStash failure callback; stores the dead-letter row and takes no user input",
 };
 
 export function isPublicByDesign(path: string): boolean {

@@ -119,6 +119,7 @@ describe("authorization coverage", () => {
       "/api/auth/step-up",
       "/api/console/audit",
       "/api/console/crm",
+      "/api/console/dead-letter",
       "/api/console/events",
       "/api/console/features",
       "/api/console/fire",

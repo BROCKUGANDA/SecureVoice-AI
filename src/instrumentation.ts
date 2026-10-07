@@ -19,6 +19,36 @@ export async function register() {
     );
   }
 
+  // Sentry is surfaced the moment the DSN env var exists, and ONLY then —
+  // importing the Sentry SDK unconditionally at boot adds its transport
+  // overhead to every request path even when a deployment has not opted in.
+  if (process.env.SENTRY_DSN) {
+    const { init } = await import("@sentry/nextjs");
+    try {
+      init({
+        dsn: process.env.SENTRY_DSN,
+        tracesSampleRate: Number(process.env.SENTRY_TRACES_SAMPLE_RATE ?? "0.1"),
+        environment: process.env.SENTRY_ENVIRONMENT ?? (process.env.NODE_ENV || "development"),
+        serverName: process.env.RENDER_INSTANCE_ID ?? undefined,
+        // Never send payloads: our bank-facing rows frequently contain an
+        // SMS body or a partial transcript, and Sentry's own request-body
+        // capture would transmit it off-platform.
+        beforeSend(event) {
+          if (event.request?.data) delete event.request.data;
+          if (event.extra) {
+            for (const k of Object.keys(event.extra)) {
+              if (/phone|email|merchant|amount|transcript|case_?ref|sms/i.test(k)) delete (event.extra as any)[k];
+            }
+          }
+          return event;
+        },
+      });
+      console.warn("[sentry] initialised (traces: " + (process.env.SENTRY_TRACES_SAMPLE_RATE ?? "0.1") + ", environment: " + (process.env.SENTRY_ENVIRONMENT ?? process.env.NODE_ENV) + ")");
+    } catch (err) {
+      console.error("[sentry] init failed — continuing without remote error capture:", err instanceof Error ? err.message : err);
+    }
+  }
+
   // The "did we forget to flip it?" class of failure — loud at every boot,
   // plus `bun run preflight` before any demo or go-live.
   if (process.env.ELEVENLABS_DRY_RUN === "true") {
@@ -30,5 +60,14 @@ export async function register() {
     console.warn(
       "[config] BETTER_AUTH_SECRET missing or under 32 chars — auth will throw at import. Generate with: openssl rand -base64 32",
     );
+  }
+
+  if (!process.env.QSTASH_TOKEN) {
+    console.warn(
+      "[config] QSTASH_TOKEN unset — bank signals enqueue via the Postgres queue directly. Set QSTASH_TOKEN and QSTASH_CURRENT/NEXT_SIGNING_KEY to dispatch through Upstash.",
+    );
+  }
+  if (!process.env.SENTRY_DSN) {
+    console.warn("[config] SENTRY_DSN unset — remote error capture is off for this deployment.");
   }
 }

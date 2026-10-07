@@ -11,6 +11,8 @@ import { verifyProducerKey } from "@/lib/producer-keys";
 import { createHash } from "node:crypto";
 import { sanitizeUntrusted, sanitizeDynamicVariables } from "@/lib/sanitize-untrusted";
 import { isTwilioConfigured, liveSendAttested, sendInterventionSms } from "@/lib/twilio";
+import { qstashConfigured, publishEnvelope, dispatchPath } from "@/lib/queue/qstash";
+import { makeEnvelope } from "@/lib/queue/envelope";
 import { runPolicyGate } from "@/lib/policy-gate";
 import { assertDialAllowed, releaseDialSlot } from "@/lib/abuse/guards";
 import { validateOutboundUrl } from "@/lib/validation/ssrf";
@@ -651,31 +653,68 @@ async function armAndDial(
 
   let delivery: Record<string, unknown>;
   try {
-    const job = await enqueueDialJob({
-      caseId: caseRef,
-      caseRef,
-      orgId,
-      attemptNo: 1,
-      // Expected-loss triage: a higher-value alert is dialled first when the
-      // queue is draining faster than the provider allows.
-      priority: Math.round(
-        ((Number.isFinite(signal.risk_score) ? Math.min(Math.max(signal.risk_score, 0), 1) : 0) *
-          (signal.amount ?? 0)) /
-          100,
-      ),
-      // Sanitised dial inputs only ÃƒÂ¢Ã¢šÂ¬Ã¢â‚¬Â never transcript content (invariant I-10).
-      payload: {
-        to: redactText(signal.phone),
-        language: signal.language,
-        merchant: merchant ?? "",
-        amount: signal.amount ?? 0,
-        currency: signal.currency ?? "",
-        transaction_ref: signal.transaction_ref,
-      },
-      // Hold the dial back so the pre-notification SMS lands first. The delay is
-      // the queue's own availableAt rather than a worker sleeping on a lease.
-      availableInMs: preNotificationLeadMs(),
-    });
+    // Sanitised dial inputs only — never transcript content (invariant I-10).
+    const priority = Math.round(
+      ((Number.isFinite(signal.risk_score) ? Math.min(Math.max(signal.risk_score, 0), 1) : 0) *
+        (signal.amount ?? 0)) /
+        100,
+    );
+    const jobPayload = {
+      to: redactText(signal.phone),
+      language: signal.language,
+      merchant: merchant ?? "",
+      amount: signal.amount ?? 0,
+      currency: signal.currency ?? "",
+      transaction_ref: signal.transaction_ref,
+    };
+
+    let jobId: string;
+    let jobState: string;
+    let duplicate: boolean;
+
+    if (qstashConfigured()) {
+      // Bank's request produces one small envelope; QStash delivers it to the
+      // dispatch route, which enqueues the durable dial job through the SAME
+      // queue the dial worker drains. QStash retries the delivery, so a DB
+      // hiccup cannot lose the signal; exhausted retries dead-letter through
+      // the failureCallback into the DeadLetter table.
+      const { messageId } = await publishEnvelope(
+        makeEnvelope({
+          jobKind: "call.trigger",
+          idempotencyKey: `dial:${caseRef}:1`,
+          caseRef,
+          orgId,
+          payload: {
+            caseId: caseRef,
+            ...jobPayload,
+            priority,
+            availableInMs: preNotificationLeadMs(),
+          },
+        }),
+        dispatchPath(),
+      );
+      jobId = messageId;
+      jobState = "queued";
+      duplicate = false;
+    } else {
+      // Durable queue (S-1). The request handler ENQUEUES and returns; the
+      // call is placed by a worker that claims the job.
+      const job = await enqueueDialJob({
+        caseId: caseRef,
+        caseRef,
+        orgId,
+        attemptNo: 1,
+        // Expected-loss triage: a higher-value alert is dialled first when the
+        // queue is draining faster than the provider allows.
+        priority,
+        payload: { ...jobPayload, phone: jobPayload.to },
+        // Hold the dial back so the pre-notification SMS lands first.
+        availableInMs: preNotificationLeadMs(),
+      });
+      jobId = job.id;
+      jobState = job.state;
+      duplicate = !job.created;
+    }
 
     // Pre-notification: tell the customer, in their language, to expect the call.
     //
@@ -713,9 +752,9 @@ async function armAndDial(
       channel: "queued",
       provider: "elevenlabs",
       to: redactText(signal.phone),
-      jobId: job.id,
-      jobState: job.state,
-      duplicate: !job.created,
+      jobId,
+      jobState,
+      duplicate,
     };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

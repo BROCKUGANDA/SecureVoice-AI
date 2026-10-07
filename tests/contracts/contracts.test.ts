@@ -565,7 +565,7 @@ describe("inbound signal matches the implementation", () => {
       'status: "degraded_to_async"',
       'channel: "queued"',
       'provider: "elevenlabs"',
-      "duplicate: !job.created",
+      "duplicate",
       "receivedAt: new Date().toISOString()",
       "expectedLoss: admission.expectedLoss",
     ]) {

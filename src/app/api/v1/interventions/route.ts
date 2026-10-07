@@ -694,7 +694,7 @@ async function armAndDial(
         dispatchPath(),
       );
       jobId = messageId;
-      jobState = "queued";
+      jobState = "PENDING";
       duplicate = false;
     } else {
       // Durable queue (S-1). The request handler ENQUEUES and returns; the

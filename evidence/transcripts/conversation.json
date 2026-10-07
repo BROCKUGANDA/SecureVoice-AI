@@ -1,0 +1,96 @@
+{
+  "schema_version": "1.0",
+  "artifact": "conversation-transcript",
+  "case_ref": "SV-F-TMUY31SI6",
+  "conversation_id": "conv_dryrun_SV-F-TMUY31SI6",
+  "captured_at": "2026-10-07T12:27:56.224Z",
+  "mode": {
+    "dial": "dry-run",
+    "vendor_evidence": false,
+    "conversation_content": "synthetic fixture in the vendor post-call schema",
+    "explanation": "The dial was placed through the real adapter (placeOutboundCall) with ELEVENLABS_DRY_RUN=true: no speech was synthesised and no vendor call occurred (the account's character quota was exhausted at capture time, 10000/10000). The transcript content is a synthetic fixture delivered through the REAL post-call webhook. Signature verification, PII redaction, memory screening, audit chaining, payload sealing, the state transition and the bank notification are this deployment's real runtime outputs, not vendor recordings."
+  },
+  "placement": {
+    "adapter": "conversation.elevenlabs (registry binding)",
+    "via": "placeOutboundCall (src/lib/elevenlabs/outbound-call.ts)",
+    "dry_run": true,
+    "call_sid": "CA_dryrun_SV-F-TMUY31SI6"
+  },
+  "ingest": {
+    "handler": "POST /api/webhooks/elevenlabs",
+    "event_type": "post_call_transcription",
+    "signature": "verified (ElevenLabs-Signature t/v0 HMAC)",
+    "processed": true
+  },
+  "transcript": {
+    "redacted": true,
+    "provenance": "as persisted: the sealed payload's transcript field, split into turns",
+    "turns": [
+      {
+        "speaker": "agent",
+        "text": "Hello, this call is recorded for your protection. I am an AI security assistant calling from your bank about a transaction on your card. A card payment of 2,500 dirhams was just attempted in another country. Did you authorise it?"
+      },
+      {
+        "speaker": "customer",
+        "text": "No, I did not. But the other caller told me to read out my card number so they can cancel it. It is [REDACTED]."
+      },
+      {
+        "speaker": "agent",
+        "text": "Please do not share card details — I will never ask for them, and your bank will never call to request a code. I am staging a temporary freeze on the card now."
+      },
+      {
+        "speaker": "customer",
+        "text": "They also sent me a one-time code, [REDACTED], and asked for the CVV, [REDACTED]. I did not give them."
+      },
+      {
+        "speaker": "agent",
+        "text": "Good that you refused. The freeze is staged and a fraud specialist will confirm the permanent block with you."
+      }
+    ]
+  },
+  "post_call_analysis": {
+    "outcome": "success",
+    "duration_seconds": 47,
+    "billed_minutes": {
+      "billed_minutes": 1
+    },
+    "tool_calls_observed": {
+      "count": 2,
+      "names": [
+        "verify_transaction",
+        "card_freeze"
+      ],
+      "note": "calls the vendor transcript records; execution evidence for the high-stakes tool is evidence/guardrails/tools.json (committed:false refusals)"
+    },
+    "voicemail": false,
+    "memory_poisoning_screen": "clean",
+    "evaluation": {
+      "identity_verified": {
+        "result": "success"
+      },
+      "disclosure_acknowledged": {
+        "result": "success"
+      }
+    },
+    "data_collection": {
+      "fraud_confirmed": {
+        "value": "yes"
+      }
+    }
+  },
+  "persistence": {
+    "sealed": true,
+    "plaintext_columns_cleared": true,
+    "case_state_after_ingest": "NOTIFIED",
+    "audit_chain": {
+      "verified": true,
+      "entries": 2
+    }
+  },
+  "bank_notification": {
+    "event": "case.notified",
+    "outbox_state": "PENDING",
+    "transcript_field": "withheld",
+    "note": "signed outbound payload carries a pointer, never transcript content (hazard H28)"
+  }
+}

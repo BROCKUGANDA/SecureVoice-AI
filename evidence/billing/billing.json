@@ -1,14 +1,14 @@
 {
   "schema_version": "1.0",
   "gate": "billing",
-  "command": "bun test tests/billing/billing.test.ts",
+  "command": "bun test tests/billing/billing.test.ts --timeout 300000",
   "ok": true,
   "exit_code": 0,
-  "duration_ms": 2159,
-  "passed": 7,
+  "duration_ms": 187649,
+  "passed": 4,
   "failed": 0,
-  "assertions": 882,
+  "assertions": 487,
   "database": "shared test database",
-  "generated_at": "2026-10-02T21:14:47.514Z",
-  "output_tail": "    SELECT COALESCE(SUM(\"units\"), 0)::int AS \"total\" FROM \"UsageLedger\" WHERE \"orgId\" = $1\n  \n    SELECT COALESCE(SUM(\"units\"), 0)::int AS \"total\" FROM \"UsageLedger\" WHERE \"orgId\" = $1\n  \n    SELECT \"kind\", COALESCE(SUM(\"units\"), 0)::int AS \"units\"\n      FROM \"UsageLedger\"\n     WHERE \"orgId\" = $1\n     GROUP BY \"kind\"\n  \n    SELECT \"kind\", COALESCE(SUM(\"units\"), 0)::int AS \"units\"\n      FROM \"UsageLedger\"\n     WHERE \"orgId\" = $1\n     GROUP BY \"kind\"\n  \n\n\ntests\\billing\\billing.test.ts:\n(pass) WP-13: 100 concurrent reservations never oversell [997.91ms]\n(pass) WP-13: partial fills never oversell — 250 units of capacity, 100 x 30 requested [187.83ms]\n(pass) WP-13: reconciliation is exact after a mixed reserve/consume/release sequence [52.40ms]\n(pass) WP-13: replayed Paystack webhook charges once; SHA-256, re-serialised bodies and forgeries are rejected [31.93ms]\n(pass) WP-13: manual invoice enforces dual control and audit-chains both actions [86.78ms]\n(pass) WP-13: the breaker stops the 101st call and alerts at 60/80/95 [439.07ms]\n(pass) WP-13: invariant I-8 — the balance IS the sum of the ledger, with no cached column [215.57ms]\n\n 7 pass\n 0 fail\n 882 expect() calls\nRan 7 tests across 1 file. [2.11s]\n"
+  "generated_at": "2026-10-07T11:25:54.505Z",
+  "output_tail": "    SELECT COALESCE(SUM(\"units\"), 0)::int AS \"total\" FROM \"UsageLedger\" WHERE \"orgId\" = $1\n  \n    SELECT \"kind\", COALESCE(SUM(\"units\"), 0)::int AS \"units\"\n      FROM \"UsageLedger\"\n     WHERE \"orgId\" = $1\n     GROUP BY \"kind\"\n  \n    SELECT \"kind\", COALESCE(SUM(\"units\"), 0)::int AS \"units\"\n      FROM \"UsageLedger\"\n     WHERE \"orgId\" = $1\n     GROUP BY \"kind\"\n  \n\n\ntests\\billing\\billing.test.ts:\n[billing] SKIPPING concurrency assertions: db.zoxpovjgdakudsycedzc.supabase.co caps simultaneous connections below the ~100 these tests need. Oversell behaviour is UNPROVEN locally, not proven safe. Run against co-located Postgres to verify.\n(skip) WP-13: 100 concurrent reservations never oversell\n(skip) WP-13: partial fills never oversell — 250 units of capacity, 100 x 30 requested\n(pass) WP-13: reconciliation is exact after a mixed reserve/consume/release sequence [30277.19ms]\n(pass) WP-13: replayed Paystack webhook charges once; SHA-256, re-serialised bodies and forgeries are rejected [11475.33ms]\n(pass) WP-13: manual invoice enforces dual control and audit-chains both actions [12697.52ms]\n(skip) WP-13: the breaker stops the 101st call and alerts at 60/80/95\n(pass) WP-13: invariant I-8 — the balance IS the sum of the ledger, with no cached column [133046.70ms]\n\n 4 pass\n 3 skip\n 0 fail\n 487 expect() calls\nRan 7 tests across 1 file. [187.62s]\n"
 }

@@ -1,0 +1,14 @@
+{
+  "schema_version": "1.0",
+  "gate": "auth",
+  "command": "bun test tests/auth --timeout 300000",
+  "ok": true,
+  "exit_code": 0,
+  "duration_ms": 679180,
+  "passed": 163,
+  "failed": 0,
+  "assertions": 3986,
+  "database": "shared test database",
+  "generated_at": "2026-10-07T12:42:58.682Z",
+  "output_tail": "(pass) an invitation cannot be self-issued by an anonymous caller [1718.85ms]\n(pass) acceptInvite itself refuses an empty token before any database work [0.27ms]\n\ntests\\auth\\stepup.test.ts:\n(pass) the five privileged actions are exactly the ones the brief names [0.17ms]\n(pass) every privileged action maps to a real capability [2.17ms]\n(pass) the step-up window is short [0.08ms]\n(pass) commit_freeze requires a fresh step-up [11363.56ms]\n(pass) rotate_producer_key requires a fresh step-up [11881.08ms]\n(pass) change_byok_credential requires a fresh step-up [11828.27ms]\n(pass) invite_admin requires a fresh step-up [11151.16ms]\n(pass) export_bulk_data requires a fresh step-up [11115.40ms]\n(pass) a granted step-up is recorded and readable for this session [5738.38ms]\n(pass) a step-up EXPIRES after its window [7765.72ms]\n(pass) a step-up is bound to the SESSION and does not transfer to another [8212.51ms]\n(pass) a step-up is destroyed when a role change revokes the session [12937.20ms]\n(pass) a failed re-authentication does not grant a step-up [5173.94ms]\n(pass) an unknown action name is refused rather than defaulted to allowed [5098.77ms]\n(pass) POST /api/auth/step-up with the real password unlocks a gated route [11770.00ms]\n(pass) a WRONG password does not unlock a gated route [6455.46ms]\n(pass) step-up cannot be requested without a live session [1407.40ms]\n(pass) the export route is gated end to end: 428 then 200 [9751.83ms]\n(pass) a fresh session starts with NO step-up — the grant does not persist across logins [6925.93ms]\n(pass) granting and consuming a step-up is written to the audit chain [6850.69ms]\n\n 163 pass\n 0 fail\n 3986 expect() calls\nRan 163 tests across 9 files. [679.15s]\n"
+}

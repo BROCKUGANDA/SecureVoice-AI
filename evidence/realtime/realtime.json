@@ -1,14 +1,14 @@
 {
   "schema_version": "1.0",
   "gate": "realtime",
-  "command": "bun test tests/realtime/realtime.test.ts",
+  "command": "bun test tests/realtime/realtime.test.ts --timeout 300000",
   "ok": true,
   "exit_code": 0,
-  "duration_ms": 430,
+  "duration_ms": 23910,
   "passed": 1,
   "failed": 0,
-  "assertions": 40,
+  "assertions": 42,
   "database": "shared test database",
-  "generated_at": "2026-10-02T21:14:44.424Z",
-  "output_tail": "bun test v1.4.2 (744846f84)\n  [scope] cross-node delivery: UNVERIFIED here (no Redis, no Docker); run mini-services/realtime tests with REDIS_URL to close it\n\n\ntests\\realtime\\realtime.test.ts:\n(pass) WP-20: tenancy, resume, inbox dedupe, acknowledgement escalation [308.42ms]\n\n 1 pass\n 0 fail\n 40 expect() calls\nRan 1 test across 1 file. [399.00ms]\n"
+  "generated_at": "2026-10-07T11:21:16.985Z",
+  "output_tail": "bun test v1.4.2 (744846f84)\n  [scope] cross-node delivery: UNVERIFIED here (no Redis, no Docker); run mini-services/realtime tests with REDIS_URL to close it\n\n\ntests\\realtime\\realtime.test.ts:\n(pass) WP-20: tenancy, resume, inbox dedupe, acknowledgement escalation [23720.37ms]\n\n 1 pass\n 0 fail\n 42 expect() calls\nRan 1 test across 1 file. [23.87s]\n"
 }

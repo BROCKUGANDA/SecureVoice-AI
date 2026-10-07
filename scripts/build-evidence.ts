@@ -56,6 +56,11 @@ const GATES: Gate[] = [
     produces: ["evidence/guardrails/inbound-webhook.json"],
   },
   {
+    id: "transcript",
+    command: ["test", "tests/webhooks/transcript-artifact.test.ts"],
+    produces: ["evidence/transcripts/conversation.json"],
+  },
+  {
     id: "outbound-webhook",
     command: ["test", "tests/webhooks/outbound.test.ts"],
     produces: ["evidence/guardrails/outbound-webhook.json"],
@@ -143,6 +148,12 @@ function runGate(gate: Gate): GateResult {
     cwd: ROOT,
     env: { ...process.env, ...(gate.env ?? {}), PYTHON },
     encoding: "utf8",
+    // spawnSync's default 1 MB stdout buffer is smaller than the load gate's
+    // transcript (its dial-queue tests log every Prisma statement): the child
+    // is killed with ENOBUFS mid-suite WHILE ITS TESTS ARE PASSING, the gate
+    // records exit -1, and a green suite is reported as a failure. 64 MB
+    // holds the chattiest transcript measured.
+    maxBuffer: 64 * 1024 * 1024,
   });
   const result: GateResult = {
     id: gate.id,
@@ -180,8 +191,16 @@ function runGate(gate: Gate): GateResult {
       .join("\n"),
   };
   for (const p of gate.produces) {
-    mkdirSync(join(ROOT, p, ".."), { recursive: true });
-    writeFileSync(join(ROOT, p), JSON.stringify(artifact, null, 2));
+    // The transcript goes to a SIDECAR, never to the produces path itself:
+    // most gates' tests write their own graded artifact to exactly that path
+    // (evidence/load/results.json is the WP-19 metrics file, parsed by
+    // tests/docs/load-artifact-consistency.test.ts), and a transcript written
+    // over it would replace the measurement with bookkeeping. The rule is
+    // idempotent so a produces path that already ends in -run.json (seams,
+    // conformance) stays where it is.
+    const sidecar = p.replace(/-run\.json$/, ".json").replace(/\.json$/, "-run.json");
+    mkdirSync(join(ROOT, sidecar, ".."), { recursive: true });
+    writeFileSync(join(ROOT, sidecar), JSON.stringify(artifact, null, 2));
   }
   return result;
 }
@@ -269,11 +288,12 @@ const criterionMap: { criterion: string; weight: string; answers: string[]; stat
     weight: "20%",
     answers: [
       "evidence/tests/results.json",
+      "evidence/transcripts/conversation.json",
       "evidence/guardrails/redteam-server.json",
       "evidence/guardrails/redteam.json",
     ],
     state:
-      "control-plane pass rates recorded per gate; agent-layer rows reported unverified rather than counted",
+      "control-plane pass rates recorded per gate; one committed per-conversation transcript with rendered post-call analysis, labelled dry-run (not vendor evidence); agent-layer rows reported unverified rather than counted",
   },
   {
     criterion: "Guardrails demonstrably enforced in the running agent",

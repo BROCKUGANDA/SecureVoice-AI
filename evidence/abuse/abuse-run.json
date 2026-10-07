@@ -1,0 +1,14 @@
+{
+  "schema_version": "1.0",
+  "gate": "abuse",
+  "command": "bun test tests/abuse/abuse.test.ts --timeout 300000",
+  "ok": true,
+  "exit_code": 0,
+  "duration_ms": 133,
+  "passed": 26,
+  "failed": 0,
+  "assertions": 185,
+  "database": "shared test database",
+  "generated_at": "2026-10-07T12:29:40.415Z",
+  "output_tail": "(pass) geo: the denylist beats a widened allowlist (the inverse control) [0.67ms]\n(pass) geo: no allowlist configured means nothing is diallable [0.27ms]\n(pass) geo: a wildcard allowlist is refused by design [0.67ms]\n(pass) geo: premium / shared-cost service ranges are refused by prefix [0.35ms]\n(pass) geo: country resolution is offline, deterministic and injectable [0.58ms]\n(pass) geo: a throwing resolver denies the dial instead of the request [0.71ms]\n(pass) geo: E.164 canonicalisation and masking [0.38ms]\n(pass) tier: the demo tier cannot dial an unverified number [0.84ms]\n(pass) tier: the demo tier CAN dial a listed test number [0.54ms]\n(pass) tier: the demo tier dials nothing when no list is configured (fail closed) [0.23ms]\n(pass) tier: a per-org list overrides the global list [0.21ms]\n(pass) tier: prefix entries match carrier test ranges; non-demo tiers are unrestricted [0.28ms]\n(pass) concurrency: the org cap holds under a burst of 50 attempts [4.29ms]\n(pass) concurrency: the global cap holds across organisations [1.80ms]\n(pass) cooldown: per destination and per organisation, and it expires [1.29ms]\n(pass) velocity: a new-destination-prefix burst auto-pauses the organisation [1.49ms]\n(pass) breaker: a paused organisation stays paused, and re-alerts nothing [1.16ms]\n(pass) velocity: burst rate auto-pauses on attempt volume alone [0.75ms]\n(pass) velocity: out-of-hours volume warns first, then auto-pauses [1.36ms]\n(pass) velocity: a warned attempt is still allowed through the gate [0.66ms]\n(pass) velocity: refused attempts never feed the anomaly counters [1.49ms]\n(pass) gate: the decision object is complete and machine-readable [0.85ms]\n(pass) gate: malformed input is refused with a typed reason, never a throw [0.65ms]\n(pass) gate: state helpers bound themselves and stay inspectable [1.53ms]\n\n 26 pass\n 0 fail\n 185 expect() calls\nRan 26 tests across 1 file. [105.00ms]\n"
+}

@@ -1,0 +1,14 @@
+{
+  "schema_version": "1.0",
+  "gate": "billing",
+  "command": "bun test tests/billing/billing.test.ts --timeout 300000",
+  "ok": true,
+  "exit_code": 0,
+  "duration_ms": 221671,
+  "passed": 4,
+  "failed": 0,
+  "assertions": 487,
+  "database": "shared test database",
+  "generated_at": "2026-10-07T12:29:40.281Z",
+  "output_tail": "    SELECT COALESCE(SUM(\"units\"), 0)::int AS \"total\" FROM \"UsageLedger\" WHERE \"orgId\" = $1\n  \n    SELECT \"kind\", COALESCE(SUM(\"units\"), 0)::int AS \"units\"\n      FROM \"UsageLedger\"\n     WHERE \"orgId\" = $1\n     GROUP BY \"kind\"\n  \n    SELECT \"kind\", COALESCE(SUM(\"units\"), 0)::int AS \"units\"\n      FROM \"UsageLedger\"\n     WHERE \"orgId\" = $1\n     GROUP BY \"kind\"\n  \n\n\ntests\\billing\\billing.test.ts:\n[billing] SKIPPING concurrency assertions: db.zoxpovjgdakudsycedzc.supabase.co caps simultaneous connections below the ~100 these tests need. Oversell behaviour is UNPROVEN locally, not proven safe. Run against co-located Postgres to verify.\n(skip) WP-13: 100 concurrent reservations never oversell\n(skip) WP-13: partial fills never oversell — 250 units of capacity, 100 x 30 requested\n(pass) WP-13: reconciliation is exact after a mixed reserve/consume/release sequence [40646.15ms]\n(pass) WP-13: replayed Paystack webhook charges once; SHA-256, re-serialised bodies and forgeries are rejected [15687.10ms]\n(pass) WP-13: manual invoice enforces dual control and audit-chains both actions [14692.02ms]\n(skip) WP-13: the breaker stops the 101st call and alerts at 60/80/95\n(pass) WP-13: invariant I-8 — the balance IS the sum of the ledger, with no cached column [150408.72ms]\n\n 4 pass\n 3 skip\n 0 fail\n 487 expect() calls\nRan 7 tests across 1 file. [221.63s]\n"
+}

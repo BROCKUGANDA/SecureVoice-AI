@@ -1,0 +1,14 @@
+{
+  "schema_version": "1.0",
+  "gate": "validation",
+  "command": "bun test tests/validation/validation.test.ts --timeout 300000",
+  "ok": true,
+  "exit_code": 0,
+  "duration_ms": 155,
+  "passed": 21,
+  "failed": 0,
+  "assertions": 253,
+  "database": "shared test database",
+  "generated_at": "2026-10-07T12:31:39.491Z",
+  "output_tail": "\n\ntests\\validation\\validation.test.ts:\n(pass) WP-22 strict schema: unknown fields are REJECTED, never passed through [8.55ms]\n(pass) WP-22 strict schema: NO type coercion — a string for an int is invalid [2.56ms]\n(pass) WP-22 strict schema: money is integer minor units + ISO-4217; a float is rejected [4.45ms]\n(pass) WP-22 strict schema: out-of-range numbers are rejected [0.94ms]\n(pass) WP-22 strict schema: over-length strings are rejected [0.67ms]\n(pass) WP-22 strict schema: over-long arrays are rejected [1.44ms]\n(pass) WP-22 strict schema: nesting deeper than the depth cap is rejected [0.94ms]\n(pass) WP-22 strict schema: field-count cap rejects a key flood [0.27ms]\n(pass) WP-22 strict schema: body-size cap enforced on the transport [1.70ms]\n(pass) WP-22 schema: phones are normalised to E.164, not merely pattern-checked [1.77ms]\n(pass) WP-22 schema: timestamps must be ISO-8601 WITH an offset — naive local times are rejected [0.93ms]\n(pass) WP-22 unicode: homoglyph / bidi / zero-width merchant names normalise to something safe [4.28ms]\n(pass) WP-22 unicode: the grapheme cap never splits a cluster and never leaves a lone surrogate [0.78ms]\n(pass) WP-22 unicode: mixed-script detection is a usable review signal [0.13ms]\n(pass) WP-22 SSRF: every listed hostile URL is rejected, and a public host via the stub is allowed [1.55ms]\n(pass) WP-22 SSRF: the IP classifier covers the ranges the policy claims to cover [0.63ms]\n(pass) WP-22 SSRF: the URL is RE-VALIDATED after every redirect [1.05ms]\n(pass) WP-22 CSV: a formula-shaped merchant is neutralised; a normal name is untouched [0.82ms]\n(pass) WP-22 CSV: header injection via Content-Disposition is refused [0.11ms]\n(pass) WP-22 log injection: a newline in user input cannot forge a second log line [1.01ms]\n(pass) WP-22 gate: every row of the WP-22 table has a named assertion in this file [1.50ms]\n\n 21 pass\n 0 fail\n 253 expect() calls\nRan 21 tests across 1 file. [117.00ms]\n"
+}

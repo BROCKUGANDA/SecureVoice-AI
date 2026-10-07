@@ -17,6 +17,7 @@ import {
 import { useApp, t, type View, type Lang } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { LogoMark } from "@/components/shell/Logo";
+import { OrgSwitcher } from "@/components/shell/OrgSwitcher";
 
 const PUBLIC_NAV: { id: View; en: string; ar: string; icon: typeof Home }[] = [
   { id: "home", en: "Overview", ar: "الرئيسية", icon: Home },
@@ -142,6 +143,10 @@ export function Navbar() {
               <span className="max-w-[10rem] truncate text-[12.5px] font-semibold text-ink-2">
                 {session?.user?.name || session?.user?.email}
               </span>
+              {/* Only rendered for a session that belongs to more than one
+                  organization — see OrgSwitcher for why the tenant is the
+                  session and not a request parameter. */}
+              <OrgSwitcher />
               <button
                 onClick={() => void signOut()}
                 className="flex items-center gap-1.5 rounded-full border border-line bg-white px-3.5 py-2 text-[12.5px] font-semibold text-ink-2 transition hover:border-primary/40 hover:text-primary"

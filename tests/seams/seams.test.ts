@@ -150,7 +150,7 @@ async function cleanupRunScopedRows(): Promise<Record<string, number>> {
     },
   });
   const notifications = await db.notification.deleteMany({
-    where: { OR: [{ caseRef: CASE_REF }, { orgId: ORG }] },
+    where: { OR: [{ caseRef: CASE_REF }, { orgId: ORG }, { alertType: { startsWith: "seams:" } }] },
   });
   const cases = await db.case.deleteMany({ where: { caseRef: CASE_REF } });
   const ledger = await db.usageLedger.deleteMany({ where: { orgId: ORG } });

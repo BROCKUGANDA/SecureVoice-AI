@@ -20,9 +20,12 @@ import { join } from "node:path";
 import { createHash } from "node:crypto";
 
 const ROOT = process.cwd();
+// sslmode=disable: the load DB is a loopback Postgres whose certificate is
+// self-signed, and pg now treats `prefer` as `verify-full`, so a plain URL
+// fails TLS handshake and the whole gate silently degrades to "not measured".
 const LOAD_DB =
   process.env.LOAD_DATABASE_URL ??
-  "postgresql://postgres@127.0.0.1:5432/securevoice_load?connection_limit=20";
+  "postgresql://postgres@127.0.0.1:5432/securevoice_load?connection_limit=20&sslmode=disable";
 const PYTHON = process.env.PYTHON ?? "python";
 
 type Gate = {
@@ -126,7 +129,17 @@ type GateResult = { id: string; ok: boolean; exitCode: number; durationMs: numbe
 
 function runGate(gate: Gate): GateResult {
   const started = Date.now();
-  const r = spawnSync(process.execPath, gate.command, {
+  // The 120 s per-test ceiling is not optional: the shared test database is a
+  // REMOTE Postgres with ~270 ms round trips, and bun's 5 000 ms default kills
+  // DB-backed gates mid-flight — a failure that lands uniformly ON the ceiling
+  // is a harness artefact, not a measurement (see scripts/run-tests.mjs for the
+  // measured case). The dial bundle once recorded a gate as failing for weeks
+  // that passed the whole time it was being killed by the clock. 120 s was the
+  // first ceiling; the post-call-ingest gate legitimately runs ~160 s against
+  // the remote topology, so the ceiling moved to 5 min — still low enough that
+  // a hung gate blocks the bundle for minutes, not for ever.
+  const args = [...gate.command, "--timeout", "300000"];
+  const r = spawnSync(process.execPath, args, {
     cwd: ROOT,
     env: { ...process.env, ...(gate.env ?? {}), PYTHON },
     encoding: "utf8",
@@ -151,7 +164,7 @@ function runGate(gate: Gate): GateResult {
   const artifact = {
     schema_version: "1.0",
     gate: gate.id,
-    command: `bun ${gate.command.join(" ")}`,
+    command: `bun ${args.join(" ")}`,
     ok: result.ok,
     exit_code: result.exitCode,
     duration_ms: result.durationMs,
@@ -303,7 +316,7 @@ ${criterionMap
 
 | Gate | Command | Result |
 |---|---|---|
-${results.map((r) => `| ${r.id} | \`${GATES.find((g) => g.id === r.id)!.command.join(" ")}\` | ${r.ok ? "pass" : `**FAIL** (exit ${r.exitCode})`} |`).join("\n")}
+${results.map((r) => `| ${r.id} | \`bun ${GATES.find((g) => g.id === r.id)!.command.join(" ")} --timeout 300000\` | ${r.ok ? "pass" : `**FAIL** (exit ${r.exitCode})`} |`).join("\n")}
 
 ## Agent configuration
 

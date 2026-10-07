@@ -1716,6 +1716,35 @@ a per-string materializing access (`charCodeAt` at the far index) before any
 conclusion was drawn.
 
 **Not verified, and stated as such.** Peak RSS was probed with synthetic
-garbage, not the production workload; the numbers bound GC *policy*, not the
+garbage, not the production workload; the numbers bound GC _policy_, not the
 app's real live set (pools, caches, connections) — that is what the load gate
 and the VPS's own memory metrics will show in production.
+
+## 2026-10-07 — The quota cycle rolled over a month late
+
+Found while type-checking the transcript gate: `cycleEndMs` in
+`src/lib/elevenlabs/egress.ts` split the month string "2026-10" and then built
+`new Date(y, m + 1, 1)` — treating the already-human month (1–12) as if it were
+a 0-indexed Date month and adding one more. The October cycle's end was
+reported as **1 December** (correct only for December itself), so every
+quota-exhausted 429 advertised a `Retry-After` one month too long, and each
+month's Redis key lived a month past its cycle. Caught by
+`noUncheckedIndexedAccess` flagging the destructuring, not by any test — no
+test pinned the arithmetic, which is exactly why it survived.
+
+**Fix.** `new Date(y, m, 1)` — the human month used directly IS next month —
+plus `cycleEndMs` exported and pinned in
+`tests/unit/elevenlabs-egress-throttle.test.ts`: exact boundaries for
+2026-10 / 2026-01 / 2026-12, and a consecutive-months sweep asserting each
+gap equals the real length of the intervening month.
+
+**Mutation-proved.** Temporarily restoring `m + 1` fails both new tests
+(exact boundary and gap sweep); restored, 6/6 pass. Runtime check through the
+real throttle suite: unchanged, 25 assertions.
+
+**Also, honestly:** the tests-project typecheck is NOT clean on main — 24
+pre-existing errors across files this session did not write (NextRequest
+casts, an untyped `.mjs` import, indexed-access strictness). None sit behind a
+bundle gate, which is why they are invisible to `bun run evidence`. The two
+files this session owns (`transit.test.ts`, the throttle test, the transcript
+gate) are clean.

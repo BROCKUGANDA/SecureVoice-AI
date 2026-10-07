@@ -76,10 +76,14 @@ export function effectiveCharLimit(mode: MeterMode): number {
   return Math.max(1, Math.floor(limit * IN_PROCESS_LIMIT_CEILING));
 }
 
-/** When the meter rolls over; the counter key expires one day after this. */
-function cycleEndMs(month: string): number {
-  const [y, m] = month.split("-").map(Number);
-  return new Date(y, m + 1, 1).getTime();
+/** When the meter rolls over; the counter key expires one day after this.
+ *  Exported for the arithmetic pin in the egress tests. */
+export function cycleEndMs(month: string): number {
+  const [y = 0, m = 0] = month.split("-").map(Number);
+  // `m` is the HUMAN month (1-12) straight out of "2026-10"; Date months are
+  // 0-indexed, so `m` used directly IS next month. Adding 1 again reported
+  // December as the end of the October cycle (correct only in December).
+  return new Date(y, m, 1).getTime();
 }
 
 export type BudgetCheck =

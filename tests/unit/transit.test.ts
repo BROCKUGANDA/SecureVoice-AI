@@ -35,10 +35,7 @@ describe("assertTransportIsEncrypted (DATABASE_URL)", () => {
 
   test("production with sslmode=disable is refused", () => {
     expect(() =>
-      assertTransportIsEncrypted(
-        "postgresql://u:p@db:5432/securevoice?sslmode=disable",
-        PROD,
-      ),
+      assertTransportIsEncrypted("postgresql://u:p@db:5432/securevoice?sslmode=disable", PROD),
     ).toThrow(/sslmode=require/);
   });
 
@@ -108,8 +105,9 @@ describe("assertRedisTransportIsEncrypted (REDIS_URL)", () => {
   });
 
   test("the explicit private-network opt-in acknowledges plaintext", () => {
-    expect(() => assertRedisTransportIsEncrypted("redis://redis:6379", PROD_PLAINTEXT_OK)).not
-      .toThrow();
+    expect(() =>
+      assertRedisTransportIsEncrypted("redis://redis:6379", PROD_PLAINTEXT_OK),
+    ).not.toThrow();
   });
 
   test("outside production the gate is silent", () => {
@@ -139,7 +137,9 @@ describe("wiring — the refusal is reached through the meter", () => {
   });
 
   test("sharedMeter.incrBy refuses a plaintext production Redis", async () => {
-    process.env.NODE_ENV = "production";
+    // Bun types NODE_ENV as read-only on process.env; the assignment is the
+    // point of the test, so go through the mutable view.
+    (process.env as Record<string, string | undefined>).NODE_ENV = "production";
     process.env.REDIS_URL = "redis://redis:6379";
     delete process.env.REDIS_ALLOW_PLAINTEXT_PRIVATE_NETWORK;
     sharedMeter._reset(); // drop any cached client so connect() runs

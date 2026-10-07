@@ -5,7 +5,7 @@
  * keyword anywhere would have made it real.
  */
 
-export type ScenarioKind = "card" | "atm" | "wire" | "claim";
+export type ScenarioKind = "card" | "atm" | "wire" | "claim" | "voicemail";
 
 export interface ScenarioMeta {
   kind: ScenarioKind;

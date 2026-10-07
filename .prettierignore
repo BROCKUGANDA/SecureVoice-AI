@@ -37,3 +37,12 @@ Dockerfile*
 # and reformatting it would be rewritten by the next index run — so the format
 # gate would fail on a file no human owns.
 .gitnexus/
+
+# Agent-instruction files emitted by `next dev`. Next writes them itself
+# (node_modules/next/dist/server/lib/generate-agent-files.js) and RE-ADDS them
+# on the next dev run, so reformatting them produces a diff that comes straight
+# back - and would fight the block that `next dev` maintains inside them. Same
+# category as the generated trees above: no human hand-edits these, so no human
+# formatting rule should apply.
+AGENTS.md
+CLAUDE.md

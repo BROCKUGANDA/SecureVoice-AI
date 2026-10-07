@@ -37,15 +37,25 @@ export async function register() {
           if (event.request?.data) delete event.request.data;
           if (event.extra) {
             for (const k of Object.keys(event.extra)) {
-              if (/phone|email|merchant|amount|transcript|case_?ref|sms/i.test(k)) delete (event.extra as any)[k];
+              if (/phone|email|merchant|amount|transcript|case_?ref|sms/i.test(k))
+                delete (event.extra as any)[k];
             }
           }
           return event;
         },
       });
-      console.warn("[sentry] initialised (traces: " + (process.env.SENTRY_TRACES_SAMPLE_RATE ?? "0.1") + ", environment: " + (process.env.SENTRY_ENVIRONMENT ?? process.env.NODE_ENV) + ")");
+      console.warn(
+        "[sentry] initialised (traces: " +
+          (process.env.SENTRY_TRACES_SAMPLE_RATE ?? "0.1") +
+          ", environment: " +
+          (process.env.SENTRY_ENVIRONMENT ?? process.env.NODE_ENV) +
+          ")",
+      );
     } catch (err) {
-      console.error("[sentry] init failed — continuing without remote error capture:", err instanceof Error ? err.message : err);
+      console.error(
+        "[sentry] init failed — continuing without remote error capture:",
+        err instanceof Error ? err.message : err,
+      );
     }
   }
 

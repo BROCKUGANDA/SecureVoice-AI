@@ -161,6 +161,7 @@ describe("NO SMS EVER CARRIES A MERCHANT OR AN AMOUNT - enforced where texts lea
       "TWILIO_FROM_NUMBER",
       "TWILIO_API_KEY_SID",
       "TWILIO_API_KEY_SECRET",
+      "TWILIO_LIVE_SEND",
     ]) {
       saved[k] = process.env[k];
     }
@@ -171,6 +172,11 @@ describe("NO SMS EVER CARRIES A MERCHANT OR AN AMOUNT - enforced where texts lea
     process.env.TWILIO_FROM_NUMBER = "+15550000000";
     delete process.env.TWILIO_API_KEY_SID;
     delete process.env.TWILIO_API_KEY_SECRET;
+    // The live-fire attestation is required before anything leaves `twilioPost`.
+    // Opting in here is deliberate and harmless: the fetch stub below means no
+    // request reaches a carrier. Deleting it makes every assertion in this block
+    // fail, which is what proves the attestation is load-bearing.
+    process.env.TWILIO_LIVE_SEND = "true";
     sent = [];
     globalThis.fetch = (async (_url: unknown, init?: { body?: unknown }) => {
       sent.push(new URLSearchParams(String(init?.body ?? "")).get("Body") ?? "");

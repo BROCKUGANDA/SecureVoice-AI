@@ -214,6 +214,41 @@ export function verifyTwilioSignature(
 
 /* ————— REST calls ————— */
 
+/**
+ * Live-fire attestation.
+ *
+ * Every carrier request this module makes — the intervention `Calls` and the
+ * `Messages` sent as pre-notification, blind-ping and SMS fallback — reaches a
+ * real handset on a real network the moment credentials are present. There is
+ * no sandbox that a wrong destination lands in: a test fixture that looks like
+ * a UAE mobile number is, to Twilio, indistinguishable from a customer.
+ *
+ * So credentials are necessary but not sufficient. A deployment states
+ * `TWILIO_LIVE_SEND=true` to say "this account may place real calls and send
+ * real SMS". Without it every request is refused here, at the one choke point
+ * both `Calls` and `Messages` pass through, so a caller cannot bypass the guard
+ * by reaching for a different function.
+ *
+ * Deliberately NOT defaulted in `.env.example` or docker-compose, and not set
+ * by the test preload: tests that exercise the live path opt in explicitly and
+ * stub `globalThis.fetch`, which is the only honest way to assert on an
+ * outbound carrier request.
+ *
+ * Read per call, not at import — a module-level const would let one file's
+ * opt-in leak into the next one sharing the process.
+ */
+export function liveSendAttested(): boolean {
+  return process.env.TWILIO_LIVE_SEND === "true";
+}
+
+/** The refusal, shaped like the other refused sends. */
+export const LIVE_SEND_REFUSAL = {
+  ok: false,
+  status: 403,
+  error:
+    "Twilio live send not attested: set TWILIO_LIVE_SEND=true to place real calls and send real SMS from this account",
+} as const;
+
 async function twilioPost(
   accountSid: string,
   username: string,
@@ -223,6 +258,7 @@ async function twilioPost(
 ): Promise<
   { ok: true; data: Record<string, unknown> } | { ok: false; status: number; error: string }
 > {
+  if (!liveSendAttested()) return LIVE_SEND_REFUSAL;
   const body = new URLSearchParams(params).toString();
   const auth = Buffer.from(`${username}:${password}`).toString("base64");
   try {

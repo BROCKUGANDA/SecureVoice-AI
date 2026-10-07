@@ -10,6 +10,7 @@ import { consume as consumeRateLimit, rateLimitId } from "@/lib/ratelimit";
 import { verifyProducerKey } from "@/lib/producer-keys";
 import { createHash } from "node:crypto";
 import { sanitizeUntrusted, sanitizeDynamicVariables } from "@/lib/sanitize-untrusted";
+import { isTwilioConfigured, liveSendAttested, sendInterventionSms } from "@/lib/twilio";
 import { runPolicyGate } from "@/lib/policy-gate";
 import { assertDialAllowed, releaseDialSlot } from "@/lib/abuse/guards";
 import { validateOutboundUrl } from "@/lib/validation/ssrf";
@@ -67,6 +68,32 @@ export const dynamic = "force-dynamic";
 
 const REPLAY_WINDOW_SEC = 300;
 const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * How long the dial job waits before it becomes claimable, so the pre-
+ * notification SMS reaches the customer first. 75s sits inside the 60-90s
+ * window that makes a call "expected" without ageing the fraud signal past the
+ * point where a customer has already hung up on their own.
+ *
+ * Bounded so a misconfigured env value cannot park a fraud call indefinitely.
+ */
+export function preNotificationLeadMs(): number {
+  // DEFAULT 0: the submission promises the agent calls within 60s of the
+  // signal, and 75s of hold breaks that SLA. An operator who wants the
+  // pre-notification SMS to reliably land before the ring can opt in with
+  // PRENOTIF_LEAD_SECONDS (60-90); the SMS text itself is sent immediately
+  // regardless.
+  const raw = Number(process.env.PRENOTIF_LEAD_SECONDS ?? 0);
+  if (!Number.isFinite(raw) || raw <= 0) return 0;
+  return Math.min(Math.trunc(raw), 300) * 1000;
+}
+
+/** The SMS language set; anything unmapped falls back to English. */
+export function deliveryLang(lang: string): "en" | "ar" | "hi" | "ur" | "fr" | "sw" {
+  return (["en", "ar", "hi", "ur", "fr", "sw"] as const).includes(lang as never)
+    ? (lang as "en" | "ar" | "hi" | "ur" | "fr" | "sw")
+    : "en";
+}
 
 const schema = z
   .object({
@@ -645,7 +672,43 @@ async function armAndDial(
         currency: signal.currency ?? "",
         transaction_ref: signal.transaction_ref,
       },
+      // Hold the dial back so the pre-notification SMS lands first. The delay is
+      // the queue's own availableAt rather than a worker sleeping on a lease.
+      availableInMs: preNotificationLeadMs(),
     });
+
+    // Pre-notification: tell the customer, in their language, to expect the call.
+    //
+    // This is the largest answer-rate lever available and it needs no carrier
+    // agreement. A fraud-verification call from an unknown number is the exact
+    // pattern UAE customers are trained to hang up on, and Twilio's UAE
+    // guidelines prohibit presenting a +971 geographic number outbound at all,
+    // so the originator looks foreign regardless of configuration. An SMS 60-90
+    // seconds earlier makes the call expected instead of surprising.
+    //
+    // Sent AFTER the enqueue, never before: a heads-up promising a call the
+    // queue failed to schedule is worse than no message. Fire and forget — an
+    // SMS outage must not fail the intervention, and the call still proceeds.
+    //
+    // Skipped, not attempted-and-failed, when the channel cannot deliver: the
+    // live-fire attestation is a deployment state, and logging a refusal per
+    // signal would bury the failures that are worth reading.
+    if (isTwilioConfigured() && liveSendAttested()) {
+      void sendInterventionSms({
+        to: signal.phone,
+        lang: deliveryLang(signal.language),
+        caseRef,
+        // No amount, no merchant: a heads-up SMS is the most easily forwarded
+        // message in the chain, and one that names a transaction is a template a
+        // smisher can copy verbatim. It says only "expect a verification call".
+        kind: "heads_up",
+      }).catch((err: unknown) => {
+        console.error(
+          "[v1/interventions] pre-notification SMS failed:",
+          err instanceof Error ? err.message : err,
+        );
+      });
+    }
     delivery = {
       channel: "queued",
       provider: "elevenlabs",

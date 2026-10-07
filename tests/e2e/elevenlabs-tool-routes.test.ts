@@ -100,6 +100,8 @@ import { POST as humanHandoff } from "@/app/api/elevenlabs/tools/human-handoff/r
 import { POST as switchLanguage } from "@/app/api/elevenlabs/tools/switch-language/route";
 import { POST as signedUrl } from "@/app/api/elevenlabs/signed-url/route";
 import { POST as elevenLabsWebhook } from "@/app/api/webhooks/elevenlabs/route";
+import { _resetEgressForTest as resetEgress } from "@/lib/elevenlabs/egress";
+import { _reset as resetLimits } from "@/lib/ratelimit";
 
 /* ───────────────────────────── environment ─────────────────────────────── */
 
@@ -1264,6 +1266,12 @@ describe("POST /api/elevenlabs/signed-url", () => {
     process.env.AGENT_TOOL_ALLOWED = "signed_url";
     process.env.ELEVENLABS_AGENT_ID = PINNED_AGENT;
     upstream.call = null;
+    // The egress guard holds one breaker for the whole process. This suite
+    // deliberately drives several vendor failures through it, and the fifth
+    // would open the breaker and refuse every later test — which reads as a
+    // passing assertion about a route that was never actually called.
+    resetEgress();
+    resetLimits();
     respondWith(JSON.stringify({ signed_url: "wss://elevenlabs.example/signed" }));
   });
 

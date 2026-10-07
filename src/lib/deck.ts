@@ -159,9 +159,9 @@ export const DECK: Slide[] = [
     titleEn: "Security is the architecture",
     titleAr: "الأمن هو البنية",
     scriptEn:
-      "Security is not a feature list, it is the architecture. All voice data is end-to-end encrypted with AES-256 in transit and at rest. Sensitive customer information is tokenized — the agent works with references, not raw data. Data purging follows regulatory retention schedules automatically. Dashboard access is role-based and audited. Every interaction generates a compliance-ready audit trail, and compliance reporting is automated, not manual. We involved compliance specialists from the design phase — not as reviewers at the end. The result is an agent that a CBUAE-regulated bank can actually deploy.",
+      "Security is not a feature list, it is the architecture. Every inbound connection terminates at TLS with HSTS and a locked Content-Security-Policy. An organisation's own voice credentials are stored AES-256-GCM encrypted at rest, and every authentication secret we hold is hashed rather than encrypted, so a database dump yields nothing usable. Personal data is redacted before it is written, not on the way out. We store no call audio at all — only the redacted transcript. Retention is tiered by data class, and the audit chain is append-only: the code that would mutate it refuses to run. Dashboard access is role-based and every interaction generates a compliance-ready audit trail. We involved compliance specialists from the design phase — not as reviewers at the end.",
     scriptAr:
-      "تشفير كامل AES-256 للصوت أثناء النقل والتخزين، ترميز للبيانات الحساسة، حذف تلقائي وفق الجداول التنظيمية، وصلاحيات مبنية على الأدوار. الامتثال مصمم من اليوم الأول وفق أنظمة المصرف المركزي الإماراتي.",
+      "الأمن ليس قائمة مزايا، بل هو البنية. جميع الاتصالات مشفرة عبر TLS مع HSTS وسياسة محتوى مقيّدة. مفاتيح الصوت الخاصة بالمنظمة محفوظة بتشفير AES-256-GCM، والأسرار تُخزَّن مجزّأة لا مشفّرة. تُحذف البيانات الشخصية قبل التخزين. لا نحفظ تسجيلات الصوت إطلاقًا — فقط النص المنقّح. الاحتفاظ مصنّف حسب نوع البيانات، وسجل التدقيق للإضافة فقط. الامتثال مصمم من اليوم الأول وفق أنظمة المصرف المركزي الإماراتي.",
   },
   {
     id: 12,

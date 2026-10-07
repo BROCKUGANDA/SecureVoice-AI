@@ -24,6 +24,35 @@ import { recordQuery, type PrismaQueryEvent } from "@/lib/telemetry/query-counte
 // This schema is Postgres-only (`provider = "postgresql"`), so the adapter
 // manages a real pool against whatever DATABASE_URL the runtime is given.
 const databaseUrl = process.env.DATABASE_URL ?? "";
+
+/**
+ * A production database connection must be encrypted.
+ *
+ * `DATABASE_URL` is passed to the pool verbatim, so a URL without an SSL mode
+ * sends every case row, transcript and phone number across the network in
+ * plaintext — while everything above it (Caddy, HSTS, CSP) makes the deployment
+ * LOOK TLS-protected. The one place a plaintext hop is defensible is a private
+ * network the operator controls, so that case is allowed only by explicit
+ * opt-in rather than by silence.
+ */
+function assertTransportIsEncrypted(url: string): void {
+  if (!url) return; // the pool's own error is more specific than ours
+  if (process.env.NODE_ENV !== "production") return;
+  if (process.env.DB_ALLOW_PLAINTEXT_PRIVATE_NETWORK === "true") return;
+
+  const mode = /[?&]sslmode=([^&]+)/.exec(url)?.[1]?.toLowerCase();
+  const encrypted = mode === "require" || mode === "verify-ca" || mode === "verify-full";
+  if (!encrypted) {
+    throw new Error(
+      "DATABASE_URL must set sslmode=require (or verify-ca/verify-full) in production. " +
+        "Case rows, transcripts and phone numbers would otherwise cross the network in " +
+        "plaintext. On a private network you control, set " +
+        "DB_ALLOW_PLAINTEXT_PRIVATE_NETWORK=true to acknowledge that explicitly.",
+    );
+  }
+}
+assertTransportIsEncrypted(databaseUrl);
+
 const CONNECT_TIMEOUT_MS = 10_000;
 const MAIN_POOL_MAX =
   Number.parseInt(/[?&]connection_limit=(\d+)/.exec(databaseUrl)?.[1] ?? "", 10) ||

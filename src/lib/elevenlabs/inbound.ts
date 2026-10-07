@@ -255,8 +255,15 @@ async function handleTranscription(row: WebhookEventRow, data: any): Promise<voi
       outcome,
       durationSeconds,
       transcriptRedacted: redactedTranscript,
-      evaluationResults: evaluation !== null ? JSON.stringify(evaluation) : null,
-      dataCollectionResults: dataCollection !== null ? JSON.stringify(dataCollection) : null,
+      // The vendor's evaluation and data-collection payloads are free text from
+      // a recorded conversation, so they carry the same risk as the transcript
+      // beside them. Redacting only the transcript left a path where a customer
+      // could repeat their card number and it would be stored verbatim in the
+      // results column.
+      evaluationResults:
+        evaluation !== null ? JSON.stringify(redact.payload(evaluation)) : null,
+      dataCollectionResults:
+        dataCollection !== null ? JSON.stringify(redact.payload(dataCollection)) : null,
     },
   });
 

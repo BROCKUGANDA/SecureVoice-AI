@@ -83,7 +83,17 @@ test("WP-2: 20 signals dial in dry-run, p95 < 1.5s, idempotent, audited", async 
   // benchmark raises the ceiling and says so, rather than weakening the
   // production default.
   const { setAbuseConfig } = await import("@/lib/abuse/config");
-  setAbuseConfig({ velocity: { burstRateMax: 100, newPrefixBurst: 100 } });
+  // This gate deliberately fires 20 fraud signals back to back. Two unrelated
+  // abuse controls catch that shape: the burst rate, and out-of-hours volume —
+  // which auto-pauses the org after `afterHoursPause` attempts outside
+  // 06:00–22:00 UTC. Run at night, the gate therefore refused with
+  // `velocity_after_hours` and measured nothing about dialling at all: the same
+  // commit passed at 23:00 and failed at 01:00. Both ceilings are lifted above
+  // the burst size so this file measures what its name claims. The velocity
+  // breaker's own behaviour is asserted in tests/abuse.
+  setAbuseConfig({
+    velocity: { burstRateMax: 100, newPrefixBurst: 100, afterHoursWarn: 100, afterHoursPause: 100 },
+  });
 
   // Credits: the dial path reserves a real unit from the append-only ledger
   // (policy gate step 6) and fails closed when the balance is empty. Topping
@@ -130,7 +140,7 @@ test("WP-2: 20 signals dial in dry-run, p95 < 1.5s, idempotent, audited", async 
 
   // All 20 must succeed.
   for (const r of results) {
-    expect(r.status).toBe(202);
+    expect(r.status, `signal refused: ${JSON.stringify(r.data)}`).toBe(202);
     expect(r.data.ok).toBe(true);
     expect(r.data.caseRef).toBeTruthy();
     // The dial path is a durable queue (S-1/WP-19): the handler enqueues and

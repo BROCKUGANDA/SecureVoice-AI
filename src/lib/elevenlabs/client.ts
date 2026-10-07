@@ -86,8 +86,36 @@ export const ELEVEN_VOICE_ENV: Record<TtsLang, string> = {
 
 /** Some languages need a different model: Swahili ships in Flash v2.5 (32
  *  languages), not Multilingual v2 (29). French is native to v2. */
+/**
+ * Languages the default model cannot voice, and the model that can.
+ *
+ * `eleven_multilingual_v2` carries 29 languages and `eleven_flash_v2_5` carries
+ * those same 29 plus hu/no/vi. NEITHER includes Urdu or Swahili, so routing
+ * `sw` to flash v2.5 — which is what this map used to do — selects a model that
+ * cannot synthesise the language it exists to support. Both languages are in
+ * the v3 generation's 74, so they are pinned there.
+ *
+ * Availability of the v3 generation on a given account tier is NOT verified
+ * here; it is asserted at runtime by the first synthesis. Override with
+ * ELEVENLABS_TTS_MODEL_UR / _SW if the account needs a different model.
+ */
 const MODEL_FOR_LANG: Partial<Record<TtsLang, string>> = {
-  sw: "eleven_flash_v2_5",
+  ur: process.env.ELEVENLABS_TTS_MODEL_UR ?? "eleven_v3",
+  sw: process.env.ELEVENLABS_TTS_MODEL_SW ?? "eleven_v3",
+};
+
+/**
+ * Which TTS model can voice which caller language. Exported so the docs and the
+ * gate are checked against the same table the client uses, rather than a claim
+ * restated in markdown.
+ */
+export const TTS_LANGUAGE_SUPPORT: Record<TtsLang, { multilingual_v2: boolean; v3: boolean }> = {
+  en: { multilingual_v2: true, v3: true },
+  ar: { multilingual_v2: true, v3: true },
+  hi: { multilingual_v2: true, v3: true },
+  fr: { multilingual_v2: true, v3: true },
+  ur: { multilingual_v2: false, v3: true },
+  sw: { multilingual_v2: false, v3: true },
 };
 
 /** Prod mode = a real key configured AND dry-run disabled. */
@@ -283,17 +311,19 @@ async function callZaiTts(req: TtsRequest): Promise<Buffer> {
 }
 
 async function callElevenLabsTts(req: TtsRequest, keyOverride?: string): Promise<Buffer> {
-  const key = keyOverride ?? env.elevenLabsApiKey!;
+  // Every billable byte goes through the shared egress guard: egress throttle,
+  // monthly account budget, conversation-plane breaker, jittered retry.
+  const { fetchUpstreamBinary } = await import("@/lib/elevenlabs/egress");
   const model = MODEL_FOR_LANG[req.lang] ?? env.elevenLabsModel;
-  const r = await fetch(
-    `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(req.voice)}`,
+
+  // A BYOK caller spends their own quota, not the platform's 10k, so nothing is
+  // reserved — but the key must be THEIRS. Passing it through `apiKey` is what
+  // keeps the guard from quietly synthesising on the platform key instead.
+  const res = await fetchUpstreamBinary(
+    "POST",
+    `/v1/text-to-speech/${encodeURIComponent(req.voice)}`,
     {
-      method: "POST",
-      headers: {
-        "xi-api-key": key,
-        "content-type": "application/json",
-        accept: "audio/mpeg",
-      },
+      headers: { "content-type": "application/json", accept: "audio/mpeg" },
       body: JSON.stringify({
         text: req.text,
         model_id: model,
@@ -304,18 +334,21 @@ async function callElevenLabsTts(req: TtsRequest, keyOverride?: string): Promise
           speed: req.speed ?? 1.0,
         },
       }),
-      signal: AbortSignal.timeout(25_000),
+      billableChars: keyOverride ? 0 : req.text.length,
+      apiKey: keyOverride,
+      callerId: req.callerId,
+      timeoutMs: 25_000,
+      maxRetries: 2,
     },
   );
-  if (!r.ok) {
-    const detail = await r.text().catch(() => "");
+  if (!res.ok) {
     throw new UpstreamError(
-      `ElevenLabs ${r.status}: ${detail.slice(0, 200)}`,
-      r.status,
+      `ElevenLabs ${res.status}: ${res.body.slice(0, 200)}`,
+      res.status,
       "upstream",
     );
   }
-  const ab = await r.arrayBuffer();
+  const ab = await res.response.arrayBuffer();
   const buf = Buffer.from(new Uint8Array(ab));
   if (buf.length < 512)
     throw new UpstreamError("ElevenLabs returned empty audio", 502, "empty_audio");

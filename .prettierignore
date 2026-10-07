@@ -31,3 +31,9 @@ Caddyfile.*
 docker-compose*.yml
 docker-compose*.yaml
 Dockerfile*
+
+# GitNexus writes its code-intelligence cache into .gitnexus/ and regenerates it
+# on every analyze. It is machine output, excluded from git via .git/info/exclude,
+# and reformatting it would be rewritten by the next index run — so the format
+# gate would fail on a file no human owns.
+.gitnexus/

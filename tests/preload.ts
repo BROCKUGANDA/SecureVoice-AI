@@ -7,6 +7,16 @@ import { mock } from "bun:test";
 
 mock.module("server-only", () => ({}));
 
+// The ElevenLabs egress guard refuses any live vendor call unless the operator
+// attests the account is entitled to commercial use (free tier is
+// non-commercial only — ToS §1(c)(i), PUP §9(a)). The suites exercise the live
+// path against stubbed vendors, so they attest on behalf of every test; a test
+// that wants the refusal deletes the variable itself.
+//
+// This is deliberately NOT a default in .env.example or docker-compose: the
+// attestation has to be a decision someone makes about a real account.
+process.env.ELEVENLABS_COMMERCIAL_USE ??= "true";
+
 // Latency gates (docs/VERIFICATION.md WP-3) assume the production topology
 // from docs/HETZNER.md: Postgres co-located with the app. When a caller
 // provides TEST_DATABASE_URL, every test runs against that database instead

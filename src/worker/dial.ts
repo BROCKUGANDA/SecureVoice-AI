@@ -65,16 +65,37 @@ function parsePayload(job: DialJob): JobPayload {
  */
 async function handle(job: DialJob): Promise<DialOutcome> {
   const payload = parsePayload(job);
-  const to = payload.to ?? payload.phone;
-  if (!to) return { ok: false, error: "job payload has no destination", retryable: false };
 
   const existing = await db.case.findFirst({
     where: { caseRef: job.case_ref },
-    select: { conversationId: true, state: true },
+    select: { conversationId: true, state: true, phone: true },
   });
   if (existing?.conversationId) {
     // Already placed by a worker that died before writing it down.
     return { ok: true };
+  }
+
+  // The destination comes from the Case row, never from the job payload.
+  //
+  // The payload's `to` is written as `redactText(signal.phone)` on the ingest
+  // path, so it reads "[REDACTED]" — correct for an audit/display field and
+  // fatal for a dial instruction. Trusting it sends "[REDACTED]" to the
+  // telephony provider, which dry-run mode cannot detect because
+  // `placeOutboundCall` returns a synthetic conversation id without ever
+  // looking at the number. The plaintext destination already lives on the case
+  // row, which is the one place it is legitimately stored.
+  const to = existing?.phone ?? payload.phone;
+  if (!to) {
+    return { ok: false, error: "case row has no destination phone", retryable: false };
+  }
+  if (!/^\+[1-9]\d{6,14}$/.test(to)) {
+    // Fail closed rather than dial a redaction placeholder or a mangled number:
+    // a wrong destination here means an unrelated customer gets a fraud call.
+    return {
+      ok: false,
+      error: `destination is not a valid E.164 number: ${to.slice(0, 4)}`,
+      retryable: false,
+    };
   }
 
   try {

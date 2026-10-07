@@ -16,7 +16,15 @@ import "server-only";
  * without network egress — the e2e test and the demo console use this path.
  */
 
-const API = process.env.ELEVENLABS_API_BASE ?? "https://api.elevenlabs.io";
+import { elevenLabsFetch } from "@/lib/elevenlabs/egress";
+import {
+  OPENING_DISCLOSURE_AR,
+  OPENING_DISCLOSURE_EN,
+  OPENING_DISCLOSURE_FR,
+  OPENING_DISCLOSURE_HI,
+  OPENING_DISCLOSURE_SW,
+  OPENING_DISCLOSURE_UR,
+} from "@/lib/compliance/policy";
 
 export type OutboundCallParams = {
   toNumber: string;
@@ -56,21 +64,52 @@ export function voiceForLanguage(lang: string): string | null {
   return process.env[`ELEVENLABS_VOICE_${lang.toUpperCase()}`] ?? null;
 }
 
-/** Resolve the first message for a language from the agent definition. */
-export function firstMessageForLanguage(lang: string): string {
-  // These mirror agent/securevoice.agent.yaml — kept in sync by agent:apply.
-  // EN is held in a named constant rather than read back out of the map: a
-  // dot access on an index-signature type is still an element access, so
-  // `messages.en` would be `string | undefined` and the fallback would not
-  // be provably defined.
-  const en =
-    "This call is recorded to protect you. I am your bank's AI security assistant calling about a transaction on your card.";
-  const messages: Record<string, string> = {
-    en,
-    ar: "يتم تسجيل هذه المكالمة لحمايتك. أنا مساعد الأمان الذكي في بنكك، وأتصل بك بخصوص عملية على بطاقتك.",
-    hi: "यह कॉल आपकी सुरक्षा के लिए रिकॉर्ड की जा रही है। मैं आपके बैंक का AI सुरक्षा सहायक हूं।",
-  };
-  return messages[lang] ?? en;
+/**
+ * The languages a call can actually be placed in. Adding a language here means
+ * adding a TTS voice, an agent, and a first message — the three tests over this
+ * map fail until all three exist, which is the point.
+ */
+export const CALL_LANGUAGES = ["en", "ar", "hi", "ur", "fr", "sw"] as const;
+export type CallLanguage = (typeof CALL_LANGUAGES)[number];
+
+export function isCallLanguage(lang: string): lang is CallLanguage {
+  return (CALL_LANGUAGES as readonly string[]).includes(lang);
+}
+
+/**
+ * The opening line, per language — COMPOSED from the policy module's disclosure
+ * constants rather than restating them.
+ *
+ * The reason is a drift this file previously had: `compliance/policy.ts`
+ * exported `OPENING_DISCLOSURE_AR` as "هذه المكالمة مسجلة لحمايتك" while the
+ * message actually spoken here said "يتم تسجيل هذه المكالمة لحمايتك". Two
+ * phrasings of one rule, neither referencing the other, so the "server-enforced
+ * disclosure" was enforced on a string the customer never hears. Building the
+ * message FROM the constant makes that structurally impossible, and the gate
+ * asserts the substring on every language.
+ *
+ * Each message must carry three things: the recorded-call notice, an explicit
+ * statement that the caller is an AI rather than a human, and the reason for the
+ * call. The Arabic previously failed the middle one — "مساعد الأمان الذكي"
+ * ("the intelligent security assistant") is not an AI disclosure.
+ *
+ * There is deliberately no English fallback. A language without a disclosure
+ * cannot be dialled.
+ *
+ * ur/fr/sw wording needs native-speaker sign-off before a production pilot.
+ */
+const FIRST_MESSAGES: Record<CallLanguage, string> = {
+  en: `${OPENING_DISCLOSURE_EN}. I am your bank's AI security assistant, calling about a transaction on your card.`,
+  ar: `${OPENING_DISCLOSURE_AR}. أنا مساعد الأمان في بنكك المعتمد على الذكاء الاصطناعي، وأتصل بك بخصوص عملية على بطاقتك.`,
+  hi: `${OPENING_DISCLOSURE_HI}. मैं आपके बैंक का AI सुरक्षा सहायक हूं, और आपके कार्ड पर एक लेनदेन के बारे में बात करने के लिए कॉल कर रहा हूं।`,
+  ur: `${OPENING_DISCLOSURE_UR}. میں آپ کے بینک کا AI سیکیورٹی اسسٹنٹ ہوں, اور آپ کے کارڈ پر ایک لین دین کے بارے میں بات کرنے کے لیے کال کر رہا ہوں۔`,
+  fr: `${OPENING_DISCLOSURE_FR}. Je suis l'assistant sécurité IA de votre banque, et je vous appelle au sujet d'une transaction sur votre carte.`,
+  sw: `${OPENING_DISCLOSURE_SW}. Mimi ni msaidizi wa usalama wa AI wa benki yako, nikukupigia kuhusu muamala kwenye kadi yako.`,
+};
+
+/** Resolve the first message for a language, or null when it is not callable. */
+export function firstMessageForLanguage(lang: string): string | null {
+  return isCallLanguage(lang) ? FIRST_MESSAGES[lang] : null;
 }
 
 export async function placeOutboundCall(params: OutboundCallParams): Promise<OutboundCallResult> {
@@ -102,6 +141,15 @@ export async function placeOutboundCall(params: OutboundCallParams): Promise<Out
   if (!voiceId) {
     throw new Error(`No voice configured for language ${params.language}`);
   }
+  // No disclosure in this language means we cannot lawfully open the call, so
+  // the dial is refused here rather than answered in a language the customer
+  // may not understand.
+  const firstMessage = firstMessageForLanguage(params.language);
+  if (!firstMessage) {
+    throw new Error(
+      `No opening disclosure configured for language ${params.language}; refusing to dial`,
+    );
+  }
 
   const body = {
     agent_id: agent,
@@ -113,25 +161,34 @@ export async function placeOutboundCall(params: OutboundCallParams): Promise<Out
         tts: { voice_id: voiceId },
         agent: {
           language: params.language,
-          first_message: firstMessageForLanguage(params.language),
+          first_message: firstMessage,
         },
       },
     },
   };
 
-  const res = await fetch(`${API}/v1/convai/twilio/outbound-call`, {
+  const res = await elevenLabsFetch<{ conversation_id?: string; callSid?: string }>({
+    path: "/v1/convai/twilio/outbound-call",
     method: "POST",
-    headers: { "xi-api-key": key, "content-type": "application/json" },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(10_000),
+    body,
+    // Outbound dials bill minutes, not TTS chars, so nothing is reserved against
+    // the character budget. The throttle is keyed on a constant, NOT on caseRef:
+    // it protects the shared vendor account, and a per-case key would let anyone
+    // mint a fresh bucket by opening another case.
+    billableChars: 0,
+    callerId: "dial",
   });
 
   if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`ElevenLabs outbound-call ${res.status}: ${text.slice(0, 300)}`);
+    // Breaker-open / quota / retry-exhausted all surface here with a typed
+    // status. The dial path treats this as a failed placement, not a silent
+    // drop — the caller decides queue-vs-alert per the declared fallback.
+    throw new Error(
+      `ElevenLabs outbound-call ${res.error.status}: ${res.error.body.slice(0, 300)}`,
+    );
   }
 
-  const data = await res.json();
+  const data = res.data;
   return {
     conversationId: data.conversation_id ?? null,
     callSid: data.callSid ?? null,

@@ -13,6 +13,7 @@
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { resolve } from "node:path";
+import { fetchWithBackoff } from "./lib/elevenlabs-egress.mjs";
 
 const API = process.env.ELEVENLABS_API_BASE ?? "https://api.elevenlabs.io";
 const AGENT_ID = process.env.ELEVENLABS_AGENT_ID;
@@ -73,7 +74,7 @@ function stripVolatile(value: unknown): unknown {
 
 async function main() {
   console.log(`▶ agent:snapshot — GET /v1/convai/agents/${AGENT_ID}`);
-  const res = await fetch(`${API}/v1/convai/agents/${AGENT_ID}`, {
+  const res = await fetchWithBackoff(`${API}/v1/convai/agents/${AGENT_ID}`, {
     headers: { "xi-api-key": API_KEY! },
   });
   if (!res.ok) {

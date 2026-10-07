@@ -107,7 +107,16 @@ services:
     mem_limit: 512m
     environment:
       DATABASE_URL: ${DATABASE_URL:?DATABASE_URL must be set in .env}
+      # Durable ElevenLabs character meter. Defaults to the compose redis
+      # service; unset it and the guard falls back to per-process counting,
+      # which it logs as degraded rather than hiding.
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
       NODE_ENV: production
+      # The compose database is a container on a private network with no server
+      # certificate. src/lib/db.ts refuses a plaintext connection in production
+      # without this explicit acknowledgement, so it is stated here rather than
+      # weakened globally.
+      DB_ALLOW_PLAINTEXT_PRIVATE_NETWORK: "true"
       ELEVENLABS_DRY_RUN: ${ELEVENLABS_DRY_RUN:-true}
       ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
       ELEVENLABS_AGENT_ID: ${ELEVENLABS_AGENT_ID:-}
@@ -123,6 +132,8 @@ services:
     depends_on:
       db-setup:
         condition: service_completed_successfully
+      redis:
+        condition: service_healthy
     # The preload neutralises the Next-only `server-only` marker for this plain Bun
     # process; see scripts/worker-preload.ts for why that is safe.
     command: ["bun", "--preload", "./scripts/worker-preload.ts", "src/worker/dial.ts"]
@@ -178,6 +189,12 @@ services:
       HOSTNAME: 0.0.0.0
       # Built from parts â€” see db-setup for why a whole-URL interpolation is unsafe.
       DATABASE_URL: ${DATABASE_URL:?DATABASE_URL must be set in .env}
+      # Durable ElevenLabs character meter (10k/month account ceiling). With it
+      # unset the guard degrades to a per-process count at a tightened ceiling
+      # and logs `degraded: in-process budget limit active`.
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      # Private-network database with no server certificate; see dial-worker.
+      DB_ALLOW_PLAINTEXT_PRIVATE_NETWORK: "true"
       # Internal service name, NEVER localhost: inside the app container,
       # localhost is the app container. Empty = realtime disabled, console uses SSE.
       REALTIME_URL: ${REALTIME_URL:-http://realtime:4000}
@@ -192,6 +209,8 @@ services:
         condition: service_completed_successfully
       realtime:
         condition: service_started
+      redis:
+        condition: service_healthy
     healthcheck:
       # Readiness, not liveness: the instance must be able to reach its
       # database before it is allowed to take traffic. /api/health stays a pure

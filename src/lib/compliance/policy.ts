@@ -39,6 +39,25 @@ import "server-only";
  *  6. TRANSCRIPT_BEFORE_TTS_CLOSE — the agent's reply MUST be recorded in
  *     the audit log BEFORE the TTS endpoint is called for that reply, so
  *     that an interrupted call still leaves a written record.
+ *
+ *  7. NO_PROHIBITED_DATA_TO_VENDOR — ElevenAgents Terms §2.E forbids sending
+ *     "any financial account identifiers (e.g., credit card numbers or bank
+ *     account numbers)" to the platform without written agreement. Enforced in
+ *     `sanitizeUntrusted`, which is the single chokepoint every dynamic
+ *     variable passes on its way into the agent's spoken context. Note the
+ *     existing PII guard (item 4) covers the PERSIST path; this covers EGRESS.
+ *     It is narrower than `redact.transcript` on purpose: stripping phone-shaped
+ *     digits would corrupt a bank's own transaction reference.
+ *
+ *  8. HIGH_STAKES_DECISION_REQUIRES_HUMAN — PUP §3(d) prohibits facilitating
+ *     "high-stakes automated decisionmaking which may affect an individual's
+ *     wellbeing", and §3(b) requires a qualified professional to review output
+ *     in financial services. This is why `card_freeze` is NOT a freeze. The tool
+ *     moves the case to FREEZE_STAGED with `committed: false` and a reversal
+ *     window, and no agent-reachable code path can set `committed: true`. The
+ *     agent can ask; a human or the bank's own processor decides. Asserted
+ *     structurally by tests/unit/compliance-disclosure.test.ts, because a
+ *     guarantee that rests on a comment is not a guarantee.
  */
 
 import { transcript as redactText } from "@/lib/redact";

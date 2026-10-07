@@ -165,26 +165,18 @@ async function transcribeZai(audioB64: string): Promise<string> {
 }
 
 async function transcribeElevenLabs(audioB64: string, mime: string): Promise<string> {
-  const key = process.env.ELEVENLABS_API_KEY!;
+  // Hardened path: same breaker + retry as every other ElevenLabs call. The
+  // multipart form is rebuilt per attempt inside `elevenLabsStt` because a
+  // consumed stream cannot be re-sent.
+  const { elevenLabsStt } = await import("@/lib/elevenlabs/egress");
   // Default to scribe_v2 (current generation, matches the deck claim); pin
   // scribe_v1 via ELEVENLABS_STT_MODEL if the account tier requires it.
   const model = process.env.ELEVENLABS_STT_MODEL ?? "scribe_v2";
-  // ElevenLabs STT expects multipart/form-data with a file field
   const buf = Buffer.from(audioB64, "base64");
-  const blob = new Blob([buf], { type: mime });
-  const form = new FormData();
-  form.append("file", blob, "recording");
-  form.append("model_id", model);
-  const r = await fetch("https://api.elevenlabs.io/v1/speech-to-text", {
-    method: "POST",
-    headers: { "xi-api-key": key },
-    body: form,
-    signal: AbortSignal.timeout(30_000),
-  });
+  const r = await elevenLabsStt(buf, mime, model);
   if (!r.ok) {
-    const detail = await r.text().catch(() => "");
-    throw new Error(`ElevenLabs STT ${r.status}: ${detail.slice(0, 200)}`);
+    throw new Error(`ElevenLabs STT ${r.status}: ${r.body.slice(0, 200)}`);
   }
-  const data = await r.json();
+  const data = (await r.response.json()) as { text?: unknown };
   return (data.text ?? "").toString().trim();
 }

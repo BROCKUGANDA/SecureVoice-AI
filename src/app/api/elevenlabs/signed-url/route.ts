@@ -4,6 +4,7 @@ import { z } from "zod";
 import { authorizeToolCall } from "@/lib/agent-tool-auth";
 import { append as auditAppend } from "@/lib/audit-chain";
 import { badRequest, parseJson, upstreamError } from "@/lib/api-errors";
+import { elevenLabsFetch } from "@/lib/elevenlabs/egress";
 import { leakSafeText } from "@/lib/failures/envelope";
 import { env } from "@/lib/config";
 
@@ -56,23 +57,43 @@ export async function POST(req: NextRequest) {
     ? `/v1/convai/conversation/token?agent_id=${encodeURIComponent(requested)}`
     : `/v1/convai/conversation/get-signed-url?agent_id=${encodeURIComponent(requested)}`;
 
-  const res = await fetch(`https://api.elevenlabs.io${path}`, {
+  const res = await elevenLabsFetch<{ signed_url?: string; token?: string }>({
+    path,
     method: "GET",
-    headers: { "xi-api-key": env.elevenLabsApiKey ?? "" },
-    signal: AbortSignal.timeout(20_000),
+    // Signing mints a credential, not synthesis — throttle + breaker apply,
+    // the TTS char budget does not.
+    billableChars: 0,
+    callerId: auth.orgId ?? "signed-url",
   });
 
   if (!res.ok) {
+    const err = res.error;
+    // 429 comes from the guard, not the vendor: the egress throttle or the
+    // monthly account budget stopped it. Say which, and hand back the Retry-After
+    // the guard computed so the caller waits the right amount instead of guessing.
+    if (err.status === 429) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: err.body,
+          retryable: true,
+          quotaExhausted: err.quotaExhausted ?? false,
+        },
+        {
+          status: 429,
+          headers: { "Retry-After": String(err.retryAfterSec ?? 60) },
+        },
+      );
+    }
     // The upstream body is echoed to the caller, so it goes through the same
     // leak rules as every other caller-facing string. `upstreamError()` does not
     // sanitise, and 200 raw characters of a vendor response can carry a key, an
     // internal hostname or a stack. Keep the status (the useful part) and
     // redact the rest.
-    const detail = await res.text().catch(() => "");
-    return upstreamError(`ElevenLabs ${res.status}: ${leakSafeText(detail, 160) || "no detail"}`);
+    return upstreamError(`ElevenLabs ${err.status}: ${leakSafeText(err.body, 160) || "no detail"}`);
   }
 
-  const data = (await res.json()) as { signed_url?: string; token?: string };
+  const data = res.data;
   const credential = data.signed_url ?? data.token;
   if (!credential) return upstreamError("ElevenLabs returned no connection credential");
 

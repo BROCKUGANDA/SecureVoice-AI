@@ -22,6 +22,7 @@ import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { resolve } from "node:path";
 import yaml from "js-yaml";
+import { fetchWithBackoff } from "./lib/elevenlabs-egress.mjs";
 
 const API = process.env.ELEVENLABS_API_BASE ?? "https://api.elevenlabs.io";
 const AGENT_ID = process.env.ELEVENLABS_AGENT_ID;
@@ -74,7 +75,9 @@ function resolveValue(v: unknown): unknown {
 // ── HTTP helpers ─────────────────────────────────────────────────────────────
 
 async function apiFetch(path: string, init?: RequestInit): Promise<any> {
-  const res = await fetch(`${API}${path}`, {
+  // Safe to retry: the PATCH sends the whole desired configuration, so a second
+  // attempt after a transient 5xx sets the same state rather than stacking one.
+  const res = await fetchWithBackoff(`${API}${path}`, {
     ...init,
     headers: {
       "xi-api-key": API_KEY!,

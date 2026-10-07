@@ -28,6 +28,7 @@
 import { writeFileSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { RED_TEAM_SCENARIOS, attackFor, type RedTeamScenario } from "../src/lib/redteam/scenarios";
+import { fetchWithBackoff } from "./lib/elevenlabs-egress.mjs";
 
 const API = process.env.ELEVENLABS_API_BASE ?? "https://api.elevenlabs.io";
 const AGENT_ID = process.env.ELEVENLABS_AGENT_ID ?? "";
@@ -156,11 +157,20 @@ async function simulate(
     new_turns_limit: 12,
   };
 
-  const res = await fetch(`${API}/v1/convai/agents/${AGENT_ID}/simulate-conversation`, {
-    method: "POST",
-    headers: { "xi-api-key": KEY, "content-type": "application/json" },
-    body: JSON.stringify(body),
-  });
+  // Backoff matters here beyond politeness: without it one transient 429 is
+  // written into the evidence as a scenario the agent FAILED. A wrong
+  // measurement is worse than a crash, because the report reads as fact.
+  // A simulated conversation is long-running, so the timeout is generous and
+  // the ladder short — each attempt costs real vendor time.
+  const res = await fetchWithBackoff(
+    `${API}/v1/convai/agents/${AGENT_ID}/simulate-conversation`,
+    {
+      method: "POST",
+      headers: { "xi-api-key": KEY, "content-type": "application/json" },
+      body: JSON.stringify(body),
+    },
+    { maxRetries: 2, timeoutMs: 180_000 },
+  );
 
   if (res.status === 401 || res.status === 403) {
     return {

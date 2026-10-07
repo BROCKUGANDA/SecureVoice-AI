@@ -8,9 +8,9 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "postinstall": "prisma generate",
-    "dev": "next dev -p 3000 2\u003e\u00261 | tee dev.log",
-    "build": "next build \u0026\u0026 bun scripts/copy-standalone.mjs",
-    "start": "NODE_ENV=production bun .next/standalone/server.js 2\u003e\u00261 | tee server.log",
+    "dev": "next dev -p 3000 2>&1 | tee dev.log",
+    "build": "next build && bun scripts/copy-standalone.mjs",
+    "start": "NODE_ENV=production bun .next/standalone/server.js 2>&1 | tee server.log",
     "lint": "eslint .",
     "evidence": "bun --preload ./tests/preload.ts scripts/build-evidence.ts",
     "test:agent": "bun scripts/run-agent-tests.ts",
@@ -19,11 +19,11 @@
     "db:migrate": "prisma migrate dev",
     "db:reset": "prisma migrate reset",
     "db:seed": "node scripts/seed-demo.mjs",
-    "build:linux": "next build \u0026\u0026 sh -c \u0027cp -r .next/static .next/standalone/.next/ \u0026\u0026 cp -r public .next/standalone/\u0027",
-    "release:check": "bun run format:check \u0026\u0026 bun run lint \u0026\u0026 bunx tsc --noEmit -p tsconfig.json \u0026\u0026 bun run auth:cutover \u0026\u0026 bun run test \u0026\u0026 bun run build",
+    "build:linux": "next build && sh -c 'cp -r .next/static .next/standalone/.next/ && cp -r public .next/standalone/'",
+    "release:check": "bun run format:check && bun run lint && bunx tsc --noEmit -p tsconfig.json && bun run auth:cutover && bun run test && bun run build",
     "preflight": "bun scripts/preflight.mjs",
-    "realtime:test": "cd mini-services/realtime \u0026\u0026 bun test",
-    "verify": "bun run format:check \u0026\u0026 bun run lint \u0026\u0026 bunx tsc --noEmit -p tsconfig.json \u0026\u0026 bun run auth:cutover \u0026\u0026 bun run test \u0026\u0026 bun run realtime:test \u0026\u0026 bun run build",
+    "realtime:test": "cd mini-services/realtime && bun test",
+    "verify": "bun run format:check && bun run lint && bunx tsc --noEmit -p tsconfig.json && bun run auth:cutover && bun run test && bun run realtime:test && bun run build",
     "version:bump": "node scripts/bump-version.mjs",
     "agent:apply": "bun scripts/agent-apply.ts",
     "agent:snapshot": "bun scripts/agent-snapshot.ts",
@@ -46,7 +46,6 @@
   "dependencies": {
     "@better-auth/infra": "^0.4.14",
     "@better-auth/prisma-adapter": "^1.7.7",
-    "dotenv": "^18.0.5",
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
@@ -90,9 +89,11 @@
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
     "date-fns": "^4.1.0",
+    "dotenv": "^18.0.5",
     "embla-carousel-react": "^8.6.0",
     "framer-motion": "^12.23.2",
     "input-otp": "^1.4.2",
+    "ioredis": "^6.0.0",
     "lucide-react": "^0.525.0",
     "next": "^16.3.4",
     "next-auth": "^4.24.11",
@@ -136,7 +137,7 @@
     "typescript": "^5"
   },
   "engines": {
-    "node": "\u003e=20"
+    "node": ">=20"
   },
   "packageManager": "bun@1.4.2"
 }

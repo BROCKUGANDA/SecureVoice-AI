@@ -12,6 +12,7 @@ import { consume as consumeRateLimit, rateLimitId } from "@/lib/ratelimit";
 import { append as auditAppend } from "@/lib/audit-chain";
 import { transcript as redactText } from "@/lib/redact";
 import { resolveTtsKey, consumeCharQuota, quotaExceededResponse } from "@/lib/tts-quota";
+import { fetchUpstreamBinary } from "@/lib/elevenlabs/egress";
 
 export const dynamic = "force-dynamic";
 
@@ -122,37 +123,48 @@ export async function POST(req: NextRequest) {
   }
   const apiKey = keyRes.mode === "byok" ? keyRes.keyOverride : process.env.ELEVENLABS_API_KEY;
 
-  // Per-language model (Swahili → Flash v2.5), matching the buffered route
+  // Per-language model (Swahili → Flash v2.5), matching the buffered route.
   const model = lang === "sw" ? "eleven_flash_v2_5" : (process.env.ELEVENLABS_MODEL ?? "eleven_v3");
 
-  const upstream = await fetch(
-    `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voice)}/stream?optimize_streaming_latency=3`,
+  const upstream = await fetchUpstreamBinary(
+    "POST",
+    `/v1/text-to-speech/${encodeURIComponent(voice)}/stream?optimize_streaming_latency=3`,
     {
-      method: "POST",
-      headers: {
-        "xi-api-key": apiKey,
-        "content-type": "application/json",
-        accept: "audio/mpeg",
-      },
+      headers: { accept: "audio/mpeg" },
       body: JSON.stringify({
         text,
         model_id: model,
         voice_settings: { stability: 0.5, similarity_boost: 0.75, use_speaker_boost: true },
       }),
-      signal: AbortSignal.timeout(25_000),
+      // Only platform-key synthesis touches the shared 10k account budget; a
+      // BYOK caller spends their own quota.
+      billableChars: keyRes.mode === "platform" ? text.length : 0,
+      apiKey,
+      callerId,
+      timeoutMs: 25_000,
+      maxRetries: 2,
     },
   );
 
-  if (!upstream.ok || !upstream.body) {
-    const detail = await upstream.text().catch(() => "");
-    console.error("[tts-stream] upstream error:", upstream.status, detail.slice(0, 200));
-    const generic =
-      upstream.status === 401 || upstream.status === 403
-        ? "Voice service authentication failed — contact the operator."
-        : "Speech streaming is temporarily unavailable — the client will fall back.";
+  if (!upstream.ok) {
+    const detail = upstream.body.slice(0, 200);
+    console.error("[tts-stream] upstream error:", upstream.status, detail);
+    const auth = upstream.status === 401 || upstream.status === 403;
+    // A guard refusal (budget, throttle, open breaker) is the platform degrading
+    // on purpose; the client's fallback is the buffered route, then silence.
     return NextResponse.json(
-      { error: generic, fallback: true },
-      { status: upstream.status === 401 || upstream.status === 403 ? 502 : 503 },
+      {
+        error: auth
+          ? "Voice service authentication failed — contact the operator."
+          : "Speech streaming is temporarily unavailable — the client will fall back.",
+        fallback: true,
+        breakerOpen: upstream.breakerOpen,
+        quotaExhausted: upstream.status === 429,
+      },
+      {
+        status: auth ? 502 : 503,
+        headers: upstream.status === 429 ? { "Retry-After": "60" } : undefined,
+      },
     );
   }
 
@@ -172,7 +184,7 @@ export async function POST(req: NextRequest) {
     },
   }).catch(() => {});
 
-  return new Response(upstream.body, {
+  return new Response(upstream.response.body, {
     status: 200,
     headers: {
       "Content-Type": "audio/mpeg",

@@ -27,24 +27,28 @@
 
 Today, when a bank's fraud engine flags a transaction, the case lands in a Tier‑1 analyst's queue ~9 minutes later. The analyst dials the customer, the customer doesn't recognize the number, and while the phone rings the fraudster completes the second transaction. The average call-center agent takes **38 minutes** to work a single case — the fraudster moves in **seconds**.
 
-**SecureVoice AI closes that gap.** The moment a risk signal arrives (`POST /api/interventions`), the platform:
+**SecureVoice AI closes that gap.** The moment a risk signal arrives (`POST /v1/interventions`), the platform:
 
-1. Places an **outbound voice call to the customer within seconds** — live over Twilio, in the customer's own language.
-2. Runs a **guardrailed, streaming voice agent** (ElevenLabs neural voices) that verifies the transaction — _"You did not authorize the AED 2,500 transaction — is that correct?"_
-3. On confirmation, **freezes the account, escalates to a human specialist, and streams every phase transition back to the bank** via signed webhooks — with a tamper-evident **audit chain** recording the entire interaction.
+1. Places an **outbound voice call to the customer within seconds** — live over Twilio, in the customer's own language, for **banks and insurers** alike.
+2. Runs a **guardrailed voice agent** (ElevenLabs Agents Platform) whose system prompt is selected by a **Dynamic Prompt Router** — the producer declares *why* the institution is calling (`call_category`), and the agent's powers, prohibitions and backend preconditions follow that category.
+3. On confirmation, **stages the protective action (always reversible), escalates to a human — live via warm transfer or the specialist queue — and streams every phase transition back to the institution** via signed webhooks — with a tamper-evident **audit chain** recording the entire interaction.
 
-> **Compliance by construction:** every call opens with a disclosure, the agent _never_ requests PINs/OTPs/passwords (server-enforced, not prompt-enforced), and all PII is redacted before persistence.
+> **Compliance by construction:** every call opens with a disclosure, the agent _never_ requests PINs/OTPs/passwords (server-enforced, not prompt-enforced), all PII is redacted before persistence, and **irreversible account actions are decided by the institution's human team in every category and every environment**.
 
 ## Features
 
 - 🎙️ **Streaming voice agent with barge-in** — sub-second turn-taking; the customer can interrupt the agent mid-sentence.
+- 🧭 **The Dynamic Prompt Router — five call categories.** `fact_finding`, `sensitive_case`, `b2b`, `routine` and `time_critical_fraud` each carry their own system prompt, state-machine rules and backend preconditions: routine calls are refused outside the permitted calling window and for numbers on the do-not-call registry; a B2B call can only ever produce a recommendation for human sign-off; only fraud verification may stage a protective action. Absent a category, a producer gets `time_critical_fraud` — the audited baseline, so legacy integrations keep exactly today's call. See [src/lib/call-categories.ts](src/lib/call-categories.ts).
+- 🏥 **Banks and insurers are both first-class** — one platform, two institution types: "your card" becomes "your policy", the protective action becomes a hold on the claim payout or policy change, the opening line and voicemail are institution-aware in all six languages, and the demo ships an insurer scenario.
+- 🤝 **Live human handoff** — the `warm_transfer` tool bridges the customer to a human specialist's phone **inside the same call**: the customer is never asked to hang up and re-dial, and the caller ID they see stays the institution's own published number throughout. With no specialist number configured it degrades — audited — to the specialist queue rather than dropping the call.
 - 🌍 **Multilingual, per path** — the ElevenLabs agent (the primary conversation plane) is configured for `en / ar / hi` ([`agent/securevoice.agent.yaml`](agent/securevoice.agent.yaml)); the built-in continuity pipeline additionally speaks `ur / fr / sw` ([`src/lib/config.ts`](src/lib/config.ts)). **Only English and Arabic have a recorded end-to-end conversation in the evidence bundle.** Voice identity per language.
 - 🖥️ **Operator Command Center** — live intervention feed (SSE), case monitoring, sentiment-based escalation to human specialists.
 - 🔗 **Tamper-evident audit chain** — every action hash-chained (sha256) with canonical serialization; exportable per case reference.
 - 🏦 **Bank-grade ingest API** — signed risk-signal webhooks (`SV-Signature: t=…,v1=…`), idempotent case creation, producer key auth.
 - 📞 **Real telephony** — live SMS + voice delivery via Twilio; runs in audit-only mode without credentials.
-- 🔑 **BYOK & white-label** — banks can bring their own ElevenLabs key; per-organization branding on Settings.
+- 🔑 **BYOK & white-label** — institutions can bring their own ElevenLabs key; per-organization branding on Settings.
 - 🧾 **Credits wallet** — per-organization budgeting of intervention usage.
+- 🚀 **Push-to-deploy** — a GitHub Action SSHes into the production VPS on every push to `main`, rebuilds, rolls the app and workers, and smoke-tests the origin.
 
 ## Quickstart
 
@@ -130,12 +134,17 @@ anything else.
 Every runtime switch is declared in `src/lib/flags.ts` — one file answers
 "what is switchable in this deployment?", which is not otherwise greppable.
 
-| Flag                        | Default | Effect                                                                                                                                                   |
-| --------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `FEATURE_REALTIME`          | `false` | Signed push to the realtime service. Needs `REALTIME_INGEST_SECRET` too — both or neither, because the service rejects every handshake without a secret. |
-| `FEATURE_CONSOLE_LIVE_FEED` | `false` | Console live feed over the websocket. Off means SSE, which is what shipped first.                                                                        |
-| `FEATURE_PII_REDACTION`     | `true`  | Redact PII in logs, audit rows, webhook payloads. Turning this off writes customer transcripts in the clear — local debugging only.                      |
-| `FEATURE_ELEVEN_LABS_LIVE`  | `false` | Real neural voice. `ELEVENLABS_DRY_RUN` still wins when set, since the provider client reads it directly.                                                |
+| Flag                              | Default | Effect                                                                                                                                                   |
+| --------------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `FEATURE_REALTIME`               | `false` | Signed push to the realtime service. Needs `REALTIME_INGEST_SECRET` too — both or neither, because the service rejects every handshake without a secret. |
+| `FEATURE_CONSOLE_LIVE_FEED`      | `false` | Console live feed over the websocket. Off means SSE, which is what shipped first.                                                                        |
+| `FEATURE_PII_REDACTION`          | `true`  | Redact PII in logs, audit rows, webhook payloads. Turning this off writes customer transcripts in the clear — local debugging only.                      |
+| `FEATURE_COMPLIANCE_PII_REDACTION` | `true` | Second (outbound-wire) redaction switch; no legacy var backs it.                                                                                          |
+| `FEATURE_ELEVEN_LABS_LIVE`       | `false` | Real neural voice. `ELEVENLABS_DRY_RUN` still wins when set, since the provider client reads it directly.                                                |
+| `FEATURE_COMPLIANCE_DISCLOSURE`  | `true`  | The "this call is recorded" opening disclosure. Required by law; defaults ON.                                                                            |
+| `FEATURE_COMPLIANCE_NO_SECRETS`  | `true`  | Never request PIN/password/OTP/CVV. Required by policy; defaults ON.                                                                                     |
+| `FEATURE_WEBHOOK_STRICT_SIGNATURES` | `true` | Refuse unsigned inbound signals. OFF is a local-debug affordance only.                                                                                  |
+| `FEATURE_SEED_DEMO`              | `false` | Seed demo case history on first boot. Defaults OFF for a clean production database.                                                                       |
 
 Values are strictly `"true"` / `"false"`. Anything else throws at read time
 rather than reading as "disabled" — a typo that silently disables realtime is
@@ -190,14 +199,17 @@ docker run -p 3000:3000 \
 
 | Route                                                            | Purpose                                                                                |
 | ---------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| `POST /api/interventions` · `/v1/interventions`                  | Bank fraud engine ingests a risk signal (HMAC-signed) → case created, SLA clock starts |
+| `POST /v1/interventions` (`GET` = discovery doc)                 | Institution fraud engine ingests a risk signal (HMAC-signed) → case created, SLA clock starts. Optional `call_category` selects the agent's prompt and the backend preconditions |
 | `POST /api/enroll` · `/v1/enroll`                                | Enroll a customer for real Twilio delivery (requires a `consentRecordId`)              |
 | `POST /api/agent`                                                | Guardrailed conversation turn API used during a live call                              |
 | `POST /api/tts` · `POST /api/tts/stream` · `POST /api/asr`       | Neural TTS / speech-to-text, language-routed voice IDs, rate-limited                   |
 | `POST /api/pilot`                                                | Guided pilot / lead capture                                                            |
-| `POST /api/webhooks`                                             | Signed outbound phase-transition events back to the bank                               |
-| `POST /api/elevenlabs/tools/card-freeze`                         | ElevenLabs agent tool → **stages** a reversible freeze (always `committed:false`)      |
-| `POST /api/elevenlabs/tools/human-handoff`                       | ElevenLabs agent tool → queue a fraud specialist                                       |
+| `POST /api/webhooks`                                             | Signed outbound phase-transition events back to the institution                        |
+| `POST /api/elevenlabs/tools/verify-transaction`                  | Agent tool → record the verification outcome (`confirmed_fraud` / `confirmed_legitimate` / `uncertain`) |
+| `POST /api/elevenlabs/tools/card-freeze`                         | Agent tool → **stages** a reversible freeze (always `committed:false`)                 |
+| `POST /api/elevenlabs/tools/human-handoff`                       | Agent tool → queue a fraud specialist                                                  |
+| `POST /api/elevenlabs/tools/warm-transfer`                       | Agent tool → bridge the live call to a human specialist's phone (degrades to the queue) |
+| `POST /api/elevenlabs/tools/switch-language`                     | Agent tool → switch the conversation language mid-call                                 |
 | `POST /api/elevenlabs/signed-url`                                | Mint a 15-min browser session credential; pins `ELEVENLABS_AGENT_ID`                   |
 | `GET /api/status` · `GET /api/health` · `GET /api/console/audit` | Status, liveness, audit chain export                                                   |
 
@@ -236,10 +248,13 @@ Twilio API calls in the server log. Evidence:
 
 The conversation runs on the **ElevenLabs Agents Platform** by default. The durable queue's
 dial worker claims a case and calls `placeOutboundCall()`, which places the outbound call on
-the platform agent; the agent then owns the conversation, calling our server-side tools
-(`verify_transaction`, `card_freeze`, `human_handoff`, `switch_language`) over signed webhooks
-as it verifies the customer. Set `ELEVENLABS_API_KEY`, `ELEVENLABS_AGENT_ID` and
-`ELEVENLABS_PHONE_NUMBER_ID` in `.env` to place a real one.
+the platform agent — with the category-selected system prompt injected per call via
+`conversation_config_override` (whitelisted in the agent's settings, see
+[`agent/securevoice.agent.yaml`](agent/securevoice.agent.yaml)) — and the agent then owns the
+conversation, calling our five server-side tools
+(`verify_transaction`, `card_freeze`, `human_handoff`, `warm_transfer`, `switch_language`)
+over signed webhooks as it verifies the customer. Set `ELEVENLABS_API_KEY`,
+`ELEVENLABS_AGENT_ID` and `ELEVENLABS_PHONE_NUMBER_ID` in `.env` to place a real one.
 
 The phone number id is the caller ID the customer sees. It is imported once from
 the institution's own SIP trunk — `POST /v1/convai/phone-numbers` with
@@ -283,28 +298,10 @@ bun run agent:apply     # PATCH the agent, GET it back, deep-diff — exits non-
 bun run agent:snapshot  # write canonical config + sha256 to evidence/agent/
 ```
 
-The current submission version is **`agtvrsn_0401m3xcsnyaeqbr5vkf4s6fffsp`**
-(agent `agent_3601m3temww9e5eb43z3dtdthzdp`). The snapshot hash
-`587112bd6949baa2002db99b17c76548214f63523498c7678339a876d5d9e3a7` is recorded in
-[docs/VERIFICATION.md](docs/VERIFICATION.md) and is reproducible — a second apply produces
-an identical hash and an empty diff.
-
-The two webhook tools and both knowledge-base documents are already defined on the
-account, and on our agent they are **attached**, with RAG and source attribution on.
-If you set this up on a new agent, attach them via `PATCH /v1/convai/agents/{id}`:
-
-```bash
-# knowledge_base locators need type + name + id. `type` must be one of
-# file | url | text | folder — anything else returns HTTP 400.
-curl -X PATCH "https://api.elevenlabs.io/v1/convai/agents/$AGENT_ID" \
-  -H "xi-api-key: $ELEVENLABS_API_KEY" -H "content-type: application/json" \
-  -d '{"conversation_config":{"agent":{"prompt":{
-        "tool_ids":["tool_…","tool_…"],
-        "knowledge_base":[{"type":"text","name":"<doc name>","id":"<doc id>"}],
-        "rag":{"enabled":true,"include_source_urls":true}}}}}'
-```
-
-Always **read the fields back** with a GET — a 200 on PATCH does not prove anything saved.
+The applied version is recorded in `evidence/agent/version.txt` and the canonical config +
+sha256 snapshot in `evidence/agent/` — reproducible: a second apply produces an identical
+hash and an empty diff. All five webhook tools are defined on the platform account and
+attached to the agent, with RAG and source attribution on.
 
 Free-tier limits to be aware of: `eleven_v3` returns **402 `paid_plan_required`**
 (enforced server-side, so no SDK or HTTP client can unlock it — the agent falls back to
@@ -394,9 +391,9 @@ def verify_sv_signature(raw_body: bytes, header: str, secret: str, tolerance: in
 ```
 
 Both implementations ship in-repo and are executed against a real delivery by the WP-5
-gate — `scripts/verify_sv_signature.ts` and `scripts/verify_sv_signature.py` — so the two
-languages are proven to agree rather than assumed to. A reference Java implementation is a
-WP-17 deliverable.
+gate — `scripts/verify_sv_signature.ts`, `scripts/verify_sv_signature.py` and the Java
+reference `scripts/verify-signatures/SignatureVerifier.java` — so all three languages are
+proven to agree rather than assumed to.
 
 Our own receiver lives at `POST /api/webhooks/receiver` and the human-readable view at
 **`/inspector`**: the raw payload, the signature header, and a green/red verdict recomputed
@@ -420,6 +417,8 @@ Everything is opt-in: **no keys required to run the demo** (dry-run + audit-only
 | `TWILIO_ACCOUNT_SID` / `TWILIO_API_KEY_*` / `TWILIO_FROM_NUMBER` | Real call + SMS delivery                                                                                                                                                                                                                                                                                                |
 | `WEBHOOK_SECRET`                                                 | Signs outbound events & verifies inbound risk signals                                                                                                                                                                                                                                                                   |
 | `AUTH_SECRET`                                                    | Session cookie signing (384-bit)                                                                                                                                                                                                                                                                                        |
+| `BETTER_AUTH_SECRET` / `BETTER_AUTH_URL`                         | Better Auth session signing (≥32 chars) and the deployment origin asserted at boot                                                                                                                                                                                                                                      |
+| `HUMAN_AGENT_PHONE`                                              | Live warm-transfer destination (per-tenant override: `transferPhone` in the org's metadata JSON). Empty ⇒ `warm_transfer` degrades to the specialist queue. **Never the platform's own Twilio number — that would dial the platform.**                                                                                  |
 | `GROQ_API_KEY` / `GROQ_MODEL`                                    | **Optional** live LLM reply layer — drafts the agent's spoken lines in the customer's language (default `qwen/qwen3.8-27b`, a Groq **preview-tier** model that Groq's own docs warn "should not be used in production environments as they may be discontinued at short notice"). Server-side only; never commit a key. |
 | `GEMINI_API_KEY` / `GEMINI_MODEL`                                | Optional LLM fallback when no Groq key is present (`gemini-1.5-flash`)                                                                                                                                                                                                                                                  |
 | `RATE_LIMIT_PER_HOUR`                                            | Per-caller TTS/ASR/agent budget                                                                                                                                                                                                                                                                                         |
@@ -448,6 +447,47 @@ Neither of those is per-tool authorisation.
 
 Per-tool secrets — so a read-only credential cannot reach `card_freeze` — is
 follow-up work, tracked in [docs/POST-LAUNCH-TODO.md](docs/POST-LAUNCH-TODO.md).
+
+## Guardrails — one in the UI, twelve in the audit chain
+
+The ElevenLabs platform's Guardrails panel exposes exactly one toggle; the real
+controls live where they **cannot be bypassed or prompted away** — in server code
+that runs before, during and after every turn:
+
+- `auditAgentReply` (`src/lib/compliance/policy.ts`) — replaces any credential-extraction
+  reply with a safe refusal, injects the recording disclosure when the model omits it, and
+  redacts PII before anything is persisted
+- the tool guard (`src/lib/tool-guard.ts`) — authenticates every tool call, scopes it to
+  the calling tenant, and enforces state preconditions before a privileged action
+- the policy + abuse gates (`src/lib/policy-gate.ts`, `src/lib/abuse/*`) — consent, do-not-call,
+  calling hours, country allowlists, cooldowns, concurrency and spend ceilings, decided
+  before any carrier is contacted
+- the call-category preconditions — a routine call that arrives at 23:00 is refused at
+  ingest and parked by the dial worker until the window opens, without consuming an attempt
+- the state machine (`src/lib/case-state-machine.ts`) — the single writer for case state;
+  `card_freeze` only ever stages, in every category and every environment
+
+The platform agent mirrors the same rules in its system prompt (absolute prohibitions,
+per-category powers) and its evaluation criteria — but the enforcement is ours.
+
+## Deployment
+
+The production deployment is a **Hetzner VPS** running the compose stack, with **Caddy as
+the only published port** (TLS, per-site blocks, log redaction) on a shared edge, and the
+product hostname fronted by **Cloudflare proxied DNS**. Deploys are automated:
+
+1. Push to `main` → the GitHub Action SSHes in, pulls, rebuilds the `app`, `dial-worker`
+   and `retention-worker` images, rolls them, and smoke-tests `GET /api/health` on the
+   running origin.
+2. The VPS checkout keeps its own edge configuration (`Caddyfile` site blocks for the
+   shared proxy) under `git update-index --skip-worktree`, so a deploy pull never trips
+   over deployment-local state.
+3. Migrations are versioned SQL applied by the `db-setup` one-shot on every stack bring-up
+   (`prisma/migrations/` — additive by policy).
+
+The platform agent's own configuration is **not** deployed by the Action — it is applied
+declaratively by `bun run agent:apply` (deep-diffed against the YAML), so agent prompt and
+tool changes are code-reviewed like everything else.
 
 ## The LLM reply layer (optional)
 

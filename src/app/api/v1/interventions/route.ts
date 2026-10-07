@@ -24,7 +24,7 @@ import { makeFailure, type FailureCode, type FailureInit } from "@/lib/failures/
 import { notifyRealtime } from "@/lib/realtime";
 import { createCase, transitionCase } from "@/lib/case-state-machine";
 import { SIGNAL_KINDS } from "@/lib/institution-types";
-import { replayWindowSec, IDEMPOTENCY_TTL_HOURS } from "@/lib/config";
+import { env, replayWindowSec, IDEMPOTENCY_TTL_HOURS, SUPPORTED_LANGS } from "@/lib/config";
 
 /**
  * One error shape for the whole bank-facing surface: `{ code, message,
@@ -92,10 +92,9 @@ export function preNotificationLeadMs(): number {
   return Math.min(Math.trunc(raw), 300) * 1000;
 }
 /** The SMS language set; anything unmapped falls back to English. */
-export function deliveryLang(lang: string): "en" | "ar" | "hi" | "ur" | "fr" | "sw" {
-  return (["en", "ar", "hi", "ur", "fr", "sw"] as const).includes(lang as never)
-    ? (lang as "en" | "ar" | "hi" | "ur" | "fr" | "sw")
-    : "en";
+type DeliveryLang = (typeof SUPPORTED_LANGS)[number];
+export function deliveryLang(lang: string): DeliveryLang {
+  return (SUPPORTED_LANGS as readonly string[]).includes(lang) ? (lang as DeliveryLang) : "en";
 }
 
 const schema = z
@@ -186,7 +185,7 @@ export async function POST(req: NextRequest) {
       req.headers.get("sv-signature") ||
       req.headers.get("SV-Signature") ||
       req.headers.get("x-securevoice-signature");
-    const sig = verifySignature(rawBody, sigHeader, process.env.WEBHOOK_SECRET ?? "");
+    const sig = verifySignature(rawBody, sigHeader, env.webhookSecret ?? "");
     if (!sig.ok) {
       return failure("unauthenticated", { detail: `signature rejected: ${sig.reason}` });
     }

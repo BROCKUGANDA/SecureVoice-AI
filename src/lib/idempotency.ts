@@ -27,12 +27,14 @@ import "server-only";
 
 import { createHash } from "node:crypto";
 import { db } from "@/lib/db";
+import {
+  IDEMPOTENCY_CLAIM_TTL_MS,
+  IDEMPOTENCY_MAX_POLL_MS,
+  IDEMPOTENCY_POLL_MS,
+  IDEMPOTENCY_TTL_HOURS,
+} from "@/lib/config";
 
-const TTL_HOURS = 24;
-const TTL_MS = TTL_HOURS * 60 * 60 * 1000;
-const CLAIM_TTL_MS = 30_000; // a claim older than 30s is abandoned (crashed worker)
-const POLL_INTERVAL_MS = 200;
-const MAX_POLL_MS = 8_000; // slightly above CLAIM_TTL so we catch late winners
+const TTL_MS = IDEMPOTENCY_TTL_HOURS * 60 * 60 * 1000;
 
 export type IdempotencyOptions<T> = {
   scope: "tts" | "tts-upstream" | "tts-stream" | "asr" | "agent" | "interventions";
@@ -110,7 +112,8 @@ export async function withIdempotency<T>(
         callerId: opts.callerId,
         response: "", // empty = in-flight claim
         statusCode: 0,
-        expiresAt: new Date(Date.now() + CLAIM_TTL_MS),
+        // a claim older than 30s is abandoned (crashed worker)
+        expiresAt: new Date(Date.now() + IDEMPOTENCY_CLAIM_TTL_MS),
       },
     });
     claimed = true;
@@ -144,8 +147,9 @@ export async function withIdempotency<T>(
 
   // ── 5. Lost the claim → poll for the winner's result ──
   const start = Date.now();
-  while (Date.now() - start < MAX_POLL_MS) {
-    await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+  // slightly above CLAIM_TTL so we catch late winners
+  while (Date.now() - start < IDEMPOTENCY_MAX_POLL_MS) {
+    await new Promise((r) => setTimeout(r, IDEMPOTENCY_POLL_MS));
     const winner = await db.idempotencyKey.findUnique({ where });
     if (winner && !isExpired(winner.expiresAt) && !isClaim(winner)) {
       const parsed = tryDeserialize(deserialize, winner.response);

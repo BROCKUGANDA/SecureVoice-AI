@@ -8,6 +8,7 @@ import { append as auditAppend } from "@/lib/audit-chain";
 import { transcript as redactText } from "@/lib/redact";
 import { getProfile } from "@/lib/credits";
 import { verifyProducerKey } from "@/lib/producer-keys";
+import { env, replayWindowSec, SUPPORTED_LANGS } from "@/lib/config";
 
 export const dynamic = "force-dynamic";
 
@@ -32,7 +33,7 @@ export const dynamic = "force-dynamic";
  * raw: audit rows store the redacted form only.
  */
 
-const REPLAY_WINDOW_SEC = 300;
+const REPLAY_WINDOW_SEC = replayWindowSec();
 
 const schema = z.object({
   action: z.literal("enroll").default("enroll"),
@@ -43,7 +44,7 @@ const schema = z.object({
     .max(64)
     .regex(/^[\w.:-]+$/),
   phone: z.string().trim().min(8).max(16),
-  lang: z.enum(["en", "ar", "hi", "ur", "fr", "sw"]).default("en"),
+  lang: z.enum(SUPPORTED_LANGS).default("en"),
   channel: z.enum(["call", "sms"]).default("call"),
   consentRecordId: z.string().trim().min(4).max(64),
   // Clearing a prior STOP requires an explicit, deliberate re-consent flag —
@@ -76,7 +77,7 @@ async function authorize(
     if (producer.ok) return { ok: true, orgId: producer.orgId };
   }
   const header = req.headers.get("sv-signature");
-  const secret = process.env.WEBHOOK_SECRET;
+  const secret = env.webhookSecret;
   if (header && secret) {
     const m = /^t=(\d{10}),v1=([0-9a-f]{64})$/.exec(header.trim());
     if (m) {

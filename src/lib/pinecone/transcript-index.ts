@@ -27,6 +27,7 @@ import "server-only";
 
 import { Pinecone } from "@pinecone-database/pinecone";
 import { append as auditAppend } from "@/lib/audit-chain";
+import { env } from "@/lib/config";
 
 const API_KEY = process.env.PINECONE_API_KEY ?? "";
 /**
@@ -46,8 +47,8 @@ const HOST = process.env.PINECONE_HOST ?? "";
 /** Empty namespace is deliberate: erased cases delete by metadata filter. */
 const NAMESPACE = process.env.PINECONE_NAMESPACE ?? "";
 
-const EMBEDDING_MODEL = "llama-text-embed-v2";
-const MAX_CHARS = 12_000;
+const EMBEDDING_MODEL = env.pineconeEmbeddingModel;
+const MAX_CHARS = env.pineconeIndexMaxChars;
 
 /**
  * Configuration is API key + index name. Host is NOT part of this test — see

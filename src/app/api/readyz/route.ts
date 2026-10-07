@@ -5,6 +5,7 @@ import { leakSafeText } from "@/lib/failures/envelope";
 import { db } from "@/lib/db";
 import { classifyDatabaseUrl } from "@/lib/db-target";
 import { auth } from "@/lib/better-auth";
+import { env } from "@/lib/config";
 
 export const dynamic = "force-dynamic";
 
@@ -34,8 +35,8 @@ type Check = {
   ms?: number;
 };
 
-const OUTBOX_BACKLOG_WARN_SECONDS = 300; // 5 minutes
-const AUDIT_STALE_WARN_SECONDS = 3600; // 1 hour
+const OUTBOX_BACKLOG_WARN_SECONDS = env.readyzOutboxWarnSec; // 5 minutes
+const AUDIT_STALE_WARN_SECONDS = env.readyzAuditStaleSec; // 1 hour
 
 export async function GET() {
   const started = Date.now();
@@ -73,7 +74,7 @@ export async function GET() {
       name: "database",
       ok: true,
       fatal: true,
-      detail: classifyDatabaseUrl(process.env.DATABASE_URL),
+      detail: classifyDatabaseUrl(env.databaseUrl),
     };
   });
 
@@ -83,7 +84,7 @@ export async function GET() {
   // so the two can be compared without guessing. Non-fatal: it is a diagnostic.
   await timed("auth", false, async () => {
     const ids = (auth.options.plugins ?? []).map((p: { id?: string }) => p.id).filter(Boolean);
-    const hasKey = Boolean(process.env.BETTER_AUTH_API_KEY);
+    const hasKey = Boolean(env.betterAuthApiKey);
     const ok = ids.includes("organization") && ids.includes("dash") && hasKey;
     return {
       name: "auth",
@@ -134,7 +135,7 @@ export async function GET() {
   // must not mark us unready, because we would then refuse the very traffic
   // that is queueing while the provider recovers.
   await timed("voice_provider", false, async () => {
-    const configured = !!(process.env.ELEVENLABS_API_KEY || process.env.TWILIO_ACCOUNT_SID);
+    const configured = !!(env.elevenLabsApiKey || env.twilioAccountSid);
     return {
       name: "voice_provider",
       ok: true,

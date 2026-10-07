@@ -15,6 +15,7 @@ import {
   Plug,
 } from "lucide-react";
 import { useApp } from "@/lib/store";
+import { SUPPORT_EMAIL } from "@/lib/public-config";
 import { Chip } from "@/components/fx/core";
 import { CrmSection } from "@/views/settings/CrmSection";
 import { Input } from "@/components/ui/input";
@@ -441,7 +442,7 @@ export function Settings() {
                   />
                   <button
                     onClick={() => {
-                      window.location.href = `mailto:otemaach@gmail.com?subject=${encodeURIComponent("SecureVoice seat invite: " + inviteEmail)}`;
+                      window.location.href = `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent("SecureVoice seat invite: " + inviteEmail)}`;
                     }}
                     disabled={!inviteEmail.includes("@")}
                     className="shrink-0 rounded-full bg-primary px-5 py-2.5 text-[13px] font-semibold text-white transition hover:bg-green-deep disabled:opacity-40"
@@ -512,7 +513,7 @@ export function Settings() {
                   ))}
                 </div>
                 <a
-                  href="mailto:otemaach@gmail.com?subject=SecureVoice%20billing"
+                  href={`mailto:${SUPPORT_EMAIL}?subject=SecureVoice%20billing`}
                   className="inline-flex items-center gap-2 rounded-full bg-primary px-6 py-2.5 text-[13px] font-semibold text-white transition hover:bg-green-deep"
                 >
                   <Coins className="h-4 w-4" />

@@ -49,8 +49,8 @@ export type PresenceUpdate = { channel: string; watchers: string[] };
 /** Must match SOCKET_PATH in mini-services/realtime/src/constants.ts. */
 const SOCKET_PATH = "/realtime";
 /** Give up on the push path for this session if a grant does not arrive. */
-const TOKEN_TIMEOUT_MS = 4_000;
-const CONNECT_TIMEOUT_MS = 6_000;
+const TOKEN_TIMEOUT_MS = Number(process.env.NEXT_PUBLIC_REALTIME_TOKEN_TIMEOUT_MS) || 4_000;
+const CONNECT_TIMEOUT_MS = Number(process.env.NEXT_PUBLIC_REALTIME_CONNECT_TIMEOUT_MS) || 6_000;
 /** Cap on case subscriptions per socket (mirrors the server's channel cap). */
 const MAX_CHANNELS = 50;
 

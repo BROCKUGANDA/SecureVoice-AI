@@ -24,6 +24,7 @@ import {
   Globe2,
 } from "lucide-react";
 import { useApp, t } from "@/lib/store";
+import { SUPPORT_EMAIL } from "@/lib/public-config";
 import { cn } from "@/lib/utils";
 import { Reveal, Counter, LiveDot, Chip } from "@/components/fx/core";
 import { Waveform, Equalizer } from "@/components/fx/Waveform";
@@ -1051,7 +1052,7 @@ function PilotDialog({
                 )}
               </button>
               <p className="text-center text-[11px] text-ink-3">
-                Or email otemaach@gmail.com — we reply personally
+                {`Or email ${SUPPORT_EMAIL} — we reply personally`}
               </p>
             </form>
           </>

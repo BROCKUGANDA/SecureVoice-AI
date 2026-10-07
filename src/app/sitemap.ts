@@ -1,4 +1,5 @@
 import type { MetadataRoute } from "next";
+import { env } from "@/lib/config";
 
 /**
  * Sitemap.
@@ -60,7 +61,7 @@ export function siteOrigin(): string {
   const explicit = process.env.NEXT_PUBLIC_SITE_URL?.trim();
   if (explicit) return explicit.replace(/\/+$/, "");
   const host = process.env.SITE_ADDRESS?.trim();
-  if (!host || host === "localhost") return "http://localhost:3000";
+  if (!host || host === "localhost") return env.appBaseUrl;
   return `https://${host}`;
 }
 

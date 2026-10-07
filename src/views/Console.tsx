@@ -24,6 +24,7 @@ import {
   Mail,
 } from "lucide-react";
 import { useApp } from "@/lib/store";
+import { SUPPORT_EMAIL } from "@/lib/public-config";
 import { Chip, LiveDot, StatusPill } from "@/components/fx/core";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -656,7 +657,7 @@ export function Console() {
             {status?.ingest?.split(" ")[0] ?? "…"}
           </Chip>
           <a
-            href="mailto:otemaach@gmail.com?subject=SecureVoice%20feedback"
+            href={`mailto:${SUPPORT_EMAIL}?subject=SecureVoice%20feedback`}
             className="flex items-center gap-1.5 rounded-full border border-line bg-white px-2.5 py-1 text-[10.5px] font-semibold text-ink-2 transition hover:border-primary/40 hover:text-primary"
           >
             <Mail className="h-3 w-3" /> Feedback

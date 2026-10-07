@@ -43,9 +43,10 @@ import { checkBadActor, recordStrike } from "@/lib/abuse/bad-actor";
 import type { ResolutionMethod } from "@/lib/contracts/schema";
 import { getInstitutionType } from "@/lib/institution";
 import { createHandoffTicket } from "@/lib/crm";
+import { env, SUPPORTED_LANGS } from "@/lib/config";
 
 /** How long after the SMS a reply is still accepted, and when the sweep gives up. */
-export const REPLY_WINDOW_MS = 24 * 60 * 60_000;
+export const REPLY_WINDOW_MS = env.smsReplyWindowMs;
 
 /* ————————————————————————— parsing (pure) ————————————————————————— */
 
@@ -154,9 +155,7 @@ export function parseSmsReply(body: string): ReplyIntent {
 /* ————————————————————————— resolution ————————————————————————— */
 
 function asLang(v: string | null | undefined): OutreachLang {
-  return (["en", "ar", "hi", "ur", "fr", "sw"] as const).includes(v as OutreachLang)
-    ? (v as OutreachLang)
-    : "en";
+  return (SUPPORTED_LANGS as readonly string[]).includes(v as string) ? (v as OutreachLang) : "en";
 }
 
 /**

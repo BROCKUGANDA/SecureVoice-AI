@@ -36,7 +36,7 @@ const LANG_TO_VOICE: Record<string, string> = {
 
 // Cache: generated audio survives across requests (TTL 1h, max 48 entries)
 const audioCache = new Map<string, { buf: Buffer; at: number }>();
-const CACHE_TTL = 60 * 60 * 1_000;
+const CACHE_TTL = env.twilioAudioCacheTtlMs;
 const CACHE_MAX = 48;
 
 function cacheGet(key: string): Buffer | null {

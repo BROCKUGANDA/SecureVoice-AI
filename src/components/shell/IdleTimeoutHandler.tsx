@@ -9,11 +9,12 @@ import { signOut, useSession } from "@/lib/auth-client";
  * explains why (store.timedOut). Mouse/key/scroll/touch all reset the timer.
  *
  * ── This is a COURTESY, not the control ───────────────────────────────────────
- * The 15-minute number here is duplicated from IDLE_TIMEOUT_SECONDS in
- * src/lib/auth/session-policy.ts on purpose: importing that module would pull a
- * `server-only` file into the client bundle, which is the leak Part K exists to
- * prevent. `tests/auth/session-policy.test.ts` asserts these two agree, so the
- * copy cannot drift silently.
+ * The idle limit defaults to 15 minutes and is overridable via
+ * NEXT_PUBLIC_IDLE_TIMEOUT_MS; it must be kept equal to the server's
+ * AUTH_IDLE_TIMEOUT_SEC (src/lib/config.ts, default 900 s — see .env.example
+ * for the pairing rule). The env var is read inline here because importing that
+ * config would pull a `server-only` file into the client bundle, which is the
+ * leak Part K exists to prevent.
  *
  * Where the limit is ACTUALLY enforced server-side:
  *  - the first-party `sv_session` store compares lastSeenAt against
@@ -28,7 +29,7 @@ import { signOut, useSession } from "@/lib/auth-client";
  * getSession — tracked as remaining work, not claimed as done here.
  */
 
-const IDLE_TIMEOUT = 15 * 60 * 1000;
+const IDLE_TIMEOUT = Number(process.env.NEXT_PUBLIC_IDLE_TIMEOUT_MS) || 900_000;
 const EVENTS = ["mousemove", "keydown", "click", "scroll", "touchstart"] as const;
 
 export function IdleTimeoutHandler({ onTimeout }: { onTimeout: () => void }) {

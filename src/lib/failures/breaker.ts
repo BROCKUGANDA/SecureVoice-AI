@@ -33,6 +33,7 @@ import "server-only";
  * clock; the default is `Date.now`.
  */
 
+import { env } from "../config";
 import { dependencyUnavailable, type Failure } from "./envelope";
 
 // ── Dependencies and their declared fallbacks ─────────────────────────────────
@@ -130,7 +131,7 @@ export type BreakerConfig = {
 };
 
 export const DEFAULT_FAILURE_THRESHOLD = 5;
-export const DEFAULT_OPEN_MS = 30_000;
+export const DEFAULT_OPEN_MS = env.breakerOpenMs;
 export const DEFAULT_HALF_OPEN_PROBES = 1;
 
 export type Permit = {

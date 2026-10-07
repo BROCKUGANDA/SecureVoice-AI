@@ -10,11 +10,12 @@ import "server-only";
  * by accident still cannot leak it.
  */
 
+import { env } from "@/lib/config";
 import { leakSafeText } from "@/lib/failures/envelope";
 import { validateOutboundUrl } from "@/lib/validation/ssrf";
 import type { AdapterDeps, AdapterResult } from "./types";
 
-export const DEFAULT_TIMEOUT_MS = 3000;
+export const DEFAULT_TIMEOUT_MS = env.crmHttpTimeoutMs;
 
 export type ResolvedDeps = {
   fetch: typeof fetch;

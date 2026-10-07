@@ -1,4 +1,5 @@
 import "server-only";
+import { env, rateLimitPerHour } from "@/lib/config";
 /**
  * Token-bucket rate limiter with a pluggable store backend.
  *
@@ -48,7 +49,7 @@ const BUCKETS = new Map<string, Bucket>();
 
 // A bucket fully refills in at most 2h at the default rate — anything idle
 // longer than that is equivalent to a fresh bucket and can be evicted.
-const STALE_MS = 2 * 60 * 60 * 1000;
+const STALE_MS = env.rateLimitStaleMs;
 const MAX_BUCKETS = 20_000;
 const EVICT_SWEEP_EVERY = 512;
 let callsSinceSweep = 0;
@@ -128,10 +129,9 @@ export function consume(
   cost = 1,
   capacityPerHour?: number,
 ): ConsumeResult {
-  // Parens are required: `??` cannot be mixed with `||` without them. An explicit
-  // capacity wins even when it is 0 — 0 is a legitimate "allow nothing" budget,
-  // which a falsy fallback would silently turn into the default.
-  const capacity = capacityPerHour ?? (Number(process.env.RATE_LIMIT_PER_HOUR) || 60);
+  // An explicit capacity wins even when it is 0 — 0 is a legitimate "allow
+  // nothing" budget, which a falsy fallback would silently turn into the default.
+  const capacity = capacityPerHour ?? rateLimitPerHour();
   const refillPerSec = capacity / 3600;
   return store.consume(scope, id, cost, capacity, refillPerSec);
 }

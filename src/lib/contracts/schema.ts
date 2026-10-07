@@ -35,10 +35,14 @@
  * `/v1/interventions`; see `docs/INTEGRATION-CONTRACT.md` for the contract that
  * actually runs.
  *
- * This module imports NOTHING — no db, no env, no `server-only` — so it is
- * loadable from a route handler, from a test, and from a build step without
- * dragging a database connection along.
+ * This module imports no database and drags no connection along — its only
+ * import is the central config (`src/lib/config`, which carries `server-only`;
+ * `scripts/worker-preload.ts` neutralises that marker for plain Bun workers) —
+ * so it is still loadable from a route handler, from a test, and from a build
+ * step.
  */
+
+import { IDEMPOTENCY_TTL_HOURS, replayWindowSec } from "@/lib/config";
 
 /* ──────────────────────────────────────────────────────────────────────────
  * Paths
@@ -66,16 +70,16 @@ export const RECEIVER_REFERENCE_PATH = "/api/webhooks/receiver";
 export const OUTBOUND_SCHEMA_VERSION = "2026-10-01";
 
 /** `REPLAY_WINDOW_SEC` in the ingest route. */
-export const REPLAY_WINDOW_SECONDS = 300;
+export const REPLAY_WINDOW_SECONDS = replayWindowSec();
 
 /** `toleranceMs` in src/lib/outbox.ts `verifySignature`. */
-export const OUTBOUND_REPLAY_WINDOW_SECONDS = 300;
+export const OUTBOUND_REPLAY_WINDOW_SECONDS = replayWindowSec();
 
 /** `MAX_ATTEMPTS` in src/lib/outbox.ts — then the event goes DEAD. */
 export const MAX_DELIVERY_ATTEMPTS = 6;
 
-/** `IDEMPOTENCY_TTL_MS` in the ingest route: 24 h. */
-export const IDEMPOTENCY_TTL_HOURS = 24;
+/** `IDEMPOTENCY_TTL_MS` in the ingest route: 24 h. Single-sourced from config. */
+export { IDEMPOTENCY_TTL_HOURS };
 
 /** `WEBHOOK_SIGNATURE_HEADER` in src/lib/outbox.ts. */
 export const SIGNATURE_HEADER = "sv-signature";

@@ -16,6 +16,7 @@ import "server-only";
  * without network egress — the e2e test and the demo console use this path.
  */
 
+import { env, SUPPORTED_LANGS } from "@/lib/config";
 import { elevenLabsFetch } from "@/lib/elevenlabs/egress";
 import { VOICEMAIL_INSURER } from "@/lib/outreach-copy";
 import { VOCAB, type InstitutionType } from "@/lib/institution-types";
@@ -52,20 +53,21 @@ function phoneNumberId(): string | null {
 }
 
 function agentId(): string | null {
-  return process.env.ELEVENLABS_AGENT_ID ?? null;
+  return env.elevenLabsAgentId ?? null;
 }
 
 function apiKey(): string | null {
-  return process.env.ELEVENLABS_API_KEY ?? null;
+  return env.elevenLabsApiKey ?? null;
 }
 
 function isDryRun(): boolean {
-  return process.env.ELEVENLABS_DRY_RUN === "true";
+  return env.elevenLabsDryRun;
 }
 
-/** Resolve the voice ID for a language from the environment. */
+/** Resolve the voice ID for a language from the environment. Unknown languages
+ * have no voice by definition — the dial path gates them through isCallLanguage. */
 export function voiceForLanguage(lang: string): string | null {
-  return process.env[`ELEVENLABS_VOICE_${lang.toUpperCase()}`] ?? null;
+  return isCallLanguage(lang) ? (env.voiceFor(lang) ?? null) : null;
 }
 
 /**
@@ -73,7 +75,7 @@ export function voiceForLanguage(lang: string): string | null {
  * adding a TTS voice, an agent, and a first message — the three tests over this
  * map fail until all three exist, which is the point.
  */
-export const CALL_LANGUAGES = ["en", "ar", "hi", "ur", "fr", "sw"] as const;
+export const CALL_LANGUAGES = SUPPORTED_LANGS;
 export type CallLanguage = (typeof CALL_LANGUAGES)[number];
 
 export function isCallLanguage(lang: string): lang is CallLanguage {

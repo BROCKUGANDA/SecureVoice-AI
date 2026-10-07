@@ -32,6 +32,7 @@ const readme = read("README.md");
 const card = read("MODEL_CARD.md");
 const agentYaml = read("agent/securevoice.agent.yaml");
 const configTs = read("src/lib/config.ts");
+const languagesTs = read("src/lib/languages.ts");
 const schema = read("prisma/schema.prisma");
 
 const lines = (doc: string) => doc.split(/\r?\n/);
@@ -55,8 +56,8 @@ function agentLanguages(): string[] {
 
 /** `SUPPORTED_LANGS` as declared in the built-in continuity pipeline's config. */
 function pipelineLanguages(): string[] {
-  const m = /export const SUPPORTED_LANGS = \[([^\]]*)\]/.exec(configTs);
-  if (!m) throw new Error("SUPPORTED_LANGS not found in src/lib/config.ts");
+  const m = /export const SUPPORTED_LANGS = \[([^\]]*)\]/.exec(languagesTs);
+  if (!m) throw new Error("SUPPORTED_LANGS not found in src/lib/languages.ts");
   return m[1]!
     .split(",")
     .map((s) => s.trim().replace(/^["']|["']$/g, ""))

@@ -30,6 +30,7 @@ import "server-only";
 import { appendFile, mkdir, open, stat } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 
+import { env } from "../config";
 import {
   parseSpanRecord,
   recordSpan,
@@ -40,7 +41,7 @@ import {
 } from "./spans";
 
 /** Debounce so one intervention's eight spans land in a single append. */
-const FLUSH_DEBOUNCE_MS = 50;
+const FLUSH_DEBOUNCE_MS = env.telemetryFlushDebounceMs;
 
 /** Bounded queue: a stalled disk drops the tail rather than the heap. */
 const PENDING_MAX = 10_000;

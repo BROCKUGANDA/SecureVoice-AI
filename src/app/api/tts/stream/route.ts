@@ -14,6 +14,7 @@ import { append as auditAppend } from "@/lib/audit-chain";
 import { transcript as redactText } from "@/lib/redact";
 import { resolveTtsKey, consumeCharQuota, quotaExceededResponse } from "@/lib/tts-quota";
 import { fetchUpstreamBinary } from "@/lib/elevenlabs/egress";
+import { env, maxTtsChars, SUPPORTED_LANGS } from "@/lib/config";
 
 export const dynamic = "force-dynamic";
 
@@ -27,13 +28,13 @@ export const dynamic = "force-dynamic";
  * response — same contract, same status codes.
  */
 
-const LANGS = new Set(["en", "ar", "hi", "ur", "fr", "sw"]);
-const MAX_CHARS = 1024;
+const LANGS = new Set<string>(SUPPORTED_LANGS);
+const MAX_CHARS = maxTtsChars();
 
 const schema = z.object({
   text: z.string().min(1).max(MAX_CHARS),
   voice: z.string().min(1).max(64),
-  lang: z.enum(["en", "ar", "hi", "ur", "fr", "sw"]).default("en"),
+  lang: z.enum(SUPPORTED_LANGS).default("en"),
   callRef: z.string().min(3).max(64).optional(),
 });
 
@@ -95,7 +96,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: `Unknown voice '${parsed.data.voice}'` }, { status: 422 });
   }
 
-  if (!process.env.ELEVENLABS_API_KEY || process.env.ELEVENLABS_DRY_RUN === "true") {
+  if (!env.elevenLabsApiKey || env.elevenLabsDryRun) {
     // dev backend: no streaming — tell the client to use the buffered route
     return NextResponse.json(
       { error: "Streaming unavailable in dev mode — fall back to /api/tts", fallback: true },
@@ -118,11 +119,11 @@ export async function POST(req: NextRequest) {
     if (!charged.ok) {
       return NextResponse.json(quotaExceededResponse(), {
         status: 429,
-        headers: { "Retry-After": "3600" },
+        headers: { "Retry-After": String(env.ttsQuotaRetryAfterSec) },
       });
     }
   }
-  const apiKey = keyRes.mode === "byok" ? keyRes.keyOverride : process.env.ELEVENLABS_API_KEY;
+  const apiKey = keyRes.mode === "byok" ? keyRes.keyOverride : env.elevenLabsApiKey;
 
   // Resolved from the same table the buffered route uses. This used to re-derive
   // the model locally (`sw` → flash v2.5), which ignored ELEVENLABS_MODEL for
@@ -137,14 +138,18 @@ export async function POST(req: NextRequest) {
       body: JSON.stringify({
         text,
         model_id: model,
-        voice_settings: { stability: 0.5, similarity_boost: 0.75, use_speaker_boost: true },
+        voice_settings: {
+          stability: env.voiceStability,
+          similarity_boost: env.voiceSimilarityBoost,
+          use_speaker_boost: env.voiceUseSpeakerBoost,
+        },
       }),
       // Only platform-key synthesis touches the shared 10k account budget; a
       // BYOK caller spends their own quota.
       billableChars: keyRes.mode === "platform" ? text.length : 0,
       apiKey,
       callerId,
-      timeoutMs: 25_000,
+      timeoutMs: env.ttsTimeoutMs,
       maxRetries: 2,
     },
   );

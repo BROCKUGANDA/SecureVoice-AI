@@ -42,6 +42,8 @@
 
 import { createHash } from "node:crypto";
 
+import { env } from "../config";
+
 export type ActorAction = "allow" | "throttle" | "block";
 
 export type ActorVerdict = {
@@ -52,12 +54,12 @@ export type ActorVerdict = {
   retryAfterMs?: number;
 };
 
-const WINDOW_MS = 60 * 60_000; // strikes older than an hour stop counting
-const THROTTLE_AT = 3;
-const BLOCK_AT = 6;
-const BASE_BLOCK_MS = 60 * 60_000;
-const MAX_BLOCK_MS = 24 * 60 * 60_000;
-const MAX_TRACKED = 10_000; // bound memory: a flood of distinct sources cannot grow this forever
+const WINDOW_MS = env.abuseBadActorWindowMs; // strikes older than an hour stop counting
+const THROTTLE_AT = env.abuseBadActorThrottleAt;
+const BLOCK_AT = env.abuseBadActorBlockAt;
+const BASE_BLOCK_MS = env.abuseBadActorBaseBlockMs;
+const MAX_BLOCK_MS = env.abuseBadActorMaxBlockMs;
+const MAX_TRACKED = env.abuseBadActorMaxTracked; // bound memory: a flood of distinct sources cannot grow this forever
 
 type Entry = {
   hits: { at: number; weight: number }[];

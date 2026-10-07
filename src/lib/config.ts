@@ -1,4 +1,5 @@
 import "server-only";
+import type { Lang } from "./languages";
 /**
  * Centralised configuration — the single place that reads process.env and
  * exposes typed, validated values. Every module imports from here instead of
@@ -13,19 +14,30 @@ import "server-only";
 
 /* ── Language ── */
 
-export const SUPPORTED_LANGS = ["en", "ar", "hi", "ur", "fr", "sw"] as const;
-export type Lang = (typeof SUPPORTED_LANGS)[number];
-
-export const LANG_LABEL: Record<Lang, string> = {
-  en: "English",
-  ar: "العربية",
-  hi: "हिन्दी",
-  ur: "اردو",
-  fr: "Français",
-  sw: "Kiswahili",
-};
+/**
+ * Supported conversation languages live in ./languages (client- and edge-safe,
+ * no `server-only` marker) so the edge proxy and browser code can import the
+ * same list without dragging the server config surface into their bundle.
+ */
+export { SUPPORTED_LANGS, LANG_LABEL } from "./languages";
+export type { Lang } from "./languages";
 
 /* ── TTS ── */
+
+/**
+ * Numeric env reader used by the tunables below: a finite, in-range number
+ * wins; everything else (unset, NaN, out of range) takes the documented
+ * default. Same contract as the hand-rolled getters above, deduplicated.
+ */
+function numSetting(
+  name: string,
+  fallback: number,
+  min = 0,
+  max = Number.POSITIVE_INFINITY,
+): number {
+  const raw = Number(process.env[name]);
+  return Number.isFinite(raw) && raw >= min && raw <= max ? raw : fallback;
+}
 
 /** Daily synthesis character ceiling per caller. Read per-call from env so it can
  * be tightened without a rebuild. */
@@ -287,6 +299,206 @@ export const env = {
   get minorUnitsPerMajor(): number {
     const raw = Number(process.env.MINOR_UNITS_PER_MAJOR);
     return Number.isFinite(raw) && raw > 0 ? raw : 100;
+  },
+
+  /* ── Deepgram (ASR fallback vendor) ── */
+  /** Endpoint host for the listen API; the route appends `/listen`. */
+  get deepgramBaseUrl(): string {
+    return process.env.DEEPGRAM_BASE_URL ?? "https://api.deepgram.com/v1";
+  },
+  get deepgramSttModel(): string {
+    return process.env.DEEPGRAM_STT_MODEL || "nova-2";
+  },
+  get deepgramTimeoutMs(): number {
+    return numSetting("DEEPGRAM_TIMEOUT_MS", 30_000, 1_000);
+  },
+  /** Race timeout for the dev-backend ASR path. */
+  get asrTimeoutMs(): number {
+    return numSetting("ASR_TIMEOUT_MS", 30_000, 1_000);
+  },
+
+  /* ── Twilio runtime tunables ── */
+  get twilioApiBaseUrl(): string {
+    return process.env.TWILIO_API_BASE_URL ?? "https://api.twilio.com";
+  },
+  get twilioTimeoutMs(): number {
+    return numSetting("TWILIO_TIMEOUT_MS", 15_000, 1_000);
+  },
+  /** Live-fire attestation; see .env.example — necessary but not sufficient. */
+  get twilioLiveSend(): boolean {
+    return process.env.TWILIO_LIVE_SEND === "true";
+  },
+  /** TTL for signed TwiML audio URLs served from /api/twilio/audio. */
+  get twilioAudioCacheTtlMs(): number {
+    return numSetting("TWILIO_AUDIO_CACHE_TTL_MS", 3_600_000, 1_000);
+  },
+
+  /* ── Realtime push ── */
+  get realtimeNotifyTimeoutMs(): number {
+    return numSetting("REALTIME_NOTIFY_TIMEOUT_MS", 1_500, 100);
+  },
+  /** Grant-token lifetime. Must match REALTIME_TOKEN_TTL_SEC in
+   * mini-services/realtime (both sides validate the same timestamp). */
+  get realtimeTokenTtlSec(): number {
+    return numSetting("REALTIME_TOKEN_TTL_SEC", 60, 10);
+  },
+
+  /* ── Dial / interventions ── */
+  get dialProbeTimeoutMs(): number {
+    return numSetting("DIAL_PROBE_TIMEOUT_MS", 30_000, 1_000);
+  },
+  get reversalWindowSecs(): number {
+    return numSetting("REVERSAL_WINDOW_SECS", 300, 1);
+  },
+
+  /* ── CRM adapters ── */
+  get crmHttpTimeoutMs(): number {
+    return numSetting("CRM_HTTP_TIMEOUT_MS", 3_000, 100);
+  },
+  get crmRetryDelayMs(): number {
+    return numSetting("CRM_RETRY_DELAY_MS", 500, 0);
+  },
+
+  /* ── Database & failure handling ── */
+  get dbConnectTimeoutMs(): number {
+    return numSetting("DB_CONNECT_TIMEOUT_MS", 10_000, 1_000);
+  },
+  get dbTxRetries(): number {
+    return numSetting("DB_TX_RETRIES", 3, 0, 10);
+  },
+  get dbTxBackoffMs(): number {
+    return numSetting("DB_TX_BACKOFF_MS", 25, 0);
+  },
+  get dbTimeoutRetryAfterSec(): number {
+    return numSetting("DB_TIMEOUT_RETRY_AFTER_SEC", 5, 1);
+  },
+  get replicaLagThresholdMs(): number {
+    return numSetting("REPLICA_LAG_THRESHOLD_MS", 2_000, 100);
+  },
+  get breakerOpenMs(): number {
+    return numSetting("BREAKER_OPEN_MS", 30_000, 1_000);
+  },
+
+  /* ── Rate-limit housekeeping & pilot intake ── */
+  get rateLimitStaleMs(): number {
+    return numSetting("RATE_LIMIT_STALE_MS", 7_200_000, 60_000);
+  },
+  get pilotRateLimitPerHour(): number {
+    return numSetting("PILOT_RATE_LIMIT_PER_HOUR", 6, 1);
+  },
+
+  /* ── Readiness warning thresholds ── */
+  get readyzOutboxWarnSec(): number {
+    return numSetting("READYZ_OUTBOX_WARN_SEC", 300, 1);
+  },
+  get readyzAuditStaleSec(): number {
+    return numSetting("READYZ_AUDIT_STALE_SEC", 3_600, 1);
+  },
+
+  /* ── SMS verdict window ── */
+  get smsReplyWindowMs(): number {
+    return numSetting("SMS_REPLY_WINDOW_MS", 86_400_000, 60_000);
+  },
+
+  /* ── Queue & scale model ── */
+  get queueLeaseMs(): number {
+    return numSetting("QUEUE_LEASE_MS", 60_000, 1_000);
+  },
+  get callRateWindowMs(): number {
+    return numSetting("CALL_RATE_WINDOW_MS", 300_000, 1_000);
+  },
+  get queueBackoffBaseMs(): number {
+    return numSetting("QUEUE_BACKOFF_BASE_MS", 250, 0);
+  },
+  get queueBackoffMaxMs(): number {
+    return numSetting("QUEUE_BACKOFF_MAX_MS", 8_000, 0);
+  },
+  get meanCallSeconds(): number {
+    return numSetting("MEAN_CALL_SECONDS", 180, 1);
+  },
+
+  /* ── Capacity & admission bands ── */
+  get elevenLabsBurstMultiplier(): number {
+    return numSetting("ELEVENLABS_BURST_MULTIPLIER", 3, 1, 10);
+  },
+  get bandEnterConstrainedPct(): number {
+    return numSetting("BAND_ENTER_CONSTRAINED_PCT", 0.7, 0.1, 1);
+  },
+  get bandEnterShedPct(): number {
+    return numSetting("BAND_ENTER_SHED_PCT", 0.95, 0.1, 1);
+  },
+  /** Expected-loss floor (minor units) below which the voice channel sheds. */
+  get shedExpectedLossMinor(): number {
+    return numSetting("SHED_EXPECTED_LOSS_MINOR", 50_000, 1);
+  },
+
+  /* ── Abuse / bad-actor strike ladder ── */
+  get abuseBadActorWindowMs(): number {
+    return numSetting("ABUSE_BAD_ACTOR_WINDOW_MS", 3_600_000, 1_000);
+  },
+  get abuseBadActorThrottleAt(): number {
+    return numSetting("ABUSE_BAD_ACTOR_THROTTLE_AT", 3, 1);
+  },
+  get abuseBadActorBlockAt(): number {
+    return numSetting("ABUSE_BAD_ACTOR_BLOCK_AT", 6, 1);
+  },
+  get abuseBadActorBaseBlockMs(): number {
+    return numSetting("ABUSE_BAD_ACTOR_BASE_BLOCK_MS", 3_600_000, 1_000);
+  },
+  get abuseBadActorMaxBlockMs(): number {
+    return numSetting("ABUSE_BAD_ACTOR_MAX_BLOCK_MS", 86_400_000, 1_000);
+  },
+  get abuseBadActorMaxTracked(): number {
+    return numSetting("ABUSE_BAD_ACTOR_MAX_TRACKED", 10_000, 100);
+  },
+  get abuseSlotLeaseMs(): number {
+    return numSetting("ABUSE_SLOT_LEASE_MS", 900_000, 1_000);
+  },
+
+  /* ── Auth session policy ── */
+  get authSessionLifetimeSec(): number {
+    return numSetting("AUTH_SESSION_LIFETIME_SEC", 28_800, 300);
+  },
+  /** Idle logout. The client timer (NEXT_PUBLIC_IDLE_TIMEOUT_MS) should be
+   * kept equal to this — see .env.example for the pairing rule. */
+  get authIdleTimeoutSec(): number {
+    return numSetting("AUTH_IDLE_TIMEOUT_SEC", 900, 60);
+  },
+  get authCookieCacheSec(): number {
+    return numSetting("AUTH_COOKIE_CACHE_SEC", 300, 0);
+  },
+  get authStepUpWindowSec(): number {
+    return numSetting("AUTH_STEP_UP_WINDOW_SEC", 300, 10);
+  },
+  get authInviteTtlMs(): number {
+    return numSetting("AUTH_INVITE_TTL_MS", 259_200_000, 60_000);
+  },
+  get authMagicLinkTtlMs(): number {
+    return numSetting("AUTH_MAGIC_LINK_TTL_MS", 900_000, 60_000);
+  },
+  // Record-retention TTLs (session row, invite row) are deliberately NOT env
+  // knobs: session-policy.ts derives them from the primitives above plus a
+  // fixed margin, so the retention window can never be tuned out of sync with
+  // the lifetime it must outlive.
+
+  /* ── TTS / Pinecone / telemetry / conformance ── */
+  get ttsQuotaRetryAfterSec(): number {
+    return numSetting("TTS_QUOTA_RETRY_AFTER_SEC", 3_600, 1);
+  },
+  get pineconeEmbeddingModel(): string {
+    return process.env.PINECONE_EMBEDDING_MODEL || "llama-text-embed-v2";
+  },
+  get pineconeIndexMaxChars(): number {
+    return numSetting("PINECONE_INDEX_MAX_CHARS", 12_000, 100);
+  },
+  get telemetryFlushDebounceMs(): number {
+    return numSetting("TELEMETRY_FLUSH_DEBOUNCE_MS", 50, 0);
+  },
+  get retentionReportCap(): number {
+    return numSetting("RETENTION_REPORT_CAP", 50, 1);
+  },
+  get conformanceProbeTimeoutMs(): number {
+    return numSetting("CONFORMANCE_PROBE_TIMEOUT_MS", 5_000, 100);
   },
 } as const;
 

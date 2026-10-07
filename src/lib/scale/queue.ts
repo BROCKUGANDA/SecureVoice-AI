@@ -55,6 +55,7 @@ import "server-only";
  */
 
 import { randomUUID } from "node:crypto";
+import { env } from "@/lib/config";
 import { db } from "@/lib/db";
 
 /** Milliseconds → an INTERVAL literal. Used for every deadline this module writes. */
@@ -81,7 +82,7 @@ export type DialJobState = (typeof DIAL_JOB_STATES)[number];
 export const MAX_DIAL_ATTEMPTS = 3;
 
 /** How long a claim is good for. A worker killed mid-call loses at most this. */
-export const DEFAULT_LEASE_MS = 60_000;
+export const DEFAULT_LEASE_MS = env.queueLeaseMs;
 
 /**
  * Retry ladder for a failed attempt. Jittered by `dialJobBackoffMs`.
@@ -100,7 +101,7 @@ export const DEFAULT_LEASE_MS = 60_000;
 export const DIAL_RETRY_LADDER_MS = [150_000, 300_000, 600_000] as const;
 
 /** The carrier rate window the ladder above is sized against. */
-export const CALL_RATE_WINDOW_MS = 5 * 60_000;
+export const CALL_RATE_WINDOW_MS = env.callRateWindowMs;
 
 /**
  * What a human sees when the table is missing. The migration ships with this

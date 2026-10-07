@@ -1,4 +1,5 @@
 import "server-only";
+import { env } from "@/lib/config";
 
 /**
  * WP-11 Session Policy — the SINGLE authoritative statement of how long a
@@ -66,10 +67,10 @@ import "server-only";
  * cookie and the stored row expire at the SAME instant. If these ever disagree,
  * `getSession()` trusts the row and the cookie becomes an unbounded token.
  */
-export const ABSOLUTE_LIFETIME_SECONDS = 8 * 60 * 60;
+export const ABSOLUTE_LIFETIME_SECONDS = env.authSessionLifetimeSec;
 
 /** Idle timeout: no authenticated request for this long ends the session. */
-export const IDLE_TIMEOUT_SECONDS = 15 * 60;
+export const IDLE_TIMEOUT_SECONDS = env.authIdleTimeoutSec;
 
 /**
  * Rolling refresh window. 0 = never refresh.
@@ -89,13 +90,13 @@ export const SESSION_REFRESH_SECONDS = 0;
  * change. Authorizing callers use `auth.api.getSession()` against the database
  * and never trust this.
  */
-export const COOKIE_CACHE_SECONDS = 5 * 60;
+export const COOKIE_CACHE_SECONDS = env.authCookieCacheSec;
 
 /**
  * Step-up window: how long a successful re-authentication authorises a
  * privileged action.
  */
-export const STEP_UP_WINDOW_SECONDS = 5 * 60;
+export const STEP_UP_WINDOW_SECONDS = env.authStepUpWindowSec;
 
 // ── First-party session policy (milliseconds — the unit the store uses) ──────
 
@@ -120,7 +121,7 @@ export const STEP_UP_WINDOW_MS = STEP_UP_WINDOW_SECONDS * 1000;
 
 /** Invite lifetime: 72 hours — long enough to cross a weekend, short enough that
  *  a link left in a chat log is dead by the following week. */
-export const INVITE_TTL_MS = 72 * 60 * 60 * 1000;
+export const INVITE_TTL_MS = env.authInviteTtlMs;
 
 /** Retention for a consumed or expired invite row, so "this invite was already
  *  used" is answerable from the record rather than inferred. */
@@ -128,7 +129,7 @@ export const INVITE_RECORD_TTL_MS = INVITE_TTL_MS + 7 * 24 * 60 * 60 * 1000;
 
 /** Magic-link lifetime: 15 minutes. A login link is handed to someone already at
  *  the keyboard, so it is not an invitation. */
-export const MAGIC_LINK_TTL_MS = 15 * 60 * 1000;
+export const MAGIC_LINK_TTL_MS = env.authMagicLinkTtlMs;
 
 // ── Cookie (first-party `sv_session` only) ─────────────────────────────────
 

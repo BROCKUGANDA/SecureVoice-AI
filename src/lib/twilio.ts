@@ -20,7 +20,7 @@ import "server-only";
  */
 
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { twilioMode, isTwilioConfigured } from "@/lib/config";
+import { twilioMode, isTwilioConfigured, env } from "@/lib/config";
 import { blindPingSms } from "@/lib/outreach-copy";
 import type { InstitutionType } from "@/lib/institution-types";
 
@@ -40,12 +40,10 @@ function creds(): TwilioCreds {
   const mode = twilioMode();
   if (!mode || mode === "unconfigured") throw new Error("Twilio not configured");
   return {
-    accountSid: process.env.TWILIO_ACCOUNT_SID!,
-    username:
-      mode === "api-key" ? process.env.TWILIO_API_KEY_SID! : process.env.TWILIO_ACCOUNT_SID!,
-    password:
-      mode === "api-key" ? process.env.TWILIO_API_KEY_SECRET! : process.env.TWILIO_AUTH_TOKEN!,
-    from: process.env.TWILIO_FROM_NUMBER!,
+    accountSid: env.twilioAccountSid!,
+    username: mode === "api-key" ? env.twilioApiKeySid! : env.twilioAccountSid!,
+    password: mode === "api-key" ? env.twilioApiKeySecret! : env.twilioAuthToken!,
+    from: env.twilioFromNumber!,
   };
 }
 
@@ -161,7 +159,7 @@ export function interventionTwiml(
  * configured — the caller must then fall back to inline <Say>.
  */
 export function signAudioParams(text: string, lang: string, callRef: string): string | null {
-  const secret = process.env.WEBHOOK_SECRET;
+  const secret = env.webhookSecret;
   if (!secret) return null;
   return createHmac("sha256", `sv-audio:${secret}`)
     .update(`${lang}.${callRef}.${text}`)
@@ -197,7 +195,7 @@ export function verifyTwilioSignature(
   params: Record<string, string>,
   signatureHeader: string | null,
 ): boolean | null {
-  const token = process.env.TWILIO_AUTH_TOKEN;
+  const token = env.twilioAuthToken;
   if (!token) return null;
   if (!signatureHeader) return false;
   const data =
@@ -238,7 +236,7 @@ export function verifyTwilioSignature(
  * opt-in leak into the next one sharing the process.
  */
 export function liveSendAttested(): boolean {
-  return process.env.TWILIO_LIVE_SEND === "true";
+  return env.twilioLiveSend;
 }
 
 /** The refusal, shaped like the other refused sends. */
@@ -262,14 +260,14 @@ async function twilioPost(
   const body = new URLSearchParams(params).toString();
   const auth = Buffer.from(`${username}:${password}`).toString("base64");
   try {
-    const r = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${accountSid}/${path}`, {
+    const r = await fetch(`${env.twilioApiBaseUrl}/2010-04-01/Accounts/${accountSid}/${path}`, {
       method: "POST",
       headers: {
         Authorization: `Basic ${auth}`,
         "Content-Type": "application/x-www-form-urlencoded",
       },
       body,
-      signal: AbortSignal.timeout(15_000),
+      signal: AbortSignal.timeout(env.twilioTimeoutMs),
     });
     const data = (await r.json().catch(() => ({}))) as Record<string, unknown>;
     if (!r.ok) {

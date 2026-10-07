@@ -20,6 +20,7 @@ import "server-only";
 
 import { randomBytes } from "node:crypto";
 
+import { env } from "@/lib/config";
 import { leakSafeText } from "@/lib/failures/envelope";
 import { sendSalesforceCase } from "./salesforce";
 import { TEST_CASE_REF_PREFIX } from "./text";
@@ -54,7 +55,7 @@ export type HandoffDeps = AdapterDeps & {
   log?: (message: string) => void;
 };
 
-export const RETRY_DELAY_MS = 500;
+export const RETRY_DELAY_MS = env.crmRetryDelayMs;
 
 const DEFAULT_ADAPTERS: Record<CrmProvider, Adapter<never>> = {
   zendesk: sendZendeskTicket as Adapter<never>,

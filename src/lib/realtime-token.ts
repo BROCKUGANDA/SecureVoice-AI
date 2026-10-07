@@ -21,10 +21,11 @@ import "server-only";
  */
 
 import { createHmac } from "node:crypto";
+import { env } from "@/lib/config";
 
 /** Must match PREFIX in mini-services/realtime/src/auth.ts. */
 const PREFIX = "svr1";
-export const REALTIME_TOKEN_TTL_SEC = 60;
+export const REALTIME_TOKEN_TTL_SEC = env.realtimeTokenTtlSec;
 
 /** Dedicated realtime secret. Deliberately no AGENT_TOOL_SECRET fallback:
  *  that secret crosses the wire on ElevenLabs tool calls — reusing it here

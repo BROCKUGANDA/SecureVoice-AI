@@ -300,7 +300,7 @@ export async function POST(req: NextRequest) {
         "x-caller-id": `console:${profile.userId.slice(0, 40)}`,
       },
       body: rawBody,
-      signal: AbortSignal.timeout(30_000),
+      signal: AbortSignal.timeout(env.dialProbeTimeoutMs),
     });
   } catch (err) {
     // Network/timeout before a verdict — the claimed credit is refunded.

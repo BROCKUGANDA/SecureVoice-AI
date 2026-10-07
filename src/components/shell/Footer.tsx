@@ -1,6 +1,7 @@
 "use client";
 
 import { useApp, type View } from "@/lib/store";
+import { SUPPORT_EMAIL } from "@/lib/public-config";
 import { LogoMark } from "@/components/shell/Logo";
 import { Mail } from "lucide-react";
 
@@ -70,11 +71,11 @@ export function Footer() {
           <div>
             <p className="micro text-[9px] text-ink-3">CONTACT</p>
             <a
-              href="mailto:otemaach@gmail.com"
+              href={`mailto:${SUPPORT_EMAIL}`}
               className="mt-3 inline-flex items-center gap-2 rounded-full border border-line bg-paper px-3.5 py-2 text-[12px] font-semibold text-ink-2 transition hover:border-primary/40 hover:text-primary"
             >
               <Mail className="h-3.5 w-3.5 text-primary" />
-              otemaach@gmail.com
+              {SUPPORT_EMAIL}
             </a>
             <p className="mt-2.5 text-[11px] leading-snug text-ink-3">
               {ar

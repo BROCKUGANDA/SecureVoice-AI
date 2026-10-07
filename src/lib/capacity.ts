@@ -1,4 +1,5 @@
 import "server-only";
+import { env } from "./config";
 
 /**
  * Capacity ceilings — the numbers that actually cap the platform.
@@ -48,7 +49,7 @@ export const ELEVENLABS_MAX_CONCURRENT = (() => {
  * failure than refusing a fraud intervention. We allow it up to
  * `ELEVENLABS_BURST_MULTIPLIER`, then shed.
  */
-const ELEVENLABS_BURST_MULTIPLIER = 3;
+const ELEVENLABS_BURST_MULTIPLIER = env.elevenLabsBurstMultiplier;
 export const ELEVENLABS_BURST_CEILING = ELEVENLABS_MAX_CONCURRENT * ELEVENLABS_BURST_MULTIPLIER;
 
 /**
@@ -98,8 +99,8 @@ export const TWILIO_MAX_CONCURRENT_CALLS = (() => {
  * Thresholds are percentages of `ELEVENLABS_BURST_CEILING`.
  * ─────────────────────────────────────────────────────────────────────────────
  */
-export const BAND_ENTER_CONSTRAINED_PCT = 0.7;
-export const BAND_ENTER_SHED_PCT = 0.95;
+export const BAND_ENTER_CONSTRAINED_PCT = env.bandEnterConstrainedPct;
+export const BAND_ENTER_SHED_PCT = env.bandEnterShedPct;
 
 /** Expected-loss score used for triage ordering: risk × amount at risk. */
 export function expectedLossScore(riskScore: number, amountMinor: number): number {

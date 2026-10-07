@@ -25,7 +25,12 @@
 import fs from "node:fs";
 import path from "node:path";
 
-const HOST = "https://api.elevenlabs.io";
+// Honors the app's documented override first (ELEVENLABS_API_BASE_URL), then
+// the script-local alias, so a gateway/region move covers the scripts too.
+const HOST =
+  process.env.ELEVENLABS_API_BASE_URL ??
+  process.env.ELEVENLABS_API_BASE ??
+  "https://api.elevenlabs.io";
 const RETRY_STATUS = new Set([429, 500, 502, 503, 504, 529]);
 const BACKOFF_MS = [250, 500, 1_000, 2_000, 4_000];
 const MAX_RETRY_WAIT_MS = 10_000;

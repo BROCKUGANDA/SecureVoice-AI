@@ -23,10 +23,12 @@ Exit 0 = verified, exit 1 = rejected (with the reason on stderr).
 
 import hashlib
 import hmac
+import os
 import sys
 import time
 
-TOLERANCE_SECONDS = 300  # replay window
+# Must match the sender's REPLAY_WINDOW_SEC (src/lib/config.ts default 300).
+TOLERANCE_SECONDS = int(os.environ.get("REPLAY_WINDOW_SEC", "300"))  # replay window
 
 
 def canonical_json(value) -> str:

@@ -7,12 +7,13 @@ import { recordSpanAndPersist } from "@/lib/telemetry/store";
 import { db } from "@/lib/db";
 import { append as auditAppend } from "@/lib/audit-chain";
 import { badRequest, parseJson, unprocessable, schemaErrorCode } from "@/lib/api-errors";
+import { env } from "@/lib/config";
 
 export const dynamic = "force-dynamic";
 
 const TOOL_NAME = "card_freeze";
 const ALLOWED_STATES = ["CONFIRMED_FRAUD"];
-const REVERSAL_WINDOW_SECS = 300;
+const REVERSAL_WINDOW_SECS = env.reversalWindowSecs;
 
 const schema = z.strictObject({
   conversation_id: z.string().min(1).max(128),

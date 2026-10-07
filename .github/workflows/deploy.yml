@@ -15,6 +15,10 @@ on:
       - "**.md"
       - "docs/**"
       - "evidence/**"
+  # Manual run — this repo has a history of push events recording a synthetic
+  # `startup_failure` (path "BuildFailed") without ever starting a step; a
+  # dispatch is the fastest way to prove whether Actions can run at all.
+  workflow_dispatch:
 
 concurrency:
   group: deploy-vps

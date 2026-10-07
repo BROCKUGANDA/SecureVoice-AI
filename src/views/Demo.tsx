@@ -85,7 +85,7 @@ const HINTS: Record<Phase | "idle", { en: string; ar: string }> = {
     ar: "تأكيد دقيق ومقتبس — المبلغ والمتجر بالتفصيل، ونعم أو لا صريحة. لا يُتخذ إجراء على أي غموض.",
   },
   action: {
-    en: "The agent has exactly one write action: a temporary, reversible freeze (or transfer hold). Watch the API receipt land in the rail.",
+    en: "The agent has exactly one write action: a temporary, reversible protective step — a card freeze, a transfer hold, or a claim-payout hold for an insurer — and a human confirms it. Watch the API receipt land in the rail.",
     ar: "للوكيل إجراء كتابي واحد فقط: تجميد مؤقت قابل للإلغاء (أو حجز حوالة). راقب وصول إيصال الـ API في الشريط.",
   },
   handoff: {
@@ -331,7 +331,7 @@ export function Demo() {
       </div>
 
       {/* ——— scenario picker ——— */}
-      <div className="mt-7 grid gap-3 sm:grid-cols-3">
+      <div className="mt-7 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {SCENARIO_LIBRARY.map((m) => {
           const sel = m.kind === kind;
           return (
@@ -690,7 +690,9 @@ export function Demo() {
                     <span className="text-[11.5px] font-semibold text-green-deep">
                       {kind === "wire"
                         ? "Transfer held — payee blocked"
-                        : "Card frozen — reversible"}
+                        : kind === "claim"
+                          ? "Payout flagged for hold — a human confirms"
+                          : "Card frozen — reversible"}
                     </span>
                   </div>
                 )}
@@ -794,8 +796,12 @@ export function Demo() {
                 </div>
                 <p className="mt-3 max-w-lg text-[14px] leading-relaxed text-white/70">
                   Fraud signal → connected call → verified identity → confirmed fraud →{" "}
-                  {kind === "wire" ? "transfer held" : "card frozen"} → warm handoff. Estimated
-                  prevented loss:{" "}
+                  {kind === "wire"
+                    ? "transfer held"
+                    : kind === "claim"
+                      ? "payout flagged for hold"
+                      : "card frozen"}{" "}
+                  → warm handoff. Estimated prevented loss:{" "}
                   <span className="num font-semibold text-white">
                     {lang === "ar" ? META.preventedLoss.ar : META.preventedLoss.en}
                   </span>

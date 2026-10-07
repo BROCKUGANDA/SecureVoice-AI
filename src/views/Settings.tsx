@@ -33,6 +33,8 @@ type Settings = {
   orgLogoUrl: string | null;
   elevenKeyMasked: string | null;
   credits: number;
+  /** Bank or insurer - how the institution is spoken about to its customers. */
+  institutionType?: "bank" | "insurer";
 };
 
 const inputCls = "h-10 rounded-xl border-line bg-paper";
@@ -68,6 +70,7 @@ export function Settings() {
   // local form state
   const [orgName, setOrgName] = useState("");
   const [orgLogoUrl, setOrgLogoUrl] = useState("");
+  const [institutionType, setInstitutionType] = useState<"bank" | "insurer">("bank");
   const [elevenKey, setElevenKey] = useState("");
   const [inviteEmail, setInviteEmail] = useState("");
   const [producerKeys, setProducerKeys] = useState<
@@ -84,6 +87,7 @@ export function Settings() {
           setSettings(d);
           setOrgName(d.orgName ?? "");
           setOrgLogoUrl(d.orgLogoUrl ?? "");
+          setInstitutionType(d.institutionType === "insurer" ? "insurer" : "bank");
         }
       })
       .catch(() => {});
@@ -221,9 +225,38 @@ export function Settings() {
             {tab === "org" && (
               <div className="space-y-5">
                 <p className="text-[13px] leading-relaxed text-ink-2">
-                  White-label the Command Center — your bank&apos;s name and logo replace
-                  SecureVoice branding for every analyst at your institution.
+                  White-label the Command Center — your institution&apos;s name and logo replace
+                  SecureVoice branding for every analyst at your bank or insurer.
                 </p>
+                <Field
+                  label="Institution type"
+                  hint="Changes how calls, voicemails and fallback texts speak to your customers — “your card” for a bank, “your policy” for an insurer. Protective steps are identical: a staged hold that a human confirms."
+                >
+                  <div role="radiogroup" aria-label="Institution type" className="flex gap-2">
+                    {(
+                      [
+                        { id: "bank", label: "Bank" },
+                        { id: "insurer", label: "Insurer" },
+                      ] as const
+                    ).map((o) => (
+                      <button
+                        key={o.id}
+                        type="button"
+                        role="radio"
+                        aria-checked={institutionType === o.id}
+                        onClick={() => setInstitutionType(o.id)}
+                        className={cn(
+                          "flex-1 rounded-xl border px-4 py-2.5 text-[13px] font-semibold transition",
+                          institutionType === o.id
+                            ? "border-primary bg-green-tint text-green-deep"
+                            : "border-line bg-paper text-ink-2 hover:text-foreground",
+                        )}
+                      >
+                        {o.label}
+                      </button>
+                    ))}
+                  </div>
+                </Field>
                 <Field
                   label="Organization display name"
                   hint="Shown in the Command Center header instead of SecureVoice AI."
@@ -231,7 +264,7 @@ export function Settings() {
                   <Input
                     value={orgName}
                     onChange={(e) => setOrgName(e.target.value)}
-                    placeholder="Emirates National Bank — Fraud Ops"
+                    placeholder="Emirates National Bank — Fraud Ops  /  Gulf Mutual Insurance — Claims Security"
                     className={inputCls}
                   />
                 </Field>
@@ -247,7 +280,7 @@ export function Settings() {
                   />
                 </Field>
                 <button
-                  onClick={() => save({ orgName, orgLogoUrl })}
+                  onClick={() => save({ orgName, orgLogoUrl, institutionType })}
                   disabled={busy}
                   className="flex items-center gap-2 rounded-full bg-primary px-6 py-2.5 text-[13px] font-semibold text-white transition hover:bg-green-deep disabled:opacity-40"
                 >

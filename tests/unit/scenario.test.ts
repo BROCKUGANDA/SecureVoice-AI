@@ -31,7 +31,7 @@ import {
 } from "@/lib/scenario";
 import { UR_PACKS } from "@/lib/scenario-ur";
 
-const KINDS = ["card", "atm", "wire"] as const;
+const KINDS = ["card", "atm", "wire", "claim"] as const;
 const LANGS: CallLang[] = ["en", "ar", "hi", "ur", "fr", "sw"];
 
 describe("buildScenario — timeline shape", () => {
@@ -84,6 +84,48 @@ describe("buildScenario — timeline shape", () => {
       }
     });
   }
+});
+
+describe("the insurance scenario speaks as an insurer, and stays honest", () => {
+  const events = buildScenario("claim");
+  const meta = SCENARIO_LIBRARY.find((s) => s.kind === "claim")!;
+
+  test("is tagged as an insurer scenario and the originals stay banks", () => {
+    expect(meta.institution).toBe("insurer");
+    for (const k of ["card", "atm", "wire"] as const) {
+      expect(SCENARIO_LIBRARY.find((s) => s.kind === k)!.institution).toBeUndefined();
+    }
+  });
+
+  test("the introduction names an insurer and a policy - never a bank or an account", () => {
+    const intro = events[4]!;
+    expect(intro.en).toContain("insurer");
+    expect(intro.en).toContain("policy");
+    expect(intro.en.toLowerCase()).not.toContain("bank");
+    expect(intro.ar).toContain("التأمين");
+    expect(intro.ur ?? "").toContain("انشورنس");
+    // And the bank scenarios were not changed by making the line institution-aware.
+    expect(buildScenario("card")[4]!.en).toContain("bank");
+  });
+
+  test("the protective step is a staged payout hold a human confirms - not a freeze, not final", () => {
+    const protect = events[11]!;
+    expect(protect.en.toLowerCase()).toContain("human");
+    expect(protect.en.toLowerCase()).toContain("nothing is final");
+    expect(protect.en.toLowerCase()).not.toContain("freeze");
+    expect(meta.freezeOk.join("\n")).toContain("committed:    false");
+    expect(meta.freezePath).toContain("payout-hold");
+    // Reassures the policyholder the CLAIM is unaffected.
+    expect(protect.en).toContain("claim itself is not affected");
+  });
+
+  test("never asks for a credential or a policy number", () => {
+    for (const e of events) {
+      if (e.speaker !== "agent") continue;
+      expect(e.en.toLowerCase()).not.toMatch(/\b(your pin|password|one-time|otp|cvv)\b/);
+    }
+    expect(events[8]!.en).toContain("No PIN, password or policy number requested");
+  });
 });
 
 describe("Urdu pack alignment", () => {

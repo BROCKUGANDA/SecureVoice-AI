@@ -5,6 +5,8 @@ import { requireOperator } from "@/lib/credits";
 import { db } from "@/lib/db";
 import { decryptSecret, encryptSecret, maskKey } from "@/lib/byok";
 import { append as auditAppend } from "@/lib/audit-chain";
+import { getInstitutionType, setInstitutionType } from "@/lib/institution";
+import { INSTITUTION_TYPES } from "@/lib/institution-types";
 
 export const dynamic = "force-dynamic";
 
@@ -24,6 +26,8 @@ const schema = z.object({
   orgName: z.string().trim().max(60).optional(),
   orgLogoUrl: z.string().trim().url().max(300).optional().or(z.literal("")),
   elevenKey: z.string().trim().min(20).max(80).optional(),
+  // A closed set: "bank" | "insurer". Anything else is a 422, never coerced.
+  institutionType: z.enum(INSTITUTION_TYPES).optional(),
 });
 
 async function readSettings(): Promise<
@@ -42,6 +46,9 @@ async function readSettings(): Promise<
       orgLogoUrl: row.orgLogoUrl ?? null,
       elevenKeyMasked: key ? maskKey(key) : null,
       credits: row.credits,
+      // Bank or insurer: changes how the institution is spoken about to ITS
+      // customers (call, voicemail, SMS). Defaults to "bank".
+      institutionType: await getInstitutionType(guard.profile.orgId),
     },
   };
 }
@@ -83,14 +90,35 @@ export async function POST(req: NextRequest) {
     data.elevenKeyEnc = encryptSecret(d.elevenKey);
   }
 
-  await db.userProfile.update({ where: { userId: guard.profile.userId }, data });
+  // The institution type lives on the ORGANIZATION (the tenant), not the user
+  // profile, so it is written separately. A user with no organization has no
+  // tenant to configure - refuse rather than silently drop the change.
+  let institutionChanged = false;
+  if (d.institutionType !== undefined) {
+    if (!guard.profile.orgId) {
+      return NextResponse.json(
+        {
+          error:
+            "No organization is linked to this account, so there is no institution type to set.",
+        },
+        { status: 409 },
+      );
+    }
+    const res = await setInstitutionType(guard.profile.orgId, d.institutionType);
+    if (!res.ok) return NextResponse.json({ error: res.error }, { status: 422 });
+    institutionChanged = true;
+  }
+
+  if (Object.keys(data).length > 0) {
+    await db.userProfile.update({ where: { userId: guard.profile.userId }, data });
+  }
 
   // Storing or rotating a vendor credential is a security event, so it is
   // recorded like one. The KEY ITSELF IS NEVER LOGGED — only that it changed
   // and a masked fingerprint, which is the difference between an audit trail
   // that proves rotation happened and one that becomes a secret exfiltration
   // path of its own.
-  const touched = Object.keys(data);
+  const touched = [...Object.keys(data), ...(institutionChanged ? ["institutionType"] : [])];
   if (touched.length > 0) {
     await auditAppend({
       callRef: `SETTINGS-${guard.profile.userId.slice(0, 24)}`,

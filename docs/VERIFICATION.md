@@ -1607,3 +1607,78 @@ Wiring is asserted structurally against `src/lib/db.ts` for the same reason. Onc
 local Postgres exists, the next step is to drive a few real handlers inside
 `runWithQueryCounter()` and record their actual counts as the baseline — at which
 point the budgets stop being declared estimates and start being measurements.
+
+## 2026-10-07 — Encryption at rest and in transit, verified end to end
+
+**Date:** 2026-10-07
+**Commands:** `bun test tests/unit/transit.test.ts` · `bun --preload ./tests/preload.ts <probe>` · `curl -w "%{ssl_verify_result}" https://57.130.80.158.sslip.io/healthz`
+
+The data crosses five hops; each is listed with what ENFORCES its encryption
+and what was MEASURED on the real connection, because a config file asking for
+TLS is not the same fact as a socket that negotiated it.
+
+### At rest
+
+- **Case payloads** — envelope encryption with a unique per-case data key bound
+  as AAD, crypto-shredding on erasure, retention per tier: proven by the WP-15
+  gate (`tests/privacy/privacy.test.ts`, `evidence/privacy/privacy.json`),
+  including the negative control that a tampered audit row is reported.
+- **Audio** — there is none at rest: no `AudioStore` is registered anywhere in
+  this deployment, retention's status line reports `none-configured`, and the
+  interface exists for a Stage-3 store. Stated because "we do not hold audio"
+  is a stronger claim than "audio is encrypted" only if it is actually true.
+- **Postgres storage-level encryption** — a Supabase vendor-managed control.
+  Recorded here, honestly attributed: it is not something this codebase can
+  prove from inside.
+- **`PRIVACY_MASTER_KEY`** — lives in the gitignored `.env` only; the repo and
+  `.env.example` carry no key material.
+
+### In transit
+
+1. **App → Postgres.** Enforced at boot: `assertTransportIsEncrypted`
+   (extracted to `src/lib/db-transport.ts`, matrix-tested in
+   `tests/unit/transit.test.ts`) refuses a production `DATABASE_URL` without
+   `sslmode=require|verify-ca|verify-full`; the deployment pins Supabase's root
+   CA with `sslmode=verify-full&sslrootcert=supabase-ca.crt`. Measured on the
+   app's OWN pooled connection (not a second, better-configured client):
+   `pg_stat_ssl` returns `ssl=true, TLSv1.3, TLS_AES_256_GCM_SHA384, 256 bits`.
+   The connection SUCCEEDED under `verify-full`, which is itself part of the
+   proof — a wrong trust anchor refuses the handshake outright.
+2. **App → Redis.** Previously nothing checked this. Now
+   `assertRedisTransportIsEncrypted` (src/lib/redis.ts) refuses a production
+   `redis://` URL at connect time — deliberately at connect, not import, so the
+   meter's declared failure mode (loud degradation to the in-process counter,
+   naming the escape variable in the log) applies instead of a boot failure.
+   The sanctioned plaintext case — a private network the operator controls — is
+   the same explicit opt-in pattern as the database's
+   (`REDIS_ALLOW_PLAINTEXT_PRIVATE_NETWORK=true`), set in docker-compose for
+   its internal redis. The gate is mutation-proven: mangling the scheme check
+   turns 2 tests red.
+3. **App → vendors (ElevenLabs, Twilio).** Both base URLs are hardcoded
+   `https://` constants (src/lib/elevenlabs/egress.ts, src/lib/twilio.ts) — no
+   URL is operator-suppliable, so there is no configuration that downgrades
+   them.
+4. **Browser → edge.** The Caddyfile is TLS-only by construction (the
+   plaintext dev config is a separate file that is not a compose service), and
+   measured live against the deployed edge: `HTTP 200`, `ssl_verify_result=0`
+   (certificate chain validated), `TLSv1.3`,
+   `Strict-Transport-Security: max-age=63072000; includeSubDomains; preload`,
+   h3 advertised. Log redaction (Cookie, Authorization, SV-Signature, query
+   strings) is in the same file.
+
+**State.**
+
+```
+tests/unit/transit.test.ts    15 pass  0 fail   (mutation-proven)
+tests/unit/db-target.test.ts  27 pass  0 fail   (unchanged, still green)
+live DB socket                ssl=true TLSv1.3 TLS_AES_256_GCM_SHA384 (pg_stat_ssl, app's own pool)
+live edge                     200, ssl_verify=0, TLSv1.3, HSTS preload
+```
+
+**Not verified, and stated as such.** The Redis TLS path is enforced and
+tested but never measured live: no `REDIS_URL` is set in this environment, and
+the compose redis is plaintext by explicit acknowledgment on a private network
+— the sanctioned case, not a measurement. Postgres at-rest encryption is a
+vendor claim, not our proof. And the edge certificate is Let's Encrypt for
+`57.130.80.158.sslip.io` — a convenience domain that validates today; a
+production name is the same open item as the submission's placeholder URL.

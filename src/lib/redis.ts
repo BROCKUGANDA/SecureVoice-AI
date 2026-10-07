@@ -85,9 +85,42 @@ export function sharedMeterConfigured(): boolean {
   return !!process.env.REDIS_URL;
 }
 
+/**
+ * A production Redis connection must be encrypted (`rediss://`).
+ *
+ * The meter carries only budget counters — no PII — so the harm of a plaintext
+ * hop is smaller than the database's, but it is not zero: an attacker who can
+ * read the shared ceiling can time requests to it, and one who can write it can
+ * silently raise the limit the guard enforces. Like the database's own check
+ * (src/lib/db-transport.ts), the one defensible plaintext hop is a private
+ * network the operator controls, and that is allowed only by explicit opt-in —
+ * docker-compose sets the variable for its internal network.
+ *
+ * Thrown from `connect()`, not at import: the meter's declared failure mode is
+ * loud degradation (the caller drops to the in-process counter and logs), so a
+ * production misconfiguration degrades visibly instead of taking the process
+ * down. The message names the escape variable, so the log line is actionable.
+ */
+export function assertRedisTransportIsEncrypted(
+  url: string | undefined,
+  env: Record<string, string | undefined> = process.env,
+): void {
+  if (!url) return;
+  if (env.NODE_ENV !== "production") return;
+  if (env.REDIS_ALLOW_PLAINTEXT_PRIVATE_NETWORK === "true") return;
+  if (/^rediss:\/\//i.test(url.trim())) return;
+  throw new Error(
+    "REDIS_URL must use rediss:// in production. The counter it backs is the ElevenLabs " +
+      "budget ceiling; a plaintext connection can be read or rewritten in transit. On a " +
+      "private network you control, set REDIS_ALLOW_PLAINTEXT_PRIVATE_NETWORK=true to " +
+      "acknowledge that explicitly (docker-compose does).",
+  );
+}
+
 function connect(): Redis {
   const url = process.env.REDIS_URL;
   if (!url) throw new Error("REDIS_URL is not set");
+  assertRedisTransportIsEncrypted(url);
   if (!client) {
     client = new Redis(url, {
       // Fail fast rather than queue: the caller has a declared degraded path,

@@ -240,6 +240,9 @@ services:
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
       # Private-network database with no server certificate; see dial-worker.
       DB_ALLOW_PLAINTEXT_PRIVATE_NETWORK: "true"
+      # Same acknowledgement for the compose redis (src/lib/redis.ts refuses a
+      # plaintext REDIS_URL in production otherwise).
+      REDIS_ALLOW_PLAINTEXT_PRIVATE_NETWORK: "true"
       # Opt-in: refuse to boot production against anything but the VPS Postgres.
       REQUIRE_VPS_DATABASE: ${REQUIRE_VPS_DATABASE:-false}
       # Internal service name, NEVER localhost: inside the app container,

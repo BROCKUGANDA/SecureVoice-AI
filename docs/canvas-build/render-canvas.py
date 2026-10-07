@@ -38,7 +38,7 @@ from canvas_geom import ASC, DESC, EPS, Rect, GeometryError  # noqa: E402
 CONTENT = Path(__file__).with_name("content.json")
 DRAWS = Path(__file__).with_name("draw-list.json")
 OUT = Path(__file__).parents[1] / "idea-canvas-submission.pdf"
-TEMPLATE_FALLBACK = Path(r"C:/Users/HP/Downloads/ElevenLabs_Idea_Canvas.pdf")
+TEMPLATE_FALLBACK = Path(r"<home>/Downloads/ElevenLabs_Idea_Canvas.pdf")
 
 INK = (0.06, 0.07, 0.13)
 LINE = (0.30, 0.32, 0.38)

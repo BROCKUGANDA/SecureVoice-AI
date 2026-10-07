@@ -5,7 +5,7 @@
  * directions, and a machine-readable artifact at
  * `evidence/tenancy/isolation.json`.
  *
- *   cd C:\Users\HP\Desktop\SecureVoiceai
+ *   cd <home>\Desktop\SecureVoiceai
  *   $env:TEST_DATABASE_URL="postgresql://postgres@127.0.0.1:5432/securevoice_test?connection_limit=20"
  *   bun test tests/tenancy/isolation.test.ts
  *

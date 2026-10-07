@@ -1,7 +1,7 @@
 /**
  * WP-15 GATE — data protection and retention (crypto-shredding + retention).
  *
- *   cd C:\Users\HP\Desktop\SecureVoiceai
+ *   cd <home>\Desktop\SecureVoiceai
  *   $env:TEST_DATABASE_URL="postgresql://postgres@127.0.0.1:5432/securevoice_test?connection_limit=20"
  *   bun test tests/privacy/privacy.test.ts
  *

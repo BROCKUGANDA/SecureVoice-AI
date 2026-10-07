@@ -3,8 +3,8 @@
   "schema_of_artifact": 1,
   "generated_at": "2026-10-02T20:53:01.854Z",
   "generated_by": [
-    "cd C:\\Users\\HP\\Desktop\\SecureVoiceai",
-    "$env:PATH=\"C:\\Users\\HP\\.bun\\bin;$env:PATH\"",
+    "cd <home>\\Desktop\\SecureVoiceai",
+    "$env:PATH=\"<home>\\.bun\\bin;$env:PATH\"",
     "$env:TEST_DATABASE_URL=\"postgresql://postgres@127.0.0.1:5432/securevoice_test?connection_limit=20\"",
     "bun test tests/contracts",
     "bunx tsc --noEmit"

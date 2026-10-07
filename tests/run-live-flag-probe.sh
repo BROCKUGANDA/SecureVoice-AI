@@ -12,7 +12,7 @@ set -uo pipefail
 
 cd "$(dirname "$0")/.."
 # Absolute bun path: nested shells here can lose PATH, which silently no-ops.
-BUN="/c/Users/HP/.bun/bin/bun"
+BUN="bun"
 PORT="${PROBE_PORT:-3171}"
 # TMPDIR is often unset in this env; LOCALAPPDATA/Temp is the real temp dir.
 LOG="${TMPDIR:-$LOCALAPPDATA/Temp}/svprobe-$PORT.log"

@@ -215,8 +215,12 @@ import {
 /* ── Fixtures ─────────────────────────────────────────────────────────────── */
 
 /** In-hours (10:00 UTC) and out-of-hours (03:00 UTC) instants. */
-const T_IN = Date.UTC(2026, 0, 15, 10, 0, 0);
-const T_OUT = Date.UTC(2026, 0, 15, 3, 0, 0);
+const T_IN = Date.UTC(2026, 0, 15, 10, 0, 0); // 14:00 in Dubai — in hours
+// Out of hours by the DEFAULT zone (Asia/Dubai), not by the server's UTC clock:
+// 21:00 UTC is 01:00 the next Dubai morning. This constant is only an
+// out-of-hours instant because of the timezone fix; under the old UTC reading
+// it was ordinary business time, which is the bug.
+const T_OUT = Date.UTC(2026, 0, 15, 21, 0, 0);
 
 const SECOND = 1000;
 const MINUTE = 60 * SECOND;
@@ -798,9 +802,9 @@ describe("velocity: windows are half-open (now - window, now]", () => {
 });
 
 describe("velocity: business hours are wrap-aware and half-open", () => {
-  test("a day shift (06:00-22:00 UTC) is in hours on [start, end)", () => {
+  test("a day shift (06:00-22:00) is in hours on [start, end)", () => {
     setAbuseConfig({
-      velocity: velocityOff({ businessHoursStartUtc: 6, businessHoursEndUtc: 22 }),
+      velocity: velocityOff({ businessHoursStart: 6, businessHoursEnd: 22 }),
     });
     // All 24 hours asserted, because a wrong comparison inverts the signal
     // silently: nothing would ever be out of hours, so the control would
@@ -831,24 +835,81 @@ describe("velocity: business hours are wrap-aware and half-open", () => {
       "AH",
       "AH", // 18-21 in, 22-23 out
     ];
+    // Pinned to "UTC" because this block is about the comparison, not the
+    // clock: which hour the wall shows is a separate assertion below, and
+    // letting both vary at once makes an inverted comparison untraceable.
     for (let hour = 0; hour < 24; hour += 1) {
       const at = Date.UTC(2026, 0, 15, hour, 0, 0);
-      expect(`${hour}:${isAfterHours(at) ? "AH" : "IN"}`).toBe(`${hour}:${expected[hour]}`);
+      expect(`${hour}:${isAfterHours(at, "UTC") ? "AH" : "IN"}`).toBe(`${hour}:${expected[hour]}`);
     }
     // start is inclusive, end is exclusive — asserted directly because it
     // is the pair most easily off by one.
-    expect(isAfterHours(Date.UTC(2026, 0, 15, 6, 0, 0))).toBe(false);
-    expect(isAfterHours(Date.UTC(2026, 0, 15, 21, 59, 59))).toBe(false);
-    expect(isAfterHours(Date.UTC(2026, 0, 15, 22, 0, 0))).toBe(true);
-    expect(isAfterHours(Date.UTC(2026, 0, 15, 5, 59, 59))).toBe(true);
+    expect(isAfterHours(Date.UTC(2026, 0, 15, 6, 0, 0), "UTC")).toBe(false);
+    expect(isAfterHours(Date.UTC(2026, 0, 15, 21, 59, 59), "UTC")).toBe(false);
+    expect(isAfterHours(Date.UTC(2026, 0, 15, 22, 0, 0), "UTC")).toBe(true);
+    expect(isAfterHours(Date.UTC(2026, 0, 15, 5, 59, 59), "UTC")).toBe(true);
   });
 
-  test("a night shift (22:00-06:00 UTC) wraps the day instead of inverting it", () => {
+  test("the same instant is judged by the customer's clock, not the server's", () => {
+    // This is the bug the UTC reading caused. 17:00 UTC on 15 Jan is 21:00 in
+    // Dubai — in hours — while 21:00 UTC is 01:00 the next Dubai morning, which
+    // is exactly the hour a fraud desk must not dial into. Evaluated against
+    // UTC both answers are wrong, and both are wrong in the permissive
+    // direction: the gate lets a night call through and refuses an evening one.
+    setAbuseConfig({
+      velocity: velocityOff({
+        businessHoursStart: 6,
+        businessHoursEnd: 22,
+        businessHoursTimezone: "Asia/Dubai",
+      }),
+    });
+
+    const eveningDubai = Date.UTC(2026, 0, 15, 17, 0, 0); // 21:00 GST
+    const nightDubai = Date.UTC(2026, 0, 15, 21, 0, 0); // 01:00 GST next day
+
+    expect(isAfterHours(eveningDubai)).toBe(false);
+    expect(isAfterHours(nightDubai)).toBe(true);
+
+    // Same two instants, same configured numbers, read on UTC instead. Only the
+    // zone can have changed the answer — and the night instant is the bug this
+    // fix closes: on UTC it is ordinary business time, so the old gate would
+    // have dialled a Dubai customer at 01:00 and called it 21:00.
+    setAbuseConfig({
+      velocity: velocityOff({ businessHoursStart: 6, businessHoursEnd: 22 }),
+    });
+    expect(isAfterHours(nightDubai, "UTC")).toBe(false);
+  });
+
+  test("a half-day offset zone still lands on the right hour", () => {
+    // Asia/Kolkata is +05:30, which a `Math.floor(offset/3600)` shortcut would
+    // round to +05:00 and get wrong for the whole thirty-minute band. India is
+    // on the language list, so this is a real deployment, not a curiosity.
+    setAbuseConfig({
+      velocity: velocityOff({
+        businessHoursStart: 6,
+        businessHoursEnd: 22,
+        businessHoursTimezone: "Asia/Kolkata",
+      }),
+    });
+    expect(isAfterHours(Date.UTC(2026, 0, 15, 0, 0, 0))).toBe(true); // 05:30 IST
+    expect(isAfterHours(Date.UTC(2026, 0, 15, 0, 30, 0))).toBe(false); // 06:00 IST
+  });
+
+  test("an unusable zone is refused at config time rather than guessed", () => {
+    expect(() => resolveAbuseConfig({ ABUSE_BUSINESS_HOURS_TZ: "Mars/Dubai" })).toThrow(
+      /IANA timezone/,
+    );
+    // A typo must not silently revert to a clock that dials at midnight.
+    expect(() => resolveAbuseConfig({ ABUSE_BUSINESS_HOURS_TZ: "Europe/Nowhere" })).toThrow();
+  });
+
+  test("a night shift (22:00-06:00) wraps the day instead of inverting it", () => {
     // start > end means the window crosses midnight. Getting this wrong does
     // not throw — it just marks every hour out of hours, which would make
-    // the weakest signal fire on all legitimate traffic.
+    // the weakest signal fire on all legitimate traffic. Pinned to "UTC":
+    // this block is about the comparison, not about which clock is read.
     setAbuseConfig({
-      velocity: velocityOff({ businessHoursStartUtc: 22, businessHoursEndUtc: 6 }),
+      velocity: velocityOff({ businessHoursStart: 22, businessHoursEnd: 6 }),
     });
     const expected = [
       "IN",
@@ -878,18 +939,18 @@ describe("velocity: business hours are wrap-aware and half-open", () => {
     ];
     for (let hour = 0; hour < 24; hour += 1) {
       const at = Date.UTC(2026, 0, 15, hour, 0, 0);
-      expect(`${hour}:${isAfterHours(at) ? "AH" : "IN"}`).toBe(`${hour}:${expected[hour]}`);
+      expect(`${hour}:${isAfterHours(at, "UTC") ? "AH" : "IN"}`).toBe(`${hour}:${expected[hour]}`);
     }
   });
 
   test("start === end means 24-hour operation, never out of hours", () => {
     // A degenerate config must disable the signal rather than making every
-    // hour out of hours.
+    // hour out of hours. Same pinning: the zone is a separate assertion.
     setAbuseConfig({
-      velocity: velocityOff({ businessHoursStartUtc: 8, businessHoursEndUtc: 8 }),
+      velocity: velocityOff({ businessHoursStart: 8, businessHoursEnd: 8 }),
     });
     for (let hour = 0; hour < 24; hour += 1) {
-      expect(isAfterHours(Date.UTC(2026, 0, 15, hour, 0, 0))).toBe(false);
+      expect(isAfterHours(Date.UTC(2026, 0, 15, hour, 0, 0), "UTC")).toBe(false);
     }
   });
 });

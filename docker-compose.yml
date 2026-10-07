@@ -143,6 +143,31 @@ services:
     # process; see scripts/worker-preload.ts for why that is safe.
     command: ["bun", "--preload", "./scripts/worker-preload.ts", "src/worker/dial.ts"]
 
+  # Retention sweeper. The privacy tiers (audio purge, payload-key shred,
+  # case-record delete) erase on the clock whether or not anyone remembers —
+  # that is the point of the policy, so it runs as a service and not a cron
+  # note. First sweep at boot (a worker that was down owes the backlog a
+  # sweep), then every RETENTION_SWEEP_HOURS. `--once` for operators.
+  retention-worker:
+    build:
+      context: .
+      target: builder   # full source tree: the worker is a script, not a bundle
+    restart: unless-stopped
+    logging: *default-logging
+    mem_limit: 256m
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql://${POSTGRES_USER:-securevoice}:${POSTGRES_PASSWORD:-securevoice}@db:5432/${POSTGRES_DB:-securevoice}}
+      NODE_ENV: production
+      # The compose database is a container on a private network with no server
+      # certificate; see dial-worker for why the acknowledgement lives here.
+      DB_ALLOW_PLAINTEXT_PRIVATE_NETWORK: "true"
+      REQUIRE_VPS_DATABASE: ${REQUIRE_VPS_DATABASE:-false}
+      RETENTION_SWEEP_HOURS: ${RETENTION_SWEEP_HOURS:-24}
+    depends_on:
+      db-setup:
+        condition: service_completed_successfully
+    command: ["bun", "--preload", "./scripts/worker-preload.ts", "src/worker/retention.ts"]
+
   # Command Center push path. Separate image, separate trust boundary, and
   # independently restartable: a hung socket layer must never take the API with it.
   realtime:

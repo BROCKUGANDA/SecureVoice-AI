@@ -278,7 +278,7 @@ between them is a documentation bug.
 ### Q. Proof of build (two links)
 
 1. **Live deployed app** — https://securevoice.ai (public demo, real product surface, all five tracks scoped: fraud = SHIPPED, collections/servicing = pilot pipeline, pre-auth/hard-moments = reference build). To be updated with the pilot bank URL on 30 Sept.
-2. **60-second walkthrough of the architecture (box L)** — see `docs/WALKTHROUGH.md` (to be recorded by 30 Sept and linked from the Stage 2 submission).
+2. **60-second walkthrough of the architecture (box L)** — recorded; see `docs/WALKTHROUGH.md` (script, scene table, and the cut at `scripts/walkthrough/out/video/take.webm`, 2:37).
 
 ---
 

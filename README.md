@@ -30,7 +30,7 @@ Today, when a bank's fraud engine flags a transaction, the case lands in a Tier�
 **SecureVoice AI closes that gap.** The moment a risk signal arrives (`POST /v1/interventions`), the platform:
 
 1. Places an **outbound voice call to the customer within seconds** — live over Twilio, in the customer's own language, for **banks and insurers** alike.
-2. Runs a **guardrailed voice agent** (ElevenLabs Agents Platform) whose system prompt is selected by a **Dynamic Prompt Router** — the producer declares *why* the institution is calling (`call_category`), and the agent's powers, prohibitions and backend preconditions follow that category.
+2. Runs a **guardrailed voice agent** (ElevenLabs Agents Platform) whose system prompt is selected by a **Dynamic Prompt Router** — the producer declares _why_ the institution is calling (`call_category`), and the agent's powers, prohibitions and backend preconditions follow that category.
 3. On confirmation, **stages the protective action (always reversible), escalates to a human — live via warm transfer or the specialist queue — and streams every phase transition back to the institution** via signed webhooks — with a tamper-evident **audit chain** recording the entire interaction.
 
 > **Compliance by construction:** every call opens with a disclosure, the agent _never_ requests PINs/OTPs/passwords (server-enforced, not prompt-enforced), all PII is redacted before persistence, and **irreversible account actions are decided by the institution's human team in every category and every environment**.
@@ -134,17 +134,17 @@ anything else.
 Every runtime switch is declared in `src/lib/flags.ts` — one file answers
 "what is switchable in this deployment?", which is not otherwise greppable.
 
-| Flag                              | Default | Effect                                                                                                                                                   |
-| --------------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `FEATURE_REALTIME`               | `false` | Signed push to the realtime service. Needs `REALTIME_INGEST_SECRET` too — both or neither, because the service rejects every handshake without a secret. |
-| `FEATURE_CONSOLE_LIVE_FEED`      | `false` | Console live feed over the websocket. Off means SSE, which is what shipped first.                                                                        |
-| `FEATURE_PII_REDACTION`          | `true`  | Redact PII in logs, audit rows, webhook payloads. Turning this off writes customer transcripts in the clear — local debugging only.                      |
-| `FEATURE_COMPLIANCE_PII_REDACTION` | `true` | Second (outbound-wire) redaction switch; no legacy var backs it.                                                                                          |
-| `FEATURE_ELEVEN_LABS_LIVE`       | `false` | Real neural voice. `ELEVENLABS_DRY_RUN` still wins when set, since the provider client reads it directly.                                                |
-| `FEATURE_COMPLIANCE_DISCLOSURE`  | `true`  | The "this call is recorded" opening disclosure. Required by law; defaults ON.                                                                            |
-| `FEATURE_COMPLIANCE_NO_SECRETS`  | `true`  | Never request PIN/password/OTP/CVV. Required by policy; defaults ON.                                                                                     |
-| `FEATURE_WEBHOOK_STRICT_SIGNATURES` | `true` | Refuse unsigned inbound signals. OFF is a local-debug affordance only.                                                                                  |
-| `FEATURE_SEED_DEMO`              | `false` | Seed demo case history on first boot. Defaults OFF for a clean production database.                                                                       |
+| Flag                                | Default | Effect                                                                                                                                                   |
+| ----------------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `FEATURE_REALTIME`                  | `false` | Signed push to the realtime service. Needs `REALTIME_INGEST_SECRET` too — both or neither, because the service rejects every handshake without a secret. |
+| `FEATURE_CONSOLE_LIVE_FEED`         | `false` | Console live feed over the websocket. Off means SSE, which is what shipped first.                                                                        |
+| `FEATURE_PII_REDACTION`             | `true`  | Redact PII in logs, audit rows, webhook payloads. Turning this off writes customer transcripts in the clear — local debugging only.                      |
+| `FEATURE_COMPLIANCE_PII_REDACTION`  | `true`  | Second (outbound-wire) redaction switch; no legacy var backs it.                                                                                         |
+| `FEATURE_ELEVEN_LABS_LIVE`          | `false` | Real neural voice. `ELEVENLABS_DRY_RUN` still wins when set, since the provider client reads it directly.                                                |
+| `FEATURE_COMPLIANCE_DISCLOSURE`     | `true`  | The "this call is recorded" opening disclosure. Required by law; defaults ON.                                                                            |
+| `FEATURE_COMPLIANCE_NO_SECRETS`     | `true`  | Never request PIN/password/OTP/CVV. Required by policy; defaults ON.                                                                                     |
+| `FEATURE_WEBHOOK_STRICT_SIGNATURES` | `true`  | Refuse unsigned inbound signals. OFF is a local-debug affordance only.                                                                                   |
+| `FEATURE_SEED_DEMO`                 | `false` | Seed demo case history on first boot. Defaults OFF for a clean production database.                                                                      |
 
 Values are strictly `"true"` / `"false"`. Anything else throws at read time
 rather than reading as "disabled" — a typo that silently disables realtime is
@@ -197,21 +197,21 @@ docker run -p 3000:3000 \
 
 ## API surface
 
-| Route                                                            | Purpose                                                                                |
-| ---------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| Route                                                            | Purpose                                                                                                                                                                          |
+| ---------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `POST /v1/interventions` (`GET` = discovery doc)                 | Institution fraud engine ingests a risk signal (HMAC-signed) → case created, SLA clock starts. Optional `call_category` selects the agent's prompt and the backend preconditions |
-| `POST /api/enroll` · `/v1/enroll`                                | Enroll a customer for real Twilio delivery (requires a `consentRecordId`)              |
-| `POST /api/agent`                                                | Guardrailed conversation turn API used during a live call                              |
-| `POST /api/tts` · `POST /api/tts/stream` · `POST /api/asr`       | Neural TTS / speech-to-text, language-routed voice IDs, rate-limited                   |
-| `POST /api/pilot`                                                | Guided pilot / lead capture                                                            |
-| `POST /api/webhooks`                                             | Signed outbound phase-transition events back to the institution                        |
-| `POST /api/elevenlabs/tools/verify-transaction`                  | Agent tool → record the verification outcome (`confirmed_fraud` / `confirmed_legitimate` / `uncertain`) |
-| `POST /api/elevenlabs/tools/card-freeze`                         | Agent tool → **stages** a reversible freeze (always `committed:false`)                 |
-| `POST /api/elevenlabs/tools/human-handoff`                       | Agent tool → queue a fraud specialist                                                  |
-| `POST /api/elevenlabs/tools/warm-transfer`                       | Agent tool → bridge the live call to a human specialist's phone (degrades to the queue) |
-| `POST /api/elevenlabs/tools/switch-language`                     | Agent tool → switch the conversation language mid-call                                 |
-| `POST /api/elevenlabs/signed-url`                                | Mint a 15-min browser session credential; pins `ELEVENLABS_AGENT_ID`                   |
-| `GET /api/status` · `GET /api/health` · `GET /api/console/audit` | Status, liveness, audit chain export                                                   |
+| `POST /api/enroll` · `/v1/enroll`                                | Enroll a customer for real Twilio delivery (requires a `consentRecordId`)                                                                                                        |
+| `POST /api/agent`                                                | Guardrailed conversation turn API used during a live call                                                                                                                        |
+| `POST /api/tts` · `POST /api/tts/stream` · `POST /api/asr`       | Neural TTS / speech-to-text, language-routed voice IDs, rate-limited                                                                                                             |
+| `POST /api/pilot`                                                | Guided pilot / lead capture                                                                                                                                                      |
+| `POST /api/webhooks`                                             | Signed outbound phase-transition events back to the institution                                                                                                                  |
+| `POST /api/elevenlabs/tools/verify-transaction`                  | Agent tool → record the verification outcome (`confirmed_fraud` / `confirmed_legitimate` / `uncertain`)                                                                          |
+| `POST /api/elevenlabs/tools/card-freeze`                         | Agent tool → **stages** a reversible freeze (always `committed:false`)                                                                                                           |
+| `POST /api/elevenlabs/tools/human-handoff`                       | Agent tool → queue a fraud specialist                                                                                                                                            |
+| `POST /api/elevenlabs/tools/warm-transfer`                       | Agent tool → bridge the live call to a human specialist's phone (degrades to the queue)                                                                                          |
+| `POST /api/elevenlabs/tools/switch-language`                     | Agent tool → switch the conversation language mid-call                                                                                                                           |
+| `POST /api/elevenlabs/signed-url`                                | Mint a 15-min browser session credential; pins `ELEVENLABS_AGENT_ID`                                                                                                             |
+| `GET /api/status` · `GET /api/health` · `GET /api/console/audit` | Status, liveness, audit chain export                                                                                                                                             |
 
 Full request/response examples are on the in-app **Docs** page. For signing, enrolment,
 tool authorisation, and self-serve onboarding see **[docs/INTEGRATION.md](docs/INTEGRATION.md)**.

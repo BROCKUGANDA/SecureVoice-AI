@@ -393,10 +393,36 @@ export async function failDialJob(args: {
   rand?: () => number;
   /** Force the dead-letter branch regardless of the ladder (operator use). */
   dead?: boolean;
+  /**
+   * Deferred retry in ms (e.g. a routine call parked until calling hours open).
+   * When set, the job goes back to PENDING at `now + retryAfterMs` WITHOUT
+   * consuming an attempt: a regulatory deferral is not a failure, and letting
+   * it climb the ladder would dead-letter an overnight routine call instead of
+   * placing it in the morning. Clamped to [1min, 24h].
+   */
+  retryAfterMs?: number;
 }): Promise<FailOutcome> {
   const maxAttempts = Math.max(1, args.maxAttempts ?? MAX_DIAL_ATTEMPTS);
   const error = args.error.slice(0, 500);
   try {
+    if (args.retryAfterMs !== undefined && !args.dead) {
+      // A deferred retry is NOT an attempt: no retries increment, so parking a
+      // routine call overnight cannot dead-letter it by morning.
+      const deferMs = Math.min(Math.max(Math.trunc(args.retryAfterMs), 60_000), 86_400_000);
+      const availableAt = new Date(Date.now() + deferMs).toISOString();
+      const deferred = await db.$queryRaw<{ retries: number }[]>`
+        UPDATE "dial_job"
+           SET state = 'PENDING', "available_at" = ${availableAt}, claimed_by = NULL,
+               lease_expires_at = NULL, last_error = ${error}, updated_at = now()
+         WHERE id = ${args.id} AND state = 'CLAIMED'
+        RETURNING retries
+      `;
+      const row = deferred[0];
+      if (row === undefined) {
+        return { outcome: "SETTLED", retries: 0, nextAttemptAt: null, state: null };
+      }
+      return { outcome: "RETRY", retries: row.retries, nextAttemptAt: null };
+    }
     const rows = await db.$queryRaw<{ retries: number }[]>`
       UPDATE "dial_job"
          SET retries = retries + 1, last_error = ${error}, updated_at = now()
@@ -581,7 +607,18 @@ export async function dialJobById(id: string): Promise<DialJob | null> {
 
 export type DialOutcome =
   | { ok: true }
-  | { ok: false; error: string; /** Retryable failures climb the ladder. */ retryable?: boolean };
+  | {
+      ok: false;
+      error: string;
+      /** Retryable failures climb the ladder. */
+      retryable?: boolean;
+      /**
+       * Deferred retry in ms (regulatory deferral, e.g. routine calling hours).
+       * Passed to `failDialJob`, which parks the job WITHOUT consuming an
+       * attempt — see failDialJob.
+       */
+      retryAfterMs?: number;
+    };
 
 export type DrainResult = {
   claimed: number;
@@ -690,6 +727,7 @@ export async function drainDialQueue(args: {
       maxAttempts: args.maxAttempts,
       rand: args.rand,
       dead: outcome.retryable === false,
+      retryAfterMs: outcome.retryable === false ? undefined : outcome.retryAfterMs,
     });
     if (settled.outcome === "DEAD") {
       out.dead++;

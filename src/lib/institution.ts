@@ -40,6 +40,28 @@ export async function getInstitutionType(
 export type SetInstitutionResult =
   { ok: true; institutionType: InstitutionType } | { ok: false; error: string };
 
+/**
+ * The institution's type AND display name in one lookup — what the call-category
+ * prompt router needs to speak as ("Stanbic Bank", "Acme Insurance"). A missing
+ * org or a lookup fault degrades to the type default and a noun-only identity,
+ * so a prompt can always be built; nothing about WHETHER the customer is
+ * reached depends on this.
+ */
+export async function getInstitutionContext(
+  orgId: string | null | undefined,
+): Promise<{ type: InstitutionType; name: string | null }> {
+  if (!orgId) return { type: "bank", name: null };
+  try {
+    const org = await db.organization.findUnique({
+      where: { id: orgId },
+      select: { institutionType: true, name: true },
+    });
+    return { type: asInstitutionType(org?.institutionType), name: org?.name ?? null };
+  } catch {
+    return { type: "bank", name: null };
+  }
+}
+
 /** Set a tenant's institution type. Rejects anything outside the closed set. */
 export async function setInstitutionType(
   orgId: string,

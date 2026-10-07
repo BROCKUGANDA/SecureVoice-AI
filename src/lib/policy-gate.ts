@@ -20,6 +20,8 @@ import { append as auditAppend, type AuditEntry } from "@/lib/audit-chain";
 import { db } from "@/lib/db";
 import { assertWithinBudget, maySpend } from "@/lib/billing/breaker";
 import { reserve as reserveCredits, balance as ledgerBalance } from "@/lib/billing/ledger";
+import { asCallCategory, type CallCategory } from "@/lib/call-categories";
+import { isAfterHours } from "@/lib/abuse/velocity";
 
 export type PolicyGateInput = {
   orgId: string | null;
@@ -40,6 +42,15 @@ export type PolicyGateInput = {
    * independently of the request identity.
    */
   transactionRef?: string;
+  /**
+   * WHY the institution is calling (src/lib/call-categories.ts). Absent reads
+   * as the audited default (time_critical_fraud). The category is what turns
+   * the two regulatory preconditions below on: the do-not-call registry blocks
+   * every non-critical category, and routine calls are lawful only inside the
+   * permitted calling window. Both are re-checked at the authoritative dial
+   * moment by the worker — this is the fast, typed refusal at the edge.
+   */
+  callCategory?: string | null;
 };
 
 export type PolicyGateResult = { ok: true } | { ok: false; reason: string; code: string };
@@ -220,6 +231,41 @@ export async function runPolicyGate(input: PolicyGateInput): Promise<PolicyGateR
       ok: false,
       reason: "consent_record_id is required and must be 4-64 characters",
       code: "consent_invalid",
+    };
+  }
+
+  // 1b. Do-not-call registry. A number here must not receive routine or
+  //     non-critical outbound calls, whatever the fraud score says — the
+  //     customer's standing instruction outranks our triage. Time-critical
+  //     fraud verification is consent-record-backed (checked above) and in the
+  //     customer's interest, so it is deliberately not gated on the registry.
+  const category: CallCategory = asCallCategory(input.callCategory);
+  if (category !== "time_critical_fraud") {
+    const dnc = await db.doNotCall.findUnique({ where: { phone } });
+    if (dnc) {
+      await audit("freeze", "policy_do_not_call", {
+        reason: dnc.reason,
+        category,
+        phone: phone.replace(/\d(?=\d{4})/g, "*"),
+      });
+      return {
+        ok: false,
+        reason: "destination is on the do-not-call registry",
+        code: "do_not_call",
+      };
+    }
+  }
+
+  // 1c. Routine calls are lawful only inside the permitted calling window
+  //     (measured on the clock of the person being called — see isAfterHours).
+  //     The ingest-time check is the fast rejection; the worker re-checks at
+  //     the dial moment and parks the job until the window opens.
+  if (category === "routine" && isAfterHours(Date.now())) {
+    await audit("freeze", "policy_outside_calling_hours", { category });
+    return {
+      ok: false,
+      reason: "routine calls are only permitted inside the calling window",
+      code: "outside_calling_hours",
     };
   }
 

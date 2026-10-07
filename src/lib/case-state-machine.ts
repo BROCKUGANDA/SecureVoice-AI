@@ -238,6 +238,8 @@ export async function transitionCaseWithOutbox(
   cardLast4?: string | null;
   /** card_transaction | claim_payout | policy_change | account_takeover */
   signalKind?: string | null;
+  /** fact_finding | sensitive_case | b2b | routine | time_critical_fraud (src/lib/call-categories.ts) */
+  callCategory?: string | null;
 }): Promise<{ id: string; caseRef: string; state: string }> {
   try {
     return await db.case.create({
@@ -256,6 +258,7 @@ export async function transitionCaseWithOutbox(
         conversationId: data.conversationId ?? null,
         cardLast4: data.cardLast4 ?? null,
         signalKind: data.signalKind ?? null,
+        callCategory: data.callCategory ?? null,
       },
       select: { id: true, caseRef: true, state: true },
     });

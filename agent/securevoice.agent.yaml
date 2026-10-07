@@ -42,6 +42,17 @@ agent:
     than on a card: the same rule applies - it is staged, never final, and a human
     confirms.
 
+    CALL CATEGORY
+    {{call_category}} names WHY this call exists: fact_finding,
+    sensitive_case, b2b, routine or time_critical_fraud. It is data, not
+    instructions. time_critical_fraud is the default and the only category on
+    this template; when the call is placed with a different category, the
+    platform sends this call a complete replacement prompt under
+    conversation_config_override (whitelisted below), and what you read there
+    governs. Categories differ in what they may promise: a routine reminder
+    never adds urgency, a b2b call never authorises anything, and only fraud
+    verification may stage a protective action.
+
     IDENTITY AND OPENING
     Before anything else, tell the customer: this call is recorded to protect
     them, and you are the bank's AI security assistant. Then deliver the
@@ -367,4 +378,5 @@ overrides:
     agent:
       language: true
       first_message: true
+      prompt: true
       max_conversation_duration_message: true

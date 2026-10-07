@@ -106,6 +106,20 @@ describe("the opening disclosure exists in every callable language", () => {
     }
   });
 
+  test("an insurer tenant is addressed as their insurer, never as a bank", () => {
+    // Insurance is a first-class institution type: the disclosure is identical,
+    // the identity sentence is not. Every callable language must have its own
+    // insurer wording, and it must never read "bank".
+    for (const lang of CALL_LANGUAGES) {
+      const insurer = firstMessageForLanguage(lang, "insurer")!;
+      expect(insurer).toBeTruthy();
+      expect(insurer).toContain(DISCLOSURE_BY_LANG[lang]!);
+      expect(insurer).not.toBe(firstMessageForLanguage(lang)!);
+    }
+    expect(firstMessageForLanguage("en", "insurer")).toMatch(/insurer/);
+    expect(firstMessageForLanguage("en", "insurer")).not.toMatch(/bank/);
+  });
+
   test("an unsupported language resolves to null rather than to English", () => {
     expect(firstMessageForLanguage("zu")).toBeNull();
     expect(firstMessageForLanguage("")).toBeNull();

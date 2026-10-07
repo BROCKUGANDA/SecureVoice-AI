@@ -24,6 +24,7 @@ import { makeFailure, type FailureCode, type FailureInit } from "@/lib/failures/
 import { notifyRealtime } from "@/lib/realtime";
 import { createCase, transitionCase } from "@/lib/case-state-machine";
 import { SIGNAL_KINDS } from "@/lib/institution-types";
+import { CALL_CATEGORIES } from "@/lib/call-categories";
 import { env, replayWindowSec, IDEMPOTENCY_TTL_HOURS, SUPPORTED_LANGS } from "@/lib/config";
 
 /**
@@ -107,6 +108,7 @@ const schema = z
     amount: z.number().int().min(0, "amount must be a non-negative integer in minor units"),
     merchant: z.string().trim().max(120).optional(),
     signal_kind: z.enum(SIGNAL_KINDS).optional(),
+    call_category: z.enum(CALL_CATEGORIES).optional(),
     ref_last4: z
       .string()
       .regex(/^\d{4}$/, "ref_last4 must be exactly four digits")
@@ -464,6 +466,9 @@ async function armAndDial(
     // Checked independently of the Idempotency-Key: a bank that sends one
     // transaction under two different keys must still produce one call.
     transactionRef: signal.transaction_ref,
+    // WHY the institution is calling — selects the preconditions (do-not-call
+    // registry, routine calling window) and, downstream, the agent's prompt.
+    callCategory: signal.call_category,
   });
   if (!gate.ok) {
     void auditAppend(
@@ -557,6 +562,7 @@ async function armAndDial(
     consentRecordId: signal.consent_record_id,
     cardLast4: signal.ref_last4 ?? null,
     signalKind: signal.signal_kind ?? null,
+    callCategory: signal.call_category ?? null,
   });
   await transitionCase(caseRef, "SCREENED");
 
@@ -842,6 +848,8 @@ export async function GET() {
         amount: "integer minor units (fils/cents)",
         signal_kind:
           "card_transaction | claim_payout | policy_change | account_takeover (optional; insurers use claim_payout / policy_change)",
+        call_category:
+          "fact_finding | sensitive_case | b2b | routine | time_critical_fraud (optional; default time_critical_fraud). Selects the agent's system prompt and the backend preconditions: routine calls are refused outside the permitted calling window and for do-not-call numbers; do-not-call blocks every non-critical category.",
         ref_last4:
           "exactly 4 digits (optional) - last four of the card / policy / account reference; lets the customer recognise the fallback SMS, which never carries a merchant or amount",
         merchant: "string? ÃƒÂ¢Ã¢šÂ¬Ã¢â‚¬Â sanitised before it becomes a dynamic variable",

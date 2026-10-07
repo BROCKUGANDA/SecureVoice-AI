@@ -283,6 +283,29 @@ export function isAfterHours(
   return start < end ? hour < start || hour >= end : hour < start && hour >= end;
 }
 
+/**
+ * The first instant at or after `atMs` that is INSIDE permitted calling hours,
+ * or `atMs` itself when it already is (or the deployment runs 24h). Used by the
+ * dial worker to park a routine-category job until the window opens instead of
+ * letting it climb the retry ladder into the middle of the night.
+ *
+ * 15-minute steps are resolution enough for a window measured in hours and keep
+ * the search bounded (96 Intl format calls worst case, cached formatters).
+ */
+export function nextBusinessHoursStart(
+  atMs: number,
+  timeZone = abuseConfig().velocity.businessHoursTimezone,
+): number {
+  const STEP = 15 * 60 * 1000;
+  const LIMIT = 24 * 60 * 60 * 1000;
+  for (let t = atMs; t <= atMs + LIMIT; t += STEP) {
+    if (!isAfterHours(t, timeZone)) return t;
+  }
+  // Unreachable unless the window is empty in a way the config validator
+  // rejects; a day ahead is the honest fail-safe either way.
+  return atMs + LIMIT;
+}
+
 const HOUR_FORMATTERS = new Map<string, Intl.DateTimeFormat>();
 
 /** The hour-of-day (0-23) this instant shows on a wall clock in `timeZone`. */

@@ -28,7 +28,9 @@ import { append as auditAppend } from "@/lib/audit-chain";
 import { db } from "@/lib/db";
 import { transitionCase } from "@/lib/case-state-machine";
 import { markVoiceFailed } from "@/lib/elevenlabs/sms-fallback";
-import { getInstitutionType } from "@/lib/institution";
+import { getInstitutionContext } from "@/lib/institution";
+import { asCallCategory } from "@/lib/call-categories";
+import { isAfterHours, nextBusinessHoursStart } from "@/lib/abuse/velocity";
 import { sweepExpiredSmsCases } from "@/lib/sms-verdict";
 
 const WORKER_ID =
@@ -71,7 +73,13 @@ async function handle(job: DialJob): Promise<DialOutcome> {
 
   const existing = await db.case.findFirst({
     where: { caseRef: job.case_ref },
-    select: { conversationId: true, state: true, phone: true, signalKind: true },
+    select: {
+      conversationId: true,
+      state: true,
+      phone: true,
+      signalKind: true,
+      callCategory: true,
+    },
   });
   if (existing?.conversationId) {
     // Already placed by a worker that died before writing it down.
@@ -102,9 +110,55 @@ async function handle(job: DialJob): Promise<DialOutcome> {
   }
 
   try {
+    // Category preconditions run HERE, at the authoritative dial moment — not
+    // only at ingest — because a job accepted at 19:59 with a lead delay can
+    // lawfully claim at 20:01. The case row's category is the one source of
+    // truth; nothing in the job payload can re-declare it.
+    const category = asCallCategory(existing?.callCategory);
+
+    // Do-not-call registry: blocks every non-critical category. Time-critical
+    // fraud verification is consent-record-backed and in the customer's
+    // interest, so it is deliberately not gated on the registry (the ingest
+    // consent gate still applies to it).
+    if (category !== "time_critical_fraud") {
+      const dnc = await db.doNotCall.findUnique({ where: { phone: to } });
+      if (dnc) {
+        void auditAppend({
+          callRef: job.case_ref,
+          action: "freeze",
+          intent: "dial_refused_do_not_call",
+          callerId: WORKER_ID,
+          meta: { jobId: job.id, reason: dnc.reason, category },
+          orgId: job.org_id ?? undefined,
+        }).catch(() => {});
+        return { ok: false, error: "destination is on the do-not-call registry", retryable: false };
+      }
+    }
+
+    // Routine calls are lawful only inside the permitted calling window. The
+    // job is PARKED until the window opens (no attempt consumed) instead of
+    // climbing the retry ladder into the middle of the night.
+    if (category === "routine" && isAfterHours(Date.now())) {
+      const wakeAt = nextBusinessHoursStart(Date.now());
+      void auditAppend({
+        callRef: job.case_ref,
+        action: "handoff",
+        intent: "dial_deferred_calling_hours",
+        callerId: WORKER_ID,
+        meta: { jobId: job.id, category, wakeAt: new Date(wakeAt).toISOString() },
+        orgId: job.org_id ?? undefined,
+      }).catch(() => {});
+      return {
+        ok: false,
+        error: "outside permitted calling hours; deferred",
+        retryable: true,
+        retryAfterMs: wakeAt - Date.now(),
+      };
+    }
+
     // A bank says "your card", an insurer says "your policy". Resolved per tenant,
     // and a lookup fault falls back to the default rather than blocking the call.
-    const institution = await getInstitutionType(job.org_id);
+    const institution = await getInstitutionContext(job.org_id);
     const result = await placeOutboundCall({
       toNumber: to,
       language: payload.language ?? "en",
@@ -112,7 +166,9 @@ async function handle(job: DialJob): Promise<DialOutcome> {
       amount: payload.amount ?? undefined,
       currency: payload.currency ?? undefined,
       caseRef: job.case_ref,
-      institution,
+      institution: institution.type,
+      institutionName: institution.name,
+      callCategory: category,
       dynamicVariables: {
         case_id: job.case_id,
         case_ref: job.case_ref,

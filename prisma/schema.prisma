@@ -305,6 +305,9 @@ model Case {
   // columns are additive and nullable - see 9zz_unreachable_resolution.
   cardLast4             String? // lets the customer recognise the alert without a merchant/amount
   signalKind            String? // card_transaction | claim_payout | policy_change | account_takeover
+  // WHY the institution is calling (src/lib/call-categories.ts). Null reads as
+  // the audited default (time_critical_fraud) — see asCallCategory.
+  callCategory          String?
   smsSentAt             DateTime? // anchors the 24h reply window
   resolutionMethod      String? // voice_call | sms_reply_yes | sms_reply_no | unreachable_no_reply | ...
   customerResponse      String? // "yes" | "no" | null (null = the customer never answered)
@@ -341,6 +344,15 @@ model Case {
 /// A phone number that replied STOP. Never texted again by this platform,
 /// whichever tenant's case fires next: the opt-out belongs to the person.
 model SmsSuppression {
+  phone     String   @id // E.164
+  reason    String
+  createdAt DateTime @default(now())
+}
+
+/// Voice do-not-call registry (src/lib/call-categories.ts). A number here must
+/// not receive routine or non-critical outbound calls; time-critical fraud
+/// verification is consent-record-backed and deliberately not gated on it.
+model DoNotCall {
   phone     String   @id // E.164
   reason    String
   createdAt DateTime @default(now())

@@ -319,6 +319,16 @@ export const RISK_SIGNAL_FIELDS: readonly FieldSpec[] = [
     enforced: INGEST_SCHEMA,
   },
   {
+    name: "call_category",
+    required: false,
+    type: "string",
+    enum: ["fact_finding", "sensitive_case", "b2b", "routine", "time_critical_fraud"],
+    description:
+      "WHY the institution is calling — the Dynamic Prompt Router's selector (src/lib/call-categories.ts). It picks the agent's system prompt and the backend preconditions: routine calls are refused outside the permitted calling window and for do-not-call numbers; the do-not-call registry blocks every non-critical category; a b2b call can only ever produce a recommendation for human sign-off. Absent reads as time_critical_fraud — the audited fraud-intervention behaviour — so legacy producers keep exactly the call they get today.",
+    example: "time_critical_fraud",
+    enforced: INGEST_SCHEMA,
+  },
+  {
     name: "ref_last4",
     required: false,
     type: "string",

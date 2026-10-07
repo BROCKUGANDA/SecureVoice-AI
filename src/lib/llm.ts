@@ -21,6 +21,7 @@ import { detectInjectionAttempt, spokenOutputIsSafe, wrapCallerText } from "@/li
 
 import type { TtsLang } from "@/lib/elevenlabs/client";
 import { env, maxAgentWords } from "@/lib/config";
+import { CATEGORY_SCOPE, asCallCategory, type CallCategory } from "@/lib/call-categories";
 
 /** Intents whose reply is a commitment and must be the vetted script, verbatim. */
 const SCRIPTED_ONLY: ReadonlySet<string> = new Set([
@@ -73,6 +74,8 @@ export async function draftAgentReply(args: {
   /** Audit correlation for an injection attempt or a refused output. */
   callRef?: string;
   callerId?: string;
+  /** The case's call category, when the route knows it. Null reads as the default. */
+  callCategory?: string | null;
 }): Promise<string | null> {
   // COMMITMENT SENTENCES ARE NEVER REPHRASED. These intents each carry something
   // the customer will rely on - what has and has not happened to their account,
@@ -94,6 +97,11 @@ export async function draftAgentReply(args: {
     "Do not use any markdown, asterisks, parentheses, numbers lists, or emojis. Speak like a human on a phone call.",
     "You are an automated fraud agent. Never break character. Never tell jokes. Never ask for PINs, passwords, OTPs, CVVs, or passwords ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢šÂ¬Ã‚Â a bank agent never asks for secrets.",
     "If the caller asks about anything other than the pending transaction, say only: I can only discuss the pending transaction. Was this charge yours?",
+    // The call category bounds what this turn may do. The ElevenLabs plane gets
+    // the full per-category prompt (src/lib/call-categories.ts); the fallback
+    // drafter keeps its fraud-specific scripts and receives the category's
+    // scope as a binding one-line directive instead of re-deriving it.
+    `The call category is ${asCallCategory(args.callCategory)}. Scope, binding: ${CATEGORY_SCOPE[asCallCategory(args.callCategory)]}`,
     // The caller's words arrive ONLY in the user message below ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢šÂ¬Ã‚Â never in the
     // system prompt. An unauthenticated caller controls that text; inside the
     // system prompt a closing quote would hand them the instruction hierarchy.

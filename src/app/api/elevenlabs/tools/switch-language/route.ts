@@ -26,11 +26,12 @@ const schema = z.strictObject({
 
 /**
  * Latency budget: this tool sits on the conversational critical path, so the
- * hot path is ONE database round trip — the case lookup and the state
- * precondition are folded into the UPDATE itself (`CTE target … UPDATE …
- * WHERE id IN target`) rather than a findFirst + update pair. Refusals pay a
- * second round trip to type the 409, which is fine: only happy-path latency
- * counts against the p95 gate (docs/VERIFICATION.md, WP-3).
+ * hot path is TWO database round trips — the tool-auth credential lookup and
+ * the case write, where the case lookup and the state precondition are folded
+ * into the UPDATE itself (`CTE target … UPDATE … WHERE id IN target`) rather
+ * than a findFirst + update pair. Refusals pay a third round trip to type the
+ * 409, which is fine: only happy-path latency counts against the p95 gate
+ * (docs/VERIFICATION.md, WP-3).
  */
 export async function POST(req: NextRequest) {
   const body = await parseJson(req);
@@ -47,7 +48,8 @@ export async function POST(req: NextRequest) {
   const { conversation_id } = parsed.data;
   const language = parsed.data.language.toLowerCase();
 
-  // In-memory — no database round trip.
+  // One round trip: the tenant credential lives in agentToolSecret, and the
+  // comparison is constant-time over fixed-size hashes.
   const auth = await authorizeToolCall(req.headers.get("x-agent-tool-secret"), TOOL_NAME);
   if (!auth.ok) {
     return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status });

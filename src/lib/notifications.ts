@@ -18,6 +18,7 @@ import "server-only";
  */
 
 import { db } from "@/lib/db";
+import { Prisma } from "@/generated/prisma/client";
 import { append as auditAppend } from "@/lib/audit-chain";
 import { notifyRealtime } from "@/lib/realtime";
 
@@ -70,14 +71,19 @@ export async function notify(
   input: NotifyInput,
 ): Promise<{ id: string; deduplicated: boolean; count: number }> {
   const dedupeKey = dedupeKeyFor(input);
-  const existing = await db.notification.findUnique({ where: { dedupeKey } });
-  const row = existing
-    ? await db.notification.update({
-        where: { dedupeKey },
-        data: { count: { increment: 1 }, updatedAt: new Date() },
-        select: { id: true, count: true },
-      })
-    : await db.notification.create({
+  let existing = await db.notification.findUnique({ where: { dedupeKey } });
+  const foldIntoExisting = () =>
+    db.notification.update({
+      where: { dedupeKey },
+      data: { count: { increment: 1 }, updatedAt: new Date() },
+      select: { id: true, count: true },
+    });
+  let row: { id: string; count: number };
+  if (existing) {
+    row = await foldIntoExisting();
+  } else {
+    try {
+      row = await db.notification.create({
         data: {
           orgId: input.orgId,
           caseRef: input.caseRef ?? null,
@@ -93,6 +99,19 @@ export async function notify(
         },
         select: { id: true, count: true },
       });
+    } catch (err) {
+      // Two concurrent notifications for one key both pass the findUnique
+      // above — the check-then-act race the load gate crashed on. Exactly one
+      // create wins the unique index; the loser folds into the winner's row,
+      // so the aggregate count stays exact and neither caller sees an error.
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+        existing = await db.notification.findUnique({ where: { dedupeKey } });
+        row = await foldIntoExisting();
+      } else {
+        throw err;
+      }
+    }
+  }
 
   void notifyRealtime({
     orgId: input.orgId,

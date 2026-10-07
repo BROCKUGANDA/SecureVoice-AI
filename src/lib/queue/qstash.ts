@@ -24,13 +24,26 @@ export function dispatchPath(): string {
   return process.env.QSTASH_DISPATCH_PATH ?? DISPATCH_PATH;
 }
 
+/**
+ * True only when the queue can be both WRITTEN and READ.
+ *
+ * Both halves are required, deliberately. The token alone lets us publish; the
+ * signing keys are what let the dispatch endpoint verify the delivery. A
+ * deployment with a token but no signing key would publish every bank signal
+ * into Upstash and then reject every delivery at the door with a 401 - QStash
+ * would retry four times, dead-letter a real fraud intervention, and the case
+ * would never be dialled. Half-configured is the worst state, so half-configured
+ * is not "enabled": we stay on the direct Postgres enqueue, which works.
+ */
 export function qstashConfigured(): boolean {
-  return QSTASH_TOKEN.length > 20;
+  return QSTASH_TOKEN.length > 20 && (process.env.QSTASH_CURRENT_SIGNING_KEY ?? "").length > 20;
 }
 
 export function qstashClient(): Client {
   if (!qstashConfigured()) {
-    throw new Error("QSTASH_TOKEN is not configured — set it in .env");
+    throw new Error(
+      "QStash is not fully configured — set QSTASH_TOKEN AND QSTASH_CURRENT_SIGNING_KEY in .env",
+    );
   }
   return new Client({ token: QSTASH_TOKEN });
 }

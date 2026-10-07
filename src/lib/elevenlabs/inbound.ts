@@ -25,6 +25,7 @@ import { markVoiceFailed } from "@/lib/elevenlabs/sms-fallback";
 import { neutraliseStrings, screenForMemory } from "@/lib/memory-guard";
 import { recordStrike } from "@/lib/abuse/bad-actor";
 import { masterKeyConfigured, sealCasePayload } from "@/lib/privacy/crypto-shred";
+import { indexTranscript, pineconeConfigured } from "@/lib/pinecone/transcript-index";
 
 type WebhookEventRow = {
   id: string;
@@ -337,6 +338,16 @@ async function handleTranscription(row: WebhookEventRow, data: any): Promise<voi
         caseRow.caseRef,
         error instanceof Error ? error.message : error,
       );
+    }
+
+    // Optional semantic index. Only when the operator has explicitly configured
+    // a Pinecone project, and always on the SAME redacted text that was just
+    // sealed - never the raw vendor payload. Fire and forget by design: the
+    // bank has already been told this case's outcome, so a vector-store outage
+    // must not roll the case back or block the webhook. indexTranscript
+    // swallows its own failures into an audit row.
+    if (pineconeConfigured() && redactedTranscript.trim()) {
+      void indexTranscript(caseRow.caseRef, redactedTranscript);
     }
   } else {
     // No master key, no plaintext — and the drop is on the record, not silent.

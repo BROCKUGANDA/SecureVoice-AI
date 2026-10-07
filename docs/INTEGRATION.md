@@ -83,6 +83,10 @@ HMAC producers may instead declare `orgId` in the payload.
 }
 ```
 
+`signal.channel` is the *transaction* type, not the delivery channel: it must be one of
+`card · login · payment · transfer · remittance`. Delivery channel comes from the
+enrollment record.
+
 The **SLA clock starts on acceptance**, not on call completion — that is the metric
 box M tracks (`AuditLog.first_contact_at − alert_received_at`).
 
@@ -101,17 +105,24 @@ tool-call surface instead of push, the ElevenLabs agent's server tools hit
 permits the platform to dial it. Without a consent record the platform will not place
 a call.
 
+The body is **flat** (there is no `enroll` wrapper) and requires `action: "enroll"`:
+
 ```json
 {
-  "enroll": {
-    "customerRef": "CUST-8642",
-    "phone": "+971501234567",
-    "lang": "ar",
-    "channel": "call",
-    "consentRecordId": "CN-2026-04-1183"
-  }
+  "action": "enroll",
+  "customerRef": "CUST-8642",
+  "phone": "+971501234567",
+  "lang": "ar",
+  "channel": "call",
+  "consentRecordId": "CN-2026-04-1183"
 }
 ```
+
+`customerRef` must match `/^[\w.:-]+$/`, and `consentRecordId` is mandatory — the
+platform will not dial a number without a consent record on file. `lang` accepts
+`en · ar · hi · ur · fr · sw`; `channel` is `call` or `sms`.
+
+A successful enrollment returns `"delivery": "live (Twilio)"`.
 
 `lang` accepts `en · ar · hi · ur · fr · sw`. `channel` is `call` or `sms`.
 Opt-out is first-class and immediate. It is the _same_ endpoint with a different body:

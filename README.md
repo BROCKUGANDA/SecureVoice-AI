@@ -204,6 +204,34 @@ docker run -p 3000:3000 \
 Full request/response examples are on the in-app **Docs** page. For signing, enrolment,
 tool authorisation, and self-serve onboarding see **[docs/INTEGRATION.md](docs/INTEGRATION.md)**.
 
+## Branch & environment strategy
+
+| Branch    | Purpose             | `APP_ENV`     | Outbound calls/SMS                             |
+| --------- | ------------------- | ------------- | ---------------------------------------------- |
+| `main`    | production          | `production`  | **allowed** — real customer contact            |
+| `staging` | pre-production / RC | `staging`     | **refused (403)** — never reaches a real phone |
+| `dev`     | development         | `development` | refused; dry-run voice                         |
+
+`staging` runs the _same code and the same database_ as production — the difference is
+blast radius, not behaviour. `APP_ENV` is explicit rather than inferred from `NODE_ENV`,
+so a pre-production deploy can never silently inherit production's permissions. Set it in
+the deployment environment; it defaults to `development` when unset.
+
+The gate lives in `src/lib/twilio.ts` and is visible from outside via `GET /api/status`:
+
+```json
+{ "appEnv": "staging", "canContactRealNumbers": false }
+```
+
+Verified live against Supabase Postgres: a signed high-risk signal under `APP_ENV=staging`
+returns `outbound_calls_disabled_staging` / `outbound_sms_disabled_staging` with **zero**
+Twilio API calls in the server log. Evidence:
+[`staging-gate-2026-10-01.json`](docs/evidence/staging-gate-2026-10-01.json).
+
+> **Irreversible actions are environment-independent.** `card_freeze` only ever stages a
+> reversible `pending_specialist` request in _any_ environment — a human fraud specialist
+> finalises it. No environment can make the agent freeze a card on its own.
+
 ## The ElevenLabs conversation plane (primary)
 
 The conversation runs on the **ElevenLabs Agents Platform** by default. The durable queue's

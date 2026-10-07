@@ -270,7 +270,7 @@ const criterionMap: { criterion: string; weight: string; answers: string[]; stat
     answers: [
       "evidence/tests/results.json",
       "evidence/guardrails/redteam-server.json",
-      "evidence/guardrails/redteam-platform.json",
+      "evidence/guardrails/redteam.json",
     ],
     state:
       "control-plane pass rates recorded per gate; agent-layer rows reported unverified rather than counted",
@@ -334,7 +334,7 @@ ${failed.length > 0 ? `- **${failed.length} gate(s) failed**: ${failed.map((f) =
 - Rows a gate recorded as "not measured" stay not measured. In particular the
   agent-conversation layer (RT-6, RT-8, RT-9 and the wording-dependent outcomes)
   requires ElevenLabs platform quota and is reported separately in
-  \`evidence/guardrails/redteam-platform.json\`.
+  \`evidence/guardrails/redteam.json\`.
 `;
 
 writeFileSync("evidence/INDEX.md", index);

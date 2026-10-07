@@ -29,7 +29,19 @@ import { Pinecone } from "@pinecone-database/pinecone";
 import { append as auditAppend } from "@/lib/audit-chain";
 
 const API_KEY = process.env.PINECONE_API_KEY ?? "";
+/**
+ * The index NAME. This one genuinely must be configured: `pc.index(name)`
+ * takes it as an argument, so there is no default to fall back on. The HOST,
+ * by contrast, is resolved by the SDK from the API key — see `client()`.
+ */
 const INDEX = process.env.PINECONE_INDEX ?? "";
+/**
+ * Optional. The SDK derives the region host from the API key, so setting this is
+ * only necessary when talking to an index in a project the key cannot address
+ * by default (an explicit non-default host). Left empty rather than required,
+ * because requiring it meant a correct deployment silently reported
+ * `pinecone_not_configured` and indexed nothing.
+ */
 const HOST = process.env.PINECONE_HOST ?? "";
 /** Empty namespace is deliberate: erased cases delete by metadata filter. */
 const NAMESPACE = process.env.PINECONE_NAMESPACE ?? "";
@@ -37,12 +49,24 @@ const NAMESPACE = process.env.PINECONE_NAMESPACE ?? "";
 const EMBEDDING_MODEL = "llama-text-embed-v2";
 const MAX_CHARS = 12_000;
 
+/**
+ * Configuration is API key + index name. Host is NOT part of this test — see
+ * HOST above.
+ */
 export function pineconeConfigured(): boolean {
-  return API_KEY.length > 8 && INDEX.length > 0 && HOST.length > 0;
+  return API_KEY.length > 8 && INDEX.length > 0;
 }
 
 function client(): Pinecone {
   return new Pinecone({ apiKey: API_KEY });
+}
+
+/**
+ * The index handle. `pc.index(name, host)` takes the host as an OPTIONAL second
+ * argument, so passing it only when configured lets the SDK resolve it itself.
+ */
+function index(pc: Pinecone) {
+  return HOST ? pc.index(INDEX, HOST) : pc.index(INDEX);
 }
 
 export async function indexTranscript(
@@ -73,8 +97,8 @@ export async function indexTranscript(
       };
     }
 
-    const index = pc.index(INDEX, HOST);
-    const namespace = NAMESPACE ? index.namespace(NAMESPACE) : index;
+    const handle = index(pc);
+    const namespace = NAMESPACE ? handle.namespace(NAMESPACE) : handle;
     await namespace.upsert({
       records: [
         {
@@ -130,9 +154,8 @@ export async function forgetTranscript(caseRef: string): Promise<{ ok: boolean; 
   if (!pineconeConfigured()) return { ok: true };
   const pc = client();
   try {
-    const namespace = NAMESPACE
-      ? pc.index(INDEX, HOST).namespace(NAMESPACE)
-      : pc.index(INDEX, HOST);
+    const handle = index(pc);
+    const namespace = NAMESPACE ? handle.namespace(NAMESPACE) : handle;
     await namespace.deleteOne({ id: `case:${caseRef}` });
     return { ok: true };
   } catch (err) {

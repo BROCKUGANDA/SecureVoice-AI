@@ -1,0 +1,170 @@
+# ---------------------------------------------------------------------------
+# SecureVoice AI — automatic version and tag
+#
+#   green CI on main ─▶ patch bump package.json ─▶ commit ─▶ tag vX.Y.Z ─▶ push tag
+#                      ─▶ Release workflow publishes the image + GitHub Release
+#
+# WHY A VERSION BUMP AUTOMATICALLY
+#
+# A release that a human has to remember to tag is a release that gets skipped,
+# and the fix for "the tag is missing" is not discipline — it is removing the
+# step. The tag is the only version authority in this repo (see release.yml),
+# so producing it here means `main` always has a release and GHCR always has an
+# image built from exactly that commit.
+#
+# THE LOOP, AND HOW IT IS BROKEN
+#
+# This workflow pushes a commit to `main`. That commit would trigger CI, which
+# would trigger this workflow again, forever. Two independent guards stop it:
+#
+#   1. `paths-ignore: package.json` — this job only reacts to pushes that did
+#      NOT touch package.json. Its own commit does, so it cannot re-trigger.
+#   2. The tag-already-exists check — if `v<package.json version>` is already a
+#      tag, there is nothing to release and the job exits successfully without
+#      committing. This is the real guarantee: even a manual re-run, or a
+#      re-tag, produces no second bump.
+#
+# It also runs ONLY on CI green, so a broken main cannot produce a release.
+# ---------------------------------------------------------------------------
+name: AutoVersion
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "package.json"
+      - "**.md"
+      - "docs/**"
+      - "evidence/**"
+      - ".github/workflows/autoversion.yml"
+  workflow_dispatch:
+
+permissions:
+  # `checks: read` is what the gate below actually calls. Naming only
+  # `contents: write` implicitly sets every other permission to none, so the
+  # `check-runs` read returned 403 and the job could never prove CI was green.
+  checks: read
+  contents: read
+
+# One bump at a time: two racing bumps would tag two versions off one commit.
+concurrency:
+  group: autoversion-main
+  cancel-in-progress: false
+
+jobs:
+  bump:
+    name: Bump the version, tag, and release
+    runs-on: [self-hosted, securevoice-vps]
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          # The tag push below needs the tag to be creatable, and the bump needs
+          # the tag list to know whether this version already shipped.
+          fetch-depth: 0
+
+      # The gating rule. A release is a claim that this commit works, and this
+      # is where that claim is checked rather than asserted.
+      - name: Refuse to release a commit CI did not prove
+        env:
+          EVENT: ${{ github.event_name }}
+          GH_TOKEN: ${{ secrets.PROMOTE_TOKEN }}
+        run: |
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            echo "manual run: verifying CI on main is currently green"
+          else
+            echo "push to main: verifying the CI check on this exact commit is green"
+          fi
+          code=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/check-runs" \
+            --jq '[.check_runs[]
+                  | select(.name | startswith("Lint, typecheck"))
+                        or (.name | startswith("Compose stack"))]
+                  | if length == 0 then "missing"
+                    else (map(select(.conclusion != "success")) | if length == 0 then "success" else "failing" end)
+                    end')
+          echo "CI on $GITHUB_SHA: $code"
+          [ "$code" = "success" ] || {
+            echo "::error::CI is '${code}' for $GITHUB_SHA — refusing to cut a release."
+            exit 1
+          }
+
+      - name: Bump package.json, commit and tag
+        id: release
+        env:
+          # NOT secrets.GITHUB_TOKEN, and not just for consistency with the
+          # promotion workflow. A push authenticated with GITHUB_TOKEN does not
+          # trigger workflows BY DESIGN — that is GitHub's loop guard — so the
+          # tag push below would be accepted, the commit would land, and the
+          # tag-triggered Release job would never start. The release would look
+          # like it worked and produce nothing. A repo-scoped token pushes as
+          # the repository's own identity, so the tag fires the release.
+          GH_TOKEN: ${{ secrets.PROMOTE_TOKEN }}
+          GIT_AUTH_TOKEN: ${{ secrets.PROMOTE_TOKEN }}
+        run: |
+          set -euo pipefail
+          # Point the push at the token explicitly. The checkout's persisted
+          # credential is GITHUB_TOKEN, and pushing with it would land the
+          # commit while silently not triggering the tag-driven release.
+          git remote set-url origin \
+            "https://x-access-token:${GIT_AUTH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+
+          # Configure git identity: a workflow checkout has none, and a commit
+          # without one fails with "unable to auto-detect email address".
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          current=$(node -p "require('./package.json').version")
+          echo "current version: $current"
+
+          # THE LOOP GUARD. A version that already has a tag is a version that
+          # already shipped; bumping again would publish the same code twice
+          # under two numbers and make "which build am I running?" unanswerable.
+          if git rev-parse -q --verify "refs/tags/v$current" >/dev/null; then
+            echo "v$current is already tagged — main is released, nothing to do."
+            echo "released=false" >> "$GITHUB_OUTPUT"
+            echo "### v$current is already released" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          # scripts/bump-version.mjs takes an EXPLICIT version and refuses
+          # anything not strictly greater — the property worth keeping. It does
+          # not compute the next version, so the patch increment happens here and
+          # the script remains the thing that decides whether it is allowed.
+          # Double quotes, and `$` escaped, so the template literal reaches node
+          # intact instead of the shell expanding `${maj}` as a variable.
+          next=$(node -e 'const [maj, min, pat] = process.argv[1].split(".").map(Number); console.log(maj + "." + min + "." + (pat + 1));' "$current")
+          echo "next version: $next"
+
+          # Same command a human would run, so the one script that owns
+          # package.json is the one that writes it. Its output ends with
+          # "version X -> Y"; verify it actually applied before committing.
+          bumped=$(bun scripts/bump-version.mjs "$next" | tail -n 1)
+          if ! printf '%s' "$bumped" | grep -qF "-> $next"; then
+            echo "::error::bump-version.mjs did not apply $next (said: '$bumped')"
+            exit 1
+          fi
+
+          git add package.json
+          git commit -m "chore(release): v$next"
+
+          # Annotated, so `git describe` and the GitHub release page both carry
+          # the commit this tag points at rather than a bare pointer.
+          git tag -a "v$next" -m "SecureVoice AI v$next"
+
+          # Follow tags, so the release workflow — which is tag-triggered —
+          # actually starts. A plain `git push` leaves the tag behind and the
+          # release silently never happens.
+          git push origin main
+          git push origin "refs/tags/v$next"
+
+          {
+            echo "released=true"
+            echo "version=$next"
+          } >> "$GITHUB_OUTPUT"
+          {
+            echo "### Released v$next"
+            echo ""
+            echo "- tag: \`v$next\`"
+            echo "- package: \`ghcr.io/$GITHUB_REPOSITORY:v$next\`"
+          } >> "$GITHUB_STEP_SUMMARY"

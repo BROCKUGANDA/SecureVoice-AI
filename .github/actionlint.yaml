@@ -1,0 +1,31 @@
+# actionlint configuration.
+#
+# actionlint validates `runs-on` labels against the labels GitHub itself
+# publishes. A repository's OWN self-hosted labels are not in that list, so
+# every workflow here targeting `securevoice-vps` was reported as an unknown
+# label — a false positive that made the CI gate red for a configuration that
+# was correct. Declaring the label here tells actionlint it is intentional.
+#
+# The runner is the OVH VPS (see README § Deployment). It is the ONLY runner:
+# GitHub-hosted `ubuntu-latest` is unusable on this account — jobs fail at
+# startup with no runner, no steps and no logs, even for a bare `echo`.
+self-hosted-runner:
+  labels:
+    - securevoice-vps
+
+# Shellcheck severity: fail on error and warning, ignore info and style.
+#
+# The runner image pins actionlint 1.7.12, whose bundled shellcheck reports
+# every SC2086 ("quote this to prevent word splitting") and SC2129 ("use a
+# brace group for repeated redirects") as a non-zero exit — so a suggestion
+# about how to write `>> "$GITHUB_ENV"` four times turned the whole CI gate
+# red while every job was actually correct.
+#
+# That is the failure mode this file exists to prevent: a gate that cries wolf
+# gets clicked past, and then it stops catching the thing it was written for.
+# `error` and `warning` still fail the build — those are real defects. `info`
+# and `style` are preferences, and preferences do not belong in a merge gate.
+shellcheck:
+  severity:
+    - error
+    - warning

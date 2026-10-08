@@ -1,49 +1,70 @@
 # ---------------------------------------------------------------------------
-# SecureVoice AI — promotion
+# SecureVoice AI — promotion ladder
 #
-# The branch ladder the README states (dev -> staging -> main) is only real if
-# moving code up it is a deliberate, recorded event. This workflow makes it one:
-# it opens (or reuses) a pull request for exactly one legal edge, and refuses
-# anything else.
+#   dev ──▶ staging ──▶ main
+#     │          │         │
+#     │          │         └─ PRODUCTION: deploys to the VPS on push.
+#     │          └─ PRE-PRODUCTION: the APP_ENV gate refuses to dial a real
+#     │             customer, so this is where a change is proven live.
+#     └─ integration branch: every commit lands here first.
 #
-# It opens a PR rather than merging. A promotion that auto-merged would put
-# staging's or main's name on code nobody reviewed at that moment, and `main` is
-# the branch whose deployments can dial a real customer. The human press of
-# "merge" is the control.
+# WHY AUTOMATIC, AND WHY IT IS STILL SAFE
 #
-# Trigger is manual only, by design: a schedule that opens PRs nobody asked for
-# trains everyone to close them unread.
+# Promotion opens a pull request and then ENABLES AUTO-MERGE. The PR is not
+# merged by this workflow — GitHub merges it only once every required status
+# check on the PR is green. So the ladder is:
+#
+#     push to dev  ─▶ PR dev→staging opened ─▶ auto-merge WHEN CI IS GREEN
+#        merge to staging ─▶ PR staging→main opened ─▶ auto-merge WHEN CI IS GREEN
+#           merge to main ─▶ Deploy workflow runs ─▶ VPS rolls forward
+#
+# The review that remains is the code review that happened on the way UP, not a
+# second ceremony on the way down. What this workflow refuses to do is the part
+# that actually protects production:
+#
+#   · It never merges. `gh pr merge --auto` registers a merge that GitHub
+#     executes only after the required checks pass. If CI is red, the PR sits
+#     open and visibly red, and nothing is promoted.
+#   · It only ever moves UP the ladder. dev→staging and staging→main are the
+#     only edges; `main → dev` and `staging → dev` are reverts and are refused
+#     loudly rather than silently undoing trunk.
+#   · It never force-pushes and never merges a stale PR. If the target branch
+#     moved after the PR was opened, the auto-merge is re-armed on the new head
+#     only after CI re-runs on it.
+#
+# IF YOU WANT A HUMAN GATE ON MAIN: enable required review on the `main` branch
+# in repo settings. Auto-merge then blocks until that review exists, and
+# everything else here keeps working.
 # ---------------------------------------------------------------------------
 name: Promote
 
 on:
+  push:
+    branches: [dev, staging]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - "evidence/**"
+  # Re-arm after the ladder moves: merging dev→staging pushes to staging, which
+  # is what opens the next PR. The push trigger covers it, and dispatch exists
+  # so a stopped ladder can be restarted by hand.
   workflow_dispatch:
-    inputs:
-      source:
-        description: "Promote FROM"
-        required: true
-        type: choice
-        options:
-          - dev
-          - staging
-          - main
-      target:
-        description: "Promote TO"
-        required: true
-        type: choice
-        options:
-          - staging
-          - main
 
 permissions:
   contents: read
   pull-requests: write
 
+# Two promotions of the same edge must never race: the second would open a PR
+# against a head the first one already moved past.
+concurrency:
+  group: promote-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   promote:
-    name: Open the promotion pull request
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
+    name: Open and arm the promotion PR
+    runs-on: [self-hosted, securevoice-vps]
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
         with:
@@ -51,29 +72,31 @@ jobs:
           # shallow clone cannot produce it.
           fetch-depth: 0
 
-      # The two legal edges, checked here rather than trusted from the dropdown:
-      # `main -> dev` or `staging -> dev` would silently revert the trunk, and
-      # actionlint cannot tell those apart from a legitimate request.
-      - name: Refuse an edge that is not a promotion
+      # The two legal edges are decided HERE, from the pushed branch, not taken
+      # from an input. An input would let a hand-typed `main -> dev` reach the
+      # step below, and that is a revert of trunk.
+      - name: Resolve the promotion edge
+        id: edge
         env:
-          SOURCE: ${{ inputs.source }}
-          TARGET: ${{ inputs.target }}
+          PUSHED: ${{ github.ref_name }}
         run: |
-          case "${SOURCE} -> ${TARGET}" in
-            "dev -> staging"|"staging -> main") echo "promoting ${SOURCE} -> ${TARGET}" ;;
+          case "$PUSHED" in
+            dev)     source=dev;     target=staging ;;
+            staging) source=staging; target=main ;;
             *)
-              echo "::error::${SOURCE} -> ${TARGET} is not a promotion edge."
-              echo "The ladder is dev -> staging -> main. Moving work the other way"
-              echo "is a revert, and reverts are done explicitly, not through this job."
+              echo "::error::$PUSHED is not a promotion source. The ladder is dev -> staging -> main."
               exit 1
               ;;
           esac
+          echo "source=$source" >> "$GITHUB_OUTPUT"
+          echo "target=$target" >> "$GITHUB_OUTPUT"
+          echo "### Promotion edge: ${source} -> ${target}" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Fetch both ends
-        run: git fetch origin "$SOURCE" "$TARGET"
+        run: git fetch origin "${{ steps.edge.outputs.source }}" "${{ steps.edge.outputs.target }}"
         env:
-          SOURCE: ${{ inputs.source }}
-          TARGET: ${{ inputs.target }}
+          SOURCE: ${{ steps.edge.outputs.source }}
+          TARGET: ${{ steps.edge.outputs.target }}
 
       # A promotion with nothing in it is not a no-op: it is a PR that says
       # "review this" about nothing, which is how review discipline dies. Say so
@@ -81,8 +104,8 @@ jobs:
       - name: Stop when there is nothing to promote
         id: delta
         env:
-          SOURCE: ${{ inputs.source }}
-          TARGET: ${{ inputs.target }}
+          SOURCE: ${{ steps.edge.outputs.source }}
+          TARGET: ${{ steps.edge.outputs.target }}
         run: |
           count=$(git rev-list --count "origin/${TARGET}..origin/${SOURCE}")
           echo "count=$count" >> "$GITHUB_OUTPUT"
@@ -91,14 +114,32 @@ jobs:
             echo "${SOURCE} is already contained in ${TARGET} — nothing to promote." >> "$GITHUB_STEP_SUMMARY"
           fi
 
-      - name: Open or reuse the pull request
+      - name: Open or refresh the pull request, then arm auto-merge
         if: steps.delta.outputs.count != '0'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          SOURCE: ${{ inputs.source }}
-          TARGET: ${{ inputs.target }}
+          # NOT secrets.GITHUB_TOKEN. A pull request opened with GITHUB_TOKEN is
+          # treated as bot-authored, and GitHub then holds every workflow on it
+          # for a maintainer to approve — which is exactly what happened: the CI
+          # run on the first promotion PR sat at `action_required` with zero
+          # jobs, so auto-merge could never arm and the ladder stalled waiting
+          # for a human who was the thing auto-merge was meant to replace.
+          #
+          # A repo-scoped token creates the PR as the repository's own identity,
+          # so CI runs on it immediately and auto-merge arms. Scope it to this
+          # one repository with as little access as it will take.
+          GH_TOKEN: ${{ secrets.PROMOTE_TOKEN }}
+          SOURCE: ${{ steps.edge.outputs.source }}
+          TARGET: ${{ steps.edge.outputs.target }}
           COUNT: ${{ steps.delta.outputs.count }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
+          # Without this, a failed `gh` call prints an error, leaves `pr` empty,
+          # and the script carries on to "arm auto-merge" on nothing — so the
+          # reported failure becomes "could not arm auto-merge" instead of the
+          # real cause. The first run of this workflow failed exactly that way
+          # and hid that GitHub Actions was not permitted to create PRs at all.
+          set -euo pipefail
+
           # Reuse rather than stack: two open promotions of the same edge are two
           # reviews of the same diff, and the second one is always closed.
           existing=$(gh pr list --state open --base "$TARGET" --head "$SOURCE" \
@@ -114,27 +155,52 @@ jobs:
           - _… and $(( COUNT - 50 )) more; run \`git log --oneline origin/${TARGET}..origin/${SOURCE}\` for the rest_"
           fi
 
+          # Squash, so the ladder records one reviewable change per promotion
+          # instead of replaying dev's individual commits on staging and main.
+          # The source branch keeps its own history either way.
           body=$(cat <<EOF
-          ## ${SOURCE} → ${TARGET}
+          ## Promotion: ${SOURCE} → ${TARGET}
 
-          ${COUNT} commit(s) moving up the ladder.
+          ${COUNT} commit(s) moving up the ladder. **This PR merges itself once CI is green.**
 
           ${log}
 
           ---
-          Merging this promotes the code; it does not deploy it. Production is a
-          tag (see \`.github/workflows/release.yml\`), and the VPS deploy runs from
-          \`main\` (see \`.github/workflows/deploy.yml\`).
+          Auto-merge is armed, so this lands without another press as soon as the
+          required checks pass. To hold it, turn off auto-merge on this PR.
+
+          What lands where:
+          - \`${TARGET}\` = ${TARGET}
+          - CI: [run ${RUN_URL}](${RUN_URL})
+
+          Merging this promotes the code; it does not by itself ship a release.
+          A release is a \`v*\` tag (see \`.github/workflows/release.yml\`), and the VPS
+          deploy runs from \`main\` (see \`.github/workflows/deploy.yml\`).
           EOF
           )
 
           title="promote: ${SOURCE} -> ${TARGET} (${COUNT} commits)"
           if [ -n "$existing" ]; then
             gh pr edit "$existing" --title "$title" --body "$body"
-            echo "Refreshed existing PR #${existing}" | tee -a "$GITHUB_STEP_SUMMARY"
-            gh pr view "$existing" --json url --jq '.url' | tee -a "$GITHUB_STEP_SUMMARY"
+            pr="$existing"
+            echo "Refreshed existing PR #${pr}" | tee -a "$GITHUB_STEP_SUMMARY"
           else
             url=$(gh pr create --base "$TARGET" --head "$SOURCE" --title "$title" --body "$body")
-            echo "Opened promotion pull request" | tee -a "$GITHUB_STEP_SUMMARY"
-            echo "$url" | tee -a "$GITHUB_STEP_SUMMARY"
+            pr=$(gh pr view "$url" --json number --jq '.number')
+            echo "Opened promotion PR #${pr}: $url" | tee -a "$GITHUB_STEP_SUMMARY"
           fi
+
+          # THIS IS THE WHOLE SAFETY MECHANISM: register, do not merge. GitHub
+          # performs the merge only when every required check is green, and this
+          # step reports failure rather than pretending the promotion happened if
+          # auto-merge is unavailable (it must be enabled in repo settings).
+          if gh pr merge "$pr" --squash --auto; then
+            echo "Auto-merge armed on #${pr} — it lands when CI is green." | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::error::could not arm auto-merge on #${pr}."
+            echo "Enable \"Allow auto-merge\" in repo settings → Settings → General → Pull Requests,"
+            echo "then re-run this workflow. The PR is open and will NOT merge on its own." | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
+          gh pr view "$pr" --json url --jq '.url' | tee -a "$GITHUB_STEP_SUMMARY"

@@ -54,6 +54,7 @@ jobs:
       # which on this host IS production, so it would reconcile against (and
       # `migrate deploy` into) the live database. The old CI config did exactly
       # that; it never fired only because the job failed earlier every time.
+      # PORT PLACEHOLDER — replaced below by the per-run allocation step.
       DATABASE_URL: postgresql://securevoice:securevoice@localhost:55432/securevoice?schema=public
       # The db-transport guard refuses a plaintext DSN in production. These tests
       # are not production and the socket is loopback-only, so say so explicitly
@@ -88,6 +89,42 @@ jobs:
       LOAD_DATABASE_URL: postgresql://securevoice:securevoice@localhost:55432/securevoice_load?connection_limit=20
       DB_ALLOW_PLAINTEXT_PRIVATE_NETWORK: "true"
     steps:
+      # PER-RUN PORT AND NAME ALLOCATION.
+      #
+      # A second self-hosted runner was added so `verify` and `compose-smoke`
+      # can run at the same time. They share this host, so every hardcoded
+      # resource this job creates — container names AND published ports — became
+      # a collision: two concurrent runs would fight over `${DB_CI}` on 55432,
+      # and one run's teardown would delete the other's container mid-test.
+      #
+      # Both the port and the name are therefore derived from the run id, which
+      # is unique per run. Ports come from a wide private-ish range well clear of
+      # production (80/443/6379/5432) and clear of the smoke job's 18080/18443.
+      - name: Allocate per-run ports and names
+        run: |
+          set -euo pipefail
+          rid=${{ github.run_id }}
+          attempt=${{ github.run_attempt }}
+          # 30000..39999 for Postgres, 40000..49999 for Redis. Offset by attempt
+          # so a RETRY of the same run does not reuse the ports of the run it is
+          # replacing while the old containers may still be shutting down.
+          DB_PORT=$(( 30000 + (rid % 9000) + (attempt * 7) ))
+          REDIS_PORT=$(( 40000 + (rid % 9000) + (attempt * 7) ))
+          DB_CI="${DB_CI}-${rid}-${attempt}"
+          REDIS_CI="sv-ci-redis-${rid}-${attempt}"
+          echo "DB_PORT=$DB_PORT"      >> "$GITHUB_ENV"
+          echo "REDIS_PORT=$REDIS_PORT" >> "$GITHUB_ENV"
+          echo "DB_CI=$DB_CI"           >> "$GITHUB_ENV"
+          echo "REDIS_CI=$REDIS_CI"      >> "$GITHUB_ENV"
+          # Both DSNs are rewritten here rather than in the job env above: a
+          # job-level `env` value cannot see a variable a step computed.
+          echo "DATABASE_URL=postgresql://securevoice:securevoice@localhost:${DB_PORT}/securevoice?schema=public" >> "$GITHUB_ENV"
+          echo "LOAD_DATABASE_URL=postgresql://securevoice:securevoice@localhost:${DB_PORT}/securevoice_load?connection_limit=20" >> "$GITHUB_ENV"
+          {
+            echo "### CI run ${rid} (attempt ${attempt})"
+            echo "- postgres: \`127.0.0.1:${DB_PORT}\` container \`${DB_CI}\`"
+            echo "- redis: \`127.0.0.1:${REDIS_PORT}\` container \`${REDIS_CI}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/checkout@v4
 
       - name: Install Bun
@@ -155,12 +192,12 @@ jobs:
       # and the container is scoped to this job and removed at the end of it.
       - name: Realtime service — Redis for the cross-node gate
         run: |
-          docker run -d --rm --name sv-ci-realtime-redis -p 127.0.0.1:6380:6379 redis:7-alpine
+          docker run -d --rm --name "$REDIS_CI" -p 127.0.0.1:${REDIS_PORT}:6379 redis:7-alpine
           for _ in $(seq 1 30); do
-            docker exec sv-ci-realtime-redis redis-cli ping >/dev/null 2>&1 && break
+            docker exec "$REDIS_CI" redis-cli ping >/dev/null 2>&1 && break
             sleep 1
           done
-          docker exec sv-ci-realtime-redis redis-cli ping
+          docker exec "$REDIS_CI" redis-cli ping
 
       - name: Realtime service — tests
         working-directory: mini-services/realtime
@@ -168,7 +205,7 @@ jobs:
 
       - name: Realtime service — stop Redis
         if: always()
-        run: docker rm -f sv-ci-realtime-redis 2>/dev/null || true
+        run: docker rm -f ${REDIS_CI} 2>/dev/null || true
 
       # The DB-backed suites below need a real database, and they used to have
       # none: `bun run test` ran before anything started a Postgres, so every
@@ -185,23 +222,23 @@ jobs:
           # `-p 55432:5432` binds EVERY interface and would expose a Postgres with
           # well-known throwaway credentials to the network for the few minutes
           # this container exists.
-          docker rm -f sv-ci-db 2>/dev/null || true
-          docker run -d --name sv-ci-db -p 127.0.0.1:55432:5432 \
+          docker rm -f ${DB_CI} 2>/dev/null || true
+          docker run -d --name "${DB_CI}" -p 127.0.0.1:${DB_PORT}:5432 \
             -e POSTGRES_USER=securevoice \
             -e POSTGRES_PASSWORD=securevoice \
             -e POSTGRES_DB=securevoice \
             postgres:16-alpine
           for _ in $(seq 1 60); do
-            docker exec sv-ci-db pg_isready -U securevoice -d securevoice >/dev/null 2>&1 && break
+            docker exec ${DB_CI} pg_isready -U securevoice -d securevoice >/dev/null 2>&1 && break
             sleep 1
           done
-          docker exec sv-ci-db pg_isready -U securevoice -d securevoice
+          docker exec ${DB_CI} pg_isready -U securevoice -d securevoice
           # The load suite gets its OWN database in the same container — it must
           # not share rows or gauges with the other suites, but it does not need
           # a second server. Created here rather than by the suite, so a missing
           # database is a loud, named failure at setup instead of a silently
           # degraded evidence artifact twenty seconds later.
-          docker exec sv-ci-db createdb -U securevoice securevoice_load
+          docker exec ${DB_CI} createdb -U securevoice securevoice_load
           # The load database needs the SCHEMA too, not just the database. The
           # load suite applies only `prisma/migrations/2_dial_job/migration.sql`
           # itself (tests/load/load.test.ts:276) because on a developer's machine
@@ -415,7 +452,7 @@ jobs:
       # 55432 would confuse the next run.
       - name: Stop the test database
         if: always()
-        run: docker rm -f sv-ci-db 2>/dev/null || true
+        run: docker rm -f ${DB_CI} 2>/dev/null || true
 
   compose-smoke:
     name: Compose stack smoke test
@@ -424,16 +461,34 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Per-run ports and compose project, for the same reason as the verify job:
+      # with a second runner, two smoke tests (or a smoke test and a verify) can
+      # be in flight at once on this one host. A fixed project name would make
+      # them reconcile against EACH OTHER, and a fixed port would fail to bind.
+      - name: Allocate per-run ports and project name
+        run: |
+          set -euo pipefail
+          rid=${{ github.run_id }}
+          attempt=${{ github.run_attempt }}
+          HTTP=$(( 50000 + (rid % 9000) + (attempt * 7) ))
+          HTTPS=$(( 60000 + (rid % 9000) + (attempt * 7) ))
+          echo "CI_CADDY_HTTP_PORT=$HTTP"  >> "$GITHUB_ENV"
+          echo "CI_CADDY_HTTPS_PORT=$HTTPS" >> "$GITHUB_ENV"
+          echo "PROJECT=svci-${rid}-${attempt}" >> "$GITHUB_ENV"
+          {
+            echo "### Smoke test ${rid} (attempt ${attempt})"
+            echo "- project: \`svci-${rid}-${attempt}\`"
+            echo "- ingress: \`127.0.0.1:${HTTP}\` / \`127.0.0.1:${HTTPS}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
       # THE PRODUCTION PROJECT NAME IS `securevoice-ai` (hardcoded in
       # docker-compose.yml) and it is running on THIS machine. Compose
       # reconciles by project name, so a CI job that invoked plain
       # `docker compose up` here would replace the live app, caddy, db and
       # workers with test containers, and the `down -v` would delete the
-      # production database volume. A separate project name is what makes this
-      # job safe to run on the deploy host at all.
+      # production database volume. A distinct per-run project name is what
+      # makes this job safe to run on the deploy host at all.
       - name: Write the CI environment file
-        env:
-          COMPOSE_PROJECT_NAME: securevoice-ci
         run: |
           # A FILE, not job-level env, and that is the whole point. The `app`
           # service declares `env_file: .env` and lists none of the auth or
@@ -450,12 +505,12 @@ jobs:
           # Every value is disposable: this stack never reaches a real vendor,
           # and the database is a throwaway container deleted on teardown.
           cat > .env <<'ENV'
-          COMPOSE_PROJECT_NAME=securevoice-ci
+          COMPOSE_PROJECT_NAME=${{ env.PROJECT }}
           POSTGRES_USER=securevoice
           POSTGRES_PASSWORD=ci-only-not-a-secret
           POSTGRES_DB=securevoice
           BETTER_AUTH_SECRET=ci-only-not-a-secret-ci-only-not-a-secret
-          BETTER_AUTH_URL=https://localhost:18443
+          BETTER_AUTH_URL=https://localhost:$CI_CADDY_HTTPS_PORT
           SITE_ADDRESS=localhost
           ACME_EMAIL=ci@example.invalid
           SEED_DEMO=false
@@ -477,15 +532,15 @@ jobs:
       # The host ports come from the override, not from docker-compose.yml,
       # because production already holds 80/443 on this machine.
       - name: Build and start the stack
-        run: docker compose -f docker-compose.yml -f docker-compose.ci.yml up -d --build --wait --wait-timeout 300
+        run: docker compose -f docker-compose.yml -f docker-compose.ci.yml -p "$PROJECT" up -d --build --wait --wait-timeout 300
 
       - name: Report status
         if: always()
-        run: docker compose -f docker-compose.yml -f docker-compose.ci.yml ps
+        run: docker compose -f docker-compose.yml -f docker-compose.ci.yml -p "$PROJECT" ps
 
       - name: Dump logs on failure
         if: failure()
-        run: docker compose -f docker-compose.yml -f docker-compose.ci.yml logs --no-color --tail 200
+        run: docker compose -f docker-compose.yml -f docker-compose.ci.yml -p "$PROJECT" logs --no-color --tail 200
 
       # Prove the smoke test did not disturb the production stack. Without this
       # the isolation above is an untested assumption, and the first regression
@@ -514,7 +569,7 @@ jobs:
       - name: HTTPS through Caddy
         run: |
           for _ in $(seq 1 30); do
-            code=$(curl -sk -o /dev/null -w '%{http_code}' https://localhost:18443/api/health || true)
+            code=$(curl -sk -o /dev/null -w '%{http_code}' https://localhost:$CI_CADDY_HTTPS_PORT/api/health || true)
             [ "$code" = "200" ] && break
             sleep 5
           done
@@ -522,21 +577,21 @@ jobs:
           test "$code" = "200"
 
       - name: SPA served through Caddy
-        run: test "$(curl -sk -o /dev/null -w '%{http_code}' https://localhost:18443/)" = "200"
+        run: test "$(curl -sk -o /dev/null -w '%{http_code}' https://localhost:$CI_CADDY_HTTPS_PORT/)" = "200"
 
       # Proves the socket route is wired to the realtime service, without needing a
       # signing secret or a browser: Engine.IO answers a handshake on that path.
       - name: Realtime route reachable through the proxy
         run: |
           code=$(curl -sk -o /dev/null -w '%{http_code}' \
-            'https://localhost:18443/realtime/?EIO=4&transport=polling')
+            'https://localhost:$CI_CADDY_HTTPS_PORT/realtime/?EIO=4&transport=polling')
           echo "realtime polling via Caddy: $code"
           test "$code" = "200"
 
       - name: Realtime port is not published to the host
         run: |
           # The origin must stay internal or the edge rate-limit trust model breaks.
-          if docker compose -f docker-compose.yml -f docker-compose.ci.yml ps realtime --format '{{.Ports}}' | grep -qE '0\.0\.0\.0|::'; then
+          if docker compose -f docker-compose.yml -f docker-compose.ci.yml -p "$PROJECT" ps realtime --format '{{.Ports}}' | grep -qE '0\.0\.0\.0|::'; then
             echo "realtime is published to the host — expected expose-only"
             exit 1
           fi

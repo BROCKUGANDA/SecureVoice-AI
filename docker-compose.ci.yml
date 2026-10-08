@@ -35,10 +35,15 @@ services:
     # endpoint". That is the CI container colliding with the live site, which is
     # precisely what this file exists to prevent. `!override` (Compose >= 2.24)
     # replaces the inherited list outright.
+    # Ports come from the environment with these defaults, so a second
+    # self-hosted runner can run a smoke test at the same time as a verify job
+    # without either binding a port the other already holds. The workflow sets
+    # CI_CADDY_HTTP_PORT / CI_CADDY_HTTPS_PORT from the run id; the defaults
+    # keep a plain local `docker compose -f … -f … up` working unchanged.
     ports: !override
-      - "127.0.0.1:18080:80"
-      - "127.0.0.1:18443:443"
-      - "127.0.0.1:18443:443/udp"
+      - "127.0.0.1:${CI_CADDY_HTTP_PORT:-18080}:80"
+      - "127.0.0.1:${CI_CADDY_HTTPS_PORT:-18443}:443"
+      - "127.0.0.1:${CI_CADDY_HTTPS_PORT:-18443}:443/udp"
 
   # NOTE: no redis port is published here, deliberately.
   #

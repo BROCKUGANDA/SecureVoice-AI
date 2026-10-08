@@ -138,6 +138,9 @@ const JOB = {
   lease_expires_at: null,
   claimed_by: null,
   last_error: null,
+  completed_at: null,
+  created_at: new Date(),
+  updated_at: new Date(),
 };
 
 beforeEach(() => {
@@ -179,9 +182,9 @@ describe("dial worker — Twilio media-streams plane", () => {
 
     expect(outcome.ok).toBe(true);
     expect(transitions).toHaveLength(1);
-    expect(transitions[0].data.callSid).toBe("AC22222222222222222222222222222222");
+    expect(transitions[0]?.data.callSid).toBe("AC22222222222222222222222222222222");
     // The app-side conversation key stays the case ref the socket is opened with.
-    expect(transitions[0].data.conversationId).toBe("SV-C-8F3K2");
+    expect(transitions[0]?.data.conversationId).toBe("SV-C-8F3K2");
   });
 
   it("does not write a second outbox row for a call placeInterventionCall already recorded", async () => {
@@ -217,7 +220,7 @@ describe("dial worker — ElevenLabs ConvAI plane is unchanged", () => {
     expect(outcome.ok).toBe(true);
     expect(twilio.calls).toHaveLength(0);
     expect(convai.calls).toHaveLength(1);
-    expect(transitions[0].data.conversationId).toBe("conv-1");
+    expect(transitions[0]?.data.conversationId).toBe("conv-1");
     expect(outboxRows).toHaveLength(1);
     expect(outboxRows[0]).toMatchObject({ channel: "voice", status: "queued" });
   });

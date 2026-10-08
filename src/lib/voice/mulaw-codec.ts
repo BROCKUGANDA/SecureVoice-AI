@@ -64,9 +64,7 @@ export function sampleToMulaw(sample: number): number {
   let idx: number;
   if (lo === 0) idx = 0;
   else if (lo >= POSITIVE_LEVELS.length) idx = POSITIVE_LEVELS.length - 1;
-  else
-    idx =
-      (POSITIVE_LEVELS[lo] ?? 0) - abs <= abs - (POSITIVE_LEVELS[lo - 1] ?? 0) ? lo : lo - 1;
+  else idx = (POSITIVE_LEVELS[lo] ?? 0) - abs <= abs - (POSITIVE_LEVELS[lo - 1] ?? 0) ? lo : lo - 1;
 
   return negative ? idx : 0x80 + idx;
 }

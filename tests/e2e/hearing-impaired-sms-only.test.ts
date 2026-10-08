@@ -14,6 +14,7 @@
 import { test, expect } from "bun:test";
 import { createHmac } from "node:crypto";
 import { db } from "@/lib/db";
+import { NextRequest } from "next/server";
 
 process.env.ELEVENLABS_DRY_RUN = "true";
 process.env.ELEVENLABS_AGENT_ID = process.env.ELEVENLABS_AGENT_ID ?? "agent_test";
@@ -45,9 +46,9 @@ function signBody(body: string): string {
   return `t=${t},v1=${v1}`;
 }
 
-function makeRequest(body: Record<string, unknown>, idempotencyKey: string): Request {
+function makeRequest(body: Record<string, unknown>, idempotencyKey: string): NextRequest {
   const raw = JSON.stringify(body);
-  return new Request("http://localhost/api/v1/interventions", {
+  return new NextRequest("http://localhost/api/v1/interventions", {
     method: "POST",
     headers: {
       "content-type": "application/json",

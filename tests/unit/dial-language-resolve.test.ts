@@ -9,7 +9,7 @@ import { resolveDeliveryLang } from "@/worker/dial";
  */
 describe("resolveDeliveryLang", () => {
   it("passes an exact base language straight through", () => {
-    for (const lang of ["en", "ar", "hi", "ur", "fr", "sw"]) {
+    for (const lang of ["en", "ar", "hi", "ur", "fr", "sw"] as const) {
       expect(resolveDeliveryLang(lang)).toBe(lang);
     }
   });

@@ -384,14 +384,15 @@ describe("declared security headers", () => {
     // cache-busted so the module re-evaluates under production, and the
     // previous env is restored in `finally` so no other test observes it.
     const prevNodeEnv = process.env.NODE_ENV;
-    process.env.NODE_ENV = "production";
+    (process.env as { NODE_ENV: string }).NODE_ENV = "production";
     let config: {
       headers?: () => Promise<{ headers: { key: string; value: string }[] }[]>;
     };
     try {
-      config = (await import(`../../next.config?csp-production`)).default;
+      const cspSpec: string = "../../next.config?csp-production";
+      config = (await import(cspSpec)).default;
     } finally {
-      process.env.NODE_ENV = prevNodeEnv;
+      (process.env as { NODE_ENV: string }).NODE_ENV = prevNodeEnv;
     }
     // `headers` is optional on the typed shape, so `config.headers?.()` can be
     // `undefined` before the `await` — the assertion below is what proves a CSP

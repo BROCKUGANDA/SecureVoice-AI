@@ -70,7 +70,7 @@ describe("mulaw codec — buffer framing", () => {
 
     const decoded = decodeMulaw(encoded);
     expect(decoded.length).toBe(2); // one mulaw byte is one s16le sample
-    expect(decoded.readInt16LE(0)).toBe(mulawToSample(encoded[0]));
+    expect(decoded.readInt16LE(0)).toBe(mulawToSample(encoded[0] ?? 0));
 
     // Low byte first: the largest positive level, 8159 * 4 = 32636 = 0x7f7c.
     expect([...decodeMulaw(Buffer.from([0xff]))]).toEqual([0x7c, 0x7f]);

@@ -344,7 +344,20 @@ jobs:
             --script > /tmp/drift.sql
           DIFF_RC=$?
           set -e
-          if [ "$DIFF_RC" = "2" ] || [ -s /tmp/drift.sql ]; then
+
+          # `prisma migrate diff --script` writes `-- This is an empty
+          # migration.` to STDOUT when there is NO difference. That comment is
+          # the tool saying "clean", and this gate used to test `-s /tmp/drift.sql`
+          # — a non-empty file — so a provably drift-free schema failed anyway.
+          # The gate therefore reported drift on every run while proving none,
+          # which is worse than having no gate: it blocks the promotion ladder
+          # and trains everyone to click past a red check.
+          #
+          # The exit code is the real signal (2 = difference). The file is only
+          # consulted for the message, after comment lines are stripped, so a
+          # real diff still fails and an empty one still passes.
+          grep -v '^--' /tmp/drift.sql | grep -q '[^[:space:]]' && HAS_DIFF=true || HAS_DIFF=false
+          if [ "$DIFF_RC" = "2" ] || [ "$HAS_DIFF" = "true" ]; then
             echo "::error::schema.prisma is ahead of prisma/migrations — generate a migration:"
             echo "::error::bunx prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --script"
             cat /tmp/drift.sql

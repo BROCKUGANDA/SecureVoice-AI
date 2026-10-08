@@ -37,7 +37,20 @@ jobs:
   verify:
     name: Lint, typecheck, tests, build
     runs-on: [self-hosted, securevoice-vps]
-    timeout-minutes: 20
+    timeout-minutes: 30
+    env:
+      # Port 55432, not 5432: production's postgres is reachable on this host and
+      # a DB-backed test that grabbed the production port would collide with it.
+      # And it is a plain `docker run` container, NOT `docker compose up -d db` —
+      # that compose command resolves to the hardcoded `securevoice-ai` project,
+      # which on this host IS production, so it would reconcile against (and
+      # `migrate deploy` into) the live database. The old CI config did exactly
+      # that; it never fired only because the job failed earlier every time.
+      DATABASE_URL: postgresql://securevoice:securevoice@localhost:55432/securevoice?schema=public
+      # The db-transport guard refuses a plaintext DSN in production. These tests
+      # are not production and the socket is loopback-only, so say so explicitly
+      # rather than weakening the guard.
+      DB_ALLOW_PLAINTEXT_PRIVATE_NETWORK: "true"
     steps:
       - uses: actions/checkout@v4
 
@@ -116,6 +129,32 @@ jobs:
       - name: Realtime service — stop Redis
         if: always()
         run: docker rm -f sv-ci-realtime-redis 2>/dev/null || true
+
+      # The DB-backed suites below need a real database, and they used to have
+      # none: `bun run test` ran before anything started a Postgres, so every
+      # tenancy/billing/audit suite failed with Prisma P1001 (DatabaseNot-
+      # Reachable) and the gate reported a red run for a reason that had nothing
+      # to do with the code under test.
+      #
+      # A bare `docker run` container on port 55432, deliberately NOT
+      # `docker compose up -d db` — that resolves to the hardcoded
+      # `securevoice-ai` project, which on this host IS production.
+      - name: Start the test database
+        run: |
+          docker rm -f sv-ci-db 2>/dev/null || true
+          docker run -d --name sv-ci-db -p 55432:5432 \
+            -e POSTGRES_USER=securevoice \
+            -e POSTGRES_PASSWORD=securevoice \
+            -e POSTGRES_DB=securevoice \
+            postgres:16-alpine
+          for _ in $(seq 1 60); do
+            docker exec sv-ci-db pg_isready -U securevoice -d securevoice >/dev/null 2>&1 && break
+            sleep 1
+          done
+          docker exec sv-ci-db pg_isready -U securevoice -d securevoice
+          # Schema first: a suite that asserts on tenancy isolation needs the
+          # tables, not just a reachable socket.
+          bunx prisma migrate deploy
 
       # App-side unit tests. The realtime service above needs its own step for
       # its own tsconfig; these live in the root project and use the root
@@ -241,11 +280,16 @@ jobs:
       # result still matches schema.prisma. `--exit-code` makes any difference
       # a non-zero exit, so drift fails the build instead of the demo.
       - name: Migration drift gate
-        env:
-          DATABASE_URL: postgresql://securevoice:securevoice@localhost:5432/securevoice?schema=public
         run: |
-          docker compose up -d db
-          until docker compose exec -T db pg_isready -U securevoice -d securevoice >/dev/null 2>&1; do sleep 1; done
+          # The database is ALREADY running (started before the app unit tests),
+          # on the job-level DATABASE_URL pointing at 127.0.0.1:55432.
+          #
+          # This step used to run `docker compose up -d db` itself. On a GitHub-
+          # hosted runner that was merely redundant; on this self-hosted runner it
+          # was a live hazard, because the compose project is hardcoded to
+          # `securevoice-ai` and that project IS the running production stack on
+          # this host — the step would have reconciled against the live database
+          # and applied migrations to it.
           bunx prisma migrate deploy
           # Exit code 2 means "there is a difference". Anything else is a real error.
           set +e
@@ -268,7 +312,6 @@ jobs:
       - name: Build
         env:
           NEXT_TELEMETRY_DISABLED: "1"
-          DATABASE_URL: postgresql://securevoice:securevoice@localhost:5432/securevoice?schema=public
         run: bun run build
 
       # `next build` fetches from Google Fonts at build time. That is fine here and
@@ -280,7 +323,19 @@ jobs:
             caddy validate --config Caddyfile && caddy validate --config Caddyfile.dev"
 
       - name: Compose file parses
-        run: docker compose config --quiet
+        # Parsed with the CI override too, so a typo in docker-compose.ci.yml is
+        # caught here rather than as a port-binding failure halfway through the
+        # smoke job.
+        run: |
+          docker compose -f docker-compose.yml -f docker-compose.ci.yml config --quiet
+
+      # The test database is a plain container this job started, so this job
+      # removes it. Named and `-f` rather than left to a later prune, because
+      # the runner is shared with production and a stray postgres holding port
+      # 55432 would confuse the next run.
+      - name: Stop the test database
+        if: always()
+        run: docker rm -f sv-ci-db 2>/dev/null || true
 
   compose-smoke:
     name: Compose stack smoke test

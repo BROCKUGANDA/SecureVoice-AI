@@ -33,6 +33,7 @@ import { recordTelecomEvent } from "@/lib/telecom-outbox";
 import { asCallCategory } from "@/lib/call-categories";
 import { isAfterHours, nextBusinessHoursStart } from "@/lib/abuse/velocity";
 import { sweepExpiredSmsCases } from "@/lib/sms-verdict";
+import { logError, logInfo } from "@/lib/validation/safe-log";
 
 const WORKER_ID =
   process.env.DIAL_WORKER_ID ?? `${hostname()}-${process.pid}-${randomUUID().slice(0, 8)}`;
@@ -237,7 +238,7 @@ async function handle(job: DialJob): Promise<DialOutcome> {
           language: payload.language ?? "en",
         },
       }).catch((err: unknown) =>
-        console.error("[dial-worker] telecom outbox write failed:", String(err)),
+        logError("[dial-worker] telecom outbox write failed", { error: String(err) }),
       );
     }
 
@@ -296,9 +297,9 @@ async function maybeSweep(): Promise<void> {
   lastSweepAt = Date.now();
   try {
     const n = await sweepExpiredSmsCases();
-    if (n > 0) console.log(`[dial-worker] resolved ${n} unanswered SMS case(s) to the bank`);
+    if (n > 0) logInfo("[dial-worker] resolved unanswered SMS cases", { count: n });
   } catch (err) {
-    console.error("[dial-worker] sms sweep failed:", err instanceof Error ? err.message : err);
+    logError("[dial-worker] sms sweep failed", { error: err instanceof Error ? err.message : err });
   }
 }
 
@@ -315,20 +316,18 @@ async function tick(): Promise<number> {
 }
 
 async function main(): Promise<void> {
-  console.log(
-    `[dial-worker] ${WORKER_ID} starting — batch ${BATCH}, lease ${LEASE_MS}ms, poll ${POLL_MS}ms`,
-  );
+  logInfo("[dial-worker] starting", { workerId: WORKER_ID, batch: BATCH, leaseMs: LEASE_MS, pollMs: POLL_MS });
 
   if (ONCE) {
     const n = await tick();
-    console.log(`[dial-worker] claimed ${n} job(s) and exiting (--once)`);
+    logInfo("[dial-worker] claimed jobs and exiting", { count: n, mode: "--once" });
     return;
   }
 
   let running = true;
   const stop = () => {
     running = false;
-    console.log("[dial-worker] draining — finishing in-flight work");
+    logInfo("[dial-worker] draining — finishing in-flight work");
   };
   // Bun's typed process.on overload enumerates a narrow event union; SIGTERM
   // and SIGINT are valid at runtime and are exactly what compose sends.
@@ -340,17 +339,17 @@ async function main(): Promise<void> {
     try {
       claimed = await tick();
     } catch (err) {
-      console.error("[dial-worker] tick failed:", err instanceof Error ? err.message : err);
+      logError("[dial-worker] tick failed", { error: err instanceof Error ? err.message : err });
     }
     // Only idle when there was nothing to do — a backlog drains flat out.
     if (claimed === 0) await new Promise((r) => setTimeout(r, POLL_MS));
   }
-  console.log("[dial-worker] stopped cleanly");
+  logInfo("[dial-worker] stopped cleanly");
 }
 
 if (import.meta.main) {
   main().catch((err) => {
-    console.error("[dial-worker] fatal:", err instanceof Error ? err.message : err);
+    logError("[dial-worker] fatal", { error: err instanceof Error ? err.message : err });
     process.exit(1);
   });
 }

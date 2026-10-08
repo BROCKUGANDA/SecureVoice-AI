@@ -45,6 +45,7 @@ import "server-only";
 
 import { abuseConfig } from "./config";
 import { destinationPrefix, normaliseE164, safeOrgKey } from "./geo";
+import { logError } from "@/lib/validation/safe-log";
 
 export type VelocitySignal = "new_destination_prefix" | "burst_rate" | "out_of_hours_volume";
 
@@ -152,9 +153,11 @@ function emit(alert: AbuseAlert): void {
     return;
   }
   if (alert.action === "auto_pause") {
-    console.error(
-      `[abuse] auto-pause org=${alert.orgId} reason=${alert.reason} signals=${alert.signals.join(",")} — no alert sink configured`,
-    );
+    logError("[abuse] auto-pause with no alert sink configured", {
+      orgId: alert.orgId,
+      reason: alert.reason,
+      signals: alert.signals.join(","),
+    });
   }
 }
 

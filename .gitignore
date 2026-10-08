@@ -117,3 +117,31 @@ scripts/supabase-setup.mjs
 # which linked UserProfile rows to Better Auth user rows before migration 6
 # deleted them) are run by hand against a database, not shipped.
 backfill.mjs
+
+# ── Local tool state, 2026-10 ────────────────────────────────────────────────
+# Generated code-graph / coverage / agent state. None of it is source, all of
+# it is large, and all of it differs per machine, so a commit of any of it is
+# noise a reviewer has to skip past. Listed explicitly because the existing
+# rules above use anchored or partial paths that do not cover these.
+.gitnexus/
+.mimosa/
+.zscripts/
+.agents/
+.claude/
+.cursor/
+.vscode/
+.idea/
+tool-results/
+*.tsbuildinfo
+
+# Local transcripts and dumps from debugging sessions.
+*.tsbuildinfo.bak
+dev.log
+server.log
+build.log
+tsc.log
+test-run.log
+analyzer_out.txt
+UsersHPtmpuserpath.txt
+_*.txt
+--full-page

@@ -7,6 +7,7 @@ import { consume as consumeRateLimit, rateLimitId } from "@/lib/ratelimit";
 import { env } from "@/lib/config";
 import { tts as elevenTts } from "@/lib/elevenlabs/client";
 import { verifyAudioSignature } from "@/lib/twilio";
+import { logError } from "@/lib/validation/safe-log";
 
 export const dynamic = "force-dynamic";
 
@@ -132,10 +133,7 @@ export async function GET(req: NextRequest) {
       },
     });
   } catch (err) {
-    console.error(
-      "[twilio-audio] TTS generation failed:",
-      err instanceof Error ? err.message : err,
-    );
+    logError("[twilio-audio] TTS generation failed", { error: err instanceof Error ? err.message : String(err) });
     return NextResponse.json({ error: "Audio generation unavailable" }, { status: 503 });
   }
 }

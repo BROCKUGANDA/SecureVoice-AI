@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { consume } from "@/lib/ratelimit";
 import { SUPPORTED_LANGS } from "@/lib/languages";
+import { logWarn } from "@/lib/validation/safe-log";
 
 /**
  * Edge layer — runs before every route resolves (Next.js 16 renamed this file
@@ -136,7 +137,7 @@ function reject(
   extra: Record<string, string> = {},
 ): NextResponse {
   // Log the path for correlation, but never echo it back to the caller.
-  console.warn(`[edge] ${status} ${error} ${req.method} ${req.nextUrl.pathname} rid=${requestId}`);
+  logWarn("[edge] request rejected", { status, error, method: req.method, path: req.nextUrl.pathname, rid: requestId });
   const res = NextResponse.json(
     { error },
     { status, headers: { "Cache-Control": "no-store", [REQUEST_ID]: requestId, ...extra } },

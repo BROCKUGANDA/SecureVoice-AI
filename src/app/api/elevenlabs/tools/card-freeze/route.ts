@@ -8,6 +8,7 @@ import { db } from "@/lib/db";
 import { append as auditAppend } from "@/lib/audit-chain";
 import { badRequest, parseJson, unprocessable, schemaErrorCode } from "@/lib/api-errors";
 import { env } from "@/lib/config";
+import { logError } from "@/lib/validation/safe-log";
 
 export const dynamic = "force-dynamic";
 
@@ -70,7 +71,14 @@ export async function POST(req: NextRequest) {
       },
     });
   } catch (err) {
-    console.error("[tool/card_freeze] audit append failed, refusing freeze:", err);
+    // A freeze that could not be audited is refused (I-2); log which case
+    // asked for it so the refusal is attributable without a database query.
+    logError("card_freeze audit append failed", {
+      tool: TOOL_NAME,
+      caseRef: guard.caseRef,
+      from: guard.state,
+      error: err,
+    });
     return NextResponse.json(
       { ok: false, staged: false, committed: false, error: "audit_unavailable" },
       { status: 503 },
@@ -118,7 +126,12 @@ export async function POST(req: NextRequest) {
         { status: 409 },
       );
     }
-    console.error("[tool/card_freeze] case transition failed:", err);
+    logError("card_freeze case transition failed", {
+      tool: TOOL_NAME,
+      caseRef: guard.caseRef,
+      from: guard.state,
+      error: err,
+    });
     return NextResponse.json(
       { ok: false, staged: false, committed: false, error: "case_transition_failed" },
       { status: 503 },

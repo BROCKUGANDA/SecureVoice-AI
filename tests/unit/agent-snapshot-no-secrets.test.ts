@@ -13,16 +13,25 @@
  * the assertion is about the VALUE, not the key.
  */
 import { expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 
 const snap = readFileSync(new URL("../../evidence/agent/snapshot.json", import.meta.url), "utf8");
 
 test("no live tool secret is present in the committed snapshot", () => {
-  // Read .env defensively: a machine that has no .env still runs these.
-  const envLine = readFileSync(new URL("../../.env", import.meta.url), "utf8")
-    .split(/\r?\n/)
-    .find((l) => l.includes("TOOL_SECRET"));
-  const secret = envLine?.split("=")[1]?.replace(/"/g, "").trim() ?? "";
+  // Read .env defensively — and it has to be REALLY defensive. A CI checkout
+  // has no .env at all (it is gitignored), and `readFileSync` on a missing file
+  // THROWS rather than returning undefined, so the unguarded read this test
+  // used to do failed the whole case on a clean runner while passing on any
+  // developer machine that happened to have one. The comment claimed a
+  // no-.env machine still ran these; the code did not.
+  const envPath = new URL("../../.env", import.meta.url);
+  let secret = "";
+  if (existsSync(envPath)) {
+    const envLine = readFileSync(envPath, "utf8")
+      .split(/\r?\n/)
+      .find((l) => l.includes("TOOL_SECRET"));
+    secret = envLine?.split("=")[1]?.replace(/"/g, "").trim() ?? "";
+  }
   // A short value means we found nothing usable; skip rather than assert on "".
   if (secret.length >= 16) {
     expect(snap, "the live AGENT_TOOL_SECRET is in a committed evidence file").not.toContain(

@@ -15,6 +15,7 @@ import { transcript as redactText } from "@/lib/redact";
 import { resolveTtsKey, consumeCharQuota, quotaExceededResponse } from "@/lib/tts-quota";
 import { fetchUpstreamBinary } from "@/lib/elevenlabs/egress";
 import { env, maxTtsChars, SUPPORTED_LANGS } from "@/lib/config";
+import { logError } from "@/lib/validation/safe-log";
 
 export const dynamic = "force-dynamic";
 
@@ -156,7 +157,7 @@ export async function POST(req: NextRequest) {
 
   if (!upstream.ok) {
     const detail = upstream.body.slice(0, 200);
-    console.error("[tts-stream] upstream error:", upstream.status, detail);
+    logError("[tts-stream] upstream error", { status: upstream.status, error: detail });
     const auth = upstream.status === 401 || upstream.status === 403;
     // A guard refusal (budget, throttle, open breaker) is the platform degrading
     // on purpose; the client's fallback is the buffered route, then silence.

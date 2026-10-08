@@ -44,6 +44,7 @@ import type { ResolutionMethod } from "@/lib/contracts/schema";
 import { getInstitutionType } from "@/lib/institution";
 import { createHandoffTicket } from "@/lib/crm";
 import { env, SUPPORTED_LANGS } from "@/lib/config";
+import { logError } from "@/lib/validation/safe-log";
 
 /** How long after the SMS a reply is still accepted, and when the sweep gives up. */
 export const REPLY_WINDOW_MS = env.smsReplyWindowMs;
@@ -235,7 +236,7 @@ export async function publishResolution(args: {
       orgId: row.orgId ?? undefined,
     },
     { fast: true },
-  ).catch((e) => console.error("[sms-verdict] audit failed:", e instanceof Error ? e.message : e));
+  ).catch((e) => logError("[sms-verdict] audit failed", { error: e instanceof Error ? e.message : String(e) }));
 
   if (review) {
     void notify({
@@ -294,7 +295,7 @@ export async function sweepExpiredSmsCases(now: Date = new Date(), limit = 50): 
       outcome: "unreachable_no_reply",
       note: "Voice call did not reach the customer and the SMS received no reply within 24 hours.",
     }).catch((err) => {
-      console.error("[sms-verdict] sweep failed:", err instanceof Error ? err.message : err);
+      logError("[sms-verdict] sweep failed", { error: err instanceof Error ? err.message : String(err) });
       return false;
     });
     if (moved) resolved++;
@@ -374,7 +375,7 @@ export async function handleSmsReply(input: {
   if (intent === "stop") {
     await db.smsSuppression
       .upsert({ where: { phone: from }, create: { phone: from, reason: "stop" }, update: {} })
-      .catch((e) => console.error("[sms-verdict] suppression failed:", e));
+      .catch((e) => logError("[sms-verdict] suppression failed", { error: e instanceof Error ? e.message : String(e) }));
     return { reply: null, outcome: "stop" }; // Twilio sends its own opt-out confirmation
   }
   if (intent === "start") {

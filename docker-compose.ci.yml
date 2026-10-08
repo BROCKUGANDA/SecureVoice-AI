@@ -1,0 +1,51 @@
+# ---------------------------------------------------------------------------
+# Compose override for the CI smoke test. Loaded ONLY by .github/workflows/ci.yml.
+#
+# WHY THIS FILE EXISTS
+#
+# CI runs on the same machine as production (the self-hosted VPS runner), and
+# `docker-compose.yml` hardcodes `name: securevoice-ai`. Two consequences that
+# are not theoretical:
+#
+#   1. WITHOUT a different project name, `docker compose up` in CI resolves to
+#      the SAME project as the live stack. Compose does not care that CI meant
+#      a throwaway instance — it reconciles by project, so the CI smoke test
+#      would REPLACE the running production app, caddy, db and workers with test
+#      containers, on ports that production is already serving. The
+#      `docker compose down -v` at the end of the job would then delete the
+#      production database volume.
+#
+#   2. EVEN WITH a distinct project name, caddy publishes 80/443/443-udp on the
+#      host. Production already holds those ports, so the CI caddy fails to bind
+#      and the smoke test dies on a port conflict that has nothing to do with the
+#      code under test. `-p` renames the project but does not move the ports.
+#
+# So CI needs both: its own project name (passed as -p by the workflow) AND
+# different host ports. Everything else is inherited from docker-compose.yml so
+# the smoke test still exercises the real topology — the same build targets, the
+# same migration path, the same Caddy reverse proxy in front of app + realtime,
+# with app and realtime still on the internal network only.
+# ---------------------------------------------------------------------------
+services:
+  caddy:
+    # `!override`, NOT a plain list. Compose MERGES a service's `ports` across
+    # files rather than replacing them, so a plain override would ADD 18080/18443
+    # alongside the base file's 80/443 — and production already holds those, so
+    # caddy fails with "driver failed programming external connectivity on
+    # endpoint". That is the CI container colliding with the live site, which is
+    # precisely what this file exists to prevent. `!override` (Compose >= 2.24)
+    # replaces the inherited list outright.
+    ports: !override
+      - "18080:80"
+      - "18443:443"
+      - "18443:443/udp"
+
+  # NOTE: no redis port is published here, deliberately.
+  #
+  # The cross-node gate that needs a redis on a HOST port runs in the `verify`
+  # job, which starts its own short-lived `docker run redis:7-alpine
+  # -p 6380:6379`. The smoke stack reaches its own redis over the compose
+  # network like every other service, so publishing 6380 here bought nothing
+  # and created a host-port collision with that other container — which surfaced
+  # as "Bind for 0.0.0.0:6380 failed: port is already allocated" and took the
+  # entire smoke stack down with it.

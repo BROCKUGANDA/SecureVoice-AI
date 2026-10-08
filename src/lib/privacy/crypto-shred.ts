@@ -76,6 +76,7 @@ import type { Prisma } from "@/generated/prisma/client";
 import { db } from "@/lib/db";
 import { append } from "@/lib/audit-chain";
 import { forgetTranscript, pineconeConfigured } from "@/lib/pinecone/transcript-index";
+import { logError } from "@/lib/validation/safe-log";
 
 // ── Envelope + policy constants ──────────────────────────────────────────────
 
@@ -718,11 +719,10 @@ export async function eraseCase(
   try {
     zeroize(unwrapCaseKey(row.dataKeyEnc, caseRef));
   } catch (error) {
-    console.error(
-      `[privacy] could not unwrap the data key for ${caseRef} while erasing: ${
-        error instanceof Error ? error.message : String(error)
-      }`,
-    );
+    logError("[privacy] could not unwrap data key while erasing", {
+      caseRef,
+      error: error instanceof Error ? error.message : String(error),
+    });
   }
 
   const erasedAt = new Date();
@@ -766,11 +766,10 @@ export async function eraseCase(
         ).catch(() => {});
       }
     } catch (error) {
-      console.error(
-        `[privacy] vector erase failed for ${caseRef}: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-      );
+      logError("[privacy] vector erase failed", {
+        caseRef,
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 
@@ -799,7 +798,7 @@ export async function eraseCase(
     chainEvent = { rowId: appended.id, chainHash: appended.chainHash };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    console.error(`[privacy] erasure witness row failed for ${caseRef}: ${message}`);
+    logError("[privacy] erasure witness row failed", { caseRef, error: message });
     chainEvent = { rowId: null, chainHash: null, error: message };
   }
 
@@ -870,11 +869,10 @@ export async function deleteCaseRecord(
       { fast: true },
     );
   } catch (error) {
-    console.error(
-      `[privacy] case-record deletion witness failed for ${caseRef}: ${
-        error instanceof Error ? error.message : String(error)
-      }`,
-    );
+    logError("[privacy] case-record deletion witness failed", {
+      caseRef,
+      error: error instanceof Error ? error.message : String(error),
+    });
   }
 
   return { caseRef, clearedColumns: outcome.cleared, keyDestroyed: outcome.hadKey };

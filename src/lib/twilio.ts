@@ -25,6 +25,7 @@ import { blindPingSms, headsUpSms } from "@/lib/outreach-copy";
 import type { InstitutionType } from "@/lib/institution-types";
 import { getTelecomIdentity, type TelecomIdentity } from "@/lib/institution";
 import { recordTelecomEvent } from "@/lib/telecom-outbox";
+import { logError } from "@/lib/validation/safe-log";
 
 export { twilioMode, isTwilioConfigured };
 export type { TwilioMode } from "@/lib/config";
@@ -398,14 +399,11 @@ async function recordOutbox(args: {
       caseId: args.caseId ?? null,
     });
   } catch (err) {
-    console.error(
-      "[telecom-outbox] FAILED TO RECORD a",
-      args.channel,
-      "send for case",
-      args.caseId ?? "unknown",
-      ":",
-      err instanceof Error ? err.message : String(err),
-    );
+    logError("[telecom-outbox] FAILED TO RECORD send", {
+      channel: args.channel,
+      caseId: args.caseId ?? "unknown",
+      error: err instanceof Error ? err.message : String(err),
+    });
     return undefined;
   }
 }

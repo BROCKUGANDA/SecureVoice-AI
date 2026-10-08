@@ -21,6 +21,7 @@ import "server-only";
 import { enqueueDialJob } from "@/lib/scale/queue";
 import { markVoiceFailed } from "@/lib/elevenlabs/sms-fallback";
 import type { JobEnvelope } from "@/lib/queue/envelope";
+import { logWarn } from "@/lib/validation/safe-log";
 
 type CallTriggerPayload = {
   caseId?: string;
@@ -64,9 +65,7 @@ export async function handlePostCallResolution(envelope: JobEnvelope): Promise<v
   // duplicate delivery flips a case backwards.
   const p = (envelope.payload ?? {}) as { conversationId?: string | null };
   if (!p.conversationId) {
-    console.warn(
-      `[queue] postCall for ${envelope.caseRef} had no conversationId; nothing to resume`,
-    );
+    logWarn("[queue] postCall had no conversationId; nothing to resume", { caseRef: envelope.caseRef });
     return;
   }
   // Deliberately a no-op for now: the ElevenLabs webhook owns resolution,

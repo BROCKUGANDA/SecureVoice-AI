@@ -9,6 +9,7 @@ import { transcript as redactText } from "@/lib/redact";
 import { badRequest, parseJson, unprocessable, schemaErrorCode } from "@/lib/api-errors";
 import { getTransferNumber } from "@/lib/institution";
 import { transferCallToSpecialist } from "@/lib/twilio";
+import { logError } from "@/lib/validation/safe-log";
 
 export const dynamic = "force-dynamic";
 
@@ -109,7 +110,7 @@ export async function POST(req: NextRequest) {
       },
     });
   } catch (err) {
-    console.error("[tool/warm_transfer] audit append failed, refusing transfer:", err);
+    logError("[tool/warm_transfer] audit append failed, refusing transfer", { error: err instanceof Error ? err.message : String(err) });
     return NextResponse.json({ ok: false, error: "audit_unavailable" }, { status: 503 });
   }
 
@@ -140,7 +141,7 @@ export async function POST(req: NextRequest) {
         })
         .catch(() => {});
     } else {
-      console.error("[tool/warm_transfer] escalation write failed:", err);
+      logError("[tool/warm_transfer] escalation write failed", { error: err instanceof Error ? err.message : String(err) });
       return NextResponse.json({ ok: false, error: "handoff_queue_failed" }, { status: 503 });
     }
   }

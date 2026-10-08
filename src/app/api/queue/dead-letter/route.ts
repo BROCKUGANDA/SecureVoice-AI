@@ -22,6 +22,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { db } from "@/lib/db";
 import { auditAppend, envelopeIdempotencyKeyForDlq } from "@/lib/queue/dead-letter";
+import { logError } from "@/lib/validation/safe-log";
 
 export const dynamic = "force-dynamic";
 
@@ -64,7 +65,7 @@ export async function POST(req: NextRequest) {
       },
     })
     .catch((err) => {
-      console.error("[qstash-dlq] persistence failed:", err instanceof Error ? err.message : err);
+      logError("[qstash-dlq] persistence failed", { error: err instanceof Error ? err.message : String(err) });
     });
 
   await auditAppend(`qstash:dlq:${idem}`, eventType).catch(() => {});

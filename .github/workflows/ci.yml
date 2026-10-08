@@ -167,6 +167,15 @@ jobs:
           # database is a loud, named failure at setup instead of a silently
           # degraded evidence artifact twenty seconds later.
           docker exec sv-ci-db createdb -U securevoice securevoice_load
+          # The load database needs the SCHEMA too, not just the database. The
+          # load suite applies only `prisma/migrations/2_dial_job/migration.sql`
+          # itself (tests/load/load.test.ts:276) because on a developer's machine
+          # everything else was migrated long ago. On a fresh CI database that
+          # leaves every other table missing, the run degrades to a
+          # null-filled artifact, and the docs gate that reads it fails to parse.
+          # Migrating it here is the honest fix: the suite then starts from the
+          # same state a developer's long-lived database is in.
+          DATABASE_URL="$LOAD_DATABASE_URL" bunx prisma migrate deploy
           # Schema first: a suite that asserts on tenancy isolation needs the
           # tables, not just a reachable socket.
           bunx prisma migrate deploy

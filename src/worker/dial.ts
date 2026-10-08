@@ -34,9 +34,10 @@ import { recordTelecomEvent } from "@/lib/telecom-outbox";
 import { asCallCategory } from "@/lib/call-categories";
 import { isAfterHours, nextBusinessHoursStart } from "@/lib/abuse/velocity";
 import { sweepExpiredSmsCases } from "@/lib/sms-verdict";
-import { logError, logInfo } from "@/lib/validation/safe-log";
+import { logError, logInfo, logWarn } from "@/lib/validation/safe-log";
 import { flag } from "@/lib/flags";
-import { env } from "@/lib/config";
+import { SUPPORTED_LANGS } from "@/lib/languages";
+import type { DeliveryLang } from "@/lib/twilio";
 
 const WORKER_ID =
   process.env.DIAL_WORKER_ID ?? `${hostname()}-${process.pid}-${randomUUID().slice(0, 8)}`;
@@ -54,6 +55,29 @@ type JobPayload = {
   currency?: string;
   transaction_ref?: string;
 };
+
+/**
+ * Resolve whatever the bank sent (`en`, `ar-AE`, `es_MX`) to a language the
+ * voice tables actually have.
+ *
+ * The dialect subtag is deliberately honoured: `ar-AE` must speak Arabic. It is
+ * better to answer a Gulf customer in MSA than in English, and the previous
+ * cast let an unknown-but-Arabic tag fall through to an English script without
+ * a word of complaint. An unresolvable tag is logged, because the customer
+ * cannot tell which language they were dialled in but the audit record can.
+ */
+export function resolveDeliveryLang(requested?: string | null): DeliveryLang {
+  const raw = (requested ?? "").trim().toLowerCase();
+  if (!raw) return "en";
+  const exact = (SUPPORTED_LANGS as readonly string[]).includes(raw);
+  if (exact) return raw as DeliveryLang;
+  const base = raw.split(/[-_]/)[0];
+  if ((SUPPORTED_LANGS as readonly string[]).includes(base)) return base as DeliveryLang;
+  logWarn("[dial-worker] no voice for requested language, dialling in en", {
+    requested: raw.slice(0, 20),
+  });
+  return "en";
+}
 
 function parsePayload(job: DialJob): JobPayload {
   try {
@@ -181,16 +205,26 @@ async function handle(job: DialJob): Promise<DialOutcome> {
       };
     }
 
-    let result;
+    // Both planes must report the truth about the carrier. `placeOutboundCall`
+    // throws on failure; `placeInterventionCall` RETURNS one, so the ok flag has
+    // to be read here or a refused call becomes a recorded successful dial.
+    let result: {
+      conversationId: string | null;
+      callSid?: string | null;
+      dryRun: boolean;
+      phoneNumberId?: string | null;
+      fromPhone: string;
+      providerSid?: string | null;
+      // True when the send path already wrote the telecom outbox row itself.
+      outboxWritten: boolean;
+    };
     if (flag("twilioMediaStreams")) {
       const host = process.env.SITE_ADDRESS ?? "localhost";
-      const mediaStreamUrl = new URL(
-        `wss://${host}/api/voice-websocket`,
-      );
+      const mediaStreamUrl = new URL(`wss://${host}/api/voice-websocket`);
       mediaStreamUrl.searchParams.set("callSid", job.case_ref);
-      const twilioResult = await placeInterventionCall({
+      const dial = await placeInterventionCall({
         to,
-        lang: (payload.language ?? "en") as any,
+        lang: resolveDeliveryLang(payload.language),
         amount: payload.amount?.toString(),
         merchant: payload.merchant,
         callRef: job.case_ref,
@@ -198,11 +232,23 @@ async function handle(job: DialJob): Promise<DialOutcome> {
         caseId: existing?.id ?? null,
         mediaStreamUrl: mediaStreamUrl.toString(),
       });
+      if (!dial.ok) {
+        throw new Error(`twilio dial refused (status ${dial.status}): ${dial.error}`);
+      }
       result = {
+        // The app-side conversation key is the case ref — the same value the
+        // media-stream socket is opened with. `callSid` is the carrier's call
+        // leg, which is what warm_transfer rewrites. They are not the same
+        // thing and one cannot stand in for the other.
         conversationId: job.case_ref,
-        callSid: twilioResult.status === "queued" ? job.case_ref : undefined,
+        callSid: dial.sid,
         dryRun: false,
-        phoneNumberId: telecom.elevenPhoneNumberId,
+        // The caller ID on the customer's handset is the Twilio DID, not an
+        // ElevenLabs phone id.
+        phoneNumberId: null,
+        providerSid: dial.sid,
+        fromPhone: dial.from ?? "platform_default",
+        outboxWritten: true,
       };
     } else {
       const outbound = await placeOutboundCall({
@@ -234,6 +280,11 @@ async function handle(job: DialJob): Promise<DialOutcome> {
         callSid: outbound.callSid,
         dryRun: outbound.dryRun,
         phoneNumberId: outbound.phoneNumberId,
+        providerSid: outbound.callSid ?? outbound.conversationId ?? null,
+        fromPhone: outbound.phoneNumberId
+          ? `elevenlabs_phone:${outbound.phoneNumberId}`
+          : "platform_default",
+        outboxWritten: false,
       };
     }
 
@@ -254,16 +305,17 @@ async function handle(job: DialJob): Promise<DialOutcome> {
     // The telecom outbox: the dial happened, so it is recorded with the number
     // identity the customer's handset showed. Skipped in dry-run — a simulated
     // provider round-trip must not put a delivery fact in a compliance table.
-    if (!result.dryRun) {
+    // Skipped when the send path already wrote its own row: the Twilio plane
+    // records with the real call-leg sid, and a second row would put two
+    // conflicting delivery facts in the table for one call.
+    if (!result.dryRun && !result.outboxWritten) {
       void recordTelecomEvent({
         orgId: job.org_id,
         caseId: existing?.id ?? null,
         channel: "voice",
         toPhone: to,
-        fromPhone: result.phoneNumberId
-          ? `elevenlabs_phone:${result.phoneNumberId}`
-          : "platform_default",
-        providerSid: result.callSid,
+        fromPhone: result.fromPhone,
+        providerSid: result.providerSid ?? null,
         status: "queued",
         payload: {
           caseRef: job.case_ref,
@@ -350,7 +402,12 @@ async function tick(): Promise<number> {
 }
 
 async function main(): Promise<void> {
-  logInfo("[dial-worker] starting", { workerId: WORKER_ID, batch: BATCH, leaseMs: LEASE_MS, pollMs: POLL_MS });
+  logInfo("[dial-worker] starting", {
+    workerId: WORKER_ID,
+    batch: BATCH,
+    leaseMs: LEASE_MS,
+    pollMs: POLL_MS,
+  });
 
   if (ONCE) {
     const n = await tick();

@@ -61,6 +61,14 @@ jobs:
       # .env, which is a separate file written per run.
       BETTER_AUTH_SECRET: ci-only-not-a-secret-ci-only-not-a-secret
       BETTER_AUTH_URL: http://localhost:3000
+      # `docker-compose.yml` declares POSTGRES_PASSWORD as REQUIRED (`:?`) — a
+      # known fallback password on a public deployment is a compromised database,
+      # which is the right default. But `docker compose config` interpolates the
+      # whole file, so even the "does this parse" step in the verify job dies
+      # without it, long after any container was involved. Throwaway, and never
+      # used to start anything in this job: the verify job's database is a bare
+      # `docker run` container, not a compose one.
+      POSTGRES_PASSWORD: ci-only-not-a-secret
       # The load suite needs a SEPARATE database, and it defaults to
       # `postgresql://postgres@127.0.0.1:5432/securevoice_load` — port 5432,
       # where nothing is listening in CI (the test database above is on 55432).

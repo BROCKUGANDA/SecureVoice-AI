@@ -363,6 +363,37 @@ describe("declared security headers", () => {
     }
   });
 
+  test("the production CSP permits the inline scripts Next actually emits", async () => {
+    // Not a style preference — an outage. This build ships Next's RSC flight
+    // payload as inline `self.__next_f.push(...)` scripts carrying no nonce and no
+    // hash, so a `script-src 'self'` with nothing else blocks them, hydration
+    // never happens (React #412) and the app-shell splash sits at 0% forever.
+    // Tightening the directive took the live site dark and NO existing assertion
+    // could see it: the CSP tests here check which directives exist and that no
+    // third-party origin snuck in, which is all still true of a policy that
+    // breaks the page. So this asserts the EFFECTIVE policy, by calling the same
+    // `headers()` the server uses, rather than grepping the source text.
+    //
+    // Passing requires either inline permission or the nonce/hash mechanism the
+    // scripts actually use. If someone implements a real per-request nonce, this
+    // keeps passing — it is the silent breakage it forbids.
+    const config = (await import("../../next.config")).default as {
+      headers?: () => Promise<{ headers: { key: string; value: string }[] }[]>;
+    };
+    const entries = (await config.headers?.()).flatMap((r) => r.headers) ?? [];
+    const csp = entries.find((h) => h.key.toLowerCase() === "content-security-policy")?.value;
+    expect(csp, "no Content-Security-Policy header is configured").toBeTruthy();
+    const scriptSrc = /script-src([^;]*)/.exec(csp!)?.[1]?.trim() ?? "";
+    expect(scriptSrc, "script-src is missing from the CSP").not.toBe("");
+    expect(
+      /'unsafe-inline'|'nonce-[^']+|'sha256-[^']+/.test(scriptSrc),
+      `script-src "${scriptSrc}" blocks Next's inline flight scripts — the page will not hydrate`,
+    ).toBe(true);
+    // Dev-only, and the reason it is asserted here: it was the only thing
+    // distinguishing the two branches when the inline permission was dropped.
+    expect(scriptSrc).not.toContain("unsafe-eval");
+  });
+
   test("CSP grants no third-party auth origin", () => {
     // Regression guard for the Clerk -> Better Auth cutover. Better Auth is served
     // from THIS origin at /api/auth/*, so every vendor allowance that existed for

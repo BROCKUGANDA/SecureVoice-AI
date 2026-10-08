@@ -1,71 +1,118 @@
+# ---------------------------------------------------------------------------
+# SecureVoice AI — deploy to production
+#
+#   main ──▶ build ──▶ migrate ──▶ roll app + workers ──▶ health check
+#
+# WHAT CHANGED, AND WHY IT HAD TO
+#
+# This used to SSH into 57.130.80.158 with appleboy/ssh-action to run the deploy.
+# It now runs the same commands DIRECTLY, because CI executes on that machine —
+# the self-hosted runner `securevoice-vps` lives there. SSH-ing into the box
+# from the box was a loop that bought nothing and needed the deploy private key
+# inside the runner for no reason.
+#
+# It also no longer deploys on an untested commit. `on: workflow_run` fires this
+# only after the CI workflow FINISHES on `main`, and the first step refuses any
+# run whose conclusion was not `success`. Previously a push to main started a
+# deploy in parallel with CI, so a red build could still roll forward.
+#
+# The Caddyfile on the VPS is VPS-local (per-site blocks for the shared edge)
+# and is protected with `git update-index --skip-worktree`, so the pull never
+# trips over it.
+# ---------------------------------------------------------------------------
 name: Deploy
 
-# Push-to-main deploy: SSH into the VPS, pull, rebuild the app + workers,
-# roll them. The Caddyfile on the VPS is VPS-local (per-site blocks for the
-# shared edge) and is protected with `git update-index --skip-worktree`, so
-# the pull never trips over it.
-#
-# The job stays green before VPS_DEPLOY_KEY is configured: the deploy step is
-# skipped until the repository secret exists.
-
 on:
-  push:
+  workflow_run:
+    workflows: ["CI"]
     branches: [main]
-    paths-ignore:
-      - "**.md"
-      - "docs/**"
-      - "evidence/**"
-  # Manual run — this repo has a history of push events recording a synthetic
-  # `startup_failure` (path "BuildFailed") without ever starting a step; a
-  # dispatch is the fastest way to prove whether Actions can run at all.
+    types: [completed]
+  # Manual re-run, for when the machine was down during an automatic deploy.
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+# Two deploys must never interleave: a half-applied migration followed by a
+# second `git pull` is how a schema ends up ahead of the code that reads it.
 concurrency:
   group: deploy-vps
   cancel-in-progress: false
 
 jobs:
   deploy:
+    name: Build, migrate and roll production
     runs-on: [self-hosted, securevoice-vps]
+    timeout-minutes: 45
     steps:
-      - name: Check for deploy key
-        id: key
-        env:
-          HAS_KEY: ${{ secrets.VPS_DEPLOY_KEY != '' }}
-        run: echo "has_key=$HAS_KEY" >> "$GITHUB_OUTPUT"
-
-      - name: Deploy to VPS (pull, build, migrate, roll app + workers)
-        if: steps.key.outputs.has_key == 'true'
-        uses: appleboy/ssh-action@v1.2.2
+      - uses: actions/checkout@v4
         with:
-          host: 57.130.80.158
-          username: ubuntu
-          key: ${{ secrets.VPS_DEPLOY_KEY }}
-          script_stop: true
-          script: |
-            cd /home/ubuntu/securevoice-ai
-            git pull --ff-only origin main
-            # db-setup is in the build list on purpose. It is the image that runs
-            # `migrate deploy`, and it is a separate compose image from `app` even
-            # though both come from the same `builder` stage — so `build app` alone
-            # leaves db-setup on whatever migration set was baked the last time it
-            # happened to be rebuilt. That is not a theoretical hazard: a deploy that
-            # printed "No pending migrations to apply" against a database missing
-            # three migrations was compose reusing a stale db-setup image.
-            docker compose build app dial-worker retention-worker db-setup
-            # Schema before code. The runner image is `oven/bun:1-slim` plus the
-            # standalone bundle: it has no Prisma CLI and no prisma/migrations, so
-            # the app container cannot migrate itself, and a deploy that only rolls
-            # containers leaves the database one column behind the code that reads
-            # it — which surfaces as a 500 on the request that touches the new
-            # field, not as a failed deploy. `sh -c` overrides db-setup's entrypoint
-            # so this applies migrations WITHOUT re-seeding demo cases into a live
-            # database, and --no-deps keeps it off the app's dependency graph.
-            docker compose run --rm --no-deps db-setup sh -c "bunx prisma migrate deploy"
-            docker compose up -d app dial-worker retention-worker
+          ref: main
 
-      - name: Smoke test the running origin
-        if: steps.key.outputs.has_key == 'true'
+      # The gate. A failed CI run must never deploy, however it was triggered,
+      # and `workflow_dispatch` has no upstream run to inspect — so the manual
+      # path proves the tree is green by asking GitHub.
+      - name: Refuse to deploy an unproven commit
+        env:
+          EVENT: ${{ github.event_name }}
+          RUN_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            echo "manual deploy: verifying CI on main is currently green"
+            code=$(gh api "repos/$GITHUB_REPOSITORY/commits/main/check-runs" \
+              --jq '[.check_runs[] | select(.name | startswith("Lint, typecheck"))
+                      or (.name | startswith("Compose stack"))] | .[0].conclusion')
+            [ "$code" = "success" ] || {
+              echo "::error::CI on main is not green (got '${code:-none}') — refusing a manual deploy."
+              exit 1
+            }
+            echo "CI on main: $code"
+            exit 0
+          fi
+
+          if [ "$RUN_CONCLUSION" != "success" ]; then
+            echo "::error::CI run ${RUN_ID} concluded '${RUN_CONCLUSION}'. Production only deploys what CI proved green."
+            exit 1
+          fi
+          echo "CI run ${RUN_CONCLUSION}: ${RUN_ID}"
+
+      # `~/securevoice-ai` is the live checkout, not the runner's throwaway
+      # workspace. The runner copies the tree to a fresh directory per job, so
+      # the deploy has to act on the real one.
+      - name: Build, migrate and roll the live stack
+        run: |
+          set -euo pipefail
+          cd ~/securevoice-ai
+          git fetch origin main
+          git checkout main
+          git pull --ff-only origin main
+          echo "deployed commit: $(git rev-parse --short HEAD)"
+
+          # db-setup is in the build list on purpose. It is the image that runs
+          # `migrate deploy`, and it is a separate compose image from `app` even
+          # though both come from the same `builder` stage — so `build app` alone
+          # leaves db-setup on whatever migration set was baked the last time it
+          # happened to be rebuilt. That is not a theoretical hazard: a deploy that
+          # printed "No pending migrations to apply" against a database missing
+          # three migrations was compose reusing a stale db-setup image.
+          docker compose build app dial-worker retention-worker db-setup
+
+          # Schema before code. The runner image is `oven/bun:1-slim` plus the
+          # standalone bundle: it has no Prisma CLI and no prisma/migrations, so
+          # the app container cannot migrate itself, and a deploy that only rolls
+          # containers leaves the database one column behind the code that reads
+          # it — which surfaces as a 500 on the request that touches the new
+          # field, not as a failed deploy. `sh -c` overrides db-setup's entrypoint
+          # so this applies migrations WITHOUT re-seeding demo cases into a live
+          # database, and --no-deps keeps it off the app's dependency graph.
+          docker compose run --rm --no-deps db-setup sh -c "bunx prisma migrate deploy"
+
+          docker compose up -d app dial-worker retention-worker
+          docker compose ps
+
+      - name: Health check the rolled origin
         run: |
           for _ in 1 2 3 4 5 6; do
             code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 https://57.130.80.158.sslip.io/api/health || true)
@@ -74,3 +121,15 @@ jobs:
           done
           echo "health: $code"
           test "$code" = "200"
+
+      # A deploy that reports success while the app is unhealthy is worse than a
+      # loud failure: it writes a green tick next to a broken origin. If the
+      # container is not running, name the reason from its own logs.
+      - name: Report if the origin is unhealthy
+        if: failure()
+        run: |
+          echo "::error::production origin did not come up — app and worker logs follow"
+          cd ~/securevoice-ai
+          docker compose ps
+          docker compose logs --no-color --tail 150 app dial-worker retention-worker
+          exit 1

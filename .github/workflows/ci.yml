@@ -110,11 +110,17 @@ jobs:
           # replacing while the old containers may still be shutting down.
           DB_PORT=$(( 30000 + (rid % 9000) + (attempt * 7) ))
           REDIS_PORT=$(( 40000 + (rid % 9000) + (attempt * 7) ))
+          # Two realtime servers for the cross-node gate. 70000..79999, clear of
+          # the Postgres, Redis and Caddy ranges above and of anything else on
+          # this host. The test used hardcoded 4321/4322, which made two runners
+          # running it simultaneously collide.
+          CROSSNODE_PORT_BASE=$(( 70000 + (rid % 9000) + (attempt * 2) ))
           DB_CI="sv-ci-db-${rid}-${attempt}"
           REDIS_CI="sv-ci-redis-${rid}-${attempt}"
           {
             echo "DB_PORT=$DB_PORT"
             echo "REDIS_PORT=$REDIS_PORT"
+            echo "CROSSNODE_PORT_BASE=$CROSSNODE_PORT_BASE"
             echo "DB_CI=$DB_CI"
             echo "REDIS_CI=$REDIS_CI"
             # Both DSNs are rewritten here rather than in the job env above: a
@@ -217,6 +223,13 @@ jobs:
           # caused it. Only `${{ }}` is substituted, and only from a step that
           # exported it to GITHUB_ENV earlier in this job.
           REDIS_URL: redis://127.0.0.1:${{ env.REDIS_PORT }}
+          # The cross-node gate spawns two realtime servers on 4321/4322. Those
+          # were constants in the test, so two self-hosted runners running this
+          # job at the same time fought over them: the loser failed to bind,
+          # never answered /readyz, and the gate reported a connection error that
+          # looked like a fan-out bug. Derived per run, same as every other port
+          # this job allocates. 70000+ keeps it clear of everything else here.
+          CROSSNODE_PORT_BASE: ${{ env.CROSSNODE_PORT_BASE }}
         # `--timeout 120000`, for the same reason scripts/run-tests.mjs sets it
         # for the app suites: bun defaults to 5_000ms, which is far too tight for
         # a test that spawns two processes and waits for them to converge through

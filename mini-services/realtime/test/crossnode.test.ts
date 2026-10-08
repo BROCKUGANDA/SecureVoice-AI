@@ -24,8 +24,14 @@ import { SOCKET_PATH } from "../src/constants.ts";
 
 const SECRET = "crossnode-ingest-secret";
 const REDIS = process.env.REDIS_URL ?? "redis://127.0.0.1:6380";
-const PORT_A = 4321;
-const PORT_B = 4322;
+// Ports are per-run, not constants. Two self-hosted runners on one host run this
+// gate at the same time; with fixed ports the second instance fails to bind,
+// never answers /readyz, and the gate fails with a connection error that has
+// nothing to do with fan-out. CI passes CROSSNODE_PORT_BASE derived from the
+// run id; the default keeps a local `bun test` working unchanged.
+const PORT_BASE = Number(process.env.CROSSNODE_PORT_BASE ?? 4321);
+const PORT_A = PORT_BASE;
+const PORT_B = PORT_BASE + 1;
 const ORG = "org_crossnode";
 const CALL_REF = "SV-CROSSNODE";
 

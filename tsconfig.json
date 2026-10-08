@@ -40,6 +40,8 @@
     "dist",
     "tool-results",
     "mini-services",
-    "tests"
+    "tests",
+    "tests-jest",
+    "cypress"
   ]
 }

@@ -222,6 +222,19 @@ async function handle(job: DialJob): Promise<DialOutcome> {
       const host = process.env.SITE_ADDRESS ?? "localhost";
       const mediaStreamUrl = new URL(`wss://${host}/api/voice-websocket`);
       mediaStreamUrl.searchParams.set("callSid", job.case_ref);
+      // The language travels on the stream URL. The voice worker needs it for
+      // FOUR independent decisions — ASR model, TTS voice, TTS model, and the
+      // wording of every line it speaks — and none of them can be inferred from
+      // the audio before the first turn arrives.
+      //
+      // Omitting this silently produced an English agent calling an Urdu-speaking
+      // customer: ASR pinned to English, answered with an English voice, and
+      // English script read aloud on a call the bank asked to run in the
+      // customer's own language. `resolveDeliveryLang` is used rather than the
+      // raw payload so an unsupported code degrades to `en` HERE too, matching
+      // what the voice worker would do — two different fallbacks for the same
+      // field is how a call ends up with English ASR and an Urdu voice.
+      mediaStreamUrl.searchParams.set("lang", resolveDeliveryLang(payload.language));
       const dial = await placeInterventionCall({
         to,
         lang: resolveDeliveryLang(payload.language),
@@ -231,6 +244,10 @@ async function handle(job: DialJob): Promise<DialOutcome> {
         orgId: job.org_id,
         caseId: existing?.id ?? null,
         mediaStreamUrl: mediaStreamUrl.toString(),
+        // The tenant's own declaration decides whether Islamic terminology is
+        // substituted. Resolved here, at the layer that already reads the
+        // organisation, rather than inside the transport.
+        speech: { shariahCompliant: institution.shariahCompliant },
       });
       if (!dial.ok) {
         throw new Error(`twilio dial refused (status ${dial.status}): ${dial.error}`);

@@ -27,6 +27,7 @@ import { createHash } from "node:crypto";
 import { consume as consumeRateLimit } from "@/lib/ratelimit";
 import { withIdempotency } from "@/lib/idempotency";
 import { transcript as redactText } from "@/lib/redact";
+import { prepareSpeech, type SpeechContext } from "@/lib/compliance/speech-gate";
 import { env, isProdVoiceMode, TTS_CACHE_TTL_MS, TTS_CACHE_MAX } from "@/lib/config";
 
 export type TtsLang = "en" | "ar" | "hi" | "ur" | "fr" | "sw";
@@ -38,6 +39,9 @@ export type TtsRequest = {
   lang: TtsLang;
   callerId: string;
   callRef: string;
+  /** Tenant context for the speech gate. Omitting it still applies redaction
+   *  and speakability; it only declines the Islamic terminology pass. */
+  speech?: SpeechContext;
 };
 
 export type TtsResult = {
@@ -189,6 +193,21 @@ function ttsCacheSet(req: TtsRequest, buf: Buffer, ct: string) {
  * else → real ElevenLabs HTTP API.
  */
 export async function tts(req: TtsRequest, opts?: { keyOverride?: string }): Promise<TtsResult> {
+  // The speech gate sits ahead of everything that can spend a vendor call, so
+  // the cache key, the billable-character count, and both providers all see the
+  // text the customer will actually hear rather than the raw model output.
+  const gated = prepareSpeech(req.text, req.speech);
+  if (!gated.text) {
+    // Nothing survived the gate. Synthesising it would bill an empty utterance
+    // and play silence on a fraud call, which reads as a dropped line.
+    throw new UpstreamError(
+      "Text has no speakable content after compliance gate",
+      422,
+      "empty_after_gate",
+    );
+  }
+  req = { ...req, text: gated.text };
+
   // 1. Rate-limit (cheap; runs first). Distinct scope from the route-level
   //    limiter so a single request doesn't burn two tokens of the same bucket.
   const rl = consumeRateLimit(TTS_BUCKET, req.callerId);

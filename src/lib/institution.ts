@@ -49,16 +49,23 @@ export type SetInstitutionResult =
  */
 export async function getInstitutionContext(
   orgId: string | null | undefined,
-): Promise<{ type: InstitutionType; name: string | null }> {
-  if (!orgId) return { type: "bank", name: null };
+): Promise<{ type: InstitutionType; name: string | null; shariahCompliant: boolean }> {
+  if (!orgId) return { type: "bank", name: null, shariahCompliant: false };
   try {
     const org = await db.organization.findUnique({
       where: { id: orgId },
-      select: { institutionType: true, name: true },
+      select: { institutionType: true, name: true, shariahCompliant: true },
     });
-    return { type: asInstitutionType(org?.institutionType), name: org?.name ?? null };
+    return {
+      type: asInstitutionType(org?.institutionType),
+      name: org?.name ?? null,
+      // Absent org row reads as conventional: renaming a conventional tenant's
+      // own product is a factual error to the customer, so the gate stays off
+      // unless the tenant has positively declared otherwise.
+      shariahCompliant: org?.shariahCompliant === true,
+    };
   } catch {
-    return { type: "bank", name: null };
+    return { type: "bank", name: null, shariahCompliant: false };
   }
 }
 

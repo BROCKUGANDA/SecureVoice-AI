@@ -682,6 +682,12 @@ model Organization {
   // default (`ABUSE_PLAN_TIER`). Accepted values: `demo` | `standard`
   // | `enterprise`. Null falls through to the default, which is `demo`.
   planTier                    String?
+  // Islamic institution (Islamic bank or takaful operator). Drives the speech
+  // gate's terminology substitution ONLY. Conventional tenants must not have
+  // "insurance"/"premium" rewritten to "takaful"/"contribution" — that would
+  // describe their own product to the customer incorrectly, which is the same
+  // class of harm the filter exists to prevent.
+  shariahCompliant            Boolean         @default(false)
 
   @@unique([slug])
   @@map("organization")

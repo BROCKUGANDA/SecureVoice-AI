@@ -11,19 +11,23 @@ export function redactPII(text: string): string {
 
   let redacted = text;
 
-  // PAN/account numbers: 13-16 digit runs. Reject obvious non-PAN sequences
-  // such as pure year-like or sequential digits where possible; keep this
-  // regex conservative to avoid over-redacting legitimate content.
-  redacted = redacted.replace(/\b\d{13,16}\b/g, "[REDACTED_PAN]");
+  // Order matters and is not cosmetic: the phone pattern is broad enough to
+  // swallow both of the shapes below, so running it first meant an SSN was
+  // logged as a phone number and a spaced-out card number was logged as a phone
+  // number too. Nothing leaked either way, but the compliance record said the
+  // wrong thing about what left the building. Specific shapes first, general
+  // digit-run last.
 
-  // Phone numbers in common formats.
-  redacted = redacted.replace(
-    /\+?\d[\d\s\-()]{10,}/g,
-    "[REDACTED_PHONE]",
-  );
-
-  // SSN-style IDs.
+  // SSN-style IDs: exactly ddd-dd-dddd.
   redacted = redacted.replace(/\b\d{3}-\d{2}-\d{4}\b/g, "[REDACTED_SSN]");
+
+  // PAN/account numbers: 13 to 16 digits, printed either solid or in the
+  // four-group blocks a card number is normally read as.
+  redacted = redacted.replace(/\b(?:\d[ \-]?){12,15}\d\b/g, "[REDACTED_PAN]");
+
+  // Phone numbers in common formats, including everything the two rules above
+  // did not recognise.
+  redacted = redacted.replace(/\+?\d[\d\s\-()]{10,}/g, "[REDACTED_PHONE]");
 
   return redacted;
 }

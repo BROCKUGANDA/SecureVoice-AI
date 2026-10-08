@@ -1,23 +1,20 @@
-const SHARIAH_WORD_MAP: Record<string, string> = {
-  interest: "profit rate",
-  loan: "financing",
-  premium: "contribution",
-  insurance: "takaful",
-  borrow: "finance",
-  lender: "provider",
-  debtor: "customer",
-  "credit card": "financing card",
-  apr: "profit rate",
-  usury: "profit rate",
-  gambling: "speculation",
-  "claim payout": "fund disbursement",
-};
+/**
+ * Shariah terminology filter.
+ *
+ * This used to be a plain word-map loop with unanchored regexes, which corrupts
+ * real sentences: with no boundary around the key, "apr" matches inside "April"
+ * and "interest" inside "interested", so an approved script came out saying
+ * "profit rateil" and "profit rated to help you". It also ran one replacement
+ * per pass, so "interest rate" became "profit rate rate".
+ *
+ * The rules now live in the speech gate, which every voice path crosses before
+ * audio is requested. This module is kept as the single-purpose entry point for
+ * callers that only want the terminology pass, and it delegates to that one
+ * implementation so there cannot be two filters that disagree.
+ */
+
+import { applyShariahTerms } from "./speech-gate";
 
 export function sanitizeShariah(text: string): string {
-  let sanitized = text;
-  for (const [nonShariah, shariah] of Object.entries(SHARIAH_WORD_MAP)) {
-    const regex = new RegExp(nonShariah, "gi");
-    sanitized = sanitized.replace(regex, shariah);
-  }
-  return sanitized;
+  return applyShariahTerms(text ?? "").text;
 }

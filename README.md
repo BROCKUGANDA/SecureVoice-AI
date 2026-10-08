@@ -23,6 +23,28 @@
 
 ---
 
+## Start here
+
+**A judge with ninety seconds:**
+
+1. **The claim.** When a bank's fraud engine flags a transaction, an analyst picks it up ~9 minutes later and spends ~38 minutes on the call. The fraudster moves in seconds. This platform places a guardrailed, multilingual voice call to the customer **within 60 seconds of the signal** — and can hold a card or a claim payout while it does.
+2. **See it run.** [Demo walkthrough](#demo-walkthrough) · [live demo](docs/SUBMISSION.md)
+3. **Check the claim against evidence.** [`evidence/INDEX.md`](evidence/INDEX.md) states, per artifact, **whether it was measured or only targeted** — that distinction is the point of the bundle, not a caveat in it.
+4. **Read what makes it safe.** [Guardrails](#guardrails--one-in-the-ui-twelve-in-the-audit-chain) · [MODEL_CARD.md](MODEL_CARD.md)
+5. **Send a signal at it.** [Integration guide](docs/INTEGRATION.md) · [API surface](#api-surface)
+
+**The three claims worth interrogating**, because each is enforced in code rather than in a prompt:
+
+| Claim | Where it is enforced | How it fails closed |
+| --- | --- | --- |
+| The agent can never ask for a PIN, OTP or password | Server-side, on the tool boundary | The request is refused before it reaches the model |
+| The agent can never freeze anything on its own | State machine + category rules | Only a human in the institution's own team finalises it — in **every** environment |
+| Pre-production can never reach a real customer | `APP_ENV` gate in `src/lib/twilio.ts` | `staging` returns 403 and makes **zero** Twilio calls — [evidence](docs/evidence/staging-gate-2026-10-01.json) |
+
+**Status:** live in production; CI green on every push; promoted `dev → staging → main` automatically only when those gates pass.
+
+---
+
 ## What it does
 
 Today, when a bank's fraud engine flags a transaction, the case lands in a Tier‑1 analyst's queue ~9 minutes later. The analyst dials the customer, the customer doesn't recognize the number, and while the phone rings the fraudster completes the second transaction. The average call-center agent takes **38 minutes** to work a single case — the fraudster moves in **seconds**.

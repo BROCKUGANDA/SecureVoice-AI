@@ -3,9 +3,25 @@ import { randomUUID } from "node:crypto";
 import { append as auditAppend } from "@/lib/audit-chain";
 import { detectInjectionAttempt, spokenOutputIsSafe, wrapCallerText } from "@/lib/llm-guard";
 /**
- * Optional LLM reply layer for the agent route ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢šÂ¬Ã‚Â Groq (LPUs, ~300 tok/s, so a
- * voice turn feels instant) or Gemini (most generous free tier, strong fr/sw)
- * via its OpenAI-compatible endpoint.
+ * Optional LLM reply layer for the agent route — Groq (LPUs, ~300 tok/s, so a
+ * voice turn feels instant), a self-hosted LiteLLM proxy, or Gemini (most
+ * generous free tier, strong fr/sw). All three speak the same chat-completions
+ * wire format, so the selection below is a config change, not a code path.
+ *
+ * ## No OpenAI
+ *
+ * There is deliberately no `openai` provider here and no `openai` dependency in
+ * the manifest. Two reasons, one of them not a preference:
+ *
+ *   1. Cost/latency shape. Voice turns are latency-budgeted at ~2s; the model
+ *      has to clear that on every turn, not on a good day.
+ *   2. Data residency. The caller transcript is bank-customer PII. Routing it
+ *      to a third-party API that trains on it by default is not a decision this
+ *      codebase is allowed to make quietly. A self-hosted LiteLLM proxy keeps
+ *      the bytes inside the deployment's own boundary.
+ *
+ * Adding a provider therefore means: add a getter in src/lib/config.ts, return
+ * it from `provider()` below. Nothing else in the file changes.
  *
  * Division of responsibility (the security story stays intact):
  *   - INTENT classification is DETERMINISTIC (keyword router in the route) ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢šÂ¬Ã‚Â
@@ -32,26 +48,117 @@ const SCRIPTED_ONLY: ReadonlySet<string> = new Set([
 ]);
 const MAX_WORDS = maxAgentWords();
 
-/** The configured LLM provider, or null when no key is set. Groq first
- *  (fastest voice feel), Gemini second (most generous free tier, strong
- *  fr/sw) ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢šÂ¬Ã‚Â both speak the OpenAI chat-completions wire format. */
-function provider(): { url: string; key: string; model: string } | null {
-  // Endpoints are overridable rather than hardcoded. Two reasons that matters:
-  // a gateway or proxy in front of the provider (audit, egress control, failover)
-  // cannot be used at all if the host is compiled in, and a provider region
-  // move is a config change instead of a rebuild. The defaults are unchanged.
-  if (env.groqApiKey) {
+/**
+ * A resolved inference endpoint. `name` is carried so the audit row can record
+ * which provider actually answered — without it, a failover is invisible to
+ * anyone reviewing a call afterwards, and "which model was live during the
+ * incident" becomes unanswerable.
+ */
+export type Provider = {
+  name: "groq" | "lite_llm" | "gemini";
+  url: string;
+  key: string;
+  model: string;
+  timeoutMs: number;
+  temperature: number;
+  maxTokens: number;
+};
+
+/**
+ * The configured LLM provider, or null when no key is set.
+ *
+ * Order is a latency-budget decision, made once, and stated here rather than
+ * inferred: on a voice turn the gap between "felt instant" and "dead air" is
+ * roughly 700ms, so the fastest provider that is configured wins and the others
+ * are failover, not alternatives. Each returned record carries its OWN timeout,
+ * temperature and token ceiling — reading `env.groq*` inside the request would
+ * have applied Groq's tuning to a LiteLLM model with different characteristics,
+ * which is the kind of bug that only shows up as "the self-hosted model feels
+ * weird" and never as an error.
+ */
+export function provider(): Provider | null {
+  return selectProvider({
+    groqApiKey: env.groqApiKey,
+    groqBaseUrl: env.groqBaseUrl,
+    groqModel: env.groqModel,
+    groqTimeoutMs: env.groqTimeoutMs,
+    groqTemperature: env.groqTemperature,
+    groqMaxTokens: env.groqMaxTokens,
+    litellmApiKey: env.litellmApiKey,
+    litellmBaseUrl: env.litellmBaseUrl,
+    litellmModel: env.litellmModel,
+    litellmTimeoutMs: env.litellmTimeoutMs,
+    litellmTemperature: env.litellmTemperature,
+    litellmMaxTokens: env.litellmMaxTokens,
+    geminiApiKey: env.geminiApiKey,
+    geminiBaseUrl: env.geminiBaseUrl,
+    geminiModel: env.geminiModel,
+  });
+}
+
+/**
+ * The selection ladder as DATA, so precedence can be asserted without touching
+ * `process.env`.
+ *
+ * `provider()` reads process.env on every call, which makes it awkward to test
+ * exhaustively: env is global mutable state, tests run concurrently, and a
+ * test that blanks a variable to assert the next rung can interleave with one
+ * that sets it. The failure mode is a test suite that passes for the wrong
+ * reason and a ladder nobody can change confidently.
+ *
+ * So the SAME precedence, same tuning, same defaults live here as a pure
+ * function over an injected environment. `provider()` is a thin binding of it
+ * to the real `env` — which keeps production and test provably identical
+ * rather than two implementations that agree today and diverge tomorrow.
+ */
+export function selectProvider(cfg: {
+  groqApiKey?: string;
+  groqBaseUrl: string;
+  groqModel: string;
+  groqTimeoutMs: number;
+  groqTemperature: number;
+  groqMaxTokens: number;
+  litellmApiKey?: string;
+  litellmBaseUrl: string;
+  litellmModel: string;
+  litellmTimeoutMs: number;
+  litellmTemperature: number;
+  litellmMaxTokens: number;
+  geminiApiKey?: string;
+  geminiBaseUrl: string;
+  geminiModel: string;
+}): Provider | null {
+  if (cfg.groqApiKey) {
     return {
-      url: env.groqBaseUrl,
-      key: env.groqApiKey,
-      model: env.groqModel,
+      name: "groq",
+      url: cfg.groqBaseUrl,
+      key: cfg.groqApiKey,
+      model: cfg.groqModel,
+      timeoutMs: cfg.groqTimeoutMs,
+      temperature: cfg.groqTemperature,
+      maxTokens: cfg.groqMaxTokens,
     };
   }
-  if (env.geminiApiKey) {
+  if (cfg.litellmApiKey) {
     return {
-      url: env.geminiBaseUrl,
-      key: env.geminiApiKey,
-      model: env.geminiModel,
+      name: "lite_llm",
+      url: cfg.litellmBaseUrl,
+      key: cfg.litellmApiKey,
+      model: cfg.litellmModel,
+      timeoutMs: cfg.litellmTimeoutMs,
+      temperature: cfg.litellmTemperature,
+      maxTokens: cfg.litellmMaxTokens,
+    };
+  }
+  if (cfg.geminiApiKey) {
+    return {
+      name: "gemini",
+      url: cfg.geminiBaseUrl,
+      key: cfg.geminiApiKey,
+      model: cfg.geminiModel,
+      timeoutMs: 8_000,
+      temperature: 0.3,
+      maxTokens: 160,
     };
   }
   return null;
@@ -146,10 +253,10 @@ export async function draftAgentReply(args: {
             content: `The caller said (their language may differ - reply in YOUR language): ${safeCallerText}`,
           },
         ],
-        temperature: env.groqTemperature,
-        max_tokens: env.groqMaxTokens,
+        temperature: p.temperature,
+        max_tokens: p.maxTokens,
       }),
-      signal: AbortSignal.timeout(env.groqTimeoutMs),
+      signal: AbortSignal.timeout(p.timeoutMs),
     });
     if (!r.ok) return null;
     const data = (await r.json()) as { choices?: { message?: { content?: string } }[] };
@@ -178,7 +285,10 @@ export async function draftAgentReply(args: {
           intent: "llm_output_refused_unsafe",
           ...(args.callerId ? { callerId: args.callerId } : {}),
           redactedText: "model output solicited a secret or broke frame; scripted reply used",
-          meta: { lang: args.lang, intent: args.intent },
+          // Provider and model travel with the refusal. "Which model produced
+          // the unsafe draft" is the first question asked after an incident,
+          // and it is unanswerable if the audit row only says the LLM refused.
+          meta: { lang: args.lang, intent: args.intent, provider: p.name, model: p.model },
         },
         { fast: true },
       ).catch(() => {});

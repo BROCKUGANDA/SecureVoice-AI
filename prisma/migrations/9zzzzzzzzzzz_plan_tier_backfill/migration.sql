@@ -1,0 +1,14 @@
+-- `planTier` on the organisation row.
+--
+-- WHY THIS EXISTS AS A RAW FIX: the original migration for this column was
+-- written against the table name "Organization" and failed against the mapped
+-- name "organization". It was then marked applied to unblock the queue, which
+-- recorded it as done WITHOUT the column existing. Prisma therefore considers
+-- the schema current while every read of `organization.planTier` fails at
+-- runtime — a migration history that lies, which is worse than a missing
+-- column because nothing warns you.
+--
+-- `ADD COLUMN IF NOT EXISTS` makes this safe to apply over an environment that
+-- does have the column (a database reset from scratch replays the corrected
+-- migration) and over one that does not (this file).
+ALTER TABLE "organization" ADD COLUMN IF NOT EXISTS "planTier" TEXT;

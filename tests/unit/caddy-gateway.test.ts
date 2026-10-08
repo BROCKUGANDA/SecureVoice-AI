@@ -70,9 +70,24 @@ for (const file of FILES) {
 
   test(`${file}: the gateway block never swallows the app's own namespace`, () => {
     const src = read(file);
-    // No matcher that would also capture /api/... : a leading `*`, a bare
-    // prefix of `/`, or an explicit /api path in the same block.
+    // No matcher that would also capture /api/... : a leading `*`, or a bare
+    // prefix of `/`.
     expect(src).not.toMatch(/handle \* \{/);
-    expect(src).not.toMatch(/handle \/api/);
+
+    // A NARROWLY-ANCHORED /api matcher is legitimate and must be allowed —
+    // `handle /api/voice-websocket` routes exactly one path and cannot shadow
+    // anything else under /api. What must never appear is a matcher that
+    // captures the whole namespace: `handle /api` on its own, `handle /api/`, or
+    // `handle /api/*`. Those are the blocks that steal requests from the app's
+    // own routes.
+    //
+    // Asserted as an ALTERNATION anchored on the block-opening brace, which is
+    // what makes the narrow form pass and the greedy form fail. A looser pattern
+    // (`handle /api`) would reject both, and did — the previous assertion made
+    // the rule and the live-voice routing disagree, so the test was the thing
+    // that had to change, not the routing.
+    expect(src, `${file} captures the whole /api namespace`).not.toMatch(
+      /handle \/api\s*\{|handle \/api\/\s*\{|handle \/api\/\*\s*\{/,
+    );
   });
 }

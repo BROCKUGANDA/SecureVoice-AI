@@ -187,6 +187,44 @@ services:
     # --smol: measured heap trade, see docs/CAPACITY.md §10 (256m box, idle sweeper).
     command: ["bun", "--smol", "--preload", "./scripts/worker-preload.ts", "src/worker/retention.ts"]
 
+  # LiteLLM proxy (optional). Provider precedence is GROQ_API_KEY >
+  # LITELLM_API_KEY > GEMINI_API_KEY — the first configured one wins, so with
+  # none of them set the agent speaks the vetted scripted reply and the demo
+  # works unchanged.
+  #
+  # This is the recommended production path, and it exists for two reasons that
+  # are not preferences:
+  #   · voice turns are latency-budgeted at ~2s, and
+  #   · customer transcripts are bank-customer PII, which should stay inside
+  #     this deployment's boundary rather than a third party that trains on it.
+  #
+  # `main-lite` is the slim image — it carries the proxy and the model registry,
+  # not every provider SDK. Point LITELLM_MODEL at whatever the proxy serves;
+  # the default (llama-3.3-70b-instruct) is permissively licensed and covers the
+  # languages this agent speaks (ar, hi, ur, fr, sw).
+  #
+  # No upstream provider is configured here on purpose: this service is inert
+  # until LITELLM_API_KEY is set in .env AND a model is registered on the proxy.
+  litellm:
+    image: ghcr.io/berriai/litellm:main-lite
+    restart: unless-stopped
+    logging: *default-logging
+    mem_limit: 1g
+    environment:
+      # The proxy's own auth key. This is the value a caller presents as a
+      # bearer token, so it is NOT a secret the proxy needs to be told twice —
+      # GENERATE_KEYS=false plus an explicit LITELLM_API_KEY keeps one source of
+      # truth, and the same value works whether the caller is this app or a
+      # developer's curl.
+      LITELLM_API_KEY: ${LITELLM_API_KEY:-}
+      GENERATE_KEYS: "false"
+      STORE_MODEL_IN_DB: "false"
+      # No telemetry: this deployment carries bank-customer PII and the proxy
+      # must not be a reason it leaves the boundary.
+      LITELLM_TELEMETRY: "false"
+    expose:
+      - "4000"
+
   # Voice stream worker (Twilio Media Streams + Deepgram + ElevenLabs).
   # Serves the WebSocket endpoint Twilio connects to for live-call audio.
   voice-stream-worker:
@@ -208,16 +246,61 @@ services:
       DEEPGRAM_API_KEY: ${DEEPGRAM_API_KEY:-}
       ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
       ELEVENLABS_MODEL: ${ELEVENLABS_MODEL:-eleven_multilingual_v2}
-      ELEVENLABS_VOICE_EN: ${ELEVENLABS_VOICE_EN:-}
       VOICE_STREAM_HOST: ${VOICE_STREAM_HOST:-0.0.0.0}
       VOICE_STREAM_PORT: ${VOICE_STREAM_PORT:-8080}
       FEATURE_TWILIO_MEDIA_STREAMS: ${FEATURE_TWILIO_MEDIA_STREAMS:-false}
+      # Per-language voices. EVERY supported language needs one: the worker
+      # resolves the voice from the call's language, and an unresolvable voice id
+      # fails synthesis — silence on a fraud call. `ur` in particular is not
+      # optional: the Governed Collections brief names Urdu, and a missing
+      # ELEVENLABS_VOICE_UR means the Urdu path is dead while every English test
+      # still passes.
+      ELEVENLABS_VOICE_EN: ${ELEVENLABS_VOICE_EN:-}
+      ELEVENLABS_VOICE_AR: ${ELEVENLABS_VOICE_AR:-}
+      ELEVENLABS_VOICE_HI: ${ELEVENLABS_VOICE_HI:-}
+      ELEVENLABS_VOICE_UR: ${ELEVENLABS_VOICE_UR:-}
+      ELEVENLABS_VOICE_FR: ${ELEVENLABS_VOICE_FR:-}
+      ELEVENLABS_VOICE_SW: ${ELEVENLABS_VOICE_SW:-}
+      # LiteLLM proxy, by service name. Empty LITELLM_API_KEY is what makes the
+      # provider selection fall through to Gemini or to the scripted reply.
+      LITELLM_API_KEY: ${LITELLM_API_KEY:-}
+      LITELLM_BASE_URL: ${LITELLM_BASE_URL:-}
+      LITELLM_MODEL: ${LITELLM_MODEL:-llama-3.3-70b-instruct}
+      LITELLM_TIMEOUT_MS: ${LITELLM_TIMEOUT_MS:-8000}
     expose:
       - "8080"
     depends_on:
       db-setup:
         condition: service_completed_successfully
     command: ["bun", "--smol", "--preload", "./scripts/worker-preload.ts", "src/worker/voice-stream.ts"]
+
+  # Outbox worker — drains signed bank/operator webhook deliveries from Postgres.
+  # This is the only place that does network I/O for outbound events; request
+  # handlers never await fetch directly.
+  outbox-worker:
+    build:
+      context: .
+      target: builder
+      args:
+        BUILD_DATABASE_URL: ${DATABASE_URL}
+        BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET in .env}
+        BETTER_AUTH_URL: ${BETTER_AUTH_URL:-https://localhost:3000}
+    restart: unless-stopped
+    logging: *default-logging
+    mem_limit: 256m
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql://${POSTGRES_USER:-securevoice}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-securevoice}}
+      NODE_ENV: production
+      DB_ALLOW_PLAINTEXT_PRIVATE_NETWORK: "true"
+      REQUIRE_VPS_DATABASE: ${REQUIRE_VPS_DATABASE:-false}
+      OUTBOX_DELIVERY_TIMEOUT_MS: ${OUTBOX_DELIVERY_TIMEOUT_MS:-10000}
+      OUTBOX_MAX_ATTEMPTS: ${OUTBOX_MAX_ATTEMPTS:-6}
+      BANK_WEBHOOK_URL: ${BANK_WEBHOOK_URL:-}
+      BANK_WEBHOOK_SECRET: ${BANK_WEBHOOK_SECRET:-}
+    depends_on:
+      db-setup:
+        condition: service_completed_successfully
+    command: ["bun", "--smol", "--preload", "./scripts/worker-preload.ts", "scripts/outbox-worker.ts", "--loop", "10"]
 
   # Command Center push path. Separate image, separate trust boundary, and
   # independently restartable: a hung socket layer must never take the API with it.

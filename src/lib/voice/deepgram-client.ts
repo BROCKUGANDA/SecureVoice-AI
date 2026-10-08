@@ -20,8 +20,33 @@ export class DeepgramLiveClient {
     return this;
   }
 
+  /**
+   * Languages Deepgram nova-2 can pin. Anything else must be sent as `multi`.
+   *
+   * nova-2 has no Urdu or Swahili model, and pinning an unsupported code fails
+   * the ENTIRE request with a 4xx — not a degraded transcript, a closed
+   * socket. So those two go to `multi`, which does code-switching detection.
+   * That is a real quality reduction and is stated rather than hidden: the
+   * platform's primary ASR for those languages is ElevenLabs Scribe
+   * (see src/app/api/asr/route.ts), which does cover them, and the router
+   * accepts Urdu so a `multi` transcript that does come back is still
+   * actionable.
+   */
+  static readonly PINNABLE_LANGS: ReadonlySet<string> = new Set([
+    "en",
+    "ar",
+    "fr",
+    "hi",
+    "es",
+    "de",
+    "it",
+    "pt",
+    "nl",
+    "ru",
+  ]);
+
   start(lang = "en") {
-    const dgLang = lang === "sw" || lang === "ur" ? "multi" : lang;
+    const dgLang = DeepgramLiveClient.PINNABLE_LANGS.has(lang) ? lang : "multi";
     const url =
       `wss://api.deepgram.com/v1/listen?model=nova-2&encoding=mulaw&sample_rate=8000` +
       `&language=${dgLang}&smart_format=true&interim_results=true`;

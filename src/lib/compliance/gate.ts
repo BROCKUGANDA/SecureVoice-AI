@@ -99,21 +99,47 @@ export async function runComplianceGate(params: {
     return { ok: false, code: "redaction_mismatch", reason };
   }
 
-  const duringPrayer = await isWithinPrayerWindow("UAE");
-  if (duringPrayer) {
-    const reason = "Intervention paused during local Salah window.";
-    void auditAppend(
-      {
-        callRef: params.caseRef,
-        action: "freeze",
-        intent: "compliance_paused_prayer_time",
-        callerId: params.callerId,
-        meta: { reason, callCategory: category, transactionRef: params.transactionRef },
-        orgId: params.orgId ?? undefined,
-      },
-      { fast: true },
-    ).catch(() => {});
-    return { ok: false, code: "prayer_time", reason };
+  // ── Salah window ────────────────────────────────────────────────────────────
+  //
+  // TIME-CRITICAL FRAUD IS EXEMPT, and that is not an oversight.
+  //
+  // This check exists because a collections or routine call landing during salah
+  // is offensive in a way the caller cannot opt out of politely — they are
+  // being called, not calling. But a fraud signal does not wait: the brief
+  // scopes this path to time-critical calls only, and the whole product promise
+  // is that the customer is contacted within 60 seconds of the signal. Blocking
+  // a card freeze because the clock in Dubai reads 13:05 means leaving a live
+  // fraud unaddressed for up to 20 minutes, which is the exact harm this
+  // platform exists to prevent.
+  //
+  // So the exemption is symmetric with the calling-hours check above: same
+  // category carve-out, same reason, stated in both places.
+  //
+  // It is ALSO a network call to a third-party API, which is why it must not
+  // sit on the fraud path at all — an unreachable Aladhan endpoint must not be
+  // able to delay or refuse a protective action.
+  if (category !== "time_critical_fraud") {
+    const duringPrayer = await isWithinPrayerWindow("UAE");
+    if (duringPrayer) {
+      const reason = "Intervention paused during the local Salah window.";
+      void auditAppend(
+        {
+          callRef: params.caseRef,
+          action: "freeze",
+          intent: "compliance_paused_prayer_time",
+          callerId: params.callerId,
+          meta: {
+            reason,
+            callCategory: category,
+            transactionRef: params.transactionRef,
+            note: "time_critical_fraud is exempt from the Salah window",
+          },
+          orgId: params.orgId ?? undefined,
+        },
+        { fast: true },
+      ).catch(() => {});
+      return { ok: false, code: "prayer_time", reason };
+    }
   }
 
   logInfo("[compliance] gate passed", {

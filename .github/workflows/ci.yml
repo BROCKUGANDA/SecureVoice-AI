@@ -210,7 +210,13 @@ jobs:
           # without this the gate looked at a port nobody was listening on and
           # failed, correctly, that no shared bus existed.
           REDIS_URL: redis://127.0.0.1:$REDIS_PORT
-        run: bun test
+        # `--timeout 120000`, for the same reason scripts/run-tests.mjs sets it
+        # for the app suites: bun defaults to 5_000ms, which is far too tight for
+        # a test that spawns two processes and waits for them to converge through
+        # Redis. This gate used to dodge the problem by never running at all —
+        # it skipped when the bus was unreachable — so the timeout was invisible
+        # until CI finally gave it a reachable Redis and it started doing its job.
+        run: bun test --timeout 120000
 
       - name: Realtime service — stop Redis
         if: always()
@@ -496,8 +502,23 @@ jobs:
           set -euo pipefail
           rid=${{ github.run_id }}
           attempt=${{ github.run_attempt }}
-          HTTP=$(( 50000 + (rid % 9000) + (attempt * 7) ))
-          HTTPS=$(( 60000 + (rid % 9000) + (attempt * 7) ))
+          # `span` is clamped to 4000 deliberately, and the clamp is the whole
+          # point: with `rid % 9000` the HTTPS term reached 60000 + 8999, which is
+          # not a valid host port. Compose then failed the job with
+          # `invalid hostPort: 66328` — on roughly four runs in ten, chosen by run
+          # id rather than by anything in the diff. A promotion that cannot go
+          # green is a production deploy that never happens, so the range has to
+          # be provably inside 65535 and not merely usually inside it.
+          span=$(( rid % 4000 ))
+          HTTP=$(( 50000 + span + (attempt * 7) ))
+          HTTPS=$(( 60000 + span + (attempt * 7) ))
+          # Stated as an assertion, not just arithmetic that happens to fit: if a
+          # future range edit pushes a port past the IPv4 maximum, name the port
+          # here rather than let compose fail the run with `invalid hostPort`.
+          if [ "$HTTPS" -gt 65535 ] || [ "$HTTP" -gt 65535 ]; then
+            echo "::error::allocated smoke ports exceed 65535 (http=$HTTP https=$HTTPS)"
+            exit 1
+          fi
           {
             echo "CI_CADDY_HTTP_PORT=$HTTP"
             echo "CI_CADDY_HTTPS_PORT=$HTTPS"

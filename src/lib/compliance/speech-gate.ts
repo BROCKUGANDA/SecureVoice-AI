@@ -120,6 +120,29 @@ const ARABIC_RULES: [string, string][] = [
 ];
 
 /**
+ * Urdu Shariah terms — the P1-3 gap. The filter had a Latin and an Arabic
+ * ruleset but no Urdu one, so a takaful customer speaking Urdu heard
+ * "insurance" (انشورنس) rather than "takaful" (تکافل): the substitution the
+ * tenant declared it needed was simply absent for that script.
+ *
+ * Written in Urdu orthography (ک/ی/ہ), not the Arabic spellings, because the
+ * words a caller actually uses are the Urdu forms and termRules is script-aware
+ * (`\p{L}` fence, not `\b`), so the two rulesets do not collide. Longest-first
+ * inside termRules consumes compounds ("لائف انشورنس") before the bare noun.
+ */
+const URDU_RULES: [string, string][] = [
+  ["لائف انشورنس", "تکافل"],
+  ["انشورنس کمپنی", "تکافل کمپنی"],
+  ["انسورر", "تکافل آپریٹر"],
+  ["انشورنس", "تکافل"],
+  ["سود", "منافع"],
+  ["بیمہ", "تکافل"],
+  ["کارڈ کریڈٹ", "کارڈ تمویل"],
+  ["جرمانے", "چیریٹی"],
+  ["جرمانہ", "چیریٹی"],
+];
+
+/**
  * A letter/number-fenced boundary rather than `\b`, because `\b` is defined
  * over `[A-Za-z0-9_]` and therefore never matches around Arabic script — a
  * `\bقرض\b` pattern silently matches nothing at all.
@@ -137,6 +160,7 @@ function termRules(pairs: [string, string][]): TermRule[] {
 
 const LATIN = termRules(LATIN_RULES);
 const ARABIC = termRules(ARABIC_RULES);
+const URDU = termRules(URDU_RULES);
 
 function escapePattern(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -155,7 +179,7 @@ function matchCase(source: string, replacement: string): string {
 export function applyShariahTerms(text: string): { text: string; applied: string[] } {
   let out = text;
   const applied: string[] = [];
-  for (const rules of [LATIN, ARABIC]) {
+  for (const rules of [LATIN, ARABIC, URDU]) {
     for (const rule of rules) {
       if (!rule.from.test(out)) continue;
       rule.from.lastIndex = 0;

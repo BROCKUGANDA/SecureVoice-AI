@@ -42,6 +42,7 @@ function visitBooted(): void {
 Cypress.Commands.add("visitBooted", visitBooted);
 
 declare global {
+  // eslint-disable-next-line @typescript-eslint/no-namespace -- Cypress documents this augmentation with a namespace
   namespace Cypress {
     interface Chainable {
       visitBooted(): Chainable<void>;

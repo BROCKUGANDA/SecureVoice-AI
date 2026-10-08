@@ -92,7 +92,7 @@ export default function Page() {
 
   return (
     <div className={cn("flex flex-col bg-paper", !fullBleed && "min-h-screen")}>
-      <LoadingScreen onDone={() => setBooted(true)} />
+      {!booted && <LoadingScreen onDone={() => setBooted(true)} />}
 
       <IdleTimeoutHandler onTimeout={handleIdleTimeout} />
 
@@ -107,7 +107,8 @@ export default function Page() {
 
       <main id="main-content" className="flex-1">
         <MotionConfig reducedMotion="user">
-          <AnimatePresence mode="wait">
+          {/* Not mode="wait": it mounts the next view only after the current one's exit animation completes, and a stalled exit (framer-motion under React StrictMode in dev — the same fault that stuck the boot splash) freezes navigation on the current view. Default sync mode swaps immediately and degrades to a harmless overlap. */}
+          <AnimatePresence>
             <motion.div
               key={view}
               initial={{ opacity: 0, y: 18, filter: "blur(4px)" }}

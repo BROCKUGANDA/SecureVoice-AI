@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-require-imports -- .cjs config; CommonJS require() is correct here. */
 /**
  * Jest harness — component tier.
  *

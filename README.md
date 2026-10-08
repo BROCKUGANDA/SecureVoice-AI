@@ -35,11 +35,11 @@
 
 **The three claims worth interrogating**, because each is enforced in code rather than in a prompt:
 
-| Claim | Where it is enforced | How it fails closed |
-| --- | --- | --- |
-| The agent can never ask for a PIN, OTP or password | Server-side, on the tool boundary | The request is refused before it reaches the model |
-| The agent can never freeze anything on its own | State machine + category rules | Only a human in the institution's own team finalises it — in **every** environment |
-| Pre-production can never reach a real customer | `APP_ENV` gate in `src/lib/twilio.ts` | `staging` returns 403 and makes **zero** Twilio calls — [evidence](docs/evidence/staging-gate-2026-10-01.json) |
+| Claim                                              | Where it is enforced                  | How it fails closed                                                                                            |
+| -------------------------------------------------- | ------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| The agent can never ask for a PIN, OTP or password | Server-side, on the tool boundary     | The request is refused before it reaches the model                                                             |
+| The agent can never freeze anything on its own     | State machine + category rules        | Only a human in the institution's own team finalises it — in **every** environment                             |
+| Pre-production can never reach a real customer     | `APP_ENV` gate in `src/lib/twilio.ts` | `staging` returns 403 and makes **zero** Twilio calls — [evidence](docs/evidence/staging-gate-2026-10-01.json) |
 
 **Status:** live in production; CI green on every push; promoted `dev → staging → main` automatically only when those gates pass.
 
@@ -117,7 +117,7 @@ The reproducible, zero-setup path — Postgres, schema, seed data, realtime push
 docker compose up --build
 ```
 
-- **Caddy is the only service that publishes a port.** It terminates TLS on :443 and routes `/realtime/*` to the realtime service, everything else to the app.
+- **Caddy is the only service that publishes a port.** It terminates TLS on :443 and routes `/realtime/media-stream` to the voice-stream worker, `/realtime/*` to the realtime service, `/v1/*` to the app, and everything else to the app.
 - **http://localhost:3000** is served by the Next.js standalone bundle inside a slim Bun image.
 - A **Postgres 16** service comes up on the compose network, `db-setup` applies the Prisma schema and seeds demo cases, then `app` starts.
 - Data persists in the `db-data` volume; `docker compose down -v` resets to a factory-fresh demo.
@@ -132,10 +132,18 @@ postgresql://`). Verified empirically — don't be misled by older notes that me
 
 ```text
 Internet ── :443 ──► Caddy (the only published port)
-                     ├─ /realtime/*  ──► realtime:4000   Bun + Socket.IO
-                     ├─ /healthz     ──► answered at the edge
-                     └─ everything else ──► app:3000    Next.js standalone
+                     ├─ /realtime/media-stream ──► voice-stream-worker:8080   Twilio Media Streams (worker plane)
+                     ├─ /realtime/*            ──► realtime:4000              Bun + Socket.IO
+                     ├─ /v1/*                  ──► app:3000  (rewritten to /api/v1/*)
+                     ├─ /healthz               ──► answered at the edge
+                     └─ everything else        ──► app:3000    Next.js standalone
 ```
+
+The Twilio Media Streams worker plane is a **sibling prefix** under `/realtime`,
+not a route under `/api`: an edge matcher on `/api` would shadow the app's own
+`/api/voice-websocket` Next.js route out of its per-route rate limiting. Caddy
+matches `/realtime/media-stream` **before** the broader `/realtime/*`, and both
+live in `Caddyfile` (compose/TLS) and `Caddyfile.platform` (Northflank).
 
 `app` and `realtime` are reachable only on the compose network. That is what makes
 the trust model in `src/proxy.ts` sound: it believes `X-Forwarded-For` only when the
@@ -234,7 +242,7 @@ docker run -p 3000:3000 \
 | `POST /api/elevenlabs/tools/switch-language`                     | Agent tool → switch the conversation language mid-call                                                                                                                           |
 | `POST /api/elevenlabs/signed-url`                                | Mint a 15-min browser session credential; pins `ELEVENLABS_AGENT_ID`                                                                                                             |
 | `POST /api/twilio/status`                                        | Twilio delivery callbacks → folds the telecom outbox row (`X-Twilio-Signature` required, fails closed)                                                                           |
-| `POST /api/twilio/inbound-voice`                                 | Customer rings the institution's line back: tenant by dialled number, case by caller, then agent → human → spoken acknowledgement                                      |
+| `POST /api/twilio/inbound-voice`                                 | Customer rings the institution's line back: tenant by dialled number, case by caller, then agent → human → spoken acknowledgement                                                |
 | `GET /api/status` · `GET /api/health` · `GET /api/console/audit` | Status, liveness, audit chain export                                                                                                                                             |
 
 Full request/response examples are on the in-app **Docs** page. For signing, enrolment,
@@ -341,12 +349,12 @@ never seen before and hangs up on — the institution's B2B contract is over. So
 number is a per-tenant fact, resolved at the one place a carrier request is built
 (`src/lib/twilio.ts`), never passed in by a call site that might forget it:
 
-| Column (on `organization`)     | What it decides                                                                       |
-| ------------------------------ | ------------------------------------------------------------------------------------- |
-| `twilioVoiceNumber`            | Caller ID on the Twilio voice leg **and** the number `/api/twilio/inbound-voice` matches |
-| `twilioSmsSenderId`            | The tenant's SMS sender                                                               |
-| `twilioMessagingServiceSid`    | The tenant's Messaging Service — then **no `From` is sent at all**; Twilio picks the sender and the callback records the real number |
-| `elevenPhoneNumberId`          | The tenant's own DID on the conversation platform — caller ID on the primary (agent) plane |
+| Column (on `organization`)  | What it decides                                                                                                                      |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `twilioVoiceNumber`         | Caller ID on the Twilio voice leg **and** the number `/api/twilio/inbound-voice` matches                                             |
+| `twilioSmsSenderId`         | The tenant's SMS sender                                                                                                              |
+| `twilioMessagingServiceSid` | The tenant's Messaging Service — then **no `From` is sent at all**; Twilio picks the sender and the callback records the real number |
+| `elevenPhoneNumberId`       | The tenant's own DID on the conversation platform — caller ID on the primary (agent) plane                                           |
 
 A tenant that has configured nothing rides the platform identity, which is how every
 tenant predating these columns behaves. A tenant that **has** one is never quietly
@@ -552,7 +560,7 @@ push ─▶ dev ─▶ CI ─▶ auto-merge ─▶ staging ─▶ CI ─▶ auto
    open and visibly red when they do not. Merging into `staging` opens and arms the next
    PR, `staging → main`. The ladder only ever moves upward; `main → dev` is a revert and is
    refused.
-3. **Only green `main` deploys.** Deploy is triggered by CI *completing* on `main` and
+3. **Only green `main` deploys.** Deploy is triggered by CI _completing_ on `main` and
    refuses to run unless that conclusion was `success`, so a red build can no longer roll
    forward. It pulls the live checkout, rebuilds `app`, `dial-worker`, `retention-worker`
    and `db-setup`, applies versioned migrations (`prisma/migrations/` — additive by
@@ -627,11 +635,11 @@ Every commit starts at `dev` and walks up one rung at a time. Promotion opens a 
 request and arms auto-merge, so each rung lands **only when CI is green** — no rung is
 reached by a manual merge step, and no rung can be reached at all on a failing check.
 
-| Branch    | Role                                                    | Reached by                                        |
-| --------- | ------------------------------------------------------- | ------------------------------------------------- |
-| `dev`     | Integration — where every commit lands first            | your `git push`                                   |
-| `staging` | Pre-production; `APP_ENV` refuses to contact a customer  | auto-merge of `dev → staging` on green CI         |
-| `main`    | Production — the branch judges read                     | auto-merge of `staging → main` on green CI        |
+| Branch    | Role                                                    | Reached by                                 |
+| --------- | ------------------------------------------------------- | ------------------------------------------ |
+| `dev`     | Integration — where every commit lands first            | your `git push`                            |
+| `staging` | Pre-production; `APP_ENV` refuses to contact a customer | auto-merge of `dev → staging` on green CI  |
+| `main`    | Production — the branch judges read                     | auto-merge of `staging → main` on green CI |
 
 `main` is the branch judges review, and the only one whose push deploys and can reach a
 real phone. To put a human back in front of that last step, enable required review on

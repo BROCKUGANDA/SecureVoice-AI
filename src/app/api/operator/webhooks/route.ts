@@ -38,8 +38,7 @@ const CATALOGUE = [
   {
     id: "inbound-intervention",
     label: "Inbound intervention webhook",
-    description:
-      "Bank or insurer fraud-engine alerts. Point your producer webhook here.",
+    description: "Bank or insurer fraud-engine alerts. Point your producer webhook here.",
     path: "/api/v1/interventions",
     method: "POST",
     auth: "SV-Signature HMAC",
@@ -49,8 +48,7 @@ const CATALOGUE = [
   {
     id: "outbound-delivery",
     label: "Outbound delivery callback",
-    description:
-      "SecureVoice posts case outcomes and audit events back to your systems.",
+    description: "SecureVoice posts case outcomes and audit events back to your systems.",
     path: "/api/webhooks/receiver",
     method: "POST",
     auth: "SV-Signature HMAC",
@@ -60,8 +58,7 @@ const CATALOGUE = [
   {
     id: "elevenlabs-postcall",
     label: "ElevenLabs post-call ingest",
-    description:
-      "Post-call transcript, summary, and outcome from the conversation plane.",
+    description: "Post-call transcript, summary, and outcome from the conversation plane.",
     path: "/api/webhooks/elevenlabs",
     method: "POST",
     auth: "ElevenLabs-Signature HMAC",
@@ -71,8 +68,7 @@ const CATALOGUE = [
   {
     id: "twilio-voice",
     label: "Twilio voice webhook",
-    description:
-      "Twilio calls this for TwiML instructions when a customer answers.",
+    description: "Twilio calls this for TwiML instructions when a customer answers.",
     path: "/api/twiml-stream",
     method: "GET/POST",
     auth: "Twilio webhook, no inbound signature",
@@ -82,9 +78,8 @@ const CATALOGUE = [
   {
     id: "twilio-media",
     label: "Twilio Media Streams WebSocket",
-    description:
-      "Live mulaw audio bridge for Twilio Media Streams when enabled.",
-    path: "/api/voice-websocket",
+    description: "Live mulaw audio bridge for Twilio Media Streams when enabled.",
+    path: "/realtime/media-stream",
     method: "WS",
     auth: "Feature-gated path (FEATURE_TWILIO_MEDIA_STREAMS)",
     secret: null,
@@ -113,8 +108,7 @@ const CATALOGUE = [
   {
     id: "operator-internal",
     label: "Operator internal event stream",
-    description:
-      "Internal operator/backend topic for case state transitions and alerts.",
+    description: "Internal operator/backend topic for case state transitions and alerts.",
     path: "/api/console/events",
     method: "SSE",
     auth: "Session required",
@@ -146,7 +140,12 @@ function publicOrigin(req: Request): string {
 }
 
 export async function GET(req: Request) {
-  const rl = consumeRateLimit("operator-webhooks", rateLimitId(req as never, "operator-webhooks"), 1, 60);
+  const rl = consumeRateLimit(
+    "operator-webhooks",
+    rateLimitId(req as never, "operator-webhooks"),
+    1,
+    60,
+  );
   if (!rl.ok) {
     return NextResponse.json({ ok: false, error: "rate_limited" }, { status: 429 });
   }

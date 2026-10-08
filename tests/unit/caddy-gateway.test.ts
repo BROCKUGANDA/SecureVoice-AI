@@ -68,26 +68,30 @@ for (const file of FILES) {
     expect(body).toMatch(/reverse_proxy/);
   });
 
-  test(`${file}: the gateway block never swallows the app's own namespace`, () => {
+  test(`${file}: the edge never touches the app's /api namespace`, () => {
     const src = read(file);
-    // No matcher that would also capture /api/... : a leading `*`, or a bare
-    // prefix of `/`.
+    // A leading `*` or bare `/` prefix would capture /api too.
     expect(src).not.toMatch(/handle \* \{/);
 
-    // A NARROWLY-ANCHORED /api matcher is legitimate and must be allowed —
-    // `handle /api/voice-websocket` routes exactly one path and cannot shadow
-    // anything else under /api. What must never appear is a matcher that
-    // captures the whole namespace: `handle /api` on its own, `handle /api/`, or
-    // `handle /api/*`. Those are the blocks that steal requests from the app's
-    // own routes.
+    // The app owns /api. The edge must not match it AT ALL — not the whole
+    // namespace, and not a single "narrow" path either. Even
+    // `handle /api/voice-websocket` intercepts a request the app's own
+    // /api/voice-websocket route is supposed to serve, shadowing it out of its
+    // per-route rate limiting without anyone widening a matcher.
     //
-    // Asserted as an ALTERNATION anchored on the block-opening brace, which is
-    // what makes the narrow form pass and the greedy form fail. A looser pattern
-    // (`handle /api`) would reject both, and did — the previous assertion made
-    // the rule and the live-voice routing disagree, so the test was the thing
-    // that had to change, not the routing.
-    expect(src, `${file} captures the whole /api namespace`).not.toMatch(
-      /handle \/api\s*\{|handle \/api\/\s*\{|handle \/api\/\*\s*\{/,
+    // The voice-stream WORKER plane therefore lives on a SIBLING PREFIX under
+    // /realtime — beside the socket.io fan-out — not inside the app's own
+    // namespace. That routing, not this test, is the source of truth; this
+    // only holds the line.
+    expect(src).not.toMatch(/handle \/api/);
+
+    // The media-stream proxy is that sibling. Matched BEFORE the broader
+    // /realtime/* prefix (which would otherwise capture it) and before the
+    // catch-all handler, or it is dead / mis-routed config.
+    expect(src).toMatch(/handle \/realtime\/media-stream/);
+    expect(src.indexOf("handle /realtime/media-stream")).toBeLessThan(
+      src.indexOf("handle /realtime/*"),
     );
+    expect(src.indexOf("handle /realtime/media-stream")).toBeLessThan(src.indexOf("handle {"));
   });
 }

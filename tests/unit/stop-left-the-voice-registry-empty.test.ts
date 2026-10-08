@@ -43,7 +43,7 @@ const tables: Record<Registry, Map<string, Row>> = {
 const writes: { table: Registry; where: unknown; create?: unknown }[] = [];
 const audits: { intent: string }[] = [];
 const errors: { message: string; meta?: unknown }[] = [];
-let transitioned: { caseRef: string; to: string }[] = [];
+const transitioned: { caseRef: string; to: string }[] = [];
 
 /** Flip to make every registry write fault, as a partial outage would. */
 let failWrites = false;

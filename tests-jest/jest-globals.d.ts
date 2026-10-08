@@ -1,3 +1,5 @@
+/* eslint-disable no-var -- ambient declare var global augmentation is the
+   correct form here; no-var is a module-body stylistic rule. */
 /**
  * Ambient globals for the Jest specs under tests-jest/.
  *

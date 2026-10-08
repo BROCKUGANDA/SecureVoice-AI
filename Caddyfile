@@ -104,14 +104,15 @@
 {$SITE_ADDRESS:localhost} {
 	import secure_defaults
 
-	# Realtime websocket + presence, matched BEFORE the catch-all so an app route can
-	# never claim this path. Must agree with SOCKET_PATH in
-	# mini-services/realtime/src/constants.ts.
-	handle /realtime/* {
-		reverse_proxy realtime:4000 {
+	# Twilio Media Streams WebSocket — the voice-stream WORKER plane. A SIBLING
+	# PREFIX under /realtime, deliberately NOT a route under /api: an edge matcher
+	# on /api would intercept the app's own /api/voice-websocket Next.js route and
+	# shadow it out of its per-route rate limiting. Matched BEFORE the broader
+	# /realtime/* below (which would otherwise capture it) and before the catch-all.
+	# Must stay in agreement with the wss:// URL src/worker/dial.ts builds.
+	handle /realtime/media-stream {
+		reverse_proxy voice-stream-worker:8080 {
 			import forwarded_headers
-			# The websocket upgrade must pass through untouched: no flush delay, and
-			# HTTP/1.1 enabled so `Upgrade:` is honoured.
 			flush_interval -1
 			transport http {
 				versions 1.1 2
@@ -119,11 +120,14 @@
 		}
 	}
 
-	# Twilio Media Streams WebSocket. Must be a separate handler because
-	# Twilio requires a clean WebSocket upgrade without buffering.
-	handle /api/voice-websocket {
-		reverse_proxy voice-stream-worker:8080 {
+	# Realtime websocket + presence, matched AFTER the more specific media-stream
+	# handler above and before the catch-all, so an app route can never claim these
+	# paths. Must agree with SOCKET_PATH in mini-services/realtime/src/constants.ts.
+	handle /realtime/* {
+		reverse_proxy realtime:4000 {
 			import forwarded_headers
+			# The websocket upgrade must pass through untouched: no flush delay, and
+			# HTTP/1.1 enabled so `Upgrade:` is honoured.
 			flush_interval -1
 			transport http {
 				versions 1.1 2

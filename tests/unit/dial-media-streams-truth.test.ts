@@ -202,7 +202,8 @@ describe("dial worker — Twilio media-streams plane", () => {
 
     const url = String((twilio.calls[0] as { mediaStreamUrl?: string }).mediaStreamUrl ?? "");
     expect(url).toContain("wss://");
-    expect(url).toContain("/api/voice-websocket");
+    // Worker plane is a /realtime sibling, not under /api (which the app owns).
+    expect(url).toContain("/realtime/media-stream");
     expect(url).toContain("callSid=SV-C-8F3K2");
   });
 });

@@ -220,7 +220,11 @@ async function handle(job: DialJob): Promise<DialOutcome> {
     };
     if (flag("twilioMediaStreams")) {
       const host = process.env.SITE_ADDRESS ?? "localhost";
-      const mediaStreamUrl = new URL(`wss://${host}/api/voice-websocket`);
+      // Worker plane lives on a SIBLING prefix under /realtime, not under /api:
+      // an edge matcher on /api/voice-websocket would shadow the app's own
+      // Next.js route of that name out of its per-route rate limiting. Caddy
+      // routes /realtime/media-stream here (see Caddyfile + Caddyfile.platform).
+      const mediaStreamUrl = new URL(`wss://${host}/realtime/media-stream`);
       mediaStreamUrl.searchParams.set("callSid", job.case_ref);
       // The language travels on the stream URL. The voice worker needs it for
       // FOUR independent decisions — ASR model, TTS voice, TTS model, and the

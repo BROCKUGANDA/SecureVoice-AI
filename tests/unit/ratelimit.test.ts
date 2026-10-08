@@ -90,7 +90,14 @@ describe("consume — token bucket", () => {
   // per HOUR. Capacity 1 is one token per hour, not per second.
   test("refills over time at capacity/3600 tokens per second", () => {
     const realNow = Date.now;
-    const base = realNow();
+    // Fixed epoch, and Date.now is mocked BEFORE the first consume so the
+    // bucket's lastRefill is stamped from the SAME controlled clock. The old
+    // form read a real `base` and then advanced from it, so a few ms of real
+    // time between `base` and the bucket's creation pushed the "+1s" refill
+    // to ~0.999 tokens and the assertion went red under load — a flake, not a
+    // behaviour. A constant base removes the real clock from the equation.
+    const base = 1_700_000_000_000;
+    Date.now = () => base;
     try {
       // capacity 3600 ⇒ 1 token/sec.
       expect(consume("s", "id", 3600, 3600).ok).toBe(true);

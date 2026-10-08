@@ -40,7 +40,22 @@ const TESTS = resolve(ROOT, "tests");
 const RAW = resolve(ROOT, ".coverage");
 const OUT = resolve(ROOT, "coverage");
 
-const THRESHOLDS = { overall: 80, unit: 70, integration: 20, e2e: 10 };
+// Thresholds are ENFORCED, not advisory. `overall` was raised from 80 to 85:
+// 85% is the bar for a merge to `main`, and a number that is measured and then
+// ignored is worse than no gate — it is a gate everyone has learned to look
+// past. The per-tier numbers stay as they are, because they describe what each
+// tier is FOR (integration proves wiring, e2e proves the surface); only
+// `overall` is a claim about the codebase as a whole.
+//
+// COVERAGE_MIN_OVERALL lets CI state the bar for the branch it is gating — 85 on
+// the way into `main`, report-only on the way into `dev`/`staging` — so this
+// value is the default rather than the only option.
+const THRESHOLDS = {
+  overall: Number(process.env.COVERAGE_MIN_OVERALL ?? 85),
+  unit: 70,
+  integration: 20,
+  e2e: 10,
+};
 
 /**
  * Which tier a source file counts toward, and whether it counts at all.

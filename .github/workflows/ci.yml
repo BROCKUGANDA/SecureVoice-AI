@@ -294,9 +294,26 @@ jobs:
       # produced either way) while leaving the gate itself to be flipped on once
       # the remaining tiers are actually met — at which point deleting this one
       # line is the whole change.
-      - name: Coverage report
-        continue-on-error: true
-        run: bun run test:coverage || true
+      # BLOCKING ON THE WAY INTO `main`, report-only everywhere else.
+      #
+      # `main` is what judges read and what production deploys, so 85% overall
+      # is enforced there and the step is allowed to fail the job. On `dev` and
+      # `staging` the same measurement is produced and uploaded but does not
+      # block, because a ratchet that bites the branch you are trying to move
+      # stops being moved.
+      #
+      # `|| true` is NOT used on the blocking path: that would swallow the
+      # threshold failure, which is the entire point of enforcing it.
+      - name: Coverage report (blocking on main)
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref || '' }}
+          COVERAGE_MIN_OVERALL: ${{ github.event.pull_request.base.ref == 'main' && '85' || '' }}
+        run: |
+          if [ "$BASE_REF" = "main" ]; then
+            bun run test:coverage
+          else
+            bun run test:coverage || true
+          fi
 
       # Report-only, exactly like the step that produces it. The measurement
       # above is deliberately non-blocking, so an artifact-UPLOAD failure must

@@ -12,37 +12,41 @@
 # so producing it here means `main` always has a release and GHCR always has an
 # image built from exactly that commit.
 #
+# WHY THIS RUNS ON `workflow_run`, NOT ON THE PUSH ITSELF
+#
+# The gate below proves CI is green for the commit before it bumps. Triggered by
+# the push, this workflow would race CI: both start together, CI takes minutes,
+# and the gate reads the commit's check-runs while CI is still running — an
+# empty or in-progress list, which the gate must read as "not proven". Deploy hit
+# the same wall and moved to `workflow_run` (see deploy.yml); this follows that
+# pattern, so the gate only ever reads a finished CI run.
+#
 # THE LOOP, AND HOW IT IS BROKEN
 #
 # This workflow pushes a commit to `main`. That commit would trigger CI, which
-# would trigger this workflow again, forever. Two independent guards stop it:
-#
-#   1. `paths-ignore: package.json` — this job only reacts to pushes that did
-#      NOT touch package.json. Its own commit does, so it cannot re-trigger.
-#   2. The tag-already-exists check — if `v<package.json version>` is already a
-#      tag, there is nothing to release and the job exits successfully without
-#      committing. This is the real guarantee: even a manual re-run, or a
-#      re-tag, produces no second bump.
-#
-# It also runs ONLY on CI green, so a broken main cannot produce a release.
+# would trigger this workflow again, forever. The guard is the commit's own tag:
+# the release commit carries v<version>, so when this workflow runs for its own
+# commit it finds HEAD already tagged and exits without bumping. A manual
+# re-run, or a re-tag, produces no second bump for the same reason.
 # ---------------------------------------------------------------------------
 name: AutoVersion
 
 on:
-  push:
+  # Only after CI finishes on `main`. A release is a claim that the commit
+  # works, and this is the event that carries CI's verdict on that commit.
+  workflow_run:
+    workflows: ["CI"]
     branches: [main]
-    paths-ignore:
-      - "package.json"
-      - "**.md"
-      - "docs/**"
-      - "evidence/**"
-      - ".github/workflows/autoversion.yml"
+    types: [completed]
+  # Manual re-run, for when the automatic path was skipped.
   workflow_dispatch:
 
 permissions:
-  # `checks: read` is what the gate below actually calls. Naming only
+  # `checks: read` is what the manual path below calls. The `workflow_run` path
+  # reads CI's verdict from the event, so it does not need it. Naming only
   # `contents: write` implicitly sets every other permission to none, so the
-  # `check-runs` read returned 403 and the job could never prove CI was green.
+  # `check-runs` read returned 403 and the manual job could never prove CI was
+  # green.
   checks: read
   contents: read
 
@@ -61,7 +65,7 @@ jobs:
         with:
           ref: main
           # The tag push below needs the tag to be creatable, and the bump needs
-          # the tag list to know whether this version already shipped.
+          # the tag list to know whether this commit already shipped.
           fetch-depth: 0
 
       # The gating rule. A release is a claim that this commit works, and this
@@ -69,29 +73,41 @@ jobs:
       - name: Refuse to release a commit CI did not prove
         env:
           EVENT: ${{ github.event_name }}
+          RUN_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
           GH_TOKEN: ${{ secrets.PROMOTE_TOKEN }}
         run: |
           if [ "$EVENT" = "workflow_dispatch" ]; then
             echo "manual run: verifying CI on main is currently green"
-          else
-            echo "push to main: verifying the CI check on this exact commit is green"
+            code=$(gh api "repos/$GITHUB_REPOSITORY/commits/main/check-runs" \
+              --jq '[.check_runs[]
+                    | select((.name | startswith("Lint, typecheck"))
+                          or (.name | startswith("Compose stack")))]
+                    | if length == 0 then "missing"
+                      else (map(select(.conclusion != "success")) | if length == 0 then "success" else "failing" end)
+                      end')
+            echo "CI on main: $code"
+            [ "$code" = "success" ] || {
+              echo "::error::CI on main is '${code}' — refusing to cut a release."
+              exit 1
+            }
+            exit 0
           fi
-          code=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/check-runs" \
-            --jq '[.check_runs[]
-                  | select(.name | startswith("Lint, typecheck"))
-                        or (.name | startswith("Compose stack"))]
-                  | if length == 0 then "missing"
-                    else (map(select(.conclusion != "success")) | if length == 0 then "success" else "failing" end)
-                    end')
-          echo "CI on $GITHUB_SHA: $code"
-          [ "$code" = "success" ] || {
-            echo "::error::CI is '${code}' for $GITHUB_SHA — refusing to cut a release."
+
+          # The `workflow_run` path: the event carries the CI run's verdict on
+          # the commit that just finished, so no check-runs lookup is needed and
+          # there is nothing to race.
+          echo "CI run $RUN_ID on main concluded: $RUN_CONCLUSION"
+          [ "$RUN_CONCLUSION" = "success" ] || {
+            echo "::error::CI run ${RUN_ID} concluded '${RUN_CONCLUSION}' — refusing to cut a release."
             exit 1
           }
 
       - name: Bump package.json, commit and tag
         id: release
         env:
+          # The commit CI just finished on. Empty on a manual run.
+          RUN_SHA: ${{ github.event.workflow_run.head_sha }}
           # NOT secrets.GITHUB_TOKEN, and not just for consistency with the
           # promotion workflow. A push authenticated with GITHUB_TOKEN does not
           # trigger workflows BY DESIGN — that is GitHub's loop guard — so the
@@ -114,18 +130,38 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          current=$(node -p "require('./package.json').version")
-          echo "current version: $current"
-
-          # THE LOOP GUARD. A version that already has a tag is a version that
-          # already shipped; bumping again would publish the same code twice
-          # under two numbers and make "which build am I running?" unanswerable.
-          if git rev-parse -q --verify "refs/tags/v$current" >/dev/null; then
-            echo "v$current is already tagged — main is released, nothing to do."
+          # THE LOOP GUARD. The release commit carries its version tag, so a run
+          # for that commit finds HEAD already tagged and stops. It keys on the
+          # COMMIT, not on package.json's version: keying on the version would
+          # also stop the next green push — a fresh, untagged commit whose
+          # package.json still holds the last released version — from ever
+          # cutting a release again.
+          if git tag --points-at HEAD | grep -q '^v'; then
+            echo "HEAD is already tagged — main is released, nothing to do."
             echo "released=false" >> "$GITHUB_OUTPUT"
-            echo "### v$current is already released" >> "$GITHUB_STEP_SUMMARY"
+            echo "### $(git tag --points-at HEAD | tr '\n' ' ') already tags this commit" >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
+
+          # `workflow_run` cannot declare a path filter, so the `paths-ignore`
+          # this workflow used to carry is re-checked here: a push that only
+          # touched docs, evidence, or package.json is not worth a release. An
+          # empty file list (an API hiccup) does NOT skip — a missed release is
+          # worse than a noisy one.
+          if [ -n "${RUN_SHA:-}" ]; then
+            changed=$(gh api "repos/$GITHUB_REPOSITORY/commits/$RUN_SHA" \
+              --jq '.files[].filename' || true)
+            if [ -n "$changed" ] &&
+               ! printf '%s\n' "$changed" | grep -qvE '^(package\.json$|.*\.md$|docs/|evidence/|\.github/workflows/autoversion\.yml$)'; then
+              echo "only docs/evidence/package.json changed — nothing to release."
+              echo "released=false" >> "$GITHUB_OUTPUT"
+              echo "### no release-relevant change in $RUN_SHA" >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+          fi
+
+          current=$(node -p "require('./package.json').version")
+          echo "current version: $current"
 
           # scripts/bump-version.mjs takes an EXPLICIT version and refuses
           # anything not strictly greater — the property worth keeping. It does

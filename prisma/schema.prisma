@@ -688,6 +688,17 @@ model Organization {
   // describe their own product to the customer incorrectly, which is the same
   // class of harm the filter exists to prevent.
   shariahCompliant            Boolean         @default(false)
+  // Where this institution's own systems are told what happened. Without it the
+  // platform posts every outcome to the single deployment-wide BANK_WEBHOOK_URL,
+  // which means a bank can only ever receive results by us reading one shared
+  // queue — not by its own integration being called. Null falls back to that
+  // deployment default, which is what a single-tenant pilot uses.
+  vendorWebhookUrl            String?
+  // HMAC key for the vendor endpoint, AES-256-GCM sealed with the BYOK master
+  // key (src/lib/byok.ts). Stored sealed because signing an outbound webhook
+  // requires recovering the plaintext, unlike an inbound key which is only ever
+  // verified and could therefore be hashed.
+  vendorWebhookSecretEnc      String?
 
   @@unique([slug])
   @@map("organization")

@@ -7,6 +7,7 @@ import { decryptSecret, encryptSecret, maskKey } from "@/lib/byok";
 import { append as auditAppend } from "@/lib/audit-chain";
 import { getInstitutionType, setInstitutionType } from "@/lib/institution";
 import { INSTITUTION_TYPES } from "@/lib/institution-types";
+import { assertVendorUrlSaveable } from "@/lib/vendor-endpoint";
 
 export const dynamic = "force-dynamic";
 
@@ -28,6 +29,12 @@ const schema = z.object({
   elevenKey: z.string().trim().min(20).max(80).optional(),
   // A closed set: "bank" | "insurer". Anything else is a 422, never coerced.
   institutionType: z.enum(INSTITUTION_TYPES).optional(),
+  // Where this institution's own systems are called back. Empty string clears it
+  // and falls back to the deployment default.
+  vendorWebhookUrl: z.string().trim().max(500).optional(),
+  // Written once, never read back — the response only says whether one is set.
+  vendorWebhookSecret: z.string().trim().min(16).max(200).optional(),
+  shariahCompliant: z.boolean().optional(),
 });
 
 async function readSettings(): Promise<
@@ -49,7 +56,30 @@ async function readSettings(): Promise<
       // Bank or insurer: changes how the institution is spoken about to ITS
       // customers (call, voicemail, SMS). Defaults to "bank".
       institutionType: await getInstitutionType(guard.profile.orgId),
+      ...(await readTenantVoiceSettings(guard.profile.orgId)),
     },
+  };
+}
+
+/**
+ * The organisation-scoped settings, read for the console.
+ *
+ * The signing key is deliberately absent: it is write-only, and returning it in
+ * any form — masked or otherwise — turns a console session into a credential
+ * exfiltration target. The console learns only whether one exists.
+ */
+async function readTenantVoiceSettings(orgId: string | null | undefined) {
+  if (!orgId) {
+    return { vendorWebhookUrl: null, vendorWebhookConfigured: false, shariahCompliant: false };
+  }
+  const org = await db.organization.findUnique({
+    where: { id: orgId },
+    select: { vendorWebhookUrl: true, vendorWebhookSecretEnc: true, shariahCompliant: true },
+  });
+  return {
+    vendorWebhookUrl: org?.vendorWebhookUrl ?? null,
+    vendorWebhookConfigured: Boolean(org?.vendorWebhookSecretEnc),
+    shariahCompliant: org?.shariahCompliant === true,
   };
 }
 
@@ -107,6 +137,55 @@ export async function POST(req: NextRequest) {
     const res = await setInstitutionType(guard.profile.orgId, d.institutionType);
     if (!res.ok) return NextResponse.json({ error: res.error }, { status: 422 });
     institutionChanged = true;
+  }
+
+  // Organisation-scoped voice settings, written on the same rule as the
+  // institution type: no organization means nothing to configure, refused
+  // rather than dropped onto the user row where the next reader would not find
+  // it. Accepting these fields in the schema without writing them here would
+  // tell the operator their endpoint was saved while every event kept going to
+  // the deployment default.
+  const wantsTenantWrite =
+    d.vendorWebhookUrl !== undefined ||
+    d.vendorWebhookSecret !== undefined ||
+    d.shariahCompliant !== undefined;
+  if (wantsTenantWrite) {
+    if (!guard.profile.orgId) {
+      return NextResponse.json(
+        { error: "No organization is linked to this account, so there is nothing to configure." },
+        { status: 409 },
+      );
+    }
+    const tenantData: Record<string, unknown> = {};
+
+    if (d.vendorWebhookUrl !== undefined) {
+      if (d.vendorWebhookUrl === "") {
+        tenantData.vendorWebhookUrl = null;
+      } else {
+        // Validated at the write, so a link-local or metadata address never
+        // becomes a row the delivery worker will POST to later.
+        const check = await assertVendorUrlSaveable(d.vendorWebhookUrl);
+        if (!check.ok) return NextResponse.json({ error: check.reason }, { status: 422 });
+        tenantData.vendorWebhookUrl = check.url;
+      }
+    }
+    if (d.vendorWebhookSecret !== undefined) {
+      tenantData.vendorWebhookSecretEnc = encryptSecret(d.vendorWebhookSecret);
+    }
+    if (d.shariahCompliant !== undefined) {
+      tenantData.shariahCompliant = d.shariahCompliant;
+    }
+
+    await db.organization.update({ where: { id: guard.profile.orgId }, data: tenantData });
+    void auditAppend({
+      action: "handoff",
+      intent: "vendor_endpoint_changed",
+      callRef: guard.profile.orgId,
+      orgId: guard.profile.orgId,
+      // Which fields changed, never their values: the signing key must not
+      // reach the audit chain in any form.
+      meta: { fields: Object.keys(tenantData) },
+    }).catch(() => {});
   }
 
   if (Object.keys(data).length > 0) {

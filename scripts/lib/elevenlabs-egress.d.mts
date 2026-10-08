@@ -11,7 +11,8 @@
 
 export declare const DEFAULT_SCRIPT_CHAR_CAP: number;
 
-export type LedgerClaim = { ok: true; used: number } | { ok: false; used: number; cap: number; reason: string };
+export type LedgerClaim =
+  { ok: true; used: number } | { ok: false; used: number; cap: number; reason: string };
 
 export interface ScriptCharLedger {
   /** Characters already committed for the current month. */

@@ -211,6 +211,8 @@ docker run -p 3000:3000 \
 | `POST /api/elevenlabs/tools/warm-transfer`                       | Agent tool → bridge the live call to a human specialist's phone (degrades to the queue)                                                                                          |
 | `POST /api/elevenlabs/tools/switch-language`                     | Agent tool → switch the conversation language mid-call                                                                                                                           |
 | `POST /api/elevenlabs/signed-url`                                | Mint a 15-min browser session credential; pins `ELEVENLABS_AGENT_ID`                                                                                                             |
+| `POST /api/twilio/status`                                        | Twilio delivery callbacks → folds the telecom outbox row (`X-Twilio-Signature` required, fails closed)                                                                           |
+| `POST /api/twilio/inbound-voice`                                 | Customer rings the institution's line back: tenant by dialled number, case by caller, then agent → human → spoken acknowledgement                                      |
 | `GET /api/status` · `GET /api/health` · `GET /api/console/audit` | Status, liveness, audit chain export                                                                                                                                             |
 
 Full request/response examples are on the in-app **Docs** page. For signing, enrolment,
@@ -308,6 +310,46 @@ Free-tier limits to be aware of: `eleven_v3` returns **402 `paid_plan_required`*
 `eleven_flash_v2`), voice cloning is disabled, and the monthly character quota is small
 enough to run out mid-test-suite. See [docs/SUBMISSION.md](docs/SUBMISSION.md) for the
 exact account state.
+
+## Multi-tenant telecom: whose number is this?
+
+In banking and insurance the identity on the caller-ID **is** the product. If Bank A's
+fraud alert goes out on Bank B's number — or on a shared platform line the customer has
+never seen before and hangs up on — the institution's B2B contract is over. So the sending
+number is a per-tenant fact, resolved at the one place a carrier request is built
+(`src/lib/twilio.ts`), never passed in by a call site that might forget it:
+
+| Column (on `organization`)     | What it decides                                                                       |
+| ------------------------------ | ------------------------------------------------------------------------------------- |
+| `twilioVoiceNumber`            | Caller ID on the Twilio voice leg **and** the number `/api/twilio/inbound-voice` matches |
+| `twilioSmsSenderId`            | The tenant's SMS sender                                                               |
+| `twilioMessagingServiceSid`    | The tenant's Messaging Service — then **no `From` is sent at all**; Twilio picks the sender and the callback records the real number |
+| `elevenPhoneNumberId`          | The tenant's own DID on the conversation platform — caller ID on the primary (agent) plane |
+
+A tenant that has configured nothing rides the platform identity, which is how every
+tenant predating these columns behaves. A tenant that **has** one is never quietly
+downgraded to it: `getTelecomIdentity()` throws instead of answering with nulls, the send
+is refused with a 503, and the dial job retries and dead-letters through the audited
+queue. That is a deliberate availability trade — a refused alert is loud, a mis-attributed
+one is invisible in the delivery logs.
+
+**The telecom outbox** (`TelecomEvent`, `src/lib/telecom-outbox.ts`) is the lifecycle of
+every call and SMS: channel, both endpoints, the provider sid, and the status the provider
+reports back — `queued → sent → delivered`, or `failed`, with Twilio's own word (`busy`,
+`undelivered`, `no-answer`) kept in the payload because the difference is what an operator
+is asked about. `POST /api/twilio/status` is the callback that closes those rows; it moves
+no case state, because a delivered SMS is not a verified customer.
+
+**Call-back threading.** When a customer dials the institution's fraud line, the tenant is
+whoever owns the number that was dialled, and the case is that caller's newest
+non-terminal one **inside that tenant** — two institutions can share a handset (a joint
+account holder, a recycled number), so an unscoped lookup would read Bank B's alert onto
+Bank A's call. Then the bridge ladder runs: the conversation agent
+(`ELEVENLABS_INBOUND_SIP_URI`), else a human line (`transferPhone` / `HUMAN_AGENT_PHONE`),
+else a spoken acknowledgement in the customer's language and an audit row an operator sees.
+Both webhook routes fail closed on `X-Twilio-Signature`.
+
+Wiring and the exact env vars: `.env.example`, _Multi-tenant telecom identity_.
 
 ## Use it with your own systems
 

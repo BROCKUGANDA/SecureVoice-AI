@@ -206,7 +206,7 @@ services:
   # No upstream provider is configured here on purpose: this service is inert
   # until LITELLM_API_KEY is set in .env AND a model is registered on the proxy.
   litellm:
-    image: ghcr.io/berriai/litellm:main-lite
+    image: ghcr.io/berriai/litellm:main-latest
     restart: unless-stopped
     logging: *default-logging
     mem_limit: 1g

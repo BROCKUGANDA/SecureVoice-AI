@@ -37,6 +37,14 @@ jobs:
   verify:
     name: Lint, typecheck, tests, build
     runs-on: [self-hosted, securevoice-vps]
+    # Fork-pull-request guard. The repo is public and this job runs on the machine
+    # that serves two live products. GitHub gives a fork's workflow a read-only
+    # token, but that does not sandbox the CODE: an outside contributor's commit
+    # would still execute as the runner user, which can control production
+    # containers. Pushes and same-repo branches are unaffected.
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name == github.repository
     timeout-minutes: 30
     env:
       # Port 55432, not 5432: production's postgres is reachable on this host and

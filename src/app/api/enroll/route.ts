@@ -9,6 +9,7 @@ import { transcript as redactText } from "@/lib/redact";
 import { getProfile } from "@/lib/credits";
 import { verifyProducerKey } from "@/lib/producer-keys";
 import { env, replayWindowSec, SUPPORTED_LANGS } from "@/lib/config";
+import { logError } from "@/lib/validation/safe-log";
 
 export const dynamic = "force-dynamic";
 
@@ -225,7 +226,7 @@ export async function POST(req: NextRequest) {
     redactedText: redactText(`${d.customerRef} · ${d.phone}`),
     meta: { lang: row.lang, channel: row.channel, consentRecordId: d.consentRecordId },
   }).catch((err) =>
-    console.error("[enroll] audit append failed:", err instanceof Error ? err.message : err),
+    logError("[enroll] audit append failed", { error: err instanceof Error ? err.message : String(err) }),
   );
 
   return NextResponse.json({

@@ -7,6 +7,7 @@ import { requireSignedIn, deductCredit, refundCredit } from "@/lib/credits";
 import { consume as consumeRateLimit } from "@/lib/ratelimit";
 import { env, SUPPORTED_LANGS, slaSeconds } from "@/lib/config";
 import { paymentRequired, upstreamError, parseJson } from "@/lib/api-errors";
+import { logError } from "@/lib/validation/safe-log";
 
 export const dynamic = "force-dynamic";
 
@@ -305,7 +306,7 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     // Network/timeout before a verdict — the claimed credit is refunded.
     await refundCredit(profile.userId);
-    console.error("[console-fire] upstream unreachable:", err instanceof Error ? err.message : err);
+    logError("[console-fire] upstream unreachable", { error: err instanceof Error ? err.message : String(err) });
     return upstreamError(
       "Intervention path unreachable — credit refunded, nothing was armed.",
       503,

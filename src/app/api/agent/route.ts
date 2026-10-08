@@ -18,6 +18,7 @@ import {
   upstreamError,
   parseJson,
 } from "@/lib/api-errors";
+import { logError } from "@/lib/validation/safe-log";
 
 export const dynamic = "force-dynamic";
 
@@ -465,7 +466,7 @@ export async function POST(req: NextRequest) {
       },
     });
   } catch (err) {
-    console.error("[agent] audit append failed:", err instanceof Error ? err.message : err);
+    logError("[agent] audit append failed", { error: err instanceof Error ? err.message : String(err) });
     // Don't fail the request on audit-write failure in dev; in prod this would
     // trip an alert. (See docs/RUNBOOK.md — "Audit append failure".)
   }

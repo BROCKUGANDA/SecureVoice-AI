@@ -5,6 +5,7 @@ import { env, MAX_ASR_B64_CHARS, MAX_ASR_BODY_BYTES } from "@/lib/config";
 import { consume as consumeRateLimit, rateLimitId } from "@/lib/ratelimit";
 import { append as auditAppend } from "@/lib/audit-chain";
 import { transcript as redactText } from "@/lib/redact";
+import { logError } from "@/lib/validation/safe-log";
 
 export const dynamic = "force-dynamic";
 
@@ -80,12 +81,12 @@ export async function POST(req: NextRequest) {
       redactedText: redactText(text).slice(0, 200),
       meta: { mime, lang: lang ?? null, latencyMs: Date.now() - started },
     }).catch((err) => {
-      console.error("[asr] audit append failed:", err instanceof Error ? err.message : err);
+      logError("[asr] audit append failed", { error: err instanceof Error ? err.message : String(err) });
     });
 
     return NextResponse.json({ ok: true, text, mime, callRef });
   } catch (err) {
-    console.error("[asr] transcription failed:", err instanceof Error ? err.message : err);
+    logError("[asr] transcription failed", { error: err instanceof Error ? err.message : String(err) });
     const msg =
       err instanceof Error && err.message === "ASR timeout"
         ? "Transcription timed out — please try a shorter recording."

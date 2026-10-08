@@ -26,6 +26,7 @@ import { neutraliseStrings, screenForMemory } from "@/lib/memory-guard";
 import { recordStrike } from "@/lib/abuse/bad-actor";
 import { masterKeyConfigured, sealCasePayload } from "@/lib/privacy/crypto-shred";
 import { indexTranscript, pineconeConfigured } from "@/lib/pinecone/transcript-index";
+import { logError, logWarn } from "@/lib/validation/safe-log";
 
 type WebhookEventRow = {
   id: string;
@@ -92,9 +93,10 @@ export async function drainPendingWebhooks(limit = 20): Promise<number> {
     if (row.processed) continue;
     // Re-delivery is the recovery path for a stuck row; until the provider is
     // polled, surface the row rather than silently marking it done.
-    console.warn(
-      `[inbound] pending delivery ${row.eventType} ${row.conversationId ?? "(no conversation)"} awaiting redelivery`,
-    );
+    logWarn("[inbound] pending delivery awaiting redelivery", {
+      eventType: row.eventType,
+      conversationId: row.conversationId,
+    });
     drained++;
   }
   return drained;
@@ -333,11 +335,10 @@ async function handleTranscription(row: WebhookEventRow, data: any): Promise<voi
         { clearPlaintext: true, reason: "post_call_ingest" },
       );
     } catch (error) {
-      console.error(
-        "[elevenlabs/inbound] payload seal failed, plaintext retained:",
-        caseRow.caseRef,
-        error instanceof Error ? error.message : error,
-      );
+      logError("[elevenlabs/inbound] payload seal failed, plaintext retained", {
+        caseRef: caseRow.caseRef,
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
 
     // Optional semantic index. Only when the operator has explicitly configured
@@ -436,7 +437,9 @@ async function handleTranscription(row: WebhookEventRow, data: any): Promise<voi
         },
       });
     } catch (err) {
-      console.error("[inbound] case transition to NOTIFIED failed:", err);
+      logError("[inbound] case transition to NOTIFIED failed", {
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
   }
 
@@ -463,7 +466,9 @@ async function handleTranscription(row: WebhookEventRow, data: any): Promise<voi
     // Metering must never break the evidence pipeline: the ingest is already
     // committed and chained. The reservation stays in place for a later
     // reconcile pass rather than being force-released.
-    console.error("[inbound] billing reconciliation failed:", err);
+    logError("[inbound] billing reconciliation failed", {
+      error: err instanceof Error ? err.message : String(err),
+    });
   }
 }
 

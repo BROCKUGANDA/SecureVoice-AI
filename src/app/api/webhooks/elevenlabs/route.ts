@@ -4,6 +4,7 @@ import { ElevenLabsClient } from "@elevenlabs/elevenlabs-js";
 import { Prisma } from "@/generated/prisma/client";
 import { db } from "@/lib/db";
 import { processInboundEvent } from "@/lib/elevenlabs/inbound";
+import { logError } from "@/lib/validation/safe-log";
 
 export const dynamic = "force-dynamic";
 
@@ -25,7 +26,7 @@ export async function POST(req: NextRequest) {
   const secret = process.env.ELEVENLABS_WEBHOOK_SECRET;
 
   if (!secret) {
-    console.error("[webhooks/elevenlabs] ELEVENLABS_WEBHOOK_SECRET is not set");
+    logError("[webhooks/elevenlabs] ELEVENLABS_WEBHOOK_SECRET is not set");
     return NextResponse.json({ error: "ingest_unconfigured" }, { status: 503 });
   }
 
@@ -59,7 +60,7 @@ export async function POST(req: NextRequest) {
     });
     // Enqueue by handing off without await; tests await the row directly.
     void processInboundEvent(row.id, event).catch(async (err) => {
-      console.error("[webhooks/elevenlabs] processing failed:", err);
+      logError("[webhooks/elevenlabs] processing failed", { error: err instanceof Error ? err.message : String(err) });
       await db.webhookEvent
         .update({ where: { id: row.id }, data: { error: String(err).slice(0, 500) } })
         .catch(() => {});
@@ -83,7 +84,7 @@ export async function POST(req: NextRequest) {
       // Row vanished between the two writes (admin purge) — sight of replay.
       return NextResponse.json({ ok: true, duplicate: true });
     }
-    console.error("[webhooks/elevenlabs] webhookEvent insert failed:", err);
+    logError("[webhooks/elevenlabs] webhookEvent insert failed", { error: err instanceof Error ? err.message : String(err) });
     return NextResponse.json({ error: "ingest_persist_failed" }, { status: 503 });
   }
 }

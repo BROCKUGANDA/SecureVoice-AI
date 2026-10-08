@@ -7,6 +7,7 @@ import { append as auditAppend } from "@/lib/audit-chain";
 import { db } from "@/lib/db";
 import { transcript as redactText } from "@/lib/redact";
 import { badRequest, parseJson, unprocessable, schemaErrorCode } from "@/lib/api-errors";
+import { logError } from "@/lib/validation/safe-log";
 
 export const dynamic = "force-dynamic";
 
@@ -73,7 +74,7 @@ export async function POST(req: NextRequest) {
       },
     });
   } catch (err) {
-    console.error("[tool/human_handoff] audit append failed, refusing handoff:", err);
+    logError("[tool/human_handoff] audit append failed, refusing handoff", { error: err instanceof Error ? err.message : String(err) });
     return NextResponse.json({ ok: false, error: "audit_unavailable" }, { status: 503 });
   }
 
@@ -94,10 +95,7 @@ export async function POST(req: NextRequest) {
     }
   } catch (err) {
     if (err instanceof IllegalTransitionError) {
-      console.error(
-        "[tool/human_handoff] escalation refused by the state machine, queueing the specialist only:",
-        err,
-      );
+      logError("[tool/human_handoff] escalation refused by the state machine, queueing the specialist only", { error: err instanceof Error ? err.message : String(err) });
       await db.case
         .update({
           where: { caseRef: guard.caseRef },
@@ -106,7 +104,7 @@ export async function POST(req: NextRequest) {
         })
         .catch(() => {});
     } else {
-      console.error("[tool/human_handoff] handoff queue write failed:", err);
+      logError("[tool/human_handoff] handoff queue write failed", { error: err instanceof Error ? err.message : String(err) });
       return NextResponse.json({ ok: false, error: "handoff_queue_failed" }, { status: 503 });
     }
   }

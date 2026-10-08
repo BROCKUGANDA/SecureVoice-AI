@@ -8,6 +8,7 @@ import { analyzeSentiment } from "@/lib/sentiment";
 import { draftAgentReply } from "@/lib/llm";
 import { auditAgentReply, auditUserInput } from "@/lib/compliance/policy";
 import { verifyTwilioSignature } from "@/lib/twilio";
+import { logError, logWarn } from "@/lib/validation/safe-log";
 
 export const dynamic = "force-dynamic";
 
@@ -229,9 +230,7 @@ export async function POST(req: NextRequest) {
     );
   }
   if (sigOk === null) {
-    console.warn(
-      "[twilio-turn] TWILIO_AUTH_TOKEN not set — inbound webhook signatures cannot be verified",
-    );
+    logWarn("[twilio-turn] TWILIO_AUTH_TOKEN not set — inbound webhook signatures cannot be verified");
   }
 
   const callSid = String(form.get("CallSid") ?? req.nextUrl.searchParams.get("callSid") ?? "");
@@ -306,7 +305,7 @@ export async function POST(req: NextRequest) {
       },
     });
   } catch (err) {
-    console.error("[twilio-turn] audit append failed:", err instanceof Error ? err.message : err);
+    logError("[twilio-turn] audit append failed", { error: err instanceof Error ? err.message : String(err) });
   }
 
   const twiml = buildTurnTwiml(reply, lang, endCall, callSid);

@@ -17,6 +17,7 @@ import { db } from "@/lib/db";
 import { enqueueOutbox, type BankEventInput } from "@/lib/outbox";
 import { notify } from "@/lib/notifications";
 import { notifyRealtime } from "@/lib/realtime";
+import { logError } from "@/lib/validation/safe-log";
 
 export const CASE_STATES = [
   "RECEIVED",
@@ -172,10 +173,9 @@ async function recordTransition(
     },
     { fast: true },
   ).catch((err) => {
-    console.error(
-      "[case-state] transition audit failed:",
-      err instanceof Error ? err.message : err,
-    );
+    logError("[case-state] transition audit failed", {
+      error: err instanceof Error ? err.message : String(err),
+    });
   });
 
   // Emit an in-app notification for states that require human attention (WP-20)
@@ -189,7 +189,7 @@ async function recordTransition(
       body: `Transitioned from ${from} to ${to}`,
       caseRef,
     }).catch((err) => {
-      console.error("[case-state] notification failed:", err instanceof Error ? err.message : err);
+      logError("[case-state] notification failed", { error: err instanceof Error ? err.message : String(err) });
     });
   }
 

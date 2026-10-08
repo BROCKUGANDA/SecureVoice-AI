@@ -20,6 +20,7 @@ import { planTierFor } from "@/lib/abuse/tiers";
 import { enqueueDialJob } from "@/lib/scale/queue";
 import { admitOrDegrade } from "@/lib/admission";
 import { makeFailure, type FailureCode, type FailureInit } from "@/lib/failures/envelope";
+import { logError } from "@/lib/validation/safe-log";
 
 import { notifyRealtime } from "@/lib/realtime";
 import { createCase, transitionCase } from "@/lib/case-state-machine";
@@ -416,7 +417,7 @@ export async function POST(req: NextRequest) {
         },
       );
     }
-    console.error("[v1/interventions] arming failed:", err instanceof Error ? err.message : err);
+    logError("[v1/interventions] arming failed", { error: err instanceof Error ? err.message : String(err) });
     return failure("dependency_unavailable", { detail: "case recording failed" });
   }
 }
@@ -755,10 +756,7 @@ async function armAndDial(
         caseId: created.id,
         institution: await getInstitutionType(orgId),
       }).catch((err: unknown) => {
-        console.error(
-          "[v1/interventions] pre-notification SMS failed:",
-          err instanceof Error ? err.message : err,
-        );
+        logError("[v1/interventions] pre-notification SMS failed", { error: err instanceof Error ? err.message : String(err) });
       });
     }
     delivery = {

@@ -54,6 +54,7 @@ import {
 import { requireAuth, type Authed, type AuthDenied } from "@/lib/auth/guards";
 import { Prisma } from "@/generated/prisma/client";
 import { ZodError, type ZodIssue } from "zod";
+import { logError } from "@/lib/validation/safe-log";
 
 /**
  * Convert a Prisma error into a typed Failure.
@@ -101,7 +102,7 @@ export function fail(failure: Failure): NextResponse {
   // Final safety check: scan the failure for leaks before sending
   const leaks = scanFailure(failure);
   if (leaks.length > 0) {
-    console.error("[route-helpers] LEAK DETECTED in failure:", leaks, failure.body.message);
+    logError("[route-helpers] LEAK DETECTED in failure", { leaks, message: failure.body.message });
     // Return a safe fallback
     const safe = internalBug({ requestId: failure.body.requestId });
     return NextResponse.json(safe.body, responseInitFor(safe));

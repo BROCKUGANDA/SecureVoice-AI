@@ -37,6 +37,7 @@ import { isE164, isTwilioConfigured, sendInterventionSms, type DeliveryLang } fr
 import { canTransition, transitionCase } from "@/lib/case-state-machine";
 import { getInstitutionType } from "@/lib/institution";
 import { publishResolution } from "@/lib/sms-verdict";
+import { logError } from "@/lib/validation/safe-log";
 
 export type FallbackReason = "dial_exhausted" | "voicemail" | "no_answer";
 
@@ -90,7 +91,7 @@ async function record(
       orgId: orgId ?? undefined,
     });
   } catch (err) {
-    console.error("[sms-fallback] audit append failed:", err instanceof Error ? err.message : err);
+    logError("[sms-fallback] audit append failed", { error: err instanceof Error ? err.message : String(err) });
   }
 }
 
@@ -189,7 +190,7 @@ export async function markVoiceFailed(args: {
     return { sent: true, simulated: true };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    console.error("[sms-fallback] failed:", message);
+    logError("[sms-fallback] failed", { message });
     return { sent: false, error: message.slice(0, 200) };
   }
 }

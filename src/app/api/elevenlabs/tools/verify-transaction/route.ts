@@ -5,6 +5,7 @@ import { guardToolCall } from "@/lib/tool-guard";
 import { canTransition, transitionCase, IllegalTransitionError } from "@/lib/case-state-machine";
 import { append as auditAppend } from "@/lib/audit-chain";
 import { badRequest, parseJson, unprocessable, schemaErrorCode } from "@/lib/api-errors";
+import { logError } from "@/lib/validation/safe-log";
 
 export const dynamic = "force-dynamic";
 
@@ -94,7 +95,7 @@ export async function POST(req: NextRequest) {
       },
     });
   } catch (err) {
-    console.error(`[tool/${TOOL_NAME}] audit append failed, refusing disposition:`, err);
+    logError("[tool/verify-transaction] audit append failed, refusing disposition", { tool: TOOL_NAME, error: err instanceof Error ? err.message : String(err) });
     return NextResponse.json({ ok: false, error: "audit_unavailable" }, { status: 503 });
   }
 
@@ -118,7 +119,7 @@ export async function POST(req: NextRequest) {
         { status: 409 },
       );
     }
-    console.error(`[tool/${TOOL_NAME}] case transition failed:`, err);
+    logError("[tool/verify-transaction] case transition failed", { tool: TOOL_NAME, error: err instanceof Error ? err.message : String(err) });
     return NextResponse.json({ ok: false, error: "case_transition_failed" }, { status: 503 });
   }
 }

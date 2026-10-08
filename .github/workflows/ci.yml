@@ -514,6 +514,15 @@ jobs:
   compose-smoke:
     name: Compose stack smoke test
     runs-on: [self-hosted, securevoice-vps]
+    # Fork-pull-request guard, same reason as the verify job above — and this job
+    # is the more dangerous of the two: it runs `docker compose up` on the host
+    # that serves two live products, so a fork's checkout could reconcile
+    # against the real `securevoice-ai` project. `verify` only ever starts a
+    # throwaway container; this one reaches the production stack. Pushes and
+    # same-repo branches are unaffected.
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name == github.repository
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4

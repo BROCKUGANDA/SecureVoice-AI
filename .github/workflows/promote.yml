@@ -203,4 +203,4 @@ jobs:
             exit 1
           fi
 
-          gh pr view "$pr" --json url --jq '.url' | tee -a "$GITHUB_STEP_SUMMARY"
+          gh pr view "$pr" --json url --jq '.url' | tee -a "$GITHUB_STEP_SUMMARY" || true

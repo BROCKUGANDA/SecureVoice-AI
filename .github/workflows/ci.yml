@@ -91,9 +91,31 @@ jobs:
         working-directory: mini-services/realtime
         run: bunx tsc -p tsconfig.json
 
+      # The cross-node gate (crossnode.test.ts) needs a Redis the two processes
+      # it spawns can both reach on 127.0.0.1:6380. It refuses to skip when the
+      # bus is unreachable — correct, because a gate that silently skips its own
+      # check is worse than no gate — so CI has to provide one or this step is
+      # red for a reason that has nothing to do with the code under test.
+      #
+      # 6380 is the port the test already asks for. It is not production's 6379,
+      # and the container is scoped to this job and removed at the end of it, so
+      # it cannot collide with the live stack on this host.
+      - name: Realtime service — Redis for the cross-node gate
+        run: |
+          docker run -d --rm --name sv-ci-realtime-redis -p 6380:6379 redis:7-alpine
+          for _ in $(seq 1 30); do
+            docker exec sv-ci-realtime-redis redis-cli ping >/dev/null 2>&1 && break
+            sleep 1
+          done
+          docker exec sv-ci-realtime-redis redis-cli ping
+
       - name: Realtime service — tests
         working-directory: mini-services/realtime
         run: bun test
+
+      - name: Realtime service — stop Redis
+        if: always()
+        run: docker rm -f sv-ci-realtime-redis 2>/dev/null || true
 
       # App-side unit tests. The realtime service above needs its own step for
       # its own tsconfig; these live in the root project and use the root

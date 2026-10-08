@@ -27,8 +27,9 @@
 # the same migration path, the same Caddy reverse proxy in front of app +
 # realtime, with app and realtime still on the internal network only.
 #
-# Ports chosen: 18080/18443/18443-udp. Unprivileged, nothing else uses them,
-# and high enough to avoid colliding with anything a developer runs locally.
+# Ports chosen: 18080/18443/18443-udp and 6380. Unprivileged, nothing else uses
+# them, and high enough to avoid colliding with anything a developer runs
+# locally or that production already holds.
 # ---------------------------------------------------------------------------
 services:
   caddy:
@@ -36,3 +37,21 @@ services:
       - "18080:80"
       - "18443:443"
       - "18443:443/udp"
+
+  # The realtime package's cross-node gate (mini-services/realtime/test/
+  # crossnode.test.ts) spawns TWO processes that must share one Redis bus, and
+  # it defaults to redis://127.0.0.1:6380 — a HOST port, because those two
+  # processes run outside the compose network. With nothing published the gate
+  # cannot connect, and it fails loudly rather than skipping, which is right on
+  # its own terms but means CI could never satisfy it.
+  #
+  # 6380 is the port the test already asks for, so the test needed no change —
+  # the port was chosen when the test was written and CI simply never provided
+  # it. Scoped to 6380 rather than production's 6379 so this can never collide
+  # with the live redis on this host.
+  #
+  # CI override ONLY: production redis stays expose-only, as the topology
+  # requires (see the redis service in docker-compose.yml).
+  redis:
+    ports:
+      - "6380:6379"

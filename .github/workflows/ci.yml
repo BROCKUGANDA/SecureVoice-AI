@@ -110,7 +110,7 @@ jobs:
           # replacing while the old containers may still be shutting down.
           DB_PORT=$(( 30000 + (rid % 9000) + (attempt * 7) ))
           REDIS_PORT=$(( 40000 + (rid % 9000) + (attempt * 7) ))
-          DB_CI="${DB_CI}-${rid}-${attempt}"
+          DB_CI="sv-ci-db-${rid}-${attempt}"
           REDIS_CI="sv-ci-redis-${rid}-${attempt}"
           echo "DB_PORT=$DB_PORT"      >> "$GITHUB_ENV"
           echo "REDIS_PORT=$REDIS_PORT" >> "$GITHUB_ENV"

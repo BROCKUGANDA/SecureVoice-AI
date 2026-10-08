@@ -29,7 +29,14 @@ const REDIS = process.env.REDIS_URL ?? "redis://127.0.0.1:6380";
 // never answers /readyz, and the gate fails with a connection error that has
 // nothing to do with fan-out. CI passes CROSSNODE_PORT_BASE derived from the
 // run id; the default keeps a local `bun test` working unchanged.
-const PORT_BASE = Number(process.env.CROSSNODE_PORT_BASE ?? 4321);
+// `||`, NOT `??`, and the Number() is validated. An env var set to an EMPTY
+// STRING is not nullish, so `?? 4321` would not fire — and `Number("")` is 0,
+// which silently asks the OS for port 0 and then waits 25 seconds for a server
+// that can never bind. That is exactly what this gate reported, so the guard
+// exists to make the cause legible instead of leaving the next person to
+// re-derive it from a timeout.
+const rawPortBase = Number(process.env.CROSSNODE_PORT_BASE || "");
+const PORT_BASE = Number.isFinite(rawPortBase) && rawPortBase >= 1024 ? rawPortBase : 4321;
 const PORT_A = PORT_BASE;
 const PORT_B = PORT_BASE + 1;
 const ORG = "org_crossnode";

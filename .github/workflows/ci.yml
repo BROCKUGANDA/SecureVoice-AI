@@ -110,11 +110,16 @@ jobs:
           # replacing while the old containers may still be shutting down.
           DB_PORT=$(( 30000 + (rid % 9000) + (attempt * 7) ))
           REDIS_PORT=$(( 40000 + (rid % 9000) + (attempt * 7) ))
-          # Two realtime servers for the cross-node gate. 70000..79999, clear of
-          # the Postgres, Redis and Caddy ranges above and of anything else on
-          # this host. The test used hardcoded 4321/4322, which made two runners
-          # running it simultaneously collide.
-          CROSSNODE_PORT_BASE=$(( 70000 + (rid % 9000) + (attempt * 2) ))
+          # Two realtime servers for the cross-node gate. 20000..27999, clear of
+          # the Postgres (30000+), Redis (40000+) and Caddy (50000+/60000+) ranges
+          # above AND inside the legal port range.
+          #
+          # This was 70000 + (rid % 9000), which routinely produced ports above
+          # 65535. The server then died instantly with
+          # `RangeError: options.port is out of range`, `/readyz` never answered,
+          # and the gate reported a 25-second fan-out timeout — an error three
+          # steps away from the arithmetic that caused it.
+          CROSSNODE_PORT_BASE=$(( 20000 + (rid % 8000) + (attempt * 2) ))
           DB_CI="sv-ci-db-${rid}-${attempt}"
           REDIS_CI="sv-ci-redis-${rid}-${attempt}"
           {

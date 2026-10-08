@@ -175,6 +175,8 @@ const PUBLIC_BY_DESIGN: Readonly<Record<string, string>> = {
     "agent tool endpoint guarded by the x-agent-tool-secret via guardToolCall, not an operator session",
   "/api/elevenlabs/tools/switch-language":
     "agent tool endpoint guarded by the x-agent-tool-secret via authorizeToolCall, not an operator session",
+  "/api/elevenlabs/mcp":
+    "MCP JSON-RPC server; tools/call is forwarded to the guarded /api/elevenlabs/tools/* routes with the server-side x-agent-tool-secret, so the existing tool guard and state preconditions enforce it — fails closed (tool_scope_unconfigured) when no secret is set",
   "/api/elevenlabs/tools/verify-transaction":
     "agent tool endpoint guarded by the x-agent-tool-secret via guardToolCall, not an operator session",
   "/api/elevenlabs/tools/warm-transfer":

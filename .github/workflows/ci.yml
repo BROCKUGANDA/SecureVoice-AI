@@ -268,11 +268,30 @@ jobs:
             -e POSTGRES_PASSWORD=securevoice \
             -e POSTGRES_DB=securevoice \
             postgres:16-alpine
+          # Readiness is asserted over TCP, NOT the unix socket, and that
+          # distinction is the entire fix.
+          #
+          # The official postgres entrypoint runs a TEMPORARY server during
+          # first-boot init to run its setup SQL, then stops it and starts the
+          # real one. That temp server listens on the socket ONLY
+          # (`listen_addresses=''`), so `docker exec … pg_isready` — which talks
+          # over the socket — reports "accepting connections" for the temp
+          # server, the loop breaks, and the next command lands in the window
+          # where the entrypoint has just stopped it:
+          #
+          #   /var/run/postgresql:5432 - accepting connections
+          #   createdb: … FATAL: the database system is shutting down
+          #
+          # That is the failure that has been red on every run. It is a race with
+          # first-boot init, not a schema or config problem, and it is
+          # deterministic once the socket check can see the temp server. The real
+          # server is the only one that binds TCP, so polling the container's TCP
+          # listener removes the race instead of hiding it behind a sleep.
           for _ in $(seq 1 60); do
-            docker exec "${DB_CI}" pg_isready -U securevoice -d securevoice >/dev/null 2>&1 && break
+            docker exec "${DB_CI}" pg_isready -h 127.0.0.1 -p 5432 -U securevoice -d securevoice >/dev/null 2>&1 && break
             sleep 1
           done
-          docker exec "${DB_CI}" pg_isready -U securevoice -d securevoice
+          docker exec "${DB_CI}" pg_isready -h 127.0.0.1 -p 5432 -U securevoice -d securevoice
           # The load suite gets its OWN database in the same container — it must
           # not share rows or gauges with the other suites, but it does not need
           # a second server. Created here rather than by the suite, so a missing
@@ -291,6 +310,40 @@ jobs:
           # Schema first: a suite that asserts on tenancy isolation needs the
           # tables, not just a reachable socket.
           bunx prisma migrate deploy
+
+      # `Start the test database` has failed twice with
+      # `createdb: FATAL: the database system is shutting down` — the container's
+      # Postgres goes into shutdown between `pg_isready` saying "accepting
+      # connections" and the next `docker exec`. That is a state the step can see
+      # but not explain: the shell exits on the FATAL, and the container is gone
+      # (`docker rm -f` in cleanup) before anyone can inspect it. This step runs
+      # only when the step above failed and captures WHY, so the next occurrence
+      # is a diagnosis instead of another guess:
+      #   - `docker inspect` names the cause: `OOMKilled=true` is the host killing
+      #     it under memory pressure; a `SIGTERM`/`137` with OOMKilled=false is an
+      #     external actor stopping or removing it; a non-zero exit with neither is
+      #     a crash inside the image's own init.
+      #   - `docker logs` shows the postmaster's shutdown line, which distinguishes
+      #     a fast shutdown from a smart one.
+      # It runs `if: failure()` and never masks the real error: every command is
+      # `|| true`, so this cannot turn a red run green or a green run red.
+      - name: Dump test-container state on failure
+        if: failure()
+        run: |
+          for c in "${DB_CI}" "${REDIS_CI}"; do
+            echo "::group::docker ps -a | ${c}"
+            docker ps -a --filter "name=${c}" --format '{{.Names}} {{.Status}} {{.Image}}'
+            echo "::endgroup::"
+            echo "::group::docker inspect ${c}"
+            docker inspect "${c}" --format 'status={{.State.Status}} exit={{.State.ExitCode}} oom={{.State.OOMKilled}} error={{.State.Error}} started={{.State.StartedAt}} finished={{.State.FinishedAt}} restarts={{.RestartCount}}' || true
+            echo "::endgroup::"
+            echo "::group::docker logs ${c} (tail 80)"
+            docker logs --tail 80 "${c}" || true
+            echo "::endgroup::"
+          done
+          echo "::group::host memory"
+          free -h || true
+          echo "::endgroup::"
 
       # App-side unit tests. The realtime service above needs its own step for
       # its own tsconfig; these live in the root project and use the root

@@ -381,6 +381,16 @@ jobs:
           SEED_DEMO=false
           ELEVENLABS_DRY_RUN=true
           APP_ENV=staging
+          # DATABASE_URL is REQUIRED here, not optional. `docker-compose.yml`
+          # passes `BUILD_DATABASE_URL: ${DATABASE_URL}` as a build arg, and
+          # compose resolves an unset variable to an EMPTY string — which
+          # OVERRIDES the Dockerfile's own default (`ARG BUILD_DATABASE_URL=…`).
+          # The image then builds with `ENV DATABASE_URL=` and `bun run build`
+          # dies inside the container, while the very same build passes on a
+          # developer machine that happens to export DATABASE_URL. Pointing it at
+          # the `db` service of THIS CI project keeps the image build and the
+          # running container on the same disposable Postgres.
+          DATABASE_URL=postgresql://securevoice:ci-only-not-a-secret@db:5432/securevoice?schema=public
           ENV
           echo "wrote a throwaway .env for the CI stack"
 

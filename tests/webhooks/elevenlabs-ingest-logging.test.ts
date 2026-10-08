@@ -78,9 +78,14 @@ describe("elevenlabs webhook ingest rejection logging", () => {
   test("a rejected delivery is ONE event, not a scatter of lines", async () => {
     await POST(post({ "elevenlabs-signature": "t=1,v0=deadbeef" }));
 
+    // `noUncheckedIndexedAccess` is on for the test project, so the single
+    // element is `string | undefined` — assert the shape before indexing it
+    // rather than sprinkling non-null assertions through the file.
     expect(lines).toHaveLength(1);
-    const record = JSON.parse(lines[0]);
+    const [only] = lines;
+    expect(only).toBeDefined();
+    const record = JSON.parse(only as string);
     expect(record.msg).toBe("webhook ingest rejected");
-    expect(lines[0].includes("\n")).toBe(false);
+    expect(only!.includes("\n")).toBe(false);
   });
 });

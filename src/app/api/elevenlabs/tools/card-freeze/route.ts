@@ -71,7 +71,14 @@ export async function POST(req: NextRequest) {
       },
     });
   } catch (err) {
-    logError("[tool/card_freeze] audit append failed, refusing freeze", { error: err instanceof Error ? err.message : String(err) });
+    // A freeze that could not be audited is refused (I-2); log which case
+    // asked for it so the refusal is attributable without a database query.
+    logError("card_freeze audit append failed", {
+      tool: TOOL_NAME,
+      caseRef: guard.caseRef,
+      from: guard.state,
+      error: err,
+    });
     return NextResponse.json(
       { ok: false, staged: false, committed: false, error: "audit_unavailable" },
       { status: 503 },
@@ -119,7 +126,12 @@ export async function POST(req: NextRequest) {
         { status: 409 },
       );
     }
-    logError("[tool/card_freeze] case transition failed", { error: err instanceof Error ? err.message : String(err) });
+    logError("card_freeze case transition failed", {
+      tool: TOOL_NAME,
+      caseRef: guard.caseRef,
+      from: guard.state,
+      error: err,
+    });
     return NextResponse.json(
       { ok: false, staged: false, committed: false, error: "case_transition_failed" },
       { status: 503 },

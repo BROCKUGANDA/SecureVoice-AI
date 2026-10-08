@@ -112,7 +112,10 @@ export function sanitiseLogValue(value: unknown, depth = 0, limits: LogLimits = 
     return Number.isFinite(value.getTime()) ? value.toISOString() : "[invalid date]";
   }
   if (value instanceof Error) {
-    return sanitiseLogString(`${value.name}: ${value.message}`, maxStringLength);
+    // The message can quote a provider, database or tool error that carries a
+    // PAN, transcript fragment or credential; redact it like any other string
+    // before it becomes a durable log copy.
+    return sanitiseLogString(redactText(`${value.name}: ${value.message}`), maxStringLength);
   }
 
   if (Array.isArray(value)) {

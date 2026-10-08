@@ -13,7 +13,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [dev, staging, main]
   # The promotion ladder (dev -> staging -> main, see promote.yml) opens pull
   # requests, so every edge needs a gate — not only the last one. A PR into
   # staging that never runs CI is how a green `main` and a broken release branch
@@ -36,7 +36,7 @@ permissions:
 jobs:
   verify:
     name: Lint, typecheck, tests, build
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, securevoice-vps]
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
@@ -262,7 +262,7 @@ jobs:
 
   compose-smoke:
     name: Compose stack smoke test
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, securevoice-vps]
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4

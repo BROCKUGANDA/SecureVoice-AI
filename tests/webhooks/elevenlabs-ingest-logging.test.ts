@@ -1,76 +1,86 @@
 /**
- * Webhook ingest logging — asserts the route logs through the structured
- * logger contract (`@/lib/validation/safe-log`).
+ * The ingest rejection path used to be silent.
  *
- * The route calls `logError(msg, fields)` with the DEFAULT sink, which emits
- * exactly one `console.error` call per record carrying one JSON line shaped
- * `{ level, msg, ts, fields }`. So the least invasive assertion is capturing
- * `console.error` and parsing each line — no module mock, no sink injection,
- * no database (both paths below return before any query runs).
+ * A rotated `ELEVENLABS_WEBHOOK_SECRET`, a sender pointed at the wrong URL, or
+ * an attacker probing the endpoint all produced the same observable outcome:
+ * a bare 401 with nothing in the logs. An operator chasing "the bank says no
+ * interventions were recorded" had no way to tell a signature rejection from a
+ * provider that never called.
+ *
+ * This suite pins the NEW signal: every rejected delivery emits exactly one
+ * structured line naming the outcome. It needs no database — a verification
+ * failure returns before any query runs.
  */
-import { expect, test } from "bun:test";
-import type { NextRequest } from "next/server";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { NextRequest } from "next/server";
 import { POST } from "@/app/api/webhooks/elevenlabs/route";
 
-const SAVED_SECRET = process.env.ELEVENLABS_WEBHOOK_SECRET;
+const WEBHOOK_SECRET = "3a91c0de44b7".repeat(4);
+const BODY = JSON.stringify({ type: "post_call_transcription", data: { conversation_id: "c1" } });
 
-/** Capture console.error lines; safe-log's default sink writes one JSON line per record. */
-function captureError() {
-  const lines: string[] = [];
-  const real = console.error;
-  console.error = (...args: unknown[]): void => {
-    lines.push(String(args[0]));
+const originalWarn = console.warn;
+const originalError = console.error;
+let lines: string[] = [];
+
+function capture() {
+  lines = [];
+  console.warn = (...args: unknown[]) => {
+    lines.push(args.map(String).join(" "));
   };
-  return {
-    lines,
-    restore(): void {
-      console.error = real;
-    },
+  console.error = (...args: unknown[]) => {
+    lines.push(args.map(String).join(" "));
   };
 }
 
-function postReq(): NextRequest {
-  return new Request("http://localhost/api/webhooks/elevenlabs", {
+function post(headers: Record<string, string>) {
+  return new NextRequest("http://localhost/api/webhooks/elevenlabs", {
     method: "POST",
-    headers: { "content-type": "application/json", "elevenlabs-signature": "t=123,v0=deadbeef" },
-    body: "{}",
-  }) as NextRequest;
+    body: BODY,
+    headers,
+  });
 }
 
-test("missing webhook secret logs a structured error record and returns 503", async () => {
-  delete process.env.ELEVENLABS_WEBHOOK_SECRET;
-  const cap = captureError();
-  try {
-    const res = await POST(postReq());
-    expect(res.status).toBe(503);
-    // One record, one line, valid JSON with the logger envelope.
-    expect(cap.lines).toHaveLength(1);
-    const record = JSON.parse(cap.lines[0]!) as {
-      level: string;
-      msg: string;
-      ts: string;
-      fields: Record<string, unknown>;
-    };
-    expect(record.level).toBe("error");
-    expect(record.msg).toContain("ELEVENLABS_WEBHOOK_SECRET");
-    expect(typeof record.ts).toBe("string");
-    expect(record.fields).toBeDefined();
-  } finally {
-    cap.restore();
-    if (SAVED_SECRET !== undefined) process.env.ELEVENLABS_WEBHOOK_SECRET = SAVED_SECRET;
-  }
+beforeEach(() => {
+  process.env.ELEVENLABS_WEBHOOK_SECRET = WEBHOOK_SECRET;
+  capture();
 });
 
-test("invalid signature is refused 401 without an error log", async () => {
-  process.env.ELEVENLABS_WEBHOOK_SECRET = "test-secret-for-logging-suite";
-  const cap = captureError();
-  try {
-    const res = await POST(postReq());
+afterEach(() => {
+  console.warn = originalWarn;
+  console.error = originalError;
+  delete process.env.ELEVENLABS_WEBHOOK_SECRET;
+});
+
+describe("elevenlabs webhook ingest rejection logging", () => {
+  test("a forged signature is 401 AND emits one structured rejection line", async () => {
+    const res = await POST(post({ "elevenlabs-signature": "t=1,v0=deadbeef" }));
     expect(res.status).toBe(401);
-    expect(cap.lines).toHaveLength(0);
-  } finally {
-    cap.restore();
-    if (SAVED_SECRET !== undefined) process.env.ELEVENLABS_WEBHOOK_SECRET = SAVED_SECRET;
-    else delete process.env.ELEVENLABS_WEBHOOK_SECRET;
-  }
+
+    const rejection = lines.find((l) => l.includes("webhook ingest rejected"));
+    expect(rejection).toBeDefined();
+    const record = JSON.parse(rejection!);
+    expect(record.level).toBe("warn");
+    expect(record.msg).toBe("webhook ingest rejected");
+    expect(record.fields.provider).toBe("elevenlabs");
+    expect(record.fields.outcome).toBe("signature_verification_failed");
+    expect(record.fields.signatureHeaderPresent).toBe(true);
+    expect(record.fields.bodyBytes).toBe(new TextEncoder().encode(BODY).byteLength);
+  });
+
+  test("a missing signature header is recorded as absent, not merely rejected", async () => {
+    const res = await POST(post({}));
+    expect(res.status).toBe(401);
+
+    const record = JSON.parse(lines.find((l) => l.includes("webhook ingest rejected"))!);
+    expect(record.fields.signatureHeaderPresent).toBe(false);
+  });
+
+  test("a rejected delivery is ONE event, not a scatter of lines", async () => {
+    await POST(post({ "elevenlabs-signature": "t=1,v0=deadbeef" }));
+
+    expect(lines).toHaveLength(1);
+    const record = JSON.parse(lines[0]);
+    expect(record.msg).toBe("webhook ingest rejected");
+    expect(lines[0].includes("\n")).toBe(false);
+  });
 });

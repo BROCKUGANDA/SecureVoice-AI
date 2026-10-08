@@ -42,7 +42,7 @@ permissions:
 jobs:
   promote:
     name: Open the promotion pull request
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, securevoice-vps]
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4

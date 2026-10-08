@@ -13,6 +13,7 @@ import "server-only";
  */
 
 import { db } from "@/lib/db";
+import { logError, logWarn } from "@/lib/validation/safe-log";
 import {
   caseByConversation,
   canTransition,
@@ -26,7 +27,6 @@ import { neutraliseStrings, screenForMemory } from "@/lib/memory-guard";
 import { recordStrike } from "@/lib/abuse/bad-actor";
 import { masterKeyConfigured, sealCasePayload } from "@/lib/privacy/crypto-shred";
 import { indexTranscript, pineconeConfigured } from "@/lib/pinecone/transcript-index";
-import { logError, logWarn } from "@/lib/validation/safe-log";
 
 type WebhookEventRow = {
   id: string;
@@ -93,7 +93,8 @@ export async function drainPendingWebhooks(limit = 20): Promise<number> {
     if (row.processed) continue;
     // Re-delivery is the recovery path for a stuck row; until the provider is
     // polled, surface the row rather than silently marking it done.
-    logWarn("[inbound] pending delivery awaiting redelivery", {
+    logWarn("pending webhook delivery awaiting redelivery", {
+      provider: "elevenlabs",
       eventType: row.eventType,
       conversationId: row.conversationId,
     });
@@ -335,7 +336,8 @@ async function handleTranscription(row: WebhookEventRow, data: any): Promise<voi
         { clearPlaintext: true, reason: "post_call_ingest" },
       );
     } catch (error) {
-      logError("[elevenlabs/inbound] payload seal failed, plaintext retained", {
+      logError("webhook payload seal failed, plaintext retained", {
+        provider: "elevenlabs",
         caseRef: caseRow.caseRef,
         error: error instanceof Error ? error.message : String(error),
       });
@@ -437,8 +439,13 @@ async function handleTranscription(row: WebhookEventRow, data: any): Promise<voi
         },
       });
     } catch (err) {
-      logError("[inbound] case transition to NOTIFIED failed", {
-        error: err instanceof Error ? err.message : String(err),
+      logError("inbound case transition failed", {
+        provider: "elevenlabs",
+        eventType: row.eventType,
+        caseRef: caseRow.caseRef,
+        orgId: caseRow.orgId,
+        to: "NOTIFIED",
+        error: err,
       });
     }
   }
@@ -466,8 +473,12 @@ async function handleTranscription(row: WebhookEventRow, data: any): Promise<voi
     // Metering must never break the evidence pipeline: the ingest is already
     // committed and chained. The reservation stays in place for a later
     // reconcile pass rather than being force-released.
-    logError("[inbound] billing reconciliation failed", {
-      error: err instanceof Error ? err.message : String(err),
+    logError("inbound billing reconciliation failed", {
+      provider: "elevenlabs",
+      eventType: row.eventType,
+      caseRef: caseRow.caseRef,
+      orgId: caseRow.orgId,
+      error: err,
     });
   }
 }

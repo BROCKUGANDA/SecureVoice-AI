@@ -887,6 +887,17 @@ test("WP-22 log injection: a newline in user input cannot forge a second log lin
   );
   expect(redacted).toContain("[REDACTED]");
   expect(redacted).not.toContain("4111111111111111");
+  // An Error's message is redacted too. Every error passed as a field
+  // -- a route catch, a tool failure -- goes through this branch and must not
+  // bypass redaction when the message quotes a provider or database error.
+  const errorRedacted = safeLog(
+    "error",
+    "tool.failed",
+    { error: new Error("card 4111111111111111 declined") },
+    sink,
+  );
+  expect(errorRedacted).toContain("[REDACTED]");
+  expect(errorRedacted).not.toContain("4111111111111111");
 
   // Prototype pollution via a field name is dropped, not spread.
   const polluted = safeLog("info", "x", JSON.parse('{"__proto__":{"admin":true}}'), sink);

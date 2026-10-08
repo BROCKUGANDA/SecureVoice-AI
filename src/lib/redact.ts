@@ -20,8 +20,27 @@ const PAN_RE = /\b(?:\d[ -]?){13,19}\b/g;
 const IBAN_RE = /\bAE\d{21}\b/gi;
 // Email — conservative; avoids matching inside larger identifiers
 const EMAIL_RE = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g;
-// E.164 or UAE local phone — 9+ digits with optional separators
-const PHONE_RE = /(?:\+?\d{1,3}[ -]?)?(?:\(?\d{2,4}\)?[ -]?)?\d{3,4}[ -]?\d{3,4}\b/g;
+// Phone numbers — E.164 or a UAE/Ugandan local number.
+//
+// WHY THIS IS NOT ONE LOOSE PATTERN. The previous expression ended in
+// `\d{3,4}[ -]?\d{3,4}`, whose only mandatory part is SIX digits. That matched
+// any bare 6-to-8 digit run, so `No row found with id 123456` logged as
+// `No row found with id [REDACTED]` and `amount 250000 UGX charged` lost the
+// amount. On a fraud platform those are exactly the values an incident review
+// needs, and a log that silently swallows them is a log nobody can debug from.
+//
+// So a bare number now has to be LONG enough to plausibly be a phone: 9 or more
+// digits. A 6-to-8 digit run is overwhelmingly a row id, an amount, a latency
+// or a case ref, and it survives. Two shapes are still caught at the shorter
+// length, because they are unambiguous:
+//
+//   · a `+` country code — `+971 50 123 4567`, `+256765162414`
+//   · internal separators — `050 123 4567`, `(050) 123 4567`
+//
+// A bare 10-digit local number (`0501234567`) is still caught by the 9-digit
+// rule, which is what the suite pins.
+const PHONE_RE =
+  /(?:\+\d{1,3}[ -]?(?:\(?\d{2,4}\)?[ -]?)?\d{3,4}[ -]?\d{3,4}|(?:\(?\d{2,4}\)?[ -]){2,}\d{3,4}|\b\d{9,15}\b)\b/g;
 // 4–8 digit OTP / PIN / CVV — only when the surrounding text marks it as a code
 // (bare numbers are usually amounts, case refs, or years; redacting those would
 // corrupt audit fidelity, so we require an OTP-ish context cue).

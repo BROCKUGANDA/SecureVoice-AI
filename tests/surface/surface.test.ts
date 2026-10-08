@@ -380,10 +380,13 @@ describe("declared security headers", () => {
     const config = (await import("../../next.config")).default as {
       headers?: () => Promise<{ headers: { key: string; value: string }[] }[]>;
     };
-    const entries = (await config.headers?.()).flatMap((r) => r.headers) ?? [];
+    // `headers` is optional on the typed shape, so `config.headers?.()` can be
+    // `undefined` before the `await` — the assertion below is what proves a CSP
+    // exists, so coalescing here keeps the type honest without weakening it.
+    const entries = ((await config.headers?.()) ?? []).flatMap((r) => r.headers);
     const csp = entries.find((h) => h.key.toLowerCase() === "content-security-policy")?.value;
     expect(csp, "no Content-Security-Policy header is configured").toBeTruthy();
-    const scriptSrc = /script-src([^;]*)/.exec(csp!)?.[1]?.trim() ?? "";
+    const scriptSrc = /script-src([^;]*)/.exec(csp ?? "")?.[1]?.trim() ?? "";
     expect(scriptSrc, "script-src is missing from the CSP").not.toBe("");
     expect(
       /'unsafe-inline'|'nonce-[^']+|'sha256-[^']+/.test(scriptSrc),

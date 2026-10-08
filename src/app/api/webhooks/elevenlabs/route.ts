@@ -4,6 +4,7 @@ import { ElevenLabsClient } from "@elevenlabs/elevenlabs-js";
 import { Prisma } from "@/generated/prisma/client";
 import { db } from "@/lib/db";
 import { processInboundEvent } from "@/lib/elevenlabs/inbound";
+import { logError, logWarn } from "@/lib/validation/safe-log";
 
 export const dynamic = "force-dynamic";
 
@@ -35,9 +36,18 @@ export async function POST(req: NextRequest) {
       apiKey: process.env.ELEVENLABS_API_KEY ?? "webhook-verification-only",
     });
     event = await client.webhooks.constructEvent(raw, sigHeader ?? "", secret);
-  } catch {
+  } catch (err) {
     // Never a 5xx for a verification failure — 4xx exactly like WP-3's
-    // refusal discipline.
+    // refusal discipline. The rejection is logged because it is otherwise
+    // invisible: a rotated secret or a misconfigured sender turns every
+    // delivery into a silent 401 that no operator can see.
+    logWarn("webhook ingest rejected", {
+      provider: "elevenlabs",
+      outcome: "signature_verification_failed",
+      signatureHeaderPresent: sigHeader !== null,
+      bodyBytes: new TextEncoder().encode(raw).byteLength,
+      error: err,
+    });
     return NextResponse.json({ error: "invalid_signature" }, { status: 401 });
   }
 
@@ -59,7 +69,16 @@ export async function POST(req: NextRequest) {
     });
     // Enqueue by handing off without await; tests await the row directly.
     void processInboundEvent(row.id, event).catch(async (err) => {
-      console.error("[webhooks/elevenlabs] processing failed:", err);
+      // The failing delivery is logged with the row id, event type and
+      // conversation so an operator can trace WHICH call's ingest died
+      // without replaying the queue.
+      logError("webhook processing failed", {
+        provider: "elevenlabs",
+        webhookEventId: row.id,
+        eventType,
+        conversationId,
+        error: err,
+      });
       await db.webhookEvent
         .update({ where: { id: row.id }, data: { error: String(err).slice(0, 500) } })
         .catch(() => {});
@@ -77,13 +96,30 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ ok: true, duplicate: true });
       }
       if (existing) {
-        void processInboundEvent(existing.id, event).catch(() => {});
+        void processInboundEvent(existing.id, event).catch((err) => {
+          // Without this the recovery attempt fails silently and the row
+          // stays unprocessed with no log naming it.
+          logError("webhook reprocessing failed", {
+            provider: "elevenlabs",
+            webhookEventId: existing.id,
+            eventType,
+            conversationId,
+            error: err,
+          });
+        });
         return NextResponse.json({ ok: true, reprocessing: true });
       }
       // Row vanished between the two writes (admin purge) — sight of replay.
       return NextResponse.json({ ok: true, duplicate: true });
     }
-    console.error("[webhooks/elevenlabs] webhookEvent insert failed:", err);
+    logError("webhook event insert failed", {
+      provider: "elevenlabs",
+      eventType,
+      conversationId,
+      agentId,
+      eventTimestamp,
+      error: err,
+    });
     return NextResponse.json({ error: "ingest_persist_failed" }, { status: 503 });
   }
 }

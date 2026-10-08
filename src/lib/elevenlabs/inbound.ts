@@ -13,6 +13,7 @@ import "server-only";
  */
 
 import { db } from "@/lib/db";
+import { logError } from "@/lib/validation/safe-log";
 import {
   caseByConversation,
   canTransition,
@@ -436,7 +437,14 @@ async function handleTranscription(row: WebhookEventRow, data: any): Promise<voi
         },
       });
     } catch (err) {
-      console.error("[inbound] case transition to NOTIFIED failed:", err);
+      logError("inbound case transition failed", {
+        provider: "elevenlabs",
+        eventType: row.eventType,
+        caseRef: caseRow.caseRef,
+        orgId: caseRow.orgId,
+        to: "NOTIFIED",
+        error: err,
+      });
     }
   }
 
@@ -463,7 +471,13 @@ async function handleTranscription(row: WebhookEventRow, data: any): Promise<voi
     // Metering must never break the evidence pipeline: the ingest is already
     // committed and chained. The reservation stays in place for a later
     // reconcile pass rather than being force-released.
-    console.error("[inbound] billing reconciliation failed:", err);
+    logError("inbound billing reconciliation failed", {
+      provider: "elevenlabs",
+      eventType: row.eventType,
+      caseRef: caseRow.caseRef,
+      orgId: caseRow.orgId,
+      error: err,
+    });
   }
 }
 

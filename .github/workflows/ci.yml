@@ -203,6 +203,13 @@ jobs:
 
       - name: Realtime service — tests
         working-directory: mini-services/realtime
+        env:
+          # The cross-node gate reads REDIS_URL and falls back to
+          # redis://127.0.0.1:6380 when it is unset. CI no longer uses 6380 —
+          # the port is allocated per run so two runners cannot collide — so
+          # without this the gate looked at a port nobody was listening on and
+          # failed, correctly, that no shared bus existed.
+          REDIS_URL: redis://127.0.0.1:$REDIS_PORT
         run: bun test
 
       - name: Realtime service — stop Redis

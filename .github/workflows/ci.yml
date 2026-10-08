@@ -50,6 +50,15 @@ jobs:
       # The db-transport guard refuses a plaintext DSN in production. These tests
       # are not production and the socket is loopback-only, so say so explicitly
       # rather than weakening the guard.
+      # The load suite needs a SEPARATE database, and it defaults to
+      # `postgresql://postgres@127.0.0.1:5432/securevoice_load` — port 5432,
+      # where nothing is listening in CI (the test database above is on 55432).
+      # With no reachable target the load run still "succeeds" but writes a
+      # degraded `evidence/load/results.json` full of nulls, and the very next
+      # test (`docs/load-artifact-consistency.test.ts`, ordered to run right
+      # after it by design) then fails to parse it. The reported failure was in
+      # the docs gate; the cause was a missing database in the gate before it.
+      LOAD_DATABASE_URL: postgresql://securevoice:securevoice@localhost:55432/securevoice_load?connection_limit=20
       DB_ALLOW_PLAINTEXT_PRIVATE_NETWORK: "true"
     steps:
       - uses: actions/checkout@v4
@@ -152,6 +161,12 @@ jobs:
             sleep 1
           done
           docker exec sv-ci-db pg_isready -U securevoice -d securevoice
+          # The load suite gets its OWN database in the same container — it must
+          # not share rows or gauges with the other suites, but it does not need
+          # a second server. Created here rather than by the suite, so a missing
+          # database is a loud, named failure at setup instead of a silently
+          # degraded evidence artifact twenty seconds later.
+          docker exec sv-ci-db createdb -U securevoice securevoice_load
           # Schema first: a suite that asserts on tenancy isolation needs the
           # tables, not just a reachable socket.
           bunx prisma migrate deploy

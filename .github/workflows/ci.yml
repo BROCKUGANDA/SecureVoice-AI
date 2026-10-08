@@ -264,7 +264,9 @@ jobs:
     name: Compose stack smoke test
     runs-on: [self-hosted, securevoice-vps]
     timeout-minutes: 25
-    env:
+    steps:
+      - uses: actions/checkout@v4
+
       # THE PRODUCTION PROJECT NAME IS `securevoice-ai` (hardcoded in
       # docker-compose.yml) and it is running on THIS machine. Compose
       # reconciles by project name, so a CI job that invoked plain
@@ -272,21 +274,38 @@ jobs:
       # workers with test containers, and the `down -v` would delete the
       # production database volume. A separate project name is what makes this
       # job safe to run on the deploy host at all.
-      COMPOSE_PROJECT_NAME: securevoice-ci
-      # Required by compose interpolation (`:?`) and by the build args. These
-      # are throwaway values for a disposable stack — the smoke test never
-      # reaches a real vendor or a real database.
-      POSTGRES_PASSWORD: ci-only-not-a-secret
-      BETTER_AUTH_SECRET: ci-only-not-a-secret-ci-only-not-a-secret
-      BETTER_AUTH_URL: https://localhost:18443
-      # caddy must issue for a name that resolves to the CI container. The
-      # override publishes 18443, so localhost + the CI internal CA (hence -k).
-      SITE_ADDRESS: localhost
-      ACME_EMAIL: ci@example.invalid
-      # No seed: the smoke test asserts the topology, not demo data.
-      SEED_DEMO: "false"
-    steps:
-      - uses: actions/checkout@v4
+      - name: Write the CI environment file
+        env:
+          COMPOSE_PROJECT_NAME: securevoice-ci
+        run: |
+          # A FILE, not job-level env, and that is the whole point. The `app`
+          # service declares `env_file: .env` and lists none of the auth or
+          # database variables in its `environment:` block — so on production
+          # those arrive from ~/securevoice-ai/.env, and a variable set only in
+          # the job environment reaches the compose CLI (for interpolation) but
+          # never the container. The first version of this job did exactly that
+          # and the app died on boot with "BETTER_AUTH_SECRET must be set and at
+          # least 32 characters" while the compose CLI, looking at the same job,
+          # could see it perfectly well.
+          #
+          # Writing the file reproduces the production mechanism exactly, so the
+          # smoke test exercises the real path rather than a CI-only shortcut.
+          # Every value is disposable: this stack never reaches a real vendor,
+          # and the database is a throwaway container deleted on teardown.
+          cat > .env <<'ENV'
+          COMPOSE_PROJECT_NAME=securevoice-ci
+          POSTGRES_USER=securevoice
+          POSTGRES_PASSWORD=ci-only-not-a-secret
+          POSTGRES_DB=securevoice
+          BETTER_AUTH_SECRET=ci-only-not-a-secret-ci-only-not-a-secret
+          BETTER_AUTH_URL=https://localhost:18443
+          SITE_ADDRESS=localhost
+          ACME_EMAIL=ci@example.invalid
+          SEED_DEMO=false
+          ELEVENLABS_DRY_RUN=true
+          APP_ENV=staging
+          ENV
+          echo "wrote a throwaway .env for the CI stack"
 
       # The host ports come from the override, not from docker-compose.yml,
       # because production already holds 80/443 on this machine.
@@ -304,15 +323,25 @@ jobs:
       # Prove the smoke test did not disturb the production stack. Without this
       # the isolation above is an untested assumption, and the first regression
       # would be discovered by a judge hitting an outage instead of by CI.
+      #
+      # Read the label off the containers themselves rather than asking compose
+      # to enumerate the project: this runs in the runner's checkout, and
+      # `docker compose -p … ps` there resolves against ITS compose file, which
+      # is not what answers "is production still up?".
       - name: Production stack untouched
         if: always()
         run: |
-          up=$(docker compose -p securevoice-ai ps --services --filter status=running | wc -l)
-          echo "production services running: $up"
-          [ "$up" -ge 7 ] || {
-            echo "::error::the production stack is not fully running ($up/7) — a smoke-test job disturbed it"
+          up=$(docker ps --filter "label=com.docker.compose.project=securevoice-ai" \
+                 --filter status=running --format '{{.Names}}' | wc -l)
+          echo "production containers running: $up"
+          if [ "$up" -lt 7 ]; then
+            echo "::error::production has $up/7 containers running — a smoke-test job disturbed it"
             exit 1
-          }
+          fi
+          code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 \
+            https://57.130.80.158.sslip.io/api/health || true)
+          echo "production api/health: $code"
+          [ "$code" = "200" ] || { echo "::error::production origin is not healthy"; exit 1; }
 
       # Caddy is the only published port, so this is the real ingress path.
       - name: HTTPS through Caddy
@@ -348,6 +377,11 @@ jobs:
 
       # Always tears down the CI project ONLY. `-p securevoice-ci` is what keeps
       # this from reaching the production containers and its database volume.
+      # The .env goes too: the runner's checkout directory persists between jobs
+      # on this self-hosted runner, so a throwaway env file left behind would
+      # silently become the config for whatever runs next.
       - name: Tear down
         if: always()
-        run: docker compose -f docker-compose.yml -f docker-compose.ci.yml -p securevoice-ci down -v
+        run: |
+          docker compose -f docker-compose.yml -f docker-compose.ci.yml -p securevoice-ci down -v || true
+          rm -f .env

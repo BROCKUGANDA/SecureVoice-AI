@@ -209,7 +209,14 @@ jobs:
           # the port is allocated per run so two runners cannot collide — so
           # without this the gate looked at a port nobody was listening on and
           # failed, correctly, that no shared bus existed.
-          REDIS_URL: redis://127.0.0.1:$REDIS_PORT
+          #
+          # `${{ env.X }}`, not `$X`: a workflow `env:` VALUE is not run through a
+          # shell, so `$REDIS_PORT` here reaches the process as the literal
+          # seven-character string and ioredis throws inside `parseURL` — the
+          # failure lands in the service's own startup, far from the line that
+          # caused it. Only `${{ }}` is substituted, and only from a step that
+          # exported it to GITHUB_ENV earlier in this job.
+          REDIS_URL: redis://127.0.0.1:${{ env.REDIS_PORT }}
         # `--timeout 120000`, for the same reason scripts/run-tests.mjs sets it
         # for the app suites: bun defaults to 5_000ms, which is far too tight for
         # a test that spawns two processes and waits for them to converge through

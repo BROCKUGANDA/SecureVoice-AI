@@ -24,6 +24,7 @@ import { randomUUID } from "node:crypto";
 
 import { drainDialQueue, type DialJob, type DialOutcome } from "@/lib/scale/queue";
 import { placeOutboundCall } from "@/lib/elevenlabs/outbound-call";
+import { placeInterventionCall } from "@/lib/twilio";
 import { append as auditAppend } from "@/lib/audit-chain";
 import { db } from "@/lib/db";
 import { transitionCase } from "@/lib/case-state-machine";
@@ -34,6 +35,8 @@ import { asCallCategory } from "@/lib/call-categories";
 import { isAfterHours, nextBusinessHoursStart } from "@/lib/abuse/velocity";
 import { sweepExpiredSmsCases } from "@/lib/sms-verdict";
 import { logError, logInfo } from "@/lib/validation/safe-log";
+import { flag } from "@/lib/flags";
+import { env } from "@/lib/config";
 
 const WORKER_ID =
   process.env.DIAL_WORKER_ID ?? `${hostname()}-${process.pid}-${randomUUID().slice(0, 8)}`;
@@ -178,30 +181,61 @@ async function handle(job: DialJob): Promise<DialOutcome> {
       };
     }
 
-    const result = await placeOutboundCall({
-      toNumber: to,
-      language: payload.language ?? "en",
-      merchant: payload.merchant ?? undefined,
-      amount: payload.amount ?? undefined,
-      currency: payload.currency ?? undefined,
-      caseRef: job.case_ref,
-      institution: institution.type,
-      institutionName: institution.name,
-      callCategory: category,
-      // The tenant's bound DID when it has one — the caller ID on the customer's
-      // handset. Null means the tenant has brought no number and the deployment
-      // default speaks, which is an explicitly configured state, not a fallback.
-      phoneNumberId: telecom.elevenPhoneNumberId,
-      dynamicVariables: {
-        case_id: job.case_id,
-        case_ref: job.case_ref,
-        merchant: payload.merchant ?? "",
-        amount: payload.amount ?? 0,
-        currency: payload.currency ?? "",
-        transaction_ref: payload.transaction_ref ?? "",
-        signal_kind: existing?.signalKind ?? "",
-      },
-    });
+    let result;
+    if (flag("twilioMediaStreams")) {
+      const host = process.env.SITE_ADDRESS ?? "localhost";
+      const mediaStreamUrl = new URL(
+        `wss://${host}/api/voice-websocket`,
+      );
+      mediaStreamUrl.searchParams.set("callSid", job.case_ref);
+      const twilioResult = await placeInterventionCall({
+        to,
+        lang: (payload.language ?? "en") as any,
+        amount: payload.amount?.toString(),
+        merchant: payload.merchant,
+        callRef: job.case_ref,
+        orgId: job.org_id,
+        caseId: existing?.id ?? null,
+        mediaStreamUrl: mediaStreamUrl.toString(),
+      });
+      result = {
+        conversationId: job.case_ref,
+        callSid: twilioResult.status === "queued" ? job.case_ref : undefined,
+        dryRun: false,
+        phoneNumberId: telecom.elevenPhoneNumberId,
+      };
+    } else {
+      const outbound = await placeOutboundCall({
+        toNumber: to,
+        language: payload.language ?? "en",
+        merchant: payload.merchant ?? undefined,
+        amount: payload.amount ?? undefined,
+        currency: payload.currency ?? undefined,
+        caseRef: job.case_ref,
+        institution: institution.type,
+        institutionName: institution.name,
+        callCategory: category,
+        // The tenant's bound DID when it has one — the caller ID on the customer's
+        // handset. Null means the tenant has brought no number and the deployment
+        // default speaks, which is an explicitly configured state, not a fallback.
+        phoneNumberId: telecom.elevenPhoneNumberId,
+        dynamicVariables: {
+          case_id: job.case_id,
+          case_ref: job.case_ref,
+          merchant: payload.merchant ?? "",
+          amount: payload.amount ?? 0,
+          currency: payload.currency ?? "",
+          transaction_ref: payload.transaction_ref ?? "",
+          signal_kind: existing?.signalKind ?? "",
+        },
+      });
+      result = {
+        conversationId: outbound.conversationId,
+        callSid: outbound.callSid,
+        dryRun: outbound.dryRun,
+        phoneNumberId: outbound.phoneNumberId,
+      };
+    }
 
     // The case state machine is the SINGLE WRITER for case state. This used to
     // be a raw `db.case.updateMany`, which bypassed the writer, skipped the

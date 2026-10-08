@@ -94,6 +94,19 @@ model AuditLog {
   @@index([createdAt])
 }
 
+/// Isolated PII vault. Raw sensitive values are stored here only; the main
+/// `interventions` table stores token references.
+model PIIVault {
+  token         String   @id @default(cuid())
+  orgId         String
+  encryptedValue String
+  type          String // "phone" | "name" | "pan" | "address"
+  createdAt     DateTime @default(now())
+
+  @@index([orgId, type])
+  @@map("pii_vault")
+}
+
 /// Registered ElevenLabs voice personas with consent metadata.
 /// Cloning endpoints refuse a voice without a recorded consent URL + timestamp.
 
@@ -308,6 +321,11 @@ model Case {
   // WHY the institution is calling (src/lib/call-categories.ts). Null reads as
   // the audited default (time_critical_fraud) — see asCallCategory.
   callCategory          String?
+  // PII minimization: tokenized references into `pii_vault`. The raw values
+  // must never be stored here; these columns exist so joins can resolve tokens
+  // when a privileged, scoped operation requires them.
+  customerPhoneToken    String?
+  customerNameToken     String?
   // The Twilio call-leg sid, persisted at dial time. The warm_transfer tool
   // rewrites this leg's TwiML to bridge the customer to a live human.
   callSid               String?
@@ -660,6 +678,10 @@ model Organization {
   twilioVoiceNumber           String?
   twilioSmsSenderId           String?
   twilioMessagingServiceSid   String?
+  // Abuse/plan tier for this organisation. When set, overrides the deployment
+  // default (`ABUSE_PLAN_TIER`). Accepted values: `demo` | `standard`
+  // | `enterprise`. Null falls through to the default, which is `demo`.
+  planTier                    String?
 
   @@unique([slug])
   @@map("organization")

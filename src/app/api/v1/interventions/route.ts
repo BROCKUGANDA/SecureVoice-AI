@@ -14,6 +14,7 @@ import { isTwilioConfigured, liveSendAttested, sendInterventionSms } from "@/lib
 import { qstashConfigured, publishEnvelope, dispatchPath } from "@/lib/queue/qstash";
 import { makeEnvelope } from "@/lib/queue/envelope";
 import { runPolicyGate } from "@/lib/policy-gate";
+import { runComplianceGate } from "@/lib/compliance/gate";
 import { assertDialAllowed, releaseDialSlot } from "@/lib/abuse/guards";
 import { validateOutboundUrl } from "@/lib/validation/ssrf";
 import { planTierFor } from "@/lib/abuse/tiers";
@@ -493,6 +494,23 @@ async function armAndDial(
     const err = new Error(gate.reason) as Error & { status: number; code: string };
     err.status = 409;
     err.code = gate.code;
+    throw err;
+  }
+
+  // Compliance gate: category + calling-hours + redaction backstop.
+  const compliance = await runComplianceGate({
+    callCategory: signal.call_category ?? "time_critical_fraud",
+    phone: signal.phone,
+    caseRef,
+    callerId: effectiveCallerId,
+    orgId,
+    transactionRef: signal.transaction_ref,
+    redactedText: redactText(`${signal.transaction_ref ?? ""} ${signal.phone}`),
+  });
+  if (!compliance.ok) {
+    const err = new Error(compliance.reason) as Error & { status: number; code: string };
+    err.status = 409;
+    err.code = compliance.code;
     throw err;
   }
 

@@ -187,6 +187,38 @@ services:
     # --smol: measured heap trade, see docs/CAPACITY.md §10 (256m box, idle sweeper).
     command: ["bun", "--smol", "--preload", "./scripts/worker-preload.ts", "src/worker/retention.ts"]
 
+  # Voice stream worker (Twilio Media Streams + Deepgram + ElevenLabs).
+  # Serves the WebSocket endpoint Twilio connects to for live-call audio.
+  voice-stream-worker:
+    build:
+      context: .
+      target: builder
+      args:
+        BUILD_DATABASE_URL: ${DATABASE_URL}
+        BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET in .env}
+        BETTER_AUTH_URL: ${BETTER_AUTH_URL:-https://localhost:3000}
+    restart: unless-stopped
+    logging: *default-logging
+    mem_limit: 512m
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql://${POSTGRES_USER:-securevoice}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-securevoice}}
+      NODE_ENV: production
+      DB_ALLOW_PLAINTEXT_PRIVATE_NETWORK: "true"
+      REQUIRE_VPS_DATABASE: ${REQUIRE_VPS_DATABASE:-false}
+      DEEPGRAM_API_KEY: ${DEEPGRAM_API_KEY:-}
+      ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
+      ELEVENLABS_MODEL: ${ELEVENLABS_MODEL:-eleven_multilingual_v2}
+      ELEVENLABS_VOICE_EN: ${ELEVENLABS_VOICE_EN:-}
+      VOICE_STREAM_HOST: ${VOICE_STREAM_HOST:-0.0.0.0}
+      VOICE_STREAM_PORT: ${VOICE_STREAM_PORT:-8080}
+      FEATURE_TWILIO_MEDIA_STREAMS: ${FEATURE_TWILIO_MEDIA_STREAMS:-false}
+    expose:
+      - "8080"
+    depends_on:
+      db-setup:
+        condition: service_completed_successfully
+    command: ["bun", "--smol", "--preload", "./scripts/worker-preload.ts", "src/worker/voice-stream.ts"]
+
   # Command Center push path. Separate image, separate trust boundary, and
   # independently restartable: a hung socket layer must never take the API with it.
   realtime:

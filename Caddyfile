@@ -119,6 +119,18 @@
 		}
 	}
 
+	# Twilio Media Streams WebSocket. Must be a separate handler because
+	# Twilio requires a clean WebSocket upgrade without buffering.
+	handle /api/voice-websocket {
+		reverse_proxy voice-stream-worker:8080 {
+			import forwarded_headers
+			flush_interval -1
+			transport http {
+				versions 1.1 2
+			}
+		}
+	}
+
 	# Uptime probe answered at the edge: costs nothing and does not consume the
 	# app's rate-limit bucket.
 	handle /healthz {

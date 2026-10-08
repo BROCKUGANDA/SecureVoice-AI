@@ -135,9 +135,16 @@ export function interventionTwiml(
   merchant?: string,
   origin?: string,
   callRef?: string,
+  mediaStreamUrl?: string | null,
 ): string {
   const { voice, language } = VOICE[lang] ?? VOICE.en;
   const text = (SCRIPT[lang] ?? SCRIPT.en)(amount ?? "", merchant ?? "");
+
+  if (mediaStreamUrl) {
+    const streamUrl = `${mediaStreamUrl}?lang=${lang}${callRef ? `&callSid=${escapeXml(callRef)}` : ""}`;
+    return `<?xml version="1.0" encoding="UTF-8"?><Response><Connect><Stream url="${escapeXml(streamUrl)}" /></Connect></Response>`;
+  }
+
   const turnUrl = `/api/twilio/turn?lang=${lang}${callRef ? `&callSid=${escapeXml(callRef)}` : ""}`;
 
   // ElevenLabs opening via <Play> when we have a public origin. The audio URL
@@ -473,6 +480,7 @@ export async function placeInterventionCall(args: {
   callRef?: string; // audit chain reference
   orgId?: string | null;
   caseId?: string | null;
+  mediaStreamUrl?: string | null;
 }): Promise<CallResult & { telecomEventId?: string; from?: string }> {
   const c = creds();
   if (!isE164(args.to)) return { ok: false, status: 422, error: "Destination phone is not E.164" };
@@ -483,7 +491,7 @@ export async function placeInterventionCall(args: {
   const res = await twilioPost(c.accountSid, c.username, c.password, "Calls.json", {
     To: args.to,
     From: from,
-    Twiml: interventionTwiml(args.lang, args.amount, args.merchant, args.origin, args.callRef),
+    Twiml: interventionTwiml(args.lang, args.amount, args.merchant, args.origin, args.callRef, args.mediaStreamUrl),
     ...(callback ? { StatusCallback: callback } : {}),
   });
   if (!res.ok) return { ok: false, status: res.status, error: res.error, from };

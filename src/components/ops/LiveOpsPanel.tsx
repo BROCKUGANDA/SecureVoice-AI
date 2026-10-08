@@ -229,7 +229,13 @@ export function LiveOpsPanel({ activeCallRef, transcript, call, rtStatus }: Live
               <span className="text-[10px] font-semibold uppercase tracking-wide text-ink-4">
                 Risk
               </span>
+              {/* The band word is the signal, not the color: a red 0.94 and an
+                  amber 0.82 are indistinguishable to a color-blind analyst, and
+                  to a screen reader both are just numbers. So the severity is
+                  stated in words — visible and in the accessible name. */}
               <span
+                role="img"
+                aria-label={`Risk ${call.riskScore >= 0.9 ? "high" : call.riskScore >= 0.75 ? "elevated" : "standard"}, score ${call.riskScore.toFixed(2)}`}
                 className={cn(
                   "num text-[12px] font-semibold",
                   call.riskScore >= 0.9
@@ -239,6 +245,7 @@ export function LiveOpsPanel({ activeCallRef, transcript, call, rtStatus }: Live
                       : "text-green-600",
                 )}
               >
+                {call.riskScore >= 0.9 ? "High" : call.riskScore >= 0.75 ? "Elevated" : "Standard"}{" "}
                 {call.riskScore.toFixed(2)}
               </span>
             </div>
@@ -268,10 +275,22 @@ export function LiveOpsPanel({ activeCallRef, transcript, call, rtStatus }: Live
         </div>
       )}
 
-      {/* transcript area */}
+      {/* transcript area.
+          role="log" carries an implicit aria-live="polite": screen readers
+          announce new transcript lines as they arrive without stealing focus,
+          which is exactly the analyst use case (JAWS/NVDA following a live
+          call). aria-atomic="false" so only the new line is read, not the
+          whole 360px scrollback, and aria-relevant="additions" so edits to
+          existing lines (redaction) do not re-announce. */}
       <div
         ref={scrollRef}
         onScroll={handleScroll}
+        role="log"
+        aria-label={activeCallRef ? `Live transcript for call ${activeCallRef}` : "Live transcript, no active call"}
+        aria-live="polite"
+        aria-atomic="false"
+        aria-relevant="additions"
+        tabIndex={0}
         className="h-[360px] overflow-y-auto px-4 py-3 sv-scroll"
       >
         {!activeCallRef || transcript.length === 0 ? (

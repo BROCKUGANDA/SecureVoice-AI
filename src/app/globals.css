@@ -229,6 +229,43 @@
   outline: none;
 }
 
+/* ——— High-contrast theme (WCAG 2.1 AA 1.4.3/1.4.6).
+     Toggled from Settings → Accessibility and persisted in localStorage;
+     applied as data-contrast="high" on <html> by src/app/page.tsx.
+     Strategy is deliberately narrow: darken every muted-ink token to near-black
+     and strengthen the focus ring, so the whole shadcn surface inherits it
+     without restyling a single component. Tints go white so badges keep their
+     hue separation by background rather than by text shade alone. ——— */
+[data-contrast="high"] {
+  --ink-2: #101812;
+  --ink-3: #1a231d;
+  --muted-foreground: #1a231d;
+  --foreground: #000000;
+  --card-foreground: #000000;
+  --popover-foreground: #000000;
+  --secondary-foreground: #000000;
+  --accent-foreground: #063d2a;
+  --red-soft: #a3121d;
+  --amber-soft: #7a5200;
+  --green-deep: #063d2a;
+  --primary: #063d2a;
+  --ring: #063d2a;
+  --green-tint: #ffffff;
+  --red-tint: #ffffff;
+  --amber-tint: #ffffff;
+  --line: #101812;
+  --border: #101812;
+  --input: #101812;
+}
+[data-contrast="high"] :focus-visible {
+  outline-width: 3px;
+  outline-color: #000000;
+}
+[data-contrast="high"] a {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
 /* ——— Keyframes ——— */
 @keyframes sv-shimmer {
   0% {

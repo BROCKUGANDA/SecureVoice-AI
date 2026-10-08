@@ -39,7 +39,7 @@ const VIEWS: Record<View, React.ComponentType> = {
 };
 
 export default function Page() {
-  const { view, lang, booted, setBooted, setView, setTimedOut } = useApp();
+  const { view, lang, booted, setBooted, setView, setTimedOut, highContrast } = useApp();
   const { data: session } = useSession();
   const isSignedIn = Boolean(session?.user);
   // Role for gating the console. Better Auth has no `publicMetadata`: the role
@@ -58,6 +58,16 @@ export default function Page() {
   useEffect(() => {
     document.documentElement.lang = lang;
   }, [lang]);
+
+  /* high-contrast theme (WCAG 1.4.3/1.4.6): applied as a data attribute so the
+     CSS override block in globals.css switches atomically with the toggle */
+  useEffect(() => {
+    if (highContrast) {
+      document.documentElement.dataset.contrast = "high";
+    } else {
+      delete document.documentElement.dataset.contrast;
+    }
+  }, [highContrast]);
 
   const handleIdleTimeout = useCallback(() => {
     setTimedOut(true);

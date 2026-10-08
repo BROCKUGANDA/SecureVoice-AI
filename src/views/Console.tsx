@@ -618,7 +618,11 @@ export function Console() {
         <div>
           <div className="flex items-center gap-2.5">
             {branding?.orgLogoUrl ? (
-              <img src={branding.orgLogoUrl} alt="" className="h-6 w-6 rounded-lg object-contain" />
+              <img
+                src={branding.orgLogoUrl}
+                alt={branding.orgName ? `${branding.orgName} logo` : "Organization logo"}
+                className="h-6 w-6 rounded-lg object-contain"
+              />
             ) : (
               <span className="micro text-primary">COMMAND CENTER</span>
             )}
@@ -906,7 +910,10 @@ export function Console() {
             )}
 
             {res?.error && !res.caseRef && (
-              <div className="mt-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-[12.5px] font-medium text-red-700">
+              <div
+                role="alert"
+                className="mt-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-[12.5px] font-medium text-red-700"
+              >
                 {res.error}
               </div>
             )}
@@ -1030,6 +1037,8 @@ export function Console() {
                       </p>
                     </div>
                     <span
+                      role="img"
+                      aria-label={`Risk ${c.riskScore != null && c.riskScore >= 0.9 ? "high" : "elevated"}, score ${c.riskScore != null ? c.riskScore.toFixed(2) : "unknown"}`}
                       className={cn(
                         "num rounded-full px-2 py-0.5 text-[10.5px] font-semibold",
                         (c.riskScore ?? 0) >= 0.9
@@ -1037,6 +1046,7 @@ export function Console() {
                           : "bg-amber-tint text-amber-soft",
                       )}
                     >
+                      {c.riskScore != null && c.riskScore >= 0.9 ? "High " : "Elevated "}
                       {c.riskScore != null ? c.riskScore.toFixed(2) : "—"}
                     </span>
                   </motion.li>

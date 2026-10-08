@@ -94,7 +94,7 @@ jobs:
       # A second self-hosted runner was added so `verify` and `compose-smoke`
       # can run at the same time. They share this host, so every hardcoded
       # resource this job creates — container names AND published ports — became
-      # a collision: two concurrent runs would fight over `${DB_CI}` on 55432,
+      # a collision: two concurrent runs would fight over `"${DB_CI}"` on 55432,
       # and one run's teardown would delete the other's container mid-test.
       #
       # Both the port and the name are therefore derived from the run id, which
@@ -112,18 +112,20 @@ jobs:
           REDIS_PORT=$(( 40000 + (rid % 9000) + (attempt * 7) ))
           DB_CI="sv-ci-db-${rid}-${attempt}"
           REDIS_CI="sv-ci-redis-${rid}-${attempt}"
-          echo "DB_PORT=$DB_PORT"      >> "$GITHUB_ENV"
-          echo "REDIS_PORT=$REDIS_PORT" >> "$GITHUB_ENV"
-          echo "DB_CI=$DB_CI"           >> "$GITHUB_ENV"
-          echo "REDIS_CI=$REDIS_CI"      >> "$GITHUB_ENV"
-          # Both DSNs are rewritten here rather than in the job env above: a
-          # job-level `env` value cannot see a variable a step computed.
-          echo "DATABASE_URL=postgresql://securevoice:securevoice@localhost:${DB_PORT}/securevoice?schema=public" >> "$GITHUB_ENV"
-          echo "LOAD_DATABASE_URL=postgresql://securevoice:securevoice@localhost:${DB_PORT}/securevoice_load?connection_limit=20" >> "$GITHUB_ENV"
           {
-            echo "### CI run ${rid} (attempt ${attempt})"
-            echo "- postgres: \`127.0.0.1:${DB_PORT}\` container \`${DB_CI}\`"
-            echo "- redis: \`127.0.0.1:${REDIS_PORT}\` container \`${REDIS_CI}\`"
+            echo "DB_PORT=$DB_PORT"
+            echo "REDIS_PORT=$REDIS_PORT"
+            echo "DB_CI=$DB_CI"
+            echo "REDIS_CI=$REDIS_CI"
+            # Both DSNs are rewritten here rather than in the job env above: a
+            # job-level `env` value cannot see a variable a step computed.
+            echo "DATABASE_URL=postgresql://securevoice:securevoice@localhost:$DB_PORT/securevoice?schema=public"
+            echo "LOAD_DATABASE_URL=postgresql://securevoice:securevoice@localhost:$DB_PORT/securevoice_load?connection_limit=20"
+          } >> "$GITHUB_ENV"
+          {
+            echo "### CI run $rid (attempt $attempt)"
+            echo "- postgres: 127.0.0.1:$DB_PORT container $DB_CI"
+            echo "- redis: 127.0.0.1:$REDIS_PORT container $REDIS_CI"
           } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/checkout@v4
 
@@ -192,7 +194,7 @@ jobs:
       # and the container is scoped to this job and removed at the end of it.
       - name: Realtime service — Redis for the cross-node gate
         run: |
-          docker run -d --rm --name "$REDIS_CI" -p 127.0.0.1:${REDIS_PORT}:6379 redis:7-alpine
+          docker run -d --rm --name "$REDIS_CI" -p 127.0.0.1:"${REDIS_PORT}":6379 redis:7-alpine
           for _ in $(seq 1 30); do
             docker exec "$REDIS_CI" redis-cli ping >/dev/null 2>&1 && break
             sleep 1
@@ -205,7 +207,7 @@ jobs:
 
       - name: Realtime service — stop Redis
         if: always()
-        run: docker rm -f ${REDIS_CI} 2>/dev/null || true
+        run: docker rm -f "${REDIS_CI}" 2>/dev/null || true
 
       # The DB-backed suites below need a real database, and they used to have
       # none: `bun run test` ran before anything started a Postgres, so every
@@ -222,23 +224,23 @@ jobs:
           # `-p 55432:5432` binds EVERY interface and would expose a Postgres with
           # well-known throwaway credentials to the network for the few minutes
           # this container exists.
-          docker rm -f ${DB_CI} 2>/dev/null || true
-          docker run -d --name "${DB_CI}" -p 127.0.0.1:${DB_PORT}:5432 \
+          docker rm -f "${DB_CI}" 2>/dev/null || true
+          docker run -d --name "${DB_CI}" -p 127.0.0.1:"${DB_PORT}":5432 \
             -e POSTGRES_USER=securevoice \
             -e POSTGRES_PASSWORD=securevoice \
             -e POSTGRES_DB=securevoice \
             postgres:16-alpine
           for _ in $(seq 1 60); do
-            docker exec ${DB_CI} pg_isready -U securevoice -d securevoice >/dev/null 2>&1 && break
+            docker exec "${DB_CI}" pg_isready -U securevoice -d securevoice >/dev/null 2>&1 && break
             sleep 1
           done
-          docker exec ${DB_CI} pg_isready -U securevoice -d securevoice
+          docker exec "${DB_CI}" pg_isready -U securevoice -d securevoice
           # The load suite gets its OWN database in the same container — it must
           # not share rows or gauges with the other suites, but it does not need
           # a second server. Created here rather than by the suite, so a missing
           # database is a loud, named failure at setup instead of a silently
           # degraded evidence artifact twenty seconds later.
-          docker exec ${DB_CI} createdb -U securevoice securevoice_load
+          docker exec "${DB_CI}" createdb -U securevoice securevoice_load
           # The load database needs the SCHEMA too, not just the database. The
           # load suite applies only `prisma/migrations/2_dial_job/migration.sql`
           # itself (tests/load/load.test.ts:276) because on a developer's machine
@@ -469,7 +471,7 @@ jobs:
       # 55432 would confuse the next run.
       - name: Stop the test database
         if: always()
-        run: docker rm -f ${DB_CI} 2>/dev/null || true
+        run: docker rm -f "${DB_CI}" 2>/dev/null || true
 
   compose-smoke:
     name: Compose stack smoke test
@@ -489,9 +491,11 @@ jobs:
           attempt=${{ github.run_attempt }}
           HTTP=$(( 50000 + (rid % 9000) + (attempt * 7) ))
           HTTPS=$(( 60000 + (rid % 9000) + (attempt * 7) ))
-          echo "CI_CADDY_HTTP_PORT=$HTTP"  >> "$GITHUB_ENV"
-          echo "CI_CADDY_HTTPS_PORT=$HTTPS" >> "$GITHUB_ENV"
-          echo "PROJECT=svci-${rid}-${attempt}" >> "$GITHUB_ENV"
+          {
+            echo "CI_CADDY_HTTP_PORT=$HTTP"
+            echo "CI_CADDY_HTTPS_PORT=$HTTPS"
+            echo "PROJECT=svci-$rid-$attempt"
+          } >> "$GITHUB_ENV"
           {
             echo "### Smoke test ${rid} (attempt ${attempt})"
             echo "- project: \`svci-${rid}-${attempt}\`"
@@ -527,7 +531,7 @@ jobs:
           POSTGRES_PASSWORD=ci-only-not-a-secret
           POSTGRES_DB=securevoice
           BETTER_AUTH_SECRET=ci-only-not-a-secret-ci-only-not-a-secret
-          BETTER_AUTH_URL=https://localhost:$CI_CADDY_HTTPS_PORT
+          BETTER_AUTH_URL="https://localhost:${CI_CADDY_HTTPS_PORT}"
           SITE_ADDRESS=localhost
           ACME_EMAIL=ci@example.invalid
           SEED_DEMO=false
@@ -586,7 +590,7 @@ jobs:
       - name: HTTPS through Caddy
         run: |
           for _ in $(seq 1 30); do
-            code=$(curl -sk -o /dev/null -w '%{http_code}' https://localhost:$CI_CADDY_HTTPS_PORT/api/health || true)
+            code=$(curl -sk -o /dev/null -w '%{http_code}' "https://localhost:${CI_CADDY_HTTPS_PORT}"/api/health || true)
             [ "$code" = "200" ] && break
             sleep 5
           done
@@ -594,7 +598,7 @@ jobs:
           test "$code" = "200"
 
       - name: SPA served through Caddy
-        run: test "$(curl -sk -o /dev/null -w '%{http_code}' https://localhost:$CI_CADDY_HTTPS_PORT/)" = "200"
+        run: test "$(curl -sk -o /dev/null -w '%{http_code}' "https://localhost:${CI_CADDY_HTTPS_PORT}"/)" = "200"
 
       # Proves the socket route is wired to the realtime service, without needing a
       # signing secret or a browser: Engine.IO answers a handshake on that path.
@@ -604,7 +608,7 @@ jobs:
           # quotes would hand the literal string `$CI_CADDY_HTTPS_PORT` to curl,
           # which then failed against nothing.
           code=$(curl -sk -o /dev/null -w '%{http_code}' \
-            "https://localhost:$CI_CADDY_HTTPS_PORT/realtime/?EIO=4&transport=polling")
+            "https://localhost:${CI_CADDY_HTTPS_PORT}/realtime/?EIO=4&transport=polling")
           echo "realtime polling via Caddy: $code"
           test "$code" = "200"
 

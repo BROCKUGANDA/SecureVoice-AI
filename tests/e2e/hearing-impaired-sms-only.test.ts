@@ -118,10 +118,7 @@ test("hearing_impaired as a string is rejected, not coerced", async () => {
   const { POST } = await import("@/app/api/v1/interventions/route");
   const ref = `HI-STR-${Date.now()}`;
   const res = await POST(
-    makeRequest(
-      { ...baseSignal(ref, "+971500000902"), hearing_impaired: "yes" },
-      `hi-str-${ref}`,
-    ),
+    makeRequest({ ...baseSignal(ref, "+971500000902"), hearing_impaired: "yes" }, `hi-str-${ref}`),
   );
   // Strict schema: a string where a boolean belongs is a 422, the same as any
   // other mistyped field. Coercing "yes" to true would let a producer's typo

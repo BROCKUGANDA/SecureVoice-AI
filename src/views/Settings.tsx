@@ -299,8 +299,8 @@ export function Settings() {
                     Accessibility
                   </h2>
                   <p className="mt-1 text-[12px] leading-snug text-ink-3">
-                    Display preference for this analyst only — saved on this device, never
-                    sent to the server.
+                    Display preference for this analyst only — saved on this device, never sent to
+                    the server.
                   </p>
                   <div className="mt-3 flex items-center justify-between gap-4 rounded-xl border border-line bg-paper px-4 py-3">
                     <div>

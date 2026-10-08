@@ -98,7 +98,9 @@ async function record(
       orgId: orgId ?? undefined,
     });
   } catch (err) {
-    logError("[sms-fallback] audit append failed", { error: err instanceof Error ? err.message : String(err) });
+    logError("[sms-fallback] audit append failed", {
+      error: err instanceof Error ? err.message : String(err),
+    });
   }
 }
 

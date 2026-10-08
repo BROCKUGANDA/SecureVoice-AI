@@ -73,7 +73,9 @@ export async function POST(req: NextRequest) {
       RETURNING c."caseRef" AS "caseRef", c.state::text AS "state"
     `);
   } catch (err) {
-    logError("[tool/switch_language] guarded update failed", { error: err instanceof Error ? err.message : String(err) });
+    logError("[tool/switch_language] guarded update failed", {
+      error: err instanceof Error ? err.message : String(err),
+    });
     return NextResponse.json({ ok: false, error: "case_update_failed" }, { status: 503 });
   }
 

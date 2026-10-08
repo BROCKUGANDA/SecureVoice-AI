@@ -43,8 +43,19 @@ let rowState = "UNREACHABLE";
 mock.module("@/lib/db", () => ({
   db: {
     case: {
-      findUnique: async () => ({ id: "case-1", caseRef: "SV-F-DNC1", state: rowState, orgId: "org-a" }),
-      update: async ({ where, data }: { where: { caseRef: string }; data: Record<string, unknown> }) => {
+      findUnique: async () => ({
+        id: "case-1",
+        caseRef: "SV-F-DNC1",
+        state: rowState,
+        orgId: "org-a",
+      }),
+      update: async ({
+        where,
+        data,
+      }: {
+        where: { caseRef: string };
+        data: Record<string, unknown>;
+      }) => {
         written.push({ caseRef: where.caseRef, data });
         return { id: "case-1", state: data.state };
       },
@@ -101,7 +112,9 @@ describe("a customer who answered the text can be reached by voice again", () =>
     });
     expect(written).toHaveLength(1);
     expect(written[0]!.data.state).toBe("RETRY_SCHEDULED");
-    expect(transitionAudits.map((a) => a.intent)).toContain("transition_unreachable_to_retry_scheduled");
+    expect(transitionAudits.map((a) => a.intent)).toContain(
+      "transition_unreachable_to_retry_scheduled",
+    );
   });
 
   test("a case awaiting that retry is never re-texted", () => {

@@ -76,7 +76,9 @@ async function main(): Promise<void> {
     try {
       await sweep();
     } catch (err) {
-      logError("[retention-worker] sweep failed", { error: err instanceof Error ? err.message : err });
+      logError("[retention-worker] sweep failed", {
+        error: err instanceof Error ? err.message : err,
+      });
     }
     // Sleep to the next due time in short slices so a stop signal lands
     // promptly instead of after a day.

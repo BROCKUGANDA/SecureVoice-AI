@@ -7,9 +7,7 @@ import { logError, logInfo } from "@/lib/validation/safe-log";
 import { append as auditAppend } from "@/lib/audit-chain";
 import { isWithinPrayerWindow } from "./prayer-times";
 
-export type ComplianceGateResult =
-  | { ok: true }
-  | { ok: false; code: string; reason: string };
+export type ComplianceGateResult = { ok: true } | { ok: false; code: string; reason: string };
 
 /**
  * Compliance gate — runs immediately after the policy gate and before the
@@ -54,8 +52,7 @@ export async function runComplianceGate(params: {
   // wait for business hours.
   if (category === "routine" && isAfterHours(params.atMs ?? Date.now())) {
     const nextOpen = nextBusinessHoursStart(Date.now());
-    const reason =
-      "Routine call outside permitted calling hours; retry after business hours.";
+    const reason = "Routine call outside permitted calling hours; retry after business hours.";
     void auditAppend(
       {
         callRef: params.caseRef,

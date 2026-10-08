@@ -65,7 +65,9 @@ export async function POST(req: NextRequest) {
       },
     })
     .catch((err) => {
-      logError("[qstash-dlq] persistence failed", { error: err instanceof Error ? err.message : String(err) });
+      logError("[qstash-dlq] persistence failed", {
+        error: err instanceof Error ? err.message : String(err),
+      });
     });
 
   await auditAppend(`qstash:dlq:${idem}`, eventType).catch(() => {});

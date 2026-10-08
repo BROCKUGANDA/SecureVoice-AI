@@ -286,7 +286,11 @@ export function LiveOpsPanel({ activeCallRef, transcript, call, rtStatus }: Live
         ref={scrollRef}
         onScroll={handleScroll}
         role="log"
-        aria-label={activeCallRef ? `Live transcript for call ${activeCallRef}` : "Live transcript, no active call"}
+        aria-label={
+          activeCallRef
+            ? `Live transcript for call ${activeCallRef}`
+            : "Live transcript, no active call"
+        }
         aria-live="polite"
         aria-atomic="false"
         aria-relevant="additions"

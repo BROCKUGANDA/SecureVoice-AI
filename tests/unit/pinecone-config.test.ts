@@ -78,7 +78,9 @@ describe("pinecone tenant isolation", () => {
   test("indexTranscript requires orgId — it is not optional and has no default", () => {
     // A default here (orgId = "" or orgId?: string) would let vectors be
     // written with no tenant, which no filter can then exclude.
-    expect(SRC).toMatch(/indexTranscript\(\s*\n\s*caseRef: string,\s*\n\s*transcript: string,[\s\S]*?orgId: string,/);
+    expect(SRC).toMatch(
+      /indexTranscript\(\s*\n\s*caseRef: string,\s*\n\s*transcript: string,[\s\S]*?orgId: string,/,
+    );
     expect(SRC).toContain("org_id_required");
   });
 

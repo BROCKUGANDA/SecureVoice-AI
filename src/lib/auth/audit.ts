@@ -86,7 +86,9 @@ export async function auditAuthEvent(event: AuthAuditEvent): Promise<void> {
     meta: event.meta,
     orgId: event.orgId ?? undefined,
   }).catch((err: unknown) => {
-    logError("[auth] audit append failed", { error: err instanceof Error ? err.message : String(err) });
+    logError("[auth] audit append failed", {
+      error: err instanceof Error ? err.message : String(err),
+    });
   });
 }
 

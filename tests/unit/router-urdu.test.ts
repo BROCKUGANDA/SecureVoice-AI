@@ -123,11 +123,7 @@ test("a caller reporting fraud AND asking for their rights routes to fraud first
 });
 
 test("rights and complaints without a fraud claim route to the compliance officer", async () => {
-  const rights = [
-    "I want to make a complaint",
-    "مجھے شکایت کرنی ہے",
-    "أريد تقديم شكوى",
-  ];
+  const rights = ["I want to make a complaint", "مجھے شکایت کرنی ہے", "أريد تقديم شكوى"];
   for (const line of rights) {
     expect(await routeAgentIntent(line), `rights regression: ${line}`).toBe("compliance_officer");
   }

@@ -134,10 +134,7 @@ export async function GET(req: Request) {
   // an Upgrade header, reject early.
   const upgradeHeader = req.headers.get("upgrade");
   if (!upgradeHeader || upgradeHeader.toLowerCase() !== "websocket") {
-    return NextResponse.json(
-      { ok: false, error: "expected WebSocket upgrade" },
-      { status: 400 },
-    );
+    return NextResponse.json({ ok: false, error: "expected WebSocket upgrade" }, { status: 400 });
   }
 
   // In Next.js route handlers we cannot directly access the raw socket. This

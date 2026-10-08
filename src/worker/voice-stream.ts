@@ -153,11 +153,7 @@ async function withTimeout<T>(label: string, promise: Promise<T>): Promise<T> {
   }
 }
 
-async function safeTtsStream(
-  state: CallState,
-  ws: WebSocket,
-  text: string,
-): Promise<void> {
+async function safeTtsStream(state: CallState, ws: WebSocket, text: string): Promise<void> {
   const tts = new ElevenLabsStream();
   state.tts = tts;
 
@@ -306,8 +302,8 @@ async function handleTranscript(
   // will be handed off, not to attempt the conversation itself.
   const reply =
     role === "empathy_agent"
-      ? HOLDING_EMPATHY[state.lang] ?? HOLDING_EMPATHY.en
-      : HOLDING_FOLLOWUP[state.lang] ?? HOLDING_FOLLOWUP.en;
+      ? (HOLDING_EMPATHY[state.lang] ?? HOLDING_EMPATHY.en)
+      : (HOLDING_FOLLOWUP[state.lang] ?? HOLDING_FOLLOWUP.en);
   await safeTtsStream(state, ws, reply);
 }
 

@@ -61,9 +61,9 @@ describe("Home", () => {
     expect(screen.getAllByRole("button", { name: "Explore the dashboard" }).length).toBeGreaterThan(
       1,
     );
-    expect(screen.getAllByRole("button", { name: "Sign in to run the platform" }).length).toBeGreaterThan(
-      1,
-    );
+    expect(
+      screen.getAllByRole("button", { name: "Sign in to run the platform" }).length,
+    ).toBeGreaterThan(1);
     expect(screen.getByRole("heading", { level: 2, name: "The call, in five steps" })).toBeTruthy();
   });
 
@@ -116,9 +116,11 @@ describe("Home", () => {
     await user.type(within(dialog).getByLabelText("Full name"), "Fatima Al-Rashid");
     await user.type(within(dialog).getByLabelText("Institution"), "Emirates NBD");
     expect(
-      within(screen.getByRole("dialog", { name: /Book a 30-day pilot/ })).getByRole("button", {
-        name: "Request pilot",
-      }).hasAttribute("disabled"),
+      within(screen.getByRole("dialog", { name: /Book a 30-day pilot/ }))
+        .getByRole("button", {
+          name: "Request pilot",
+        })
+        .hasAttribute("disabled"),
     ).toBe(true);
 
     // A malformed address must keep it locked AND flag the field to assistive tech.
@@ -189,9 +191,11 @@ describe("Home", () => {
 
     // The form is still there to correct and retry — no dead end.
     expect(
-      within(screen.getByRole("dialog", { name: /Book a 30-day pilot/ })).getByRole("button", {
-        name: "Request pilot",
-      }).hasAttribute("disabled"),
+      within(screen.getByRole("dialog", { name: /Book a 30-day pilot/ }))
+        .getByRole("button", {
+          name: "Request pilot",
+        })
+        .hasAttribute("disabled"),
     ).toBe(false);
   });
 
@@ -199,7 +203,9 @@ describe("Home", () => {
     render(<Home />);
 
     const dialog = await openPilot(userEvent.setup());
-    expect(within(dialog).getByText(`Or email ${SUPPORT_EMAIL} — we reply personally`)).toBeTruthy();
+    expect(
+      within(dialog).getByText(`Or email ${SUPPORT_EMAIL} — we reply personally`),
+    ).toBeTruthy();
   });
 
   it("routes the deep-dive and use-case teasers through the view store", async () => {

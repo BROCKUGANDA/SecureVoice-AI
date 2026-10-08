@@ -126,9 +126,7 @@ function WebhookConfigSection() {
             >
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
-                  <div className="text-[12.5px] font-semibold text-foreground">
-                    {item.label}
-                  </div>
+                  <div className="text-[12.5px] font-semibold text-foreground">{item.label}</div>
                   <div className="text-[11.5px] text-ink-3">{item.description}</div>
                 </div>
                 <div className="flex items-center gap-2">

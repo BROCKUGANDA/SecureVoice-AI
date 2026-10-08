@@ -66,7 +66,10 @@ describe("Deck", () => {
     expect(screen.getByRole("button", { name: "Previous slide" }).hasAttribute("disabled")).toBe(
       false,
     );
-    await waitFor(() => expect(screen.queryByText("Press → or Space to begin")).toBeNull(), ANIMATED);
+    await waitFor(
+      () => expect(screen.queryByText("Press → or Space to begin")).toBeNull(),
+      ANIMATED,
+    );
   });
 
   it("clamps at the final slide: End jumps there and Next stops working", async () => {

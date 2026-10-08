@@ -6,9 +6,7 @@ const BankPayloadSchema = z.object({
   customer_phone_token: z.string().startsWith("tok_"),
   org_id: z.string().uuid(),
   institution_type: z.enum(["bank", "insurance"]).optional(),
-  call_category: z
-    .enum(["time_critical_fraud", "routine", "sensitive_case"])
-    .optional(),
+  call_category: z.enum(["time_critical_fraud", "routine", "sensitive_case"]).optional(),
 });
 
 export type GatewayDecision =

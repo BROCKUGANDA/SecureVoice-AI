@@ -272,9 +272,7 @@ async function main() {
     const score = lhr.categories[name]?.score;
     const ok = typeof score === "number" && score >= need;
     const shown = typeof score === "number" ? (score * 100).toFixed(0).padStart(3) : " n/a";
-    console.log(
-      `  ${name.padEnd(14)} ${shown}   need ${need * 100}   ${ok ? "PASS" : "FAIL"}`,
-    );
+    console.log(`  ${name.padEnd(14)} ${shown}   need ${need * 100}   ${ok ? "PASS" : "FAIL"}`);
     if (!ok) problems.push(`score ${name} ${shown} < ${need * 100}`);
   }
 
@@ -292,9 +290,9 @@ async function main() {
   const a11yOk = a11y.total <= BUDGETS.a11y.maxCriticalOrSeriousViolations;
   console.log("");
   console.log(
-    `  a11y failing audits      ${String(a11y.failingAudits.length).padStart(9)}   (${a11y.failingAudits
-      .map((f) => `${f.id}=${f.count}`)
-      .join(", ") || "none"})`,
+    `  a11y failing audits      ${String(a11y.failingAudits.length).padStart(9)}   (${
+      a11y.failingAudits.map((f) => `${f.id}=${f.count}`).join(", ") || "none"
+    })`,
   );
   console.log(
     `  a11y critical/serious    ${String(a11y.total).padStart(9)}   budget <= ${BUDGETS.a11y.maxCriticalOrSeriousViolations}   ${a11yOk ? "PASS" : "FAIL"}`,

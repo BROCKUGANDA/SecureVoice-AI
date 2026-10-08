@@ -272,7 +272,9 @@ describe("Demo", () => {
 
     await waitFor(
       () =>
-        expect(screen.getByText("The agent did not respond — try again or type your answer.")).toBeTruthy(),
+        expect(
+          screen.getByText("The agent did not respond — try again or type your answer."),
+        ).toBeTruthy(),
       { timeout: 4000 },
     );
     expect(screen.getByRole("log", { name: "Live conversation transcript" }).textContent).toContain(

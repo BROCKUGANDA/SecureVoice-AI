@@ -1,10 +1,6 @@
 import { z } from "zod";
 
-export const CallCategorySchema = z.enum([
-  "time_critical_fraud",
-  "routine",
-  "sensitive_case",
-]);
+export const CallCategorySchema = z.enum(["time_critical_fraud", "routine", "sensitive_case"]);
 
 export const InterventionPolicySchema = z.object({
   org_id: z.string().uuid(),

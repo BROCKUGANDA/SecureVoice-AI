@@ -110,7 +110,9 @@ export async function POST(req: NextRequest) {
       },
     });
   } catch (err) {
-    logError("[tool/warm_transfer] audit append failed, refusing transfer", { error: err instanceof Error ? err.message : String(err) });
+    logError("[tool/warm_transfer] audit append failed, refusing transfer", {
+      error: err instanceof Error ? err.message : String(err),
+    });
     return NextResponse.json({ ok: false, error: "audit_unavailable" }, { status: 503 });
   }
 
@@ -141,7 +143,9 @@ export async function POST(req: NextRequest) {
         })
         .catch(() => {});
     } else {
-      logError("[tool/warm_transfer] escalation write failed", { error: err instanceof Error ? err.message : String(err) });
+      logError("[tool/warm_transfer] escalation write failed", {
+        error: err instanceof Error ? err.message : String(err),
+      });
       return NextResponse.json({ ok: false, error: "handoff_queue_failed" }, { status: 503 });
     }
   }

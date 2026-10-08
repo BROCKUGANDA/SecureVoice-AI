@@ -124,7 +124,9 @@ export async function POST(req: NextRequest) {
     } catch (err) {
       const code = (err as { code?: string } | null)?.code;
       if (code === "P2002") continue; // ref collision — try a fresh ref
-      logError("[pilot] insert failed", { error: err instanceof Error ? err.message : String(err) });
+      logError("[pilot] insert failed", {
+        error: err instanceof Error ? err.message : String(err),
+      });
       break;
     }
   }

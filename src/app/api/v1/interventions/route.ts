@@ -424,7 +424,9 @@ export async function POST(req: NextRequest) {
         },
       );
     }
-    logError("[v1/interventions] arming failed", { error: err instanceof Error ? err.message : String(err) });
+    logError("[v1/interventions] arming failed", {
+      error: err instanceof Error ? err.message : String(err),
+    });
     return failure("dependency_unavailable", { detail: "case recording failed" });
   }
 }
@@ -646,8 +648,7 @@ async function armAndDial(
       { fast: true },
     ).catch(() => {});
     const sms = await markVoiceFailed({ caseRef, reason: "hearing_impaired" });
-    const smsDetail =
-      sms.sent === true ? undefined : "skipped" in sms ? sms.skipped : sms.error;
+    const smsDetail = sms.sent === true ? undefined : "skipped" in sms ? sms.skipped : sms.error;
     const envelope = {
       ok: true,
       caseRef,
@@ -821,7 +822,9 @@ async function armAndDial(
         caseId: created.id,
         institution: await getInstitutionType(orgId),
       }).catch((err: unknown) => {
-        logError("[v1/interventions] pre-notification SMS failed", { error: err instanceof Error ? err.message : String(err) });
+        logError("[v1/interventions] pre-notification SMS failed", {
+          error: err instanceof Error ? err.message : String(err),
+        });
       });
     }
     delivery = {

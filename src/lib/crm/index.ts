@@ -69,7 +69,9 @@ const defaultSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(r
 function logger(deps: HandoffDeps): (message: string) => void {
   return (message) => {
     try {
-      (deps.log ?? ((m: string) => logWarn("[crm] warning", { message: m })))(leakSafeText(message, 200));
+      (deps.log ?? ((m: string) => logWarn("[crm] warning", { message: m })))(
+        leakSafeText(message, 200),
+      );
     } catch {
       /* logging must never throw */
     }

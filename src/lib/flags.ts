@@ -112,12 +112,12 @@ export const FLAG_NAMES = [
 
   /**
    * Use Twilio Media Streams + Deepgram + ElevenLabs for the live voice path
-    * instead of ElevenLabs ConvAI. Off = current ConvAI path. On = custom
-    * WebSocket pipeline with multi-agent routing and JIT AuthZ soft freeze.
-    *
-    * Defaults OFF because it requires a publicly reachable WebSocket endpoint
-    * (`VOICE_STREAM_HOST`/`VOICE_STREAM_PORT`) and a separate worker process.
-    */
+   * instead of ElevenLabs ConvAI. Off = current ConvAI path. On = custom
+   * WebSocket pipeline with multi-agent routing and JIT AuthZ soft freeze.
+   *
+   * Defaults OFF because it requires a publicly reachable WebSocket endpoint
+   * (`VOICE_STREAM_HOST`/`VOICE_STREAM_PORT`) and a separate worker process.
+   */
   "twilioMediaStreams",
 ] as const;
 

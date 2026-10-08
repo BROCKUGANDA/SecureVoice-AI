@@ -81,12 +81,16 @@ export async function POST(req: NextRequest) {
       redactedText: redactText(text).slice(0, 200),
       meta: { mime, lang: lang ?? null, latencyMs: Date.now() - started },
     }).catch((err) => {
-      logError("[asr] audit append failed", { error: err instanceof Error ? err.message : String(err) });
+      logError("[asr] audit append failed", {
+        error: err instanceof Error ? err.message : String(err),
+      });
     });
 
     return NextResponse.json({ ok: true, text, mime, callRef });
   } catch (err) {
-    logError("[asr] transcription failed", { error: err instanceof Error ? err.message : String(err) });
+    logError("[asr] transcription failed", {
+      error: err instanceof Error ? err.message : String(err),
+    });
     const msg =
       err instanceof Error && err.message === "ASR timeout"
         ? "Transcription timed out — please try a shorter recording."

@@ -272,7 +272,9 @@ export async function raiseOverageInvoice(input: {
   ).catch((err: unknown) => {
     // Fire-and-forget, as everywhere else money moves: a failing audit write
     // must not block the invoice, but it must be visible in the logs.
-    logError("[overage] invoice audit append failed", { error: err instanceof Error ? err.message : String(err) });
+    logError("[overage] invoice audit append failed", {
+      error: err instanceof Error ? err.message : String(err),
+    });
   });
 
   if (!duplicate) {

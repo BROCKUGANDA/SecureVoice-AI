@@ -9,7 +9,8 @@
  * no account closure, no PII access beyond the scoped customer token.
  */
 
-export type SoftFreezeResult = { ok: true; status: number } | { ok: false; status: number; error: string };
+export type SoftFreezeResult =
+  { ok: true; status: number } | { ok: false; status: number; error: string };
 
 export async function executeSoftFreeze(interventionId: string): Promise<SoftFreezeResult> {
   // In a real deployment, the scoped token lives in an encrypted org column

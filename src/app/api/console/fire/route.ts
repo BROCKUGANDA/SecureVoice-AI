@@ -306,7 +306,9 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     // Network/timeout before a verdict — the claimed credit is refunded.
     await refundCredit(profile.userId);
-    logError("[console-fire] upstream unreachable", { error: err instanceof Error ? err.message : String(err) });
+    logError("[console-fire] upstream unreachable", {
+      error: err instanceof Error ? err.message : String(err),
+    });
     return upstreamError(
       "Intervention path unreachable — credit refunded, nothing was armed.",
       503,

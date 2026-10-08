@@ -61,3 +61,50 @@ describe("pinecone configuration", () => {
     });
   });
 });
+
+/**
+ * TENANT ISOLATION — the property that must not regress.
+ *
+ * `orgId` is stamped on every vector written, and every read filters on it.
+ * This suite pins that structurally rather than behaviourally: the module is
+ * `server-only` and reads env at import time, so it cannot be imported here
+ * without a live Pinecone. Reading the source is what stops someone from later
+ * adding an unfiltered `query()` or making `orgId` optional.
+ *
+ * A cross-tenant transcript leak on a fraud platform is a reportable incident,
+ * not a bug ticket.
+ */
+describe("pinecone tenant isolation", () => {
+  test("indexTranscript requires orgId — it is not optional and has no default", () => {
+    // A default here (orgId = "" or orgId?: string) would let vectors be
+    // written with no tenant, which no filter can then exclude.
+    expect(SRC).toMatch(/indexTranscript\(\s*\n\s*caseRef: string,\s*\n\s*transcript: string,[\s\S]*?orgId: string,/);
+    expect(SRC).toContain("org_id_required");
+  });
+
+  test("every upserted vector carries orgId in its metadata", () => {
+    expect(SRC).toMatch(/metadata:\s*\{[\s\S]*?orgId,[\s\S]*?source:/);
+  });
+
+  test("searchTranscripts filters by orgId and requires it", () => {
+    expect(SRC).toContain("searchTranscripts");
+    expect(SRC).toMatch(/searchTranscripts\(\s*\n\s*orgId: string,/);
+    // The filter itself: a query without it would return every tenant's rows.
+    expect(SRC).toMatch(/filter:\s*\{\s*orgId\s*\}/);
+  });
+
+  test("results are re-checked against the tenant after the query", () => {
+    // Defence in depth: if a filter were silently dropped server-side, the
+    // metadata check below is what stops another org's transcript being returned.
+    expect(SRC).toContain("m.metadata?.orgId === orgId");
+  });
+
+  test("no unfiltered query exists anywhere in the module", () => {
+    const queries = SRC.match(/\.query\(\s*\{[\s\S]*?\}/g) ?? [];
+    expect(queries.length).toBeGreaterThan(0);
+    for (const q of queries) {
+      expect(q).toContain("filter:");
+      expect(q).toContain("orgId");
+    }
+  });
+});

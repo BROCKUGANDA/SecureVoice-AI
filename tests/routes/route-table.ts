@@ -156,6 +156,10 @@ const PUBLIC_BY_DESIGN: Readonly<Record<string, string>> = {
     "Twilio turn credential fetch authenticated by Twilio's signature, not a session",
   "/api/sms/inbound":
     "Twilio inbound-SMS webhook authenticated by X-Twilio-Signature (fails closed without it), not a session",
+  "/api/twilio/status":
+    "Twilio delivery callback authenticated by X-Twilio-Signature (fails closed without it); writes only the telecom outbox, never case state — proven by tests/unit/twilio-telecom-webhooks.test.ts",
+  "/api/twilio/inbound-voice":
+    "Twilio inbound-voice webhook authenticated by X-Twilio-Signature (fails closed without it); tenant comes from the dialled number, never from the caller — same suite",
   "/api/webhooks/receiver":
     "our own REFERENCE receiver published for integrators; holds no tenant data",
   "/api/webhooks/elevenlabs": "inbound ElevenLabs webhook authenticated by the vendor signature",
@@ -172,6 +176,8 @@ const PUBLIC_BY_DESIGN: Readonly<Record<string, string>> = {
   "/api/elevenlabs/tools/switch-language":
     "agent tool endpoint guarded by the x-agent-tool-secret via authorizeToolCall, not an operator session",
   "/api/elevenlabs/tools/verify-transaction":
+    "agent tool endpoint guarded by the x-agent-tool-secret via guardToolCall, not an operator session",
+  "/api/elevenlabs/tools/warm-transfer":
     "agent tool endpoint guarded by the x-agent-tool-secret via guardToolCall, not an operator session",
   "/openapi": "published contract document (WP-17); schema only, no tenant data",
   "/asyncapi": "published contract document (WP-17); schema only, no tenant data",

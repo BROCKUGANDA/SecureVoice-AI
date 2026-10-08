@@ -34,7 +34,7 @@ jobs:
           HAS_KEY: ${{ secrets.VPS_DEPLOY_KEY != '' }}
         run: echo "has_key=$HAS_KEY" >> "$GITHUB_OUTPUT"
 
-      - name: Deploy to VPS (pull, build, roll app + workers)
+      - name: Deploy to VPS (pull, build, migrate, roll app + workers)
         if: steps.key.outputs.has_key == 'true'
         uses: appleboy/ssh-action@v1.2.2
         with:
@@ -46,6 +46,15 @@ jobs:
             cd /home/ubuntu/securevoice-ai
             git pull --ff-only origin main
             docker compose build app dial-worker retention-worker
+            # Schema before code. The runner image is `oven/bun:1-slim` plus the
+            # standalone bundle: it has no Prisma CLI and no prisma/migrations, so
+            # the app container cannot migrate itself, and a deploy that only rolls
+            # containers leaves the database one column behind the code that reads
+            # it — which surfaces as a 500 on the request that touches the new
+            # field, not as a failed deploy. db-setup builds the `builder` target,
+            # which does have both; `sh -c` overrides its entrypoint so this
+            # applies migrations WITHOUT re-seeding demo cases into a live database.
+            docker compose run --rm --no-deps db-setup sh -c "bunx prisma migrate deploy"
             docker compose up -d app dial-worker retention-worker
 
       - name: Smoke test the running origin

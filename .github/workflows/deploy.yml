@@ -31,6 +31,10 @@ on:
   workflow_dispatch:
 
 permissions:
+  # The manual path below reads the commit's check-runs, and naming
+  # `contents: read` alone sets every other scope to none — without this the
+  # lookup returns 403 and the gate can never prove CI was green.
+  checks: read
   contents: read
 
 # Two deploys must never interleave: a half-applied migration followed by a
@@ -61,9 +65,19 @@ jobs:
         run: |
           if [ "$EVENT" = "workflow_dispatch" ]; then
             echo "manual deploy: verifying CI on main is currently green"
-            code=$(gh api "repos/$GITHUB_REPOSITORY/commits/main/check-runs" \
-              --jq '[.check_runs[] | select((.name | startswith("Lint, typecheck"))
-                      or (.name | startswith("Compose stack")))] | .[0].conclusion')
+            # Every expected check must be present and green, and only the
+            # LATEST attempt of each counts: a re-run adds a check run beside
+            # the failed one instead of replacing it.
+            code=$(gh api "repos/$GITHUB_REPOSITORY/commits/main/check-runs?per_page=100" \
+              --jq '[.check_runs[]
+                    | select((.name | startswith("Lint, typecheck"))
+                          or (.name | startswith("Compose stack")))]
+                    | group_by(.name)
+                    | map(sort_by(.started_at // "") | last)
+                    | if length < 2 then "missing"
+                      elif (map(select(.status == "completed" and .conclusion == "success")) | length) == length then "success"
+                      else "failing"
+                      end')
             [ "$code" = "success" ] || {
               echo "::error::CI on main is not green (got '${code:-none}') — refusing a manual deploy."
               exit 1

@@ -21,6 +21,13 @@
 # the same wall and moved to `workflow_run` (see deploy.yml); this follows that
 # pattern, so the gate only ever reads a finished CI run.
 #
+# THE COMMIT, NOT `main`
+#
+# The run that finishes proves ONE SHA. So this checks out that SHA, refuses if
+# the checkout turned out to be something else, and pushes the tag back as
+# `HEAD:main`. A release can never name a commit no CI run has seen, even when
+# `main` moves in the seconds between CI finishing and this job starting.
+#
 # THE LOOP, AND HOW IT IS BROKEN
 #
 # This workflow pushes a commit to `main`. That commit would trigger CI, which
@@ -63,7 +70,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: main
+          # The exact commit CI proved, never mutable `main`: `main` can advance
+          # between CI finishing and this checkout, and bumping that newer
+          # commit would tag — and hand PROMOTE_TOKEN to — code no CI run has
+          # seen. A manual run has no upstream commit, so it takes `main`.
+          ref: ${{ github.event.workflow_run.head_sha || 'main' }}
           # The tag push below needs the tag to be creatable, and the bump needs
           # the tag list to know whether this commit already shipped.
           fetch-depth: 0
@@ -74,17 +85,26 @@ jobs:
         env:
           EVENT: ${{ github.event_name }}
           RUN_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          RUN_EVENT: ${{ github.event.workflow_run.event }}
+          RUN_REPO: ${{ github.event.workflow_run.head_repository.full_name }}
           RUN_ID: ${{ github.event.workflow_run.id }}
           GH_TOKEN: ${{ secrets.PROMOTE_TOKEN }}
         run: |
           if [ "$EVENT" = "workflow_dispatch" ]; then
             echo "manual run: verifying CI on main is currently green"
-            code=$(gh api "repos/$GITHUB_REPOSITORY/commits/main/check-runs" \
+            # Every expected check must be present and green, and only the
+            # LATEST attempt of each counts: a re-run adds a check run beside
+            # the failed one instead of replacing it, so "any non-success"
+            # would refuse a commit whose current CI is green.
+            code=$(gh api "repos/$GITHUB_REPOSITORY/commits/main/check-runs?per_page=100" \
               --jq '[.check_runs[]
                     | select((.name | startswith("Lint, typecheck"))
                           or (.name | startswith("Compose stack")))]
-                    | if length == 0 then "missing"
-                      else (map(select(.conclusion != "success")) | if length == 0 then "success" else "failing" end)
+                    | group_by(.name)
+                    | map(sort_by(.started_at // "") | last)
+                    | if length < 2 then "missing"
+                      elif (map(select(.status == "completed" and .conclusion == "success")) | length) == length then "success"
+                      else "failing"
                       end')
             echo "CI on main: $code"
             [ "$code" = "success" ] || {
@@ -96,8 +116,20 @@ jobs:
 
           # The `workflow_run` path: the event carries the CI run's verdict on
           # the commit that just finished, so no check-runs lookup is needed and
-          # there is nothing to race.
-          echo "CI run $RUN_ID on main concluded: $RUN_CONCLUSION"
+          # there is nothing to race. It also carries WHAT that run was — and
+          # only a push to this repository proves a commit. A fork PR whose head
+          # branch happens to be named `main`, or a manual CI dispatch, matches
+          # `branches: [main]` too, and a fork run skips every job while still
+          # reporting success.
+          echo "CI run $RUN_ID ($RUN_EVENT on $RUN_REPO) concluded: $RUN_CONCLUSION"
+          [ "$RUN_EVENT" = "push" ] || {
+            echo "::error::CI run ${RUN_ID} was a '${RUN_EVENT}' run, not a push — refusing to cut a release."
+            exit 1
+          }
+          [ "$RUN_REPO" = "$GITHUB_REPOSITORY" ] || {
+            echo "::error::CI run ${RUN_ID} ran on ${RUN_REPO}, not ${GITHUB_REPOSITORY} — refusing to cut a release."
+            exit 1
+          }
           [ "$RUN_CONCLUSION" = "success" ] || {
             echo "::error::CI run ${RUN_ID} concluded '${RUN_CONCLUSION}' — refusing to cut a release."
             exit 1
@@ -130,6 +162,14 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
+          # The checkout above asked for RUN_SHA, but a ref is resolved by the
+          # runner, not by us. Prove HEAD is the commit CI proved instead of
+          # assuming it: everything below tags and pushes whatever is here.
+          if [ -n "${RUN_SHA:-}" ] && [ "$(git rev-parse HEAD)" != "$RUN_SHA" ]; then
+            echo "::error::checked out $(git rev-parse HEAD), expected CI's ${RUN_SHA} — refusing to cut a release."
+            exit 1
+          fi
+
           # THE LOOP GUARD. The release commit carries its version tag, so a run
           # for that commit finds HEAD already tagged and stops. It keys on the
           # COMMIT, not on package.json's version: keying on the version would
@@ -144,18 +184,20 @@ jobs:
           fi
 
           # `workflow_run` cannot declare a path filter, so the `paths-ignore`
-          # this workflow used to carry is re-checked here: a push that only
-          # touched docs, evidence, or package.json is not worth a release. An
-          # empty file list (an API hiccup) does NOT skip — a missed release is
-          # worse than a noisy one.
-          if [ -n "${RUN_SHA:-}" ]; then
-            changed=$(gh api "repos/$GITHUB_REPOSITORY/commits/$RUN_SHA" \
-              --jq '.files[].filename' || true)
+          # this workflow used to carry is re-checked here — over everything
+          # since the last release, not just the tip commit. A push whose tip
+          # touched only docs can still be carrying the code change that has not
+          # shipped yet, and reading only the tip would lose that release. No
+          # previous tag, or a diff that fails, does NOT skip either: a missed
+          # release is worse than a noisy one.
+          prev=$(git describe --tags --abbrev=0 --match 'v[0-9]*' HEAD 2>/dev/null || true)
+          if [ -n "$prev" ]; then
+            changed=$(git diff --name-only "$prev" HEAD || true)
             if [ -n "$changed" ] &&
                ! printf '%s\n' "$changed" | grep -qvE '^(package\.json$|.*\.md$|docs/|evidence/|\.github/workflows/autoversion\.yml$)'; then
-              echo "only docs/evidence/package.json changed — nothing to release."
+              echo "nothing release-relevant since $prev — nothing to release."
               echo "released=false" >> "$GITHUB_OUTPUT"
-              echo "### no release-relevant change in $RUN_SHA" >> "$GITHUB_STEP_SUMMARY"
+              echo "### no release-relevant change since $prev" >> "$GITHUB_STEP_SUMMARY"
               exit 0
             fi
           fi
@@ -188,10 +230,14 @@ jobs:
           # the commit this tag points at rather than a bare pointer.
           git tag -a "v$next" -m "SecureVoice AI v$next"
 
+          # `HEAD:main`, not `main`: on the `workflow_run` path HEAD is the
+          # detached commit CI proved and there is no local `main` ref to push.
+          # If `main` has moved since, this push is rejected — which is the
+          # point: that newer commit has its own CI run and its own release.
+          git push origin HEAD:main
           # Follow tags, so the release workflow — which is tag-triggered —
           # actually starts. A plain `git push` leaves the tag behind and the
           # release silently never happens.
-          git push origin main
           git push origin "refs/tags/v$next"
 
           {

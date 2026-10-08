@@ -87,6 +87,13 @@ jobs:
           cd ~/securevoice-ai
           git fetch origin main
           git checkout main
+          # The VPS Caddyfile is VPS-local and is meant to be skip-worktree'd so a
+          # deploy pull never trips on it (see the note at the top of this file).
+          # That flag can lapse — a manual `git checkout` or an edit outside the
+          # deploy clears it — and one deploy aborted with "Your local changes to
+          # Caddyfile would be overwritten by merge". Re-assert it here so the
+          # ff-only pull always preserves the deployment-local edge config.
+          git update-index --skip-worktree Caddyfile Caddyfile.platform 2>/dev/null || true
           git pull --ff-only origin main
           echo "deployed commit: $(git rev-parse --short HEAD)"
 

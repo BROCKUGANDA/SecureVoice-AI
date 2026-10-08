@@ -237,15 +237,23 @@ jobs:
         continue-on-error: true
         run: bun run test:coverage || true
 
+      # Report-only, exactly like the step that produces it. The measurement
+      # above is deliberately non-blocking, so an artifact-UPLOAD failure must
+      # not turn the same run red — this step was the last thing standing
+      # between a fully green suite and a green build. `if-no-files-found:
+      # ignore` because "no coverage files" is the expected outcome whenever the
+      # coverage step itself failed, which is the case this pipeline is built
+      # to tolerate.
       - name: Upload coverage summary
         if: always()
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: coverage-summary
           path: |
             coverage/coverage-summary.txt
             coverage/coverage.json
-          if-no-files-found: warn
+          if-no-files-found: ignore
 
       # AA-1.1 — N+1 / query-budget gate.
       #

@@ -33,7 +33,9 @@ export async function isWithinPrayerWindow(region: string): Promise<boolean> {
   const prayers = ["Fajr", "Dhuhr", "Asr", "Maghrib", "Isha"];
 
   for (const prayer of prayers) {
-    const prayerTime = toMinutes(timings[prayer]);
+    const raw = timings[prayer];
+    if (!raw) continue;
+    const prayerTime = toMinutes(raw);
     if (currentMinutes >= prayerTime - 10 && currentMinutes <= prayerTime + 15) {
       if (prayer === "Dhuhr" && now.getDay() === 5) {
         return true;
@@ -47,5 +49,5 @@ export async function isWithinPrayerWindow(region: string): Promise<boolean> {
 
 function toMinutes(value: string): number {
   const [h, m] = value.split(":").map(Number);
-  return h * 60 + m;
+  return (h ?? 0) * 60 + (m ?? 0);
 }

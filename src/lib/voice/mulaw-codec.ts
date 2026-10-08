@@ -39,7 +39,9 @@ for (let code = 0x80; code <= 0xff; code++) {
 
 /** Decode one µ-law code to a 16-bit linear sample. */
 export function mulawToSample(code: number): number {
-  const magnitude = POSITIVE_LEVELS[code & 0x7f];
+  // `code & 0x7f` is 0..127 and POSITIVE_LEVELS has all 128 entries, so this
+  // lookup is always in range; the `?? 0` only satisfies noUncheckedIndexedAccess.
+  const magnitude = POSITIVE_LEVELS[code & 0x7f] ?? 0;
   return code & 0x80 ? magnitude : -magnitude;
 }
 
@@ -55,14 +57,16 @@ export function sampleToMulaw(sample: number): number {
   let hi = POSITIVE_LEVELS.length;
   while (lo < hi) {
     const mid = (lo + hi) >> 1;
-    if (POSITIVE_LEVELS[mid] < abs) lo = mid + 1;
+    if ((POSITIVE_LEVELS[mid] ?? 0) < abs) lo = mid + 1;
     else hi = mid;
   }
 
   let idx: number;
   if (lo === 0) idx = 0;
   else if (lo >= POSITIVE_LEVELS.length) idx = POSITIVE_LEVELS.length - 1;
-  else idx = POSITIVE_LEVELS[lo] - abs <= abs - POSITIVE_LEVELS[lo - 1] ? lo : lo - 1;
+  else
+    idx =
+      (POSITIVE_LEVELS[lo] ?? 0) - abs <= abs - (POSITIVE_LEVELS[lo - 1] ?? 0) ? lo : lo - 1;
 
   return negative ? idx : 0x80 + idx;
 }
@@ -80,7 +84,7 @@ export function encodeMulaw(pcm: Buffer): Buffer {
 export function decodeMulaw(mulaw: Buffer): Buffer {
   const out = Buffer.alloc(mulaw.length * 2);
   for (let i = 0; i < mulaw.length; i++) {
-    out.writeInt16LE(mulawToSample(mulaw[i]), i * 2);
+    out.writeInt16LE(mulawToSample(mulaw[i] ?? 0), i * 2);
   }
   return out;
 }
@@ -92,7 +96,7 @@ export function decodeMulaw(mulaw: Buffer): Buffer {
 export function mulawToFloat32(mulaw: Buffer): Float32Array {
   const out = new Float32Array(mulaw.length);
   for (let i = 0; i < mulaw.length; i++) {
-    out[i] = mulawToSample(mulaw[i]) / 32768;
+    out[i] = mulawToSample(mulaw[i] ?? 0) / 32768;
   }
   return out;
 }

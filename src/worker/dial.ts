@@ -71,7 +71,7 @@ export function resolveDeliveryLang(requested?: string | null): DeliveryLang {
   if (!raw) return "en";
   const exact = (SUPPORTED_LANGS as readonly string[]).includes(raw);
   if (exact) return raw as DeliveryLang;
-  const base = raw.split(/[-_]/)[0];
+  const base = raw.split(/[-_]/)[0] ?? "";
   if ((SUPPORTED_LANGS as readonly string[]).includes(base)) return base as DeliveryLang;
   logWarn("[dial-worker] no voice for requested language, dialling in en", {
     requested: raw.slice(0, 20),

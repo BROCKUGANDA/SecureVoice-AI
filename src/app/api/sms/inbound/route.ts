@@ -1,7 +1,7 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { consume as consumeRateLimit, rateLimitId } from "@/lib/ratelimit";
-import { verifyTwilioSignature } from "@/lib/twilio";
+import { twilioSignedUrl, verifyTwilioSignature } from "@/lib/twilio";
 import { handleSmsReply } from "@/lib/sms-verdict";
 import { checkBadActor, recordStrike } from "@/lib/abuse/bad-actor";
 
@@ -49,10 +49,7 @@ function escapeXml(s: string): string {
 }
 
 function publicUrl(req: NextRequest): string {
-  const base = process.env.TWILIO_WEBHOOK_BASE_URL?.replace(/\/+$/, "");
-  if (base) return `${base}${req.nextUrl.pathname}${req.nextUrl.search}`;
-  const proto = req.headers.get("x-forwarded-proto") ?? "https";
-  return `${proto}://${req.headers.get("host")}${req.nextUrl.pathname}${req.nextUrl.search}`;
+  return twilioSignedUrl(req);
 }
 
 export async function POST(req: NextRequest) {

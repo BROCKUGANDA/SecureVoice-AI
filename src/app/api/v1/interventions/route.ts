@@ -24,6 +24,7 @@ import { makeFailure, type FailureCode, type FailureInit } from "@/lib/failures/
 import { notifyRealtime } from "@/lib/realtime";
 import { createCase, transitionCase } from "@/lib/case-state-machine";
 import { SIGNAL_KINDS } from "@/lib/institution-types";
+import { getInstitutionType } from "@/lib/institution";
 import { CALL_CATEGORIES } from "@/lib/call-categories";
 import { env, replayWindowSec, IDEMPOTENCY_TTL_HOURS, SUPPORTED_LANGS } from "@/lib/config";
 
@@ -549,7 +550,7 @@ async function armAndDial(
   // The gates above have passed, so this is RECEIVED -> SCREENED through the
   // single writer. The dial worker then owns SCREENED -> DIALING.
   const merchant = signal.merchant ? sanitizeUntrusted(signal.merchant) : undefined;
-  await createCase({
+  const created = await createCase({
     caseRef,
     orgId,
     transactionRef: signal.transaction_ref,
@@ -748,6 +749,11 @@ async function armAndDial(
         // message in the chain, and one that names a transaction is a template a
         // smisher can copy verbatim. It says only "expect a verification call".
         kind: "heads_up",
+        // Whose alert this is decides WHICH number it comes from and what the
+        // customer is told to expect a call from — see resolveSmsSender.
+        orgId,
+        caseId: created.id,
+        institution: await getInstitutionType(orgId),
       }).catch((err: unknown) => {
         console.error(
           "[v1/interventions] pre-notification SMS failed:",

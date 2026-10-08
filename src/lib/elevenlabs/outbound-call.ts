@@ -45,12 +45,28 @@ export type OutboundCallParams = {
   institutionName?: string | null;
   /** WHY the institution is calling; selects the system prompt. Null reads as the default. */
   callCategory?: string | null;
+  /**
+   * The tenant's OWN phone number on the conversation platform
+   * (`Organization.elevenPhoneNumberId`) — the DID the customer's handset shows.
+   *
+   * When present it REPLACES `ELEVENLABS_PHONE_NUMBER_ID`. That is the point of
+   * the field: an institution's fraud alert has to ring from the number their
+   * customers already know, and a bank whose alert goes out on a shared platform
+   * line is a bank whose customers hang up. Nothing here falls back silently —
+   * a caller that has a tenant identity is expected to pass it, and the dial
+   * worker refuses the job when the identity could not be read.
+   */
+  phoneNumberId?: string | null;
 };
 
 export type OutboundCallResult = {
   conversationId: string | null;
   callSid: string | null;
   dryRun: boolean;
+  /** The phone number identity the call went out on — the tenant's own when it
+   *  has one, the deployment default otherwise. Recorded, not guessed, because
+   *  the outbox has to say which line the customer actually saw. */
+  phoneNumberId?: string | null;
 };
 
 function phoneNumberId(): string | null {
@@ -210,13 +226,14 @@ export async function placeOutboundCall(params: OutboundCallParams): Promise<Out
       conversationId: `conv_dryrun_${params.caseRef}`,
       callSid: `CA_dryrun_${params.caseRef}`,
       dryRun: true,
+      phoneNumberId: null,
     };
   }
 
   // NB: the locals must not shadow the resolver functions above (a
   // `const agentId = agentId()` here is a TDZ error, not a call).
   const agent = agentId();
-  const phoneId = phoneNumberId();
+  const phoneId = params.phoneNumberId ?? phoneNumberId();
   const key = apiKey();
   if (!agent || !phoneId || !key) {
     throw new Error(
@@ -317,5 +334,6 @@ export async function placeOutboundCall(params: OutboundCallParams): Promise<Out
     conversationId: data.conversation_id ?? null,
     callSid: data.callSid ?? null,
     dryRun: false,
+    phoneNumberId: phoneId,
   };
 }

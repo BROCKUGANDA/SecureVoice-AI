@@ -152,6 +152,19 @@ export const env = {
   get elevenLabsSttModel(): string {
     return process.env.ELEVENLABS_STT_MODEL || "scribe_v2";
   },
+  /**
+   * The SIP address of the platform agent, for INBOUND calls — when a customer
+   * rings the institution's fraud line and the conversation plane should answer.
+   *
+   * Null (unset) is a supported state, not a broken deployment: the inbound
+   * route then routes to a human line if the tenant has one, and otherwise plays
+   * the safe message and tells the customer to expect a callback. It is never a
+   * reason to bridge a customer into nothing.
+   */
+  get elevenLabsInboundSipUri(): string | null {
+    const raw = (process.env.ELEVENLABS_INBOUND_SIP_URI ?? "").trim();
+    return raw ? raw : null;
+  },
   /** Agent id on the ElevenLabs Agents Platform that serves the live conversation. */
   get elevenLabsAgentId(): string | undefined {
     return process.env.ELEVENLABS_AGENT_ID;
@@ -318,6 +331,18 @@ export const env = {
   },
 
   /* ── Twilio runtime tunables ── */
+  /**
+   * The origin configured in the Twilio console for INBOUND webhooks, or null.
+   *
+   * Only `TWILIO_WEBHOOK_BASE_URL` — never `APP_BASE_URL`. Twilio signs the URL
+   * it was told to call, so verifying a signature has to reproduce that URL and
+   * nothing else; falling back to the origin the app serves itself at would
+   * reject every genuine webhook in a proxied deployment.
+   */
+  get twilioPublicBaseUrl(): string | null {
+    const raw = (process.env.TWILIO_WEBHOOK_BASE_URL ?? "").trim().replace(/\/+$/, "");
+    return raw ? raw : null;
+  },
   get twilioApiBaseUrl(): string {
     return process.env.TWILIO_API_BASE_URL ?? "https://api.twilio.com";
   },
@@ -331,6 +356,43 @@ export const env = {
   /** TTL for signed TwiML audio URLs served from /api/twilio/audio. */
   get twilioAudioCacheTtlMs(): number {
     return numSetting("TWILIO_AUDIO_CACHE_TTL_MS", 3_600_000, 1_000);
+  },
+  /**
+   * How long an inbound bridge waits for the far end (the agent leg or a human
+   * specialist) before Twilio gives up and the route's next instruction runs.
+   */
+  get inboundDialTimeoutSec(): number {
+    return numSetting("INBOUND_DIAL_TIMEOUT_SEC", 20, 5);
+  },
+  /**
+   * The origin Twilio dials back for status callbacks, null when there is no
+   * such origin.
+   *
+   * `TWILIO_WEBHOOK_BASE_URL` wins over `APP_BASE_URL` because the two are
+   * genuinely different facts in a real deployment: operators' browsers and
+   * Twilio's fleet do not always enter through the same host, and the internal
+   * address the app serves itself at is unreachable from a carrier.
+   *
+   * An unreachable value returns null rather than the value, so no callback URL
+   * is attached. That is the production-standard choice, not a convenience: a
+   * URL Twilio cannot resolve makes the provider retry a message the customer
+   * already received, and leaves the outbox showing an unknown outcome for a
+   * delivery that actually happened — which is worse for a compliance record
+   * than never having promised the callback.
+   */
+  get twilioWebhookBaseUrl(): string | null {
+    const raw = (process.env.TWILIO_WEBHOOK_BASE_URL ?? process.env.APP_BASE_URL ?? "")
+      .trim()
+      .replace(/\/+$/, "");
+    if (!/^https?:\/\/[^\s/]+$/i.test(raw)) return null;
+    const authority = (raw.slice(raw.indexOf("//") + 2).split("/")[0] ?? "").split(":")[0] ?? "";
+    const host = authority.replace(/^\[(.*)\]$/, "$1");
+    // localhost / loopback / mDNS names exist only inside the network the app
+    // is already in, so Twilio can never reach them. Bare IPs are allowed: a
+    // VPS with no domain is a real, reachable deployment.
+    if (host === "localhost" || host === "::1" || host.endsWith(".local") || /^127\./.test(host))
+      return null;
+    return raw;
   },
 
   /* ── Realtime push ── */

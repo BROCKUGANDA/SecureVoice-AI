@@ -121,6 +121,7 @@ export async function markVoiceFailed(args: {
     const row = await db.case.findFirst({
       where: { caseRef },
       select: {
+        id: true,
         phone: true,
         language: true,
         state: true,
@@ -168,6 +169,10 @@ export async function markVoiceFailed(args: {
         kind: "unreachable",
         last4: row.cardLast4,
         institution,
+        // The tenant's own sender, and the case the outbox joins on. A
+        // dead-lettered Bank A alert must not go out on the platform line.
+        orgId: row.orgId,
+        caseId: row.id,
       });
       if (!res.ok) {
         await record(caseRef, row.orgId, "sms_fallback_failed", reason, res.error);

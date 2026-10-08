@@ -85,6 +85,18 @@ export function canTransition(from: string, to: string): boolean {
   return (TRANSITIONS[from] ?? []).includes(to);
 }
 
+/**
+ * The states with no way out, DERIVED from the table rather than listed by hand.
+ *
+ * Callers ask "is this case still live?" — an inbound customer call-back, a
+ * retention sweep, the console's open-feed. A hand-maintained second list would
+ * drift the first time a transition is added, and the drift is silent: a closed
+ * case treated as live answers a customer who has no open alert.
+ */
+export const TERMINAL_CASE_STATES: readonly CaseState[] = CASE_STATES.filter(
+  (s) => (TRANSITIONS[s] ?? []).length === 0,
+);
+
 export class IllegalTransitionError extends Error {
   constructor(
     public from: string,

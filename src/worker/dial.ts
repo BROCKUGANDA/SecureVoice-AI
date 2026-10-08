@@ -28,7 +28,8 @@ import { append as auditAppend } from "@/lib/audit-chain";
 import { db } from "@/lib/db";
 import { transitionCase } from "@/lib/case-state-machine";
 import { markVoiceFailed } from "@/lib/elevenlabs/sms-fallback";
-import { getInstitutionContext } from "@/lib/institution";
+import { getInstitutionContext, getTelecomIdentity } from "@/lib/institution";
+import { recordTelecomEvent } from "@/lib/telecom-outbox";
 import { asCallCategory } from "@/lib/call-categories";
 import { isAfterHours, nextBusinessHoursStart } from "@/lib/abuse/velocity";
 import { sweepExpiredSmsCases } from "@/lib/sms-verdict";
@@ -74,6 +75,7 @@ async function handle(job: DialJob): Promise<DialOutcome> {
   const existing = await db.case.findFirst({
     where: { caseRef: job.case_ref },
     select: {
+      id: true,
       conversationId: true,
       state: true,
       phone: true,
@@ -159,6 +161,22 @@ async function handle(job: DialJob): Promise<DialOutcome> {
     // A bank says "your card", an insurer says "your policy". Resolved per tenant,
     // and a lookup fault falls back to the default rather than blocking the call.
     const institution = await getInstitutionContext(job.org_id);
+
+    // The tenant's OWN telecom surface, resolved strictly. A fault fails the job
+    // for retry instead of dialling on the platform's line: "we cannot read whose
+    // number this is" must never be answered by guessing, because the customer
+    // cannot tell the difference and the bank can.
+    let telecom;
+    try {
+      telecom = await getTelecomIdentity(job.org_id);
+    } catch {
+      return {
+        ok: false,
+        error: "tenant telecom identity lookup failed — refusing to dial on the platform number",
+        retryable: true,
+      };
+    }
+
     const result = await placeOutboundCall({
       toNumber: to,
       language: payload.language ?? "en",
@@ -169,6 +187,10 @@ async function handle(job: DialJob): Promise<DialOutcome> {
       institution: institution.type,
       institutionName: institution.name,
       callCategory: category,
+      // The tenant's bound DID when it has one — the caller ID on the customer's
+      // handset. Null means the tenant has brought no number and the deployment
+      // default speaks, which is an explicitly configured state, not a fallback.
+      phoneNumberId: telecom.elevenPhoneNumberId,
       dynamicVariables: {
         case_id: job.case_id,
         case_ref: job.case_ref,
@@ -193,6 +215,31 @@ async function handle(job: DialJob): Promise<DialOutcome> {
       conversationId: result.conversationId,
       callSid: result.callSid,
     });
+
+    // The telecom outbox: the dial happened, so it is recorded with the number
+    // identity the customer's handset showed. Skipped in dry-run — a simulated
+    // provider round-trip must not put a delivery fact in a compliance table.
+    if (!result.dryRun) {
+      void recordTelecomEvent({
+        orgId: job.org_id,
+        caseId: existing?.id ?? null,
+        channel: "voice",
+        toPhone: to,
+        fromPhone: result.phoneNumberId
+          ? `elevenlabs_phone:${result.phoneNumberId}`
+          : "platform_default",
+        providerSid: result.callSid,
+        status: "queued",
+        payload: {
+          caseRef: job.case_ref,
+          plane: "elevenlabs_agent",
+          category,
+          language: payload.language ?? "en",
+        },
+      }).catch((err: unknown) =>
+        console.error("[dial-worker] telecom outbox write failed:", String(err)),
+      );
+    }
 
     void auditAppend({
       callRef: job.case_ref,

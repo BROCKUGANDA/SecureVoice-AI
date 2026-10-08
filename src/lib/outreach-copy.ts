@@ -1,9 +1,10 @@
 /**
  * Customer-facing copy for the channels that are NOT a live conversation: the
- * "blind ping" SMS and the voicemail message. Pure - no server imports - so the
- * wording can be unit-tested and reused anywhere.
+ * pre-notification heads-up, the "blind ping" SMS, and the voicemail message.
+ * Pure - no server imports - so the wording can be unit-tested and reused
+ * anywhere.
  *
- * ## The SMS is a BLIND PING
+ * ## The heads-up and the blind ping name no merchant and no amount
  *
  * It names no merchant and no amount. SMS is unencrypted, sits on lock screens
  * and passes through carrier logs; if the customer's phone is already
@@ -89,6 +90,51 @@ export function blindPingSms(
   return SMS[inst][lang](ref);
 }
 
+/**
+ * The pre-notification heads-up: sent seconds BEFORE the call so the customer
+ * expects it. Still no merchant and no amount, and the institution noun follows
+ * the tenant — an insurer's heads-up must not tell the customer to expect a call
+ * from their bank.
+ */
+const HEADS_UP: Record<InstitutionType, Record<OutreachLang, (ref: string) => string>> = {
+  bank: {
+    en: (r) =>
+      `SecureVoice AI: Suspicious activity on your account. Ref ${r}. Expect a verification call from your bank. Never share PINs or OTPs.`,
+    ar: (r) =>
+      `SecureVoice AI: نشاط مشبوه على حسابك. المرجع ${r}. توقع مكالمة تحقق من مصرفك. لا تشارك رمز PIN أو OTP أبداً.`,
+    hi: (r) =>
+      `SecureVoice AI: आपके खाते पर संदिग्ध गतिविधि. संदर्भ ${r}. अपने बैंक से वेरिफिकेशन कॉल की अपेक्षा करें। PIN या OTP साझा न करें।`,
+    ur: (r) =>
+      `SecureVoice AI: آپ کے اکاؤنٹ پر مشکوک سرگرمی. حوالہ ${r}. اپنے بینک کی تصدیقی کال کی توقع رکھیں۔ PIN یا OTP شیئر نہ کریں۔`,
+    fr: (r) =>
+      `SecureVoice AI : Activité suspecte sur votre compte. Réf ${r}. Attendez-vous à un appel de vérification de votre banque. Ne partagez jamais vos codes PIN ou OTP.`,
+    sw: (r) =>
+      `SecureVoice AI: Shughuli ya kutuhumu kwenye akaunti yako. Ref ${r}. Subiri simu ya uthibitisho kutoka benki yako. Usishiriki PIN au OTP.`,
+  },
+  insurer: {
+    en: (r) =>
+      `SecureVoice AI: Suspicious activity on your policy. Ref ${r}. Expect a verification call from your insurer. Never share PINs or OTPs.`,
+    ar: (r) =>
+      `SecureVoice AI: نشاط مشبوه على وثيقتك. المرجع ${r}. توقع مكالمة تحقق من شركة التأمين الخاصة بك. لا تشارك رمز PIN أو OTP أبداً.`,
+    hi: (r) =>
+      `SecureVoice AI: आपकी पॉलिसी पर संदिग्ध गतिविधि. संदर्भ ${r}. अपनी बीमा कंपनी से वेरिफिकेशन कॉल की अपेक्षा करें। PIN या OTP साझा न करें।`,
+    ur: (r) =>
+      `SecureVoice AI: آپ کی پالیسی پر مشکوک سرگرمی. حوالہ ${r}. اپنی انشورنس کمپنی کی تصدیقی کال کی توقع رکھیں۔ PIN یا OTP شیئر نہ کریں۔`,
+    fr: (r) =>
+      `SecureVoice AI : Activité suspecte sur votre contrat. Réf ${r}. Attendez-vous à un appel de vérification de votre assureur. Ne partagez jamais vos codes PIN ou OTP.`,
+    sw: (r) =>
+      `SecureVoice AI: Shughuli ya kutuhumu kwenye bima yako. Ref ${r}. Subiri simu ya uthibitisho kutoka kampuni yako ya bima. Usishiriki PIN au OTP.`,
+  },
+};
+
+/** The heads-up SMS. `ref` is the case reference the customer will be asked for. */
+export function headsUpSms(
+  lang: OutreachLang,
+  opts: { caseRef: string; institution?: InstitutionType },
+): string {
+  return HEADS_UP[opts.institution ?? "bank"][lang](opts.caseRef);
+}
+
 /** What an answering machine hears when the tenant is an insurer. */
 export const VOICEMAIL_INSURER: Record<OutreachLang, string> = {
   en: "Hello, this is your insurer's automated AI security assistant. We tried to reach you about recent activity on your policy or claim. If you do not recognise recent activity, please call your insurer now using the number on your policy documents. We will never ask for your PIN, password or one-time passcode. Thank you.",
@@ -97,6 +143,23 @@ export const VOICEMAIL_INSURER: Record<OutreachLang, string> = {
   ur: "ہیلو، میں آپ کی انشورنس کمپنی کا خودکار AI سیکیورٹی اسسٹنٹ ہوں۔ ہم نے آپ کی پالیسی یا کلیم پر حالیہ سرگرمی کے بارے میں آپ سے رابطہ کرنے کی کوشش کی۔ اگر آپ کسی حالیہ سرگرمی کو نہیں پہچانتے تو براہ کرم اپنی پالیسی دستاویزات میں دیے گئے نمبر پر ابھی اپنی انشورنس کمپنی کو کال کریں۔ ہم کبھی آپ سے PIN، پاس ورڈ یا ون ٹائم کوڈ نہیں مانگیں گے۔ شکریہ۔",
   fr: "Bonjour, je suis l'assistant de sécurité automatisé par IA de votre assureur. Nous avons essayé de vous joindre au sujet d'une activité récente sur votre contrat ou votre sinistre. Si vous ne reconnaissez pas une activité récente, veuillez appeler votre assureur dès maintenant au numéro figurant sur vos documents de contrat. Nous ne vous demanderons jamais votre code PIN, votre mot de passe ni votre code à usage unique. Merci.",
   sw: "Habari, mimi ni msaidizi wa usalama wa kiotomatiki wa AI wa kampuni yako ya bima. Tulijaribu kukupigia simu kuhusu shughuli ya hivi karibuni kwenye bima au madai yako. Usipoitambua shughuli ya hivi karibuni, tafadhali piga simu kwa kampuni yako ya bima sasa kwa namba iliyo kwenye nyaraka za bima yako. Hatutakuomba kamwe PIN, nenosiri wala msimbo wa matumizi moja. Asante.",
+};
+
+/**
+ * Spoken when a customer rings the institution's fraud line and nothing can
+ * take the call in the moment (no agent bridge, no human line configured).
+ *
+ * It promises only what the platform can actually do — a specialist calls back —
+ * and repeats the never-ask rule, because a customer who has just been defrauded
+ * is the one most likely to hand credentials to the next ring.
+ */
+export const INBOUND_CALLBACK_ACK: Record<OutreachLang, string> = {
+  en: "Thank you for calling. We have your security alert on file. A fraud specialist will call you back shortly. We will never ask for your PIN, password, or one-time code.",
+  ar: "شكراً لاتصالك. لدينا تنبيه الأمان الخاص بك مسجّل. سيتصل بك أخصائي مكافحة الاحتيال قريباً. لن نطلب منك أبداً رمز PIN أو كلمة المرور أو رمز التحقق لمرة واحدة.",
+  hi: "आपके कॉल करने के लिए धन्यवाद। आपकी सुरक्षा अलर्ट हमारे रिकॉर्ड में है। एक फ्रॉड विशेषज्ञ आपको जल्दी ही कॉल बैक करेंगे। हम कभी आपका PIN, पासवर्ड या वन-टाइम कोड नहीं मांगेंगे।",
+  ur: "کال کرنے کا شکریہ۔ آپ کی سیکیورٹی الرٹ ہمارے ریکارڈ میں ہے۔ ایک فراڈ ماہر آپ کو جلد واپس کال کرے گا۔ ہم کبھی آپ سے PIN، پاس ورڈ یا ون ٹائم کوڈ نہیں مانگیں گے۔",
+  fr: "Merci de votre appel. Votre alerte de sécurité est enregistrée. Un spécialiste anti-fraude vous rappellera très prochainement. Nous ne vous demanderons jamais votre code PIN, votre mot de passe ni votre code à usage unique.",
+  sw: "Asante kwa kupiga simu. Tahadhari yako ya usalama iko kwenye kumbukumbu zetu. Mtaalamu wa udanganyifu atakupigia simu hivi karibuni. Hatutakuomba kamwe PIN, nenosiri, au msimbo wa matumizi moja.",
 };
 
 /** Confirmation texts sent back after a valid YES / NO. Still no merchant, no amount. */

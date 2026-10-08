@@ -11,7 +11,7 @@ datasource db {
 }
 
 model User {
-  id               String       @id @default(dbgenerated("pg_catalog.gen_random_uuid()")) @db.Uuid
+  id               String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   email            String       @unique
   name             String?
   createdAt        DateTime     @default(now())
@@ -361,6 +361,50 @@ model DoNotCall {
   createdAt DateTime @default(now())
 }
 
+/// The telecom outbox (src/lib/telecom-outbox.ts): the lifecycle of every
+/// outbound call and SMS, org-scoped. Twilio status callbacks update `status`
+/// by `providerSid`; `payload` carries the exact text sent (never a merchant
+/// or an amount).
+model TelecomEvent {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId       String?  @db.Uuid
+  caseId      String?
+  channel     String // voice | sms
+  toPhone     String
+  fromPhone   String
+  providerSid String?
+  status      String   @default("queued") // queued | in_progress | sent | delivered | failed
+  payload     Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([orgId, createdAt])
+  @@index([providerSid])
+  @@index([caseId])
+}
+
+/// Quarantine, written ONCE by migration `9z_case_transaction_ref_unique`: the
+/// case rows it deleted so the unique `transactionRef` index could exist. Which
+/// row survived was not arbitrary (the earliest, because that is the one that was
+/// dialled and therefore the one whose audit chain and recording exist), but a
+/// deleted row is still evidence — recoverable by hand if a "duplicate" turns out
+/// to have been two banks genuinely transacting on one reference.
+///
+/// There is no read path and none is wanted. It is declared here because the CI
+/// drift gate asks whether `prisma/migrations` and this file describe the same
+/// database, and a table the database has that the schema denies is precisely
+/// what that gate exists to catch.
+model TransactionRefDuplicate {
+  id             String    @id
+  caseRef        String
+  orgId          String?
+  transactionRef String?
+  state          String?
+  conversationId String?
+  createdAt      DateTime?
+  quarantinedAt  DateTime  @default(now())
+}
+
 /// One row per inbound ElevenLabs delivery (verified signature) — the
 /// processing registry and the dedupe record. Unique per
 /// (provider, eventType, conversationId, eventTimestamp): an exact redelivery
@@ -559,7 +603,7 @@ model PaymentRecord {
 }
 
 model Session {
-  id                   String   @id @default(dbgenerated("pg_catalog.gen_random_uuid()")) @db.Uuid
+  id                   String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   expiresAt            DateTime
   token                String
   createdAt            DateTime @default(now())
@@ -577,7 +621,7 @@ model Session {
 }
 
 model Verification {
-  id         String   @id @default(dbgenerated("pg_catalog.gen_random_uuid()")) @db.Uuid
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   identifier String
   value      String
   expiresAt  DateTime
@@ -589,7 +633,7 @@ model Verification {
 }
 
 model Organization {
-  id                  String            @id @default(dbgenerated("pg_catalog.gen_random_uuid()")) @db.Uuid
+  id                  String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   name                String
   slug                String
   logo                String?
@@ -609,13 +653,20 @@ model Organization {
   // this only changes how the institution is spoken about to ITS customers
   // ("your card" vs "your policy"). Default keeps every existing tenant a bank.
   institutionType     String            @default("bank")
+  // Per-tenant telecom identity (src/lib/institution.ts getTelecomIdentity).
+  // The org's OWN Twilio surface: the number customers call back, and the SMS
+  // sender identity. The ElevenLabs-path caller ID is `elevenPhoneNumberId`
+  // above. Empty falls back to the platform defaults.
+  twilioVoiceNumber           String?
+  twilioSmsSenderId           String?
+  twilioMessagingServiceSid   String?
 
   @@unique([slug])
   @@map("organization")
 }
 
 model Member {
-  id             String       @id @default(dbgenerated("pg_catalog.gen_random_uuid()")) @db.Uuid
+  id             String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   organizationId String       @db.Uuid
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   userId         String       @db.Uuid
@@ -629,7 +680,7 @@ model Member {
 }
 
 model Invitation {
-  id             String       @id @default(dbgenerated("pg_catalog.gen_random_uuid()")) @db.Uuid
+  id             String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   organizationId String       @db.Uuid
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   email          String
@@ -646,7 +697,7 @@ model Invitation {
 }
 
 model TwoFactor {
-  id                      String    @id @default(dbgenerated("pg_catalog.gen_random_uuid()")) @db.Uuid
+  id                      String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   secret                  String
   backupCodes             String
   userId                  String    @db.Uuid
@@ -661,7 +712,7 @@ model TwoFactor {
 }
 
 model RateLimit {
-  id          String @id @default(dbgenerated("pg_catalog.gen_random_uuid()")) @db.Uuid
+  id          String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   key         String
   count       Int
   lastRequest BigInt

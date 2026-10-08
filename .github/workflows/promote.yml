@@ -117,7 +117,17 @@ jobs:
       - name: Open or refresh the pull request, then arm auto-merge
         if: steps.delta.outputs.count != '0'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # NOT secrets.GITHUB_TOKEN. A pull request opened with GITHUB_TOKEN is
+          # treated as bot-authored, and GitHub then holds every workflow on it
+          # for a maintainer to approve — which is exactly what happened: the CI
+          # run on the first promotion PR sat at `action_required` with zero
+          # jobs, so auto-merge could never arm and the ladder stalled waiting
+          # for a human who was the thing auto-merge was meant to replace.
+          #
+          # A repo-scoped token creates the PR as the repository's own identity,
+          # so CI runs on it immediately and auto-merge arms. Scope it to this
+          # one repository with as little access as it will take.
+          GH_TOKEN: ${{ secrets.PROMOTE_TOKEN }}
           SOURCE: ${{ steps.edge.outputs.source }}
           TARGET: ${{ steps.edge.outputs.target }}
           COUNT: ${{ steps.delta.outputs.count }}

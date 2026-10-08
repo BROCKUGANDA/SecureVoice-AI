@@ -25,9 +25,6 @@
 # the smoke test still exercises the real topology — the same build targets, the
 # same migration path, the same Caddy reverse proxy in front of app + realtime,
 # with app and realtime still on the internal network only.
-#
-# Ports chosen: 18080/18443/18443-udp and 6380. Unprivileged, nothing else uses
-# them, and none of them collide with what production already holds.
 # ---------------------------------------------------------------------------
 services:
   caddy:
@@ -43,20 +40,12 @@ services:
       - "18443:443"
       - "18443:443/udp"
 
-  # The realtime package's cross-node gate (mini-services/realtime/test/
-  # crossnode.test.ts) spawns TWO processes that must share one Redis bus, and it
-  # defaults to redis://127.0.0.1:6380 — a HOST port, because those two
-  # processes run outside the compose network. The base file publishes no redis
-  # port at all, so a plain list here is additive and harmless; `!override` is
-  # used anyway so the intent survives someone adding ports to the base file.
+  # NOTE: no redis port is published here, deliberately.
   #
-  # 6380 is the port the test already asks for, so the test needed no change —
-  # the port was chosen when the test was written and CI simply never provided
-  # it. Scoped to 6380 rather than production's 6379 so this can never collide
-  # with the live redis on this host.
-  #
-  # CI override ONLY: production redis stays expose-only, as the topology
-  # requires (see the redis service in docker-compose.yml).
-  redis:
-    ports: !override
-      - "6380:6379"
+  # The cross-node gate that needs a redis on a HOST port runs in the `verify`
+  # job, which starts its own short-lived `docker run redis:7-alpine
+  # -p 6380:6379`. The smoke stack reaches its own redis over the compose
+  # network like every other service, so publishing 6380 here bought nothing
+  # and created a host-port collision with that other container — which surfaced
+  # as "Bind for 0.0.0.0:6380 failed: port is already allocated" and took the
+  # entire smoke stack down with it.

@@ -24,6 +24,7 @@ import { randomUUID } from "node:crypto";
 
 import { drainDialQueue, type DialJob, type DialOutcome } from "@/lib/scale/queue";
 import { placeOutboundCall } from "@/lib/elevenlabs/outbound-call";
+import { placeInterventionCall } from "@/lib/twilio";
 import { append as auditAppend } from "@/lib/audit-chain";
 import { db } from "@/lib/db";
 import { transitionCase } from "@/lib/case-state-machine";
@@ -33,7 +34,10 @@ import { recordTelecomEvent } from "@/lib/telecom-outbox";
 import { asCallCategory } from "@/lib/call-categories";
 import { isAfterHours, nextBusinessHoursStart } from "@/lib/abuse/velocity";
 import { sweepExpiredSmsCases } from "@/lib/sms-verdict";
-import { logError, logInfo } from "@/lib/validation/safe-log";
+import { logError, logInfo, logWarn } from "@/lib/validation/safe-log";
+import { flag } from "@/lib/flags";
+import { SUPPORTED_LANGS } from "@/lib/languages";
+import type { DeliveryLang } from "@/lib/twilio";
 
 const WORKER_ID =
   process.env.DIAL_WORKER_ID ?? `${hostname()}-${process.pid}-${randomUUID().slice(0, 8)}`;
@@ -51,6 +55,29 @@ type JobPayload = {
   currency?: string;
   transaction_ref?: string;
 };
+
+/**
+ * Resolve whatever the bank sent (`en`, `ar-AE`, `es_MX`) to a language the
+ * voice tables actually have.
+ *
+ * The dialect subtag is deliberately honoured: `ar-AE` must speak Arabic. It is
+ * better to answer a Gulf customer in MSA than in English, and the previous
+ * cast let an unknown-but-Arabic tag fall through to an English script without
+ * a word of complaint. An unresolvable tag is logged, because the customer
+ * cannot tell which language they were dialled in but the audit record can.
+ */
+export function resolveDeliveryLang(requested?: string | null): DeliveryLang {
+  const raw = (requested ?? "").trim().toLowerCase();
+  if (!raw) return "en";
+  const exact = (SUPPORTED_LANGS as readonly string[]).includes(raw);
+  if (exact) return raw as DeliveryLang;
+  const base = raw.split(/[-_]/)[0] ?? "";
+  if ((SUPPORTED_LANGS as readonly string[]).includes(base)) return base as DeliveryLang;
+  logWarn("[dial-worker] no voice for requested language, dialling in en", {
+    requested: raw.slice(0, 20),
+  });
+  return "en";
+}
 
 function parsePayload(job: DialJob): JobPayload {
   try {
@@ -178,30 +205,109 @@ async function handle(job: DialJob): Promise<DialOutcome> {
       };
     }
 
-    const result = await placeOutboundCall({
-      toNumber: to,
-      language: payload.language ?? "en",
-      merchant: payload.merchant ?? undefined,
-      amount: payload.amount ?? undefined,
-      currency: payload.currency ?? undefined,
-      caseRef: job.case_ref,
-      institution: institution.type,
-      institutionName: institution.name,
-      callCategory: category,
-      // The tenant's bound DID when it has one — the caller ID on the customer's
-      // handset. Null means the tenant has brought no number and the deployment
-      // default speaks, which is an explicitly configured state, not a fallback.
-      phoneNumberId: telecom.elevenPhoneNumberId,
-      dynamicVariables: {
-        case_id: job.case_id,
-        case_ref: job.case_ref,
-        merchant: payload.merchant ?? "",
-        amount: payload.amount ?? 0,
-        currency: payload.currency ?? "",
-        transaction_ref: payload.transaction_ref ?? "",
-        signal_kind: existing?.signalKind ?? "",
-      },
-    });
+    // Both planes must report the truth about the carrier. `placeOutboundCall`
+    // throws on failure; `placeInterventionCall` RETURNS one, so the ok flag has
+    // to be read here or a refused call becomes a recorded successful dial.
+    let result: {
+      conversationId: string | null;
+      callSid?: string | null;
+      dryRun: boolean;
+      phoneNumberId?: string | null;
+      fromPhone: string;
+      providerSid?: string | null;
+      // True when the send path already wrote the telecom outbox row itself.
+      outboxWritten: boolean;
+    };
+    if (flag("twilioMediaStreams")) {
+      const host = process.env.SITE_ADDRESS ?? "localhost";
+      // Worker plane lives on a SIBLING prefix under /realtime, not under /api:
+      // an edge matcher on /api/voice-websocket would shadow the app's own
+      // Next.js route of that name out of its per-route rate limiting. Caddy
+      // routes /realtime/media-stream here (see Caddyfile + Caddyfile.platform).
+      const mediaStreamUrl = new URL(`wss://${host}/realtime/media-stream`);
+      mediaStreamUrl.searchParams.set("callSid", job.case_ref);
+      // The language travels on the stream URL. The voice worker needs it for
+      // FOUR independent decisions — ASR model, TTS voice, TTS model, and the
+      // wording of every line it speaks — and none of them can be inferred from
+      // the audio before the first turn arrives.
+      //
+      // Omitting this silently produced an English agent calling an Urdu-speaking
+      // customer: ASR pinned to English, answered with an English voice, and
+      // English script read aloud on a call the bank asked to run in the
+      // customer's own language. `resolveDeliveryLang` is used rather than the
+      // raw payload so an unsupported code degrades to `en` HERE too, matching
+      // what the voice worker would do — two different fallbacks for the same
+      // field is how a call ends up with English ASR and an Urdu voice.
+      mediaStreamUrl.searchParams.set("lang", resolveDeliveryLang(payload.language));
+      const dial = await placeInterventionCall({
+        to,
+        lang: resolveDeliveryLang(payload.language),
+        amount: payload.amount?.toString(),
+        merchant: payload.merchant,
+        callRef: job.case_ref,
+        orgId: job.org_id,
+        caseId: existing?.id ?? null,
+        mediaStreamUrl: mediaStreamUrl.toString(),
+        // The tenant's own declaration decides whether Islamic terminology is
+        // substituted. Resolved here, at the layer that already reads the
+        // organisation, rather than inside the transport.
+        speech: { shariahCompliant: institution.shariahCompliant },
+      });
+      if (!dial.ok) {
+        throw new Error(`twilio dial refused (status ${dial.status}): ${dial.error}`);
+      }
+      result = {
+        // The app-side conversation key is the case ref — the same value the
+        // media-stream socket is opened with. `callSid` is the carrier's call
+        // leg, which is what warm_transfer rewrites. They are not the same
+        // thing and one cannot stand in for the other.
+        conversationId: job.case_ref,
+        callSid: dial.sid,
+        dryRun: false,
+        // The caller ID on the customer's handset is the Twilio DID, not an
+        // ElevenLabs phone id.
+        phoneNumberId: null,
+        providerSid: dial.sid,
+        fromPhone: dial.from ?? "platform_default",
+        outboxWritten: true,
+      };
+    } else {
+      const outbound = await placeOutboundCall({
+        toNumber: to,
+        language: payload.language ?? "en",
+        merchant: payload.merchant ?? undefined,
+        amount: payload.amount ?? undefined,
+        currency: payload.currency ?? undefined,
+        caseRef: job.case_ref,
+        institution: institution.type,
+        institutionName: institution.name,
+        callCategory: category,
+        // The tenant's bound DID when it has one — the caller ID on the customer's
+        // handset. Null means the tenant has brought no number and the deployment
+        // default speaks, which is an explicitly configured state, not a fallback.
+        phoneNumberId: telecom.elevenPhoneNumberId,
+        dynamicVariables: {
+          case_id: job.case_id,
+          case_ref: job.case_ref,
+          merchant: payload.merchant ?? "",
+          amount: payload.amount ?? 0,
+          currency: payload.currency ?? "",
+          transaction_ref: payload.transaction_ref ?? "",
+          signal_kind: existing?.signalKind ?? "",
+        },
+      });
+      result = {
+        conversationId: outbound.conversationId,
+        callSid: outbound.callSid,
+        dryRun: outbound.dryRun,
+        phoneNumberId: outbound.phoneNumberId,
+        providerSid: outbound.callSid ?? outbound.conversationId ?? null,
+        fromPhone: outbound.phoneNumberId
+          ? `elevenlabs_phone:${outbound.phoneNumberId}`
+          : "platform_default",
+        outboxWritten: false,
+      };
+    }
 
     // The case state machine is the SINGLE WRITER for case state. This used to
     // be a raw `db.case.updateMany`, which bypassed the writer, skipped the
@@ -220,16 +326,17 @@ async function handle(job: DialJob): Promise<DialOutcome> {
     // The telecom outbox: the dial happened, so it is recorded with the number
     // identity the customer's handset showed. Skipped in dry-run — a simulated
     // provider round-trip must not put a delivery fact in a compliance table.
-    if (!result.dryRun) {
+    // Skipped when the send path already wrote its own row: the Twilio plane
+    // records with the real call-leg sid, and a second row would put two
+    // conflicting delivery facts in the table for one call.
+    if (!result.dryRun && !result.outboxWritten) {
       void recordTelecomEvent({
         orgId: job.org_id,
         caseId: existing?.id ?? null,
         channel: "voice",
         toPhone: to,
-        fromPhone: result.phoneNumberId
-          ? `elevenlabs_phone:${result.phoneNumberId}`
-          : "platform_default",
-        providerSid: result.callSid,
+        fromPhone: result.fromPhone,
+        providerSid: result.providerSid ?? null,
         status: "queued",
         payload: {
           caseRef: job.case_ref,
@@ -316,7 +423,12 @@ async function tick(): Promise<number> {
 }
 
 async function main(): Promise<void> {
-  logInfo("[dial-worker] starting", { workerId: WORKER_ID, batch: BATCH, leaseMs: LEASE_MS, pollMs: POLL_MS });
+  logInfo("[dial-worker] starting", {
+    workerId: WORKER_ID,
+    batch: BATCH,
+    leaseMs: LEASE_MS,
+    pollMs: POLL_MS,
+  });
 
   if (ONCE) {
     const n = await tick();

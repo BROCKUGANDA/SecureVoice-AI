@@ -19,6 +19,15 @@ permissions:
   contents: write # create the GitHub release
   packages: write # push to GHCR
 
+# cancel-in-progress: FALSE, deliberately. A release pushes an image, smoke-tests
+# the published image, and creates a GitHub Release — interrupting one mid-flight
+# can leave `:latest` pointing at an image that was never finished being built,
+# or a Release page with no image behind it. Two concurrent releases for the same
+# tag would race on the same tags for the same reason. These must queue, not
+# cancel. (CI is the opposite: a superseded commit proves nothing, so it cancels.)
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 jobs:
   release:
     name: Publish image and release
@@ -26,6 +35,15 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
+
+      # Container repository names MUST be lowercase, and `github.repository` is
+      # `BROCKUGANDA/SecureVoice-AI`. Using it verbatim produces
+      # `ghcr.io/BROCKUGANDA/SecureVoice-AI`, which the registry rejects — the
+      # push would fail on the first release, after the version bump and tag had
+      # already landed. Derived once here and reused by the build, the smoke
+      # test and the release body so all three name the same image.
+      - name: Resolve the image name
+        run: echo "IMAGE=ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_ENV"
 
       - name: Reject a tag that does not match package.json
         run: |
@@ -52,8 +70,8 @@ jobs:
           target: runner
           push: true
           tags: |
-            ghcr.io/${{ github.repository }}:${{ github.ref_name }}
-            ghcr.io/${{ github.repository }}:latest
+            ${{ env.IMAGE }}:${{ github.ref_name }}
+            ${{ env.IMAGE }}:latest
           provenance: true
           sbom: true
           cache-from: type=gha
@@ -69,8 +87,10 @@ jobs:
           echo "api/health via Caddy: $code"
           test "$code" = "200"
         env:
-          # Tag the compose-built services with what we just pushed.
-          IMAGE: ghcr.io/${{ github.repository }}:${{ github.ref_name }}
+          # Tag the compose-built services with what we just pushed. Must be the
+          # SAME lowercased name the build used, or compose looks for an image
+          # that was never published and the smoke test fails on a typo.
+          IMAGE: ${{ env.IMAGE }}:${{ github.ref_name }}
 
       - name: Logs on failure
         if: failure()
@@ -88,7 +108,7 @@ jobs:
             ## Container image
 
             ```
-            docker pull ghcr.io/${{ github.repository }}:${{ github.ref_name }}
+            docker pull ${{ env.IMAGE }}:${{ github.ref_name }}
             ```
 
             Run the full stack (Postgres, app, realtime, Caddy with TLS):

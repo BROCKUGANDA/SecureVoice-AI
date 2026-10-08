@@ -129,7 +129,10 @@ export async function POST(req: NextRequest) {
   try {
     org = await findOrgByVoiceNumber(dialed);
   } catch (err) {
-    logError("[twilio-inbound-voice] tenant lookup failed for a dialled number — refusing to guess", { error: err instanceof Error ? err.message : String(err) });
+    logError(
+      "[twilio-inbound-voice] tenant lookup failed for a dialled number — refusing to guess",
+      { error: err instanceof Error ? err.message : String(err) },
+    );
     // No TwiML that could bridge anything. The acknowledgement is the only safe
     // answer, and it names no institution because we do not know whose line this is.
     return speak("en");
@@ -153,7 +156,9 @@ export async function POST(req: NextRequest) {
   try {
     open = await latestLiveCase(org.id, caller);
   } catch (err) {
-    logError("[twilio-inbound-voice] case lookup failed", { error: err instanceof Error ? err.message : String(err) });
+    logError("[twilio-inbound-voice] case lookup failed", {
+      error: err instanceof Error ? err.message : String(err),
+    });
     // Fall through WITHOUT case context. A customer reaching their bank's fraud
     // line gets answered even if our own database is having a bad minute.
   }

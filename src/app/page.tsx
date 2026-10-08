@@ -39,7 +39,7 @@ const VIEWS: Record<View, React.ComponentType> = {
 };
 
 export default function Page() {
-  const { view, lang, booted, setBooted, setView, setTimedOut } = useApp();
+  const { view, lang, booted, setBooted, setView, setTimedOut, highContrast } = useApp();
   const { data: session } = useSession();
   const isSignedIn = Boolean(session?.user);
   // Role for gating the console. Better Auth has no `publicMetadata`: the role
@@ -58,6 +58,16 @@ export default function Page() {
   useEffect(() => {
     document.documentElement.lang = lang;
   }, [lang]);
+
+  /* high-contrast theme (WCAG 1.4.3/1.4.6): applied as a data attribute so the
+     CSS override block in globals.css switches atomically with the toggle */
+  useEffect(() => {
+    if (highContrast) {
+      document.documentElement.dataset.contrast = "high";
+    } else {
+      delete document.documentElement.dataset.contrast;
+    }
+  }, [highContrast]);
 
   const handleIdleTimeout = useCallback(() => {
     setTimedOut(true);
@@ -82,7 +92,7 @@ export default function Page() {
 
   return (
     <div className={cn("flex flex-col bg-paper", !fullBleed && "min-h-screen")}>
-      <LoadingScreen onDone={() => setBooted(true)} />
+      {!booted && <LoadingScreen onDone={() => setBooted(true)} />}
 
       <IdleTimeoutHandler onTimeout={handleIdleTimeout} />
 
@@ -97,7 +107,8 @@ export default function Page() {
 
       <main id="main-content" className="flex-1">
         <MotionConfig reducedMotion="user">
-          <AnimatePresence mode="wait">
+          {/* Not mode="wait": it mounts the next view only after the current one's exit animation completes, and a stalled exit (framer-motion under React StrictMode in dev — the same fault that stuck the boot splash) freezes navigation on the current view. Default sync mode swaps immediately and degrades to a harmless overlap. */}
+          <AnimatePresence>
             <motion.div
               key={view}
               initial={{ opacity: 0, y: 18, filter: "blur(4px)" }}

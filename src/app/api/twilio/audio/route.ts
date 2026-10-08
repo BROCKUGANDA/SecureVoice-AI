@@ -133,7 +133,9 @@ export async function GET(req: NextRequest) {
       },
     });
   } catch (err) {
-    logError("[twilio-audio] TTS generation failed", { error: err instanceof Error ? err.message : String(err) });
+    logError("[twilio-audio] TTS generation failed", {
+      error: err instanceof Error ? err.message : String(err),
+    });
     return NextResponse.json({ error: "Audio generation unavailable" }, { status: 503 });
   }
 }

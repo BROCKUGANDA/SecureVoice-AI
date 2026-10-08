@@ -187,6 +187,16 @@ const PUBLIC_BY_DESIGN: Readonly<Record<string, string>> = {
     "internal QStash dispatch endpoint; authenticates the request by QStash Upstash-Signature, never by a session",
   "/api/queue/dead-letter":
     "internal QStash failure callback; stores the dead-letter row and takes no user input",
+  "/api/twilio/sms-webhook":
+    "Twilio inbound-SMS webhook authenticated by X-Twilio-Signature (fail-closed without it), not a session; the reply parser and opt-out registries live in the shared handler",
+  "/api/twiml-stream":
+    "unauthenticated TwiML server that only names the media-stream socket; carries no tenant data and the stream plane itself is guarded separately",
+  "/api/voice-websocket":
+    "Twilio Media Streams websocket plane; the upgrade is guarded by the stream handshake, not an operator session (src/app/api/voice-websocket/route.ts)",
+  "/api/operator/webhooks":
+    "operator webhook catalogue; rate-limited and lists env var NAMES only, never values — proven by tests/e2e/operator-webhooks.test.ts; metadata, like /api/meta",
+  "/api/compliance/intervention-gate":
+    "stateless intervention-policy validator plus PII redaction over the request body; touches no tenant state, stores nothing and privileges nothing",
 };
 
 export function isPublicByDesign(path: string): boolean {

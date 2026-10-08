@@ -94,6 +94,19 @@ model AuditLog {
   @@index([createdAt])
 }
 
+/// Isolated PII vault. Raw sensitive values are stored here only; the main
+/// `interventions` table stores token references.
+model PIIVault {
+  token         String   @id @default(cuid())
+  orgId         String
+  encryptedValue String
+  type          String // "phone" | "name" | "pan" | "address"
+  createdAt     DateTime @default(now())
+
+  @@index([orgId, type])
+  @@map("pii_vault")
+}
+
 /// Registered ElevenLabs voice personas with consent metadata.
 /// Cloning endpoints refuse a voice without a recorded consent URL + timestamp.
 
@@ -308,6 +321,11 @@ model Case {
   // WHY the institution is calling (src/lib/call-categories.ts). Null reads as
   // the audited default (time_critical_fraud) — see asCallCategory.
   callCategory          String?
+  // PII minimization: tokenized references into `pii_vault`. The raw values
+  // must never be stored here; these columns exist so joins can resolve tokens
+  // when a privileged, scoped operation requires them.
+  customerPhoneToken    String?
+  customerNameToken     String?
   // The Twilio call-leg sid, persisted at dial time. The warm_transfer tool
   // rewrites this leg's TwiML to bridge the customer to a live human.
   callSid               String?
@@ -660,6 +678,27 @@ model Organization {
   twilioVoiceNumber           String?
   twilioSmsSenderId           String?
   twilioMessagingServiceSid   String?
+  // Abuse/plan tier for this organisation. When set, overrides the deployment
+  // default (`ABUSE_PLAN_TIER`). Accepted values: `demo` | `standard`
+  // | `enterprise`. Null falls through to the default, which is `demo`.
+  planTier                    String?
+  // Islamic institution (Islamic bank or takaful operator). Drives the speech
+  // gate's terminology substitution ONLY. Conventional tenants must not have
+  // "insurance"/"premium" rewritten to "takaful"/"contribution" — that would
+  // describe their own product to the customer incorrectly, which is the same
+  // class of harm the filter exists to prevent.
+  shariahCompliant            Boolean         @default(false)
+  // Where this institution's own systems are told what happened. Without it the
+  // platform posts every outcome to the single deployment-wide BANK_WEBHOOK_URL,
+  // which means a bank can only ever receive results by us reading one shared
+  // queue — not by its own integration being called. Null falls back to that
+  // deployment default, which is what a single-tenant pilot uses.
+  vendorWebhookUrl            String?
+  // HMAC key for the vendor endpoint, AES-256-GCM sealed with the BYOK master
+  // key (src/lib/byok.ts). Stored sealed because signing an outbound webhook
+  // requires recovering the plaintext, unlike an inbound key which is only ever
+  // verified and could therefore be hashed.
+  vendorWebhookSecretEnc      String?
 
   @@unique([slug])
   @@map("organization")

@@ -226,7 +226,9 @@ export async function POST(req: NextRequest) {
     redactedText: redactText(`${d.customerRef} · ${d.phone}`),
     meta: { lang: row.lang, channel: row.channel, consentRecordId: d.consentRecordId },
   }).catch((err) =>
-    logError("[enroll] audit append failed", { error: err instanceof Error ? err.message : String(err) }),
+    logError("[enroll] audit append failed", {
+      error: err instanceof Error ? err.message : String(err),
+    }),
   );
 
   return NextResponse.json({

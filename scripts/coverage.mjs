@@ -18,6 +18,19 @@
  *     of hit sets rather than summing counts, so overlap between suites cannot
  *     inflate the numerator.
  *
+ * A second harness feeds the same union: Jest (jest.config.cjs, specs under
+ * tests-jest/) renders the client components in jsdom, which Bun cannot, and
+ * writes `coverage/jest/lcov.info`. It is merged here as just another profile —
+ * same tiers, same thresholds, same `tierOf()` — because a harness whose numbers
+ * do not reach this gate is decoration. It is OPTIONAL input: if the file is
+ * absent the run says so out loud and marks it in coverage.json, rather than
+ * quietly reporting the e2e tier as if nothing was missing. Both providers are
+ * V8 block coverage, so a `DA:` record from Jest and one from Bun are the same
+ * unit; that is what makes the union meaningful. It also inherits V8's bias —
+ * lines inside an executed range are credited, so a view that renders scores
+ * close to 100% of its lines. This gate has always measured line reachability,
+ * not behaviour; behaviour is what the assertions are for.
+ *
  * The denominator is the whole `src/` tree, not just the files the suite
  * happened to import. A file no test ever loads is 0% — that is the fact this
  * gate exists to surface.
@@ -39,8 +52,25 @@ const ROOT = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const TESTS = resolve(ROOT, "tests");
 const RAW = resolve(ROOT, ".coverage");
 const OUT = resolve(ROOT, "coverage");
+// Fixed path written by jest.config.cjs (coverageDirectory: coverage/jest).
+const JEST_LCOV = resolve(OUT, "jest", "lcov.info");
 
-const THRESHOLDS = { overall: 80, unit: 70, integration: 20, e2e: 10 };
+// Thresholds are ENFORCED, not advisory. `overall` was raised from 80 to 85:
+// 85% is the bar for a merge to `main`, and a number that is measured and then
+// ignored is worse than no gate — it is a gate everyone has learned to look
+// past. The per-tier numbers stay as they are, because they describe what each
+// tier is FOR (integration proves wiring, e2e proves the surface); only
+// `overall` is a claim about the codebase as a whole.
+//
+// COVERAGE_MIN_OVERALL lets CI state the bar for the branch it is gating — 85 on
+// the way into `main`, report-only on the way into `dev`/`staging` — so this
+// value is the default rather than the only option.
+const THRESHOLDS = {
+  overall: Number(process.env.COVERAGE_MIN_OVERALL ?? 85),
+  unit: 70,
+  integration: 20,
+  e2e: 10,
+};
 
 /**
  * Which tier a source file counts toward, and whether it counts at all.
@@ -98,6 +128,34 @@ function tierOf(rel) {
   // logic that does not need a database to be exercised.
   if (rel.startsWith("src/")) return "unit";
   return "unit";
+}
+
+/**
+ * The Jest component tier, if a previous `bun run test:jest` produced one.
+ *
+ * Returning `null` is a reported state, not a silent one: `bun test` has no DOM,
+ * so nothing under src/views is reachable from the pipeline above, and a run that
+ * quietly treated "Jest never ran" as "Jest covered nothing" would look identical
+ * to a run where the specs existed and failed. The caller prints the difference
+ * and records it in coverage.json.
+ */
+function loadJestProfile() {
+  const rel = relative(ROOT, JEST_LCOV).replace(/\\/g, "/");
+  if (!existsSync(JEST_LCOV)) {
+    return { profile: null, present: false, path: rel, files: 0, stale: false };
+  }
+  // Freshness, because a merged profile from yesterday's run would otherwise be
+  // indistinguishable from today's: report the age, do not decide for the reader.
+  const mtime = statSync(JEST_LCOV).mtimeMs;
+  const profile = parseLcov(readFileSync(JEST_LCOV, "utf8"));
+  return {
+    profile,
+    present: true,
+    path: rel,
+    files: profile.size,
+    stale: Date.now() - mtime > 24 * 60 * 60 * 1000,
+    mtime,
+  };
 }
 
 /** Parse one lcov.info into { file -> {lines:Set, hit:Set} }. */
@@ -225,6 +283,15 @@ function main() {
     }
   }
 
+  const jest = loadJestProfile();
+  // Which harness reported which file, kept separate from the merged union so a
+  // row can say where its number came from. Without this, "e2e 40%" and "e2e 0%
+  // because Jest never ran" are indistinguishable in the report.
+  const bunSeen = new Set();
+  for (const p of profiles) for (const k of p.keys()) bunSeen.add(k);
+  if (jest.profile) profiles.push(jest.profile);
+  const jestSeen = new Set(jest.profile ? jest.profile.keys() : []);
+
   const merged = merge(profiles);
   const byAbs = new Map([...merged.keys()].map((p) => [resolve(ROOT, p), merged.get(p)]));
 
@@ -243,10 +310,13 @@ function main() {
     const data = byAbs.get(abs);
     const total = data ? data.lines.size : approximateLines(readFileSync(abs, "utf8"));
     const hit = data ? data.hit.size : 0;
+    const via =
+      [bunSeen.has(rel) && "bun", jestSeen.has(rel) && "jest"].filter(Boolean).join("+") ||
+      "unreported";
 
     tiers[tier].total += total;
     tiers[tier].hit += hit;
-    rows.push({ rel, tier, hit, total, pct: pct(hit, total) });
+    rows.push({ rel, tier, hit, total, pct: pct(hit, total), via });
   }
 
   const overall = {
@@ -266,17 +336,42 @@ function main() {
       "hit".padStart(6),
       "total".padStart(7),
       "pct".padStart(7),
+      "via".padStart(11),
       "",
       ...rows.map(
         (r) =>
-          `${r.rel.padEnd(56)} ${r.tier.padEnd(13)} ${String(r.hit).padStart(6)} ${String(r.total).padStart(7)} ${r.pct.toFixed(1).padStart(6)}%`,
+          `${r.rel.padEnd(56)} ${r.tier.padEnd(13)} ${String(r.hit).padStart(6)} ${String(r.total).padStart(7)} ${r.pct.toFixed(1).padStart(6)}% ${r.via.padStart(11)}`,
       ),
     ].join("\n"),
     "utf8",
   );
   writeFileSync(
     resolve(OUT, "coverage.json"),
-    JSON.stringify({ thresholds: THRESHOLDS, overall, tiers, rows }, null, 2),
+    JSON.stringify(
+      {
+        thresholds: THRESHOLDS,
+        overall,
+        tiers,
+        // Which harness fed the union. `jest.present: false` is the difference
+        // between "the views are untested" and "the view harness never ran", and
+        // it must be readable from the artifact rather than inferred.
+        sources: {
+          bun: { profiles: profiles.length - (jest.profile ? 1 : 0), files: bunSeen.size },
+          jest: {
+            present: jest.present,
+            path: jest.path,
+            files: jest.files,
+            stale: jest.stale,
+            // Files the Jest tier reported, so a shrink in the e2e denominator is
+            // traceable to a specific harness rather than to a lost test.
+            reported: [...jestSeen].sort(),
+          },
+        },
+        rows,
+      },
+      null,
+      2,
+    ),
     "utf8",
   );
 
@@ -300,6 +395,31 @@ function main() {
     );
     if (p < need) gateFailed = true;
   }
+
+  // Provenance of the e2e tier, stated rather than implied. The views are only
+  // reachable through the Jest harness, so an absent lcov here means the tier was
+  // never exercised — say that, do not let a 0% read as a measurement.
+  if (!jest.present) {
+    console.log("");
+    console.log(
+      [
+        `  [jest] NO COVERAGE INPUT: ${jest.path} does not exist.`,
+        "         `bun test` cannot render client components, so src/views/** is being",
+        "         scored as unexecuted rather than measured. Run `bun run test:jest`",
+        "         (or `bun run coverage:json`) before this gate to feed the e2e tier.",
+      ].join("\n"),
+    );
+  } else if (jest.stale) {
+    console.log("");
+    console.log(
+      `  [jest] merged ${jest.files} file(s) from ${jest.path}, but that lcov is older\n` +
+        `         than 24h — re-run \`bun run test:jest\` if src/views changed since.`,
+    );
+  } else {
+    console.log("");
+    console.log(`  [jest] merged ${jest.files} file(s) from ${jest.path}`);
+  }
+
   console.log(`  report: coverage/coverage-summary.txt`);
   if (gateFailed && !show) console.log("  (test failures also fail this gate)");
 

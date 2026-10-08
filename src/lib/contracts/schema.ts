@@ -360,6 +360,15 @@ export const RISK_SIGNAL_FIELDS: readonly FieldSpec[] = [
     example: "bank-core-uae",
     enforced: INGEST_SCHEMA,
   },
+  {
+    name: "hearing_impaired",
+    required: false,
+    type: "boolean",
+    description:
+      "Deaf / hard-of-hearing flag for the customer. When true, voice is skipped ENTIRELY — no dial job is enqueued — and the case goes straight to the blind-ping SMS flow (YES / NO reply, 24h window). Absent reads as false, so every existing producer keeps byte-identical behavior.",
+    example: true,
+    enforced: INGEST_SCHEMA,
+  },
 ] as const;
 
 /** Case states the platform can report back. CASE_STATES, src/lib/case-state-machine.ts. */

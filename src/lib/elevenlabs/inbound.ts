@@ -350,7 +350,11 @@ async function handleTranscription(row: WebhookEventRow, data: any): Promise<voi
     // must not roll the case back or block the webhook. indexTranscript
     // swallows its own failures into an audit row.
     if (pineconeConfigured() && redactedTranscript.trim()) {
-      void indexTranscript(caseRow.caseRef, redactedTranscript);
+      // `caseRow.orgId` is the tenant. A case with no owning org is NOT indexed
+      // unowned: indexTranscript refuses an empty orgId, so a cross-tenant
+      // vector cannot enter the index by accident. That refusal is recorded as
+      // an audit outcome like every other indexing failure, not swallowed.
+      void indexTranscript(caseRow.caseRef, redactedTranscript, caseRow.orgId ?? "");
     }
   } else {
     // No master key, no plaintext — and the drop is on the record, not silent.

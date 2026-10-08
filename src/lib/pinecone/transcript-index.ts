@@ -73,7 +73,16 @@ function index(pc: Pinecone) {
 export async function indexTranscript(
   caseRef: string,
   transcript: string,
+  // REQUIRED, and not optional-with-a-default. `orgId` is the tenant boundary
+  // for every vector in the index: without it on the record, a future query
+  // cannot filter by tenant, and a cross-tenant transcript leak becomes
+  // possible the moment someone writes that query. Making it a required
+  // parameter means every call site is forced to answer "whose data is this?"
+  // at compile time, rather than the field being added later with a default
+  // that quietly admits unowned vectors.
+  orgId: string,
 ): Promise<{ ok: boolean; error?: string }> {
+  if (!orgId.trim()) return { ok: false, error: "org_id_required" };
   if (!pineconeConfigured()) return { ok: false, error: "pinecone_not_configured" };
   const trimmed = transcript.slice(0, MAX_CHARS);
   if (!trimmed.trim()) return { ok: false, error: "empty_transcript" };
@@ -107,6 +116,10 @@ export async function indexTranscript(
           values,
           metadata: {
             caseRef,
+            // The tenant key. Every vector carries it, so `filter: { orgId }`
+            // is always satisfiable and a query can never span two
+            // institutions' transcripts.
+            orgId,
             indexedAt: new Date().toISOString(),
             source: "securevoice-postcall",
           },
@@ -143,6 +156,63 @@ export async function indexTranscript(
       { fast: true },
     ).catch(() => {});
     return { ok: false, error: msg.slice(0, 200) };
+  }
+}
+
+/**
+ * Tenant-scoped semantic search over indexed transcripts.
+ *
+ * The `filter` is NOT optional and `orgId` is NOT defaulted. That is the whole
+ * point of this function existing in this shape: an unscoped transcript search
+ * across a multi-tenant fraud platform is a data breach, and the cheapest way
+ * to guarantee one is never written is to make the unscoped call unrepresentable.
+ * A caller that has not resolved whose data it is asking for cannot compile.
+ */
+export async function searchTranscripts(
+  orgId: string,
+  query: string,
+  topK = 3,
+): Promise<{ ok: boolean; matches: { caseRef: string; score: number }[]; error?: string }> {
+  if (!pineconeConfigured()) return { ok: false, matches: [], error: "pinecone_not_configured" };
+  if (!orgId.trim()) return { ok: false, matches: [], error: "org_id_required" };
+  const trimmed = query.slice(0, MAX_CHARS);
+  if (!trimmed.trim()) return { ok: true, matches: [] };
+
+  const pc = client();
+  try {
+    const embeddings = await pc.inference.embed({
+      model: EMBEDDING_MODEL,
+      inputs: [trimmed],
+      parameters: { inputType: "query", truncate: "END" },
+    });
+    const first = embeddings.data?.[0] as { values?: number[] } | undefined;
+    if (!first?.values || first.values.length === 0) {
+      return { ok: false, matches: [], error: "no_dense_embedding" };
+    }
+
+    const handle = index(pc);
+    const namespace = NAMESPACE ? handle.namespace(NAMESPACE) : handle;
+    const res = await namespace.query({
+      vector: first.values,
+      topK,
+      // STRICT TENANT ISOLATION. One institution's transcripts must never be
+      // retrievable by another institution's session, whatever the caller asks.
+      filter: { orgId },
+      includeMetadata: true,
+    });
+    const matches = (res.matches ?? [])
+      // Belt and braces: re-check after the query. A filter that is silently
+      // dropped server-side would otherwise return another tenant's rows and
+      // nothing here would notice.
+      .filter((m) => m.metadata?.orgId === orgId)
+      .map((m) => ({ caseRef: String(m.metadata?.caseRef ?? ""), score: m.score ?? 0 }));
+    return { ok: true, matches };
+  } catch (err) {
+    return {
+      ok: false,
+      matches: [],
+      error: err instanceof Error ? err.message : String(err),
+    };
   }
 }
 

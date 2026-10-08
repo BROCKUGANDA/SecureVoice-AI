@@ -466,7 +466,9 @@ export async function POST(req: NextRequest) {
       },
     });
   } catch (err) {
-    logError("[agent] audit append failed", { error: err instanceof Error ? err.message : String(err) });
+    logError("[agent] audit append failed", {
+      error: err instanceof Error ? err.message : String(err),
+    });
     // Don't fail the request on audit-write failure in dev; in prod this would
     // trip an alert. (See docs/RUNBOOK.md — "Audit append failure".)
   }

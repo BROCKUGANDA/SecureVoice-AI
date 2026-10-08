@@ -42,6 +42,23 @@ export const VIEW_ACCESS: Record<View, ViewAccess> = {
 };
 export type Lang = "en" | "ar";
 
+const CONTRAST_KEY = "sv-high-contrast";
+
+function initialContrast(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    const stored = window.localStorage.getItem(CONTRAST_KEY);
+    if (stored !== null) return stored === "1";
+  } catch {
+    /* private mode / blocked storage — fall through to media query */
+  }
+  try {
+    return window.matchMedia("(prefers-contrast: more)").matches;
+  } catch {
+    return false;
+  }
+}
+
 interface AppState {
   view: View;
   lang: Lang;
@@ -50,10 +67,16 @@ interface AppState {
   demoIntent: boolean;
   /** session was ended by the idle-timeout guard — Auth shows the banner */
   timedOut: boolean;
+  /** WCAG 2.1 AA 1.4.3/1.4.6: high-contrast theme. Persisted to localStorage so a
+      low-vision analyst keeps it across sessions; defaults to the OS
+      `prefers-contrast` signal when never set. Applied as
+      `data-contrast="high"` on <html> — see globals.css. */
+  highContrast: boolean;
   setView: (v: View) => void;
   setLang: (l: Lang) => void;
   setBooted: (b: boolean) => void;
   setTimedOut: (t: boolean) => void;
+  setHighContrast: (h: boolean) => void;
   launchDemo: () => void;
   consumeDemoIntent: () => void;
 }
@@ -64,10 +87,19 @@ export const useApp = create<AppState>((set) => ({
   booted: false,
   demoIntent: false,
   timedOut: false,
+  highContrast: initialContrast(),
   setView: (view) => set({ view }),
   setLang: (lang) => set({ lang }),
   setBooted: (booted) => set({ booted }),
   setTimedOut: (timedOut) => set({ timedOut }),
+  setHighContrast: (highContrast) => {
+    try {
+      window.localStorage.setItem(CONTRAST_KEY, highContrast ? "1" : "0");
+    } catch {
+      /* non-fatal: the theme still applies for this session */
+    }
+    set({ highContrast });
+  },
   launchDemo: () => set({ view: "demo", demoIntent: true }),
   consumeDemoIntent: () => set({ demoIntent: false }),
 }));

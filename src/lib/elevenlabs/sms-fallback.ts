@@ -39,7 +39,7 @@ import { getInstitutionType } from "@/lib/institution";
 import { publishResolution } from "@/lib/sms-verdict";
 import { logError } from "@/lib/validation/safe-log";
 
-export type FallbackReason = "dial_exhausted" | "voicemail" | "no_answer";
+export type FallbackReason = "dial_exhausted" | "voicemail" | "no_answer" | "hearing_impaired";
 
 export type FallbackResult =
   | { sent: true; simulated: boolean }
@@ -52,6 +52,13 @@ export type FallbackResult =
  * line. FAILED / EXHAUSTED are terminal (no edges out) and RETRY_SCHEDULED has no
  * edge to UNREACHABLE, so none of them can carry the fallback - a test pins this
  * set to the real transition table so the two cannot drift apart.
+ *
+ * `hearing_impaired` enters through the same function but means something
+ * different from the other three reasons: voice was never attempted, because the
+ * bank flagged the customer as deaf or hard-of-hearing at ingest. The case is
+ * SCREENED (voice never dialled), so `stateAllowsFallback` admits it, the same
+ * blind-ping SMS goes out, and the audit row records the true reason rather
+ * than a fabricated voice failure.
  */
 const UNREACHED_STATES: ReadonlySet<string> = new Set([
   "SCREENED",
@@ -91,7 +98,9 @@ async function record(
       orgId: orgId ?? undefined,
     });
   } catch (err) {
-    logError("[sms-fallback] audit append failed", { error: err instanceof Error ? err.message : String(err) });
+    logError("[sms-fallback] audit append failed", {
+      error: err instanceof Error ? err.message : String(err),
+    });
   }
 }
 

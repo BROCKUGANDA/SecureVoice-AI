@@ -124,7 +124,9 @@ export async function POST(req: NextRequest) {
       logWarn("[twilio-status] callback for an unknown sid", { channel, status });
     }
   } catch (err) {
-    logError("[twilio-status] outbox update failed", { error: err instanceof Error ? err.message : String(err) });
+    logError("[twilio-status] outbox update failed", {
+      error: err instanceof Error ? err.message : String(err),
+    });
     // 5xx deliberately: the report is real and unrecorded, and Twilio will bring
     // it again. A swallowed callback is a delivery record that stays `queued`
     // forever with nothing left to correct it.

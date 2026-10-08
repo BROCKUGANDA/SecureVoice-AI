@@ -3,9 +3,33 @@ import type { NextConfig } from "next";
 /**
  * Content-Security-Policy notes:
  *  - 'unsafe-inline' on style-src is required by Next.js + Tailwind injected styles.
- *  - script-src 'unsafe-inline' is needed for Next.js's inline bootstrap scripts in
- *    dev; in production Next hashes/nonces these where possible, but the app-shell
- *    rendering (framer-motion inline styles) keeps style-src 'unsafe-inline'.
+ *  - 'unsafe-inline' on script-src is required in PRODUCTION, not just dev: this
+ *    build emits Next's RSC flight payload as inline `self.__next_f.push(...)`
+ *    scripts, and they carry no nonce and no hash. Blocking them does not degrade
+ *    the page — it kills hydration outright (React #412) and the app-shell splash
+ *    never advances past 0%, which is how this deployment went dark. Measured, not
+ *    inferred: a headless load of the live origin reported six blocked inline
+ *    scripts before any of the page's own JS could run.
+ *  - A nonce or hash is NOT a second way to permit those scripts here — it is a
+ *    way to break them. Browsers IGNORE 'unsafe-inline' whenever script-src
+ *    carries a nonce or hash source, so `script-src 'self' 'nonce-…'
+ *    'unsafe-inline'` blocks the flight scripts exactly like `script-src 'self'`.
+ *    This build's flight scripts carry neither token, so any nonce/hash in the
+ *    directive is unmatched by definition. The surface suite rejects it
+ *    (tests/surface/surface.test.ts) rather than accepting "any nonce or hash".
+ *  - Injection tradeoff, stated plainly: script-src 'unsafe-inline' means an
+ *    attacker who can inject script-bearing markup gets it executed. The
+ *    compensating control is at the source — first-party code renders no
+ *    attacker-reachable HTML (the only dangerouslySetInnerHTML in the app is a
+ *    <style> block of chart colors, pinned by the surface suite), and every
+ *    other executable directive is closed: object-src 'none', base-uri 'self',
+ *    form-action 'self', frame-ancestors 'none', no 'unsafe-eval' in production.
+ *  - The strict alternative is a per-request nonce (`script-src 'nonce-…'
+ *    'strict-dynamic'`) generated in proxy.ts with dynamic rendering. It is NOT in
+ *    place here, and nothing in this version of Next was found to add the nonce to
+ *    its own flight scripts automatically. Anyone re-attempting the tightening must
+ *    prove hydration in a real browser against a production build first — a text
+ *    edit on a CSP is exactly the change that CI cannot judge.
  *  - connect-src includes ElevenLabs (voice) only. Authentication is Better
  *    Auth, served from THIS origin at /api/auth/*, so it needs no cross-origin
  *    allowance at all.
@@ -23,9 +47,11 @@ const ELEVENLABS_CSP_ORIGIN = new URL(
   process.env.ELEVENLABS_API_BASE_URL ?? "https://api.elevenlabs.io",
 ).origin;
 
+// 'unsafe-inline' is in BOTH modes on purpose. Dropping it from the production
+// list is what took the live site down; see the CSP notes above.
 const scriptSrc = [
-  "script-src 'self'",
-  ...(process.env.NODE_ENV === "development" ? ["'unsafe-inline'", "'unsafe-eval'"] : []),
+  "script-src 'self' 'unsafe-inline'",
+  ...(process.env.NODE_ENV === "development" ? ["'unsafe-eval'"] : []),
 ].join(" ");
 
 const CSP = [

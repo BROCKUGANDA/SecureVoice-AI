@@ -712,7 +712,11 @@ export async function runRetention(
             // mid-append, say. It is logged and reported, never swallowed.
             const message = error instanceof Error ? error.message : String(error);
             report.errors.push({ caseRef: row.caseRef, tier, stage: "act", error: message });
-            logError("[retention] tier action failed", { tier, caseRef: row.caseRef, error: message });
+            logError("[retention] tier action failed", {
+              tier,
+              caseRef: row.caseRef,
+              error: message,
+            });
           }
           touchedRefs.set(row.caseRef, row.orgId ?? null);
         }
@@ -739,7 +743,10 @@ export async function runRetention(
     } catch (error) {
       report.chain.intact = false;
       report.chain.brokenAt = ref;
-      logError("[retention] chain verification failed", { ref, error: error instanceof Error ? error.message : String(error) });
+      logError("[retention] chain verification failed", {
+        ref,
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 

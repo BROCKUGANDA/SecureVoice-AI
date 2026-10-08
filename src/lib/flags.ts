@@ -107,6 +107,18 @@ export const FLAG_NAMES = [
    * authentication on the ingestion gateway, so it must default to true.
    */
   "webhookStrictSignatures",
+
+  /* ── Telephony ─────────────────────────────────────────────────────────── */
+
+  /**
+   * Use Twilio Media Streams + Deepgram + ElevenLabs for the live voice path
+   * instead of ElevenLabs ConvAI. Off = current ConvAI path. On = custom
+   * WebSocket pipeline with multi-agent routing and JIT AuthZ soft freeze.
+   *
+   * Defaults OFF because it requires a publicly reachable WebSocket endpoint
+   * (`VOICE_STREAM_HOST`/`VOICE_STREAM_PORT`) and a separate worker process.
+   */
+  "twilioMediaStreams",
 ] as const;
 
 export type FlagName = (typeof FLAG_NAMES)[number];
@@ -126,6 +138,7 @@ const DEFAULTS: Record<FlagName, boolean> = {
   compliancePiiRedaction: true,
   seedDemo: false,
   webhookStrictSignatures: true,
+  twilioMediaStreams: false,
 };
 
 /** Why a flag resolved the way it did — surfaced by `describeFlag()`. */

@@ -20,6 +20,7 @@ import { Chip } from "@/components/fx/core";
 import { CrmSection } from "@/views/settings/CrmSection";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 
 /**
@@ -60,7 +61,7 @@ function Field({
 }
 
 export function Settings() {
-  const { lang, setView } = useApp();
+  const { lang, setView, highContrast, setHighContrast } = useApp();
   const ar = lang === "ar";
   const [tab, setTab] = useState<"org" | "keys" | "team" | "billing">("org");
   const [settings, setSettings] = useState<Settings | null>(null);
@@ -289,6 +290,38 @@ export function Settings() {
                   {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
                   Save organization
                 </button>
+
+                {/* Accessibility — per-analyst display preference, stored locally.
+                    WCAG 2.1 AA 1.4.3/1.4.6: a low-vision analyst must be able to
+                    raise text contrast without OS-level changes. */}
+                <section aria-labelledby="a11y-heading" className="border-t border-line pt-5">
+                  <h2 id="a11y-heading" className="text-[13px] font-semibold">
+                    Accessibility
+                  </h2>
+                  <p className="mt-1 text-[12px] leading-snug text-ink-3">
+                    Display preference for this analyst only — saved on this device, never sent to
+                    the server.
+                  </p>
+                  <div className="mt-3 flex items-center justify-between gap-4 rounded-xl border border-line bg-paper px-4 py-3">
+                    <div>
+                      <Label htmlFor="high-contrast-toggle" className="text-[12.5px] font-semibold">
+                        High contrast
+                      </Label>
+                      <p className="mt-0.5 text-[11.5px] leading-snug text-ink-3">
+                        Near-black text, stronger focus ring, underlined links.
+                      </p>
+                    </div>
+                    <Switch
+                      id="high-contrast-toggle"
+                      checked={highContrast}
+                      onCheckedChange={setHighContrast}
+                      aria-describedby="high-contrast-hint"
+                    />
+                  </div>
+                  <p id="high-contrast-hint" className="sr-only">
+                    Raises text contrast across the whole workspace to meet WCAG AA.
+                  </p>
+                </section>
               </div>
             )}
 

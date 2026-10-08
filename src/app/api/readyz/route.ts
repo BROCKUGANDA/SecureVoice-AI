@@ -6,6 +6,9 @@ import { db } from "@/lib/db";
 import { classifyDatabaseUrl } from "@/lib/db-target";
 import { auth } from "@/lib/better-auth";
 import { env } from "@/lib/config";
+import { abuseConfig } from "@/lib/abuse/config";
+import { isE164 } from "@/lib/twilio";
+import { maskE164 } from "@/lib/abuse/geo";
 
 export const dynamic = "force-dynamic";
 
@@ -141,6 +144,50 @@ export async function GET() {
       ok: true,
       fatal: false,
       detail: configured ? "configured" : "unconfigured (audit-only mode)",
+    };
+  });
+
+  // Dial-readiness preflight: reports the four live-send gates without taking
+  // the instance out of service. A failed check here is degraded, not fatal:
+  // the platform can still serve webhook traffic, auth, and the console even
+  // when live sends are blocked by config.
+  await timed("dial_readiness", false, async () => {
+    const issues: string[] = [];
+
+    const geo = abuseConfig().geo;
+    const upperAllowlist = geo.allowlist.map((c) => c.trim().toUpperCase()).filter(Boolean);
+    if (upperAllowlist.length === 0) {
+      issues.push("geo_allowlist_unconfigured");
+    } else if (!upperAllowlist.includes("US")) {
+      issues.push(`country US not in allowlist (${upperAllowlist.join(",")})`);
+    }
+
+    if (!env.twilioLiveSend) {
+      issues.push("TWILIO_LIVE_SEND not attested");
+    }
+
+    const fromNumber = env.twilioFromNumber;
+    if (!fromNumber || !isE164(fromNumber)) {
+      issues.push("TWILIO_FROM_NUMBER missing or invalid");
+    }
+
+    const defaultTier = abuseConfig().tier.defaultTier;
+    const testNumbers = abuseConfig().tier.testNumbers;
+    if (defaultTier === "demo" && testNumbers.length === 0) {
+      issues.push("demo tier with no test numbers");
+    }
+
+    const ok = issues.length === 0;
+    const rawDetail = ok
+      ? `geo=${upperAllowlist.join(",")}, live_send=true, from=${maskE164(fromNumber ?? "")}, tier=${defaultTier}`
+      : issues.join("; ");
+    const detail = rawDetail.length > 120 ? `${rawDetail.slice(0, 117)}...` : rawDetail;
+
+    return {
+      name: "dial_readiness",
+      ok,
+      fatal: false,
+      detail,
     };
   });
 

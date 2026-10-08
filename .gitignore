@@ -145,3 +145,7 @@ analyzer_out.txt
 UsersHPtmpuserpath.txt
 _*.txt
 --full-page
+
+# Cypress run artefacts — failure screenshots are local debugging output, never a committed asset.
+cypress/screenshots/
+cypress/videos/

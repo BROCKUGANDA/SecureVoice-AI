@@ -24,6 +24,7 @@ import { twilioMode, isTwilioConfigured, env } from "@/lib/config";
 import { blindPingSms, headsUpSms } from "@/lib/outreach-copy";
 import type { InstitutionType } from "@/lib/institution-types";
 import { getTelecomIdentity, type TelecomIdentity } from "@/lib/institution";
+import { prepareSpeech, type SpeechContext } from "@/lib/compliance/speech-gate";
 import { recordTelecomEvent } from "@/lib/telecom-outbox";
 import { logError } from "@/lib/validation/safe-log";
 
@@ -135,9 +136,25 @@ export function interventionTwiml(
   merchant?: string,
   origin?: string,
   callRef?: string,
+  mediaStreamUrl?: string | null,
+  speech?: SpeechContext,
 ): string {
   const { voice, language } = VOICE[lang] ?? VOICE.en;
-  const text = (SCRIPT[lang] ?? SCRIPT.en)(amount ?? "", merchant ?? "");
+  // The approved wording still goes through the speech gate. Redaction and
+  // speakability are unconditional; the Islamic terminology pass only applies
+  // when the tenant declared itself Shariah-compliant, so a takaful operator's
+  // script says takaful and a conventional insurer's script keeps saying
+  // insurance, which is what the customer's policy actually is.
+  const text = prepareSpeech(
+    (SCRIPT[lang] ?? SCRIPT.en)(amount ?? "", merchant ?? ""),
+    speech,
+  ).text;
+
+  if (mediaStreamUrl) {
+    const streamUrl = `${mediaStreamUrl}?lang=${lang}${callRef ? `&callSid=${escapeXml(callRef)}` : ""}`;
+    return `<?xml version="1.0" encoding="UTF-8"?><Response><Connect><Stream url="${escapeXml(streamUrl)}" /></Connect></Response>`;
+  }
+
   const turnUrl = `/api/twilio/turn?lang=${lang}${callRef ? `&callSid=${escapeXml(callRef)}` : ""}`;
 
   // ElevenLabs opening via <Play> when we have a public origin. The audio URL
@@ -473,6 +490,13 @@ export async function placeInterventionCall(args: {
   callRef?: string; // audit chain reference
   orgId?: string | null;
   caseId?: string | null;
+  mediaStreamUrl?: string | null;
+  /**
+   * The tenant's speech context, supplied by the caller. This module is a
+   * transport and stays one: it does not look at the database. Whoever places
+   * the call already knows which tenant it belongs to.
+   */
+  speech?: SpeechContext;
 }): Promise<CallResult & { telecomEventId?: string; from?: string }> {
   const c = creds();
   if (!isE164(args.to)) return { ok: false, status: 422, error: "Destination phone is not E.164" };
@@ -483,7 +507,15 @@ export async function placeInterventionCall(args: {
   const res = await twilioPost(c.accountSid, c.username, c.password, "Calls.json", {
     To: args.to,
     From: from,
-    Twiml: interventionTwiml(args.lang, args.amount, args.merchant, args.origin, args.callRef),
+    Twiml: interventionTwiml(
+      args.lang,
+      args.amount,
+      args.merchant,
+      args.origin,
+      args.callRef,
+      args.mediaStreamUrl,
+      args.speech,
+    ),
     ...(callback ? { StatusCallback: callback } : {}),
   });
   if (!res.ok) return { ok: false, status: res.status, error: res.error, from };

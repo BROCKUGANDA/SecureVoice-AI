@@ -32,7 +32,7 @@
  *   bun test tests/surface
  */
 import { describe, expect, test } from "bun:test";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { NextResponse } from "next/server";
 import { NextRequest } from "next/server";
@@ -361,6 +361,99 @@ describe("declared security headers", () => {
     ]) {
       expect(nextConfig).toContain(directive);
     }
+  });
+
+  test("the production CSP permits the inline scripts Next actually emits", async () => {
+    // Not a style preference — an outage. This build ships Next's RSC flight
+    // payload as inline `self.__next_f.push(...)` scripts carrying no nonce and no
+    // hash, so a `script-src 'self'` with nothing else blocks them, hydration
+    // never happens (React #412) and the app-shell splash sits at 0% forever.
+    // Tightening the directive took the live site dark and NO existing assertion
+    // could see it: the CSP tests here check which directives exist and that no
+    // third-party origin snuck in, which is all still true of a policy that
+    // breaks the page. So this asserts the EFFECTIVE policy, by calling the same
+    // `headers()` the server uses, rather than grepping the source text.
+    //
+    // Evaluated as PRODUCTION, explicitly. `headers()` is built from a
+    // module-level const computed from `process.env.NODE_ENV` at import time,
+    // so importing it under the test runner's env evaluates the WRONG policy:
+    // a suite running with NODE_ENV=development would inspect a policy
+    // containing the intentional dev-only 'unsafe-eval' and fail for no
+    // reason, while a production-only regression (a re-tightened script-src, a
+    // production-only 'unsafe-eval') would pass unseen. The import below is
+    // cache-busted so the module re-evaluates under production, and the
+    // previous env is restored in `finally` so no other test observes it.
+    const prevNodeEnv = process.env.NODE_ENV;
+    (process.env as { NODE_ENV: string }).NODE_ENV = "production";
+    let config: {
+      headers?: () => Promise<{ headers: { key: string; value: string }[] }[]>;
+    };
+    try {
+      const cspSpec: string = "../../next.config?csp-production";
+      config = (await import(cspSpec)).default;
+    } finally {
+      (process.env as { NODE_ENV: string }).NODE_ENV = prevNodeEnv;
+    }
+    // `headers` is optional on the typed shape, so `config.headers?.()` can be
+    // `undefined` before the `await` — the assertion below is what proves a CSP
+    // exists, so coalescing here keeps the type honest without weakening it.
+    const entries = ((await config.headers?.()) ?? []).flatMap((r) => r.headers);
+    const csp = entries.find((h) => h.key.toLowerCase() === "content-security-policy")?.value;
+    expect(csp, "no Content-Security-Policy header is configured").toBeTruthy();
+    // Directive-boundary match: `script-srcx 'unsafe-inline'` is not script-src
+    // (browsers ignore the unknown directive and block the flight scripts), and
+    // a substring regex would accept it.
+    const scriptSrc = /(?:^|;)\s*script-src\s+([^;]*)/.exec(csp ?? "")?.[1]?.trim() ?? "";
+    expect(scriptSrc, "script-src is missing from the CSP").not.toBe("");
+    // 'unsafe-inline' AND nothing else inline-authorizing. A nonce or hash
+    // source is not a second way to pass — it is a way to fail: browsers
+    // IGNORE 'unsafe-inline' whenever script-src carries a nonce or hash, and
+    // this build's flight scripts carry neither, so `script-src 'self'
+    // 'nonce-…' 'unsafe-inline'` blocks hydration exactly like `script-src
+    // 'self'`. Accepting "any nonce or hash" would pass a policy that breaks
+    // the page. The day a real per-request nonce lands on the flight scripts,
+    // THIS assertion is what gets rewritten — alongside a browser-proven
+    // hydration run, never a text edit alone.
+    expect(
+      scriptSrc.includes("'unsafe-inline'"),
+      `script-src "${scriptSrc}" blocks Next's inline flight scripts — the page will not hydrate`,
+    ).toBe(true);
+    expect(
+      /'nonce-[^']+|'sha256-[^']+|'sha384-[^']+|'sha512-[^']+/.test(scriptSrc),
+      `script-src "${scriptSrc}" carries a nonce/hash browsers honor INSTEAD of 'unsafe-inline' — this build's flight scripts carry neither, so hydration breaks`,
+    ).toBe(false);
+    // Production-only, evaluated as production above: 'unsafe-eval' is a
+    // dev-server requirement (React refresh) and must never ship. Asserting it
+    // here rather than on the dev policy is what makes the assertion mean
+    // "production is clean" instead of "whichever env ran the suite is clean".
+    expect(scriptSrc).not.toContain("unsafe-eval");
+  });
+
+  test("no script-bearing markup injection path exists in first-party code", () => {
+    // script-src 'unsafe-inline' is load-bearing (see above), so the
+    // compensating control is at the source: first-party code must not render
+    // attacker-reachable markup as HTML. The only dangerouslySetInnerHTML in
+    // the app is a <style> block of chart colors — style, not script, governed
+    // by style-src rather than script-src. A second occurrence, or one outside
+    // a <style> tag, is a reviewable event, not a silent addition.
+    const hits: string[] = [];
+    const walk = (dir: string) => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        if (entry.name === "node_modules" || entry.name === ".next" || entry.name === "generated")
+          continue;
+        const full = `${dir}/${entry.name}`;
+        if (entry.isDirectory()) walk(full);
+        else if (/\.(tsx?|jsx?)$/.test(entry.name)) {
+          const text = readFileSync(full, "utf8");
+          if (text.includes("dangerouslySetInnerHTML")) hits.push(full);
+        }
+      }
+    };
+    walk(fileURLToPath(new URL("../../src", import.meta.url)));
+    expect(
+      hits.map((h) => h.replace(/\\/g, "/")),
+      "a new dangerouslySetInnerHTML appeared — review it before merging",
+    ).toEqual([expect.stringContaining("src/components/ui/chart.tsx")]);
   });
 
   test("CSP grants no third-party auth origin", () => {

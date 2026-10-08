@@ -67,7 +67,7 @@ export function spanLogPath(): string {
  */
 export function spanLogDisplayPath(): string {
   const path = spanLogPath();
-  const cwd = resolve(process.cwd());
+  const cwd = resolve(/*turbopackIgnore: true*/ process.cwd());
   if (path.length > cwd.length && path.slice(0, cwd.length).toLowerCase() === cwd.toLowerCase()) {
     const rest = path.slice(cwd.length).replace(/^[\\/]+/, "");
     if (rest.length > 0) return rest;
@@ -221,11 +221,11 @@ export async function readSpanRecords(options: ReadOptions = {}): Promise<SpanRe
   let truncated = false;
   let bytesRead = 0;
   try {
-    const info = await stat(path);
+    const info = await stat(/*turbopackIgnore: true*/ path);
     if (!info.isFile()) return { ...base, error: "not_a_file" };
     const start = Math.max(0, info.size - MAX_READ_BYTES);
     truncated = start > 0;
-    const handle = await open(path, "r");
+    const handle = await open(/*turbopackIgnore: true*/ path, "r");
     try {
       const length = info.size - start;
       const buffer = Buffer.alloc(length);

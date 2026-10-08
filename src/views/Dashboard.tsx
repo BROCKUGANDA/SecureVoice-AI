@@ -28,6 +28,135 @@ import { Slider } from "@/components/ui/slider";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 
+type ProvidedWebhook = {
+  id: string;
+  label: string;
+  description: string;
+  path: string;
+  url: string;
+  method: string;
+  auth: string;
+};
+
+function copyText(text: string, toast: ReturnType<typeof useToast>["toast"]) {
+  void navigator.clipboard.writeText(text).then(() => {
+    toast({ title: "Copied", description: text });
+  });
+}
+
+/**
+ * The webhook list is FETCHED from /api/operator/webhooks rather than restated
+ * here. That route is the machine-readable source of truth — the same one an
+ * integrator scripts against — and a second hardcoded copy in the UI is a list
+ * that is correct until the route changes. Fetching means the dashboard cannot
+ * show an endpoint the platform does not actually serve.
+ *
+ * The origin is rebuilt client-side from `window.location.origin` when the API
+ * answers with a placeholder: behind a proxy the server's own notion of the
+ * public origin is exactly the thing that is wrong, so a literal copy-paste
+ * would hand the operator a dead URL.
+ */
+function WebhookConfigSection() {
+  const { lang } = useApp();
+  const { toast } = useToast();
+  const [hooks, setHooks] = useState<ProvidedWebhook[] | null>(null);
+  const [error, setError] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/operator/webhooks", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+      .then((d: { webhooks?: ProvidedWebhook[] }) => {
+        if (cancelled) return;
+        const list = d.webhooks ?? [];
+        setHooks(
+          list.map((h) => ({
+            ...h,
+            // Substitute the live origin so the copied string is one the
+            // operator can paste into Twilio right now.
+            url: h.url.startsWith("https://your-app.com")
+              ? `${window.location.origin}${h.path}`
+              : h.url,
+          })),
+        );
+      })
+      .catch(() => {
+        if (!cancelled) setError(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return (
+    <div className="space-y-5">
+      <div className="rounded-3xl border border-line bg-white p-6">
+        <h2 className="font-display text-[17px] font-semibold tracking-tight">
+          {t("Provided webhooks", "خطافات الأحداث المتوفرة", lang)}
+        </h2>
+        <p className="mt-1 max-w-2xl text-[13px] leading-relaxed text-ink-2">
+          {t(
+            "Use these endpoints to integrate SecureVoice with your fraud engine, CRM, core banking, insurer systems, Twilio, and operator consoles.",
+            "استخدم هذه النقاط للتكامل مع محرك الاحتيال أو CRM أو الأنظمة الأساسية أو أنظمة التأمين أو Twilio أو لوحات المشغل.",
+            lang,
+          )}
+        </p>
+
+        {!hooks && !error && (
+          <p className="mt-4 text-[12.5px] text-ink-3">
+            {t("Loading endpoints…", "جارٍ تحميل النقاط…", lang)}
+          </p>
+        )}
+
+        {error && (
+          <p className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-[12.5px] text-red-700">
+            {t(
+              "Could not load the endpoint list. GET /api/operator/webhooks directly.",
+              "تعذر تحميل قائمة النقاط. استدعِ GET /api/operator/webhooks مباشرة.",
+              lang,
+            )}
+          </p>
+        )}
+
+        <div className="mt-4 space-y-3">
+          {hooks?.map((item) => (
+            <div
+              key={item.id}
+              className="flex flex-col gap-2 rounded-2xl border border-line bg-paper px-4 py-3"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <div className="text-[12.5px] font-semibold text-foreground">{item.label}</div>
+                  <div className="text-[11.5px] text-ink-3">{item.description}</div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="rounded-full border border-line bg-white px-2.5 py-1 font-mono text-[10.5px] text-ink-3">
+                    {item.method}
+                  </span>
+                  <span className="rounded-full bg-green-50 px-2.5 py-1 font-mono text-[10.5px] text-green-700">
+                    {item.auth}
+                  </span>
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <code className="min-w-0 flex-1 truncate rounded-xl bg-[#0c110e] px-3 py-2 font-mono text-[11.5px] text-white/85">
+                  {item.url}
+                </code>
+                <button
+                  onClick={() => copyText(item.url, toast)}
+                  className="shrink-0 rounded-full border border-line bg-white px-3 py-2 text-[12px] font-semibold transition hover:bg-paper"
+                >
+                  {t("Copy", "نسخ", lang)}
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const TABS = [
   { id: "monitor", en: "Call Monitor", ar: "مراقبة المكالمات", icon: PhoneCall },
   { id: "analytics", en: "Analytics", ar: "التحليلات", icon: BarChart3 },
@@ -100,7 +229,12 @@ export function Dashboard() {
         {tab === "analytics" && <Analytics />}
         {tab === "config" && <Config />}
         {tab === "compliance" && <Compliance />}
-        {tab === "webhooks" && <WebhooksDemo />}
+        {tab === "webhooks" && (
+          <div className="space-y-6">
+            <WebhookConfigSection />
+            <WebhooksDemo />
+          </div>
+        )}
       </motion.div>
     </div>
   );

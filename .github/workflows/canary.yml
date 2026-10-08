@@ -5,6 +5,11 @@ on: workflow_dispatch
 permissions:
   contents: read
 
+# Only the newest probe matters: a superseded run proves nothing and costs a
+# runner slot on the box that also serves production.
+concurrency:
+  group: canary-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   ping:
     name: Ping

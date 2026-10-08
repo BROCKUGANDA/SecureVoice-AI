@@ -1,8 +1,32 @@
-import { test, expect } from "bun:test";
+import { mock, test, expect } from "bun:test";
 import { writeFileSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { db } from "@/lib/db";
+
+// Per-institution delivery (src/lib/vendor-endpoint.ts) makes deliver() run a
+// DNS SSRF check and resolve a signing endpoint BEFORE any fetch. That is the
+// production contract, and it is deliberately not satisfiable by a fake host:
+// the SSRF guard is HTTPS+443, blocks loopback/`.example`, and the resolver is
+// injected so the module "stays tested on a laptop, in CI, and in an air-gapped
+// judging environment". This gate is about the RETRY LADDER, the dead-letter
+// replay and the cross-language signature — not the SSRF guard (which
+// tests/validation owns). So the network-touching boundary is stubbed here to
+// the shape deliver() needs, and everything below exercises the real outbox.
+mock.module("@/lib/vendor-endpoint", () => ({
+  assertVendorUrlDeliverable: async (_url: string) => ({ ok: true }),
+  resolveVendorEndpoint: async (_orgId: string | null | undefined) => ({
+    ok: true,
+    endpoint: {
+      url: "https://receiver.invalid/hook",
+      // In the per-institution model the endpoint's key IS the bank's secret;
+      // sign with BANK_WEBHOOK_SECRET so the cross-language signature check
+      // below verifies against the same key the receiver would use.
+      secret: process.env.BANK_WEBHOOK_SECRET ?? "",
+      source: "deployment",
+    },
+  }),
+}));
 import {
   enqueueOutbox,
   claimBatch,
@@ -67,7 +91,7 @@ test("WP-5: outbox retries, dead-letters, replays once, cross-language signature
       eventType: "case.notified",
       caseRef,
       orgId: "org-test",
-      targetUrl: "http://bank.example/hook",
+      targetUrl: "http://127.0.0.1/hook",
       data: { state: "NOTIFIED", outcome: "success", audit_ref: caseRef },
     });
   });
@@ -124,7 +148,7 @@ test("WP-5: outbox retries, dead-letters, replays once, cross-language signature
       caseRef,
       eventType: "case.notified",
       payload: canonicalJson({ event_id: "doomed", event_type: "case.notified", data: {} }),
-      targetUrl: "http://bank.example/hook",
+      targetUrl: "http://127.0.0.1/hook",
       state: "PENDING",
     },
   });
@@ -243,7 +267,7 @@ test("WP-5: concurrent claimers never both win the same delivery", async () => {
       caseRef: `SV-F-OUT-RACE`,
       eventType: "case.notified",
       payload: canonicalJson({ event_id: "race-single", event_type: "case.notified", data: {} }),
-      targetUrl: "http://bank.example/hook",
+      targetUrl: "http://127.0.0.1/hook",
     },
   });
 
@@ -262,7 +286,7 @@ test("WP-5: concurrent claimers never both win the same delivery", async () => {
         caseRef: `SV-F-OUT-RACE`,
         eventType: "case.notified",
         payload: canonicalJson({ event_id: `race-${i}`, event_type: "case.notified", data: {} }),
-        targetUrl: "http://bank.example/hook",
+        targetUrl: "http://127.0.0.1/hook",
       },
     });
   }

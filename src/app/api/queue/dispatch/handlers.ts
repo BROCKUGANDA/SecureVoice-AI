@@ -65,7 +65,9 @@ export async function handlePostCallResolution(envelope: JobEnvelope): Promise<v
   // duplicate delivery flips a case backwards.
   const p = (envelope.payload ?? {}) as { conversationId?: string | null };
   if (!p.conversationId) {
-    logWarn("[queue] postCall had no conversationId; nothing to resume", { caseRef: envelope.caseRef });
+    logWarn("[queue] postCall had no conversationId; nothing to resume", {
+      caseRef: envelope.caseRef,
+    });
     return;
   }
   // Deliberately a no-op for now: the ElevenLabs webhook owns resolution,

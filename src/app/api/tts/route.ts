@@ -170,7 +170,9 @@ export async function POST(req: NextRequest) {
         latencyMs: Date.now() - started,
       },
     }).catch((err) => {
-      logError("[tts] audit append failed", { error: err instanceof Error ? err.message : String(err) });
+      logError("[tts] audit append failed", {
+        error: err instanceof Error ? err.message : String(err),
+      });
     });
 
     return new NextResponse(new Uint8Array(result.audio), {
@@ -204,7 +206,9 @@ export async function POST(req: NextRequest) {
         { status: err.status === 401 || err.status === 403 ? 502 : 503 },
       );
     }
-    logError("[tts] generation failed", { error: err instanceof Error ? err.message : String(err) });
+    logError("[tts] generation failed", {
+      error: err instanceof Error ? err.message : String(err),
+    });
     return NextResponse.json({ error: "Speech generation unavailable" }, { status: 503 });
   }
 }

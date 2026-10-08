@@ -264,25 +264,61 @@ jobs:
     name: Compose stack smoke test
     runs-on: [self-hosted, securevoice-vps]
     timeout-minutes: 25
+    env:
+      # THE PRODUCTION PROJECT NAME IS `securevoice-ai` (hardcoded in
+      # docker-compose.yml) and it is running on THIS machine. Compose
+      # reconciles by project name, so a CI job that invoked plain
+      # `docker compose up` here would replace the live app, caddy, db and
+      # workers with test containers, and the `down -v` would delete the
+      # production database volume. A separate project name is what makes this
+      # job safe to run on the deploy host at all.
+      COMPOSE_PROJECT_NAME: securevoice-ci
+      # Required by compose interpolation (`:?`) and by the build args. These
+      # are throwaway values for a disposable stack — the smoke test never
+      # reaches a real vendor or a real database.
+      POSTGRES_PASSWORD: ci-only-not-a-secret
+      BETTER_AUTH_SECRET: ci-only-not-a-secret-ci-only-not-a-secret
+      BETTER_AUTH_URL: https://localhost:18443
+      # caddy must issue for a name that resolves to the CI container. The
+      # override publishes 18443, so localhost + the CI internal CA (hence -k).
+      SITE_ADDRESS: localhost
+      ACME_EMAIL: ci@example.invalid
+      # No seed: the smoke test asserts the topology, not demo data.
+      SEED_DEMO: "false"
     steps:
       - uses: actions/checkout@v4
 
+      # The host ports come from the override, not from docker-compose.yml,
+      # because production already holds 80/443 on this machine.
       - name: Build and start the stack
-        run: docker compose up -d --build --wait --wait-timeout 300
+        run: docker compose -f docker-compose.yml -f docker-compose.ci.yml up -d --build --wait --wait-timeout 300
 
       - name: Report status
         if: always()
-        run: docker compose ps
+        run: docker compose -f docker-compose.yml -f docker-compose.ci.yml ps
 
       - name: Dump logs on failure
         if: failure()
-        run: docker compose logs --no-color --tail 200
+        run: docker compose -f docker-compose.yml -f docker-compose.ci.yml logs --no-color --tail 200
+
+      # Prove the smoke test did not disturb the production stack. Without this
+      # the isolation above is an untested assumption, and the first regression
+      # would be discovered by a judge hitting an outage instead of by CI.
+      - name: Production stack untouched
+        if: always()
+        run: |
+          up=$(docker compose -p securevoice-ai ps --services --filter status=running | wc -l)
+          echo "production services running: $up"
+          [ "$up" -ge 7 ] || {
+            echo "::error::the production stack is not fully running ($up/7) — a smoke-test job disturbed it"
+            exit 1
+          }
 
       # Caddy is the only published port, so this is the real ingress path.
       - name: HTTPS through Caddy
         run: |
           for _ in $(seq 1 30); do
-            code=$(curl -sk -o /dev/null -w '%{http_code}' https://localhost/api/health || true)
+            code=$(curl -sk -o /dev/null -w '%{http_code}' https://localhost:18443/api/health || true)
             [ "$code" = "200" ] && break
             sleep 5
           done
@@ -290,26 +326,28 @@ jobs:
           test "$code" = "200"
 
       - name: SPA served through Caddy
-        run: test "$(curl -sk -o /dev/null -w '%{http_code}' https://localhost/)" = "200"
+        run: test "$(curl -sk -o /dev/null -w '%{http_code}' https://localhost:18443/)" = "200"
 
       # Proves the socket route is wired to the realtime service, without needing a
       # signing secret or a browser: Engine.IO answers a handshake on that path.
       - name: Realtime route reachable through the proxy
         run: |
           code=$(curl -sk -o /dev/null -w '%{http_code}' \
-            'https://localhost/realtime/?EIO=4&transport=polling')
+            'https://localhost:18443/realtime/?EIO=4&transport=polling')
           echo "realtime polling via Caddy: $code"
           test "$code" = "200"
 
       - name: Realtime port is not published to the host
         run: |
           # The origin must stay internal or the edge rate-limit trust model breaks.
-          if docker compose ps realtime --format '{{.Ports}}' | grep -qE '0\.0\.0\.0|::'; then
+          if docker compose -f docker-compose.yml -f docker-compose.ci.yml ps realtime --format '{{.Ports}}' | grep -qE '0\.0\.0\.0|::'; then
             echo "realtime is published to the host — expected expose-only"
             exit 1
           fi
           echo "realtime is expose-only, as intended"
 
+      # Always tears down the CI project ONLY. `-p securevoice-ci` is what keeps
+      # this from reaching the production containers and its database volume.
       - name: Tear down
         if: always()
-        run: docker compose down -v
+        run: docker compose -f docker-compose.yml -f docker-compose.ci.yml -p securevoice-ci down -v

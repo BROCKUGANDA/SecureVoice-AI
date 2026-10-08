@@ -1,0 +1,14 @@
+# actionlint configuration.
+#
+# actionlint validates `runs-on` labels against the labels GitHub itself
+# publishes. A repository's OWN self-hosted labels are not in that list, so
+# every workflow here targeting `securevoice-vps` was reported as an unknown
+# label — a false positive that made the CI gate red for a configuration that
+# was correct. Declaring the label here tells actionlint it is intentional.
+#
+# The runner is the OVH VPS (see docs/DEPLOY.md § runner). It is the ONLY
+# runner: GitHub-hosted `ubuntu-latest` is unusable on this account — jobs fail
+# at startup with no runner, no steps and no logs, even for a bare `echo`.
+self-hosted-runner:
+  labels:
+    - securevoice-vps

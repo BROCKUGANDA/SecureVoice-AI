@@ -1145,6 +1145,36 @@ export const ERROR_CODES: readonly ErrorCodeEntry[] = [
       "Treat the original case as authoritative and read its outcome rather than re-sending. If you genuinely need a second intervention for the same transaction, use a distinct `transaction_ref` so the intent is visible in the ledger.",
   },
   {
+    id: "gate_do_not_call",
+    status: 409,
+    code: null,
+    literal: "do_not_call",
+    surface: "http_message",
+    envelope: "failure_envelope_v1",
+    reachedFrom: [INGEST],
+    envelopeCode: "policy_precondition",
+    retryable: false,
+    meaning:
+      "The destination is on the do-not-call registry, so this call category may not place it. Registry honour is category-scoped by design: `routine`, `fact_finding`, `sensitive_case` and `b2b` are all blocked, while `time_critical_fraud` is not gated on it — a fraud verification is made in the customer's own interest and is already covered by the ingest consent requirement. Saying this loudly is the point: an operator who expects a call and sees this refusal needs to know the registry, not the queue, stopped it.",
+    remediation:
+      "Do not retry. If the customer has genuinely re-consented, remove the registry row (it is the source of truth) and re-send; the gate reads the registry at dial time precisely so a revoked entry takes effect immediately. A case refused this way is never silently re-categorised to slip past it.",
+  },
+  {
+    id: "gate_outside_calling_hours",
+    status: 409,
+    code: null,
+    literal: "outside_calling_hours",
+    surface: "http_message",
+    envelope: "failure_envelope_v1",
+    reachedFrom: [INGEST],
+    envelopeCode: "policy_precondition",
+    retryable: true,
+    meaning:
+      "A `routine` call may only be placed inside the permitted calling window, and this one is outside it. The ingest refuses; the dial worker does something better — it PARKS the job until the window opens, consuming no attempt, because a job accepted at 19:59 with a lead delay can lawfully be claimed at 20:01. So a bank sees this code only when it re-sends inside the blocked window, and a customer is never woken by a follow-up call.",
+    remediation:
+      "No action needed for a queued case — the worker resumes it when the window opens. Re-send only if you need a different call category; time-critical fraud verification is not window-gated.",
+  },
+  {
     id: "gate_idempotent_request_in_flight",
     status: 409,
     code: null,

@@ -127,7 +127,7 @@ describe("persisted progress", () => {
     // Someone clicking "back" to the first step.
     await completeStep(u, IDS[0]!);
     const s = await getOnboarding(u);
-    expect(s.completed).toEqual([IDS[0], IDS[1]]);
+    expect(s.completed).toEqual([IDS[0]!, IDS[1]!]);
   }, 60_000);
 
   test("an unknown step is rejected rather than silently recorded", async () => {

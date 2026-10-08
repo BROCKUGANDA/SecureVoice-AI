@@ -93,7 +93,7 @@ test("warm_transfer: without TWILIO_LIVE_SEND the tool degrades to the specialis
   const after = await db.case.findUnique({ where: { caseRef: kase.caseRef } });
   expect(after?.handoffQueued).toBe(true);
   expect(after?.handoffSpecialist).toBe("human_specialist");
-  expect(["ESCALATED", kase.state]).toContain(after?.state);
+  expect(["ESCALATED", kase.state]).toContain(after?.state ?? "");
 }, 30000);
 
 test("warm_transfer: a case without a Twilio call sid degrades the same way", async () => {

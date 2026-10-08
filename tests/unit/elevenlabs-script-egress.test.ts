@@ -45,7 +45,9 @@ describe("the script character ledger", () => {
 
     const refused = ledger.claim(60);
     expect(refused.ok).toBe(false);
-    expect(refused.reason).toContain("refusing to spend");
+    // Narrowed rather than cast: `reason` only exists on the refusal shape, and
+    // the assertion above has already failed the test if it does not.
+    if (!refused.ok) expect(refused.reason).toContain("refusing to spend");
     // The refusal is pre-flight: the ledger never absorbed the rejected claim.
     expect(ledger.used()).toBe(60);
     expect(ledger.remaining()).toBe(40);
@@ -158,7 +160,9 @@ describe("every ElevenLabs call goes through a guard", () => {
     globSync("{src,scripts,mini-services,agent}/**/*.{ts,tsx,mjs,js}", {
       cwd: process.cwd(),
     } as never)
-      .map(posix)
+      // Bun types node:fs globSync as returning Dirents; at this
+      // call site it yields path strings, which is what `posix` consumes.
+      .map((found) => posix(String(found)))
       .filter((f) => !f.includes("node_modules") && !f.includes(".next"));
 
   test("no source file fetches api.elevenlabs.io outside a guard", () => {

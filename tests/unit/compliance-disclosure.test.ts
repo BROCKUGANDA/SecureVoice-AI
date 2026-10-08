@@ -75,7 +75,7 @@ describe("the opening disclosure exists in every callable language", () => {
       expect(disclosure, `${lang} has no OPENING_DISCLOSURE constant`).toBeTruthy();
       // Substring, not equality: the message also carries the AI identity and
       // the reason for the call.
-      expect(msg).toContain(disclosure);
+      expect(msg).toContain(disclosure!);
     }
   });
 

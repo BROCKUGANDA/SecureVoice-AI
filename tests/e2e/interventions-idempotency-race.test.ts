@@ -16,6 +16,7 @@
  */
 import { test, expect } from "bun:test";
 import { createHmac } from "node:crypto";
+import { NextRequest } from "next/server";
 
 // The signature key is WEBHOOK_SECRET (src/lib/config.ts), not SV_WEBHOOK_SECRET.
 process.env.WEBHOOK_SECRET = process.env.WEBHOOK_SECRET ?? "test-secret";
@@ -41,7 +42,7 @@ function makeRequest(idempotencyKey: string, transactionRef: string, consentReco
     merchant: "Electronics World",
     consent_record_id: consentRecordId,
   });
-  return new Request("http://localhost/api/v1/interventions", {
+  return new NextRequest("http://localhost/api/v1/interventions", {
     method: "POST",
     headers: {
       "content-type": "application/json",

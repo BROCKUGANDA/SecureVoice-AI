@@ -23,7 +23,7 @@ import "server-only";
 import { createHash, createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import type { Prisma } from "@/generated/prisma/client";
 import { db } from "@/lib/db";
-import { env } from "@/lib/config";
+import { env, replayWindowSec } from "@/lib/config";
 
 export const WEBHOOK_SIGNATURE_HEADER = "sv-signature";
 export const SCHEMA_VERSION = "2026-10-01";
@@ -68,7 +68,9 @@ export function verifySignature(
   header: string | null,
   body: string,
   secret: string,
-  toleranceMs = 300_000,
+  // The same configured window the published contract states, in ms. A default
+  // here would be a second source of truth for a policy a deployment can change.
+  toleranceMs = replayWindowSec() * 1000,
 ): { ok: true } | { ok: false; reason: string } {
   if (!header) return { ok: false, reason: "missing_signature" };
   const parts = Object.fromEntries(

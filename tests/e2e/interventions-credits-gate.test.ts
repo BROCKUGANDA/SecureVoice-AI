@@ -29,6 +29,7 @@
  */
 import { expect, test } from "bun:test";
 import { createHmac } from "node:crypto";
+import { NextRequest } from "next/server";
 
 process.env.WEBHOOK_SECRET = process.env.WEBHOOK_SECRET ?? "test-secret";
 process.env.TWILIO_DRY_RUN = "true";
@@ -54,7 +55,7 @@ function signal(orgId: string, phone: string, transactionRef: string) {
     merchant: "Electronics World",
     consent_record_id: `CONSENT-${transactionRef}`,
   });
-  return new Request("http://localhost/api/v1/interventions", {
+  return new NextRequest("http://localhost/api/v1/interventions", {
     method: "POST",
     headers: {
       "content-type": "application/json",

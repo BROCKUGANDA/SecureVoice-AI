@@ -46,7 +46,7 @@ test("every console and v1 route resolves its tenant from the session", () => {
     const src = read(p);
     // A tenant from the wire is the thing to prevent: query string, JSON body,
     // path segment, or a header the client sets.
-    const patterns: [RegExp, string][] = [
+    const patterns: [RegExp, string | null][] = [
       [/searchParams\.get\(\s*["'](org|orgId|tenant|organizationId|org_id)["']/i, "query param"],
       [/\b(orgId|org_id|organizationId)\s*[,}]?\s*(?::|\bas\b)?\s*$/m, null],
       [/body\.(orgId|org_id|organizationId)/, "JSON body orgId"],

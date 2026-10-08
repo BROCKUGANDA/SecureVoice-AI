@@ -41,7 +41,7 @@ import { fileURLToPath } from "node:url";
 
 import {
   BACKOFF_LADDER_MS,
-  MAX_ATTEMPTS,
+  maxAttempts,
   SCHEMA_VERSION,
   WEBHOOK_SIGNATURE_HEADER,
   buildBankEvent,
@@ -50,6 +50,7 @@ import {
   verifySignature,
 } from "@/lib/outbox";
 import { FAILURE_CODES, STATUS_DISCIPLINE, makeFailure } from "@/lib/failures/envelope";
+import { replayWindowSec } from "@/lib/config";
 import { buildOpenApiDocument } from "@/lib/contracts/openapi";
 import { buildAsyncApiDocument } from "@/lib/contracts/asyncapi";
 import {
@@ -616,18 +617,26 @@ describe("outbound bank event matches the implementation", () => {
   });
 
   test("the retry ladder and attempt count are the published ones", () => {
-    expect(MAX_DELIVERY_ATTEMPTS).toBe(MAX_ATTEMPTS);
-    expect(BACKOFF_LADDER_MS).toHaveLength(MAX_ATTEMPTS);
+    // Read once: `maxAttempts()` is env-driven, and a document built between two
+    // reads could describe a different ladder than the one asserted here.
+    const attempts = maxAttempts();
+    expect(MAX_DELIVERY_ATTEMPTS).toBe(attempts);
+    expect(BACKOFF_LADDER_MS).toHaveLength(attempts);
     expect(buildAsyncApiDocument()["x-delivery"]).toMatchObject({
-      maxAttempts: MAX_ATTEMPTS,
+      maxAttempts: attempts,
       ladderMs: [...BACKOFF_LADDER_MS],
     });
   });
 
   test("the replay window is 300s in both directions", () => {
     expect(REPLAY_WINDOW_SECONDS).toBe(300);
-    expect(INTERVENTIONS_ROUTE).toContain("const REPLAY_WINDOW_SEC = 300");
-    expect(OUTBOX_SOURCE).toContain("toleranceMs = 300_000");
+    // One source, read by every party: the ingest route that rejects a stale
+    // producer timestamp, the signer/verifier pair, and the published document
+    // all take it from `replayWindowSec()`. Literals here used to be three
+    // chances to disagree about how long a signature is good for.
+    expect(INTERVENTIONS_ROUTE).toContain("const REPLAY_WINDOW_SEC = replayWindowSec();");
+    expect(OUTBOX_SOURCE).toContain("toleranceMs = replayWindowSec() * 1000");
+    expect(replayWindowSec()).toBe(REPLAY_WINDOW_SECONDS);
   });
 
   test("the signed bytes are the canonical bytes, and the real signer agrees", () => {

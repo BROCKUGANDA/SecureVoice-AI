@@ -369,7 +369,11 @@ function installFake(table_: FakeDialJobTable): void {
         // way Postgres does — from the SQL text. Falling back to a bound third
         // parameter keeps this honest if the statement ever goes back to `$n`.
         const inline = /LIMIT\s+(\d+)/i.exec(sql);
-        const limit = inline ? Number(inline[1]) : boundLimit;
+        // `Number.MAX_SAFE_INTEGER` is what an absent limit means to the fake: it
+        // slices the candidate set, so an undefined bound already returned
+        // everything. Named rather than left optional so the claim signature
+        // (limit: number) cannot silently accept a caller that forgot to bound.
+        const limit = inline ? Number(inline[1]!) : (boundLimit ?? Number.MAX_SAFE_INTEGER);
         // Yield before the pop so two drains genuinely INTERLEAVE and
         // contend for the same rows, the way two workers contend for
         // SKIP LOCKED. The pop itself stays synchronous, which is what

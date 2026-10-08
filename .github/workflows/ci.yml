@@ -50,6 +50,17 @@ jobs:
       # The db-transport guard refuses a plaintext DSN in production. These tests
       # are not production and the socket is loopback-only, so say so explicitly
       # rather than weakening the guard.
+      # Auth import-time requirement. `src/lib/better-auth.ts` refuses to import
+      # without a >=32 char BETTER_AUTH_SECRET, and several suites import it at
+      # module scope — so a clean CI checkout, which has no .env, died with
+      # "BETTER_AUTH_SECRET must be set" before a single assertion ran. A
+      # developer machine never sees this because .env supplies it.
+      #
+      # Throwaway, CI-only, and never deployed: this value exists so the suites
+      # can import the module. The stack's own value comes from the smoke job's
+      # .env, which is a separate file written per run.
+      BETTER_AUTH_SECRET: ci-only-not-a-secret-ci-only-not-a-secret
+      BETTER_AUTH_URL: http://localhost:3000
       # The load suite needs a SEPARATE database, and it defaults to
       # `postgresql://postgres@127.0.0.1:5432/securevoice_load` — port 5432,
       # where nothing is listening in CI (the test database above is on 55432).

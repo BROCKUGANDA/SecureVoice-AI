@@ -40,7 +40,11 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  # `checks: read` is what the gate below actually calls. Naming only
+  # `contents: write` implicitly sets every other permission to none, so the
+  # `check-runs` read returned 403 and the job could never prove CI was green.
+  checks: read
+  contents: read
 
 # One bump at a time: two racing bumps would tag two versions off one commit.
 concurrency:
@@ -65,7 +69,7 @@ jobs:
       - name: Refuse to release a commit CI did not prove
         env:
           EVENT: ${{ github.event_name }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.PROMOTE_TOKEN }}
         run: |
           if [ "$EVENT" = "workflow_dispatch" ]; then
             echo "manual run: verifying CI on main is currently green"
@@ -88,9 +92,22 @@ jobs:
       - name: Bump package.json, commit and tag
         id: release
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # NOT secrets.GITHUB_TOKEN, and not just for consistency with the
+          # promotion workflow. A push authenticated with GITHUB_TOKEN does not
+          # trigger workflows BY DESIGN — that is GitHub's loop guard — so the
+          # tag push below would be accepted, the commit would land, and the
+          # tag-triggered Release job would never start. The release would look
+          # like it worked and produce nothing. A repo-scoped token pushes as
+          # the repository's own identity, so the tag fires the release.
+          GH_TOKEN: ${{ secrets.PROMOTE_TOKEN }}
+          GIT_AUTH_TOKEN: ${{ secrets.PROMOTE_TOKEN }}
         run: |
           set -euo pipefail
+          # Point the push at the token explicitly. The checkout's persisted
+          # credential is GITHUB_TOKEN, and pushing with it would land the
+          # commit while silently not triggering the tag-driven release.
+          git remote set-url origin \
+            "https://x-access-token:${GIT_AUTH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
 
           # Configure git identity: a workflow checkout has none, and a commit
           # without one fails with "unable to auto-detect email address".

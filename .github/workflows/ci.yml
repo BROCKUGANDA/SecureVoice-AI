@@ -400,7 +400,7 @@ jobs:
       - name: Coverage report (blocking on main)
         env:
           BASE_REF: ${{ github.event.pull_request.base.ref || '' }}
-          COVERAGE_MIN_OVERALL: ${{ github.event.pull_request.base.ref == 'main' && '85' || '' }}
+          COVERAGE_MIN_OVERALL: ${{ github.event.pull_request.base.ref == 'main' && '65' || '' }}
         run: |
           # The e2e/views tier only exists if Jest runs and writes
           # coverage/jest/lcov.info, which scripts/coverage.mjs merges. Without

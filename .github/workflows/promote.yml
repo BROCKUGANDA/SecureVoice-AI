@@ -123,6 +123,13 @@ jobs:
           COUNT: ${{ steps.delta.outputs.count }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
+          # Without this, a failed `gh` call prints an error, leaves `pr` empty,
+          # and the script carries on to "arm auto-merge" on nothing — so the
+          # reported failure becomes "could not arm auto-merge" instead of the
+          # real cause. The first run of this workflow failed exactly that way
+          # and hid that GitHub Actions was not permitted to create PRs at all.
+          set -euo pipefail
+
           # Reuse rather than stack: two open promotions of the same edge are two
           # reviews of the same diff, and the second one is always closed.
           existing=$(gh pr list --state open --base "$TARGET" --head "$SOURCE" \

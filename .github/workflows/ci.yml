@@ -600,8 +600,11 @@ jobs:
       # signing secret or a browser: Engine.IO answers a handshake on that path.
       - name: Realtime route reachable through the proxy
         run: |
+          # Double quotes, not single: the port is a per-run variable, and single
+          # quotes would hand the literal string `$CI_CADDY_HTTPS_PORT` to curl,
+          # which then failed against nothing.
           code=$(curl -sk -o /dev/null -w '%{http_code}' \
-            'https://localhost:$CI_CADDY_HTTPS_PORT/realtime/?EIO=4&transport=polling')
+            "https://localhost:$CI_CADDY_HTTPS_PORT/realtime/?EIO=4&transport=polling")
           echo "realtime polling via Caddy: $code"
           test "$code" = "200"
 

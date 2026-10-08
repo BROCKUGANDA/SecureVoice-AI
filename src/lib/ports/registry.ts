@@ -475,6 +475,8 @@ function twilioTelephony(): TelephonyProvider {
         ...(req.merchant === undefined ? {} : { merchant: req.merchant }),
         ...(req.origin === undefined ? {} : { origin: req.origin }),
         callRef: req.caseRef,
+        orgId: req.orgId ?? null,
+        caseId: req.caseId ?? null,
       });
       return res.ok
         ? { ok: true, sid: res.sid, status: res.status, channel: "voice" }
@@ -487,6 +489,8 @@ function twilioTelephony(): TelephonyProvider {
         caseRef: req.caseRef,
         ...(req.amount === undefined ? {} : { amount: req.amount }),
         ...(req.merchant === undefined ? {} : { merchant: req.merchant }),
+        orgId: req.orgId ?? null,
+        caseId: req.caseId ?? null,
       });
       return res.ok
         ? { ok: true, sid: res.sid, status: res.status, channel: "sms" }

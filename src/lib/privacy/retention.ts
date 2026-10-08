@@ -45,6 +45,7 @@ import "server-only";
  */
 
 import type { Prisma } from "@/generated/prisma/client";
+import { env } from "@/lib/config";
 import { db } from "@/lib/db";
 import { verifyChain } from "@/lib/audit-chain";
 import {
@@ -523,7 +524,7 @@ const DEFAULT_BATCH_SIZE = 100;
 const DEFAULT_MAX_BATCHES = 20;
 const DEFAULT_MAX_ORGS = 1_000;
 /** How many caseRefs a tier's report carries before it stops appending. */
-const REPORTED_REFS_CAP = 50;
+const REPORTED_REFS_CAP = env.retentionReportCap;
 
 /** Every org that currently has a case row, plus any org with an explicit
  *  override (so a configured org with zero cases is still evaluated). */

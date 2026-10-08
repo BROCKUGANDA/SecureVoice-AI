@@ -102,6 +102,46 @@ add(
   set(env.TWILIO_AUTH_TOKEN) ? "set" : "unset — /api/twilio/turn signatures CANNOT be verified",
 );
 
+/* ── Carrier live-fire attestation ── */
+// src/lib/twilio.ts refuses every call AND every SMS unless this is set. The
+// consequence is not a crash but silence: the dial worker and the SMS fallback
+// get a 403 they treat as a transport hiccup, so the unreachable path quietly
+// stops working while every dashboard still looks healthy. That is worth a row.
+// Not a blocker - a demo that only ever fires dry runs does not need it.
+add(
+  "TWILIO_LIVE_SEND",
+  env.TWILIO_LIVE_SEND === "true",
+  env.TWILIO_LIVE_SEND === "true"
+    ? "attested — real calls and real SMS are permitted"
+    : "NOT attested — live calls and SMS are REFUSED at send time (SMS fallback is dead)",
+  false,
+);
+
+/* ── Database target ── */
+// REQUIRE_VPS_DATABASE is the deployment's own promise to run against its own
+// Postgres. Report the class either way: a production deployment quietly holding
+// data in someone else's managed instance is exactly the kind of thing a
+// preflight exists to surface before go-live rather than after.
+const dbUrl = env.DATABASE_URL ?? "";
+const dbClass = dbUrl
+  ? /supabase|neon|planetscale|azure\.com|mysql\.rds\.amazonaws|aws\.neptune/i.test(dbUrl)
+    ? "managed third-party"
+    : /@(localhost|127\.0\.0\.1|\[::1\])|(^|\/\/)(db|postgres):5432/.test(dbUrl)
+      ? "self-hosted (compose `db`)"
+      : "unrecognised host"
+  : "unset";
+const requiresVps = env.REQUIRE_VPS_DATABASE === "true";
+add(
+  "Database target",
+  dbUrl && (!requiresVps || dbClass === "self-hosted (compose `db`)"),
+  !dbUrl
+    ? "DATABASE_URL unset — the app throws at startup"
+    : requiresVps && dbClass !== "self-hosted (compose `db`)"
+      ? `${dbClass}, but REQUIRE_VPS_DATABASE=true — startup will refuse`
+      : `${dbClass}${requiresVps ? " (enforced)" : " (not enforced — REQUIRE_VPS_DATABASE unset)"}`,
+  requiresVps && dbClass !== "self-hosted (compose `db`)",
+);
+
 /* ── Realtime ── */
 add(
   "REALTIME_INGEST_SECRET",

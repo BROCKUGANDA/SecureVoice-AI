@@ -18,6 +18,7 @@ import {
   FileJson2,
 } from "lucide-react";
 import { useApp, t } from "@/lib/store";
+import { API_BASE_URL } from "@/lib/public-config";
 import { Reveal } from "@/components/fx/core";
 import { cn } from "@/lib/utils";
 
@@ -302,7 +303,7 @@ function Quickstart({ lang }: { lang: "en" | "ar" }) {
   // NEXT_PUBLIC_API_BASE to document a separate API hostname.
   const origin =
     process.env.NEXT_PUBLIC_API_BASE ??
-    (typeof window !== "undefined" ? window.location.origin : "https://api.securevoice.ae");
+    (typeof window !== "undefined" ? window.location.origin : API_BASE_URL);
   const steps = [
     {
       n: "01",

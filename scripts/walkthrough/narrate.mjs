@@ -15,6 +15,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { AUDIO, BASE, ffprobeDuration, readEnv, sha, writeJson } from "./lib.mjs";
 import { scenes } from "./scenes.mjs";
+import { createCharLedger, fetchWithBackoff, synthWithGuard } from "../lib/elevenlabs-egress.mjs";
 
 const env = readEnv();
 const KEY = env.ELEVENLABS_API_KEY;
@@ -26,30 +27,36 @@ const dry = process.argv.includes("--dry-run");
 const cacheFile = path.join(AUDIO, "cache.json");
 const cache = fs.existsSync(cacheFile) ? JSON.parse(fs.readFileSync(cacheFile, "utf8")) : {};
 
+/**
+ * Narration bills the same monthly ElevenLabs quota as the live product, so it
+ * goes through the script ledger: refuse before sending, back off on a 429, and
+ * never lose a whole take to one transient 5xx.
+ */
+const ledger = createCharLedger({
+  file: path.join(AUDIO, ".elevenlabs-spend.json"),
+  label: "walkthrough narration",
+});
+
 async function synthNarrator(text) {
-  const r = await fetch(
-    "https://api.elevenlabs.io/v1/text-to-speech/" + NARRATOR + "?output_format=mp3_44100_128",
-    {
-      method: "POST",
-      headers: { "xi-api-key": KEY, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        text,
-        model_id: MODEL,
-        voice_settings: { stability: 0.42, similarity_boost: 0.8, style: 0.15 },
-      }),
-    },
+  return synthWithGuard(
+    { voiceId: NARRATOR, text, model: MODEL, apiKey: KEY, outputFormat: "mp3_44100_128" },
+    ledger,
   );
-  if (!r.ok) throw new Error("narrator TTS " + r.status + ": " + (await r.text()).slice(0, 200));
-  return Buffer.from(await r.arrayBuffer());
 }
 
 async function synthAgent(text, lang) {
-  const r = await fetch(BASE + "/api/tts", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text, voice: lang, lang }),
-  });
-  if (!r.ok) throw new Error("platform TTS " + r.status + " for lang " + lang);
+  // The platform's own route is guarded server-side; this retry only stops one
+  // transient hiccup from aborting a take that is halfway rendered.
+  const r = await fetchWithBackoff(
+    `${BASE}/api/tts`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text, voice: lang, lang }),
+    },
+    { timeoutMs: 60_000 },
+  );
+  if (!r.ok) throw new Error(`platform TTS ${r.status} for lang ${lang}`);
   return Buffer.from(await r.arrayBuffer());
 }
 

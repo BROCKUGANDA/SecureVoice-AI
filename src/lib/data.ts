@@ -163,7 +163,7 @@ export const AUDIT_LOG: AuditEntry[] = [
     ts: "14:03:12",
     event: "AUDIT_SEALED",
     actor: "system",
-    detail: "Recording + bilingual transcript + metadata written to immutable store (AES-256)",
+    detail: "Redacted bilingual transcript + metadata appended to the hash-chained audit log",
     hash: "0x8f3a…c21e",
   },
   {

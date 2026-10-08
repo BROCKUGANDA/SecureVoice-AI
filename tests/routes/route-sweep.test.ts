@@ -41,7 +41,7 @@ const ALL_ROUTES = discoverRoutes("src/app");
  * green while asserting nothing, which the tests below pin against.
  */
 const DB_BACKED =
-  /^(\/api\/(console|auth|metrics|status|v1|tts|agent|asr|enroll|interventions|pilot)|\/v1\/|\/api$)/;
+  /^(\/api\/(console|auth|metrics|status|v1|tts|agent|asr|enroll|interventions|pilot|onboarding)|\/v1\/|\/api$)/;
 
 describe("the route table is derived, not declared", () => {
   test("discovery finds routes, so a sweep over an empty table cannot pass", () => {
@@ -118,6 +118,8 @@ describe("authorization coverage", () => {
       "/api/auth/sessions/revoke-all",
       "/api/auth/step-up",
       "/api/console/audit",
+      "/api/console/crm",
+      "/api/console/dead-letter",
       "/api/console/events",
       "/api/console/features",
       "/api/console/fire",
@@ -137,6 +139,8 @@ describe("authorization coverage", () => {
       "/api/tts",
       "/api/tts/stream",
       "/api/v1/interventions",
+      "/api/v1/interventions/[id]",
+      "/api/onboarding",
       "/v1/conformance/run",
     ]);
 

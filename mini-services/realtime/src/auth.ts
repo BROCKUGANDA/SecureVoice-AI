@@ -34,7 +34,9 @@ import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 /** Version prefix doubles as the signing-scheme discriminator. */
 const PREFIX = "svr1";
 
-export const DEFAULT_TTL_SEC = 60;
+/** Must match REALTIME_TOKEN_TTL_SEC on the app side (src/lib/config.ts) —
+ * the minter and the verifier read the same env or tokens die on arrival. */
+export const DEFAULT_TTL_SEC = Number(process.env.REALTIME_TOKEN_TTL_SEC) || 60;
 /** Tolerated clock skew, in seconds, in both directions. */
 export const LEEWAY_SEC = 5;
 

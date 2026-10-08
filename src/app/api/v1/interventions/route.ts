@@ -10,6 +10,9 @@ import { consume as consumeRateLimit, rateLimitId } from "@/lib/ratelimit";
 import { verifyProducerKey } from "@/lib/producer-keys";
 import { createHash } from "node:crypto";
 import { sanitizeUntrusted, sanitizeDynamicVariables } from "@/lib/sanitize-untrusted";
+import { isTwilioConfigured, liveSendAttested, sendInterventionSms } from "@/lib/twilio";
+import { qstashConfigured, publishEnvelope, dispatchPath } from "@/lib/queue/qstash";
+import { makeEnvelope } from "@/lib/queue/envelope";
 import { runPolicyGate } from "@/lib/policy-gate";
 import { assertDialAllowed, releaseDialSlot } from "@/lib/abuse/guards";
 import { validateOutboundUrl } from "@/lib/validation/ssrf";
@@ -20,6 +23,10 @@ import { makeFailure, type FailureCode, type FailureInit } from "@/lib/failures/
 
 import { notifyRealtime } from "@/lib/realtime";
 import { createCase, transitionCase } from "@/lib/case-state-machine";
+import { SIGNAL_KINDS } from "@/lib/institution-types";
+import { getInstitutionType } from "@/lib/institution";
+import { CALL_CATEGORIES } from "@/lib/call-categories";
+import { env, replayWindowSec, IDEMPOTENCY_TTL_HOURS, SUPPORTED_LANGS } from "@/lib/config";
 
 /**
  * One error shape for the whole bank-facing surface: `{ code, message,
@@ -64,8 +71,33 @@ export const dynamic = "force-dynamic";
  * path: one DB round-trip + the (dry-run) call placement.
  */
 
-const REPLAY_WINDOW_SEC = 300;
-const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000;
+/* ── Idempotency / replay guard ── */
+const REPLAY_WINDOW_SEC = replayWindowSec();
+const IDEMPOTENCY_TTL_MS = IDEMPOTENCY_TTL_HOURS * 60 * 60 * 1_000;
+
+/**
+ * How long the dial job waits before it becomes claimable, so the pre-
+ * notification SMS reaches the customer first. 75s sits inside the 60-90s
+ * window that makes a call "expected" without ageing the fraud signal past the
+ * point where a customer has already hung up on their own.
+ *
+ * Bounded so a misconfigured env value cannot park a fraud call indefinitely.
+ */
+export function preNotificationLeadMs(): number {
+  // DEFAULT 0: the submission promises the agent calls within 60s of the
+  // signal, and 75s of hold breaks that SLA. An operator who wants the
+  // pre-notification SMS to reliably land before the ring can opt in with
+  // PRENOTIF_LEAD_SECONDS (60-90); the SMS text itself is sent immediately
+  // regardless.
+  const raw = Number(process.env.PRENOTIF_LEAD_SECONDS ?? 0);
+  if (!Number.isFinite(raw) || raw <= 0) return 0;
+  return Math.min(Math.trunc(raw), 300) * 1000;
+}
+/** The SMS language set; anything unmapped falls back to English. */
+type DeliveryLang = (typeof SUPPORTED_LANGS)[number];
+export function deliveryLang(lang: string): DeliveryLang {
+  return (SUPPORTED_LANGS as readonly string[]).includes(lang) ? (lang as DeliveryLang) : "en";
+}
 
 const schema = z
   .object({
@@ -76,6 +108,12 @@ const schema = z
     currency: z.string().regex(/^[A-Z]{3}$/, "currency must be ISO-4217"),
     amount: z.number().int().min(0, "amount must be a non-negative integer in minor units"),
     merchant: z.string().trim().max(120).optional(),
+    signal_kind: z.enum(SIGNAL_KINDS).optional(),
+    call_category: z.enum(CALL_CATEGORIES).optional(),
+    ref_last4: z
+      .string()
+      .regex(/^\d{4}$/, "ref_last4 must be exactly four digits")
+      .optional(),
     consent_record_id: z.string().trim().min(4).max(64),
     callback_url: z
       .string()
@@ -113,10 +151,11 @@ function verifySignature(
   const expected = createHmac("sha256", secret).update(`${t}.${rawBody}`).digest("hex");
   const a = Buffer.from(expected, "hex");
   // `v1` is a required capture group of the regex above (exactly 64 lowercase hex
-  // chars), so it can never actually be undefined here Ã¢â‚¬ the match either fails
-  // and we returned above, or it carries both captures. The assertion records that
-  // invariant for the type checker instead of adding a branch that cannot run.
-  const b = Buffer.from(v1!, "hex");
+  // chars), so it can never actually be undefined here — the match either fails
+  // and we returned above, or it carries both captures. The explicit check
+  // records that invariant at runtime rather than relying on the type checker.
+  if (!v1) return { ok: false, reason: "Malformed SV-Signature" };
+  const b = Buffer.from(v1, "hex");
   return a.length === b.length && timingSafeEqual(a, b)
     ? { ok: true }
     : { ok: false, reason: "Digest mismatch" };
@@ -149,7 +188,7 @@ export async function POST(req: NextRequest) {
       req.headers.get("sv-signature") ||
       req.headers.get("SV-Signature") ||
       req.headers.get("x-securevoice-signature");
-    const sig = verifySignature(rawBody, sigHeader, process.env.WEBHOOK_SECRET ?? "");
+    const sig = verifySignature(rawBody, sigHeader, env.webhookSecret ?? "");
     if (!sig.ok) {
       return failure("unauthenticated", { detail: `signature rejected: ${sig.reason}` });
     }
@@ -428,6 +467,9 @@ async function armAndDial(
     // Checked independently of the Idempotency-Key: a bank that sends one
     // transaction under two different keys must still produce one call.
     transactionRef: signal.transaction_ref,
+    // WHY the institution is calling — selects the preconditions (do-not-call
+    // registry, routine calling window) and, downstream, the agent's prompt.
+    callCategory: signal.call_category,
   });
   if (!gate.ok) {
     void auditAppend(
@@ -508,7 +550,7 @@ async function armAndDial(
   // The gates above have passed, so this is RECEIVED -> SCREENED through the
   // single writer. The dial worker then owns SCREENED -> DIALING.
   const merchant = signal.merchant ? sanitizeUntrusted(signal.merchant) : undefined;
-  await createCase({
+  const created = await createCase({
     caseRef,
     orgId,
     transactionRef: signal.transaction_ref,
@@ -519,6 +561,9 @@ async function armAndDial(
     amountMinor: signal.amount,
     currency: signal.currency,
     consentRecordId: signal.consent_record_id,
+    cardLast4: signal.ref_last4 ?? null,
+    signalKind: signal.signal_kind ?? null,
+    callCategory: signal.call_category ?? null,
   });
   await transitionCase(caseRef, "SCREENED");
 
@@ -616,35 +661,113 @@ async function armAndDial(
 
   let delivery: Record<string, unknown>;
   try {
-    const job = await enqueueDialJob({
-      caseId: caseRef,
-      caseRef,
-      orgId,
-      attemptNo: 1,
-      // Expected-loss triage: a higher-value alert is dialled first when the
-      // queue is draining faster than the provider allows.
-      priority: Math.round(
-        ((Number.isFinite(signal.risk_score) ? Math.min(Math.max(signal.risk_score, 0), 1) : 0) *
-          (signal.amount ?? 0)) /
-          100,
-      ),
-      // Sanitised dial inputs only ÃƒÂ¢Ã¢šÂ¬Ã¢â‚¬Â never transcript content (invariant I-10).
-      payload: {
-        to: redactText(signal.phone),
-        language: signal.language,
-        merchant: merchant ?? "",
-        amount: signal.amount ?? 0,
-        currency: signal.currency ?? "",
-        transaction_ref: signal.transaction_ref,
-      },
-    });
+    // Sanitised dial inputs only — never transcript content (invariant I-10).
+    const priority = Math.round(
+      ((Number.isFinite(signal.risk_score) ? Math.min(Math.max(signal.risk_score, 0), 1) : 0) *
+        (signal.amount ?? 0)) /
+        100,
+    );
+    const jobPayload = {
+      to: redactText(signal.phone),
+      language: signal.language,
+      merchant: merchant ?? "",
+      amount: signal.amount ?? 0,
+      currency: signal.currency ?? "",
+      transaction_ref: signal.transaction_ref,
+    };
+
+    let jobId: string;
+    let jobState: string;
+    let duplicate: boolean;
+
+    if (qstashConfigured()) {
+      // Bank's request produces one small envelope; QStash delivers it to the
+      // dispatch route, which enqueues the durable dial job through the SAME
+      // queue the dial worker drains. QStash retries the delivery, so a DB
+      // hiccup cannot lose the signal; exhausted retries dead-letter through
+      // the failureCallback into the DeadLetter table.
+      const { messageId } = await publishEnvelope(
+        makeEnvelope({
+          jobKind: "call.trigger",
+          idempotencyKey: `dial:${caseRef}:1`,
+          caseRef,
+          orgId,
+          payload: {
+            caseId: caseRef,
+            ...jobPayload,
+            priority,
+            availableInMs: preNotificationLeadMs(),
+          },
+        }),
+        dispatchPath(),
+      );
+      jobId = messageId;
+      jobState = "PENDING";
+      duplicate = false;
+    } else {
+      // Durable queue (S-1). The request handler ENQUEUES and returns; the
+      // call is placed by a worker that claims the job.
+      const job = await enqueueDialJob({
+        caseId: caseRef,
+        caseRef,
+        orgId,
+        attemptNo: 1,
+        // Expected-loss triage: a higher-value alert is dialled first when the
+        // queue is draining faster than the provider allows.
+        priority,
+        payload: { ...jobPayload, phone: jobPayload.to },
+        // Hold the dial back so the pre-notification SMS lands first.
+        availableInMs: preNotificationLeadMs(),
+      });
+      jobId = job.id;
+      jobState = job.state;
+      duplicate = !job.created;
+    }
+
+    // Pre-notification: tell the customer, in their language, to expect the call.
+    //
+    // This is the largest answer-rate lever available and it needs no carrier
+    // agreement. A fraud-verification call from an unknown number is the exact
+    // pattern UAE customers are trained to hang up on, and Twilio's UAE
+    // guidelines prohibit presenting a +971 geographic number outbound at all,
+    // so the originator looks foreign regardless of configuration. An SMS 60-90
+    // seconds earlier makes the call expected instead of surprising.
+    //
+    // Sent AFTER the enqueue, never before: a heads-up promising a call the
+    // queue failed to schedule is worse than no message. Fire and forget — an
+    // SMS outage must not fail the intervention, and the call still proceeds.
+    //
+    // Skipped, not attempted-and-failed, when the channel cannot deliver: the
+    // live-fire attestation is a deployment state, and logging a refusal per
+    // signal would bury the failures that are worth reading.
+    if (isTwilioConfigured() && liveSendAttested()) {
+      void sendInterventionSms({
+        to: signal.phone,
+        lang: deliveryLang(signal.language),
+        caseRef,
+        // No amount, no merchant: a heads-up SMS is the most easily forwarded
+        // message in the chain, and one that names a transaction is a template a
+        // smisher can copy verbatim. It says only "expect a verification call".
+        kind: "heads_up",
+        // Whose alert this is decides WHICH number it comes from and what the
+        // customer is told to expect a call from — see resolveSmsSender.
+        orgId,
+        caseId: created.id,
+        institution: await getInstitutionType(orgId),
+      }).catch((err: unknown) => {
+        console.error(
+          "[v1/interventions] pre-notification SMS failed:",
+          err instanceof Error ? err.message : err,
+        );
+      });
+    }
     delivery = {
       channel: "queued",
       provider: "elevenlabs",
       to: redactText(signal.phone),
-      jobId: job.id,
-      jobState: job.state,
-      duplicate: !job.created,
+      jobId,
+      jobState,
+      duplicate,
     };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -729,6 +852,12 @@ export async function GET() {
         phone: "E.164 (+9715ÃƒÂ¢Ã¢šÂ¬Ã‚Â¦)",
         currency: "ISO-4217 (AED, USD, ÃƒÂ¢Ã¢šÂ¬Ã‚Â¦)",
         amount: "integer minor units (fils/cents)",
+        signal_kind:
+          "card_transaction | claim_payout | policy_change | account_takeover (optional; insurers use claim_payout / policy_change)",
+        call_category:
+          "fact_finding | sensitive_case | b2b | routine | time_critical_fraud (optional; default time_critical_fraud). Selects the agent's system prompt and the backend preconditions: routine calls are refused outside the permitted calling window and for do-not-call numbers; do-not-call blocks every non-critical category.",
+        ref_last4:
+          "exactly 4 digits (optional) - last four of the card / policy / account reference; lets the customer recognise the fallback SMS, which never carries a merchant or amount",
         merchant: "string? ÃƒÂ¢Ã¢šÂ¬Ã¢â‚¬Â sanitised before it becomes a dynamic variable",
         consent_record_id: "string (4-64) ÃƒÂ¢Ã¢šÂ¬Ã¢â‚¬Â required for outbound contact",
         callback_url: "https URL? ÃƒÂ¢Ã¢šÂ¬Ã¢â‚¬Â post-call outcome delivery",

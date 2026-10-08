@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { consume } from "@/lib/ratelimit";
+import { SUPPORTED_LANGS } from "@/lib/languages";
 
 /**
  * Edge layer — runs before every route resolves (Next.js 16 renamed this file
@@ -82,18 +83,26 @@ function cameThroughProxy(req: NextRequest): boolean {
  * take one entry, cap its length, and only when the request came through the
  * proxy. This value becomes a rate-limit key, and unbounded attacker-chosen keys
  * are a memory-exhaustion vector — hence the sanitise + length cap.
+ *
+ * When the request arrives through Cloudflare's proxy (the orange-cloud
+ * hostname), the left-most XFF entry is Cloudflare's edge — Caddy overwrites the
+ * chain with the immediate peer — so the real client is in CF-Connecting-IP,
+ * which Cloudflare sets and Caddy forwards untouched. It wins over XFF; on the
+ * direct (unproxied) hostname the header is absent and the chain is used as
+ * before.
  */
 function clientIp(req: NextRequest): string {
   if (!cameThroughProxy(req)) return "direct";
+  const cf = req.headers.get("cf-connecting-ip");
   const xff = req.headers.get("x-forwarded-for");
-  const first = xff?.split(",")[0]?.trim();
+  const first = cf || xff?.split(",")[0]?.trim();
   const candidate = first || req.headers.get("x-real-ip");
   if (!candidate) return "unknown";
   return candidate.replace(/[^\w.:]/g, "").slice(0, 64) || "unknown";
 }
 
 /** Best-effort language from Accept-Language, narrowed to the languages we speak. */
-const SUPPORTED = ["en", "ar", "hi", "ur", "fr", "sw"] as const;
+const SUPPORTED = [...SUPPORTED_LANGS];
 
 function resolveLanguage(req: NextRequest): string | null {
   const header = req.headers.get("accept-language");

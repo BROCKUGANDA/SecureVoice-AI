@@ -1,14 +1,14 @@
 {
   "schema_version": "1.0",
   "gate": "inbound-webhook",
-  "command": "bun test tests/webhooks/elevenlabs-inbound.test.ts",
+  "command": "bun test tests/webhooks/elevenlabs-inbound.test.ts --timeout 300000",
   "ok": true,
   "exit_code": 0,
-  "duration_ms": 2562,
-  "passed": 1,
+  "duration_ms": 45527,
+  "passed": 2,
   "failed": 0,
-  "assertions": 22,
+  "assertions": 38,
   "database": "shared test database",
-  "generated_at": "2026-10-02T21:14:42.849Z",
-  "output_tail": "      FROM \"UsageLedger\"\n     WHERE \"orgId\" = $1\n     GROUP BY \"kind\"\n  \n        INSERT INTO \"UsageLedger\"\n          (\"id\", \"orgId\", \"caseRef\", \"attemptNo\", \"kind\", \"units\", \"reason\", \"idemKey\", \"balanceAfter\", \"createdAt\")\n        VALUES ($1, $2, $3, $4,\n                $5, $6, $7, $8, $9, $10)\n        ON CONFLICT (\"idemKey\") DO NOTHING\n        RETURNING \"id\", \"orgId\", \"caseRef\", \"attemptNo\", \"kind\", \"units\", \"reason\", \"idemKey\", \"balanceAfter\", \"createdAt\"\n      \nprisma:error \nInvalid `db.webhookEvent.create()` invocation in\nC:\\Users\\HP\\Desktop\\SecureVoiceai\\src\\app\\api\\webhooks\\elevenlabs\\route.ts:55:39\n\n  52       : null;\n  53 \n  54 try {\n→ 55   const row = await db.webhookEvent.create(\nUnique constraint failed on the constraint: `WebhookEvent_provider_eventType_conversationId_eventTimesta_key`\n\n\ntests\\webhooks\\elevenlabs-inbound.test.ts:\n(pass) WP-4: post-call ingest verifies, dedupes, redacts, notifies [2458.42ms]\n\n 1 pass\n 0 fail\n 22 expect() calls\nRan 1 test across 1 file. [2.53s]\n"
+  "generated_at": "2026-10-07T11:19:58.395Z",
+  "output_tail": "→ 57   const row = await db.webhookEvent.create(\nUnique constraint failed on the constraint: `WebhookEvent_provider_eventType_conversationId_eventTimesta_key`\n    SELECT \"kind\", COALESCE(SUM(\"units\"), 0)::int AS \"units\"\n      FROM \"UsageLedger\"\n     WHERE \"orgId\" = $1\n     GROUP BY \"kind\"\n  \n    SELECT \"kind\", COALESCE(SUM(\"units\"), 0)::int AS \"units\"\n      FROM \"UsageLedger\"\n     WHERE \"orgId\" = $1\n     GROUP BY \"kind\"\n  \n        INSERT INTO \"UsageLedger\"\n          (\"id\", \"orgId\", \"caseRef\", \"attemptNo\", \"kind\", \"units\", \"reason\", \"idemKey\", \"balanceAfter\", \"createdAt\")\n        VALUES ($1, $2, $3, $4,\n                $5, $6, $7, $8, $9, $10)\n        ON CONFLICT (\"idemKey\") DO NOTHING\n        RETURNING \"id\", \"orgId\", \"caseRef\", \"attemptNo\", \"kind\", \"units\", \"reason\", \"idemKey\", \"balanceAfter\", \"createdAt\"\n      \n\n\ntests\\webhooks\\elevenlabs-inbound.test.ts:\n(pass) WP-4: post-call ingest verifies, dedupes, redacts, notifies [29798.21ms]\n(pass) WP-15: without a master key the post-call payload is dropped, not stored in plaintext [15551.97ms]\n\n 2 pass\n 0 fail\n 38 expect() calls\nRan 2 tests across 1 file. [45.47s]\n"
 }

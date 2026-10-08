@@ -23,20 +23,24 @@ import "server-only";
 import { createHash, createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import type { Prisma } from "@/generated/prisma/client";
 import { db } from "@/lib/db";
+import { env, replayWindowSec } from "@/lib/config";
 
 export const WEBHOOK_SIGNATURE_HEADER = "sv-signature";
 export const SCHEMA_VERSION = "2026-10-01";
-export const MAX_ATTEMPTS = 6;
+export function maxAttempts(): number {
+  return Number(process.env.OUTBOX_MAX_ATTEMPTS) || 6;
+}
 
-/** Retry ladder: six attempts spread across roughly 21 hours, then dead. */
-export const BACKOFF_LADDER_MS = [
-  60_000, //  +1m
-  300_000, //  +5m
-  1_800_000, // +30m
-  7_200_000, // +2h
-  10_800_000, // +3h
-  43_200_000, // +12h
-] as const;
+/** Retry ladder: six attempts spread across roughly 21 hours, then dead.
+ * Overridable via OUTBOX_BACKOFF_MS as a comma-separated list of milliseconds. */
+export const BACKOFF_LADDER_MS: readonly number[] = (() => {
+  const raw = process.env.OUTBOX_BACKOFF_MS;
+  if (raw) {
+    const parsed = raw.split(",").map((s) => Number(s.trim()));
+    if (parsed.every((n) => Number.isFinite(n) && n > 0)) return parsed;
+  }
+  return [60_000, 300_000, 1_800_000, 7_200_000, 10_800_000, 43_200_000];
+})();
 
 /** Deterministic JSON: object keys sorted at every depth. */
 export function canonicalJson(value: unknown): string {
@@ -64,7 +68,9 @@ export function verifySignature(
   header: string | null,
   body: string,
   secret: string,
-  toleranceMs = 300_000,
+  // The same configured window the published contract states, in ms. A default
+  // here would be a second source of truth for a policy a deployment can change.
+  toleranceMs = replayWindowSec() * 1000,
 ): { ok: true } | { ok: false; reason: string } {
   if (!header) return { ok: false, reason: "missing_signature" };
   const parts = Object.fromEntries(
@@ -97,10 +103,7 @@ export type BankEventInput = {
 };
 
 export function bankEventUrl(): string {
-  return (
-    process.env.BANK_WEBHOOK_URL ??
-    `http://127.0.0.1:${process.env.PORT ?? 3000}/api/webhooks/receiver`
-  );
+  return process.env.BANK_WEBHOOK_URL ?? `${env.appBaseUrl}/api/webhooks/receiver`;
 }
 
 export function signingSecret(): string {
@@ -258,6 +261,9 @@ export async function deliver(
         ),
       },
       body: event.payload,
+      // A slow bank server must not hang the worker. 10s is generous for a
+      // webhook delivery; the retry ladder handles transient failures.
+      signal: AbortSignal.timeout(Number(process.env.OUTBOX_DELIVERY_TIMEOUT_MS) || 10_000),
     });
     status = res.status;
     ok = res.status >= 200 && res.status < 300;
@@ -274,7 +280,7 @@ export async function deliver(
     return { id: event.id, status: "DELIVERED", attempts: attempt };
   }
 
-  if (attempt >= MAX_ATTEMPTS) {
+  if (attempt >= maxAttempts()) {
     await db.$transaction([
       db.outboxEvent.update({
         where: { id: event.id },

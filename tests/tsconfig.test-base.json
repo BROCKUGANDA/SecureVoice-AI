@@ -9,6 +9,7 @@
     "verbatimModuleSyntax": true,
     "noEmit": true,
     "strict": true,
+    "jsx": "preserve",
     "skipLibCheck": true,
     "noUncheckedIndexedAccess": true,
     "types": ["bun"],

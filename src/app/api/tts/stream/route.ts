@@ -6,12 +6,15 @@ import {
   ELEVEN_VOICE_ENV,
   allowedVoices,
   isProdVoiceMode,
+  resolveTtsModel,
   type TtsLang,
 } from "@/lib/elevenlabs/client";
 import { consume as consumeRateLimit, rateLimitId } from "@/lib/ratelimit";
 import { append as auditAppend } from "@/lib/audit-chain";
 import { transcript as redactText } from "@/lib/redact";
 import { resolveTtsKey, consumeCharQuota, quotaExceededResponse } from "@/lib/tts-quota";
+import { fetchUpstreamBinary } from "@/lib/elevenlabs/egress";
+import { env, maxTtsChars, SUPPORTED_LANGS } from "@/lib/config";
 
 export const dynamic = "force-dynamic";
 
@@ -25,13 +28,13 @@ export const dynamic = "force-dynamic";
  * response — same contract, same status codes.
  */
 
-const LANGS = new Set(["en", "ar", "hi", "ur", "fr", "sw"]);
-const MAX_CHARS = 1024;
+const LANGS = new Set<string>(SUPPORTED_LANGS);
+const MAX_CHARS = maxTtsChars();
 
 const schema = z.object({
   text: z.string().min(1).max(MAX_CHARS),
   voice: z.string().min(1).max(64),
-  lang: z.enum(["en", "ar", "hi", "ur", "fr", "sw"]).default("en"),
+  lang: z.enum(SUPPORTED_LANGS).default("en"),
   callRef: z.string().min(3).max(64).optional(),
 });
 
@@ -93,7 +96,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: `Unknown voice '${parsed.data.voice}'` }, { status: 422 });
   }
 
-  if (!process.env.ELEVENLABS_API_KEY || process.env.ELEVENLABS_DRY_RUN === "true") {
+  if (!env.elevenLabsApiKey || env.elevenLabsDryRun) {
     // dev backend: no streaming — tell the client to use the buffered route
     return NextResponse.json(
       { error: "Streaming unavailable in dev mode — fall back to /api/tts", fallback: true },
@@ -116,43 +119,60 @@ export async function POST(req: NextRequest) {
     if (!charged.ok) {
       return NextResponse.json(quotaExceededResponse(), {
         status: 429,
-        headers: { "Retry-After": "3600" },
+        headers: { "Retry-After": String(env.ttsQuotaRetryAfterSec) },
       });
     }
   }
-  const apiKey = keyRes.mode === "byok" ? keyRes.keyOverride : process.env.ELEVENLABS_API_KEY;
+  const apiKey = keyRes.mode === "byok" ? keyRes.keyOverride : env.elevenLabsApiKey;
 
-  // Per-language model (Swahili → Flash v2.5), matching the buffered route
-  const model = lang === "sw" ? "eleven_flash_v2_5" : (process.env.ELEVENLABS_MODEL ?? "eleven_v3");
+  // Resolved from the same table the buffered route uses. This used to re-derive
+  // the model locally (`sw` → flash v2.5), which ignored ELEVENLABS_MODEL for
+  // every other language and picked a model that cannot speak Swahili.
+  const model = resolveTtsModel(lang);
 
-  const upstream = await fetch(
-    `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voice)}/stream?optimize_streaming_latency=3`,
+  const upstream = await fetchUpstreamBinary(
+    "POST",
+    `/v1/text-to-speech/${encodeURIComponent(voice)}/stream?optimize_streaming_latency=3`,
     {
-      method: "POST",
-      headers: {
-        "xi-api-key": apiKey,
-        "content-type": "application/json",
-        accept: "audio/mpeg",
-      },
+      headers: { accept: "audio/mpeg" },
       body: JSON.stringify({
         text,
         model_id: model,
-        voice_settings: { stability: 0.5, similarity_boost: 0.75, use_speaker_boost: true },
+        voice_settings: {
+          stability: env.voiceStability,
+          similarity_boost: env.voiceSimilarityBoost,
+          use_speaker_boost: env.voiceUseSpeakerBoost,
+        },
       }),
-      signal: AbortSignal.timeout(25_000),
+      // Only platform-key synthesis touches the shared 10k account budget; a
+      // BYOK caller spends their own quota.
+      billableChars: keyRes.mode === "platform" ? text.length : 0,
+      apiKey,
+      callerId,
+      timeoutMs: env.ttsTimeoutMs,
+      maxRetries: 2,
     },
   );
 
-  if (!upstream.ok || !upstream.body) {
-    const detail = await upstream.text().catch(() => "");
-    console.error("[tts-stream] upstream error:", upstream.status, detail.slice(0, 200));
-    const generic =
-      upstream.status === 401 || upstream.status === 403
-        ? "Voice service authentication failed — contact the operator."
-        : "Speech streaming is temporarily unavailable — the client will fall back.";
+  if (!upstream.ok) {
+    const detail = upstream.body.slice(0, 200);
+    console.error("[tts-stream] upstream error:", upstream.status, detail);
+    const auth = upstream.status === 401 || upstream.status === 403;
+    // A guard refusal (budget, throttle, open breaker) is the platform degrading
+    // on purpose; the client's fallback is the buffered route, then silence.
     return NextResponse.json(
-      { error: generic, fallback: true },
-      { status: upstream.status === 401 || upstream.status === 403 ? 502 : 503 },
+      {
+        error: auth
+          ? "Voice service authentication failed — contact the operator."
+          : "Speech streaming is temporarily unavailable — the client will fall back.",
+        fallback: true,
+        breakerOpen: upstream.breakerOpen,
+        quotaExhausted: upstream.status === 429,
+      },
+      {
+        status: auth ? 502 : 503,
+        headers: upstream.status === 429 ? { "Retry-After": "60" } : undefined,
+      },
     );
   }
 
@@ -172,7 +192,7 @@ export async function POST(req: NextRequest) {
     },
   }).catch(() => {});
 
-  return new Response(upstream.body, {
+  return new Response(upstream.response.body, {
     status: 200,
     headers: {
       "Content-Type": "audio/mpeg",

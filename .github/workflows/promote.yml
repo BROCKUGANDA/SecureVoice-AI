@@ -1,0 +1,140 @@
+# ---------------------------------------------------------------------------
+# SecureVoice AI — promotion
+#
+# The branch ladder the README states (dev -> staging -> main) is only real if
+# moving code up it is a deliberate, recorded event. This workflow makes it one:
+# it opens (or reuses) a pull request for exactly one legal edge, and refuses
+# anything else.
+#
+# It opens a PR rather than merging. A promotion that auto-merged would put
+# staging's or main's name on code nobody reviewed at that moment, and `main` is
+# the branch whose deployments can dial a real customer. The human press of
+# "merge" is the control.
+#
+# Trigger is manual only, by design: a schedule that opens PRs nobody asked for
+# trains everyone to close them unread.
+# ---------------------------------------------------------------------------
+name: Promote
+
+on:
+  workflow_dispatch:
+    inputs:
+      source:
+        description: "Promote FROM"
+        required: true
+        type: choice
+        options:
+          - dev
+          - staging
+          - main
+      target:
+        description: "Promote TO"
+        required: true
+        type: choice
+        options:
+          - staging
+          - main
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  promote:
+    name: Open the promotion pull request
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The commit list under the PR is the whole point of a promotion, and a
+          # shallow clone cannot produce it.
+          fetch-depth: 0
+
+      # The two legal edges, checked here rather than trusted from the dropdown:
+      # `main -> dev` or `staging -> dev` would silently revert the trunk, and
+      # actionlint cannot tell those apart from a legitimate request.
+      - name: Refuse an edge that is not a promotion
+        env:
+          SOURCE: ${{ inputs.source }}
+          TARGET: ${{ inputs.target }}
+        run: |
+          case "${SOURCE} -> ${TARGET}" in
+            "dev -> staging"|"staging -> main") echo "promoting ${SOURCE} -> ${TARGET}" ;;
+            *)
+              echo "::error::${SOURCE} -> ${TARGET} is not a promotion edge."
+              echo "The ladder is dev -> staging -> main. Moving work the other way"
+              echo "is a revert, and reverts are done explicitly, not through this job."
+              exit 1
+              ;;
+          esac
+
+      - name: Fetch both ends
+        run: git fetch origin "$SOURCE" "$TARGET"
+        env:
+          SOURCE: ${{ inputs.source }}
+          TARGET: ${{ inputs.target }}
+
+      # A promotion with nothing in it is not a no-op: it is a PR that says
+      # "review this" about nothing, which is how review discipline dies. Say so
+      # and stop.
+      - name: Stop when there is nothing to promote
+        id: delta
+        env:
+          SOURCE: ${{ inputs.source }}
+          TARGET: ${{ inputs.target }}
+        run: |
+          count=$(git rev-list --count "origin/${TARGET}..origin/${SOURCE}")
+          echo "count=$count" >> "$GITHUB_OUTPUT"
+          echo "commits ahead of ${TARGET}: $count"
+          if [ "$count" = "0" ]; then
+            echo "${SOURCE} is already contained in ${TARGET} — nothing to promote." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Open or reuse the pull request
+        if: steps.delta.outputs.count != '0'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SOURCE: ${{ inputs.source }}
+          TARGET: ${{ inputs.target }}
+          COUNT: ${{ steps.delta.outputs.count }}
+        run: |
+          # Reuse rather than stack: two open promotions of the same edge are two
+          # reviews of the same diff, and the second one is always closed.
+          existing=$(gh pr list --state open --base "$TARGET" --head "$SOURCE" \
+            --json number --jq '.[0].number // empty')
+
+          # The list is capped because a promotion that has drifted 100 commits is
+          # evidence the ladder is not being walked often enough — the PR should
+          # say so, not bury the reviewer in a 400-line body.
+          log=$(git log --oneline --no-decorate "origin/${TARGET}..origin/${SOURCE}" \
+            | head -n 50 | sed "s/^/- /")
+          if [ "$COUNT" -gt 50 ]; then
+            log="${log}
+          - _… and $(( COUNT - 50 )) more; run \`git log --oneline origin/${TARGET}..origin/${SOURCE}\` for the rest_"
+          fi
+
+          body=$(cat <<EOF
+          ## ${SOURCE} → ${TARGET}
+
+          ${COUNT} commit(s) moving up the ladder.
+
+          ${log}
+
+          ---
+          Merging this promotes the code; it does not deploy it. Production is a
+          tag (see \`.github/workflows/release.yml\`), and the VPS deploy runs from
+          \`main\` (see \`.github/workflows/deploy.yml\`).
+          EOF
+          )
+
+          title="promote: ${SOURCE} -> ${TARGET} (${COUNT} commits)"
+          if [ -n "$existing" ]; then
+            gh pr edit "$existing" --title "$title" --body "$body"
+            echo "Refreshed existing PR #${existing}" | tee -a "$GITHUB_STEP_SUMMARY"
+            gh pr view "$existing" --json url --jq '.url' | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            url=$(gh pr create --base "$TARGET" --head "$SOURCE" --title "$title" --body "$body")
+            echo "Opened promotion pull request" | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "$url" | tee -a "$GITHUB_STEP_SUMMARY"
+          fi

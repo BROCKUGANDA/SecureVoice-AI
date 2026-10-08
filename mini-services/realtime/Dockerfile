@@ -34,4 +34,5 @@ EXPOSE 4000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD bun -e "fetch('http://127.0.0.1:4000/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
-CMD ["bun", "run", "src/server.ts"]
+# --smol: measured heap trade, see docs/CAPACITY.md §10 (512m box, fan-out only).
+CMD ["bun", "--smol", "run", "src/server.ts"]

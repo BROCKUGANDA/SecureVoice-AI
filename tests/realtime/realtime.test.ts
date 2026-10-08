@@ -47,6 +47,15 @@ test("WP-20: tenancy, resume, inbox dedupe, acknowledgement escalation", async (
     : "cross-node delivery: UNVERIFIED here (no Redis, no Docker); run mini-services/realtime tests with REDIS_URL to close it";
   console.log(`  [scope] ${banner}`);
 
+  // The escalation sweep in section 4 is GLOBAL by design — an operator's cron
+  // escalates every outstanding row. This is a shared test database and any
+  // suite whose process was killed skips its afterAll, so unacknowledged
+  // leftovers with arbitrary createdAt accumulate (a seams fixture dated
+  // 2026-01-01 once sat here for days, escalating on every sweep). Acknowledge
+  // the slate BEFORE creating this run's rows, so the sweep measures only
+  // fixtures this test itself wrote.
+  await db.notification.updateMany({ data: { acknowledgedAt: new Date() } });
+
   // ── 1. Tenancy: an org-scoped read never returns the other org's rows ───
   // Fixture events go through the real audit chain so the rows this test
   // reads are exactly the rows production writes (and remain verifiable).

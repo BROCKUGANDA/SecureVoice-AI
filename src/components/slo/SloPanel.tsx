@@ -101,7 +101,10 @@ export function SloPanel({
 
   useEffect(() => {
     const controller = new AbortController();
-    void load(controller.signal);
+    // Deferred so the first load is not a synchronous setState inside the effect
+    // body, which React flags as a cascading render. Nothing is lost: the panel
+    // is already `loading`, and the fetch starts one microtask later.
+    void Promise.resolve().then(() => load(controller.signal));
     if (pollMs <= 0) return () => controller.abort();
     const iv = setInterval(() => void load(controller.signal), pollMs);
     return () => {

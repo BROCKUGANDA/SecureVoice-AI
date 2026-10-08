@@ -39,16 +39,35 @@ import "server-only";
  *  6. TRANSCRIPT_BEFORE_TTS_CLOSE — the agent's reply MUST be recorded in
  *     the audit log BEFORE the TTS endpoint is called for that reply, so
  *     that an interrupted call still leaves a written record.
+ *
+ *  7. NO_PROHIBITED_DATA_TO_VENDOR — ElevenAgents Terms §2.E forbids sending
+ *     "any financial account identifiers (e.g., credit card numbers or bank
+ *     account numbers)" to the platform without written agreement. Enforced in
+ *     `sanitizeUntrusted`, which is the single chokepoint every dynamic
+ *     variable passes on its way into the agent's spoken context. Note the
+ *     existing PII guard (item 4) covers the PERSIST path; this covers EGRESS.
+ *     It is narrower than `redact.transcript` on purpose: stripping phone-shaped
+ *     digits would corrupt a bank's own transaction reference.
+ *
+ *  8. HIGH_STAKES_DECISION_REQUIRES_HUMAN — PUP §3(d) prohibits facilitating
+ *     "high-stakes automated decisionmaking which may affect an individual's
+ *     wellbeing", and §3(b) requires a qualified professional to review output
+ *     in financial services. This is why `card_freeze` is NOT a freeze. The tool
+ *     moves the case to FREEZE_STAGED with `committed: false` and a reversal
+ *     window, and no agent-reachable code path can set `committed: true`. The
+ *     agent can ask; a human or the bank's own processor decides. Asserted
+ *     structurally by tests/unit/compliance-disclosure.test.ts, because a
+ *     guarantee that rests on a comment is not a guarantee.
  */
 
 import { transcript as redactText } from "@/lib/redact";
 
 export const OPENING_DISCLOSURE_EN = "This call is recorded to protect you";
 export const OPENING_DISCLOSURE_AR = "هذه المكالمة مسجلة لحمايتك";
-export const OPENING_DISCLOSURE_HI = "यह कॉल आपकी सुरक्षा के लिए रिकॉर्ड हो रहा है";
+export const OPENING_DISCLOSURE_HI = "इस कॉल को आपकी सुरक्षा के लिए रिकॉर्ड किया जा रहा है";
 export const OPENING_DISCLOSURE_UR = "یہ کال آپ کی حفاظت کے لیے ریکارڈ ہو رہی ہے";
 export const OPENING_DISCLOSURE_FR = "Cet appel est enregistré pour vous protéger";
-export const OPENING_DISCLOSURE_SW = "Simu hii inarekodiwa kulinda wewe";
+export const OPENING_DISCLOSURE_SW = "Simu hii inarekodiwa kwa usalama wako";
 
 const NO_CREDENTIAL_DENY_PATTERNS: { pattern: RegExp; why: string }[] = [
   { pattern: /\b(otp|one[- ]time|passcode|verification code)\b/i, why: "OTP/passcode request" },
@@ -128,9 +147,9 @@ const SAFE_REFUSAL: Record<"en" | "ar" | "hi" | "ur" | "fr" | "sw", string> = {
   en: "I am not able to ask for that information, and no legitimate bank representative will. Please end this call if anyone is asking you to share it, and call the number on the back of your card.",
   ar: "لا أستطيع طلب هذه المعلومات، ولا يطلبها أي موظف بنك حقيقي. إذا طلبها منك أحد، أنهِ المكالمة واتصل بالرقم الموجود على ظهر بطاقتك.",
   hi: "मैं यह जानकारी नहीं माँग सकता, और कोई भी वास्तविक बैंक प्रतिनिधि भी नहीं माँगेगा। यदि कोई माँगे तो कॉल काट दें और कार्ड के पीछे दिए नंबर पर कॉल करें।",
-  ur: "میں یہ معلومات نہیں مانگ سکتا، اور کوئی بھی حقیقی بینک نمائندہ بھی نہیں مانگے گا۔ اگر کوئی مانگے تو کال کاٹ دیں اور کارڈ کی پشت پر دیا گیا نمبر ملائیں۔",
+  ur: "میں یہ معلومات نہیں مانگ سکتا، اور کوئی بھی حقیقی بینک نمائندہ بھی نہیں مانگے گا۔ اگر کوئی مانگے تو کال کاٹ دیں اور کارڈ کی پشت پر دیے گئے نمبر پر رابطہ کریں۔",
   fr: "Je ne peux pas vous demander ces informations, et aucun représentant bancaire légitime ne le fera. Si quelqu'un vous les demande, raccrochez et appelez le numéro au dos de votre carte.",
-  sw: "Siwezi kuomba habari hiyo, na mwakilishi yeyote halali wa benki hataomba. Kuna mtu akikuomba, sitisha simu upigie namba iliyo kwa nyuma ya kadi yako.",
+  sw: "Siwezi kuomba habari hiyo, na mwakilishi yeyote halali wa benki hataomba. Kama kuna mtu anakuomba, sitisha simu upigie kwa namba iliyo nyuma ya kadi yako.",
 };
 
 /**

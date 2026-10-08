@@ -25,8 +25,9 @@
 
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 
-/** Mirrors REPLAY_WINDOW_SEC in src/lib/config.ts. */
-export const REPLAY_WINDOW_SEC = 300;
+/** Same window the app reads (REPLAY_WINDOW_SEC, src/lib/config.ts): both
+ * sides must agree or one side's valid traffic fails as stale on the other. */
+export const REPLAY_WINDOW_SEC = Number(process.env.REPLAY_WINDOW_SEC) || 300;
 /** Org ids and call refs are bounded before they can become channel segments. */
 const MAX_ORG = 64;
 const MAX_CALLREF = 64;

@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 
+import { env } from "@/lib/config";
 import { consume as consumeRateLimit } from "@/lib/ratelimit";
 import { verifyProducerKey } from "@/lib/producer-keys";
 import { safeFetch, validateOutboundUrl } from "@/lib/validation/ssrf";
@@ -53,7 +54,7 @@ export const dynamic = "force-dynamic";
  */
 
 const CONFORMANCE_BUDGET_PER_HOUR = 12;
-const PROBE_TIMEOUT_MS = 5_000;
+const PROBE_TIMEOUT_MS = env.conformanceProbeTimeoutMs;
 
 function json(body: unknown, status: number, headers: Record<string, string> = {}): NextResponse {
   return NextResponse.json(body, {

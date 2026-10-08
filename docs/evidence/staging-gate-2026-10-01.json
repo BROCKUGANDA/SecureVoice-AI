@@ -1,0 +1,40 @@
+{
+  "generated_at": "2026-10-01",
+  "purpose": "Verify the pre-production gate: under APP_ENV=staging the platform accepts a signed fraud signal but REFUSES to contact a real phone number, so a staging demo cannot reach a customer.",
+  "mechanism": {
+    "flag": "APP_ENV",
+    "resolved_by": "config.env.appEnv (falls back to NODE_ENV, then 'development')",
+    "gate": "config.env.canContactRealNumbers === true only when appEnv === 'production'",
+    "enforced_at": [
+      "src/lib/twilio.ts :: placeInterventionCall -> 403 outbound_calls_disabled_<env>",
+      "src/lib/twilio.ts :: sendInterventionSms   -> 403 outbound_sms_disabled_<env>"
+    ],
+    "observability": "GET /api/status reports appEnv and canContactRealNumbers",
+    "design_note": "Fails LOUDLY with 403 rather than silently simulating, so a 403 in staging is positive evidence the environment is wired correctly."
+  },
+  "live_verification": {
+    "server": "next dev -p 3116 with APP_ENV=staging",
+    "database": "Supabase Postgres via eu-central-1 IPv4 pooler",
+    "steps": [
+      "GET /api/status -> appEnv=staging, canContactRealNumbers=false, telephony=api-key",
+      "POST /api/enroll  (signed, action=enroll, E.164 test number) -> 200, delivery='live (Twilio)'",
+      "POST /api/interventions (signed, channel=card, high risk) -> 202"
+    ],
+    "result": {
+      "status": "delivery_failed",
+      "delivery_error": "outbound_sms_disabled_staging",
+      "call_attempt_error": "outbound_calls_disabled_staging",
+      "phone_in_response": "[REDACTED]",
+      "twilio_api_calls_observed_in_server_log": 0
+    },
+    "interpretation": "The signal was ingested and a case created, but delivery was refused before any Twilio request. No real customer could be dialled from pre-production."
+  },
+  "unchanged_by_design": {
+    "card_freeze": "Still non-committing in EVERY environment: it stages a reversible pending_specialist request and returns committed:false. Human approval remains mandatory regardless of APP_ENV.",
+    "audit_chain": "Every refusal is still recorded; the guard does not bypass audit."
+  },
+  "not_verified": [
+    "The production branch of the gate (APP_ENV=production allowing a real dial) was NOT exercised, because doing so would place a genuine call to a real number. It is verified by type-check + code read only.",
+    "No Docker/CI deployment exists yet, so APP_ENV wiring per branch is documented, not automatically applied."
+  ]
+}

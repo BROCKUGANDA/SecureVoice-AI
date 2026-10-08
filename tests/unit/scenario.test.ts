@@ -31,7 +31,7 @@ import {
 } from "@/lib/scenario";
 import { UR_PACKS } from "@/lib/scenario-ur";
 
-const KINDS = ["card", "atm", "wire"] as const;
+const KINDS = ["card", "atm", "wire", "claim", "voicemail"] as const;
 const LANGS: CallLang[] = ["en", "ar", "hi", "ur", "fr", "sw"];
 
 describe("buildScenario — timeline shape", () => {
@@ -84,6 +84,145 @@ describe("buildScenario — timeline shape", () => {
       }
     });
   }
+});
+
+describe("the insurance scenario speaks as an insurer, and stays honest", () => {
+  const events = buildScenario("claim");
+  const meta = SCENARIO_LIBRARY.find((s) => s.kind === "claim")!;
+
+  test("is tagged as an insurer scenario and the originals stay banks", () => {
+    expect(meta.institution).toBe("insurer");
+    for (const k of ["card", "atm", "wire"] as const) {
+      expect(SCENARIO_LIBRARY.find((s) => s.kind === k)!.institution).toBeUndefined();
+    }
+  });
+
+  test("the introduction names an insurer and a policy - never a bank or an account", () => {
+    const intro = events[4]!;
+    expect(intro.en).toContain("insurer");
+    expect(intro.en).toContain("policy");
+    expect(intro.en.toLowerCase()).not.toContain("bank");
+    expect(intro.ar).toContain("التأمين");
+    expect(intro.ur ?? "").toContain("انشورنس");
+    // And the bank scenarios were not changed by making the line institution-aware.
+    expect(buildScenario("card")[4]!.en).toContain("bank");
+  });
+
+  test("the protective step is a staged payout hold a human confirms - not a freeze, not final", () => {
+    const protect = events[11]!;
+    expect(protect.en.toLowerCase()).toContain("human");
+    expect(protect.en.toLowerCase()).toContain("nothing is final");
+    expect(protect.en.toLowerCase()).not.toContain("freeze");
+    expect(meta.freezeOk.join("\n")).toContain("committed:    false");
+    expect(meta.freezePath).toContain("payout-hold");
+    // Reassures the policyholder the CLAIM is unaffected.
+    expect(protect.en).toContain("claim itself is not affected");
+  });
+
+  test("never asks for a credential or a policy number", () => {
+    for (const e of events) {
+      if (e.speaker !== "agent") continue;
+      expect(e.en.toLowerCase()).not.toMatch(/\b(your pin|password|one-time|otp|cvv)\b/);
+    }
+    expect(events[8]!.en).toContain("No PIN, password or policy number requested");
+  });
+});
+
+describe("the voicemail scenario is an honest failure / escalation path", () => {
+  const events = buildScenario("voicemail");
+  const meta = SCENARIO_LIBRARY.find((s) => s.kind === "voicemail")!;
+  const langs = (e: ScenarioEvent) => [e.en, e.ar, e.hi ?? "", e.ur ?? ""];
+
+  test("the agent never starts a conversation: the only agent line is the voicemail message", () => {
+    const agentLines = events.filter((e) => e.speaker === "agent");
+    expect(agentLines.map((e) => e.id)).toEqual(["e05"]);
+  });
+
+  test("the mailbox message (e05) leaks no amount, merchant or case number in any language", () => {
+    for (const script of langs(events[4]!)) {
+      for (const secret of ["3,900", "3900", "٣,٩٠٠", "٣٩٠٠", "Gold Souk", "FRAUD-2026"]) {
+        expect(script).not.toContain(secret);
+      }
+    }
+    expect(events[4]!.en).toContain("automated AI assistant");
+    expect(events[4]!.en).toContain("back of your card");
+    expect(events[4]!.en).toContain("never ask for your PIN");
+  });
+
+  test("the blind-ping SMS (e07) names only the last four digits and asks for YES or NO", () => {
+    const sms = events[6]!;
+    expect(sms.tag).toContain("blind ping");
+    for (const script of [sms.en, sms.hi ?? "", sms.ur ?? ""]) {
+      expect(script).toContain("2087");
+      expect(script).toContain("YES");
+      expect(script).toContain("NO");
+    }
+    expect(sms.ar).toContain("٢٠٨٧");
+    expect(sms.ar).toContain("YES");
+    expect(sms.ar).toContain("NO");
+    expect(sms.en).toContain("Do not reply with anything else");
+    for (const script of langs(sms)) {
+      for (const secret of ["3,900", "Gold Souk", "AED", "درهم", "दिरहम", "درہم"]) {
+        expect(script).not.toContain(secret);
+      }
+    }
+  });
+
+  test("the customer replies exactly NO by SMS and the parser reads the whole message", () => {
+    expect(events[8]!.speaker).toBe("customer");
+    expect(events[8]!.en).toBe("NO");
+    expect(events[9]!.en).toContain("exactly as NO");
+    expect(events[9]!.en).toContain("no substring matching");
+    expect(events[9]!.en).toContain("exactly ONE open alert");
+  });
+
+  test("no English script ever claims the card has been frozen", () => {
+    for (const e of events) {
+      expect(e.en).not.toMatch(/your card is frozen|has been frozen|have frozen/i);
+    }
+    // The only freeze wording is negated.
+    for (const e of events) {
+      if (/frozen/i.test(e.en)) expect(e.en).toMatch(/nothing (is|was) frozen/i);
+    }
+  });
+
+  test("the bank event records sms_reply_no and stays honest: queued handoff, nothing staged", () => {
+    const api = events[11]!;
+    expect(api.speaker).toBe("api");
+    expect(api.tag).toContain(`/api/v1/cases/${meta.caseId}`);
+    for (const script of langs(api)) {
+      expect(script).toContain("NOTIFIED");
+      expect(script).toContain("resolution_method: sms_reply_no");
+      expect(script).toContain("handoff_queued: true");
+      expect(script).toContain("freeze_staged: false");
+    }
+    expect(meta.freezePath).toContain("/api/sms/inbound");
+    const receipt = meta.freezeOk.join("\n");
+    expect(receipt).toContain('"NOTIFIED"');
+    expect(receipt).toContain('"sms_reply_no"');
+    expect(receipt).toMatch(/committed:\s+false/);
+    expect(receipt).toMatch(/freeze_staged:\s+false/);
+  });
+
+  test("an SMS reply is treated as evidence, not an authorisation", () => {
+    expect(events[13]!.en).toContain("not identity");
+    expect(events[13]!.en).toContain("not as an authorisation");
+  });
+
+  test("the outcome interpolates the exposure in every language and promises nothing frozen", () => {
+    const last = events[16]!;
+    expect(last.en).toContain(meta.preventedLoss.en);
+    expect(last.ur).toContain(meta.preventedLoss.en);
+    expect(last.en).toContain("Nothing was frozen without a human");
+  });
+
+  test("the other four scenarios are unchanged by the voicemail branch", () => {
+    for (const k of ["card", "atm", "wire", "claim"] as const) {
+      const ev = buildScenario(k);
+      expect(ev[4]!.speaker).toBe("agent");
+      expect(ev[3]!.en).toContain("Call connected");
+    }
+  });
 });
 
 describe("Urdu pack alignment", () => {

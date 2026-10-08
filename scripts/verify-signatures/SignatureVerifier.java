@@ -66,8 +66,23 @@ public final class SignatureVerifier {
     /** The header name. HTTP lower-cases it on the wire; read it case-insensitively. */
     public static final String HEADER_NAME = "sv-signature";
 
-    /** The sender's replay window. Widening it weakens the scheme; narrowing it breaks honest receivers. */
-    public static final long DEFAULT_TOLERANCE_SECONDS = 300L;
+    /**
+     * The sender's replay window. Widening it weakens the scheme; narrowing it
+     * breaks honest receivers. Defaults to 300 to match the sender's
+     * REPLAY_WINDOW_SEC (src/lib/config.ts); the env override exists so both
+     * sides can be moved together during a rotation window.
+     */
+    public static final long DEFAULT_TOLERANCE_SECONDS = toleranceFromEnv();
+
+    private static long toleranceFromEnv() {
+        String raw = System.getenv("REPLAY_WINDOW_SEC");
+        if (raw == null || raw.isBlank()) return 300L;
+        try {
+            return Long.parseLong(raw.trim());
+        } catch (NumberFormatException e) {
+            return 300L;
+        }
+    }
 
     private static final String ALGORITHM = "HmacSHA256";
 

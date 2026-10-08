@@ -39,6 +39,7 @@ import "server-only";
  * an `await` in this file's gate path.
  */
 
+import { env } from "../config";
 import { abuseConfig } from "./config";
 import {
   checkDestinationGeo,
@@ -186,7 +187,7 @@ export function activeGlobalCalls(): number {
  * concurrency. So every reservation carries an expiry and expired slots are
  * reclaimed on the next decision.
  */
-const SLOT_LEASE_MS = 15 * 60_000;
+const SLOT_LEASE_MS = env.abuseSlotLeaseMs;
 
 /** Reclaim reservations whose holder never gave the slot back. */
 function pruneExpiredSlots(now: number): void {

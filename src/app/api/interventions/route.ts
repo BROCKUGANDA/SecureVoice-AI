@@ -5,6 +5,7 @@ import { z } from "zod";
 import { consume as consumeRateLimit, rateLimitId } from "@/lib/ratelimit";
 import { verifyProducerKey } from "@/lib/producer-keys";
 import { validateOutboundUrl } from "@/lib/validation/ssrf";
+import { env, replayWindowSec, SUPPORTED_LANGS } from "@/lib/config";
 
 export const dynamic = "force-dynamic";
 
@@ -51,7 +52,7 @@ export const dynamic = "force-dynamic";
  * correctly authenticated producer sees.
  */
 
-const REPLAY_WINDOW_SEC = 300;
+const REPLAY_WINDOW_SEC = replayWindowSec();
 
 /** Kept solely to preserve the 401/422 behaviour callers already depend on. */
 const schema = z.object({
@@ -62,7 +63,7 @@ const schema = z.object({
     channel: z.enum(["card", "login", "payment", "transfer", "remittance"]).default("card"),
     customer: z.object({
       ref: z.string().trim().min(2).max(64),
-      lang: z.enum(["en", "ar", "hi", "ur", "fr", "sw"]).default("en"),
+      lang: z.enum(SUPPORTED_LANGS).default("en"),
       consentRecordId: z.string().trim().min(4).max(64).optional(),
     }),
     transaction: z
@@ -133,7 +134,7 @@ export async function POST(req: NextRequest) {
       req.headers.get("sv-signature") ||
       req.headers.get("SV-Signature") ||
       req.headers.get("x-securevoice-signature");
-    const sig = verifySignature(rawBody, sigHeader, process.env.WEBHOOK_SECRET ?? "");
+    const sig = verifySignature(rawBody, sigHeader, env.webhookSecret ?? "");
     if (!sig.ok) {
       return NextResponse.json(
         { error: `Signature verification failed: ${sig.reason}` },

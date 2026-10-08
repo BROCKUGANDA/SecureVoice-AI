@@ -17,6 +17,7 @@ import {
   HeartPulse,
 } from "lucide-react";
 import { useApp, t } from "@/lib/store";
+import { SUPPORT_EMAIL } from "@/lib/public-config";
 import { Reveal } from "@/components/fx/core";
 import { cn } from "@/lib/utils";
 
@@ -322,13 +323,13 @@ export function Security() {
             </h3>
             <p className="mt-2.5 text-[13.5px] leading-relaxed text-ink-2">
               {t(
-                "Found something? Report to otemaach@gmail.com (PGP key on request). We acknowledge within 24 hours, triage within 72, and credit researchers who follow scope rules. No legal action for good-faith research that avoids service degradation and never touches customer data.",
-                "وجدت ثغرة؟ أرسل إلى otemaach@gmail.com. نؤكد الاستلام خلال ٢٤ ساعة ونصنّفها خلال ٧٢، ونشكر الباحثين الملتزمين بالنطاق دون إجراءات قانونية للأبحاث بحسن نية.",
+                `Found something? Report to ${SUPPORT_EMAIL} (PGP key on request). We acknowledge within 24 hours, triage within 72, and credit researchers who follow scope rules. No legal action for good-faith research that avoids service degradation and never touches customer data.`,
+                `وجدت ثغرة؟ أرسل إلى ${SUPPORT_EMAIL}. نؤكد الاستلام خلال ٢٤ ساعة ونصنّفها خلال ٧٢، ونشكر الباحثين الملتزمين بالنطاق دون إجراءات قانونية للأبحاث بحسن نية.`,
                 lang,
               )}
             </p>
             <div className="mt-4 rounded-xl border border-line bg-paper p-4 font-mono text-[11.5px] leading-relaxed text-ink-2">
-              Contact: otemaach@gmail.com
+              Contact: {SUPPORT_EMAIL}
               <br />
               Encryption: PGP · key ID 0x5ECURE
               <br />

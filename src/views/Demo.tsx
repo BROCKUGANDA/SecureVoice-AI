@@ -85,7 +85,7 @@ const HINTS: Record<Phase | "idle", { en: string; ar: string }> = {
     ar: "تأكيد دقيق ومقتبس — المبلغ والمتجر بالتفصيل، ونعم أو لا صريحة. لا يُتخذ إجراء على أي غموض.",
   },
   action: {
-    en: "The agent has exactly one write action: a temporary, reversible freeze (or transfer hold). Watch the API receipt land in the rail.",
+    en: "The agent has exactly one write action: a temporary, reversible protective step — a card freeze, a transfer hold, or a claim-payout hold for an insurer — and a human confirms it. Watch the API receipt land in the rail.",
     ar: "للوكيل إجراء كتابي واحد فقط: تجميد مؤقت قابل للإلغاء (أو حجز حوالة). راقب وصول إيصال الـ API في الشريط.",
   },
   handoff: {
@@ -331,7 +331,7 @@ export function Demo() {
       </div>
 
       {/* ——— scenario picker ——— */}
-      <div className="mt-7 grid gap-3 sm:grid-cols-3">
+      <div className="mt-7 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
         {SCENARIO_LIBRARY.map((m) => {
           const sel = m.kind === kind;
           return (
@@ -647,7 +647,10 @@ export function Demo() {
                 { k: "webhook", t: 0 },
                 { k: "queue · P1", t: 2 },
                 { k: "dial · twilio", t: 4 },
-                { k: "connected · 1.2s", t: 6 },
+                {
+                  k: kind === "voicemail" ? "answering machine · 1.4s" : "connected · 1.2s",
+                  t: 6,
+                },
               ].map((s) => {
                 const on = started && time >= s.t;
                 return (
@@ -690,7 +693,11 @@ export function Demo() {
                     <span className="text-[11.5px] font-semibold text-green-deep">
                       {kind === "wire"
                         ? "Transfer held — payee blocked"
-                        : "Card frozen — reversible"}
+                        : kind === "claim"
+                          ? "Payout flagged for hold — a human confirms"
+                          : kind === "voicemail"
+                            ? "Case escalated to human review — nothing frozen automatically"
+                            : "Card frozen — reversible"}
                     </span>
                   </div>
                 )}
@@ -788,14 +795,31 @@ export function Demo() {
               <div>
                 <p className="micro text-green-bright">Outcome · تم الحل</p>
                 <div className="mt-4 flex items-baseline gap-3">
-                  <span className="num text-6xl font-semibold">61</span>
+                  <span className="num text-6xl font-semibold">
+                    {kind === "voicemail" ? "66" : "61"}
+                  </span>
                   <span className="num text-xl text-green-bright">seconds</span>
-                  <span className="ml-2 text-[13px] text-white/55">vs 38 minutes today</span>
+                  <span className="ml-2 text-[13px] text-white/55">
+                    {kind === "voicemail"
+                      ? "demo time — a real SMS reply arrives when the customer answers"
+                      : "vs 38 minutes today"}
+                  </span>
                 </div>
                 <p className="mt-3 max-w-lg text-[14px] leading-relaxed text-white/70">
-                  Fraud signal → connected call → verified identity → confirmed fraud →{" "}
-                  {kind === "wire" ? "transfer held" : "card frozen"} → warm handoff. Estimated
-                  prevented loss:{" "}
+                  {kind === "voicemail" ? (
+                    <>Fraud signal → voicemail → blind-ping SMS → customer replies NO → </>
+                  ) : (
+                    <>Fraud signal → connected call → verified identity → confirmed fraud → </>
+                  )}
+                  {kind === "wire"
+                    ? "transfer held"
+                    : kind === "claim"
+                      ? "payout flagged for hold"
+                      : kind === "voicemail"
+                        ? "SMS verdict"
+                        : "card frozen"}{" "}
+                  → {kind === "voicemail" ? "human review" : "warm handoff"}.{" "}
+                  {kind === "voicemail" ? "Exposure under review:" : "Estimated prevented loss:"}{" "}
                   <span className="num font-semibold text-white">
                     {lang === "ar" ? META.preventedLoss.ar : META.preventedLoss.en}
                   </span>

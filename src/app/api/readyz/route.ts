@@ -3,6 +3,9 @@ import { NextResponse } from "next/server";
 import "server-only";
 import { leakSafeText } from "@/lib/failures/envelope";
 import { db } from "@/lib/db";
+import { classifyDatabaseUrl } from "@/lib/db-target";
+import { auth } from "@/lib/better-auth";
+import { env } from "@/lib/config";
 
 export const dynamic = "force-dynamic";
 
@@ -32,8 +35,8 @@ type Check = {
   ms?: number;
 };
 
-const OUTBOX_BACKLOG_WARN_SECONDS = 300; // 5 minutes
-const AUDIT_STALE_WARN_SECONDS = 3600; // 1 hour
+const OUTBOX_BACKLOG_WARN_SECONDS = env.readyzOutboxWarnSec; // 5 minutes
+const AUDIT_STALE_WARN_SECONDS = env.readyzAuditStaleSec; // 1 hour
 
 export async function GET() {
   const started = Date.now();
@@ -63,7 +66,32 @@ export async function GET() {
 
   await timed("database", true, async () => {
     await db.$queryRaw`SELECT 1`;
-    return { name: "database", ok: true, fatal: true };
+    // `detail` is the coarse CLASS of database (vps-container, managed-supabase,
+    // ...), never a host or credential. It answers "is production on the VPS
+    // Postgres?" with one curl against the live instance, which a .env file you
+    // cannot see from here cannot.
+    return {
+      name: "database",
+      ok: true,
+      fatal: true,
+      detail: classifyDatabaseUrl(env.databaseUrl),
+    };
+  });
+
+  // Auth wiring, as the running process sees it. The Better Auth dashboard says
+  // "organization / dash plugin not enabled" when it cannot find them on the
+  // instance it is pointed at; this reports what THIS instance actually loaded,
+  // so the two can be compared without guessing. Non-fatal: it is a diagnostic.
+  await timed("auth", false, async () => {
+    const ids = (auth.options.plugins ?? []).map((p: { id?: string }) => p.id).filter(Boolean);
+    const hasKey = Boolean(env.betterAuthApiKey);
+    const ok = ids.includes("organization") && ids.includes("dash") && hasKey;
+    return {
+      name: "auth",
+      ok,
+      fatal: false,
+      detail: `plugins=${ids.join(",")} dashApiKey=${hasKey ? "set" : "MISSING"}`,
+    };
   });
 
   // Bank-notification backlog. Fatal=false: a wedged outbox degrades the
@@ -107,7 +135,7 @@ export async function GET() {
   // must not mark us unready, because we would then refuse the very traffic
   // that is queueing while the provider recovers.
   await timed("voice_provider", false, async () => {
-    const configured = !!(process.env.ELEVENLABS_API_KEY || process.env.TWILIO_ACCOUNT_SID);
+    const configured = !!(env.elevenLabsApiKey || env.twilioAccountSid);
     return {
       name: "voice_provider",
       ok: true,

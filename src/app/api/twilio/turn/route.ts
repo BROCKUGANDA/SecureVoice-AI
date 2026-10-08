@@ -126,12 +126,12 @@ function classify(text: string): Intent {
 
 const REPLIES: Record<Intent, Record<string, string>> = {
   deny_fraud: {
-    en: "You did the right thing. I have placed a temporary freeze on your card effective immediately. A fraud specialist will join this call shortly. You will not be held liable for unauthorized transactions.",
-    ar: "تصرفك صحيح. قمت بتجميد بطاقتك مؤقتاً الآن. سينضم أخصائي احتيال إلى المكالمة. لن تتحمل مسؤولية العمليات غير المصرح بها.",
-    hi: "आपने सही किया। मैंने आपका कार्ड तुरंत फ्रीज़ कर दिया है। एक विशेषज्ञ जल्द ही जुड़ेंगे। अनधिकृत लेनदेन की ज़िम्मेदारी आपकी नहीं होगी۔",
-    ur: "آپ نے بالکل درست کیا۔ میں نے فوراً آپ کا کارڈ فریز کر دیا ہے۔ ایک ماہر جلد ہی جڑے گا۔ غیر مجاز لین دین کی ذمہ داری آپ کی نہیں ہوگی۔",
-    fr: "Vous avez fait la bonne chose. J'ai placé un gel temporaire sur votre carte. Un spécialiste va rejoindre cet appel. Vous ne serez pas tenu responsable.",
-    sw: "Umefanya jambo sahihi. Nimefunga kadi yako kwa muda mara moja. Mtaalamu atajiunga na simu hii hivi karibuni. Hutawajibikia miamala isiyoidhinishwa.",
+    en: "I'm sorry that happened — you did the right thing reporting it. I have flagged this transaction as fraud and placed a temporary restriction on your card while a human fraud specialist reviews it. The specialist will confirm and follow up with you shortly. You will not be held liable for unauthorized transactions.",
+    ar: "أأسف لما حدث — تصرفك صحيح تماماً. أبلغت عن هذه العملية كاحتيال ووضعت قيداً مؤقتاً على بطاقتك ريثما يراجعها أخصائي احتيال بشري. سيؤكد الأخصائي الإجراء ويتواصل معك قريباً. لن تتحمل أي مسؤولية عن العمليات غير المصرح بها.",
+    hi: "मुझे खेद है कि यह हुआ — आपने सही किया। मैंने इस लेनदेन को धोखाधड़ी के रूप में चिह्नित किया है और एक मानव फ्रॉड विशेषज्ञ की समीक्षा तक आपके कार्ड पर अस्थायी प्रतिबंध लगाया है। विशेषज्ञ पुष्टि करके जल्द ही आपसे संपर्क करेंगे। अनधिकृत लेनदेन की ज़िम्मेदारी आपकी नहीं होगी।",
+    ur: "ہونے پر افسوس — آپ نے بالکل درست کیا۔ میں نے اس لین دین کو فراڈ کے طور پر نشان زد کیا ہے اور انسانی فراڈ ماہر کے جائزے تک آپ کے کارڈ پر عارضی پابندی لگائی ہے۔ ماہر تصدیق کر کے جلد آپ سے رابطہ کرے گا۔ غیر مجاز لین دین کی ذمہ داری آپ کی نہیں ہوگی۔",
+    fr: "Je suis désolé pour ce qui s'est passé — vous avez fait la bonne chose en le signalant. J'ai signalé cette transaction comme frauduleuse et placé une restriction temporaire sur votre carte, le temps qu'un spécialiste anti-fraude humain l'examine. Il confirmera et vous recontactera rapidement. Vous ne serez pas tenu responsable des transactions non autorisées.",
+    sw: "Nasikitika kwa kilichotokea — umefanya jambo sahihi kuripoti. Nimeweka alama ya udanganyifu kwenye muamala huu na kuweka kizuizi cha muda kwenye kadi yako wakati mtaalamu wa udanganyifu (binadamu) anakagua. Mtaalamu atathibitisha na kuwasiliana nawe hivi karibuni. Hutawajibikia miamala isiyoidhinishwa.",
   },
   confirm_authorized: {
     en: "Thank you for confirming. I have closed the review on this transaction. Your bank will never call asking you to move money to a safe account. If anyone does, hang up and call the number on your card.",
@@ -150,12 +150,12 @@ const REPLIES: Record<Intent, Record<string, string>> = {
     sw: "Habari — mimi ni msaidizi wa usalama wa AI wa benki yako. Ukiona muamala usioujua, sema si yangu.",
   },
   unclear: {
-    en: "Is there a transaction you do not recognize? Say not mine and I will freeze your card immediately, or it's mine to close the review.",
-    ar: "هل هناك عملية لا تعرفها؟ قل ليست عمليتي وسأجمّد بطاقتك فوراً، أو عمليتي لإغلاق المراجعة.",
-    hi: "क्या कोई लेनदेन है जो आप नहीं पहचानते? कहें मेरा नहीं — मैं तुरंत कार्ड फ्रीज़ कर दूँगा।",
-    ur: "کیا کوئی لین دین ہے جو آپ نہیں پہچانتے؟ کہیں میرا نہیں — میں فوراً کارڈ فریز کر دوں گا۔",
-    fr: "Y a-t-il une transaction que vous ne reconnaissez pas ? Dites ce n'est pas la mienne et je gèlerai votre carte immédiatement.",
-    sw: "Kuna muamala usioujua? Sema si yangu nitafunga kadi yako mara moja, au ni yangu kufunga ukaguzi.",
+    en: "Is there a transaction you do not recognize? Say not mine and I will flag it and restrict your card pending human review, or it's mine to close the review.",
+    ar: "هل هناك عملية لا تعرفها؟ قل ليست عمليتي وسأبلّغ عنها وأقيّد بطاقتك مؤقتاً بانتظار مراجعة بشرية، أو عمليتي لإغلاق المراجعة.",
+    hi: "क्या कोई लेनदेन है जो आप नहीं पहचानते? कहें मेरा नहीं — मैं इसे चिह्नित करके मानव समीक्षा तक कार्ड पर अस्थायी प्रतिबंध लगा दूँगा।",
+    ur: "کیا کوئی لین دین ہے جو آپ نہیں پہچانتے؟ کہیں میرا نہیں — میں اسے نشان زد کر کے انسانی جائزے تک کارڈ پر عارضی پابندی لگا دوں گا۔",
+    fr: "Y a-t-il une transaction que vous ne reconnaissez pas ? Dites ce n'est pas la mienne et je le signalerai et restreindrai temporairement votre carte en attendant un examen humain.",
+    sw: "Kuna muamala usioujua? Sema si yangu nitaripoti na kuweka kizuizi cha muda kwenye kadi yako hadi mtu akague, au ni yangu kufunga ukaguzi.",
   },
 };
 

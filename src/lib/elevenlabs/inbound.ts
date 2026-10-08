@@ -17,12 +17,16 @@ import { logError } from "@/lib/validation/safe-log";
 import {
   caseByConversation,
   canTransition,
-  transitionCase,
   transitionCaseWithOutbox,
 } from "@/lib/case-state-machine";
 import { append as auditAppend } from "@/lib/audit-chain";
 import * as redact from "@/lib/redact";
 import { settleAttempt } from "@/lib/billing/ledger";
+import { markVoiceFailed } from "@/lib/elevenlabs/sms-fallback";
+import { neutraliseStrings, screenForMemory } from "@/lib/memory-guard";
+import { recordStrike } from "@/lib/abuse/bad-actor";
+import { masterKeyConfigured, sealCasePayload } from "@/lib/privacy/crypto-shred";
+import { indexTranscript, pineconeConfigured } from "@/lib/pinecone/transcript-index";
 
 type WebhookEventRow = {
   id: string;
@@ -180,6 +184,20 @@ function countTools(data: any): { names: string[]; count: number } {
   return { names, count: names.length };
 }
 
+/**
+ * Did this conversation end at an answering machine?
+ *
+ * The agent's `voicemail_detection` system tool is the source of truth: when it
+ * fires, the platform leaves the configured message and ends the call. The
+ * termination reason is a second signal for the case where the tool call is not
+ * itemised in the transcript.
+ */
+export function isVoicemailCall(data: any, toolNames: readonly string[]): boolean {
+  if (toolNames.includes("voicemail_detection")) return true;
+  const reason = data?.metadata?.termination_reason;
+  return typeof reason === "string" && /voicemail/i.test(reason);
+}
+
 async function handleTranscription(row: WebhookEventRow, data: any): Promise<void> {
   const conversationId: string | null =
     typeof data?.conversation_id === "string" ? data.conversation_id : row.conversationId;
@@ -221,6 +239,19 @@ async function handleTranscription(row: WebhookEventRow, data: any): Promise<voi
   const { names: toolNames, count: toolCallCount } = countTools(data);
   const evaluation = data?.analysis?.evaluation_criteria_results ?? null;
   const dataCollection = data?.analysis?.data_collection_results ?? null;
+  const voicemail = isVoicemailCall(data, toolNames);
+
+  // MEMORY-POISONING SCREEN. What the customer said is about to become stored
+  // history that later readers - a human reviewer, a summary, the next call -
+  // will treat as fact. Score the CUSTOMER's turns only (the agent's own words
+  // are ours). The transcript itself is evidence and is never rewritten; the
+  // derived analysis below is neutralised if it carries an instruction, and the
+  // attempt is audited and counted against the caller.
+  const customerText = turns
+    .filter((t) => t?.role === "user" && typeof t?.message === "string")
+    .map((t) => String(t.message))
+    .join("\n");
+  const memoryRisk = screenForMemory(customerText);
 
   // Audit-before-return discipline: the ingest record is written before any
   // database mutation below, mirroring the guard refusals from WP-3.
@@ -237,6 +268,11 @@ async function handleTranscription(row: WebhookEventRow, data: any): Promise<voi
         outcome,
         toolCalls: toolCallCount,
         toolNames,
+        voicemail,
+        memoryRisk:
+          memoryRisk.verdict === "clean"
+            ? "clean"
+            : { verdict: memoryRisk.verdict, score: memoryRisk.score, reasons: memoryRisk.reasons },
         billing:
           durationSeconds !== null ? { billed_minutes: Math.ceil(durationSeconds / 60) } : null,
         evaluationKeys: evaluation && typeof evaluation === "object" ? Object.keys(evaluation) : [],
@@ -248,6 +284,24 @@ async function handleTranscription(row: WebhookEventRow, data: any): Promise<voi
     { fast: true },
   );
 
+  // The evidence payload is SEALED, not stored as plaintext (WP-15). The chain
+  // row carries transcript + analysis as AES-256-GCM ciphertext under a
+  // per-case data key (src/lib/privacy/crypto-shred.ts), and the Case columns
+  // are cleared once that ciphertext is durable — so at rest, the readable
+  // transcript exists nowhere. There is deliberately NO plaintext fallback:
+  // without PRIVACY_MASTER_KEY the operational fields still land and the
+  // payload is not stored at all, which is the fail-closed direction for a
+  // regulated payload.
+  const canSeal = masterKeyConfigured();
+  // The vendor's evaluation and data-collection payloads are free text from a
+  // recorded conversation, so they carry the same risk as the transcript beside
+  // them — and they are DERIVED text a later reader treats as trusted memory.
+  // Redacted, then neutralised; a benign payload round-trips unchanged.
+  const evaluationRedacted =
+    evaluation !== null ? neutraliseStrings(redact.payload(evaluation)).value : null;
+  const dataCollectionRedacted =
+    dataCollection !== null ? neutraliseStrings(redact.payload(dataCollection)).value : null;
+
   await db.case.update({
     where: { id: caseRow.id },
     data: {
@@ -255,11 +309,90 @@ async function handleTranscription(row: WebhookEventRow, data: any): Promise<voi
       postCallEventType: row.eventType,
       outcome,
       durationSeconds,
-      transcriptRedacted: redactedTranscript,
-      evaluationResults: evaluation !== null ? JSON.stringify(evaluation) : null,
-      dataCollectionResults: dataCollection !== null ? JSON.stringify(dataCollection) : null,
+      transcriptRedacted: canSeal ? redactedTranscript : null,
+      evaluationResults:
+        canSeal && evaluationRedacted !== null ? JSON.stringify(evaluationRedacted) : null,
+      dataCollectionResults:
+        canSeal && dataCollectionRedacted !== null ? JSON.stringify(dataCollectionRedacted) : null,
     },
   });
+
+  if (canSeal) {
+    // Ordering is the crash-safety property: the ciphertext row is appended
+    // FIRST and only then are the plaintext columns cleared, so a failure in
+    // between leaves the plaintext standing (privacy-safe — the copy exists and
+    // retention still selects it via holdsPayloadWhere) instead of dropping the
+    // only one. Sealing failure never throws here: the webhook handler's later
+    // steps must not be re-driven by a redelivery.
+    try {
+      await sealCasePayload(
+        caseRow.caseRef,
+        {
+          transcript: redactedTranscript,
+          analysis: { evaluation: evaluationRedacted, data_collection: dataCollectionRedacted },
+        },
+        { clearPlaintext: true, reason: "post_call_ingest" },
+      );
+    } catch (error) {
+      console.error(
+        "[elevenlabs/inbound] payload seal failed, plaintext retained:",
+        caseRow.caseRef,
+        error instanceof Error ? error.message : error,
+      );
+    }
+
+    // Optional semantic index. Only when the operator has explicitly configured
+    // a Pinecone project, and always on the SAME redacted text that was just
+    // sealed - never the raw vendor payload. Fire and forget by design: the
+    // bank has already been told this case's outcome, so a vector-store outage
+    // must not roll the case back or block the webhook. indexTranscript
+    // swallows its own failures into an audit row.
+    if (pineconeConfigured() && redactedTranscript.trim()) {
+      void indexTranscript(caseRow.caseRef, redactedTranscript);
+    }
+  } else {
+    // No master key, no plaintext — and the drop is on the record, not silent.
+    await auditAppend(
+      {
+        callRef: caseRow.caseRef,
+        action: "agent",
+        intent: "payload_unsealed_dropped",
+        callerId: "elevenlabs-webhook",
+        redactedText: "evidence payload not stored: PRIVACY_MASTER_KEY unconfigured",
+        meta: { eventType: row.eventType },
+        orgId: caseRow.orgId ?? undefined,
+      },
+      { fast: true },
+    ).catch(() => {});
+  }
+
+  if (memoryRisk.verdict === "poisoned") {
+    // A strike keyed on the CASE (never the raw phone number: bad-actor.ts hashes
+    // its keys) so repeated attempts against one customer's line escalate.
+    recordStrike(`case:${caseRow.caseRef}`, 3);
+    void auditAppend(
+      {
+        callRef: caseRow.caseRef,
+        action: "agent",
+        intent: "memory_poisoning_suspected",
+        callerId: "elevenlabs-webhook",
+        redactedText: `reasons=${memoryRisk.reasons.join(",")}`,
+        meta: { score: memoryRisk.score, reasons: memoryRisk.reasons },
+        orgId: caseRow.orgId ?? undefined,
+      },
+      { fast: true },
+    ).catch(() => {});
+  }
+
+  // The voice channel did not reach a human (answering machine, or the provider
+  // reported busy / no-answer). Text the customer a blind ping and open the 24h
+  // reply window; if no SMS can be sent the bank is told at once. The helper owns
+  // every guard and never throws, so it cannot disturb the evidence pipeline.
+  let voiceFailed = false;
+  if (voicemail) {
+    voiceFailed = true;
+    await markVoiceFailed({ caseRef: caseRow.caseRef, reason: "voicemail" });
+  }
 
   // Verdict delivery triggers WP-5. Transitions to NOTIFIED only where the
   // current state allows it (e.g. CONFIRMED_FRAUD/CONFIRMED_LEGITIMATE/
@@ -269,7 +402,12 @@ async function handleTranscription(row: WebhookEventRow, data: any): Promise<voi
   // verdict can never reach NOTIFIED without a delivery row behind it. The
   // payload carries the verdict and an audit reference only — never transcript
   // content (hazard H28: the bank pulls evidence, we never push it).
-  if (canTransition(caseRow.state, "NOTIFIED")) {
+  //
+  // Skipped when the voice channel failed: that case is now UNREACHABLE and is
+  // published by src/lib/sms-verdict.ts when the customer replies (or 24h pass),
+  // with a resolution_method that says so. Publishing it here too would tell the
+  // bank "resolved on the call" about a call nobody answered.
+  if (!voiceFailed && canTransition(caseRow.state, "NOTIFIED")) {
     try {
       await transitionCaseWithOutbox(caseRow.caseRef, "NOTIFIED", {
         outbox: {
@@ -287,6 +425,10 @@ async function handleTranscription(row: WebhookEventRow, data: any): Promise<voi
             handoff_specialist: caseRow.handoffSpecialist,
             tool_calls_observed: toolCallCount,
             audit_ref: caseRow.caseRef,
+            // Additive (see CASE_NOTIFIED_DATA_FIELDS): how the case got here.
+            // A receiver that ignores these two behaves exactly as before.
+            resolution_method: "voice_call",
+            customer_response: null,
             evidence: {
               transcript: "withheld",
               note: "redacted transcript and audit chain are retrievable via the signed case export; no transcript content is included in outbound events",
@@ -405,19 +547,11 @@ async function handleInitiationFailure(row: WebhookEventRow, data: any): Promise
     },
     { fast: true },
   );
-  if (canTransition(caseRow.state, "FAILED")) {
-    try {
-      await transitionCase(caseRow.caseRef, "FAILED");
-    } catch (err) {
-      logError("inbound case transition failed", {
-        provider: "elevenlabs",
-        eventType: row.eventType,
-        caseRef: caseRow.caseRef,
-        orgId: caseRow.orgId,
-        to: "FAILED",
-        failureReason,
-        error: err,
-      });
-    }
-  }
+  // Busy / no-answer / could not initiate: the customer was NOT reached. This used
+  // to land in terminal FAILED, which told nobody - not the customer, not the bank.
+  // It now takes the same fallback as a voicemail: blind-ping SMS, 24h window, and
+  // a bank event either way. When the fallback declines it is because the customer
+  // was already engaged or already texted - neither of which is a "failed" call, so
+  // there is deliberately no FAILED branch left here.
+  await markVoiceFailed({ caseRef: caseRow.caseRef, reason: "no_answer" });
 }

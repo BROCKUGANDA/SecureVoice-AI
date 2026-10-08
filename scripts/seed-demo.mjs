@@ -355,9 +355,103 @@ const seedEnrollment = async () => {
   console.log(`✓ enrolled customer ${customerRef} → ${phone}`);
 };
 
+/**
+ * Create the demo Better Auth user + organization + membership.
+ *
+ * The demo login button on the sign-in page reads NEXT_PUBLIC_DEMO_LOGIN_EMAIL
+ * and NEXT_PUBLIC_DEMO_LOGIN_PASSWORD from the environment. Without a matching
+ * Better Auth user, the button renders but sign-in fails with "invalid
+ * credentials" — a broken first impression for a judge.
+ *
+ * This function is idempotent: it uses upsert on the user email and
+ * findFirst + create on the organization, so re-running the seed is safe.
+ *
+ * The password is hashed with Better Auth's own scrypt (N=16384, r=8, p=1),
+ * NOT a hand-rolled hash. We use node:crypto's scryptSync with the same
+ * parameters Better Auth uses internally.
+ */
+const seedDemoUser = async () => {
+  const email = process.env.NEXT_PUBLIC_DEMO_LOGIN_EMAIL?.trim();
+  const password = process.env.NEXT_PUBLIC_DEMO_LOGIN_PASSWORD?.trim();
+  if (!email || !password) {
+    console.log("→ demo user not seeded: NEXT_PUBLIC_DEMO_LOGIN_EMAIL / _PASSWORD not set");
+    return;
+  }
+
+  // Hash password using Better Auth's scrypt format.
+  // Better Auth 1.7.x uses: scrypt$N$r$p$<salt>$<hash>
+  // where salt and hash are base64 encoded.
+  const { scryptSync, randomBytes } = await import("node:crypto");
+  const salt = randomBytes(16).toString("base64");
+  const hash = scryptSync(password, salt, 64).toString("base64");
+  const passwordHash = `scrypt$16384$8$1$${salt}$${hash}`;
+
+  // Create or update the user
+  const user = await db.user.upsert({
+    where: { email },
+    create: { email, name: "Demo User", emailVerified: true },
+    update: { emailVerified: true },
+  });
+
+  // Create or update the credential account.
+  // Better Auth's credential sign-in uses providerId="credential" and
+  // accountId=userId. The password hash goes in the `password` column.
+  const existingAccount = await db.account.findFirst({
+    where: { providerId: "credential", userId: user.id },
+  });
+  if (existingAccount) {
+    await db.account.update({
+      where: { id: existingAccount.id },
+      data: { password: passwordHash },
+    });
+  } else {
+    await db.account.create({
+      data: {
+        accountId: user.id,
+        providerId: "credential",
+        userId: user.id,
+        password: passwordHash,
+        email,
+      },
+    });
+  }
+
+  // Create or update the organization
+  const org = await db.organization.upsert({
+    where: { slug: "demo-bank" },
+    create: { name: "Demo Bank", slug: "demo-bank", createdAt: new Date() },
+    update: {},
+  });
+
+  // Create or update the membership (user → org, role: owner)
+  const existingMember = await db.member.findFirst({
+    where: { userId: user.id, organizationId: org.id },
+  });
+  if (existingMember) {
+    await db.member.update({
+      where: { id: existingMember.id },
+      data: { role: "owner" },
+    });
+  } else {
+    await db.member.create({
+      data: { userId: user.id, organizationId: org.id, role: "owner", createdAt: new Date() },
+    });
+  }
+
+  // Create or update the user profile (credits wallet)
+  await db.userProfile.upsert({
+    where: { userId: user.id },
+    create: { userId: user.id, email, name: "Demo User", credits: 25, role: "demo" },
+    update: { credits: 25 },
+  });
+
+  console.log(`✓ demo user ${email} → org "Demo Bank" (owner) · 25 credits`);
+};
+
 const main = async () => {
   for (const c of CASES) await seedCase(c);
   await seedProfile();
+  await seedDemoUser();
   await seedEnrollment();
   const count = await db.auditLog.count();
   console.log(`done — ${count} audit rows total`);

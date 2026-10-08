@@ -75,6 +75,7 @@ import {
 import type { Prisma } from "@/generated/prisma/client";
 import { db } from "@/lib/db";
 import { append } from "@/lib/audit-chain";
+import { forgetTranscript, pineconeConfigured } from "@/lib/pinecone/transcript-index";
 
 // ── Envelope + policy constants ──────────────────────────────────────────────
 
@@ -741,6 +742,37 @@ export async function eraseCase(
     });
     return cleared;
   });
+
+  // External copies. Destroying the data key makes the sealed ciphertext inert,
+  // but a transcript indexed into a vector store under PINECONE_* is a SEPARATE
+  // copy that key destruction cannot reach. Erasure that forgets to delete it
+  // would leave exactly the data the erasure request was made to remove, in a
+  // system with a different retention owner. Best-effort, audited, and never
+  // allowed to block the erasure that already committed above.
+  if (pineconeConfigured()) {
+    try {
+      const result = await forgetTranscript(caseRef);
+      if (!result.ok) {
+        await append(
+          {
+            callRef: caseRef,
+            action: "agent",
+            intent: "vector_erase_failed",
+            redactedText: "Pinecone vector delete failed after local erasure",
+            meta: { caseRef, error: result.error?.slice(0, 200) },
+            orgId: row.orgId ?? undefined,
+          },
+          { fast: true },
+        ).catch(() => {});
+      }
+    } catch (error) {
+      console.error(
+        `[privacy] vector erase failed for ${caseRef}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+  }
 
   let chainEvent: ErasureResult["chainEvent"];
   try {

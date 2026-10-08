@@ -17,7 +17,7 @@ from pathlib import Path
 
 import pypdf
 
-TEMPLATE = Path(r"C:/Users/HP/Downloads/ElevenLabs_Idea_Canvas.pdf")
+TEMPLATE = Path(r"<home>/Downloads/ElevenLabs_Idea_Canvas.pdf")
 OUT = Path(__file__).with_name("geometry.json")
 
 RULE_MAX_THICKNESS = 1.6   # borders are drawn ~0.25-0.8pt thick

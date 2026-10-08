@@ -14,8 +14,10 @@ $ErrorActionPreference = "Stop"
 $token = $env:NORTHFLANK_TOKEN
 if (-not $token) { throw "Set NORTHFLANK_TOKEN first." }
 $H = @{ Authorization = "Bearer $token" }
-$API = "https://api.northflank.com/v1"
-$PROJECT = "securevoice-ai"
+# Env-overridable so re-pointing the stack (new project, new account, new region)
+# is config, not a script edit.
+$API = if ($env:NORTHFLANK_API) { $env:NORTHFLANK_API } else { "https://api.northflank.com/v1" }
+$PROJECT = if ($env:NORTHFLANK_PROJECT) { $env:NORTHFLANK_PROJECT } else { "securevoice-ai" }
 
 function Invoke-NF($method, $path, $body = $null) {
   $json = $null
@@ -43,9 +45,12 @@ Get-Content .env | ForEach-Object {
 $direct = [uri]$envMap["DATABASE_URL"]
 $pw = $direct.UserInfo.Split(":")[1]
 $ref = $direct.Host.Split(".")[1]
-$pooler = "postgresql://postgres.${ref}:$pw@aws-0-eu-central-1.pooler.supabase.com:6543/postgres?pgbouncer=true&connection_limit=1"
+$poolerRegion = if ($envMap["SUPABASE_POOLER_REGION"]) { $envMap["SUPABASE_POOLER_REGION"] } else { "aws-0-eu-central-1" }
+$pooler = "postgresql://postgres.${ref}:$pw@${poolerRegion}.pooler.supabase.com:6543/postgres?pgbouncer=true&connection_limit=1"
 
-$vcs = @{ projectUrl = "https://github.com/BROCKUGANDA/SecureVoice-AI"; projectType = "github"; accountLogin = "BROCKUGANDA"; projectBranch = "main" }
+$gitUrl = if ($env:NF_GIT_URL) { $env:NF_GIT_URL } else { "https://github.com/BROCKUGANDA/SecureVoice-AI" }
+$gitAccount = if ($env:NF_GIT_ACCOUNT) { $env:NF_GIT_ACCOUNT } else { "BROCKUGANDA" }
+$vcs = @{ projectUrl = $gitUrl; projectType = "github"; accountLogin = $gitAccount; projectBranch = "main" }
 
 function New-Service($name, $spec) {
   try {

@@ -65,6 +65,17 @@
 		respond "ok" 200
 	}
 
+	# API gateway surface - same rule as Caddyfile: `/v1/*` (anchored, so it can
+	# never capture `/api/v1/*`) maps to the app's `/api/v1/*` handler. Auth is
+	# per route in the app, not here, because that is where tenancy resolves.
+	handle /v1/* {
+		rewrite * /api{uri}
+		reverse_proxy app:3000 {
+			import forwarded_headers
+			flush_interval -1
+		}
+	}
+
 	handle {
 		reverse_proxy app:3000 {
 			import forwarded_headers

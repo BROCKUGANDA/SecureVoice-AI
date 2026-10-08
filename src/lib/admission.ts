@@ -22,6 +22,7 @@ import "server-only";
  * ────────────────────────────────────────────────────────────────────────────
  */
 
+import { env } from "@/lib/config";
 import { db } from "@/lib/db";
 import { append as auditAppend } from "@/lib/audit-chain";
 import {
@@ -40,8 +41,8 @@ const IN_FLIGHT_STATES = ["DIALING", "RINGING", "ANSWERED", "DISCLOSED", "VERIFY
  * Amount in minor units, so the number is currency-agnostic and integer-only.
  */
 function shedThresholdMinor(): number {
-  const raw = Number(process.env.SHED_EXPECTED_LOSS_MINOR ?? 0);
-  return Number.isFinite(raw) && raw > 0 ? raw : 50_000; // default: AED 500 equivalent
+  // default: AED 500 equivalent — single-sourced from src/lib/config.ts
+  return env.shedExpectedLossMinor;
 }
 
 /** Live count of conversations currently consuming a voice slot. */

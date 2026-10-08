@@ -35,10 +35,14 @@
  * `/v1/interventions`; see `docs/INTEGRATION-CONTRACT.md` for the contract that
  * actually runs.
  *
- * This module imports NOTHING — no db, no env, no `server-only` — so it is
- * loadable from a route handler, from a test, and from a build step without
- * dragging a database connection along.
+ * This module imports no database and drags no connection along — its only
+ * import is the central config (`src/lib/config`, which carries `server-only`;
+ * `scripts/worker-preload.ts` neutralises that marker for plain Bun workers) —
+ * so it is still loadable from a route handler, from a test, and from a build
+ * step.
  */
+
+import { IDEMPOTENCY_TTL_HOURS, replayWindowSec } from "@/lib/config";
 
 /* ──────────────────────────────────────────────────────────────────────────
  * Paths
@@ -66,16 +70,16 @@ export const RECEIVER_REFERENCE_PATH = "/api/webhooks/receiver";
 export const OUTBOUND_SCHEMA_VERSION = "2026-10-01";
 
 /** `REPLAY_WINDOW_SEC` in the ingest route. */
-export const REPLAY_WINDOW_SECONDS = 300;
+export const REPLAY_WINDOW_SECONDS = replayWindowSec();
 
 /** `toleranceMs` in src/lib/outbox.ts `verifySignature`. */
-export const OUTBOUND_REPLAY_WINDOW_SECONDS = 300;
+export const OUTBOUND_REPLAY_WINDOW_SECONDS = replayWindowSec();
 
 /** `MAX_ATTEMPTS` in src/lib/outbox.ts — then the event goes DEAD. */
 export const MAX_DELIVERY_ATTEMPTS = 6;
 
-/** `IDEMPOTENCY_TTL_MS` in the ingest route: 24 h. */
-export const IDEMPOTENCY_TTL_HOURS = 24;
+/** `IDEMPOTENCY_TTL_MS` in the ingest route: 24 h. Single-sourced from config. */
+export { IDEMPOTENCY_TTL_HOURS };
 
 /** `WEBHOOK_SIGNATURE_HEADER` in src/lib/outbox.ts. */
 export const SIGNATURE_HEADER = "sv-signature";
@@ -302,6 +306,36 @@ export const RISK_SIGNAL_FIELDS: readonly FieldSpec[] = [
     description:
       "Merchant descriptor, spoken to the customer in the call. Sanitised (sanitizeUntrusted) before it becomes a dynamic variable, and never an authorisation input.",
     example: "Electronics World",
+    enforced: INGEST_SCHEMA,
+  },
+  {
+    name: "signal_kind",
+    required: false,
+    type: "string",
+    enum: ["card_transaction", "claim_payout", "policy_change", "account_takeover"],
+    description:
+      "What kind of risk signal this is. Optional: when absent the call is worded for a card transaction. Insurers send `claim_payout` (a payout redirected to a new account) or `policy_change` (beneficiary / surrender request); both institution types may send `account_takeover`. Only changes how the case is described to the customer - the protective step is still a staged hold a human confirms.",
+    example: "claim_payout",
+    enforced: INGEST_SCHEMA,
+  },
+  {
+    name: "call_category",
+    required: false,
+    type: "string",
+    enum: ["fact_finding", "sensitive_case", "b2b", "routine", "time_critical_fraud"],
+    description:
+      "WHY the institution is calling — the Dynamic Prompt Router's selector (src/lib/call-categories.ts). It picks the agent's system prompt and the backend preconditions: routine calls are refused outside the permitted calling window and for do-not-call numbers; the do-not-call registry blocks every non-critical category; a b2b call can only ever produce a recommendation for human sign-off. Absent reads as time_critical_fraud — the audited fraud-intervention behaviour — so legacy producers keep exactly the call they get today.",
+    example: "time_critical_fraud",
+    enforced: INGEST_SCHEMA,
+  },
+  {
+    name: "ref_last4",
+    required: false,
+    type: "string",
+    pattern: "^\\d{4}$",
+    description:
+      "Last four digits of the card, policy or account reference (named `ref_`, not `card_`: the inbound schema deliberately has no field that reads as an account identifier). Optional. Lets the customer recognise the fallback SMS, which deliberately carries NO merchant and NO amount. Exactly four digits - never a longer number: the platform must not hold a PAN.",
+    example: "4242",
     enforced: INGEST_SCHEMA,
   },
   {
@@ -642,6 +676,19 @@ export const BANK_EVENT_FIELDS: readonly FieldSpec[] = [
   },
 ] as const;
 
+/**
+ * How a case reached NOTIFIED. A closed set, so a receiver can switch on it
+ * exhaustively; adding a value is a contract change and goes through here.
+ */
+export const RESOLUTION_METHODS = [
+  "voice_call",
+  "sms_reply_yes",
+  "sms_reply_no",
+  "unreachable_no_reply",
+  "voice_failed_sms_unavailable",
+] as const;
+export type ResolutionMethod = (typeof RESOLUTION_METHODS)[number];
+
 /** `data` for the only emitted type, `case.notified`. */
 export const CASE_NOTIFIED_DATA_FIELDS: readonly FieldSpec[] = [
   {
@@ -715,6 +762,27 @@ export const CASE_NOTIFIED_DATA_FIELDS: readonly FieldSpec[] = [
       "Reference the bank can quote in a ticket to pull the full, redacted audit chain through the signed case export. This is the pull-based evidence model: we push the verdict, the bank pulls evidence.",
     example: "SV-F-7K2M9Q",
     enforced: "inbound.ts",
+  },
+  {
+    name: "resolution_method",
+    required: false,
+    type: "string",
+    enum: RESOLUTION_METHODS,
+    description:
+      "HOW the case reached NOTIFIED. ADDITIVE and optional: `state` is unchanged, so a receiver that ignores this field behaves exactly as before. Always emitted by this platform. `voice_call` = resolved on the call; `sms_reply_yes` / `sms_reply_no` = the customer answered the blind-ping SMS; `unreachable_no_reply` = voice failed, the SMS went out and nobody answered within 24h; `voice_failed_sms_unavailable` = voice failed and no SMS could be sent (number opted out, SMS not configured, invalid number or provider error). An SMS reply proves possession of the phone, not identity - treat `sms_reply_*` as evidence for your fraud team, not as an authorisation.",
+    example: "sms_reply_no",
+    enforced: "sms-verdict.ts",
+  },
+  {
+    name: "customer_response",
+    required: false,
+    type: "string",
+    nullable: true,
+    enum: ["yes", "no"],
+    description:
+      "The customer's answer when it was given over SMS: `yes` (the activity was theirs) or `no` (it was not). `null` when the customer never answered or the case was resolved on the call - in that case the call's verdict is in `outcome`. ADDITIVE and optional.",
+    example: "no",
+    enforced: "sms-verdict.ts",
   },
   {
     name: "evidence",
@@ -1075,6 +1143,36 @@ export const ERROR_CODES: readonly ErrorCodeEntry[] = [
       "This `transaction_ref` already has a case, so a call has already been placed for it. Refused because a second call would tell the same fraud victim their card is frozen twice about one transaction. Checked independently of `Idempotency-Key`: a new key is a new signal as far as the key is concerned, and one transaction must still produce one call.",
     remediation:
       "Treat the original case as authoritative and read its outcome rather than re-sending. If you genuinely need a second intervention for the same transaction, use a distinct `transaction_ref` so the intent is visible in the ledger.",
+  },
+  {
+    id: "gate_do_not_call",
+    status: 409,
+    code: null,
+    literal: "do_not_call",
+    surface: "http_message",
+    envelope: "failure_envelope_v1",
+    reachedFrom: [INGEST],
+    envelopeCode: "policy_precondition",
+    retryable: false,
+    meaning:
+      "The destination is on the do-not-call registry, so this call category may not place it. Registry honour is category-scoped by design: `routine`, `fact_finding`, `sensitive_case` and `b2b` are all blocked, while `time_critical_fraud` is not gated on it — a fraud verification is made in the customer's own interest and is already covered by the ingest consent requirement. Saying this loudly is the point: an operator who expects a call and sees this refusal needs to know the registry, not the queue, stopped it.",
+    remediation:
+      "Do not retry. If the customer has genuinely re-consented, remove the registry row (it is the source of truth) and re-send; the gate reads the registry at dial time precisely so a revoked entry takes effect immediately. A case refused this way is never silently re-categorised to slip past it.",
+  },
+  {
+    id: "gate_outside_calling_hours",
+    status: 409,
+    code: null,
+    literal: "outside_calling_hours",
+    surface: "http_message",
+    envelope: "failure_envelope_v1",
+    reachedFrom: [INGEST],
+    envelopeCode: "policy_precondition",
+    retryable: true,
+    meaning:
+      "A `routine` call may only be placed inside the permitted calling window, and this one is outside it. The ingest refuses; the dial worker does something better — it PARKS the job until the window opens, consuming no attempt, because a job accepted at 19:59 with a lead delay can lawfully be claimed at 20:01. So a bank sees this code only when it re-sends inside the blocked window, and a customer is never woken by a follow-up call.",
+    remediation:
+      "No action needed for a queued case — the worker resumes it when the window opens. Re-send only if you need a different call category; time-critical fraud verification is not window-gated.",
   },
   {
     id: "gate_idempotent_request_in_flight",

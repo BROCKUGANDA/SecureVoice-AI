@@ -5,6 +5,7 @@ import { motion } from "framer-motion";
 import { signIn, useSession } from "@/lib/auth-client";
 import { Copy, Check, ArrowRight, ShieldCheck, KeyRound, Loader2, LogOut } from "lucide-react";
 import { useApp } from "@/lib/store";
+import { SUPPORT_EMAIL } from "@/lib/public-config";
 import { LogoMark } from "@/components/shell/Logo";
 import { Input } from "@/components/ui/input";
 import { Building2 } from "lucide-react";
@@ -271,8 +272,7 @@ function DemoRequestForm() {
     } catch (err) {
       setState({
         ok: false,
-        text:
-          err instanceof Error ? err.message : "Something went wrong — email otemaach@gmail.com.",
+        text: err instanceof Error ? err.message : `Something went wrong — email ${SUPPORT_EMAIL}.`,
       });
     } finally {
       setBusy(false);

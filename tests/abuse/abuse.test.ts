@@ -60,9 +60,12 @@ import {
 
 /* ── Fixtures ─────────────────────────────────────────────────────────────── */
 
-/** In-hours UTC instant (10:00) and an out-of-hours one (03:00). */
+/** In-hours instant (10:00 UTC = 14:00 Dubai) and an out-of-hours one
+ *  (20:30 UTC = 00:30 Dubai, inside the 22:00–06:00 after-hours band).
+ *  The hours are read in Asia/Dubai — a UTC 03:00 fixture became 07:00 Dubai
+ *  when the guard moved off UTC, and landed inside business hours. */
 const T_IN_HOURS = Date.UTC(2026, 0, 15, 10, 0, 0);
-const T_AFTER_HOURS = Date.UTC(2026, 0, 15, 3, 0, 0);
+const T_AFTER_HOURS = Date.UTC(2026, 0, 15, 20, 30, 0);
 
 /** AE mobile numbers, each in a distinct block so they are distinct prefixes. */
 const AE_50 = "+971501234567";

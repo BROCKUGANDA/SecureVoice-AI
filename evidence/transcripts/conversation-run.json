@@ -1,0 +1,14 @@
+{
+  "schema_version": "1.0",
+  "gate": "transcript",
+  "command": "bun test tests/webhooks/transcript-artifact.test.ts --timeout 300000",
+  "ok": true,
+  "exit_code": 0,
+  "duration_ms": 27091,
+  "passed": 1,
+  "failed": 0,
+  "assertions": 31,
+  "database": "shared test database",
+  "generated_at": "2026-10-07T12:22:53.374Z",
+  "output_tail": "bun test v1.4.2 (744846f84)\n    SELECT \"kind\", COALESCE(SUM(\"units\"), 0)::int AS \"units\"\n      FROM \"UsageLedger\"\n     WHERE \"orgId\" = $1\n     GROUP BY \"kind\"\n  \n    SELECT \"kind\", COALESCE(SUM(\"units\"), 0)::int AS \"units\"\n      FROM \"UsageLedger\"\n     WHERE \"orgId\" = $1\n     GROUP BY \"kind\"\n  \n        INSERT INTO \"UsageLedger\"\n          (\"id\", \"orgId\", \"caseRef\", \"attemptNo\", \"kind\", \"units\", \"reason\", \"idemKey\", \"balanceAfter\", \"createdAt\")\n        VALUES ($1, $2, $3, $4,\n                $5, $6, $7, $8, $9, $10)\n        ON CONFLICT (\"idemKey\") DO NOTHING\n        RETURNING \"id\", \"orgId\", \"caseRef\", \"attemptNo\", \"kind\", \"units\", \"reason\", \"idemKey\", \"balanceAfter\", \"createdAt\"\n      \ntranscript gate: evidence/transcripts/conversation.json (3662 bytes, sha256 6edc258b59fc5f14e1d1cef0f4b78b014c366e960d58cc23936fdecd0801945b) + conversation.md\n\n\ntests\\webhooks\\transcript-artifact.test.ts:\n(pass) transcript gate: one conversation through the real path, committed with its mode [26228.90ms]\n\n 1 pass\n 0 fail\n 31 expect() calls\nRan 1 test across 1 file. [26.99s]\n"
+}

@@ -1,0 +1,14 @@
+{
+  "schema_version": "1.0",
+  "gate": "telemetry",
+  "command": "bun test tests/telemetry --timeout 300000",
+  "ok": true,
+  "exit_code": 0,
+  "duration_ms": 2742,
+  "passed": 63,
+  "failed": 0,
+  "assertions": 501,
+  "database": "shared test database",
+  "generated_at": "2026-10-07T12:43:22.929Z",
+  "output_tail": "(pass) the recorder > a corrupt log line is skipped, not coerced [0.61ms]\n(pass) the recorder > a span survives the JSONL round trip byte-for-byte on its numbers [27.08ms]\n(pass) the recorder > an unwritable log is reported, never thrown at the caller [3.89ms]\n(pass) the recorder > a missing log reads as missing, not as zero measurements [1.78ms]\n(pass) the recorder > the OTLP shape is produced with no dependency and no collector [2.17ms]\n(pass) window summaries > an empty window yields one no_data row per span — none omitted, none zeroed [2.84ms]\n(pass) window summaries > one measured span does not make the other seven look measured [3.88ms]\n(pass) window summaries > only the terminal span makes an intervention 'complete' [0.50ms]\n(pass) window summaries > the window excludes samples older than the requested range [0.41ms]\n(pass) window summaries > allTargetsMet is true, false, or null — and null means 'cannot claim' [3.37ms]\n(pass) the SLO evidence gate > zero recorded interventions is a FAIL with a real count, not a silent 0 [1.15ms]\n(pass) the SLO evidence gate > 29 interventions fails and 30 passes — the threshold is real [16.97ms]\n(pass) the SLO evidence gate > interventions that never reached a freeze do not count [0.67ms]\n(pass) the SLO evidence gate > a measured span over budget fails the gate and names the span [3.84ms]\n(pass) the SLO evidence gate > published percentiles equal the maths, computed from the same records [2.82ms]\n(pass) the SLO evidence gate > the artifact publishes its provenance and its own limits [0.50ms]\n(pass) SloPanel > with no data it names the budget and draws no bar at all [73.34ms]\n(pass) SloPanel > with data it shows p50 and p95 and the verdict [18.05ms]\n(pass) SloPanel > the rendered p95 positions agree with the axis maths [9.51ms]\n(pass) scripts/emit-slo.ts (end to end) > with no spans it exits NON-ZERO and writes the real count [142.12ms]\n(pass) scripts/emit-slo.ts (end to end) > with fewer than 30 real interventions it exits NON-ZERO and says how many [116.85ms]\n(pass) scripts/emit-slo.ts (end to end) > with 30 real interventions recorded end to end it exits 0 [142.54ms]\n(pass) scripts/emit-slo.ts (end to end) > an emitted artifact is a function of the log alone — no seeded constants [221.22ms]\n(pass) scripts/emit-slo.ts (end to end) > the committed evidence artifact may not claim the threshold it did not reach [113.69ms]\n\n 63 pass\n 0 fail\n 501 expect() calls\nRan 63 tests across 2 files. [2.69s]\n"
+}

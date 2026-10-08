@@ -1,0 +1,14 @@
+{
+  "schema_version": "1.0",
+  "gate": "tenancy",
+  "command": "bun test tests/tenancy/isolation.test.ts --timeout 300000",
+  "ok": true,
+  "exit_code": 0,
+  "duration_ms": 99636,
+  "passed": 4,
+  "failed": 0,
+  "assertions": 524,
+  "database": "shared test database",
+  "generated_at": "2026-10-07T12:25:58.607Z",
+  "output_tail": "bun test v1.4.2 (744846f84)\n\n\ntests\\tenancy\\isolation.test.ts:\n(pass) WP-12 · matrix fails closed: canonical list and matrix are the same set [1.34ms]\n(pass) WP-12 · guard is fail-closed: an unscoped read is refused, not served [5794.02ms]\n(pass) WP-12 · isolation: every read path × both orgs [67216.99ms]\n(pass) WP-12 · evidence artifact is deterministic and well-formed [12.52ms]\n\n 4 pass\n 0 fail\n 524 expect() calls\nRan 4 tests across 1 file. [99.58s]\n"
+}

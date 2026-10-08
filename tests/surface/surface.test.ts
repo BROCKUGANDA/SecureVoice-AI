@@ -68,7 +68,7 @@ const manifest = JSON.parse(read("public/site.webmanifest")) as Record<string, u
  * So this exercises the production function, not a reimplementation of it.
  */
 async function headersFor(pathname: string): Promise<Headers> {
-  const res = await proxy(new NextRequest(`https://surface.test${pathname}`), {} as never);
+  const res = await proxy(new NextRequest(`https://surface.test${pathname}`));
   // The middleware may decline a request (null/undefined), which is a legitimate
   // outcome, so it must be asserted rather than dereferenced.
   expect(res).toBeDefined();

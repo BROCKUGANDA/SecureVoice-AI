@@ -59,10 +59,11 @@ services:
     mem_limit: 1g
     environment:
       # Credentials interpolate from .env (Compose auto-loads it for
-      # interpolation). Defaults keep the zero-config demo bootable; a public
-      # deployment MUST set POSTGRES_PASSWORD in .env.
+      # interpolation). POSTGRES_PASSWORD is REQUIRED with no default: a known
+      # fallback password on a public deployment is a compromised database, and
+      # the volume bakes the role password at first boot (see .env.example).
       POSTGRES_USER: ${POSTGRES_USER:-securevoice}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-securevoice}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set a strong POSTGRES_PASSWORD in .env}
       POSTGRES_DB: ${POSTGRES_DB:-securevoice}
     volumes:
       - db-data:/var/lib/postgresql/data
@@ -77,11 +78,18 @@ services:
     build:
       context: .
       target: builder
+      args:
+        BUILD_DATABASE_URL: ${DATABASE_URL}
+        BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET in .env}
+        BETTER_AUTH_URL: ${BETTER_AUTH_URL:-https://localhost:3000}
     logging: *default-logging
     environment:
       # Use the same DATABASE_URL as the rest of the stack — .env is the single
       # source of truth, all containers hit the same Postgres (Supabase).
-      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL must be set in .env}
+      DATABASE_URL: ${DATABASE_URL:-postgresql://${POSTGRES_USER:-securevoice}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-securevoice}}
+      # The compose database is a container on a private network with no server
+      # certificate; see dial-worker for why the acknowledgement lives here.
+      DB_ALLOW_PLAINTEXT_PRIVATE_NETWORK: "true"
       # Seed the demo case history on first boot. Idempotent per callRef; set
       # SEED_DEMO=false in .env for a clean production database.
       SEED_DEMO: ${SEED_DEMO:-true}
@@ -102,12 +110,30 @@ services:
     build:
       context: .
       target: builder   # full source tree: the worker is a script, not a bundle
+      args:
+        BUILD_DATABASE_URL: ${DATABASE_URL}
+        BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET in .env}
+        BETTER_AUTH_URL: ${BETTER_AUTH_URL:-https://localhost:3000}
     restart: unless-stopped
     logging: *default-logging
     mem_limit: 512m
     environment:
-      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL must be set in .env}
+      DATABASE_URL: ${DATABASE_URL:-postgresql://${POSTGRES_USER:-securevoice}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-securevoice}}
+      # Durable ElevenLabs character meter. Defaults to the compose redis
+      # service; unset it and the guard falls back to per-process counting,
+      # which it logs as degraded rather than hiding.
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
       NODE_ENV: production
+      # The compose database is a container on a private network with no server
+      # certificate. src/lib/db.ts refuses a plaintext connection in production
+      # without this explicit acknowledgement, so it is stated here rather than
+      # weakened globally.
+      DB_ALLOW_PLAINTEXT_PRIVATE_NETWORK: "true"
+      REQUIRE_VPS_DATABASE: ${REQUIRE_VPS_DATABASE:-false}
+      # Per-case envelope encryption (WP-15). Unset in compose means the ingest
+      # stores no evidence payload at all — set PRIVACY_MASTER_KEY in .env to
+      # enable sealed transcripts. Never defaulted: see .env.example.
+      PRIVACY_MASTER_KEY: ${PRIVACY_MASTER_KEY:-}
       ELEVENLABS_DRY_RUN: ${ELEVENLABS_DRY_RUN:-true}
       ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
       ELEVENLABS_AGENT_ID: ${ELEVENLABS_AGENT_ID:-}
@@ -123,9 +149,43 @@ services:
     depends_on:
       db-setup:
         condition: service_completed_successfully
+      redis:
+        condition: service_healthy
     # The preload neutralises the Next-only `server-only` marker for this plain Bun
-    # process; see scripts/worker-preload.ts for why that is safe.
-    command: ["bun", "--preload", "./scripts/worker-preload.ts", "src/worker/dial.ts"]
+    # process; see scripts/worker-preload.ts for why that is safe. --smol trades a
+    # little throughput for a measurably smaller heap (docs/CAPACITY.md §10) — the
+    # right trade for a polled worker inside a 512m box.
+    command: ["bun", "--smol", "--preload", "./scripts/worker-preload.ts", "src/worker/dial.ts"]
+
+  # Retention sweeper. The privacy tiers (audio purge, payload-key shred,
+  # case-record delete) erase on the clock whether or not anyone remembers —
+  # that is the point of the policy, so it runs as a service and not a cron
+  # note. First sweep at boot (a worker that was down owes the backlog a
+  # sweep), then every RETENTION_SWEEP_HOURS. `--once` for operators.
+  retention-worker:
+    build:
+      context: .
+      target: builder   # full source tree: the worker is a script, not a bundle
+      args:
+        BUILD_DATABASE_URL: ${DATABASE_URL}
+        BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET in .env}
+        BETTER_AUTH_URL: ${BETTER_AUTH_URL:-https://localhost:3000}
+    restart: unless-stopped
+    logging: *default-logging
+    mem_limit: 256m
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql://${POSTGRES_USER:-securevoice}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-securevoice}}
+      NODE_ENV: production
+      # The compose database is a container on a private network with no server
+      # certificate; see dial-worker for why the acknowledgement lives here.
+      DB_ALLOW_PLAINTEXT_PRIVATE_NETWORK: "true"
+      REQUIRE_VPS_DATABASE: ${REQUIRE_VPS_DATABASE:-false}
+      RETENTION_SWEEP_HOURS: ${RETENTION_SWEEP_HOURS:-24}
+    depends_on:
+      db-setup:
+        condition: service_completed_successfully
+    # --smol: measured heap trade, see docs/CAPACITY.md §10 (256m box, idle sweeper).
+    command: ["bun", "--smol", "--preload", "./scripts/worker-preload.ts", "src/worker/retention.ts"]
 
   # Command Center push path. Separate image, separate trust boundary, and
   # independently restartable: a hung socket layer must never take the API with it.
@@ -163,7 +223,7 @@ services:
       context: .
       target: runner
       args:
-        BUILD_DATABASE_URL: ${DATABASE_URL:?DATABASE_URL must be set in .env}
+        BUILD_DATABASE_URL: ${DATABASE_URL:-postgresql://${POSTGRES_USER:-securevoice}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-securevoice}}
         BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set in .env}
         BETTER_AUTH_URL: ${BETTER_AUTH_URL:-https://localhost:3000}
     # IMAGE lets a release job smoke-test the image it just published instead of a
@@ -177,7 +237,18 @@ services:
     environment:
       HOSTNAME: 0.0.0.0
       # Built from parts â€” see db-setup for why a whole-URL interpolation is unsafe.
-      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL must be set in .env}
+      DATABASE_URL: ${DATABASE_URL:-postgresql://${POSTGRES_USER:-securevoice}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-securevoice}}
+      # Durable ElevenLabs character meter (10k/month account ceiling). With it
+      # unset the guard degrades to a per-process count at a tightened ceiling
+      # and logs `degraded: in-process budget limit active`.
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      # Private-network database with no server certificate; see dial-worker.
+      DB_ALLOW_PLAINTEXT_PRIVATE_NETWORK: "true"
+      # Same acknowledgement for the compose redis (src/lib/redis.ts refuses a
+      # plaintext REDIS_URL in production otherwise).
+      REDIS_ALLOW_PLAINTEXT_PRIVATE_NETWORK: "true"
+      # Opt-in: refuse to boot production against anything but the VPS Postgres.
+      REQUIRE_VPS_DATABASE: ${REQUIRE_VPS_DATABASE:-false}
       # Internal service name, NEVER localhost: inside the app container,
       # localhost is the app container. Empty = realtime disabled, console uses SSE.
       REALTIME_URL: ${REALTIME_URL:-http://realtime:4000}
@@ -192,6 +263,8 @@ services:
         condition: service_completed_successfully
       realtime:
         condition: service_started
+      redis:
+        condition: service_healthy
     healthcheck:
       # Readiness, not liveness: the instance must be able to reach its
       # database before it is allowed to take traffic. /api/health stays a pure
@@ -244,10 +317,14 @@ services:
     build:
       context: .
       target: runner
+      args:
+        BUILD_DATABASE_URL: ${DATABASE_URL}
+        BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET in .env}
+        BETTER_AUTH_URL: ${BETTER_AUTH_URL:-https://localhost:3000}
     logging: *default-logging
     environment:
       HOSTNAME: 0.0.0.0
-      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL must be set in .env}
+      DATABASE_URL: ${DATABASE_URL:-postgresql://${POSTGRES_USER:-securevoice}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-securevoice}}
     env_file:
       - path: .env
         required: false

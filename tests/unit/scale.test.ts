@@ -98,6 +98,7 @@ import {
 import {
   DEFAULT_LEASE_MS,
   DIAL_JOB_STATES,
+  CALL_RATE_WINDOW_MS,
   DIAL_RETRY_LADDER_MS,
   MAX_DIAL_ATTEMPTS,
   MIGRATION_HINT,
@@ -368,7 +369,11 @@ function installFake(table_: FakeDialJobTable): void {
         // way Postgres does — from the SQL text. Falling back to a bound third
         // parameter keeps this honest if the statement ever goes back to `$n`.
         const inline = /LIMIT\s+(\d+)/i.exec(sql);
-        const limit = inline ? Number(inline[1]) : boundLimit;
+        // `Number.MAX_SAFE_INTEGER` is what an absent limit means to the fake: it
+        // slices the candidate set, so an undefined bound already returned
+        // everything. Named rather than left optional so the claim signature
+        // (limit: number) cannot silently accept a caller that forgot to bound.
+        const limit = inline ? Number(inline[1]!) : (boundLimit ?? Number.MAX_SAFE_INTEGER);
         // Yield before the pop so two drains genuinely INTERLEAVE and
         // contend for the same rows, the way two workers contend for
         // SKIP LOCKED. The pop itself stays synchronous, which is what
@@ -1188,19 +1193,30 @@ describe("withElevenLabsCeiling — retry, degrade, and release before sleeping"
 
 describe("dialJobBackoffMs — the bounded retry ladder", () => {
   test("rungs are the declared ladder, and the jitter band is Â±20%", () => {
-    expect([...DIAL_RETRY_LADDER_MS]).toEqual([30_000, 120_000, 600_000]);
+    expect([...DIAL_RETRY_LADDER_MS]).toEqual([150_000, 300_000, 600_000]);
     expect(MAX_DIAL_ATTEMPTS).toBe(3);
-    expect(dialJobBackoffMs(1, () => 0.5)).toBe(30_000);
-    expect(dialJobBackoffMs(2, () => 0.5)).toBe(120_000);
+    expect(dialJobBackoffMs(1, () => 0.5)).toBe(150_000);
+    expect(dialJobBackoffMs(2, () => 0.5)).toBe(300_000);
     expect(dialJobBackoffMs(3, () => 0.5)).toBe(600_000);
-    expect(dialJobBackoffMs(1, () => 0)).toBe(24_000);
-    expect(dialJobBackoffMs(1, () => 1)).toBe(36_000);
+    expect(dialJobBackoffMs(1, () => 0)).toBe(120_000);
+    expect(dialJobBackoffMs(1, () => 1)).toBe(180_000);
+  });
+
+  test("carrier rule: no five-minute window can hold more than two calls", () => {
+    // Attempts land at t0, t0+d1, t0+d1+d2. Three calls fit in one window only
+    // if the first two delays sum to <= the window. Check the WORST case: the
+    // bottom of the jitter band on both rungs.
+    const worstSpan = dialJobBackoffMs(1, () => 0) + dialJobBackoffMs(2, () => 0);
+    expect(worstSpan).toBeGreaterThan(CALL_RATE_WINDOW_MS);
+    // ...and no rung is so short that two ADJACENT calls cluster either: the
+    // first retry must not be a near-immediate re-dial.
+    expect(dialJobBackoffMs(1, () => 0)).toBeGreaterThanOrEqual(60_000);
   });
 
   test("the ladder index is clamped at both ends", () => {
     // Below the first rung there is nothing to accelerate, so it stays at 30s¦
-    expect(dialJobBackoffMs(0, () => 0.5)).toBe(30_000);
-    expect(dialJobBackoffMs(-10, () => 0.5)).toBe(30_000);
+    expect(dialJobBackoffMs(0, () => 0.5)).toBe(150_000);
+    expect(dialJobBackoffMs(-10, () => 0.5)).toBe(150_000);
     // ¦and past the last rung it saturates at the longest delay, which is
     // what stops an undiallable number being retried for ever.
     expect(dialJobBackoffMs(4, () => 0.5)).toBe(600_000);
@@ -1457,7 +1473,7 @@ describe("failDialJob — the bounded ladder", () => {
 
   test("retries climb to DEAD on the MAX_DIAL_ATTEMPTS-th failure", async () => {
     // `rand` is pinned to the top of the jitter band, so the ladder is
-    // exactly 36 s, 144 s, then DEAD — and the backoff is applied to the
+    // exactly 180 s, 360 s, then DEAD — and the backoff is applied to the
     // injected clock, not to wall time.
     const rand = () => 1;
     const id = await claimOne("c1");
@@ -1466,14 +1482,14 @@ describe("failDialJob — the bounded ladder", () => {
       retries: 1,
       nextAttemptAt: null,
     });
-    table.advance(36_000);
+    table.advance(180_000);
     await claimDialJobs({ workerId: "w1", limit: 1 });
     expect(await failDialJob({ id, error: "no answer", rand })).toEqual({
       outcome: "RETRY",
       retries: 2,
       nextAttemptAt: null,
     });
-    table.advance(144_000);
+    table.advance(360_000);
     await claimDialJobs({ workerId: "w1", limit: 1 });
     expect(await failDialJob({ id, error: "no answer", rand })).toEqual({
       outcome: "DEAD",
@@ -1525,7 +1541,7 @@ describe("failDialJob — the bounded ladder", () => {
     await failDialJob({ id, error: "no answer", rand: () => 0.5 });
     const job = await dialJobById(id);
     expect(job?.state).toBe("PENDING");
-    expect(job?.available_at.getTime()).toBe(table.now + 30_000);
+    expect(job?.available_at.getTime()).toBe(table.now + 150_000);
     expect(job?.claimed_by).toBeNull();
     expect(job?.lease_expires_at).toBeNull();
     // Not due until the backoff elapses.
@@ -1851,7 +1867,7 @@ describe("drainDialQueue — the accounting contract", () => {
         },
       });
       if (out.dead > 0) break;
-      // Let the backoff elapse; the ladder is 30s, 120s, 600s.
+      // Let the backoff elapse; the ladder is 150s, 300s, 600s.
       table.advance(600_001);
     }
     expect(claims).toBe(MAX_DIAL_ATTEMPTS);
@@ -1878,12 +1894,12 @@ describe("drainDialQueue — the accounting contract", () => {
       handler: async () => ({ ok: false, error: "busy" }),
       rand: () => 1,
     });
-    // rand() = 1 → the top of the jitter band: 30s Ã— 1.2 = 36s.
+    // rand() = 1 → the top of the jitter band (rung 1 = 150s, x 1.2 = 180s).
     expect((await dialJobById((await queueRows())[0]!.id))?.available_at.getTime()).toBe(
-      table.now + 36_000,
+      table.now + 180_000,
     );
     expect(await claimDialJobs({ workerId: "w1" })).toEqual([]);
-    table.advance(36_000);
+    table.advance(180_000);
     expect(await claimDialJobs({ workerId: "w1" })).toHaveLength(1);
   });
 });

@@ -419,10 +419,11 @@ Every scenario whose required outcome is a **control-plane** obligation is drive
 
 ### The agent layer is UNVERIFIED, and the harness says so
 
-`scripts/run-agent-tests.ts` drives `POST /v1/convai/agents/{id}/simulate-conversation` against the live agent. Findings, recorded rather than smoothed over:
+`scripts/run-agent-tests.ts` drives the agent-testing pipeline against the live agent — `POST /v1/convai/agent-testing/create` → `POST /v1/convai/agents/{id}/run-tests` → poll `GET /v1/convai/test-invocations/{id}` → `DELETE` the test — the documented replacement for the deprecated simulate-conversation endpoint. Findings, recorded rather than smoothed over:
 
 - The request shape was wrong on the first attempt and **corrected against the live API reference** (`simulation_specification.simulated_user_config.first_message`, `simulated_conversation` is a list of turns). The brief says treat the document as a map, not a contract; this is what that costs.
-- **This endpoint is deprecated and scheduled for removal on 31 Oct 2026** in favour of `/v1/convai/agent-testing/create` + `run-tests`. Demo Day (26–27 Oct) is inside the window, so the submission is unaffected, but the migration is now a tracked item.
+- **The deprecated endpoint has been migrated off.** The harness now runs on agent-testing (the removal on 31 Oct 2026 no longer affects it). The non-credit surface is verified live by `--probe`: tool IDs resolve from `GET /v1/convai/tools` (name nests under `tool_config.name`), and both body shapes a real run sends — wording-only and tool-mocked — are created, read back field-for-field, and deleted without spending conversation credits. The RUN path still costs credits and stays honestly unverified until quota exists.
+- **The workspace registers two tools, not four.** `card_freeze` and `human_handoff` exist; `verify_transaction` and `switch_language` are not registered on the agent (the app exposes the endpoints, the workspace does not call them). Tool mocks are trimmed to what exists, and a missing tool is a typed failure rather than a silent no-mock.
 - **A red-team pack must insist.** RT-4 failed because the simulated user asked once and the agent's closing move ended the call before the unfreeze demand was ever made — the analyser reported "not tested". Scenarios now carry a **simulated-user persona** that presses the attack across turns. This is a gap in evidence, and it was invisible until real runs exposed it.
 - **Structural scenarios are excluded from the simulated pass rate, not failed by it.** RT-5, RT-7 and RT-10 cannot be demonstrated in a simulation where tools are mocked — no amount of agent cooperation makes a mock return 409. Scoring them there would manufacture failures that say nothing about the product; hiding them would manufacture a pass rate that says nothing either.
 - **The platform returned HTTP 500 on 12 of 14 runs** in the last attempt. Those rows are reported `UNVERIFIED` and the harness exits non-zero. The 2 scored runs that completed passed (RT-1). Character quota is exhausted (10000/10000) and the workspace is on the free tier.
@@ -1606,3 +1607,144 @@ Wiring is asserted structurally against `src/lib/db.ts` for the same reason. Onc
 local Postgres exists, the next step is to drive a few real handlers inside
 `runWithQueryCounter()` and record their actual counts as the baseline — at which
 point the budgets stop being declared estimates and start being measurements.
+
+## 2026-10-07 — Encryption at rest and in transit, verified end to end
+
+**Date:** 2026-10-07
+**Commands:** `bun test tests/unit/transit.test.ts` · `bun --preload ./tests/preload.ts <probe>` · `curl -w "%{ssl_verify_result}" https://57.130.80.158.sslip.io/healthz`
+
+The data crosses five hops; each is listed with what ENFORCES its encryption
+and what was MEASURED on the real connection, because a config file asking for
+TLS is not the same fact as a socket that negotiated it.
+
+### At rest
+
+- **Case payloads** — envelope encryption with a unique per-case data key bound
+  as AAD, crypto-shredding on erasure, retention per tier: proven by the WP-15
+  gate (`tests/privacy/privacy.test.ts`, `evidence/privacy/privacy.json`),
+  including the negative control that a tampered audit row is reported.
+- **Audio** — there is none at rest: no `AudioStore` is registered anywhere in
+  this deployment, retention's status line reports `none-configured`, and the
+  interface exists for a Stage-3 store. Stated because "we do not hold audio"
+  is a stronger claim than "audio is encrypted" only if it is actually true.
+- **Postgres storage-level encryption** — a Supabase vendor-managed control.
+  Recorded here, honestly attributed: it is not something this codebase can
+  prove from inside.
+- **`PRIVACY_MASTER_KEY`** — lives in the gitignored `.env` only; the repo and
+  `.env.example` carry no key material.
+
+### In transit
+
+1. **App → Postgres.** Enforced at boot: `assertTransportIsEncrypted`
+   (extracted to `src/lib/db-transport.ts`, matrix-tested in
+   `tests/unit/transit.test.ts`) refuses a production `DATABASE_URL` without
+   `sslmode=require|verify-ca|verify-full`; the deployment pins Supabase's root
+   CA with `sslmode=verify-full&sslrootcert=supabase-ca.crt`. Measured on the
+   app's OWN pooled connection (not a second, better-configured client):
+   `pg_stat_ssl` returns `ssl=true, TLSv1.3, TLS_AES_256_GCM_SHA384, 256 bits`.
+   The connection SUCCEEDED under `verify-full`, which is itself part of the
+   proof — a wrong trust anchor refuses the handshake outright.
+2. **App → Redis.** Previously nothing checked this. Now
+   `assertRedisTransportIsEncrypted` (src/lib/redis.ts) refuses a production
+   `redis://` URL at connect time — deliberately at connect, not import, so the
+   meter's declared failure mode (loud degradation to the in-process counter,
+   naming the escape variable in the log) applies instead of a boot failure.
+   The sanctioned plaintext case — a private network the operator controls — is
+   the same explicit opt-in pattern as the database's
+   (`REDIS_ALLOW_PLAINTEXT_PRIVATE_NETWORK=true`), set in docker-compose for
+   its internal redis. The gate is mutation-proven: mangling the scheme check
+   turns 2 tests red.
+3. **App → vendors (ElevenLabs, Twilio).** Both base URLs are hardcoded
+   `https://` constants (src/lib/elevenlabs/egress.ts, src/lib/twilio.ts) — no
+   URL is operator-suppliable, so there is no configuration that downgrades
+   them.
+4. **Browser → edge.** The Caddyfile is TLS-only by construction (the
+   plaintext dev config is a separate file that is not a compose service), and
+   measured live against the deployed edge: `HTTP 200`, `ssl_verify_result=0`
+   (certificate chain validated), `TLSv1.3`,
+   `Strict-Transport-Security: max-age=63072000; includeSubDomains; preload`,
+   h3 advertised. Log redaction (Cookie, Authorization, SV-Signature, query
+   strings) is in the same file.
+
+**State.**
+
+```
+tests/unit/transit.test.ts    15 pass  0 fail   (mutation-proven)
+tests/unit/db-target.test.ts  27 pass  0 fail   (unchanged, still green)
+live DB socket                ssl=true TLSv1.3 TLS_AES_256_GCM_SHA384 (pg_stat_ssl, app's own pool)
+live edge                     200, ssl_verify=0, TLSv1.3, HSTS preload
+```
+
+**Not verified, and stated as such.** The Redis TLS path is enforced and
+tested but never measured live: no `REDIS_URL` is set in this environment, and
+the compose redis is plaintext by explicit acknowledgment on a private network
+— the sanctioned case, not a measurement. Postgres at-rest encryption is a
+vendor claim, not our proof. And the edge certificate is Let's Encrypt for
+`57.130.80.158.sslip.io` — a convenience domain that validates today; a
+production name is the same open item as the submission's placeholder URL.
+
+## 2026-10-07 — Runtime tuning: measured before set
+
+**Date:** 2026-10-07
+**Commands:** Bun RSS probes (transient scripts, run in `bun 1.4.2`): 3 GB of
+materialized flat-string garbage churned over a tiny live set, peak
+`process.memoryUsage.rss()` per configuration.
+
+**What was measured.** default peak **73 MB** · `BUN_JSC_forceRAMSize=256MB`
+peak **73 MB** (no measurable effect) · `--smol` peak **52 MB**. Retained-heap
+and released-floor probes (200 MB live; floor after releasing 300 MB) showed no
+difference across configurations — the policy knobs bind under churn, not at
+rest.
+
+**What was set from the measurement.** `--smol` on dial-worker,
+retention-worker and realtime (compose CMDs + realtime Dockerfile) — idle or
+fan-out services in tight `mem_limit` boxes, none latency-gated. The app
+deliberately keeps the default collector: its p95 is a graded gate, and JSC's
+default already capped churn peak at 73 MB, so the 1 GB limit is credible
+without paying the throughput trade. Documented with this reasoning in
+docs/CAPACITY.md §10, alongside the I/O-concurrency story (no
+`UV_THREADPOOL_SIZE` under Bun; the real knobs are the pg pool, the audit pool
+of 5 and the breaker) and the worker-threads decision (none; process-level
+isolation already exists and is stronger).
+
+**A false zero, caught.** The first churn probe used untouched
+`"…".repeat(n)` strings: JSC ropes those, so 300 MB of "allocation" never
+materialized and every configuration reported an identical 41 MB — a
+measurement of my own method, not of the collector. Caught by refusing to
+believe that 270 MB of strings fit in 41 MB of RSS; the probe was rebuilt with
+a per-string materializing access (`charCodeAt` at the far index) before any
+conclusion was drawn.
+
+**Not verified, and stated as such.** Peak RSS was probed with synthetic
+garbage, not the production workload; the numbers bound GC _policy_, not the
+app's real live set (pools, caches, connections) — that is what the load gate
+and the VPS's own memory metrics will show in production.
+
+## 2026-10-07 — The quota cycle rolled over a month late
+
+Found while type-checking the transcript gate: `cycleEndMs` in
+`src/lib/elevenlabs/egress.ts` split the month string "2026-10" and then built
+`new Date(y, m + 1, 1)` — treating the already-human month (1–12) as if it were
+a 0-indexed Date month and adding one more. The October cycle's end was
+reported as **1 December** (correct only for December itself), so every
+quota-exhausted 429 advertised a `Retry-After` one month too long, and each
+month's Redis key lived a month past its cycle. Caught by
+`noUncheckedIndexedAccess` flagging the destructuring, not by any test — no
+test pinned the arithmetic, which is exactly why it survived.
+
+**Fix.** `new Date(y, m, 1)` — the human month used directly IS next month —
+plus `cycleEndMs` exported and pinned in
+`tests/unit/elevenlabs-egress-throttle.test.ts`: exact boundaries for
+2026-10 / 2026-01 / 2026-12, and a consecutive-months sweep asserting each
+gap equals the real length of the intervening month.
+
+**Mutation-proved.** Temporarily restoring `m + 1` fails both new tests
+(exact boundary and gap sweep); restored, 6/6 pass. Runtime check through the
+real throttle suite: unchanged, 25 assertions.
+
+**Also, honestly:** the tests-project typecheck is NOT clean on main — 24
+pre-existing errors across files this session did not write (NextRequest
+casts, an untyped `.mjs` import, indexed-access strictness). None sit behind a
+bundle gate, which is why they are invisible to `bun run evidence`. The two
+files this session owns (`transit.test.ts`, the throttle test, the transcript
+gate) are clean.

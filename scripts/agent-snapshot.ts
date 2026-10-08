@@ -10,9 +10,10 @@
  * The snapshot is byte-stable across runs when the config is unchanged —
  * the canonical form sorts all keys and strips all whitespace.
  */
-import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { writeFileSync, mkdirSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { resolve } from "node:path";
+import { fetchWithBackoff } from "./lib/elevenlabs-egress.mjs";
 
 const API = process.env.ELEVENLABS_API_BASE ?? "https://api.elevenlabs.io";
 const AGENT_ID = process.env.ELEVENLABS_AGENT_ID;
@@ -58,13 +59,45 @@ const VOLATILE_KEYS = new Set([
   "access_permissions",
 ]);
 
+/**
+ * SECRET HEADERS — this snapshot is a COMMITTED evidence artifact, and the
+ * ElevenLabs API returns the agent's outbound tool auth headers verbatim. That
+ * meant the real `x-agent-tool-secret` — the value our own endpoints check to
+ * decide whether an agent tool call is genuine — was sitting in git, in a file
+ * whose entire purpose is to be published as proof.
+ *
+ * It is redacted here rather than deleted, because whether a header is PRESENT
+ * is configuration a judge should be able to see; its VALUE is not theirs.
+ * `agent-apply`'s read-back diff compares the live config it just wrote against
+ * the YAML, and that path re-reads the header from `AGENT_TOOL_SECRET`, so
+ * redaction here costs the idempotency gate nothing.
+ *
+ * The key match is case-insensitive and matched as a SUFFIX, because the header
+ * name is configurable per tool (`tool_secret_header` in the YAML). Anything
+ * ending in `secret`, `token`, `password` or `authorization` is redacted, so a
+ * renamed header cannot slip past.
+ */
+const SECRET_HEADER_KEYS = new Set(
+  ["x-agent-tool-secret", "authorization", "cookie", "api-key", "api_key", "x-api-key"].map((k) =>
+    k.toLowerCase(),
+  ),
+);
+const REDACTED = "[REDACTED]";
+
+/** True for a header key that must never reach a committed file. */
+function isSecretKey(key: string): boolean {
+  const k = key.toLowerCase();
+  if (SECRET_HEADER_KEYS.has(k)) return true;
+  return /(secret|token|password|authorization|api[-_]?key)$/i.test(k);
+}
+
 function stripVolatile(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(stripVolatile);
   if (value && typeof value === "object") {
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(value)) {
       if (VOLATILE_KEYS.has(k)) continue;
-      out[k] = stripVolatile(v);
+      out[k] = isSecretKey(k) ? REDACTED : stripVolatile(v);
     }
     return out;
   }
@@ -73,7 +106,7 @@ function stripVolatile(value: unknown): unknown {
 
 async function main() {
   console.log(`▶ agent:snapshot — GET /v1/convai/agents/${AGENT_ID}`);
-  const res = await fetch(`${API}/v1/convai/agents/${AGENT_ID}`, {
+  const res = await fetchWithBackoff(`${API}/v1/convai/agents/${AGENT_ID}`, {
     headers: { "xi-api-key": API_KEY! },
   });
   if (!res.ok) {

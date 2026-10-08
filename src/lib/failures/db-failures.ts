@@ -36,6 +36,7 @@ import "server-only";
  * default of `evaluatePrimaryHealth({ mode: "read_only" })`.
  */
 
+import { env } from "../config";
 import {
   assertFieldName,
   interventionRefused,
@@ -151,7 +152,7 @@ const NODE_NETWORK_CODES = new Set([
 /** The timeout that applies when a caller does not name one. */
 export const DEFAULT_SHED_RETRY_AFTER_SEC = 2;
 /** A lock-wait timeout is a timeout, not a conflict, and says so. */
-export const DEFAULT_TIMEOUT_RETRY_AFTER_SEC = 5;
+export const DEFAULT_TIMEOUT_RETRY_AFTER_SEC = env.dbTimeoutRetryAfterSec;
 
 // ── Reading an error without touching it ──────────────────────────────────────
 
@@ -555,9 +556,9 @@ export async function withTimeoutBudget<T>(
  * the fourth failure is what the caller sees. Named explicitly because 3 vs 4
  * is exactly the kind of ambiguity that gets discovered during an incident.
  */
-export const MAX_TX_RETRIES = 3;
+export const MAX_TX_RETRIES = env.dbTxRetries;
 /** Base of the exponential backoff between retries, in ms. */
-export const TX_RETRY_BASE_BACKOFF_MS = 25;
+export const TX_RETRY_BASE_BACKOFF_MS = env.dbTxBackoffMs;
 /** Jitter is a multiplier in [1 - JITTER, 1] so a thundering herd de-synchronises. */
 export const TX_RETRY_JITTER = 0.5;
 
@@ -934,7 +935,7 @@ export function admitIntervention(health: PrimaryHealthDecision): {
 // ── Row: replica lag ──────────────────────────────────────────────────────────
 
 /** Reads older than this are not shown without a staleness banner. */
-export const DEFAULT_REPLICA_LAG_THRESHOLD_MS = 2_000;
+export const DEFAULT_REPLICA_LAG_THRESHOLD_MS = env.replicaLagThresholdMs;
 
 export type ReplicaLagMode = "fail_back" | "banner";
 

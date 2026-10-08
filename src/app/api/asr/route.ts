@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { env, MAX_ASR_B64_CHARS, MAX_ASR_BODY_BYTES } from "@/lib/config";
 import { consume as consumeRateLimit, rateLimitId } from "@/lib/ratelimit";
 import { append as auditAppend } from "@/lib/audit-chain";
 import { transcript as redactText } from "@/lib/redact";
@@ -16,13 +17,8 @@ export const dynamic = "force-dynamic";
  * public demo (no quota burn).
  */
 
-const MAX_B64_CHARS = 24_000_000; // ≈ 18 MB raw audio
-// Reject oversize payloads before parsing — req.json() would otherwise buffer
-// the whole body for an attacker regardless of the schema's max() check.
-const MAX_BODY_BYTES = 34_000_000; // JSON/base64 overhead over MAX_B64_CHARS
-
 const schema = z.object({
-  audio: z.string().min(1).max(MAX_B64_CHARS),
+  audio: z.string().min(1).max(MAX_ASR_B64_CHARS),
   mime: z.string().min(1).max(64).default("audio/webm"),
   lang: z.string().min(2).max(8).optional(),
   callRef: z.string().min(3).max(64).optional(),
@@ -42,8 +38,11 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // Reject oversize payloads before parsing — req.json() would otherwise buffer
+  // the whole body for an attacker regardless of the schema's max() check.
+  // JSON/base64 overhead over MAX_ASR_B64_CHARS
   const contentLength = Number(req.headers.get("content-length") || 0);
-  if (contentLength > MAX_BODY_BYTES) {
+  if (contentLength > MAX_ASR_BODY_BYTES) {
     return NextResponse.json({ error: "Audio payload too large" }, { status: 413 });
   }
 
@@ -98,7 +97,7 @@ export async function POST(req: NextRequest) {
 async function transcribe(audioB64: string, mime: string, lang?: string): Promise<string> {
   // Vendor chain: ElevenLabs Scribe (if configured) → Deepgram nova-2 (fast,
   // independent vendor) → z-ai dev backend. First non-empty transcript wins.
-  if (process.env.ELEVENLABS_API_KEY && process.env.ELEVENLABS_DRY_RUN !== "true") {
+  if (env.elevenLabsApiKey && !env.elevenLabsDryRun) {
     try {
       const text = await transcribeElevenLabs(audioB64, mime);
       if (text) return text;
@@ -106,7 +105,7 @@ async function transcribe(audioB64: string, mime: string, lang?: string): Promis
       // fall through to the next vendor
     }
   }
-  if (process.env.DEEPGRAM_API_KEY) {
+  if (env.deepgramApiKey) {
     try {
       const text = await transcribeDeepgram(audioB64, mime, lang);
       if (text) return text;
@@ -133,16 +132,16 @@ const DEEPGRAM_LANGS = new Set(["en", "ar", "fr", "hi", "es", "de", "it", "pt", 
 async function transcribeDeepgram(audioB64: string, mime: string, lang?: string): Promise<string> {
   const buf = Buffer.from(audioB64, "base64");
   const dgLang = lang ? (DEEPGRAM_LANGS.has(lang) ? lang : "multi") : undefined;
-  const params = new URLSearchParams({ model: "nova-2", smart_format: "true" });
+  const params = new URLSearchParams({ model: env.deepgramSttModel, smart_format: "true" });
   if (dgLang) params.set("language", dgLang);
-  const r = await fetch(`https://api.deepgram.com/v1/listen?${params.toString()}`, {
+  const r = await fetch(`${env.deepgramBaseUrl}/listen?${params.toString()}`, {
     method: "POST",
     headers: {
-      Authorization: `Token ${process.env.DEEPGRAM_API_KEY}`,
+      Authorization: `Token ${env.deepgramApiKey}`,
       "Content-Type": mime || "audio/wav",
     },
     body: new Uint8Array(buf),
-    signal: AbortSignal.timeout(30_000),
+    signal: AbortSignal.timeout(env.deepgramTimeoutMs),
   });
   if (!r.ok) {
     const detail = await r.text().catch(() => "");
@@ -159,32 +158,26 @@ async function transcribeZai(audioB64: string): Promise<string> {
   const zai = await mod.default.create();
   const res = await Promise.race([
     zai.audio.asr.create({ file_base64: audioB64 }),
-    new Promise<never>((_, rej) => setTimeout(() => rej(new Error("ASR timeout")), 30_000)),
+    new Promise<never>((_, rej) =>
+      setTimeout(() => rej(new Error("ASR timeout")), env.asrTimeoutMs),
+    ),
   ]);
   return (res as { text?: string }).text ?? "";
 }
 
 async function transcribeElevenLabs(audioB64: string, mime: string): Promise<string> {
-  const key = process.env.ELEVENLABS_API_KEY!;
+  // Hardened path: same breaker + retry as every other ElevenLabs call. The
+  // multipart form is rebuilt per attempt inside `elevenLabsStt` because a
+  // consumed stream cannot be re-sent.
+  const { elevenLabsStt } = await import("@/lib/elevenlabs/egress");
   // Default to scribe_v2 (current generation, matches the deck claim); pin
   // scribe_v1 via ELEVENLABS_STT_MODEL if the account tier requires it.
-  const model = process.env.ELEVENLABS_STT_MODEL ?? "scribe_v2";
-  // ElevenLabs STT expects multipart/form-data with a file field
+  const model = env.elevenLabsSttModel;
   const buf = Buffer.from(audioB64, "base64");
-  const blob = new Blob([buf], { type: mime });
-  const form = new FormData();
-  form.append("file", blob, "recording");
-  form.append("model_id", model);
-  const r = await fetch("https://api.elevenlabs.io/v1/speech-to-text", {
-    method: "POST",
-    headers: { "xi-api-key": key },
-    body: form,
-    signal: AbortSignal.timeout(30_000),
-  });
+  const r = await elevenLabsStt(buf, mime, model);
   if (!r.ok) {
-    const detail = await r.text().catch(() => "");
-    throw new Error(`ElevenLabs STT ${r.status}: ${detail.slice(0, 200)}`);
+    throw new Error(`ElevenLabs STT ${r.status}: ${r.body.slice(0, 200)}`);
   }
-  const data = await r.json();
+  const data = (await r.response.json()) as { text?: unknown };
   return (data.text ?? "").toString().trim();
 }

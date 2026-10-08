@@ -16,9 +16,16 @@ import type { NextConfig } from "next";
  */
 // 'unsafe-eval' is a dev-server requirement (React refresh); it never ships
 // in a production CSP.
+
+// The connect-src allowance must follow ELEVENLABS_API_BASE_URL so a gateway/
+// region override stays reachable from the browser; default is the vendor API.
+const ELEVENLABS_CSP_ORIGIN = new URL(
+  process.env.ELEVENLABS_API_BASE_URL ?? "https://api.elevenlabs.io",
+).origin;
+
 const scriptSrc = [
-  "script-src 'self' 'unsafe-inline'",
-  ...(process.env.NODE_ENV === "development" ? ["'unsafe-eval'"] : []),
+  "script-src 'self'",
+  ...(process.env.NODE_ENV === "development" ? ["'unsafe-inline'", "'unsafe-eval'"] : []),
 ].join(" ");
 
 const CSP = [
@@ -28,7 +35,7 @@ const CSP = [
   "img-src 'self' data: blob: https:",
   "font-src 'self' data:",
   "media-src 'self' blob:",
-  "connect-src 'self' https://api.elevenlabs.io",
+  `connect-src 'self' ${ELEVENLABS_CSP_ORIGIN}`,
   "worker-src 'self' blob:",
   "frame-src 'self'",
   "frame-ancestors 'none'",
@@ -47,7 +54,7 @@ const securityHeaders = [
   { key: "Cross-Origin-Resource-Policy", value: "same-origin" },
   {
     key: "Permissions-Policy",
-    value: "camera=(), microphone=(self), geolocation=(), payment=()",
+    value: "camera=(), microphone=(), geolocation=(), payment=()",
   },
   { key: "X-DNS-Prefetch-Control", value: "on" },
 ];

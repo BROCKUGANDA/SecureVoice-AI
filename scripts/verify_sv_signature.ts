@@ -12,7 +12,8 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { readFileSync } from "node:fs";
 
-const TOLERANCE_SECONDS = 300;
+/** Must match the sender's REPLAY_WINDOW_SEC (src/lib/config.ts default 300). */
+const TOLERANCE_SECONDS = Number(process.env.REPLAY_WINDOW_SEC) || 300;
 
 export function verifySvSignature(
   rawBody: string,

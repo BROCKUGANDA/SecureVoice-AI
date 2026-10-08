@@ -5,7 +5,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireSignedIn, deductCredit, refundCredit } from "@/lib/credits";
 import { consume as consumeRateLimit } from "@/lib/ratelimit";
-import { env, SUPPORTED_LANGS } from "@/lib/config";
+import { env, SUPPORTED_LANGS, slaSeconds } from "@/lib/config";
 import { paymentRequired, upstreamError, parseJson } from "@/lib/api-errors";
 
 export const dynamic = "force-dynamic";
@@ -54,17 +54,19 @@ const schema = z.object({
 });
 
 /**
- * SLA: contact must start within 60 seconds of signal receipt. Carried here
+ * SLA: contact must start within N seconds of signal receipt. Carried here
  * (unchanged) because the Console view renders a countdown from it and the v1
  * envelope does not carry one — the response is `queued`, so the deadline is
  * the clock the operator watches, not a promise about the carrier.
+ *
+ * Bounded so a misconfigured env value cannot park a fraud call indefinitely.
  */
-const SLA_SECONDS = 60;
+const SLA_SECONDS = slaSeconds();
 
-/** ISO-4217. The console form collects AED, so the signal is AED. */
-const CURRENCY = "AED";
-/** AED minor unit = 1 fil = 1/100 major. */
-const MINOR_UNITS_PER_MAJOR = 100;
+/** ISO-4217 currency for the signal, env-driven. */
+const CURRENCY = env.interventionCurrency;
+/** Minor units per major unit, env-driven. */
+const MINOR_UNITS_PER_MAJOR = env.minorUnitsPerMajor;
 
 /**
  * The band a signal always lands in when nothing higher matches — the lowest
@@ -96,9 +98,9 @@ const ACTION_PLAN: readonly { threshold: number; action: string; handoff: string
  * value unchanged is a 100× error, and forwarding a float is a schema
  * rejection. The rounding happens once, here.
  */
-function toMinorUnits(amountAed: number | undefined): number {
-  if (amountAed === undefined) return 0;
-  return Math.round(amountAed * MINOR_UNITS_PER_MAJOR);
+function toMinorUnits(amount: number | undefined): number {
+  if (amount === undefined) return 0;
+  return Math.round(amount * MINOR_UNITS_PER_MAJOR);
 }
 
 /**
@@ -298,7 +300,7 @@ export async function POST(req: NextRequest) {
         "x-caller-id": `console:${profile.userId.slice(0, 40)}`,
       },
       body: rawBody,
-      signal: AbortSignal.timeout(30_000),
+      signal: AbortSignal.timeout(env.dialProbeTimeoutMs),
     });
   } catch (err) {
     // Network/timeout before a verdict — the claimed credit is refunded.

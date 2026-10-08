@@ -264,13 +264,68 @@ const toMs = (at: number | Date | undefined, fallback: number): number => {
   return Number.isFinite(ms) ? ms : fallback;
 };
 
-/** Is this instant outside the configured business hours (UTC)? Wrap-aware. */
-export function isAfterHours(atMs: number): boolean {
+/**
+ * Is this instant outside the configured business hours? Wrap-aware.
+ *
+ * Counted in `businessHoursTimezone`, not UTC. 21:00 UTC is 01:00 in Dubai, and
+ * the entire purpose of this control is to not wake somebody up to ask them
+ * about a transaction — so the hour is read off the clock of the person being
+ * called, not of the server placing the call.
+ */
+export function isAfterHours(
+  atMs: number,
+  timeZone = abuseConfig().velocity.businessHoursTimezone,
+): boolean {
   const cfg = abuseConfig().velocity;
-  const hour = new Date(atMs).getUTCHours();
-  const { businessHoursStartUtc: start, businessHoursEndUtc: end } = cfg;
+  const hour = localHour(atMs, timeZone);
+  const { businessHoursStart: start, businessHoursEnd: end } = cfg;
   if (start === end) return false; // 24h operation: never out of hours
   return start < end ? hour < start || hour >= end : hour < start && hour >= end;
+}
+
+/**
+ * The first instant at or after `atMs` that is INSIDE permitted calling hours,
+ * or `atMs` itself when it already is (or the deployment runs 24h). Used by the
+ * dial worker to park a routine-category job until the window opens instead of
+ * letting it climb the retry ladder into the middle of the night.
+ *
+ * 15-minute steps are resolution enough for a window measured in hours and keep
+ * the search bounded (96 Intl format calls worst case, cached formatters).
+ */
+export function nextBusinessHoursStart(
+  atMs: number,
+  timeZone = abuseConfig().velocity.businessHoursTimezone,
+): number {
+  const STEP = 15 * 60 * 1000;
+  const LIMIT = 24 * 60 * 60 * 1000;
+  for (let t = atMs; t <= atMs + LIMIT; t += STEP) {
+    if (!isAfterHours(t, timeZone)) return t;
+  }
+  // Unreachable unless the window is empty in a way the config validator
+  // rejects; a day ahead is the honest fail-safe either way.
+  return atMs + LIMIT;
+}
+
+const HOUR_FORMATTERS = new Map<string, Intl.DateTimeFormat>();
+
+/** The hour-of-day (0-23) this instant shows on a wall clock in `timeZone`. */
+function localHour(atMs: number, timeZone: string): number {
+  let fmt = HOUR_FORMATTERS.get(timeZone);
+  if (!fmt) {
+    // `hourCycle: "h23"` because `hour12: false` is the one spelling that can
+    // return "24" for midnight, which is not an hour anyone's clock shows.
+    fmt = new Intl.DateTimeFormat("en-GB", {
+      timeZone,
+      hour: "2-digit",
+      hourCycle: "h23",
+    });
+    HOUR_FORMATTERS.set(timeZone, fmt);
+  }
+  const hour = Number(fmt.formatToParts(new Date(atMs)).find((p) => p.type === "hour")?.value);
+  if (!Number.isInteger(hour) || hour < 0 || hour > 23) {
+    throw new Error(`could not read the local hour for ${timeZone}`);
+  }
+  return hour;
 }
 
 /** Attempts inside (now - windowSec, now]. */

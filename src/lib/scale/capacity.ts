@@ -23,6 +23,7 @@ import "server-only";
  * `@/lib/capacity` here, never re-declared.
  */
 
+import { env } from "@/lib/config";
 import {
   BAND_ENTER_CONSTRAINED_PCT,
   BAND_ENTER_SHED_PCT,
@@ -79,7 +80,7 @@ export type Labelled<T> = {
  * then this is the assumption the concurrency ceiling is sized against, and the
  * burst ceiling is deliberately sized with headroom for it to be wrong upward.
  */
-export const MEAN_CALL_SECONDS = 180;
+export const MEAN_CALL_SECONDS = env.meanCallSeconds;
 
 // ── Vendor ceilings ──────────────────────────────────────────────────────────
 
@@ -651,8 +652,8 @@ export class VendorCeilingExhaustedError extends Error {
 }
 
 /** First backoff step, and the cap it saturates at. */
-export const BACKOFF_BASE_MS = 250;
-export const BACKOFF_MAX_MS = 8_000;
+export const BACKOFF_BASE_MS = env.queueBackoffBaseMs;
+export const BACKOFF_MAX_MS = env.queueBackoffMaxMs;
 export const MAX_THROTTLE_ATTEMPTS = 5;
 
 /**

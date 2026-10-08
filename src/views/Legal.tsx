@@ -2,6 +2,7 @@
 
 import { ScrollText, FileText, ArrowRight } from "lucide-react";
 import { useApp, t } from "@/lib/store";
+import { SUPPORT_EMAIL } from "@/lib/public-config";
 import { Reveal } from "@/components/fx/core";
 
 /* ————————————————— shared legal shell ————————————————— */
@@ -166,7 +167,7 @@ const PRIVACY_SECTIONS = [
   {
     h: "Your rights",
     body: [
-      "Under the PDPL you may request access, correction, deletion, portability, or object to processing. Under the GDPR you may also request restriction and erasure, and you may complain to your national supervisory authority — in the EEA, the Irish Data Protection Commission is our lead authority. Email otemaach@gmail.com and we will verify and respond within 30 days.",
+      `Under the PDPL you may request access, correction, deletion, portability, or object to processing. Under the GDPR you may also request restriction and erasure, and you may complain to your national supervisory authority — in the EEA, the Irish Data Protection Commission is our lead authority. Email ${SUPPORT_EMAIL} and we will verify and respond within 30 days.`,
       "If your data is processed inside your bank's deployment of SecureVoice, direct your request to the bank; we support the bank in fulfilling it. If you ask us to delete a case record, we destroy the encryption key that makes the transcript readable while retaining the hash chain, so the record of the action remains provable without the content.",
     ],
   },
@@ -179,7 +180,7 @@ const PRIVACY_SECTIONS = [
   {
     h: "Contact",
     body: [
-      "Data protection questions: otemaach@gmail.com. Postal: SecureVoice Technologies FZ-LLC, Dubai, United Arab Emirates. We answer every privacy email personally — no ticket bots.",
+      `Data protection questions: ${SUPPORT_EMAIL}. Postal: SecureVoice Technologies FZ-LLC, Dubai, United Arab Emirates. We answer every privacy email personally — no ticket bots.`,
     ],
   },
 ];

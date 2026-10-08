@@ -1,0 +1,14 @@
+{
+  "schema_version": "1.0",
+  "gate": "privacy",
+  "command": "bun test tests/privacy/privacy.test.ts --timeout 300000",
+  "ok": true,
+  "exit_code": 0,
+  "duration_ms": 118526,
+  "passed": 11,
+  "failed": 0,
+  "assertions": 22,
+  "database": "shared test database",
+  "generated_at": "2026-10-07T12:31:38.944Z",
+  "output_tail": "bun test v1.4.2 (744846f84)\n\n[WP-15] 89 checks — 89 passed, 0 failed\n\n\ntests\\privacy\\privacy.test.ts:\n(pass) per-case data keys are unique, and a ciphertext cannot be replayed into another case [9848.34ms]\n(pass) sealed ciphertext never contained the plaintext, anywhere in the row [4353.37ms]\n(pass) I-6: erasure destroys the plaintext and the chain still verifies from genesis [12341.49ms]\n[privacy] could not unwrap the data key for SV-P-muy34jhz-NOKEK while erasing: PRIVACY_MASTER_KEY is not set. Per-case data keys are wrapped by it, and there is deliberately no default: a fallback key would make every sealed payload decryptable from a database dump. Set PRIVACY_MASTER_KEY to 32 bytes as 64 hex chars, 32 bytes base64, or a passphrase (scrypt-stretched).\n(pass) erasure succeeds even with no master key; sealing does not [5381.56ms]\n(pass) retention policy is per organisation, and the pilot rule makes audio due immediately [1.47ms]\n(pass) retention is refused any audit-chain mutation, including a redactedText drop [0.33ms]\n(pass) a 0-day audio policy purges immediately, a 30-day policy does not [9500.84ms]\n(pass) transcripts shred at 90 days, case records at their window, and the chain survives both [37146.18ms]\n(pass) the sweeper is bounded, resumable, and applies each org's own policy [31158.88ms]\n(pass) deleteCaseRecord removes the row and keeps the chain, eraseCase is safe to repeat [7328.86ms]\n(pass) evidence artifact is written, well-formed and digest-stable [8.06ms]\n\n 11 pass\n 0 fail\n 22 expect() calls\nRan 11 tests across 1 file. [118.49s]\n"
+}

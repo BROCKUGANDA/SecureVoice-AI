@@ -3,6 +3,9 @@ import { cpus } from "node:os";
 import { PrismaClient } from "@/generated/prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { recordQuery, type PrismaQueryEvent } from "@/lib/telemetry/query-counter";
+import { assertDatabaseTarget } from "@/lib/db-target";
+import { assertTransportIsEncrypted } from "@/lib/db-transport";
+import { env } from "@/lib/config";
 
 // Prisma ORM v7 has no connection pool of its own — `@prisma/adapter-pg` hands
 // every query to a `pg.Pool`, so the knobs that used to be Prisma's become
@@ -23,8 +26,14 @@ import { recordQuery, type PrismaQueryEvent } from "@/lib/telemetry/query-counte
 //
 // This schema is Postgres-only (`provider = "postgresql"`), so the adapter
 // manages a real pool against whatever DATABASE_URL the runtime is given.
-const databaseUrl = process.env.DATABASE_URL ?? "";
-const CONNECT_TIMEOUT_MS = 10_000;
+const databaseUrl = env.databaseUrl ?? "";
+
+assertTransportIsEncrypted(databaseUrl);
+// Opt-in (REQUIRE_VPS_DATABASE=true): refuse to boot production against anything
+// but the VPS's own Postgres. See src/lib/db-target.ts for why it is opt-in.
+assertDatabaseTarget(databaseUrl);
+
+const CONNECT_TIMEOUT_MS = env.dbConnectTimeoutMs;
 const MAIN_POOL_MAX =
   Number.parseInt(/[?&]connection_limit=(\d+)/.exec(databaseUrl)?.[1] ?? "", 10) ||
   cpus().length * 2 + 1;

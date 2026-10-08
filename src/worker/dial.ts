@@ -27,6 +27,12 @@ import { placeOutboundCall } from "@/lib/elevenlabs/outbound-call";
 import { append as auditAppend } from "@/lib/audit-chain";
 import { db } from "@/lib/db";
 import { transitionCase } from "@/lib/case-state-machine";
+import { markVoiceFailed } from "@/lib/elevenlabs/sms-fallback";
+import { getInstitutionContext, getTelecomIdentity } from "@/lib/institution";
+import { recordTelecomEvent } from "@/lib/telecom-outbox";
+import { asCallCategory } from "@/lib/call-categories";
+import { isAfterHours, nextBusinessHoursStart } from "@/lib/abuse/velocity";
+import { sweepExpiredSmsCases } from "@/lib/sms-verdict";
 
 const WORKER_ID =
   process.env.DIAL_WORKER_ID ?? `${hostname()}-${process.pid}-${randomUUID().slice(0, 8)}`;
@@ -65,19 +71,112 @@ function parsePayload(job: DialJob): JobPayload {
  */
 async function handle(job: DialJob): Promise<DialOutcome> {
   const payload = parsePayload(job);
-  const to = payload.to ?? payload.phone;
-  if (!to) return { ok: false, error: "job payload has no destination", retryable: false };
 
   const existing = await db.case.findFirst({
     where: { caseRef: job.case_ref },
-    select: { conversationId: true, state: true },
+    select: {
+      id: true,
+      conversationId: true,
+      state: true,
+      phone: true,
+      signalKind: true,
+      callCategory: true,
+    },
   });
   if (existing?.conversationId) {
     // Already placed by a worker that died before writing it down.
     return { ok: true };
   }
 
+  // The destination comes from the Case row, never from the job payload.
+  //
+  // The payload's `to` is written as `redactText(signal.phone)` on the ingest
+  // path, so it reads "[REDACTED]" — correct for an audit/display field and
+  // fatal for a dial instruction. Trusting it sends "[REDACTED]" to the
+  // telephony provider, which dry-run mode cannot detect because
+  // `placeOutboundCall` returns a synthetic conversation id without ever
+  // looking at the number. The plaintext destination already lives on the case
+  // row, which is the one place it is legitimately stored.
+  const to = existing?.phone ?? payload.phone;
+  if (!to) {
+    return { ok: false, error: "case row has no destination phone", retryable: false };
+  }
+  if (!/^\+[1-9]\d{6,14}$/.test(to)) {
+    // Fail closed rather than dial a redaction placeholder or a mangled number:
+    // a wrong destination here means an unrelated customer gets a fraud call.
+    return {
+      ok: false,
+      error: `destination is not a valid E.164 number: ${to.slice(0, 4)}`,
+      retryable: false,
+    };
+  }
+
   try {
+    // Category preconditions run HERE, at the authoritative dial moment — not
+    // only at ingest — because a job accepted at 19:59 with a lead delay can
+    // lawfully claim at 20:01. The case row's category is the one source of
+    // truth; nothing in the job payload can re-declare it.
+    const category = asCallCategory(existing?.callCategory);
+
+    // Do-not-call registry: blocks every non-critical category. Time-critical
+    // fraud verification is consent-record-backed and in the customer's
+    // interest, so it is deliberately not gated on the registry (the ingest
+    // consent gate still applies to it).
+    if (category !== "time_critical_fraud") {
+      const dnc = await db.doNotCall.findUnique({ where: { phone: to } });
+      if (dnc) {
+        void auditAppend({
+          callRef: job.case_ref,
+          action: "freeze",
+          intent: "dial_refused_do_not_call",
+          callerId: WORKER_ID,
+          meta: { jobId: job.id, reason: dnc.reason, category },
+          orgId: job.org_id ?? undefined,
+        }).catch(() => {});
+        return { ok: false, error: "destination is on the do-not-call registry", retryable: false };
+      }
+    }
+
+    // Routine calls are lawful only inside the permitted calling window. The
+    // job is PARKED until the window opens (no attempt consumed) instead of
+    // climbing the retry ladder into the middle of the night.
+    if (category === "routine" && isAfterHours(Date.now())) {
+      const wakeAt = nextBusinessHoursStart(Date.now());
+      void auditAppend({
+        callRef: job.case_ref,
+        action: "handoff",
+        intent: "dial_deferred_calling_hours",
+        callerId: WORKER_ID,
+        meta: { jobId: job.id, category, wakeAt: new Date(wakeAt).toISOString() },
+        orgId: job.org_id ?? undefined,
+      }).catch(() => {});
+      return {
+        ok: false,
+        error: "outside permitted calling hours; deferred",
+        retryable: true,
+        retryAfterMs: wakeAt - Date.now(),
+      };
+    }
+
+    // A bank says "your card", an insurer says "your policy". Resolved per tenant,
+    // and a lookup fault falls back to the default rather than blocking the call.
+    const institution = await getInstitutionContext(job.org_id);
+
+    // The tenant's OWN telecom surface, resolved strictly. A fault fails the job
+    // for retry instead of dialling on the platform's line: "we cannot read whose
+    // number this is" must never be answered by guessing, because the customer
+    // cannot tell the difference and the bank can.
+    let telecom;
+    try {
+      telecom = await getTelecomIdentity(job.org_id);
+    } catch {
+      return {
+        ok: false,
+        error: "tenant telecom identity lookup failed — refusing to dial on the platform number",
+        retryable: true,
+      };
+    }
+
     const result = await placeOutboundCall({
       toNumber: to,
       language: payload.language ?? "en",
@@ -85,6 +184,13 @@ async function handle(job: DialJob): Promise<DialOutcome> {
       amount: payload.amount ?? undefined,
       currency: payload.currency ?? undefined,
       caseRef: job.case_ref,
+      institution: institution.type,
+      institutionName: institution.name,
+      callCategory: category,
+      // The tenant's bound DID when it has one — the caller ID on the customer's
+      // handset. Null means the tenant has brought no number and the deployment
+      // default speaks, which is an explicitly configured state, not a fallback.
+      phoneNumberId: telecom.elevenPhoneNumberId,
       dynamicVariables: {
         case_id: job.case_id,
         case_ref: job.case_ref,
@@ -92,6 +198,7 @@ async function handle(job: DialJob): Promise<DialOutcome> {
         amount: payload.amount ?? 0,
         currency: payload.currency ?? "",
         transaction_ref: payload.transaction_ref ?? "",
+        signal_kind: existing?.signalKind ?? "",
       },
     });
 
@@ -102,8 +209,37 @@ async function handle(job: DialJob): Promise<DialOutcome> {
     // could reach DIALING with nothing in the chain saying it did.
     // transitionCase writes the row, the legality check and the audit entry
     // together, and throws IllegalTransitionError rather than forcing a state
-    // the table forbids.
-    await transitionCase(job.case_ref, "DIALING", { conversationId: result.conversationId });
+    // the table forbids. The Twilio call-leg sid rides along: it is what the
+    // warm_transfer tool rewrites to bridge the customer to a live human.
+    await transitionCase(job.case_ref, "DIALING", {
+      conversationId: result.conversationId,
+      callSid: result.callSid,
+    });
+
+    // The telecom outbox: the dial happened, so it is recorded with the number
+    // identity the customer's handset showed. Skipped in dry-run — a simulated
+    // provider round-trip must not put a delivery fact in a compliance table.
+    if (!result.dryRun) {
+      void recordTelecomEvent({
+        orgId: job.org_id,
+        caseId: existing?.id ?? null,
+        channel: "voice",
+        toPhone: to,
+        fromPhone: result.phoneNumberId
+          ? `elevenlabs_phone:${result.phoneNumberId}`
+          : "platform_default",
+        providerSid: result.callSid,
+        status: "queued",
+        payload: {
+          caseRef: job.case_ref,
+          plane: "elevenlabs_agent",
+          category,
+          language: payload.language ?? "en",
+        },
+      }).catch((err: unknown) =>
+        console.error("[dial-worker] telecom outbox write failed:", String(err)),
+      );
+    }
 
     void auditAppend({
       callRef: job.case_ref,
@@ -140,10 +276,38 @@ async function handle(job: DialJob): Promise<DialOutcome> {
   }
 }
 
+/**
+ * The voice channel has definitively failed for this case (every attempt spent,
+ * or the number was undiallable). The customer is reachable only by SMS now, and
+ * the bank must still hear what happened. Every rule - blind-ping wording, dry-run,
+ * opt-out, once per case, bank event when SMS is impossible - lives in
+ * `markVoiceFailed`.
+ */
+async function onDead(job: DialJob): Promise<void> {
+  await markVoiceFailed({ caseRef: job.case_ref, reason: "dial_exhausted" });
+}
+
+/** How often to look for SMS windows that have closed with no reply. */
+const SWEEP_EVERY_MS = Number(process.env.SMS_SWEEP_EVERY_MS ?? 60_000);
+let lastSweepAt = 0;
+
+async function maybeSweep(): Promise<void> {
+  if (Date.now() - lastSweepAt < SWEEP_EVERY_MS) return;
+  lastSweepAt = Date.now();
+  try {
+    const n = await sweepExpiredSmsCases();
+    if (n > 0) console.log(`[dial-worker] resolved ${n} unanswered SMS case(s) to the bank`);
+  } catch (err) {
+    console.error("[dial-worker] sms sweep failed:", err instanceof Error ? err.message : err);
+  }
+}
+
 async function tick(): Promise<number> {
+  await maybeSweep();
   const result = await drainDialQueue({
     workerId: WORKER_ID,
     handler: handle,
+    onDead,
     limit: BATCH,
     leaseMs: LEASE_MS,
   });

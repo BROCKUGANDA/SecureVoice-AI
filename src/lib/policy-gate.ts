@@ -20,6 +20,8 @@ import { append as auditAppend, type AuditEntry } from "@/lib/audit-chain";
 import { db } from "@/lib/db";
 import { assertWithinBudget, maySpend } from "@/lib/billing/breaker";
 import { reserve as reserveCredits, balance as ledgerBalance } from "@/lib/billing/ledger";
+import { asCallCategory, type CallCategory } from "@/lib/call-categories";
+import { isAfterHours } from "@/lib/abuse/velocity";
 
 export type PolicyGateInput = {
   orgId: string | null;
@@ -40,6 +42,15 @@ export type PolicyGateInput = {
    * independently of the request identity.
    */
   transactionRef?: string;
+  /**
+   * WHY the institution is calling (src/lib/call-categories.ts). Absent reads
+   * as the audited default (time_critical_fraud). The category is what turns
+   * the two regulatory preconditions below on: the do-not-call registry blocks
+   * every non-critical category, and routine calls are lawful only inside the
+   * permitted calling window. Both are re-checked at the authoritative dial
+   * moment by the worker — this is the fast, typed refusal at the edge.
+   */
+  callCategory?: string | null;
 };
 
 export type PolicyGateResult = { ok: true } | { ok: false; reason: string; code: string };
@@ -223,6 +234,41 @@ export async function runPolicyGate(input: PolicyGateInput): Promise<PolicyGateR
     };
   }
 
+  // 1b. Do-not-call registry. A number here must not receive routine or
+  //     non-critical outbound calls, whatever the fraud score says — the
+  //     customer's standing instruction outranks our triage. Time-critical
+  //     fraud verification is consent-record-backed (checked above) and in the
+  //     customer's interest, so it is deliberately not gated on the registry.
+  const category: CallCategory = asCallCategory(input.callCategory);
+  if (category !== "time_critical_fraud") {
+    const dnc = await db.doNotCall.findUnique({ where: { phone } });
+    if (dnc) {
+      await audit("freeze", "policy_do_not_call", {
+        reason: dnc.reason,
+        category,
+        phone: phone.replace(/\d(?=\d{4})/g, "*"),
+      });
+      return {
+        ok: false,
+        reason: "destination is on the do-not-call registry",
+        code: "do_not_call",
+      };
+    }
+  }
+
+  // 1c. Routine calls are lawful only inside the permitted calling window
+  //     (measured on the clock of the person being called — see isAfterHours).
+  //     The ingest-time check is the fast rejection; the worker re-checks at
+  //     the dial moment and parks the job until the window opens.
+  if (category === "routine" && isAfterHours(Date.now())) {
+    await audit("freeze", "policy_outside_calling_hours", { category });
+    return {
+      ok: false,
+      reason: "routine calls are only permitted inside the calling window",
+      code: "outside_calling_hours",
+    };
+  }
+
   // 2. Destination country on the org allowlist.
   const country = countryFromE164(phone);
   if (!country) {
@@ -305,6 +351,15 @@ export async function runPolicyGate(input: PolicyGateInput): Promise<PolicyGateR
   //    mutable counter: the unique idempotency key {caseRef}:1:reserve means a
   //    retried signal cannot reserve twice, and the balance remains the sum of
   //    the ledger (invariant I-8). Reconciled on the post-call webhook.
+  //
+  //    The balance read above is a fast path, not the authority. The ledger
+  //    serialises every writer per organisation on an advisory lock and refuses
+  //    the movement itself when the pool is short — which is the only way two
+  //    concurrent signals against one remaining credit stay at one paid call.
+  //    Refusal comes back as a VALUE ({ ok: false }), never a throw, so
+  //    treating the await as the decision would let the loser sail through:
+  //    the bank would be told a customer is being called that nobody paid for.
+  //    The reservation result IS the decision.
   const available = await ledgerBalance(orgKey);
   if (available < 1) {
     await audit("freeze", "policy_credits_exhausted", { available });
@@ -314,18 +369,22 @@ export async function runPolicyGate(input: PolicyGateInput): Promise<PolicyGateR
       code: "credits_exhausted",
     };
   }
-  try {
-    await reserveCredits({
-      orgId: orgKey,
-      caseRef: input.caseRef,
-      unitsEstimate: 1,
-      reason: "intervention_attempt",
-    });
-  } catch (err) {
+  const reservation = await reserveCredits({
+    orgId: orgKey,
+    caseRef: input.caseRef,
+    unitsEstimate: 1,
+    reason: "intervention_attempt",
+  });
+  if (!reservation.ok) {
     // A lost race for the last credit, a closed window, an unknown org: a typed
-    // refusal, never a 500 on the dial path.
-    await audit("freeze", "policy_credits_exhausted", { error: String(err).slice(0, 120) });
-    return { ok: false, reason: "credit reservation refused", code: "credits_exhausted" };
+    // refusal, never a 500 on the dial path. `duplicate: true` is a success —
+    // the ledger answered a retried signal with the movement it already stored.
+    await audit("freeze", "policy_credits_exhausted", { reason: reservation.reason });
+    return {
+      ok: false,
+      reason: "no credits remaining for this organisation",
+      code: "credits_exhausted",
+    };
   }
 
   // The success audit entry is written by the route handler (combined with

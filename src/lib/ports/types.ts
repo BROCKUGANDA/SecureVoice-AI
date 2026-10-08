@@ -226,6 +226,9 @@ export type TelephonyCallRequest = {
   /** Public origin, when one exists, so audio URLs can be signed. */
   origin?: string;
   caseRef: string;
+  /** Tenant whose caller ID goes out. See `sendSms` for why this is on the port. */
+  orgId?: string | null;
+  caseId?: string | null;
 };
 
 export type TelephonySmsRequest = {
@@ -234,6 +237,14 @@ export type TelephonySmsRequest = {
   caseRef: string;
   amount?: string;
   merchant?: string;
+  /**
+   * The tenant the message is sent FOR. Carried on the port rather than left to
+   * the adapter's own lookup because an adapter that cannot answer "whose sender
+   * is this" must be able to refuse, and a fake adapter used in parity tests has
+   * to see the same field the real one does.
+   */
+  orgId?: string | null;
+  caseId?: string | null;
 };
 
 export type TelephonyResult =

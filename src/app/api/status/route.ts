@@ -58,8 +58,14 @@ export async function GET() {
     {
       ok: dbOk,
       service: "securevoice-api",
+      // Env-derived, not hardcoded: a status endpoint that reports a fixed
+      // version and region is worse than none, because it looks current.
       version: process.env.npm_package_version ?? "0.2.1",
       region: process.env.DEPLOY_REGION ?? "self-hosted",
+      // Environment posture, so a deployment's blast radius is visible
+      // from outside instead of being implicit in the branch name.
+      appEnv: env.appEnv,
+      canContactRealNumbers: env.canContactRealNumbers,
       dbLatencyMs,
       voiceProvider,
       languages: [...SUPPORTED_LANGS],

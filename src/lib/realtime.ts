@@ -20,6 +20,7 @@ import "server-only";
 
 import { signIngestBody } from "@/lib/realtime-token";
 import { realtimeConfigured } from "@/lib/flags";
+import { env } from "@/lib/config";
 
 const INGEST_PATH = "/ingest";
 
@@ -31,7 +32,7 @@ function endpoint(): string | null {
 }
 
 /** Short timeout — a fan-out that has not landed in 1.5s is not worth waiting on. */
-const TIMEOUT_MS = 1_500;
+const TIMEOUT_MS = env.realtimeNotifyTimeoutMs;
 
 export type BroadcastInput = {
   orgId: string | null | undefined;

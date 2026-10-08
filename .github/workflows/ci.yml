@@ -14,8 +14,12 @@ name: CI
 on:
   push:
     branches: [main]
+  # The promotion ladder (dev -> staging -> main, see promote.yml) opens pull
+  # requests, so every edge needs a gate — not only the last one. A PR into
+  # staging that never runs CI is how a green `main` and a broken release branch
+  # end up coexisting.
   pull_request:
-    branches: [main]
+    branches: [main, staging, dev]
   # Manual re-run without touching a file. This repo's Actions was enabled after
   # the workflow landed, so the original push produced a `startup_failure` that
   # never ran a step; a dispatch is the fastest way to confirm a fix.
@@ -72,10 +76,12 @@ jobs:
       # a typo in release.yml is ever executed. actionlint checks both files —
       # an undefined action input otherwise fails only at release time, which is
       # the worst possible moment to find out.
+      # No `args`: a docker:// action gets its arguments straight from `docker
+      # run`, so a shell glob like `.github/workflows/*.yml` arrives verbatim,
+      # actionlint tries to open a file with literal asterisks, and the step
+      # exits 3. With no args it discovers the workflows itself.
       - name: Lint workflow definitions
         uses: docker://rhysd/actionlint:1.7.12
-        with:
-          args: .github/workflows/*.yml
 
       - name: Realtime service — install
         working-directory: mini-services/realtime
@@ -159,6 +165,16 @@ jobs:
       # Postgres that currently blocks the DB-backed suites.
       - name: Query budget (AA-1.1)
         run: bun test tests/telemetry/query-budget.test.ts
+
+      # The feature-flag surface, named. `bun run test` above already executes
+      # these files; this step exists for the same reason the query-budget step
+      # does — attribution. A flag that stops being strict ("1" read as true, a
+      # default that flipped) should read as "the flag contract broke", not as an
+      # assertion failure in an anonymous run. The flags are the whole safety story
+      # here: realtime, PII redaction, live voice, and the console feed are all
+      # opt-in, so a loose parser is a security posture change hiding in a typo.
+      - name: Feature flag surface
+        run: bun test tests/flags.test.ts tests/flag-gating.test.ts
 
       # The test project is separate (it needs `bun:test` types and .ts import
       # extensions the Next app project doesn't allow), so it needs its own
@@ -265,7 +281,7 @@ jobs:
       # Caddy is the only published port, so this is the real ingress path.
       - name: HTTPS through Caddy
         run: |
-          for i in $(seq 1 30); do
+          for _ in $(seq 1 30); do
             code=$(curl -sk -o /dev/null -w '%{http_code}' https://localhost/api/health || true)
             [ "$code" = "200" ] && break
             sleep 5

@@ -11,7 +11,7 @@ datasource db {
 }
 
 model User {
-  id               String       @id @default(dbgenerated("pg_catalog.gen_random_uuid()")) @db.Uuid
+  id               String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   email            String       @unique
   name             String?
   createdAt        DateTime     @default(now())
@@ -97,6 +97,30 @@ model AuditLog {
 /// Registered ElevenLabs voice personas with consent metadata.
 /// Cloning endpoints refuse a voice without a recorded consent URL + timestamp.
 
+model OnboardingState {
+  userId         String    @id @db.Uuid
+  /// Steps the user has completed, newest last. A JSON array of step ids rather
+  /// than a row per step: the list is read and written as one unit, it is tiny,
+  /// and it keeps "has this user finished onboarding" to a single indexed read
+  /// instead of a count() on the hot path of every page load.
+  completedSteps String    @default("[]")
+  /// Set when the user explicitly skips. Distinct from "finished": a returning
+  /// user who skipped must never be shown the tour again, but must still be able
+  /// to open the guide deliberately. Collapsing these two states is how you get
+  /// either a tour that nags a power user or a guide nobody can find.
+  skippedAt      DateTime?
+  /// Monotonic count of sessions completed, used only to prove the "skip
+  /// returning users" rule is doing something rather than being decorative.
+  completedAt    DateTime?
+  updatedAt      DateTime  @updatedAt
+}
+
+/// Per-user onboarding progress.
+///
+/// Signup is invite-only, so every account here was invited by a bank, and an
+/// invited operator arrives with no idea what the console does. This records how
+/// far through the guide they are so progress is RESUMABLE rather than restarted,
+/// and so a returning user is not made to sit through it again.
 model Voice {
   id          String    @id @default(cuid())
   voiceId     String    @unique // ElevenLabs voice_id or our internal slug
@@ -276,6 +300,20 @@ model Case {
   transcriptRedacted    String?
   evaluationResults     String? // JSON string of analysis.evaluation_criteria_results
   dataCollectionResults String? // JSON string of analysis.data_collection_results
+  // Reachability. When the voice call does not reach a human the platform sends
+  // a "blind ping" SMS (no merchant, no amount) and waits for YES / NO. These
+  // columns are additive and nullable - see 9zz_unreachable_resolution.
+  cardLast4             String? // lets the customer recognise the alert without a merchant/amount
+  signalKind            String? // card_transaction | claim_payout | policy_change | account_takeover
+  // WHY the institution is calling (src/lib/call-categories.ts). Null reads as
+  // the audited default (time_critical_fraud) — see asCallCategory.
+  callCategory          String?
+  // The Twilio call-leg sid, persisted at dial time. The warm_transfer tool
+  // rewrites this leg's TwiML to bridge the customer to a live human.
+  callSid               String?
+  smsSentAt             DateTime? // anchors the 24h reply window
+  resolutionMethod      String? // voice_call | sms_reply_yes | sms_reply_no | unreachable_no_reply | ...
+  customerResponse      String? // "yes" | "no" | null (null = the customer never answered)
   // Crypto-shredding (WP-15). Erasure destroys the data key, which makes every
   // encrypted payload undecryptable while the audit chain — which stores only
   // hashes — still verifies from genesis. That is how right-to-erasure
@@ -303,6 +341,68 @@ model Case {
   @@index([orgId, state])
   @@index([orgId, createdAt])
   @@index([conversationId])
+  @@index([phone, smsSentAt], map: "Case_phone_smsSentAt_idx")
+}
+
+/// A phone number that replied STOP. Never texted again by this platform,
+/// whichever tenant's case fires next: the opt-out belongs to the person.
+model SmsSuppression {
+  phone     String   @id // E.164
+  reason    String
+  createdAt DateTime @default(now())
+}
+
+/// Voice do-not-call registry (src/lib/call-categories.ts). A number here must
+/// not receive routine or non-critical outbound calls; time-critical fraud
+/// verification is consent-record-backed and deliberately not gated on it.
+model DoNotCall {
+  phone     String   @id // E.164
+  reason    String
+  createdAt DateTime @default(now())
+}
+
+/// The telecom outbox (src/lib/telecom-outbox.ts): the lifecycle of every
+/// outbound call and SMS, org-scoped. Twilio status callbacks update `status`
+/// by `providerSid`; `payload` carries the exact text sent (never a merchant
+/// or an amount).
+model TelecomEvent {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId       String?  @db.Uuid
+  caseId      String?
+  channel     String // voice | sms
+  toPhone     String
+  fromPhone   String
+  providerSid String?
+  status      String   @default("queued") // queued | in_progress | sent | delivered | failed
+  payload     Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([orgId, createdAt])
+  @@index([providerSid])
+  @@index([caseId])
+}
+
+/// Quarantine, written ONCE by migration `9z_case_transaction_ref_unique`: the
+/// case rows it deleted so the unique `transactionRef` index could exist. Which
+/// row survived was not arbitrary (the earliest, because that is the one that was
+/// dialled and therefore the one whose audit chain and recording exist), but a
+/// deleted row is still evidence — recoverable by hand if a "duplicate" turns out
+/// to have been two banks genuinely transacting on one reference.
+///
+/// There is no read path and none is wanted. It is declared here because the CI
+/// drift gate asks whether `prisma/migrations` and this file describe the same
+/// database, and a table the database has that the schema denies is precisely
+/// what that gate exists to catch.
+model TransactionRefDuplicate {
+  id             String    @id
+  caseRef        String
+  orgId          String?
+  transactionRef String?
+  state          String?
+  conversationId String?
+  createdAt      DateTime?
+  quarantinedAt  DateTime  @default(now())
 }
 
 /// One row per inbound ElevenLabs delivery (verified signature) — the
@@ -503,7 +603,7 @@ model PaymentRecord {
 }
 
 model Session {
-  id                   String   @id @default(dbgenerated("pg_catalog.gen_random_uuid()")) @db.Uuid
+  id                   String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   expiresAt            DateTime
   token                String
   createdAt            DateTime @default(now())
@@ -521,7 +621,7 @@ model Session {
 }
 
 model Verification {
-  id         String   @id @default(dbgenerated("pg_catalog.gen_random_uuid()")) @db.Uuid
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   identifier String
   value      String
   expiresAt  DateTime
@@ -533,7 +633,7 @@ model Verification {
 }
 
 model Organization {
-  id                  String            @id @default(dbgenerated("pg_catalog.gen_random_uuid()")) @db.Uuid
+  id                  String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   name                String
   slug                String
   logo                String?
@@ -549,13 +649,24 @@ model Organization {
   // org-scoped instead of trusting the shared platform secret.
   elevenAgentId       String?           @unique
   elevenPhoneNumberId String?           @unique
+  // "bank" | "insurer". Both are tenants, operators and vendors of the platform;
+  // this only changes how the institution is spoken about to ITS customers
+  // ("your card" vs "your policy"). Default keeps every existing tenant a bank.
+  institutionType     String            @default("bank")
+  // Per-tenant telecom identity (src/lib/institution.ts getTelecomIdentity).
+  // The org's OWN Twilio surface: the number customers call back, and the SMS
+  // sender identity. The ElevenLabs-path caller ID is `elevenPhoneNumberId`
+  // above. Empty falls back to the platform defaults.
+  twilioVoiceNumber           String?
+  twilioSmsSenderId           String?
+  twilioMessagingServiceSid   String?
 
   @@unique([slug])
   @@map("organization")
 }
 
 model Member {
-  id             String       @id @default(dbgenerated("pg_catalog.gen_random_uuid()")) @db.Uuid
+  id             String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   organizationId String       @db.Uuid
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   userId         String       @db.Uuid
@@ -569,7 +680,7 @@ model Member {
 }
 
 model Invitation {
-  id             String       @id @default(dbgenerated("pg_catalog.gen_random_uuid()")) @db.Uuid
+  id             String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   organizationId String       @db.Uuid
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   email          String
@@ -586,7 +697,7 @@ model Invitation {
 }
 
 model TwoFactor {
-  id                      String    @id @default(dbgenerated("pg_catalog.gen_random_uuid()")) @db.Uuid
+  id                      String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   secret                  String
   backupCodes             String
   userId                  String    @db.Uuid
@@ -601,11 +712,31 @@ model TwoFactor {
 }
 
 model RateLimit {
-  id          String @id @default(dbgenerated("pg_catalog.gen_random_uuid()")) @db.Uuid
+  id          String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   key         String
   count       Int
   lastRequest BigInt
 
   @@unique([key])
   @@map("rateLimit")
+}
+
+/// An institution's connection to ITS OWN CRM (Zendesk / Salesforce / signed
+/// webhook). When a case needs a human, SecureVoice opens a ticket there. The
+/// credentials are encrypted at rest (AES-256-GCM, the same envelope as the BYOK
+/// key) and never returned by any API: only a masked summary is.
+model CrmConnection {
+  id         String    @id @default(cuid())
+  orgId      String
+  provider   String // zendesk | salesforce | webhook
+  configEnc  String // AES-GCM(JSON config) - never plaintext
+  enabled    Boolean   @default(true)
+  lastStatus String? // ok | error
+  lastError  String?
+  lastSyncAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@unique([orgId, provider])
+  @@index([orgId])
 }

@@ -1,13 +1,14 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { env } from "@/lib/config";
 import { db } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
 /* ————— in-memory sliding-window rate limit (per IP) ————— */
 const WINDOW_MS = 60 * 60 * 1000; // 1 hour
-const MAX_PER_WINDOW = 6;
+const MAX_PER_WINDOW = env.pilotRateLimitPerHour;
 const MAX_TRACKED_IPS = 10_000; // bound memory; XFF is spoofable, so an
 // attacker cycling fake IPs can't grow this forever
 const hits = new Map<string, number[]>();

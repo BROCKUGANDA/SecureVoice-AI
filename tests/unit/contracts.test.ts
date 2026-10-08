@@ -578,7 +578,7 @@ describe("the risk signal validates against its own published bounds", () => {
     // The single most valuable property of this layer. A schema that reached for
     // `z.coerce` would silently accept a producer's type mistake and store an
     // interpretation of what they meant.
-    const cases: Array<[string, unknown, string]> = [
+    const cases: Array<[string, Record<string, unknown>, string]> = [
       ["stringified amount", { amount: "2500" }, "amount"],
       ["boolean amount", { amount: true }, "amount"],
       ["stringified score", { risk_score: "0.94" }, "risk_score"],
@@ -890,7 +890,10 @@ describe("the documented surface is addressable", () => {
  * ────────────────────────────────────────────────────────────────────────── */
 
 describe("the published RiskSignal schema states every bound the data declares", () => {
-  const published = openapi.components.schemas.RiskSignal;
+  // Non-null asserted: `openapi` is a generated document, and a schema the
+  // contract test is about is either there or the file fails — an undefined
+  // here is a defect, not a case the assertions should paper over.
+  const published = openapi.components.schemas.RiskSignal!;
 
   test("the property set and the required list are the data's", () => {
     expect(Object.keys(published.properties ?? {}).sort()).toEqual(
@@ -1673,7 +1676,7 @@ describe("the request entry point validates before it authorises, and grades", (
     // different length, a bank coding from the document would be refused for a
     // secret the document said was legal.
     const published =
-      openapi.components.schemas.ConformanceRunRequest.properties?.secret?.minLength;
+      openapi.components.schemas.ConformanceRunRequest!.properties?.secret?.minLength;
     expect(published).toBe(8);
     const short = await handleConformanceRun(
       { receiver_url: RECEIVER_URL, secret: "x".repeat((published ?? 8) - 1) },

@@ -22,6 +22,17 @@ import { notifyRealtime } from "@/lib/realtime";
 
 const GENESIS_HASH = "0".repeat(64); // SHA-256 of empty; anchors the chain
 
+/**
+ * The slow path opens a transaction on the audit pool, and Prisma's default
+ * `maxWait` (2 s) starts counting before the pool has finished CONNECTING.
+ * A cold connect to the remote pooler measures ~2.8 s — the transaction then
+ * fails with P2028 "unable to start a transaction" before its first statement
+ * runs, which is a topology artifact, not contention. 10 s aligns with the
+ * pool's own connect timeout; the 15 s budget covers the 4 statements at
+ * ~300 ms round trips with room to spare.
+ */
+const TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 15_000 };
+
 export type AuditEntry = {
   callRef: string;
   action: "tts" | "asr" | "agent" | "freeze" | "handoff" | "consent";
@@ -230,7 +241,7 @@ async function appendInner(
         },
         select: { id: true, chainHash: true },
       });
-    });
+    }, TRANSACTION_OPTIONS);
   });
 
   // Push to the Command Center AFTER the chain write has committed, and outside

@@ -114,15 +114,18 @@ describe("both session systems read the SAME numbers", () => {
 });
 
 describe("the client idle timer cannot drift from the server policy", () => {
-  test("IdleTimeoutHandler duplicates IDLE_TIMEOUT_SECONDS exactly", () => {
+  test("IdleTimeoutHandler's fallback matches IDLE_TIMEOUT_SECONDS", () => {
     // The duplication is necessary (a `server-only` import would leak into the
-    // client bundle), so the guard against drift has to be a test instead.
+    // client bundle), so the guard against drift has to be a test instead. The
+    // client timer reads NEXT_PUBLIC_IDLE_TIMEOUT_MS; this pins its fallback to
+    // the server default so a deployment that sets neither env var still
+    // enforces the same idle limit.
     const handler = read("src/components/shell/IdleTimeoutHandler.tsx");
-    const match = handler.match(/const IDLE_TIMEOUT = (\d+) \* 60 \* 1000/);
+    const match = handler.match(/NEXT_PUBLIC_IDLE_TIMEOUT_MS\)\s*\|\|\s*([\d_]+)/);
     expect(match).not.toBeNull();
-    // The handler stores MINUTES (`15 * 60 * 1000`); the policy constant is in
-    // seconds. Compare in the same unit or this assertion is meaningless.
-    expect(Number(match?.[1]) * 60).toBe(IDLE_TIMEOUT_SECONDS);
+    // The handler stores MILLISECONDS; the policy constant is in seconds.
+    // Compare in the same unit or this assertion is meaningless.
+    expect(Number(match?.[1]?.replace(/_/g, ""))).toBe(IDLE_TIMEOUT_SECONDS * 1000);
   });
 });
 

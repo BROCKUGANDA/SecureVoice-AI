@@ -1,0 +1,14 @@
+{
+  "schema_version": "1.0",
+  "gate": "tools",
+  "command": "bun test tests/tools/guard.test.ts --timeout 300000",
+  "ok": true,
+  "exit_code": 0,
+  "duration_ms": 70385,
+  "passed": 1,
+  "failed": 0,
+  "assertions": 76,
+  "database": "shared test database",
+  "generated_at": "2026-10-07T12:21:29.062Z",
+  "output_tail": "      WHERE c.id = t.id\n      RETURNING c.\"caseRef\" AS \"caseRef\", c.state::text AS \"state\"\n    \n      WITH target AS (\n        SELECT id FROM \"Case\"\n        WHERE \"conversationId\" = $1\n          AND state::text = ANY($2)\n        LIMIT 1\n      )\n      UPDATE \"Case\" c\n      SET language = $3\n      FROM target t\n      WHERE c.id = t.id\n      RETURNING c.\"caseRef\" AS \"caseRef\", c.state::text AS \"state\"\n    \n  serial hot path: p50=572 ms against a 283 ms round-trip floor (2.02x, budget 2.5x)\n  platform budget NOT enforced: the 305 ms database floor makes an absolute\n  300 ms gate meaningless. Run this suite against the deployed box (or a local\n  Postgres) to measure the real number.\n  ✓ 409 refusals, 401 wrong secret, 403 out-of-scope tool, p95<300ms, audit entries, happy path\n\n\ntests\\tools\\guard.test.ts:\n(pass) WP-3: tools enforce guardrails - 409s, tool scoping, p95, audit [66119.06ms]\n\n 1 pass\n 0 fail\n 76 expect() calls\nRan 1 test across 1 file. [70.35s]\n"
+}

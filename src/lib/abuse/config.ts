@@ -46,8 +46,9 @@ import "server-only";
  *     ABUSE_NEW_PREFIX_BURST         3               distinct new prefixes → auto-pause
  *     ABUSE_AFTER_HOURS_WARN         5               out-of-hours attempts → warn
  *     ABUSE_AFTER_HOURS_PAUSE        12              out-of-hours attempts → auto-pause
- *     ABUSE_BUSINESS_HOURS_START_UTC 6               "in hours" definition
- *     ABUSE_BUSINESS_HOURS_END_UTC   22
+ *     ABUSE_BUSINESS_HOURS_TZ        Asia/Dubai      whose day the hours describe
+ *     ABUSE_BUSINESS_HOURS_START     6               "in hours", in that zone
+ *     ABUSE_BUSINESS_HOURS_END       22
  *
  *   Memory bounds / pause lifetime
  *     ABUSE_MAX_TRACKED_ORGS         5000            bounded state (see velocity.ts)
@@ -104,10 +105,20 @@ export type VelocityConfig = {
   afterHoursWarn: number;
   /** Out-of-hours attempts that produce an `auto_pause`. */
   afterHoursPause: number;
-  /** Start of "in hours", inclusive, in UTC hours. */
-  businessHoursStartUtc: number;
-  /** End of "in hours", exclusive, in UTC hours. Wrap-around is supported (22 → 6). */
-  businessHoursEndUtc: number;
+  /**
+   * Start of "in hours", inclusive, counted in `businessHoursTimezone`.
+   * Not UTC: the control exists so a customer is not woken at 03:00 where they
+   * are, and a UAE number is four hours ahead of the server's clock.
+   */
+  businessHoursStart: number;
+  /** End of "in hours", exclusive, in `businessHoursTimezone`. Wrap-around supported (22 → 6). */
+  businessHoursEnd: number;
+  /**
+   * Whose day the quiet hours describe. Defaults to the pilot market.
+   * Validated at boot: an unparseable zone throws rather than silently
+   * reverting to a clock that would call someone at 1am.
+   */
+  businessHoursTimezone: string;
   /** How far back attempt state is retained. Pruned on write. */
   attemptWindowSec: number;
   /** Attempts retained per org before the oldest are dropped. */
@@ -191,8 +202,9 @@ export const DEFAULT_ABUSE_CONFIG: AbuseConfig = {
     newPrefixBurst: 3,
     afterHoursWarn: 5,
     afterHoursPause: 12,
-    businessHoursStartUtc: 6,
-    businessHoursEndUtc: 22,
+    businessHoursStart: 6,
+    businessHoursEnd: 22,
+    businessHoursTimezone: "Asia/Dubai",
     attemptWindowSec: 3600,
     maxAttemptsPerOrg: 500,
     maxPrefixesPerOrg: 256,
@@ -215,6 +227,29 @@ function num(env: EnvSource, name: string, dflt: number, min: number): number {
   const n = Number(raw);
   if (!Number.isFinite(n) || n < min) return dflt;
   return n;
+}
+
+/**
+ * An IANA zone, validated at boot.
+ *
+ * Quiet hours are counted in this zone, so a typo here is not a formatting
+ * problem — it is a fraud-verification call placed in the middle of someone's
+ * night. Falling back to a default would be the dangerous choice, so an
+ * unparseable name throws at config resolution instead.
+ */
+function zone(env: EnvSource, name: string, dflt: string): string {
+  const raw = env[name];
+  if (raw == null || raw.trim() === "") return dflt;
+  const value = raw.trim();
+  try {
+    new Intl.DateTimeFormat("en-GB", { timeZone: value, hourCycle: "h23" }).format();
+  } catch {
+    throw new Error(
+      `${name}="${value}" is not a usable IANA timezone (e.g. "Asia/Dubai", "Europe/London"). ` +
+        "Quiet hours are evaluated in this zone, so a guess would place calls in someone's night.",
+    );
+  }
+  return value;
 }
 
 function list(env: EnvSource, name: string): string[] {
@@ -271,18 +306,9 @@ export function resolveAbuseConfig(
       newPrefixBurst: num(env, "ABUSE_NEW_PREFIX_BURST", d.velocity.newPrefixBurst, 1),
       afterHoursWarn: num(env, "ABUSE_AFTER_HOURS_WARN", d.velocity.afterHoursWarn, 0),
       afterHoursPause: num(env, "ABUSE_AFTER_HOURS_PAUSE", d.velocity.afterHoursPause, 0),
-      businessHoursStartUtc: num(
-        env,
-        "ABUSE_BUSINESS_HOURS_START_UTC",
-        d.velocity.businessHoursStartUtc,
-        0,
-      ),
-      businessHoursEndUtc: num(
-        env,
-        "ABUSE_BUSINESS_HOURS_END_UTC",
-        d.velocity.businessHoursEndUtc,
-        0,
-      ),
+      businessHoursStart: num(env, "ABUSE_BUSINESS_HOURS_START", d.velocity.businessHoursStart, 0),
+      businessHoursEnd: num(env, "ABUSE_BUSINESS_HOURS_END", d.velocity.businessHoursEnd, 0),
+      businessHoursTimezone: zone(env, "ABUSE_BUSINESS_HOURS_TZ", d.velocity.businessHoursTimezone),
       attemptWindowSec: num(env, "ABUSE_ATTEMPT_WINDOW_SEC", d.velocity.attemptWindowSec, 60),
       maxAttemptsPerOrg: num(env, "ABUSE_MAX_ATTEMPTS_PER_ORG", d.velocity.maxAttemptsPerOrg, 16),
       maxPrefixesPerOrg: num(env, "ABUSE_MAX_PREFIXES_PER_ORG", d.velocity.maxPrefixesPerOrg, 4),

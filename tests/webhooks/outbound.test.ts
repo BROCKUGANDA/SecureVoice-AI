@@ -12,7 +12,7 @@ import {
   canonicalJson,
   signPayload,
   verifySignature,
-  MAX_ATTEMPTS,
+  maxAttempts,
   BACKOFF_LADDER_MS,
 } from "@/lib/outbox";
 import { verifySvSignature } from "../../scripts/verify_sv_signature.ts";
@@ -129,15 +129,15 @@ test("WP-5: outbox retries, dead-letters, replays once, cross-language signature
     },
   });
   const always500 = spyReceiver(() => 500);
-  for (let i = 0; i < MAX_ATTEMPTS; i++) {
+  for (let i = 0; i < maxAttempts(); i++) {
     await db.outboxEvent.update({ where: { id: doomed.id }, data: { nextAttemptAt: new Date(0) } });
     const batch = (await claimBatch(10)).filter((e) => e.id === doomed.id);
     expect(batch).toHaveLength(1);
     const res = await deliver(batch[0]!, always500.fetchImpl);
-    if (i < MAX_ATTEMPTS - 1) expect(res.status).toBe("RETRY");
+    if (i < maxAttempts() - 1) expect(res.status).toBe("RETRY");
     else expect(res.status).toBe("DEAD");
   }
-  expect(always500.count()).toBe(MAX_ATTEMPTS);
+  expect(always500.count()).toBe(maxAttempts());
   const deadRow = await db.outboxEvent.findUnique({ where: { id: doomed.id } });
   expect(deadRow?.state).toBe("DEAD");
   const dl = await db.deadLetter.findUnique({ where: { eventId: doomed.id } });

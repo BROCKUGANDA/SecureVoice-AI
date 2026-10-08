@@ -16,7 +16,7 @@ import "server-only";
 import { getProfile } from "@/lib/credits";
 import { db } from "@/lib/db";
 import { decryptSecret } from "@/lib/byok";
-import { env, DAILY_CHAR_LIMIT } from "@/lib/config";
+import { env, dailyCharLimit } from "@/lib/config";
 
 export type TtsKeyResolution =
   | { mode: "byok"; keyOverride: string }
@@ -108,7 +108,7 @@ export async function consumeCharQuota(
           ELSE "ttsCharsToday" + ${chars}
         END
     WHERE "userId" = ${res.userId}
-      AND ("ttsCharsDate" != ${today} OR "ttsCharsToday" + ${chars} <= ${DAILY_CHAR_LIMIT})
+      AND ("ttsCharsDate" != ${today} OR "ttsCharsToday" + ${chars} <= ${dailyCharLimit()})
   `;
   if (updated === 0) {
     // No row matched the guard — limit already reached for today

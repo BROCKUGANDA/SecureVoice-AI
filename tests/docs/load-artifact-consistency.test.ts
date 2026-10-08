@@ -133,7 +133,7 @@ function row(label: string): string[] {
   const want = normalizeCell(label);
   for (const line of s7.split(/\r?\n/)) {
     const cells = cellsOf(line);
-    if (cells && cells.length > 1 && normalizeCell(cells[0]) === want) return cells;
+    if (cells && cells.length > 1 && normalizeCell(cells[0]!) === want) return cells;
   }
   throw new Error(`docs/CAPACITY.md §7 has no table row labelled "${label}"`);
 }

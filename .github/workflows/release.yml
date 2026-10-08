@@ -19,6 +19,15 @@ permissions:
   contents: write # create the GitHub release
   packages: write # push to GHCR
 
+# cancel-in-progress: FALSE, deliberately. A release pushes an image, smoke-tests
+# the published image, and creates a GitHub Release — interrupting one mid-flight
+# can leave `:latest` pointing at an image that was never finished being built,
+# or a Release page with no image behind it. Two concurrent releases for the same
+# tag would race on the same tags for the same reason. These must queue, not
+# cancel. (CI is the opposite: a superseded commit proves nothing, so it cancels.)
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 jobs:
   release:
     name: Publish image and release

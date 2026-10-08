@@ -185,6 +185,8 @@ const PUBLIC_BY_DESIGN: Readonly<Record<string, string>> = {
   "/asyncapi": "published contract document (WP-17); schema only, no tenant data",
   "/v1/conformance/run":
     "self-serve bank conformance checker guarded by an org-scoped PRODUCER KEY, not an operator session (src/app/v1/conformance/run/route.ts)",
+  "/api/v1/campaigns":
+    "batch outbound campaign ingest guarded by a per-org producer key; enqueues recipients through the same durable dial queue, whose worker enforces do-not-call and the calling window, not an operator session",
   "/api/queue/dispatch":
     "internal QStash dispatch endpoint; authenticates the request by QStash Upstash-Signature, never by a session",
   "/api/queue/dead-letter":

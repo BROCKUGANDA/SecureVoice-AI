@@ -8,6 +8,7 @@ import { db } from "@/lib/db";
 import { append as auditAppend } from "@/lib/audit-chain";
 import { badRequest, parseJson, unprocessable, schemaErrorCode } from "@/lib/api-errors";
 import { env } from "@/lib/config";
+import { logError } from "@/lib/validation/safe-log";
 
 export const dynamic = "force-dynamic";
 

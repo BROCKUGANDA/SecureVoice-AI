@@ -72,6 +72,10 @@ afterAll(async () => {
   await db.outboxEvent.deleteMany({ where: { caseRef: { in: created } } }).catch(() => {});
   await db.case.deleteMany({ where: { caseRef: { in: created } } }).catch(() => {});
   await db.smsSuppression.deleteMany({ where: { phone: { in: phones } } }).catch(() => {});
+  // A STOP now writes the voice registry too; leaving those rows behind would
+  // put test numbers on the do-not-call list the policy gate and dial worker
+  // read for real.
+  await db.doNotCall.deleteMany({ where: { phone: { in: phones } } }).catch(() => {});
 });
 
 describe("voice failed -> UNREACHABLE", () => {
@@ -369,16 +373,23 @@ describe("the 24-hour window", () => {
 
 describe("opt-out", () => {
   test(
-    "STOP records the suppression and sends nothing back; START reverses it",
+    "STOP records the suppression AND the voice do-not-call entry; START reverses both",
     async () => {
       const p = phone();
       const stop = await handleSmsReply({ from: p, body: "STOP" });
       expect(stop).toEqual({ reply: null, outcome: "stop" });
       expect(await db.smsSuppression.findUnique({ where: { phone: p } })).not.toBeNull();
+      // The row policy-gate.ts and worker/dial.ts read. Before this it was never
+      // written anywhere, so the do-not-call gate could not fail for anyone.
+      const dnc = await db.doNotCall.findUnique({ where: { phone: p } });
+      expect(dnc).not.toBeNull();
+      expect(dnc!.phone).toBe(p);
+      expect(dnc!.reason.length).toBeGreaterThan(0); // `reason` is NOT NULL and is audited
 
       const start = await handleSmsReply({ from: p, body: "START" });
       expect(start).toEqual({ reply: null, outcome: "start" });
       expect(await db.smsSuppression.findUnique({ where: { phone: p } })).toBeNull();
+      expect(await db.doNotCall.findUnique({ where: { phone: p } })).toBeNull();
     },
     SLOW,
   );

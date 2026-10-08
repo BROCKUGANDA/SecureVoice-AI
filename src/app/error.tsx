@@ -1,6 +1,5 @@
 "use client";
 
-import { useEffect } from "react";
 import { ShieldCheck, RotateCcw } from "lucide-react";
 
 /** Route-level error boundary — brand-styled, recoverable */
@@ -11,9 +10,8 @@ export default function Error({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
-  useEffect(() => {
-    console.error("[SecureVoice] view crashed:", error);
-  }, [error]);
+  // Client component: no server logger here. The digest below is the operator
+  // correlation id; no beacon (no /api/client-error endpoint exists).
 
   return (
     <div className="flex min-h-[70vh] flex-col items-center justify-center px-6 text-center">

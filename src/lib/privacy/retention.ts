@@ -54,6 +54,7 @@ import {
   eraseCase,
   type CasePayloadColumn,
 } from "@/lib/privacy/crypto-shred";
+import { logError } from "@/lib/validation/safe-log";
 
 export const DAY_MS = 86_400_000;
 
@@ -711,7 +712,11 @@ export async function runRetention(
             // mid-append, say. It is logged and reported, never swallowed.
             const message = error instanceof Error ? error.message : String(error);
             report.errors.push({ caseRef: row.caseRef, tier, stage: "act", error: message });
-            console.error(`[retention] ${tier} failed for ${row.caseRef}: ${message}`);
+            logError("[retention] tier action failed", {
+              tier,
+              caseRef: row.caseRef,
+              error: message,
+            });
           }
           touchedRefs.set(row.caseRef, row.orgId ?? null);
         }
@@ -729,15 +734,19 @@ export async function runRetention(
       if (!verification.ok) {
         report.chain.intact = false;
         report.chain.brokenAt = ref;
-        console.error(
-          `[retention] INVARIANT I-6 VIOLATED: chain for ${ref} does not verify ` +
-            `(expected ${verification.expected}, actual ${verification.actual})`,
-        );
+        logError("[retention] INVARIANT I-6 VIOLATED: chain does not verify", {
+          ref,
+          expected: verification.expected,
+          actual: verification.actual,
+        });
       }
     } catch (error) {
       report.chain.intact = false;
       report.chain.brokenAt = ref;
-      console.error(`[retention] chain verification failed for ${ref}: ${error}`);
+      logError("[retention] chain verification failed", {
+        ref,
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 

@@ -166,9 +166,17 @@ in development only, correctly gated on `NODE_ENV`), `style-src 'self'
   response was fetched unauthenticated, so no browser attempted any connection.
 - That `style-src 'unsafe-inline'` is still required. Asserted from the source
   comment attributing it to framer-motion and Tailwind; not reproduced.
-- That `script-src 'unsafe-inline'` is still required. In a production build
-  Next normally hashes or nonces these; that substitution was **not observed**,
-  because the build could not complete (see below).
+- That `script-src 'unsafe-inline'` is still required. MEASURED on the live
+  origin (October 2026 outage): a headless load reported **six blocked inline
+  `self.__next_f.push(...)` flight scripts carrying neither nonce nor hash**,
+  hydration threw React #412, and the splash sat at 0% — every external asset
+  returned 200. In a production build this Next version does NOT hash or nonce
+  its flight scripts, so the earlier "not observed" note is superseded: removing
+  the inline permission breaks hydration outright, and adding a nonce/hash
+  source is worse, because browsers then IGNORE 'unsafe-inline' while the
+  flight scripts still carry neither token. The surface suite now asserts the
+  effective production policy (production NODE_ENV, directive-boundary match,
+  no unmatched nonce/hash, no 'unsafe-eval') instead of the directive list.
 - `frame-src` is now self-only (the Clerk component iframes are gone) — no authenticated Clerk session was
   available to trigger one.
 - HSTS `preload` — the header is emitted with `preload`, but no token has been

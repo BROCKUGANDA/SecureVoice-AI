@@ -28,6 +28,11 @@ import "server-only";
  *     in the same database transaction (transitionCaseWithOutbox), so a verdict
  *     never exists without its delivery - and a duplicate reply loses the race
  *     against the state check instead of notifying the bank twice.
+ *   - OPT-OUT MEANS BOTH CHANNELS. A STOP writes the SMS suppression AND the
+ *     voice do-not-call registry in one transaction, keyed on the phone and
+ *     therefore platform-wide rather than per tenant: the person asked to be left
+ *     alone, not one bank's campaign. A reply cannot opt out of one channel and
+ *     leave the other ringing.
  *   - NO RAW BODY STORED. Only the parsed intent. What the customer typed is
  *     untrusted text; keeping it would create the stored-injection risk
  *     src/lib/memory-guard.ts exists to prevent.
@@ -44,6 +49,7 @@ import type { ResolutionMethod } from "@/lib/contracts/schema";
 import { getInstitutionType } from "@/lib/institution";
 import { createHandoffTicket } from "@/lib/crm";
 import { env, SUPPORTED_LANGS } from "@/lib/config";
+import { logError } from "@/lib/validation/safe-log";
 
 /** How long after the SMS a reply is still accepted, and when the sweep gives up. */
 export const REPLY_WINDOW_MS = env.smsReplyWindowMs;
@@ -235,7 +241,9 @@ export async function publishResolution(args: {
       orgId: row.orgId ?? undefined,
     },
     { fast: true },
-  ).catch((e) => console.error("[sms-verdict] audit failed:", e instanceof Error ? e.message : e));
+  ).catch((e) =>
+    logError("[sms-verdict] audit failed", { error: e instanceof Error ? e.message : String(e) }),
+  );
 
   if (review) {
     void notify({
@@ -294,7 +302,9 @@ export async function sweepExpiredSmsCases(now: Date = new Date(), limit = 50): 
       outcome: "unreachable_no_reply",
       note: "Voice call did not reach the customer and the SMS received no reply within 24 hours.",
     }).catch((err) => {
-      console.error("[sms-verdict] sweep failed:", err instanceof Error ? err.message : err);
+      logError("[sms-verdict] sweep failed", {
+        error: err instanceof Error ? err.message : String(err),
+      });
       return false;
     });
     if (moved) resolved++;
@@ -331,6 +341,90 @@ async function replyFor(kind: keyof typeof SMS_REPLY, phone: string): Promise<st
     .findFirst({ where: { phone }, orderBy: { createdAt: "desc" }, select: { language: true } })
     .catch(() => null);
   return SMS_REPLY[kind][asLang(latest?.language)];
+}
+
+/** The reason stamped on both opt-out registries, read back into every audit. */
+const OPT_OUT_REASON = "sms_stop";
+
+/**
+ * Record an opt-out in BOTH registries, in ONE transaction.
+ *
+ *   `SmsSuppression` - never text this number again (read by the SMS send path,
+ *                      src/lib/elevenlabs/sms-fallback.ts).
+ *   `DoNotCall`      - never place a routine call to it (read by
+ *                      src/lib/policy-gate.ts at ingest and src/worker/dial.ts
+ *                      at the dial moment).
+ *
+ * Until now only the first was ever written, so the voice registry the dialling
+ * gate reads was permanently empty: a customer who texted STOP stopped receiving
+ * texts and then received a routine claim-payout CALL anyway, from whichever
+ * tenant's job fired next. Half an opt-out is worse than none, because the
+ * suppression row makes the operator believe the request was honoured.
+ *
+ * Both tables are keyed on the PHONE alone (`phone @id`, no tenant column -
+ * prisma/schema.prisma): "the opt-out belongs to the person, whichever tenant's
+ * case fires next". So this is deliberately NOT scoped to the replying case's
+ * orgId, exactly as the neighbouring suppression write never was.
+ *
+ * `DoNotCall` gates routine and non-critical categories only; time-critical
+ * fraud verification is consent-record-backed and stays through (policy-gate.ts
+ * 1b), which is what makes a STOP safe to honour platform-wide: the customer's
+ * standing instruction outranks our marketing-shaped contact, not their own
+ * fraud alert.
+ *
+ * A fault PROPAGATES instead of being logged and swallowed. A swallowed write
+ * answers the customer with silence and Twilio's own opt-out confirmation while
+ * the registries stay empty - the exact incident above, made undetectable. The
+ * inbound routes turn this into the "we could not process that, call the number
+ * on your card" SMS, which is the truthful answer: the opt-out did not land and
+ * the customer must use another channel.
+ *
+ * Idempotent by `update: {}`: a second STOP keeps the first row and its
+ * `createdAt`, so the original opt-out date survives a repeat reply.
+ */
+async function recordOptOut(phone: string): Promise<void> {
+  try {
+    await db.$transaction(async (tx) => {
+      await tx.smsSuppression.upsert({
+        where: { phone },
+        create: { phone, reason: OPT_OUT_REASON },
+        update: {},
+      });
+      await tx.doNotCall.upsert({
+        where: { phone },
+        create: { phone, reason: OPT_OUT_REASON },
+        update: {},
+      });
+    });
+  } catch (err) {
+    logError("[sms-verdict] opt-out registries not written", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    throw err;
+  }
+}
+
+/**
+ * START reverses the opt-out in BOTH registries - the same `deleteMany` on the
+ * phone the suppression write used, so re-subscribing cannot leave a stranded
+ * `DoNotCall` row that silently refuses every routine call forever.
+ *
+ * It is the customer's own authenticated reply (the route verified Twilio's
+ * signature and only the holder of the handset could send it), so removing the
+ * entry is their instruction, not ours to keep.
+ */
+async function clearOptOut(phone: string): Promise<void> {
+  try {
+    await db.$transaction(async (tx) => {
+      await tx.smsSuppression.deleteMany({ where: { phone } });
+      await tx.doNotCall.deleteMany({ where: { phone } });
+    });
+  } catch (err) {
+    logError("[sms-verdict] opt-out registries not cleared", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    throw err;
+  }
 }
 
 /**
@@ -372,13 +466,11 @@ export async function handleSmsReply(input: {
   }
 
   if (intent === "stop") {
-    await db.smsSuppression
-      .upsert({ where: { phone: from }, create: { phone: from, reason: "stop" }, update: {} })
-      .catch((e) => console.error("[sms-verdict] suppression failed:", e));
+    await recordOptOut(from);
     return { reply: null, outcome: "stop" }; // Twilio sends its own opt-out confirmation
   }
   if (intent === "start") {
-    await db.smsSuppression.deleteMany({ where: { phone: from } }).catch(() => {});
+    await clearOptOut(from);
     return { reply: null, outcome: "start" };
   }
   if (intent === "help") {

@@ -35,6 +35,7 @@ import {
 } from "./types";
 import { sendWebhook } from "./webhook";
 import { sendZendeskTicket } from "./zendesk";
+import { logWarn } from "@/lib/validation/safe-log";
 
 export { buildTicketText } from "./text";
 export * from "./types";
@@ -68,7 +69,9 @@ const defaultSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(r
 function logger(deps: HandoffDeps): (message: string) => void {
   return (message) => {
     try {
-      (deps.log ?? ((m: string) => console.warn(`[crm] ${m}`)))(leakSafeText(message, 200));
+      (deps.log ?? ((m: string) => logWarn("[crm] warning", { message: m })))(
+        leakSafeText(message, 200),
+      );
     } catch {
       /* logging must never throw */
     }

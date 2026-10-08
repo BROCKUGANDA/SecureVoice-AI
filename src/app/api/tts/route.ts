@@ -22,6 +22,7 @@ import {
   upstreamError,
   parseJson,
 } from "@/lib/api-errors";
+import { logError } from "@/lib/validation/safe-log";
 
 export const dynamic = "force-dynamic";
 
@@ -169,7 +170,9 @@ export async function POST(req: NextRequest) {
         latencyMs: Date.now() - started,
       },
     }).catch((err) => {
-      console.error("[tts] audit append failed:", err instanceof Error ? err.message : err);
+      logError("[tts] audit append failed", {
+        error: err instanceof Error ? err.message : String(err),
+      });
     });
 
     return new NextResponse(new Uint8Array(result.audio), {
@@ -187,7 +190,7 @@ export async function POST(req: NextRequest) {
     if (err instanceof UpstreamError) {
       // Error generalization: the upstream detail (provider, key state, raw
       // body) stays in server logs — clients get a coarse, safe message.
-      console.error("[tts] upstream error:", err.status, err.message);
+      logError("[tts] upstream error", { status: err.status, error: err.message });
       if (err.status === 429) {
         return NextResponse.json(
           { error: "Rate limit exceeded; retry later." },
@@ -203,7 +206,9 @@ export async function POST(req: NextRequest) {
         { status: err.status === 401 || err.status === 403 ? 502 : 503 },
       );
     }
-    console.error("[tts] generation failed:", err instanceof Error ? err.message : err);
+    logError("[tts] generation failed", {
+      error: err instanceof Error ? err.message : String(err),
+    });
     return NextResponse.json({ error: "Speech generation unavailable" }, { status: 503 });
   }
 }

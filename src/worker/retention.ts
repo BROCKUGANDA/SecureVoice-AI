@@ -18,6 +18,7 @@
 // NOTE: deliberately NO `import "server-only"` here — see src/worker/dial.ts.
 
 import { runRetention, type RetentionRunReport } from "@/lib/privacy/retention";
+import { logError, logInfo } from "@/lib/validation/safe-log";
 
 const SWEEP_HOURS = Number(process.env.RETENTION_SWEEP_HOURS ?? 24);
 const ONCE = process.argv.includes("--once");
@@ -38,19 +39,17 @@ function summarise(report: RetentionRunReport): string {
 
 async function sweep(): Promise<RetentionRunReport> {
   const report = await runRetention(new Date(), { dryRun: DRY_RUN });
-  const line = `[retention-worker] ${summarise(report)}`;
+  const line = summarise(report);
   if (report.chain.intact && report.errors.length === 0) {
-    console.log(line);
+    logInfo("[retention-worker] sweep complete", { summary: line });
   } else {
-    console.error(line);
+    logError("[retention-worker] sweep complete with errors", { summary: line });
   }
   return report;
 }
 
 async function main(): Promise<void> {
-  console.log(
-    `[retention-worker] starting — sweep every ${SWEEP_HOURS}h${DRY_RUN ? " (dry-run)" : ""}`,
-  );
+  logInfo("[retention-worker] starting", { sweepHours: SWEEP_HOURS, dryRun: DRY_RUN });
 
   if (ONCE) {
     const report = await sweep();
@@ -65,7 +64,7 @@ async function main(): Promise<void> {
   let running = true;
   const stop = () => {
     running = false;
-    console.log("[retention-worker] draining — finishing the in-flight sweep");
+    logInfo("[retention-worker] draining — finishing the in-flight sweep");
   };
   // Bun's typed process.on overload enumerates a narrow event union; SIGTERM
   // and SIGINT are valid at runtime and are exactly what compose sends.
@@ -77,7 +76,9 @@ async function main(): Promise<void> {
     try {
       await sweep();
     } catch (err) {
-      console.error("[retention-worker] sweep failed:", err instanceof Error ? err.message : err);
+      logError("[retention-worker] sweep failed", {
+        error: err instanceof Error ? err.message : err,
+      });
     }
     // Sleep to the next due time in short slices so a stop signal lands
     // promptly instead of after a day.
@@ -86,12 +87,12 @@ async function main(): Promise<void> {
       await new Promise((r) => setTimeout(r, 1_000));
     }
   }
-  console.log("[retention-worker] stopped cleanly");
+  logInfo("[retention-worker] stopped cleanly");
 }
 
 if (import.meta.main) {
   main().catch((err) => {
-    console.error("[retention-worker] fatal:", err instanceof Error ? err.message : err);
+    logError("[retention-worker] fatal", { error: err instanceof Error ? err.message : err });
     process.exit(1);
   });
 }

@@ -14,12 +14,15 @@ import { isTwilioConfigured, liveSendAttested, sendInterventionSms } from "@/lib
 import { qstashConfigured, publishEnvelope, dispatchPath } from "@/lib/queue/qstash";
 import { makeEnvelope } from "@/lib/queue/envelope";
 import { runPolicyGate } from "@/lib/policy-gate";
+import { runComplianceGate } from "@/lib/compliance/gate";
 import { assertDialAllowed, releaseDialSlot } from "@/lib/abuse/guards";
 import { validateOutboundUrl } from "@/lib/validation/ssrf";
 import { planTierFor } from "@/lib/abuse/tiers";
 import { enqueueDialJob } from "@/lib/scale/queue";
 import { admitOrDegrade } from "@/lib/admission";
+import { markVoiceFailed } from "@/lib/elevenlabs/sms-fallback";
 import { makeFailure, type FailureCode, type FailureInit } from "@/lib/failures/envelope";
+import { logError } from "@/lib/validation/safe-log";
 
 import { notifyRealtime } from "@/lib/realtime";
 import { createCase, transitionCase } from "@/lib/case-state-machine";
@@ -115,6 +118,11 @@ const schema = z
       .regex(/^\d{4}$/, "ref_last4 must be exactly four digits")
       .optional(),
     consent_record_id: z.string().trim().min(4).max(64),
+    // WCAG / telecom accessibility: the bank flags a deaf or hard-of-hearing
+    // customer. Voice is skipped ENTIRELY — no dial job is enqueued — and the
+    // case goes straight to the blind-ping SMS flow. Optional so every existing
+    // producer keeps byte-identical behavior; absent reads as false.
+    hearing_impaired: z.boolean().optional(),
     callback_url: z
       .string()
       .url()
@@ -416,7 +424,9 @@ export async function POST(req: NextRequest) {
         },
       );
     }
-    console.error("[v1/interventions] arming failed:", err instanceof Error ? err.message : err);
+    logError("[v1/interventions] arming failed", {
+      error: err instanceof Error ? err.message : String(err),
+    });
     return failure("dependency_unavailable", { detail: "case recording failed" });
   }
 }
@@ -486,6 +496,23 @@ async function armAndDial(
     const err = new Error(gate.reason) as Error & { status: number; code: string };
     err.status = 409;
     err.code = gate.code;
+    throw err;
+  }
+
+  // Compliance gate: category + calling-hours + redaction backstop.
+  const compliance = await runComplianceGate({
+    callCategory: signal.call_category ?? "time_critical_fraud",
+    phone: signal.phone,
+    caseRef,
+    callerId: effectiveCallerId,
+    orgId,
+    transactionRef: signal.transaction_ref,
+    redactedText: redactText(`${signal.transaction_ref ?? ""} ${signal.phone}`),
+  });
+  if (!compliance.ok) {
+    const err = new Error(compliance.reason) as Error & { status: number; code: string };
+    err.status = 409;
+    err.code = compliance.code;
     throw err;
   }
 
@@ -596,6 +623,46 @@ async function armAndDial(
   // one. Runs AFTER the policy gate (a case we must not call should never
   // consume a voice slot) and BEFORE the dial. A shed case still gets an
   // outcome: it falls back to SMS/app push and the decision is in the chain.
+  //
+  // Deaf / hard-of-hearing customers skip voice ENTIRELY (WCAG telecom
+  // accessibility): no admission voice slot is consumed and no dial job is
+  // enqueued. The case goes straight to the blind-ping SMS flow through the
+  // same markVoiceFailed path the exhausted/voicemail/no-answer triggers use
+  // (same suppression checks, same at-most-once guard, same UNREACHABLE
+  // transition) with the reason recorded truthfully instead of a fabricated
+  // voice failure. Placed here, after SCREENED and the signal_received audit,
+  // so the chain shows received, screened, sms_only with no gap.
+  if (signal.hearing_impaired === true) {
+    releaseDialSlot(dialSlot);
+    dialSlot = null;
+    void auditAppend(
+      {
+        callRef: caseRef,
+        action: "handoff",
+        intent: "hearing_impaired_sms_only",
+        callerId: effectiveCallerId,
+        redactedText: "customer flagged deaf/hard-of-hearing: voice skipped, SMS-only flow",
+        meta: { channel: "sms", voiceAttempted: false },
+        orgId: orgId ?? undefined,
+      },
+      { fast: true },
+    ).catch(() => {});
+    const sms = await markVoiceFailed({ caseRef, reason: "hearing_impaired" });
+    const smsDetail = sms.sent === true ? undefined : "skipped" in sms ? sms.skipped : sms.error;
+    const envelope = {
+      ok: true,
+      caseRef,
+      transactionRef: signal.transaction_ref,
+      status: "sms_only",
+      smsOnly: {
+        reason: "hearing_impaired",
+        sent: sms.sent === true,
+        ...(smsDetail !== undefined ? { detail: smsDetail } : {}),
+      },
+      receivedAt: new Date().toISOString(),
+    };
+    return { envelope, acceptedAt };
+  }
   const admission = await admitOrDegrade({
     callRef: caseRef,
     orgId,
@@ -755,10 +822,9 @@ async function armAndDial(
         caseId: created.id,
         institution: await getInstitutionType(orgId),
       }).catch((err: unknown) => {
-        console.error(
-          "[v1/interventions] pre-notification SMS failed:",
-          err instanceof Error ? err.message : err,
-        );
+        logError("[v1/interventions] pre-notification SMS failed", {
+          error: err instanceof Error ? err.message : String(err),
+        });
       });
     }
     delivery = {

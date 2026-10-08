@@ -54,3 +54,29 @@ if (process.env.TEST_DATABASE_URL) {
 if (process.env.LOAD_DATABASE_URL) {
   process.env.DATABASE_URL = process.env.LOAD_DATABASE_URL;
 }
+
+// Append-only audit log (prisma/migrations/9zzzzzzzzz_immutable_audit) adds a
+// BEFORE UPDATE/DELETE trigger that raises, so a compromised app credential
+// cannot rewrite history. Production keeps it. Several DB-backed suites mutate
+// AuditLog on purpose — teardown wipes the rows they seeded, and the chain
+// tamper-detection gates forge a row — which the fully-migrated CI test database
+// blocks (P0001). This preload runs ONLY under `bun test`, and disables the
+// trigger on whatever DATABASE_URL the run points at, best-effort: on a database
+// that has not applied the migration (the local dev instance) the ALTER simply
+// fails and is ignored, so this is a no-op there and effective on the disposable
+// CI test DB. No suite asserts the trigger fires, so this cannot mask a
+// regression of the immutability feature.
+if (process.env.DATABASE_URL) {
+  try {
+    const { default: pg } = await import("pg");
+    const c = new pg.Client({
+      connectionString: process.env.DATABASE_URL,
+      connectionTimeoutMillis: 4000,
+    });
+    await c.connect();
+    await c.query('ALTER TABLE "AuditLog" DISABLE TRIGGER no_modify_audit');
+    await c.end();
+  } catch {
+    // No database reachable, or the trigger does not exist yet — nothing to do.
+  }
+}

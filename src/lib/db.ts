@@ -6,6 +6,7 @@ import { recordQuery, type PrismaQueryEvent } from "@/lib/telemetry/query-counte
 import { assertDatabaseTarget } from "@/lib/db-target";
 import { assertTransportIsEncrypted } from "@/lib/db-transport";
 import { env } from "@/lib/config";
+import { logInfo } from "@/lib/validation/safe-log";
 
 // Prisma ORM v7 has no connection pool of its own — `@prisma/adapter-pg` hands
 // every query to a `pg.Pool`, so the knobs that used to be Prisma's become
@@ -131,7 +132,7 @@ if (isProd) {
   db.idempotencyKey
     .deleteMany({ where: { expiresAt: { lte: new Date() } } })
     .then(({ count }) => {
-      if (count > 0) console.log(`[db] evicted ${count} expired idempotency keys`);
+      if (count > 0) logInfo("[db] evicted expired idempotency keys", { count });
     })
     .catch(() => {});
 }

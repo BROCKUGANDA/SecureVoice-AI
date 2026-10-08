@@ -1,3 +1,5 @@
+import { logError, logWarn } from "@/lib/validation/safe-log";
+
 /**
  * Next.js instrumentation hook — runs once at server boot (Node runtime).
  * Surfaces missing critical configuration immediately in the logs instead of
@@ -13,10 +15,11 @@ export async function register() {
   const { assertCriticalConfig } = await import("@/lib/config");
   const missing = assertCriticalConfig();
   if (missing.length > 0) {
-    console.warn(
-      `[config] missing critical env vars: ${missing.join(", ")} — ` +
-        `the platform boots in degraded/audit-only mode; set them before enabling live voice or BYOK.`,
-    );
+    logWarn("[config] missing critical env vars", {
+      missing,
+      detail:
+        "the platform boots in degraded/audit-only mode; set them before enabling live voice or BYOK.",
+    });
   }
 
   // Sentry is surfaced the moment the DSN env var exists, and ONLY then —
@@ -44,40 +47,80 @@ export async function register() {
           return event;
         },
       });
-      console.warn(
-        "[sentry] initialised (traces: " +
-          (process.env.SENTRY_TRACES_SAMPLE_RATE ?? "0.1") +
-          ", environment: " +
-          (process.env.SENTRY_ENVIRONMENT ?? process.env.NODE_ENV) +
-          ")",
-      );
+      logWarn("[sentry] initialised", {
+        traces: process.env.SENTRY_TRACES_SAMPLE_RATE ?? "0.1",
+        environment: process.env.SENTRY_ENVIRONMENT ?? process.env.NODE_ENV,
+      });
     } catch (err) {
-      console.error(
-        "[sentry] init failed — continuing without remote error capture:",
-        err instanceof Error ? err.message : err,
-      );
+      logError("[sentry] init failed — continuing without remote error capture", {
+        error: err instanceof Error ? err.message : err,
+      });
     }
   }
 
   // The "did we forget to flip it?" class of failure — loud at every boot,
   // plus `bun run preflight` before any demo or go-live.
   if (process.env.ELEVENLABS_DRY_RUN === "true") {
-    console.warn(
-      "[config] ELEVENLABS_DRY_RUN=true — NO real voice. Flip to false before judges or real users.",
-    );
+    logWarn("[config] ELEVENLABS_DRY_RUN=true — NO real voice", {
+      detail: "Flip to false before judges or real users.",
+    });
   }
   if (!process.env.BETTER_AUTH_SECRET || process.env.BETTER_AUTH_SECRET.length < 32) {
-    console.warn(
-      "[config] BETTER_AUTH_SECRET missing or under 32 chars — auth will throw at import. Generate with: openssl rand -base64 32",
-    );
+    logWarn("[config] BETTER_AUTH_SECRET missing or under 32 chars", {
+      detail: "auth will throw at import. Generate with: openssl rand -base64 32",
+    });
   }
 
   if (!process.env.QSTASH_TOKEN) {
-    console.warn(
-      "[config] QSTASH_TOKEN unset — bank signals enqueue via the Postgres queue directly. Set QSTASH_TOKEN and QSTASH_CURRENT/NEXT_SIGNING_KEY to dispatch through Upstash.",
-    );
+    logWarn("[config] QSTASH_TOKEN unset", {
+      detail:
+        "bank signals enqueue via the Postgres queue directly. Set QSTASH_TOKEN and QSTASH_CURRENT/NEXT_SIGNING_KEY to dispatch through Upstash.",
+    });
   }
   if (!process.env.SENTRY_DSN) {
-    console.warn("[config] SENTRY_DSN unset — remote error capture is off for this deployment.");
+    logWarn("[config] SENTRY_DSN unset", {
+      detail: "remote error capture is off for this deployment.",
+    });
+  }
+
+  // Live-send preflight: the four gates that determine whether this deployment
+  // can actually place a carrier call. These are warnings, not crashes, because
+  // the reference deployment boots in audit-only mode without them.
+  try {
+    const { abuseConfig } = await import("@/lib/abuse/config");
+    const { isE164 } = await import("@/lib/twilio");
+    const { maskE164 } = await import("@/lib/abuse/geo");
+
+    const geo = abuseConfig().geo;
+    const upperAllowlist = geo.allowlist.map((c) => c.trim().toUpperCase()).filter(Boolean);
+    if (upperAllowlist.length === 0) {
+      logWarn("[config] ABUSE_ALLOWED_COUNTRIES is empty — no destination is diallable", {});
+    } else if (!upperAllowlist.includes("US")) {
+      logWarn("[config] ABUSE_ALLOWED_COUNTRIES does not include US", {
+        allowlist: upperAllowlist.join(","),
+      });
+    }
+
+    if (process.env.TWILIO_LIVE_SEND !== "true") {
+      logWarn("[config] TWILIO_LIVE_SEND is not true — live calls are refused", {});
+    }
+
+    const fromNumber = process.env.TWILIO_FROM_NUMBER;
+    if (!fromNumber || !isE164(fromNumber)) {
+      logWarn("[config] TWILIO_FROM_NUMBER is missing or not E.164", {});
+    }
+
+    const defaultTier = abuseConfig().tier.defaultTier;
+    const testNumbers = abuseConfig().tier.testNumbers;
+    if (defaultTier === "demo" && testNumbers.length === 0) {
+      logWarn(
+        "[config] demo tier with no ABUSE_TEST_NUMBERS — only verified test numbers can be dialled",
+        {},
+      );
+    }
+  } catch (err) {
+    logError("[config] live-send preflight failed", {
+      error: err instanceof Error ? err.message : String(err),
+    });
   }
 }

@@ -1393,12 +1393,13 @@ describe("guards: input shape and the never-throw contract", () => {
   test("a destination that is not a string denies rather than throwing", () => {
     // The gate runs inside request handlers on the hot path. A guard that
     // throws is an outage; a guard that denies is a decision. The throw is also
-    // logged, so capture stderr to keep the stack out of the test log while
-    // still asserting an operator would have been told.
-    const logged: unknown[] = [];
+    // logged through the structured logger (default sink: one JSON line per
+    // record on console.error), so capture stderr to keep the stack out of the
+    // test log while still asserting an operator would have been told.
+    const logged: string[] = [];
     const realError = console.error;
     console.error = (...args: unknown[]): void => {
-      logged.push(args[0]);
+      logged.push(String(args[0]));
     };
     try {
       const d = assertDialAllowed({
@@ -1411,8 +1412,17 @@ describe("guards: input shape and the never-throw contract", () => {
       expect(d.reason).toBe("guard_internal_error");
       expect(d.slot).toBeNull();
       // A control that fails closed silently is not a control, so the decision
-      // is announced on the error channel.
-      expect(String(logged[0])).toContain("abuse guard failed closed");
+      // is announced on the error channel. The logger envelope is
+      // { level, msg, ts, fields }; the "failed closed" detail lives in fields.
+      expect(logged).toHaveLength(1);
+      const record = JSON.parse(logged[0]!) as {
+        level: string;
+        msg: string;
+        fields: { detail?: string };
+      };
+      expect(record.level).toBe("error");
+      expect(record.msg).toContain("[abuse]");
+      expect(String(record.fields.detail)).toContain("abuse guard failed closed");
 
       // FIXED (gap 8). The catch-all used to be recorded as
       // `control: "velocity"` regardless of where the throw happened, so an

@@ -41,6 +41,7 @@ import "server-only";
 
 import { env } from "../config";
 import { abuseConfig } from "./config";
+import { logError } from "@/lib/validation/safe-log";
 import {
   checkDestinationGeo,
   maskE164,
@@ -548,7 +549,7 @@ export function assertDialAllowed(input: DialGuardInput): DialGuardDecision {
   } catch (err) {
     // A guard that throws is an outage; a guard that denies is a decision.
     const detail = `abuse guard failed closed: ${err instanceof Error ? err.message : "unknown error"}`;
-    console.error(`[abuse] ${detail}`);
+    logError("[abuse] guard failed", { detail });
     // Attributed to the control that was RUNNING, so the status surface sends
     // an operator to the right place. Recorded as a failure of that control:
     // it did not pass, whatever it would have said had it returned.

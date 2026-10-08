@@ -107,6 +107,23 @@ describe("transcript — phone numbers", () => {
   test("a spaced number is removed", () => {
     expect(hasLongDigitRun(transcript("dial 050 123 4567"))).toBe(false);
   });
+
+  // REGRESSION. The phone pattern used to require only six digits, so it took
+  // any bare 6-to-8 digit run with it: `id 123456` logged as `id [REDACTED]`
+  // and a six-figure amount vanished entirely. Those are the values an incident
+  // review is made of, and a redactor that silently eats them cannot be
+  // debugged from. A bare run must now be 9+ digits to count as a phone.
+  test("a bare 6-to-8 digit run survives — it is an id or an amount, not a phone", () => {
+    expect(transcript("No row found with id 123456")).toContain("123456");
+    expect(transcript("amount 250000 UGX charged")).toContain("250000");
+    expect(transcript("latency 250000ms")).toContain("250000");
+    expect(transcript("ref 12345678")).toContain("12345678");
+  });
+
+  test("the boundary is 9 digits: 8 survives, 9 is redacted", () => {
+    expect(transcript("row 12345678")).toContain("12345678");
+    expect(transcript("row 123456789")).not.toContain("123456789");
+  });
 });
 
 describe("transcript — OTPs only with a context cue", () => {

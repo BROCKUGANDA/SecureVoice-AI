@@ -68,11 +68,30 @@ for (const file of FILES) {
     expect(body).toMatch(/reverse_proxy/);
   });
 
-  test(`${file}: the gateway block never swallows the app's own namespace`, () => {
+  test(`${file}: the edge never touches the app's /api namespace`, () => {
     const src = read(file);
-    // No matcher that would also capture /api/... : a leading `*`, a bare
-    // prefix of `/`, or an explicit /api path in the same block.
+    // A leading `*` or bare `/` prefix would capture /api too.
     expect(src).not.toMatch(/handle \* \{/);
+
+    // The app owns /api. The edge must not match it AT ALL — not the whole
+    // namespace, and not a single "narrow" path either. Even
+    // `handle /api/voice-websocket` intercepts a request the app's own
+    // /api/voice-websocket route is supposed to serve, shadowing it out of its
+    // per-route rate limiting without anyone widening a matcher.
+    //
+    // The voice-stream WORKER plane therefore lives on a SIBLING PREFIX under
+    // /realtime — beside the socket.io fan-out — not inside the app's own
+    // namespace. That routing, not this test, is the source of truth; this
+    // only holds the line.
     expect(src).not.toMatch(/handle \/api/);
+
+    // The media-stream proxy is that sibling. Matched BEFORE the broader
+    // /realtime/* prefix (which would otherwise capture it) and before the
+    // catch-all handler, or it is dead / mis-routed config.
+    expect(src).toMatch(/handle \/realtime\/media-stream/);
+    expect(src.indexOf("handle /realtime/media-stream")).toBeLessThan(
+      src.indexOf("handle /realtime/*"),
+    );
+    expect(src.indexOf("handle /realtime/media-stream")).toBeLessThan(src.indexOf("handle {"));
   });
 }

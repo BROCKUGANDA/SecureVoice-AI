@@ -26,7 +26,7 @@ export async function POST(req: NextRequest) {
   const secret = process.env.ELEVENLABS_WEBHOOK_SECRET;
 
   if (!secret) {
-    console.error("[webhooks/elevenlabs] ELEVENLABS_WEBHOOK_SECRET is not set");
+    logError("webhook ingest unconfigured", { provider: "elevenlabs" });
     return NextResponse.json({ error: "ingest_unconfigured" }, { status: 503 });
   }
 

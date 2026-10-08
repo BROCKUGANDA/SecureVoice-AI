@@ -28,6 +28,7 @@ import "server-only";
  */
 
 import { append as auditAppend } from "@/lib/audit-chain";
+import { logError } from "@/lib/validation/safe-log";
 
 /** Event names. `intent` is sanitised to 40 chars and [\w.:-] by audit-chain. */
 export const AUTH_AUDIT_INTENTS = {
@@ -85,7 +86,9 @@ export async function auditAuthEvent(event: AuthAuditEvent): Promise<void> {
     meta: event.meta,
     orgId: event.orgId ?? undefined,
   }).catch((err: unknown) => {
-    console.error("[auth] audit append failed:", err instanceof Error ? err.message : err);
+    logError("[auth] audit append failed", {
+      error: err instanceof Error ? err.message : String(err),
+    });
   });
 }
 

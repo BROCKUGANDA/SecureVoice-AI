@@ -37,6 +37,7 @@ import "server-only";
 
 import { db } from "@/lib/db";
 import { append as auditAppend } from "@/lib/audit-chain";
+import { logError } from "@/lib/validation/safe-log";
 import {
   assertMoney,
   decodeEntitlements,
@@ -276,10 +277,9 @@ async function auditPayment(input: {
     },
     { fast: true },
   ).catch((err: unknown) => {
-    console.error(
-      "[manual-invoice] payment audit append failed:",
-      err instanceof Error ? err.message : err,
-    );
+    logError("[manual-invoice] payment audit append failed", {
+      error: err instanceof Error ? err.message : String(err),
+    });
   });
 }
 

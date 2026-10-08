@@ -31,6 +31,7 @@ import { auth } from "@/lib/better-auth";
 import { db } from "@/lib/db";
 import { append as auditAppend } from "@/lib/audit-chain";
 import type { Lang } from "@/lib/config";
+import { logError } from "@/lib/validation/safe-log";
 
 export type Role = "operator" | "demo";
 
@@ -159,10 +160,9 @@ async function auditWallet(
     redactedText: note,
     meta: { credits, userId },
   }).catch((err) => {
-    console.error(
-      "[credits] wallet audit append failed:",
-      err instanceof Error ? err.message : err,
-    );
+    logError("[credits] wallet audit append failed", {
+      error: err instanceof Error ? err.message : String(err),
+    });
   });
 }
 

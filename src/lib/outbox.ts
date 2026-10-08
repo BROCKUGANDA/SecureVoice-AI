@@ -24,6 +24,7 @@ import { createHash, createHmac, randomUUID, timingSafeEqual } from "node:crypto
 import type { Prisma } from "@/generated/prisma/client";
 import { db } from "@/lib/db";
 import { env, replayWindowSec } from "@/lib/config";
+import { assertVendorUrlDeliverable, resolveVendorEndpoint } from "@/lib/vendor-endpoint";
 
 export const WEBHOOK_SIGNATURE_HEADER = "sv-signature";
 export const SCHEMA_VERSION = "2026-10-01";
@@ -142,6 +143,17 @@ export async function enqueueOutbox(
   const built = input.eventId ? buildBankEvent(input, input.eventId) : buildBankEvent(input);
   const body = input.occurredAt ? { ...built.body, occurred_at: input.occurredAt } : built.body;
   const canonical = canonicalJson(body);
+
+  // An explicit target always wins. Otherwise the tenant's own endpoint is
+  // used when it has one, and the deployment-wide default only when it does
+  // not — never both, because delivering an institution's verdict to two
+  // destinations means one of them can be stale without anyone knowing.
+  let targetUrl = input.targetUrl ?? null;
+  if (!targetUrl) {
+    const resolved = await resolveVendorEndpoint(input.orgId, { requireSecret: false });
+    targetUrl = resolved.ok ? resolved.endpoint.url : bankEventUrl();
+  }
+
   const row = await tx.outboxEvent.create({
     data: {
       id: built.eventId,
@@ -149,7 +161,7 @@ export async function enqueueOutbox(
       caseRef: input.caseRef ?? null,
       eventType: input.eventType,
       payload: canonical,
-      targetUrl: input.targetUrl ?? bankEventUrl(),
+      targetUrl,
     },
     select: { id: true },
   });
@@ -167,6 +179,7 @@ export async function claimBatch(
 ): Promise<
   {
     id: string;
+    orgId: string | null;
     eventType: string;
     caseRef: string | null;
     payload: string;
@@ -178,6 +191,7 @@ export async function claimBatch(
   const rows = await db.$queryRaw<
     {
       id: string;
+      orgId: string | null;
       eventType: string;
       caseRef: string | null;
       payload: string;
@@ -208,7 +222,7 @@ export async function claimBatch(
        (o.state = 'PENDING' AND o."nextAttemptAt" <= now())
        OR (o.state = 'SENDING' AND o."updatedAt" < ${stale})
      )
-    RETURNING o.id, o."eventType", o."caseRef", o.payload, o."targetUrl", o.attempts
+    RETURNING o.id, o."orgId", o."eventType", o."caseRef", o.payload, o."targetUrl", o.attempts
   `;
   return rows;
 }
@@ -236,6 +250,7 @@ export type DeliveryResult =
 export async function deliver(
   event: {
     id: string;
+    orgId?: string | null;
     eventType: string;
     caseRef: string | null;
     payload: string;
@@ -250,6 +265,18 @@ export async function deliver(
   let status = 0;
   let error = "";
   try {
+    // A stored endpoint is re-checked rather than trusted: it was validated when
+    // the operator saved it, and DNS can answer differently now.
+    const urlOk = await assertVendorUrlDeliverable(event.targetUrl);
+    if (!urlOk.ok) throw new Error(urlOk.reason);
+
+    // Signed with THIS tenant's key. There is no fallback to the platform
+    // secret: a payload signed with a key the receiving bank never issued is
+    // either rejected outright or, if it happens to share the key, believed.
+    const resolved = await resolveVendorEndpoint(event.orgId);
+    if (!resolved.ok) throw new Error(`endpoint unresolvable: ${resolved.reason}`);
+    if (!resolved.endpoint.secret) throw new Error("endpoint has no usable signing key");
+
     const res = await fetchImpl(event.targetUrl, {
       method: "POST",
       headers: {
@@ -257,7 +284,7 @@ export async function deliver(
         [WEBHOOK_SIGNATURE_HEADER]: signPayload(
           event.payload,
           Math.floor(now.getTime() / 1000),
-          signingSecret(),
+          resolved.endpoint.secret,
         ),
       },
       body: event.payload,

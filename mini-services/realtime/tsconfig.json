@@ -9,8 +9,16 @@
     "verbatimModuleSyntax": true,
     "noEmit": true,
     "strict": true,
-    "skipLibCheck": true,
     "noUncheckedIndexedAccess": true,
+    "baseUrl": ".",
+    // The realtime service mints and verifies its own handshake grants, and
+    // those deliberately live in the MAIN app (src/lib/realtime-token.ts) so
+    // there is exactly one implementation of the token format on the platform
+    // rather than two that can drift. This package's own tsconfig therefore has
+    // to resolve the app's `@/` alias, exactly like the root tsconfig does —
+    // without it, `bunx tsc -p tsconfig.json` in this directory reports
+    // "Cannot find module '@/lib/config'" for a file that genuinely resolves.
+    "paths": { "@/*": ["../../src/*"] },
     "types": ["bun"]
   },
   "include": ["src/**/*.ts", "test/**/*.ts"]

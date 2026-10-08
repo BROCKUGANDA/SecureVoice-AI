@@ -46,6 +46,7 @@ import "server-only";
 import { db } from "@/lib/db";
 import { append as auditAppend } from "@/lib/audit-chain";
 import { assertMoney, type Money } from "@/lib/payments/provider";
+import { logError } from "@/lib/validation/safe-log";
 
 /** Usage kinds that count TOWARDS a billable total. */
 const CONSUMING_KINDS = ["consume"] as const;
@@ -271,7 +272,9 @@ export async function raiseOverageInvoice(input: {
   ).catch((err: unknown) => {
     // Fire-and-forget, as everywhere else money moves: a failing audit write
     // must not block the invoice, but it must be visible in the logs.
-    console.error("[overage] invoice audit append failed:", err);
+    logError("[overage] invoice audit append failed", {
+      error: err instanceof Error ? err.message : String(err),
+    });
   });
 
   if (!duplicate) {

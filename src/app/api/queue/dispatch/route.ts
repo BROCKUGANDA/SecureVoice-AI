@@ -29,6 +29,7 @@ import {
   handleSmsFallback,
   handleScheduledRetry,
 } from "./handlers";
+import { logError } from "@/lib/validation/safe-log";
 
 export const dynamic = "force-dynamic";
 
@@ -81,10 +82,10 @@ export async function POST(req: NextRequest) {
     // where DeadLetter rows come from. The handler itself must not swallow
     // exceptions into a 200 unless the outcome is genuinely terminal (e.g. the
     // case was already resolved at the consumer side).
-    console.error(
-      `[queue] handler for ${envelope.jobKind} failed:`,
-      err instanceof Error ? err.message : err,
-    );
+    logError("[queue] handler failed", {
+      jobKind: envelope.jobKind,
+      error: err instanceof Error ? err.message : String(err),
+    });
     return NextResponse.json({ error: "handler failed" }, { status: 500 });
   }
 }

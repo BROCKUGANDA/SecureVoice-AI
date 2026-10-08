@@ -1,29 +1,127 @@
-# Normalize line endings in the repository itself.
+# ---------------------------------------------------------------------------
+# SecureVoice AI — line endings and file types
 #
-# Without this, Windows checkouts convert LF to CRLF, which makes Prettier's
-# endOfLine: "lf" report every single file as unformatted even though nothing
-# changed. Git was already warning "LF will be replaced by CRLF the next time
-# Git touches it" on every commit, so the index was LF and only the working
-# copy was CRLF: this makes the working copy agree with the index.
+# WHY THIS FILE HAS TO EXIST HERE
+#
+# This tree is edited on Windows (CRLF by default), built and deployed on Linux
+# (LF), and CI runs on a Linux runner. Without a .gitattributes, `core.autocrlf`
+# on a Windows clone rewrites every LF to CRLF on checkout, and those CRLFs are
+# then COMMITTED — which is how a shell script or a workflow ends up with
+# `#!/bin/sh\r` and fails on the deploy host with an error that points nowhere
+# near the real cause.
+#
+# `* text=auto eol=lf` below makes LF the canonical form in the repository for
+# every text file regardless of who checks it out. A Windows editor then still
+# shows a clean file, because its checkout honours eol=crlf for the files listed
+# explicitly at the bottom.
+# ---------------------------------------------------------------------------
+
+# Default: treat everything as text, and keep LF in the repository.
 * text=auto eol=lf
 
-# Binary files that must never be line-ending normalized. Renormalizing these
-# corrupts them.
+# ---------------------------------------------------------------------------
+# Shell and executable scripts — the ones that break in the most confusing way.
+# ---------------------------------------------------------------------------
+*.sh text eol=lf
+*.bash text eol=lf
+*.zsh text eol=lf
+*.fish text eol=lf
+
+# ---------------------------------------------------------------------------
+# CI/CD and infrastructure. `noff` (no filter) keeps the parser from mangling
+# `${{ }}` expressions, which a diff/clean filter can corrupt.
+# ---------------------------------------------------------------------------
+*.yml text eol=lf
+*.yaml text eol=lf
+.gitattributes text eol=lf
+.gitignore text eol=lf
+.dockerignore text eol=lf
+.editorconfig text eol=lf
+
+# ---------------------------------------------------------------------------
+# Source.
+# ---------------------------------------------------------------------------
+*.ts text eol=lf
+*.tsx text eol=lf
+*.js text eol=lf
+*.jsx text eol=lf
+*.mjs text eol=lf
+*.cjs text eol=lf
+*.mts text eol=lf
+*.cts text eol=lf
+*.css text eol=lf
+*.scss text eol=lf
+*.html text eol=lf
+*.sql text eol=lf
+*.prisma text eol=lf
+*.tf text eol=lf
+*.tfvars text eol=lf
+*.proto text eol=lf
+*.json text eol=lf
+*.jsonc text eol=lf
+*.md text eol=lf
+*.mdx text eol=lf
+*.txt text eol=lf
+*.csv text eol=lf
+Dockerfile text eol=lf
+Dockerfile.* text eol=lf
+Caddyfile text eol=lf
+Caddyfile.* text eol=lf
+
+# ---------------------------------------------------------------------------
+# Windows-native files, checked out with CRLF because that is what they are.
+# ---------------------------------------------------------------------------
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+*.psm1 text eol=crlf
+
+# ---------------------------------------------------------------------------
+# Lockfiles: massive, generated, and must never be touched by a filter.
+# ---------------------------------------------------------------------------
+bun.lock -diff -merge linguist-generated
+package-lock.json -diff -merge linguist-generated
+*.lock -diff -merge linguist-generated
+
+# Binary and generated assets — never diffed, never line-ending-converted.
+# A CRLF pass over a PNG corrupts it, and `git diff` on a large PNG is useless
+# noise in review.
 *.png binary
 *.jpg binary
 *.jpeg binary
 *.gif binary
-*.ico binary
 *.webp binary
+*.ico binary
 *.pdf binary
 *.zip binary
 *.gz binary
+*.tar binary
 *.mp3 binary
-*.wav binary
-*.webm binary
 *.mp4 binary
+*.webm binary
+*.wav binary
 *.woff binary
 *.woff2 binary
 *.ttf binary
-*.otf binary
 *.eot binary
+*.crt binary
+*.pem binary
+*.key binary
+*.exe binary
+*.dll binary
+*.so binary
+*.dylib binary
+
+# ---------------------------------------------------------------------------
+# Generated trees: mark as generated so GitHub collapses them by default in a
+# diff and reviewers do not spend attention on them.
+# ---------------------------------------------------------------------------
+bun.lock linguist-generated=true
+src/generated/** linguist-generated=true
+coverage/** linguist-generated=true
+docs/canvas-build/** linguist-generated=true
+evidence/** linguist-generated=true
+
+# Large text assets GitHub should render as prose rather than collapse.
+*.md linguist-documentation
+docs/*.md linguist-documentation

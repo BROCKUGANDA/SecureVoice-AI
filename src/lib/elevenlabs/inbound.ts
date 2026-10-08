@@ -13,7 +13,7 @@ import "server-only";
  */
 
 import { db } from "@/lib/db";
-import { logError } from "@/lib/validation/safe-log";
+import { logError, logWarn } from "@/lib/validation/safe-log";
 import {
   caseByConversation,
   canTransition,
@@ -93,9 +93,11 @@ export async function drainPendingWebhooks(limit = 20): Promise<number> {
     if (row.processed) continue;
     // Re-delivery is the recovery path for a stuck row; until the provider is
     // polled, surface the row rather than silently marking it done.
-    console.warn(
-      `[inbound] pending delivery ${row.eventType} ${row.conversationId ?? "(no conversation)"} awaiting redelivery`,
-    );
+    logWarn("pending webhook delivery awaiting redelivery", {
+      provider: "elevenlabs",
+      eventType: row.eventType,
+      conversationId: row.conversationId,
+    });
     drained++;
   }
   return drained;
@@ -334,11 +336,11 @@ async function handleTranscription(row: WebhookEventRow, data: any): Promise<voi
         { clearPlaintext: true, reason: "post_call_ingest" },
       );
     } catch (error) {
-      console.error(
-        "[elevenlabs/inbound] payload seal failed, plaintext retained:",
-        caseRow.caseRef,
-        error instanceof Error ? error.message : error,
-      );
+      logError("webhook payload seal failed, plaintext retained", {
+        provider: "elevenlabs",
+        caseRef: caseRow.caseRef,
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
 
     // Optional semantic index. Only when the operator has explicitly configured
@@ -348,7 +350,11 @@ async function handleTranscription(row: WebhookEventRow, data: any): Promise<voi
     // must not roll the case back or block the webhook. indexTranscript
     // swallows its own failures into an audit row.
     if (pineconeConfigured() && redactedTranscript.trim()) {
-      void indexTranscript(caseRow.caseRef, redactedTranscript);
+      // `caseRow.orgId` is the tenant. A case with no owning org is NOT indexed
+      // unowned: indexTranscript refuses an empty orgId, so a cross-tenant
+      // vector cannot enter the index by accident. That refusal is recorded as
+      // an audit outcome like every other indexing failure, not swallowed.
+      void indexTranscript(caseRow.caseRef, redactedTranscript, caseRow.orgId ?? "");
     }
   } else {
     // No master key, no plaintext — and the drop is on the record, not silent.

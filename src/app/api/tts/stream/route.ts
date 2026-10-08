@@ -14,7 +14,9 @@ import { append as auditAppend } from "@/lib/audit-chain";
 import { transcript as redactText } from "@/lib/redact";
 import { resolveTtsKey, consumeCharQuota, quotaExceededResponse } from "@/lib/tts-quota";
 import { fetchUpstreamBinary } from "@/lib/elevenlabs/egress";
+import { prepareSpeech } from "@/lib/compliance/speech-gate";
 import { env, maxTtsChars, SUPPORTED_LANGS } from "@/lib/config";
+import { logError } from "@/lib/validation/safe-log";
 
 export const dynamic = "force-dynamic";
 
@@ -36,6 +38,9 @@ const schema = z.object({
   voice: z.string().min(1).max(64),
   lang: z.enum(SUPPORTED_LANGS).default("en"),
   callRef: z.string().min(3).max(64).optional(),
+  // Tenant speech context. Absent means "conventional tenant": the
+  // unconditional half of the gate (redaction, speakability) still runs.
+  speech: z.object({ shariahCompliant: z.boolean().optional() }).optional(),
 });
 
 const DEV_SLUG_LANG: Record<string, TtsLang> = {
@@ -86,10 +91,23 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid TTS stream request" }, { status: 422 });
   }
   const {
-    text,
+    text: requestedText,
     lang,
     callRef = `SV-S-${Math.random().toString(36).slice(2, 8).toUpperCase()}`,
   } = parsed.data;
+
+  // Same gate as the buffered endpoint, ahead of quota spend and the upstream
+  // call: this stream is what the browser plays, so it is a customer-facing
+  // send path and not only a preview.
+  const gated = prepareSpeech(requestedText, parsed.data.speech);
+  if (!gated.text) {
+    return NextResponse.json(
+      { error: "Text has no speakable content after compliance gate" },
+      { status: 422 },
+    );
+  }
+  const text = gated.text;
+
   const voice = resolveVoice(parsed.data.voice, lang);
 
   if (!allowedVoices().has(voice)) {
@@ -156,7 +174,7 @@ export async function POST(req: NextRequest) {
 
   if (!upstream.ok) {
     const detail = upstream.body.slice(0, 200);
-    console.error("[tts-stream] upstream error:", upstream.status, detail);
+    logError("[tts-stream] upstream error", { status: upstream.status, error: detail });
     const auth = upstream.status === 401 || upstream.status === 403;
     // A guard refusal (budget, throttle, open breaker) is the platform degrading
     // on purpose; the client's fallback is the buffered route, then silence.

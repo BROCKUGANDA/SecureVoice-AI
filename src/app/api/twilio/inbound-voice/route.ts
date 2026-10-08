@@ -11,6 +11,7 @@ import { findOrgByVoiceNumber, getTransferNumber } from "@/lib/institution";
 import { escapeXml, twilioSignedUrl, verifyTwilioSignature } from "@/lib/twilio";
 import { INBOUND_CALLBACK_ACK, type OutreachLang } from "@/lib/outreach-copy";
 import { recordTelecomEvent } from "@/lib/telecom-outbox";
+import { logError, logWarn } from "@/lib/validation/safe-log";
 
 export const dynamic = "force-dynamic";
 
@@ -128,9 +129,9 @@ export async function POST(req: NextRequest) {
   try {
     org = await findOrgByVoiceNumber(dialed);
   } catch (err) {
-    console.error(
-      "[twilio-inbound-voice] tenant lookup failed for a dialled number — refusing to guess:",
-      err instanceof Error ? err.message : err,
+    logError(
+      "[twilio-inbound-voice] tenant lookup failed for a dialled number — refusing to guess",
+      { error: err instanceof Error ? err.message : String(err) },
     );
     // No TwiML that could bridge anything. The acknowledgement is the only safe
     // answer, and it names no institution because we do not know whose line this is.
@@ -140,7 +141,7 @@ export async function POST(req: NextRequest) {
   if (!org) {
     // The platform's own line, or a number that was never assigned. Answering as
     // "nobody's tenant" is correct; silently picking an org is the cross-talk bug.
-    console.warn("[twilio-inbound-voice] no tenant owns the dialled number — no case context");
+    logWarn("[twilio-inbound-voice] no tenant owns the dialled number — no case context");
     await auditAppend({
       callRef: "SV-INBOUND-UNASSIGNED",
       action: "agent",
@@ -155,10 +156,9 @@ export async function POST(req: NextRequest) {
   try {
     open = await latestLiveCase(org.id, caller);
   } catch (err) {
-    console.error(
-      "[twilio-inbound-voice] case lookup failed:",
-      err instanceof Error ? err.message : err,
-    );
+    logError("[twilio-inbound-voice] case lookup failed", {
+      error: err instanceof Error ? err.message : String(err),
+    });
     // Fall through WITHOUT case context. A customer reaching their bank's fraud
     // line gets answered even if our own database is having a bad minute.
   }
@@ -176,7 +176,7 @@ export async function POST(req: NextRequest) {
     status: "in_progress",
     payload: { direction: "inbound", caseRef: open?.caseRef ?? null },
   }).catch((err: unknown) =>
-    console.error("[twilio-inbound-voice] outbox write failed:", String(err)),
+    logError("[twilio-inbound-voice] outbox write failed", { error: String(err) }),
   );
 
   void auditAppend({

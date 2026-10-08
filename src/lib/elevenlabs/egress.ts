@@ -40,8 +40,9 @@ import {
 } from "@/lib/failures/breaker";
 import { consume as consumeRateLimit } from "@/lib/ratelimit";
 import { degradedMeter, type Meter, redis, sharedMeterConfigured } from "@/lib/redis";
+import { logError } from "@/lib/validation/safe-log";
 
-const log = (...a: unknown[]) => console.error("[elevenlabs/egress]", ...a);
+const log = (...a: unknown[]) => logError("[elevenlabs/egress] event", { args: a });
 
 /** Base URL — overridable via ELEVENLABS_API_BASE_URL so a gateway/proxy can sit
  * in front of the vendor. Read per call so a redeploy-free config change works. */

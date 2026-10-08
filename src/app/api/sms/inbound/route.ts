@@ -4,6 +4,7 @@ import { consume as consumeRateLimit, rateLimitId } from "@/lib/ratelimit";
 import { twilioSignedUrl, verifyTwilioSignature } from "@/lib/twilio";
 import { handleSmsReply } from "@/lib/sms-verdict";
 import { checkBadActor, recordStrike } from "@/lib/abuse/bad-actor";
+import { logError } from "@/lib/validation/safe-log";
 
 export const dynamic = "force-dynamic";
 
@@ -96,7 +97,9 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     // Never leak internals into an SMS, and never 5xx: Twilio would retry the same
     // reply into the same fault. A generic "reply again" is the safe answer.
-    console.error("[sms-inbound] handler failed:", err instanceof Error ? err.message : err);
+    logError("[sms-inbound] handler failed", {
+      error: err instanceof Error ? err.message : String(err),
+    });
     return twiml(
       "Sorry, we could not process that. Please call the number on your card or policy documents.",
     );

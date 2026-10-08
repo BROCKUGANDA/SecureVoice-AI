@@ -57,6 +57,7 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 import { env } from "@/lib/config";
 import { db } from "@/lib/db";
+import { logError } from "@/lib/validation/safe-log";
 
 /** Milliseconds → an INTERVAL literal. Used for every deadline this module writes. */
 const MS = "milliseconds";
@@ -699,7 +700,7 @@ export async function drainDialQueue(args: {
           `SELECT id, state, "claimed_by", retries, "lease_expires_at" FROM "dial_job" WHERE id = $1`,
           job.id,
         );
-        console.error("[wp19-queue] refused (not ours):", args.workerId, JSON.stringify(rows));
+        logError("[wp19-queue] refused (not ours)", { workerId: args.workerId, rows });
       }
       continue;
     }

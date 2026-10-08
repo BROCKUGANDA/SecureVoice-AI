@@ -9,6 +9,7 @@ import {
   updateTelecomEvent,
   type TelecomStatus,
 } from "@/lib/telecom-outbox";
+import { logError, logWarn } from "@/lib/validation/safe-log";
 
 export const dynamic = "force-dynamic";
 
@@ -105,7 +106,7 @@ export async function POST(req: NextRequest) {
     // `processing`, `in-progress` on a leg we never modelled, or a vocabulary
     // change upstream. Accepting it quietly is right; the alternative is a retry
     // storm over a status we simply do not track.
-    console.warn("[twilio-status] unmapped status:", channel, raw);
+    logWarn("[twilio-status] unmapped status", { channel, status: raw });
     return accepted();
   }
 
@@ -120,18 +121,12 @@ export async function POST(req: NextRequest) {
     });
     if (touched === 0) {
       // Not an error — but the only signal that the outbox is not being closed.
-      console.warn(
-        "[twilio-status] callback for an unknown sid:",
-        channel,
-        status,
-        "— outbox row never written or already purged",
-      );
+      logWarn("[twilio-status] callback for an unknown sid", { channel, status });
     }
   } catch (err) {
-    console.error(
-      "[twilio-status] outbox update failed:",
-      err instanceof Error ? err.message : err,
-    );
+    logError("[twilio-status] outbox update failed", {
+      error: err instanceof Error ? err.message : String(err),
+    });
     // 5xx deliberately: the report is real and unrecorded, and Twilio will bring
     // it again. A swallowed callback is a delivery record that stays `queued`
     // forever with nothing left to correct it.

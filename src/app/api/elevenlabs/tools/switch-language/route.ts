@@ -7,6 +7,7 @@ import { CASE_STATES } from "@/lib/case-state-machine";
 import { append as auditAppend } from "@/lib/audit-chain";
 import { db } from "@/lib/db";
 import { badRequest, parseJson, unprocessable, schemaErrorCode } from "@/lib/api-errors";
+import { logError } from "@/lib/validation/safe-log";
 
 export const dynamic = "force-dynamic";
 
@@ -72,7 +73,9 @@ export async function POST(req: NextRequest) {
       RETURNING c."caseRef" AS "caseRef", c.state::text AS "state"
     `);
   } catch (err) {
-    console.error("[tool/switch_language] guarded update failed:", err);
+    logError("[tool/switch_language] guarded update failed", {
+      error: err instanceof Error ? err.message : String(err),
+    });
     return NextResponse.json({ ok: false, error: "case_update_failed" }, { status: 503 });
   }
 

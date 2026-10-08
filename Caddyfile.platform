@@ -49,7 +49,23 @@
 :80 {
 	import secure_defaults
 
-	# Realtime websocket + presence, matched BEFORE the catch-all.
+	# Twilio Media Streams WebSocket — the voice-stream WORKER plane. A SIBLING
+	# prefix under /realtime (matched before the broader /realtime/* below so it
+	# cannot be captured), deliberately NOT under /api: an edge matcher on /api
+	# would shadow the app's own /api/voice-websocket route out of its rate
+	# limiting. Must agree with the wss:// URL src/worker/dial.ts builds.
+	handle /realtime/media-stream {
+		reverse_proxy voice-stream-worker:8080 {
+			import forwarded_headers
+			flush_interval -1
+			transport http {
+				versions 1.1 2
+			}
+		}
+	}
+
+	# Realtime websocket + presence, matched AFTER the media-stream handler above
+	# and BEFORE the catch-all.
 	handle /realtime/* {
 		reverse_proxy realtime:4000 {
 			import forwarded_headers

@@ -23,6 +23,28 @@
 
 ---
 
+## Start here
+
+**A judge with ninety seconds:**
+
+1. **The claim.** When a bank's fraud engine flags a transaction, an analyst picks it up ~9 minutes later and spends ~38 minutes on the call. The fraudster moves in seconds. This platform places a guardrailed, multilingual voice call to the customer **within 60 seconds of the signal** — and can hold a card or a claim payout while it does.
+2. **See it run.** [Demo walkthrough](#demo-walkthrough) · [live demo](docs/SUBMISSION.md)
+3. **Check the claim against evidence.** [`evidence/INDEX.md`](evidence/INDEX.md) states, per artifact, **whether it was measured or only targeted** — that distinction is the point of the bundle, not a caveat in it.
+4. **Read what makes it safe.** [Guardrails](#guardrails--one-in-the-ui-twelve-in-the-audit-chain) · [MODEL_CARD.md](MODEL_CARD.md)
+5. **Send a signal at it.** [Integration guide](docs/INTEGRATION.md) · [API surface](#api-surface)
+
+**The three claims worth interrogating**, because each is enforced in code rather than in a prompt:
+
+| Claim                                              | Where it is enforced                  | How it fails closed                                                                                            |
+| -------------------------------------------------- | ------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| The agent can never ask for a PIN, OTP or password | Server-side, on the tool boundary     | The request is refused before it reaches the model                                                             |
+| The agent can never freeze anything on its own     | State machine + category rules        | Only a human in the institution's own team finalises it — in **every** environment                             |
+| Pre-production can never reach a real customer     | `APP_ENV` gate in `src/lib/twilio.ts` | `staging` returns 403 and makes **zero** Twilio calls — [evidence](docs/evidence/staging-gate-2026-10-01.json) |
+
+**Status:** live in production; CI green on every push; promoted `dev → staging → main` automatically only when those gates pass.
+
+---
+
 ## What it does
 
 Today, when a bank's fraud engine flags a transaction, the case lands in a Tier‑1 analyst's queue ~9 minutes later. The analyst dials the customer, the customer doesn't recognize the number, and while the phone rings the fraudster completes the second transaction. The average call-center agent takes **38 minutes** to work a single case — the fraudster moves in **seconds**.
@@ -48,7 +70,7 @@ Today, when a bank's fraud engine flags a transaction, the case lands in a Tier�
 - 📞 **Real telephony** — live SMS + voice delivery via Twilio; runs in audit-only mode without credentials.
 - 🔑 **BYOK & white-label** — institutions can bring their own ElevenLabs key; per-organization branding on Settings.
 - 🧾 **Credits wallet** — per-organization budgeting of intervention usage.
-- 🚀 **Push-to-deploy** — a GitHub Action SSHes into the production VPS on every push to `main`, rebuilds, rolls the app and workers, and smoke-tests the origin.
+- 🚀 **Verified CI/CD on a self-hosted runner** — every commit lands on `dev`; green CI auto-promotes `dev → staging → main`; a merge to `main` builds, migrates and rolls the production VPS; each release is auto-tagged and published to GHCR. See [Deployment](#deployment).
 
 ## Quickstart
 
@@ -95,7 +117,7 @@ The reproducible, zero-setup path — Postgres, schema, seed data, realtime push
 docker compose up --build
 ```
 
-- **Caddy is the only service that publishes a port.** It terminates TLS on :443 and routes `/realtime/*` to the realtime service, everything else to the app.
+- **Caddy is the only service that publishes a port.** It terminates TLS on :443 and routes `/realtime/media-stream` to the voice-stream worker, `/realtime/*` to the realtime service, `/v1/*` to the app, and everything else to the app.
 - **http://localhost:3000** is served by the Next.js standalone bundle inside a slim Bun image.
 - A **Postgres 16** service comes up on the compose network, `db-setup` applies the Prisma schema and seeds demo cases, then `app` starts.
 - Data persists in the `db-data` volume; `docker compose down -v` resets to a factory-fresh demo.
@@ -110,10 +132,18 @@ postgresql://`). Verified empirically — don't be misled by older notes that me
 
 ```text
 Internet ── :443 ──► Caddy (the only published port)
-                     ├─ /realtime/*  ──► realtime:4000   Bun + Socket.IO
-                     ├─ /healthz     ──► answered at the edge
-                     └─ everything else ──► app:3000    Next.js standalone
+                     ├─ /realtime/media-stream ──► voice-stream-worker:8080   Twilio Media Streams (worker plane)
+                     ├─ /realtime/*            ──► realtime:4000              Bun + Socket.IO
+                     ├─ /v1/*                  ──► app:3000  (rewritten to /api/v1/*)
+                     ├─ /healthz               ──► answered at the edge
+                     └─ everything else        ──► app:3000    Next.js standalone
 ```
+
+The Twilio Media Streams worker plane is a **sibling prefix** under `/realtime`,
+not a route under `/api`: an edge matcher on `/api` would shadow the app's own
+`/api/voice-websocket` Next.js route out of its per-route rate limiting. Caddy
+matches `/realtime/media-stream` **before** the broader `/realtime/*`, and both
+live in `Caddyfile` (compose/TLS) and `Caddyfile.platform` (Northflank).
 
 `app` and `realtime` are reachable only on the compose network. That is what makes
 the trust model in `src/proxy.ts` sound: it believes `X-Forwarded-For` only when the
@@ -212,7 +242,7 @@ docker run -p 3000:3000 \
 | `POST /api/elevenlabs/tools/switch-language`                     | Agent tool → switch the conversation language mid-call                                                                                                                           |
 | `POST /api/elevenlabs/signed-url`                                | Mint a 15-min browser session credential; pins `ELEVENLABS_AGENT_ID`                                                                                                             |
 | `POST /api/twilio/status`                                        | Twilio delivery callbacks → folds the telecom outbox row (`X-Twilio-Signature` required, fails closed)                                                                           |
-| `POST /api/twilio/inbound-voice`                                 | Customer rings the institution's line back: tenant by dialled number, case by caller, then agent → human → spoken acknowledgement                                      |
+| `POST /api/twilio/inbound-voice`                                 | Customer rings the institution's line back: tenant by dialled number, case by caller, then agent → human → spoken acknowledgement                                                |
 | `GET /api/status` · `GET /api/health` · `GET /api/console/audit` | Status, liveness, audit chain export                                                                                                                                             |
 
 Full request/response examples are on the in-app **Docs** page. For signing, enrolment,
@@ -319,12 +349,12 @@ never seen before and hangs up on — the institution's B2B contract is over. So
 number is a per-tenant fact, resolved at the one place a carrier request is built
 (`src/lib/twilio.ts`), never passed in by a call site that might forget it:
 
-| Column (on `organization`)     | What it decides                                                                       |
-| ------------------------------ | ------------------------------------------------------------------------------------- |
-| `twilioVoiceNumber`            | Caller ID on the Twilio voice leg **and** the number `/api/twilio/inbound-voice` matches |
-| `twilioSmsSenderId`            | The tenant's SMS sender                                                               |
-| `twilioMessagingServiceSid`    | The tenant's Messaging Service — then **no `From` is sent at all**; Twilio picks the sender and the callback records the real number |
-| `elevenPhoneNumberId`          | The tenant's own DID on the conversation platform — caller ID on the primary (agent) plane |
+| Column (on `organization`)  | What it decides                                                                                                                      |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `twilioVoiceNumber`         | Caller ID on the Twilio voice leg **and** the number `/api/twilio/inbound-voice` matches                                             |
+| `twilioSmsSenderId`         | The tenant's SMS sender                                                                                                              |
+| `twilioMessagingServiceSid` | The tenant's Messaging Service — then **no `From` is sent at all**; Twilio picks the sender and the callback records the real number |
+| `elevenPhoneNumberId`       | The tenant's own DID on the conversation platform — caller ID on the primary (agent) plane                                           |
 
 A tenant that has configured nothing rides the platform identity, which is how every
 tenant predating these columns behaves. A tenant that **has** one is never quietly
@@ -514,20 +544,48 @@ per-category powers) and its evaluation criteria — but the enforcement is ours
 
 ## Deployment
 
-The production deployment is a **Hetzner VPS** running the compose stack, with **Caddy as
-the only published port** (TLS, per-site blocks, log redaction) on a shared edge, and the
-product hostname fronted by **Cloudflare proxied DNS**. Deploys are automated:
+The production deployment is a **VPS** running the compose stack, with **Caddy as the only
+published port** (TLS, per-site blocks, log redaction) on a shared edge. The pipeline is
+fully automated, and every stage is gated on the one before it:
 
-1. Push to `main` → the GitHub Action SSHes in, pulls, rebuilds the `app`, `dial-worker`
-   and `retention-worker` images, rolls them, and smoke-tests `GET /api/health` on the
-   running origin.
-2. The VPS checkout keeps its own edge configuration (`Caddyfile` site blocks for the
-   shared proxy) under `git update-index --skip-worktree`, so a deploy pull never trips
-   over deployment-local state.
-3. Migrations are versioned SQL applied by the `db-setup` one-shot on every stack bring-up
-   (`prisma/migrations/` — additive by policy).
+```
+push ─▶ dev ─▶ CI ─▶ auto-merge ─▶ staging ─▶ CI ─▶ auto-merge ─▶ main ─▶ Deploy ─▶ VPS rolls
+                                                    │
+                                                    └─▶ auto-tag vX.Y.Z ─▶ GHCR image + GitHub Release
+```
 
-The platform agent's own configuration is **not** deployed by the Action — it is applied
+1. **A commit starts at `dev`.** CI runs on the push.
+2. **Green CI promotes automatically.** A promotion PR is opened `dev → staging` and
+   auto-merge is armed on it, so it lands as soon as the required checks pass — and stays
+   open and visibly red when they do not. Merging into `staging` opens and arms the next
+   PR, `staging → main`. The ladder only ever moves upward; `main → dev` is a revert and is
+   refused.
+3. **Only green `main` deploys.** Deploy is triggered by CI _completing_ on `main` and
+   refuses to run unless that conclusion was `success`, so a red build can no longer roll
+   forward. It pulls the live checkout, rebuilds `app`, `dial-worker`, `retention-worker`
+   and `db-setup`, applies versioned migrations (`prisma/migrations/` — additive by
+   policy) with the `db-setup` one-shot, rolls the containers, and smoke-tests
+   `GET /api/health`.
+4. **A release is a tag, and the tag is automatic.** After a green `main` the version in
+   `package.json` is bumped, committed and tagged; the tag push builds the image, pushes it
+   to GHCR with provenance and an SBOM, smoke-tests the published image, and cuts the
+   GitHub Release. The tag is the single version authority, so a tag disagreeing with
+   `package.json` fails loudly instead of shipping a mislabelled image.
+
+**Where CI runs.** Every job executes on a self-hosted runner (`securevoice-vps`) on the
+deployment host itself. GitHub-hosted `ubuntu-latest` is unusable on this account — jobs
+fail at startup with no runner, no steps and no logs, even for a bare `echo`. Running in
+place also means the deploy needs no SSH hop into the machine it is already on.
+
+Because CI shares the host with production, the smoke test runs under its **own compose
+project** (`securevoice-ci`) on its **own host ports** (`18080`/`18443`), and asserts after
+every run that production still has its full set of containers and a healthy origin. A CI
+job therefore cannot replace or delete the live stack — see `docker-compose.ci.yml`. The
+VPS checkout keeps its own edge configuration (`Caddyfile` site blocks for the shared
+proxy) under `git update-index --skip-worktree`, so a deploy pull never trips over
+deployment-local state.
+
+The platform agent's own configuration is **not** deployed by CI — it is applied
 declaratively by `bun run agent:apply` (deep-diffed against the YAML), so agent prompt and
 tool changes are code-reviewed like everything else.
 
@@ -573,11 +631,20 @@ a measured one.
 
 ## Branching model
 
-| Branch    | Role                                                |
-| --------- | --------------------------------------------------- |
-| `main`    | Submission-ready, stable — the branch judges review |
-| `staging` | Pre-release integration & verification screenshots  |
-| `dev`     | Active development                                  |
+Every commit starts at `dev` and walks up one rung at a time. Promotion opens a pull
+request and arms auto-merge, so each rung lands **only when CI is green** — no rung is
+reached by a manual merge step, and no rung can be reached at all on a failing check.
+
+| Branch    | Role                                                    | Reached by                                 |
+| --------- | ------------------------------------------------------- | ------------------------------------------ |
+| `dev`     | Integration — where every commit lands first            | your `git push`                            |
+| `staging` | Pre-production; `APP_ENV` refuses to contact a customer | auto-merge of `dev → staging` on green CI  |
+| `main`    | Production — the branch judges read                     | auto-merge of `staging → main` on green CI |
+
+`main` is the branch judges review, and the only one whose push deploys and can reach a
+real phone. To put a human back in front of that last step, enable required review on
+`main` in repo settings — auto-merge then waits for the approval, and everything else
+keeps working.
 
 ---
 

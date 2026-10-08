@@ -17,6 +17,7 @@ import { db } from "@/lib/db";
 import { enqueueOutbox, type BankEventInput } from "@/lib/outbox";
 import { notify } from "@/lib/notifications";
 import { notifyRealtime } from "@/lib/realtime";
+import { logError } from "@/lib/validation/safe-log";
 
 export const CASE_STATES = [
   "RECEIVED",
@@ -68,12 +69,43 @@ const TRANSITIONS: Record<string, readonly string[]> = {
   NO_ANSWER: ["RETRY_SCHEDULED", "EXHAUSTED", "UNREACHABLE"],
   BUSY: ["RETRY_SCHEDULED", "EXHAUSTED", "UNREACHABLE"],
   VOICEMAIL: ["RETRY_SCHEDULED", "EXHAUSTED", "UNREACHABLE"],
-  // The only way out is NOTIFIED, written in ONE transaction with the bank's
-  // outbound event (transitionCaseWithOutbox). That is deliberate: a customer's
-  // SMS reply, or 24h of silence, must never leave a case in a half-resolved
-  // state with no event behind it. The `resolution_method` on that event says
-  // HOW it resolved (sms_reply_yes / sms_reply_no / unreachable_no_reply / ...).
-  UNREACHABLE: ["NOTIFIED"],
+  // NOTIFIED is the way out that ENDS the case, written in ONE transaction with
+  // the bank's outbound event (transitionCaseWithOutbox). That is deliberate: a
+  // customer's SMS reply, or 24h of silence, must never leave a case in a
+  // half-resolved state with no event behind it. The `resolution_method` on that
+  // event says HOW it resolved (sms_reply_yes / sms_reply_no /
+  // unreachable_no_reply / ...).
+  //
+  // RETRY_SCHEDULED is the second edge, and it exists so an SMS REPLY can put a
+  // case back into the VOICE flow instead of reporting it as unanswered. The
+  // blind-ping SMS is the fallback for a call that failed, but the fallback
+  // cannot always finish the job: a customer who answers the text is provably
+  // reachable on that handset while the text itself says nothing that resolves
+  // the alert (they asked for a human, or the reply is unusable across two
+  // tenants waiting on one number). Leaving that case in UNREACHABLE until the
+  // window closes makes the sweep publish `unreachable_no_reply` — a false
+  // statement to the bank's fraud team about a customer who did reply — when the
+  // correct outcome is to try the voice channel again on a number that just
+  // proved it is live.
+  //
+  // To RETRY_SCHEDULED and not to DIALING: the dial worker is the only thing
+  // that may enter DIALING, and only from a job it has claimed (SCREENED and
+  // RETRY_SCHEDULED are its two legal predecessors — src/worker/dial.ts). A
+  // direct UNREACHABLE -> DIALING edge would let a webhook mark a call as placed
+  // with no job, no attempt number, no calling-window check and no carrier
+  // behind it, which is the exact falsehood
+  // tests/unit/dial-media-streams-truth.test.ts exists to prevent.
+  // RETRY_SCHEDULED is also where the attempt ladder, the after-hours deferral
+  // and the `dial_job` (case_id, attempt_no) uniqueness already hang.
+  //
+  // NOTIFIED stays the only edge that closes the loop with the bank, so adding
+  // this one strands nothing: RETRY_SCHEDULED reaches DIALING, and a dial that
+  // exhausts dead-letters back through the SMS fallback. A writer must first
+  // check WHY the case became UNREACHABLE — a `hearing_impaired` case enters it
+  // with voice deliberately skipped (src/app/api/v1/interventions/route.ts), and
+  // re-dialling that customer is the accessibility failure the SMS-only path
+  // exists to avoid.
+  UNREACHABLE: ["NOTIFIED", "RETRY_SCHEDULED"],
   RETRY_SCHEDULED: ["DIALING", "EXHAUSTED"],
   REJECTED: [],
   FAILED: [],
@@ -172,10 +204,9 @@ async function recordTransition(
     },
     { fast: true },
   ).catch((err) => {
-    console.error(
-      "[case-state] transition audit failed:",
-      err instanceof Error ? err.message : err,
-    );
+    logError("[case-state] transition audit failed", {
+      error: err instanceof Error ? err.message : String(err),
+    });
   });
 
   // Emit an in-app notification for states that require human attention (WP-20)
@@ -189,7 +220,9 @@ async function recordTransition(
       body: `Transitioned from ${from} to ${to}`,
       caseRef,
     }).catch((err) => {
-      console.error("[case-state] notification failed:", err instanceof Error ? err.message : err);
+      logError("[case-state] notification failed", {
+        error: err instanceof Error ? err.message : String(err),
+      });
     });
   }
 

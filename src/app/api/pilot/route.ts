@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { env } from "@/lib/config";
 import { db } from "@/lib/db";
+import { logError } from "@/lib/validation/safe-log";
 
 export const dynamic = "force-dynamic";
 
@@ -123,7 +124,9 @@ export async function POST(req: NextRequest) {
     } catch (err) {
       const code = (err as { code?: string } | null)?.code;
       if (code === "P2002") continue; // ref collision — try a fresh ref
-      console.error("[pilot] insert failed:", err);
+      logError("[pilot] insert failed", {
+        error: err instanceof Error ? err.message : String(err),
+      });
       break;
     }
   }

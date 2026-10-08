@@ -10,6 +10,20 @@ import type { NextConfig } from "next";
  *    never advances past 0%, which is how this deployment went dark. Measured, not
  *    inferred: a headless load of the live origin reported six blocked inline
  *    scripts before any of the page's own JS could run.
+ *  - A nonce or hash is NOT a second way to permit those scripts here — it is a
+ *    way to break them. Browsers IGNORE 'unsafe-inline' whenever script-src
+ *    carries a nonce or hash source, so `script-src 'self' 'nonce-…'
+ *    'unsafe-inline'` blocks the flight scripts exactly like `script-src 'self'`.
+ *    This build's flight scripts carry neither token, so any nonce/hash in the
+ *    directive is unmatched by definition. The surface suite rejects it
+ *    (tests/surface/surface.test.ts) rather than accepting "any nonce or hash".
+ *  - Injection tradeoff, stated plainly: script-src 'unsafe-inline' means an
+ *    attacker who can inject script-bearing markup gets it executed. The
+ *    compensating control is at the source — first-party code renders no
+ *    attacker-reachable HTML (the only dangerouslySetInnerHTML in the app is a
+ *    <style> block of chart colors, pinned by the surface suite), and every
+ *    other executable directive is closed: object-src 'none', base-uri 'self',
+ *    form-action 'self', frame-ancestors 'none', no 'unsafe-eval' in production.
  *  - The strict alternative is a per-request nonce (`script-src 'nonce-…'
  *    'strict-dynamic'`) generated in proxy.ts with dynamic rendering. It is NOT in
  *    place here, and nothing in this version of Next was found to add the nonce to

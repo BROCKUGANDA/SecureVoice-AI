@@ -667,6 +667,22 @@ jobs:
 
       # The host ports come from the override, not from docker-compose.yml,
       # because production already holds 80/443 on this machine.
+      # Reclaim smoke networks leaked by earlier runs. The teardown below used to
+      # name a fixed project (`securevoice-ci`) while the stack ran under the
+      # per-run `$PROJECT`, so every run's `svci-*` network was never removed and
+      # they eventually exhausted Docker's default address pool — the stack then
+      # failed with "all predefined address pools have been fully subnetted",
+      # which is what broke every PR's compose smoke. Removing only `svci-`
+      # networks is safe: it never matches production's `securevoice-ai` network,
+      # and `docker network rm` refuses any network that still has connected
+      # containers, so a concurrently running smoke job is left untouched; stale
+      # ones have none and are removed.
+      - name: Reclaim stale smoke networks
+        run: |
+          for n in $(docker network ls --filter 'name=svci-' -q); do
+            docker network rm "$n" 2>/dev/null || true
+          done
+
       - name: Build and start the stack
         run: docker compose -f docker-compose.yml -f docker-compose.ci.yml -p "$PROJECT" up -d --build --wait --wait-timeout 300
 
@@ -736,13 +752,13 @@ jobs:
           fi
           echo "realtime is expose-only, as intended"
 
-      # Always tears down the CI project ONLY. `-p securevoice-ci` is what keeps
-      # this from reaching the production containers and its database volume.
-      # The .env goes too: the runner's checkout directory persists between jobs
-      # on this self-hosted runner, so a throwaway env file left behind would
-      # silently become the config for whatever runs next.
+      # Always tears down the CI project ONLY, and it must name the SAME per-run
+      # project that "Build and start the stack" created ($PROJECT). Naming a
+      # fixed project here (as this used to) tears down nothing and leaks the
+      # run's network — the bug that exhausted the address pool. `$PROJECT` is
+      # written to $GITHUB_ENV by the allocate step, so it is in scope here.
       - name: Tear down
         if: always()
         run: |
-          docker compose -f docker-compose.yml -f docker-compose.ci.yml -p securevoice-ci down -v || true
+          docker compose -f docker-compose.yml -f docker-compose.ci.yml -p "$PROJECT" down -v --remove-orphans || true
           rm -f .env

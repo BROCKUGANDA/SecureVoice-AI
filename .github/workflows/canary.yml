@@ -1,0 +1,14 @@
+name: Canary
+
+on: workflow_dispatch
+
+permissions:
+  contents: read
+
+jobs:
+  ping:
+    name: Ping
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - run: echo "runner alive on ${{ runner.os }} / ${{ runner.name }}"

@@ -146,12 +146,16 @@ jobs:
       # check is worse than no gate — so CI has to provide one or this step is
       # red for a reason that has nothing to do with the code under test.
       #
+      # 127.0.0.1, NOT a bare `-p 6380:6379`. A published port with no host
+      # address binds EVERY interface, so on this VPS anyone who could reach the
+      # box on :6380 would have an unauthenticated Redis. Only the two test
+      # processes on this same host need it.
+      #
       # 6380 is the port the test already asks for. It is not production's 6379,
-      # and the container is scoped to this job and removed at the end of it, so
-      # it cannot collide with the live stack on this host.
+      # and the container is scoped to this job and removed at the end of it.
       - name: Realtime service — Redis for the cross-node gate
         run: |
-          docker run -d --rm --name sv-ci-realtime-redis -p 6380:6379 redis:7-alpine
+          docker run -d --rm --name sv-ci-realtime-redis -p 127.0.0.1:6380:6379 redis:7-alpine
           for _ in $(seq 1 30); do
             docker exec sv-ci-realtime-redis redis-cli ping >/dev/null 2>&1 && break
             sleep 1
@@ -171,14 +175,18 @@ jobs:
       # tenancy/billing/audit suite failed with Prisma P1001 (DatabaseNot-
       # Reachable) and the gate reported a red run for a reason that had nothing
       # to do with the code under test.
-      #
-      # A bare `docker run` container on port 55432, deliberately NOT
-      # `docker compose up -d db` — that resolves to the hardcoded
-      # `securevoice-ai` project, which on this host IS production.
       - name: Start the test database
         run: |
+          # A bare `docker run` container, deliberately NOT
+          # `docker compose up -d db` — that resolves to the hardcoded
+          # `securevoice-ai` project, which on this host IS production.
+          #
+          # 127.0.0.1 on the publish side, same reason as the Redis above: a bare
+          # `-p 55432:5432` binds EVERY interface and would expose a Postgres with
+          # well-known throwaway credentials to the network for the few minutes
+          # this container exists.
           docker rm -f sv-ci-db 2>/dev/null || true
-          docker run -d --name sv-ci-db -p 55432:5432 \
+          docker run -d --name sv-ci-db -p 127.0.0.1:55432:5432 \
             -e POSTGRES_USER=securevoice \
             -e POSTGRES_PASSWORD=securevoice \
             -e POSTGRES_DB=securevoice \

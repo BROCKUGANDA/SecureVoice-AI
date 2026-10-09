@@ -201,6 +201,12 @@ const PUBLIC_BY_DESIGN: Readonly<Record<string, string>> = {
     "Twilio Media Streams websocket plane; the upgrade is guarded by the stream handshake, not an operator session (src/app/api/voice-websocket/route.ts)",
   "/api/operator/webhooks":
     "operator webhook catalogue; rate-limited and lists env var NAMES only, never values — proven by tests/e2e/operator-webhooks.test.ts; metadata, like /api/meta",
+  "/api/operator/manifest":
+    "operator capability manifest (knowledge base + RAG, tools & actions); rate-limited and lists configuration only, never any secret value — proven by tests/e2e/operator-manifest.test.ts; metadata, like /api/operator/webhooks",
+  "/api/operator/evaluation":
+    "operator agent-testing evidence (multi-run pass rates, tool-call criterion); rate-limited and read from the committed evidence artifacts, telemetry only — never a transcript or credential — proven by tests/e2e/operator-evaluation.test.ts; metadata, like /api/operator/manifest",
+  "/api/operator/model-layer":
+    "operator model-layer surface (agent-plane LLM + continuity fallback cascade, active provider by NAME only); rate-limited, returns no credential — proven by tests/e2e/operator-model-layer.test.ts; metadata, like /api/operator/manifest",
   "/api/compliance/intervention-gate":
     "stateless intervention-policy validator plus PII redaction over the request body; touches no tenant state, stores nothing and privileges nothing",
 };

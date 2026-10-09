@@ -200,14 +200,19 @@ languages:
     first_message: यह कॉल आपकी सुरक्षा के लिए रिकॉर्ड की जा रही है। मैं आपके बैंक का AI सुरक्षा सहायक हूं।
     disclosure: यह कॉल आपकी सुरक्षा के लिए रिकॉर्ड की जा रही है। मैं एक स्वचालित AI सुरक्षा सहायक हूं, मनुष्य नहीं।
 
-# TTS — flash v2 over μ-law 8 kHz: the correct model class for real-time
-# PSTN telephony. The platform requires a turbo/flash v2 model for English
-# agents (flash v2.5 / turbo v2.5 are rejected when the default language is
-# English). flash v2 is the lowest-latency v2 model that supports the
-# en/ar/hi preset set. Multilingual v2 adds latency and is the wrong model
-# class.
+# TTS — eleven_v4_turbo, matched to the live agent. Eleven v3 ("Expressive
+# TTS", the Stage-2 target) is gated across TWO separate entitlements, and this
+# account holds only one: a key synthesizes v3 DIRECTLY (POST /text-to-speech
+# → 200), but the CONVERSATIONAL-AI agent platform separately rejects
+# `tts.model_id: eleven_v3` on PATCH with 400 `expressive_tts_not_allowed` —
+# verified on BOTH keys on 2026-10-09. So the agent plane cannot run v3 on any
+# tested key and settles on eleven_v4_turbo (what is live), which keeps the
+# agent:apply drift gate green. The WORKER path still resolves its own model per
+# language via resolveTtsModel (Urdu/Swahili → eleven_v4_turbo), which the live
+# key voices directly, so those two languages synthesize properly even though
+# the agent plane stays on v4.
 tts:
-  model_id: eleven_flash_v2
+  model_id: eleven_v4_turbo
   output_format: ulaw_8000
   stability: 0.5
   speed: 1.0

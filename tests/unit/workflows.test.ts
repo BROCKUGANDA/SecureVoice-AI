@@ -5,7 +5,12 @@
  * hop returns, and the validator rejects dangling/orphan/dead-end graphs.
  */
 import { describe, expect, test } from "bun:test";
-import { FRAUD_WORKFLOW, SPECIALIST_WORKFLOW, workflowSchema } from "@/lib/workflows/schema";
+import {
+  FRAUD_WORKFLOW,
+  SPECIALIST_WORKFLOW,
+  workflowSchema,
+  type WorkflowNode,
+} from "@/lib/workflows/schema";
 import { validateWorkflow } from "@/lib/workflows/validate";
 import { runWorkflow, reachableTools, interpolate } from "@/lib/workflows/runner";
 import { validateDocument, getWorkflow, resolveSubagent } from "@/lib/workflows";
@@ -14,7 +19,7 @@ const spy = () => {
   const calls: Array<{ tool: string; args: Record<string, string> }> = [];
   return {
     calls,
-    callTool: async (_n, tool: string, args: Record<string, string>) => {
+    callTool: async (_n: WorkflowNode, tool: string, args: Record<string, string>) => {
       calls.push({ tool, args });
       return { ok: true as const };
     },

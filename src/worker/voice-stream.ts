@@ -17,6 +17,7 @@ import type { TtsLang } from "@/lib/elevenlabs/client";
 import { resolveTtsModel } from "@/lib/elevenlabs/client";
 import { DeepgramLiveClient } from "@/lib/voice/deepgram-client";
 import { ElevenLabsStream } from "@/lib/voice/elevenlabs-stream";
+import { ConversationState } from "@/lib/voice/conversation";
 import { routeAgentIntent, AgentRole } from "@/lib/ai/router";
 import { executeSoftFreeze } from "@/lib/ai/ai-authz";
 import { sanitizeShariah } from "@/lib/compliance/shariah-filter";
@@ -24,6 +25,14 @@ import { logError, logInfo, logWarn } from "@/lib/validation/safe-log";
 
 const PORT = Number(process.env.VOICE_STREAM_PORT ?? 8080);
 const HOST = process.env.VOICE_STREAM_HOST ?? "0.0.0.0";
+
+/**
+ * How long the caller may stay silent — while the AI is merely LISTENING —
+ * before the worker offers a nudge. Comfortably past a natural turn-taking
+ * pause so it never cuts a caller off mid-thought, short enough to end real
+ * dead air. The nudge itself is rate-limited by ConversationState.MAX_NUDGES.
+ */
+const SILENCE_NUDGE_MS = 8000;
 
 type CallState = {
   deepgram: DeepgramLiveClient | null;
@@ -49,10 +58,16 @@ type CallState = {
    * Language comes from the job, not from a guess: the dial worker already
    * knows it, and a wrong guess is worse than the default because it would
    * apply the wrong TTS MODEL (see resolveTtsModel — Urdu and Swahili require
-   * eleven_v3, and pinning multilingual_v2 for them cannot synthesise the
+   * eleven_v4_turbo, and pinning multilingual_v2 for them cannot synthesise the
    * language at all).
    */
   lang: TtsLang;
+  /**
+   * The conversational state machine driving the greeting, the silence nudge,
+   * and barge-in for this call (src/lib/voice/conversation.ts). Optional so the
+   * tests that build a bare CallState stay valid.
+   */
+  conv?: ConversationState;
 };
 
 /**
@@ -159,7 +174,7 @@ async function safeTtsStream(state: CallState, ws: WebSocket, text: string): Pro
 
   // The voice and the MODEL are both per-language. `resolveTtsModel` is the
   // single table the rest of the platform uses (src/lib/elevenlabs/client.ts) —
-  // it pins Urdu and Swahili to eleven_v3 because eleven_multilingual_v2 cannot
+  // it pins Urdu and Swahili to eleven_v4_turbo because eleven_multilingual_v2 cannot
   // voice them. Reading env.elevenLabsModel directly here, as this path
   // previously did, silently selected a model that cannot synthesise Urdu: the
   // request fails, the fallback path also fails, and the customer hears nothing
@@ -257,6 +272,15 @@ async function playEmergencyFallback(state: { lang: TtsLang }, ws: WebSocket): P
   }
 }
 
+/** Send Twilio's audio-flush signal, tolerating a socket that already closed. */
+function clearTwilioBuffer(ws: WebSocket): void {
+  try {
+    ws.send(JSON.stringify({ event: "clear" }));
+  } catch {
+    // the caller hung up mid-turn; there is nothing left to flush
+  }
+}
+
 async function handleTranscript(
   callSid: string,
   text: string,
@@ -271,8 +295,22 @@ async function handleTranscript(
     state.lastFinal = text;
   }
 
+  // Barge-in: the caller is talking over the AI. Stop the AI's turn in-flight —
+  // flush Twilio's audio buffer and cancel the ElevenLabs stream mid-utterance —
+  // so a caller never has to shout over the agent. An interim interrupt only
+  // stops the AI (their full turn routes when it finalizes); a FINAL heard
+  // while the AI was speaking stops the AI and then continues to route below.
+  const conv = state.conv;
+  if (conv?.onBargeIn()) {
+    state.tts?.cancel();
+    clearTwilioBuffer(ws);
+    if (!isFinal) return;
+  }
+
   // Only route on final transcripts to avoid premature actions.
   if (!isFinal) return;
+
+  conv?.markThinking();
 
   const role: AgentRole = await routeAgentIntent(text);
 
@@ -304,7 +342,12 @@ async function handleTranscript(
     role === "empathy_agent"
       ? (HOLDING_EMPATHY[state.lang] ?? HOLDING_EMPATHY.en)
       : (HOLDING_FOLLOWUP[state.lang] ?? HOLDING_FOLLOWUP.en);
+  conv?.beginSpeaking();
   await safeTtsStream(state, ws, reply);
+  // The reply has finished draining; the AI is listening again, so the dead-air
+  // nudge may re-arm. Not on the fraud branch — that branch ends the call, and
+  // nudging a closing call would be nonsense.
+  conv?.onSpeechEnd();
 }
 
 function createServer() {
@@ -318,13 +361,40 @@ function createServer() {
     // for the whole call.
     const lang = asCallLang(url.searchParams.get("lang"));
     const state = getOrCreateCall(callSid, lang);
+    // The conversational state machine (greeting / nudge / barge-in) lives for
+    // the life of this call and is reachable from handleTranscript via state.
+    const conv = new ConversationState(lang);
+    state.conv = conv;
 
     logInfo("[voice-stream] call connected", { callSid, lang });
+
+    // Dead-air guard. While the AI is merely LISTENING and the caller has gone
+    // quiet, offer a bounded nudge instead of leaving silence. It is armed after
+    // every spoken turn and reset whenever the caller makes any noise, so it can
+    // neither talk over an answer being spoken nor loop forever.
+    let nudgeTimer: ReturnType<typeof setTimeout> | null = null;
+    const armNudge = () => {
+      if (nudgeTimer) clearTimeout(nudgeTimer);
+      nudgeTimer = setTimeout(() => {
+        if (state.ended) return;
+        const nudge = conv.onSilence();
+        if (!nudge) return; // not listening, or the per-turn budget is spent
+        void safeTtsStream(state, ws, nudge.speak)
+          .then(() => {
+            if (!state.ended) conv.onSpeechEnd();
+            armNudge();
+          })
+          .catch(() => armNudge());
+      }, SILENCE_NUDGE_MS);
+    };
 
     const deepgram = new DeepgramLiveClient(env.deepgramApiKey ?? "");
     state.deepgram = deepgram;
 
     deepgram.onTranscript((text, isFinal) => {
+      // Any inbound speech means the caller is alive: restart the dead-air
+      // clock so a nudge never fires over someone mid-answer.
+      if (!state.ended) armNudge();
       handleTranscript(callSid, text, isFinal, ws).catch((err) => {
         logError("[voice-stream] transcript handler failed", {
           error: err instanceof Error ? err.message : String(err),
@@ -338,6 +408,22 @@ function createServer() {
     // Urdu speech, which the Urdu-aware router then cannot recognise as a
     // denial, so the soft freeze never fires.
     const dgWs = deepgram.start(lang);
+
+    // T+0 opening greeting. This worker was previously purely reactive — silent
+    // until the first inbound transcript — which left the caller facing dead air
+    // before the agent had said a word. The opening line is spoken as soon as
+    // the stream is up, and the dead-air clock starts once it has drained.
+    const opener = conv.greeting();
+    if (opener) {
+      void safeTtsStream(state, ws, opener.speak)
+        .then(() => {
+          if (!state.ended) conv.onSpeechEnd();
+          armNudge();
+        })
+        .catch(() => armNudge());
+    } else {
+      armNudge();
+    }
 
     ws.on("message", (data) => {
       if (state.ended) return;
@@ -353,6 +439,7 @@ function createServer() {
     });
 
     ws.on("close", () => {
+      if (nudgeTimer) clearTimeout(nudgeTimer);
       deepgram.stop();
       state.deepgram = null;
       state.tts = null;

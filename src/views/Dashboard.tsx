@@ -16,6 +16,9 @@ import {
   Search,
   Webhook,
   XCircle,
+  BookOpen,
+  Wrench,
+  Boxes,
 } from "lucide-react";
 import { useApp, t } from "@/lib/store";
 import { RECENT_CALLS, AUDIT_LOG, KPIS, LANG_DIST, OUTCOME_DIST, TREND, VOICES } from "@/lib/data";
@@ -495,6 +498,453 @@ const GUARDRAILS = [
   { en: "Distress detection → priority handoff", ar: "اكتشاف الضيق", on: true },
 ];
 
+/**
+ * Knowledge Base + RAG and Tools & Actions — the agent's KNOWLEDGE and
+ * CAPABILITY surfaces, rendered from the operator manifest.
+ *
+ * Fetched ONCE from /api/operator/manifest (a rate-limited route): the same
+ * machine-readable truth an integrator could script against, per the
+ * WebhookConfigSection precedent — no second hardcoded copy here. This is the
+ * BYOK dashboard promise made visible: which documents ground the agent, and
+ * which tools it can reach, bounded by the trust context that stops an agent
+ * serving an untrusted caller from a privileged action.
+ */
+type ManifestTool = {
+  name: string;
+  label: string;
+  backend: string;
+  description: string;
+  scoping: string;
+  trust: string;
+  trust_note: string;
+};
+
+type AgentManifest = {
+  knowledge_base: Array<{
+    title: string;
+    lang: string;
+    version: string;
+    scope: string;
+  }>;
+  rag: { max_vector_distance: number; note: string };
+  tools: ManifestTool[];
+  mcp: { endpoint: string; note: string };
+};
+
+function AgentCapabilitiesSection() {
+  const { lang } = useApp();
+  const [data, setData] = useState<AgentManifest | null>(null);
+  const [error, setError] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/operator/manifest", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+      .then((d: AgentManifest) => {
+        if (!cancelled) setData(d);
+      })
+      .catch(() => {
+        if (!cancelled) setError(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return (
+    <div className="space-y-5 lg:col-span-2">
+      {/* Knowledge base + RAG + source attribution */}
+      <div className="rounded-3xl border border-line bg-white p-5 sm:p-6">
+        <div className="flex items-center gap-2">
+          <BookOpen className="h-4 w-4 text-primary" />
+          <h3 className="text-[14px] font-semibold">
+            {t("Knowledge base + RAG", "قاعدة المعرفة والاسترجاع", lang)}
+          </h3>
+        </div>
+        <p dir="rtl" className="font-arabic mt-1 text-[11px] text-ink-3">
+          الوثائق التي يستند إليها الوكيل، مع نسب المصدر
+        </p>
+
+        {error && (
+          <p className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-[12.5px] text-red-700">
+            {t(
+              "Could not load the capability manifest. GET /api/operator/manifest directly.",
+              "تعذر تحميل بيان القدرات. استدعِ GET /api/operator/manifest مباشرة.",
+              lang,
+            )}
+          </p>
+        )}
+        {!data && !error && (
+          <p className="mt-4 text-[12.5px] text-ink-3">{t("Loading…", "جارٍ التحميل…", lang)}</p>
+        )}
+
+        {data && (
+          <div className="mt-4 space-y-4">
+            <div className="flex flex-wrap gap-2">
+              <span className="flex items-center gap-1 rounded-full border border-line bg-secondary px-2.5 py-1 text-[10.5px] font-semibold text-ink-2">
+                <BookOpen className="h-3.5 w-3.5 text-primary" />
+                {t("RAG enabled", "الاسترجاع مُفعّل", lang)}
+              </span>
+              <span className="rounded-full border border-line bg-secondary px-2.5 py-1 text-[10.5px] font-semibold text-ink-2">
+                {t("Source attribution", "نسب المصدر", lang)}
+              </span>
+              <span className="num rounded-full border border-line px-2.5 py-1 text-[10.5px] text-ink-2">
+                max_vector_distance {data.rag.max_vector_distance}
+              </span>
+            </div>
+            <div className="space-y-3">
+              {data.knowledge_base.map((doc) => (
+                <div key={doc.lang} className="rounded-2xl border border-line bg-paper px-4 py-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-[12.5px] font-semibold text-foreground">{doc.title}</span>
+                    <span className="num text-[10.5px] uppercase text-ink-3">
+                      {doc.lang} · {doc.version}
+                    </span>
+                  </div>
+                  <p className="mt-1 text-[11.5px] leading-relaxed text-ink-2">{doc.scope}</p>
+                </div>
+              ))}
+            </div>
+            <p className="text-[11.5px] leading-relaxed text-ink-3">{data.rag.note}</p>
+          </div>
+        )}
+      </div>
+
+      {/* Tools & actions + trust context */}
+      <div className="rounded-3xl border border-line bg-white p-5 sm:p-6">
+        <div className="flex items-center gap-2">
+          <Wrench className="h-4 w-4 text-primary" />
+          <h3 className="text-[14px] font-semibold">
+            {t("Tools & actions", "الأدوات والإجراءات", lang)}
+          </h3>
+        </div>
+        <p dir="rtl" className="font-arabic mt-1 text-[11px] text-ink-3">
+          الأدوات المتصلة عبر MCP، مع النطاق وسياق الثقة
+        </p>
+
+        {data && (
+          <div className="mt-4 space-y-4">
+            <p className="rounded-2xl border border-line bg-paper px-4 py-3 text-[11.5px] leading-relaxed text-ink-2">
+              <span className="num font-semibold text-foreground">{data.mcp.endpoint}</span> —{" "}
+              {data.mcp.note}
+            </p>
+            <div className="space-y-3">
+              {data.tools.map((tool) => (
+                <div key={tool.name} className="rounded-2xl border border-line bg-paper px-4 py-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-[12.5px] font-semibold text-foreground">
+                      {tool.label}
+                    </span>
+                    <span className="num text-[10.5px] text-ink-3">{tool.name}</span>
+                    {tool.trust === "privileged" ? (
+                      <span className="flex items-center gap-1 rounded-full border border-line bg-secondary px-2.5 py-1 text-[10.5px] font-semibold text-ink-2">
+                        <ShieldCheck className="h-3.5 w-3.5 text-primary" />
+                        {t("privileged · trust-gated", "مقيّد بسياق الثقة", lang)}
+                      </span>
+                    ) : (
+                      <span className="rounded-full border border-line px-2.5 py-1 text-[10.5px] font-semibold text-ink-3">
+                        {t("safe", "آمن", lang)}
+                      </span>
+                    )}
+                  </div>
+                  <p className="mt-1 text-[11.5px] leading-relaxed text-ink-2">
+                    {tool.description}
+                  </p>
+                  <p className="num mt-1 text-[10.5px] text-ink-3">
+                    {t("backend", "الخلفية", lang)}: {tool.backend} · {t("scope", "النطاق", lang)}:{" "}
+                    {tool.scoping}
+                  </p>
+                  <p className="mt-0.5 text-[10.5px] leading-relaxed text-ink-3">
+                    {tool.trust_note}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Agent Testing / Evaluation — the Stage-2 evidence surface.
+ *
+ * Multi-run pass rates, the tool-call criterion, and which scenarios were
+ * proven offline, read from the committed evidence artifacts via
+ * /api/operator/evaluation. The honesty framing is rendered verbatim from the
+ * API: an unverified run is shown as unverified, never as a pass, because a
+ * rate the operator cannot reproduce is worse than no panel.
+ */
+type EvaluationArm = {
+  language: string;
+  runs_per_scenario: number;
+  generated_at: string | null;
+  agent_layer: { scored: number; passed: number; pass_rate: number };
+  tool_call: { executed: number; pass_rate: number; criterion_met: boolean; unverified: number };
+  coverage: { proven_offline: string[]; unverified: number };
+  tool_scenarios: Array<{ id: string; title: string; kind: string | null; pass_rate: number }>;
+};
+
+type Evaluation = {
+  ok: boolean;
+  agent_id: string | null;
+  endpoint: string | null;
+  languages: EvaluationArm[];
+  integrity_note: string;
+};
+
+const pct = (n: number) => `${Math.round(n * 100)}%`;
+
+function EvaluationSection() {
+  const { lang } = useApp();
+  const [data, setData] = useState<Evaluation | null>(null);
+  const [error, setError] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/operator/evaluation", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+      .then((d: Evaluation) => {
+        if (!cancelled) setData(d);
+      })
+      .catch(() => {
+        if (!cancelled) setError(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return (
+    <div className="space-y-5 lg:col-span-2">
+      <div className="rounded-3xl border border-line bg-white p-5 sm:p-6">
+        <div className="flex items-center gap-2">
+          <BarChart3 className="h-4 w-4 text-primary" />
+          <h3 className="text-[14px] font-semibold">
+            {t("Agent testing · evaluation", "اختبار الوكيل والتقييم", lang)}
+          </h3>
+        </div>
+        <p dir="rtl" className="font-arabic mt-1 text-[11px] text-ink-3">
+          نسب النجاح عبر تشغيلات متعددة، مع معيار استدعاء الأدوات
+        </p>
+
+        {error && (
+          <p className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-[12.5px] text-red-700">
+            {t(
+              "Could not load evaluation evidence. GET /api/operator/evaluation directly.",
+              "تعذر تحميل أدلة التقييم. استدعِ GET /api/operator/evaluation مباشرة.",
+              lang,
+            )}
+          </p>
+        )}
+        {!data && !error && (
+          <p className="mt-4 text-[12.5px] text-ink-3">{t("Loading…", "جارٍ التحميل…", lang)}</p>
+        )}
+        {data && data.languages.length === 0 && (
+          <p className="mt-4 rounded-xl border border-line bg-paper px-4 py-3 text-[12.5px] text-ink-2">
+            {t(
+              "No agent-testing evidence committed yet. Run the agent-test harness to produce it.",
+              "لا توجد أدلة اختبار للوكيل بعد. شغّل اختبار الوكيل لإنتاجها.",
+              lang,
+            )}
+          </p>
+        )}
+
+        {data?.languages.map((arm) => (
+          <div
+            key={arm.language}
+            className="mt-4 rounded-2xl border border-line bg-paper px-4 py-3"
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="num text-[12.5px] font-semibold text-foreground">
+                {arm.language.toUpperCase()} · ×{arm.runs_per_scenario}{" "}
+                {t("runs/scenario", "تشغيل لكل سيناريو", lang)}
+              </span>
+              {arm.generated_at && (
+                <span className="num text-[10.5px] text-ink-3">
+                  {arm.generated_at.slice(0, 10)}
+                </span>
+              )}
+            </div>
+            <div className="mt-2 grid grid-cols-2 gap-3 sm:grid-cols-3">
+              <div>
+                <div className="text-[10.5px] text-ink-3">
+                  {t("Agent-layer pass rate", "نسبة نجاح طبقة الوكيل", lang)}
+                </div>
+                <div className="num text-[18px] font-semibold text-foreground">
+                  {pct(arm.agent_layer.pass_rate)}
+                </div>
+                <div className="num text-[10.5px] text-ink-3">
+                  {arm.agent_layer.passed}/{arm.agent_layer.scored} {t("passed", "ناجح", lang)}
+                </div>
+              </div>
+              <div>
+                <div className="text-[10.5px] text-ink-3">
+                  {t("Tool-call criterion", "معيار استدعاء الأدوات", lang)}
+                </div>
+                <div className="num text-[18px] font-semibold text-foreground">
+                  {pct(arm.tool_call.pass_rate)}
+                </div>
+                <div className="num text-[10.5px] text-ink-3">
+                  {arm.tool_call.executed} {t("executed", "منفّذ", lang)}
+                  {arm.tool_call.unverified
+                    ? ` · ${arm.tool_call.unverified} ${t("unverified", "غير مُحقّق", lang)}`
+                    : ""}
+                </div>
+              </div>
+              <div>
+                <div className="text-[10.5px] text-ink-3">
+                  {t("Proven offline", "مُثبَت دون اتصال", lang)}
+                </div>
+                <div className="num text-[12px] font-semibold text-foreground">
+                  {arm.coverage.proven_offline.length
+                    ? arm.coverage.proven_offline.join(", ")
+                    : "—"}
+                </div>
+              </div>
+            </div>
+            {arm.tool_scenarios.length > 0 && (
+              <div className="mt-3 space-y-1.5">
+                {arm.tool_scenarios.map((s) => (
+                  <div key={s.id} className="flex items-center gap-2 text-[11px]">
+                    <span className="num w-12 shrink-0 text-ink-3">{s.id}</span>
+                    <span className="min-w-0 flex-1 truncate text-ink-2">{s.title}</span>
+                    <span className="num shrink-0 font-semibold text-foreground">
+                      {pct(s.pass_rate)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        ))}
+
+        {data && data.languages.length > 0 && (
+          <p className="mt-4 flex items-start gap-2 rounded-2xl border border-line bg-secondary px-4 py-3 text-[11px] leading-relaxed text-ink-2">
+            <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
+            <span>
+              {data.integrity_note}
+              {data.agent_id ? ` · ${t("agent", "الوكيل", lang)}: ${data.agent_id}` : ""}
+            </span>
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Model layer — the voice stack is LLM-agnostic. Shows the agent-plane LLM and
+ * the continuity-plane fallback cascade (by NAME only), read from
+ * /api/operator/model-layer. No credential is ever fetched or rendered.
+ */
+type ModelLayer = {
+  ok: boolean;
+  agent_plane: { llm: string; note: string };
+  fallback_cascade: { order: string[]; active: string | null; note: string };
+  byok_note: string;
+};
+
+function ModelLayerSection() {
+  const { lang } = useApp();
+  const [data, setData] = useState<ModelLayer | null>(null);
+  const [error, setError] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/operator/model-layer", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+      .then((d: ModelLayer) => {
+        if (!cancelled) setData(d);
+      })
+      .catch(() => {
+        if (!cancelled) setError(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return (
+    <div className="space-y-5 lg:col-span-2">
+      <div className="rounded-3xl border border-line bg-white p-5 sm:p-6">
+        <div className="flex items-center gap-2">
+          <Boxes className="h-4 w-4 text-primary" />
+          <h3 className="text-[14px] font-semibold">
+            {t("Model layer · LLM-agnostic", "طبقة النموذج · مستقل عن المزوّد", lang)}
+          </h3>
+        </div>
+        <p dir="rtl" className="font-arabic mt-1 text-[11px] text-ink-3">
+          نموذج الوكيل مع تدرّج احتياطي للطوارئ
+        </p>
+
+        {error && (
+          <p className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-[12.5px] text-red-700">
+            {t(
+              "Could not load the model layer. GET /api/operator/model-layer directly.",
+              "تعذر تحميل طبقة النموذج. استدعِ GET /api/operator/model-layer مباشرة.",
+              lang,
+            )}
+          </p>
+        )}
+        {!data && !error && (
+          <p className="mt-4 text-[12.5px] text-ink-3">{t("Loading…", "جارٍ التحميل…", lang)}</p>
+        )}
+
+        {data && (
+          <div className="mt-4 space-y-4">
+            <div className="rounded-2xl border border-line bg-paper px-4 py-3">
+              <div className="text-[10.5px] text-ink-3">
+                {t("Agent plane (outbound)", "مستوى الوكيل (الصادر)", lang)}
+              </div>
+              <div className="num mt-0.5 text-[14px] font-semibold text-foreground">
+                {data.agent_plane.llm}
+              </div>
+              <p className="mt-1 text-[11.5px] leading-relaxed text-ink-2">
+                {data.agent_plane.note}
+              </p>
+            </div>
+
+            <div className="rounded-2xl border border-line bg-paper px-4 py-3">
+              <div className="text-[10.5px] text-ink-3">
+                {t(
+                  "Fallback cascade (continuity plane)",
+                  "التدرّج الاحتياطي (مستوى الاستمرارية)",
+                  lang,
+                )}
+              </div>
+              <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                {data.fallback_cascade.order.map((p, i) => (
+                  <span key={p} className="flex items-center gap-1.5">
+                    {i > 0 && <span className="text-ink-3">→</span>}
+                    <span
+                      className={cn(
+                        "num rounded-full border px-2.5 py-1 text-[11px] font-semibold",
+                        p === data.fallback_cascade.active
+                          ? "border-primary bg-green-tint text-primary"
+                          : "border-line text-ink-2",
+                      )}
+                    >
+                      {p}
+                      {p === data.fallback_cascade.active ? ` · ${t("active", "نشط", lang)}` : ""}
+                    </span>
+                  </span>
+                ))}
+              </div>
+              <p className="mt-2 text-[11.5px] leading-relaxed text-ink-2">
+                {data.fallback_cascade.note}
+              </p>
+            </div>
+
+            <p className="text-[11.5px] leading-relaxed text-ink-3">{data.byok_note}</p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function Config() {
   const [guards, setGuards] = useState(GUARDRAILS.map((g) => g.on));
   const [threshold, setThreshold] = useState([0.8]);
@@ -525,6 +975,9 @@ function Config() {
 
   return (
     <div className="grid gap-5 lg:grid-cols-2">
+      <AgentCapabilitiesSection />
+      <EvaluationSection />
+      <ModelLayerSection />
       {/* voices */}
       <div className="rounded-3xl border border-line bg-white p-5 sm:p-6">
         <h3 className="text-[14px] font-semibold">Voice personas</h3>

@@ -88,24 +88,24 @@ export const ELEVEN_VOICE_ENV: Record<TtsLang, string> = {
   sw: process.env.ELEVENLABS_VOICE_SW ?? "",
 };
 
-/** Some languages need a different model: Swahili ships in Flash v2.5 (32
- *  languages), not Multilingual v2 (29). French is native to v2. */
 /**
  * Languages the default model cannot voice, and the model that can.
  *
- * `eleven_multilingual_v2` carries 29 languages and `eleven_flash_v2_5` carries
- * those same 29 plus hu/no/vi. NEITHER includes Urdu or Swahili, so routing
- * `sw` to flash v2.5 — which is what this map used to do — selects a model that
- * cannot synthesise the language it exists to support. Both languages are in
- * the v3 generation's 74, so they are pinned there.
- *
- * Availability of the v3 generation on a given account tier is NOT verified
- * here; it is asserted at runtime by the first synthesis. Override with
- * ELEVENLABS_TTS_MODEL_UR / _SW if the account needs a different model.
+ * `eleven_multilingual_v2` carries 29 languages and does NOT include Urdu or
+ * Swahili, so routing either to it selects a model that cannot synthesise the
+ * language it exists to support. Both are in the v3 generation's 74 AND in the
+ * newer `eleven_v4_turbo` the agent itself runs — so they pin to `eleven_v4_turbo`
+ * rather than v3. v3 SYNTHESIS works on a capable key, but v3 in the
+ * Conversational-AI agent plane is a separate plan entitlement this account
+ * lacks, whereas `eleven_v4_turbo` voices both on the key in `.env` (verified
+ * 2026-10-09: direct synthesis returned 200 audio for ur and sw). That turns
+ * the worker's Urdu/Swahili callers from the English emergency fallback back
+ * into their own language. Override with ELEVENLABS_TTS_MODEL_UR / _SW if a
+ * deployment needs a different model.
  */
 const MODEL_FOR_LANG: Partial<Record<TtsLang, string>> = {
-  ur: process.env.ELEVENLABS_TTS_MODEL_UR ?? "eleven_v3",
-  sw: process.env.ELEVENLABS_TTS_MODEL_SW ?? "eleven_v3",
+  ur: process.env.ELEVENLABS_TTS_MODEL_UR ?? "eleven_v4_turbo",
+  sw: process.env.ELEVENLABS_TTS_MODEL_SW ?? "eleven_v4_turbo",
 };
 
 /**
@@ -126,13 +126,16 @@ export function resolveTtsModel(lang: TtsLang): string {
  * gate are checked against the same table the client uses, rather than a claim
  * restated in markdown.
  */
-export const TTS_LANGUAGE_SUPPORT: Record<TtsLang, { multilingual_v2: boolean; v3: boolean }> = {
-  en: { multilingual_v2: true, v3: true },
-  ar: { multilingual_v2: true, v3: true },
-  hi: { multilingual_v2: true, v3: true },
-  fr: { multilingual_v2: true, v3: true },
-  ur: { multilingual_v2: false, v3: true },
-  sw: { multilingual_v2: false, v3: true },
+export const TTS_LANGUAGE_SUPPORT: Record<
+  TtsLang,
+  { multilingual_v2: boolean; v3: boolean; v4_turbo: boolean }
+> = {
+  en: { multilingual_v2: true, v3: true, v4_turbo: true },
+  ar: { multilingual_v2: true, v3: true, v4_turbo: true },
+  hi: { multilingual_v2: true, v3: true, v4_turbo: true },
+  fr: { multilingual_v2: true, v3: true, v4_turbo: true },
+  ur: { multilingual_v2: false, v3: true, v4_turbo: true },
+  sw: { multilingual_v2: false, v3: true, v4_turbo: true },
 };
 
 /** Prod mode = a real key configured AND dry-run disabled. */

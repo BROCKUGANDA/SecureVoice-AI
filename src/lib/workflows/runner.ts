@@ -91,7 +91,8 @@ export async function runWorkflow(
       return { ok: false, error: "max steps exceeded (possible cycle)", trace };
     const nd = nodes.get(current);
     if (!nd) return { ok: false, error: `walked into missing node "${current}"`, trace };
-    trace.push({ id: nd.id, kind: nd.kind });
+    const step: WorkflowStep = { id: nd.id, kind: nd.kind };
+    trace.push(step);
 
     if (nd.kind === "end") return { ok: true, outcome: nd.outcome ?? "done", trace, usedTools };
 
@@ -100,7 +101,7 @@ export async function runWorkflow(
       const branch =
         nd.branches?.find((b) => b.when === label) ?? nd.branches?.find((b) => b.when === "*");
       if (!branch) return { ok: false, error: `no branch for label "${label}"`, trace };
-      trace[trace.length - 1].detail = label;
+      step.detail = label;
       current = branch.to;
       continue;
     }
@@ -112,7 +113,7 @@ export async function runWorkflow(
         return { ok: false, error: `tool "${tool}" is outside this node's scope`, trace };
       const res = await deps.callTool(nd, tool, interpolateArgs(nd.args, ctx));
       usedTools.push(tool);
-      trace[trace.length - 1].detail = res.ok ? "ok" : "failed";
+      step.detail = res.ok ? "ok" : "failed";
       if (!nd.next) return { ok: false, error: `tool node "${nd.id}" has no next`, trace };
       // tool nodes follow `next` (branching is a condition's job).
       current = nd.next;

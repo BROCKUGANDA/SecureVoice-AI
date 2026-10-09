@@ -173,8 +173,12 @@ describe("routine preconditions: hours and the deferral clock", () => {
       priority: 2_000_000_000,
       payload: { phone: "+971500000001" },
     });
-    // A 1s lease returns any collateral claims untouched.
-    const claimed = await claimDialJobs({ workerId: "cat-test", limit: 5, leaseMs: 1000 });
+    // A 1s lease returns any collateral claims untouched. The claim window is
+    // deliberately wide: the shared dial_job table accumulates stale pending
+    // rows from other suites, and the claim orders by priority DESC — a narrow
+    // limit lets collateral rows (not our fresh job) fill the window, which
+    // fails THIS test for a reason that has nothing to do with deferrals.
+    const claimed = await claimDialJobs({ workerId: "cat-test", limit: 200, leaseMs: 1000 });
     const job = claimed.find((j) => j.case_ref === caseRef);
     expect(job).toBeDefined();
 

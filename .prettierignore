@@ -34,9 +34,15 @@ Dockerfile*
 
 # GitNexus writes its code-intelligence cache into .gitnexus/ and regenerates it
 # on every analyze. It is machine output, excluded from git via .git/info/exclude,
-# and reformatting it would be rewritten by the next index run — so the format
+# and reformatting it would be rewritten by the next index run - so the format
 # gate would fail on a file no human owns.
 .gitnexus/
+
+# Kilo Code (an external agent IDE) writes its planning scratch into .kilo/.
+# Same category as .gitnexus/: machine-written, no human hand-edits it, and
+# letting it redden the format gate would block the repo on a foreign tool's
+# output.
+.kilo/
 
 # Agent-instruction files emitted by `next dev`. Next writes them itself
 # (node_modules/next/dist/server/lib/generate-agent-files.js) and RE-ADDS them

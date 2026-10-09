@@ -52,7 +52,13 @@ async function readSettings(): Promise<
       orgName: row.orgName ?? null,
       orgLogoUrl: row.orgLogoUrl ?? null,
       elevenKeyMasked: key ? maskKey(key) : null,
-      credits: row.credits,
+      // The EFFECTIVE balance — the organization's wallet when the session
+      // carries an active tenant, otherwise this operator's own. Reading
+      // `row.credits` here would show the per-user wallet while the fire route
+      // actually spends the org wallet, so the billing tab and the console
+      // would disagree by exactly the amount that matters.
+      credits: guard.profile.credits,
+      walletScope: guard.profile.walletScope,
       // Bank or insurer: changes how the institution is spoken about to ITS
       // customers (call, voicemail, SMS). Defaults to "bank".
       institutionType: await getInstitutionType(guard.profile.orgId),

@@ -36,8 +36,7 @@ import { isAfterHours, nextBusinessHoursStart } from "@/lib/abuse/velocity";
 import { sweepExpiredSmsCases } from "@/lib/sms-verdict";
 import { logError, logInfo, logWarn } from "@/lib/validation/safe-log";
 import { flag } from "@/lib/flags";
-import { SUPPORTED_LANGS } from "@/lib/languages";
-import type { DeliveryLang } from "@/lib/twilio";
+import { resolveDeliveryLang } from "@/lib/languages";
 
 const WORKER_ID =
   process.env.DIAL_WORKER_ID ?? `${hostname()}-${process.pid}-${randomUUID().slice(0, 8)}`;
@@ -58,26 +57,12 @@ type JobPayload = {
 
 /**
  * Resolve whatever the bank sent (`en`, `ar-AE`, `es_MX`) to a language the
- * voice tables actually have.
- *
- * The dialect subtag is deliberately honoured: `ar-AE` must speak Arabic. It is
- * better to answer a Gulf customer in MSA than in English, and the previous
- * cast let an unknown-but-Arabic tag fall through to an English script without
- * a word of complaint. An unresolvable tag is logged, because the customer
- * cannot tell which language they were dialled in but the audit record can.
+ * voice tables actually have — now owned by src/lib/languages.ts (the single
+ * source of truth, shared with the `/api/twilio/turn` TwiML plane). Re-exported
+ * here because the worker's call sites and its unit tests import it from this
+ * path; the definition no longer lives in the worker.
  */
-export function resolveDeliveryLang(requested?: string | null): DeliveryLang {
-  const raw = (requested ?? "").trim().toLowerCase();
-  if (!raw) return "en";
-  const exact = (SUPPORTED_LANGS as readonly string[]).includes(raw);
-  if (exact) return raw as DeliveryLang;
-  const base = raw.split(/[-_]/)[0] ?? "";
-  if ((SUPPORTED_LANGS as readonly string[]).includes(base)) return base as DeliveryLang;
-  logWarn("[dial-worker] no voice for requested language, dialling in en", {
-    requested: raw.slice(0, 20),
-  });
-  return "en";
-}
+export { resolveDeliveryLang } from "@/lib/languages";
 
 function parsePayload(job: DialJob): JobPayload {
   try {

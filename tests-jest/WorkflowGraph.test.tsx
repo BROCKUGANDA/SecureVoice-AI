@@ -5,6 +5,7 @@
  * truth an operator reads. Uses testids to avoid id/edge label ambiguity.
  */
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { WorkflowGraph } from "@/views/WorkflowGraph";
 import { FRAUD_WORKFLOW } from "@/lib/workflows/schema";
 import { useApp } from "@/lib/store";
@@ -39,5 +40,32 @@ describe("WorkflowGraph", () => {
   it("reports a valid workflow", () => {
     render(<WorkflowGraph workflow={FRAUD_WORKFLOW} />);
     expect(screen.getByTestId("workflow-validity").textContent).toBe("valid");
+  });
+
+  it("exposes the authoring surface — add node, save, and run on the live plane", () => {
+    render(<WorkflowGraph workflow={FRAUD_WORKFLOW} />);
+    expect(screen.getByText("+ Add node")).toBeTruthy();
+    expect(screen.getByText("Save journey")).toBeTruthy();
+    // Run is offered without a session by design; the console API is the guard.
+    expect(screen.getByText("Run on live plane")).toBeTruthy();
+  });
+
+  it("opens the node editor with per-node scope toggles", async () => {
+    render(<WorkflowGraph workflow={FRAUD_WORKFLOW} />);
+    const editButtons = screen.getAllByText("edit");
+    await userEvent.click(editButtons[0]);
+    // The editor's scope chips are the guardrail made editable.
+    expect(screen.getByText("tool scope for this node")).toBeTruthy();
+    expect(screen.getByTestId("workflow-global-tools")).toBeTruthy();
+  });
+
+  it("live validation surfaces an invalid graph as issues, not as silence", () => {
+    // The canonical journey with the freeze node's scope emptied: the schema
+    // refuses the graph, and the builder says so on screen.
+    const broken = JSON.parse(JSON.stringify(FRAUD_WORKFLOW)) as typeof FRAUD_WORKFLOW;
+    broken.nodes = broken.nodes.map((n) => (n.id === "freeze" ? { ...n, scope: [] } : n));
+    render(<WorkflowGraph workflow={broken} />);
+    expect(screen.getByTestId("workflow-validity").textContent).not.toBe("valid");
+    expect(screen.getByTestId("workflow-errors").textContent).toContain("card_freeze");
   });
 });

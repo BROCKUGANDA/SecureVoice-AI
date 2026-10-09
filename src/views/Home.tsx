@@ -22,10 +22,13 @@ import {
   HandCoins,
   HeartHandshake,
   Globe2,
+  Mic,
 } from "lucide-react";
 import { useApp, t } from "@/lib/store";
 import { SUPPORT_EMAIL } from "@/lib/public-config";
 import { cn } from "@/lib/utils";
+import { CALL_LANG_LABEL, type CallLang } from "@/lib/scenario";
+import { LiveVoicePanel } from "@/components/demo/LiveVoicePanel";
 import { Reveal, Counter, LiveDot, Chip } from "@/components/fx/core";
 import { Waveform, Equalizer } from "@/components/fx/Waveform";
 import {
@@ -126,6 +129,7 @@ const TRY_STEPS: {
 export function Home() {
   const { setView, lang, launchDemo } = useApp();
   const [pilotOpen, setPilotOpen] = useState(false);
+  const [liveLang, setLiveLang] = useState<CallLang>("en");
 
   return (
     <div>
@@ -364,6 +368,79 @@ export function Home() {
               </motion.div>
             </motion.div>
           </Reveal>
+        </div>
+      </section>
+
+      {/* ———————————————— LIVE BROWSER-MIC DEMO ———————————————— */}
+      <section className="border-b border-line bg-white py-14 lg:py-16">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+          <Reveal>
+            <div className="flex flex-wrap items-end justify-between gap-4">
+              <div>
+                <div className="flex items-center gap-3">
+                  <span className="micro text-primary">Live demo · جرّب الوكيل مباشرة</span>
+                  <span className="h-px w-10 bg-line" />
+                </div>
+                <h2 className="font-display mt-3 max-w-2xl text-2xl font-semibold leading-tight tracking-tight sm:text-3xl">
+                  Put on headphones and talk to the agent — no phone number, no sign-up
+                </h2>
+                <p className="mt-2.5 max-w-xl text-[13.5px] leading-relaxed text-ink-2">
+                  This is the same pipeline a production call uses: speech recognition, deterministic
+                  guardrail routing, and a neural voice reply. Deny a transaction and watch the agent
+                  apply exactly one pre-approved, reversible action — and never once ask for a PIN.
+                </p>
+              </div>
+              <p dir="rtl" className="font-arabic max-w-xs text-[13px] leading-relaxed text-ink-2">
+                محادثة حقيقية عبر ميكروفون متصفحك — نفس خط أنابيب المكالمات الفعلية.
+              </p>
+            </div>
+          </Reveal>
+
+          {/* language pills */}
+          <div className="mt-6 flex flex-wrap items-center gap-2">
+            <span className="mr-1 flex items-center gap-1.5 text-[11.5px] font-medium text-ink-3">
+              <Globe2 className="h-3.5 w-3.5" />
+              Call language
+            </span>
+            {(Object.keys(CALL_LANG_LABEL) as CallLang[]).map((l) => (
+              <button
+                key={l}
+                onClick={() => setLiveLang(l)}
+                className={cn(
+                  "rounded-full border px-3 py-1.5 text-[11.5px] font-semibold transition",
+                  liveLang === l
+                    ? "border-primary bg-green-tint text-green-deep"
+                    : "border-line bg-white text-ink-2 hover:border-primary/40 hover:text-primary",
+                )}
+              >
+                {CALL_LANG_LABEL[l]}
+              </button>
+            ))}
+            <span className="ml-1 flex items-center gap-1 text-[11px] text-ink-3">
+              <Mic className="h-3 w-3" />
+              your mic audio never leaves this page&apos;s transcript pipeline
+            </span>
+          </div>
+
+          <div className="mt-5">
+            <LiveVoicePanel callLang={liveLang} />
+          </div>
+
+          {/* transition — the judge flow into the console */}
+          <div className="mt-5 flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-line bg-paper px-5 py-4">
+            <p className="max-w-xl text-[13px] leading-relaxed text-ink-2">
+              Ready to see the other side? Step into the operator&apos;s Command Center — a populated
+              dashboard with live risk scores, seeded interventions, and the audit trail a regulator
+              would ask for.
+            </p>
+            <button
+              onClick={() => setView("auth")}
+              className="flex items-center gap-2 rounded-full bg-primary px-5 py-2.5 text-[13px] font-semibold text-white transition hover:bg-green-deep"
+            >
+              See how a bank uses this
+              <ArrowRight className="h-3.5 w-3.5" />
+            </button>
+          </div>
         </div>
       </section>
 

@@ -19,6 +19,7 @@ import {
   BookOpen,
   Wrench,
   Boxes,
+  Workflow,
 } from "lucide-react";
 import { useApp, t } from "@/lib/store";
 import { RECENT_CALLS, AUDIT_LOG, KPIS, LANG_DIST, OUTCOME_DIST, TREND, VOICES } from "@/lib/data";
@@ -30,6 +31,7 @@ import { Switch } from "@/components/ui/switch";
 import { Slider } from "@/components/ui/slider";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import { WorkflowGraph } from "./WorkflowGraph";
 
 type ProvidedWebhook = {
   id: string;
@@ -945,6 +947,46 @@ function ModelLayerSection() {
   );
 }
 
+/**
+ * Agent Workflows — the builder for multi-step, branching agent journeys with
+ * per-node tool scoping and sub-agents.
+ *
+ * The component owns its own persistence and Run: Save posts the graph through
+ * POST /api/console/workflows (server-side re-validation by the same schema and
+ * validator the runner enforces), and Run executes it on the LIVE tool plane
+ * through the guarded tool routes — a console run cannot reach an action the
+ * guard would refuse the agent path. The intro line is rendered from here so
+ * the operator knows what Run touches before pressing it.
+ */
+function AgentWorkflowsSection() {
+  const { lang } = useApp();
+  return (
+    <div className="space-y-5 lg:col-span-2">
+      <div className="rounded-3xl border border-line bg-white p-5 sm:p-6">
+        <div className="flex items-center gap-2">
+          <Workflow className="h-4 w-4 text-primary" />
+          <h3 className="text-[14px] font-semibold">
+            {t("Agent workflows builder", "بانٍ مسارات الوكيل", lang)}
+          </h3>
+        </div>
+        <p dir="rtl" className="font-arabic mt-1 text-[11px] text-ink-3">
+          مسارات متعددة الخطوات بتفريع الأدوات لكل عقدة
+        </p>
+        <p className="mt-3 text-[12.5px] leading-relaxed text-ink-2">
+          {t(
+            "Design, validate, save and run a journey. Run executes on the live tool plane through the same guarded routes an agent webhook hits — every tool call is authenticated, tenant-scoped and state-gated exactly as it is on a live call, and each one is audited by the tool route itself.",
+            "صمّم مسارًا وتحقق منه واحفظه وشغّله. التشغيل ينفّذ على المستوى الحيّ عبر نفس المسارات المحمية التي يستخدمها نداء الوكيل — كل نداء أداة موثّق ومحدود بالمستأجر ومحكوم بالحالة كما في المكالمة الحيّة، وكلٌّ منها مسجّل في سلسلة التداول.",
+            lang,
+          )}
+        </p>
+        <div className="mt-4">
+          <WorkflowGraph />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function Config() {
   const [guards, setGuards] = useState(GUARDRAILS.map((g) => g.on));
   const [threshold, setThreshold] = useState([0.8]);
@@ -978,6 +1020,7 @@ function Config() {
       <AgentCapabilitiesSection />
       <EvaluationSection />
       <ModelLayerSection />
+      <AgentWorkflowsSection />
       {/* voices */}
       <div className="rounded-3xl border border-line bg-white p-5 sm:p-6">
         <h3 className="text-[14px] font-semibold">Voice personas</h3>

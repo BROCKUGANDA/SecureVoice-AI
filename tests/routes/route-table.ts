@@ -189,6 +189,8 @@ const PUBLIC_BY_DESIGN: Readonly<Record<string, string>> = {
     "internal QStash failure callback; stores the dead-letter row and takes no user input",
   "/api/twilio/sms-webhook":
     "Twilio inbound-SMS webhook authenticated by X-Twilio-Signature (fail-closed without it), not a session; the reply parser and opt-out registries live in the shared handler",
+  "/api/twilio/whatsapp":
+    "Twilio inbound-WhatsApp webhook authenticated by X-Twilio-Signature (fail-closed without it), not a session; shares the reply parser and opt-out registries with the SMS entry points, only the whatsapp: prefix is stripped",
   "/api/twiml-stream":
     "unauthenticated TwiML server that only names the media-stream socket; carries no tenant data and the stream plane itself is guarded separately",
   "/api/voice-websocket":

@@ -148,8 +148,8 @@ jobs:
           # The list is capped because a promotion that has drifted 100 commits is
           # evidence the ladder is not being walked often enough — the PR should
           # say so, not bury the reviewer in a 400-line body.
-          log=$(git log --oneline --no-decorate "origin/${TARGET}..origin/${SOURCE}" \
-            | head -n 50 | sed "s/^/- /")
+          log=$(git log --oneline --no-decorate -n 50 "origin/${TARGET}..origin/${SOURCE}" \
+            | sed "s/^/- /")
           if [ "$COUNT" -gt 50 ]; then
             log="${log}
           - _… and $(( COUNT - 50 )) more; run \`git log --oneline origin/${TARGET}..origin/${SOURCE}\` for the rest_"

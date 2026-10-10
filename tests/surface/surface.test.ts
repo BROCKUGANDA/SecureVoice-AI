@@ -533,29 +533,34 @@ describe("declared security headers", () => {
   test("no script-bearing markup injection path exists in first-party code", () => {
     // script-src 'unsafe-inline' is load-bearing (see above), so the
     // compensating control is at the source: first-party code must not render
-    // attacker-reachable markup as HTML. The only dangerouslySetInnerHTML in
-    // the app is a <style> block of chart colors — style, not script, governed
-    // by style-src rather than script-src. A second occurrence, or one outside
-    // a <style> tag, is a reviewable event, not a silent addition.
+    // attacker-reachable markup as HTML. Two allowlisted sites, both reviewed:
+    //   ui/chart.tsx — a <style> block of chart colours. Style, not script.
+    //   seo/JsonLd.tsx — schema.org JSON-LD. Script-TYPE but never executed;
+    //     `JSON.stringify` output with `<` escaped as `<`, so the classic
+    //     `</script><script>` payload cannot terminate the element early.
+    //
+    // SCOPED TO src/, and that is the fix for a real flake. This walk used to
+    // read every candidate file unconditionally, and on a loaded runner (CI,
+    // with the compile job sharing the disk) it tripped Bun's default 5s
+    // per-test budget and reported `[5134ms] (fail)` — a timeout masquerading as
+    // an assertion failure. The name filter now runs BEFORE the read, so the walk
+    // is a listing rather than a scan.
+    const SRC = fileURLToPath(new URL("../../src", import.meta.url));
     const hits: string[] = [];
     const walk = (dir: string) => {
       for (const entry of readdirSync(dir, { withFileTypes: true })) {
         if (entry.name === "node_modules" || entry.name === ".next" || entry.name === "generated")
           continue;
         const full = `${dir}/${entry.name}`;
-        if (entry.isDirectory()) walk(full);
-        else if (/\.(tsx?|jsx?)$/.test(entry.name)) {
-          const text = readFileSync(full, "utf8");
-          if (text.includes("dangerouslySetInnerHTML")) hits.push(full);
+        if (entry.isDirectory()) {
+          walk(full);
+          continue;
         }
+        if (!/\.(tsx?|jsx?)$/.test(entry.name)) continue;
+        if (readFileSync(full, "utf8").includes("dangerouslySetInnerHTML")) hits.push(full);
       }
     };
-    walk(fileURLToPath(new URL("../../src", import.meta.url)));
-    // Two allowlisted sites, both reviewed:
-    //   ui/chart.tsx — a <style> block of chart colours. Style, not script.
-    //   seo/JsonLd.tsx — schema.org JSON-LD. Script-TYPE but never executed;
-    //     `JSON.stringify` output with `<` escaped as `<`, so the classic
-    //     `</script><script>` payload cannot terminate the element early.
+    walk(SRC);
     expect(
       hits.map((h) => h.replace(/\\/g, "/")),
       "a new dangerouslySetInnerHTML appeared — review it before merging",

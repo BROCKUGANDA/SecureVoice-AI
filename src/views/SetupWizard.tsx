@@ -17,7 +17,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import { DocumentsSection } from "@/views/settings/DocumentsSection";
-import { LottieIcon } from "@/components/fx/LottieIcon";
+import { LoadingIndicator } from "@/components/fx/LoadingIndicator";
 
 /**
  * The five-step institution setup wizard.
@@ -279,7 +279,7 @@ export function SetupWizard() {
   if (loading) {
     return (
       <div className="flex min-h-[60vh] items-center justify-center">
-        <LottieIcon name="sonar" label={t("Loading setup", "جارٍ تحميل معالج الإعداد", lang)} />
+        <LoadingIndicator label={t("Loading setup", "جارٍ تحميل معالج الإعداد", lang)} />
       </div>
     );
   }

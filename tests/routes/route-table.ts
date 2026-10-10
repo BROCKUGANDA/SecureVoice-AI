@@ -209,6 +209,8 @@ const PUBLIC_BY_DESIGN: Readonly<Record<string, string>> = {
     "operator model-layer surface (agent-plane LLM + continuity fallback cascade, active provider by NAME only); rate-limited, returns no credential — proven by tests/e2e/operator-model-layer.test.ts; metadata, like /api/operator/manifest",
   "/api/compliance/intervention-gate":
     "stateless intervention-policy validator plus PII redaction over the request body; touches no tenant state, stores nothing and privileges nothing",
+  "/api/billing/webhook":
+    "Paddle notification destination; authenticated by Paddle's OWN signature over `ts:body`, verified with client.webhooks.isSignatureValid against PADDLE_WEBHOOK_SECRET and failing closed with 400 on an absent, stale or forged header — not an operator session, because the caller is Paddle and Paddle has no session. Proven end-to-end with the real sandbox signing secret: a correctly signed delivery returns 200 { received: true, credited: true }, while a wrong secret, a missing signature and a replayed timestamp all return 400 invalid_signature",
 };
 
 export function isPublicByDesign(path: string): boolean {

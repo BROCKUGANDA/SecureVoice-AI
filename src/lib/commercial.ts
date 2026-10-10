@@ -74,7 +74,7 @@ export type Plan = {
   nameAr: string;
   /** Whole USD per month. */
   monthlyUsd: number | null;
-  /** Whole USD per year, where an annual price is published. */
+  /** Whole USD per year. Exactly ten monthly on every tier. */
   yearlyUsd: number | null;
   /** Intervention signals included per month. One signal fires one credit. */
   includedPerMonth: number | null;
@@ -111,6 +111,29 @@ export type Plan = {
  * charge beyond the included volume. A flat monthly price with no overage term
  * cannot express either.
  *
+ * ANNUAL is 10x monthly on every tier — "two months free" — and Paddle's catalog
+ * carries a matching yearly price per product. `tests/billing/catalog-parity.test.ts`
+ * asserts both the ratio and that the ids exist, because a page offering an
+ * annual toggle with no annual price behind it charges the monthly amount twice
+ * as often as the buyer chose.
+ *
+ * —————————————————————————————————————————————————————————————————————————————
+ * ⚠️  PRICE SETS, for the record. Four have existed across these branches.
+ *
+ *   1. Pre-existing inline home block: $490 / $1,490 / Enterprise quote.
+ *   2. `commercial.ts` + a first seeded catalog: $10 / $40 / Advanced $120.
+ *   3. `src/views/Pricing.tsx` (from origin/dev), adopted: $99 / $499 /
+ *      Enterprise $2,000, with included volume and per-intervention overage.
+ *   4. `docs/canvas-build/content.json`: "AED 15,000 a month" (~$4,085) as a
+ *      described BUYER deal value against AED 200,000 of write-offs — not a list
+ *      price, so not comparable, but worth a rate-card owner deciding between.
+ *
+ * Set (3) is what ships, corroborated by the pricing structure supplied later.
+ * The Paddle catalog was re-seeded to it on 2026-10-10. If the $490 figures were
+ * ever the real ones, revert `commercial.ts`, `scripts/seed-paddle-catalog.ts`
+ * and `src/views/Pricing.tsx` TOGETHER — changing one alone is the drift again.
+ * —————————————————————————————————————————————————————————————————————————————
+ *
  * `availability` is schema.org's `https://schema.org/InStock` — the value an
  * answer engine reads to decide the product is purchasable at all.
  */
@@ -120,7 +143,7 @@ export const PLANS: Plan[] = [
     name: "Starter",
     nameAr: "البداية",
     monthlyUsd: 99,
-    yearlyUsd: null,
+    yearlyUsd: 990,
     includedPerMonth: 500,
     overageCents: 15,
     tagline: "For evaluation teams proving the voice loop end to end.",
@@ -155,7 +178,7 @@ export const PLANS: Plan[] = [
     name: "Growth",
     nameAr: "النمو",
     monthlyUsd: 499,
-    yearlyUsd: null,
+    yearlyUsd: 4990,
     includedPerMonth: 2500,
     overageCents: 12,
     tagline: "For mid-market banks and insurers running live fraud desks.",
@@ -192,7 +215,7 @@ export const PLANS: Plan[] = [
     name: "Enterprise",
     nameAr: "المؤسسات",
     monthlyUsd: 2000,
-    yearlyUsd: null,
+    yearlyUsd: 20000,
     includedPerMonth: 10000,
     overageCents: null,
     tagline: "For Tier-1 UAE banks deploying inside their own perimeter.",
@@ -237,6 +260,16 @@ export function formatMonthly(plan: Plan, lang: "en" | "ar" = "en"): string {
 }
 
 /** Included interventions, or "" where the plan is negotiable rather than tiered. */
+/** Annual price, or "" where none is published. */
+export function formatYearly(plan: Plan, lang: "en" | "ar" = "en"): string {
+  if (plan.yearlyUsd === null) return "";
+  return new Intl.NumberFormat(lang === "ar" ? "ar-AE" : "en-US", {
+    style: "currency",
+    currency: PRICE_CURRENCY,
+    maximumFractionDigits: 0,
+  }).format(plan.yearlyUsd);
+}
+
 export function formatIncluded(plan: Plan, lang: "en" | "ar" = "en"): string {
   if (plan.includedPerMonth === null) return "";
   return plan.includedPerMonth.toLocaleString(lang === "ar" ? "ar-AE" : "en-US");

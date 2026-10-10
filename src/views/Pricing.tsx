@@ -5,6 +5,31 @@ import { Check, ShieldCheck, Sparkles, Building2 } from "lucide-react";
 import { useApp, t } from "@/lib/store";
 import { SUPPORT_EMAIL } from "@/lib/public-config";
 import { REFUND_POLICIES } from "@/lib/legal-policies";
+import { SubscribeButtons } from "@/components/billing/SubscribeButtons";
+
+/**
+ * Paddle price ids per tier, from the seeded catalog. Both intervals exist for
+ * every tier — `tests/billing/catalog-parity.test.ts` asserts the ids, the 10x
+ * annual ratio, and that `src/lib/commercial.ts` carries the same figures.
+ *
+ * Sandbox ids. Live differs (separate catalog), so these are read from env in
+ * any build that is not sandbox — see `src/lib/paddle-browser.ts`. The ids are
+ * needed client-side, hence the `NEXT_PUBLIC_` source.
+ */
+const PADDLE_PRICE_ID: Record<string, { month: string; year: string }> = {
+  starter: {
+    month: "pri_01m4kc8amfsr590wkmf02v0q91",
+    year: "pri_01m4kmzw3cq4na5tfn6xqd6ekn",
+  },
+  growth: {
+    month: "pri_01m4kc8bdy18z7h9g4qwbv6vqq",
+    year: "pri_01m4kmzwg9vdfe2c4x5qnz2s4s",
+  },
+  enterprise: {
+    month: "pri_01m4kc8c6y167c8jx1pk7vcazx",
+    year: "pri_01m4kmzwwqy407sttdb550w8dt",
+  },
+};
 
 /**
  * Public pricing, and the two refund policies the business actually needs.
@@ -166,7 +191,25 @@ function PolicySection({
   );
 }
 
-export function Pricing() {
+/**
+ * The public pricing page.
+ *
+ * `country` and `customerEmail` are passed IN rather than read here. Both come
+ * from a session or a request header, and this component renders inside both the
+ * public `/pricing` route and the SPA at `/`, where there is no single server
+ * boundary to read a header. See `src/app/pricing/page.tsx` for where they come
+ * from, and `src/lib/geo.ts` for why an unresolvable country is passed as null
+ * rather than a default.
+ */
+export function Pricing({
+  country = null,
+  customerEmail,
+}: {
+  /** ISO-3166-1 alpha-2, or null to let Paddle resolve from the visitor's IP. */
+  country?: string | null;
+  /** Prefilled when the buyer is signed in. */
+  customerEmail?: string;
+}) {
   const { lang } = useApp();
 
   return (
@@ -258,25 +301,26 @@ export function Pricing() {
                 ))}
               </ul>
 
-              <button
-                type="button"
-                className={[
-                  "mt-6 flex w-full items-center justify-center gap-2 rounded-xl px-4 py-2.5",
-                  "text-[13px] font-semibold transition",
-                  tier.featured
-                    ? "bg-green-bright text-ink hover:brightness-110"
-                    : "border border-white/15 text-white hover:border-green-bright/50",
-                ].join(" ")}
-              >
-                {tier.id === "enterprise" ? (
-                  <Building2 className="h-4 w-4" />
-                ) : (
-                  <ShieldCheck className="h-4 w-4" />
-                )}
-                {tier.id === "enterprise"
-                  ? t("Talk to us", "تحدّث إلينا", lang)
-                  : t("Start with this plan", "ابدأ بهذه الخطة", lang)}
-              </button>
+              {/* The real checkout. `SubscribeButtons` owns the interval
+                    toggle, the localised price preview and the overlay open —
+                    all three have to come from Paddle, so none of them live in
+                    this view. The ids come from the seeded catalog, matching
+                    `src/lib/commercial.ts` and asserted by
+                    tests/billing/catalog-parity.test.ts. */}
+              <SubscribeButtons
+                tier={{
+                  id: tier.id,
+                  name: tier.name[lang],
+                  description: tier.blurb[lang],
+                  features: tier.features.map((f) => f[lang]),
+                  priceId: {
+                    month: PADDLE_PRICE_ID[tier.id].month,
+                    year: PADDLE_PRICE_ID[tier.id].year,
+                  },
+                }}
+                country={country}
+                customerEmail={customerEmail}
+              />
             </motion.div>
           ))}
         </div>

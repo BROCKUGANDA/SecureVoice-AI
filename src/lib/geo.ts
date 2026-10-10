@@ -1,6 +1,3 @@
-import { NextResponse } from "next/server";
-import type { NextRequest } from "next/server";
-
 /**
  * The buyer's country, resolved SERVER-SIDE for localised pricing.
  *
@@ -24,12 +21,17 @@ import type { NextRequest } from "next/server";
  * connection (see Caddyfile). There is deliberately no `x-vercel-ip-country`
  * handling: we do not run on Vercel, and reading a header a CDN sets when no CDN
  * is in front of us would be trusting a client-supplied value.
+ *
+ * Takes `Headers` rather than `NextRequest` so it works in both a route handler
+ * and a server component reading `next/headers` — the pricing page uses it as
+ * the latter, which is also what makes the route dynamic.
  */
 
 const COUNTRY_HEADER = "x-securevoice-country";
 
-export function countryFrom(req: NextRequest): string | null {
-  const raw = req.headers.get(COUNTRY_HEADER)?.trim().toUpperCase();
+/** Null when unknown. Never a sentinel, never a default. */
+export function countryFromHeaders(headers: Headers | undefined): string | null {
+  const raw = headers?.get(COUNTRY_HEADER)?.trim().toUpperCase();
   // The regex is the validation, not the length: an attacker-supplied two-letter
   // string is exactly as easy to send as an invalid one, and both must fail.
   if (!raw || !/^[A-Z]{2}$/.test(raw)) return null;
@@ -38,8 +40,3 @@ export function countryFrom(req: NextRequest): string | null {
 
 /** Exposed so a test can assert the "absent header means null" behaviour. */
 export const COUNTRY_HEADER_NAME = COUNTRY_HEADER;
-
-/** Helper for a route that only needs JSON. */
-export function countryJson(req: NextRequest): NextResponse {
-  return NextResponse.json({ country: countryFrom(req) });
-}

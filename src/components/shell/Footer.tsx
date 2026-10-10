@@ -15,6 +15,10 @@ const PRODUCT: { id: View; en: string; ar: string }[] = [
 const RESOURCES: { id: View; en: string; ar: string }[] = [
   { id: "docs", en: "Documentation", ar: "التوثيق" },
   { id: "security", en: "Security", ar: "الأمن" },
+  // Pricing is reachable from the footer because the listing this site is being
+  // submitted to requires pricing to be accessible via navigation, not only
+  // linked from a hero CTA. Both refund policies live on the pricing view.
+  { id: "pricing", en: "Pricing", ar: "التسعير" },
   { id: "privacy", en: "Privacy", ar: "الخصوصية" },
   { id: "terms", en: "Terms", ar: "الشروط" },
 ];

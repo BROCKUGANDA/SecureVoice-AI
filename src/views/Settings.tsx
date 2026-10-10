@@ -20,7 +20,7 @@ import {
 import { t, useApp } from "@/lib/store";
 import { SUPPORT_EMAIL } from "@/lib/public-config";
 import { Chip } from "@/components/fx/core";
-import { LottieIcon } from "@/components/fx/LottieIcon";
+import { LoadingIndicator } from "@/components/fx/LoadingIndicator";
 import { CrmSection } from "@/views/settings/CrmSection";
 import { DocumentsSection } from "@/views/settings/DocumentsSection";
 import { TwoFactorCard } from "@/components/security/TwoFactorCard";
@@ -226,11 +226,7 @@ export function Settings() {
 
       {loading ? (
         <div className="mt-10 flex justify-center py-16">
-          <LottieIcon
-            name="bars"
-            size={40}
-            label={t("Loading settings", "جارٍ تحميل الإعدادات", lang)}
-          />
+          <LoadingIndicator label={t("Loading settings", "جارٍ تحميل الإعدادات", lang)} />
         </div>
       ) : (
         <>

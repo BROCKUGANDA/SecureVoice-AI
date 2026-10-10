@@ -15,8 +15,27 @@ const PRODUCT: { id: View; en: string; ar: string }[] = [
 const RESOURCES: { id: View; en: string; ar: string }[] = [
   { id: "docs", en: "Documentation", ar: "التوثيق" },
   { id: "security", en: "Security", ar: "الأمن" },
-  { id: "privacy", en: "Privacy", ar: "الخصوصية" },
-  { id: "terms", en: "Terms", ar: "الشروط" },
+];
+
+/**
+ * The legal + commercial documents, as REAL ANCHORS.
+ *
+ * These four are the exception to the `setView` buttons used elsewhere in this
+ * footer, and the difference is the whole point:
+ *
+ *  - `/pricing`, `/terms`, `/privacy` and `/refund` are actual HTTP routes with
+ *    their own URL, their own <title> and their own metadata.
+ *  - A crawler reads links. It does not click buttons. While these were buttons,
+ *    the Terms of Service — the document a publication review looks for by name —
+ *    was not linked anywhere on the page at all: it was reachable only by someone
+ *    who already knew to navigate the app.
+ *  - `rel="nofollow"` is deliberately absent. These are the pages we want followed.
+ */
+const LEGAL: { href: string; en: string; ar: string }[] = [
+  { href: "/pricing", en: "Pricing", ar: "الأسعار" },
+  { href: "/terms", en: "Terms of Service", ar: "الشروط والأحكام" },
+  { href: "/privacy", en: "Privacy Policy", ar: "سياسة الخصوصية" },
+  { href: "/refund", en: "Refund Policy", ar: "سياسة الاسترداد" },
 ];
 
 export function Footer() {
@@ -28,7 +47,7 @@ export function Footer() {
       <button
         key={l.id}
         onClick={() => setView(l.id)}
-        className="block text-[12px] font-medium text-ink-2 transition hover:text-primary"
+        className="block text-left text-[12px] font-medium text-ink-2 transition hover:text-primary"
       >
         {ar ? l.ar : l.en}
       </button>
@@ -37,7 +56,7 @@ export function Footer() {
   return (
     <footer className="mt-auto border-t border-line bg-white">
       <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
-        <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-[1.4fr_1fr_1fr_1.2fr]">
+        <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-[1.4fr_1fr_1fr_1fr_1.2fr]">
           {/* brand */}
           <div>
             <div className="flex items-center gap-2.5">
@@ -65,6 +84,22 @@ export function Footer() {
           <nav aria-label="Resources">
             <p className="micro text-[9px] text-ink-3">RESOURCES</p>
             <div className="mt-3 space-y-2">{group(RESOURCES)}</div>
+          </nav>
+
+          {/* legal + commercial. Anchors, not buttons — see LEGAL above. */}
+          <nav aria-label="Legal and pricing">
+            <p className="micro text-[9px] text-ink-3">LEGAL &amp; PRICING</p>
+            <div className="mt-3 space-y-2">
+              {LEGAL.map((l) => (
+                <a
+                  key={l.href}
+                  href={l.href}
+                  className="block text-[12px] font-medium text-ink-2 transition hover:text-primary"
+                >
+                  {ar ? l.ar : l.en}
+                </a>
+              ))}
+            </div>
           </nav>
 
           {/* contact */}

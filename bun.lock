@@ -60,7 +60,6 @@
         "framer-motion": "^12.23.2",
         "input-otp": "^1.4.2",
         "ioredis": "^6.0.0",
-        "lottie-react": "^3.1.2",
         "lucide-react": "^0.525.0",
         "next": "^16.3.4",
         "next-auth": "^4.24.11",
@@ -2178,10 +2177,6 @@
     "lookup-closest-locale": ["lookup-closest-locale@6.2.0", "", {}, "sha512-/c2kL+Vnp1jnV6K6RpDTHK3dgg0Tu2VVp+elEiJpjfS1UyY7AjOYHohRug6wT0OpoX2qFgNORndE9RqesfVxWQ=="],
 
     "loose-envify": ["loose-envify@1.4.0", "https://registry.npmjs.com/loose-envify/-/loose-envify-1.4.0.tgz", { "dependencies": { "js-tokens": "^3.0.0 || ^4.0.0" }, "bin": { "loose-envify": "cli.js" } }, "sha512-lyuxPGr/Wfhrlem2CL/UcnUc1zcqKAImBDzukY7Y5F/yQiNdko6+fRLevlw1HgMySw7f611UIY408EtxRSoK3Q=="],
-
-    "lottie-react": ["lottie-react@3.1.2", "", { "dependencies": { "lottie-web": "^5.13.0" }, "peerDependencies": { "react": "^18.2.0 || ^19.0.0", "react-dom": "^18.2.0 || ^19.0.0" } }, "sha512-otbTz+Kk1ksYzcWFAlcH8xFGBWkW/hUNEHy6gLvYf7kgEkZxyPT8lXJeBu/5o0xo0cdMwvd/lwkpuXCTSQmJdQ=="],
-
-    "lottie-web": ["lottie-web@5.13.0", "", {}, "sha512-+gfBXl6sxXMPe8tKQm7qzLnUy5DUPJPKIyRHwtpCpyUEYjHYRJC/5gjUvdkuO2c3JllrPtHXH5UJJK8LRYl5yQ=="],
 
     "lowlight": ["lowlight@1.20.0", "https://registry.npmjs.com/lowlight/-/lowlight-1.20.0.tgz", { "dependencies": { "fault": "^1.0.0", "highlight.js": "~10.7.0" } }, "sha512-8Ktj+prEb1RoCPkEOrPMYUN/nCggB7qAWe3a7OpMjWQkh3l2RD5wKRQ+o8Q8YuI9RG/xs95waaI/E6ym/7NsTw=="],
 

@@ -1,5 +1,11 @@
 import type { MetadataRoute } from "next";
-import { env } from "@/lib/config";
+import { siteOrigin } from "@/lib/site-origin";
+
+/**
+ * Re-exported, not reimplemented — see src/app/site-origin.ts. The surface test
+ * imports `siteOrigin` from here, so the name is preserved.
+ */
+export { siteOrigin };
 
 /**
  * Sitemap.
@@ -29,11 +35,21 @@ import { env } from "@/lib/config";
  * Paths that may appear in the sitemap. The source of truth for what is
  * indexable; `src/proxy.ts` enforces the same list in `X-Robots-Tag`.
  *
- * `/` only. Adding a genuinely public page (a real `/blog`, a real `/pricing`
- * page) means adding it here and to `INDEXABLE_PATHS` — and creating the route
- * itself, which does not currently exist for any of the marketing views.
+ * `/` plus the four standalone public routes. The marketing views still render
+ * inside `/` (this is a single-page app with no URL routing for its panels), but
+ * privacy, terms, refund and pricing are ALSO real routes at their own URLs:
+ *
+ *   - A crawler reads HTML. The in-app panels are behind a click, so without a
+ *     route the text a Terms-and-Conditions audit looks for is not in the served
+ *     document at all.
+ *   - An answer engine will not cite a URL it cannot fetch.
+ *   - "Accessible via navigation" only means something if the navigation points
+ *     at a real, shareable address.
+ *
+ * Each of those routes renders the SAME view component the panel does, so the two
+ * cannot drift apart in content — only the URL differs.
  */
-export const INDEXABLE_PATHS = ["/"] as const;
+export const INDEXABLE_PATHS = ["/", "/pricing", "/terms", "/privacy", "/refund"] as const;
 
 /**
  * Paths that must never be listed, asserted negatively by the test so that a
@@ -52,20 +68,6 @@ export const MUST_NOT_LIST = [
 ] as const;
 
 /**
- * Absolute origin. Same resolution order and the same reasoning as in
- * src/app/robots.ts: `NEXT_PUBLIC_SITE_URL` first (not yet in .env.example —
- * see docs/SURFACE.md), then the TLS hostname `SITE_ADDRESS` promoted to
- * https, then a local fallback so a dev build still emits valid XML.
- */
-export function siteOrigin(): string {
-  const explicit = process.env.NEXT_PUBLIC_SITE_URL?.trim();
-  if (explicit) return explicit.replace(/\/+$/, "");
-  const host = process.env.SITE_ADDRESS?.trim();
-  if (!host || host === "localhost") return env.appBaseUrl;
-  return `https://${host}`;
-}
-
-/**
  * `lastModified` is pinned to the build time rather than `new Date()`.
  *
  * A metadata route is a Route Handler that is CACHED BY DEFAULT, so
@@ -79,12 +81,24 @@ const BUILD_TIME = new Date();
 
 export default function sitemap(): MetadataRoute.Sitemap {
   const origin = siteOrigin();
+  // `/` is the product page and is the canonical destination for everything a
+  // visitor might be shown; the four legal/commercial routes exist because a
+  // document that is only reachable by clicking is not reachable by a crawler.
+  // Priorities: the root is 1.0, and pricing is 0.9 because it is the page a
+  // commercial query lands on. The legal documents sit at 0.5 — real content,
+  // but not something to outrank the product for.
+  const PRIORITY: Record<string, number> = {
+    "/": 1.0,
+    "/pricing": 0.9,
+    "/terms": 0.5,
+    "/privacy": 0.5,
+    "/refund": 0.5,
+  };
+
   return INDEXABLE_PATHS.map((path) => ({
     url: `${origin}${path}`,
     lastModified: BUILD_TIME,
     changeFrequency: "weekly" as const,
-    // 1.0 for the one canonical entry: this IS the product page, not one page
-    // among many. Do not lower it to make room — there is nothing else here.
-    priority: 1.0,
+    priority: PRIORITY[path] ?? 0.5,
   }));
 }

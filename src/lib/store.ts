@@ -10,8 +10,10 @@ export type View =
   | "usecases"
   | "docs"
   | "security"
+  | "pricing"
   | "privacy"
   | "terms"
+  | "refund"
   | "deck"
   | "auth"
   | "console"
@@ -30,8 +32,10 @@ export const VIEW_ACCESS: Record<View, ViewAccess> = {
   home: "public",
   docs: "public",
   security: "public",
+  pricing: "public",
   privacy: "public",
   terms: "public",
+  refund: "public",
   usecases: "public",
   auth: "public",
   demo: "user",

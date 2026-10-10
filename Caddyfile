@@ -238,17 +238,38 @@
 	import site
 }
 
-# The real domain. Both names are behind the Cloudflare proxy (orange cloud).
+# The real domain. Both names resolve DIRECTLY to this box (DNS-only, grey
+# cloud), so TLS here is automatic and IS WORKING. Measured 2026-10-10 against
+# the live host, not inferred:
 #
-# TLS HERE IS NOT WIRED YET, and that is deliberate rather than an oversight.
+#     https://securevoiceai.me      -> 200, certificate verifies
+#     https://www.securevoiceai.me  -> 200, certificate verifies
+#     http://securevoiceai.me       -> 308 to https://
+#     Via: 1.1 Caddy                -> the edge IS this box, not Cloudflare
 #
-# Automatic certs use HTTP-01, which cannot work through the proxy: Cloudflare
-# terminates TLS at the edge and never forwards the ACME challenge to the origin.
-# Caddy does not fail `caddy validate` for this — it fails at RUNTIME on the live
-# box, silently, for this hostname only.
+# The comment that used to live here said "TLS HERE IS NOT WIRED YET" and warned
+# that ACME HTTP-01 could not work through the Cloudflare proxy. That warning is
+# true IN GENERAL and false FOR THIS ZONE, because the zone is DNS-only — so
+# Cloudflare never terminates the connection and the HTTP-01 challenge reaches
+# Caddy. Left in place it was worse than no comment: a reader would conclude the
+# deployment was insecure and "fix" it by mounting an Origin CA certificate, which
+# is a startup-time change to the edge serving every hostname.
 #
-# The obvious fix, `tls { dns cloudflare { … } }`, is NOT available here. It was
-# tried and reverted: the deployment runs the stock `caddy:2-alpine` image, and
+# IF THE ZONE IS EVER PUT BACK BEHIND THE ORANGE CLOUD, HTTP-01 will start
+# failing at runtime — `caddy validate` still passes, so the only symptom is an
+# issuance error in the logs on the live box, for that hostname alone. The
+# documented fixes, in order of preference:
+#
+#   1. Put the records back to DNS-only (grey cloud). Simplest, and the state
+#      this deployment was measured in.
+#   2. Mount a Cloudflare Origin CA pair and add, inside this site block:
+#          tls /etc/caddy/certs/securevoiceai.me.pem /etc/caddy/certs/securevoiceai.me.key
+#      then set the zone to SSL mode `strict`. Referencing a missing cert file is
+#      a STARTUP failure, so the file must exist on the host before the line
+#      lands — do not commit the line first.
+#
+# `tls { dns cloudflare { … } }` is NOT an option here: the deployment runs the
+# stock `caddy:2-alpine` image, and
 #
 #     docker run --rm caddy:2-alpine caddy list-modules | grep dns
 #     -> tls.ech.publishers.mdns        (that is the only match)
@@ -257,16 +278,6 @@
 # `dns.providers.cloudflare` is rejected at startup with "module not registered",
 # which means Caddy does not come up and the ENTIRE edge — every hostname, not
 # just this one — goes down. Verified against the real image, not assumed.
-#
-# The origin certificate is therefore supplied as a static file pair instead,
-# which needs no module:
-#
-#     tls /etc/caddy/certs/securevoiceai.me.pem /etc/caddy/certs/securevoiceai.me.key
-#
-# That line is NOT in this file on purpose. Referencing a missing cert file is a
-# startup failure too, so it must not land before the files exist on the host.
-# Once the Cloudflare Origin CA certificate is issued and mounted, add it here
-# and move the zone to SSL mode `strict`.
 securevoiceai.me, www.securevoiceai.me {
 	import site
 }

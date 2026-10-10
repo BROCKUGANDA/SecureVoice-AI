@@ -228,13 +228,24 @@ describe("Home", () => {
     }
   });
 
-  it("jumps from the privacy link inside the dialog to the privacy view", async () => {
+  it("links from the privacy reference inside the dialog to the real /privacy route", async () => {
+    // This used to assert that a button swapped the SPA's `view` state to
+    // "privacy". It is now an <a href="/privacy">: `/privacy` is a real route
+    // with its own URL and metadata, and a crawler cannot follow a button. The
+    // assertion is inverted — the link exists, points at the route, and still
+    // closes the dialog it lives in.
+    //
+    // Plain DOM assertions, not jest-dom matchers: this suite does not load
+    // @testing-library/jest-dom, so `toHaveAttribute`/`toBeInTheDocument` are
+    // not on `expect`.
     const user = userEvent.setup();
     render(<Home />);
 
     const dialog = await openPilot(user);
-    await user.click(within(dialog).getByRole("button", { name: "Privacy Policy" }));
+    const link = within(dialog).getByRole("link", { name: "Privacy Policy" });
+    expect(link.getAttribute("href")).toBe("/privacy");
 
-    expect(useApp.getState().view).toBe("privacy");
+    await user.click(link);
+    expect(within(document.body).queryByText("Privacy Policy")).toBeNull();
   });
 });

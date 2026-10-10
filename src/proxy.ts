@@ -168,25 +168,34 @@ function reject(
  * exclude. What protects it is (a) the session guard gating the data and (b) never handing
  * a crawler a URL that resolves to it.
  *
- * That leaves exactly two HTML routes in the tree — `/` and `/inspector` — and
- * `/inspector` is a signature-verification debug tool, so `/` is the only
- * indexable page.
+ * The allowlist is therefore short, and every entry is a real HTTP route:
+ *
+ *   `/`             the single-page app (marketing + docs + legal panels)
+ *   `/sitemap.xml`  the SEO surface; measured as matched by this proxy
+ *   `/pricing`      real route — the commercial page
+ *   `/terms`        real route — required to be publicly addressable
+ *   `/privacy`      real route — required to be publicly addressable
+ *   `/refund`       real route — required to be publicly addressable
+ *
+ * `/inspector` is the only other HTML route and stays off the list: it is a
+ * signature-verification debug tool, i.e. operator material.
  *
  * Allowlist rather than denylist because a denylist silently reopens the
  * surface every time someone adds a route: the new page ships indexable and
  * nobody notices for months. Here a new page is noindex by default and has to
  * be opted in, which fails towards the safe side.
  *
- * `/sitemap.xml` is listed because it is part of the public SEO surface and the
- * proxy matcher DOES run for it (unlike `/robots.txt` and `/site.webmanifest`,
- * whose extensions the matcher excludes). Leaving it noindexed was measured on
- * a running server, not assumed. `/robots.txt` is absent from this list on
- * purpose: the matcher skips it entirely, so no header is ever attached.
- *
  * Adding a real public page? Add it here AND to src/app/sitemap.ts. tests/
  * surface/surface.test.ts fails if the two disagree.
  */
-export const INDEXABLE_PATHS: readonly string[] = ["/", "/sitemap.xml"];
+export const INDEXABLE_PATHS: readonly string[] = [
+  "/",
+  "/sitemap.xml",
+  "/pricing",
+  "/terms",
+  "/privacy",
+  "/refund",
+];
 
 /**
  * Where the microphone is permitted.

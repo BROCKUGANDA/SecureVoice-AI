@@ -1,6 +1,6 @@
 "use client";
 
-import { ScrollText, FileText, ArrowRight } from "lucide-react";
+import { ScrollText, FileText, ArrowRight, Undo2 } from "lucide-react";
 import { useApp, t } from "@/lib/store";
 import { SUPPORT_EMAIL } from "@/lib/public-config";
 import { Reveal } from "@/components/fx/core";
@@ -18,7 +18,7 @@ function LegalShell({
   sections,
   sectionsAr,
 }: {
-  kind: "privacy" | "terms";
+  kind: "privacy" | "terms" | "refund";
   icon: typeof ScrollText;
   titleEn: string;
   titleAr: string;
@@ -31,22 +31,28 @@ function LegalShell({
      than interleaved — the translation can never silently rewrite it. */
   sectionsAr: { h: string; body: string[] }[];
 }) {
-  const { lang, setView } = useApp();
+  const { lang } = useApp();
+
+  /** Short eyebrow above the title, and its Arabic mirror. */
+  const eyebrow: [string, string] =
+    kind === "privacy"
+      ? ["Privacy", "الخصوصية"]
+      : kind === "refund"
+        ? ["Refunds", "الاسترداد"]
+        : ["Legal", "الشروط والأحكام"];
+  const eyebrowAr =
+    kind === "privacy" ? "الخصوصية" : kind === "refund" ? "الاسترداد" : "الشروط والأحكام";
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8 lg:py-12">
       <div className="mx-auto max-w-3xl">
         {/* header */}
         <div className="flex items-center gap-3">
-          <span className="micro text-primary">
-            {kind === "privacy"
-              ? t("Privacy", "الخصوصية", lang)
-              : t("Legal", "الشروط والأحكام", lang)}
-          </span>
+          <span className="micro text-primary">{t(eyebrow[0], eyebrow[1], lang)}</span>
           <span className="h-px w-10 bg-line" />
           {lang === "en" && (
             <span dir="rtl" className="font-arabic text-[13px] text-ink-3">
-              {kind === "privacy" ? "الخصوصية" : "الشروط والأحكام"}
+              {eyebrowAr}
             </span>
           )}
         </div>
@@ -91,34 +97,68 @@ function LegalShell({
           ))}
         </div>
 
-        {/* cross-link */}
-        <div className="mt-12 rounded-2xl border border-line bg-white p-5">
-          {kind === "privacy" ? (
-            <button
-              onClick={() => setView("terms")}
-              className="group flex w-full items-center justify-between text-left"
+        {/* cross-link
+            Real anchors, not `setView` buttons. The same component renders in two
+            places: as a panel inside the SPA at `/`, and as a standalone route at
+            `/terms` etc. A `setView` call is inert on the standalone route (there
+            is no SPA mounted to receive it), so the link would look live and do
+            nothing. An `<a href>` is correct in both, and it is also what makes the
+            documents mutually reachable by a crawler rather than only by a click. */}
+        <nav
+          aria-label="Related legal documents"
+          className="mt-12 grid gap-px overflow-hidden rounded-2xl border border-line bg-line sm:grid-cols-2"
+        >
+          {LEGAL_DOCS.map((doc) => (
+            <a
+              key={doc.id}
+              href={doc.href}
+              className="group flex items-center justify-between bg-white px-5 py-4 text-left transition hover:bg-green-tint"
             >
-              <span className="text-[13.5px] font-semibold tracking-tight">
-                {t("Looking for the Terms of Service?", "تبحث عن الشروط والأحكام؟", lang)}
+              <span>
+                <span className="block text-[13.5px] font-semibold tracking-tight">
+                  {doc.titleEn}
+                </span>
+                <span className="mt-0.5 block text-[11.5px] text-ink-3">
+                  {t(doc.blurbEn, doc.blurbAr, lang)}
+                </span>
               </span>
-              <ArrowRight className="h-4 w-4 text-ink-3 transition group-hover:translate-x-0.5 group-hover:text-primary" />
-            </button>
-          ) : (
-            <button
-              onClick={() => setView("privacy")}
-              className="group flex w-full items-center justify-between text-left"
-            >
-              <span className="text-[13.5px] font-semibold tracking-tight">
-                {t("Looking for the Privacy Policy?", "تبحث عن سياسة الخصوصية؟", lang)}
-              </span>
-              <ArrowRight className="h-4 w-4 text-ink-3 transition group-hover:translate-x-0.5 group-hover:text-primary" />
-            </button>
-          )}
-        </div>
+              <ArrowRight className="h-4 w-4 shrink-0 text-ink-3 transition group-hover:translate-x-0.5 group-hover:text-primary" />
+            </a>
+          ))}
+        </nav>
       </div>
     </div>
   );
 }
+
+/**
+ * The three legal documents, so the cross-link bar renders all of them instead
+ * of the two-way Privacy↔Terms pairing it replaced. `href` is the real route;
+ * `id` is the in-app `View`, kept for the SPA navigation the footer uses.
+ */
+const LEGAL_DOCS = [
+  {
+    id: "terms",
+    href: "/terms",
+    titleEn: "Terms of Service",
+    blurbEn: "The agreement this website and any evaluation access operate under.",
+    blurbAr: "الاتفاقية التي يعمل بمقتضاها هذا الموقع وأي وصول تقييمي.",
+  },
+  {
+    id: "privacy",
+    href: "/privacy",
+    titleEn: "Privacy Policy",
+    blurbEn: "What we process, where it lives, and your rights over it.",
+    blurbAr: "ما نعالجه وأين يُحفظ وحقوقكم بشأنه.",
+  },
+  {
+    id: "refund",
+    href: "/refund",
+    titleEn: "Refund Policy",
+    blurbEn: "How cancellation and refunds work, including prepaid credits.",
+    blurbAr: "كيف يعمل الإلغاء والاسترداد، بما في ذلك الأرصدة المسبقة.",
+  },
+] as const;
 
 /* ————————————————— privacy policy ————————————————— */
 
@@ -430,6 +470,132 @@ export function Terms() {
       meta={{ version: "1.2", effective: "2026-10-02", entity: "SECUREVOICE TECHNOLOGIES FZ-LLC" }}
       sections={TERMS_SECTIONS}
       sectionsAr={TERMS_SECTIONS_AR}
+    />
+  );
+}
+
+/* ————————————————— refund policy ————————————————— */
+
+/**
+ * The Refund Policy exists because the publication checklist treats Terms,
+ * Refund and Privacy as three separate required documents, and this site had
+ * only two. It is deliberately concrete — cancellation window, who pays the
+ * processing fee, what happens to unused prepaid credits — because a refund
+ * policy that says "contact us" satisfies nobody.
+ *
+ * Two clauses here are load-bearing and must not be softened:
+ *
+ *  - Consumed credits are non-refundable, because an intervention that has been
+ *    placed has already burned carrier minutes, speech synthesis and an LLM turn.
+ *    Refunding those would let a customer probe the platform for free.
+ *  - Enterprise deployments are governed by the signed agreement, not this page.
+ *    Saying otherwise would create a second, conflicting commitment on a page
+ *    nobody negotiated.
+ */
+const REFUND_SECTIONS = [
+  {
+    h: "Scope",
+    body: [
+      'This Refund Policy applies to paid subscriptions to the SecureVoice platform, purchased through this website by SecureVoice Technologies FZ-LLC ("SecureVoice", "we"). It is read together with our Terms of Service; where this policy is more specific about money, it governs the money.',
+      "It does not apply to production deployments governed by a signed Master Services Agreement and Data Processing Agreement with a financial institution. Those are quoted per deployment and the commercial terms are in the signed agreement, which takes precedence over anything on this page. It also does not apply to the free public demonstration, which is provided for evaluation and carries no charge to refund.",
+    ],
+  },
+  {
+    h: "Monthly subscriptions",
+    body: [
+      "You may cancel a monthly subscription at any time before its next renewal date. Cancellation takes effect at the end of the current paid period, and we refund the unused portion of that period pro rata.",
+      "A refund is issued to the original payment method. Prices are quoted in US dollars and settled in Kenyan shillings through Paystack, so the refund is issued in the currency and to the instrument the charge was taken in — we do not convert across currencies at a third party's rate.",
+      "There is no cancellation fee. We do not charge a restocking or admin fee for a cancellation made under this policy.",
+    ],
+  },
+  {
+    h: "Prepaid intervention credits",
+    body: [
+      "Credits purchased as a prepaid balance are refundable while they are unspent. Once a credit has been consumed by a completed intervention call — an outbound call that was placed and answered — that credit is non-refundable, because the carrier minutes, speech synthesis and model inference it paid for have already been incurred.",
+      "We will show you a per-intervention consumption breakdown on request before you decide, so you can see exactly how many credits were spent and on what. Unspent credits are refundable in full on request at any time, pro rata against the purchase price paid for them.",
+    ],
+  },
+  {
+    h: "How to request one",
+    body: [
+      `Email ${SUPPORT_EMAIL} from the address on the account with the word "refund" in the subject and the organisation's name. No form, no ticket bot — a person reads it. We acknowledge within two business days and resolve within fourteen.`,
+      "You do not need to give a reason. We will not ask you to justify cancelling, and we will not ask you to complete an exit interview first. If you are cancelling because something is broken, tell us anyway — it is the most useful sentence in the thread, and it does not affect your refund.",
+    ],
+  },
+  {
+    h: "What we do not refund",
+    body: [
+      "Professional services already delivered under a signed agreement; carrier pass-through charges actually incurred before cancellation; and any amount for a period during which the service was suspended for non-payment caused by a failed or expired payment method.",
+      "Where a fault on our side caused a material failure to deliver the service, we refund regardless of this policy. That is a commitment under the signed agreement, and it is also simply how we intend to operate.",
+    ],
+  },
+  {
+    h: "Changes to this policy",
+    body: [
+      "We may update this policy. Material changes will be announced on this page with a new version number and effective date, and existing subscriptions keep the terms they were bought under until their next renewal.",
+    ],
+  },
+];
+
+/* ————————————————— refund policy (Modern Standard Arabic) ————————————————— */
+
+const REFUND_SECTIONS_AR = [
+  {
+    h: "النطاق",
+    body: [
+      "تنطبق سياسة الاسترداد هذه على الاشتراكات المدفوعة لمنصة SecureVoice، التي تُشترى عبر هذا الموقع من شركة SecureVoice Technologies FZ-LLC («SecureVoice»، «نحن»). وتُقرأ مع شروط الخدمة لدينا؛ وحيثما تكون هذه السياسة أكثر تحديداً لمسائل الدفع، فهي التي تحكم الدفع.",
+      "ولا تنطبق على عمليات النشر الإنتاجية الخاضعة لاتفاقية مستوى الخدمة الموقّعة واتفاقية معالجة البيانات مع مؤسسة مالية. فتلك تُسعَّر حسب النشر وتحددها الشروط التجارية في الاتفاقية الموقّعة، التي تتقدّم على أي مما ورد في هذه الصفحة. كما لا تنطبق على العرض التوضيحي العام المجاني، الذي يُقدَّم لأغراض التقييم ولا يحمل أي رسم يُسترد.",
+    ],
+  },
+  {
+    h: "الاشتراكات الشهرية",
+    body: [
+      "يمكنك إلغاء أي اشتراك شهري في أي وقت قبل تاريخ تجديده التالي. ويسري الإلغاء في نهاية الفترة المدفوعة الحالية، ونعيد المبلغ عن الجزء غير المستخدم من تلك الفترة بالتناسب.",
+      "يُصدر الاسترداد إلى وسيلة الدفع الأصلية. والأسعار معروضة بالدولار الأمريكي وتُسدَّد بالشلن الكيني عبر Paystack، لذا يُصدر الاسترداد العملة نفسها وبالأداة نفسها التي تم الخصم منها؛ ولا نحوّل بين العملات بسعر طرف ثالث.",
+      "ولا توجد رسوم إلغاء، ولا نفرض رسوم إعادة تخزين أو رسوماً إدارية على الإلغاء الذي يتم وفق هذه السياسة.",
+    ],
+  },
+  {
+    h: "أرصدة التدخّل المسبقة المدفوعة",
+    body: [
+      "الأرصدة التي تُشترى كرصيد مسبق قابلة للاسترداد ما دامت لم تُنفق. وحين يُستهلك رصيد واحد في مكالمة تدخّل مكتملة — أي مكالمة صادرة تمّ الاتصال بها وتم الرد عليها — يصبح ذلك الرصيد غير قابل للاسترداد، لأن دقائق الاتصال وتوليد الكلام واستدلال النموذج التي موّلتها قد تحمّلناها بالفعل.",
+      "وسنعرض لكم تفصيل الاستهلاك لكل تدخّل عند الطلب قبل أن تقرّروا، لتعرفوا بدقة عدد الأرصدة التي أُنفقت وعلى ماذا. والأرصدة غير المنفقة قابلة للاسترداد بالكامل عند الطلب في أي وقت، بالتناسب مع السعر المدفوع مقابلها.",
+    ],
+  },
+  {
+    h: "كيف تطلب الاسترداد",
+    body: [
+      `راسلوا ${SUPPORT_EMAIL} من العنوان المسجّل على الحساب، مع وضع كلمة «استرداد» في سطر الموضوع وذكر اسم المؤسسة. لا حاجة إلى نموذج ولا إلى روبوت تذاكر — إنسان يقرأ الرسالة. نُقرّ باستلامها خلال يومي عمل وننهيها خلال أربعة عشر يوماً.`,
+      "ولا يلزم ذكر السبب. ولن نطلب منكم تبرير الإلغاء، ولن نطلب منكم إتمام مقابلة خروج قبله. وإذا كان الإلغاء بسبب خلل، فأخبرونا على أي حال — فذلك أنفع ما في الرسالة، ولا يؤثر في استردادكم.",
+    ],
+  },
+  {
+    h: "ما لا نعيده",
+    body: [
+      "الخدمات المهنية التي قُدِّمت بالفعل بموجب اتفاقية موقّعة؛ ورسوم وسط مشغّلي الاتصالات التي تحمّلناها فعلاً قبل الإلغاء؛ وأي مبلغ عن فترة عُلِّقت فيها الخدمة لعدم السداد بسبب وسيلة دفع فاشلة أو منتهية الصلاحية.",
+      "وإذا أدى عيب من جانبنا إلى إخفاق جوهري في تقديم الخدمة، فإننا نعيد المبلغ بغضّ النظر عن هذه السياسة. فهذا التزام ضمن الاتفاقية الموقّعة، وهو أيضاً ببساطة كيف نعتزم أن نتعامل.",
+    ],
+  },
+  {
+    h: "التغييرات في هذه السياسة",
+    body: [
+      "يجوز لنا تحديث هذه السياسة. وستُعلن التغييرات الجوهرية في هذه الصفحة برقم إصدار وتاريخ سريان جديدين، وتحتفظ الاشتراكات القائمة بالشروط التي اشترت بها حتى موعد تجديدها التالي.",
+    ],
+  },
+];
+
+export function Refund() {
+  return (
+    <LegalShell
+      kind="refund"
+      icon={Undo2}
+      titleEn="Refund Policy"
+      titleAr="سياسة الاسترداد"
+      subtitleEn="Cancel monthly at any time and the unused period is refunded pro rata. Unspent prepaid credits are refundable in full. No cancellation fee, no exit interview."
+      subtitleAr="ألغِ الاشتراك الشهري في أي وقت ويُسترد الجزء غير المستخدم بالتناسب. وتُسترد الأرصدة المسبقة غير المنفقة بالكامل. بلا رسوم إلغاء وبلا مقابلة خروج."
+      meta={{ version: "1.0", effective: "2026-10-10", entity: "SECUREVOICE TECHNOLOGIES FZ-LLC" }}
+      sections={REFUND_SECTIONS}
+      sectionsAr={REFUND_SECTIONS_AR}
     />
   );
 }

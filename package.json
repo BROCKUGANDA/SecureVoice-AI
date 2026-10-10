@@ -49,7 +49,8 @@
     "deploy": "bun scripts/deploy.mjs",
     "deploy:status": "bun scripts/deploy.mjs status",
     "db:seed:audio": "bun scripts/seed-demo-audio.mjs",
-    "voice:assets": "bun scripts/build-voice-assets.mjs"
+    "voice:assets": "bun scripts/build-voice-assets.mjs",
+    "icons": "bun scripts/build-icons.mjs"
   },
   "dependencies": {
     "@better-auth/infra": "^0.4.14",
@@ -107,7 +108,6 @@
     "framer-motion": "^12.23.2",
     "input-otp": "^1.4.2",
     "ioredis": "^6.0.0",
-    "lottie-react": "^3.1.2",
     "lucide-react": "^0.525.0",
     "next": "^16.3.4",
     "next-auth": "^4.24.11",

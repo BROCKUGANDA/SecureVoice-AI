@@ -1,5 +1,17 @@
 import type { MetadataRoute } from "next";
-import { env } from "@/lib/config";
+import { siteOrigin } from "@/lib/site-origin";
+
+/**
+ * Re-exported, not reimplemented.
+ *
+ * This file used to carry its own copy of the origin-resolution logic, held in
+ * agreement with a copy in sitemap.ts by a surface test. Now that layout.tsx
+ * needs the same answer for `metadataBase` there are three consumers — so the
+ * logic lives once in src/lib/site-origin.ts and is re-exported here under the
+ * name the surface test already imports. That file documents the resolution
+ * order and why the trailing slash is stripped.
+ */
+export { siteOrigin };
 
 /**
  * Crawler policy.
@@ -45,38 +57,49 @@ export const NO_INDEX = [
 ] as const;
 
 /**
- * Trainers and AI crawlers get nothing at all.
+ * Crawlers that exist to build a SEARCH INDEX, which is how an answer engine
+ * finds a page to cite. These are allowed, deliberately.
  *
- * Preserved from the previous public/robots.txt verbatim. The reasoning is not
- * "we dislike AI" — it is that /api/console/* returns the audit chain and the
- * Command Center feed, and training corpora are a poor place for a tamper-
- * evident evidence chain that a pilot bank will later ask us to attest to.
+ * This rule is new, and it reverses part of what used to be here. The previous
+ * version was a single `disallow: "/"` for GPTBot, ClaudeBot, PerplexityBot and
+ * Google-Extended, on the reasoning that /api/console/* returns the audit chain
+ * and the Command Center feed, and that a tamper-evident evidence chain is a
+ * poor thing to have in a training corpus.
+ *
+ * That reasoning was sound but it was aimed at the wrong thing, for two reasons.
+ *
+ *  1. **It did not protect what it claimed to.** `/api/` is already in `NO_INDEX`
+ *     for EVERY crawler in the rule above, so no AI crawler could reach the audit
+ *     chain through this site whether or not this rule existed. The blanket deny
+ *     bought no protection; it only cost reach.
+ *  2. **It blocked exactly the audience this site is written for.** `robots.txt`
+ *     is how a crawler is told it may fetch a page. Denying the search index of
+ *     an answer engine means "SecureVoice AI is not citable" — the opposite of
+ *     what the FAQ, the pricing page and the JSON-LD are for. A product page that
+ *     no answer engine is allowed to read cannot win an answer.
+ *
+ * So: allow the indexers, and let the path rules do the protecting. `OAI-SearchBot`
+ * and `ChatGPT-User` are OpenAI's search index and its user-initiated fetch;
+ * `PerplexityBot` is Perplexity's index. `ClaudeBot` is included because Anthropic
+ * uses it to serve answers; if that ever needs to change, split it here — do NOT
+ * re-add a blanket deny.
  */
-const AI_CRAWLERS = ["GPTBot", "ClaudeBot", "PerplexityBot", "Google-Extended"] as const;
+const SEARCH_CRAWLERS = ["OAI-SearchBot", "ChatGPT-User", "PerplexityBot", "ClaudeBot"] as const;
 
 /**
- * Absolute origin for the sitemap URL.
+ * Crawlers whose only job is to build a TRAINING corpus. These still get nothing.
  *
- * `robots.txt` and `sitemap.xml` must be absolute, and this build has no
- * `metadataBase` (src/app/layout.tsx does not set one). So the origin is
- * derived here instead.
+ * This is the distinction the previous single rule blurred. `GPTBot` (OpenAI's
+ * training crawler) and `Google-Extended` (which governs Gemini training and
+ * Vertex grounding) are not the same agents as the search indexers above, and a
+ * site can reasonably be quotable in an answer while declining to be training
+ * material. Keep this rule and keep it narrow: it is the one that still expresses
+ * the original intent.
  *
- * Resolution order, and the reason it is not simply `SITE_ADDRESS`:
- *   1. `NEXT_PUBLIC_SITE_URL` — the correct answer. Not currently present in
- *      .env.example; see docs/SURFACE.md, this is the one-line config gap that
- *      makes the emitted sitemap correct in production.
- *   2. `SITE_ADDRESS` — the bare hostname Caddy issues TLS for, so it must be
- *      promoted to an https:// origin.
- *   3. `http://localhost:3000` — the dev fallback, so a local build emits a
- *      parseable file instead of throwing.
+ * If the operator wants to be in training corpora too, the change is to delete
+ * this rule — not to widen the deny above it.
  */
-export function siteOrigin(): string {
-  const explicit = process.env.NEXT_PUBLIC_SITE_URL?.trim();
-  if (explicit) return explicit.replace(/\/+$/, "");
-  const host = process.env.SITE_ADDRESS?.trim();
-  if (!host || host === "localhost") return env.appBaseUrl;
-  return `https://${host}`;
-}
+const TRAINING_CRAWLERS = ["GPTBot", "Google-Extended"] as const;
 
 export default function robots(): MetadataRoute.Robots {
   return {
@@ -90,9 +113,18 @@ export default function robots(): MetadataRoute.Robots {
         disallow: [...NO_INDEX],
       },
       {
-        // Deny-all for AI crawlers. No `allow` — the absence of an allow rule
-        // means "nothing is permitted", which is what these need.
-        userAgent: [...AI_CRAWLERS],
+        // Search/answer indexers: permitted, and re-stating the path disallows so
+        // the rule stands on its own rather than depending on which rule a
+        // particular crawler happens to match. Longest-match-wins means the
+        // specific `disallow` entries still beat `allow: "/"`.
+        userAgent: [...SEARCH_CRAWLERS],
+        allow: "/",
+        disallow: [...NO_INDEX],
+      },
+      {
+        // Training-only crawlers. No `allow` — the absence of an allow rule means
+        // "nothing is permitted", which is what these need.
+        userAgent: [...TRAINING_CRAWLERS],
         disallow: "/",
       },
     ],

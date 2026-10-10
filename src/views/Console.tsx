@@ -35,7 +35,7 @@ import { LiveOpsPanel, type TranscriptLine, type LiveCall } from "@/components/o
 import { SloPanel } from "@/components/slo/SloPanel";
 import { VerificationTokenBadge } from "@/components/console/VerificationTokenBadge";
 import { TopUpDialog } from "@/components/console/TopUpDialog";
-import { LottieIcon } from "@/components/fx/LottieIcon";
+import { LoadingIndicator } from "@/components/fx/LoadingIndicator";
 import { walletEmptyNotice } from "@/lib/credits-wallet";
 
 /**
@@ -573,8 +573,7 @@ export function Console() {
   if (!isLoaded) {
     return (
       <div className="flex min-h-[60vh] items-center justify-center">
-        <LottieIcon
-          name="sonar"
+        <LoadingIndicator
           size={44}
           label={t("Loading Command Center", "جارٍ تحميل مركز التشغيل", lang)}
         />

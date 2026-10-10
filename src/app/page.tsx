@@ -15,7 +15,8 @@ import { Product } from "@/views/Product";
 import { UseCases } from "@/views/UseCases";
 import { Docs } from "@/views/Docs";
 import { Security } from "@/views/Security";
-import { Privacy, Terms } from "@/views/Legal";
+import { Privacy, Terms, Refund } from "@/views/Legal";
+import { Pricing } from "@/views/Pricing";
 import { Deck } from "@/views/Deck";
 import { Auth } from "@/views/Auth";
 import { Console } from "@/views/Console";
@@ -32,8 +33,10 @@ const VIEWS: Record<View, React.ComponentType> = {
   usecases: UseCases,
   docs: Docs,
   security: Security,
+  pricing: Pricing,
   privacy: Privacy,
   terms: Terms,
+  refund: Refund,
   deck: Deck,
   auth: Auth,
   console: Console,

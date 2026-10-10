@@ -1271,15 +1271,17 @@ function PilotDialog({
                       "تُحفظ بياناتك بأمان في بنيتنا الأوروبية. ولا نشارك تفاصيلك أبداً — اطّلع على",
                       lang,
                     )}{" "}
-                    <button
-                      onClick={() => {
-                        close(false);
-                        setView("privacy");
-                      }}
+                    {/* An anchor, not a `setView` button. `/privacy` is a real
+                        route, and a crawler reading this sentence cannot follow a
+                        button. The dialog still closes on click, because leaving
+                        it open over a navigating page is worse than either. */}
+                    <a
+                      href="/privacy"
+                      onClick={() => close(false)}
                       className="underline decoration-line underline-offset-2 transition hover:text-primary"
                     >
                       {t("Privacy Policy", "سياسة الخصوصية", lang)}
-                    </button>
+                    </a>
                     .
                   </p>
                 </div>

@@ -114,11 +114,38 @@ describe("indexing: authenticated and API routes are never indexable", () => {
   });
 
   test("the allowlist is an allowlist: unknown paths are noindex by default", () => {
-    expect(INDEXABLE_PATHS).toEqual(["/", "/sitemap.xml"]);
-    expect(robotsTagFor("/")).toBeNull();
-    expect(robotsTagFor("/sitemap.xml")).toBeNull();
+    // The five entries are the ONLY indexable HTML routes. Everything else —
+    // including any route added later without an entry here — is noindex, which
+    // is the failure mode this list exists to prevent.
+    expect(INDEXABLE_PATHS).toEqual([
+      "/",
+      "/sitemap.xml",
+      "/pricing",
+      "/terms",
+      "/privacy",
+      "/refund",
+    ]);
+    for (const path of INDEXABLE_PATHS) expect(robotsTagFor(path)).toBeNull();
     expect(robotsTagFor("/anything/new")).toBe("noindex, nofollow");
     expect(robotsTagFor("/api/")).toBe("noindex, nofollow");
+  });
+
+  /**
+   * The legal + commercial routes are indexable AND actually exist.
+   *
+   * Two halves that have to hold together. A path on the allowlist that 404s is
+   * worse than a path left off it: the sitemap advertises it, the `X-Robots-Tag`
+   * says "index me", and a crawler gets a 404. So each route is checked against
+   * the filesystem as well as the allowlist.
+   */
+  test.each([
+    { path: "/pricing", file: "src/app/pricing/page.tsx" },
+    { path: "/terms", file: "src/app/terms/page.tsx" },
+    { path: "/privacy", file: "src/app/privacy/page.tsx" },
+    { path: "/refund", file: "src/app/refund/page.tsx" },
+  ])("$path is allowlisted AND backed by a real route", ({ path, file }) => {
+    expect(INDEXABLE_PATHS).toContain(path);
+    expect(existsSync(file)).toBe(true);
   });
 
   test("/sitemap.xml is not noindex ÃƒÂ¢Ã¢šÂ¬Ã¢â‚¬Â it is the public SEO surface", () => {
@@ -168,14 +195,40 @@ describe("robots.txt", () => {
     }
   });
 
-  test("AI crawlers are denied everything", () => {
+  /**
+   * AI crawlers are split by PURPOSE, not lumped together.
+   *
+   * The previous single rule denied GPTBot, ClaudeBot, PerplexityBot and
+   * Google-Extended everything, on the theory that the audit chain should not end
+   * up in a training corpus. That rule never protected the audit chain — `/api/`
+   * was already disallowed for every crawler in the rule above — and it did block
+   * the search indexes this site's pricing, FAQ and JSON-LD exist to be found by.
+   * See the long comment on SEARCH_CRAWLERS in src/app/robots.ts.
+   */
+  test("training-only crawlers are denied everything", () => {
     const rule = allRules().find((x) =>
       (Array.isArray(x.userAgent) ? x.userAgent : [x.userAgent]).includes("GPTBot"),
     );
     expect(rule?.disallow).toBe("/");
-    // All four crawlers from the previous public/robots.txt are preserved.
+    // No `allow` key: the absence of an allow rule is what makes this a deny-all.
+    expect(rule?.allow).toBeUndefined();
     const agents = Array.isArray(rule?.userAgent) ? rule?.userAgent : [];
-    expect(agents).toEqual(expect.arrayContaining(["GPTBot", "ClaudeBot", "Google-Extended"]));
+    expect(agents).toEqual(expect.arrayContaining(["GPTBot", "Google-Extended"]));
+  });
+
+  test("search/answer indexers are allowed, but still cannot reach /api", () => {
+    const rule = allRules().find((x) =>
+      (Array.isArray(x.userAgent) ? x.userAgent : [x.userAgent]).includes("OAI-SearchBot"),
+    );
+    expect(rule?.allow).toBe("/");
+    // The protection the blanket deny used to imply is now explicit: the path
+    // disallows apply to these agents exactly as they do to everyone else.
+    const disallow = Array.isArray(rule?.disallow) ? rule.disallow : [rule?.disallow];
+    expect(disallow).toEqual(expect.arrayContaining(["/api/", "/v1/", "/inspector"]));
+    const agents = Array.isArray(rule?.userAgent) ? rule?.userAgent : [];
+    expect(agents).toEqual(
+      expect.arrayContaining(["OAI-SearchBot", "ChatGPT-User", "PerplexityBot"]),
+    );
   });
 
   test("advertises the sitemap with an absolute URL", () => {
@@ -196,9 +249,14 @@ describe("sitemap", () => {
     }
   });
 
-  test("the marketing root is the only entry", () => {
-    expect(entries).toHaveLength(1);
-    expect(new URL(entries[0]!.url).pathname).toBe("/");
+  test("every public route is listed exactly once, and `/` is first", () => {
+    // Five entries: the single-page app plus the four standalone documents. The
+    // count is asserted rather than derived so that ADDING a route to the list
+    // without thinking about the sitemap fails here instead of shipping.
+    expect(entries).toHaveLength(5);
+    const paths = entries.map((e) => new URL(e.url).pathname);
+    expect(paths).toEqual(["/", "/pricing", "/terms", "/privacy", "/refund"]);
+    expect(new Set(paths).size).toBe(paths.length);
   });
 
   test("every entry is an absolute URL that parses", () => {
@@ -449,10 +507,29 @@ describe("declared security headers", () => {
       }
     };
     walk(fileURLToPath(new URL("../../src", import.meta.url)));
+    // Two allowlisted sites, both reviewed:
+    //   ui/chart.tsx — a <style> block of chart colours. Style, not script.
+    //   seo/JsonLd.tsx — schema.org JSON-LD. Script-TYPE but never executed;
+    //     `JSON.stringify` output with `<` escaped as `<`, so the classic
+    //     `</script><script>` payload cannot terminate the element early.
     expect(
       hits.map((h) => h.replace(/\\/g, "/")),
       "a new dangerouslySetInnerHTML appeared — review it before merging",
-    ).toEqual([expect.stringContaining("src/components/ui/chart.tsx")]);
+    ).toEqual([
+      expect.stringContaining("src/components/seo/JsonLd.tsx"),
+      expect.stringContaining("src/components/ui/chart.tsx"),
+    ]);
+  });
+
+  test("the JSON-LD block cannot be closed early by its own payload", () => {
+    // The one property that makes JsonLd's dangerouslySetInnerHTML safe, pinned
+    // so a future edit that drops the escaping fails here rather than in an
+    // incident. JSON.stringify does NOT escape `<`; without this the injected
+    // script element would execute.
+    const source = read("src/components/seo/JsonLd.tsx");
+    expect(source).toContain('replace(/</g, "\\\\u003c")');
+    // And it must not interpolate anything unescaped into the markup.
+    expect(source).not.toMatch(/dangerouslySetInnerHTML=\{\{ __html: `\$\{/);
   });
 
   test("CSP grants no third-party auth origin", () => {
@@ -510,11 +587,15 @@ describe("web app manifest", () => {
   });
 
   test("theme_color matches the viewport themeColor in the root layout", () => {
-    // Two different dark greens were declared in two files. A mismatch is a
-    // visible flash of the wrong chrome colour on install.
-    const theme = /themeColor:\s*"(#[0-9A-Fa-f]{3,8})"/.exec(read("src/app/layout.tsx"))?.[1];
-    expect(theme).toBeDefined();
-    expect(manifest.theme_color).toBe(theme);
+    // Two different dark greens declared in two files is a visible flash of the
+    // wrong chrome colour on install. `themeColor` is now an array (light + dark
+    // media queries), so every declared colour is collected and the manifest must
+    // match one of them — the manifest can only carry one.
+    const themes = [...read("src/app/layout.tsx").matchAll(/color:\s*"(#[0-9A-Fa-f]{3,8})"/g)].map(
+      (m) => m[1],
+    );
+    expect(themes.length).toBeGreaterThan(0);
+    expect(themes).toContain(manifest.theme_color);
   });
 
   test("theme_color and background_color are valid hex colours", () => {
@@ -642,16 +723,49 @@ describe.skipIf(!BASE_URL)("live deployment (SURFACE_BASE_URL)", () => {
 });
 
 describe("known gaps, asserted so they cannot be forgotten", () => {
-  test("the manifest is NOT linked from the root layout", () => {
-    // `public/site.webmanifest` is served, but Next only auto-links a manifest
-    // placed in the app/ root or named via `metadata.manifest`. layout.tsx sets
-    // neither, so no browser ever fetches the file. src/app/layout.tsx is
-    // outside this work package's scope, so this test records the gap instead
-    // of quietly passing. Fix: add `manifest: "/site.webmanifest"` to the
-    // metadata export in src/app/layout.tsx.
+  test("CLOSED 2026-10-10: the manifest IS linked from the root layout", () => {
+    // This used to assert the GAP: `public/site.webmanifest` was served, but Next
+    // only auto-links a manifest placed in the app/ root or named via
+    // `metadata.manifest`, so no browser ever fetched it and the file was inert.
+    // layout.tsx now declares `manifest: "/site.webmanifest"`. The assertion is
+    // inverted so the gap cannot silently reopen.
     const layout = read("src/app/layout.tsx");
-    expect(layout).not.toContain("/site.webmanifest");
-    expect(layout).not.toContain("manifest:");
+    expect(layout).toContain('manifest: "/site.webmanifest"');
+  });
+
+  test("CLOSED 2026-10-10: the favicon set is declared and the files exist", () => {
+    // The site shipped two SVGs and nothing else. Safari and iOS do not render
+    // SVG favicons, and Windows asks for /favicon.ico unprompted — so a browser
+    // could show a blank tab while every check that looked at "the logo file"
+    // passed. Declared in metadata AND present on disk, which is the pair that
+    // actually produces a favicon.
+    const layout = read("src/app/layout.tsx");
+    expect(layout).toContain("/favicon.ico");
+    expect(layout).toContain("/apple-icon.png");
+    for (const file of [
+      "src/app/favicon.ico",
+      "src/app/apple-icon.png",
+      "src/app/icon.svg",
+      "public/icon-192.png",
+      "public/icon-512.png",
+      "public/icon-maskable-512.png",
+      "public/og-image.png",
+    ]) {
+      expect(existsSync(file), `${file} is declared but missing`).toBe(true);
+    }
+  });
+
+  test("the manifest's icons are real rasters, not SVG", () => {
+    // A `maskable` entry pointing at an SVG is rejected by launcher audits, and
+    // `sizes: "any"` on a raster is meaningless. Both are cheap to get wrong and
+    // invisible in a browser tab.
+    const icons = manifest.icons as { src: string; sizes: string; type: string; purpose: string }[];
+    expect(icons.length).toBeGreaterThan(0);
+    for (const icon of icons) {
+      expect(icon.type, `${icon.src} should be a raster`).toBe("image/png");
+      expect(icon.sizes).toMatch(/^\d+x\d+$/);
+      expect(existsSync(`public${icon.src}`), `${icon.src} referenced but missing`).toBe(true);
+    }
   });
 
   test("CLOSED 2026-10-02: public/robots.txt no longer collides with app/robots.ts", () => {

@@ -1,5 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import { PLANS, FAQ, COMPANY, SETTLEMENT, formatMonthly } from "../../src/lib/commercial.ts";
+import {
+  PLANS,
+  FAQ,
+  COMPANY,
+  SETTLEMENT,
+  formatMonthly,
+  formatIncluded,
+  formatOverage,
+} from "../../src/lib/commercial.ts";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
@@ -53,59 +61,52 @@ describe("pricing data", () => {
     }
   });
 
-  test("monthly plans format to the quoted number in both languages", () => {
+  test("monthly plans format to the published number, with no stray decimals", () => {
     const starter = PLANS.find((p) => p.id === "starter")!;
-    const pro = PLANS.find((p) => p.id === "pro")!;
-    // These were $490 / $1,490 until the Paddle catalog was created at
-    // $10 / $40 / $120 on 2026-10-10. The assertion is on the FORMATTING
-    // (grouped, no decimals, symbol) rather than on hard-coded literals, so a
-    // future price change does not make this test lie about what it checks.
-    // `catalog-parity.test.ts` is what pins the actual numbers.
+    const growth = PLANS.find((p) => p.id === "growth")!;
+    // Not hard-coded to a price: `catalog-parity.test.ts` pins the actual numbers,
+    // and this asserts the FORMATTING (symbol, grouping, no cents) so a price
+    // change does not make this test lie about what it checks.
     expect(formatMonthly(starter, "en")).toBe(`$${starter.monthlyUsd!.toLocaleString("en-US")}`);
-    expect(formatMonthly(pro, "en")).toBe(`$${pro.monthlyUsd!.toLocaleString("en-US")}`);
-    // No cents, ever — these are list prices, not invoices.
+    expect(formatMonthly(growth, "en")).toBe(`$${growth.monthlyUsd!.toLocaleString("en-US")}`);
     for (const plan of PLANS) {
       expect(formatMonthly(plan, "en")).not.toContain(".");
     }
   });
 
+  test("included volume and overage format to real money", () => {
+    // The metering is the pricing model, so these two formatters are as
+    // load-bearing as the price itself. Overage IS in cents by nature — $0.15 —
+    // so unlike the monthly price it must carry two decimals.
+    const starter = PLANS.find((p) => p.id === "starter")!;
+    expect(formatIncluded(starter, "en")).toBe("500");
+    expect(formatOverage(starter, "en")).toBe("$0.15");
+    // Enterprise is negotiated rather than tiered, so it formats to "".
+    const enterprise = PLANS.find((p) => p.id === "enterprise")!;
+    expect(formatOverage(enterprise, "en")).toBe("");
+  });
+
   test("every plan is purchasable and publishes an offer price", () => {
-    // There is no longer a quote-per-deployment tier: all three plans are
-    // published and all three are in the Paddle catalog. A plan that reverts to
-    // `monthlyUsd: null` without also gaining an offer description would render
-    // as "Custom" with no way to buy, which is the failure this catches.
+    // All three tiers are published and purchasable now. A plan that reverted to
+    // `monthlyUsd: null` without an offer description would render as "Custom"
+    // with no way to buy, which is the failure this catches.
     for (const plan of PLANS) {
       expect(plan.monthlyUsd, `${plan.name} has no published price`).not.toBeNull();
-      expect(plan.yearlyUsd, `${plan.name} has no annual price`).not.toBeNull();
       expect(plan.offer.price).toBe(String(plan.monthlyUsd));
     }
   });
 
-  test("annual is exactly ten monthly on every plan", () => {
-    // "Two months free", and the same rule the Paddle catalog was seeded with.
-    for (const plan of PLANS) {
-      expect(plan.yearlyUsd, `${plan.name} annual`).toBe(plan.monthlyUsd! * 10);
-    }
-  });
-
-  test("settlement is Paddle as Merchant of Record, in USD", () => {
-    // Was KES-via-Paystack. Now the quote currency IS the settlement currency
-    // (USD) and Paddle is the merchant of record, so there is no second currency
-    // to keep in step with the first — but regional prices ARE a second thing to
-    // keep in step, and this asserts they are declared.
+  test("settlement is Paddle as Merchant of Record, and regional prices are declared", () => {
+    // Was KES-via-Paystack, then a 7-day trial and annual pricing, then the AED
+    // display conversion and GBP/EUR/AUD regional prices. The quote currency is
+    // USD; what a buyer in a covered market is actually charged is separate.
     expect(SETTLEMENT.rail).toBe("Paddle");
     expect(SETTLEMENT.merchantOfRecord).toBe(true);
     expect(PLANS.every((p) => p.offer.priceCurrency === "USD")).toBe(true);
     expect(SETTLEMENT.note).toContain("Merchant of Record");
-    for (const c of SETTLEMENT.regionalCurrencies) expect(SETTLEMENT.note).toContain(c);
-  });
-
-  test("the trial is declared and is 7 days", () => {
-    // The catalog seeds `trialPeriod: { interval: "day", frequency: 7 }` on every
-    // monthly price. If this drifts, the page promises a trial the checkout
-    // does not grant.
-    expect(SETTLEMENT.trialDays).toBe(7);
-    expect(SETTLEMENT.note.length).toBeGreaterThan(40);
+    for (const c of SETTLEMENT.catalogRegionalCurrencies) expect(SETTLEMENT.note).toContain(c);
+    // The AED peg the page displays, kept in step with `src/views/Pricing.tsx`.
+    expect(SETTLEMENT.aedPeg).toBe(3.6725);
   });
 });
 
@@ -136,12 +137,17 @@ describe("FAQ", () => {
 
   test("the refund question exists and agrees with the refund policy page", () => {
     // A published FAQ answer that contradicts /refund is the kind of thing that
-    // is decided in an incident. The one fact both must state is the shape of
-    // the refund.
+    // is decided in an incident. The two facts both must state are the shape of
+    // the refund (pro rata, cancel before renewal) and that a consumed
+    // intervention is not refundable — the metered half of the pricing model.
     const refund = FAQ.find((f) => /refund/i.test(f.q));
     expect(refund).toBeDefined();
     expect(refund!.a).toMatch(/pro rata/i);
-    expect(refund!.a).toMatch(/prepaid/i);
+    expect(refund!.a).toMatch(/consumed/i);
+    // And it must agree with the policy page's own wording.
+    const page = read("src/views/Legal.tsx");
+    expect(page).toMatch(/pro rata/i);
+    expect(page).toMatch(/Merchant of Record/);
   });
 });
 

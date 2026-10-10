@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { t, useApp } from "@/lib/store";
 import { PLANS, formatMonthly } from "@/lib/commercial";
+import { PolicyForPlan } from "@/components/legal/PolicyForPlan";
 import { SUPPORT_EMAIL } from "@/lib/public-config";
 import { Chip } from "@/components/fx/core";
 import { LoadingIndicator } from "@/components/fx/LoadingIndicator";
@@ -710,6 +711,12 @@ export function Settings() {
                     lang,
                   )}
                 </p>
+                {/* The conditional policy, in-app where the tier is known.
+                    `planTier` is server-resolved and must be passed in — see
+                    src/components/legal/PolicyForPlan.tsx for why there is no
+                    client hook for it. Until it is threaded through, the public
+                    pair on /refund is the same content and always correct. */}
+                <PolicyForPlan planTier={null} className="mt-5" />
                 <a
                   href={`mailto:${SUPPORT_EMAIL}?subject=SecureVoice%20billing`}
                   className="inline-flex items-center gap-2 rounded-full bg-primary px-6 py-2.5 text-[13px] font-semibold text-white transition hover:bg-green-deep"

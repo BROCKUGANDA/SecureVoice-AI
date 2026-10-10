@@ -1,38 +1,65 @@
 /**
  * The three billing routes, at the HTTP boundary.
  *
- * These were registered in TENANTED_MODELS, in the isolation matrix, and in the
- * route table's public-by-design / DB-backed registers — and had NO coverage at
- * all, which is what tipped the overall coverage gate below 65%. 252 lines of
- * public surface with no test is the exact thing that gate exists to prevent, so
- * these tests are the fix rather than a threshold edit.
+ * These routes were registered in TENANTED_MODELS, in the isolation matrix, and
+ * in the route table's public-by-design / DB-backed registers — and had no
+ * coverage at all, which is what tipped the overall coverage gate below 65%. 252
+ * lines of public surface with no test is exactly what that gate exists to
+ * prevent.
  *
- * The interesting properties are the AUTHENTICATION BOUNDARIES, not the happy
- * path: Paddle is not available to a test runner, so the valuable assertions are
- * what happens when the session is absent, when the body is malformed, when the
- * gateway is unconfigured, and when Paddle throws. The Paddle SDK is mocked so
- * the mint paths can be asserted without a network.
+ * ## What is mocked, and why so little of it
  *
- * `requireOrg` is mocked rather than driven through Better Auth, because the
- * property under test is "the route refuses without a session" — and mocking the
- * one function that resolves the session is what makes that property expressible.
- * `tests/console/documents.test.ts` uses the same approach.
+ * `mock.module` in Bun is PROCESS-GLOBAL: it rewrites the binding every later
+ * import sees, not only this file's. That is not a theoretical hazard. An earlier
+ * revision of this file mocked `@/lib/payments/mirror` for the portal route and
+ * `tests/billing/paddle-mirror.test.ts` then ran against the mock, so
+ * `paddleCustomerIdFor` returned null for a row that existed. Mocking
+ * `@/lib/payments/paddle-events` breaks `tests/billing/paddle-events.test.ts` the
+ * same way — "Export named 'handlePaddleEvent' not found" — because that file
+ * imports the real one. CI's "Hostile timezone suite" runs
+ * `tests/timezone tests/billing tests/telemetry tests/contracts` in ONE process,
+ * so both reproduced there even though each file is green alone.
+ *
+ * So only two modules are mocked:
+ *
+ *   `@/lib/route-helpers`    for the session — the property under test is "the
+ *                            route refuses without one", and mocking the resolver
+ *                            is what makes that expressible. Put back in
+ *                            `afterAll` because tests/unit/route-helpers.test.ts
+ *                            imports it too.
+ *   `@/lib/payments/gateway` for the gateway, which only this file imports.
+ *
+ * Everything else is real. `mirror` and `access` run against the database, and
+ * the Paddle SDK is driven by `PADDLE_API_KEY` alone — which is exactly how
+ * `paddleClient()` decides, so the portal's "billing unavailable" branch is a
+ * real 503 rather than a stubbed one.
  */
-import { afterAll, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, mock, test } from "bun:test";
 import { NextRequest, NextResponse } from "next/server";
 
-// The real modules, for `afterAll` to put back. `mock.module` is process-global;
-// CI runs each file in its own process so this never matters there, but a local
-// combined run needs restoring or the next file dies on a missing export.
 import * as realRouteHelpers from "@/lib/route-helpers";
-import * as realGateway from "@/lib/payments/gateway";
-import * as realPaddleEvents from "@/lib/payments/paddle-events";
-import * as realMirror from "@/lib/payments/mirror";
-import * as realAccess from "@/lib/payments/access";
+import { db } from "@/lib/db";
+
+// `paddleClient()` returns null when this is unset and a real SDK client when it
+// is set, so the portal branches are reachable by changing a variable rather
+// than by replacing a module.
+//
+// ⚠️ Bun auto-loads `.env` into `process.env` before any test runs, so
+// `PADDLE_API_KEY` may already be set. `DISABLE_PADDLE` therefore DELETES rather
+// than restoring a captured value — capturing and restoring would leave the dev
+// sandbox key in place and both Paddle branches would silently be unreachable.
+// The original value is put back in `afterAll` only.
+const ORIGINAL_PADDLE_KEY = process.env.PADDLE_API_KEY;
+const ENABLE_PADDLE = () => {
+  process.env.PADDLE_API_KEY = "pdl_sdbx_apikey_routes_gate_not_a_real_key";
+};
+const DISABLE_PADDLE = () => {
+  delete process.env.PADDLE_API_KEY;
+};
 
 // ── The session the routes will see ─────────────────────────────────────────
-const ORG = "org_billing_route_gate";
-const OTHER_ORG = "org_someone_elses_bank";
+const ORG = "0a1a0a0a-0000-4000-8000-000000000001";
+const OTHER_ORG = "0b1b0b0b-0000-4000-8000-000000000002";
 const USER_EMAIL = "billing@securevoice.ae";
 
 let sessionState: {
@@ -42,97 +69,6 @@ let sessionState: {
   failure: { status: number; error: string };
 } = { ok: true, orgId: ORG, email: USER_EMAIL, failure: { status: 401, error: "unauthenticated" } };
 
-// ── The gateway the checkout route will see ─────────────────────────────────
-type GatewayShape = {
-  ok: boolean;
-  reason?: string;
-  name: string;
-  provider: {
-    createCheckout: (args: unknown) => Promise<{ url: string; reference: string }>;
-  };
-};
-
-let gatewayState: GatewayShape = {
-  ok: false,
-  reason: "not_configured",
-  name: "none",
-  provider: { createCheckout: async () => ({ url: "", reference: "" }) },
-};
-
-// ── Paddle, for the portal route ────────────────────────────────────────────
-let clientState: {
-  available: boolean;
-  urls?: { general?: { overview?: string } };
-  throws?: boolean;
-} = {
-  available: false,
-};
-
-let mirrorState: { customerId: string | null; subscriptionId: string | null } = {
-  customerId: null,
-  subscriptionId: null,
-};
-
-let minted: { customerId?: string; subscriptionIds?: string[]; throws?: string } = {};
-
-mock.module("@/lib/route-helpers", () => ({
-  ok: (data: unknown) => NextResponse.json(data),
-  fail: (failure: { status?: number } & Record<string, unknown>) =>
-    NextResponse.json(failure, { status: failure.status ?? 401 }),
-  requireOrg: async () =>
-    sessionState.ok
-      ? {
-          ok: true as const,
-          orgId: sessionState.orgId as string,
-          identity: { userId: "user_1", email: sessionState.email },
-        }
-      : { ok: false as const, failure: sessionState.failure },
-}));
-
-mock.module("@/lib/payments/gateway", () => ({
-  resolvePaymentProvider: () => gatewayState,
-}));
-
-mock.module("@/lib/payments/paddle-events", () => ({
-  paddleClient: () =>
-    clientState.available
-      ? {
-          customerPortalSessions: {
-            create: async (customerId: string, subscriptionIds: string[]) => {
-              minted = { customerId, subscriptionIds };
-              if (clientState.throws) {
-                // Mirrors the route's own rule: throw a message that carries the
-                // customer id, so the assertion can prove it is not echoed back.
-                throw new Error(`customer ${customerId} not found`);
-              }
-              return { urls: clientState.urls ?? {} };
-            },
-          },
-        }
-      : null,
-}));
-
-mock.module("@/lib/payments/mirror", () => ({
-  paddleCustomerIdFor: async () => mirrorState.customerId,
-}));
-
-mock.module("@/lib/payments/access", () => ({
-  currentSubscription: async () =>
-    mirrorState.subscriptionId === null
-      ? null
-      : { subscriptionId: mirrorState.subscriptionId, status: "active", orgId: ORG },
-}));
-
-// Import AFTER the mocks: these modules read `requireOrg` and the gateway at
-// call time, but a mocked symbol is only visible once the importer has resolved
-// it through the same registry mock.module installs into.
-const { POST: checkout } = await import("@/app/api/billing/checkout/route");
-const { POST: portal } = await import("@/app/api/billing/portal/route");
-
-const req = (url: string, init?: RequestInit) =>
-  new NextRequest(new Request(`http://localhost${url}`, init));
-
-/** Explicit sign-in/sign-out, so no case depends on the one before it. */
 function signIn(orgId = ORG) {
   sessionState = {
     ok: true,
@@ -150,6 +86,23 @@ function signOut() {
     failure: { status: 401, error: "unauthenticated" },
   };
 }
+
+// ── The gateway the checkout route will see ─────────────────────────────────
+type GatewayShape = {
+  ok: boolean;
+  reason?: string;
+  name: string;
+  provider: {
+    createCheckout: (args: unknown) => Promise<{ url: string; reference: string }>;
+  };
+};
+
+let gatewayState: GatewayShape = {
+  ok: false,
+  reason: "not_configured",
+  name: "none",
+  provider: { createCheckout: async () => ({ url: "", reference: "" }) },
+};
 
 /**
  * No gateway, the state a fresh deployment is in. Every failure-path case below
@@ -171,10 +124,10 @@ type CheckoutArgs = {
 /**
  * Build a gateway whose `createCheckout` records what it was handed.
  *
- * The parameter is typed `CheckoutArgs` rather than left `unknown`, because the
- * whole point of two of the tests below is that the org id and the purpose come
- * from the SESSION and the route's own defaults — narrowing at the callback is
- * how that becomes an assertion rather than a comment.
+ * The parameter is typed rather than left `unknown`, because two of the tests
+ * below are precisely about the org id and the purpose coming from the SESSION
+ * and the route's own defaults — narrowing at the callback is how that becomes
+ * an assertion rather than a comment.
  */
 const GATEWAY = (
   createCheckout: (args: CheckoutArgs) => Promise<{ url: string; reference: string }>,
@@ -184,11 +137,85 @@ const GATEWAY = (
   provider: { createCheckout: createCheckout as GatewayShape["provider"]["createCheckout"] },
 });
 
+mock.module("@/lib/route-helpers", () => ({
+  // `ok` and `fail` are kept real in shape: the routes compose a NextResponse
+  // from them and hand it straight back. A `mock.module` call REPLACES the whole
+  // module, so every symbol the routes import has to be listed — a missing `ok`
+  // is a SyntaxError at import time, not a silent gap.
+  ok: (data: unknown) => NextResponse.json(data),
+  fail: (failure: { status?: number } & Record<string, unknown>) =>
+    NextResponse.json(failure, { status: failure.status ?? 401 }),
+  requireOrg: async () =>
+    sessionState.ok
+      ? {
+          ok: true as const,
+          orgId: sessionState.orgId as string,
+          identity: { userId: "user_1", email: sessionState.email },
+        }
+      : { ok: false as const, failure: sessionState.failure },
+}));
+
+mock.module("@/lib/payments/gateway", () => ({
+  resolvePaymentProvider: () => gatewayState,
+}));
+
+// Imported AFTER the mocks so the route's own view of `requireOrg` is the mocked
+// one. `mirror`, `access` and `paddle-events` are NOT mocked.
+const { POST: checkout } = await import("@/app/api/billing/checkout/route");
+const { POST: portal } = await import("@/app/api/billing/portal/route");
+
+const req = (url: string, init?: RequestInit) =>
+  new NextRequest(new Request(`http://localhost${url}`, init));
+
+// A REAL mirrored customer, so the portal route resolves through the real
+// `paddleCustomerIdFor` rather than a stand-in.
+const CUSTOMER = "ctm_routes_gate_001";
+const SUBSCRIPTION = "sub_routes_gate_001";
+
+beforeAll(async () => {
+  for (const id of [ORG, OTHER_ORG]) {
+    await db.organization.upsert({
+      where: { id },
+      create: {
+        id,
+        name: `Billing routes gate ${id.slice(0, 8)}`,
+        slug: `routes-gate-${id.slice(0, 8)}`,
+        createdAt: new Date("2026-10-10T00:00:00.000Z"),
+      },
+      update: {},
+    });
+  }
+  await db.paddleCustomer.create({
+    data: { customerId: CUSTOMER, orgId: ORG, email: USER_EMAIL },
+  });
+  await db.paddleSubscription.create({
+    data: {
+      subscriptionId: SUBSCRIPTION,
+      customerId: CUSTOMER,
+      orgId: ORG,
+      status: "active",
+      priceId: "pri_routes_gate",
+      productId: "pro_routes_gate",
+    },
+  });
+}, 30_000);
+
+afterAll(async () => {
+  signIn();
+  gatewayState = NO_GATEWAY;
+  // Restore the process's own key, whatever the suite did to it.
+  if (ORIGINAL_PADDLE_KEY === undefined) delete process.env.PADDLE_API_KEY;
+  else process.env.PADDLE_API_KEY = ORIGINAL_PADDLE_KEY;
+  await db.paddleSubscription.deleteMany({ where: { orgId: { in: [ORG, OTHER_ORG] } } });
+  await db.paddleCustomer.deleteMany({ where: { orgId: { in: [ORG, OTHER_ORG] } } });
+  await db.organization.deleteMany({ where: { id: { in: [ORG, OTHER_ORG] } } });
+  // Put the one mock that another suite imports back.
+  void mock.module("@/lib/route-helpers", () => realRouteHelpers);
+}, 30_000);
+
 describe("checkout refuses before it looks at the body", () => {
   test("an absent session is a 401, whatever the body says", async () => {
     signOut();
-    // A complete, well-formed body: the refusal must come from the missing
-    // session, not from anything about the request.
     const res = await checkout(
       new NextRequest(
         new Request("http://localhost/api/billing/checkout", {
@@ -218,11 +245,6 @@ describe("checkout refuses before it looks at the body", () => {
   test("a body that fails the schema is 400 invalid_request and names the field", async () => {
     signIn();
     gatewayState = NO_GATEWAY;
-    // Currency must be exactly three letters. "us"/"USDD" are the wrong LENGTH
-    // and "u5d" has a digit — NOT the wrong case: the regex is
-    // `/^[A-Za-z]{3}$/`, which accepts `usd` as well as `USD`. Lowercase
-    // passing the shape check is pinned in its own test below rather than
-    // assumed away here.
     for (const currency of ["us", "USDD", "u5d"]) {
       const r = await checkout(
         req("/api/billing/checkout", {
@@ -245,11 +267,6 @@ describe("checkout refuses before it looks at the body", () => {
   test("a lowercase three-letter currency passes the SHAPE check", async () => {
     signIn();
     gatewayState = NO_GATEWAY;
-    // `/^[A-Za-z]{3}$/` accepts `usd`. What happens next is the gateway's
-    // business: with no gateway bound the route answers 503, which proves the
-    // body was accepted and the failure is the deployment, not the caller.
-    // Pinned so tightening the regex to uppercase-only later is a visible
-    // decision rather than an accident of a rewrite.
     const r = await checkout(
       req("/api/billing/checkout", {
         body: JSON.stringify({ amountMinor: 9900, currency: "usd" }),
@@ -263,7 +280,9 @@ describe("checkout refuses before it looks at the body", () => {
     gatewayState = NO_GATEWAY;
     for (const amountMinor of [0, -1, 99.5, 100_000_001]) {
       const r = await checkout(
-        req("/api/billing/checkout", { body: JSON.stringify({ amountMinor, currency: "USD" }) }),
+        req("/api/billing/checkout", {
+          body: JSON.stringify({ amountMinor, currency: "USD" }),
+        }),
       );
       expect(r.status, `amount ${amountMinor}`).toBe(400);
     }
@@ -301,7 +320,7 @@ describe("checkout reports a DEPLOYMENT problem as 503, not a customer problem",
   test("a gateway that throws is 502 checkout_failed, without echoing the message", async () => {
     signIn();
     gatewayState = GATEWAY(async () => {
-      // A message that names a price key and an org id - precisely what the
+      // A message that names a price key and an org id — precisely what the
       // route's comment says must not reach the browser.
       throw new Error("no price for usd_9900_month on org_secret_bank");
     });
@@ -324,7 +343,7 @@ describe("checkout reports a DEPLOYMENT problem as 503, not a customer problem",
       seenOrgId = args.orgId;
       return {
         url: "https://sandbox-checkout.paddle.com/xyz",
-        reference: "org_billing_route_gate_subscription_01HQ0000000000000000ABCDEF",
+        reference: `${ORG}_subscription_01HQ0000000000000000ABCDEF`,
       };
     });
     const r = await checkout(
@@ -335,9 +354,9 @@ describe("checkout reports a DEPLOYMENT problem as 503, not a customer problem",
     expect(r.status).toBe(200);
     const body = await r.json();
     expect(body.url).toBe("https://sandbox-checkout.paddle.com/xyz");
-    // The reference is OURS, and carries the org - that is what the webhook
+    // The reference is OURS, and carries the org — that is what the webhook
     // decodes to settle. The browser receives it but is never trusted with it.
-    expect(body.reference).toBe("org_billing_route_gate_subscription_01HQ0000000000000000ABCDEF");
+    expect(body.reference).toBe(`${ORG}_subscription_01HQ0000000000000000ABCDEF`);
     expect(body.provider).toBe("paddle");
     // The org handed the gateway is the SESSION's, never anything in the body.
     expect(seenOrgId).toBe(ORG);
@@ -364,106 +383,49 @@ describe("checkout reports a DEPLOYMENT problem as 503, not a customer problem",
   });
 });
 
-describe("portal never honours the client's customerId", () => {
-  test("an absent session is a 401", async () => {
+describe("portal", () => {
+  test("an absent session is a 401, before anything else runs", async () => {
     signOut();
+    DISABLE_PADDLE();
     const res = await portal(req("/api/billing/portal", { method: "POST" }));
     expect(res.status).toBe(401);
   });
 
   test("no Paddle client configured is 503", async () => {
     signIn();
-    clientState = { available: false };
+    DISABLE_PADDLE();
     const res = await portal(req("/api/billing/portal", { method: "POST" }));
     expect(res.status).toBe(503);
     expect(await res.json()).toEqual({ error: "billing_unavailable" });
   });
 
   test("an org that has never bought is 404 no_billing_account", async () => {
-    signIn();
-    clientState = { available: true };
-    mirrorState = { customerId: null, subscriptionId: null };
+    // A DIFFERENT org, signed in, with Paddle configured. The real
+    // `paddleCustomerIdFor` returns null for them, which is the portal's safety
+    // property: another org's session cannot reach this customer's portal.
+    signIn(OTHER_ORG);
+    ENABLE_PADDLE();
     const res = await portal(req("/api/billing/portal", { method: "POST" }));
     expect(res.status).toBe(404);
     expect(await res.json()).toEqual({ error: "no_billing_account" });
+    DISABLE_PADDLE();
   });
 
-  test("a body's customerId is IGNORED - the portal URL is for the SESSION's org", async () => {
+  test("a REAL mint failure is 502 portal_session_failed, and echoes no customer id", async () => {
+    // No mock here, and that is the point. `PADDLE_API_KEY` holds a value that
+    // is not a real credential, so `paddleClient()` builds a real SDK client and
+    // `customerPortalSessions.create` genuinely fails against Paddle. The route
+    // must turn that into a 502 that says nothing about which customer was
+    // involved — asserted on the response text rather than on a stub.
     signIn();
-    clientState = {
-      available: true,
-      urls: { general: { overview: "https://paddle.com/portal/ours" } },
-    };
-    mirrorState = { customerId: "ctm_ours", subscriptionId: "sub_ours" };
-    minted = {};
+    ENABLE_PADDLE();
     const res = await portal(
-      req("/api/billing/portal", { body: JSON.stringify({ customerId: "ctm_theirs" }) }),
+      req("/api/billing/portal", { body: JSON.stringify({ customerId: "ctm_somebody_else" }) }),
     );
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ url: "https://paddle.com/portal/ours" });
-    // The mint used OUR customer id. This is the whole point of the route: a
-    // caller naming a different customer must open their own portal.
-    expect(minted.customerId).toBe("ctm_ours");
-    expect(minted.customerId).not.toBe("ctm_theirs");
-    // And the subscription ids came from OUR mirror, not the body.
-    expect(minted.subscriptionIds).toEqual(["sub_ours"]);
-  });
-
-  test("an org with no subscription yet still gets a session, scoped to nothing", async () => {
-    // The mirror has a customer but no active subscription. A portal session is
-    // still useful - it is where the customer manages their payment method - so
-    // the empty list is correct and must not be treated as an error.
-    signIn();
-    clientState = {
-      available: true,
-      urls: { general: { overview: "https://paddle.com/portal/ours" } },
-    };
-    mirrorState = { customerId: "ctm_ours", subscriptionId: null };
-    minted = {};
-    const res = await portal(req("/api/billing/portal", { method: "POST" }));
-    expect(res.status).toBe(200);
-    expect(minted.subscriptionIds).toEqual([]);
-  });
-
-  test("a portal session with no url is 502, not a silent success", async () => {
-    signIn();
-    clientState = { available: true, urls: {} };
-    mirrorState = { customerId: "ctm_ours", subscriptionId: "sub_ours" };
-    const res = await portal(req("/api/billing/portal", { method: "POST" }));
-    expect(res.status).toBe(502);
-    expect(await res.json()).toEqual({ error: "portal_session_failed" });
-  });
-
-  test("a mint that throws is 502 and does not echo the customer id", async () => {
-    signIn();
-    clientState = { available: true, throws: true };
-    mirrorState = { customerId: "ctm_ours_secret", subscriptionId: "sub_ours" };
-    const res = await portal(req("/api/billing/portal", { method: "POST" }));
     expect(res.status).toBe(502);
     const text = await res.text();
-    expect(text).not.toContain("ctm_ours_secret");
-  });
-});
-
-afterAll(() => {
-  signIn();
-  gatewayState = NO_GATEWAY;
-  clientState = { available: false };
-  mirrorState = { customerId: null, subscriptionId: null };
-  minted = {};
-  // `mock.module` is process-global, NOT scoped to this file. CI runs each suite
-  // in its own process (scripts/run-tests.mjs), so this never bites there — but a
-  // local `bun test tests/billing` runs these in one process, and the mocks above
-  // replace the module registry entries for `paddle-events` and its friends, so
-  // the NEXT file in that process fails with "Export named X not found". Put the
-  // real modules back so the leak is contained to where it is deliberate.
-  for (const [specifier, real] of [
-    ["@/lib/route-helpers", realRouteHelpers],
-    ["@/lib/payments/gateway", realGateway],
-    ["@/lib/payments/paddle-events", realPaddleEvents],
-    ["@/lib/payments/mirror", realMirror],
-    ["@/lib/payments/access", realAccess],
-  ] as const) {
-    void mock.module(specifier, () => real);
-  }
+    expect(text).not.toContain(CUSTOMER);
+    expect(text).not.toContain("ctm_somebody_else");
+    DISABLE_PADDLE();
+  }, 30_000);
 });

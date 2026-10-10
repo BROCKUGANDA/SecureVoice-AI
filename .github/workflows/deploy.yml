@@ -221,6 +221,7 @@ jobs:
           # happened to be rebuilt. That is not a theoretical hazard: a deploy that
           # printed "No pending migrations to apply" against a database missing
           # three migrations was compose reusing a stale db-setup image.
+<<<<<<< HEAD
           #
           # On the RELEASE path `app` is deliberately absent from this list: it was
           # pulled from GHCR, and rebuilding it would replace the published,
@@ -229,6 +230,10 @@ jobs:
           # db-setup are still built from the checked-out tree (they run from
           # source, not from the bundle), and the tag-is-on-main gate above
           # guarantees that tree IS the released commit.
+          #
+          # CHANGED BY THE 2026-10-10 MERGE: the surrounding script used to call
+          # git status against a textual rebuild set instead of this conditional,
+          # so the release path rebuilt `app` too. Keep the two-branch form.
           if [ "$DEPLOY_SOURCE" = "release" ]; then
             docker compose build dial-worker retention-worker voice-stream-worker db-setup
           else

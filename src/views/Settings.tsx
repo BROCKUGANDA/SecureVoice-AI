@@ -722,7 +722,7 @@ export function Settings() {
                   className="inline-flex items-center gap-2 rounded-full bg-primary px-6 py-2.5 text-[13px] font-semibold text-white transition hover:bg-green-deep"
                 >
                   <Coins className="h-4 w-4" />
-                  {t("Change plan", "تغيير الخطة", lang)}
+                  {t("Top up / change plan", "شحن الرصيد / تغيير الخطة", lang)}
                 </a>
               </div>
             )}

@@ -8,6 +8,7 @@ import { analyzeSentiment } from "@/lib/sentiment";
 import { draftAgentReply } from "@/lib/llm";
 import { auditAgentReply, auditUserInput } from "@/lib/compliance/policy";
 import { verifyTwilioSignature } from "@/lib/twilio";
+import { resolveDeliveryLang } from "@/lib/languages";
 import { logError, logWarn } from "@/lib/validation/safe-log";
 
 export const dynamic = "force-dynamic";
@@ -238,7 +239,9 @@ export async function POST(req: NextRequest) {
   const callSid = String(form.get("CallSid") ?? req.nextUrl.searchParams.get("callSid") ?? "");
   const speechResult = String(form.get("SpeechResult") ?? "").trim();
   const confidence = Number(form.get("Confidence") ?? "0");
-  const lang = String(form.get("lang") ?? req.nextUrl.searchParams.get("lang") ?? "en").slice(0, 2);
+  const lang = resolveDeliveryLang(
+    String(form.get("lang") ?? req.nextUrl.searchParams.get("lang") ?? ""),
+  );
 
   const rl = consumeRateLimit("twilio-turn", callSid || callerId);
   if (!rl.ok) {

@@ -46,17 +46,20 @@ test("every supported language is a supported call language", () => {
 test("Urdu resolves to a model that can voice Urdu", () => {
   const model = resolveTtsModel("ur");
   // eleven_multilingual_v2 carries 29 languages and does NOT include Urdu or
-  // Swahili; both are only in the v3 generation. Selecting multilingual_v2 for
-  // Urdu is not a quality problem, it is a hard failure.
+  // Swahili; both are in the v3 and v4-turbo generations. Selecting
+  // multilingual_v2 for Urdu is not a quality problem, it is a hard failure.
+  // Pinned to eleven_v4_turbo (not v3): v3 in the agent plane is a plan
+  // entitlement this account lacks, while v4_turbo voices ur on the live key.
   expect(model).not.toBe("eleven_multilingual_v2");
-  expect(model).toBe("eleven_v3");
+  expect(model).toBe("eleven_v4_turbo");
   expect(TTS_LANGUAGE_SUPPORT.ur.multilingual_v2).toBe(false);
-  expect(TTS_LANGUAGE_SUPPORT.ur.v3).toBe(true);
+  expect(TTS_LANGUAGE_SUPPORT.ur.v4_turbo).toBe(true);
 });
 
 test("Swahili resolves to a model that can voice Swahili", () => {
-  expect(resolveTtsModel("sw")).toBe("eleven_v3");
+  expect(resolveTtsModel("sw")).toBe("eleven_v4_turbo");
   expect(TTS_LANGUAGE_SUPPORT.sw.multilingual_v2).toBe(false);
+  expect(TTS_LANGUAGE_SUPPORT.sw.v4_turbo).toBe(true);
 });
 
 test("no language resolves to a model that cannot voice it", () => {
@@ -66,7 +69,9 @@ test("no language resolves to a model that cannot voice it", () => {
     const lang = l as TtsLang;
     const model = resolveTtsModel(lang);
     const support = TTS_LANGUAGE_SUPPORT[lang];
-    if (model.startsWith("eleven_v3")) {
+    if (model === "eleven_v4_turbo") {
+      expect(support.v4_turbo, `${lang} routed to v4_turbo but not supported by it`).toBe(true);
+    } else if (model.startsWith("eleven_v3")) {
       expect(support.v3, `${lang} routed to v3 but not supported by it`).toBe(true);
     } else if (model === "eleven_multilingual_v2") {
       expect(
@@ -82,6 +87,7 @@ test("a language with no dedicated voice falls back to the deployment default mo
   // default. Asserted so the Urdu/Swahili pinning cannot accidentally become
   // "everything is v3", which would change English's voice character.
   expect(resolveTtsModel("en")).not.toBe("eleven_v3");
+  expect(resolveTtsModel("en")).not.toBe("eleven_v4_turbo");
 });
 
 test("Deepgram never pins a language nova-2 cannot serve", () => {

@@ -42,6 +42,10 @@ export type PlatformProfile = {
   role: Role;
   orgId: string | null;
   credits: number;
+  // Which wallet `credits` came from. The organization is the tenant, so an
+  // org-scoped wallet is the normal operating mode; the per-user wallet on
+  // UserProfile is the fallback for sessions with no active organization.
+  walletScope: "org" | "user";
 };
 
 /**
@@ -98,13 +102,30 @@ export async function getProfile(): Promise<PlatformProfile | null> {
     update: { email, name, role, orgId },
   });
 
+  // The org wallet is the tenant's balance; the profile wallet is the
+  // org-less fallback. Both are read fresh here because a switch of active
+  // organization must change what the console shows WITHOUT a sign-out: the
+  // session cookie is re-issued with the new activeOrganizationId, and this
+  // is the request that discovers it.
+  let credits = row.credits;
+  let walletScope: "org" | "user" = "user";
+  if (orgId) {
+    const org = await db.organization.findUnique({
+      where: { id: orgId },
+      select: { credits: true },
+    });
+    credits = org?.credits ?? 0;
+    walletScope = "org";
+  }
+
   return {
     userId: row.userId,
     email: row.email,
     name: row.name,
     role: row.role as Role,
     orgId: row.orgId,
-    credits: row.credits,
+    credits,
+    walletScope,
   };
 }
 
@@ -151,6 +172,7 @@ async function auditWallet(
   intent: string,
   credits: number,
   note: string,
+  orgId?: string | null,
 ): Promise<void> {
   await auditAppend({
     callRef: `WALLET-${userId.slice(0, 24)}`,
@@ -158,7 +180,8 @@ async function auditWallet(
     intent,
     callerId: userId,
     redactedText: note,
-    meta: { credits, userId },
+    meta: { credits, userId, ...(orgId ? { orgId } : {}) },
+    orgId: orgId ?? undefined,
   }).catch((err) => {
     logError("[credits] wallet audit append failed", {
       error: err instanceof Error ? err.message : String(err),
@@ -172,8 +195,31 @@ async function auditWallet(
  * condition makes the check-and-decrement ATOMIC in the database — two
  * concurrent fires of a 1-credit wallet cannot both succeed and drive the
  * balance negative.
+ *
+ * WHICH WALLET: `orgId` selects the organization wallet (the tenant's, the
+ * normal operating mode); without it the caller's own profile wallet is
+ * debited. An org session must never spend the operator's personal credits
+ * and vice versa — that is how one tenant's usage ends up on another's bill.
  */
-export async function deductCredit(userId: string): Promise<number> {
+export async function deductCredit(userId: string, orgId?: string | null): Promise<number> {
+  if (orgId) {
+    const r = await db.organization.updateMany({
+      where: { id: orgId, credits: { gt: 0 } },
+      data: { credits: { decrement: 1 } },
+    });
+    if (r.count === 0) {
+      await auditWallet(userId, "wallet_exhausted", 0, "deduct refused: wallet empty", orgId);
+      return -1;
+    }
+    const row = await db.organization.findUnique({
+      where: { id: orgId },
+      select: { credits: true },
+    });
+    const remaining = row?.credits ?? -1;
+    await auditWallet(userId, "wallet_debited", remaining, "1 credit consumed by an intervention", orgId);
+    return remaining;
+  }
+
   const r = await db.userProfile.updateMany({
     where: { userId, credits: { gt: 0 } },
     data: { credits: { decrement: 1 } },
@@ -194,18 +240,31 @@ export async function deductCredit(userId: string): Promise<number> {
 /**
  * Return a previously deducted credit (the upstream action it paid for never
  * happened). Atomic increment; pairs with deductCredit's claim-before-spend.
+ * Targets the SAME wallet the deduction came from — passing the orgId the
+ * deduction used is what makes the pair balance.
  */
-export async function refundCredit(userId: string): Promise<number> {
+export async function refundCredit(userId: string, orgId?: string | null): Promise<number> {
+  if (orgId) {
+    const row = await db.organization.update({
+      where: { id: orgId },
+      data: { credits: { increment: 1 } },
+      select: { credits: true },
+    });
+    await auditWallet(
+      userId,
+      "wallet_refunded",
+      row.credits,
+      "credit returned: intervention not accepted",
+      orgId,
+    );
+    return row.credits;
+  }
+
   const row = await db.userProfile.update({
     where: { userId },
     data: { credits: { increment: 1 } },
     select: { credits: true },
   });
-  await auditWallet(
-    userId,
-    "wallet_refunded",
-    row.credits,
-    "credit returned: intervention not accepted",
-  );
+  await auditWallet(userId, "wallet_refunded", row.credits, "credit returned: intervention not accepted");
   return row.credits;
 }

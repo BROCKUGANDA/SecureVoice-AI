@@ -175,6 +175,8 @@ const PUBLIC_BY_DESIGN: Readonly<Record<string, string>> = {
     "agent tool endpoint guarded by the x-agent-tool-secret via guardToolCall, not an operator session",
   "/api/elevenlabs/tools/switch-language":
     "agent tool endpoint guarded by the x-agent-tool-secret via authorizeToolCall, not an operator session",
+  "/api/elevenlabs/mcp":
+    "MCP JSON-RPC server; tools/call is forwarded to the guarded /api/elevenlabs/tools/* routes with the server-side x-agent-tool-secret, so the existing tool guard and state preconditions enforce it — fails closed (tool_scope_unconfigured) when no secret is set",
   "/api/elevenlabs/tools/verify-transaction":
     "agent tool endpoint guarded by the x-agent-tool-secret via guardToolCall, not an operator session",
   "/api/elevenlabs/tools/warm-transfer":
@@ -183,6 +185,8 @@ const PUBLIC_BY_DESIGN: Readonly<Record<string, string>> = {
   "/asyncapi": "published contract document (WP-17); schema only, no tenant data",
   "/v1/conformance/run":
     "self-serve bank conformance checker guarded by an org-scoped PRODUCER KEY, not an operator session (src/app/v1/conformance/run/route.ts)",
+  "/api/v1/campaigns":
+    "batch outbound campaign ingest guarded by a per-org producer key; enqueues recipients through the same durable dial queue, whose worker enforces do-not-call and the calling window, not an operator session",
   "/api/queue/dispatch":
     "internal QStash dispatch endpoint; authenticates the request by QStash Upstash-Signature, never by a session",
   "/api/queue/dead-letter":
@@ -197,6 +201,12 @@ const PUBLIC_BY_DESIGN: Readonly<Record<string, string>> = {
     "Twilio Media Streams websocket plane; the upgrade is guarded by the stream handshake, not an operator session (src/app/api/voice-websocket/route.ts)",
   "/api/operator/webhooks":
     "operator webhook catalogue; rate-limited and lists env var NAMES only, never values — proven by tests/e2e/operator-webhooks.test.ts; metadata, like /api/meta",
+  "/api/operator/manifest":
+    "operator capability manifest (knowledge base + RAG, tools & actions); rate-limited and lists configuration only, never any secret value — proven by tests/e2e/operator-manifest.test.ts; metadata, like /api/operator/webhooks",
+  "/api/operator/evaluation":
+    "operator agent-testing evidence (multi-run pass rates, tool-call criterion); rate-limited and read from the committed evidence artifacts, telemetry only — never a transcript or credential — proven by tests/e2e/operator-evaluation.test.ts; metadata, like /api/operator/manifest",
+  "/api/operator/model-layer":
+    "operator model-layer surface (agent-plane LLM + continuity fallback cascade, active provider by NAME only); rate-limited, returns no credential — proven by tests/e2e/operator-model-layer.test.ts; metadata, like /api/operator/manifest",
   "/api/compliance/intervention-gate":
     "stateless intervention-policy validator plus PII redaction over the request body; touches no tenant state, stores nothing and privileges nothing",
 };

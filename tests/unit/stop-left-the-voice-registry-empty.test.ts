@@ -130,6 +130,7 @@ mock.module("@/lib/abuse/bad-actor", () => ({
 }));
 mock.module("@/lib/validation/safe-log", () => ({
   logInfo: () => {},
+  logWarn: () => {},
   logError: (message: string, meta?: unknown) => {
     errors.push({ message, meta });
   },

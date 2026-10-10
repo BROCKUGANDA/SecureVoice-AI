@@ -435,7 +435,7 @@
         "file": "src/lib/case-state-machine.ts",
         "transactions": 1,
         "regions": [
-          "214-222"
+          "259-267"
         ],
         "findings": []
       },
@@ -449,8 +449,8 @@
         "file": "src/lib/outbox.ts",
         "transactions": 2,
         "regions": [
-          "282-300",
-          "334-340"
+          "311-329",
+          "363-369"
         ],
         "findings": []
       },
@@ -2240,7 +2240,7 @@
       "area": "gate",
       "name": "evidence-digest-is-sha256",
       "ok": true,
-      "detail": "8b9608d690d16212"
+      "detail": "c080b6f56c2d656e"
     },
     {
       "area": "gate",
@@ -3366,5 +3366,5 @@
     }
   ],
   "digestAlgorithm": "sha256",
-  "digest": "67b597308061e3b70d6e84588eaf4d8d8bc0f124664644c68896be2e658e9e11"
+  "digest": "16195ddaf27e0cb557efe25d4908c034c7282f1a0a1f30cf21fa20b1722eb68f"
 }

@@ -1,9 +1,9 @@
 {
   "schema_version": "1.0",
   "artifact": "conversation-transcript",
-  "case_ref": "SV-F-TMUY7TEMG",
-  "conversation_id": "conv_dryrun_SV-F-TMUY7TEMG",
-  "captured_at": "2026-10-07T14:41:24.172Z",
+  "case_ref": "SV-F-TMV17A9ZB",
+  "conversation_id": "conv_dryrun_SV-F-TMV17A9ZB",
+  "captured_at": "2026-10-09T16:50:28.918Z",
   "mode": {
     "dial": "dry-run",
     "vendor_evidence": false,
@@ -14,7 +14,7 @@
     "adapter": "conversation.elevenlabs (registry binding)",
     "via": "placeOutboundCall (src/lib/elevenlabs/outbound-call.ts)",
     "dry_run": true,
-    "call_sid": "CA_dryrun_SV-F-TMUY7TEMG"
+    "call_sid": "CA_dryrun_SV-F-TMV17A9ZB"
   },
   "ingest": {
     "handler": "POST /api/webhooks/elevenlabs",

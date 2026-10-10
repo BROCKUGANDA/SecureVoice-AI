@@ -1454,7 +1454,10 @@ describe.skipIf(!dbAvailable)("WP-19 durable dial queue", () => {
 
   /** Make a failed job due again immediately instead of waiting out the ladder. */
   async function makeDue(id: string): Promise<void> {
-    await db.$executeRawUnsafe(`UPDATE dial_job SET "available_at" = now() WHERE id = $1`, id);
+    await db.$executeRawUnsafe(
+      `UPDATE dial_job SET "available_at" = now() - interval '1 second' WHERE id = $1`,
+      id,
+    );
   }
 
   /**

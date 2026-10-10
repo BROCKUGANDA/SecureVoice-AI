@@ -32,6 +32,8 @@ import { cn } from "@/lib/utils";
 import { openRealtime, type RealtimeHandle, type RealtimeStatus } from "@/lib/realtime-client";
 import { interventionsCsv } from "@/lib/csv-export";
 import { LiveOpsPanel, type TranscriptLine, type LiveCall } from "@/components/ops/LiveOpsPanel";
+import { TopUpDialog } from "@/components/console/TopUpDialog";
+import { walletEmptyNotice } from "@/lib/credits-wallet";
 
 /**
  * Operator Command Center — run the platform for real, on your own information:
@@ -290,6 +292,9 @@ export function Console() {
     }[]
   >([]);
   const [credits, setCredits] = useState<number | null>(null);
+  // Raised when a fire is refused for an empty wallet — the Managed-Credit
+  // top-up / BYOK dialog, not a raw error the operator has to decode.
+  const [topUp, setTopUp] = useState(false);
   const [branding, setBranding] = useState<{
     orgName: string | null;
     orgLogoUrl: string | null;
@@ -551,6 +556,8 @@ export function Console() {
         .catch(() => ({ error: "Unreadable response from server" }))) as FireResponse;
       if (typeof data.creditsRemaining === "number") setCredits(data.creditsRemaining);
       setRes(data);
+      // An empty wallet is a top-up moment, not a failure to stare at.
+      if (walletEmptyNotice(data)) setTopUp(true);
       // Start live transcript polling for the fired case
       if (data.caseRef) {
         setActiveCallRef(data.caseRef);
@@ -646,8 +653,14 @@ export function Console() {
               🟡 Demo Mode
             </span>
           )}
-          <Chip className="!text-[10.5px]">
-            <Coins className="h-3 w-3 text-[#8a6d1d]" /> {credits ?? "…"} credits left
+          <Chip
+            className={cn(
+              "!text-[10.5px]",
+              credits === 0 && "!border-red-200 !bg-red-50 !text-red-700",
+            )}
+          >
+            <Coins className="h-3 w-3" /> {credits === null ? "…" : credits.toLocaleString()}{" "}
+            credits left
           </Chip>
           <Chip className="!text-[10.5px]">
             <PhoneCall className="h-3 w-3 text-primary" /> telephony: {status?.telephony ?? "…"}
@@ -1066,6 +1079,9 @@ export function Console() {
           rtStatus={rtStatus}
         />
       </div>
+
+      {/* ————— Managed-Credit top-up / BYOK dialog ————— */}
+      <TopUpDialog open={topUp} onOpenChange={setTopUp} />
     </div>
   );
 }

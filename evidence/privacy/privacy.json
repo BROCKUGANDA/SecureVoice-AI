@@ -121,7 +121,7 @@
     {
       "name": "erased-at-recorded",
       "ok": true,
-      "detail": "erasedAt=2026-10-07T14:26:04.752Z"
+      "detail": "erasedAt=2026-10-09T15:58:05.946Z"
     },
     {
       "name": "read-after-erasure-throws",
@@ -156,12 +156,12 @@
     {
       "name": "erasure-witness-in-chain",
       "ok": true,
-      "detail": "witness row cmuy7aa1w000ccg7qxfuzn552 records keyDestroyed=true"
+      "detail": "witness row cmv15gbki000clo7qby0fflnw records keyDestroyed=true"
     },
     {
       "name": "negative-control-tamper-is-detected",
       "ok": true,
-      "detail": "detected at cmuy7a4iu0008cg7qc8mlqbma"
+      "detail": "detected at cmv15g62k0008lo7q4if4xmml"
     },
     {
       "name": "erasure-is-idempotent",
@@ -211,7 +211,7 @@
     {
       "name": "pilot-audio-is-zero-days",
       "ok": true,
-      "detail": "org-privacy-pilot-muy79snc: audioDays=0 (source pilot)"
+      "detail": "org-privacy-pilot-mv15ft8f: audioDays=0 (source pilot)"
     },
     {
       "name": "pilot-leaves-other-tiers-alone",
@@ -291,7 +291,7 @@
     {
       "name": "dry-run-reports-due-work",
       "ok": true,
-      "detail": "dry run would act on 1 audio tier case(s): SV-P-muy79snc-AUDIO0"
+      "detail": "dry run would act on 1 audio tier case(s): SV-P-mv15ft8f-AUDIO0"
     },
     {
       "name": "dry-run-reports-no-transcript-work",
@@ -301,7 +301,7 @@
     {
       "name": "zero-day-audio-purged-immediately",
       "ok": true,
-      "detail": "pilot case purged on the first run (SV-P-muy79snc-AUDIO0)"
+      "detail": "pilot case purged on the first run (SV-P-mv15ft8f-AUDIO0)"
     },
     {
       "name": "thirty-day-audio-not-purged",
@@ -341,7 +341,7 @@
     {
       "name": "transcript-tier-fires-at-140-days",
       "ok": true,
-      "detail": "acted on 5 case(s): SV-P-muy79snc-TIER, SV-P-muy79snc-AUDIO30, SV-P-muy79snc-KEYA, SV-P-muy79snc-KEYB, SV-P-muy79snc-SEAL"
+      "detail": "acted on 5 case(s): SV-P-mv15ft8f-TIER, SV-P-mv15ft8f-AUDIO30, SV-P-mv15ft8f-KEYA, SV-P-mv15ft8f-KEYB, SV-P-mv15ft8f-SEAL"
     },
     {
       "name": "transcript-tier-scrubs-payload",
@@ -471,19 +471,19 @@
     {
       "name": "master-key-in-process",
       "ok": true,
-      "detail": "master key resolved; ops fingerprint e7b73f2651e006ee is a hash, not the key"
+      "detail": "master key resolved; ops fingerprint b65f0e36bcd20143 is a hash, not the key"
     }
   ],
-  "digest": "dcf3ce7302d1521e480fd213541a9357f030de044738506dda7832627627c524",
-  "generatedAt": "2026-10-07T14:27:43.088Z",
+  "digest": "3cf2ba9f78de2537f5896706039089b41130772c4f8064d5ecb927c11acfae0f",
+  "generatedAt": "2026-10-09T15:59:52.428Z",
   "run": {
-    "id": "muy79snc",
+    "id": "mv15ft8f",
     "orgs": {
-      "default": "org-privacy-default-muy79snc",
-      "pilot": "org-privacy-pilot-muy79snc",
-      "override": "org-privacy-override-muy79snc"
+      "default": "org-privacy-default-mv15ft8f",
+      "pilot": "org-privacy-pilot-mv15ft8f",
+      "override": "org-privacy-override-mv15ft8f"
     },
-    "batch": "SV-P-muy79snc-BATCHORG",
+    "batch": "SV-P-mv15ft8f-BATCHORG",
     "database": "TEST_DATABASE_URL",
     "note": "identifiers above are per-run; the digest covers the deterministic core only"
   },

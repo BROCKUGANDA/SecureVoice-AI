@@ -29,6 +29,9 @@ const db = new PrismaClient({
 });
 const GENESIS = "0".repeat(64);
 
+/** Wallet on the "Demo Bank" tenant. 1 credit = 1 fired intervention. */
+const DEMO_ORG_CREDITS = 10000;
+
 // canonical: exact TS ordering — action, callRef, callerId, intent, meta, orgId, prevHash, redactedText
 function chainHash(prev, fields) {
   const rec = {};
@@ -416,36 +419,65 @@ const seedDemoUser = async () => {
     });
   }
 
-  // Create or update the organization
+  // Two tenants, one login. The wallet is ORG-scoped (src/lib/credits.ts reads
+  // Organization.credits whenever the session carries an active org), so the
+  // demo/operator split has to live in the seed or the demo org reads 0 credits
+  // and every fired intervention 402s into the Contact Sales modal:
+  //   - "Demo Bank"      10 000 credits — the walkthrough has to be able to fire.
+  //   - "Operator Desk"       0 credits — shows the honest empty-wallet path,
+  //                              including the BYOK alternative to top up.
   const org = await db.organization.upsert({
     where: { slug: "demo-bank" },
-    create: { name: "Demo Bank", slug: "demo-bank", createdAt: new Date() },
-    update: {},
+    create: {
+      name: "Demo Bank",
+      slug: "demo-bank",
+      createdAt: new Date(),
+      credits: DEMO_ORG_CREDITS,
+    },
+    update: { credits: DEMO_ORG_CREDITS },
   });
 
-  // Create or update the membership (user → org, role: owner)
-  const existingMember = await db.member.findFirst({
-    where: { userId: user.id, organizationId: org.id },
+  const operatorOrg = await db.organization.upsert({
+    where: { slug: "operator-desk" },
+    create: {
+      name: "Operator Desk",
+      slug: "operator-desk",
+      createdAt: new Date(),
+      institutionType: "bank",
+      credits: 0,
+    },
+    update: { credits: 0 },
   });
-  if (existingMember) {
-    await db.member.update({
-      where: { id: existingMember.id },
-      data: { role: "owner" },
+
+  // Memberships. Owner of the demo tenant, plain member of the operator desk:
+  // membership is what `requireOperator()` reads, so the role has to exist on
+  // both or switching to "Operator Desk" turns the whole console 403.
+  const upsertMember = async (organizationId, role) => {
+    const existing = await db.member.findFirst({
+      where: { userId: user.id, organizationId },
     });
-  } else {
+    if (existing) {
+      await db.member.update({ where: { id: existing.id }, data: { role } });
+      return;
+    }
     await db.member.create({
-      data: { userId: user.id, organizationId: org.id, role: "owner", createdAt: new Date() },
+      data: { userId: user.id, organizationId, role, createdAt: new Date() },
     });
-  }
+  };
+  await upsertMember(org.id, "owner");
+  await upsertMember(operatorOrg.id, "member");
 
-  // Create or update the user profile (credits wallet)
+  // Create or update the user profile. These credits are the ORG-LESS fallback
+  // only: as soon as an active org is set the org wallet above is authoritative.
   await db.userProfile.upsert({
     where: { userId: user.id },
     create: { userId: user.id, email, name: "Demo User", credits: 25, role: "demo" },
     update: { credits: 25 },
   });
 
-  console.log(`✓ demo user ${email} → org "Demo Bank" (owner) · 25 credits`);
+  console.log(
+    `✓ demo user ${email} → orgs "Demo Bank" (owner · ${DEMO_ORG_CREDITS} credits) + "Operator Desk" (member · 0 credits) · 25 fallback credits`,
+  );
 };
 
 const main = async () => {

@@ -11,6 +11,32 @@ Read date for all sourced rates: **2026-10-02**.
 
 ---
 
+## 0. The one-slide version (AED, for the pitch)
+
+The rest of this document is the model. This is the slide.
+
+|                                                                               | AED                               |
+| ----------------------------------------------------------------------------- | --------------------------------- |
+| Fully-loaded human fraud-desk callback (agent time + carrier + idle capacity) | **15–40**                         |
+| SecureVoice intervention, end to end (voice minutes + ASR + LLM + TTS)        | **0.6–1.1**                       |
+| **Priced at**                                                                 | **2–4 per verified intervention** |
+
+**The pitch line:**
+
+> "One prevented AED 50,000 fraud pays for roughly 25,000 interventions."
+
+The arithmetic is the whole argument: the cost side is a rounding error against the
+loss side, so the carrier rate — the one variable we do not control — can triple
+and the model still works.
+
+**Two figures to quote only if you have sourced them** (see §5): the cost side above
+is derived from the published provider rates in this document and is defensible;
+the human-callback range is an input you must fill from your own bank's figures.
+A judge will check the human-callback number, so have the source ready rather than
+rounding it. **A 3-minute pitch is not the place to invent one.**
+
+---
+
 ## 1. Cost per intervention
 
 Modelled on a **3-minute intervention** — the agent's disclosure, one knowledge

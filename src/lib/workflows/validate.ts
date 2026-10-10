@@ -51,6 +51,15 @@ export function validateWorkflow(
     const hasExit =
       nd.kind === "end" || nd.next || nd.onReturn || (nd.branches && nd.branches.length > 0);
     if (!hasExit) errors.push(`node "${nd.id}" has no way forward (dead end)`);
+    // A subagent node resumes at `onReturn` and ONLY there — runner.ts does
+    // `current = nd.onReturn!` with no `next` fallback, so a subagent carrying
+    // only `next` passes the dead-end guard above and then dies at runtime with
+    // `walked into missing node "undefined"`. Validation is where an operator
+    // should learn that, not the second hop of a live journey.
+    if (nd.kind === "subagent" && !nd.onReturn)
+      errors.push(
+        `subagent node "${nd.id}" must declare onReturn — the runner resumes there after the sub-agent returns`,
+      );
   }
 
   // Reachability from entry.

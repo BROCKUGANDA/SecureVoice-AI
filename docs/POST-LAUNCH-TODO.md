@@ -43,7 +43,51 @@ Sign-up is invite-only, so there is no self-serve account path any more.
 2. Better Auth: add the user to the tenant's `organization` and grant the
    operator/admin role THERE. Roles come from organization membership, not from
    a field on the user row, so a user with no organization has no role.
-3. Top up credits if needed (operator wallets start at 500 credits).
+3. Top up credits if needed (operator wallets start at 500 credits). The wallet is
+   ORG-scoped: once a session carries an active organization, `Organization.credits`
+   is the balance that is spent and `UserProfile.credits` is only the org-less
+   fallback. Top up the tenant's row, not the person's.
+
+## 2b. Full-duplex browser voice — specced, deliberately not built
+
+The landing widget (`src/components/demo/LiveVoicePanel.tsx`) is a **real** live
+mic call into the real pipeline — `getUserMedia` → `/api/asr` → `/api/agent` →
+streaming `/api/tts/stream`, with barge-in — but it is **half-duplex and
+push-to-talk**: audio is only captured between recording start and stop, and the
+agent is not reached until the customer has finished speaking. That is honest and
+it works; it is just not a phone call.
+
+The full-duplex path is deliberately a follow-up rather than a rushed addition,
+because it is mostly **plumbing that already exists server-side and is currently
+unreachable from a browser**:
+
+- `src/lib/voice/deepgram-client.ts` — `DeepgramLiveClient`, streaming STT.
+  `PINNABLE_LANGS` covers `en`/`ar`/`hi`; `ur`/`sw` fall back to `"multi"`.
+- `src/lib/voice/elevenlabs-stream.ts` — `ElevenLabsStream`, async-iterates
+  `audio/mpeg` chunks back.
+- `src/app/api/voice-websocket/route.ts:153` — `createVoiceWebSocketServer()`
+  wires mulaw frames → Deepgram → `routeAgentIntent` → `executeSoftFreeze` →
+  ElevenLabs. **It has no callers**: the exported `GET` at `:131` returns
+  `{ok:true, activeCalls}` rather than upgrading, because a Next.js route handler
+  cannot reach the raw socket. That is the whole gap.
+- `src/worker/voice-stream.ts:391` — the same wiring in the Bun worker, i.e. a
+  process that CAN hold the socket already exists.
+
+**Building it means:**
+
+1. `src/worker/browser-voice.ts` — a Bun WebSocket server that is the only
+   browser-facing half; the browser sends PCM16@16 kHz frames from an
+   `AudioWorklet`, the server answers with `audio/mpeg` chunks.
+2. A `NEXT_PUBLIC_VOICE_WS_URL` env and a compose service for it.
+3. A client hook that drives the worklet, plays the returned chunks, and
+   barge-ins on the **interim** transcript rather than on finished ASR.
+4. Point `LiveVoicePanel` at it behind a capability check, keeping the existing
+   half-duplex path as the fallback rather than replacing it.
+
+**Preconditions before it can be demoed:** a live `DEEPGRAM_API_KEY` and a
+non-dry-run `ELEVENLABS_API_KEY`. Until both exist, building the socket layer
+would produce a path that cannot be heard — which is worse than the push-to-talk
+one, because a judge would experience silence.
 
 ## 3. Housekeeping
 

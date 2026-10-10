@@ -1,0 +1,11 @@
+=== Currency component wired ===
+Demo picker card (line 366): uses AmountDisplay with amount parsed from meta, currency='AED'
+Parsing: 'AED 2,500.00' - - formats back to 'AED 2,500.00'
+=== Build check ===
+=== Final commit ===
+[dev 185811e] feat(ui): wire AmountDisplay into scenario picker + currency-map + agent prompt rules
+ 12 files changed, 249 insertions(+), 9 deletions(-)
+ create mode 100644 .sisyphus/ledger/2026-10-10-security-rules-latency.md
+ create mode 100644 Intl
+=== Clean ===
+ M Intl

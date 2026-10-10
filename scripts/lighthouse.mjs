@@ -246,6 +246,10 @@ async function main() {
         onlyCategories: ["performance", "accessibility"],
         formFactor: "desktop",
         throttlingMethod: "simulate",
+        // The pair must agree: Lighthouse's validation requires
+        // screenEmulation.mobile === (formFactor === 'mobile'). Passing
+        // formFactor alone leaves the default mobile emulation (true) in
+        // place and the run is refused before it starts.
         screenEmulation: {
           mobile: false,
           width: 1366,
@@ -261,7 +265,14 @@ async function main() {
     writeFileSync(resolve(OUT, "report.json"), result.report, "utf8");
     if (flag("html")) writeFileSync(resolve(OUT, "report.html"), result.report[1], "utf8");
   } finally {
-    await launched.kill().catch(() => {});
+    // chrome-launcher's kill() is fire-and-forget in some versions and
+    // returns void, not a promise — assume nothing, and never let cleanup
+    // mask the real error above.
+    try {
+      await launched?.kill?.();
+    } catch {
+      /* the browser is already gone; the measurement stands */
+    }
   }
 
   const problems = [];

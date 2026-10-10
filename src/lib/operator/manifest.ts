@@ -179,7 +179,7 @@ export const BACKENDS: Backend[] = [
 export const MCP_SERVER = {
   endpoint: "/api/elevenlabs/mcp",
   protocol: "JSON-RPC 2.0 (Model Context Protocol)",
-  note: "A thin front door: every tools/call is forwarded to the same guarded route an agent webhook hits, so the identical auth, tenant scope and state preconditions apply — an MCP client cannot reach an action the guard would refuse elsewhere.",
+  note: "A thin front door: every tools/call is forwarded to the same guarded route an agent webhook hits, carrying the caller's own tool credential, so the identical auth, tenant scope and state preconditions apply to the caller's own identity — the platform credential is never substituted, a call without a credential is refused, and the forwarding origin is fixed.",
 };
 
 export function agentManifest() {

@@ -127,12 +127,46 @@ const HEADS_UP: Record<InstitutionType, Record<OutreachLang, (ref: string) => st
   },
 };
 
+/**
+ * The out-of-band anchor, stated in the SMS itself.
+ *
+ * The obvious objection to this whole product is that a bank calling a customer
+ * about a transaction looks exactly like vishing. What breaks the tie is that
+ * **the customer already knows the call is coming, from a channel the fraudster
+ * cannot control**. In the UAE that channel is a REGISTERED alphanumeric sender
+ * ID: TDRA requires sender registration and filters spoofed international
+ * senders, so an SMS from the bank's own registered ID is materially harder to
+ * forge than the inbound call is to imitate.
+ *
+ * The clause says exactly that, and it says it in the SMS rather than only in a
+ * pitch deck — because a customer deciding whether to trust a ringing phone is
+ * the moment the message has to arrive, not the moment a judge reads a slide.
+ *
+ * Deliberately appended as a separate constant instead of rewritten into the
+ * twelve table entries above: it is one cross-cutting claim about the delivery
+ * channel, not per-language copy, and keeping it separate means it cannot drift
+ * out of sync with one language.
+ */
+const ANCHOR_CLAUSE: Record<OutreachLang, string> = {
+  en: "Sent from your bank's registered sender ID — the call will never ask for your PIN or OTP.",
+  ar: "أُرسلت من معرّف المرسل المسجّل الخاص بمصرفك — لن تطلب المكالمة رمز PIN أو OTP أبداً.",
+  hi: "आपके बैंक के पंजीकृत प्रेषक ID से भेजा गया — यह कॉल कभी आपका PIN या OTP नहीं मांगेगी।",
+  ur: "آپ کے بینک کے رجسٹرڈ سینڈر ID سے بھیجا گیا ہے — یہ کال کبھی آپ کا PIN یا OTP نہیں مانگے گی۔",
+  fr: "Envoyé depuis l'identifiant émetteur enregistré de votre banque — cet appel ne demandera jamais votre code PIN ou OTP.",
+  sw: "Imetumwa kwa kitambulisho cha mtumaji kilichosajiliwa cha benki yako — simu hii haitakuwahi kuomba PIN au OTP yako.",
+};
+
 /** The heads-up SMS. `ref` is the case reference the customer will be asked for. */
 export function headsUpSms(
   lang: OutreachLang,
   opts: { caseRef: string; institution?: InstitutionType },
 ): string {
-  return HEADS_UP[opts.institution ?? "bank"][lang](opts.caseRef);
+  return `${HEADS_UP[opts.institution ?? "bank"][lang](opts.caseRef)} ${ANCHOR_CLAUSE[lang]}`;
+}
+
+/** The anchor clause on its own, for a tenant that composes its own SMS copy. */
+export function outOfBandAnchorClause(lang: OutreachLang): string {
+  return ANCHOR_CLAUSE[lang];
 }
 
 /** What an answering machine hears when the tenant is an insurer. */

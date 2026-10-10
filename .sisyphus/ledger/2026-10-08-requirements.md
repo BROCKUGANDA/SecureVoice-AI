@@ -90,3 +90,47 @@ place rather than deleting lines.
 - dev/staging/main all green; ladder dev→staging→main merged (removed billing-locked code_scanning rule from the Vader ruleset; PR #6 admin-merge). main = 89f23d4.
 - Removed required-on-main code-scanning rule; fixed VPS deploy `Caddyfile` skip-worktree self-heal (deploy.yml f2b5ebd). deploy fires on main-CI-success.
 - Blocker at one point was a GitHub ACCOUNT BILLING LOCK (paid GitHub-hosted Advanced-Security job "not started"), not code; sharp already patched at 0.35.5. Airflow/version failure is a separate non-blocking jq bug.
+
+## PROGRESS 2026-10-10 (session 2 — promotion to main + production DB + CI flake fix)
+
+**Promotion ladder — COMPLETE to main.**
+
+- The stalled ladder resumed after `4e644db` "test(ci): fund org wallet and repair promotion test gates" (00:47Z): devstaging #13 merged 85 commits (00:48Z) — includes the 2026-10-09 workflows work (swept into fb1cfe5 by the owner) plus the other session's security/currency work.
+- PR #14 (stagingmain, 7 commits) opened 00:53Z; its CI first failed on a FLAKE (P2002 on `AuditLog_chainHash_key` in tests/tools/guard.test.ts — the WP-3 sweep fires CONCURRENCY=10 tool calls at ONE caseRef, and the fast-path audit append trades the advisory lock for latency). Same code had passed on the staging-push CI 10 minutes earlier; rerun passed; #14 merged 01:08:51Z. main = 6cf689d.
+- Deploy fired (38012365047) and FAILED — VPS-side, not code: the origin's app cannot reach its database ("Can't reach database server at db"), so migrate deploy + the health gate fail. The bundled `db` container is the deployed production database host per the app's own error; remediation needs SSH (disk / docker compose ps db / db logs). The ledger's disk-full OPS blocker is the standing suspect.
+- AutoVersion failure on the main push = the known non-blocking jq bug ("expected an object but got: boolean (true)"); it gates release tagging, not deploy.
+
+**Production database (= Supabase per the owner; the .env target):**
+
+- `prisma migrate status` = "Database schema is up to date!" — all 31 migrations applied; WorkflowDoc and Document tables + organization/UserProfile columns live.
+- Both new migration files are now APPLIED — they must never be edited again; further schema changes need NEW migration files (editing an applied file is the 2_outbox/3_postcall drift pattern).
+- Hygiene verified after the e2e runs: WorkflowDoc 0 rows, Document 0 rows.
+- The concurrent-agent migration `9zzzzzzzzzzzzzzz_enterprise_onboarding` needed two repairs to be applyable at all: `user_profile` — the real table is `UserProfile` (their 16:41Z deploy attempt died on this and left a failed record) — and `ADD COLUMN IF NOT EXISTS` so it applies on both a pushed and a fresh DB.
+
+**Audit-chain flake fix (UNCOMMITTED — ready for the sweep):**
+
+- `src/lib/audit-chain.ts`: `append()` now retries on a P2002 chainHash collision (bounded, re-reads the head, only for AuditLog chainHash). A hash-chain insert that loses a race must recompute, not 500 a tool call that succeeded. Verified: tsc clean, prettier clean, guard suite 2/2 green.
+
+## PROGRESS 2026-10-10 (session 3 — WIP sweep, branch reconciliation, CI fixes)
+
+**Local `dev` vs `origin/dev` had DIVERGED — reconciled by merge (f7c3ef1), no conflicts.**
+
+- Local `dev` held ~11k lines that never reached the remote: the 2026-10-10 session's security work (compliance never-ask/spoken-numbers, voice warm-audio/backchannel, MCP caller-auth + forward-origin, switch-language org scope, campaign SCREENED/language, verification-token) AND the enterprise-onboarding work (console/documents routes + retry/test, console/setup, queue/dispatch, JUDGE-QA / LATENCY-BUDGET / SCOPE-TRIAGE / STAGE-RUNBOOK / UAE-REALITY / VERIFICATION docs, lottie assets). The promotions to staging/main had shipped an INCOMPLETE tree (owner sweeps from a different checkout).
+- The merge is a clean union: dev's 11k lines + origin's sweep + the ci-repair commit + origin's 3 small file updates (fire/load tests, and NextRequest + typing hardening of tests/e2e/workflow-console.test.ts). Verified: tsc clean, format:check clean.
+- **This union now needs to walk the ladder** — it carries the security + onboarding work that staging/main are missing.
+
+**AutoVersion jq bug — FIXED (root cause, both sites):**
+
+- `select(A) or (B)` parsed as `or` applied to select's OUTPUT: matching runs became `true` (boolean), then `map(select(.conclusion...))` indexed a boolean → "expected an object but got: boolean (true)". AutoVersion has therefore NEVER succeeded since the rule was written.
+- Fixed in `.github/workflows/autoversion.yml` and the same pattern in `.github/workflows/deploy.yml` (manual-dispatch path): `select((A) or (B))`. Verified with jq 1.8.2 locally: returns "success"/"failing"/"missing" as intended.
+
+**VPS recovery runbook — `docs/VPS-RECOVERY.md`** (deploy 38012365047: origin app cannot reach its database at `db`; disk-full suspect from the ledger's OPS blocker). Settles the production-database question per the owner's stated intent (Supabase = production) WITH the data-reconciliation safety step first: back up the bundled `db-data`, compare row counts both sides, restore if the bundled DB is ahead, THEN set DATABASE_URL on the VPS. DEPLOY.md's "never set DATABASE_URL" rule is now stale and flagged there.
+
+## WIP sweep — pushed as the union commit (e9c5173), then lockfile (e6ed50b) + strict-typecheck (cdd05ef)
+
+- Local `dev` (7 unpushed commits) vs `origin/dev` had diverged; the ladder had been promoting an INCOMPLETE tree (missing the security + onboarding work). Reconciled as ONE union commit on top of origin/dev (119 files, +11,990/-516), verified byte-identical to the fully-tested tree except the fixture fix. `git checkout dev -- .` was used because `git apply` fails on this repo's CRLF endings, and `filter-branch` had no `sed` on this box.
+- **Push protection had silently blocked all of this for days**: a fake ElevenLabs fixture in `tests/console/setup.test.ts` — an `sk_live_`-prefixed 24-character alphabet sequence — matches Stripe's key format. Replaced with a pattern-breaking fixture (underscores after the prefix; same assertions). This is why the security/onboarding work never reached the remote.
+- **Second hidden CI blocker**: `bun.lock` was out of sync with package.json (`lottie-react` added, lockfile never regenerated) → every `--frozen-lockfile` install failed in ~12s. Synced with `bun install`; the only delta is lottie-react + lottie-web (zod was already 4.3.5 on both sides).
+- **Third blocker (found by the first real CI run)**: the "Test typecheck" step compiles `tests/tsconfig.json`, which is STRICTER than the app config (noUncheckedIndexedAccess) — the never-pushed work had never seen it. Fixed with the house `!` idiom in spoken-numbers.ts, a fresh-Uint8Array wrap for the File/BlobPart typing, and an `as unknown as typeof fetch` cast.
+- console/documents: 3 local failures are the documented baseline (the local .env Pinecone key is REJECTED, so the suite sees the API error instead of `pinecone_not_configured`; CI, with no key, passes).
+- PR #15 (dev -> staging, 86 commits) is OPEN with auto-merge armed; CI re-running on cdd05ef.

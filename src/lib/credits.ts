@@ -201,6 +201,51 @@ async function auditWallet(
  * debited. An org session must never spend the operator's personal credits
  * and vice versa — that is how one tenant's usage ends up on another's bill.
  */
+/**
+ * Announce a wallet movement on the realtime org channel.
+ *
+ * Why this exists: the console's wallet chip only moved when the operator's own
+ * `fire()` call returned a balance. So an intervention fired by a COLLEAGUE, by
+ * a webhook, or by a queue worker left the on-screen balance stale until the next
+ * refetch — which on a multi-analyst desk means two people see different wallets
+ * from the same tenant. One credit movement is now an event, so the tenant's own
+ * balance is the source of truth for everyone looking at it.
+ *
+ * Fire-and-forget on purpose: this is a notification about money that has ALREADY
+ * moved and been audited. A realtime outage must never fail, delay or roll back a
+ * charge, so a publish failure is swallowed rather than propagated.
+ */
+async function announceCredit(
+  userId: string,
+  orgId: string | null,
+  remaining: number,
+  scope: "org" | "user",
+  reason: string,
+  refunded = false,
+): Promise<void> {
+  if (!orgId) return; // the org channel is the only subscriber surface
+  try {
+    const { notifyRealtime } = await import("@/lib/realtime");
+    await notifyRealtime({
+      orgId,
+      // The org channel is what the console joins for tenant-wide activity; an
+      // empty callRef keeps the case channels clean of wallet events.
+      callRef: "",
+      payload: {
+        type: "credit.deducted",
+        call_id: "",
+        ts: Date.now(),
+        data: { remaining, scope, reason, ...(refunded ? { refunded: true } : {}) },
+      },
+    });
+  } catch (err) {
+    logError("[credits] could not announce the wallet movement", {
+      userId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
 export async function deductCredit(userId: string, orgId?: string | null): Promise<number> {
   if (orgId) {
     const r = await db.organization.updateMany({
@@ -216,7 +261,17 @@ export async function deductCredit(userId: string, orgId?: string | null): Promi
       select: { credits: true },
     });
     const remaining = row?.credits ?? -1;
-    await auditWallet(userId, "wallet_debited", remaining, "1 credit consumed by an intervention", orgId);
+    await auditWallet(
+      userId,
+      "wallet_debited",
+      remaining,
+      "1 credit consumed by an intervention",
+      orgId,
+    );
+    // Announced AFTER the balance is read, so a subscriber that repaints from the
+    // event sees the same number the row holds. Emitting before the read would let
+    // a client render a balance that is one credit optimistic.
+    void announceCredit(userId, orgId ?? null, remaining, "org", "intervention_fired");
     return remaining;
   }
 
@@ -257,6 +312,11 @@ export async function refundCredit(userId: string, orgId?: string | null): Promi
       "credit returned: intervention not accepted",
       orgId,
     );
+    // A refund is announced too, and flagged as one. The console shows the
+    // balance it was actually given, so an operator who fires, gets refused and
+    // sees the credit come back has a single, coherent story — rather than a
+    // balance that quietly appears wrong for one request.
+    void announceCredit(userId, orgId, row.credits, "org", "intervention_refunded", true);
     return row.credits;
   }
 
@@ -265,6 +325,11 @@ export async function refundCredit(userId: string, orgId?: string | null): Promi
     data: { credits: { increment: 1 } },
     select: { credits: true },
   });
-  await auditWallet(userId, "wallet_refunded", row.credits, "credit returned: intervention not accepted");
+  await auditWallet(
+    userId,
+    "wallet_refunded",
+    row.credits,
+    "credit returned: intervention not accepted",
+  );
   return row.credits;
 }

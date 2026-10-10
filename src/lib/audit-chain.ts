@@ -135,10 +135,41 @@ export async function append(
   // connection within the latency budget.
   await acquireAppendSlot();
   try {
-    return await appendInner(clean, opts?.fast ?? false);
+    // A hash-chain insert can lose a race on the GLOBAL chainHash unique index:
+    // two writers that read the same chain head and hash an identical payload
+    // compute the same hash, and the loser gets P2002. The fast path opts out
+    // of the per-callRef advisory lock on the premise that a callRef is unique
+    // per request, so anything that shares one ref across concurrent writers
+    // (the WP-3 latency sweep fires ten tool calls at one case) can hit this.
+    //
+    // The row that won the race is now the chain head, so re-reading and
+    // re-computing produces a DIFFERENT hash — the retry is guaranteed to make
+    // progress, bounded, and never masks a non-collision failure. Surfacing the
+    // P2002 instead would 500 a tool call that actually succeeded.
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await appendInner(clean, opts?.fast ?? false);
+      } catch (err) {
+        if (!isChainHashCollision(err) || attempt >= CHAIN_HASH_COLLISION_RETRIES) throw err;
+      }
+    }
   } finally {
     releaseAppendSlot();
   }
+}
+
+const CHAIN_HASH_COLLISION_RETRIES = 3;
+
+/** P2002 on the AuditLog chainHash index, and nothing else. */
+function isChainHashCollision(err: unknown): boolean {
+  if (typeof err !== "object" || err === null) return false;
+  const e = err as { code?: string; message?: string; meta?: { modelName?: string } };
+  return (
+    e.code === "P2002" &&
+    e.meta?.modelName === "AuditLog" &&
+    typeof e.message === "string" &&
+    e.message.includes("chainHash")
+  );
 }
 
 const MAX_CONCURRENT_APPENDS = 5;

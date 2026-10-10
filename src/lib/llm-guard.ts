@@ -144,13 +144,38 @@ export function detectInjectionAttempt(raw: string): boolean {
  * first would be theatre.
  */
 const SECRET_SOLICITATION: RegExp[] = [
-  /\b(pin|passcode|otp|one[-\s]?time\s+(code|password)|2fa|mfa\s+code|verification\s+code|security\s+code)\b/i,
-  /\b(password|passphrase|passcode|pin)\b/i,
-  /\b(cv v|cvv|cvc|security\s+code|card\s+verification)\b/i,
-  /\b(full\s+)?card\s+number\b/i,
-  /\b(last|expiry|expiration)\s+(date|digits)\b/i,
-  /\b(log\s?in|log\s?on)\s+(to|into)\b.{0,20}\b(bank|account)\b/i,
-  /\b(bank|security|account)\s+(password|credentials?)\b/i,
+  /*
+   * REQUEST CONTEXT IS REQUIRED, and this is a fix rather than a copy.
+   *
+   * These patterns used to match the bare nouns — any occurrence of "pin",
+   * "password" or "otp" refused the turn. That is wrong in a way that actively
+   * harmed the product: the bank agent's single most important sentence is
+   * "I will never ask for your PIN, password, or one-time passcode", and the
+   * guard installed to protect it would reject it, so the LLM draft was discarded
+   * and the reassuring version silently lost. A guardrail that refuses the
+   * disclosure protects nobody.
+   *
+   * So a hit now requires the solicitation shape: a request verb (or an
+   * imperative) NEAR the secret. This mirrors `REQUEST_CTX` in
+   * src/lib/compliance/policy.ts, which already had the right shape.
+   *
+   * The rules below are therefore paired: one that matches the secret when it is
+   * ASKED for, and one that matches the secret when it is merely GIVEN (a caller
+   * volunteering it is still a reason to stop, because the turn must not absorb
+   * a credential).
+   */
+  /\b(?:give|send|share|tell|provide|enter|type|read|confirm|verify|repeat|state)\b[^.?!]{0,40}\b(?:pin|passcode|otp|one[-\s]?time\s+(?:code|password|passcode)|2fa|mfa\s+code|verification\s+code|security\s+code|password|passphrase|cvv|cvc|card\s+verification|card\s+number)\b/i,
+  /\b(?:what(?:'s| is)|give me|tell me)\b[^.?!]{0,20}\b(?:your|the)\b[^.?!]{0,20}\b(?:pin|otp|password|cvv|cvc)\b/i,
+  /\bi\s+(?:need|want|require)\b[^.?!]{0,30}\b(?:pin|otp|password|cvv|cvc)\b/i,
+  /\b(?:to\s+(?:verify|confirm|validate)|in\s+order\s+to\s+(?:verify|confirm))\b[^.?!]{0,30}\b(?:pin|passcode|otp|one[-\s]?time\s+code|password|cvv|cvc)\b/i,
+  // The claimant, not just the asker. "We need your OTP" and "you will have to
+  // provide your PIN" are solicitations with no first-person singular request
+  // verb, and a rule written only around "I" lets them through.
+  /\b(?:we|they|you|the\s+bank|our\s+system)\s+(?:need|want|require|will\s+need|will\s+require)\b[^.?!]{0,30}\b(?:pin|otp|passcode|password|cvv|cvc|verification\s+code)\b/i,
+  /\byou\s+(?:will|have\s+to|need\s+to)\b[^.?!]{0,30}\b(?:give|provide|share|enter|confirm|send)\b[^.?!]{0,30}\b(?:pin|otp|passcode|password|cvv|cvc)\b/i,
+  /\b(?:need|require)\s+(?:your|the)\s+(?:pin|otp|passcode|password|cvv|cvc)\b/i,
+  // Volunteered credentials: not a request, but absorbing one is still a refusal.
+  /\b(?:your\s+)?(?:pin|passcode|password|cvv|cvc)\s+(?:is|are)\s+\d{3,}/i,
 ];
 
 /** Phrases that would break the fraud-agent framing even without asking a secret. */

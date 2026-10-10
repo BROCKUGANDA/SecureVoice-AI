@@ -1748,3 +1748,153 @@ casts, an untyped `.mjs` import, indexed-access strictness). None sit behind a
 bundle gate, which is why they are invisible to `bun run evidence`. The two
 files this session owns (`transit.test.ts`, the throttle test, the transcript
 gate) are clean.
+
+## 2026-10-10 - The five rules, and the three tricks that make them instant
+
+The security rules and the latency budget, wired into the Twilio Media
+Streams plane end to end. What was already true before this session is
+recorded honestly, because a guardrail that only runs on the demo path is
+not a guardrail:
+
+Already enforced on the LLM path (src/lib/llm.ts, llm-guard.ts,
+compliance/vishing.ts, compliance/safety-exit.ts):
+
+- Rule 1 (untrusted speech) - wrapCallerText + detectInjectionAttempt, audited, never refused.
+- Rule 3 (no urgency/threat) - the vishing blocklist, at the speech boundary.
+- Rule 4 (hang-up-safe exit) - SAFETY_EXIT constants, protected from the word cap.
+
+Built this session, all deterministic (a prompt is a request; this is a
+check on the bytes that will be synthesised):
+
+- Rule 5 - src/lib/compliance/spoken-numbers.ts, wired into prepareSpeech
+  between markdown stripping and redaction. Identifier-shaped digit runs
+  (PAN, phone, SSN) are LEFT ALONE so redactPII still recognises them -
+  wording a card number makes it unredactable, which is worse than a
+  mispronounced amount. Gate: tests/unit/compliance-spoken-numbers (22 pass)
+  and compliance-speech-gate-numbers (7 pass).
+- Rule 2 - src/lib/compliance/never-ask.ts: the fixed per-language refusal
+  line plus a caller-side detector, wired into BOTH voice paths - the
+  media-stream worker short-circuits the router with it, and the guardrailed
+  turn API replaces the draft with it. Gate: tests/unit/compliance-never-ask
+  (12 pass).
+- Rule 1 on the media-stream plane - the worker's router is deterministic
+  with no prompt to hijack, so the enforcement story is the AUDIT: the
+  attempt is recorded and the service continues.
+
+Latency, measured where the promise is made:
+
+- Trick 1 - the dial worker POSTs /prewarm on the voice-stream plane at the
+  DIALING state (src/worker/dial.ts), warming (a) the audio cache for every
+  fixed phrase and (b) a pooled Deepgram socket. The old pre-warm filled the
+  buffered tts() cache, which is process-local and which the STREAMING
+  transport never reads - it warmed a map the live call could not see.
+- Trick 3 - the back-channel, wired into handleTranscript: a 250 ms timer,
+  cancelled the moment real audio lands, served from the local warm cache
+  (never synthesised mid-gap - that is slower than the gap), gated by
+  shouldPlayBackchannel. Gates: voice-backchannel (10 pass),
+  voice-warm-audio (10 pass).
+- Trick 2 - satisfied architecturally on this plane and stated rather than
+  claimed: the turn loop is a deterministic router over VETTED fixed lines
+  (routeAgentIntent's documented design decision), so there are no LLM tokens
+  to stream on the critical path, and the HTTP plane already streams provider
+  audio (optimize_streaming_latency=3, /api/tts/stream).
+- Observability - the answered_to_first_agent_word span now carries
+  {cached, backchannel, neverAsk} attributes, so a p95 with cache misses and
+  played fillers reads differently from one without.
+
+### One real bug found and fixed while wiring this
+
+The fraud branch set `state.ended = true` BEFORE speaking the freeze
+confirmation, and both the streaming and warm-cache loops break on
+`state.ended` - so the single most legally consequential sentence in the
+product was dropped on its first chunk and never spoken on this plane.
+Terminal turns now pass `force: true`; everything the caller can still do
+(nudge, barge-in, re-entry) stays blocked by the flag.
+
+### Also this session
+
+- The four per-language line tables moved from the worker into
+  src/lib/voice/conversation.ts so the pre-warm path can import them
+  without a cycle (a table the warmer cannot reach is a table that stays
+  cold on the first call of every language).
+- tests/unit/stop-left-the-voice-registry-empty.test.ts was RED on main -
+  its safe-log mock omitted logWarn, which src/lib/languages.ts imports, so
+  the file died at import time before running a single assertion. Mock
+  repaired; the suite runs and passes 14.
+- Scope limits, stated: the never-ask detector and the vishing list are
+  strongest in en/fr/ar/ur; Hindi and Swahili are best-effort and need
+  native-speaker review before parity can be claimed.
+
+## 2026-10-10 - Ten review findings verified; nine fixed, one already dead
+
+An AI reviewer's list of ten suspected defects was checked line by line
+against the code. Nine were real and are fixed below; one (the 90s/300s
+pre-notification divergence) had already been eliminated by an earlier change
+and was reported as NOT VALID rather than re-fixed.
+
+### Security
+
+- **MCP tools/call was an unauthenticated front door** (mcp/route.ts). It
+  forwarded the PLATFORM `AGENT_TOOL_SECRET`, so the tool guard authorised the
+  deployment, not the caller: anyone who could reach the public URL could
+  invoke every allowed tool on every eligible case. `tools/call` now requires
+  the caller's own `x-agent-tool-secret`, refuses without it (-32600), and
+  forwards THAT — the platform credential is never substituted. The failure
+  direction is preserved: a caller with a per-tenant credential reaches their
+  own tenant only.
+- **The forwarding origin came from the request URL** (same file). Caddy
+  forwards the caller's Host verbatim (`header_up Host {host}`), so the origin
+  was attacker-controlled and the tool secret was POSTed to it. The target is
+  now this deployment's fixed origin (`MCP_TOOL_FORWARD_ORIGIN`, defaulting to
+  127.0.0.1:$PORT) — never derived from the request.
+- **switch_language could write cross-tenant** (tools/switch-language/route.ts).
+  Four of five tool routes resolve their case through `guardToolCall`, which
+  folds the caller's org into the lookup; switch_language ran its own raw
+  UPDATE keyed only on `conversationId`. The org predicate now rides the same
+  query (`orgId = caller` or the default namespace for the platform key), so
+  another tenant's conversation id resolves to nothing. The single-round-trip
+  hot path is unchanged — the p95 assertion in tests/tools/guard.test.ts still
+  passes. Regression: tests/tools/switch-language-bleedguard.test.ts (real DB,
+  real per-tenant credential, 409 + no write).
+
+### Correctness
+
+- **Subagent nodes could pass validation with `next` but no `onReturn`**
+  (workflows/validate.ts, schema.ts). The validator's dead-end guard accepted
+  `next` as an exit for any node kind, but runner.ts resumes a subagent at
+  `onReturn` and only there — so the graph validated and then died at runtime
+  with `walked into missing node "undefined"`. Both layers now require
+  `onReturn` on subagent nodes. Regression: the onReturn test in
+  tests/unit/workflows.test.ts.
+- **Campaign cases never reached a legal dial state** (v1/campaigns/route.ts).
+  `createCase` starts at RECEIVED; the single-signal ingest transitions to
+  SCREENED before enqueueing, the campaign route did not, and the worker's
+  SCREENED → DIALING transition then failed on every attempt — a retry ladder
+  of duplicate calls to the same recipient. The campaign route now transitions
+  SCREENED before enqueueing, mirroring the single-signal path.
+- **Campaign calls were always English** (same file). The language was stored
+  on the case but omitted from the dial-job payload, and the worker defaults to
+  English. The normalized language now rides the payload, so the case row and
+  the spoken call agree.
+- **Unsupported languages were accepted** (same file). `lang: z.string()`
+  took anything; the schema is now the documented `z.enum(SUPPORTED_LANGS)`,
+  rejecting at the boundary instead of storing a value the worker ignores.
+
+### Tests
+
+- **MCP protocol tests did not check the JSON-RPC envelope** — only `result`.
+  A response missing `jsonrpc: "2.0"` or the echoed `id` passed the suite and
+  would be rejected by every real MCP client. Envelope assertions added.
+- **Campaign tests checked counts, not identities** — "accepted: 1, enqueued
+  length 1" passes even if the wrong phone was queued or an accepted recipient
+  was never queued at all. The queue capture now records the payload, and the
+  tests assert which phones are enqueued, that every accepted recipient is one
+  of them, the SCREENED transition, the language payload, and the schema
+  refusal.
+
+### State after the fixes
+
+tsc clean · lint 0 errors · 120 suites green across the affected slice
+(e2e/tools/routes/redteam/unit) · bleedguard verified against the real
+database · operator-manifest suite green (its "no secret in responses" guard
+caught the first wording of the new manifest note — reworded to "credential").

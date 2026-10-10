@@ -385,9 +385,10 @@ export function Home() {
                   Put on headphones and talk to the agent — no phone number, no sign-up
                 </h2>
                 <p className="mt-2.5 max-w-xl text-[13.5px] leading-relaxed text-ink-2">
-                  This is the same pipeline a production call uses: speech recognition, deterministic
-                  guardrail routing, and a neural voice reply. Deny a transaction and watch the agent
-                  apply exactly one pre-approved, reversible action — and never once ask for a PIN.
+                  This is the same pipeline a production call uses: speech recognition,
+                  deterministic guardrail routing, and a neural voice reply. Deny a transaction and
+                  watch the agent apply exactly one pre-approved, reversible action — and never once
+                  ask for a PIN.
                 </p>
               </div>
               <p dir="rtl" className="font-arabic max-w-xs text-[13px] leading-relaxed text-ink-2">
@@ -429,9 +430,9 @@ export function Home() {
           {/* transition — the judge flow into the console */}
           <div className="mt-5 flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-line bg-paper px-5 py-4">
             <p className="max-w-xl text-[13px] leading-relaxed text-ink-2">
-              Ready to see the other side? Step into the operator&apos;s Command Center — a populated
-              dashboard with live risk scores, seeded interventions, and the audit trail a regulator
-              would ask for.
+              Ready to see the other side? Step into the operator&apos;s Command Center — a
+              populated dashboard with live risk scores, seeded interventions, and the audit trail a
+              regulator would ask for.
             </p>
             <button
               onClick={() => setView("auth")}

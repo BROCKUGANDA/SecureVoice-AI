@@ -43,11 +43,18 @@ export function OrgSwitcher({ className }: { className?: string }) {
   const { data: orgs, isPending } = authClient.useListOrganizations();
 
   const list = (orgs ?? []) as { id: string; name: string }[];
-  // One org is not a choice. The control stays hidden rather than showing a
+  // One org is not a choice — the control stays hidden rather than showing a
   // single-item menu that implies something can change.
-  if (!activeId || list.length < 2) return null;
+  //
+  // With no ACTIVE org but two orgs the control is still rendered: that state is
+  // a dead end, not a choice. Every console route derives its org scope from
+  // `activeOrganizationId` (src/lib/credits.ts), so with none set the operator
+  // sees an empty console with no way to pick the tenant they belong to. The
+  // menu becomes the only escape.
+  if (list.length < 2) return null;
 
   const active = list.find((o) => o.id === activeId);
+  const label = active?.name ?? "Select workspace";
 
   const choose = async (id: string) => {
     if (id === activeId) {
@@ -72,12 +79,12 @@ export function OrgSwitcher({ className }: { className?: string }) {
         type="button"
         aria-expanded={open}
         aria-haspopup="listbox"
-        aria-label={`Acting as ${active?.name ?? "organization"}. Change organization`}
+        aria-label={`Acting as ${label}. Change organization`}
         onClick={() => setOpen((v) => !v)}
         className="flex items-center gap-1.5 rounded-full border border-line bg-white px-3 py-2 text-[12.5px] font-semibold text-ink-2 transition hover:border-primary/40 hover:text-primary"
       >
         <Building2 className="h-3.5 w-3.5" />
-        <span className="max-w-[8rem] truncate">{active?.name ?? "Organization"}</span>
+        <span className="max-w-[8rem] truncate">{label}</span>
         {isPending ? (
           <Loader2 className="h-3 w-3 animate-spin" />
         ) : (

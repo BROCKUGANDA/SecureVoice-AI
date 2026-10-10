@@ -33,6 +33,10 @@ const schema = z.strictObject({
  * than a findFirst + update pair. Refusals pay a third round trip to type the
  * 409, which is fine: only happy-path latency counts against the p95 gate
  * (docs/VERIFICATION.md, WP-3).
+ *
+ * The org predicate that keeps the case inside the caller's tenant rides in
+ * that same WHERE rather than costing a lookup of its own — see orgScope
+ * below.
  */
 export async function POST(req: NextRequest) {
   const body = await parseJson(req);
@@ -56,6 +60,17 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status });
   }
 
+  // THE BLEEDGUARD, folded in rather than delegated. The other four tools get
+  // this from `guardToolCall`, which resolves the case through
+  // `caseByConversation(conversationId, auth.orgId)`; this route keeps its
+  // single-round-trip write, so the same predicate rides inline. A null orgId
+  // means the DEFAULT namespace, never "any org" — a conversation id belonging
+  // to another tenant resolves to nothing, and a per-tenant credential can
+  // only ever reach its own tenant's case.
+  const orgScope = auth.orgId
+    ? Prisma.sql`"orgId" = ${auth.orgId}`
+    : Prisma.sql`("orgId" IS NULL OR "orgId" = 'default')`;
+
   // ONE round trip: existence + state precondition + write, atomically.
   let rows: { caseRef: string; state: string }[];
   try {
@@ -64,6 +79,7 @@ export async function POST(req: NextRequest) {
         SELECT id FROM "Case"
         WHERE "conversationId" = ${conversation_id}
           AND state::text = ANY(${CASE_STATES})
+          AND ${orgScope}
         LIMIT 1
       )
       UPDATE "Case" c
@@ -83,7 +99,9 @@ export async function POST(req: NextRequest) {
     // Refusal path — one extra round trip to distinguish the typed 409s.
     const existing = await db.$queryRaw<{ caseRef: string; state: string }[]>(Prisma.sql`
       SELECT "caseRef" AS "caseRef", state::text AS "state" FROM "Case"
-      WHERE "conversationId" = ${conversation_id} LIMIT 1
+      WHERE "conversationId" = ${conversation_id}
+        AND ${orgScope}
+      LIMIT 1
     `);
     if (existing.length > 0) {
       // `existing.length > 0` above proves index 0 exists.

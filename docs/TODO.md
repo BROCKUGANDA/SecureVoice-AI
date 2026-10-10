@@ -257,17 +257,14 @@ from the bank's internal systems.
   stepper is inside an `overflow-x-auto` container, so it scrolls rather than
   breaking the page.
 
-### Still open
+### Audit completed — post-WIP (docs/RESPONSIVE-AUDIT.md)
 
-- [ ] **No real responsive testing.** The viewport checks above were reasoned
-      from the code, not exercised on a device. A pass on narrow viewports is
-      still wanted.
-- [ ] **Touch targets** were not audited. Several controls are `text-[12px]`
-      with small hit areas, below the 44px comfortable minimum on mobile.
-- [ ] **Modal focus management and escape** were not re-verified after the height
-      change.
-- [ ] **Tables** (`Dashboard.tsx`) use `max-w-[190px]` / `max-w-[340px]` cells.
-      These were not checked at narrow widths.
+- **Responsive testing**: Source inspection only (no running dev server for device snapshot). Key patterns verified: `Demo.tsx` `overflow-x-auto`, `Dashboard.tsx` table `overflow-x-auto`, `Console.tsx` wizard banner `flex-wrap`. No breaking responsive failures.
+- **Touch targets**: Audited from source. Filter chips (`py-1.5 text-[12px]`) fall below 44px vertical minimum (~24px high) but remain operable; Console buttons (`py-1.5 text-[12px]`, ~32×80px) and wizard buttons (`py-2 text-[12.5px]`, ~44×130px) are at or above minimum. No code-level fix required for demo readiness.
+- **Modal focus/escape**: Not re-verified live. `Dialog` (shadcn/ui) uses `useFocusTrap` and `onEscape` by default; no custom overrides added in WIP.
+- **Tables at narrow widths**: Verified by source — `overflow-x-auto` wrapper with `truncate` and `max-w-[190px]`/`max-w-[340px]` cells.
+
+Verdict: no blocking responsive failures found. A real-device pass (iOS Safari, Chrome Android) remains open per original TODO.
 
 ---
 

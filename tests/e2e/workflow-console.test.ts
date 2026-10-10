@@ -27,8 +27,10 @@
  *   bun scripts/run-tests.mjs workflow-console
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { NextRequest } from "next/server";
 import { z } from "zod";
 import * as realCredits from "@/lib/credits";
+import type { Workflow } from "@/lib/workflows/schema";
 
 const NS = "org-wf-e2e";
 const OTHER_NS = "org-wf-e2e-b";
@@ -120,14 +122,14 @@ const idRoute = () => import("@/app/api/console/workflows/[id]/route");
 const runRoute = () => import("@/app/api/console/workflows/run/route");
 
 const post = (body: unknown) =>
-  new Request("http://localhost/api/console/workflows", {
+  new NextRequest("http://localhost/api/console/workflows", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
   });
 
 /** A valid institution-authored journey, saved under a unique id per test. */
-const customJourney = (suffix: string) => ({
+const customJourney = (suffix: string): Workflow => ({
   id: `claims_triage_${suffix}`,
   name: `Claims triage ${suffix}`,
   version: "1",

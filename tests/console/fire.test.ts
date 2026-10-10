@@ -167,6 +167,7 @@ beforeAll(async () => {
       name: "Console Gate Org",
       slug: `console-gate-${RUN}`,
       createdAt: new Date(),
+      credits: 500,
     },
   });
   await db.user.create({

@@ -238,35 +238,47 @@
 	import site
 }
 
-# The real domain. Both names are behind the Cloudflare proxy (orange cloud).
+# The real domain. Both names are DNS-ONLY (the Cloudflare record has
+# proxied=false), which is what makes this block work at all.
 #
-# TLS HERE IS NOT WIRED YET, and that is deliberate rather than an oversight.
+# TLS here is automatic, with no `tls` directive and no certificate files — and
+# that is the deliberate outcome of a long detour, so it is worth writing down
+# what was tried and why it ended here.
 #
-# Automatic certs use HTTP-01, which cannot work through the proxy: Cloudflare
-# terminates TLS at the edge and never forwards the ACME challenge to the origin.
-# Caddy does not fail `caddy validate` for this — it fails at RUNTIME on the live
-# box, silently, for this hostname only.
+#   Cloudflare proxy + Origin CA certificate   — tried three times. Each
+#       certificate Cloudflare issued had NO Subject Alternative Name extension
+#       at all, so it validated for zero hostnames and the edge answered 526
+#       before a request reached the origin.
 #
-# The obvious fix, `tls { dns cloudflare { … } }`, is NOT available here. It was
-# tried and reverted: the deployment runs the stock `caddy:2-alpine` image, and
+#   Cloudflare proxy + Caddy DNS-01            — tried, then reverted. The stock
+#       `caddy:2-alpine` image registers NO `dns.providers.*` modules
+#       (`caddy list-modules | grep dns` returns only tls.ech.publishers.mdns),
+#       so naming `dns cloudflare` is a startup failure that takes EVERY hostname
+#       down, not just this one.
 #
-#     docker run --rm caddy:2-alpine caddy list-modules | grep dns
-#     -> tls.ech.publishers.mdns        (that is the only match)
+#   Cloudflare proxy + HTTP-01                 — cannot work. The proxy terminates
+#       TLS and never forwards the ACME challenge to the origin. It fails at
+#       runtime on the box, not at `caddy validate`, which is what makes it
+#       expensive: the config looks correct right up until the name stops
+#       serving.
 #
-# i.e. the image registers NO `dns.providers.*` at all. A config naming
-# `dns.providers.cloudflare` is rejected at startup with "module not registered",
-# which means Caddy does not come up and the ENTIRE edge — every hostname, not
-# just this one — goes down. Verified against the real image, not assumed.
+# So the record is DNS-only and Caddy issues its own Let's Encrypt certificate
+# over HTTP-01, which works because traffic reaches the origin directly. That is
+# now live and verified: `securevoiceai.me` serves a genuine LE certificate with
+# `DNS:securevoiceai.me`, auto-renewing, with no certificate file to manage and
+# nothing to rotate by hand.
 #
-# The origin certificate is therefore supplied as a static file pair instead,
-# which needs no module:
+# What is traded away, stated plainly: with the record grey-clouded, Cloudflare's
+# DDoS protection and WAF are not in front of this hostname. The origin IP is
+# already directly reachable (`57.130.80.158.sslip.io` resolves straight to the
+# box and serves the same app), so this is not a new exposure — but if the
+# record is switched back to orange, this block MUST acquire a static origin
+# certificate or it returns to the 526 above.
 #
-#     tls /etc/caddy/certs/securevoiceai.me.pem /etc/caddy/certs/securevoiceai.me.key
-#
-# That line is NOT in this file on purpose. Referencing a missing cert file is a
-# startup failure too, so it must not land before the files exist on the host.
-# Once the Cloudflare Origin CA certificate is issued and mounted, add it here
-# and move the zone to SSL mode `strict`.
+# Note the box's own Caddyfile (skip-worktree'd) also carries per-site blocks for
+# crucible.svalley.tech and securevoice.svalley.tech that exist only on that
+# host. The two files are intentionally different for that reason; the box's
+# version is this one plus those blocks, and a merge must never replace it.
 securevoiceai.me, www.securevoiceai.me {
 	import site
 }

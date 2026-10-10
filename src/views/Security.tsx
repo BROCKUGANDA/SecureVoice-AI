@@ -10,6 +10,8 @@ import {
   Server,
   KeyRound,
   FileCheck2,
+  CheckCircle2,
+  XCircle,
   Bug,
   EyeOff,
   ScrollText,
@@ -135,6 +137,150 @@ function LiveStatusBand() {
   );
 }
 
+/* ————————————————— live security-header probe ————————————————— */
+
+type HeaderRow = {
+  name: string;
+  label: string;
+  labelAr: string;
+  present: boolean;
+  note: string;
+  noteAr: string;
+};
+
+/**
+ * Fetch THIS page's own response and report the security headers the browser
+ * actually received. A claim is cheap; a header the reader can see arriving on
+ * the response that delivered the claim is not. Missing headers are reported as
+ * missing — the panel must never imply a control that isn't there.
+ */
+function SecurityHeadersProbe() {
+  const { lang } = useApp();
+  const [rows, setRows] = useState<HeaderRow[] | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    fetch("/security", { cache: "no-store", method: "GET" })
+      .then((r) => {
+        if (!alive) return;
+        const h = r.headers;
+        const read = (name: string) => h.get(name);
+        const has = (name: string) => read(name) !== null;
+        setRows([
+          {
+            name: "content-security-policy",
+            label: "Content-Security-Policy",
+            labelAr: "سياسة أمن المحتوى",
+            present: has("content-security-policy"),
+            note: "Restricts script/style/frame sources; the browser enforces our list, not our word.",
+            noteAr: "يقيّد مصادر السكربتات والأنماط والإطارات؛ المتصفح هو من يفرض قائمتنا.",
+          },
+          {
+            name: "strict-transport-security",
+            label: "Strict-Transport-Security",
+            labelAr: "أمان النقل الصارم",
+            present: has("strict-transport-security"),
+            note: "Forces TLS for future visits; downgrade attempts are refused by the browser.",
+            noteAr: "يفرض TLS للزيارات القادمة؛ محاولات تخفيض التشفير يرفضها المتصفح.",
+          },
+          {
+            name: "x-frame-options",
+            label: "X-Frame-Options",
+            labelAr: "خيارات الإطار",
+            present: has("x-frame-options"),
+            note: "Clickjacking defence: this console cannot be framed by another origin.",
+            noteAr: "حماية من النقر المخفي: لا يمكن تأطير هذه المنصة من أصل آخر.",
+          },
+          {
+            name: "x-content-type-options",
+            label: "X-Content-Type-Options",
+            labelAr: "خيارات نوع المحتوى",
+            present: has("x-content-type-options"),
+            note: "nosniff — responses are interpreted only as their declared type.",
+            noteAr: "nosniff — تُفسَّر الاستجابات فقط حسب نوعها المعلن.",
+          },
+          {
+            name: "referrer-policy",
+            label: "Referrer-Policy",
+            labelAr: "سياسة المُحيل",
+            present: has("referrer-policy"),
+            note: "Limits how much URL detail leaks to third parties on navigation.",
+            noteAr: "يحدّ من تفاصيل الرابط التي تُكشف لأي طرف ثالث عند التنقل.",
+          },
+        ]);
+      })
+      .catch(() => alive && setRows([]));
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  return (
+    <div className="mt-8 rounded-3xl border border-line bg-white p-6 sm:p-7">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2.5">
+          <FileCheck2 className="h-4 w-4 text-primary" />
+          <span className="font-display text-[15px] font-semibold tracking-tight">
+            {t("Response headers, verified live", "ترويسات الاستجابة، مُتحقَّق منها مباشرة", lang)}
+          </span>
+        </div>
+        <span className="font-mono text-[10.5px] text-ink-3">
+          {t(
+            "read from the response that delivered this page — not a claim",
+            "مقروءة من الاستجابة التي حملت هذه الصفحة — ليس ادعاءً",
+            lang,
+          )}
+        </span>
+      </div>
+
+      {rows === null ? (
+        <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {[0, 1, 2, 3, 4].map((i) => (
+            <div key={i} className="h-20 animate-pulse rounded-2xl border border-line bg-paper" />
+          ))}
+        </div>
+      ) : rows.length === 0 ? (
+        <p className="mt-5 text-[12.5px] text-ink-3">
+          {t("Could not read this page's headers.", "تعذّر قراءة ترويسات هذه الصفحة.", lang)}
+        </p>
+      ) : (
+        <ul className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {rows.map((r) => (
+            <li key={r.name} className="rounded-2xl border border-line bg-paper p-4">
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-mono text-[11.5px] font-semibold">
+                  {t(r.label, r.labelAr, lang)}
+                </span>
+                <span
+                  className={cn(
+                    "flex items-center gap-1 rounded-full px-2 py-0.5 text-[9.5px] font-bold uppercase tracking-wide",
+                    r.present ? "bg-green-tint text-primary" : "bg-red-tint text-red-soft",
+                  )}
+                >
+                  {r.present ? (
+                    <>
+                      <CheckCircle2 className="h-3 w-3" />
+                      {t("present", "موجودة", lang)}
+                    </>
+                  ) : (
+                    <>
+                      <XCircle className="h-3 w-3" />
+                      {t("missing", "مفقودة", lang)}
+                    </>
+                  )}
+                </span>
+              </div>
+              <p className="mt-2 text-[11px] leading-relaxed text-ink-3">
+                {t(r.note, r.noteAr, lang)}
+              </p>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 /* ————————————————— page ————————————————— */
 
 export function Security() {
@@ -145,7 +291,7 @@ export function Security() {
       {/* header */}
       <div className="max-w-2xl">
         <div className="flex items-center gap-3">
-          <span className="micro text-primary">Security &amp; Trust</span>
+          <span className="micro text-primary">{t("Security & Trust", "الأمن والثقة", lang)}</span>
           <span className="h-px w-10 bg-line" />
           <span dir="rtl" className="font-arabic text-[13px] text-ink-3">
             الأمن والثقة
@@ -169,6 +315,8 @@ export function Security() {
 
       <LiveStatusBand />
 
+      <SecurityHeadersProbe />
+
       {/* compliance grid */}
       <div className="mt-12">
         <h2 className="font-display text-xl font-semibold tracking-tight">
@@ -179,62 +327,96 @@ export function Security() {
             {
               icon: FileCheck2,
               title: "UAE PDPL",
+              titleAr: "قانون حماية البيانات الإماراتي",
               body: "Processing designed around Federal Decree-Law No. 45 of 2021: minimal personal data, documented lawful basis, in-region storage, and DSR workflows that honour 30-day windows.",
+              bodyAr:
+                "معالجة مصممة وفقاً للقانون الاتحادي بالمرسوم رقم 45 لعام 2021: أقل قدر من البيانات الشخصية، وأساس قانوني موثّق، وتخزين داخل المنطقة، وإجراءات تلبي طلبات صاحب البيانات خلال ٣٠ يوماً.",
               tag: "Aligned",
+              tagAr: "متوافق",
             },
             {
               icon: ShieldCheck,
               title: "CBUAE conduct rules",
+              titleAr: "قواعد سلوك مصرف الإمارات المركزي",
               body: "Interventions map to Consumer Protection Regulation expectations: immediate protective action on confirmed fraud, full call recording, and same-day regulator-ready case files.",
+              bodyAr:
+                "تتماشى التدخّلات مع توقعات لائحة حماية المستهلك: إجراء وقائي فوري عند تأكيد الاحتيال، وتسجيل كامل للمكالمة، وملفات حالة جاهزة للجهة التنظيمية في نفس اليوم.",
               tag: "Mapped",
+              tagAr: "مربوط",
             },
             {
               icon: Lock,
               title: "PCI DSS scope",
+              titleAr: "نطاق معيار PCI DSS",
               body: "The agent never touches PANs. Card identifiers arrive as tokens and last-4 only, keeping the voice platform entirely outside the PCI cardholder-data environment — the applicable self-assessment is SAQ A, not SAQ D.",
+              bodyAr:
+                "لا يلمس الوكيل أرقام البطاقات أبداً. تصل معرّفات البطاقة كرموز وآخر أربعة أرقام فقط، مما يُبقي منصة الصوت خارج بيئة بيانات حاملي البطاقات تماماً — والتقييم الذاتي المنطبق هو SAQ A وليس SAQ D.",
               tag: "SAQ A — out of scope by design",
+              tagAr: "SAQ A — خارج النطاق بالتصميم",
             },
             {
               icon: Globe2,
               title: "Data residency",
+              titleAr: "إقامة البيانات",
               body: "This deployment runs in European infrastructure (Frankfurt, eu-central-1), TLS 1.3 in transit and AES-256 at rest. Speech synthesis and transcription are performed by processors in the US and UK — no call audio reaches a model for decision-making. A bank requiring in-country (UAE) processing deploys the same containers inside its own VPC, so transcripts and case data never leave its perimeter.",
+              bodyAr:
+                "يعمل هذا النشر على بنية تحتية أوروبية (فرانكفورت، eu-central-1)، مع TLS 1.3 أثناء النقل وAES-256 أثناء التخزين. تتم التوليد الصوتي والنسخ بواسطة معالجات في الولايات المتحدة والمملكة المتحدة — ولا يصل أي صوت مكالمة إلى نموذج لاتخاذ القرار. ويستطيع البنك الذي يتطلب معالجة داخل الدولة نشر نفس الحاويات داخل شبكته الخاصة، فلا تخرج النصوص وبيانات الحالة من محيطه.",
               tag: "eu-central-1",
+              tagAr: "eu-central-1",
             },
             {
               icon: KeyRound,
               title: "Enterprise auth",
+              titleAr: "مصادقة المؤسسات",
               body: "Sessions are self-hosted on our own infrastructure (no third-party identity processor). Verified email sign-in, brute-force lockout, a 15-minute idle timeout and a hard 8-hour session ceiling, so no credential token outlives a working day. Roles are provisioned by invitation — there is no public sign-up.",
+              bodyAr:
+                "الجلسات مستضافة على بنيتنا الخاصة (لا معالج هوية طرف ثالث). دخول ببريد موثّق، وقفل ضد تخمين كلمة المرور، ومهطة ١٥ دقيقة للخمول، وسقف ٨ ساعات للجلسة — فلا يعيش أي رمز مصادقة بعد يوم العمل. الأدوار تُمنح بالدعوة فقط، ولا يوجد تسجيل عام.",
               tag: "RBAC",
+              tagAr: "RBAC",
             },
             {
               icon: Database,
               title: "Tamper-evident audit chain",
+              titleAr: "سلسلة تدقيق مقاومة للعبث",
               body: "Every turn, delivery and outcome is a sha256-chained record. Any edit breaks the chain and the built-in verifier names the exact broken row. Organization id is sealed into each link.",
+              bodyAr:
+                "كل دورة وتسليم ونتيجة هي سجل مرتبط بسلسلة sha256. أي تعديل يقطع السلسلة، والمدقّق المدمج يسمي الصف المكسور بالتحديد. ومُعرّف المؤسسة مُختوم في كل حلقة.",
               tag: "Hash-chained",
+              tagAr: "مرتبط بالهاش",
             },
             {
               icon: Server,
               title: "BYOK key isolation",
+              titleAr: "عزل مفاتيح BYOK",
               body: "Bring-your-own ElevenLabs keys are AES-256-GCM encrypted at rest, decrypted only in-process for an upstream call, and never displayed beyond a masked form.",
+              bodyAr:
+                "مفاتيح ElevenLabs التي تجلبها بنفسك مشفّرة بـ AES-256-GCM عند التخزين، وتُفكّ فقط داخل العملية لنداء خارجي، ولا تُعرض أبداً خارج قناعها.",
               tag: "AES-256-GCM",
+              tagAr: "AES-256-GCM",
             },
             {
               icon: Fingerprint,
               title: "Bounded upstream spend",
+              titleAr: "إنفاق محدود على المزوّدين",
               body: "Platform-key voice usage is metered per workspace daily; interventions consume prepaid credits (402 at zero); the fire endpoint is rate-limited and idempotent.",
+              bodyAr:
+                "استخدام الصوت بمفتاح المنصة مُقاس يومياً لكل مساحة عمل؛ والتدخّلات تستهلك رصيداً مدفوعاً مسبقاً (402 عند الصفر)؛ ونقطة الإطلاق محدودة المعدلة ومتكررة النتيجة.",
               tag: "Metered",
+              tagAr: "مقيس",
             },
           ].map((c, i) => (
             <Reveal key={c.title} delay={i * 0.05}>
               <div className="flex h-full flex-col rounded-3xl border border-line bg-white p-6">
                 <c.icon className="h-5 w-5 text-primary" strokeWidth={1.7} />
                 <div className="font-display mt-3.5 text-[15.5px] font-semibold tracking-tight">
-                  {c.title}
+                  {t(c.title, c.titleAr, lang)}
                 </div>
                 <span className="mt-1.5 w-fit rounded-full bg-green-tint px-2.5 py-0.5 font-mono text-[9.5px] font-bold uppercase tracking-wide text-primary">
-                  {c.tag}
+                  {t(c.tag, c.tagAr, lang)}
                 </span>
-                <p className="mt-3 text-[12.5px] leading-relaxed text-ink-2">{c.body}</p>
+                <p className="mt-3 text-[12.5px] leading-relaxed text-ink-2">
+                  {t(c.body, c.bodyAr, lang)}
+                </p>
               </div>
             </Reveal>
           ))}
@@ -252,32 +434,44 @@ export function Security() {
               {
                 icon: Lock,
                 t: "Encryption everywhere",
+                tAr: "تشفير في كل مكان",
                 d: "TLS 1.3 in transit, AES-256 at rest, and HMAC-SHA256 signing on every webhook so consumers verify origin and integrity of each event.",
+                dAr: "TLS 1.3 أثناء النقل، وAES-256 أثناء التخزين، وتوقيع HMAC-SHA256 على كل نداء ويب، ليتمكّن المستهلك من التحقق من مصدر وسلامة كل حدث.",
               },
               {
                 icon: KeyRound,
                 t: "Keys stay server-side",
+                tAr: "المفاتيح تبقى على الخادم",
                 d: "Voice model credentials live only in the server runtime. The browser receives rendered audio — never keys, never raw model access.",
+                dAr: "بيانات اعتماد نماذج الصوت تعيش فقط في بيئة الخادم. المتصفح يستقبل الصوت المُحوَّل — لا المفاتيح، ولا وصولاً مباشراً إلى النموذج.",
               },
               {
                 icon: Server,
                 t: "VPC / on-prem deployment",
+                tAr: "النشر داخل شبكة خاصة أو محلياً",
                 d: "Runs inside the bank's own tenancy behind private networking. Telephony and model endpoints are allow-listed; egress is logged and deny-by-default.",
+                dAr: "يعمل داخل مستأجر البنك خلف شبكة خاصة. نقاط الهاتف والنماذج في قائمة سماح؛ والخروج مُسجّل ومرفوض افتراضياً.",
               },
               {
                 icon: Database,
                 t: "Immutable audit trail",
+                tAr: "سجل تدقيق غير قابل للتغيير",
                 d: "Every turn stores the signed policy hash, inputs and outcome — any intervention decision can be replayed byte-for-byte for an auditor or the central bank.",
+                dAr: "كل دورة تخزّن هاش السياسة الموقّع والمدخلات والنتيجة — ويمكن إعادة أي قرار تدخّل بايتاً ببايت لمدقّق أو للمصرف المركزي.",
               },
               {
                 icon: Fingerprint,
                 t: "Voice-clone consent",
+                tAr: "موافقة استنساخ الصوت",
                 d: "Voice personas are created from written, revocable consent only, watermarked at synthesis, and never reused across institutions.",
+                dAr: "تُنشأ شخصيات الصوت من موافقة كتابية قابلة للسحب فقط، وبعلامة مائية عند التوليد، ولا تُعاد أبداً بين مؤسسات مختلفة.",
               },
               {
                 icon: EyeOff,
                 t: "Data minimisation",
+                tAr: "تقليل البيانات",
                 d: "Transcripts are pseudonymised after case closure; raw audio retention is configurable down to zero once the audit hash is written.",
+                dAr: "تُسماء النصوص باسم مستعار بعد إغلاق الحالة؛ والاحتفاظ بالصوت الخام قابل للضبط حتى الصفر بعد كتابة هاش التدقيق.",
               },
             ].map((x) => (
               <div key={x.t} className="flex gap-4 rounded-2xl border border-line bg-white p-5">
@@ -285,8 +479,12 @@ export function Security() {
                   <x.icon className="h-4 w-4 text-primary" strokeWidth={1.8} />
                 </span>
                 <div>
-                  <div className="text-[14px] font-semibold tracking-tight">{x.t}</div>
-                  <p className="mt-1 text-[12.5px] leading-relaxed text-ink-2">{x.d}</p>
+                  <div className="text-[14px] font-semibold tracking-tight">
+                    {t(x.t, x.tAr, lang)}
+                  </div>
+                  <p className="mt-1 text-[12.5px] leading-relaxed text-ink-2">
+                    {t(x.d, x.dAr, lang)}
+                  </p>
                 </div>
               </div>
             ))}
@@ -329,13 +527,14 @@ export function Security() {
               )}
             </p>
             <div className="mt-4 rounded-xl border border-line bg-paper p-4 font-mono text-[11.5px] leading-relaxed text-ink-2">
-              Contact: {SUPPORT_EMAIL}
+              {t("Contact", "للتواصل", lang)}: {SUPPORT_EMAIL}
               <br />
-              Encryption: PGP · key ID 0x5ECURE
+              {t("Encryption", "التشفير", lang)}: PGP · key ID 0x5ECURE
               <br />
-              Preferred languages: EN, AR
+              {t("Preferred languages", "اللغات المفضّلة", lang)}: EN, AR
               <br />
-              Response SLA: 24h ack · 72h triage
+              {t("Response SLA", "زمن الاستجابة", lang)}: 24h {t("ack", "تأكيد", lang)} · 72h{" "}
+              {t("triage", "تصنيف", lang)}
             </div>
           </div>
 

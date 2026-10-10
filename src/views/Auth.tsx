@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { signIn, useSession } from "@/lib/auth-client";
 import { Copy, Check, ArrowRight, ShieldCheck, KeyRound, Loader2, LogOut } from "lucide-react";
-import { useApp } from "@/lib/store";
+import { useApp, t } from "@/lib/store";
 import { SUPPORT_EMAIL } from "@/lib/public-config";
 import { LogoMark } from "@/components/shell/Logo";
 import { Input } from "@/components/ui/input";
@@ -86,13 +86,27 @@ const DEMO_READY = SEEDED[0].email !== "" && SEEDED[0].password !== "";
  * that we never render a raw vendor error: it can contain an internal field name
  * or a stack fragment, and this panel is on the public sign-in surface.
  */
-function describeAuthError(e: unknown): string {
+function describeAuthError(e: unknown, lang: "en" | "ar"): string {
   if (!e || typeof e !== "object") return "";
   const { message, code } = e as { message?: string; code?: string };
   if (code === "INVALID_EMAIL_OR_PASSWORD")
-    return "That email and password do not match an account.";
-  if (code === "USER_NOT_FOUND") return "That email and password do not match an account.";
-  if (code === "TOO_MANY_REQUESTS") return "Too many attempts. Wait a minute and try again.";
+    return t(
+      "That email and password do not match an account.",
+      "لا يتطابق البريد الإلكتروني وكلمة المرور مع أي حساب.",
+      lang,
+    );
+  if (code === "USER_NOT_FOUND")
+    return t(
+      "That email and password do not match an account.",
+      "لا يتطابق البريد الإلكتروني وكلمة المرور مع أي حساب.",
+      lang,
+    );
+  if (code === "TOO_MANY_REQUESTS")
+    return t(
+      "Too many attempts. Wait a minute and try again.",
+      "محاولات كثيرة. انتظر دقيقة وحاول مرة أخرى.",
+      lang,
+    );
   // Deliberately not the raw message: Better Auth's default text can name
   // internal fields, and this is the unauthenticated surface.
   return message && message.length < 200 ? message : "";
@@ -216,11 +230,12 @@ function UaeAccent() {
 }
 
 function CopyBtn({ value }: { value: string }) {
+  const { lang } = useApp();
   const [done, setDone] = useState(false);
   return (
     <button
       type="button"
-      aria-label={`Copy ${value}`}
+      aria-label={t(`Copy ${value}`, `نسخ ${value}`, lang)}
       onClick={() => {
         navigator.clipboard?.writeText(value).catch(() => {});
         setDone(true);
@@ -238,6 +253,7 @@ function CopyBtn({ value }: { value: string }) {
 }
 
 function DemoRequestForm() {
+  const { lang } = useApp();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [institution, setInstitution] = useState("");
@@ -261,10 +277,15 @@ function DemoRequestForm() {
         }),
       });
       const d = (await res.json()) as { ok?: boolean; error?: string };
-      if (!res.ok || !d.ok) throw new Error(d.error || "Request failed");
+      if (!res.ok || !d.ok)
+        throw new Error(d.error || t("Request failed", "تعذّر إرسال الطلب", lang));
       setState({
         ok: true,
-        text: "Received — our fraud team will reach out within one business day.",
+        text: t(
+          "Received — our fraud team will reach out within one business day.",
+          "تم الاستلام — سيتواصل فريق مكافحة الاحتيال لدينا خلال يوم عمل واحد.",
+          lang,
+        ),
       });
       setName("");
       setEmail("");
@@ -272,7 +293,12 @@ function DemoRequestForm() {
     } catch (err) {
       setState({
         ok: false,
-        text: err instanceof Error ? err.message : `Something went wrong — email ${SUPPORT_EMAIL}.`,
+        text:
+          err instanceof Error
+            ? err.message
+            : t("Something went wrong — email ", "حدث خطأ ما — راسلنا على ", lang) +
+              SUPPORT_EMAIL +
+              ".",
       });
     } finally {
       setBusy(false);
@@ -294,7 +320,7 @@ function DemoRequestForm() {
         autoComplete="name"
         value={name}
         onChange={(e) => setName(e.target.value)}
-        placeholder="Full name"
+        placeholder={t("Full name", "الاسم الكامل", lang)}
         className={field}
       />
       <Input
@@ -303,7 +329,7 @@ function DemoRequestForm() {
         autoComplete="email"
         value={email}
         onChange={(e) => setEmail(e.target.value)}
-        placeholder="Work email"
+        placeholder={t("Work email", "البريد المهني", lang)}
         className={field}
       />
       <Input
@@ -311,7 +337,7 @@ function DemoRequestForm() {
         autoComplete="organization"
         value={institution}
         onChange={(e) => setInstitution(e.target.value)}
-        placeholder="Bank or insurer"
+        placeholder={t("Bank or insurer", "بنك أو شركة تأمين", lang)}
         className={field}
       />
       {state && (
@@ -330,7 +356,9 @@ function DemoRequestForm() {
         disabled={busy}
         className="flex w-full items-center justify-center gap-2 rounded-full border border-[#c9a227]/50 bg-[#c9a227]/10 py-3 text-[13px] font-semibold text-[#e8c95a] transition hover:bg-[#c9a227]/20 disabled:opacity-50"
       >
-        {busy ? "Sending…" : "Request a pilot"}
+        {busy
+          ? t("Sending…", "جارٍ الإرسال…", lang)
+          : t("Request a pilot", "اطلب تجربة ميدانية", lang)}
         <ArrowRight className="h-4 w-4" />
       </button>
     </form>
@@ -351,8 +379,6 @@ export function Auth() {
   // like a hosted provider's default.
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const ar = lang === "ar";
-
   const role = session?.session?.activeOrganizationId ? "operator" : "demo";
 
   /* auto-navigate once a session exists */
@@ -376,7 +402,12 @@ export function Auth() {
       if (error) throw error;
     } catch (err) {
       setQuickErr(
-        describeAuthError(err) || "Sign-in failed — check the credentials and try again.",
+        describeAuthError(err, lang) ||
+          t(
+            "Sign-in failed — check the credentials and try again.",
+            "فشل تسجيل الدخول — تحقّق من بيانات الاعتماد وحاول مرة أخرى.",
+            lang,
+          ),
       );
     } finally {
       setQuickBusy(null);
@@ -393,13 +424,15 @@ export function Auth() {
         <div className="mb-8 flex flex-col items-center gap-3">
           <Emblem />
           <h1 className="font-display text-center text-2xl font-semibold tracking-tight text-white sm:text-3xl">
-            {ar ? "مرحباً بكم في سيكور فويس" : "Welcome to SecureVoice"}
+            {t("Welcome to SecureVoice", "مرحباً بكم في سيكور فويس", lang)}
             <span className="text-green-bright"> AI</span>
           </h1>
           <p className="max-w-md text-center text-[13px] leading-relaxed text-white/50">
-            {ar
-              ? "منصة التدخل الاحتيالي الفوري — دخول المشغلين أو استكشاف العرض الحي"
-              : "Real-time fraud intervention — operators sign in to run the platform; visitors explore the demo."}
+            {t(
+              "Real-time fraud intervention — operators sign in to run the platform; visitors explore the demo.",
+              "منصة التدخل الاحتيالي الفوري — دخول المشغلين لتشغيل المنصة؛ واستكشاف العرض الحي للزوّار.",
+              lang,
+            )}
           </p>
         </div>
 
@@ -417,7 +450,7 @@ export function Auth() {
               </span>
               <div>
                 <p className="font-display text-lg font-semibold text-white">
-                  {user?.name ?? "Signed in"}
+                  {user?.name ?? t("Signed in", "تم تسجيل الدخول", lang)}
                 </p>
                 <p className="mt-0.5 text-[12.5px] text-white/50">{user?.email}</p>
                 <span
@@ -433,7 +466,9 @@ export function Auth() {
                   ) : (
                     <KeyRound className="h-3 w-3" />
                   )}
-                  {role === "operator" ? "OPERATOR · FULL ACCESS" : "DEMO MODE"}
+                  {role === "operator"
+                    ? t("OPERATOR · FULL ACCESS", "مشغّل · صلاحية كاملة", lang)
+                    : t("DEMO MODE", "وضع العرض", lang)}
                 </span>
               </div>
               <div className="mt-2 flex w-full flex-col gap-2">
@@ -441,7 +476,9 @@ export function Auth() {
                   onClick={() => setView(role === "operator" ? "console" : "demo")}
                   className="flex w-full items-center justify-center gap-2 rounded-full bg-primary py-3 text-[13.5px] font-semibold text-white transition hover:bg-green-deep"
                 >
-                  {role === "operator" ? "Open Command Center" : "Open the demo"}
+                  {role === "operator"
+                    ? t("Open Command Center", "افتح مركز القيادة", lang)
+                    : t("Open the demo", "افتح العرض التجريبي", lang)}
                   <ArrowRight className="h-4 w-4" />
                 </button>
                 <button
@@ -449,7 +486,7 @@ export function Auth() {
                   className="flex w-full items-center justify-center gap-2 rounded-full border border-white/15 py-2.5 text-[12.5px] font-medium text-white/70 transition hover:bg-white/5 hover:text-white"
                 >
                   <LogOut className="h-3.5 w-3.5" />
-                  Back to overview
+                  {t("Back to overview", "العودة إلى النظرة العامة", lang)}
                 </button>
               </div>
             </div>
@@ -461,8 +498,11 @@ export function Auth() {
                 role="alert"
                 className="mx-auto mb-6 max-w-4xl rounded-2xl border border-red-400/40 bg-red-500/10 px-5 py-3.5 text-center text-[12.5px] font-semibold text-red-300"
               >
-                For your security, you were signed out after 15 minutes of inactivity. Sign in again
-                to continue.
+                {t(
+                  "For your security, you were signed out after 15 minutes of inactivity. Sign in again to continue.",
+                  "لأمانكم، تم تسجيل خروجكم بعد ١٥ دقيقة من عدم النشاط. سجّلوا الدخول مرة أخرى للمتابعة.",
+                  lang,
+                )}
               </div>
             )}
             {/* one-click access for evaluators — demo account only */}
@@ -482,14 +522,20 @@ export function Auth() {
                     ) : (
                       <KeyRound className="h-3.5 w-3.5" />
                     )}
-                    {quickBusy === s.role ? "Signing in…" : "One-click demo login"}
+                    {quickBusy === s.role
+                      ? t("Signing in…", "جارٍ تسجيل الدخول…", lang)
+                      : t("One-click demo login", "دخول تجريبي بضغطة واحدة", lang)}
                   </button>
                 ))}
               </div>
             )}
             {!DEMO_READY && (
               <p className="mx-auto mb-6 max-w-4xl rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2.5 text-center text-[12.5px] text-ink-3">
-                Demo shortcut is not enabled on this deployment. Sign in with an account below.
+                {t(
+                  "Demo shortcut is not enabled on this deployment. Sign in with an account below.",
+                  "الدخول التجريبي السريع غير مُفعّل على هذا النشر. سجّل الدخول بأحد الحسابات أدناه.",
+                  lang,
+                )}
               </p>
             )}
             {quickErr && (
@@ -526,11 +572,11 @@ export function Auth() {
                     <div className="flex items-center gap-2">
                       <ShieldCheck className="h-4 w-4 text-green-bright" />
                       <h2 className="font-display text-lg font-semibold text-white">
-                        {ar ? "تسجيل الدخول" : "Sign in"}
+                        {t("Sign in", "تسجيل الدخول", lang)}
                       </h2>
                     </div>
                     <label className="flex flex-col gap-1.5 text-[12px] text-white/60">
-                      {ar ? "البريد الإلكتروني" : "Email"}
+                      {t("Email", "البريد الإلكتروني", lang)}
                       <input
                         type="email"
                         required
@@ -541,7 +587,7 @@ export function Auth() {
                       />
                     </label>
                     <label className="flex flex-col gap-1.5 text-[12px] text-white/60">
-                      {ar ? "كلمة المرور" : "Password"}
+                      {t("Password", "كلمة المرور", lang)}
                       <input
                         type="password"
                         required
@@ -561,7 +607,7 @@ export function Auth() {
                       className="mt-1 flex items-center justify-center gap-2 rounded-xl bg-green-bright px-4 py-2.5 text-[13px] font-semibold text-ink transition hover:brightness-110 disabled:opacity-60"
                     >
                       {quickBusy === "manual" && <Loader2 className="h-4 w-4 animate-spin" />}
-                      {ar ? "دخول" : "Sign in"}
+                      {t("Sign in", "دخول", lang)}
                     </button>
                   </form>
                 </div>
@@ -572,13 +618,15 @@ export function Auth() {
                   <div className="flex items-center gap-2">
                     <Building2 className="h-4 w-4 text-green-bright" />
                     <h2 className="font-display text-lg font-semibold text-white">
-                      {ar ? "اطلب تجربة ميدانية" : "Request a pilot"}
+                      {t("Request a pilot", "اطلب تجربة ميدانية", lang)}
                     </h2>
                   </div>
                   <p className="mt-1.5 text-[12.5px] leading-relaxed text-white/45">
-                    {ar
-                      ? "المنصة B2B — تُنشأ حسابات البنوك يدوياً مع روابط دعوة آمنة. نفس مسار نموذج التجربة في الصفحة الرئيسية."
-                      : "SecureVoice is B2B — bank workspaces are provisioned manually with secure invites. Same intake as the Book-a-pilot form: our fraud team responds within one business day."}
+                    {t(
+                      "SecureVoice is B2B — bank workspaces are provisioned manually with secure invites. Same intake as the Book-a-pilot form: our fraud team responds within one business day.",
+                      "المنصة B2B — تُنشأ حسابات البنوك يدوياً مع روابط دعوة آمنة. نفس مسار نموذج التجربة في الصفحة الرئيسية.",
+                      lang,
+                    )}
                   </p>
                   <DemoRequestForm />
                 </div>

@@ -161,6 +161,39 @@ const REPLIES: Record<Intent, Record<string, string>> = {
   },
 };
 
+/**
+ * The phrases spoken around the turns themselves — the Gather prompt, the
+ * no-speech retry, and the closing line. Same per-language shape as REPLIES
+ * above, and constants for the same reason: the sentence that asks a silent
+ * customer to speak is not one a model gets to improvise.
+ */
+const PROMPTS: Record<string, Record<string, string>> = {
+  speakNow: {
+    en: "Please speak now.",
+    ar: "تحدّث الآن، من فضلك.",
+    hi: "कृपया अब बोलिए।",
+    ur: "براہ کرم ابھی بات کیجیے۔",
+    fr: "Veuillez parler maintenant.",
+    sw: "Tafadhali sema sasa.",
+  },
+  notCaught: {
+    en: "I didn't catch that. Is there a transaction you do not recognize? Say not mine, or it's mine.",
+    ar: "لم أسمعك بوضوح. هل هناك عملية لا تعرفها؟ قل ليست لي، أو أنها لي.",
+    hi: "मैं सुन नहीं पाया। क्या कोई लेनदेन है जो आप नहीं पहचानते? कहें मेरा नहीं, या मेरा है।",
+    ur: "میں نہیں سن سکا۔ کیا کوئی لین دین ہے جو آپ نہیں پہچانتے؟ کہیں میرا نہیں، یا میرا ہے۔",
+    fr: "Je n'ai pas bien saisi. Y a-t-il une opération que vous ne reconnaissez pas ? Dites ce n'est pas la mienne, ou c'est la mienne.",
+    sw: "Sikukusikia vizuri. Kuna muamala usioujua? Sema si yangu, au ni yangu.",
+  },
+  goodbye: {
+    en: "Thank you. Goodbye.",
+    ar: "شكراً لك. إلى اللقاء.",
+    hi: "धन्यवाद। अलविदा।",
+    ur: "شکریہ۔ خدا حافظ۔",
+    fr: "Merci. Au revoir.",
+    sw: "Asante. Kwa heri.",
+  },
+};
+
 /* ── TwiML helpers ── */
 
 function escapeXml(s: string): string {
@@ -193,8 +226,13 @@ function buildTurnTwiml(reply: string, lang: string, endCall: boolean, callSid: 
     return `<?xml version="1.0" encoding="UTF-8"?><Response>${say}<Hangup/></Response>`;
   }
 
+  // Flow phrases follow the same per-language rule as REPLIES: keyed by lang,
+  // English as the fallback for anything the table does not carry.
+  const speakNow = escapeXml(PROMPTS.speakNow[lang] ?? PROMPTS.speakNow.en);
+  const goodbye = escapeXml(PROMPTS.goodbye[lang] ?? PROMPTS.goodbye.en);
+
   // Gather: collect speech input for up to 8 seconds of silence, then POST to this endpoint
-  return `<?xml version="1.0" encoding="UTF-8"?><Response>${say}<Gather input="speech" action="/api/twilio/turn?callSid=${escapeXml(callSid)}&lang=${lang}" method="POST" speechTimeout="auto" language="${language}"><Say voice="${voice}" language="${language}">Please speak now.</Say></Gather><Say voice="${voice}" language="${language}">Thank you. Goodbye.</Say><Hangup/></Response>`;
+  return `<?xml version="1.0" encoding="UTF-8"?><Response>${say}<Gather input="speech" action="/api/twilio/turn?callSid=${escapeXml(callSid)}&lang=${lang}" method="POST" speechTimeout="auto" language="${language}"><Say voice="${voice}" language="${language}">${speakNow}</Say></Gather><Say voice="${voice}" language="${language}">${goodbye}</Say><Hangup/></Response>`;
 }
 
 /* ── Main handler ── */
@@ -244,18 +282,25 @@ export async function POST(req: NextRequest) {
   );
 
   const rl = consumeRateLimit("twilio-turn", callSid || callerId);
+  // Resolve the voice plane once, before any early return: every spoken path —
+  // including the rate-limit refusal below — must speak in the caller's
+  // language, so no branch may skip this lookup.
+  const { voice, language } = VOICE[lang] ?? VOICE.en;
   if (!rl.ok) {
+    // Same voice/language attributes as every other <Say> in this file: a
+    // rate-limited caller is still a customer, and hearing the goodbye in
+    // English because this one path skipped the attributes is a defect they
+    // would experience as the system not recognising them.
     return new NextResponse(
-      `<?xml version="1.0" encoding="UTF-8"?><Response><Say>Thank you. Goodbye.</Say><Hangup/></Response>`,
+      `<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="${voice}" language="${language}">${escapeXml(PROMPTS.goodbye[lang] ?? PROMPTS.goodbye.en)}</Say><Hangup/></Response>`,
       { headers: { "Content-Type": "text/xml" } },
     );
   }
 
   // No speech detected — ask again once, then end
   if (!speechResult) {
-    const { voice, language } = VOICE[lang] ?? VOICE.en;
     return new NextResponse(
-      `<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="${voice}" language="${language}">I didn't catch that. Is there a transaction you do not recognize? Say not mine, or it's mine.</Say><Gather input="speech" action="/api/twilio/turn?callSid=${escapeXml(callSid)}&lang=${lang}" method="POST" speechTimeout="auto" language="${language}"></Gather><Say voice="${voice}" language="${language}">Thank you. Goodbye.</Say><Hangup/></Response>`,
+      `<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="${voice}" language="${language}">${escapeXml(PROMPTS.notCaught[lang] ?? PROMPTS.notCaught.en)}</Say><Gather input="speech" action="/api/twilio/turn?callSid=${escapeXml(callSid)}&lang=${lang}" method="POST" speechTimeout="auto" language="${language}"></Gather><Say voice="${voice}" language="${language}">${escapeXml(PROMPTS.goodbye[lang] ?? PROMPTS.goodbye.en)}</Say><Hangup/></Response>`,
       { headers: { "Content-Type": "text/xml" } },
     );
   }

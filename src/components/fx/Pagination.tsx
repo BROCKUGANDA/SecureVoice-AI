@@ -1,6 +1,7 @@
 "use client";
 
 import { ChevronLeft, ChevronRight } from "lucide-react";
+import { useApp, t } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
 /** Custom minimal pagination — ellipsis style, mono numerals */
@@ -15,6 +16,7 @@ export function Pagination({
   onChange: (p: number) => void;
   className?: string;
 }) {
+  const { lang } = useApp();
   if (pages <= 1) return null;
   const items: (number | "…")[] = [];
   if (pages <= 7) {
@@ -30,12 +32,15 @@ export function Pagination({
   }
 
   return (
-    <nav className={cn("flex items-center gap-1", className)} aria-label="Pagination">
+    <nav
+      className={cn("flex items-center gap-1", className)}
+      aria-label={t("Pagination", "التنقل بين الصفحات", lang)}
+    >
       <button
         onClick={() => onChange(Math.max(1, page - 1))}
         disabled={page === 1}
+        aria-label={t("Previous page", "الصفحة السابقة", lang)}
         className="flex h-8 w-8 items-center justify-center rounded-lg border border-line bg-white text-ink-2 transition hover:border-primary/40 hover:text-primary disabled:opacity-35 disabled:hover:border-line disabled:hover:text-ink-2"
-        aria-label="Previous page"
       >
         <ChevronLeft className="h-3.5 w-3.5" />
       </button>
@@ -64,7 +69,7 @@ export function Pagination({
         onClick={() => onChange(Math.min(pages, page + 1))}
         disabled={page === pages}
         className="flex h-8 w-8 items-center justify-center rounded-lg border border-line bg-white text-ink-2 transition hover:border-primary/40 hover:text-primary disabled:opacity-35 disabled:hover:border-line disabled:hover:text-ink-2"
-        aria-label="Next page"
+        aria-label={t("Next page", "الصفحة التالية", lang)}
       >
         <ChevronRight className="h-3.5 w-3.5" />
       </button>

@@ -12,7 +12,7 @@ import {
   SendHorizontal,
   User,
 } from "lucide-react";
-import { useApp } from "@/lib/store";
+import { useApp, t } from "@/lib/store";
 import { VOICE_BY_LANG, type CallLang } from "@/lib/scenario";
 import { blobToWavBase64, streamSpeech } from "@/lib/voice-client";
 import { Input } from "@/components/ui/input";
@@ -285,7 +285,11 @@ export function LiveVoicePanel({ callLang }: { callLang: CallLang }) {
           <button
             onClick={phase === "recording" ? stopRec : startRec}
             disabled={busy}
-            aria-label={phase === "recording" ? "Stop recording" : "Start recording"}
+            aria-label={
+              phase === "recording"
+                ? t("Stop recording", "إيقاف التسجيل", lang)
+                : t("Start recording", "بدء التسجيل", lang)
+            }
             className={cn(
               "relative flex h-16 w-16 items-center justify-center rounded-full transition-all",
               phase === "recording"
@@ -351,13 +355,13 @@ export function LiveVoicePanel({ callLang }: { callLang: CallLang }) {
               }
               maxLength={600}
               className="h-10 flex-1 rounded-full border-line bg-paper px-4"
-              aria-label="Type your answer"
+              aria-label={t("Type your answer", "اكتب إجابتك", lang)}
             />
             <button
               type="submit"
               disabled={!typed.trim() || busy}
               className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary text-white transition hover:bg-green-deep disabled:cursor-not-allowed disabled:opacity-40"
-              aria-label="Send"
+              aria-label={t("Send", "إرسال", lang)}
             >
               <SendHorizontal className="h-4 w-4" />
             </button>
@@ -375,7 +379,7 @@ export function LiveVoicePanel({ callLang }: { callLang: CallLang }) {
           <div
             ref={listRef}
             role="log"
-            aria-label="Live conversation transcript"
+            aria-label={t("Live conversation transcript", "سجل المحادثة الحيّة", lang)}
             aria-live="polite"
             className="sv-scroll h-[340px] space-y-3.5 overflow-y-auto px-5 py-5 sm:px-6"
           >

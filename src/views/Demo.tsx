@@ -42,7 +42,7 @@ import {
   prefetchSpeech,
   type VoiceRole,
 } from "@/lib/voice-client";
-import { useApp } from "@/lib/store";
+import { useApp, t } from "@/lib/store";
 import { Chip, LiveDot, Skeleton } from "@/components/fx/core";
 import { Waveform, Equalizer } from "@/components/fx/Waveform";
 import { LiveVoicePanel } from "@/components/demo/LiveVoicePanel";
@@ -253,14 +253,14 @@ export function Demo() {
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <div className="flex items-center gap-3">
-            <span className="micro text-primary">Live simulation</span>
-            <span className="h-px w-10 bg-line" />
-            <span dir="rtl" className="font-arabic text-[13px] text-ink-3">
-              محاكاة حية
-            </span>
+            <span className="micro text-primary">{t("Live simulation", "محاكاة حية", lang)}</span>
           </div>
           <h1 className="font-display mt-3 text-3xl font-semibold tracking-tight sm:text-4xl">
-            One fraud alert. One minute. Watch the intervention.
+            {t(
+              "One fraud alert. One minute. Watch the intervention.",
+              "تنبيه احتيال واحد. دقيقة واحدة. شاهد التدخل.",
+              lang,
+            )}
           </h1>
         </div>
         {/* controls */}
@@ -272,10 +272,10 @@ export function Demo() {
                 className="flex items-center gap-2 rounded-full bg-primary px-5 py-2.5 text-[13.5px] font-semibold text-white shadow-[0_8px_22px_-8px_rgba(11,122,85,0.6)] transition hover:bg-green-deep"
               >
                 <Zap className="h-4 w-4" />
-                Simulate fraud alert
+                {t("Simulate fraud alert", "محاكاة تنبيه احتيال", lang)}
               </button>
               <span className="num hidden rounded-full border border-line bg-white px-3 py-1.5 text-[11px] text-ink-3 sm:block">
-                PLAYBACK 2×
+                {t("PLAYBACK 2×", "تشغيل بسرعة 2×", lang)}
               </span>
             </>
           ) : (
@@ -284,14 +284,14 @@ export function Demo() {
                 onClick={() => setRunning((r) => !r)}
                 disabled={done}
                 className="flex h-10 w-10 items-center justify-center rounded-full border border-line bg-white text-foreground transition hover:border-primary/50 hover:text-primary disabled:opacity-40"
-                aria-label={running ? "Pause" : "Play"}
+                aria-label={running ? t("Pause", "إيقاف مؤقت", lang) : t("Play", "تشغيل", lang)}
               >
                 {running ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
               </button>
               <button
                 onClick={restart}
                 className="flex h-10 w-10 items-center justify-center rounded-full border border-line bg-white text-foreground transition hover:border-primary/50 hover:text-primary"
-                aria-label="Restart"
+                aria-label={t("Restart", "إعادة التشغيل", lang)}
               >
                 <RotateCcw className="h-4 w-4" />
               </button>
@@ -301,7 +301,7 @@ export function Demo() {
                 className="flex h-10 items-center gap-1.5 rounded-full border border-line bg-white px-3.5 text-[12.5px] font-semibold text-ink-2 transition hover:border-primary/50 hover:text-primary disabled:opacity-40"
               >
                 <FastForward className="h-3.5 w-3.5" />
-                Skip
+                {t("Skip", "تخطٍّ", lang)}
               </button>
               {/* speed */}
               <div className="flex items-center rounded-full border border-line bg-white p-0.5">
@@ -343,7 +343,7 @@ export function Demo() {
                 <span
                   className={cn("micro !text-[9.5px]", sel ? "!text-green-deep" : "!text-ink-3")}
                 >
-                  {lang === "ar" ? m.vector.ar : m.vector.en}
+                  {t(m.vector.en, m.vector.ar, lang)}
                 </span>
                 <span
                   className={cn(
@@ -355,10 +355,10 @@ export function Demo() {
                 </span>
               </div>
               <p className="mt-2 text-[14px] font-semibold tracking-tight">
-                {lang === "ar" ? m.title.ar : m.title.en}
+                {t(m.title.en, m.title.ar, lang)}
               </p>
               <p className="mt-1 text-[12px] leading-relaxed text-ink-2">
-                {lang === "ar" ? m.desc.ar : m.desc.en}
+                {t(m.desc.en, m.desc.ar, lang)}
               </p>
               <div className="mt-3 flex items-center justify-between">
                 <span className="font-semibold text-foreground">
@@ -382,12 +382,8 @@ export function Demo() {
                   )}
                 >
                   {sel
-                    ? lang === "ar"
-                      ? "الحالة المحددة ✓"
-                      : "Selected ✓"
-                    : lang === "ar"
-                      ? "تشغيل هذه الحالة"
-                      : "Run this case →"}
+                    ? t("Selected ✓", "الحالة المحددة ✓", lang)
+                    : t("Run this case →", "تشغيل هذه الحالة", lang)}
                 </span>
               </div>
             </button>
@@ -426,10 +422,7 @@ export function Demo() {
                         isDone || isCurrent ? "text-foreground" : "text-ink-3",
                       )}
                     >
-                      {p.en}
-                    </p>
-                    <p dir="rtl" className="font-arabic whitespace-nowrap text-[10px] text-ink-3">
-                      {p.ar}
+                      {t(p.en, p.ar, lang)}
                     </p>
                   </div>
                 </div>
@@ -475,7 +468,7 @@ export function Demo() {
                     </span>
                   </p>
                   <p className="num mt-1 text-[11px] text-white/50">
-                    VOICE · {VOICE_BY_LANG[callLang]} · {META.assetId}
+                    {t("VOICE", "الصوت", lang)} · {VOICE_BY_LANG[callLang]} · {META.assetId}
                   </p>
                 </div>
               </div>
@@ -483,7 +476,9 @@ export function Demo() {
                 {started && !done && (
                   <span className="flex items-center gap-1.5 rounded-full bg-red-tint px-2.5 py-1">
                     <span className="h-1.5 w-1.5 rounded-full bg-red-soft sv-blink" />
-                    <span className="num text-[10.5px] font-bold text-red-soft">REC</span>
+                    <span className="num text-[10.5px] font-bold text-red-soft">
+                      {t("REC", "تسجيل", lang)}
+                    </span>
                   </span>
                 )}
                 <span className="num rounded-full bg-white/10 px-3 py-1.5 text-[13px] font-semibold text-white">
@@ -510,12 +505,12 @@ export function Demo() {
               )}
             >
               {speaking === "agent"
-                ? "AGENT ▲"
+                ? t("AGENT ▲", "الوكيل ▲", lang)
                 : speaking === "customer"
-                  ? "CUST ▲"
+                  ? t("CUST ▲", "العميل ▲", lang)
                   : started
                     ? "——"
-                    : "IDLE"}
+                    : t("IDLE", "خامل", lang)}
             </span>
           </div>
 
@@ -529,15 +524,23 @@ export function Demo() {
                 </span>
                 <div>
                   <p className="font-display text-lg font-semibold">
-                    Standing by for the next fraud signal
+                    {t(
+                      "Standing by for the next fraud signal",
+                      "استعداداً لإشارة الاحتيال التالية",
+                      lang,
+                    )}
                   </p>
                   <p className="mx-auto mt-2 max-w-sm text-[13px] leading-relaxed text-ink-2">
-                    Armed case:{" "}
+                    {t("Armed case", "الحالة المُجهّزة", lang)}:{" "}
                     <span className="font-semibold text-foreground">
-                      {lang === "ar" ? META.title.ar : META.title.en}
+                      {t(META.title.en, META.title.ar, lang)}
                     </span>
-                    . Fire the alert to push it through the risk engine — the agent will call,
-                    verify, and stop the loss in one call.
+                    .{" "}
+                    {t(
+                      "Fire the alert to push it through the risk engine — the agent will call, verify, and stop the loss in one call.",
+                      "أطلق التنبيه ليدفعه عبر محرك المخاطر — سيتصل الوكيل بالعميل، ويتحقق من الهوية، ويوقف الخسارة في مكالمة واحدة.",
+                      lang,
+                    )}
                   </p>
                 </div>
                 <button
@@ -545,9 +548,15 @@ export function Demo() {
                   className="flex items-center gap-2.5 rounded-full bg-primary px-7 py-3.5 text-[14.5px] font-semibold text-white shadow-[0_10px_26px_-8px_rgba(11,122,85,0.6)] transition hover:bg-green-deep"
                 >
                   <Zap className="h-4 w-4" />
-                  Simulate fraud alert now
+                  {t("Simulate fraud alert now", "محاكاة تنبيه الاحتيال الآن", lang)}
                 </button>
-                <p className="num text-[10.5px] text-ink-3">PLAYBACK 2× · FULL CALL ≈ 35 SECONDS</p>
+                <p className="num text-[10.5px] text-ink-3">
+                  {t(
+                    "PLAYBACK 2× · FULL CALL ≈ 35 SECONDS",
+                    "تشغيل بسرعة 2× · مكالمة كاملة ≈ 35 ثانية",
+                    lang,
+                  )}
+                </p>
               </div>
             )}
 
@@ -559,7 +568,9 @@ export function Demo() {
             {running && (
               <div className="flex items-center gap-2 pl-1">
                 <span className="h-2 w-2 rounded-full bg-primary sv-blink" />
-                <span className="num text-[10.5px] text-ink-3">TRANSCRIBING…</span>
+                <span className="num text-[10.5px] text-ink-3">
+                  {t("TRANSCRIBING…", "جارٍ النسخ…", lang)}
+                </span>
               </div>
             )}
             <div ref={endRef} />
@@ -595,7 +606,8 @@ export function Demo() {
                 ))}
               </div>
               <span className="num hidden text-[9.5px] text-ink-3 lg:block">
-                CALL IN {CALL_LANG_LABEL[callLang].toUpperCase()} · {VOICE_BY_LANG[callLang]}
+                {t("CALL IN", "لغة المكالمة", lang)} {CALL_LANG_LABEL[callLang].toUpperCase()} ·{" "}
+                {VOICE_BY_LANG[callLang]}
               </span>
             </div>
             <button
@@ -608,7 +620,8 @@ export function Demo() {
               ) : (
                 <VolumeX className="h-3.5 w-3.5" />
               )}
-              Agent audio {audioOn ? "on" : "off"}
+              {t("Agent audio", "صوت الوكيل", lang)}{" "}
+              {audioOn ? t("on", "مُفعّل", lang) : t("off", "مُعطّل", lang)}
             </button>
           </div>
         </div>
@@ -618,17 +631,22 @@ export function Demo() {
           {/* alert card */}
           <RailCard
             icon={<CircleAlert className="h-4 w-4 text-red-soft" />}
-            title="Fraud Alert"
-            ar="إشارة الاحتيال"
+            title={t("Fraud Alert", "إشارة الاحتيال", lang)}
             active={started}
           >
             {started ? (
               <div className="space-y-2.5 text-[12.5px]">
-                <Row k="Risk score" v={META.risk} hot />
-                <Row k="Amount" v={lang === "ar" ? META.amount.ar : META.amount.en} />
-                <Row k="Merchant" v={lang === "ar" ? META.merchant.ar : META.merchant.en} />
-                <Row k="Signals" v={lang === "ar" ? META.signals.ar : META.signals.en} />
-                <Row k="Rule" v="P1 · SLA 60s" />
+                <Row k={t("Risk score", "درجة الخطر", lang)} v={META.risk} hot />
+                <Row k={t("Amount", "المبلغ", lang)} v={t(META.amount.en, META.amount.ar, lang)} />
+                <Row
+                  k={t("Merchant", "المتجر", lang)}
+                  v={t(META.merchant.en, META.merchant.ar, lang)}
+                />
+                <Row
+                  k={t("Signals", "الإشارات", lang)}
+                  v={t(META.signals.en, META.signals.ar, lang)}
+                />
+                <Row k={t("Rule", "القاعدة", lang)} v="P1 · SLA 60s" />
               </div>
             ) : (
               <div className="space-y-2.5">
@@ -642,17 +660,19 @@ export function Demo() {
           {/* pipeline */}
           <RailCard
             icon={<Webhook className="h-4 w-4 text-primary" />}
-            title="Agent Pipeline"
-            ar="مسار الوكيل"
+            title={t("Agent Pipeline", "مسار الوكيل", lang)}
             active={started}
           >
             <div className="space-y-2">
               {[
-                { k: "webhook", t: 0 },
-                { k: "queue · P1", t: 2 },
-                { k: "dial · twilio", t: 4 },
+                { k: t("webhook", "ويب هوك", lang), t: 0 },
+                { k: t("queue · P1", "قائمة الانتظار · P1", lang), t: 2 },
+                { k: t("dial · twilio", "اتصال · twilio", lang), t: 4 },
                 {
-                  k: kind === "voicemail" ? "answering machine · 1.4s" : "connected · 1.2s",
+                  k:
+                    kind === "voicemail"
+                      ? t("answering machine · 1.4s", "رد آلي · 1.4 ثانية", lang)
+                      : t("connected · 1.2s", "تم الاتصال · 1.2 ثانية", lang),
                   t: 6,
                 },
               ].map((s) => {
@@ -668,7 +688,11 @@ export function Demo() {
                     <span className={cn("num text-[11px]", on ? "text-foreground" : "text-ink-3")}>
                       {s.k}
                     </span>
-                    {on && <span className="num ml-auto text-[10px] text-green-deep">ok</span>}
+                    {on && (
+                      <span className="num ml-auto text-[10px] text-green-deep">
+                        {t("ok", "تم", lang)}
+                      </span>
+                    )}
                   </div>
                 );
               })}
@@ -678,8 +702,7 @@ export function Demo() {
           {/* freeze */}
           <RailCard
             icon={<Snowflake className="h-4 w-4 text-primary" />}
-            title="Protective Action"
-            ar="إجراء الحماية"
+            title={t("Protective Action", "إجراء الحماية", lang)}
             active={time >= 50}
           >
             {time >= 45 ? (
@@ -688,20 +711,35 @@ export function Demo() {
                 <pre className="num mt-2 overflow-x-auto rounded-lg bg-[#0c110e] p-3 text-[10.5px] leading-relaxed text-green-bright">
                   {time >= 50
                     ? META.freezeOk.join("\n")
-                    : `→ awaiting customer
-  confirmation…`}
+                    : `→ ${t("awaiting customer confirmation…", "في انتظار تأكيد العميل…", lang)}`}
                 </pre>
                 {time >= 50 && (
                   <div className="mt-2.5 flex items-center gap-2">
                     <CheckCheck className="h-3.5 w-3.5 text-green-deep" />
                     <span className="text-[11.5px] font-semibold text-green-deep">
                       {kind === "wire"
-                        ? "Transfer held — payee blocked"
+                        ? t(
+                            "Transfer held — payee blocked",
+                            "تم حجب الحوالة — المحال إليه محظور",
+                            lang,
+                          )
                         : kind === "claim"
-                          ? "Payout flagged for hold — a human confirms"
+                          ? t(
+                              "Payout flagged for hold — a human confirms",
+                              "تم تعليم مبلغ التعويض للحجب — يؤكّده إنسان",
+                              lang,
+                            )
                           : kind === "voicemail"
-                            ? "Case escalated to human review — nothing frozen automatically"
-                            : "Card frozen — reversible"}
+                            ? t(
+                                "Case escalated to human review — nothing frozen automatically",
+                                "تم تصعيد الحالة إلى مراجعة بشرية — لم يُجمّد شيء تلقائياً",
+                                lang,
+                              )
+                            : t(
+                                "Card frozen — reversible",
+                                "تم تجميد البطاقة — قابل للإلغاء",
+                                lang,
+                              )}
                     </span>
                   </div>
                 )}
@@ -717,19 +755,25 @@ export function Demo() {
           {/* handoff */}
           <RailCard
             icon={<Headset className="h-4 w-4 text-amber-soft" />}
-            title="Human Handoff"
-            ar="التسليم"
+            title={t("Human Handoff", "التسليم لأخصائي", lang)}
             active={time >= 58}
           >
             {time >= 58 ? (
               <div className="space-y-2.5 text-[12.5px]">
-                <Row k="Specialist" v="Sara H. · fraud desk" />
-                <Row k="Case" v={`${META.caseId} · P1`} />
-                <Row k="Context" v="verification + sentiment" />
+                <Row k={t("Specialist", "الأخصائي", lang)} v="Sara H. · fraud desk" />
+                <Row k={t("Case", "الحالة", lang)} v={`${META.caseId} · P1`} />
+                <Row
+                  k={t("Context", "السياق", lang)}
+                  v={t("verification + sentiment", "التحقق + المشاعر", lang)}
+                />
                 <div className="flex items-center gap-2 pt-1">
                   <FileCheck2 className="h-3.5 w-3.5 text-green-deep" />
                   <span className="text-[11.5px] font-semibold text-green-deep">
-                    Audit log sealed · immutable
+                    {t(
+                      "Audit log sealed · immutable",
+                      "سجل التدقيق مُغلق · غير قابل للتغيير",
+                      lang,
+                    )}
                   </span>
                 </div>
               </div>
@@ -754,7 +798,7 @@ export function Demo() {
           </span>
           <div className="min-w-0">
             <p className="micro !text-[9.5px] text-ink-3">
-              {lang === "ar" ? "ما الذي تستحق المشاهدة" : "What to watch for"}
+              {t("What to watch for", "ما الذي تستحق المشاهدة", lang)}
             </p>
             <AnimatePresence mode="wait" initial={false}>
               <motion.p
@@ -765,15 +809,13 @@ export function Demo() {
                 transition={{ duration: 0.3, ease: "easeOut" }}
                 className="mt-1 text-[13px] leading-relaxed text-ink-2"
               >
-                {lang === "ar"
-                  ? HINTS[started ? phase : "idle"].ar
-                  : HINTS[started ? phase : "idle"].en}
+                {t(HINTS[started ? phase : "idle"].en, HINTS[started ? phase : "idle"].ar, lang)}
               </motion.p>
             </AnimatePresence>
           </div>
           <span className="num ml-auto hidden shrink-0 text-[10px] text-ink-3 sm:block">
             {String(phaseIdx + 1).padStart(2, "0")}/07 ·{" "}
-            {lang === "ar" ? PHASES[phaseIdx].ar : PHASES[phaseIdx].en}
+            {t(PHASES[phaseIdx].en, PHASES[phaseIdx].ar, lang)}
           </span>
         </div>
       </div>
@@ -797,37 +839,68 @@ export function Demo() {
             />
             <div className="relative flex flex-wrap items-center justify-between gap-8">
               <div>
-                <p className="micro text-green-bright">Outcome · تم الحل</p>
+                <p className="micro text-green-bright">
+                  {t("Outcome · resolved", "النتيجة · تم الحل", lang)}
+                </p>
                 <div className="mt-4 flex items-baseline gap-3">
                   <span className="num text-6xl font-semibold">
                     {kind === "voicemail" ? "66" : "61"}
                   </span>
-                  <span className="num text-xl text-green-bright">seconds</span>
+                  <span className="num text-xl text-green-bright">
+                    {t("seconds", "ثانية", lang)}
+                  </span>
                   <span className="ml-2 text-[13px] text-white/55">
                     {kind === "voicemail"
-                      ? "demo time — a real SMS reply arrives when the customer answers"
-                      : "vs 38 minutes today"}
+                      ? t(
+                          "demo time — a real SMS reply arrives when the customer answers",
+                          "زمن العرض — يصل رد SMS حقيقي عندما يجيب العميل",
+                          lang,
+                        )
+                      : t("vs 38 minutes today", "مقابل 38 دقيقة اليوم", lang)}
                   </span>
                 </div>
                 <p className="mt-3 max-w-lg text-[14px] leading-relaxed text-white/70">
                   {kind === "voicemail" ? (
-                    <>Fraud signal → voicemail → blind-ping SMS → customer replies NO → </>
+                    <>
+                      {t(
+                        "Fraud signal → voicemail → blind-ping SMS → customer replies NO →",
+                        "إشارة احتيال → بريد صوتي → رسالة SMS تُرسل دون رد → يجيب العميل بـ لا →",
+                        lang,
+                      )}
+                    </>
                   ) : (
-                    <>Fraud signal → connected call → verified identity → confirmed fraud → </>
+                    <>
+                      {t(
+                        "Fraud signal → connected call → verified identity → confirmed fraud →",
+                        "إشارة احتيال → اتصال ناجح → هوية موثّقة → احتيال مؤكد →",
+                        lang,
+                      )}
+                    </>
                   )}
                   {kind === "wire"
-                    ? "transfer held"
+                    ? t("transfer held", "تم حجب الحوالة", lang)
                     : kind === "claim"
-                      ? "payout flagged for hold"
+                      ? t("payout flagged for hold", "تم تعليم التعويض للحجب", lang)
                       : kind === "voicemail"
-                        ? "SMS verdict"
-                        : "card frozen"}{" "}
-                  → {kind === "voicemail" ? "human review" : "warm handoff"}.{" "}
-                  {kind === "voicemail" ? "Exposure under review:" : "Estimated prevented loss:"}{" "}
+                        ? t("SMS verdict", "حكم الرسالة النصية", lang)
+                        : t("card frozen", "تم تجميد البطاقة", lang)}{" "}
+                  →{" "}
+                  {kind === "voicemail"
+                    ? t("human review", "مراجعة بشرية", lang)
+                    : t("warm handoff", "تسليم مباشر", lang)}
+                  .{" "}
+                  {kind === "voicemail"
+                    ? t("Exposure under review:", "الخسارة المحتملة قيد المراجعة:", lang)
+                    : t("Estimated prevented loss:", "الخسائر المُنعّة التقديرية:", lang)}{" "}
                   <span className="num font-semibold text-white">
-                    {lang === "ar" ? META.preventedLoss.ar : META.preventedLoss.en}
+                    {t(META.preventedLoss.en, META.preventedLoss.ar, lang)}
                   </span>
-                  . Every step logged for CBUAE audit.
+                  .{" "}
+                  {t(
+                    "Every step logged for CBUAE audit.",
+                    "كل خطوة مسجّلة لتدقيق مصرف الإمارات المركزي.",
+                    lang,
+                  )}
                 </p>
               </div>
               <div className="flex flex-col gap-2.5">
@@ -836,13 +909,13 @@ export function Demo() {
                   className="flex items-center justify-center gap-2 rounded-full bg-green-bright px-6 py-3 text-[13.5px] font-semibold text-[#07130d] transition hover:bg-white"
                 >
                   <RotateCcw className="h-4 w-4" />
-                  Replay simulation
+                  {t("Replay simulation", "إعادة تشغيل المحاكاة", lang)}
                 </button>
                 <button
                   onClick={() => useApp.getState().setView("dashboard")}
                   className="rounded-full border border-white/20 px-6 py-3 text-[13px] font-semibold text-white/85 transition hover:border-white/50"
                 >
-                  See it in the dashboard
+                  {t("See it in the dashboard", "شاهدها في لوحة التحكم", lang)}
                 </button>
               </div>
             </div>
@@ -869,13 +942,11 @@ function Row({ k, v, hot }: { k: string; v: string; hot?: boolean }) {
 function RailCard({
   icon,
   title,
-  ar,
   active,
   children,
 }: {
   icon: React.ReactNode;
   title: string;
-  ar: string;
   active: boolean;
   children: React.ReactNode;
 }) {
@@ -895,9 +966,6 @@ function RailCard({
           </span>
           <span className="text-[13px] font-semibold">{title}</span>
         </div>
-        <span dir="rtl" className="font-arabic text-[11px] text-ink-3">
-          {ar}
-        </span>
       </div>
       {children}
     </div>
@@ -905,6 +973,7 @@ function RailCard({
 }
 
 function Bubble({ e, callLang }: { e: ScenarioEvent; callLang: CallLang }) {
+  const { lang } = useApp();
   const primary = eventText(e, callLang);
   const secondary = callLang === "en" ? e.ar : e.en;
   const primaryRtl = callLang === "ar" || callLang === "ur";
@@ -922,7 +991,7 @@ function Bubble({ e, callLang }: { e: ScenarioEvent; callLang: CallLang }) {
         </span>
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <Chip>{e.tag ?? "system"}</Chip>
+            <Chip>{e.tag ?? t("system", "النظام", lang)}</Chip>
             <span className="num text-[10px] text-ink-3">t+{e.t}s</span>
           </div>
           <p className="mt-1.5 text-[12.5px] font-medium leading-relaxed text-ink-2">{primary}</p>
@@ -986,7 +1055,7 @@ function Bubble({ e, callLang }: { e: ScenarioEvent; callLang: CallLang }) {
           <span
             className={cn("micro !text-[9px]", isAgent ? "!text-green-bright" : "!text-green-deep")}
           >
-            {isAgent ? "Agent" : "Customer"}
+            {isAgent ? t("Agent", "الوكيل", lang) : t("Customer", "العميل", lang)}
           </span>
           <span className={cn("num text-[9.5px]", isAgent ? "text-white/40" : "text-ink-3")}>
             t+{e.t}s

@@ -155,9 +155,25 @@ describe("Demo", () => {
     expect(screen.getByRole("button", { name: "Play" }).hasAttribute("disabled")).toBe(true);
     expect(screen.getByRole("button", { name: "Skip" }).hasAttribute("disabled")).toBe(true);
     expect(screen.queryByText("REC")).toBeNull();
-    expect(screen.getByText("Outcome · تم الحل")).toBeTruthy();
+    // EN mode (the store default) shows the English label only — the old
+    // always-on "Outcome · تم الحل" gloss would print Arabic in English mode,
+    // which is the bug the t() conversion fixed.
+    expect(screen.getByText("Outcome · resolved")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Replay simulation" })).toBeTruthy();
     expect(screen.getByText(/vs 38 minutes today/)).toBeTruthy();
+  });
+
+  it("the language toggle switches the outcome banner to Arabic", async () => {
+    useApp.setState({ lang: "ar" });
+    const user = userEvent.setup();
+    render(<Demo />);
+
+    await user.click(screen.getByRole("button", { name: "محاكاة تنبيه احتيال" }));
+    await user.click(screen.getByRole("button", { name: "تخطٍّ" }));
+
+    // Arabic mode shows Arabic — and no English leaks through.
+    expect(screen.getByText("النتيجة · تم الحل")).toBeTruthy();
+    expect(screen.queryByText("Outcome · resolved")).toBeNull();
   });
 
   it("replays from the outcome banner back to a running call", async () => {
@@ -173,7 +189,7 @@ describe("Demo", () => {
     expect(screen.getByText("REC")).toBeTruthy();
     // The banner is inside <AnimatePresence>, so it leaves on its exit animation
     // rather than on the click.
-    await waitFor(() => expect(screen.queryByText("Outcome · تم الحل")).toBeNull(), {
+    await waitFor(() => expect(screen.queryByText("Outcome · resolved")).toBeNull(), {
       timeout: 4000,
     });
   });

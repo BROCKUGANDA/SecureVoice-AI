@@ -131,6 +131,83 @@ docker compose exec -T db psql -U securevoice -d securevoice \
    promotion PR can sit unmerged for that reason alone. `df -h` on the VPS is
    the first thing to check when the ladder stalls.
 
+## RESOLUTION (2026-10-10) — what the incident actually was, and what was done
+
+**Diagnosis corrected by hands-on triage.** The disk was never full (19G
+free); the pressure was **23 stale CI containers** left by five failed Oct 8–9
+runs (three full `svci-*` compose stacks + two `sv-ci-*` db/redis), plus
+**15.4GB of build cache** and ~4GB of dead volumes. Load average sat at 2.5.
+The app's `Can't reach database server at db` errors were from **Oct 8** —
+stale; the app was up and serving the whole time (in-container `/api/health`
+→ 200, `uptimeSec` 168376). The origin was never actually down.
+
+**Remediation executed over SSH (deploy key):**
+
+1. Brought down the three stale CI compose projects with `down -v`, removed
+   the two leftover CI containers, pruned the build cache (15.4GB), pruned
+   unused images (10.9GB) and dangling volumes (3.9GB). Disk: **81% → 30%
+   used** (78G → 29G). Production volumes (`securevoice-ai_db-data` et al.)
+   untouched; `crucible-*` (the other project on the shared edge) untouched.
+2. Merged the Caddyfile: the VPS-local changes were **pure appends** (the
+   `crucible.svalley.tech` / `securevoice.svalley.tech` site blocks, 106
+   lines), the incoming change rewrites lines 104–128 (the
+   `/realtime/media-stream` route). Took the incoming file, re-appended the
+   site blocks, `caddy validate` → **Valid configuration**, re-asserted
+   skip-worktree. The pull then succeeded and the VPS is on `f5396dd`.
+3. Dispatched a fresh deploy from main (the CI-green guard passed).
+
+**The Supabase question — first answered wrongly, then settled by evidence.**
+The initial pass counted the bundled db and Supabase and declared both empty —
+that conclusion was WRONG, because it counted only the four better-auth tables
+and two test tables, never the real ones. A full count of every table on both
+sides gave the true answer:
+
+| | bundled (`db` container) | Supabase |
+|---|---|---|
+| `Case` | 0 | **1,006** |
+| `AuditLog` | 26 | **7,992** |
+| `UserProfile` | 0 | **88** |
+| tables | 19 | 37 |
+
+**Supabase is the real production database. The bundled volume is an empty
+shell that was never populated** — and the app had been pointed at it the whole
+time, which is why everything looked healthy while serving nothing: `/api/health`
+only proves the connection is up, never that there are rows behind it.
+
+**Cutover performed** (VPS `.env` repointed, then re-rolled):
+
+- Supabase's **direct** connection (`db.<ref>.supabase.co:5432`) is
+  **IPv6-only**; the VPS has no IPv6 outbound (`api.ipify.org -6` → 000).
+  That is the structural reason the app could never have reached the data.
+- Uses Supabase's **IPv4 pooler** instead, session mode:
+  `aws-0-eu-central-1.pooler.supabase.com:5432`, user `postgres.<project-ref>`,
+  same password, `connection_limit=20`.
+- `sslmode=no-verify`, deliberately not verify-full: the pooler terminates TLS
+  with an **AWS ELB** certificate, and the slim app image carries no AWS root
+  CAs, so verification fails with "self signed certificate in certificate
+  chain". `no-verify` still encrypts — the documented pooler pattern for slim
+  images. (The committed `supabase-ca.crt` only covers the direct endpoint.)
+- 31 migrations, "No pending migrations to apply". Verified live: ~20 pooled
+  connections from the app, the dial worker running `UPDATE "dial_job"`, the
+  real 1,006 cases served, `/api/health` 200.
+- Previous `.env` preserved at `.env.bak-presupabase` on the VPS.
+- **The `db` container is left running but is now unused** — no service reads
+  it. Its emptiness is not a fault; do not "fix" it.
+- **Near-miss recorded:** `docker compose up -d db-setup` runs the service's
+  default command, which **seeds demo data into production**. The real deploy
+  deliberately overrides the entrypoint to run only `migrate deploy`. Always
+  migrate on the VPS with
+  `docker compose run --rm --no-deps db-setup sh -c "bunx prisma migrate deploy"`
+  — never `up -d db-setup`.
+
+**One real gap found and fixed:** `deploy.yml` built and upped
+`app dial-worker retention-worker db-setup` — the union's new
+`voice-stream-worker` (the entire Twilio Media Streams plane, plus the
+`/realtime/media-stream` Caddy route that targets it) was in neither list, so
+a roll would have left the newest plane unstarted and its route 502ing.
+Added to both lists (`fix(deploy): roll the voice-stream worker with the app`).
+
+
 ## Failure mode #2 — the deploy's `git pull` refuses: "local changes to Caddyfile would be overwritten"
 
 Deploy 38018564836 died at `git pull --ff-only` with:

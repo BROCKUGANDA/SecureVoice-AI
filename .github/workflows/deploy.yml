@@ -118,7 +118,7 @@ jobs:
           # happened to be rebuilt. That is not a theoretical hazard: a deploy that
           # printed "No pending migrations to apply" against a database missing
           # three migrations was compose reusing a stale db-setup image.
-          docker compose build app dial-worker retention-worker db-setup
+          docker compose build app dial-worker retention-worker voice-stream-worker db-setup
 
           # Schema before code. The runner image is `oven/bun:1-slim` plus the
           # standalone bundle: it has no Prisma CLI and no prisma/migrations, so
@@ -130,7 +130,7 @@ jobs:
           # database, and --no-deps keeps it off the app's dependency graph.
           docker compose run --rm --no-deps db-setup sh -c "bunx prisma migrate deploy"
 
-          docker compose up -d app dial-worker retention-worker
+          docker compose up -d app dial-worker retention-worker voice-stream-worker
           docker compose ps
 
       - name: Health check the rolled origin

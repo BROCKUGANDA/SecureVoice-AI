@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Lock, Pause, Play } from "lucide-react";
+import { useApp, t } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
 /**
@@ -33,6 +34,7 @@ export function RecordingPlayer({
 }) {
   const ref = useRef<HTMLAudioElement>(null);
   const [playing, setPlaying] = useState(false);
+  const { lang } = useApp();
 
   const isPlaying = playingId === caseId;
 
@@ -55,10 +57,14 @@ export function RecordingPlayer({
     return (
       <span
         className={cn("inline-flex items-center gap-1 text-ink-3", className)}
-        title="No recording retained for this case. Audio is kept for 30 days and can be switched off entirely per organization."
+        title={t(
+          "No recording retained for this case. Audio is kept for 30 days and can be switched off entirely per organization.",
+          "لا يوجد تسجيل محفوظ لهذه الحالة. يُحفظ الصوت لمدة 30 يوماً ويمكن تعطيل التسجيل تماماً على مستوى كل مؤسسة.",
+          lang,
+        )}
       >
         <Lock className="h-3 w-3" aria-hidden="true" />
-        <span className="text-[10.5px]">sealed</span>
+        <span className="text-[10.5px]">{t("sealed", "مُغلّف", lang)}</span>
       </span>
     );
   }
@@ -97,7 +103,7 @@ export function RecordingPlayer({
       <button
         type="button"
         onClick={toggle}
-        aria-label={`${playing ? "Pause" : "Play"} recording for case ${caseId}`}
+        aria-label={`${playing ? t("Pause", "إيقاف مؤقت", lang) : t("Play", "تشغيل", lang)} ${t("recording for case", "تسجيل الحالة", lang)} ${caseId}`}
         className="flex h-7 w-7 items-center justify-center rounded-full border border-line bg-white text-ink-2 transition hover:border-primary/40 hover:text-primary"
       >
         {playing ? <Pause className="h-3 w-3" /> : <Play className="h-3 w-3" />}

@@ -81,5 +81,6 @@ afterEach(() => {
     demoIntent: false,
     timedOut: false,
     highContrast: false,
+    settingsTab: "org",
   });
 });

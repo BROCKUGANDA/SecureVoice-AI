@@ -3,7 +3,7 @@
 import { useCallback, useEffect } from "react";
 import { motion, AnimatePresence, MotionConfig } from "framer-motion";
 import { useSession } from "@/lib/auth-client";
-import { useApp, VIEW_ACCESS, type View } from "@/lib/store";
+import { useApp, t, VIEW_ACCESS, type View } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { Navbar } from "@/components/shell/Navbar";
 import { Footer } from "@/components/shell/Footer";
@@ -22,6 +22,7 @@ import { Console } from "@/views/Console";
 import { Settings } from "@/views/Settings";
 import { SetupWizard } from "@/views/SetupWizard";
 import { IdleTimeoutHandler } from "@/components/shell/IdleTimeoutHandler";
+import { TwoFactorPrompt } from "@/components/security/TwoFactorPrompt";
 
 const VIEWS: Record<View, React.ComponentType> = {
   home: Home,
@@ -56,9 +57,16 @@ export default function Page() {
   }, [view]);
 
   /* announce the active language to assistive tech — Arabic copy read with an
-     English voice profile is unintelligible, so lang must track the toggle */
+     English voice profile is unintelligible, so lang must track the toggle.
+     The direction is set from the same effect: Arabic is a right-to-left
+     script, and without `dir` on <html> the browser lays every Arabic
+     sentence out left-to-right — punctuation lands on the wrong end, mixed
+     numbers read backwards, and `ms-*`/`me-*`/`text-start` utilities never
+     mirror. One attribute here is what makes the AR toggle a real Arabic mode
+     rather than Arabic words in an English layout. */
   useEffect(() => {
     document.documentElement.lang = lang;
+    document.documentElement.dir = lang === "ar" ? "rtl" : "ltr";
   }, [lang]);
 
   /* high-contrast theme (WCAG 1.4.3/1.4.6): applied as a data attribute so the
@@ -102,12 +110,20 @@ export default function Page() {
         href="#main-content"
         className="sr-only z-[110] rounded-full bg-primary px-5 py-2.5 text-[13px] font-semibold text-white focus:not-sr-only focus:fixed focus:left-4 focus:top-4"
       >
-        Skip to content
+        {t("Skip to content", "تخطَّ إلى المحتوى", lang)}
       </a>
 
       {!fullBleed && <Navbar />}
 
       <main id="main-content" className="flex-1">
+        {/*
+          The two-factor nudge. Signed-in only: it reads the SERVER's
+          `twoFactorEnabled` flag (never a local one), and renders nothing for
+          an operator who already has a second factor or has said "not now".
+          Mounted here, outside the AnimatePresence, so switching views does
+          not remount it and re-read the dismissal.
+        */}
+        {isSignedIn && <TwoFactorPrompt />}
         <MotionConfig reducedMotion="user">
           {/* Not mode="wait": it mounts the next view only after the current one's exit animation completes, and a stalled exit (framer-motion under React StrictMode in dev — the same fault that stuck the boot splash) freezes navigation on the current view. Default sync mode swaps immediately and degrades to a harmless overlap. */}
           <AnimatePresence>

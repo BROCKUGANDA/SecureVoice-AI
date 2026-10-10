@@ -156,14 +156,49 @@ stale; the app was up and serving the whole time (in-container `/api/health`
    skip-worktree. The pull then succeeded and the VPS is on `f5396dd`.
 3. Dispatched a fresh deploy from main (the CI-green guard passed).
 
-**The Supabase question — settled by evidence: neither database holds
-production data.** Bundled db: `Case` 0, `AuditLog` 26, `organization` 0,
-`user` 0. Supabase: likewise empty (test residue only). So the cutover was a
-config choice with no data at stake — and **the bundled Postgres is what
-production actually runs on** (the app's `DATABASE_URL` host is `db`, the
-compose default, and it works). No cutover was performed. If Supabase is
-still preferred, it is a one-line `.env` change on the VPS plus a redeploy —
-there is nothing to migrate.
+**The Supabase question — first answered wrongly, then settled by evidence.**
+The initial pass counted the bundled db and Supabase and declared both empty —
+that conclusion was WRONG, because it counted only the four better-auth tables
+and two test tables, never the real ones. A full count of every table on both
+sides gave the true answer:
+
+| | bundled (`db` container) | Supabase |
+|---|---|---|
+| `Case` | 0 | **1,006** |
+| `AuditLog` | 26 | **7,992** |
+| `UserProfile` | 0 | **88** |
+| tables | 19 | 37 |
+
+**Supabase is the real production database. The bundled volume is an empty
+shell that was never populated** — and the app had been pointed at it the whole
+time, which is why everything looked healthy while serving nothing: `/api/health`
+only proves the connection is up, never that there are rows behind it.
+
+**Cutover performed** (VPS `.env` repointed, then re-rolled):
+
+- Supabase's **direct** connection (`db.<ref>.supabase.co:5432`) is
+  **IPv6-only**; the VPS has no IPv6 outbound (`api.ipify.org -6` → 000).
+  That is the structural reason the app could never have reached the data.
+- Uses Supabase's **IPv4 pooler** instead, session mode:
+  `aws-0-eu-central-1.pooler.supabase.com:5432`, user `postgres.<project-ref>`,
+  same password, `connection_limit=20`.
+- `sslmode=no-verify`, deliberately not verify-full: the pooler terminates TLS
+  with an **AWS ELB** certificate, and the slim app image carries no AWS root
+  CAs, so verification fails with "self signed certificate in certificate
+  chain". `no-verify` still encrypts — the documented pooler pattern for slim
+  images. (The committed `supabase-ca.crt` only covers the direct endpoint.)
+- 31 migrations, "No pending migrations to apply". Verified live: ~20 pooled
+  connections from the app, the dial worker running `UPDATE "dial_job"`, the
+  real 1,006 cases served, `/api/health` 200.
+- Previous `.env` preserved at `.env.bak-presupabase` on the VPS.
+- **The `db` container is left running but is now unused** — no service reads
+  it. Its emptiness is not a fault; do not "fix" it.
+- **Near-miss recorded:** `docker compose up -d db-setup` runs the service's
+  default command, which **seeds demo data into production**. The real deploy
+  deliberately overrides the entrypoint to run only `migrate deploy`. Always
+  migrate on the VPS with
+  `docker compose run --rm --no-deps db-setup sh -c "bunx prisma migrate deploy"`
+  — never `up -d db-setup`.
 
 **One real gap found and fixed:** `deploy.yml` built and upped
 `app dial-worker retention-worker db-setup` — the union's new
@@ -171,6 +206,7 @@ there is nothing to migrate.
 `/realtime/media-stream` Caddy route that targets it) was in neither list, so
 a roll would have left the newest plane unstarted and its route 502ing.
 Added to both lists (`fix(deploy): roll the voice-stream worker with the app`).
+
 
 ## Failure mode #2 — the deploy's `git pull` refuses: "local changes to Caddyfile would be overwritten"
 

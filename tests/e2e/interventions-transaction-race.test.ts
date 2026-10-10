@@ -54,11 +54,20 @@ function signBody(body: string): string {
  * number is refused on the SECOND run of this file for a reason that has
  * nothing to do with the duplicate-transaction behaviour under test. Deriving the
  * number from the run stamp keeps the two guards from masking each other.
+ *
+ * The stamp is parsed as BASE 36 — it is `Date.now().toString(36)`. Stripping
+ * the letters instead (the previous `replace(/\D/g, "")`) threw away most of
+ * the value: two timestamps a few milliseconds apart differ only in low-order
+ * base-36 digits, which are usually LETTERS, so the stripped forms collide and
+ * both tests in this file derive the SAME number. The second firing then hits
+ * the destination cooldown — a correct refusal that looked like a flaky 409 on
+ * a first firing. Parsing the whole string recovers the millisecond value, so
+ * every call gets a distinct number.
  */
 function destinationFor(stamp: string): string {
   // +971 5X XXX XXXX — the last digits vary per run, staying in the UAE block
   // the geo allowlist declares.
-  const tail = Number.parseInt(stamp.replace(/\D/g, "") || "0", 10) % 10_000_000;
+  const tail = (Number.parseInt(stamp, 36) || 0) % 10_000_000;
   return `+9715${String(tail).padStart(7, "0")}`;
 }
 

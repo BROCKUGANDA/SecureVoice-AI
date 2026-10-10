@@ -130,3 +130,49 @@ docker compose exec -T db psql -U securevoice -d securevoice \
 3. If the runner disk fills again, CI queues rather than fails — a green
    promotion PR can sit unmerged for that reason alone. `df -h` on the VPS is
    the first thing to check when the ladder stalls.
+
+## Failure mode #2 — the deploy's `git pull` refuses: "local changes to Caddyfile would be overwritten"
+
+Deploy 38018564836 died at `git pull --ff-only` with:
+
+```
+error: Your local changes to the following files would be overwritten by merge:
+	Caddyfile
+Please commit your changes or stash them before you merge.
+```
+
+The VPS Caddyfile is deliberately VPS-local (per-site blocks for the shared
+edge) and protected with `git update-index --skip-worktree` — and the deploy
+re-asserts that flag before pulling. It still refused because the promoted
+commits **modify the Caddyfile itself** (the union added the
+`handle /realtime/media-stream` block that routes the voice-stream worker's
+Twilio Media Streams websocket). Skip-worktree preserves the local version, but
+a merge that would change a skip-worktree'd file is refused rather than
+silently dropped — the deployment-local edge config wins, loudly.
+
+This is the correct behavior; the VPS-local Caddyfile now needs the new block
+merged into it by hand. On the VPS:
+
+```bash
+cd ~/securevoice-ai
+git fetch origin main
+# 1. See what the VPS-local version adds (the per-site blocks to KEEP):
+git diff HEAD -- Caddyfile Caddyfile.platform
+# 2. See what the incoming commits add (the block to TAKE):
+git diff HEAD origin/main -- Caddyfile Caddyfile.platform
+```
+
+Then merge: keep the VPS-local per-site blocks and add the incoming
+`handle /realtime/media-stream { reverse_proxy voice-stream-worker:8080 … }`
+block (and any other incoming hunks) to the VPS file, so the file becomes
+"VPS-local + incoming". Commit it locally, or if the VPS-local diff turns out
+to be empty/stale, simply `git checkout -- Caddyfile Caddyfile.platform`. Then:
+
+```bash
+git update-index --skip-worktree Caddyfile Caddyfile.platform
+git pull --ff-only origin main
+```
+
+Do this **before or together with** the db remediation — the deploy runs the
+pull first, so an unmerged Caddyfile blocks the roll regardless of the db
+state.

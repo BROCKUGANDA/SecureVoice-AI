@@ -61,27 +61,64 @@ export async function POST(req: NextRequest) {
   const rawBody = await req.text();
   const signature = req.headers.get("paddle-signature") ?? "";
 
-  let verified: { eventType?: string; data?: unknown };
+  /**
+   * VERIFY, THEN PARSE — in that order, and not with `unmarshal`.
+   *
+   * `unmarshal` looks like the right call and is a trap: it verifies the
+   * signature and THEN constructs a typed entity, and the entity constructors
+   * dereference nested fields (`timePeriod.interval`, …) that a real event may
+   * legitimately omit. So a correctly-signed event can make `unmarshal` throw,
+   * and a route that treats every throw as "bad signature" returns 400 — telling
+   * Paddle to stop retrying a genuine payment it failed to deliver. Silent money
+   * loss, with a log line that says `digest_mismatch`.
+   *
+   * Measured, not theorised: `unmarshal` threw `undefined is not an object
+   * (evaluating 'timePeriod.interval')` on a payload whose signature the SDK's own
+   * `isSignatureValid` had already accepted.
+   *
+   * So the two halves are separated. `isSignatureValid` is the vendor's verifier
+   * and returns a clean boolean (throwing only on a malformed header, which is
+   * also a rejection). The payload is parsed with `JSON.parse` on bytes we have
+   * just proved came from Paddle — and if it does not parse, that is OUR bug and
+   * a 500, not the sender's.
+   *
+   * `unmarshal` is deliberately NOT used anywhere. Its entity layer is a
+   * convenience this route cannot afford.
+   */
+  let signatureOk = false;
   try {
-    verified = client.webhooks.unmarshal(rawBody, secret, signature) as unknown as {
-      eventType?: string;
-      data?: unknown;
-    };
-  } catch (e) {
-    // A bad signature, a malformed body, or a stale timestamp. NOT a 2xx — see
-    // the file header. 400 rather than 401 because Paddle's retry policy treats
-    // any 4xx as "stop", and there is no credential to challenge.
-    logWarn("[billing-webhook] signature verification failed", {
-      message: e instanceof Error ? e.message : "unknown",
-      bodyBytes: rawBody.length,
-    });
+    signatureOk = await client.webhooks.isSignatureValid(rawBody, secret, signature);
+  } catch {
+    // A malformed `Paddle-Signature` header throws out of the header parser.
+    signatureOk = false;
+  }
+  if (!signatureOk) {
+    logWarn("[billing-webhook] signature verification failed", { bodyBytes: rawBody.length });
     return NextResponse.json({ error: "invalid_signature" }, { status: 400 });
   }
 
-  const eventType = typeof verified.eventType === "string" ? verified.eventType : "";
+  // The bytes are authenticated from here. Parse them ourselves rather than let
+  // a typed constructor decide what is valid.
+  let payload: Record<string, unknown>;
+  try {
+    const parsed = JSON.parse(rawBody) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new Error("payload is not an object");
+    }
+    payload = parsed as Record<string, unknown>;
+  } catch (e) {
+    // 500, not 400: the signature was GOOD, so Paddle is not the problem.
+    logWarn("[billing-webhook] authenticated body did not parse", {
+      message: e instanceof Error ? e.message : "unknown",
+      bodyBytes: rawBody.length,
+    });
+    return NextResponse.json({ error: "malformed_payload" }, { status: 500 });
+  }
+
+  const eventType = typeof payload.event_type === "string" ? payload.event_type : "";
   const data =
-    verified.data && typeof verified.data === "object"
-      ? (verified.data as Record<string, unknown>)
+    payload.data && typeof payload.data === "object"
+      ? (payload.data as Record<string, unknown>)
       : {};
 
   if (eventType === "") {

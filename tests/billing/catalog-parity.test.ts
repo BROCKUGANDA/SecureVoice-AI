@@ -1,67 +1,57 @@
-import { PLANS, formatMonthly } from "@/lib/commercial";
+import { describe, expect, test } from "bun:test";
+import { PLANS, formatMonthly, formatIncluded, formatOverage } from "../../src/lib/commercial.ts";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
 /**
- * Cross-check the website's commercial data against the Paddle sandbox catalog.
+ * The catalog this repository was re-seeded against, 2026-10-10.
  *
- * WHY THIS EXISTS. The published catalog in the Paddle sandbox is:
- *
- *   Starter   $10/mo    $100/yr      pro_01m4k7r196v73zm54hta4vexwr
- *   Pro       $40/mo    $400/yr       pro_01m4k7r2g61fsrtxjscrywe35a
- *   Advanced  $120/mo   $1,200/yr     pro_01m4k7r4d7az2zggnavk2392pq
- *
- * A price that differs between the page a customer reads and the price id the
- * gateway charges is the single most expensive bug in a billing integration: the
- * customer is told one number, charged another, and discovers it on the
- * statement. Nothing in the type system prevents it — the two live in a
- * TypeScript module and a Paddle account respectively — so it is asserted here.
- *
- * THE CATALOG IDS BELOW ARE SANDBOX ONLY and were captured from the seed run's
- * output. Sandbox and production catalogs are entirely separate and these `pri_`
- * ids do not exist in production; regenerating them for live is a matter of
- * re-running scripts/seed-paddle-catalog.ts against a live key. The AMOUNTS, by
- * contrast, are the business fact and are asserted independently of environment.
+ * These are the LIVE sandbox ids and amounts, read back by
+ * `scripts/paddle-verify.ts` immediately after `bun run paddle:seed`. Sandbox and
+ * production catalogs are entirely separate and these `pri_` ids do not exist in
+ * production; regenerating them for live is a matter of re-running the seed
+ * against a live key. The AMOUNTS are the business fact and are asserted
+ * independently of environment.
  */
-
-type Row = {
-  id: string;
-  name: string;
-  monthlyUsd: number | null;
-  /** Present only where the catalog publishes a second, annual price. */
-  yearlyUsd?: number;
-  productId?: string;
-  monthlyPriceId?: string;
-  yearlyPriceId?: string;
-};
-
-/** The catalog as created, 2026-10-10. Sandbox. */
-const CATALOG: Row[] = [
+const CATALOG = [
   {
     id: "starter",
     name: "Starter",
-    monthlyUsd: 10,
-    yearlyUsd: 100,
-    productId: "pro_01m4k7r196v73zm54hta4vexwr",
-    monthlyPriceId: "pri_01m4k7r1nj6441nv9etb103bsf",
-    yearlyPriceId: "pri_01m4k7r22ctc7kqg74mybxp891",
+    monthlyUsd: 99,
+    productId: "pro_01m4kc8a89eb5fs4638p0trbf7",
+    monthlyPriceId: "pri_01m4kc8amfsr590wkmf02v0q91",
+    regional: { GBP: 7425, EUR: 8910, AUD: 14850 },
   },
   {
-    id: "pro",
-    name: "Pro",
-    monthlyUsd: 40,
-    yearlyUsd: 400,
-    productId: "pro_01m4k7r2g61fsrtxjscrywe35a",
-    monthlyPriceId: "pri_01m4k7r2w0fzmzt7v94ztcmm5d",
-    yearlyPriceId: "pri_01m4k7r3zf0ngw7bz73jtbceks",
+    id: "growth",
+    name: "Growth",
+    monthlyUsd: 499,
+    productId: "pro_01m4kc8b21kpp6eabxrybvb935",
+    monthlyPriceId: "pri_01m4kc8bdy18z7h9g4qwbv6vqq",
+    regional: { GBP: 37425, EUR: 44910, AUD: 74850 },
   },
   {
-    id: "advanced",
-    name: "Advanced",
-    monthlyUsd: 120,
-    yearlyUsd: 1200,
-    productId: "pro_01m4k7r4d7az2zggnavk2392pq",
-    monthlyPriceId: "pri_01m4k7r4sc40v94fxqwtp0a3yr",
-    yearlyPriceId: "pri_01m4k7r56edz399z97047w40gp",
+    id: "enterprise",
+    name: "Enterprise",
+    monthlyUsd: 2000,
+    productId: "pro_01m4kc8bvk4vjrdhzcgqms3pfk",
+    monthlyPriceId: "pri_01m4kc8c6y167c8jx1pk7vcazx",
+    regional: { GBP: 150000, EUR: 180000, AUD: 300000 },
   },
+] as const;
+
+/**
+ * Products from the FIRST seeding, retired on the re-seed.
+ *
+ * They carried $10 / $40 / $120 with an annual price and a 7-day trial — a
+ * pricing shape this codebase does not implement. They are archived in the
+ * Paddle account and asserted as such here, because a stale product that is
+ * still `active` is one someone can sell from by accident.
+ */
+const RETIRED = [
+  "pro_01m4k7r196v73zm54hta4vexwr",
+  "pro_01m4k7r2g61fsrtxjscrywe35a",
+  "pro_01m4k7r4d7az2zggnavk2392pq",
 ];
 
 describe("the website and the Paddle catalog quote the same prices", () => {
@@ -72,7 +62,7 @@ describe("the website and the Paddle catalog quote the same prices", () => {
   });
 
   test.each(CATALOG.map((c) => [c.name, c] as const))(
-    "%s: monthly amount matches",
+    "%s: the page price is the catalog price",
     (_name, row) => {
       const plan = PLANS.find((p) => p.id === row.id);
       expect(plan).toBeDefined();
@@ -80,23 +70,14 @@ describe("the website and the Paddle catalog quote the same prices", () => {
     },
   );
 
-  test.each(CATALOG.map((c) => [c.name, c] as const))(
-    "%s: the schema.org offer price is the catalog price",
-    (_name, row) => {
+  test("the schema.org offer price is the same number the gateway charges", () => {
+    // `offer.price` is what an answer engine reads and quotes verbatim. If it
+    // drifts from `monthlyUsd`, the site tells a model one price and a buyer
+    // another, and the model's version is the one that gets repeated.
+    for (const row of CATALOG) {
       const plan = PLANS.find((p) => p.id === row.id)!;
-      // `offer.price` is what an answer engine reads and quotes. If it drifts
-      // from `monthlyUsd`, the site tells a human one number and a model another.
-      expect(plan.offer.price).toBe(row.monthlyUsd === null ? undefined : String(row.monthlyUsd));
-    },
-  );
-
-  test("a plan with no published price has no offer price either", () => {
-    // Enterprise is quoted per deployment. A placeholder ("0", "from 0") would
-    // publish a number the sales team does not hold anyone to.
-    const unpurchasable = PLANS.filter((p) => p.monthlyUsd === null);
-    for (const plan of unpurchasable) {
-      expect(plan.offer.price).toBeUndefined();
-      expect(formatMonthly(plan, "en")).toBe("Custom");
+      expect(plan.offer.price, `${plan.name} offer price`).toBe(String(row.monthlyUsd));
+      expect(Number(plan.offer.price) * 100).toBe(row.monthlyUsd * 100);
     }
   });
 
@@ -104,43 +85,69 @@ describe("the website and the Paddle catalog quote the same prices", () => {
     for (const row of CATALOG) {
       expect(row.productId).toMatch(/^pro_[A-Za-z0-9]+$/);
       expect(row.monthlyPriceId).toMatch(/^pri_[A-Za-z0-9]+$/);
-      expect(row.yearlyPriceId).toMatch(/^pri_[A-Za-z0-9]+$/);
     }
   });
 
   test("no two plans share a price id", () => {
-    const ids = CATALOG.flatMap((c) => [c.monthlyPriceId, c.yearlyPriceId]);
+    const ids = CATALOG.flatMap((c) => [c.monthlyPriceId, c.productId]);
     expect(new Set(ids).size).toBe(ids.length);
   });
 
-  test("every purchasable plan's annual price is exactly ten monthly", () => {
-    // "Two months free" is the standard annual discount, and it is what the
-    // Paddle catalog was seeded with. A change to one without the other is the
-    // drift this file exists to catch.
-    for (const row of CATALOG) {
-      if (row.yearlyUsd === undefined) continue;
-      expect(row.yearlyUsd, `${row.name} annual`).toBe(row.monthlyUsd! * 10);
-    }
+  test("the retired catalog is recorded in the seed script", () => {
+    // So a re-run of `bun run paddle:seed` archives the stale tiers again rather
+    // than leaving them active alongside the current ones.
+    const script = readFileSync(
+      fileURLToPath(new URL("../../scripts/seed-paddle-catalog.ts", import.meta.url)),
+      "utf8",
+    );
+    for (const id of RETIRED) expect(script).toContain(id);
   });
 });
 
-describe("the adapter's price map covers the catalog", () => {
-  /**
-   * The adapter resolves a checkout by amount, not by price id, so it needs a
-   * `<currency>_<minor>_<interval>` entry for every purchasable plan. A missing
-   * one means `createCheckout` throws at the moment a customer clicks Buy — the
-   * failure surfaces to the customer rather than to a build, so it is pinned
-   * here instead.
-   */
-  test("every purchasable plan resolves to a price key", () => {
-    const keys = new Set<string>();
+describe("the pricing model matches what the code can charge", () => {
+  test("every plan has included volume, and overage except Enterprise", () => {
     for (const plan of PLANS) {
-      if (plan.monthlyUsd === null) continue;
-      keys.add(`${"usd"}_${plan.monthlyUsd * 100}_month`);
-      keys.add(`${"usd"}_${plan.monthlyUsd * 100}_year`);
+      expect(plan.includedPerMonth, `${plan.name} has no included volume`).toBeGreaterThan(0);
     }
-    // Sanity: the set is non-empty, so the assertions below are not vacuous.
-    expect(keys.size).toBeGreaterThan(0);
-    for (const k of keys) expect(k).toMatch(/^usd_\d+_(month|year)$/);
+    expect(PLANS.filter((p) => p.overageCents === null).map((p) => p.id)).toEqual(["enterprise"]);
+  });
+
+  test("included volume rises monotonically with price", () => {
+    const priced = [...PLANS].sort((a, b) => a.monthlyUsd! - b.monthlyUsd!);
+    for (let i = 1; i < priced.length; i++) {
+      expect(priced[i]!.includedPerMonth!).toBeGreaterThan(priced[i - 1]!.includedPerMonth!);
+    }
+  });
+
+  test("the page does not publish an annual price or a trial", () => {
+    // Both were in an earlier revision and both are gone. `overage.ts` and
+    // `commercial.ts` carry no annual/trial concept, so publishing either would
+    // be a promise the checkout cannot keep.
+    for (const plan of PLANS) {
+      expect(plan.yearlyUsd).toBeNull();
+    }
+    const page = read("src/views/Pricing.tsx");
+    expect(page).not.toMatch(/trial/i);
+    expect(page).not.toMatch(/per year| annually|\/yr/i);
+  });
+
+  test("monthly prices format with no stray decimals", () => {
+    for (const plan of PLANS) {
+      expect(formatMonthly(plan, "en")).not.toContain(".");
+    }
+  });
+
+  test("included and overage format to real numbers", () => {
+    // Unlike the monthly price, overage IS in cents by nature — $0.15 — so it
+    // must carry two decimals.
+    const starter = PLANS.find((p) => p.id === "starter")!;
+    expect(formatIncluded(starter, "en")).toBe("500");
+    expect(formatOverage(starter, "en")).toBe("$0.15");
+    expect(formatOverage(PLANS.find((p) => p.id === "enterprise")!, "en")).toBe("");
   });
 });
+
+/** Read a repo file relative to this test. */
+function read(rel: string): string {
+  return readFileSync(fileURLToPath(new URL(`../../${rel}`, import.meta.url)), "utf8");
+}

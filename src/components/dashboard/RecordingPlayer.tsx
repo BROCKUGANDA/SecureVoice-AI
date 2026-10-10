@@ -39,13 +39,16 @@ export function RecordingPlayer({
   // Stop the moment another row takes playback. Doing this in an effect (rather
   // than only in the click handler) means a row that starts playing from some
   // other path still yields.
+  //
+  // The effect ONLY touches the external system (the element); the state follows
+  // from the element's own `pause` event via `onPause` below. Setting state
+  // synchronously in the effect body is what the React Compiler's lint rule
+  // rejects, and the event handler is the same update without the cascading
+  // render.
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
-    if (!isPlaying && !el.paused) {
-      el.pause();
-      setPlaying(false);
-    }
+    if (!isPlaying && !el.paused) el.pause();
   }, [isPlaying]);
 
   if (!src) {

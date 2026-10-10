@@ -110,17 +110,17 @@ function smallToWords(n: number): string {
   const hundreds = Math.floor(n / 100);
   const rest = n % 100;
   const parts: string[] = [];
-  if (hundreds > 0) parts.push(`${ONES[hundreds]} hundred`);
+  if (hundreds > 0) parts.push(`${ONES[hundreds]!} hundred`);
   if (rest > 0) {
-    if (rest < 20) parts.push(ONES[rest]);
+    if (rest < 20) parts.push(ONES[rest]!);
     else {
       const tens = Math.floor(rest / 10);
       const unit = rest % 10;
-      parts.push(unit > 0 ? `${TENS[tens]}-${ONES[unit]}` : TENS[tens]);
+      parts.push(unit > 0 ? `${TENS[tens]!}-${ONES[unit]!}` : TENS[tens]!);
     }
   }
-  if (parts.length === 0) return ONES[0];
-  return hundreds > 0 && rest > 0 ? `${parts[0]} and ${parts[1]}` : parts.join(" ");
+  if (parts.length === 0) return ONES[0]!;
+  return hundreds > 0 && rest > 0 ? `${parts[0]!} and ${parts[1]!}` : parts.join(" ");
 }
 
 /** Integer to words, up to the trillions. */
@@ -135,7 +135,7 @@ export function integerToWords(n: number): string {
   }
   const parts: string[] = [];
   for (let i = groups.length - 1; i >= 0; i--) {
-    const g = groups[i];
+    const g = groups[i]!;
     if (g === 0) continue;
     const scale = SCALES[i];
     parts.push(scale ? `${smallToWords(g)} ${scale}` : smallToWords(g));
@@ -257,8 +257,8 @@ function currencyAfter(text: string, numberEnd: number): CurrencyHit | null {
   if (!m) return null;
   // Sentence punctuation after the token ("48,000 AED.") belongs to the
   // sentence; only the token itself is consumed.
-  const stripped = m[1].replace(/[.,!?;:)\]]+$/, "");
-  const tokenEnd = numberEnd + m[0].length - (m[1].length - stripped.length);
+  const stripped = m[1]!.replace(/[.,!?;:)\]]+$/, "");
+  const tokenEnd = numberEnd + m[0]!.length - (m[1]!.length - stripped.length);
   for (const [pattern, word] of CURRENCY_WORDS) {
     if (pattern.test(stripped)) {
       return { word, start: numberEnd, end: tokenEnd };
@@ -301,7 +301,7 @@ function renderGuarded(input: string): string {
     const bare = /^(\d+)(?:\.(\d+))?$/.exec(raw);
     if (!grouped && !bare) continue; // unreachable given the regex; keeps types honest
 
-    const digitsOnly = (grouped ? grouped[1] : bare![1]).replace(/,/g, "");
+    const digitsOnly = (grouped ? grouped[1]! : bare![1]!).replace(/,/g, "");
     const fraction = grouped?.[2] ?? bare?.[2] ?? "";
 
     // Bare runs that are part of an identifier are nobody's quantity.

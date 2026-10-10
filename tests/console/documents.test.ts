@@ -86,7 +86,7 @@ const POLICY_TEXT = [
 ].join("\n");
 
 function pdfFile(name = "policy.pdf"): File {
-  return new File([buildPdf(POLICY_TEXT)], name, { type: "application/pdf" });
+  return new File([new Uint8Array(buildPdf(POLICY_TEXT))], name, { type: "application/pdf" });
 }
 
 function uploadForm(file: File, extra: Record<string, string> = {}): FormData {

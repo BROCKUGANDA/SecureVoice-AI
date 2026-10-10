@@ -473,7 +473,7 @@ slowTest(
     globalThis.fetch = (async () => {
       called = true;
       return new Response("ok", { status: 200 });
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
     try {
       await db.organization.update({
         where: { id: ORG },

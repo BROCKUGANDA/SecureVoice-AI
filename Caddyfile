@@ -99,9 +99,19 @@
 	encode zstd gzip
 }
 
-# ---- site: TLS only ----------------------------------------------------------------
+# ---- site body: shared by every hostname -----------------------------------------
+#
+# This is a SNIPPET, not a site block. It used to be `{$SITE_ADDRESS:localhost} {…}`,
+# which meant exactly one hostname could ever be served. The site list at the
+# bottom imports this instead, so adding a hostname is one line at the bottom and
+# zero edits in here — which matters because the alternative is copy-pasting 110
+# lines of routing and letting the two copies drift.
+#
+# Nothing inside may reference {$SITE_ADDRESS}: a snippet is expanded per site, and
+# a value that only makes sense for one hostname would silently apply to all of
+# them.
 
-{$SITE_ADDRESS:localhost} {
+(site) {
 	import secure_defaults
 
 	# Twilio Media Streams WebSocket — the voice-stream WORKER plane. A SIBLING
@@ -194,4 +204,41 @@
 			}
 		}
 	}
+}
+
+# ---- sites: the hostname list ------------------------------------------------------
+#
+# Each block here is one hostname served by the `(site)` snippet above. Two rules
+# that this file keeps getting bitten by:
+#
+#   · A snippet must be DEFINED before any block that imports it, or Caddy fails
+#     with "File to import not found". `(site)` is above; keep it that way.
+#   · Do NOT collapse these into one block driven by a comma-separated env var.
+#     Caddy treats `{$VAR}` as ONE address; `{$A},{$B}` is not address expansion, and
+#     the earlier attempt to do this produced "ambiguous site definition". The site
+#     list has to be literal.
+#
+# TLS: both names are served with automatic certificates over HTTP-01. That REQUIRES
+# the DNS records to be DNS-ONLY (grey cloud). Under the Cloudflare proxy (orange
+# cloud) Cloudflare terminates TLS and never forwards the ACME challenge to the
+# origin, so Caddy's issuance fails and `caddy validate` still passes — the failure
+# only shows up at issuance time, in the logs, on the live box.
+#
+# To run proxied, replace the automatic cert with a DNS-01 challenge:
+#   securevoiceai.me, www.securevoiceai.me {
+#       tls { dns cloudflare {api_token {$CF_DNS_API_TOKEN} } }
+#       import site
+#   }
+# `{$CF_DNS_API_TOKEN}` needs Zone:DNS:Edit for this zone. Without it, proxied +
+# HTTP-01 is a silent outage for the proxied hostname only.
+
+# The sslip.io name stays: deploy.yml's health check targets it, and it is the one
+# address that is guaranteed to resolve to the box without touching DNS.
+{$SITE_ADDRESS:localhost} {
+	import site
+}
+
+# The real domain.
+securevoiceai.me, www.securevoiceai.me {
+	import site
 }

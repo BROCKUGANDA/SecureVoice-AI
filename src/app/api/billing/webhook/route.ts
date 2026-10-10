@@ -1,125 +1,179 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
-import { resolvePaymentProvider } from "@/lib/payments/gateway";
 import { settlePayment } from "@/lib/payments/provider";
+import { handlePaddleEvent, paddleClient } from "@/lib/payments/paddle-events";
 import { logInfo, logWarn } from "@/lib/validation/safe-log";
 
 /**
  * POST /api/billing/webhook — the ONLY place money becomes credits.
  *
- * THIS ROUTE DID NOT EXIST before the Paddle work.
+ * ## The signature, and why it is the SDK's and not ours
  *
- * ## The shape of the trust boundary
+ * `paddle.webhooks.unmarshal(rawBody, secret, signatureHeader)`. It owns the
+ * `Paddle-Signature` header format, the replay tolerance and the constant-time
+ * compare, and it THROWS on anything wrong — a value a caller could ignore is the
+ * one failure mode a verifier must not have.
  *
- *   1. `verifyWebhook` proves the bytes came from the gateway. That is all it
- *      proves. Everything below runs only after it returns `ok`.
- *   2. `settlePayment` is the single writer of a successful `PaymentRecord` and
- *      the single bridge from money to prepaid units. It is idempotent on
- *      `(reference, eventId)`, so Paddle retrying a webhook — which it does,
- *      with backoff — settles exactly once.
- *   3. The browser never settles anything. A return from Paddle's checkout is
- *      not a signal; only this route is.
+ * THE RAW BODY. `await req.text()`, once, and never `JSON.parse`d. The digest is
+ * over those exact bytes; a body the framework has already parsed changes key
+ * order and whitespace and every signature fails. There is no `req.json()` call
+ * anywhere in this file, and no body-parsing middleware is permitted in front of it.
  *
- * ## Why the raw bytes matter
+ * The secret is the NOTIFICATION SIGNING SECRET (`ntfs_...`), NOT the API key.
+ * They are different values from different parts of the dashboard; using the API
+ * key makes every delivery a `digest_mismatch` that looks exactly like an attack.
  *
- * The signature is computed over `ts:<raw body>`. This route reads the body ONCE
- * as text and hands those exact bytes to the adapter. It must never
- * `JSON.parse` and re-serialise, and must never let a framework parse it first —
- * key order or whitespace would change and every signature would fail. There is
- * no `req.json()` call anywhere in this file.
+ * ## Response codes, because Paddle retries on them
  *
- * ## Response codes Paddle retries on
+ *   2xx — accepted, or deliberately ignored. Paddle stops retrying.
+ *   4xx — will never succeed; retrying is noise.
+ *   5xx — transient; Paddle SHOULD retry.
  *
- * 2xx = settled or deliberately ignored. 4xx = this will never succeed, retrying
- * is pointless. 5xx = transient, Paddle retries. A malformed body is 400 (Paddle
- * will not fix it by retrying); a gateway misconfiguration is 503 (it might).
+ * Returning 2xx for a failed verification is the specific bug the brief warns
+ * about: it tells Paddle the delivery succeeded and the retry never comes.
+ *
+ * ## Idempotency
+ *
+ * Deliveries are at-least-once and may arrive out of order. Settlement is
+ * `settlePayment`, idempotent on `(reference, eventId)`; the subscription mirror
+ * upserts on the Paddle id. A replay writes nothing.
  */
 
 export const dynamic = "force-dynamic";
-
-/** Never cache, never let anything sit in front of this. */
 export const revalidate = 0;
 
 export async function POST(req: NextRequest) {
-  const gateway = resolvePaymentProvider();
-  if (!gateway.ok) {
-    logWarn("[billing-webhook] no gateway bound", { reason: gateway.reason });
+  const client = paddleClient();
+  if (!client) {
+    // 503, not 400: the REQUEST is fine, the DEPLOYMENT is not, and Paddle should
+    // keep retrying until the operator fixes it.
+    logWarn("[billing-webhook] no Paddle client", { reason: "PADDLE_API_KEY unset" });
     return NextResponse.json({ error: "billing_unavailable" }, { status: 503 });
   }
 
-  // The RAW bytes. Read once, never re-serialised — see the file header.
+  const secret = process.env.PADDLE_WEBHOOK_SECRET?.trim();
+  if (!secret) {
+    logWarn("[billing-webhook] no webhook secret", { reason: "PADDLE_WEBHOOK_SECRET unset" });
+    return NextResponse.json({ error: "webhook_secret_unset" }, { status: 503 });
+  }
+
+  // The RAW bytes. Once.
   const rawBody = await req.text();
+  const signature = req.headers.get("paddle-signature") ?? "";
 
-  const verification = await gateway.provider.verifyWebhook({
-    rawBody,
-    headers: Object.fromEntries(req.headers.entries()),
-  });
-
-  if (!verification.ok) {
-    logWarn("[billing-webhook] rejected", {
-      provider: gateway.name,
-      reason: verification.reason,
+  let verified: { eventType?: string; data?: unknown };
+  try {
+    verified = client.webhooks.unmarshal(rawBody, secret, signature) as unknown as {
+      eventType?: string;
+      data?: unknown;
+    };
+  } catch (e) {
+    // A bad signature, a malformed body, or a stale timestamp. NOT a 2xx — see
+    // the file header. 400 rather than 401 because Paddle's retry policy treats
+    // any 4xx as "stop", and there is no credential to challenge.
+    logWarn("[billing-webhook] signature verification failed", {
+      message: e instanceof Error ? e.message : "unknown",
+      bodyBytes: rawBody.length,
     });
-    // 400 for anything the sender can fix (bad signature, stale, malformed),
-    // because Paddle retrying an unsigned event is pure noise.
-    return NextResponse.json({ error: verification.reason }, { status: 400 });
+    return NextResponse.json({ error: "invalid_signature" }, { status: 400 });
   }
 
-  const event = verification.event;
+  const eventType = typeof verified.eventType === "string" ? verified.eventType : "";
+  const data =
+    verified.data && typeof verified.data === "object"
+      ? (verified.data as Record<string, unknown>)
+      : {};
 
-  if (event.kind !== "charge.succeeded") {
-    // A failed charge and a refund are recorded but never credited. Returning
-    // 200 is deliberate: the event was authentic and we have dealt with it, so
-    // the sender should stop retrying.
-    logInfo("[billing-webhook] non-crediting event", {
-      kind: event.kind,
-      eventId: event.eventId,
-    });
-    return NextResponse.json({ received: true, credited: false }, { status: 200 });
+  if (eventType === "") {
+    return NextResponse.json({ error: "missing_event_type" }, { status: 400 });
   }
 
-  const transactionId =
-    typeof event.metadata?.["paddleTransactionId"] === "string"
-      ? event.metadata["paddleTransactionId"]
-      : "";
+  // OUR organization for this customer. Paddle has no notion of our tenancy, so
+  // it is decoded from the reference we minted at checkout and carried in
+  // `custom_data`. An event that does not carry one is ignored with 200 — we
+  // cannot attribute it, but Paddle did nothing wrong by sending it.
+  const orgId = decodeOrgId(data);
 
-  const orgId = referenceOrgId(event.reference);
+  // A transaction is settled even without an org id when it carries our
+  // reference; that is what `settlePayment` keys on. An org is required for the
+  // MIRROR, because a mirror row without one is an orphan.
+  if (eventType === "transaction.completed") {
+    return settle(data, orgId);
+  }
+
   if (orgId === null) {
-    // `decodePaddleEvent` already refuses a reference that is not ours, so this
-    // is unreachable in practice. It is asserted anyway because it is the one
-    // condition under which we would credit money to the wrong tenant, and a
-    // settlement is not somewhere to rely on a two-function invariant holding.
-    logWarn("[billing-webhook] reference did not parse", { eventId: event.eventId });
-    return NextResponse.json({ error: "unsupported_reference" }, { status: 400 });
+    logInfo("[billing-webhook] event without an attributable org — ignored", { eventType });
+    return NextResponse.json({ received: true, mirrored: false }, { status: 200 });
   }
 
   try {
-    // The Paddle transaction id is carried on an entitlement's metadata, which
-    // is where `PaddleProvider.refund` looks it up. Without it a later refund
-    // cannot be routed back to the gateway at all.
+    const result = await handlePaddleEvent(eventType, data, { orgId });    if (!result.handled) {
+      // 200 with `mirrored: false`. An event type we do not support is Paddle
+      // behaving correctly; a 4xx would have it retried forever.
+      return NextResponse.json({ received: true, mirrored: false }, { status: 200 });
+    }
+    return NextResponse.json({ received: true, mirrored: true }, { status: 200 });
+  } catch (e) {
+    // 500 so Paddle retries. A mirrored subscription that failed transiently must
+    // come back; a 200 here would silently drop the paid entitlement.
+    logWarn("[billing-webhook] handler failed", {
+      eventType,
+      message: e instanceof Error ? e.message : "unknown",
+    });
+    return NextResponse.json({ error: "handler_failed" }, { status: 500 });
+  }
+}
+
+/**
+ * Settle a completed transaction.
+ *
+ * Only `charge.succeeded`-shaped events reach here — `transaction.completed` is
+ * Paddle's success event — and only when the payload carries our reference.
+ */
+async function settle(data: Record<string, unknown>, orgId: string | null): Promise<NextResponse> {
+  const custom = data.custom_data as Record<string, unknown> | undefined;
+  const reference = typeof custom?.reference === "string" ? custom.reference : "";
+  if (reference === "") {
+    // A transaction we did not mint (a Paddle-native purchase, or another
+    // tenant's). Accepting it with 200 is correct: Paddle delivered, we read it,
+    // we are not the buyer.
+    logInfo("[billing-webhook] transaction without our reference — ignored", {});
+    return NextResponse.json({ received: true, credited: false }, { status: 200 });
+  }
+
+  const items = Array.isArray(data.items) ? (data.items as Record<string, unknown>[]) : [];
+  const unit = (items[0]?.unit_price ?? {}) as { amount?: unknown; currency_code?: unknown };
+  const amountMinor = Number(unit.amount);
+  const currency = typeof unit.currency_code === "string" ? unit.currency_code : "";
+
+  if (
+    orgId === null ||
+    !Number.isInteger(amountMinor) ||
+    amountMinor <= 0 ||
+    !/^[A-Za-z]{3}$/.test(currency)
+  ) {
+    logWarn("[billing-webhook] transaction not settleable", { reference, amountMinor, currency });
+    return NextResponse.json({ error: "unsettleable_transaction" }, { status: 400 });
+  }
+
+  try {
     const result = await settlePayment({
-      provider: gateway.provider.id,
+      provider: "paddle",
       orgId,
-      reference: event.reference,
-      money: event.money,
+      reference,
+      money: { amountMinor, currency: currency.toUpperCase() },
       status: "success",
-      eventId: event.eventId,
+      // The Paddle event id is the dedupe token. `data.id` is the TRANSACTION id,
+      // which is stable across retries of the same event — which is exactly what
+      // makes a replay idempotent.
+      eventId: typeof data.id === "string" ? data.id : reference,
       entitlements: [
         {
           key: "paddle_transaction",
-          ...(transactionId === "" ? {} : { metadata: { paddleTransactionId: transactionId } }),
+          metadata: { paddleTransactionId: typeof data.id === "string" ? data.id : "" },
         },
       ],
     });
-
-    // NOTE: deliberately NOT appended to `audit-chain`. That chain is a
-    // tamper-evident record of CALL actions and its `action` union is
-    // "tts" | "asr" | "agent" | "freeze" | "handoff" | "consent" — there is no
-    // billing action, and shoehorning one in as "agent" would put a payment into
-    // a chain a regulator reads to audit what the agent said to a customer.
-    // The financial record is `PaymentRecord` + `UsageLedger`, both written by
-    // `settlePayment` in the transaction above; `logInfo` carries the searchable
-    // trace.
 
     logInfo("[billing-webhook] settled", {
       applied: result.applied,
@@ -129,18 +183,15 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ received: true, credited: result.applied }, { status: 200 });
   } catch (e) {
     const message = e instanceof Error ? e.message : "settle_failed";
-    logWarn("[billing-webhook] settlement failed", { message, eventId: event.eventId });
-    // 500 so Paddle retries. A settlement that failed transiently must be
-    // retried; returning 200 here would lose a real payment.
+    logWarn("[billing-webhook] settlement failed", { message, reference });
     return NextResponse.json({ error: "settlement_failed" }, { status: 500 });
   }
 }
 
-/**
- * The org is encoded in OUR reference, which only we mint — so this is a parse
- * of a value we generated, not a value the gateway or a client supplied.
- */
-function referenceOrgId(reference: string): string | null {
+/** Decode our org out of `custom_data.reference`, which only we mint. */
+function decodeOrgId(data: Record<string, unknown>): string | null {
+  const custom = data.custom_data as Record<string, unknown> | undefined;
+  const reference = typeof custom?.reference === "string" ? custom.reference : "";
   const m = /^org_([A-Za-z0-9_-]{1,40})_[A-Za-z0-9_-]{1,24}_[0-9A-Z]{26}$/.exec(reference);
   return m ? m[1]! : null;
 }

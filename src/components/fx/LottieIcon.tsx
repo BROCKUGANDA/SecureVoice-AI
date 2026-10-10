@@ -56,7 +56,14 @@ export function LottieIcon({
     void import("lottie-react")
       .then((mod) => {
         if (!alive) return;
-        const component = (mod as { default?: LottieComponent }).default;
+        // lottie-react v3 exports NAMED components — there is NO default
+        // export. Reading `.default` (the v2 shape) yields `undefined`, which
+        // silently leaves this component on its CSS fallback forever: the
+        // designed animation never appears and a tiny spinner ends up parked
+        // on top of whatever it decorates. Take `Lottie` by name (through
+        // `unknown` because v3's own prop type is far narrower than the
+        // `Record<string, unknown>` alias this shim types itself with).
+        const component = (mod as unknown as { Lottie?: LottieComponent }).Lottie;
         if (component) setComp(() => component);
       })
       .catch(() => {
@@ -78,7 +85,9 @@ export function LottieIcon({
   if (Comp && data) {
     return (
       <span role="status" aria-label={label} className={cn("inline-flex", className)}>
-        <Comp animationData={data} loop autoplay width={size} height={size} />
+        {/* v3 renamed `animationData` to `src`; the prop accepts the parsed
+            JSON object just the same. */}
+        <Comp src={data} loop autoplay width={size} height={size} />
       </span>
     );
   }

@@ -94,7 +94,21 @@ jobs:
           # Caddyfile would be overwritten by merge". Re-assert it here so the
           # ff-only pull always preserves the deployment-local edge config.
           git update-index --skip-worktree Caddyfile Caddyfile.platform 2>/dev/null || true
-          git pull --ff-only origin main
+          # A pull can still be refused when the PROMOTED commits modify the
+          # Caddyfile itself: skip-worktree preserves the local version, but a
+          # merge that would change a skip-worktree'd file refuses rather than
+          # silently dropping the deployment-local edge config. When that
+          # happens, print the incoming hunks so the operator can merge them by
+          # hand instead of guessing (docs/VPS-RECOVERY.md, failure mode #2).
+          if ! git pull --ff-only origin main; then
+            if git diff HEAD origin/main --name-only | grep -q '^Caddyfile'; then
+              echo "::error::the pull was refused because the promoted commits modify the Caddyfile,"
+              echo "::error::which is VPS-local (skip-worktree). Merge these incoming hunks into the"
+              echo "::error::VPS-local file by hand - see docs/VPS-RECOVERY.md failure mode #2:"
+              git --no-pager diff HEAD origin/main -- Caddyfile Caddyfile.platform || true
+            fi
+            exit 1
+          fi
           echo "deployed commit: $(git rev-parse --short HEAD)"
 
           # db-setup is in the build list on purpose. It is the image that runs
@@ -104,7 +118,7 @@ jobs:
           # happened to be rebuilt. That is not a theoretical hazard: a deploy that
           # printed "No pending migrations to apply" against a database missing
           # three migrations was compose reusing a stale db-setup image.
-          docker compose build app dial-worker retention-worker db-setup
+          docker compose build app dial-worker retention-worker voice-stream-worker db-setup
 
           # Schema before code. The runner image is `oven/bun:1-slim` plus the
           # standalone bundle: it has no Prisma CLI and no prisma/migrations, so
@@ -116,7 +130,7 @@ jobs:
           # database, and --no-deps keeps it off the app's dependency graph.
           docker compose run --rm --no-deps db-setup sh -c "bunx prisma migrate deploy"
 
-          docker compose up -d app dial-worker retention-worker
+          docker compose up -d app dial-worker retention-worker voice-stream-worker
           docker compose ps
 
       - name: Health check the rolled origin

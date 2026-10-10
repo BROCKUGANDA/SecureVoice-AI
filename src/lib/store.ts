@@ -64,6 +64,13 @@ function initialContrast(): boolean {
   }
 }
 
+/**
+ * Settings tabs, in the order Settings renders them. Lives here rather than in
+ * Settings.tsx so the store can type `openSettings(tab)` without importing a
+ * view module into the state layer.
+ */
+export type SettingsTab = "org" | "keys" | "knowledge" | "team" | "security" | "billing";
+
 interface AppState {
   view: View;
   lang: Lang;
@@ -77,11 +84,16 @@ interface AppState {
       `prefers-contrast` signal when never set. Applied as
       `data-contrast="high"` on <html> — see globals.css. */
   highContrast: boolean;
+  /** Which Settings tab to open. Set by `openSettings()` alongside the view
+      change, so a "turn on two-factor" CTA elsewhere in the app can land the
+      operator directly on the security tab instead of the default one. */
+  settingsTab: SettingsTab;
   setView: (v: View) => void;
   setLang: (l: Lang) => void;
   setBooted: (b: boolean) => void;
   setTimedOut: (t: boolean) => void;
   setHighContrast: (h: boolean) => void;
+  openSettings: (tab: SettingsTab) => void;
   launchDemo: () => void;
   consumeDemoIntent: () => void;
 }
@@ -93,6 +105,7 @@ export const useApp = create<AppState>((set) => ({
   demoIntent: false,
   timedOut: false,
   highContrast: initialContrast(),
+  settingsTab: "org",
   setView: (view) => set({ view }),
   setLang: (lang) => set({ lang }),
   setBooted: (booted) => set({ booted }),
@@ -105,6 +118,7 @@ export const useApp = create<AppState>((set) => ({
     }
     set({ highContrast });
   },
+  openSettings: (tab) => set({ view: "settings", settingsTab: tab }),
   launchDemo: () => set({ view: "demo", demoIntent: true }),
   consumeDemoIntent: () => set({ demoIntent: false }),
 }));

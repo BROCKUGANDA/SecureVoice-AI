@@ -19,7 +19,7 @@ import {
   Zap,
   CheckCheck,
 } from "lucide-react";
-import { useApp } from "@/lib/store";
+import { useApp, t } from "@/lib/store";
 import { KPIS } from "@/lib/data";
 import { Reveal, Chip, StatusPill } from "@/components/fx/core";
 import { CompareBar } from "@/components/fx/charts";
@@ -43,14 +43,14 @@ export function Product() {
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <div className="flex items-center gap-3">
-            <span className="micro text-primary">Deep dive</span>
+            <span className="micro text-primary">{t("Deep dive", "تعمّق تقني", lang)}</span>
             <span className="h-px w-10 bg-line" />
             <span dir="rtl" className="font-arabic text-[13px] text-ink-3">
               تفاصيل التصميم
             </span>
           </div>
           <h1 className="font-display mt-3 text-3xl font-semibold tracking-tight sm:text-4xl">
-            Inside the intervention machine
+            {t("Inside the intervention machine", "من داخل منظومة التدخل", lang)}
           </h1>
         </div>
       </div>
@@ -153,7 +153,46 @@ const FLOW = [
   },
 ];
 
+/* Arabic for the FLOW plain-string fields. Kept at the render site (keyed by
+   step number) so the data array above stays a description, not a dictionary.
+   `t` chips that are endpoint paths (e.g. "POST /freeze") are not translated. */
+const FLOW_AR: Record<string, { chip: string; body: string; script: string; rail: string }> = {
+  "1": {
+    chip: "٠ → ٦٠ ثانية",
+    body: "يتصل الوكيل خلال ٦٠ ثانية من إشارة الاحتيال، ويعرّف عن نفسه بشفافية كمساعد الأمن الذكي للبنك وبلغة العميل المفضّلة.",
+    script:
+      "«مرحباً، هذا مساعد الأمن الذكي التابع لبنكك، أتصل بخصوص نشاط حديث على حسابك. هل أنت أحمد؟»",
+    rail: "التحقق من المنطقة الزمنية في ملف العميل قبل الاتصال.",
+  },
+  "2": {
+    chip: "تحدٍّ ٢ من ٣",
+    body: "مسار تحقق معتمد من البنك — تجار حديثون ومبالغ وتواريخ. لا رموز سرية ولا كلمات مرور، أبداً. تُستمد الأسئلة فقط من مسار التحقق المعتمد والمخزّن في قاعدة المعرفة.",
+    script:
+      "«أي من هذه العمليات الحديثة تتعرف عليها: ٤٥٫٥٠ درهم في كارفور… ٢٥٠٠ درهم في إلكترونيات ورلد؟»",
+    rail: "منع صريح في تعليمات النظام + أسئلة محصورة بقاعدة المعرفة.",
+  },
+  "3": {
+    chip: "لغة مبسّطة",
+    body: "يعرض الوكيل النشاط المكتشف بوضوح ويطرح السؤال الوحيد المهم. وتحليل المشاعر يعمل باستمرار على ردّ العميل.",
+    script: "«لقد رصدنا عملية بقيمة ٢٥٠٠٫٠٠ درهم في إلكترونيات ورلد. هل أجازت هذه العملية؟»",
+    rail: "إشارة استغاثة ← تسليم ذي أولوية لأخصائي بشري.",
+  },
+  "4": {
+    chip: "",
+    body: "عند تأكيد الاحتيال، ينفّذ الوكيل الإجراء المعتمد الوحيد — تجميد مؤقت للبطاقة — ويشرح بالضبط ما سيحدث بعد ذلك.",
+    script: "«سأجمد بطاقتك مؤقتاً الآن. ويمكن إلغاء التجميد بسهولة بعد تأمين حسابك.»",
+    rail: "تحديد نطاق الأدوات: إجراء كتابة واحد، ولا شيء غير قابل للتراجع.",
+  },
+  "5": {
+    chip: "تحويل دافئ",
+    body: "في الإجراءات غير القابلة للتراجع أو عند الطلب، يحوّل الوكيل المكالمة إلى أخصائي احتيال — مع تمرير حالة التحقق والنص الكامل للمكالمة ومؤشرات المشاعر.",
+    script: "«سأصلك بسارة، أخصائية احتيال ستساعد في تأمين حسابك.»",
+    rail: "مظروف السياق + إنشاء حالة في CRM.",
+  },
+};
+
 function Flow() {
+  const { lang } = useApp();
   return (
     <div className="relative">
       {/* vertical spine */}
@@ -178,17 +217,29 @@ function Flow() {
                   <span dir="rtl" className="font-arabic text-[12px] text-ink-3">
                     {f.ar}
                   </span>
-                  <Chip className="ml-auto">{f.t}</Chip>
+                  <Chip className="ml-auto">
+                    {/* An empty `chip` in FLOW_AR marks a non-translatable value
+                        (endpoint paths), which is rendered exactly as written. */}
+                    {FLOW_AR[f.n].chip === "" ? f.t : t(f.t, FLOW_AR[f.n].chip, lang)}
+                  </Chip>
                 </div>
-                <p className="mt-3 max-w-2xl text-[13.5px] leading-relaxed text-ink-2">{f.body}</p>
+                <p className="mt-3 max-w-2xl text-[13.5px] leading-relaxed text-ink-2">
+                  {t(f.body, FLOW_AR[f.n].body, lang)}
+                </p>
                 <div className="mt-4 grid gap-3 lg:grid-cols-[1.2fr_0.8fr]">
                   <div className="rounded-xl bg-[#0c110e] px-4 py-3">
-                    <p className="micro !text-[8.5px] text-green-bright">Script</p>
-                    <p className="mt-1.5 text-[12.5px] leading-relaxed text-white/85">{f.script}</p>
+                    <p className="micro !text-[8.5px] text-green-bright">
+                      {t("Script", "نص المكالمة", lang)}
+                    </p>
+                    <p className="mt-1.5 text-[12.5px] leading-relaxed text-white/85">
+                      {t(f.script, FLOW_AR[f.n].script, lang)}
+                    </p>
                   </div>
                   <div className="flex items-start gap-2 rounded-xl bg-green-tint/60 px-4 py-3">
                     <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0 text-green-deep" />
-                    <p className="text-[11.5px] leading-relaxed text-green-deep">{f.rail}</p>
+                    <p className="text-[11.5px] leading-relaxed text-green-deep">
+                      {t(f.rail, FLOW_AR[f.n].rail, lang)}
+                    </p>
                   </div>
                 </div>
               </div>
@@ -272,7 +323,47 @@ const APIS = [
   },
 ];
 
+/* Arabic for the LAYERS plain-string fields, resolved at the render site by the
+   layer's English name. `chip` values that are protocol/endpoint identifiers
+   (OAuth 2.0, mutual TLS, POST /api/v1/fraud/alerts, …) stay as written. */
+const LAYERS_AR: Record<string, { body: string; chip: string }> = {
+  "Event Ingestion Layer": {
+    body: "مستمع لحظي لتنبيهات الاحتيال · قائمة أحداث بمعالجة الأولويات · التحقق من التنبيهات وإثراؤها",
+    chip: "",
+  },
+  "Agent Orchestration Layer": {
+    body: "محرك مسارات عمل ElevenLabs · إدارة حالة المحادثة · الاحتفاظ بالسياق بين الأدوار",
+    chip: "مسار · حالة · سياق RAG",
+  },
+  "Integration Layer": {
+    body: "بوابة واجهات البنك (مصادقة وتحديد معدل) · سجل العمليات · تنفيذ تجميد البطاقة · تسجيل إدارة الحالات",
+    chip: "",
+  },
+  "Telephony Layer": {
+    body: "الاتصالات الصادرة عبر Twilio · مراقبة جودة المكالمات · إدارة أرقام الاحتياط · قنوات مُهيّأة مسبقاً لتحقيق زمن ٦٠ ثانية",
+    chip: "twilio · بديل SIP",
+  },
+  "Analytics & Audit Layer": {
+    body: "تسجيل المكالمات + نسخ ثنائي اللغة · تحليلات المحادثة · تقارير الامتثال · مراقبة الأداء",
+    chip: "غير قابل للتغيير · AES-256",
+  },
+};
+
+/* Arabic labels for the data-flow nodes. The orchestration node keeps its
+   vendor names, which are not translated. */
+const FLOW_NODES_AR: Record<string, string> = {
+  "Fraud Detection System": "نظام كشف الاحتيال",
+  "Webhook Listener": "مستمع الأحداث",
+  "Event Queue": "قائمة الأحداث",
+  "Agent Orchestrator": "منسّق الوكيل",
+  "ElevenLabs Agent ↔ Twilio": "وكيل ElevenLabs ↔ Twilio",
+  "Core Banking APIs": "واجهات البنك الأساسية",
+  "Case Management": "إدارة الحالات",
+  "Analytics & Audit": "التحليلات والتدقيق",
+};
+
 function Architecture() {
+  const { lang } = useApp();
   return (
     <div className="grid gap-5 lg:grid-cols-[1.15fr_0.85fr]">
       <div>
@@ -291,9 +382,15 @@ function Architecture() {
                   <span dir="rtl" className="font-arabic text-[11.5px] text-ink-3">
                     {l.ar}
                   </span>
-                  <Chip className="ml-auto">{l.chip}</Chip>
+                  <Chip className="ml-auto">
+                    {/* An empty `chip` in LAYERS_AR marks a non-translatable value
+                        (protocol identifiers), rendered exactly as written. */}
+                    {LAYERS_AR[l.en].chip === "" ? l.chip : t(l.chip, LAYERS_AR[l.en].chip, lang)}
+                  </Chip>
                 </div>
-                <p className="mt-2.5 text-[12.5px] leading-relaxed text-ink-2">{l.body}</p>
+                <p className="mt-2.5 text-[12.5px] leading-relaxed text-ink-2">
+                  {t(l.body, LAYERS_AR[l.en].body, lang)}
+                </p>
               </div>
             </div>
             {i < LAYERS.length - 1 && (
@@ -308,10 +405,12 @@ function Architecture() {
       <div className="space-y-5">
         <Reveal delay={0.1}>
           <div className="rounded-2xl border border-line bg-white p-5">
-            <h3 className="text-[14px] font-semibold">Data flow</h3>
-            <p dir="rtl" className="font-arabic mt-1 text-[11px] text-ink-3">
-              تدفق البيانات
-            </p>
+            <h3 className="text-[14px] font-semibold">{t("Data flow", "تدفق البيانات", lang)}</h3>
+            {lang === "en" && (
+              <p dir="rtl" className="font-arabic mt-1 text-[11px] text-ink-3">
+                تدفق البيانات
+              </p>
+            )}
             <div className="mt-4 space-y-1.5">
               {[
                 "Fraud Detection System",
@@ -332,7 +431,7 @@ function Architecture() {
                         : "border-line bg-paper text-ink-2",
                     )}
                   >
-                    {n}
+                    {FLOW_NODES_AR[n] === undefined ? n : t(n, FLOW_NODES_AR[n], lang)}
                   </div>
                   {i < 7 && (
                     <div
@@ -406,17 +505,46 @@ const GUARD = [
   },
 ];
 
+/* Arabic for the GUARD `mech` prose, keyed by the guardrail's English title. */
+const GUARD_MECH_AR: Record<string, string> = {
+  "No PIN / password requests":
+    "تمنع تعليمات النظام ذلك صراحةً؛ وتُستمد أسئلة التحقق فقط من مسار التحدي المعتمد والمخزّن في قاعدة المعرفة. صفر طلب مسجّل عبر جميع المكالمات.",
+  "Pre-approved actions only":
+    "يحدّ تحديد نطاق الأدوات الوكيل بإجراء كتابة واحد — التجميد المؤقت. أما الإجراءات غير القابلة للتراجع فتشترط التسليم لأخصائي بشري، بعلامة صارمة في رسم المسار.",
+  "Language consistency":
+    "يكتشف الوكيل لغة العميل من الرد الأول ويلتزم بها طوال المكالمة؛ ويحدّد ملف العميل اللهجة (خليجية، فصحى، أردية، هندية، فلبينية، مالايالامية).",
+  "Audit completeness":
+    "كل مكالمة تُسجّل وتُنقل نصياً؛ وتُخزّن البيانات الوصفية — طريقة التحقق والإجراءات المتخذة وسبب التسليم — في سجل غير قابل للتغيير بمدخلات مترابطة تجزئةً، بتشفير AES-256 عند التخزين.",
+  "Calling-hour compliance":
+    "التحقق من المنطقة الزمنية في ملف العميل قبل بدء أي مكالمة؛ وتُدرج المكالمات خارج الساعات المسموحة تلقائياً في النافذة المسموحة التالية.",
+  "Vulnerability handling":
+    "يكتشف تحليل المشاعر إشارات الاستغاثة لحظياً؛ مع تسليم ذي أولوية تلقائي إلى أخصائي بشري مع تعليم الحالة كفئة هشة وإرفاق السياق الكامل.",
+};
+
 function Guardrails() {
+  const { lang } = useApp();
   return (
     <div className="overflow-hidden rounded-3xl border border-line bg-white">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line bg-paper px-6 py-4">
         <div>
-          <h3 className="text-[15px] font-semibold">The six guardrails</h3>
+          <h3 className="text-[15px] font-semibold">
+            {t("The six guardrails", "الضمانات الستة", lang)}
+          </h3>
           <p className="text-[12px] text-ink-3">
-            Enforced in architecture, not in policy documents
+            {t(
+              "Enforced in architecture, not in policy documents",
+              "مطبّقة في البنية، لا في وثائق السياسات",
+              lang,
+            )}
           </p>
         </div>
-        <StatusPill tone="green">CBUAE-aligned · 0 violations / 30 days</StatusPill>
+        <StatusPill tone="green">
+          {t(
+            "CBUAE-aligned · 0 violations / 30 days",
+            "متوافق مع ضوابط CBUAE · صفر مخالفة في ٣٠ يوماً",
+            lang,
+          )}
+        </StatusPill>
       </div>
       <div className="divide-y divide-line">
         {GUARD.map((g, i) => (
@@ -436,7 +564,9 @@ function Guardrails() {
                   </p>
                 </div>
               </div>
-              <p className="text-[13.5px] leading-relaxed text-ink-2">{g.mech}</p>
+              <p className="text-[13.5px] leading-relaxed text-ink-2">
+                {t(g.mech, GUARD_MECH_AR[g.en], lang)}
+              </p>
             </div>
           </Reveal>
         ))}
@@ -447,7 +577,35 @@ function Guardrails() {
 
 /* ————————————————— METRICS ————————————————— */
 
+/* Arabic for the KPI measurement notes and the measurement-plan milestones,
+   keyed by the KPI key / milestone label. */
+const METRIC_NOTES_AR: Record<string, string> = {
+  prevention:
+    "تُقاس كنسبة محاولات الاحتيال المؤكدة التي أُوقفت بعد الكشف. وترفع الأتمتة السقف الذي يفرضه زمن المعاودة البشرية.",
+  delay:
+    "من إشارة الاحتيال إلى الاتصال الحيّ بالعميل. اختصار المدة بمعدل ٢٥ ضعفاً هو مصدر الخسائر التي تم منعها — يفقد المحتالون نافذتهم الزمنية.",
+  verify:
+    "نسبة المكالمات التي أكملت التحقق من الهوية دون اللجوء إلى القنوات اليدوية. والأصوات متعددة اللغات ترفع هذه النسبة.",
+  csat: "استبيان ما بعد المكالمة. التعرّف الشفاف على كون المتحدث ذكياً اصطناعياً مع مخرج بشري فوري يحمي التقييم حتى عندما تكون الأخبار سيئة.",
+};
+
+const MEASUREMENT_PLAN_AR: Record<string, { t: string; d: string }> = {
+  "30 days": {
+    t: "٣٠ يوماً",
+    d: "إعادة قياس خط الأساس · معايرة الإنذارات الكاذبة · دورة ضبط اللهجة الأولى",
+  },
+  "90 days": {
+    t: "٩٠ يوماً",
+    d: "قراءة كاملة للمؤشرات مقابل خط الأساس · دراسة طولية لرضا العملاء · تمرين تدقيق امتثال",
+  },
+  "12 months": {
+    t: "١٢ شهراً",
+    d: "تأكيد الأهداف · تقرير الخسائر مقابل خط أساس ٣٤٠ مليون درهم · حزمة مراجعة مجلس الإدارة",
+  },
+};
+
 function Metrics() {
+  const { lang } = useApp();
   const maxes: Record<string, number> = { prevention: 100, delay: 2400, verify: 100, csat: 5 };
   const notes: Record<string, string> = {
     prevention:
@@ -482,7 +640,7 @@ function Metrics() {
                 />
               </div>
               <p className="mt-4 border-t border-line pt-3.5 text-[12px] leading-relaxed text-ink-2">
-                {notes[k.key]}
+                {t(notes[k.key], METRIC_NOTES_AR[k.key], lang)}
               </p>
             </div>
           </Reveal>
@@ -507,8 +665,12 @@ function Metrics() {
               },
             ].map((m) => (
               <div key={m.t} className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                <p className="num text-[13px] font-bold text-green-bright">{m.t}</p>
-                <p className="mt-2 text-[12px] leading-relaxed text-white/65">{m.d}</p>
+                <p className="num text-[13px] font-bold text-green-bright">
+                  {t(m.t, MEASUREMENT_PLAN_AR[m.t].t, lang)}
+                </p>
+                <p className="mt-2 text-[12px] leading-relaxed text-white/65">
+                  {t(m.d, MEASUREMENT_PLAN_AR[m.t].d, lang)}
+                </p>
               </div>
             ))}
           </div>

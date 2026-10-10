@@ -134,3 +134,11 @@ place rather than deleting lines.
 - **Third blocker (found by the first real CI run)**: the "Test typecheck" step compiles `tests/tsconfig.json`, which is STRICTER than the app config (noUncheckedIndexedAccess) — the never-pushed work had never seen it. Fixed with the house `!` idiom in spoken-numbers.ts, a fresh-Uint8Array wrap for the File/BlobPart typing, and an `as unknown as typeof fetch` cast.
 - console/documents: 3 local failures are the documented baseline (the local .env Pinecone key is REJECTED, so the suite sees the API error instead of `pinecone_not_configured`; CI, with no key, passes).
 - PR #15 (dev -> staging, 86 commits) is OPEN with auto-merge armed; CI re-running on cdd05ef.
+
+## Promotion complete — main = f5396dd; two VPS-side deploy blockers found
+
+- Ladder walked: PR #15 (dev→staging, 91 commits) merged 02:25; PR #16 (staging→main, 8 commits) merged 02:44. **main = f5396dd.** Main CI green on rerun (the first run's realtime cross-node gate failed on the known port-collision flake — same code passed on staging 18 min earlier).
+- **VPS deploy blocker #1** (from before): the origin app cannot reach its database at `db` — disk-full suspect from the OPS blocker.
+- **VPS deploy blocker #2** (NEW, deploy 38018564836): the deploy's `git pull` refuses — "local changes to Caddyfile would be overwritten". The promoted commits MODIFY the Caddyfile (the union added `/realtime/media-stream` for the voice-stream worker), and a merge that would change a skip-worktree'd file is refused by design. The VPS-local Caddyfile needs the incoming block merged by hand. Documented as failure mode #2 in docs/VPS-RECOVERY.md, and deploy.yml now prints the incoming hunks when the pull refuses on a Caddyfile.
+- AutoVersion now works correctly (the jq root-cause fix): it read the checks and refused to tag an unproven commit — the designed behavior.
+- Both blockers need SSH; docs/VPS-RECOVERY.md is the runbook (triage → db remediation → Caddyfile merge → Supabase cutover with dump/compare/restore → rerun the deploy).

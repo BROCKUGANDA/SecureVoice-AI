@@ -60,7 +60,7 @@ import { DELIVERY_ATTEMPT_LADDER_MS, EVENT_TYPES } from "./asyncapi";
 // The envelope's full code vocabulary. Imported here — rather than duplicated as
 // a constant in `schema.ts` — so the published `code` enum cannot drift from the
 // codes `makeFailure` is actually able to produce.
-import { FAILURE_CODES } from "@/lib/failures/envelope";
+import { FAILURE_CODES, FAILURE_DOCS_BASE } from "@/lib/failures/envelope";
 
 /** Convert a field list into a JSON Schema object. */
 /** The documented ingest operation label, matching the catalog's `reachedFrom`. */
@@ -143,7 +143,7 @@ function failureSchema(description: string): JsonSchema {
         type: "string",
         format: "uri",
         description:
-          "Per-code documentation URL. Base is FAILURE_DOCS_BASE_URL, default https://securevoice.ai/docs/errors.",
+          "Per-code documentation URL. Base is FAILURE_DOCS_BASE_URL, default https://securevoiceai.me/docs/errors.",
       },
     },
   };
@@ -209,7 +209,7 @@ function codeResponse(code: string, status: number): Record<string, unknown> | n
           message: first.meaning,
           retryable: first.retryable,
           requestId: "req_01HQ8Z7V3M9K2R4T6Y8W0X2B4D",
-          docsUrl: `https://securevoice.ai/docs/errors/${code}`,
+          docsUrl: `${FAILURE_DOCS_BASE}/${code}`,
         },
       },
     },
@@ -657,7 +657,7 @@ export function buildOpenApiDocument(): Record<string, unknown> {
       ].join("\n"),
       contact: {
         name: "SecureVoice integration support",
-        url: "https://securevoice.ai",
+        url: "https://securevoiceai.me",
       },
       license: { name: "Proprietary" },
     },

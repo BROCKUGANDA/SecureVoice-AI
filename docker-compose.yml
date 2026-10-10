@@ -82,6 +82,13 @@ services:
         BUILD_DATABASE_URL: ${DATABASE_URL}
         BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET in .env}
         BETTER_AUTH_URL: ${BETTER_AUTH_URL:-https://localhost:3000}
+        # Demo shortcut credentials. NEXT_PUBLIC_* is inlined at BUILD time, so
+        # omitting these does not merely hide the one-click judge login from
+        # src/views/Auth.tsx — it compiles the button out of the bundle. Every
+        # service built from this Dockerfile runs the builder stage (which ends
+        # in `bun run build`), so every one of them needs the pair.
+        NEXT_PUBLIC_DEMO_LOGIN_EMAIL: ${NEXT_PUBLIC_DEMO_LOGIN_EMAIL:-}
+        NEXT_PUBLIC_DEMO_LOGIN_PASSWORD: ${NEXT_PUBLIC_DEMO_LOGIN_PASSWORD:-}
     logging: *default-logging
     environment:
       # Use the same DATABASE_URL as the rest of the stack — .env is the single
@@ -114,6 +121,13 @@ services:
         BUILD_DATABASE_URL: ${DATABASE_URL}
         BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET in .env}
         BETTER_AUTH_URL: ${BETTER_AUTH_URL:-https://localhost:3000}
+        # Demo shortcut credentials. NEXT_PUBLIC_* is inlined at BUILD time, so
+        # omitting these does not merely hide the one-click judge login from
+        # src/views/Auth.tsx — it compiles the button out of the bundle. Every
+        # service built from this Dockerfile runs the builder stage (which ends
+        # in `bun run build`), so every one of them needs the pair.
+        NEXT_PUBLIC_DEMO_LOGIN_EMAIL: ${NEXT_PUBLIC_DEMO_LOGIN_EMAIL:-}
+        NEXT_PUBLIC_DEMO_LOGIN_PASSWORD: ${NEXT_PUBLIC_DEMO_LOGIN_PASSWORD:-}
     restart: unless-stopped
     logging: *default-logging
     mem_limit: 512m
@@ -178,6 +192,13 @@ services:
         BUILD_DATABASE_URL: ${DATABASE_URL}
         BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET in .env}
         BETTER_AUTH_URL: ${BETTER_AUTH_URL:-https://localhost:3000}
+        # Demo shortcut credentials. NEXT_PUBLIC_* is inlined at BUILD time, so
+        # omitting these does not merely hide the one-click judge login from
+        # src/views/Auth.tsx — it compiles the button out of the bundle. Every
+        # service built from this Dockerfile runs the builder stage (which ends
+        # in `bun run build`), so every one of them needs the pair.
+        NEXT_PUBLIC_DEMO_LOGIN_EMAIL: ${NEXT_PUBLIC_DEMO_LOGIN_EMAIL:-}
+        NEXT_PUBLIC_DEMO_LOGIN_PASSWORD: ${NEXT_PUBLIC_DEMO_LOGIN_PASSWORD:-}
     restart: unless-stopped
     logging: *default-logging
     mem_limit: 256m
@@ -243,6 +264,13 @@ services:
         BUILD_DATABASE_URL: ${DATABASE_URL}
         BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET in .env}
         BETTER_AUTH_URL: ${BETTER_AUTH_URL:-https://localhost:3000}
+        # Demo shortcut credentials. NEXT_PUBLIC_* is inlined at BUILD time, so
+        # omitting these does not merely hide the one-click judge login from
+        # src/views/Auth.tsx — it compiles the button out of the bundle. Every
+        # service built from this Dockerfile runs the builder stage (which ends
+        # in `bun run build`), so every one of them needs the pair.
+        NEXT_PUBLIC_DEMO_LOGIN_EMAIL: ${NEXT_PUBLIC_DEMO_LOGIN_EMAIL:-}
+        NEXT_PUBLIC_DEMO_LOGIN_PASSWORD: ${NEXT_PUBLIC_DEMO_LOGIN_PASSWORD:-}
     restart: unless-stopped
     logging: *default-logging
     mem_limit: 512m
@@ -297,6 +325,13 @@ services:
         BUILD_DATABASE_URL: ${DATABASE_URL}
         BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET in .env}
         BETTER_AUTH_URL: ${BETTER_AUTH_URL:-https://localhost:3000}
+        # Demo shortcut credentials. NEXT_PUBLIC_* is inlined at BUILD time, so
+        # omitting these does not merely hide the one-click judge login from
+        # src/views/Auth.tsx — it compiles the button out of the bundle. Every
+        # service built from this Dockerfile runs the builder stage (which ends
+        # in `bun run build`), so every one of them needs the pair.
+        NEXT_PUBLIC_DEMO_LOGIN_EMAIL: ${NEXT_PUBLIC_DEMO_LOGIN_EMAIL:-}
+        NEXT_PUBLIC_DEMO_LOGIN_PASSWORD: ${NEXT_PUBLIC_DEMO_LOGIN_PASSWORD:-}
     restart: unless-stopped
     logging: *default-logging
     mem_limit: 256m
@@ -353,6 +388,13 @@ services:
         BUILD_DATABASE_URL: ${DATABASE_URL:-postgresql://${POSTGRES_USER:-securevoice}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-securevoice}}
         BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set in .env}
         BETTER_AUTH_URL: ${BETTER_AUTH_URL:-https://localhost:3000}
+        # Demo shortcut credentials. NEXT_PUBLIC_* is inlined at BUILD time, so
+        # omitting these does not merely hide the one-click judge login from
+        # src/views/Auth.tsx — it compiles the button out of the bundle. Every
+        # service built from this Dockerfile runs the builder stage (which ends
+        # in `bun run build`), so every one of them needs the pair.
+        NEXT_PUBLIC_DEMO_LOGIN_EMAIL: ${NEXT_PUBLIC_DEMO_LOGIN_EMAIL:-}
+        NEXT_PUBLIC_DEMO_LOGIN_PASSWORD: ${NEXT_PUBLIC_DEMO_LOGIN_PASSWORD:-}
     # IMAGE lets a release job smoke-test the image it just published instead of a
     # locally rebuilt copy. Unset (the normal case) => build from source.
     # `${VAR:-}` with no value yields an empty string, and compose treats that as
@@ -452,6 +494,13 @@ services:
         BUILD_DATABASE_URL: ${DATABASE_URL}
         BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET in .env}
         BETTER_AUTH_URL: ${BETTER_AUTH_URL:-https://localhost:3000}
+        # Demo shortcut credentials. NEXT_PUBLIC_* is inlined at BUILD time, so
+        # omitting these does not merely hide the one-click judge login from
+        # src/views/Auth.tsx — it compiles the button out of the bundle. Every
+        # service built from this Dockerfile runs the builder stage (which ends
+        # in `bun run build`), so every one of them needs the pair.
+        NEXT_PUBLIC_DEMO_LOGIN_EMAIL: ${NEXT_PUBLIC_DEMO_LOGIN_EMAIL:-}
+        NEXT_PUBLIC_DEMO_LOGIN_PASSWORD: ${NEXT_PUBLIC_DEMO_LOGIN_PASSWORD:-}
     logging: *default-logging
     environment:
       HOSTNAME: 0.0.0.0

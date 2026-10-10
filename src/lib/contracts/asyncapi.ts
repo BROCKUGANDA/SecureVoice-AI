@@ -134,7 +134,10 @@ export function buildAsyncApiDocument(): Record<string, unknown> {
         "",
         "`POST /v1/conformance/run` fires signed probes at your receiver and scores them against these obligations, so this contract can be verified without a human on both sides.",
       ].join("\n"),
-      contact: { name: "SecureVoice integration support", url: "https://securevoice.ai" },
+      contact: {
+        name: "SecureVoice integration support",
+        url: "https://securevoiceai.me",
+      },
     },
     defaultContentType: "application/json",
     servers: {

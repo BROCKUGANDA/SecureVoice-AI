@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { LegalPageLayout } from "@/components/shell/LegalPageLayout";
+import { PublicPageLayout } from "@/components/shell/PublicPageLayout";
 import { Refund } from "@/views/Legal";
 
 /**
@@ -26,8 +26,8 @@ export const metadata: Metadata = {
 
 export default function RefundPage() {
   return (
-    <LegalPageLayout current="/refund">
+    <PublicPageLayout current="/refund">
       <Refund />
-    </LegalPageLayout>
+    </PublicPageLayout>
   );
 }

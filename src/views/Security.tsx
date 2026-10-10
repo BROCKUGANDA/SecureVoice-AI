@@ -284,7 +284,9 @@ function SecurityHeadersProbe() {
 /* ————————————————— page ————————————————— */
 
 export function Security() {
-  const { lang, setView } = useApp();
+  // `setView` used to drive the in-app Privacy link, which is now a real anchor
+  // to the /privacy route so a crawler can follow it. Nothing here navigates.
+  const { lang } = useApp();
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8 lg:py-12">

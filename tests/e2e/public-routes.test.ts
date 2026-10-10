@@ -860,24 +860,61 @@ describe("robots.txt — the declared rules actually deny what they claim", () =
     expect(crawlDecision(path, "*")).toBe("disallow");
   });
 
-  test.each(["/", "/security", "/docs", "/legal/privacy", "/robots.txt", "/sitemap.xml"])(
-    "allows %s — marketing and docs stay indexable",
-    (path) => {
-      expect(crawlDecision(path, "*")).toBe("allow");
-    },
-  );
+  test.each([
+    "/",
+    "/pricing",
+    "/terms",
+    "/privacy",
+    "/refund",
+    "/docs",
+    "/security",
+    "/usecases",
+    "/robots.txt",
+    "/sitemap.xml",
+  ])("allows %s — marketing, docs and legal stay indexable", (path) => {
+    expect(crawlDecision(path, "*")).toBe("allow");
+  });
 
-  test("every named AI crawler is denied at the root, including /", () => {
-    const aiGroups = ROBOT_RULES.filter((rule) => !list(rule.userAgent).includes("*"));
-    expect(aiGroups.length).toBeGreaterThan(0);
-    for (const group of aiGroups) {
-      const agents = list(group.userAgent);
-      expect(agents.length).toBeGreaterThan(1);
-      for (const agent of agents) {
-        // The root is where the deny has to hold: an AI crawler handed "/" must
-        // not be told it may take the marketing page.
-        expect(`${agent} / → ${crawlDecision("/", agent)}`).toBe(`${agent} / → disallow`);
-        expect(crawlDecision("/api/console/audit", agent)).toBe("disallow");
+  test("training crawlers are denied at the root, including /", () => {
+    // Split by PURPOSE, not lumped together — see SEARCH/TRAINING in
+    // src/app/robots.ts. The blanket deny this replaced bought no protection
+    // (the /api/ disallow below already covered every crawler) while making the
+    // pricing page, the FAQ and the JSON-LD uncitable.
+    const training = ROBOT_RULES.find((rule) => list(rule.userAgent).includes("GPTBot"));
+    expect(training, "the training-crawler rule disappeared").toBeDefined();
+    expect(training!.allow).toBeUndefined(); // no allow == nothing is permitted
+    for (const agent of list(training!.userAgent)) {
+      // The root is where the deny has to hold: an AI crawler handed "/" must
+      // not be told it may take the marketing page.
+      expect(`${agent} / → ${crawlDecision("/", agent)}`).toBe(`${agent} / → disallow`);
+      expect(crawlDecision("/api/console/audit", agent)).toBe("disallow");
+    }
+  });
+
+  test("search/answer crawlers may read the marketing pages but nothing private", () => {
+    // The half that has to hold for the reversal to be safe. Being an AI crawler
+    // must not become a way around ANY disallow — that is the only thing the
+    // blanket deny was ever protecting, and it is asserted here explicitly
+    // rather than assumed from the allow.
+    const search = ROBOT_RULES.find((rule) => list(rule.userAgent).includes("OAI-SearchBot"));
+    expect(search, "the search-crawler rule disappeared").toBeDefined();
+    const agents = list(search!.userAgent);
+    expect(agents.length).toBeGreaterThan(1);
+
+    for (const agent of agents) {
+      // Indexable: these are the pages the pricing, FAQ and JSON-LD exist to be
+      // found on.
+      for (const path of ["/", "/pricing", "/terms", "/privacy", "/refund", "/docs", "/security"]) {
+        expect(`${agent} ${path} → ${crawlDecision(path, agent)}`).toBe(`${agent} ${path} → allow`);
+      }
+      // And still walled off from everything with data in it.
+      for (const prefix of NO_INDEX) {
+        expect(`${agent} ${prefix} → ${crawlDecision(prefix, agent)}`).toBe(
+          `${agent} ${prefix} → disallow`,
+        );
+      }
+      for (const path of ["/api/console/audit", "/api/enroll", "/api/webhooks/receiver"]) {
+        expect(crawlDecision(path, agent)).toBe("disallow");
       }
     }
   });

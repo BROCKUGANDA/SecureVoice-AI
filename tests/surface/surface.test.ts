@@ -114,7 +114,7 @@ describe("indexing: authenticated and API routes are never indexable", () => {
   });
 
   test("the allowlist is an allowlist: unknown paths are noindex by default", () => {
-    // The five entries are the ONLY indexable HTML routes. Everything else —
+    // Every entry is a real HTTP route backed by a file. Anything not listed —
     // including any route added later without an entry here — is noindex, which
     // is the failure mode this list exists to prevent.
     expect(INDEXABLE_PATHS).toEqual([
@@ -124,6 +124,9 @@ describe("indexing: authenticated and API routes are never indexable", () => {
       "/terms",
       "/privacy",
       "/refund",
+      "/docs",
+      "/security",
+      "/usecases",
     ]);
     for (const path of INDEXABLE_PATHS) expect(robotsTagFor(path)).toBeNull();
     expect(robotsTagFor("/anything/new")).toBe("noindex, nofollow");
@@ -131,10 +134,10 @@ describe("indexing: authenticated and API routes are never indexable", () => {
   });
 
   /**
-   * The legal + commercial routes are indexable AND actually exist.
+   * Every indexable HTML route is allowlisted AND backed by a real route file.
    *
    * Two halves that have to hold together. A path on the allowlist that 404s is
-   * worse than a path left off it: the sitemap advertises it, the `X-Robots-Tag`
+   * worse than a path left off it: the sitemap advertises it, `X-Robots-Tag`
    * says "index me", and a crawler gets a 404. So each route is checked against
    * the filesystem as well as the allowlist.
    */
@@ -143,9 +146,41 @@ describe("indexing: authenticated and API routes are never indexable", () => {
     { path: "/terms", file: "src/app/terms/page.tsx" },
     { path: "/privacy", file: "src/app/privacy/page.tsx" },
     { path: "/refund", file: "src/app/refund/page.tsx" },
+    { path: "/docs", file: "src/app/docs/page.tsx" },
+    { path: "/security", file: "src/app/security/page.tsx" },
+    { path: "/usecases", file: "src/app/usecases/page.tsx" },
   ])("$path is allowlisted AND backed by a real route", ({ path, file }) => {
     expect(INDEXABLE_PATHS).toContain(path);
     expect(existsSync(file)).toBe(true);
+  });
+
+  /**
+   * The authenticated views must NEVER acquire a public route.
+   *
+   * The whole "no /console URL" defence rests on there being no path to
+   * de-index. `VIEW_ACCESS` is what these routes would have to satisfy, so it is
+   * asserted here rather than left to a comment: if someone routes `/console` or
+   * `/dashboard` later and forget this list, the second layer of the Command
+   * Center's protection is gone and nothing else fails.
+   */
+  test("no authenticated view is indexable", () => {
+    // Parsed out of the store rather than hardcoded, so a new non-public view
+    // is covered the day it is added.
+    const store = read("src/lib/store.ts");
+    const publicViews = [...store.matchAll(/^\s{2}(\w+):\s*"public",/gm)].map((m) => m[1]!);
+    const guarded = ["demo", "dashboard", "product", "deck", "console", "settings", "setup"];
+    expect(guarded.length).toBeGreaterThan(0);
+
+    for (const view of guarded) {
+      expect(publicViews, `${view} must not be a public view`).not.toContain(view);
+      expect(INDEXABLE_PATHS, `${view} must not have an indexable route`).not.toContain(`/${view}`);
+      expect(SITEMAP_PATHS).not.toContain(`/${view}`);
+    }
+    // Sanity: the regex actually found the map, so the assertions above are not
+    // passing vacuously against an empty list.
+    expect(publicViews).toEqual(
+      expect.arrayContaining(["home", "docs", "security", "pricing", "usecases"]),
+    );
   });
 
   test("/sitemap.xml is not noindex ÃƒÂ¢Ã¢šÂ¬Ã¢â‚¬Â it is the public SEO surface", () => {
@@ -250,12 +285,21 @@ describe("sitemap", () => {
   });
 
   test("every public route is listed exactly once, and `/` is first", () => {
-    // Five entries: the single-page app plus the four standalone documents. The
-    // count is asserted rather than derived so that ADDING a route to the list
-    // without thinking about the sitemap fails here instead of shipping.
-    expect(entries).toHaveLength(5);
+    // Eight entries: the single-page app plus the seven standalone documents.
+    // The count is asserted rather than derived so that ADDING a route to the
+    // list without thinking about the sitemap fails here instead of shipping.
+    expect(entries).toHaveLength(8);
     const paths = entries.map((e) => new URL(e.url).pathname);
-    expect(paths).toEqual(["/", "/pricing", "/terms", "/privacy", "/refund"]);
+    expect(paths).toEqual([
+      "/",
+      "/pricing",
+      "/terms",
+      "/privacy",
+      "/refund",
+      "/docs",
+      "/security",
+      "/usecases",
+    ]);
     expect(new Set(paths).size).toBe(paths.length);
   });
 

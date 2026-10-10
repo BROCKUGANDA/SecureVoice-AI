@@ -9,30 +9,27 @@ const PRODUCT: { id: View; en: string; ar: string }[] = [
   { id: "demo", en: "Live Demo", ar: "عرض حي" },
   { id: "dashboard", en: "Dashboard", ar: "اللوحة" },
   { id: "product", en: "Deep Dive", ar: "التفاصيل" },
-  { id: "usecases", en: "Use Cases", ar: "حالات الاستخدام" },
-];
-
-const RESOURCES: { id: View; en: string; ar: string }[] = [
-  { id: "docs", en: "Documentation", ar: "التوثيق" },
-  { id: "security", en: "Security", ar: "الأمن" },
 ];
 
 /**
- * The legal + commercial documents, as REAL ANCHORS.
+ * Every public page that is a REAL ROUTE, as real anchors.
  *
- * These four are the exception to the `setView` buttons used elsewhere in this
- * footer, and the difference is the whole point:
+ * `/` is the only indexable document a crawler used to see, so anything linked
+ * only with a `setView` button was unreachable to it: the Terms of Service was
+ * not linked anywhere on the site at all, and Docs and Security — the two pages
+ * a bank integrator and a procurement reviewer look for by name — needed someone
+ * who already knew to click. A crawler reads links. It does not click buttons.
  *
- *  - `/pricing`, `/terms`, `/privacy` and `/refund` are actual HTTP routes with
- *    their own URL, their own <title> and their own metadata.
- *  - A crawler reads links. It does not click buttons. While these were buttons,
- *    the Terms of Service — the document a publication review looks for by name —
- *    was not linked anywhere on the page at all: it was reachable only by someone
- *    who already knew to navigate the app.
- *  - `rel="nofollow"` is deliberately absent. These are the pages we want followed.
+ * `rel="nofollow"` is deliberately absent. These are the pages we want followed.
+ *
+ * Use Cases is here too (it moved out of PRODUCT above) because it is a route
+ * now; the authenticated views above are not, deliberately, and stay as buttons.
  */
-const LEGAL: { href: string; en: string; ar: string }[] = [
+const ROUTES: { href: string; en: string; ar: string }[] = [
   { href: "/pricing", en: "Pricing", ar: "الأسعار" },
+  { href: "/docs", en: "Documentation", ar: "التوثيق" },
+  { href: "/security", en: "Security", ar: "الأمن" },
+  { href: "/usecases", en: "Use Cases", ar: "حالات الاستخدام" },
   { href: "/terms", en: "Terms of Service", ar: "الشروط والأحكام" },
   { href: "/privacy", en: "Privacy Policy", ar: "سياسة الخصوصية" },
   { href: "/refund", en: "Refund Policy", ar: "سياسة الاسترداد" },
@@ -56,7 +53,7 @@ export function Footer() {
   return (
     <footer className="mt-auto border-t border-line bg-white">
       <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
-        <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-[1.4fr_1fr_1fr_1fr_1.2fr]">
+        <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-[1.4fr_1fr_3fr]">
           {/* brand */}
           <div>
             <div className="flex items-center gap-2.5">
@@ -74,23 +71,17 @@ export function Footer() {
             </p>
           </div>
 
-          {/* product */}
+          {/* product — the authenticated views, which have no URL */}
           <nav aria-label="Product">
             <p className="micro text-[9px] text-ink-3">PRODUCT</p>
             <div className="mt-3 space-y-2">{group(PRODUCT)}</div>
           </nav>
 
-          {/* resources */}
-          <nav aria-label="Resources">
-            <p className="micro text-[9px] text-ink-3">RESOURCES</p>
-            <div className="mt-3 space-y-2">{group(RESOURCES)}</div>
-          </nav>
-
-          {/* legal + commercial. Anchors, not buttons — see LEGAL above. */}
-          <nav aria-label="Legal and pricing">
-            <p className="micro text-[9px] text-ink-3">LEGAL &amp; PRICING</p>
-            <div className="mt-3 space-y-2">
-              {LEGAL.map((l) => (
+          {/* every real public route. Anchors, not buttons — see ROUTES above. */}
+          <nav aria-label="Public pages" className="sm:col-span-2 lg:col-span-3">
+            <p className="micro text-[9px] text-ink-3">SITE</p>
+            <div className="mt-3 grid grid-cols-2 gap-x-6 gap-y-2 sm:grid-cols-3 lg:grid-cols-4">
+              {ROUTES.map((l) => (
                 <a
                   key={l.href}
                   href={l.href}

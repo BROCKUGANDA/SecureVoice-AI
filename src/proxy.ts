@@ -176,6 +176,17 @@ function reject(
  *   `/terms`        real route — required to be publicly addressable
  *   `/privacy`      real route — required to be publicly addressable
  *   `/refund`       real route — required to be publicly addressable
+ *   `/docs`         real route — the integration surface a bank has to read
+ *   `/security`     real route — what a procurement review asks for by name
+ *   `/usecases`     real route — the "does this fit us" page
+ *
+ * Every one of these is a `public` view in VIEW_ACCESS. The authenticated views
+ * (`console`, `dashboard`, `demo`, `product`, `settings`, `deck`, `setup`) are
+ * deliberately ABSENT and must stay absent: there is no URL for them to exclude,
+ * which is the second of the two layers protecting the Command Center. Giving
+ * `/console` a route would delete that layer, and a future route or Server
+ * Action move that slipped past a guard would become publicly reachable rather
+ * than merely reachable-by-session.
  *
  * `/inspector` is the only other HTML route and stays off the list: it is a
  * signature-verification debug tool, i.e. operator material.
@@ -186,7 +197,8 @@ function reject(
  * be opted in, which fails towards the safe side.
  *
  * Adding a real public page? Add it here AND to src/app/sitemap.ts. tests/
- * surface/surface.test.ts fails if the two disagree.
+ * surface/surface.test.ts fails if the two disagree, and if the route file does
+ * not exist.
  */
 export const INDEXABLE_PATHS: readonly string[] = [
   "/",
@@ -195,6 +207,9 @@ export const INDEXABLE_PATHS: readonly string[] = [
   "/terms",
   "/privacy",
   "/refund",
+  "/docs",
+  "/security",
+  "/usecases",
 ];
 
 /**

@@ -94,9 +94,26 @@ ARG BETTER_AUTH_URL="https://localhost:3000"
 ARG NEXT_PUBLIC_DEMO_LOGIN_EMAIL=""
 ARG NEXT_PUBLIC_DEMO_LOGIN_PASSWORD=""
 
+# The canonical public origin. This has to be a BUILD ARG, not just a runtime
+# env var, and that is the whole point of this line.
+#
+# `NEXT_PUBLIC_*` is inlined by the Next.js compiler AT BUILD TIME — it is a
+# literal substitution into the bundle, not a lookup at request time. Everything
+# that consumes it (metadataBase, the canonical URL, the OG/Twitter image URLs,
+# the prerendered sitemap.xml and robots.txt) is therefore frozen when
+# `bun run build` runs below. Adding NEXT_PUBLIC_SITE_URL to the VPS .env
+# WITHOUT threading it through here leaves production serving a sitemap and a
+# canonical tag that point at http://localhost:3000, which is worse than leaving
+# it unset: it is actively wrong, and search engines cache it.
+#
+# docker-compose.yml passes this from the host .env, defaulting to https://<SITE_ADDRESS>
+# so a deployment that set SITE_ADDRESS for TLS cannot forget it here too.
+ARG NEXT_PUBLIC_SITE_URL=""
+
 ENV DATABASE_URL=${BUILD_DATABASE_URL} \
     BETTER_AUTH_SECRET=${BETTER_AUTH_SECRET} \
     BETTER_AUTH_URL=${BETTER_AUTH_URL} \
+    NEXT_PUBLIC_SITE_URL=${NEXT_PUBLIC_SITE_URL} \
     NEXT_PUBLIC_DEMO_LOGIN_EMAIL=${NEXT_PUBLIC_DEMO_LOGIN_EMAIL} \
     NEXT_PUBLIC_DEMO_LOGIN_PASSWORD=${NEXT_PUBLIC_DEMO_LOGIN_PASSWORD}
 COPY --from=deps /app/node_modules ./node_modules
@@ -115,6 +132,15 @@ ENV NODE_ENV=production \
     PORT=3000 \
     DATABASE_URL=postgresql://securevoice:securevoice@db:5432/securevoice?schema=public
 COPY --from=builder /app/.next/standalone ./
+# Run as the non-root `bun` user this base image already ships (uid 1000).
+# Previously the runner stage had no USER directive, so the app ran as root.
+#
+# The image provides the user, so no `adduser` is needed. Nothing in the
+# standalone output is written at runtime — `/app` is root-owned and 755, so it
+# stays readable, and scratch files go to `/tmp` — so dropping from root to
+# 1000 does not change what this container can reach, only what an attacker
+# gains from a compromise of it.
+USER bun
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
   CMD bun -e "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"

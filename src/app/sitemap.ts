@@ -49,7 +49,16 @@ export { siteOrigin };
  * Each of those routes renders the SAME view component the panel does, so the two
  * cannot drift apart in content — only the URL differs.
  */
-export const INDEXABLE_PATHS = ["/", "/pricing", "/terms", "/privacy", "/refund"] as const;
+export const INDEXABLE_PATHS = [
+  "/",
+  "/pricing",
+  "/terms",
+  "/privacy",
+  "/refund",
+  "/docs",
+  "/security",
+  "/usecases",
+] as const;
 
 /**
  * Paths that must never be listed, asserted negatively by the test so that a
@@ -90,6 +99,9 @@ export default function sitemap(): MetadataRoute.Sitemap {
   const PRIORITY: Record<string, number> = {
     "/": 1.0,
     "/pricing": 0.9,
+    "/docs": 0.8,
+    "/security": 0.7,
+    "/usecases": 0.7,
     "/terms": 0.5,
     "/privacy": 0.5,
     "/refund": 0.5,

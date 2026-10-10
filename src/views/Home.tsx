@@ -397,8 +397,12 @@ export function Home() {
         </div>
       </section>
 
-      {/* ———————————————— LIVE BROWSER-MIC DEMO ———————————————— */}
-      <section className="border-b border-line bg-white py-14 lg:py-16">
+      {/* ———————————————— LIVE BROWSER-MIC DEMO ————————————————
+          The `id` is the scroll target for `/#live-demo`, which is what the
+          standalone /usecases page links to. This widget is the demo that needs
+          NO sign-in — mic in, neural voice out, no session — so it is the
+          correct destination for a visitor arriving from a public page. */}
+      <section id="live-demo" className="scroll-mt-24 border-b border-line bg-white py-14 lg:py-16">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <Reveal>
             <div className="flex flex-wrap items-end justify-between gap-4">

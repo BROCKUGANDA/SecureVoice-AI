@@ -59,6 +59,34 @@ export default function Page() {
     window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
   }, [view]);
 
+  /* Deep links into the SPA, for the standalone routes that cannot use the
+   * in-app navigation: `/#docs` opens the docs, and any other public view
+   * behaves the same way. This exists because `launchDemo`/`setView` mutate a
+   * Zustand store that nothing is subscribed to when the view is rendered as
+   * its own route (see src/components/shell/standalone-context.tsx), so a
+   * "Read the docs" control on `/usecases` has to be a real anchor.
+   *
+   * `#demo` is DELIBERATELY NOT HANDLED, and this is the second thing that has
+   * to be true for the reason it is not. The `demo` view is `user` access, so
+   * for a signed-out visitor the RBAC effect below bounces `demo` to `auth` —
+   * meaning a `/#demo` deep link triggers home -> demo -> auth in quick
+   * succession during mount, and AnimatePresence is left with two views
+   * overlapping and the page rendering blank. It was measured, not predicted.
+   *
+   * The public answer to "show me the demo" is the browser-mic widget on this
+   * page (`#live-demo`), which needs no sign-in at all, and that is what the
+   * public CTAs link to.
+   *
+   * Restricted to `public` views for the same reason: routing a `user` or
+   * `operator` view here would reintroduce exactly that bounce.
+   */
+  useEffect(() => {
+    const hash = window.location.hash.replace(/^#/, "");
+    if (!hash) return;
+    if (hash === "demo") return; // see above — auth-gated, bounces to /auth
+    if (hash in VIEWS && VIEW_ACCESS[hash as View] === "public") setView(hash as View);
+  }, [setView]);
+
   /* announce the active language to assistive tech — Arabic copy read with an
      English voice profile is unintelligible, so lang must track the toggle.
      The direction is set from the same effect: Arabic is a right-to-left

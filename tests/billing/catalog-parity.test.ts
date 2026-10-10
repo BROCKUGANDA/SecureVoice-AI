@@ -119,7 +119,12 @@ describe("the website and the Paddle catalog quote the same prices", () => {
     // "Two months free", and the ratio the catalog was seeded to. Changing one
     // without the other is the drift this file exists to catch.
     for (const row of CATALOG) {
-      expect(row.yearlyUsd, `${row.name} annual`).toBe(row.monthlyUsd * 10);
+      // Widened deliberately: `row` is `as const`, so its `yearlyUsd` is the
+      // literal union 990 | 4990 | 20000 while `monthlyUsd * 10` widens to
+      // `number`. Bun's overload resolution wants both sides the same type and
+      // rejects the pair. The RATIO is what is being asserted, so compare
+      // numbers.
+      expect(row.yearlyUsd as number, `${row.name} annual`).toBe(row.monthlyUsd * 10);
     }
   });
 

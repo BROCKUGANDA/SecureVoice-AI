@@ -486,14 +486,23 @@ describe("declared security headers", () => {
     // cache-busted so the module re-evaluates under production, and the
     // previous env is restored in `finally` so no other test observes it.
     const prevNodeEnv = process.env.NODE_ENV;
-    process.env.NODE_ENV = "production";
+    // `NODE_ENV` is declared read-only on NodeJS.ProcessEnv. The test has to
+    // override it so the module re-evaluates under production, and fighting the
+    // type here (a cast, a `delete` then set) is noise; narrowing to a writable
+    // view of exactly the one key is the honest expression of "this test mutates
+    // NODE_ENV and restores it in `finally`".
+    const envForImport = process.env as { NODE_ENV?: string };
+    envForImport.NODE_ENV = "production";
     let config: {
       headers?: () => Promise<{ headers: { key: string; value: string }[] }[]>;
     };
     try {
+      // `?csp-production` is a cache-busting suffix, not a real module: it makes
+      // Bun re-resolve `../../next.config` after the env change above, instead
+      // of returning the module the suite already imported.
       config = (await import(`../../next.config?csp-production`)).default;
     } finally {
-      process.env.NODE_ENV = prevNodeEnv;
+      envForImport.NODE_ENV = prevNodeEnv;
     }
     // `headers` is optional on the typed shape, so `config.headers?.()` can be
     // `undefined` before the `await` — the assertion below is what proves a CSP
@@ -653,7 +662,13 @@ describe("web app manifest", () => {
       (m) => m[1],
     );
     expect(themes.length).toBeGreaterThan(0);
-    expect(themes).toContain(manifest.theme_color);
+    // `manifest` is `Record<string, unknown>`, so `theme_color` is `unknown` and
+    // `toContain` wants `string | undefined`. Narrow it to what the manifest
+    // schema actually constrains it to, so the assertion is typed rather than
+    // silenced with a cast to `any`.
+    const themeColor = manifest.theme_color;
+    expect(typeof themeColor, "manifest theme_color must be a hex string").toBe("string");
+    expect(themes).toContain(themeColor as string);
   });
 
   test("theme_color and background_color are valid hex colours", () => {

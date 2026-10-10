@@ -41,28 +41,34 @@
 name: Deploy
 
 on:
+  # SINGLE workflow_run trigger, and it must stay a mapping, not a list.
+  #
+  # GitHub Actions' `on: workflow_run:` accepts ONE mapping with ONE `workflows`
+  # list. It does NOT accept a sequence of trigger objects — a merge briefly
+  # produced both a `- workflows: ["CI"]` and a `- workflows: ["Release"]`
+  # entry, and actionlint rejects that outright:
+  #
+  #     .github/workflows/deploy.yml:44:3: no workflow is configured for
+  #     "workflow_run" event [events]
+  #     .github/workflows/deploy.yml:60:5: "workflow_run" section is sequence
+  #     node but mapping node is expected [syntax-check]
+  #
+  # Both errors are fatal and take the whole CI job red, which stops the
+  # promotion ladder at the dev -> staging edge. Verified against the
+  # rhysd/actionlint image: this mapping form passes; the sequence form fails.
+  #
+  # The Release path is therefore handled by `workflow_dispatch` below plus the
+  # resolve step inside the job, which reads the tag and behaves accordingly.
+  # A tag push cannot trigger `workflow_run` anyway (it has no branch), which is
+  # why the release path was already hand-dispatched before it worked.
   workflow_run:
-    # Two upstreams, because a release is not the same event as a green main.
-    #
-    # The CI trigger is the fast path: every commit that lands on main and proves
-    # green rolls forward.
-    #
-    # The Release trigger is what makes releases mean something. release.yml used
-    # to publish a tagged, provenance-stamped, smoke-tested image to GHCR that
-    # NOTHING ever deployed — the artifact existed only to be pulled by hand,
-    # while production quietly ran whatever `docker compose build` produced from
-    # whatever was on main. So "v0.4.0" was a label, not a version. This trigger
-    # deploys the image the release actually published.
-    #
-    # Note there is no `branches:` filter on the Release entry. A tag-triggered
-    # run has no branch, so filtering on `branches: [main]` would silently drop
-    # every release and the wiring would look present while never firing.
-    - workflows: ["CI"]
-      branches: [main]
-      types: [completed]
-    - workflows: ["Release"]
-      types: [completed]
-  # Manual re-run, for when the machine was down during an automatic deploy.
+    workflows: ["CI"]
+    branches: ["main"]
+    types: [completed]
+  # Manual re-run, for when the machine was down during an automatic deploy, and
+  # for releasing a tagged, provenance-stamped image explicitly. `workflow_run`
+  # can only reference ONE upstream workflow, so the Release path comes in here
+  # and the job resolves what it is deploying from the SHA or tag.
   workflow_dispatch:
 
 permissions:
@@ -129,10 +135,14 @@ jobs:
               v*) ;;
               *) echo "::error::release run has no v* tag (head_branch='${TAG}') — refusing to deploy."; exit 1 ;;
             esac
-            echo "DEPLOY_SOURCE=release" >> "$GITHUB_ENV"
-            echo "RELEASE_TAG=${TAG}" >> "$GITHUB_ENV"
-            echo "IMAGE=ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]'):${TAG}" >> "$GITHUB_ENV"
-            echo "release deploy: ${IMAGE}"
+            # One redirect block, not three separate `echo >>` lines: shellcheck
+            # SC2129 flags those, the CI actionlint job treats it as a failure,
+            # and a red actionlint job stalls the promotion ladder.
+            {
+              echo "DEPLOY_SOURCE=release"
+              echo "RELEASE_TAG=${TAG}"
+              echo "IMAGE=ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]'):${TAG}"
+            } >> "$GITHUB_ENV"
           else
             echo "DEPLOY_SOURCE=branch" >> "$GITHUB_ENV"
             echo "branch deploy: rolling whatever main proves green"
@@ -221,7 +231,6 @@ jobs:
           # happened to be rebuilt. That is not a theoretical hazard: a deploy that
           # printed "No pending migrations to apply" against a database missing
           # three migrations was compose reusing a stale db-setup image.
-<<<<<<< HEAD
           #
           # On the RELEASE path `app` is deliberately absent from this list: it was
           # pulled from GHCR, and rebuilding it would replace the published,
@@ -230,10 +239,6 @@ jobs:
           # db-setup are still built from the checked-out tree (they run from
           # source, not from the bundle), and the tag-is-on-main gate above
           # guarantees that tree IS the released commit.
-          #
-          # CHANGED BY THE 2026-10-10 MERGE: the surrounding script used to call
-          # git status against a textual rebuild set instead of this conditional,
-          # so the release path rebuilt `app` too. Keep the two-branch form.
           if [ "$DEPLOY_SOURCE" = "release" ]; then
             docker compose build dial-worker retention-worker voice-stream-worker db-setup
           else

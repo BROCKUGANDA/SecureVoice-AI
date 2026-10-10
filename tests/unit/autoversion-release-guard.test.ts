@@ -23,7 +23,7 @@ import { cpSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-
+import { describe, expect, test } from "bun:test";
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(HERE, "..", "..");
 const SCRIPT = join(ROOT, "scripts", "bump-version.mjs");
@@ -38,7 +38,8 @@ function grepMatches(pattern: string, input: string): { matched: boolean; exit: 
     });
     return { matched: true, exit: 0 };
   } catch (e) {
-    return { matched: false, exit: (e as { status?: number }).status ?? -1 };
+    const status = (e as { status?: number }).status;
+    return { matched: false, exit: typeof status === "number" ? status : -1 };
   }
 }
 
@@ -60,27 +61,33 @@ function scriptOutput(next: string): string[] {
 }
 
 describe("autoVersion release guard (scripts/bump-version.mjs + workflow grep)", () => {
-  it("prints the confirmation line first, which is the one the workflow must read", () => {
+  test("prints the confirmation line first, which is the one the workflow must read", () => {
     const lines = scriptOutput("0.2.2");
-    expect(lines[0]).toBe("version 0.0.0 -> 0.2.2");
+    const confirmation = lines[0];
+    const hint = lines[1];
+    if (confirmation === undefined || hint === undefined)
+      throw new Error("expected two output lines");
+    expect(confirmation).toBe("version 0.0.0 -> 0.2.2");
     // The `next:` hint is what the broken `tail -n 1` used to select.
-    expect(lines[1]).toContain("git commit");
-    expect(lines[1]).not.toContain("->");
+    expect(hint).toContain("git commit");
+    expect(hint).not.toContain("->");
   });
 
-  it("makes the first line greppable with the workflow's exact flags", () => {
+  test("makes the first line greppable with the workflow's exact flags", () => {
     const first = scriptOutput("0.2.2")[0];
+    if (first === undefined) throw new Error("expected a confirmation line");
     const { matched, exit } = grepMatches("-> 0.2.2", first);
     expect(matched).toBe(true);
     expect(exit).toBe(0);
   });
 
-  it("rejects a version that did not apply — the check must not match nothing", () => {
+  test("rejects a version that did not apply — the check must not match nothing", () => {
     const first = scriptOutput("0.2.2")[0];
+    if (first === undefined) throw new Error("expected a confirmation line");
     expect(grepMatches("-> 0.2.3", first).matched).toBe(false);
   });
 
-  it("fails loudly, without --, proving the separator is load-bearing", () => {
+  test("fails loudly, without --, proving the separator is load-bearing", () => {
     let exit = -1;
     try {
       execFileSync("grep", ["-qF", "-> 0.2.2"], {
@@ -89,13 +96,14 @@ describe("autoVersion release guard (scripts/bump-version.mjs + workflow grep)",
         stdio: ["pipe", "ignore", "pipe"],
       });
     } catch (e) {
-      exit = (e as { status?: number }).status ?? -1;
+      const status = (e as { status?: number }).status;
+      exit = typeof status === "number" ? status : -1;
     }
     // grep exits 2 on a usage error — this is the failure CI hit.
     expect(exit).toBe(2);
   });
 
-  it("refuses to bump to a non-greater version", () => {
+  test("refuses to bump to a non-greater version", () => {
     expect(() => execFileSync("bun", [SCRIPT, "0.0.0"], { stdio: "pipe" })).toThrow();
   });
 });

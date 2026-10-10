@@ -562,7 +562,16 @@ describe("declared security headers", () => {
     };
     walk(SRC);
     expect(
-      hits.map((h) => h.replace(/\\/g, "/")),
+      // SORTED, and that is not cosmetic. `readdirSync` returns entries in
+      // filesystem order — NTFS on Windows and ext4 on the Linux runner return
+      // this same tree in different orders — so an ordered `toEqual` on the raw
+      // walk compares a list whose position carries no meaning. That is the
+      // bug this fixes: on CI the two files came back reversed, every element
+      // differed, and the gate reported a phantom third-party injection site.
+      // Sorting keeps the assertion exactly as strong — a file ADDED to or
+      // REMOVED from the set still fails — while dropping a comparison over
+      // something that is not deterministic.
+      hits.map((h) => h.replace(/\\/g, "/")).sort(),
       "a new dangerouslySetInnerHTML appeared — review it before merging",
     ).toEqual([
       expect.stringContaining("src/components/seo/JsonLd.tsx"),

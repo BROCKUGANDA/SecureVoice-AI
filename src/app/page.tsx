@@ -22,6 +22,7 @@ import { Console } from "@/views/Console";
 import { Settings } from "@/views/Settings";
 import { SetupWizard } from "@/views/SetupWizard";
 import { IdleTimeoutHandler } from "@/components/shell/IdleTimeoutHandler";
+import { TwoFactorPrompt } from "@/components/security/TwoFactorPrompt";
 
 const VIEWS: Record<View, React.ComponentType> = {
   home: Home,
@@ -115,6 +116,14 @@ export default function Page() {
       {!fullBleed && <Navbar />}
 
       <main id="main-content" className="flex-1">
+        {/*
+          The two-factor nudge. Signed-in only: it reads the SERVER's
+          `twoFactorEnabled` flag (never a local one), and renders nothing for
+          an operator who already has a second factor or has said "not now".
+          Mounted here, outside the AnimatePresence, so switching views does
+          not remount it and re-read the dismissal.
+        */}
+        {isSignedIn && <TwoFactorPrompt />}
         <MotionConfig reducedMotion="user">
           {/* Not mode="wait": it mounts the next view only after the current one's exit animation completes, and a stalled exit (framer-motion under React StrictMode in dev — the same fault that stuck the boot splash) freezes navigation on the current view. Default sync mode swaps immediately and degrades to a harmless overlap. */}
           <AnimatePresence>

@@ -15,6 +15,7 @@ import {
   Plug,
   BookOpen,
   Rocket,
+  ShieldCheck,
 } from "lucide-react";
 import { t, useApp } from "@/lib/store";
 import { SUPPORT_EMAIL } from "@/lib/public-config";
@@ -22,6 +23,7 @@ import { Chip } from "@/components/fx/core";
 import { LottieIcon } from "@/components/fx/LottieIcon";
 import { CrmSection } from "@/views/settings/CrmSection";
 import { DocumentsSection } from "@/views/settings/DocumentsSection";
+import { TwoFactorCard } from "@/components/security/TwoFactorCard";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
@@ -66,8 +68,10 @@ function Field({
 }
 
 export function Settings() {
-  const { lang, setView, highContrast, setHighContrast } = useApp();
-  const [tab, setTab] = useState<"org" | "keys" | "knowledge" | "team" | "billing">("org");
+  const { lang, setView, highContrast, setHighContrast, settingsTab } = useApp();
+  const [tab, setTab] = useState<"org" | "keys" | "knowledge" | "team" | "security" | "billing">(
+    settingsTab,
+  );
   const [settings, setSettings] = useState<Settings | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -195,6 +199,7 @@ export function Settings() {
     { id: "keys", label: t("API Keys", "مفاتيح API", lang), icon: KeyRound },
     { id: "knowledge", label: t("Knowledge", "المعرفة", lang), icon: BookOpen },
     { id: "team", label: t("Team", "الفريق", lang), icon: Users },
+    { id: "security", label: t("Security", "الأمان", lang), icon: ShieldCheck },
     { id: "billing", label: t("Billing", "الفوترة", lang), icon: Coins },
   ] as const;
 
@@ -607,6 +612,44 @@ export function Settings() {
                   · <span className="font-semibold">{t("Analyst", "محلل", lang)}</span>{" "}
                   {t("(Command Center + firing signals)", "(مركز التشغيل وإطلاق الإشارات)", lang)}
                 </p>
+              </div>
+            )}
+
+            {tab === "security" && (
+              <div className="space-y-6">
+                <TwoFactorCard />
+
+                {/* Session posture, stated plainly: these are the values the
+                    server actually enforces today, not aspirations. When they
+                    change, this list is the thing reviewers must update. */}
+                <div className="rounded-3xl border border-line bg-paper p-6">
+                  <h2 className="font-display text-[15px] font-semibold tracking-tight">
+                    {t("Session policy", "سياسة الجلسة", lang)}
+                  </h2>
+                  <ul className="mt-3 space-y-2 text-[12.5px] leading-relaxed text-ink-2">
+                    <li>
+                      {t(
+                        "Sessions expire after 15 minutes of inactivity and 8 hours absolutely — the limits are not rolled forward by activity.",
+                        "تنتهي الجلسات بعد ١٥ دقيقة خمول و٨ ساعات كحد أقصى — ولا تُمدّد هذه الحدود بالنشاط.",
+                        lang,
+                      )}
+                    </li>
+                    <li>
+                      {t(
+                        "A wrong password is rate-limited by Better Auth: 30 attempts per minute per client.",
+                        "تخمين كلمة المرور محدود بـ ٣٠ محاولة في الدقيقة لكل عميل.",
+                        lang,
+                      )}
+                    </li>
+                    <li>
+                      {t(
+                        "Every sign-in, sign-out and invitation is a row in the audit chain.",
+                        "كل دخول وخروج ودعوة هو صف في سجل التدقيق.",
+                        lang,
+                      )}
+                    </li>
+                  </ul>
+                </div>
               </div>
             )}
 

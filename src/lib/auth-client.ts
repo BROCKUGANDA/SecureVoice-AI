@@ -19,10 +19,10 @@
  * `auth.api.getSession({ headers })` against the database (hazard AU-4, AU-5).
  */
 import { createAuthClient } from "better-auth/react";
-import { organizationClient } from "better-auth/client/plugins";
+import { organizationClient, twoFactorClient } from "better-auth/client/plugins";
 
 export const authClient = createAuthClient({
-  plugins: [organizationClient()],
+  plugins: [organizationClient(), twoFactorClient()],
 });
 
 /** The subset the console actually uses, named once so call sites read well. */

@@ -32,6 +32,9 @@ export const VIEW_ACCESS: Record<View, ViewAccess> = {
   home: "public",
   docs: "public",
   security: "public",
+  // Public on purpose. Pricing and both refund policies are part of the public
+  // commercial surface, and a listing reviewer must be able to reach them
+  // without an account — a pricing page behind a sign-in wall reads as hidden.
   pricing: "public",
   privacy: "public",
   terms: "public",

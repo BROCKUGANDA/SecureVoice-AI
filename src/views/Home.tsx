@@ -25,7 +25,7 @@ import {
   Mic,
 } from "lucide-react";
 import { useApp, t } from "@/lib/store";
-import { PLANS, SETTLEMENT, formatMonthly, formatYearly } from "@/lib/commercial";
+import { PLANS, SETTLEMENT, formatMonthly, formatIncluded, formatOverage } from "@/lib/commercial";
 import { SUPPORT_EMAIL } from "@/lib/public-config";
 import { cn } from "@/lib/utils";
 import { CALL_LANG_LABEL, type CallLang } from "@/lib/scenario";
@@ -954,13 +954,11 @@ export function Home() {
                     <span className="text-[12px] text-slate-500"> {t("/mo", "/شهر", lang)}</span>
                   </p>
                   <p className="mt-1 text-[11px] text-slate-500">
-                    {formatYearly(plan, lang)
-                      ? t(
-                          `${formatYearly(plan, lang)}/yr — two months free`,
-                          `${formatYearly(plan, lang)} سنوياً — شهران مجاناً`,
-                          lang,
-                        )
-                      : null}
+                    {t(
+                      `${formatIncluded(plan, lang)} interventions included · ${formatOverage(plan, lang) || "negotiated"} each beyond`,
+                      `${formatIncluded(plan, lang)} تدخّل مشمول · ${formatOverage(plan, lang) || "متفاوض عليه"} لكل ما يزيد`,
+                      lang,
+                    )}
                   </p>
                   <p className="mt-3 text-[11.5px] leading-relaxed text-slate-600">
                     {t(plan.summary, plan.summaryAr, lang)}

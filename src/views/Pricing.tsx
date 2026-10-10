@@ -1,466 +1,321 @@
 "use client";
 
-import { useState } from "react";
-import { Check, Minus, Sparkles, Building2, Mail } from "lucide-react";
+import { motion } from "framer-motion";
+import { Check, ShieldCheck, Sparkles, Building2 } from "lucide-react";
 import { useApp, t } from "@/lib/store";
-import { cn } from "@/lib/utils";
-import { Reveal } from "@/components/fx/core";
-import { PLANS, FAQ, SETTLEMENT, formatMonthly, type Plan } from "@/lib/commercial";
 import { SUPPORT_EMAIL } from "@/lib/public-config";
 
 /**
- * The pricing page.
+ * Public pricing, and the two refund policies the business actually needs.
  *
- * Rendered in two places: as a panel inside the SPA at `/`, and as the real route
- * `/pricing`. Both render THIS component, so the two can never disagree about
- * what a plan costs — the alternative (a marketing page and a pricing page) is
- * the normal way a site ends up quoting two different numbers.
+ * WHY TWO POLICIES: they govern different worlds and merging them would be a lie
+ * in one direction or the other.
  *
- * The numbers come from `src/lib/commercial.ts`, which is also what the JSON-LD
- * in src/components/seo/JsonLd.tsx reads. One source, three renderers.
+ *   The DEMO environment takes no money. There is no card, no charge and no
+ *   chargeback, so a "refund policy" describing refunds would describe a
+ *   transaction that cannot happen. It says so plainly instead.
+ *
+ *   The CREDIT WALLET is the real commercial surface. Credits are prepaid, an
+ *   intervention consumes one, and the questions a bank actually asks are
+ *   "what if the call failed" and "what if you missed your SLA". Those get real
+ *   answers.
+ *
+ * CURRENCY: prices are stated in USD with the AED equivalent alongside. The AED
+ * figure is not decoration — the buyer this product is written for budgets in
+ * dirhams (see docs/canvas-build/content.json: "AED 15,000 a month on voice
+ * intervention against AED 200,000 a month of write-offs"), and a page that
+ * quotes only dollars makes them do the conversion at a moment when they are
+ * deciding whether to trust the number.
+ *
+ * FIXED RATE, not a live FX feed: 1 USD = 3.6725 AED, the standard peg.
  */
-export function Pricing() {
-  const { lang, setView } = useApp();
-  const [openFaq, setOpenFaq] = useState<number | null>(0);
 
+/** One intervention signal fired = one credit. Mirrors src/lib/credits.ts. */
+const USD_TO_AED = 3.6725;
+const aed = (usd: number): string =>
+  `AED ${Math.round(usd * USD_TO_AED).toLocaleString("en-US")}`;
+
+type Tier = {
+  id: "starter" | "growth" | "enterprise";
+  name: { en: string; ar: string };
+  blurb: { en: string; ar: string };
+  usd: number;
+  included: number;
+  overage: { en: string; ar: string } | null;
+  features: { en: string; ar: string }[];
+  featured?: boolean;
+};
+
+const TIERS: Tier[] = [
+  {
+    id: "starter",
+    name: { en: "Starter", ar: "الانطلاق" },
+    blurb: {
+      en: "For evaluation teams proving the voice loop end to end.",
+      ar: "للفرق التقييمية التي تُثبت الحلقة الصوتية من طرف إلى طرف.",
+    },
+    usd: 99,
+    included: 500,
+    overage: { en: "$0.15 per additional intervention", ar: "0.15 دولار لكل تدخل إضافي" },
+    features: [
+      { en: "500 interventions included per month", ar: "500 تدخل مشمول شهرياً" },
+      { en: "One organisation, browser-based Command Center", ar: "منظمة واحدة، مركز تشغيل عبر المتصفح" },
+      { en: "Sealed audit chain with hash-linked evidence", ar: "سلسلة تدقيق مختومة بدليل مترابط بالتجزئة" },
+      { en: "Arabic and English voice agents", ar: "وكلاء صوتيون بالعربية والإنجليزية" },
+      { en: "Email support", ar: "دعم عبر البريد الإلكتروني" },
+    ],
+  },
+  {
+    id: "growth",
+    name: { en: "Growth", ar: "النمو" },
+    blurb: {
+      en: "For mid-market banks and insurers running live fraud desks.",
+      ar: "للبنوك وشركات التأمين متوسطة الحجم التي تدير مكاتب احتيال حية.",
+    },
+    usd: 499,
+    included: 2500,
+    overage: { en: "$0.12 per additional intervention", ar: "0.12 دولار لكل تدخل إضافي" },
+    featured: true,
+    features: [
+      { en: "2,500 interventions included per month", ar: "2,500 تدخل مشمول شهرياً" },
+      { en: "Multi-tenant organisation support", ar: "دعم تعدد المنظمات" },
+      { en: "Signed webhooks with replay protection", ar: "ويب هوoks موقّعة مع حماية من إعادة الإرسال" },
+      { en: "Bring your own ElevenLabs key (BYOK)", ar: "استخدام مفتاح ElevenLabs الخاص بك" },
+      { en: "Guardrail policy configurable per institution", ar: "سياسة الضوابط قابلة للتهيئة لكل مؤسسة" },
+      { en: "Priority support", ar: "دعم ذو أولوية" },
+    ],
+  },
+  {
+    id: "enterprise",
+    name: { en: "Enterprise", ar: "المؤسسات" },
+    blurb: {
+      en: "For Tier-1 UAE banks deploying inside their own perimeter.",
+      ar: "للبنوك من الفئة الأولى في الإمارات التي تنشر داخل محيطها الخاص.",
+    },
+    usd: 2000,
+    included: 10000,
+    overage: null,
+    features: [
+      { en: "10,000 interventions included, custom volume pricing beyond", ar: "10,000 تدخل مشمول، وتسعير volumes مخصص لما يزيد" },
+      {
+        en: "Deploys inside your own VPC or data centre",
+        ar: "النشر داخل شبكتك الخاصة أو مركز بياناتك",
+      },
+      { en: "Dedicated deployment for the WebSocket voice plane", ar: "نشر مخصص لمستوى الصوت عبر WebSocket" },
+      { en: "Shariah-compliant terminology engine", ar: "محرك مصطلحات متوافق مع الشريعة" },
+      { en: "Takaful and insurer-specific voice policies", ar: "سياسات صوتية خاصة بالتأمين والتكافل" },
+      { en: "Named technical contact", ar: "جهة اتصال فنية مخصصة" },
+    ],
+  },
+];
+
+/**
+ * Refund policy for the DEMO environment.
+ *
+ * Deliberately says there are no refunds, and explains why: no payment is ever
+ * processed, so there is nothing to refund. A demo page that hedges ("refunds
+ * subject to policy") implies a charge that does not exist.
+ */
+function DemoPolicy({ lang }: { lang: "en" | "ar" }) {
   return (
-    <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8 lg:py-16">
-      <div className="mx-auto max-w-3xl text-center">
-        <p className="micro text-primary">{t("PRICING", "الأسعار", lang)}</p>
-        <h1 className="font-display mt-3 text-3xl font-semibold tracking-tight sm:text-4xl">
-          {t("Plans that scale with your card volume", "خطط تنمو مع حجم بطاقاتك", lang)}
-        </h1>
-        <p className="mt-3 text-[15px] leading-relaxed text-ink-2">
-          {t(
-            "Pay monthly, or a negotiated volume for an enterprise deployment. Every plan — including the cheapest one — ships the tamper-evident audit chain and stores no PIN, OTP or full card number.",
-            "ادفع شهرياً، أو اتفق على حجم خاص لنشر مؤسسي. وكل خطة — حتى الأرخص — تشمل سجل التدقيق المقاوم للعبث ولا تخزّن أي رمز سري أو رمز تحقق أو رقم بطاقة كامل.",
-            lang,
-          )}
-        </p>
-      </div>
-
-      {/* ——— tiers ——— */}
-      <div className="mx-auto mt-12 grid max-w-5xl gap-4 lg:grid-cols-3">
-        {PLANS.map((plan, i) => (
-          <Reveal key={plan.id} delay={Math.min(i * 0.05, 0.15)}>
-            <PlanCard plan={plan} />
-          </Reveal>
-        ))}
-      </div>
-
-      {/* ——— what's included on every plan ——— */}
-      <Reveal delay={0.05}>
-        <section className="mx-auto mt-16 max-w-5xl">
-          <div className="rounded-3xl border border-line bg-white p-7 sm:p-9">
-            <div className="flex items-start gap-3">
-              <Sparkles className="mt-0.5 h-5 w-5 shrink-0 text-primary" strokeWidth={1.7} />
-              <div>
-                <h2 className="font-display text-[19px] font-semibold tracking-tight">
-                  {t("Included with every plan", "مشمول في كل خطة", lang)}
-                </h2>
-                <p className="mt-1 text-[13px] text-ink-3">
-                  {t(
-                    "These are not upsells. They are structural: the platform cannot be configured to leave them out.",
-                    "هذه ليست إضافات اختيارية. هي بنية أساسية: لا يمكن تهيئة المنصة لتجاهلها.",
-                    lang,
-                  )}
-                </p>
-              </div>
-            </div>
-            <ul className="mt-6 grid gap-x-8 gap-y-2.5 sm:grid-cols-2">
-              {[
-                {
-                  en: "Tamper-evident audit chain on every action, with a verifiable hash per event",
-                  ar: "سجل تدقيق مقاوم للعبث لكل إجراء، مع بصمة قابلة للتحقق لكل حدث",
-                },
-                {
-                  en: "Speech gate that structurally cannot ask for a PIN, password, OTP or full card number",
-                  ar: "بوابة نطق لا تستطيع بنيوياً أن تطلب رمزاً سرياً أو كلمة مرور أو رمز تحقق أو رقم بطاقة كاملاً",
-                },
-                {
-                  en: "Signed webhooks and a two-person commit on every protective action",
-                  ar: "خطوات أحداث موقّعة واعتماد من طرفين لكل إجراء وقائي",
-                },
-                {
-                  en: "TLS 1.3 in transit, AES-256 at rest, least-privilege access controls",
-                  ar: "تشفير TLS 1.3 أثناء النقل وAES-256 أثناء التخزين وصلاحيات بأقل قدر ممكن",
-                },
-                {
-                  en: "Consent gating and no advertising or profiling use of personal data",
-                  ar: "بوابة موافقة وعدم استخدام البيانات الشخصية في الإعلانات أو بناء الملامح",
-                },
-                {
-                  en: "Every intervention call opens with a spoken AI disclosure",
-                  ar: "كل مكالمة تدخل تبدأ بإفصاح منطوق بأنها نظام ذكاء اصطناعي",
-                },
-              ].map((f) => (
-                <li
-                  key={f.en}
-                  className="flex items-start gap-2.5 text-[13px] leading-relaxed text-ink-2"
-                >
-                  <Check className="mt-0.5 h-4 w-4 shrink-0 text-primary" strokeWidth={2.2} />
-                  <span>{t(f.en, f.ar, lang)}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        </section>
-      </Reveal>
-
-      {/* ——— settlement note ——— */}
-      <p className="mx-auto mt-6 max-w-3xl text-center text-[12px] leading-relaxed text-ink-3">
-        {t(SETTLEMENT.note, SETTLEMENT.note, lang)}
-      </p>
-
-      {/* —— how the money is collected ——
-
-          This replaced the "custom / enterprise pricing" sheet, which stated that
-          no enterprise rate card is published. That stopped being true when the
-          catalog moved to published tiers — Advanced is now a $120 plan with a
-          Paddle price id — so the section was describing a pricing posture the
-          product no longer has. What a buyer actually needs here is how the money
-          is collected: tax, trial, regional prices, annual terms. */}
-      <Reveal delay={0.05}>
-        <section className="mx-auto mt-16 max-w-5xl" aria-labelledby="settlement-heading">
-          <div className="rounded-3xl border border-line bg-paper p-7 sm:p-9">
-            <div className="flex items-start gap-3">
-              <Building2 className="mt-0.5 h-5 w-5 shrink-0 text-primary" strokeWidth={1.7} />
-              <div>
-                <h2
-                  id="settlement-heading"
-                  className="font-display text-[19px] font-semibold tracking-tight"
-                >
-                  {t("How you pay", "كيف تتم عملية الدفع", lang)}
-                </h2>
-                <p className="mt-1 max-w-xl text-[13px] leading-relaxed text-ink-2">
-                  {t(
-                    "Plans are billed in US dollars through Paddle, which is the seller of record. Paddle collects any sales tax or VAT due and remits it to the relevant authority, so the price you see is the price on the invoice before tax. Every monthly plan starts with a 7-day free trial, and annual billing is two months free.",
-                    "تُفترَط الخطط بالدولار الأمريكي عبر Paddle، وهي البائع الرسمي؛ وتحصّل Paddle أي ضريبة بيع أو قيمة مضافة مستحقة وتحوّلها إلى الجهة المختصة، فالسعر الذي تراه هو سعر الفاتورة قبل الضريبة. وتبدأ كل خطة شهرية بتجربة مجانية ٧ أيام، والفوترة السنوية تُوفّر شهرين.",
-                    lang,
-                  )}
-                </p>
-              </div>
-            </div>
-
-            <dl className="mt-7 grid gap-px overflow-hidden rounded-2xl border border-line bg-line sm:grid-cols-2">
-              {[
-                {
-                  k: "Free trial",
-                  kAr: "التجربة المجانية",
-                  v: "7 days on every monthly plan, from the first successful charge. The trial is on the monthly price, never the annual one — a trial that converts to a 12-month charge is the single largest source of refund requests in subscription billing.",
-                  vAr: "٧ أيام على كل خطة شهرية، من أول خصم ناجح؛ وتُطبّق التجربة على السعر الشهري لا السنوي — فالتجربة التي تتحول إلى خصم لاثني عشر شهراً هي أكبر مصدر لطلبات الاسترداد في اشتراكات البرمجيات.",
-                },
-                {
-                  k: "Regional prices",
-                  kAr: "الأسعار المحلية",
-                  v: "Buyers in the UK, Ireland and Australia are charged a local price in GBP, EUR or AUD rather than a converted USD amount — £7.50, €9 and A$15 on Starter, for example. Contact us for a quote in any other market.",
-                  vAr: "يُحاسَب المشترون في المملكة المتحدة وأيرلندا وأستراليا بسعر محلي بالإسترليني أو اليورو أو دولار أسترالي بدلاً من تحويل المبلغ بالدولار الأمريكي — ٧٫٥٠ جنيه إسترليني و٩ يورو و١٥ دولاراً أسترالياً على طبقة البداية مثلاً؛ وتواصلوا معنا لسعر أي سوق آخر.",
-                },
-                {
-                  k: "Included with every plan",
-                  kAr: "مشمول في كل خطة",
-                  v: "The tamper-evident audit chain, consent gating, the speech gate that structurally cannot request a PIN, password, OTP or full card number, and the no-PII-storage guarantee. Not upsells — the platform cannot be configured to leave them out.",
-                  vAr: "سجل التدقيق المقاوم للعبث، وبوابة الموافقة، وبوابة النطق التي لا تستطيع بنيوياً أن تطلب رمزاً سرياً أو كلمة مرور أو رمز تحقق أو رقم بطاقة كامل، وضمان عدم تخزين البيانات الشخصية؛ وهي ليست إضافات اختيارية — فلا يمكن تهيئة المنصة لتجاهلها.",
-                },
-                {
-                  k: "Annual billing",
-                  kAr: "الفوترة السنوية",
-                  v: "Exactly two months free at every tier: Starter $100/yr, Pro $400/yr, Advanced $1,200/yr. The discount is applied at checkout rather than negotiated, so a renewing customer pays what the page said.",
-                  vAr: "شهران مجاناً تماماً في كل طبقة: ١٠٠ دولار سنوياً للبداية و٤٠٠ دولار للاحترافي و١٬٢٠٠ دولار للمتقدم؛ ويُطبّق الخصم عند الدفع لا بالتفاوض، فيدفع العميل عند التجديد ما وعدت به الصفحة.",
-                },
-              ].map((row) => (
-                <div key={row.k} className="bg-white p-5">
-                  <dt className="text-[12.5px] font-semibold tracking-tight">
-                    {t(row.k, row.kAr, lang)}
-                  </dt>
-                  <dd className="mt-1.5 text-[12.5px] leading-relaxed text-ink-2">
-                    {t(row.v, row.vAr, lang)}
-                  </dd>
-                </div>
-              ))}
-            </dl>
-          </div>
-        </section>
-      </Reveal>
-
-      {/* ——— comparison table ——— */}
-      <Reveal delay={0.05}>
-        <section className="mx-auto mt-16 max-w-5xl">
-          <h2 className="font-display text-[19px] font-semibold tracking-tight">
-            {t("Compare plans", "قارن الخطط", lang)}
-          </h2>
-          <div className="mt-5 overflow-x-auto rounded-2xl border border-line bg-white">
-            <table className="w-full min-w-[640px] text-left text-[13px]">
-              <caption className="sr-only">
-                {t(
-                  "Feature comparison across the Starter, Pro and Enterprise plans",
-                  "مقارنة المزايا بين الخطط البداية والاحترافي والمؤسسات",
-                  lang,
-                )}
-              </caption>
-              <thead>
-                <tr className="border-b border-line bg-paper">
-                  <th
-                    scope="col"
-                    className="px-4 py-3 text-[11.5px] font-semibold uppercase tracking-wide text-ink-3"
-                  >
-                    {t("Feature", "الميزة", lang)}
-                  </th>
-                  {PLANS.map((p) => (
-                    <th
-                      key={p.id}
-                      scope="col"
-                      className="px-4 py-3 text-[11.5px] font-semibold uppercase tracking-wide text-ink-3"
-                    >
-                      {t(p.name, p.nameAr, lang)}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {(
-                  [
-                    {
-                      k: "Interventions per month",
-                      kAr: "التدخّلات شهرياً",
-                      v: [
-                        t("1,000", "١٬٠٠٠", lang),
-                        t("5,000", "٥٬٠٠٠", lang),
-                        t("Negotiated", "متفاوض عليه", lang),
-                      ],
-                    },
-                    {
-                      k: "Bank entities",
-                      kAr: "الجهات المصرفية",
-                      v: ["1", "5", t("Negotiated", "متفاوض عليه", lang)],
-                    },
-                    {
-                      k: "Languages",
-                      kAr: "اللغات",
-                      v: ["6", "6", t("6 + custom voices", "٦ + أصوات مخصصة", lang)],
-                    },
-                    {
-                      k: "Streaming voice",
-                      kAr: "الصوت المبثوث",
-                      v: [false, true, true],
-                    },
-                    {
-                      k: "Priority carrier routing",
-                      kAr: "توجيه أولوية عبر المشغّلين",
-                      v: [false, true, true],
-                    },
-                    {
-                      k: "Uptime SLA",
-                      kAr: "اتفاقية التوافر",
-                      v: [t("None", "لا يوجد", lang), "99.9%", "99.9% + credits"],
-                    },
-                    {
-                      k: "Deployment in your own VPC",
-                      kAr: "النشر داخل شبكتك الخاصة",
-                      v: [false, false, true],
-                    },
-                    {
-                      k: "Bring your own keys (BYOK)",
-                      kAr: "مفاتيح خاصة (BYOK)",
-                      v: [false, false, true],
-                    },
-                    {
-                      k: "Voice cloning",
-                      kAr: "استنساخ الصوت",
-                      v: [false, false, true],
-                    },
-                    {
-                      k: "CBUAE audit pack",
-                      kAr: "حزمة تدقيق للمصرف المركزي",
-                      v: [false, false, true],
-                    },
-                    {
-                      k: "Support",
-                      kAr: "الدعم",
-                      v: [
-                        t("Email, next business day", "بريد إلكتروني، يوم العمل التالي", lang),
-                        t("Dedicated channel", "قناة مخصصة", lang),
-                        t("24/7 with named architect", "على مدار الساعة مع مهندس مُسمّى", lang),
-                      ],
-                    },
-                  ] as const
-                ).map((row) => (
-                  <tr key={row.k} className="border-b border-line last:border-0">
-                    <th scope="row" className="px-4 py-3 text-left font-medium text-ink-2">
-                      {t(row.k, row.kAr, lang)}
-                    </th>
-                    {row.v.map((cell, ci) => (
-                      <td key={ci} className="px-4 py-3 text-ink-2">
-                        {typeof cell === "boolean" ? (
-                          cell ? (
-                            <Check
-                              className="h-4 w-4 text-primary"
-                              strokeWidth={2.2}
-                              aria-label={t("Included", "مشمول", lang)}
-                            />
-                          ) : (
-                            <Minus
-                              className="h-4 w-4 text-ink-3"
-                              aria-label={t("Not included", "غير مشمول", lang)}
-                            />
-                          )
-                        ) : (
-                          cell
-                        )}
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      </Reveal>
-
-      {/* ——— FAQ ——— */}
-      <Reveal delay={0.05}>
-        <section className="mx-auto mt-16 max-w-3xl" aria-labelledby="faq-heading">
-          <h2 id="faq-heading" className="font-display text-[19px] font-semibold tracking-tight">
-            {t("Questions we get asked first", "الأسئلة الأكثر تكراراً", lang)}
-          </h2>
-          <div className="mt-5 overflow-hidden rounded-2xl border border-line bg-white">
-            {FAQ.map((f, i) => {
-              const open = openFaq === i;
-              return (
-                <div key={f.q} className="border-b border-line last:border-0">
-                  <h3>
-                    <button
-                      onClick={() => setOpenFaq(open ? null : i)}
-                      aria-expanded={open}
-                      className="flex w-full items-center justify-between gap-4 px-5 py-4 text-left transition hover:bg-green-tint"
-                    >
-                      <span className="text-[13.5px] font-semibold tracking-tight">
-                        {t(f.q, f.qAr, lang)}
-                      </span>
-                      <span
-                        aria-hidden="true"
-                        className={cn(
-                          "shrink-0 text-[16px] leading-none text-ink-3 transition-transform",
-                          open && "rotate-45",
-                        )}
-                      >
-                        +
-                      </span>
-                    </button>
-                  </h3>
-                  {open && (
-                    <p className="px-5 pb-5 text-[13px] leading-relaxed text-ink-2">
-                      {t(f.a, f.aAr, lang)}
-                    </p>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </section>
-      </Reveal>
-
-      {/* ——— closing CTA ——— */}
-      <div className="mx-auto mt-14 max-w-3xl rounded-3xl bg-[#0c110e] px-7 py-9 text-center">
-        <h2 className="font-display text-[21px] font-semibold tracking-tight text-white">
-          {t("Not sure which tier fits?", "لست متأكداً من الخطة المناسبة؟", lang)}
-        </h2>
-        <p className="mx-auto mt-2 max-w-lg text-[13.5px] leading-relaxed text-white/60">
-          {t(
-            "Tell us your monthly card volume and how many bank entities are in scope, and we will tell you which tier you actually need — including when the honest answer is the cheaper one.",
-            "أخبرونا بحجم البطاقات الشهري وعدد الجهات المصرفية المشمولة، وسنقول لكم أي خطة تناسب فعلاً — بما في ذلك حين تكون الإجابة الصادقة هي الخطة الأرخص.",
-            lang,
-          )}
-        </p>
-        <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
-          <button
-            onClick={() => setView("demo")}
-            className="rounded-full bg-primary px-6 py-3 text-[13.5px] font-semibold text-white transition hover:bg-green-deep"
-          >
-            {t("Run the live demo", "شغّل العرض الحي", lang)}
-          </button>
-          <a
-            href={`mailto:${SUPPORT_EMAIL}`}
-            className="rounded-full border border-white/20 px-6 py-3 text-[13.5px] font-semibold text-white/80 transition hover:border-white/50 hover:text-white"
-          >
-            {t("Email us", "راسلنا", lang)}
-          </a>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* ————————————————— one tier ————————————————— */
-
-function PlanCard({ plan }: { plan: Plan }) {
-  const { lang } = useApp();
-  const price = formatMonthly(plan, lang);
-
-  return (
-    <div
-      className={cn(
-        "flex h-full flex-col rounded-3xl border p-6",
-        plan.featured
-          ? "border-emerald-300/80 bg-emerald-50/60 shadow-[0_20px_60px_-30px_rgba(23,166,115,0.25)]"
-          : "border-line bg-white",
-      )}
-    >
-      {plan.featured && (
-        <span className="micro mb-3 inline-block self-start rounded-full bg-emerald-100 px-2 py-0.5 text-[8.5px] text-emerald-700">
-          {t("MOST POPULAR", "الأكثر اختياراً", lang)}
-        </span>
-      )}
-      <h3 className="font-display text-[17px] font-semibold tracking-tight">
-        {t(plan.name, plan.nameAr, lang)}
+    <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-6">
+      <h3 className="font-display text-lg font-semibold text-white">
+        {t("Demo evaluation policy", "سياسة التقييم التجريبي", lang)}
       </h3>
-      <p className="mt-1 text-[12px] text-ink-3">{t(plan.tagline, plan.taglineAr, lang)}</p>
-
-      <p className="mt-4">
-        <span className="font-display text-[32px] font-semibold leading-none tracking-tight">
-          {price}
-        </span>
-        {plan.monthlyUsd !== null && (
-          <span className="ml-1 text-[12.5px] text-ink-3">/{lang === "ar" ? "شهر" : "mo"}</span>
+      <p className="mt-3 text-[13px] leading-relaxed text-ink-3">
+        {t(
+          "The SecureVoice demo environment is provided free of charge strictly for evaluation, testing and product demonstration. No financial transaction, card charge or billing cycle occurs within it. All intervention data, transcripts and audio in the demo are synthetic. Because no payment is processed, there is nothing to refund and no chargeback can arise. Use of the demo is governed by the Terms of Service and the Acceptable Use rules on this site.",
+          "تُقدَّم بيئة العرض التجريبية مجاناً و solely لأغراض التقييم والاختبار وعرض المنتج. لا تتم أي معاملة مالية أو خصم بطاقة أو دورة فوترة داخلها. جميع بيانات التدخلات والنصوص المحوَّلة والتسجيلات الصوتية في العرض تركيبية. ولأن أي عملية دفع لا تحدث، فلا يوجد ما يُسترد ولا يمكن أن ينشأ أي استرداد. يخضع استخدام العرض للشروط والأحكام وقواعد الاستخدام المقبول في هذا الموقع.",
+          lang,
         )}
       </p>
-      {plan.monthlyUsd !== null && (
-        <p className="mt-1 text-[11px] text-ink-3">
-          {t("billed monthly, cancel any time", "فوترة شهرية، يمكن الإلغاء في أي وقت", lang)}
-        </p>
-      )}
+    </section>
+  );
+}
 
-      <ul className="mt-5 space-y-2 border-t border-line pt-5">
-        {plan.includes.map((inc, i) => (
-          <li
-            key={inc}
-            className="flex items-start gap-2.5 text-[12.5px] leading-relaxed text-ink-2"
-          >
-            <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" strokeWidth={2.4} />
-            <span>{t(inc, plan.includesAr[i], lang)}</span>
+/**
+ * Refund / credit policy for paying customers on the credit wallet.
+ *
+ * This one is a real commercial commitment, which is why each clause is
+ * specific enough to be enforceable: a generic "refunds at our discretion" would
+ * not survive a procurement conversation, and vagueness here reads as a red flag
+ * rather than as flexibility.
+ */
+function CreditWalletPolicy({ lang }: { lang: "en" | "ar" }) {
+  const clauses = [
+    {
+      en: "Credit purchases. The platform runs on a prepaid Credit Wallet. One credit funds one intervention signal. Purchased credits are non-refundable and unused credits expire 12 months from the date of purchase.",
+      ar: "شراء الرصيد. تعمل المنصة على محفظة ائتمان مدفوعة مسبقاً. رصيد واحد يغطي إشارة تدخل واحدة. الأرصدة المشتراة غير قابلة للاسترداد، وتنتهي صلاحية الرصيد غير المستخدم بعد 12 شهراً من تاريخ الشراء.",
+    },
+    {
+      en: "Failed interventions. If an intervention fails to connect, or terminates because of a SecureVoice infrastructure fault — not a carrier block, a network failure at the customer's end, or the customer being unreachable — the credit consumed by that intervention is returned to the wallet automatically within 48 hours.",
+      ar: "التدخلات الفاشلة. إذا فشل تدخل في الاتصال أو انقطع بسبب خلل في بنية SecureVoice — لا بسبب حجب من مشغّل الاتصالات، ولا انقطاع في شبكة العميل، ولا تعذّر الوصول إلى العميل — يُعاد الرصيد المستهلك في هذا التدخل إلى المحفظة تلقائياً خلال 48 ساعة.",
+    },
+    {
+      en: "Service level credits. Where an Enterprise agreement carries an availability commitment and that commitment is missed in a calendar month, service credits are issued as a wallet top-up rather than a cash refund, sized as (downtime minutes ÷ total minutes in the month) × the monthly platform fee. The measured figure is taken from the platform's own health endpoint, not from a customer report.",
+      ar: "أرصدة مستوى الخدمة. في Agreements المؤسساتية التي تتضمن التزام توافر ولم يُحقق في شهر ميلادي، تُصدر أرصدة خدمة ك recharge للمحفظة بدلاً من استرداد نقدي، وحجمها يساوي (دقائق التوقف ÷ إجمالي دقائق الشهر) × الرسوم الشهرية للمنصة. ويُؤخذ القياس من نقطة صحة المنصة نفسها، لا من تقرير العميل.",
+    },
+    {
+      en: "Chargebacks. Opening a card chargeback against a valid credit purchase suspends API access and webhook routing until the chargeback is resolved, because the underlying intervention may still be consuming metered capacity.",
+      ar: "الاستردادات البنكية. فتح استرداد بنكي على عملية شراء رصيد سارية يوقف الوصول إلى API وتوجيه الويب هوoks حتى تسوية الاسترداد، لأن التدخل المرتبط قد يستهلك سعة مقيسة 계속.",
+    },
+  ];
+
+  return (
+    <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-6">
+      <h3 className="font-display text-lg font-semibold text-white">
+        {t("Credit wallet & service credit policy", "سياسة محفظة الرصيد وأرصدة الخدمة", lang)}
+      </h3>
+      <ol className="mt-4 space-y-3">
+        {clauses.map((c, i) => (
+          <li key={i} className="flex gap-3 text-[13px] leading-relaxed text-ink-3">
+            <span className="mt-0.5 font-mono text-[11px] text-green-bright">{i + 1}.</span>
+            <span>{c[lang]}</span>
           </li>
         ))}
-      </ul>
+      </ol>
+    </section>
+  );
+}
 
-      <div className="mt-6 pt-1">
-        {/* Every tier is purchasable now — Advanced has a published price and a
-              Paddle price id like the others — so there is no "contact sales"
-              branch left. The button opens check­out; which one is resolved by
-              the server from the configured price map, and a missing price
-              surfaces as an error naming the key rather than silently charging
-              a neighbouring tier. */}
-        <button
-          onClick={() => useApp.getState().setView("auth")}
-          className={cn(
-            "flex w-full items-center justify-center gap-2 rounded-full px-5 py-3 text-[13px] font-semibold transition",
-            plan.featured
-              ? "bg-primary text-white hover:bg-green-deep"
-              : "border border-line bg-paper text-ink-2 hover:border-primary/40 hover:text-primary",
-          )}
+export function Pricing() {
+  const { lang } = useApp();
+
+  return (
+    <div className="relative overflow-y-auto">
+      <div className="mx-auto max-w-6xl px-5 py-16">
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5 }}
+          className="max-w-2xl"
         >
-          {t("Start with this plan", "ابدأ بهذه الخطة", lang)}
-        </button>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-green-bright">
+            {t("Pricing", "التسعير", lang)}
+          </p>
+          <h1 className="mt-3 font-display text-4xl font-semibold text-white md:text-5xl">
+            {t(
+              "Platform fee, then pay for what you use.",
+              "رسوم منصة، ثم تدفع مقابل ما تستخدمه.",
+              lang,
+            )}
+          </h1>
+          <p className="mt-4 text-[15px] leading-relaxed text-ink-3">
+            {t(
+              "Every plan includes the full intervention pipeline — the voice agent, the guardrail gates, and the sealed audit chain. What changes is volume, tenancy, and where it runs.",
+              "كل خطة تشمل خط التدخل الكامل — الوكيل الصوتي، وبوابات الضوابط، وسلسلة التدقيق المختومة. ما يتغيّر هو الحجم، وتعدد المنظمات، ومكان التشغيل.",
+              lang,
+            )}
+          </p>
+          <p className="mt-2 text-[12.5px] text-ink-3/80">
+            {t(
+              "One credit = one intervention signal fired — the metered telephony and voice cost that actually scales with your alert volume.",
+              "رصيد واحد = إشارة تدخل واحدة — تكلفة الهاتف والصوت المقيسة التي تتناسب فعلياً مع حجم تنبيهاتك.",
+              lang,
+            )}
+          </p>
+        </motion.div>
+
+        {/* tiers */}
+        <div className="mt-12 grid gap-5 md:grid-cols-3">
+          {TIERS.map((tier, i) => (
+            <motion.div
+              key={tier.id}
+              initial={{ opacity: 0, y: 16 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.45, delay: 0.06 * i }}
+              className={[
+                "relative flex flex-col rounded-2xl border p-6",
+                tier.featured
+                  ? "border-green-bright/40 bg-green-bright/[0.06]"
+                  : "border-white/10 bg-white/[0.03]",
+              ].join(" ")}
+            >
+              {tier.featured && (
+                <span className="absolute -top-3 left-6 inline-flex items-center gap-1.5 rounded-full border border-green-bright/40 bg-[#0c110e] px-3 py-1 text-[10.5px] font-semibold text-green-bright">
+                  <Sparkles className="h-3 w-3" />
+                  {t("Most deployed", "الأكثر استخداماً", lang)}
+                </span>
+              )}
+
+              <h2 className="font-display text-xl font-semibold text-white">{tier.name[lang]}</h2>
+              <p className="mt-1.5 text-[12.5px] leading-relaxed text-ink-3">{tier.blurb[lang]}</p>
+
+              <div className="mt-6 flex items-baseline gap-2">
+                <span className="font-display text-4xl font-semibold text-white">
+                  ${tier.usd.toLocaleString("en-US")}
+                </span>
+                <span className="text-[13px] text-ink-3">
+                  {t("per month", "شهرياً", lang)}
+                </span>
+              </div>
+              <p className="mt-1 text-[12px] text-ink-3/70">{aed(tier.usd)}</p>
+
+              <div className="mt-5 border-t border-white/10 pt-4">
+                <p className="text-[13px] font-semibold text-green-bright">
+                  {tier.included.toLocaleString("en-US")}{" "}
+                  {t("interventions included", "تدخل مشمول", lang)}
+                </p>
+                <p className="mt-1 text-[12px] text-ink-3">
+                  {tier.overage ? (
+                    tier.overage[lang]
+                  ) : (
+                    t(
+                      "Volume pricing beyond that",
+                      "تسعير كميات لما يزيد",
+                      lang,
+                    )
+                  )}
+                </p>
+              </div>
+
+              <ul className="mt-5 flex-1 space-y-2.5">
+                {tier.features.map((f, j) => (
+                  <li key={j} className="flex gap-2.5 text-[12.5px] leading-relaxed text-ink-3">
+                    <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-green-bright" />
+                    <span>{f[lang]}</span>
+                  </li>
+                ))}
+              </ul>
+
+              <button
+                type="button"
+                className={[
+                  "mt-6 flex w-full items-center justify-center gap-2 rounded-xl px-4 py-2.5",
+                  "text-[13px] font-semibold transition",
+                  tier.featured
+                    ? "bg-green-bright text-ink hover:brightness-110"
+                    : "border border-white/15 text-white hover:border-green-bright/50",
+                ].join(" ")}
+              >
+                {tier.id === "enterprise" ? (
+                  <Building2 className="h-4 w-4" />
+                ) : (
+                  <ShieldCheck className="h-4 w-4" />
+                )}
+                {tier.id === "enterprise"
+                  ? t("Talk to us", "تحدّث إلينا", lang)
+                  : t("Start with this plan", "ابدأ بهذه الخطة", lang)}
+              </button>
+            </motion.div>
+          ))}
+        </div>
+
+        {/* policies */}
+        <div className="mt-16 grid gap-5 lg:grid-cols-2">
+          <DemoPolicy lang={lang} />
+          <CreditWalletPolicy lang={lang} />
+        </div>
+
+        <p className="mt-8 text-[12px] text-ink-3/70">
+          {t("Questions on billing: ", "استفسارات الفوترة: ", lang)}
+          <a href={`mailto:${SUPPORT_EMAIL}`} className="text-green-bright underline">
+            {SUPPORT_EMAIL}
+          </a>
+        </p>
       </div>
     </div>
   );
 }
+
+export default Pricing;

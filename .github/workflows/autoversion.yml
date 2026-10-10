@@ -79,6 +79,20 @@ jobs:
           # the tag list to know whether this version already shipped.
           fetch-depth: 0
 
+      # Runs on the VPS runner (securevoice-vps) and calls
+      # `bun scripts/bump-version.mjs` directly on the host. Same reasoning as
+      # ci.yml: provision it here rather than assuming a manual install
+      # happened, because a replaced runner would otherwise break the release.
+      - name: Install Bun on the runner
+        run: |
+          if command -v bun >/dev/null 2>&1; then
+            echo "bun already present: $(bun --version)"
+            exit 0
+          fi
+          curl -fsSL https://bun.sh/install | bash
+          echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
+          "$HOME/.bun/bin/bun" --version
+
       # The gating rule. A release is a claim that this commit works, and this
       # is where that claim is checked rather than asserted.
       - name: Refuse to release a commit CI did not prove

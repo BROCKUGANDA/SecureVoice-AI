@@ -10,6 +10,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { SUPPORT_EMAIL } from "@/lib/public-config";
+import { useApp, t } from "@/lib/store";
 
 /**
  * Shown when a fire is refused because the prepaid credit wallet is empty.
@@ -34,6 +35,7 @@ export function TopUpDialog({
    */
   onOpenSettings?: () => void;
 }) {
+  const { lang } = useApp();
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
@@ -41,11 +43,13 @@ export function TopUpDialog({
           <div className="mb-1 flex h-10 w-10 items-center justify-center rounded-full bg-amber-tint">
             <Coins className="h-5 w-5 text-amber-soft" />
           </div>
-          <DialogTitle>Out of credits</DialogTitle>
+          <DialogTitle>{t("Out of credits", "نفد رصيد المحفظة", lang)}</DialogTitle>
           <DialogDescription>
-            Your prepaid credit wallet is empty, so this signal was not sent. SecureVoice meters
-            every intervention against your wallet — one credit per signal, deducted only on success
-            — so the AI usage never runs beyond what you have paid for.
+            {t(
+              "Your prepaid credit wallet is empty, so this signal was not sent. SecureVoice meters every intervention against your wallet — one credit per signal, deducted only on success — so the AI usage never runs beyond what you have paid for.",
+              "محفظة الأرصدة المدفوعة مسبقاً فارغة، لذلك لم تُرسل هذه الإشارة. تحتسب SecureVoice كل تدخل مقابل رصيد محفظتك — رصيد واحد لكل إشارة، يُخصم عند النجاح فقط — فلا يتجاوز استهلاك الذكاء الاصطناعي ما دُفع مقابه.",
+              lang,
+            )}
           </DialogDescription>
         </DialogHeader>
 
@@ -53,16 +57,27 @@ export function TopUpDialog({
           <div className="flex items-start gap-2.5 rounded-xl border border-line bg-paper px-3 py-2.5 text-[12.5px] leading-relaxed text-ink-2">
             <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
             <span>
-              <span className="font-semibold text-foreground">Top up your wallet.</span> Credits are
-              prepaid and reconciled per organisation.
+              <span className="font-semibold text-foreground">
+                {t("Top up your wallet.", "اشحن محفظتك.", lang)}
+              </span>{" "}
+              {t(
+                "Credits are prepaid and reconciled per organisation.",
+                "الأرصدة مدفوعة مسبقاً ويتم تسويتها لكل مؤسسة على حدة.",
+                lang,
+              )}
             </span>
           </div>
           <div className="flex items-start gap-2.5 rounded-xl border border-line bg-paper px-3 py-2.5 text-[12.5px] leading-relaxed text-ink-2">
             <KeyRound className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
             <span>
-              <span className="font-semibold text-foreground">Bring your own key.</span> Paste your
-              institution&apos;s ElevenLabs API key in Settings to route voice to your own account
-              and skip the platform wallet entirely.
+              <span className="font-semibold text-foreground">
+                {t("Bring your own key.", "أحضر مفتاحك الخاص.", lang)}
+              </span>{" "}
+              {t(
+                "Paste your institution's ElevenLabs API key in Settings to route voice to your own account and skip the platform wallet entirely.",
+                "الصق مفتاح ElevenLabs API الخاص بمؤسستك في الإعدادات لتوجيه الصوت إلى حسابك وتجاوز محفظة المنصة تماماً.",
+                lang,
+              )}
             </span>
           </div>
         </div>
@@ -72,7 +87,7 @@ export function TopUpDialog({
             href={`mailto:${SUPPORT_EMAIL}?subject=SecureVoice%20credit%20top-up`}
             className="inline-flex h-10 items-center justify-center rounded-xl border border-line bg-white px-4 text-[13px] font-semibold text-ink-2 transition hover:border-primary/40 hover:text-primary"
           >
-            Contact Sales
+            {t("Contact Sales", "تواصل مع فريق المبيعات", lang)}
           </a>
           {onOpenSettings && (
             <button
@@ -83,10 +98,10 @@ export function TopUpDialog({
               }}
               className="inline-flex h-10 items-center justify-center rounded-xl border border-line bg-white px-4 text-[13px] font-semibold text-ink-2 transition hover:border-primary/40 hover:text-primary"
             >
-              Open Settings
+              {t("Open Settings", "فتح الإعدادات", lang)}
             </button>
           )}
-          <Button onClick={() => onOpenChange(false)}>Close</Button>
+          <Button onClick={() => onOpenChange(false)}>{t("Close", "إغلاق", lang)}</Button>
         </div>
       </DialogContent>
     </Dialog>

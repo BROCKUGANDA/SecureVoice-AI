@@ -195,6 +195,18 @@
   text-transform: uppercase;
 }
 
+/* Arabic does not letterspace. The 0.14em tracking above is a Latin micro-label
+   device; applied to Arabic script it breaks the joined letterforms into
+   disconnected glyphs, which is both wrong and unreadable. Now that micro
+   labels carry Arabic (table headers, section eyebrows), reset tracking and
+   skip the uppercase transform — Arabic has no case — wherever the direction
+   is right-to-left. */
+[dir="rtl"] .micro,
+.font-arabic.micro {
+  letter-spacing: 0;
+  text-transform: none;
+}
+
 /* ——— Accessibility helpers ——— */
 .sr-only {
   position: absolute;

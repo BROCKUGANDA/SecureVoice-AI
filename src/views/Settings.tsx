@@ -16,7 +16,7 @@ import {
   BookOpen,
   Rocket,
 } from "lucide-react";
-import { useApp } from "@/lib/store";
+import { t, useApp } from "@/lib/store";
 import { SUPPORT_EMAIL } from "@/lib/public-config";
 import { Chip } from "@/components/fx/core";
 import { LottieIcon } from "@/components/fx/LottieIcon";
@@ -67,7 +67,6 @@ function Field({
 
 export function Settings() {
   const { lang, setView, highContrast, setHighContrast } = useApp();
-  const ar = lang === "ar";
   const [tab, setTab] = useState<"org" | "keys" | "knowledge" | "team" | "billing">("org");
   const [settings, setSettings] = useState<Settings | null>(null);
   const [loading, setLoading] = useState(true);
@@ -114,12 +113,15 @@ export function Settings() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ label: keyLabel.trim() || "Fraud engine" }),
       });
-      const d = (await r.json().catch(() => ({ error: "Unreadable response" }))) as {
+      const d = (await r
+        .json()
+        .catch(() => ({ error: t("Unreadable response", "تعذّر قراءة الاستجابة", lang) }))) as {
         key?: string;
         label?: string;
         error?: string;
       };
-      if (!r.ok || !d.key) throw new Error(d.error || "Key creation failed");
+      if (!r.ok || !d.key)
+        throw new Error(d.error || t("Key creation failed", "فشل إنشاء المفتاح", lang));
       setNewKey({ key: d.key, label: d.label ?? keyLabel });
       setKeyLabel("");
       const list = await fetch("/api/console/producer-keys")
@@ -127,7 +129,10 @@ export function Settings() {
         .catch(() => ({ keys: [] }));
       setProducerKeys(list.keys ?? []);
     } catch (e) {
-      setMsg({ ok: false, text: e instanceof Error ? e.message : "Key creation failed" });
+      setMsg({
+        ok: false,
+        text: e instanceof Error ? e.message : t("Key creation failed", "فشل إنشاء المفتاح", lang),
+      });
     } finally {
       setBusy(false);
     }
@@ -147,15 +152,20 @@ export function Settings() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(patch),
       });
-      const d = (await r.json().catch(() => ({ error: "Unreadable response" }))) as Settings & {
+      const d = (await r.json().catch(() => ({
+        error: t("Unreadable response", "تعذّر قراءة الاستجابة", lang),
+      }))) as Settings & {
         ok?: boolean;
         error?: string;
       };
-      if (!r.ok || d.error) throw new Error(d.error || "Save failed");
+      if (!r.ok || d.error) throw new Error(d.error || t("Save failed", "فشل الحفظ", lang));
       setSettings(d);
-      setMsg({ ok: true, text: "Saved." });
+      setMsg({ ok: true, text: t("Saved.", "تم الحفظ.", lang) });
     } catch (e) {
-      setMsg({ ok: false, text: e instanceof Error ? e.message : "Save failed" });
+      setMsg({
+        ok: false,
+        text: e instanceof Error ? e.message : t("Save failed", "فشل الحفظ", lang),
+      });
     } finally {
       setBusy(false);
     }
@@ -167,27 +177,34 @@ export function Settings() {
       await fetch("/api/console/settings?field=elevenKey", { method: "DELETE" });
       setSettings((s) => (s ? { ...s, elevenKeyMasked: null } : s));
       setElevenKey("");
-      setMsg({ ok: true, text: "BYOK key removed — the platform key is active again." });
+      setMsg({
+        ok: true,
+        text: t(
+          "BYOK key removed — the platform key is active again.",
+          "تمت إزالة المفتاح الخاص — عاد مفتاح المنصة إلى العمل.",
+          lang,
+        ),
+      });
     } finally {
       setBusy(false);
     }
   };
 
   const TABS = [
-    { id: "org", label: ar ? "المؤسسة" : "Organization", icon: Building2 },
-    { id: "keys", label: ar ? "مفاتيح API" : "API Keys", icon: KeyRound },
-    { id: "knowledge", label: ar ? "المعرفة" : "Knowledge", icon: BookOpen },
-    { id: "team", label: ar ? "الفريق" : "Team", icon: Users },
-    { id: "billing", label: ar ? "الفوترة" : "Billing", icon: Coins },
+    { id: "org", label: t("Organization", "المؤسسة", lang), icon: Building2 },
+    { id: "keys", label: t("API Keys", "مفاتيح API", lang), icon: KeyRound },
+    { id: "knowledge", label: t("Knowledge", "المعرفة", lang), icon: BookOpen },
+    { id: "team", label: t("Team", "الفريق", lang), icon: Users },
+    { id: "billing", label: t("Billing", "الفوترة", lang), icon: Coins },
   ] as const;
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-10 sm:px-6 lg:px-8">
       <div className="flex items-center gap-2.5">
-        <span className="micro text-primary">SETTINGS</span>
+        <span className="micro text-primary">{t("SETTINGS", "الإعدادات", lang)}</span>
       </div>
       <h1 className="font-display mt-2 text-3xl font-semibold tracking-tight sm:text-4xl">
-        {ar ? "الإعدادات" : "Workspace settings"}
+        {t("Workspace settings", "الإعدادات", lang)}
       </h1>
       {/* The wizard is the ordered path through exactly these tabs — telecom
           identity, BYOK, documents, webhooks. Entering it here rather than from
@@ -199,12 +216,16 @@ export function Settings() {
         className="mt-3 inline-flex items-center gap-2 rounded-full border border-primary/40 bg-green-tint px-4 py-2 text-[12.5px] font-semibold text-primary transition hover:bg-green-tint/70"
       >
         <Rocket className="h-3.5 w-3.5" />
-        {ar ? "معالج الإعداد" : "Run setup wizard"}
+        {t("Run setup wizard", "معالج الإعداد", lang)}
       </button>
 
       {loading ? (
         <div className="mt-10 flex justify-center py-16">
-          <LottieIcon name="bars" size={40} label="Loading settings" />
+          <LottieIcon
+            name="bars"
+            size={40}
+            label={t("Loading settings", "جارٍ تحميل الإعدادات", lang)}
+          />
         </div>
       ) : (
         <>
@@ -246,18 +267,29 @@ export function Settings() {
             {tab === "org" && (
               <div className="space-y-5">
                 <p className="text-[13px] leading-relaxed text-ink-2">
-                  White-label the Command Center — your institution&apos;s name and logo replace
-                  SecureVoice branding for every analyst at your bank or insurer.
+                  {t(
+                    "White-label the Command Center — your institution's name and logo replace SecureVoice branding for every analyst at your bank or insurer.",
+                    "اجعل مركز التشغيل بهوية مؤسستك — يحل اسم مؤسستك وشعارها مكان هوية SecureVoice أمام كل محلل في بنكك أو شركة تأمينك.",
+                    lang,
+                  )}
                 </p>
                 <Field
-                  label="Institution type"
-                  hint="Changes how calls, voicemails and fallback texts speak to your customers — “your card” for a bank, “your policy” for an insurer. Protective steps are identical: a staged hold that a human confirms."
+                  label={t("Institution type", "نوع المؤسسة", lang)}
+                  hint={t(
+                    "Changes how calls, voicemails and fallback texts speak to your customers — “your card” for a bank, “your policy” for an insurer. Protective steps are identical: a staged hold that a human confirms.",
+                    "يغيّر طريقة مخاطبة المكالمات والرسائل الصوتية والرسائل البديلة لعملائك — «بطاقتك» لبنك، و«وثيقتك» لشركة تأمين. أما خطوات الحماية فهي متطابقة: إيقاف مؤقت للمعاملة يؤكّده موظف.",
+                    lang,
+                  )}
                 >
-                  <div role="radiogroup" aria-label="Institution type" className="flex gap-2">
+                  <div
+                    role="radiogroup"
+                    aria-label={t("Institution type", "نوع المؤسسة", lang)}
+                    className="flex gap-2"
+                  >
                     {(
                       [
-                        { id: "bank", label: "Bank" },
-                        { id: "insurer", label: "Insurer" },
+                        { id: "bank", label: t("Bank", "بنك", lang) },
+                        { id: "insurer", label: t("Insurer", "شركة تأمين", lang) },
                       ] as const
                     ).map((o) => (
                       <button
@@ -279,25 +311,38 @@ export function Settings() {
                   </div>
                 </Field>
                 <Field
-                  label="Organization display name"
-                  hint="Shown in the Command Center header instead of SecureVoice AI."
+                  label={t("Organization display name", "الاسم المعروض للمؤسسة", lang)}
+                  hint={t(
+                    "Shown in the Command Center header instead of SecureVoice AI.",
+                    "يظهر في ترويسة مركز التشغيل بدلًا من SecureVoice AI.",
+                    lang,
+                  )}
                 >
                   <Input
                     value={orgName}
                     onChange={(e) => setOrgName(e.target.value)}
-                    placeholder="Emirates National Bank — Fraud Ops  /  Gulf Mutual Insurance — Claims Security"
+                    placeholder={t(
+                      "Emirates National Bank — Fraud Ops  /  Gulf Mutual Insurance — Claims Security",
+                      "البنك الوطني الإماراتي — عمليات الاحتيال  /  الخليج للتأمين المتبادل — أمن المطالبات",
+                      lang,
+                    )}
                     className={inputCls}
                   />
                 </Field>
                 <Field
-                  label="Logo URL"
-                  hint="Square PNG/SVG, ≥96px. Served to analysts — use your own CDN."
+                  label={t("Logo URL", "رابط الشعار", lang)}
+                  hint={t(
+                    "Square PNG/SVG, ≥96px. Served to analysts — use your own CDN.",
+                    "صورة مربعة بصيغة PNG/SVG، بقياس 96 بكسل أو أكبر. تُقدَّم للمحللين — استخدم شبكة CDN الخاصة بك.",
+                    lang,
+                  )}
                 >
                   <Input
                     value={orgLogoUrl}
                     onChange={(e) => setOrgLogoUrl(e.target.value)}
                     placeholder="https://your-cdn.ae/logo.png"
                     className={inputCls}
+                    dir="ltr"
                   />
                 </Field>
                 <button
@@ -306,7 +351,7 @@ export function Settings() {
                   className="flex items-center gap-2 rounded-full bg-primary px-6 py-2.5 text-[13px] font-semibold text-white transition hover:bg-green-deep disabled:opacity-40"
                 >
                   {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                  Save organization
+                  {t("Save organization", "حفظ بيانات المؤسسة", lang)}
                 </button>
 
                 {/* Accessibility — per-analyst display preference, stored locally.
@@ -314,19 +359,26 @@ export function Settings() {
                     raise text contrast without OS-level changes. */}
                 <section aria-labelledby="a11y-heading" className="border-t border-line pt-5">
                   <h2 id="a11y-heading" className="text-[13px] font-semibold">
-                    Accessibility
+                    {t("Accessibility", "إمكانية الوصول", lang)}
                   </h2>
                   <p className="mt-1 text-[12px] leading-snug text-ink-3">
-                    Display preference for this analyst only — saved on this device, never sent to
-                    the server.
+                    {t(
+                      "Display preference for this analyst only — saved on this device, never sent to the server.",
+                      "تفضيل عرض خاص بهذا المحلل فقط — يُحفظ على هذا الجهاز، ولا يُرسل إلى الخادم أبدًا.",
+                      lang,
+                    )}
                   </p>
                   <div className="mt-3 flex items-center justify-between gap-4 rounded-xl border border-line bg-paper px-4 py-3">
                     <div>
                       <Label htmlFor="high-contrast-toggle" className="text-[12.5px] font-semibold">
-                        High contrast
+                        {t("High contrast", "تباين عالٍ", lang)}
                       </Label>
                       <p className="mt-0.5 text-[11.5px] leading-snug text-ink-3">
-                        Near-black text, stronger focus ring, underlined links.
+                        {t(
+                          "Near-black text, stronger focus ring, underlined links.",
+                          "نص أسود داكن، وحدة تركيز أوضح، وروابط تحتها خط.",
+                          lang,
+                        )}
                       </p>
                     </div>
                     <Switch
@@ -337,7 +389,11 @@ export function Settings() {
                     />
                   </div>
                   <p id="high-contrast-hint" className="sr-only">
-                    Raises text contrast across the whole workspace to meet WCAG AA.
+                    {t(
+                      "Raises text contrast across the whole workspace to meet WCAG AA.",
+                      "يرفع تباين النص في كامل مساحة العمل للتوافق مع معيار WCAG AA.",
+                      lang,
+                    )}
                   </p>
                 </section>
               </div>
@@ -346,9 +402,11 @@ export function Settings() {
             {tab === "keys" && (
               <div className="space-y-5">
                 <p className="text-[13px] leading-relaxed text-ink-2">
-                  Bring Your Own Key — paste your institution&apos;s own ElevenLabs API key and your
-                  voice usage is billed to your ElevenLabs account directly. Encrypted at rest
-                  (AES-256-GCM); only the masked form is ever displayed.
+                  {t(
+                    "Bring Your Own Key — paste your institution's own ElevenLabs API key and your voice usage is billed to your ElevenLabs account directly. Encrypted at rest (AES-256-GCM); only the masked form is ever displayed.",
+                    "أحضر مفتاحك الخاص — الصق مفتاح ElevenLabs API الخاص بمؤسستك، فيُحتسب استهلاك الصوت على حساب ElevenLabs الخاص بك مباشرة. يُشفَّر المفتاح أثناء التخزين (AES-256-GCM)، ولا يُعرض سوى شكله المحجوب.",
+                    lang,
+                  )}
                 </p>
                 {settings?.elevenKeyMasked && (
                   <div className="flex items-center justify-between rounded-xl border border-[#c4e5d6] bg-green-tint px-4 py-3 text-[12.5px] font-medium text-green-deep">
@@ -360,13 +418,17 @@ export function Settings() {
                       disabled={busy}
                       className="text-[11.5px] font-semibold text-red-soft underline-offset-2 hover:underline"
                     >
-                      Remove
+                      {t("Remove", "إزالة", lang)}
                     </button>
                   </div>
                 )}
                 <Field
-                  label="ElevenLabs API key"
-                  hint="Create one at app.elevenlabs.io → Profile + API Key. Starts with sk_..."
+                  label={t("ElevenLabs API key", "مفتاح ElevenLabs API", lang)}
+                  hint={t(
+                    "Create one at app.elevenlabs.io → Profile + API Key. Starts with sk_...",
+                    "أنشئ مفتاحًا من app.elevenlabs.io ← Profile + API Key. يبدأ بـ sk_…",
+                    lang,
+                  )}
                 >
                   <div className="relative">
                     <Input
@@ -380,7 +442,7 @@ export function Settings() {
                     <button
                       type="button"
                       onClick={() => setShowKey((v) => !v)}
-                      aria-label="Toggle key visibility"
+                      aria-label={t("Toggle key visibility", "تبديل ظهور المفتاح", lang)}
                       className="absolute right-3 top-1/2 -translate-y-1/2 text-ink-3 hover:text-foreground"
                     >
                       {showKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
@@ -397,29 +459,42 @@ export function Settings() {
                   ) : (
                     <KeyRound className="h-4 w-4" />
                   )}
-                  Save key
+                  {t("Save key", "حفظ المفتاح", lang)}
                 </button>
 
                 <div className="mt-6 border-t border-line pt-6">
                   <p className="flex items-center gap-2 text-[13px] font-semibold">
                     <Plug className="h-4 w-4 text-primary" />
-                    Bank integration keys (headless API)
+                    {t(
+                      "Bank integration keys (headless API)",
+                      "مفاتيح تكامل المصرف (واجهة برمجية بدون واجهة)",
+                      lang,
+                    )}
                   </p>
                   <p className="mt-1.5 text-[12px] leading-relaxed text-ink-3">
-                    Your fraud engine fires signals with{" "}
+                    {t(
+                      "Your fraud engine fires signals with",
+                      "يرسل محرك مكافحة الاحتيال الخاص بك الإشارات باستخدام",
+                      lang,
+                    )}{" "}
                     <code className="num rounded bg-paper px-1.5 py-0.5 text-[10.5px]">
                       Authorization: Bearer svb_…
                     </code>{" "}
-                    against{" "}
+                    {t("against", "إلى", lang)}{" "}
                     <code className="num rounded bg-paper px-1.5 py-0.5 text-[10.5px]">
                       POST /api/interventions
                     </code>
-                    . HMAC signing stays available as an alternative.
+                    {t(
+                      ". HMAC signing stays available as an alternative.",
+                      ". ويظل توقيع HMAC متاحًا كبديل.",
+                      lang,
+                    )}
                   </p>
                   {newKey && (
                     <div className="mt-3 rounded-xl border border-[#c4e5d6] bg-green-tint px-4 py-3">
                       <p className="text-[11px] font-semibold text-green-deep">
-                        COPY NOW — shown only once ({newKey.label})
+                        {t("COPY NOW — shown only once", "انسخها الآن — تظهر مرة واحدة فقط", lang)}{" "}
+                        ({newKey.label})
                       </p>
                       <p className="num mt-1 break-all text-[12px] text-green-deep">{newKey.key}</p>
                     </div>
@@ -428,7 +503,11 @@ export function Settings() {
                     <Input
                       value={keyLabel}
                       onChange={(e) => setKeyLabel(e.target.value)}
-                      placeholder="Key label — e.g. Core banking (prod)"
+                      placeholder={t(
+                        "Key label — e.g. Core banking (prod)",
+                        "تسمية المفتاح — مثال: النظم المصرفية الأساسية (إنتاج)",
+                        lang,
+                      )}
                       className={cn(inputCls, "flex-1")}
                     />
                     <button
@@ -436,7 +515,7 @@ export function Settings() {
                       disabled={busy}
                       className="shrink-0 rounded-full border border-primary/40 bg-green-tint px-4 py-2.5 text-[12.5px] font-semibold text-primary transition hover:bg-green-tint/70 disabled:opacity-40"
                     >
-                      Create key
+                      {t("Create key", "إنشاء مفتاح", lang)}
                     </button>
                   </div>
                   {producerKeys.length > 0 && (
@@ -449,13 +528,18 @@ export function Settings() {
                           <div className="min-w-0">
                             <p className="text-[12px] font-semibold">
                               {k.label}{" "}
-                              {k.revoked && <span className="text-red-soft">(revoked)</span>}
+                              {k.revoked && (
+                                <span className="text-red-soft">
+                                  ({t("revoked", "ملغى", lang)})
+                                </span>
+                              )}
                             </p>
                             <p className="text-[10.5px] text-ink-3">
-                              created {new Date(k.createdAt).toLocaleDateString()}
+                              {t("created", "أُنشئ", lang)}{" "}
+                              {new Date(k.createdAt).toLocaleDateString()}
                               {k.lastUsedAt
-                                ? ` · last used ${new Date(k.lastUsedAt).toLocaleString()}`
-                                : " · never used"}
+                                ? ` · ${t("last used", "آخر استخدام", lang)} ${new Date(k.lastUsedAt).toLocaleString()}`
+                                : ` · ${t("never used", "لم يُستخدم", lang)}`}
                             </p>
                           </div>
                           {!k.revoked && (
@@ -463,7 +547,7 @@ export function Settings() {
                               onClick={() => revokeProducerKey(k.id)}
                               className="text-[11px] font-semibold text-red-soft hover:underline"
                             >
-                              Revoke
+                              {t("Revoke", "إلغاء", lang)}
                             </button>
                           )}
                         </li>
@@ -481,9 +565,11 @@ export function Settings() {
             {tab === "team" && (
               <div className="space-y-5">
                 <p className="text-[13px] leading-relaxed text-ink-2">
-                  Analysts are provisioned through secure email invites — no public sign-up. Type a
-                  colleague&apos;s work email and we&apos;ll queue an invite from the
-                  fraud-operations admin.
+                  {t(
+                    "Analysts are provisioned through secure email invites — no public sign-up. Type a colleague's work email and we'll queue an invite from the fraud-operations admin.",
+                    "يُمنح المحللون صلاحياتهم عبر دعوات بريد إلكتروني آمنة — دون تسجيل عام. أدخل بريد عمل زميلك وسنُجهّز دعوة من مسؤول عمليات مكافحة الاحتيال.",
+                    lang,
+                  )}
                 </p>
                 <div className="flex gap-2">
                   <Input
@@ -492,23 +578,34 @@ export function Settings() {
                     onChange={(e) => setInviteEmail(e.target.value)}
                     placeholder="analyst@yourbank.ae"
                     className={cn(inputCls, "flex-1")}
+                    dir="ltr"
                   />
                   <button
                     onClick={() => {
-                      window.location.href = `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent("SecureVoice seat invite: " + inviteEmail)}`;
+                      window.location.href = `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(
+                        `${t("SecureVoice seat invite", "دعوة مقعد في SecureVoice", lang)}: ${inviteEmail}`,
+                      )}`;
                     }}
                     disabled={!inviteEmail.includes("@")}
                     className="shrink-0 rounded-full bg-primary px-5 py-2.5 text-[13px] font-semibold text-white transition hover:bg-green-deep disabled:opacity-40"
                   >
-                    Invite
+                    {t("Invite", "دعوة", lang)}
                   </button>
                 </div>
                 <p className="rounded-xl bg-paper px-4 py-3 text-[11.5px] leading-relaxed text-ink-3">
-                  Enterprise flow: seats are created manually by the SecureVoice admin against your
-                  Better Auth organization, and the invitee sets their own password via a one-time
-                  link. Roles: <span className="font-semibold">Admin</span> (billing, seats, all
-                  interventions) · <span className="font-semibold">Analyst</span> (Command Center +
-                  firing signals).
+                  {t(
+                    "Enterprise flow: seats are created manually by the SecureVoice admin against your Better Auth organization, and the invitee sets their own password via a one-time link. Roles:",
+                    "مسار المؤسسات: يُنشئ مسؤول SecureVoice المقاعد يدويًا ضمن مؤسستك في Better Auth، ويضع المدعو كلمة مروره بنفسه عبر رابط يُستخدم مرة واحدة. الأدوار:",
+                    lang,
+                  )}{" "}
+                  <span className="font-semibold">{t("Admin", "مسؤول", lang)}</span>{" "}
+                  {t(
+                    "(billing, seats, all interventions)",
+                    "(الفوترة والمقاعد وجميع التدخلات)",
+                    lang,
+                  )}{" "}
+                  · <span className="font-semibold">{t("Analyst", "محلل", lang)}</span>{" "}
+                  {t("(Command Center + firing signals)", "(مركز التشغيل وإطلاق الإشارات)", lang)}
                 </p>
               </div>
             )}
@@ -517,12 +614,18 @@ export function Settings() {
               <div className="space-y-6">
                 <div className="flex items-center justify-between rounded-2xl border border-line bg-paper px-5 py-4">
                   <div>
-                    <p className="micro text-[9px] text-ink-3">PREPAID WALLET</p>
+                    <p className="micro text-[9px] text-ink-3">
+                      {t("PREPAID WALLET", "المحفظة مسبقة الدفع", lang)}
+                    </p>
                     <p className="num mt-1 text-2xl font-semibold">
-                      {settings?.credits ?? "—"} credits
+                      {settings?.credits ?? "—"} {t("credits", "رصيد", lang)}
                     </p>
                     <p className="text-[11.5px] text-ink-3">
-                      1 credit = 1 intervention signal · deducted only on success
+                      {t(
+                        "1 credit = 1 intervention signal · deducted only on success",
+                        "الرصيد الواحد = إشارة تدخل واحدة · ولا يُخصم إلا عند النجاح",
+                        lang,
+                      )}
                     </p>
                   </div>
                   <Coins className="h-8 w-8 text-[#c9a227]" />
@@ -530,38 +633,49 @@ export function Settings() {
                 <div className="grid gap-3 sm:grid-cols-3">
                   {[
                     {
-                      name: "Starter",
+                      name: t("Starter", "البداية", lang),
                       price: "$490",
-                      per: "/month",
-                      detail: "1,000 interventions · 1 bank entity · email support",
+                      per: t("/month", "/شهريًا", lang),
+                      detail: t(
+                        "1,000 interventions · 1 bank entity · email support",
+                        "1,000 تدخل · جهة مصرفية واحدة · دعم عبر البريد الإلكتروني",
+                        lang,
+                      ),
                     },
                     {
-                      name: "Pro",
+                      name: t("Pro", "الاحترافية", lang),
                       price: "$1,490",
-                      per: "/month",
-                      detail: "5,000 interventions · 5 entities · priority routing · SLA 99.9%",
+                      per: t("/month", "/شهريًا", lang),
+                      detail: t(
+                        "5,000 interventions · 5 entities · priority routing · SLA 99.9%",
+                        "5,000 تدخل · 5 جهات · توجيه ذو أولوية · اتفاق مستوى خدمة 99.9%",
+                        lang,
+                      ),
                     },
                     {
-                      name: "Enterprise",
-                      price: "Custom",
+                      name: t("Enterprise", "المؤسسات", lang),
+                      price: t("Custom", "حسب الطلب", lang),
                       per: "",
-                      detail:
+                      detail: t(
                         "Unlimited · VPC deployment · BYOK · custom voice clones · CBUAE audit pack",
+                        "غير محدود · نشر على VPC · مفاتيح خاصة · نُسخ صوتية مخصصة · حزمة تدقيق المصرف المركزي",
+                        lang,
+                      ),
                     },
-                  ].map((t, i) => (
+                  ].map((plan, i) => (
                     <div
-                      key={t.name}
+                      key={plan.name}
                       className={cn(
                         "rounded-2xl border p-4",
                         i === 1 ? "border-primary bg-green-tint/50" : "border-line bg-paper",
                       )}
                     >
-                      <p className="font-display text-[14px] font-semibold">{t.name}</p>
+                      <p className="font-display text-[14px] font-semibold">{plan.name}</p>
                       <p className="mt-1">
-                        <span className="font-display text-xl font-semibold">{t.price}</span>
-                        <span className="text-[11px] text-ink-3"> {t.per}</span>
+                        <span className="font-display text-xl font-semibold">{plan.price}</span>
+                        <span className="text-[11px] text-ink-3"> {plan.per}</span>
                       </p>
-                      <p className="mt-2 text-[11px] leading-snug text-ink-3">{t.detail}</p>
+                      <p className="mt-2 text-[11px] leading-snug text-ink-3">{plan.detail}</p>
                     </div>
                   ))}
                 </div>
@@ -570,7 +684,7 @@ export function Settings() {
                   className="inline-flex items-center gap-2 rounded-full bg-primary px-6 py-2.5 text-[13px] font-semibold text-white transition hover:bg-green-deep"
                 >
                   <Coins className="h-4 w-4" />
-                  Top up / change plan
+                  {t("Top up / change plan", "شحن الرصيد / تغيير الخطة", lang)}
                 </a>
               </div>
             )}
@@ -578,12 +692,16 @@ export function Settings() {
 
           <div className="mt-6 flex items-center gap-2 text-[12px] text-ink-3">
             <ImageIcon className="h-3.5 w-3.5" />
-            White-label preview appears in the Command Center header immediately after saving.
+            {t(
+              "White-label preview appears in the Command Center header immediately after saving.",
+              "تظهر معاينة الهوية الخاصة بمؤسستك في ترويسة مركز التشغيل فورًا بعد الحفظ.",
+              lang,
+            )}
             <button
               onClick={() => setView("console")}
               className="font-semibold text-primary hover:underline"
             >
-              Open Command Center →
+              {t("Open Command Center →", "فتح مركز التشغيل ←", lang)}
             </button>
           </div>
         </>

@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
+import { useApp, t } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
 /* ————— Area/line trend chart (SVG, animated draw) ————— */
@@ -14,6 +15,7 @@ export function TrendChart({
   labels?: string[];
   className?: string;
 }) {
+  const { lang } = useApp();
   const [hover, setHover] = useState<number | null>(null);
   const W = 640;
   const H = 220;
@@ -45,7 +47,7 @@ export function TrendChart({
         viewBox={`0 0 ${W} ${H}`}
         className="w-full h-auto"
         role="img"
-        aria-label="Prevented loss trend"
+        aria-label={t("Prevented loss trend", "اتجاه الخسائر المُنعّة", lang)}
       >
         <defs>
           <linearGradient id="trendFill" x1="0" y1="0" x2="0" y2="1">
@@ -192,6 +194,7 @@ export function Donut({
   size?: number;
   className?: string;
 }) {
+  const { lang } = useApp();
   const r = 60;
   const c = 2 * Math.PI * r;
   const segs = items.map((it, i) => ({
@@ -222,7 +225,7 @@ export function Donut({
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center">
         <span className="num text-2xl font-semibold text-foreground">58%</span>
-        <span className="text-[10.5px] text-ink-3">prevented</span>
+        <span className="text-[10.5px] text-ink-3">{t("prevented", "مُنع", lang)}</span>
       </div>
     </div>
   );
@@ -281,6 +284,7 @@ export function CompareBar({
   unit: string;
   delay?: number;
 }) {
+  const { lang } = useApp();
   const fmt = (v: number) => (v >= 1000 ? `${Math.round(v).toLocaleString()}` : `${v}`);
   const bw = (baseline / max) * 100;
   const cw = (current / max) * 100;
@@ -291,16 +295,22 @@ export function CompareBar({
       : `${fmt(v)}${unit === "s" ? "s" : unit}`;
   return (
     <div className="space-y-2">
-      <Row label="Baseline" w={bw} cls="bg-[#c9d2ca]" val={fmtUnit(baseline)} delay={delay} />
       <Row
-        label="Now"
+        label={t("Baseline", "الأساس", lang)}
+        w={bw}
+        cls="bg-[#c9d2ca]"
+        val={fmtUnit(baseline)}
+        delay={delay}
+      />
+      <Row
+        label={t("Now", "الآن", lang)}
         w={cw}
         cls={good === "up" ? "bg-primary" : "bg-amber-soft"}
         val={fmtUnit(current)}
         delay={delay + 0.12}
       />
       <Row
-        label="Target"
+        label={t("Target", "الهدف", lang)}
         w={tw}
         cls="bg-green-deep/85"
         val={fmtUnit(target)}

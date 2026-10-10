@@ -19,7 +19,131 @@ import { cn } from "@/lib/utils";
 
 /* ————————————————— data — the five briefs ————————————————— */
 
+/** Quick-access bookkeeping for a brief's delivery status (label, sub-label,
+    and whether it is live in this deployment). */
 type Status = { label: string; sub: string; live?: boolean };
+
+/** Modern Standard Arabic counterpart of a brief's plain-string prose. The
+    bilingual `en`/`ar` titles stay in `USE_CASES`; everything else that array
+    carries as plain strings is translated here, at the render site. */
+type UseCaseAr = {
+  pitch: string;
+  agent: string[];
+  inScope: string[];
+  outScope: string[];
+  personas: string[];
+  status: { label: string; sub: string };
+};
+
+const USE_CASES_AR: Record<string, UseCaseAr> = {
+  fraud: {
+    pitch:
+      "عندما يكتشف البنك دخولاً مشبوهاً أو بطاقة مسروقة أو عملية دفع شاذة، يكون الاتصال الصادر غالباً أبطأ من أن يغيّر النتيجة. يتصل الوكيل بالعميل لحظة إشارة الخطر وبلغته — يعرّف عن نفسه كذكاء اصطناعي تابع للمؤسسة، ويتحقق عبر مسار التحدي المعتمد من البنك دون طلب رمز سري أو كلمة مرور، وينفّذ إجراءً وقائياً معتمداً مسبقاً مثل تجميد مؤقت للبطاقة، ثم يسلم المكالمة إلى إنسان بشري في كل ما هو غير قابل للتراجع.",
+    agent: [
+      "اتصال صادر خلال ٦٠ ثانية من إشارة الخطر — ٦١ ثانية من الإشارة إلى التجميد في هذا العرض",
+      "تحقق من الهوية عبر تحدي العمليات — لا يمكن طلب الرموز السرية ولا كلمات المرور ولا رموز التحقق لمرة واحدة، وهو منع مبني في التصميم",
+      "إجراءات وقائية معتمدة مسبقاً فقط: تجميد مؤقت للبطاقة، وإيقاف تحويل، وحظر مستفيد",
+      "تسليم دافئ إلى مكتب مكافحة الاحتيال البشري مع سياق ثنائي اللغة كامل",
+    ],
+    inScope: [
+      "مكالمات حرجة زمنياً يفجّرها إشارة خطر حيّة",
+      "إجراءات وقائية معتمدة مسبقاً من السياسة الموقّعة",
+      "التحقق عبر مسار التحدي المعتمد من البنك",
+    ],
+    outScope: [
+      "الإجراءات غير القابلة للتراجع على الحساب — يقررها فريق مكافحة الاحتيال البشري في البنك",
+      "التنبيهات الروتينية والمكالمات المجدولة",
+    ],
+    personas: ["مدير مكافحة الاحتيال، بنك تجزئة", "مدير البطاقات، بنك تجزئة"],
+    status: { label: "مُطلَق", sub: "متاح في هذه المنصة — شغّل العرض" },
+  },
+  collections: {
+    pitch:
+      "تُفوّض عادةً أقساط القروض المتعثرة وتجديدات التأمين ووثائق الهوية المنتهية ومتابعة خطط السداد إلى جهات خارجية، وهذا يخلق مخاطر سلوكية بموجب قواعد حماية المستهلك الصادرة عن المصرف المركزي. كما أن التواصل بلغة العميل نفسه غير متاح باستمرار في قاعدة مقترضين أغلبهم من الوافدين. تتبع هذه القناة الصوتية استراتيجيات المعاملة المعتمدة دون انحراف، وتعمل بلغات قاعدة المقترضين — من العربية الإماراتية إلى الأردية — وتسجّل كل مكالمة.",
+    agent: [
+      "ينفّذ استراتيجية المعاملة المعتمدة بدقة — دون انحراف أو اجتهاد",
+      "أربع لغات تعمل اليوم (EN · AR-Gulf · HI · UR) في قاعدة مقترضين من الوافدين",
+      "ساعات الاتصال المسموحة مفروضة بالإعدادات؛ وكل طلب إلغاء يُحترم ويُسجّل",
+      "كل مكالمة مسجّلة بأثر تدقيق غير قابل للتغيير",
+    ],
+    inScope: [
+      "مكالمات روتينية مجدولة بشأن التزام قائم أو على وشك الانتهاء",
+      "صيغ معتمدة فقط، وخلال ساعات الاتصال المسموحة",
+      "لا ضغط — كل طلب إلغاء يُحترم",
+    ],
+    outScope: ["النزاعات وطلبات الضيق المالي وإشارات الفئات الهشة — تُحال إلى إنسان بشري"],
+    personas: [
+      "مدير التحصيل والاسترداد",
+      "كبير مسؤولي التوزيع، شركة تأمين",
+      "مدير عمليات الامتثال",
+    ],
+    status: {
+      label: "مسارات تجريبية",
+      sub: "أصوات عربية وهندية وأردية تُسلّم اليوم — نفس محرك الضمانات",
+    },
+  },
+  preauth: {
+    pitch:
+      "التغطية الصحية إلزامية في دبي. ويمكن أن ينتظر المتصل من قطاع الأعمال فترات طويلة على طلب موافقة مسبقة بينما ينتظر المريض — مع أن جزءاً كبيراً من هذه الطلبات قرارات قائمة على قواعد. يجيب الوكيل على متصل الأعمال — عيادة أو وسيط أو مورّد يستعلم عن الانضمام — ويتلقى الطلب كاملاً، ويتحقق منه مقابل القواعد المطبقة، ويجهّز القرار ليصادق عليه موظف مؤهل، فيحصل المتصل على إجابة في المكالمة نفسها. وتتيح مرحلة لاحقة لوكيل العيادة الاتصال بوكيل شركة التأمين مباشرة، بموجب تفويض كتابي منفصل.",
+    agent: [
+      "يتلقى طلب الموافقة المسبقة كاملاً في مكالمة واحدة — بلا قوائم انتظار للحالات القائمة على القواعد",
+      "يتحقق من الطلب مقابل القواعد المكتوبة ويجهّز التوصية",
+      "يصادق موظف مؤهل على كل موافقة أو رفض قبل إصداره",
+      "يسمع المتصل القرار في المكالمة نفسها",
+    ],
+    inScope: [
+      "مكالمات بين قطاع الأعمال يكون الجواب فيها مستنتجاً من قواعد مكتوبة",
+      "يجهّز الوكيل التوصية؛ ويصادق البشر على النتيجة",
+    ],
+    outScope: ["الاتصال بين وكيلين — يُخرج الإنسان من المكالمة ويشترط موافقة كتابية خاصة به"],
+    personas: [
+      "كبير مسؤولي المطالبات، شركة تأمين صحي",
+      "مدير توزيع الوسطاء",
+      "مدير الخدمات المصرفية للمنشآت الصغيرة والمتوسطة",
+    ],
+    status: {
+      label: "نموذج مرجعي",
+      sub: "نفس محرك الضمانات، مع مسار استقبال بين قطاع الأعمال",
+    },
+  },
+  "hard-moments": {
+    pitch:
+      "الفقد، والمرض الخطير، وفقدان الوظيفة تؤدي جميعها إلى تجميد الحسابات ومتطلبات انتقال الملكية وإجراءات المطالبات. وتتولّاها عادةً إدارات منفصلة، ما يُلزم العميل بإعادة شرح ظروفه في كل خطوة. يتولّى وكيل واحد الحالة من البداية إلى النهاية: يشرح العميل مرة واحدة، ويحتفظ الوكيل بالسياق، ويتابع المستندات المطلوبة والحالة، ويقدّم التحديثات طوال مدة الحالة، ويحيل أي سؤال قانوني أو مالي إلى شخص مؤهل.",
+    agent: [
+      "يشرح العميل مرة واحدة — وينتقل السياق إلى كل مكالمة لاحقة",
+      "قائمة المستندات وحالة الملف تُتابع وتُحدّث استباقياً",
+      "يذكر إجراءات المؤسسة المنشورة ومتطلبات المستندات كأمر مسلّم به",
+      "تُحال أسئلة الاستشارة القانونية والمالية إلى شخص مؤهل",
+    ],
+    inScope: [
+      "حالات حسّاسة طويلة الأمد تُدار عبر مكالمات متعددة",
+      "معلومات الإجراءات مستمدة من الحقائق المنشورة للمؤسسة",
+    ],
+    outScope: ["الاستشارة القانونية أو المالية — تُوجَّه دائماً إلى شخص مؤهل"],
+    personas: ["مدير تجربة العميل، بنك تجزئة وخاص", "كبير مسؤولي المطالبات، شركة تأمين على الحياة"],
+    status: { label: "نموذج مرجعي", sub: "محرك حالة الملف، وذاكرة تمتد عبر المكالمات" },
+  },
+  servicing: {
+    pitch:
+      "تعدّ الإمارات من أكبر أسواق الحوالات الصادرة في العالم. وتعمل قنوات الهاتف للتجزئة عادةً بالإنجليزية والعربية، ما يترك شريحة كبيرة من العملاء عاجزة عن الحصول على جواب واقعي لسؤال روتيني. يجيب هذا الخطّ عن الاستفسارات اليومية بلغة المتصل: سعر الحوالة المعلن، أو حالة التحويل، أو الاستحقاقات المرتبطة ببطاقة الراتب.",
+    agent: [
+      "يجيب بلغة المتصل — أربع لغات تعمل اليوم، تُختار حسب ملف العميل",
+      "أجوبة واقعية فقط، مستمدة من معلومات منشورة",
+      "أسعار الحوالات المعلنة، وحالة التحويل، واستحقاقات بطاقة الراتب",
+      "مكالمة واحدة وجواب واحد — بلا انتظار ولا رسم إضافي بسبب اللغة",
+    ],
+    inScope: ["أسئلة واقعية تُجاب في مكالمة واحدة من معلومات منشورة"],
+    outScope: [
+      "التوصيات بالمنتجات أو القرارات المالية — تُوجَّه طلبات الاستشارة والشكاوى إلى إنسان بشري",
+    ],
+    personas: [
+      "كبير مسؤولي العمليات، بيت صرافة",
+      "كبير مسؤولي العملاء، شركة تأمين",
+      "مدير الخدمات المصرفية للتجزئة",
+    ],
+    status: { label: "مسارات تجريبية", sub: "الأصوات الأربعة كلها تعمل في العرض التجريبي اليوم" },
+  },
+};
 
 const USE_CASES: {
   id: string;
@@ -174,11 +298,13 @@ export function UseCases() {
       {/* header */}
       <div className="max-w-2xl">
         <div className="flex items-center gap-3">
-          <span className="micro text-primary">Use cases</span>
+          <span className="micro text-primary">{t("Use cases", "حالات الاستخدام", lang)}</span>
           <span className="h-px w-10 bg-line" />
-          <span dir="rtl" className="font-arabic text-[13px] text-ink-3">
-            حالات الاستخدام
-          </span>
+          {lang === "en" && (
+            <span dir="rtl" className="font-arabic text-[13px] text-ink-3">
+              حالات الاستخدام
+            </span>
+          )}
         </div>
         <h1 className="font-display mt-3 text-3xl font-semibold tracking-tight sm:text-4xl">
           {t("One platform, five regulated conversations", "منصة واحدة، خمس محادثات منظّمة", lang)}
@@ -194,116 +320,135 @@ export function UseCases() {
 
       {/* cards */}
       <div className="mt-10 space-y-6">
-        {USE_CASES.map((u, i) => (
-          <Reveal key={u.id} delay={Math.min(i * 0.04, 0.12)}>
-            <article className="overflow-hidden rounded-3xl border border-line bg-white">
-              {/* head */}
-              <div className="flex flex-wrap items-start justify-between gap-4 border-b border-line/70 px-6 py-5 sm:px-8">
-                <div className="flex items-start gap-4">
-                  <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-green-tint">
-                    <u.icon className="h-5 w-5 text-primary" strokeWidth={1.7} />
-                  </span>
-                  <div>
-                    <div className="flex items-center gap-2.5">
-                      <span className="font-mono text-[11px] font-bold tracking-widest text-ink-3">
-                        {String(i + 1).padStart(2, "0")}
-                      </span>
-                      <h2 className="font-display text-[18px] font-semibold tracking-tight">
-                        {lang === "ar" ? u.ar : u.en}
-                      </h2>
-                    </div>
-                    <div className="mt-1.5 flex flex-wrap items-center gap-2">
-                      <span
-                        className={cn(
-                          "rounded-full px-2.5 py-0.5 font-mono text-[9.5px] font-bold uppercase tracking-wide",
-                          u.status.live ? "bg-primary text-white" : "bg-green-tint text-primary",
-                        )}
-                      >
-                        {u.status.label}
-                      </span>
-                      <span className="text-[12px] text-ink-3">{u.status.sub}</span>
-                    </div>
-                  </div>
-                </div>
-                {u.status.live && (
-                  <button
-                    onClick={launchDemo}
-                    className="group flex shrink-0 items-center gap-2 rounded-full bg-primary px-4 py-2 text-[12.5px] font-semibold text-white transition hover:bg-green-deep"
-                  >
-                    <Play className="h-3.5 w-3.5" />
-                    {t("Run the live demo", "شغّل العرض الحي", lang)}
-                  </button>
-                )}
-              </div>
-
-              {/* body */}
-              <div className="grid gap-8 px-6 py-6 sm:px-8 lg:grid-cols-[1.4fr_1fr]">
-                <div>
-                  <p className="text-[13.5px] leading-relaxed text-ink-2">{u.pitch}</p>
-                  <div className="micro mt-5 text-[9px] text-ink-3">WHAT THE AGENT DOES</div>
-                  <ul className="mt-2.5 space-y-2">
-                    {u.agent.map((a) => (
-                      <li key={a} className="flex gap-2.5 text-[13px] leading-relaxed text-ink-2">
-                        <Check
-                          className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary"
-                          strokeWidth={2.4}
-                        />
-                        {a}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-
-                <div className="space-y-4">
-                  {/* scope */}
-                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
-                    <div className="rounded-2xl border border-line bg-paper p-4">
-                      <div className="micro text-[9px] text-primary">IN SCOPE</div>
-                      <ul className="mt-2 space-y-1.5">
-                        {u.inScope.map((s) => (
-                          <li key={s} className="flex gap-2 text-[12px] leading-relaxed text-ink-2">
-                            <span className="mt-[7px] h-1 w-1 shrink-0 rounded-full bg-primary" />
-                            {s}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                    <div className="rounded-2xl border border-dashed border-line bg-white p-4">
-                      <div className="micro flex items-center gap-1 text-[9px] text-ink-3">
-                        <X className="h-3 w-3 text-red-500" /> OUT OF SCOPE
-                      </div>
-                      <ul className="mt-2 space-y-1.5">
-                        {u.outScope.map((s) => (
-                          <li key={s} className="flex gap-2 text-[12px] leading-relaxed text-ink-2">
-                            <span className="mt-[7px] h-1 w-1 shrink-0 rounded-full bg-red-400" />
-                            {s}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  </div>
-
-                  {/* personas */}
-                  <div className="rounded-2xl border border-line bg-paper p-4">
-                    <div className="micro flex items-center gap-1.5 text-[9px] text-ink-3">
-                      <UserRound className="h-3 w-3" /> BUILT FOR
-                    </div>
-                    <div className="mt-2 flex flex-wrap gap-1.5">
-                      {u.personas.map((p) => (
-                        <span
-                          key={p}
-                          className="rounded-full border border-line bg-white px-2.5 py-1 text-[11px] font-medium text-ink-2"
-                        >
-                          {p}
+        {USE_CASES.map((u, i) => {
+          const ar = USE_CASES_AR[u.id];
+          return (
+            <Reveal key={u.id} delay={Math.min(i * 0.04, 0.12)}>
+              <article className="overflow-hidden rounded-3xl border border-line bg-white">
+                {/* head */}
+                <div className="flex flex-wrap items-start justify-between gap-4 border-b border-line/70 px-6 py-5 sm:px-8">
+                  <div className="flex items-start gap-4">
+                    <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-green-tint">
+                      <u.icon className="h-5 w-5 text-primary" strokeWidth={1.7} />
+                    </span>
+                    <div>
+                      <div className="flex items-center gap-2.5">
+                        <span className="font-mono text-[11px] font-bold tracking-widest text-ink-3">
+                          {String(i + 1).padStart(2, "0")}
                         </span>
+                        <h2 className="font-display text-[18px] font-semibold tracking-tight">
+                          {lang === "ar" ? u.ar : u.en}
+                        </h2>
+                      </div>
+                      <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                        <span
+                          className={cn(
+                            "rounded-full px-2.5 py-0.5 font-mono text-[9.5px] font-bold uppercase tracking-wide",
+                            u.status.live ? "bg-primary text-white" : "bg-green-tint text-primary",
+                          )}
+                        >
+                          {t(u.status.label, ar.status.label, lang)}
+                        </span>
+                        <span className="text-[12px] text-ink-3">
+                          {t(u.status.sub, ar.status.sub, lang)}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                  {u.status.live && (
+                    <button
+                      onClick={launchDemo}
+                      className="group flex shrink-0 items-center gap-2 rounded-full bg-primary px-4 py-2 text-[12.5px] font-semibold text-white transition hover:bg-green-deep"
+                    >
+                      <Play className="h-3.5 w-3.5" />
+                      {t("Run the live demo", "شغّل العرض الحي", lang)}
+                    </button>
+                  )}
+                </div>
+
+                {/* body */}
+                <div className="grid gap-8 px-6 py-6 sm:px-8 lg:grid-cols-[1.4fr_1fr]">
+                  <div>
+                    <p className="text-[13.5px] leading-relaxed text-ink-2">
+                      {t(u.pitch, ar.pitch, lang)}
+                    </p>
+                    <div className="micro mt-5 text-[9px] text-ink-3">
+                      {t("WHAT THE AGENT DOES", "ما يفعله الوكيل", lang)}
+                    </div>
+                    <ul className="mt-2.5 space-y-2">
+                      {u.agent.map((a, ai) => (
+                        <li key={a} className="flex gap-2.5 text-[13px] leading-relaxed text-ink-2">
+                          <Check
+                            className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary"
+                            strokeWidth={2.4}
+                          />
+                          {t(a, ar.agent[ai], lang)}
+                        </li>
                       ))}
+                    </ul>
+                  </div>
+
+                  <div className="space-y-4">
+                    {/* scope */}
+                    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
+                      <div className="rounded-2xl border border-line bg-paper p-4">
+                        <div className="micro text-[9px] text-primary">
+                          {t("IN SCOPE", "داخل النطاق", lang)}
+                        </div>
+                        <ul className="mt-2 space-y-1.5">
+                          {u.inScope.map((s, si) => (
+                            <li
+                              key={s}
+                              className="flex gap-2 text-[12px] leading-relaxed text-ink-2"
+                            >
+                              <span className="mt-[7px] h-1 w-1 shrink-0 rounded-full bg-primary" />
+                              {t(s, ar.inScope[si], lang)}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                      <div className="rounded-2xl border border-dashed border-line bg-white p-4">
+                        <div className="micro flex items-center gap-1 text-[9px] text-ink-3">
+                          <X className="h-3 w-3 text-red-500" />
+                          {t("OUT OF SCOPE", "خارج النطاق", lang)}
+                        </div>
+                        <ul className="mt-2 space-y-1.5">
+                          {u.outScope.map((s, oi) => (
+                            <li
+                              key={s}
+                              className="flex gap-2 text-[12px] leading-relaxed text-ink-2"
+                            >
+                              <span className="mt-[7px] h-1 w-1 shrink-0 rounded-full bg-red-400" />
+                              {t(s, ar.outScope[oi], lang)}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    </div>
+
+                    {/* personas */}
+                    <div className="rounded-2xl border border-line bg-paper p-4">
+                      <div className="micro flex items-center gap-1.5 text-[9px] text-ink-3">
+                        <UserRound className="h-3 w-3" />
+                        {t("BUILT FOR", "معدّة لـ", lang)}
+                      </div>
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {u.personas.map((p, pi) => (
+                          <span
+                            key={p}
+                            className="rounded-full border border-line bg-white px-2.5 py-1 text-[11px] font-medium text-ink-2"
+                          >
+                            {t(p, ar.personas[pi], lang)}
+                          </span>
+                        ))}
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
-            </article>
-          </Reveal>
-        ))}
+              </article>
+            </Reveal>
+          );
+        })}
       </div>
 
       {/* closing band */}

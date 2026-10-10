@@ -44,13 +44,13 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 
 const ELEVEN = [
-  "Agent Workflows",
-  "Eleven v3 TTS",
-  "Scribe v2 Realtime",
-  "Knowledge Base + RAG",
-  "Webhook Tools",
-  "Twilio Telephony",
-  "Agent Testing",
+  { en: "Agent Workflows", ar: "مسارات الوكيل" },
+  { en: "Eleven v3 TTS", ar: "تحويل النص إلى كلام Eleven v3" },
+  { en: "Scribe v2 Realtime", ar: "التفريغ الفوري Scribe v2" },
+  { en: "Knowledge Base + RAG", ar: "قاعدة المعرفة + RAG" },
+  { en: "Webhook Tools", ar: "أدوات Webhook" },
+  { en: "Twilio Telephony", ar: "الهاتفة Twilio" },
+  { en: "Agent Testing", ar: "اختبار الوكيل" },
 ];
 
 const FEATURES = [
@@ -155,18 +155,22 @@ export function Home() {
                 </span>
                 <LiveDot />
                 <span className="text-[12px] font-medium text-ink-2">
-                  Real-time fraud intervention · Built for UAE banking
+                  {t(
+                    "Real-time fraud intervention · Built for UAE banking",
+                    "تدخّل فوري في الاحتيال · مبني للمصارف الإماراتية",
+                    lang,
+                  )}
                 </span>
               </div>
             </Reveal>
 
             <Reveal delay={0.1}>
               <h1 className="font-display mt-7 text-[2.6rem] font-semibold leading-[1.04] tracking-tight sm:text-6xl lg:text-[4.2rem]">
-                Fraud detected.
+                {t("Fraud detected.", "تم كشف احتيال.", lang)}
                 <br />
-                Call placed.{" "}
+                {t("Call placed.", "تم إجراء المكالمة.", lang)}{" "}
                 <span className="relative inline-block text-primary">
-                  Frozen.
+                  {t("Frozen.", "وتجميدها.", lang)}
                   <svg
                     className="absolute -bottom-2 left-0 w-full"
                     viewBox="0 0 120 8"
@@ -185,7 +189,8 @@ export function Home() {
                   </svg>
                 </span>
                 <br />
-                In <span className="num">60</span> seconds.
+                {t("In", "خلال", lang)} <span className="num">60</span>{" "}
+                {t("seconds.", "ثانية.", lang)}
               </h1>
             </Reveal>
 
@@ -197,9 +202,11 @@ export function Home() {
             </Reveal>
             <Reveal delay={0.26}>
               <p className="mt-4 max-w-xl text-[15.5px] leading-relaxed text-ink-2">
-                SecureVoice AI closes the gap between fraud detection and fraud intervention for UAE
-                banks — turning a 38-minute wait into a one-minute call that stops the loss while it
-                is still a phone call away.
+                {t(
+                  "SecureVoice AI closes the gap between fraud detection and fraud intervention for UAE banks — turning a 38-minute wait into a one-minute call that stops the loss while it is still a phone call away.",
+                  "تُغلق SecureVoice AI الفجوة بين كشف الاحتيال والتدخّل فيه لدى المصارف الإماراتية — محوّلة انتظار ثمانٍ وثلاثين دقيقة إلى مكالمة مدتها دقيقة واحدة توقف الخسارة قبل أن تكمل طريقها.",
+                  lang,
+                )}
               </p>
             </Reveal>
 
@@ -244,13 +251,13 @@ export function Home() {
             <Reveal delay={0.42}>
               <div className="mt-9 flex flex-wrap items-center gap-x-7 gap-y-3">
                 {[
-                  { big: "38m → 60s", label: "contact delay" },
-                  { big: "43% → 85%", label: "prevention rate" },
-                  { big: "6+ langs", label: "Gulf-tuned voices" },
+                  { big: "38m → 60s", label: "contact delay", ar: "زمن التواصل" },
+                  { big: "43% → 85%", label: "prevention rate", ar: "نسبة المنع" },
+                  { big: "6+ langs", label: "Gulf-tuned voices", ar: "أصوات معايَرة للخليج" },
                 ].map((s) => (
                   <div key={s.label} className="flex items-baseline gap-2">
                     <span className="num text-[15px] font-semibold text-foreground">{s.big}</span>
-                    <span className="text-[12px] text-ink-3">{s.label}</span>
+                    <span className="text-[12px] text-ink-3">{t(s.label, s.ar, lang)}</span>
                   </div>
                 ))}
               </div>
@@ -274,15 +281,20 @@ export function Home() {
                       <span className="sv-pulse-ring absolute inset-0 rounded-full text-green-bright/70" />
                     </span>
                     <div className="leading-tight">
-                      <p className="num text-[11px] text-white/50">OUTBOUND · SECUREVOICE AGENT</p>
+                      <p className="num text-[11px] text-white/50">
+                        {t("OUTBOUND · SECUREVOICE AGENT", "صادر · وكيل SecureVoice", lang)}
+                      </p>
                       <p className="text-[13.5px] font-semibold text-white">
-                        Ahmed Al-Rashid · <span className="num">+971 •• ••• 4567</span>
+                        {t("Ahmed Al-Rashid", "أحمد الراشد", lang)} ·{" "}
+                        <span className="num">+971 •• ••• 4567</span>
                       </p>
                     </div>
                   </div>
                   <div className="flex items-center gap-1.5 rounded-full bg-red-tint px-2.5 py-1">
                     <span className="h-1.5 w-1.5 rounded-full bg-red-soft sv-blink" />
-                    <span className="num text-[10.5px] font-semibold text-red-soft">REC</span>
+                    <span className="num text-[10.5px] font-semibold text-red-soft">
+                      {t("REC", "تسجيل", lang)}
+                    </span>
                   </div>
                 </div>
 
@@ -297,7 +309,9 @@ export function Home() {
                 {/* transcript */}
                 <div className="space-y-3 px-5 py-4">
                   <div className="max-w-[85%] rounded-2xl rounded-tl-md bg-secondary px-3.5 py-2.5">
-                    <p className="micro mb-1 text-ink-3">Agent · Fatima (AR-Gulf)</p>
+                    <p className="micro mb-1 text-ink-3">
+                      {t("Agent · Fatima (AR-Gulf)", "الوكيلة · فاطمة (خليجي)", lang)}
+                    </p>
                     <p
                       dir="rtl"
                       className="font-arabic text-[13px] leading-relaxed text-foreground"
@@ -305,11 +319,15 @@ export function Home() {
                       أنت لم تُصرح بعملية ٢,٥٠٠ درهم — أهذا صحيح؟
                     </p>
                     <p className="mt-0.5 text-[11.5px] leading-relaxed text-ink-3">
-                      “You did not authorize the AED 2,500 transaction — is that correct?”
+                      {t(
+                        "“You did not authorize the AED 2,500 transaction — is that correct?”",
+                        "«ألم تُصرّح بعملية ٢,٥٠٠ درهم — أهذا صحيح؟»",
+                        lang,
+                      )}
                     </p>
                   </div>
                   <div className="ml-auto max-w-[70%] rounded-2xl rounded-tr-md bg-green-tint px-3.5 py-2.5">
-                    <p className="micro mb-1 text-green-deep">Customer</p>
+                    <p className="micro mb-1 text-green-deep">{t("Customer", "العميل", lang)}</p>
                     <p
                       dir="rtl"
                       className="font-arabic text-[13px] leading-relaxed text-foreground"
@@ -317,7 +335,7 @@ export function Home() {
                       صحيح. هذه العملية ليست مني.
                     </p>
                     <p className="mt-0.5 text-[11.5px] leading-relaxed text-ink-3">
-                      “Correct. That was not me.”
+                      {t("“Correct. That was not me.”", "«صحيح. هذه العملية ليست.»", lang)}
                     </p>
                   </div>
                 </div>
@@ -331,7 +349,7 @@ export function Home() {
                   </Chip>
                   <Chip className="!bg-white">
                     <Webhook className="h-3 w-3 text-amber-soft" />
-                    SLA <span className="font-semibold">61s</span>
+                    {t("SLA", "زمن الاستجابة", lang)} <span className="font-semibold">61s</span>
                   </Chip>
                 </div>
               </div>
@@ -346,8 +364,12 @@ export function Home() {
                 <div className="flex items-center gap-2">
                   <ShieldCheck className="h-4 w-4 text-primary" />
                   <div className="leading-tight">
-                    <p className="text-[11px] font-semibold">Guardrail 01</p>
-                    <p className="text-[10px] text-ink-3">No PINs requested</p>
+                    <p className="text-[11px] font-semibold">
+                      {t("Guardrail 01", "الضمانة 01", lang)}
+                    </p>
+                    <p className="text-[10px] text-ink-3">
+                      {t("No PINs requested", "لا يُطلب أي رمز سري", lang)}
+                    </p>
                   </div>
                 </div>
               </motion.div>
@@ -361,8 +383,12 @@ export function Home() {
                 <div className="flex items-center gap-2">
                   <Headset className="h-4 w-4 text-amber-soft" />
                   <div className="leading-tight">
-                    <p className="text-[11px] font-semibold">Handoff ready</p>
-                    <p className="text-[10px] text-ink-3">Sara H. · specialist</p>
+                    <p className="text-[11px] font-semibold">
+                      {t("Handoff ready", "التسليم جاهز", lang)}
+                    </p>
+                    <p className="text-[10px] text-ink-3">
+                      {t("Sara H. · specialist", "سارة ح. · أخصائية", lang)}
+                    </p>
                   </div>
                 </div>
               </motion.div>
@@ -382,13 +408,18 @@ export function Home() {
                   <span className="h-px w-10 bg-line" />
                 </div>
                 <h2 className="font-display mt-3 max-w-2xl text-2xl font-semibold leading-tight tracking-tight sm:text-3xl">
-                  Put on headphones and talk to the agent — no phone number, no sign-up
+                  {t(
+                    "Put on headphones and talk to the agent — no phone number, no sign-up",
+                    "ضع سماعات الأذن وتحدّث إلى الوكيل — بلا رقم هاتف وبلا تسجيل",
+                    lang,
+                  )}
                 </h2>
                 <p className="mt-2.5 max-w-xl text-[13.5px] leading-relaxed text-ink-2">
-                  This is the same pipeline a production call uses: speech recognition,
-                  deterministic guardrail routing, and a neural voice reply. Deny a transaction and
-                  watch the agent apply exactly one pre-approved, reversible action — and never once
-                  ask for a PIN.
+                  {t(
+                    "This is the same pipeline a production call uses: speech recognition, deterministic guardrail routing, and a neural voice reply. Deny a transaction and watch the agent apply exactly one pre-approved, reversible action — and never once ask for a PIN.",
+                    "هذا هو نفس خط الأنابيب الذي تستخدمه المكالمة الفعلية: التعرّف على الكلام، وتوجيه حتمي عبر الضمانات، وردّ بصوت عصبي. أنكر صلاحية العملية وشاهد الوكيل ينفّذ إجراءً واحداً معتمداً مسبقاً وقابلاً للتراجع — دون أن يطلب رمزاً سرياً ولو مرة.",
+                    lang,
+                  )}
                 </p>
               </div>
               <p dir="rtl" className="font-arabic max-w-xs text-[13px] leading-relaxed text-ink-2">
@@ -401,7 +432,7 @@ export function Home() {
           <div className="mt-6 flex flex-wrap items-center gap-2">
             <span className="mr-1 flex items-center gap-1.5 text-[11.5px] font-medium text-ink-3">
               <Globe2 className="h-3.5 w-3.5" />
-              Call language
+              {t("Call language", "لغة المكالمة", lang)}
             </span>
             {(Object.keys(CALL_LANG_LABEL) as CallLang[]).map((l) => (
               <button
@@ -419,7 +450,11 @@ export function Home() {
             ))}
             <span className="ml-1 flex items-center gap-1 text-[11px] text-ink-3">
               <Mic className="h-3 w-3" />
-              your mic audio never leaves this page&apos;s transcript pipeline
+              {t(
+                "your mic audio never leaves this page's transcript pipeline",
+                "لا يخرج صوت الميكروفون الخاص بك من خط تفريغ هذه الصفحة",
+                lang,
+              )}
             </span>
           </div>
 
@@ -430,15 +465,17 @@ export function Home() {
           {/* transition — the judge flow into the console */}
           <div className="mt-5 flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-line bg-paper px-5 py-4">
             <p className="max-w-xl text-[13px] leading-relaxed text-ink-2">
-              Ready to see the other side? Step into the operator&apos;s Command Center — a
-              populated dashboard with live risk scores, seeded interventions, and the audit trail a
-              regulator would ask for.
+              {t(
+                "Ready to see the other side? Step into the operator's Command Center — a populated dashboard with live risk scores, seeded interventions, and the audit trail a regulator would ask for.",
+                "هل أنت مستعد لترى الجانب الآخر؟ ادخل إلى مركز عمليات المشغّل — لوحة تحكم عامرة بالبيانات مع درجات مخاطرة حيّة، وتدخّلات مُعدّة مسبقاً، وسجل التدقيق الذي تطلبه أي جهة رقابية.",
+                lang,
+              )}
             </p>
             <button
               onClick={() => setView("auth")}
               className="flex items-center gap-2 rounded-full bg-primary px-5 py-2.5 text-[13px] font-semibold text-white transition hover:bg-green-deep"
             >
-              See how a bank uses this
+              {t("See how a bank uses this", "شاهد كيف يستخدمه المصرف", lang)}
               <ArrowRight className="h-3.5 w-3.5" />
             </button>
           </div>
@@ -456,7 +493,11 @@ export function Home() {
                   <span className="h-px w-10 bg-line" />
                 </div>
                 <h2 className="font-display mt-3 max-w-xl text-2xl font-semibold leading-tight tracking-tight sm:text-3xl">
-                  Test-drive the platform — don&apos;t take our word for it
+                  {t(
+                    "Test-drive the platform — don't take our word for it",
+                    "جرّب المنصة بنفسك — لا تكتفِ بكلامنا",
+                    lang,
+                  )}
                 </h2>
               </div>
               <p dir="rtl" className="font-arabic max-w-xs text-[13px] leading-relaxed text-ink-2">
@@ -480,12 +521,30 @@ export function Home() {
                   <p dir="rtl" className="font-arabic mt-0.5 text-[12px] text-ink-3">
                     {s.ar}
                   </p>
-                  <p className="mt-2.5 flex-1 text-[13px] leading-relaxed text-ink-2">{s.body}</p>
+                  <p className="mt-2.5 flex-1 text-[13px] leading-relaxed text-ink-2">
+                    {t(
+                      s.body,
+                      s.n === "01"
+                        ? "اختر أحد ثلاثة سيناريوهات احتيال — احتيال بالبطاقات، أو سحب نقدي من الصراف الآلي، أو احتيال بالتحويلات البنكية — وأطلق التنبيه بنفسك. يتصل الوكيل، ويتحقق، ويوقف الخسارة في إحدى وستين ثانية."
+                        : s.n === "02"
+                          ? "راقب المكالمات الجارية، واضبط عتبة المخاطرة، وشغّل الضمانات وأوقفها، وابحث في سجل التدقيق غير القابل للتغيير — نفس لوحة التحكم التي يشغّلها مكتب مكافحة الاحتيال في المصرف."
+                          : "مسار المكالمة كاملاً مع نقاط التحقق من الضمانات، ومكدس الصوت الخماسي الطبقات، والمؤشرات من خط الأساس إلى الهدف التي تقف وراء وعد الواحد والستين ثانية.",
+                      lang,
+                    )}
+                  </p>
                   <button
                     onClick={() => (s.view === "demo" ? launchDemo() : setView(s.view))}
                     className="mt-5 flex w-fit items-center gap-1.5 rounded-full border border-line bg-white px-4 py-2 text-[12.5px] font-semibold text-foreground transition hover:border-primary/50 hover:text-primary"
                   >
-                    {s.cta}
+                    {t(
+                      s.cta,
+                      s.n === "01"
+                        ? "افتح العرض الحي"
+                        : s.n === "02"
+                          ? "افتح لوحة التحكم"
+                          : "افتح التفاصيل الكاملة",
+                      lang,
+                    )}
                     <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
                   </button>
                 </div>
@@ -501,7 +560,7 @@ export function Home() {
           <div className="sv-marquee flex w-max items-center gap-10 px-4">
             {[...ELEVEN, ...ELEVEN].map((x, i) => (
               <span key={i} className="flex items-center gap-3 whitespace-nowrap">
-                <span className="micro text-ink-3">{x}</span>
+                <span className="micro text-ink-3">{t(x.en, x.ar, lang)}</span>
                 <span className="h-1 w-1 rounded-full bg-primary/60" />
               </span>
             ))}
@@ -515,23 +574,37 @@ export function Home() {
           <div className="grid overflow-hidden rounded-3xl border border-line bg-white shadow-[0_24px_60px_-40px_rgba(16,24,18,0.35)] lg:grid-cols-2">
             {/* old way */}
             <div className="relative p-8 sm:p-12 lg:border-r lg:border-line">
-              <p className="micro text-ink-3">Today · manual outreach</p>
+              <p className="micro text-ink-3">
+                {t("Today · manual outreach", "اليوم · اتصال يدوي", lang)}
+              </p>
               <div className="mt-6 flex items-baseline gap-2">
                 <Counter
                   to={38}
                   className="text-7xl font-semibold tracking-tight text-ink-3 sm:text-8xl"
                 />
-                <span className="num text-2xl text-ink-3">min</span>
+                <span className="num text-2xl text-ink-3">{t("min", "دقيقة", lang)}</span>
               </div>
               <p className="mt-4 max-w-sm text-[14.5px] leading-relaxed text-ink-2">
-                Average delay between fraud detection and customer contact at top UAE banks. Only{" "}
-                <span className="num font-semibold">22%</span> of alerts get an immediate response.
-                The fraudster finishes first.
+                {t(
+                  "Average delay between fraud detection and customer contact at top UAE banks. Only",
+                  "متوسط التأخير بين كشف الاحتيال والتواصل مع العميل في كبرى المصارف الإماراتية. ولا تحظى",
+                  lang,
+                )}{" "}
+                <span className="num font-semibold">{t("22%", "٢٢٪", lang)}</span>{" "}
+                {t(
+                  "of alerts get an immediate response. The fraudster finishes first.",
+                  "من التنبيهات باستجابة فورية. والمحتال يسبق الجميع.",
+                  lang,
+                )}
               </p>
               <div className="mt-8 flex items-center gap-2">
                 <span className="h-1.5 w-1.5 rounded-full bg-red-soft" />
                 <span className="text-[12px] font-medium text-red-soft">
-                  AED 340M annual losses · prevention rate 43%
+                  {t(
+                    "AED 340M annual losses · prevention rate 43%",
+                    "خسائر سنوية ٣٤٠ مليون درهم · نسبة منع ٤٣٪",
+                    lang,
+                  )}
                 </span>
               </div>
             </div>
@@ -546,24 +619,29 @@ export function Home() {
                 }}
               />
               <div className="relative">
-                <p className="micro text-green-bright">With SecureVoice AI</p>
+                <p className="micro text-green-bright">
+                  {t("With SecureVoice AI", "مع SecureVoice AI", lang)}
+                </p>
                 <div className="mt-6 flex items-baseline gap-2">
                   <Counter to={61} className="text-7xl font-semibold tracking-tight sm:text-8xl" />
-                  <span className="num text-2xl text-green-bright">sec</span>
+                  <span className="num text-2xl text-green-bright">{t("sec", "ثانية", lang)}</span>
                 </div>
                 <p className="mt-4 max-w-sm text-[14.5px] leading-relaxed text-white/70">
-                  From fraud signal to verified identity and frozen card — in the customer&apos;s
-                  own language, inside a CBUAE-aligned guardrail, with a human one word away.
+                  {t(
+                    "From fraud signal to verified identity and frozen card — in the customer's own language, inside a CBUAE-aligned guardrail, with a human one word away.",
+                    "من إشارة الاحتيال إلى هوية موثّقة وبطاقة مجمّدة — بلغة العميل نفسها، وضمن ضمانة متوافقة مع أنظمة المصرف المركزي، وبشري على بعد كلمة واحدة.",
+                    lang,
+                  )}
                 </p>
                 <div className="mt-8 flex flex-wrap gap-2">
                   <Chip className="!border-white/15 !bg-white/5 !text-white/85">
-                    verify · 2/3 challenge
+                    {t("verify · 2/3 challenge", "تحقق · تحدي ٢ من ٣", lang)}
                   </Chip>
                   <Chip className="!border-white/15 !bg-white/5 !text-white/85">
-                    freeze · 240ms
+                    {t("freeze · 240ms", "تجميد · ٢٤٠ مللي ثانية", lang)}
                   </Chip>
                   <Chip className="!border-white/15 !bg-white/5 !text-white/85">
-                    handoff · warm
+                    {t("handoff · warm", "تسليم · تحويل دافئ", lang)}
                   </Chip>
                 </div>
               </div>
@@ -578,19 +656,24 @@ export function Home() {
           <div className="flex flex-wrap items-end justify-between gap-6">
             <div>
               <div className="flex items-center gap-3">
-                <span className="micro text-primary">01 · Why it works</span>
+                <span className="micro text-primary">
+                  {t("01 · Why it works", "01 · لماذا ينجح", lang)}
+                </span>
                 <span className="h-px w-10 bg-line" />
                 <span dir="rtl" className="font-arabic text-[13px] text-ink-3">
                   لماذا ينجح
                 </span>
               </div>
               <h2 className="font-display mt-4 max-w-xl text-3xl font-semibold leading-[1.1] tracking-tight sm:text-4xl">
-                A voice agent banks can actually trust
+                {t("A voice agent banks can actually trust", "وكيل صوتي يثق به المصرف فعلاً", lang)}
               </h2>
             </div>
             <p className="max-w-sm text-[14px] leading-relaxed text-ink-2">
-              Every design decision answers one question: would a risk officer at a CBUAE-regulated
-              bank sign off on this?
+              {t(
+                "Every design decision answers one question: would a risk officer at a CBUAE-regulated bank sign off on this?",
+                "كل قرار تصميمي يجيب على سؤال واحد: هل يوقّع مسؤول المخاطر في مصرف خاضع لأنظمة المصرف المركزي على هذا؟",
+                lang,
+              )}
             </p>
           </div>
         </Reveal>
@@ -610,7 +693,19 @@ export function Home() {
                 <h3 className="font-display mt-5 text-[17px] font-semibold tracking-tight">
                   {f.en}
                 </h3>
-                <p className="mt-2.5 text-[13.5px] leading-relaxed text-ink-2">{f.body}</p>
+                <p className="mt-2.5 text-[13.5px] leading-relaxed text-ink-2">
+                  {t(
+                    f.body,
+                    f.en === "Immediate multilingual outreach"
+                      ? "يتصل الوكيل خلال ستين ثانية من إشارة الاحتيال — دون رسائل نصية يُمكن تجاهلها ودون طوابير انتظار. يبدأ الصوت العصبي المبثوث أثناء التمهيد، ويمكن للعميل مقاطعة الوكيل كما يقاطع محاوراً بشرياً. وست لغات مدعومة جاهزة: العربية والإنجليزية والهندية والأردية والفرنسية والسواحيلية."
+                      : f.en === "Verified identity, zero secrets"
+                        ? "مسارات تحقق معتمدة من المصرف — التجار والمبالغ والتواريخ. لا يطلب الوكيل أبداً رموزاً سرية أو كلمات مرور، لذا يستحيل تحويله إلى أداة تصيّد واحتيال."
+                        : f.en === "Pre-approved actions only"
+                          ? "لا يوجد في نطاق أدوات الوكيل سوى إجراء كتابة واحد: التجميد المؤقت للبطاقة. وأي إجراء غير قابل للتراجع — استبدال أو تحويل أو استرداد — يُحال إلى موظف بشري مع كامل السياق."
+                          : "كل مكالمة مسجّلة ومفروغة نصياً بلغتين، ومختومة بطريقة التحقق والإجراءات المتخذة وسبب التسليم، في تخزين غير قابل للتغيير بمعيار AES-256.",
+                    lang,
+                  )}
+                </p>
               </div>
             </Reveal>
           ))}
@@ -623,13 +718,13 @@ export function Home() {
           <Reveal>
             <div className="flex flex-wrap items-end justify-between gap-4">
               <h2 className="font-display text-2xl font-semibold tracking-tight sm:text-3xl">
-                The call, in five steps
+                {t("The call, in five steps", "المكالمة في خمس خطوات", lang)}
               </h2>
               <button
                 onClick={() => setView("product")}
                 className="group flex items-center gap-1.5 text-[13.5px] font-semibold text-primary"
               >
-                Open the deep dive
+                {t("Open the deep dive", "افتح التفاصيل الكاملة", lang)}
                 <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
               </button>
             </div>
@@ -647,7 +742,21 @@ export function Home() {
                   <p className="font-display mt-4 text-[15px] font-semibold tracking-tight">
                     {s.en}
                   </p>
-                  <p className="mt-1.5 text-[12px] leading-relaxed text-ink-2">{s.d}</p>
+                  <p className="mt-1.5 text-[12px] leading-relaxed text-ink-2">
+                    {t(
+                      s.d,
+                      s.n === "01"
+                        ? "webhook من محرك كشف الاحتيال، ومخاطرة تتجاوز العتبة"
+                        : s.n === "02"
+                          ? "اتصال في نحو ثانية واحدة، مع تثبيت اللغة"
+                          : s.n === "03"
+                            ? "مسار تحقق — دون رموز سرية إطلاقاً"
+                            : s.n === "04"
+                              ? "تجميد مؤقت ومعتمد مسبقاً وقابل للتراجع"
+                              : "يتسلم الأخصائي كامل السياق",
+                      lang,
+                    )}
+                  </p>
                   {i < 4 && (
                     <ArrowRight className="absolute -right-[13px] top-1/2 z-10 hidden h-4 w-4 -translate-y-1/2 text-[#b9c4bb] lg:block" />
                   )}
@@ -666,18 +775,25 @@ export function Home() {
               <div>
                 <div className="micro text-primary">USE CASES · حالات الاستخدام</div>
                 <h2 className="font-display mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">
-                  Beyond fraud: five regulated voice deployments
+                  {t(
+                    "Beyond fraud: five regulated voice deployments",
+                    "أبعد من الاحتيال: خمس حالات صوتية منظّمة",
+                    lang,
+                  )}
                 </h2>
                 <p className="mt-2 max-w-xl text-[13.5px] leading-relaxed text-ink-2">
-                  Governed collections, provider pre-authorisation, support through difficult
-                  moments, multilingual servicing — one guardrailed engine, five configurations.
+                  {t(
+                    "Governed collections, provider pre-authorisation, support through difficult moments, multilingual servicing — one guardrailed engine, five configurations.",
+                    "تحصيل منظّم، واعتماد مسبق لمقدمي الخدمة، ودعم في اللحظات الصعبة، وخدمة متعددة اللغات — محرك واحد بضمانات، وخمس تشكيلات.",
+                    lang,
+                  )}
                 </p>
               </div>
               <button
                 onClick={() => setView("usecases")}
                 className="group flex shrink-0 items-center gap-2 rounded-full bg-[#0c110e] px-5 py-2.5 text-[13px] font-semibold text-white transition hover:opacity-90"
               >
-                Explore the use cases
+                {t("Explore the use cases", "استكشف حالات الاستخدام", lang)}
                 <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
               </button>
             </div>
@@ -687,22 +803,30 @@ export function Home() {
               {
                 icon: HandCoins,
                 t: "Governed collections",
+                ar: "تحصيل منظّم",
                 d: "Approved wording, permitted hours, every opt-out honoured — EN · AR · HI · UR.",
+                dAr: "صيغ معتمدة، وأوقات اتصال مسموحة، واحترام كل طلب إلغاء — EN · AR · HI · UR.",
               },
               {
                 icon: FileCheck2,
                 t: "Provider pre-auth intake",
+                ar: "استقبال الاعتماد المسبق لمقدمي الخدمة",
                 d: "Rule-based B2B triage; a qualified employee approves every decision.",
+                dAr: "فرز قائم على قواعد بين الشركات؛ وموظف مخوّل يعتمد كل قرار.",
               },
               {
                 icon: HeartHandshake,
                 t: "Difficult moments",
+                ar: "لحظات صعبة",
                 d: "Bereavement & hardship cases handled once, end to end, with memory.",
+                dAr: "حالات الوفاة والشدة تُدار مرة واحدة من البداية للنهاية، مع حفظ السياق.",
               },
               {
                 icon: Globe2,
                 t: "Multilingual servicing",
+                ar: "خدمة متعددة اللغات",
                 d: "Posted rates, transfer status, salary-card entitlements — in the caller's language.",
+                dAr: "الأسعار المعلنة، وحالة التحويلات، واستحقاقات بطاقة الراتب — بلغة المتصل.",
               },
             ].map((x, i) => (
               <Reveal key={x.t} delay={i * 0.05}>
@@ -712,9 +836,11 @@ export function Home() {
                 >
                   <x.icon className="h-4.5 w-4.5 text-primary" strokeWidth={1.7} />
                   <p className="font-display mt-3 text-[14.5px] font-semibold tracking-tight">
-                    {x.t}
+                    {t(x.t, x.ar, lang)}
                   </p>
-                  <p className="mt-1.5 text-[12px] leading-relaxed text-ink-2">{x.d}</p>
+                  <p className="mt-1.5 text-[12px] leading-relaxed text-ink-2">
+                    {t(x.d, x.dAr, lang)}
+                  </p>
                 </button>
               </Reveal>
             ))}
@@ -736,8 +862,10 @@ export function Home() {
             <div className="relative">
               <Languages className="mx-auto h-7 w-7 text-green-bright" strokeWidth={1.5} />
               <h2 className="font-display mx-auto mt-5 max-w-2xl text-3xl font-semibold leading-tight tracking-tight text-white sm:text-[2.6rem]">
-                Don&apos;t read about intervention.{" "}
-                <span className="text-green-bright">Watch it happen.</span>
+                {t("Don't read about intervention.", "لا تقرأ عن التدخّل.", lang)}{" "}
+                <span className="text-green-bright">
+                  {t("Watch it happen.", "شاهده يحدث.", lang)}
+                </span>
               </h2>
               <p
                 dir="rtl"
@@ -785,62 +913,88 @@ export function Home() {
         <Reveal delay={0.1}>
           <div className="mt-16">
             <p className="micro text-center text-[9px] text-slate-400">
-              PRICING · PREPAID CREDITS OR MONTHLY
+              {t(
+                "PRICING · PREPAID CREDITS OR MONTHLY",
+                "الأسعار · رصيد مسبق الدفع أو اشتراك شهري",
+                lang,
+              )}
             </p>
             <div className="mx-auto mt-6 grid max-w-4xl gap-4 sm:grid-cols-3">
               {[
                 {
                   name: "Starter",
+                  ar: "البداية",
                   price: "$490",
                   per: "/mo",
+                  perAr: "/شهر",
                   detail: "1,000 interventions · 1 bank entity · 6 languages · email support",
+                  detailAr: "١,٠٠٠ تدخّل · جهة مصرفية واحدة · ٦ لغات · دعم بالبريد الإلكتروني",
                   featured: false,
                 },
                 {
                   name: "Pro",
+                  ar: "الاحترافي",
                   price: "$1,490",
                   per: "/mo",
+                  perAr: "/شهر",
                   detail:
                     "5,000 interventions · 5 entities · streaming voice · priority routing · 99.9% SLA",
+                  detailAr:
+                    "٥,٠٠٠ تدخّل · ٥ جهات · صوت مبثوث · توجيه بأولوية · اتفاقية مستوى خدمة ٩٩.٩٪",
                   featured: true,
                 },
                 {
                   name: "Enterprise",
+                  ar: "المؤسسات",
                   price: "Custom",
+                  priceAr: "حسب الطلب",
                   per: "",
+                  perAr: "",
                   detail:
                     "Unlimited volume · VPC deployment · BYOK · voice clones · CBUAE audit pack",
+                  detailAr:
+                    "حجم غير محدود · نشر داخل شبكتك الخاصة VPC · مفاتيح خاصة BYOK · استنساخ أصوات · حزمة تدقيق لأنظمة المصرف المركزي",
                   featured: false,
                 },
-              ].map((t) => (
+              ].map((plan) => (
                 <div
-                  key={t.name}
+                  key={plan.name}
                   className={cn(
                     "rounded-3xl border p-6",
-                    t.featured
+                    plan.featured
                       ? "border-emerald-300/80 bg-emerald-50/60 shadow-[0_20px_60px_-30px_rgba(23,166,115,0.25)]"
                       : "border-slate-200 bg-white",
                   )}
                 >
-                  {t.featured && (
+                  {plan.featured && (
                     <span className="micro mb-3 inline-block rounded-full bg-emerald-100 px-2 py-0.5 text-[8.5px] text-emerald-700">
-                      MOST POPULAR
+                      {t("MOST POPULAR", "الأكثر اختياراً", lang)}
                     </span>
                   )}
-                  <p className="font-display text-[15px] font-semibold text-slate-900">{t.name}</p>
+                  <p className="font-display text-[15px] font-semibold text-slate-900">
+                    {t(plan.name, plan.ar, lang)}
+                  </p>
                   <p className="mt-2">
                     <span className="font-display text-2xl font-semibold text-slate-900">
-                      {t.price}
+                      {t(plan.price, plan.priceAr ?? plan.price, lang)}
                     </span>
-                    <span className="text-[12px] text-slate-500"> {t.per}</span>
+                    <span className="text-[12px] text-slate-500">
+                      {" "}
+                      {t(plan.per, plan.perAr, lang)}
+                    </span>
                   </p>
-                  <p className="mt-3 text-[11.5px] leading-relaxed text-slate-600">{t.detail}</p>
+                  <p className="mt-3 text-[11.5px] leading-relaxed text-slate-600">
+                    {t(plan.detail, plan.detailAr, lang)}
+                  </p>
                 </div>
               ))}
             </div>
             <p className="mt-5 text-center text-[11.5px] text-slate-500">
-              Plans are shown in USD. At checkout you will be charged the KES equivalent via
-              Paystack; your receipt will list the Ksh amount.
+              {t(
+                "Plans are shown in USD. At checkout you will be charged the KES equivalent via Paystack; your receipt will list the Ksh amount.",
+                "الأسعار معروضة بالدولار الأمريكي. وعند الدفع تُخصم القيمة المقابلة بالشلن الكيني عبر Paystack، وتظهر في الإيصال قيمة Ksh.",
+                lang,
+              )}
             </p>
             <p className="mt-3 text-center text-[11.5px] text-slate-500">
               {t(
@@ -869,7 +1023,7 @@ function PilotDialog({
   onOpenChange: (o: boolean) => void;
 }) {
   const { toast } = useToast();
-  const { setView } = useApp();
+  const { setView, lang } = useApp();
   const [sent, setSent] = useState(false);
   const [busy, setBusy] = useState(false);
   const [ref, setRef] = useState<string | null>(null);
@@ -909,16 +1063,34 @@ function PilotDialog({
       });
       const data = (await res.json()) as { ok: boolean; ref?: string; error?: string };
       if (!res.ok || !data.ok) {
-        throw new Error(data.error || "Something went wrong. Please try again.");
+        throw new Error(
+          data.error ||
+            t(
+              "Something went wrong. Please try again.",
+              "حدث خطأ ما. يُرجى المحاولة مرة أخرى.",
+              lang,
+            ),
+        );
       }
       setRef(data.ref ?? null);
       setSent(true);
       toast({
-        title: "Pilot request received",
-        description: "Our fraud team will reach out within one business day.",
+        title: t("Pilot request received", "تم استلام طلب التجربة الميدانية", lang),
+        description: t(
+          "Our fraud team will reach out within one business day.",
+          "سيتواصل فريق مكافحة الاحتيال لدينا خلال يوم عمل واحد.",
+          lang,
+        ),
       });
     } catch (e) {
-      const msg = e instanceof Error ? e.message : "Network error — please try again.";
+      const msg =
+        e instanceof Error
+          ? e.message
+          : t(
+              "Network error — please try again.",
+              "خطأ في الشبكة — يُرجى المحاولة مرة أخرى.",
+              lang,
+            );
       setError(msg);
     } finally {
       setBusy(false);
@@ -944,16 +1116,21 @@ function PilotDialog({
             </span>
             <DialogHeader className="mt-5">
               <DialogTitle className="font-display text-xl font-semibold tracking-tight">
-                Request received
+                {t("Request received", "تم استلام الطلب", lang)}
               </DialogTitle>
               <DialogDescription className="mx-auto mt-2 max-w-xs text-[13.5px] leading-relaxed text-ink-2">
-                Thank you, {name.split(" ")[0]}. Our fraud team will contact you within one business
-                day to scope a 30-day pilot on your card portfolio.
+                {t(
+                  `Thank you, ${name.split(" ")[0]}. Our fraud team will contact you within one business day to scope a 30-day pilot on your card portfolio.`,
+                  `شكراً لك، ${name.split(" ")[0]}. سيتواصل فريق مكافحة الاحتيال لدينا خلال يوم عمل واحد لتحديد نطاق تجربة ميدانية مدتها ٣٠ يوماً على محفظة بطاقاتك.`,
+                  lang,
+                )}
               </DialogDescription>
             </DialogHeader>
             {ref && (
               <div className="mx-auto mt-5 w-fit rounded-xl border border-line bg-paper px-4 py-2.5">
-                <div className="micro text-[9px] text-ink-3">YOUR REFERENCE</div>
+                <div className="micro text-[9px] text-ink-3">
+                  {t("YOUR REFERENCE", "رقمك المرجعي", lang)}
+                </div>
                 <div className="mt-0.5 font-mono text-[14px] font-semibold tracking-wider text-foreground">
                   {ref}
                 </div>
@@ -963,18 +1140,21 @@ function PilotDialog({
               onClick={() => close(false)}
               className="mt-6 rounded-full bg-primary px-6 py-2.5 text-[13px] font-semibold text-white transition hover:bg-green-deep"
             >
-              Done
+              {t("Done", "تم", lang)}
             </button>
           </div>
         ) : (
           <>
             <DialogHeader>
               <DialogTitle className="font-display text-xl font-semibold tracking-tight">
-                Book a 30-day pilot
+                {t("Book a 30-day pilot", "احجز تجربة ميدانية مدتها ٣٠ يوماً", lang)}
               </DialogTitle>
               <DialogDescription className="mt-1.5 text-[13.5px] leading-relaxed text-ink-2">
-                Run SecureVoice AI against a slice of your card portfolio. Deployment inside your
-                VPC; no customer data leaves your tenancy.
+                {t(
+                  "Run SecureVoice AI against a slice of your card portfolio. Deployment inside your VPC; no customer data leaves your tenancy.",
+                  "شغّل SecureVoice AI على شريحة من محفظة بطاقاتك. النشر داخل بيئتك الخاصة VPC؛ ولا تخرج بيانات العملاء من نطاقك.",
+                  lang,
+                )}
               </DialogDescription>
             </DialogHeader>
             <form
@@ -997,13 +1177,13 @@ function PilotDialog({
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
                   <Label htmlFor="pilot-name" className="text-[12px] font-semibold">
-                    Full name
+                    {t("Full name", "الاسم الكامل", lang)}
                   </Label>
                   <Input
                     id="pilot-name"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
-                    placeholder="Fatima Al-Rashid"
+                    placeholder={t("Fatima Al-Rashid", "فاطمة الراشد", lang)}
                     autoComplete="name"
                     aria-invalid={name.trim().length > 0 && name.trim().length < 2}
                     className="h-10 rounded-xl border-line bg-paper"
@@ -1011,13 +1191,16 @@ function PilotDialog({
                 </div>
                 <div className="space-y-1.5">
                   <Label htmlFor="pilot-role" className="text-[12px] font-semibold">
-                    Role <span className="font-normal text-ink-3">(optional)</span>
+                    {t("Role", "الدور", lang)}{" "}
+                    <span className="font-normal text-ink-3">
+                      {t("(optional)", "(اختياري)", lang)}
+                    </span>
                   </Label>
                   <Input
                     id="pilot-role"
                     value={role}
                     onChange={(e) => setRole(e.target.value)}
-                    placeholder="Head of Fraud"
+                    placeholder={t("Head of Fraud", "مدير مكافحة الاحتيال", lang)}
                     autoComplete="organization-title"
                     className="h-10 rounded-xl border-line bg-paper"
                   />
@@ -1025,7 +1208,7 @@ function PilotDialog({
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="pilot-email" className="text-[12px] font-semibold">
-                  Work email
+                  {t("Work email", "البريد الإلكتروني للعمل", lang)}
                 </Label>
                 <Input
                   id="pilot-email"
@@ -1043,13 +1226,13 @@ function PilotDialog({
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="pilot-bank" className="text-[12px] font-semibold">
-                  Institution
+                  {t("Institution", "المؤسسة", lang)}
                 </Label>
                 <Input
                   id="pilot-bank"
                   value={bank}
                   onChange={(e) => setBank(e.target.value)}
-                  placeholder="Your bank or insurance firm"
+                  placeholder={t("Your bank or insurance firm", "مصرفك أو شركة التأمين", lang)}
                   autoComplete="organization"
                   aria-invalid={bank.trim().length > 0 && bank.trim().length < 2}
                   className="h-10 rounded-xl border-line bg-paper"
@@ -1058,7 +1241,7 @@ function PilotDialog({
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
                   <Label htmlFor="pilot-volume" className="text-[12px] font-semibold">
-                    Monthly card volume
+                    {t("Monthly card volume", "حجم البطاقات الشهري", lang)}
                   </Label>
                   <select
                     id="pilot-volume"
@@ -1066,17 +1249,28 @@ function PilotDialog({
                     onChange={(e) => setVolume(e.target.value)}
                     className="h-10 w-full rounded-xl border border-line bg-paper px-3 text-[13px] text-foreground outline-none transition focus:border-primary/50"
                   >
-                    <option value="">Select…</option>
-                    <option value="&lt; 100k cards">Under 100k cards</option>
-                    <option value="100k – 1M">100k – 1M cards</option>
-                    <option value="1M – 5M">1M – 5M cards</option>
-                    <option value="&gt; 5M">Over 5M cards</option>
+                    <option value="">{t("Select…", "اختر…", lang)}</option>
+                    <option value="&lt; 100k cards">
+                      {t("Under 100k cards", "أقل من ١٠٠ ألف بطاقة", lang)}
+                    </option>
+                    <option value="100k – 1M">
+                      {t("100k – 1M cards", "١٠٠ ألف – مليون بطاقة", lang)}
+                    </option>
+                    <option value="1M – 5M">
+                      {t("1M – 5M cards", "١ – ٥ ملايين بطاقة", lang)}
+                    </option>
+                    <option value="&gt; 5M">
+                      {t("Over 5M cards", "أكثر من ٥ ملايين بطاقة", lang)}
+                    </option>
                   </select>
                 </div>
                 <div className="flex items-end pb-0.5">
                   <p className="text-[11px] leading-snug text-ink-3">
-                    Stored securely in our European infrastructure. We never share your details —
-                    see our{" "}
+                    {t(
+                      "Stored securely in our European infrastructure. We never share your details — see our",
+                      "تُحفظ بياناتك بأمان في بنيتنا الأوروبية. ولا نشارك تفاصيلك أبداً — اطّلع على",
+                      lang,
+                    )}{" "}
                     <button
                       onClick={() => {
                         close(false);
@@ -1084,7 +1278,7 @@ function PilotDialog({
                       }}
                       className="underline decoration-line underline-offset-2 transition hover:text-primary"
                     >
-                      Privacy Policy
+                      {t("Privacy Policy", "سياسة الخصوصية", lang)}
                     </button>
                     .
                   </p>
@@ -1092,15 +1286,21 @@ function PilotDialog({
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="pilot-msg" className="text-[12px] font-semibold">
-                  Anything specific to scope?{" "}
-                  <span className="font-normal text-ink-3">(optional)</span>
+                  {t("Anything specific to scope?", "هل هناك جوانب محددة لتحديد نطاقها؟", lang)}{" "}
+                  <span className="font-normal text-ink-3">
+                    {t("(optional)", "(اختياري)", lang)}
+                  </span>
                 </Label>
                 <Textarea
                   id="pilot-msg"
                   value={message}
                   onChange={(e) => setMessage(e.target.value)}
                   rows={3}
-                  placeholder="e.g. Card-not-present fraud on debit portfolio, Arabic + English calls, CBUAE reporting…"
+                  placeholder={t(
+                    "e.g. Card-not-present fraud on debit portfolio, Arabic + English calls, CBUAE reporting…",
+                    "مثال: احتيال البطاقات غير الحاضرة في محفظة الخصم، ومكالمات بالعربية والإنجليزية، وتقارير المصرف المركزي…",
+                    lang,
+                  )}
                   className="resize-none rounded-xl border-line bg-paper"
                 />
               </div>
@@ -1120,17 +1320,21 @@ function PilotDialog({
                 {busy ? (
                   <>
                     <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/40 border-t-white" />
-                    Submitting…
+                    {t("Submitting…", "جارٍ الإرسال…", lang)}
                   </>
                 ) : (
                   <>
                     <CalendarCheck className="h-4 w-4" />
-                    Request pilot
+                    {t("Request pilot", "اطلب تجربة ميدانية", lang)}
                   </>
                 )}
               </button>
               <p className="text-center text-[11px] text-ink-3">
-                {`Or email ${SUPPORT_EMAIL} — we reply personally`}
+                {t(
+                  `Or email ${SUPPORT_EMAIL} — we reply personally`,
+                  `أو راسلنا على ${SUPPORT_EMAIL} — نردّ شخصياً`,
+                  lang,
+                )}
               </p>
             </form>
           </>

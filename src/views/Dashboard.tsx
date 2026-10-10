@@ -45,8 +45,9 @@ type ProvidedWebhook = {
 };
 
 function copyText(text: string, toast: ReturnType<typeof useToast>["toast"]) {
+  const { lang } = useApp.getState();
   void navigator.clipboard.writeText(text).then(() => {
-    toast({ title: "Copied", description: text });
+    toast({ title: t("Copied", "تم النسخ", lang), description: text });
   });
 }
 
@@ -182,20 +183,26 @@ export function Dashboard() {
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <div className="flex items-center gap-3">
-            <span className="micro text-primary">Agent operations</span>
+            <span className="micro text-primary">
+              {t("Agent operations", "عمليات الوكيل", lang)}
+            </span>
             <span className="h-px w-10 bg-line" />
             <span dir="rtl" className="font-arabic text-[13px] text-ink-3">
               لوحة العمليات
             </span>
           </div>
           <h1 className="font-display mt-3 text-3xl font-semibold tracking-tight sm:text-4xl">
-            Agent Management Dashboard
+            {t("Agent Management Dashboard", "لوحة إدارة الوكلاء", lang)}
           </h1>
         </div>
         <div className="flex items-center gap-2.5 rounded-full border border-line bg-white px-3.5 py-2">
           <LiveDot />
           <span className="text-[12px] font-medium text-ink-2">
-            Demo bank · mock environment · all systems nominal
+            {t(
+              "Demo bank · mock environment · all systems nominal",
+              "مصرف تجريبي · بيئة محاكاة · جميع الأنظمة تعمل بكفاءة",
+              lang,
+            )}
           </span>
         </div>
       </div>
@@ -219,7 +226,7 @@ export function Dashboard() {
               />
             )}
             <x.icon className={cn("relative h-4 w-4", tab === x.id && "text-green-bright")} />
-            <span className="relative whitespace-nowrap">{lang === "ar" ? x.ar : x.en}</span>
+            <span className="relative whitespace-nowrap">{t(x.en, x.ar, lang)}</span>
           </button>
         ))}
       </div>
@@ -248,14 +255,18 @@ export function Dashboard() {
 
 /* ————————————————— MONITOR ————————————————— */
 
-const OUTCOME_MAP: Record<string, { tone: "green" | "red" | "amber" | "gray"; en: string }> = {
-  prevented: { tone: "green", en: "Fraud prevented" },
-  false_alarm: { tone: "gray", en: "False alarm" },
-  handoff: { tone: "amber", en: "Handoff" },
-  no_answer: { tone: "red", en: "No answer" },
+const OUTCOME_MAP: Record<
+  string,
+  { tone: "green" | "red" | "amber" | "gray"; en: string; ar: string }
+> = {
+  prevented: { tone: "green", en: "Fraud prevented", ar: "تم منع الاحتيال" },
+  false_alarm: { tone: "gray", en: "False alarm", ar: "إنذار كاذب" },
+  handoff: { tone: "amber", en: "Handoff", ar: "تسليم لأخصائي" },
+  no_answer: { tone: "red", en: "No answer", ar: "لا يوجد رد" },
 };
 
 function Monitor() {
+  const { lang } = useApp();
   const live = RECENT_CALLS[0];
   // Which row owns audio playback. Held here rather than inside each player so
   // the "only one recording plays at a time" rule has a single owner — see
@@ -268,7 +279,9 @@ function Monitor() {
         <div className="flex items-center justify-between bg-[#0c110e] px-5 py-4">
           <div className="flex items-center gap-2.5">
             <LiveDot className="text-green-bright" />
-            <span className="micro !text-[9.5px] text-white/70">Active call · SV-8642</span>
+            <span className="micro !text-[9.5px] text-white/70">
+              {t("Active call", "مكالمة نشطة", lang)} · SV-8642
+            </span>
           </div>
           <span className="num rounded-full bg-white/10 px-2.5 py-1 text-[11px] font-semibold text-white">
             00:41
@@ -279,23 +292,23 @@ function Monitor() {
             <div>
               <p className="font-display text-lg font-semibold">{live.customer}</p>
               <p className="num mt-1 text-[11px] text-ink-3">
-                +971 •• ••• 4567 · {live.lang} · card ••4417
+                +971 •• ••• 4567 · {live.lang} · {t("card", "بطاقة", lang)} ••4417
               </p>
             </div>
-            <StatusPill tone="red">risk 0.94</StatusPill>
+            <StatusPill tone="red">{t("risk", "درجة الخطر", lang)} 0.94</StatusPill>
           </div>
 
           {/* state timeline */}
           <div className="mt-5 space-y-2.5">
             {[
-              { s: "Alert received", ok: true, t: "0.0s" },
-              { s: "Call connected", ok: true, t: "1.2s" },
-              { s: "Identity verified", ok: true, t: "33s" },
-              { s: "Fraud confirmed", ok: true, t: "44s" },
-              { s: "Card freeze executed", ok: true, t: "50s" },
-              { s: "Warm handoff", ok: false, t: "…" },
+              { en: "Alert received", ar: "تم استلام التنبيه", ok: true, t: "0.0s" },
+              { en: "Call connected", ar: "تم توصيل المكالمة", ok: true, t: "1.2s" },
+              { en: "Identity verified", ar: "تم التحقق من الهوية", ok: true, t: "33s" },
+              { en: "Fraud confirmed", ar: "تم تأكيد الاحتيال", ok: true, t: "44s" },
+              { en: "Card freeze executed", ar: "تم تنفيذ تجميد البطاقة", ok: true, t: "50s" },
+              { en: "Warm handoff", ar: "تسليم مباشر", ok: false, t: "…" },
             ].map((r) => (
-              <div key={r.s} className="flex items-center gap-2.5 text-[12.5px]">
+              <div key={r.en} className="flex items-center gap-2.5 text-[12.5px]">
                 <span
                   className={cn(
                     "flex h-4 w-4 items-center justify-center rounded-full border",
@@ -304,7 +317,9 @@ function Monitor() {
                 >
                   {r.ok && <span className="h-1.5 w-1.5 rounded-full bg-white" />}
                 </span>
-                <span className={r.ok ? "text-foreground" : "text-ink-3"}>{r.s}</span>
+                <span className={r.ok ? "text-foreground" : "text-ink-3"}>
+                  {t(r.en, r.ar, lang)}
+                </span>
                 <span className="num ml-auto text-[10.5px] text-ink-3">{r.t}</span>
               </div>
             ))}
@@ -313,7 +328,11 @@ function Monitor() {
           <div className="mt-5 flex items-center gap-2 rounded-xl bg-green-tint px-3.5 py-2.5">
             <Snowflake className="h-3.5 w-3.5 text-green-deep" />
             <span className="text-[12px] font-medium text-green-deep">
-              Temporary freeze active on ••4417 — reversible after case review
+              {t(
+                "Temporary freeze active on ••4417 — reversible after case review",
+                "تجميد مؤقت نشط على ••4417 — قابل للإلغاء بعد مراجعة الحالة",
+                lang,
+              )}
             </span>
           </div>
         </div>
@@ -324,21 +343,23 @@ function Monitor() {
         <div className="flex items-center justify-between border-b border-line px-5 py-4">
           <div className="flex items-center gap-2.5">
             <LayoutDashboard className="h-4 w-4 text-primary" />
-            <h3 className="text-[14px] font-semibold">Recent intervention calls</h3>
+            <h3 className="text-[14px] font-semibold">
+              {t("Recent intervention calls", "مكالمات التدخل الأخيرة", lang)}
+            </h3>
           </div>
-          <Chip>last 2 hrs · mock data</Chip>
+          <Chip>{t("last 2 hrs · mock data", "آخر ساعتين · بيانات تجريبية", lang)}</Chip>
         </div>
         <div className="sv-scroll max-h-[430px] overflow-y-auto">
           <table className="w-full text-left text-[12.5px]">
             <thead className="sticky top-0 bg-paper">
               <tr className="micro !text-[9px] text-ink-3">
-                <th className="px-5 py-2.5 font-medium">ID</th>
-                <th className="px-2 py-2.5 font-medium">Customer</th>
-                <th className="px-2 py-2.5 font-medium">Lang</th>
-                <th className="px-2 py-2.5 font-medium">Trigger</th>
-                <th className="px-2 py-2.5 font-medium">Outcome</th>
-                <th className="px-2 py-2.5 font-medium">Recording</th>
-                <th className="px-5 py-2.5 text-right font-medium">CSAT</th>
+                <th className="px-5 py-2.5 font-medium">{t("ID", "المعرّف", lang)}</th>
+                <th className="px-2 py-2.5 font-medium">{t("Customer", "العميل", lang)}</th>
+                <th className="px-2 py-2.5 font-medium">{t("Lang", "اللغة", lang)}</th>
+                <th className="px-2 py-2.5 font-medium">{t("Trigger", "المُشغّل", lang)}</th>
+                <th className="px-2 py-2.5 font-medium">{t("Outcome", "النتيجة", lang)}</th>
+                <th className="px-2 py-2.5 font-medium">{t("Recording", "التسجيل", lang)}</th>
+                <th className="px-5 py-2.5 text-right font-medium">{t("CSAT", "الرضا", lang)}</th>
               </tr>
             </thead>
             <tbody>
@@ -353,7 +374,7 @@ function Monitor() {
                       {c.trigger}
                     </td>
                     <td className="px-2 py-3">
-                      <StatusPill tone={o.tone}>{o.en}</StatusPill>
+                      <StatusPill tone={o.tone}>{t(o.en, o.ar, lang)}</StatusPill>
                     </td>
                     <td className="px-2 py-3">
                       <RecordingPlayer
@@ -379,7 +400,11 @@ function Monitor() {
 
 /* ————————————————— ANALYTICS ————————————————— */
 
+/** 12-week x-axis labels for the prevented-loss trend chart */
+const WEEKS = Array.from({ length: 12 }, (_, i) => ({ en: `W${i + 1}`, ar: `أ${i + 1}` }));
+
 function Analytics() {
+  const { lang } = useApp();
   return (
     <div className="space-y-5">
       {/* KPI cards */}
@@ -396,7 +421,7 @@ function Analytics() {
               className="rounded-2xl border border-line bg-white p-5"
             >
               <div className="flex items-center justify-between">
-                <p className="text-[12px] font-medium text-ink-2">{t(k.en, k.ar, "en")}</p>
+                <p className="text-[12px] font-medium text-ink-2">{t(k.en, k.ar, lang)}</p>
                 {k.key === "delay" && <Timer className="h-3.5 w-3.5 text-ink-3" />}
                 {k.key === "csat" && <Languages className="h-3.5 w-3.5 text-ink-3" />}
                 {k.key === "prevention" && <ShieldCheck className="h-3.5 w-3.5 text-ink-3" />}
@@ -417,7 +442,7 @@ function Analytics() {
                       : "bg-amber-tint text-amber-soft",
                   )}
                 >
-                  base {k.baseline}
+                  {t("base", "الأساس", lang)} {k.baseline}
                   {k.unit === "s" && k.baseline >= 60 ? "m→" : k.unit}
                 </span>
               </div>
@@ -441,17 +466,27 @@ function Analytics() {
       <div className="grid gap-5 lg:grid-cols-[1.25fr_0.75fr]">
         <div className="rounded-3xl border border-line bg-white p-5 sm:p-6">
           <div className="flex items-baseline justify-between">
-            <h3 className="text-[14px] font-semibold">Prevented losses · 12 weeks (AED K)</h3>
-            <span className="num text-[11px] text-green-deep">+172% since launch</span>
+            <h3 className="text-[14px] font-semibold">
+              {t(
+                "Prevented losses · 12 weeks (AED K)",
+                "الخسائر المُنعّة · 12 أسبوعاً (ألف درهم)",
+                lang,
+              )}
+            </h3>
+            <span className="num text-[11px] text-green-deep">
+              {t("+172% since launch", "+172% منذ الإطلاق", lang)}
+            </span>
           </div>
           <TrendChart
             data={[...TREND]}
-            labels={["W1", "W2", "W3", "W4", "W5", "W6", "W7", "W8", "W9", "W10", "W11", "W12"]}
+            labels={WEEKS.map((w) => t(w.en, w.ar, lang))}
             className="mt-4"
           />
         </div>
         <div className="rounded-3xl border border-line bg-white p-5 sm:p-6">
-          <h3 className="text-[14px] font-semibold">Call outcomes</h3>
+          <h3 className="text-[14px] font-semibold">
+            {t("Call outcomes", "نتائج المكالمات", lang)}
+          </h3>
           <div className="mt-4 flex items-center justify-center">
             <Donut items={OUTCOME_DIST} />
           </div>
@@ -459,10 +494,7 @@ function Analytics() {
             {OUTCOME_DIST.map((o) => (
               <div key={o.label} className="flex items-center gap-2.5 text-[12px]">
                 <span className="h-2.5 w-2.5 rounded-[4px]" style={{ background: o.color }} />
-                <span className="text-ink-2">{o.label}</span>
-                <span dir="rtl" className="font-arabic text-[10.5px] text-ink-3">
-                  {o.labelAr}
-                </span>
+                <span className="text-ink-2">{t(o.label, o.labelAr, lang)}</span>
                 <span className="num ml-auto font-semibold">{o.pct}%</span>
               </div>
             ))}
@@ -473,29 +505,39 @@ function Analytics() {
       {/* language + gauges */}
       <div className="grid gap-5 lg:grid-cols-2">
         <div className="rounded-3xl border border-line bg-white p-5 sm:p-6">
-          <h3 className="text-[14px] font-semibold">Calls by customer language</h3>
-          <p dir="rtl" className="font-arabic mt-1 text-[11px] text-ink-3">
-            توزيع المكالمات حسب لغة العميل
-          </p>
+          <h3 className="text-[14px] font-semibold">
+            {t("Calls by customer language", "توزيع المكالمات حسب لغة العميل", lang)}
+          </h3>
           <HBars
-            items={LANG_DIST.map((l) => ({ label: l.lang, sub: l.langAr, pct: l.pct }))}
+            items={LANG_DIST.map((l) => ({ label: t(l.lang, l.langAr, lang), pct: l.pct }))}
             className="mt-5"
           />
         </div>
         <div className="rounded-3xl border border-line bg-white p-5 sm:p-6">
-          <h3 className="text-[14px] font-semibold">Verification quality</h3>
+          <h3 className="text-[14px] font-semibold">
+            {t("Verification quality", "جودة التحقق", lang)}
+          </h3>
           <div className="mt-2 grid grid-cols-2 gap-4">
             <div className="flex flex-col items-center pt-4">
-              <Gauge pct={87} label="challenge pass" />
+              <Gauge pct={87} label={t("challenge pass", "نجاح التحدي", lang)} />
             </div>
             <div className="flex flex-col items-center pt-4">
-              <Gauge pct={93} label="language lock held" />
+              <Gauge pct={93} label={t("language lock held", "تثبيت اللغة", lang)} />
             </div>
           </div>
           <div className="mt-4 rounded-xl bg-paper px-4 py-3 text-[12px] leading-relaxed text-ink-2">
-            Zero PIN/password request attempts across{" "}
-            <span className="num font-semibold">1,284</span> calls · 30-day window. Guardrail
-            violations: <span className="num font-semibold text-green-deep">0</span>.
+            {t(
+              "Zero PIN/password request attempts across",
+              "صفر محاولات لطلب الرموز السرية أو كلمات المرور في",
+              lang,
+            )}{" "}
+            <span className="num font-semibold">1,284</span>{" "}
+            {t(
+              "calls · 30-day window. Guardrail violations:",
+              "مكالمة · نافذة 30 يوماً. مخالفات الضوابط:",
+              lang,
+            )}{" "}
+            <span className="num font-semibold text-green-deep">0</span>.
           </div>
         </div>
       </div>
@@ -1002,6 +1044,7 @@ function AgentWorkflowsSection() {
 }
 
 function Config() {
+  const { lang } = useApp();
   const [guards, setGuards] = useState(GUARDRAILS.map((g) => g.on));
   const [threshold, setThreshold] = useState([0.8]);
   const [selectedVoice, setSelectedVoice] = useState("fatima");
@@ -1021,11 +1064,16 @@ function Config() {
       window.speechSynthesis.cancel();
       window.speechSynthesis.speak(u);
       toast({
-        title: "Voice preview",
-        description: `Playing ${VOICES.find((v) => v.id === id)?.name} via browser TTS.`,
+        title: t("Voice preview", "معاينة الصوت", lang),
+        description: `${t("Playing", "تشغيل", lang)} ${
+          VOICES.find((v) => v.id === id)?.name
+        } ${t("via browser TTS.", "عبر نطق المتصفح.", lang)}`,
       });
     } catch {
-      toast({ title: "Voice preview unavailable", description: "Browser TTS not supported here." });
+      toast({
+        title: t("Voice preview unavailable", "معاينة الصوت غير متاحة", lang),
+        description: t("Browser TTS not supported here.", "نطق المتصفح غير مدعوم هنا.", lang),
+      });
     }
   };
 
@@ -1037,10 +1085,9 @@ function Config() {
       <AgentWorkflowsSection />
       {/* voices */}
       <div className="rounded-3xl border border-line bg-white p-5 sm:p-6">
-        <h3 className="text-[14px] font-semibold">Voice personas</h3>
-        <p dir="rtl" className="font-arabic mt-1 text-[11px] text-ink-3">
-          الأصوات المعتمدة
-        </p>
+        <h3 className="text-[14px] font-semibold">
+          {t("Voice personas", "الأصوات المعتمدة", lang)}
+        </h3>
         <div className="mt-4 space-y-3">
           {VOICES.map((v) => (
             <button
@@ -1087,7 +1134,7 @@ function Config() {
                   }
                 }}
                 className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-line bg-white text-primary transition hover:bg-primary hover:text-white"
-                aria-label={`Preview ${v.name}`}
+                aria-label={`${t("Preview", "معاينة", lang)} ${v.name}`}
               >
                 ▶
               </span>
@@ -1095,19 +1142,18 @@ function Config() {
           ))}
         </div>
         <div className="mt-4 rounded-xl bg-paper px-4 py-3 text-[11.5px] leading-relaxed text-ink-2">
-          Dialect variants tuned for Gulf Arabic, Urdu and Hindi today — Filipino and Malayalam are
-          one voice registration away on the same pipeline. Fallback to English when language
-          confidence drops below threshold.
+          {t(
+            "Dialect variants tuned for Gulf Arabic, Urdu and Hindi today — Filipino and Malayalam are one voice registration away on the same pipeline. Fallback to English when language confidence drops below threshold.",
+            "لهجات مضبوطة اليوم للعربية الخليجية والأردية والهندية — أما الفلبينية والمالايالامية فتفصلها تسجيل صوتي واحد على نفس خط المعالجة. ويتم التحول إلى الإنجليزية عند انخفاض ثقة اللغة عن الحد.",
+            lang,
+          )}
         </div>
       </div>
 
       <div className="space-y-5">
         {/* guardrails */}
         <div className="rounded-3xl border border-line bg-white p-5 sm:p-6">
-          <h3 className="text-[14px] font-semibold">Guardrails</h3>
-          <p dir="rtl" className="font-arabic mt-1 text-[11px] text-ink-3">
-            ضمانات الامتثال
-          </p>
+          <h3 className="text-[14px] font-semibold">{t("Guardrails", "ضمانات الامتثال", lang)}</h3>
           <div className="mt-4 space-y-1">
             {GUARDRAILS.map((g, i) => (
               <div
@@ -1115,10 +1161,7 @@ function Config() {
                 className="flex items-center justify-between gap-3 rounded-xl px-2 py-2.5 transition hover:bg-paper"
               >
                 <div>
-                  <p className="text-[13px] font-medium">{g.en}</p>
-                  <p dir="rtl" className="font-arabic text-[10.5px] text-ink-3">
-                    {g.ar}
-                  </p>
+                  <p className="text-[13px] font-medium">{t(g.en, g.ar, lang)}</p>
                 </div>
                 <Switch
                   checked={guards[i]}
@@ -1126,9 +1169,12 @@ function Config() {
                     setGuards((prev) => prev.map((x, j) => (j === i ? v : x)));
                     if (!v) {
                       toast({
-                        title: "Guardrail disabled",
-                        description:
+                        title: t("Guardrail disabled", "تم تعطيل ضمانة", lang),
+                        description: t(
                           "This action is blocked in production for critical guardrails.",
+                          "هذا الإجراء محظور في الإنتاج بالنسبة للضمانات الحرجة.",
+                          lang,
+                        ),
                         variant: "destructive",
                       });
                       setGuards((prev) => prev.map((x, j) => (j === i ? true : x)));
@@ -1142,7 +1188,9 @@ function Config() {
 
         {/* threshold */}
         <div className="rounded-3xl border border-line bg-white p-5 sm:p-6">
-          <h3 className="text-[14px] font-semibold">Intervention risk threshold</h3>
+          <h3 className="text-[14px] font-semibold">
+            {t("Intervention risk threshold", "حد مخاطر التدخل", lang)}
+          </h3>
           <div className="mt-5 flex items-center gap-5">
             <Slider
               value={threshold}
@@ -1157,9 +1205,13 @@ function Config() {
             </span>
           </div>
           <p className="mt-4 text-[12px] leading-relaxed text-ink-2">
-            Agent triggers only above this risk score — keeps false positives off customers&apos;
-            phones. Current rate: <span className="num font-semibold">3.1%</span> of alerts
-            suppressed.
+            {t(
+              "Agent triggers only above this risk score — keeps false positives off customers' phones. Current rate:",
+              "لا يتخذ الوكيل إجراءً إلا فوق درجة الخطر هذه — مما يُبعد الإنذارات الكاذبة عن هواتف العملاء. المعدل الحالي:",
+              lang,
+            )}{" "}
+            <span className="num font-semibold">3.1%</span>{" "}
+            {t("of alerts suppressed.", "من التنبيهات تم كبتها.", lang)}
           </p>
         </div>
       </div>
@@ -1172,14 +1224,15 @@ function Config() {
 const PAGE_SIZE = 5;
 
 function Compliance() {
+  const { lang } = useApp();
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
   const { toast } = useToast();
 
   useEffect(() => {
-    const t = setTimeout(() => setLoading(false), 750);
-    return () => clearTimeout(t);
+    const timer = setTimeout(() => setLoading(false), 750);
+    return () => clearTimeout(timer);
   }, []);
 
   const filtered = useMemo(
@@ -1200,8 +1253,10 @@ function Compliance() {
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-5 py-4">
         <div className="flex items-center gap-2.5">
           <ScrollText className="h-4 w-4 text-primary" />
-          <h3 className="text-[14px] font-semibold">Immutable audit log</h3>
-          <Chip>AES-256 · sealed</Chip>
+          <h3 className="text-[14px] font-semibold">
+            {t("Immutable audit log", "سجل تدقيق غير قابل للتغيير", lang)}
+          </h3>
+          <Chip>{t("AES-256 · sealed", "AES-256 · مُغلّف", lang)}</Chip>
         </div>
         <div className="flex items-center gap-2">
           <div className="relative">
@@ -1212,21 +1267,25 @@ function Compliance() {
                 setQuery(e.target.value);
                 setPage(1);
               }}
-              placeholder="Filter events…"
+              placeholder={t("Filter events…", "تصفية الأحداث…", lang)}
               className="h-9 w-44 rounded-lg border border-line bg-paper pl-8 pr-3 text-[12.5px] outline-none transition focus:border-primary/50 focus:bg-white"
             />
           </div>
           <button
             onClick={() =>
               toast({
-                title: "Compliance report queued",
-                description: "CSV export of 14 sealed entries will download shortly (demo).",
+                title: t("Compliance report queued", "تم جدولة تقرير الامتثال", lang),
+                description: t(
+                  "CSV export of 14 sealed entries will download shortly (demo).",
+                  "سيتم تنزيل تصدير CSV لـ 14 مدخلة مُغلّفة بعد قليل (عرض توضيحي).",
+                  lang,
+                ),
               })
             }
             className="flex h-9 items-center gap-2 rounded-lg border border-line bg-white px-3 text-[12px] font-semibold text-ink-2 transition hover:border-primary/40 hover:text-primary"
           >
             <Download className="h-3.5 w-3.5" />
-            Export
+            {t("Export", "تصدير", lang)}
           </button>
         </div>
       </div>
@@ -1247,11 +1306,11 @@ function Compliance() {
           <table className="w-full text-left text-[12.5px]">
             <thead>
               <tr className="micro !text-[9px] text-ink-3">
-                <th className="py-2.5 pr-3 font-medium">Time</th>
-                <th className="py-2.5 pr-3 font-medium">Event</th>
-                <th className="py-2.5 pr-3 font-medium">Actor</th>
-                <th className="py-2.5 pr-3 font-medium">Detail</th>
-                <th className="py-2.5 text-right font-medium">Hash</th>
+                <th className="py-2.5 pr-3 font-medium">{t("Time", "الوقت", lang)}</th>
+                <th className="py-2.5 pr-3 font-medium">{t("Event", "الحدث", lang)}</th>
+                <th className="py-2.5 pr-3 font-medium">{t("Actor", "المنفّذ", lang)}</th>
+                <th className="py-2.5 pr-3 font-medium">{t("Detail", "التفصيل", lang)}</th>
+                <th className="py-2.5 text-right font-medium">{t("Hash", "البصمة", lang)}</th>
               </tr>
             </thead>
             <tbody>
@@ -1287,11 +1346,11 @@ function Compliance() {
 
       <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line px-5 py-3.5">
         <span className="text-[11.5px] text-ink-3">
-          Showing{" "}
+          {t("Showing", "عرض", lang)}{" "}
           {loading
             ? "—"
-            : `${(safePage - 1) * PAGE_SIZE + 1}–${Math.min(safePage * PAGE_SIZE, filtered.length)} of ${filtered.length}`}{" "}
-          sealed entries
+            : `${(safePage - 1) * PAGE_SIZE + 1}–${Math.min(safePage * PAGE_SIZE, filtered.length)}`}{" "}
+          {t("of", "من", lang)} {filtered.length} {t("sealed entries", "مدخلات مُغلّفة", lang)}
         </span>
         <Pagination page={safePage} pages={pages} onChange={setPage} />
       </div>
@@ -1422,7 +1481,11 @@ function WebhooksDemo() {
             <div className="mt-5 space-y-3">
               <div>
                 <div className="micro mb-1.5 text-[9px] text-ink-3">
-                  RAW PAYLOAD · EXACTLY WHAT THE CONSUMER RECEIVES
+                  {t(
+                    "RAW PAYLOAD · EXACTLY WHAT THE CONSUMER RECEIVES",
+                    "الحمولة الخام · تماماً كما يستلمها المستهلك",
+                    lang,
+                  )}
                 </div>
                 <pre className="max-h-44 overflow-auto rounded-xl bg-[#0c110e] px-4 py-3 font-mono text-[11.5px] leading-relaxed text-white/85 sv-scroll">
                   {signed.payload}
@@ -1430,7 +1493,7 @@ function WebhooksDemo() {
               </div>
               <div>
                 <div className="micro mb-1.5 text-[9px] text-ink-3">
-                  SIGNATURE HEADER · SV-SIGNATURE
+                  {t("SIGNATURE HEADER · SV-SIGNATURE", "ترويسة التوقيع · SV-SIGNATURE", lang)}
                 </div>
                 <div className="overflow-x-auto rounded-xl border border-line bg-paper px-4 py-3 font-mono text-[11.5px] text-foreground sv-scroll">
                   <span className="text-ink-3">t={signed.t},</span>
@@ -1472,11 +1535,17 @@ function WebhooksDemo() {
                     <XCircle className="mt-0.5 h-4 w-4 shrink-0" />
                   )}
                   <div className="text-[12.5px] font-medium leading-relaxed">
-                    {check.valid ? "SIGNATURE VALID — " : "SIGNATURE REJECTED — "}
+                    {check.valid
+                      ? t("SIGNATURE VALID — ", "التوقيع صحيح — ", lang)
+                      : t("SIGNATURE REJECTED — ", "تم رفض التوقيع — ", lang)}
                     <span className="font-normal">{check.reason}</span>
                     {check.tampered && !check.valid && (
                       <span className="mt-0.5 block font-mono text-[11px] text-red-600/80">
-                        tamper: risk_score 0.94 → 0.05 · caught by digest
+                        {t(
+                          "tamper: risk_score 0.94 → 0.05 · caught by digest",
+                          "عبث: risk_score 0.94 → 0.05 · تم اكتشافه بالملخّص",
+                          lang,
+                        )}
                       </span>
                     )}
                   </div>
@@ -1490,30 +1559,47 @@ function WebhooksDemo() {
       {/* explainer */}
       <div className="space-y-4">
         <div className="rounded-3xl border border-line bg-white p-6">
-          <div className="micro text-[9px] text-ink-3">WHAT YOUR ENDPOINT DOES</div>
+          <div className="micro text-[9px] text-ink-3">
+            {t("WHAT YOUR ENDPOINT DOES", "ما الذي يفعله نقطة الاستقبال", lang)}
+          </div>
           <ol className="mt-3 space-y-2.5">
             {[
-              "Read the raw request body as bytes — never a re-serialized parse.",
-              "Split the SV-Signature header into t and v1.",
-              "Reject if t is older than 5 minutes (replay protection).",
-              "Compute HMAC-SHA256(secret, `${t}.${rawBody}`) and compare to v1 in constant time.",
+              {
+                en: "Read the raw request body as bytes — never a re-serialized parse.",
+                ar: "اقرأ جسم الطلب الخام كبايتات — لا كتحليل مُعاد تسلسله.",
+              },
+              {
+                en: "Split the SV-Signature header into t and v1.",
+                ar: "قسّم ترويسة SV-Signature إلى t و v1.",
+              },
+              {
+                en: "Reject if t is older than 5 minutes (replay protection).",
+                ar: "ارفض الطلب إذا كان t أقدم من 5 دقائق (حماية من إعادة التشغيل).",
+              },
+              {
+                en: "Compute HMAC-SHA256(secret, `${t}.${rawBody}`) and compare to v1 in constant time.",
+                ar: "احسب HMAC-SHA256(secret, `${t}.${rawBody}`) وقارنه بـ v1 بزمن ثابت.",
+              },
             ].map((s, i) => (
               <li key={i} className="flex gap-2.5 text-[12.5px] leading-relaxed text-ink-2">
                 <span className="font-mono text-[11px] font-bold text-primary">
                   {String(i + 1).padStart(2, "0")}
                 </span>
-                {s}
+                {t(s.en, s.ar, lang)}
               </li>
             ))}
           </ol>
           <p className="mt-4 border-t border-line/70 pt-3 text-[11.5px] leading-relaxed text-ink-3">
-            The signing secret lives server-side — like the one behind this demo, it is never
-            shipped to the browser. Verification here is constant-time (timingSafeEqual).
+            {t(
+              "The signing secret lives server-side — like the one behind this demo, it is never shipped to the browser. Verification here is constant-time (timingSafeEqual).",
+              "سر التوقيع يعيش على الخادم — ومثل السر الذي يقف خلف هذا العرض، لا يُرسل إلى المتصفح أبداً. والتحقق هنا يتم بزمن ثابت (timingSafeEqual).",
+              lang,
+            )}
           </p>
         </div>
         <div className="rounded-3xl border border-line bg-[#0c110e] p-6 text-white">
           <div className="font-mono text-[10.5px] uppercase tracking-wider text-white/50">
-            verify in 6 lines
+            {t("verify in 6 lines", "تحقق في 6 أسطر", lang)}
           </div>
           <pre className="mt-3 overflow-x-auto font-mono text-[11px] leading-relaxed text-white/85 sv-scroll">
             {`const hmac = crypto

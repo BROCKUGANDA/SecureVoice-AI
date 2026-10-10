@@ -14,7 +14,7 @@ import { Refund } from "@/views/Legal";
 export const metadata: Metadata = {
   title: "Refund Policy",
   description:
-    "SecureVoice AI refund policy: cancel a monthly subscription any time before renewal and the unused period is refunded pro rata with no cancellation fee. Unspent prepaid intervention credits are refundable in full; credits consumed by a completed intervention call are not. Enterprise deployments are governed by the signed agreement.",
+    "SecureVoice AI refund policy: cancel a monthly subscription any time before renewal and the unused period is refunded pro rata with no cancellation fee. Unspent prepaid intervention credits are refundable in full; credits consumed by a completed intervention call are not. Plans are billed in USD through Paddle as Merchant of Record, and regional charges are refunded in the currency taken.",
   alternates: { canonical: "/refund" },
   openGraph: {
     title: "Refund Policy — SecureVoice AI",

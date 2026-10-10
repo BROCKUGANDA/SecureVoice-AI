@@ -112,63 +112,61 @@ export function Pricing() {
         {t(SETTLEMENT.note, SETTLEMENT.note, lang)}
       </p>
 
-      {/* ——— enterprise pricing sheet ——— */}
+      {/* —— how the money is collected ——
+
+          This replaced the "custom / enterprise pricing" sheet, which stated that
+          no enterprise rate card is published. That stopped being true when the
+          catalog moved to published tiers — Advanced is now a $120 plan with a
+          Paddle price id — so the section was describing a pricing posture the
+          product no longer has. What a buyer actually needs here is how the money
+          is collected: tax, trial, regional prices, annual terms. */}
       <Reveal delay={0.05}>
-        <section className="mx-auto mt-16 max-w-5xl" aria-labelledby="enterprise-heading">
+        <section className="mx-auto mt-16 max-w-5xl" aria-labelledby="settlement-heading">
           <div className="rounded-3xl border border-line bg-paper p-7 sm:p-9">
-            <div className="flex flex-wrap items-start justify-between gap-6">
-              <div className="flex items-start gap-3">
-                <Building2 className="mt-0.5 h-5 w-5 shrink-0 text-primary" strokeWidth={1.7} />
-                <div>
-                  <h2
-                    id="enterprise-heading"
-                    className="font-display text-[19px] font-semibold tracking-tight"
-                  >
-                    {t("Custom / enterprise pricing", "تسعير المؤسسات والمخصص", lang)}
-                  </h2>
-                  <p className="mt-1 max-w-xl text-[13px] leading-relaxed text-ink-2">
-                    {t(
-                      "We do not publish an enterprise rate card, and that is deliberate rather than evasive. The number depends on intervention volume, languages, whether the platform runs in your VPC or ours, and how many bank entities are in scope. You will get a written quote with the assumptions stated, not a multiplier.",
-                      "لا ننشر قائمة أسعار مؤسسية، وذلك قرار مقصود لا مراوغة. فالسعر يعتمد على حجم التدخّلات واللغات، وعلى ما إذا كانت المنصة تعمل داخل شبكتكم الخاصة أم داخل شبكتنا، وعلى عدد الجهات المشمولة. وستحصلون على عرض سعر مكتوب مع ذكر الافتراضات، لا على مُضاعِف.",
-                      lang,
-                    )}
-                  </p>
-                </div>
+            <div className="flex items-start gap-3">
+              <Building2 className="mt-0.5 h-5 w-5 shrink-0 text-primary" strokeWidth={1.7} />
+              <div>
+                <h2
+                  id="settlement-heading"
+                  className="font-display text-[19px] font-semibold tracking-tight"
+                >
+                  {t("How you pay", "كيف تتم عملية الدفع", lang)}
+                </h2>
+                <p className="mt-1 max-w-xl text-[13px] leading-relaxed text-ink-2">
+                  {t(
+                    "Plans are billed in US dollars through Paddle, which is the seller of record. Paddle collects any sales tax or VAT due and remits it to the relevant authority, so the price you see is the price on the invoice before tax. Every monthly plan starts with a 7-day free trial, and annual billing is two months free.",
+                    "تُفترَط الخطط بالدولار الأمريكي عبر Paddle، وهي البائع الرسمي؛ وتحصّل Paddle أي ضريبة بيع أو قيمة مضافة مستحقة وتحوّلها إلى الجهة المختصة، فالسعر الذي تراه هو سعر الفاتورة قبل الضريبة. وتبدأ كل خطة شهرية بتجربة مجانية ٧ أيام، والفوترة السنوية تُوفّر شهرين.",
+                    lang,
+                  )}
+                </p>
               </div>
-              <a
-                href={`mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent("Enterprise pricing request")}`}
-                className="inline-flex items-center gap-2 rounded-full bg-primary px-5 py-2.5 text-[13px] font-semibold text-white shadow-[0_6px_18px_-6px_rgba(11,122,85,0.55)] transition hover:bg-green-deep"
-              >
-                <Mail className="h-4 w-4" />
-                {t("Request a quote", "اطلب عرض سعر", lang)}
-              </a>
             </div>
 
             <dl className="mt-7 grid gap-px overflow-hidden rounded-2xl border border-line bg-line sm:grid-cols-2">
               {[
                 {
-                  k: "What sets the price",
-                  kAr: "ما الذي يحدد السعر",
-                  v: "Interventions per month · languages in scope · hosting model (our cloud or your VPC) · number of bank entities · SLA tier · BYOK and voice cloning",
-                  vAr: "التدخّلات شهرياً · اللغات المشمولة · نموذج الاستضافة (سحابةنا أو شبكتكم الخاصة) · عدد الجهات المصرفية · مستوى اتفاقية الخدمة · المفاتيح الخاصة واستنساخ الصوت",
+                  k: "Free trial",
+                  kAr: "التجربة المجانية",
+                  v: "7 days on every monthly plan, from the first successful charge. The trial is on the monthly price, never the annual one — a trial that converts to a 12-month charge is the single largest source of refund requests in subscription billing.",
+                  vAr: "٧ أيام على كل خطة شهرية، من أول خصم ناجح؛ وتُطبّق التجربة على السعر الشهري لا السنوي — فالتجربة التي تتحول إلى خصم لاثني عشر شهراً هي أكبر مصدر لطلبات الاسترداد في اشتراكات البرمجيات.",
                 },
                 {
-                  k: "Typical engagement",
-                  kAr: "طبيعة العلاقة",
-                  v: "A signed Master Services Agreement plus a Data Processing Agreement. The quote references an enterprise rate that is not published on this page, and it takes precedence over the public plans.",
-                  vAr: "اتفاقية مستوى خدمة موقّعة مع اتفاقية معالجة بيانات. ويشير عرض السعر إلى سعر مؤسسي غير منشور في هذه الصفحة، ويتقدّم على الخطط العامة.",
+                  k: "Regional prices",
+                  kAr: "الأسعار المحلية",
+                  v: "Buyers in the UK, Ireland and Australia are charged a local price in GBP, EUR or AUD rather than a converted USD amount — £7.50, €9 and A$15 on Starter, for example. Contact us for a quote in any other market.",
+                  vAr: "يُحاسَب المشترون في المملكة المتحدة وأيرلندا وأستراليا بسعر محلي بالإسترليني أو اليورو أو دولار أسترالي بدلاً من تحويل المبلغ بالدولار الأمريكي — ٧٫٥٠ جنيه إسترليني و٩ يورو و١٥ دولاراً أسترالياً على طبقة البداية مثلاً؛ وتواصلوا معنا لسعر أي سوق آخر.",
                 },
                 {
-                  k: "Included in every enterprise quote",
-                  kAr: "مشمول في كل عرض مؤسسي",
-                  v: "In-VPC deployment, CBUAE audit pack, named solutions architect, 24/7 escalation, quarterly review of guardrail policy",
-                  vAr: "النشر داخل شبكتكم الخاصة، وحزمة تدقيق للمصرف المركزي، ومهندس حلول مُسمّى، وتصعيد على مدار الساعة، ومراجعة فصلية لسياسة الضمانات",
+                  k: "Included with every plan",
+                  kAr: "مشمول في كل خطة",
+                  v: "The tamper-evident audit chain, consent gating, the speech gate that structurally cannot request a PIN, password, OTP or full card number, and the no-PII-storage guarantee. Not upsells — the platform cannot be configured to leave them out.",
+                  vAr: "سجل التدقيق المقاوم للعبث، وبوابة الموافقة، وبوابة النطق التي لا تستطيع بنيوياً أن تطلب رمزاً سرياً أو كلمة مرور أو رمز تحقق أو رقم بطاقة كامل، وضمان عدم تخزين البيانات الشخصية؛ وهي ليست إضافات اختيارية — فلا يمكن تهيئة المنصة لتجاهلها.",
                 },
                 {
-                  k: "How we quote",
-                  kAr: "كيف نُقدّم عرض السعر",
-                  v: "Written, itemised, with the assumptions stated on the page. If we cannot meet a requirement, we say so in the quote rather than discovering it during delivery.",
-                  vAr: "مكتوب ومفصّل، مع ذكر الافتراضات في العرض نفسه. وإذا لم نتمكن من تلبية متطلب، نقول ذلك في العرض لا أن نكتشفه أثناء التنفيذ.",
+                  k: "Annual billing",
+                  kAr: "الفوترة السنوية",
+                  v: "Exactly two months free at every tier: Starter $100/yr, Pro $400/yr, Advanced $1,200/yr. The discount is applied at checkout rather than negotiated, so a renewing customer pays what the page said.",
+                  vAr: "شهران مجاناً تماماً في كل طبقة: ١٠٠ دولار سنوياً للبداية و٤٠٠ دولار للاحترافي و١٬٢٠٠ دولار للمتقدم؛ ويُطبّق الخصم عند الدفع لا بالتفاوض، فيدفع العميل عند التجديد ما وعدت به الصفحة.",
                 },
               ].map((row) => (
                 <div key={row.k} className="bg-white p-5">
@@ -445,30 +443,23 @@ function PlanCard({ plan }: { plan: Plan }) {
       </ul>
 
       <div className="mt-6 pt-1">
-        {plan.id === "enterprise" ? (
-          <a
-            href={`mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent("Enterprise pricing request")}`}
-            className={cn(
-              "flex w-full items-center justify-center gap-2 rounded-full px-5 py-3 text-[13px] font-semibold transition",
-              "border border-line bg-paper text-ink-2 hover:border-primary/40 hover:text-primary",
-            )}
-          >
-            <Mail className="h-4 w-4" />
-            {t("Contact sales", "تواصل مع المبيعات", lang)}
-          </a>
-        ) : (
-          <button
-            onClick={() => useApp.getState().setView("auth")}
-            className={cn(
-              "flex w-full items-center justify-center gap-2 rounded-full px-5 py-3 text-[13px] font-semibold transition",
-              plan.featured
-                ? "bg-primary text-white hover:bg-green-deep"
-                : "border border-line bg-paper text-ink-2 hover:border-primary/40 hover:text-primary",
-            )}
-          >
-            {t("Start with this plan", "ابدأ بهذه الخطة", lang)}
-          </button>
-        )}
+        {/* Every tier is purchasable now — Advanced has a published price and a
+              Paddle price id like the others — so there is no "contact sales"
+              branch left. The button opens check­out; which one is resolved by
+              the server from the configured price map, and a missing price
+              surfaces as an error naming the key rather than silently charging
+              a neighbouring tier. */}
+        <button
+          onClick={() => useApp.getState().setView("auth")}
+          className={cn(
+            "flex w-full items-center justify-center gap-2 rounded-full px-5 py-3 text-[13px] font-semibold transition",
+            plan.featured
+              ? "bg-primary text-white hover:bg-green-deep"
+              : "border border-line bg-paper text-ink-2 hover:border-primary/40 hover:text-primary",
+          )}
+        >
+          {t("Start with this plan", "ابدأ بهذه الخطة", lang)}
+        </button>
       </div>
     </div>
   );

@@ -16,14 +16,14 @@ import { Pricing } from "@/views/Pricing";
  * `title.template` appends the brand, so `title` here is just the lead-in.
  */
 export const metadata: Metadata = {
-  title: "Pricing — Plans from $490/month",
+  title: "Pricing — Plans from $10/month",
   description:
-    "SecureVoice AI pricing: Starter $490/month (1,000 interventions, 1 bank entity), Pro $1,490/month (5,000 interventions, 5 entities, 99.9% SLA), and Enterprise quoted per deployment with in-VPC deployment, BYOK and a CBUAE audit pack. Feature comparison, what's included on every plan, and a custom enterprise pricing sheet.",
+    "SecureVoice AI pricing: Starter $10/month or $100/year (1,000 interventions, 1 bank entity, 7-day free trial), Pro $40/month or $400/year (5,000 interventions, 5 entities, 99.9% SLA), and Advanced $120/month or $1,200/year with negotiated volume, in-VPC deployment, BYOK and a CBUAE audit pack. Billed through Paddle as Merchant of Record, with regional prices in GBP, EUR and AUD.",
   alternates: { canonical: "/pricing" },
   openGraph: {
     title: "Pricing — SecureVoice AI",
     description:
-      "Starter $490/month · Pro $1,490/month · Enterprise quoted per deployment. Every plan includes the tamper-evident audit chain.",
+      "Starter $10/month · Pro $40/month · Advanced $120/month. 7-day free trial on every monthly plan; annual billing is two months free.",
     url: "/pricing",
   },
 };

@@ -18,6 +18,7 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { t, useApp } from "@/lib/store";
+import { PLANS, formatMonthly } from "@/lib/commercial";
 import { SUPPORT_EMAIL } from "@/lib/public-config";
 import { Chip } from "@/components/fx/core";
 import { LoadingIndicator } from "@/components/fx/LoadingIndicator";
@@ -669,61 +670,52 @@ export function Settings() {
                   </div>
                   <Coins className="h-8 w-8 text-[#c9a227]" />
                 </div>
+                {/* Rendered from `@/lib/commercial`, like the home page and
+                    /pricing. This was a THIRD inline copy of the prices and had
+                    already drifted — it still read $490 / $1,490 / Enterprise
+                    after the catalog moved to $10 / $40 / $120. */}
                 <div className="grid gap-3 sm:grid-cols-3">
-                  {[
-                    {
-                      name: t("Starter", "البداية", lang),
-                      price: "$490",
-                      per: t("/month", "/شهريًا", lang),
-                      detail: t(
-                        "1,000 interventions · 1 bank entity · email support",
-                        "1,000 تدخل · جهة مصرفية واحدة · دعم عبر البريد الإلكتروني",
-                        lang,
-                      ),
-                    },
-                    {
-                      name: t("Pro", "الاحترافية", lang),
-                      price: "$1,490",
-                      per: t("/month", "/شهريًا", lang),
-                      detail: t(
-                        "5,000 interventions · 5 entities · priority routing · SLA 99.9%",
-                        "5,000 تدخل · 5 جهات · توجيه ذو أولوية · اتفاق مستوى خدمة 99.9%",
-                        lang,
-                      ),
-                    },
-                    {
-                      name: t("Enterprise", "المؤسسات", lang),
-                      price: t("Custom", "حسب الطلب", lang),
-                      per: "",
-                      detail: t(
-                        "Unlimited · VPC deployment · BYOK · custom voice clones · CBUAE audit pack",
-                        "غير محدود · نشر على VPC · مفاتيح خاصة · نُسخ صوتية مخصصة · حزمة تدقيق المصرف المركزي",
-                        lang,
-                      ),
-                    },
-                  ].map((plan, i) => (
+                  {PLANS.map((plan, i) => (
                     <div
-                      key={plan.name}
+                      key={plan.id}
                       className={cn(
                         "rounded-2xl border p-4",
                         i === 1 ? "border-primary bg-green-tint/50" : "border-line bg-paper",
                       )}
                     >
-                      <p className="font-display text-[14px] font-semibold">{plan.name}</p>
-                      <p className="mt-1">
-                        <span className="font-display text-xl font-semibold">{plan.price}</span>
-                        <span className="text-[11px] text-ink-3"> {plan.per}</span>
+                      <p className="font-display text-[14px] font-semibold">
+                        {t(plan.name, plan.nameAr, lang)}
                       </p>
-                      <p className="mt-2 text-[11px] leading-snug text-ink-3">{plan.detail}</p>
+                      <p className="mt-1">
+                        <span className="font-display text-xl font-semibold">
+                          {formatMonthly(plan, lang)}
+                        </span>
+                        <span className="text-[11px] text-ink-3">{t("/mo", "/شهر", lang)}</span>
+                      </p>
+                      <p className="mt-2 text-[11px] leading-snug text-ink-3">
+                        {t(plan.summary, plan.summaryAr, lang)}
+                      </p>
                     </div>
                   ))}
                 </div>
+                {/* Top-up goes through the NEW checkout route rather than a
+                    `mailto:` link — see src/app/api/billing/checkout/route.ts.
+                    The checkout needs a price id, which is resolved from the
+                    gateway's configured price map, so this opens the checkout
+                    rather than claiming to have started one. */}
+                <p className="mt-4 text-[11.5px] leading-relaxed text-ink-3">
+                  {t(
+                    "Plans are billed through Paddle, our Merchant of Record, which handles sales tax and VAT. Checkout opens hosted by Paddle.",
+                    "تُفترَط الخطط عبر Paddle، التاجر الرسمي، الذي يتولى ضريبة البيع والقيمة المضافة. وتُفتح عملية الدفع على موقع Paddle.",
+                    lang,
+                  )}
+                </p>
                 <a
                   href={`mailto:${SUPPORT_EMAIL}?subject=SecureVoice%20billing`}
                   className="inline-flex items-center gap-2 rounded-full bg-primary px-6 py-2.5 text-[13px] font-semibold text-white transition hover:bg-green-deep"
                 >
                   <Coins className="h-4 w-4" />
-                  {t("Top up / change plan", "شحن الرصيد / تغيير الخطة", lang)}
+                  {t("Change plan", "تغيير الخطة", lang)}
                 </a>
               </div>
             )}

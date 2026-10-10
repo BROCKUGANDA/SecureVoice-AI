@@ -25,6 +25,7 @@ import {
   Mic,
 } from "lucide-react";
 import { useApp, t } from "@/lib/store";
+import { PLANS, SETTLEMENT, formatMonthly, formatYearly } from "@/lib/commercial";
 import { SUPPORT_EMAIL } from "@/lib/public-config";
 import { cn } from "@/lib/utils";
 import { CALL_LANG_LABEL, type CallLang } from "@/lib/scenario";
@@ -913,56 +914,24 @@ export function Home() {
           </div>
         </Reveal>
 
-        {/* pricing tiers */}
+        {/* pricing tiers
+
+            Rendered from `@/lib/commercial` — the SAME source the /pricing page
+            and the schema.org JSON-LD read. This block used to carry its own
+            inline copy of the prices, which is precisely the fourth renderer
+            `commercial.ts` was created to eliminate: it drifted once already
+            (it still said $490 / $1,490 / Enterprise after the catalog moved to
+            $10 / $40 / $120) and nobody reading one file would have seen it.
+            `tests/billing/catalog-parity.test.ts` is the backstop. */}
         <Reveal delay={0.1}>
           <div className="mt-16">
             <p className="micro text-center text-[9px] text-slate-400">
-              {t(
-                "PRICING · PREPAID CREDITS OR MONTHLY",
-                "الأسعار · رصيد مسبق الدفع أو اشتراك شهري",
-                lang,
-              )}
+              {t("PRICING · MONTHLY OR ANNUAL", "الأسعار · شهري أو سنوي", lang)}
             </p>
             <div className="mx-auto mt-6 grid max-w-4xl gap-4 sm:grid-cols-3">
-              {[
-                {
-                  name: "Starter",
-                  ar: "البداية",
-                  price: "$490",
-                  per: "/mo",
-                  perAr: "/شهر",
-                  detail: "1,000 interventions · 1 bank entity · 6 languages · email support",
-                  detailAr: "١,٠٠٠ تدخّل · جهة مصرفية واحدة · ٦ لغات · دعم بالبريد الإلكتروني",
-                  featured: false,
-                },
-                {
-                  name: "Pro",
-                  ar: "الاحترافي",
-                  price: "$1,490",
-                  per: "/mo",
-                  perAr: "/شهر",
-                  detail:
-                    "5,000 interventions · 5 entities · streaming voice · priority routing · 99.9% SLA",
-                  detailAr:
-                    "٥,٠٠٠ تدخّل · ٥ جهات · صوت مبثوث · توجيه بأولوية · اتفاقية مستوى خدمة ٩٩.٩٪",
-                  featured: true,
-                },
-                {
-                  name: "Enterprise",
-                  ar: "المؤسسات",
-                  price: "Custom",
-                  priceAr: "حسب الطلب",
-                  per: "",
-                  perAr: "",
-                  detail:
-                    "Unlimited volume · VPC deployment · BYOK · voice clones · CBUAE audit pack",
-                  detailAr:
-                    "حجم غير محدود · نشر داخل شبكتك الخاصة VPC · مفاتيح خاصة BYOK · استنساخ أصوات · حزمة تدقيق لأنظمة المصرف المركزي",
-                  featured: false,
-                },
-              ].map((plan) => (
+              {PLANS.map((plan) => (
                 <div
-                  key={plan.name}
+                  key={plan.id}
                   className={cn(
                     "rounded-3xl border p-6",
                     plan.featured
@@ -976,29 +945,31 @@ export function Home() {
                     </span>
                   )}
                   <p className="font-display text-[15px] font-semibold text-slate-900">
-                    {t(plan.name, plan.ar, lang)}
+                    {t(plan.name, plan.nameAr, lang)}
                   </p>
                   <p className="mt-2">
                     <span className="font-display text-2xl font-semibold text-slate-900">
-                      {t(plan.price, plan.priceAr ?? plan.price, lang)}
+                      {formatMonthly(plan, lang)}
                     </span>
-                    <span className="text-[12px] text-slate-500">
-                      {" "}
-                      {t(plan.per, plan.perAr, lang)}
-                    </span>
+                    <span className="text-[12px] text-slate-500"> {t("/mo", "/شهر", lang)}</span>
+                  </p>
+                  <p className="mt-1 text-[11px] text-slate-500">
+                    {formatYearly(plan, lang)
+                      ? t(
+                          `${formatYearly(plan, lang)}/yr — two months free`,
+                          `${formatYearly(plan, lang)} سنوياً — شهران مجاناً`,
+                          lang,
+                        )
+                      : null}
                   </p>
                   <p className="mt-3 text-[11.5px] leading-relaxed text-slate-600">
-                    {t(plan.detail, plan.detailAr, lang)}
+                    {t(plan.summary, plan.summaryAr, lang)}
                   </p>
                 </div>
               ))}
             </div>
             <p className="mt-5 text-center text-[11.5px] text-slate-500">
-              {t(
-                "Plans are shown in USD. At checkout you will be charged the KES equivalent via Paystack; your receipt will list the Ksh amount.",
-                "الأسعار معروضة بالدولار الأمريكي. وعند الدفع تُخصم القيمة المقابلة بالشلن الكيني عبر Paystack، وتظهر في الإيصال قيمة Ksh.",
-                lang,
-              )}
+              {t(SETTLEMENT.note, SETTLEMENT.note, lang)}
             </p>
             <p className="mt-3 text-center text-[11.5px] text-slate-500">
               {t(

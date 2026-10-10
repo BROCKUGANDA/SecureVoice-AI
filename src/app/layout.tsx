@@ -56,7 +56,7 @@ export const metadata: Metadata = {
     template: `%s · ${COMPANY.name}`,
   },
   description:
-    "SecureVoice AI is a real-time voice fraud-intervention platform for UAE banks. An AI voice agent calls the customer in their own language within 60 seconds of a fraud signal, verifies identity, freezes the card, and hands off to a human. Plans from $490/month.",
+    "SecureVoice AI is a real-time voice fraud-intervention platform for UAE banks. An AI voice agent calls the customer in their own language within 60 seconds of a fraud signal, verifies identity, freezes the card, and hands off to a human. Plans from $10/month.",
   applicationName: COMPANY.name,
   // `legalName`, not the brand: the Terms and Conditions are required to name the
   // company, and the machine-readable version of that obligation belongs in the
@@ -120,7 +120,7 @@ export const metadata: Metadata = {
     alternateLocale: ["ar_AE"],
     title: `${COMPANY.name} — Real-Time Fraud Intervention`,
     description:
-      "38 minutes → 60 seconds. A multilingual AI voice agent for UAE banks: verifies identity, freezes the card, and hands off to a human. Plans from $490/month.",
+      "38 minutes → 60 seconds. A multilingual AI voice agent for UAE banks: verifies identity, freezes the card, and hands off to a human. Plans from $10/month.",
     images: [
       {
         url: "/og-image.png",

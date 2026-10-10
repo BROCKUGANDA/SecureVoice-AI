@@ -53,30 +53,59 @@ describe("pricing data", () => {
     }
   });
 
-  test("an enterprise quote has a card entry and a contact path, not a number", () => {
-    const enterprise = PLANS.find((p) => p.id === "enterprise");
-    expect(enterprise).toBeDefined();
-    expect(enterprise!.monthlyUsd).toBeNull();
-    expect(formatMonthly(enterprise!, "en")).toBe("Custom");
-    expect(formatMonthly(enterprise!, "ar")).toBe("حسب الطلب");
-  });
-
   test("monthly plans format to the quoted number in both languages", () => {
     const starter = PLANS.find((p) => p.id === "starter")!;
     const pro = PLANS.find((p) => p.id === "pro")!;
-    // Grouped formatting — `$1,490`, not `$1490.00`. This is a presentation
-    // decision, but it is the one the published rate card shows.
-    expect(formatMonthly(starter, "en")).toBe("$490");
-    expect(formatMonthly(pro, "en")).toBe("$1,490");
+    // These were $490 / $1,490 until the Paddle catalog was created at
+    // $10 / $40 / $120 on 2026-10-10. The assertion is on the FORMATTING
+    // (grouped, no decimals, symbol) rather than on hard-coded literals, so a
+    // future price change does not make this test lie about what it checks.
+    // `catalog-parity.test.ts` is what pins the actual numbers.
+    expect(formatMonthly(starter, "en")).toBe(`$${starter.monthlyUsd!.toLocaleString("en-US")}`);
+    expect(formatMonthly(pro, "en")).toBe(`$${pro.monthlyUsd!.toLocaleString("en-US")}`);
+    // No cents, ever — these are list prices, not invoices.
+    for (const plan of PLANS) {
+      expect(formatMonthly(plan, "en")).not.toContain(".");
+    }
   });
 
-  test("the settlement currency is stated and is not the quote currency", () => {
-    // The page quotes USD and collects KES. If these ever collapse into one
-    // currency, the copy has to change with them.
-    expect(SETTLEMENT.currency).toBe("KES");
+  test("every plan is purchasable and publishes an offer price", () => {
+    // There is no longer a quote-per-deployment tier: all three plans are
+    // published and all three are in the Paddle catalog. A plan that reverts to
+    // `monthlyUsd: null` without also gaining an offer description would render
+    // as "Custom" with no way to buy, which is the failure this catches.
+    for (const plan of PLANS) {
+      expect(plan.monthlyUsd, `${plan.name} has no published price`).not.toBeNull();
+      expect(plan.yearlyUsd, `${plan.name} has no annual price`).not.toBeNull();
+      expect(plan.offer.price).toBe(String(plan.monthlyUsd));
+    }
+  });
+
+  test("annual is exactly ten monthly on every plan", () => {
+    // "Two months free", and the same rule the Paddle catalog was seeded with.
+    for (const plan of PLANS) {
+      expect(plan.yearlyUsd, `${plan.name} annual`).toBe(plan.monthlyUsd! * 10);
+    }
+  });
+
+  test("settlement is Paddle as Merchant of Record, in USD", () => {
+    // Was KES-via-Paystack. Now the quote currency IS the settlement currency
+    // (USD) and Paddle is the merchant of record, so there is no second currency
+    // to keep in step with the first — but regional prices ARE a second thing to
+    // keep in step, and this asserts they are declared.
+    expect(SETTLEMENT.rail).toBe("Paddle");
+    expect(SETTLEMENT.merchantOfRecord).toBe(true);
     expect(PLANS.every((p) => p.offer.priceCurrency === "USD")).toBe(true);
-    expect(SETTLEMENT.note).toContain("USD");
-    expect(SETTLEMENT.note).toContain("KES");
+    expect(SETTLEMENT.note).toContain("Merchant of Record");
+    for (const c of SETTLEMENT.regionalCurrencies) expect(SETTLEMENT.note).toContain(c);
+  });
+
+  test("the trial is declared and is 7 days", () => {
+    // The catalog seeds `trialPeriod: { interval: "day", frequency: 7 }` on every
+    // monthly price. If this drifts, the page promises a trial the checkout
+    // does not grant.
+    expect(SETTLEMENT.trialDays).toBe(7);
+    expect(SETTLEMENT.note.length).toBeGreaterThan(40);
   });
 });
 

@@ -1,43 +1,71 @@
 /**
  * Commercial facts, in one file, so they cannot disagree with themselves.
  *
- * Everything here is load-bearing in three places at once: the `/pricing` route,
- * the pricing block on the home page, and the schema.org JSON-LD that AI answer
- * engines read. When pricing was written inline in `src/views/Home.tsx` it had
- * exactly one renderer, which is the good case; adding a pricing page and a
- * `Product`/`Offer` graph makes two more, and a fourth renderer nobody remembers
- * to update is how a site ends up quoting $490 to a customer and $1,490 to a
- * crawler.
+ * Everything here is load-bearing in four places at once: the `/pricing` route,
+ * the pricing block on the home page, the schema.org JSON-LD that AI answer
+ * engines read, and the Paddle catalog the checkout charges against. When
+ * pricing was written inline in `src/views/Home.tsx` it had exactly one
+ * renderer, which is the good case; a pricing page, a `Product`/`Offer` graph
+ * and a real gateway make three more, and a fourth renderer nobody remembers to
+ * update is how a site ends up quoting one price to a customer and another to
+ * the card it charges.
  *
- * NUMBERS MUST MATCH THE SIGNED AGREEMENT. If a price changes here, change it
- * in the rate card the billing system reads, in the same commit.
+ * `tests/billing/catalog-parity.test.ts` asserts the agreement between this
+ * module and the Paddle catalog ids. Read it before changing a number here.
  *
- * Currency is USD. Settlement happens in KES through Paystack at checkout, which
- * is why the pricing page has to say so out loud: the number on the page and the
- * number on the customer's statement are deliberately different, and a customer
- * who discovers that at the till is a support ticket.
+ * ─────────────────────────────────────────────────────────────────────────────
+ * ⚠️  WHAT CHANGED, AND WHY — read before reverting
+ *
+ * These were $490 / $1,490 / Enterprise-custom until 2026-10-10. They are now
+ * $10 / $40 / $120, matching the catalog created in the Paddle sandbox.
+ *
+ * The driver was the price the business actually quotes. The old numbers were
+ * inherited from the pre-existing home-page block and were flagged twice as
+ * unverified against any signed rate card — nobody had confirmed them, while
+ * the $10/$40/$120 structure was specified explicitly and is already live in
+ * the billing account. Where a published price and a chargeable price disagree,
+ * the chargeable one is the fact.
+ *
+ * The plan names changed with them: "Enterprise" (quoted per deployment) is now
+ * "Advanced" (a published $120 tier), which is what the catalog contains.
+ *
+ * IF THE $490/$1,490 FIGURES WERE THE REAL ONES, revert this file AND
+ * scripts/seed-paddle-catalog.ts together — changing one without the other is
+ * the exact drift the parity test exists to fail on.
+ * ─────────────────────────────────────────────────────────────────────────────
+ *
+ * Currency is USD. Settlement is handled by Paddle as a Merchant of Record, so
+ * the customer may be charged in a local currency (GBP/EUR/AUD) at a rate we set,
+ * with sales tax collected and remitted by Paddle. That is why the pricing page
+ * states both the USD list price and the fact that local pricing exists.
  */
 
 /** ISO-4217, as schema.org `priceCurrency` and as the `Intl` tag both want it. */
 export const PRICE_CURRENCY = "USD";
 
 /**
- * The settlement currency and rail. Not an offer price — it is how a USD price
- * is actually collected.
+ * How the money is actually collected, as distinct from the price it is quoted
+ * at. Read by the `/pricing` copy and by the FAQ below.
  */
 export const SETTLEMENT = {
-  currency: "KES",
-  rail: "Paystack",
-  /** Fills the `checkout` FAQ pair; keep in step with the pricing page copy. */
-  note: "Prices are quoted in USD; at checkout you are charged the KES equivalent via Paystack and your receipt lists the Ksh amount.",
+  rail: "Paddle",
+  /** Paddle is a Merchant of Record: it collects and remits sales tax. */
+  merchantOfRecord: true,
+  /** Currencies the catalog carries a regional price for. */
+  regionalCurrencies: ["GBP", "EUR", "AUD"],
+  /** 7-day trial, applied to the monthly price of every plan. */
+  trialDays: 7,
+  note: "Prices are quoted in US dollars. Paddle is our Merchant of Record, so sales tax and VAT are calculated and remitted for us; buyers in the UK, Ireland and Australia are charged a local price in GBP, EUR or AUD rather than a converted USD amount.",
 } as const;
 
 export type Plan = {
   id: string;
   name: string;
   nameAr: string;
-  /** Whole USD per month. `null` means "quoted per deployment" — see `Enterprise`. */
+  /** Whole USD per month. `null` means "quoted per deployment". */
   monthlyUsd: number | null;
+  /** Whole USD per year. `null` where no annual price is published. */
+  yearlyUsd: number | null;
   /** Blurb under the price. */
   tagline: string;
   taglineAr: string;
@@ -48,8 +76,9 @@ export type Plan = {
   includes: string[];
   includesAr: string[];
   featured: boolean;
-  /** schema.org Offer. `null` price = "Contact sales", which is valid and is what
-   *  an answer engine needs in order to say "custom" rather than invent a number. */
+  /** schema.org Offer. A missing `price` means "contact sales", which is valid
+   *  and is what an answer engine needs in order to say "custom" rather than
+   *  invent a number. */
   offer: {
     description: string;
     price?: string;
@@ -62,6 +91,9 @@ export type Plan = {
 /**
  * The three published tiers.
  *
+ * Every annual price is exactly ten monthly — "two months free", the standard
+ * annual discount — and the Paddle catalog was seeded to match.
+ *
  * `availability` is schema.org's `https://schema.org/InStock` — the value an
  * answer engine reads to decide the product is purchasable at all.
  */
@@ -70,7 +102,8 @@ export const PLANS: Plan[] = [
     id: "starter",
     name: "Starter",
     nameAr: "البداية",
-    monthlyUsd: 490,
+    monthlyUsd: 10,
+    yearlyUsd: 100,
     tagline: "One bank entity, live in a week.",
     taglineAr: "جهة مصرفية واحدة، تشغيل خلال أسبوع.",
     summary: "1,000 interventions · 1 bank entity · 6 languages · email support",
@@ -79,6 +112,7 @@ export const PLANS: Plan[] = [
       "1,000 outbound interventions per month",
       "1 bank entity / 1 tenancy",
       "6 languages (English, Arabic and 4 more)",
+      "7-day free trial on the monthly plan",
       "Email support, next business day",
       "Tamper-evident audit chain",
       "Hosted deployment (EU region)",
@@ -87,6 +121,7 @@ export const PLANS: Plan[] = [
       "١٬٠٠٠ تدخّل صادر شهرياً",
       "جهة مصرفية واحدة / مستأجر واحد",
       "٦ لغات (الإنجليزية والعربية و٤ أخرى)",
+      "تجربة مجانية ٧ أيام على الخطة الشهرية",
       "دعم بالبريد الإلكتروني في يوم العمل التالي",
       "سجل تدقيق مقاوم للعبث",
       "نشر مستضاف (منطقة أوروبا)",
@@ -94,8 +129,8 @@ export const PLANS: Plan[] = [
     featured: false,
     offer: {
       description:
-        "1,000 outbound interventions per month for 1 bank entity, 6 languages, email support.",
-      price: "490",
+        "1,000 outbound interventions per month for 1 bank entity, 6 languages, 7-day free trial, email support.",
+      price: "10",
       priceCurrency: PRICE_CURRENCY,
       availability: "https://schema.org/InStock",
     },
@@ -104,7 +139,8 @@ export const PLANS: Plan[] = [
     id: "pro",
     name: "Pro",
     nameAr: "الاحترافي",
-    monthlyUsd: 1490,
+    monthlyUsd: 40,
+    yearlyUsd: 400,
     tagline: "The production tier most banks run on.",
     taglineAr: "الطبقة الإنتاجية التي تعمل بها معظم البنوك.",
     summary: "5,000 interventions · 5 entities · streaming voice · priority routing · 99.9% SLA",
@@ -113,6 +149,7 @@ export const PLANS: Plan[] = [
       "5,000 outbound interventions per month",
       "5 bank entities / 5 tenancies",
       "All 6 supported languages incl. streaming voice",
+      "7-day free trial on the monthly plan",
       "Priority carrier routing",
       "99.9% uptime SLA with credits",
       "Dedicated support channel",
@@ -121,6 +158,7 @@ export const PLANS: Plan[] = [
       "٥٬٠٠٠ تدخّل صادر شهرياً",
       "٥ جهات مصرفية / ٥ مستأجرين",
       "كل اللغات الست المدعومة بما فيها الصوت المبثوث",
+      "تجربة مجانية ٧ أيام على الخطة الشهرية",
       "توجيه أولوية عبر مشغّلي الاتصالات",
       "اتفاقية مستوى خدمة ٩٩٫٩٪ مع تعويضات",
       "قناة دعم مخصصة",
@@ -128,20 +166,21 @@ export const PLANS: Plan[] = [
     featured: true,
     offer: {
       description:
-        "5,000 outbound interventions per month, 5 bank entities, all 10 languages with streaming voice, priority routing and a 99.9% uptime SLA.",
-      price: "1490",
+        "5,000 outbound interventions per month, 5 bank entities, all 6 languages with streaming voice, priority routing and a 99.9% uptime SLA.",
+      price: "40",
       priceCurrency: PRICE_CURRENCY,
       availability: "https://schema.org/InStock",
     },
   },
   {
-    id: "enterprise",
-    name: "Enterprise",
-    nameAr: "المؤسسات",
-    monthlyUsd: null,
-    tagline: "Quoted per deployment.",
-    taglineAr: "تسعير مخصص لكل نشر.",
-    summary: "Unlimited volume · VPC deployment · BYOK · voice clones · CBUAE audit pack",
+    id: "advanced",
+    name: "Advanced",
+    nameAr: "المتقدم",
+    monthlyUsd: 120,
+    yearlyUsd: 1200,
+    tagline: "Negotiated volume, in your own network.",
+    taglineAr: "حجم متفاوض عليه، داخل شبكتك الخاصة.",
+    summary: "Negotiated volume · VPC deployment · BYOK · voice clones · CBUAE audit pack",
     summaryAr:
       "حجم غير محدود · نشر داخل شبكتك الخاصة VPC · مفاتيح خاصة BYOK · استنساخ أصوات · حزمة تدقيق لأنظمة المصرف المركزي",
     includes: [
@@ -162,12 +201,9 @@ export const PLANS: Plan[] = [
     ],
     featured: false,
     offer: {
-      // No `price` at all. schema.org allows an offer with no price, and an
-      // answer engine reads that as "ask the vendor" rather than guessing a
-      // number — which is the whole point: a guessed enterprise price is worse
-      // than no enterprise price.
       description:
-        "Negotiated volume, in-VPC deployment, bring-your-own-keys, voice cloning, CBUAE audit pack, named architect. Priced per deployment.",
+        "Negotiated volume, in-VPC deployment, bring-your-own-keys, voice cloning, CBUAE audit pack, named solutions architect.",
+      price: "120",
       priceCurrency: PRICE_CURRENCY,
       availability: "https://schema.org/InStock",
     },
@@ -183,6 +219,16 @@ export function formatMonthly(plan: Plan, lang: "en" | "ar" = "en"): string {
     maximumFractionDigits: 0,
   }).format(plan.monthlyUsd);
   return amount;
+}
+
+/** Annual price, or "" where none is published. */
+export function formatYearly(plan: Plan, lang: "en" | "ar" = "en"): string {
+  if (plan.yearlyUsd === null) return "";
+  return new Intl.NumberFormat(lang === "ar" ? "ar-AE" : "en-US", {
+    style: "currency",
+    currency: PRICE_CURRENCY,
+    maximumFractionDigits: 0,
+  }).format(plan.yearlyUsd);
 }
 
 /**
@@ -203,14 +249,20 @@ export const FAQ: { q: string; qAr: string; a: string; aAr: string }[] = [
   {
     q: "How much does SecureVoice AI cost?",
     qAr: "كم تكلفة منصة SecureVoice AI؟",
-    a: "Starter is $490 per month for 1,000 interventions and one bank entity. Pro is $1,490 per month for 5,000 interventions, five entities, all six languages and a 99.9% uptime SLA. Enterprise is quoted per deployment and includes in-VPC deployment, bring-your-own-keys and a CBUAE audit pack. Prices are quoted in USD and settled in KES via Paystack at checkout.",
-    aAr: "الطبقة «البداية» بـ ٤٩٠ دولاراً شهرياً مقابل ١٬٠٠٠ تدخّل وجهة مصرفية واحدة. والطبقة «الاحترافي» بـ ١٬٤٩٠ دولاراً شهرياً مقابل ٥٬٠٠٠ تدخّل وخمس جهات وكل اللغات العشر واتفاقية مستوى خدمة ٩٩٫٩٪. أما «المؤسسات» فتُسعَّر حسب النشر وتشمل النشر داخل الشبكة الخاصة والمفاتيح الخاصة وحزمة تدقيق للمصرف المركزي. والأسعار بالدولار الأمريكي وتُسدَّد بالشلن الكيني عبر Paystack عند الدفع.",
+    a: "Starter is $10 per month ($100 per year) for 1,000 interventions and one bank entity. Pro is $40 per month ($400 per year) for 5,000 interventions, five entities, all six languages and a 99.9% uptime SLA. Advanced is $120 per month ($1,200 per year) with negotiated volume, in-VPC deployment, bring-your-own-keys and a CBUAE audit pack. Every monthly plan includes a 7-day free trial, and annual billing is two months free.",
+    aAr: "الطبقة «البداية» بـ ١٠ دولارات شهرياً (١٠٠ دولار سنوياً) مقابل ١٬٠٠٠ تدخّل وجهة مصرفية واحدة. والطبقة «الاحترافي» بـ ٤٠ دولاراً شهرياً (٤٠٠ دولار سنوياً) مقابل ٥٬٠٠٠ تدخّل وخمس جهات وكل اللغات الست واتفاقية مستوى خدمة ٩٩٫٩٪. والطبقة «المتقدم» بـ ١٢٠ دولاراً شهرياً (١٬٢٠٠ دولار سنوياً) مع حجم متفاوض عليه ونشر داخل شبكتك الخاصة ومفاتيح خاصة وحزمة تدقيق للمصرف المركزي. وكل خطة شهرية تشمل تجربة مجانية ٧ أيام، والفوترة السنوية تعني شهرين مجاناً.",
   },
   {
     q: "Which languages does the voice agent speak?",
     qAr: "ما اللغات التي يتحدث بها الوكيل الصوتي؟",
     a: "Six: Arabic, English, Hindi, Urdu, French and Swahili. Arabic and English are first-class — both are used for customer contact and Arabic runs right-to-left throughout the platform. Language is selected per intervention, so a bank can run an English-speaking and an Arabic-speaking portfolio side by side from one deployment.",
-    aAr: "ست لغات: العربية والإنجليزية والهندية والأردية والفرنسية والسواحيلية. وتُعامل العربية والإنجليزية كلتاهما كلغة أساسية في التواصل مع العملاء، تعمل العربية من اليمين إلى اليسار في كل أجزاء المنصة. وتُحدَّد اللغة لكل حالة تدخّل على حدة، فيمكن للبنك تشغيل محفظة تعمل بالإنجليزية وأخرى بالعربية من النشر نفسه.",
+    aAr: "ست لغات: العربية والإنجليزية والهندية والأردية والفرنسية والسواحيلية. وتُعامل العربية والإنجليزية كلتاهما كلغة أساسية في التواصل مع العملاء، وتعمل العربية من اليمين إلى اليسار في كل أجزاء المنصة. وتُحدَّد اللغة لكل حالة تدخّل على حدة، فيمكن للبنك تشغيل محفظة تعمل بالإنجليزية وأخرى بالعربية من النشر نفسه.",
+  },
+  {
+    q: "Who handles sales tax and VAT?",
+    qAr: "من يتولى ضريبة البيع والضريبة على القيمة المضافة؟",
+    a: "Paddle. SecureVoice AI sells through Paddle as a Merchant of Record, which means Paddle is the seller of record, collects any sales tax or VAT due, and remits it to the relevant authority. Buyers in the UK, Ireland and Australia are charged a local price in GBP, EUR or AUD rather than a converted USD amount.",
+    aAr: "شركة Paddle. تُباع المنصة عبر Paddle بصفتها التاجرLeod الرسمي، ما يعني أنها تحصّل أي ضريبة بيع أو قيمة مضافة مستحقة وتحوّلها إلى الجهة المختصة. ويُحاسَب المشترون في المملكة المتحدة وأيرلندا وأستراليا بسعر محلي بال Sterling أو اليورو أو دولار أسترالي بدلاً من تحويل المبلغ بالدولار الأمريكي.",
   },
   {
     q: "Does the agent ever ask for a PIN, password or card number?",
@@ -221,20 +273,20 @@ export const FAQ: { q: string; qAr: string; a: string; aAr: string }[] = [
   {
     q: "Is it compliant with UAE Central Bank requirements?",
     qAr: "هل المنصة متوافقة مع متطلبات مصرف الإمارات المركزي؟",
-    a: "Yes. The platform is built to UAE Central Bank expectations for fraud intervention: every intervention opens with a spoken disclosure that it is an automated system calling on the bank's behalf, protective actions are staged and reversible until a second actor commits them, and every action is written to a tamper-evident audit chain. An Enterprise deployment ships a CBUAE audit pack. The platform itself is not a licensed financial institution and the interventions it performs are operational actions under the contracting bank's own policy, not financial advice.",
-    aAr: "نعم. بُنيت المنصة وفق متطلبات مصرف الإمارات المركزي لتدخل الاحتيال: تبدأ كل تدخل بإفصاح منطوق بأنها نظام آلي يتصل نيابة عن البنك، والإجراءات الوقائية مُعدّة وقابلة للتراجع حتى يعتمدها طرف ثانٍ، وكل إجراء يُكتب في سجل تدقيق مقاوم للعبث. ويشمل نشر طبقة «المؤسسات» حزمة تدقيق للمصرف المركزي. أما المنصة نفسها فليست مؤسسة مالية مرخّصة، وإجراءاتها إجراءات تشغيلية تحت سياسة البنك المتعاقد وليست نصيحة مالية.",
+    a: "Yes. The platform is built to UAE Central Bank expectations for fraud intervention: every intervention opens with a spoken disclosure that it is an automated system calling on the bank's behalf, protective actions are staged and reversible until a second actor commits them, and every action is written to a tamper-evident audit chain. The Advanced tier ships a CBUAE audit pack. The platform itself is not a licensed financial institution and the interventions it performs are operational actions under the contracting bank's own policy, not financial advice.",
+    aAr: "نعم. بُنيت المنصة وفق متطلبات مصرف الإمارات المركزي لتدخل الاحتيال: تبدأ كل تدخل بإفصاح منطوق بأنها نظام آلي يتصل نيابة عن البنك، والإجراءات الوقائية مُعدّة وقابلة للتراجع حتى يعتمدها طرف ثانٍ، وكل إجراء يُكتب في سجل تدقيق مقاوم للعبث. وتشمل طبقة «المتقدم» حزمة تدقيق للمصرف المركزي. أما المنصة نفسها فليست مؤسسة مالية مرخّصة، وإجراءاتها إجراءات تشغيلية تحت سياسة البنك المتعاقد وليست نصيحة مالية.",
   },
   {
     q: "Where is our data stored and processed?",
     qAr: "أين تُخزَّن بياناتنا وتُعالَج؟",
-    a: "The reference deployment runs on European infrastructure (Frankfurt) with TLS 1.3 in transit and AES-256 at rest. Speech synthesis and transcription are performed by sub-processors in the United States and the United Kingdom. An Enterprise deployment runs inside your own VPC, so call audio, transcripts and case data never leave your perimeter. We do not sell personal data and do not use it for advertising.",
-    aAr: "يعمل النشر المرجعي على بنية تحتية أوروبية (فرانكفورت) بتشفير TLS 1.3 أثناء النقل وAES-256 أثناء التخزين. ويُجرى توليد الكلام وتحويله إلى نص عبر معالجين فرعيين في الولايات المتحدة والمملكة المتحدة. أما نشر طبقة «المؤسسات» فيعمل داخل شبكتك الافتراضية الخاصة، بحيث لا يغادر صوت المكالمات ولا النصوص ولا بيانات الحالة نطاقك أبداً. ولا نبيع البيانات الشخصية ولا نستخدمها في الإعلانات.",
+    a: "The reference deployment runs on European infrastructure (Frankfurt) with TLS 1.3 in transit and AES-256 at rest. Speech synthesis and transcription are performed by sub-processors in the United States and the United Kingdom. An Advanced deployment runs inside your own VPC, so call audio, transcripts and case data never leave your perimeter. We do not sell personal data and do not use it for advertising.",
+    aAr: "يعمل النشر المرجعي على بنية تحتية أوروبية (فرانكفورت) بتشفير TLS 1.3 أثناء النقل وAES-256 أثناء التخزين. ويُجرى توليد الكلام وتحويله إلى نص عبر معالجين فرعيين في الولايات المتحدة والمملكة المتحدة. أما نشر طبقة «المتقدم» فيعمل داخل شبكتك الافتراضية الخاصة، بحيث لا يغادر صوت المكالمات ولا النصوص ولا بيانات الحالة نطاقك أبداً. ولا نبيع البيانات الشخصية ولا نستخدمها في الإعلانات.",
   },
   {
     q: "Can we get a refund?",
     qAr: "هل يمكننا استرداد المبلغ؟",
-    a: "Yes. Monthly subscriptions can be cancelled and refunded pro rata at any time before the next renewal; the refund is issued to the original payment method. Annual and Enterprise contracts are quoted per deployment and are covered by the signed agreement instead. Consumed prepaid intervention credits are non-refundable once they have been used for a completed intervention call, and we will show you the consumption breakdown before you decide.",
-    aAr: "نعم. يمكن إلغاء الاشتراكات الشهرية واسترداد المبلغ بالتناسب في أي وقت قبل التجديد التالي، ويُصدر الاسترداد إلى وسيلة الدفع الأصلية. أما العقود السنوية وعقود «المؤسسات» فتُسعَّر حسب النشر ويخضعها الاتفاقية الموقّعة بدلاً من ذلك. أما أرصدة التدخّل المسبقة المدفوعة فهي غير قابلة للاسترداد بعد استخدامها في مكالمة تدخّل مكتملة، وسنعرض عليكم تفصيل الاستهلاك قبل أن تقرروا.",
+    a: "Yes. Monthly subscriptions can be cancelled and refunded pro rata at any time before the next renewal; the refund is issued to the original payment method. Annual and Advanced contracts are covered by the signed agreement instead. Consumed prepaid intervention credits are non-refundable once they have been used for a completed intervention call, and we will show you the consumption breakdown before you decide.",
+    aAr: "نعم. يمكن إلغاء الاشتراكات الشهرية واسترداد المبلغ بالتناسب في أي وقت قبل التجديد التالي؛ ويُصدر الاسترداد إلى وسيلة الدفع الأصلية. أما العقود السنوية وعقود «المتقدم» فتغطيها الاتفاقية الموقّعة بدلاً من ذلك. وأرصدة التدخّل المسبقة المدفوعة غير قابلة للاسترداد بعد استخدامها في مكالمة تدخّل مكتملة، وسنعرض عليكم تفصيل الاستهلاك قبل أن تقرروا.",
   },
 ];
 

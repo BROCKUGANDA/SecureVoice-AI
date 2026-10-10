@@ -491,6 +491,12 @@ export function Terms() {
  *  - Enterprise deployments are governed by the signed agreement, not this page.
  *    Saying otherwise would create a second, conflicting commitment on a page
  *    nobody negotiated.
+ *
+ * NOTE on currency: plans are billed in USD through Paddle as a Merchant of
+ * Record, and UK/IE/AU buyers are charged a REGIONAL price in GBP/EUR/AUD. A
+ * refund therefore goes back in the currency and to the instrument the charge
+ * was actually taken in — not necessarily USD. That is why the refund section
+ * names both cases instead of promising everyone a USD refund.
  */
 const REFUND_SECTIONS = [
   {
@@ -504,7 +510,7 @@ const REFUND_SECTIONS = [
     h: "Monthly subscriptions",
     body: [
       "You may cancel a monthly subscription at any time before its next renewal date. Cancellation takes effect at the end of the current paid period, and we refund the unused portion of that period pro rata.",
-      "A refund is issued to the original payment method. Prices are quoted in US dollars and settled in Kenyan shillings through Paystack, so the refund is issued in the currency and to the instrument the charge was taken in — we do not convert across currencies at a third party's rate.",
+      "A refund is issued to the original payment method. Plans are billed in US dollars through Paddle, our Merchant of Record, which collects any sales tax or VAT due — so a refund reverses the net amount and Paddle handles any tax adjustment. We do not convert across currencies at a third party's rate. Buyers in the UK, Ireland and Australia who were charged a regional price in GBP, EUR or AUD are refunded in that same currency.",
       "There is no cancellation fee. We do not charge a restocking or admin fee for a cancellation made under this policy.",
     ],
   },
@@ -551,7 +557,7 @@ const REFUND_SECTIONS_AR = [
     h: "الاشتراكات الشهرية",
     body: [
       "يمكنك إلغاء أي اشتراك شهري في أي وقت قبل تاريخ تجديده التالي. ويسري الإلغاء في نهاية الفترة المدفوعة الحالية، ونعيد المبلغ عن الجزء غير المستخدم من تلك الفترة بالتناسب.",
-      "يُصدر الاسترداد إلى وسيلة الدفع الأصلية. والأسعار معروضة بالدولار الأمريكي وتُسدَّد بالشلن الكيني عبر Paystack، لذا يُصدر الاسترداد العملة نفسها وبالأداة نفسها التي تم الخصم منها؛ ولا نحوّل بين العملات بسعر طرف ثالث.",
+      "يُصدر الاسترداد إلى وسيلة الدفع الأصلية. وتُفوترَط الخطط بالدولار الأمريكي عبر Paddle، التاجر الرسمي، الذي يحصّل أي ضريبة بيع أو قيمة مضافة مستحقة — فيعكس الاسترداد المبلغ الصافي وتتولى Paddle أي تعديل ضريبي. ولا نحوّل بين العملات بسعر طرف ثالث. والمشترون في المملكة المتحدة وأيرلندا وأستراليا الذين خُصموا لهم بسعر محلي بالإسترليني أو اليورو أو دولار أسترالي يُسترد لهم بنفس العملة.",
       "ولا توجد رسوم إلغاء، ولا نفرض رسوم إعادة تخزين أو رسوماً إدارية على الإلغاء الذي يتم وفق هذه السياسة.",
     ],
   },

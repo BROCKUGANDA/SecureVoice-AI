@@ -952,7 +952,7 @@
     {
       "name": "the-gate-leaves-no-residue",
       "ok": true,
-      "detail": "removed {\"outbox\":1,\"auditLog\":14,\"notifications\":4,\"cases\":1,\"ledger\":2,\"payments\":1}; 0 run-scoped row(s) remain"
+      "detail": "removed {\"outbox\":1,\"auditLog\":18,\"notifications\":6,\"cases\":1,\"ledger\":2,\"payments\":1}; 0 run-scoped row(s) remain"
     },
     {
       "name": "the-gate-touched-only-its-own-rows",

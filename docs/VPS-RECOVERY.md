@@ -16,7 +16,7 @@ retention-worker-1 | [retention-worker] at 2026-10-08/09T06:04:09 dryRun=false .
 ```
 
 So this is **not a code failure** — the promoted commit is fine (CI proved it,
-including the migration-drift gate). The *currently deployed* stack cannot
+including the migration-drift gate). The _currently deployed_ stack cannot
 reach its database at host `db`, which means the bundled `db` container is
 down or unreachable. The retention-worker lines timestamped Oct 8–9 are the
 same abort recorded in the ledger's disk-full OPS blocker — this is that
@@ -34,6 +34,7 @@ docker stats --no-stream           # memory pressure?
 ```
 
 Expected findings, in likelihood order:
+
 1. **Disk full** → Postgres cannot write (WAL, temp, checkpoints) and starts
    refusing connections. Fix: `sudo docker system prune -af --volumes=no`
    (NEVER `--volumes`: `db-data` is production), plus

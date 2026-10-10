@@ -134,7 +134,11 @@ export async function POST(req: NextRequest) {
   // intervention was not accepted — including the refusals below and the rate
   // limit, which are not upstream failures but are equally "nothing was
   // armed", so the operator must not pay for them.
-  const claimed = await deductCredit(profile.userId);
+  //
+  // The claim targets the ORGANIZATION wallet whenever the session carries an
+  // active tenant: the org is the tenant, so its usage is the org's bill. An
+  // org-less session falls back to the caller's own profile wallet.
+  const claimed = await deductCredit(profile.userId, profile.orgId);
   if (claimed < 0) {
     return paymentRequired(
       "Insufficient credits — your wallet is empty. Contact your administrator to top up.",
@@ -146,13 +150,14 @@ export async function POST(req: NextRequest) {
    * Every exit that armed nothing returns the operator's credit — and says so
    * in the body. The Console reads `creditsRemaining` to redraw its wallet
    * (src/views/Console.tsx:352), so a refusal that omitted it would leave the
-   * operator staring at a balance one lower than reality.
+   * operator staring at a balance one lower than reality. The refund goes back
+   * to the SAME wallet the claim came from.
    */
   const refundAnd = async (
     payload: Record<string, unknown>,
     status: number,
   ): Promise<NextResponse> => {
-    const creditsRemaining = await refundCredit(profile.userId);
+    const creditsRemaining = await refundCredit(profile.userId, profile.orgId);
     return NextResponse.json({ ...payload, creditsRemaining }, { status });
   };
 
@@ -305,7 +310,7 @@ export async function POST(req: NextRequest) {
     });
   } catch (err) {
     // Network/timeout before a verdict — the claimed credit is refunded.
-    await refundCredit(profile.userId);
+    await refundCredit(profile.userId, profile.orgId);
     logError("[console-fire] upstream unreachable", {
       error: err instanceof Error ? err.message : String(err),
     });
@@ -321,7 +326,7 @@ export async function POST(req: NextRequest) {
   // The credit was claimed before the upstream call; a non-accepted
   // intervention costs the operator nothing — refund it atomically.
   if (upstream.status !== 202) {
-    const credits = await refundCredit(profile.userId);
+    const credits = await refundCredit(profile.userId, profile.orgId);
     return NextResponse.json(
       {
         ...data,

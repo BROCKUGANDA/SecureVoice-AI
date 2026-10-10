@@ -18,7 +18,7 @@
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:reset": "prisma migrate reset",
-    "db:seed": "node scripts/seed-demo.mjs",
+    "db:seed": "bun scripts/seed-demo.mjs",
     "build:linux": "next build && sh -c 'cp -r .next/static .next/standalone/.next/ && cp -r public .next/standalone/'",
     "release:check": "bun run format:check && bun run lint && bunx tsc --noEmit -p tsconfig.json && bun run auth:cutover && bun run test && bun run build",
     "preflight": "bun scripts/preflight.mjs",

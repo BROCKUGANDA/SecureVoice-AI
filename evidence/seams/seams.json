@@ -126,11 +126,17 @@
       "realAdapterId": "@/lib/twilio placeInterventionCall/sendInterventionSms; needs live credentials and egresses to api.twilio.com",
       "modeInOfflineRun": "fake",
       "fakeAdapterId": "recording stub; records the dial request and returns a queued sid without a carrier",
-      "verification": "bound-only",
-      "compared": [],
-      "notCompared": [],
+      "verification": "contract-offline-surface",
+      "compared": [
+        "validateDestination() across 9 destinations including 4 refusals"
+      ],
+      "notCompared": [
+        "placeCall() — the real adapter cannot be invoked without credentials; asserted, not assumed",
+        "sendSms() — same reason",
+        "sid format — carrier-scoped"
+      ],
       "notes": [
-        "no parity scenario was written for this port"
+        "the sip-trunk adapter the brief names is not implemented in this repository"
       ]
     },
     {
@@ -367,6 +373,7 @@
     "ports": 9,
     "contractTested": [
       "ConversationProvider",
+      "TelephonyProvider",
       "NotificationSink",
       "PaymentProvider",
       "SecretStore",
@@ -385,20 +392,21 @@
     "dryRunOnly": [
       "ConversationProvider"
     ],
-    "offlineSurfaceOnly": [],
-    "boundOnly": [
-      "RiskSignalSource",
+    "offlineSurfaceOnly": [
       "TelephonyProvider"
+    ],
+    "boundOnly": [
+      "RiskSignalSource"
     ],
     "declaredAdaptersTotal": 23,
     "boundAdaptersTotal": 9,
     "notBoundAdaptersTotal": 14,
     "checks": {
-      "total": 109,
-      "passed": 107,
-      "failed": 2
+      "total": 113,
+      "passed": 113,
+      "failed": 0
     },
-    "result": "fail"
+    "result": "pass"
   },
   "checks": [
     {
@@ -757,6 +765,26 @@
       "detail": "9 destinations compared, including 6 refusals"
     },
     {
+      "name": "telephony-real-adapter-refuses-without-credentials",
+      "ok": true,
+      "detail": "real placeCall(): Twilio not configured — this is why the carrier path is bound-only, not contract-tested"
+    },
+    {
+      "name": "the-recording-stub-refuses-a-bad-destination-with-the-carrier-s-shape",
+      "ok": true,
+      "detail": "{\"ok\":false,\"status\":422,\"error\":\"Destination phone is not E.164\",\"channel\":\"voice\"}"
+    },
+    {
+      "name": "the-recording-stub-accepts-an-e164-destination",
+      "ok": true,
+      "detail": "{\"ok\":true,\"sid\":\"CA_fake_01KDWCJ2M0K8HCK13K13YGEVC9\",\"status\":\"queued\",\"channel\":\"voice\"}"
+    },
+    {
+      "name": "the-recording-stub-records-sms-on-the-same-surface",
+      "ok": true,
+      "detail": "{\"ok\":true,\"sid\":\"CA_fake_01KDWCJ2M0K8HCK13K13YGEVCA\",\"status\":\"queued\",\"channel\":\"sms\"}"
+    },
+    {
       "name": "the-http-ingest-refuses-to-open-without-its-signing-secret",
       "ok": true,
       "detail": "{\"ok\":false,\"reason\":\"WEBHOOK_SECRET is not configured\"}"
@@ -904,12 +932,12 @@
     {
       "name": "the-contract-tested-list-is-explicit-and-disjoint-from-bound-only",
       "ok": true,
-      "detail": "contract-tested=[ConversationProvider, NotificationSink, PaymentProvider, SecretStore, AuditSink, Clock, IdGenerator] bound-only=[RiskSignalSource, TelephonyProvider]"
+      "detail": "contract-tested=[ConversationProvider, TelephonyProvider, NotificationSink, PaymentProvider, SecretStore, AuditSink, Clock, IdGenerator] bound-only=[RiskSignalSource]"
     },
     {
       "name": "no-port-is-left-unreported",
-      "ok": false,
-      "detail": "TelephonyProvider"
+      "ok": true,
+      "detail": "every port has a verification level"
     },
     {
       "name": "every-contract-tested-port-names-what-it-compared",
@@ -918,13 +946,13 @@
     },
     {
       "name": "every-bound-only-port-explains-what-was-not-exercised",
-      "ok": false,
-      "detail": "2 bound-only port(s), each with an explicit reason"
+      "ok": true,
+      "detail": "1 bound-only port(s), each with an explicit reason"
     },
     {
       "name": "the-gate-leaves-no-residue",
       "ok": true,
-      "detail": "removed {\"outbox\":1,\"auditLog\":14,\"notifications\":4,\"cases\":1,\"ledger\":2,\"payments\":1}; 0 run-scoped row(s) remain"
+      "detail": "removed {\"outbox\":1,\"auditLog\":18,\"notifications\":6,\"cases\":1,\"ledger\":2,\"payments\":1}; 0 run-scoped row(s) remain"
     },
     {
       "name": "the-gate-touched-only-its-own-rows",
@@ -932,16 +960,14 @@
       "detail": "deleted 1 case, 1 payment, 2 ledger rows (the credit top-up and the policy gate's reservation) and 1 outbox event — every one keyed by this run's ids"
     }
   ],
-  "unreportedPorts": [
-    "TelephonyProvider"
-  ],
-  "digest": "14471faf91fcb1bdad8bbf8ba7256d40ad8f90e6a5eb4028a7f1ad1b5db15f05",
-  "generatedAt": "2026-10-07T14:29:14.287Z",
+  "unreportedPorts": [],
+  "digest": "70c383697efd8b53201a4edb8f0da8449f1cb0663dd102fcc7f604f9e9a24eba",
+  "generatedAt": "2026-10-09T16:01:44.525Z",
   "run": {
-    "id": "muy7de24",
-    "org": "org-seams-muy7de24",
-    "caseRef": "SV-F-SEAMSMUY7DE24",
-    "chainRef": "SEAMCHAIN-muy7de24"
+    "id": "mv15jyrf",
+    "org": "org-seams-mv15jyrf",
+    "caseRef": "SV-F-SEAMSMV15JYRF",
+    "chainRef": "SEAMCHAIN-mv15jyrf"
   },
   "commands": {
     "test": "bun test tests/seams",

@@ -128,6 +128,36 @@ model OnboardingState {
   updatedAt      DateTime  @updatedAt
 }
 
+/// Institution knowledge-base document (RAG source of truth).
+///
+/// A bank uploads its own policy PDFs here; the platform extracts the text,
+/// chunks it, embeds the chunks and stores the vectors in Pinecone under a
+/// strict `orgId` metadata filter. The raw PDF bytes are retained so a failed
+/// vectorization can be retried without asking the bank to upload again.
+model Document {
+  id           String    @id @default(cuid())
+  /// Tenant scope. Every query — vector and row — filters on this.
+  orgId        String
+  title        String
+  fileName     String
+  mimeType     String    @default("application/pdf")
+  sizeBytes    Int
+  lang         String    @default("en")
+  /// PENDING | CHUNKING | EMBEDDING | READY | FAILED (src/lib/knowledge/documents.ts)
+  status       String    @default("PENDING")
+  chunkCount   Int       @default(0)
+  /// Failure reason when status = FAILED (e.g. pinecone_not_configured)
+  error        String?
+  /// Raw upload, capped at MAX_DOC_BYTES. Kept so Retry re-runs extraction +
+  /// embedding without a second upload; deleted with the row.
+  pdfBytes     Bytes?
+  vectorizedAt DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([orgId, createdAt])
+}
+
 /// Per-user onboarding progress.
 ///
 /// Signup is invite-only, so every account here was invited by a bank, and an
@@ -256,6 +286,11 @@ model UserProfile {
   ttsCharsDate  String? // platform-key voice metering day (YYYY-MM-DD)
   ttsCharsToday Int           @default(0) // chars synthesized on the platform key today
   credits       Int           @default(25)
+  // BYOK OpenAI-compatible LLM key (AES-256-GCM) + its base URL. Preferred
+  // over the deployment's Groq/LiteLLM/Gemini env chain when set, so an
+  // institution can route the rephrase step through its own account.
+  llmKeyEnc     String?
+  llmBaseUrl    String?
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
 
@@ -700,6 +735,25 @@ model Organization {
   // verified and could therefore be hashed.
   vendorWebhookSecretEnc      String?
 
+  // Onboarding wizard state for this institution (src/lib/setup.ts). The
+  // wizard configures the tenant, so progress lives on the tenant: a second
+  // admin of the same bank resumes where the first left off instead of
+  // re-entering the bank's telecom + BYOK configuration.
+  setupStep                   Int               @default(0)
+  setupCompletedAt            DateTime?
+  // Sovereign residency: UAE | GCC | MENA | OTHER. Declared by the tenant at
+  // onboarding and surfaced on the audit trail, because "where does customer
+  // data live" is the first question a PDPL reviewer asks.
+  region                      String?
+  // The tenant's own Twilio auth token, AES-256-GCM sealed like the vendor
+  // webhook secret (write-only: the console learns only whether one exists).
+  twilioAuthTokenEnc          String?
+  // Institution wallet in intervention credits (1 credit = 1 fired
+  // intervention). Consulted whenever the session carries an active
+  // organization; the per-user wallet on UserProfile is the org-less
+  // fallback. 0 is a real empty wallet, never a missing configuration.
+  credits                     Int               @default(0)
+
   @@unique([slug])
   @@map("organization")
 }
@@ -777,5 +831,36 @@ model CrmConnection {
   updatedAt  DateTime  @updatedAt
 
   @@unique([orgId, provider])
+  @@index([orgId])
+}
+
+/// An institution's Agent Workflow — a validated, multi-step, branching
+/// journey (src/lib/workflows) an org SAVED from the console builder. The
+/// built-in registry stays code (fraud_intervention, specialist_review); this
+/// table holds an org's own graphs and their overrides of built-ins, so the
+/// builder's Save survives a reload and the runner executes the same validated
+/// document the operator designed.
+///
+/// `orgId` is the tenant namespace and is NEVER nullable in practice: the store
+/// normalizes an org-less session to the "default" namespace before writing, so
+/// the @@unique([orgId, workflowId]) constraint is what makes a double-save an
+/// update rather than a duplicate row (the second analyst pressing Save on the
+/// same journey cannot fork it).
+model WorkflowDoc {
+  id         String   @id @default(cuid())
+  /// Tenant namespace ("default" for an org-less session — the same namespace
+  /// convention /api/console/audit uses, so a workspace sees its own rows).
+  orgId      String
+  /// The graph's own `id` (workflow.id), e.g. "fraud_intervention" when
+  /// overriding a built-in, or a new id for an institution-authored journey.
+  workflowId String
+  name       String
+  /// The validated Workflow document (schema: workflowSchema).
+  graph      Json
+  version    String   @default("1")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([orgId, workflowId])
   @@index([orgId])
 }

@@ -11,8 +11,10 @@
  *      operator who set the env var got `eleven_v3` anyway, and had no way to
  *      discover that except a 402 from the vendor.
  *   2. `eleven_flash_v2_5` CANNOT SPEAK SWAHILI. Neither multilingual v2 nor
- *      flash v2.5 carries Swahili — only the v3 generation does (src/lib/
- *      elevenlabs/client.ts documents this at MODEL_FOR_LANG). So the streaming
+ *      flash v2.5 carries Swahili — only the v3 and newer v4-turbo generations
+ *      do (src/lib/
+ *      elevenlabs/client.ts documents this at MODEL_FOR_LANG; ur/sw now pin to
+ *      eleven_v4_turbo). So the streaming
  *      path routed Swahili to a model that cannot voice it, while the buffered
  *      path did the right thing. Same user, same language, two different
  *      voices depending on which route the caller hit.
@@ -51,11 +53,13 @@ describe("TTS model resolution", () => {
     // The bug this file exists for. Swahili and Urdu are absent from BOTH
     // multilingual v2 and flash v2.5, so a fallback to either of those is a
     // silent downgrade to a model that will not speak the language at all.
+    // They pin to eleven_v4_turbo (not v3): v4_turbo voices both on the key in
+    // .env (verified 2026-10-09) and, unlike v3, is not gated in the agent plane.
     for (const lang of ["ur", "sw"] as const) {
       const model = resolveTtsModel(lang);
-      expect({ lang, model, canSpeak: TTS_LANGUAGE_SUPPORT[lang].v3 }).toEqual({
+      expect({ lang, model, canSpeak: TTS_LANGUAGE_SUPPORT[lang].v4_turbo }).toEqual({
         lang,
-        model: "eleven_v3",
+        model: "eleven_v4_turbo",
         canSpeak: true,
       });
     }
@@ -67,10 +71,13 @@ describe("TTS model resolution", () => {
     // rather than a literal so the two cannot drift apart silently.
     for (const lang of LANGS) {
       const model = resolveTtsModel(lang);
-      if (model === "eleven_v3") {
-        expect(TTS_LANGUAGE_SUPPORT[lang].v3).toBe(true);
+      const support = TTS_LANGUAGE_SUPPORT[lang];
+      if (model === "eleven_v4_turbo") {
+        expect(support.v4_turbo).toBe(true);
+      } else if (model === "eleven_v3") {
+        expect(support.v3).toBe(true);
       } else {
-        expect(TTS_LANGUAGE_SUPPORT[lang].multilingual_v2).toBe(true);
+        expect(support.multilingual_v2).toBe(true);
       }
     }
   });

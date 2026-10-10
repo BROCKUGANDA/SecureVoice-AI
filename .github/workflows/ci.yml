@@ -155,6 +155,33 @@ jobs:
       # (a gate that silently skips its own check is worse than no gate), so CI
       # has to provide one or every push is red for a reason that has nothing to
       # do with the change under test.
+      # The runner is the OVH VPS (self-hosted, `securevoice-vps`). It has no bun
+      # preinstalled, and this workflow calls bun/bunx directly on the HOST —
+      # not inside a container — more than a dozen times: install, prisma
+      # generate, tsc, bun test, lint, the production build, coverage.
+      #
+      # Doing this for the user rather than telling them to is the point: a
+      # manual `curl -fsSL https://bun.sh/install | bash` on the box fixes the
+      # runner that exists today and does nothing for the runner that replaces
+      # it. This step is tracked, version-pinned and re-runnable, so a fresh box
+      # provisions itself on its first job.
+      #
+      # Uses bun's own installer into ~/.bun rather than a package manager: no
+      # root, no apt lock contention with anything else on the box, and the
+      # version is chosen here instead of inherited from the distro.
+      - name: Install Bun on the runner
+        run: |
+          if command -v bun >/dev/null 2>&1; then
+            echo "bun already present: $(bun --version)"
+            exit 0
+          fi
+          curl -fsSL https://bun.sh/install | bash
+          # The installer writes ~/.bun/bin; GITHUB_PATH makes it visible to
+          # every later step in this job, which is the only reason later steps
+          # can call `bun` unqualified.
+          echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
+          "$HOME/.bun/bin/bun" --version
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"

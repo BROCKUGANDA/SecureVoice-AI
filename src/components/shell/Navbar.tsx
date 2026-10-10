@@ -18,6 +18,7 @@ import { useApp, t, type View, type Lang } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { LogoMark } from "@/components/shell/Logo";
 import { OrgSwitcher } from "@/components/shell/OrgSwitcher";
+import { CurrentUserAvatar } from "@/components/current-user-avatar";
 
 const PUBLIC_NAV: { id: View; en: string; ar: string; icon: typeof Home }[] = [
   { id: "home", en: "Overview", ar: "الرئيسية", icon: Home },
@@ -140,6 +141,12 @@ export function Navbar() {
               clears the client" row. */}
           {isSignedIn ? (
             <div className="flex items-center gap-2">
+              {/* The signed-in operator, visually as well as by name. The block
+                  reads the account this app actually authenticates — Better
+                  Auth's `user.image`, populated by the identity provider or a
+                  profile edit — so it falls back to initials and never to a
+                  stale picture from a system that is not in use here. */}
+              <CurrentUserAvatar />
               <span className="max-w-[10rem] truncate text-[12.5px] font-semibold text-ink-2">
                 {session?.user?.name || session?.user?.email}
               </span>

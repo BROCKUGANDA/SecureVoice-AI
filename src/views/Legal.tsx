@@ -477,68 +477,73 @@ export function Terms() {
 /* ————————————————— refund policy ————————————————— */
 
 /**
- * The Refund Policy exists because the publication checklist treats Terms,
- * Refund and Privacy as three separate required documents, and this site had
- * only two. It is deliberately concrete — cancellation window, who pays the
- * processing fee, what happens to unused prepaid credits — because a refund
- * policy that says "contact us" satisfies nobody.
+ * The Refund Policy.
  *
- * Two clauses here are load-bearing and must not be softened:
+ * It describes a CREDIT WALLET, not a subscription, because that is the product
+ * `src/lib/commercial.ts` publishes: a monthly platform fee plus prepaid
+ * intervention credits. An earlier revision of this page carried a "cancel
+ * before renewal and we refund the unused portion of the period pro rata;
+ * unspent credits are refundable in full" document — a subscription policy for a
+ * product with no subscription to cancel, and one that contradicted `/pricing`
+ * outright on whether unspent credits come back.
  *
- *  - Consumed credits are non-refundable, because an intervention that has been
- *    placed has already burned carrier minutes, speech synthesis and an LLM turn.
- *    Refunding those would let a customer probe the platform for free.
- *  - Enterprise deployments are governed by the signed agreement, not this page.
- *    Saying otherwise would create a second, conflicting commitment on a page
- *    nobody negotiated.
+ * Both policies now live in `src/lib/legal-policies.ts` and every surface
+ * renders from it, so that contradiction is not reachable by editing one page.
+ * `tests/unit/refund-policy-consistency.test.ts` asserts the two agree.
  *
- * NOTE on currency: plans are billed in USD through Paddle as a Merchant of
- * Record, and UK/IE/AU buyers are charged a REGIONAL price in GBP/EUR/AUD. A
- * refund therefore goes back in the currency and to the instrument the charge
- * was actually taken in — not necessarily USD. That is why the refund section
- * names both cases instead of promising everyone a USD refund.
+ * This page is PUBLIC and carries no session, so it cannot be role-conditional:
+ * the demo policy is a separate document on the same page rather than selected
+ * from an org type. The conditional form is `PolicyForPlan`, used where a
+ * session exists.
  */
 const REFUND_SECTIONS = [
   {
-    h: "Scope",
+    h: "Scope and which policy applies",
     body: [
-      'This Refund Policy applies to paid subscriptions to the SecureVoice platform, purchased through this website by SecureVoice Technologies FZ-LLC ("SecureVoice", "we"). It is read together with our Terms of Service; where this policy is more specific about money, it governs the money.',
-      "It does not apply to production deployments governed by a signed Master Services Agreement and Data Processing Agreement with a financial institution. Those are quoted per deployment and the commercial terms are in the signed agreement, which takes precedence over anything on this page. It also does not apply to the free public demonstration, which is provided for evaluation and carries no charge to refund.",
+      'This Refund Policy applies to paid use of the SecureVoice platform purchased through this website by SecureVoice Technologies FZ-LLC ("SecureVoice", "we"). It is read together with our Terms of Service; where this policy is more specific about money, it governs the money.',
+      "It does not apply to production deployments governed by a signed Master Services Agreement and Data Processing Agreement with a financial institution. Those are quoted per deployment and the commercial terms are in the signed agreement, which takes precedence over anything on this page.",
+      "It also does not apply to the demo environment, which is free and processes no payment.",
     ],
   },
   {
-    h: "Monthly subscriptions",
+    h: "The prepaid credit wallet",
     body: [
-      "You may cancel a monthly subscription at any time before its next renewal date. Cancellation takes effect at the end of the current paid period, and we refund the unused portion of that period pro rata.",
-      "A refund is issued to the original payment method. Plans are billed in US dollars through Paddle, our Merchant of Record, which collects any sales tax or VAT due — so a refund reverses the net amount and Paddle handles any tax adjustment. We do not convert across currencies at a third party's rate. Buyers in the UK, Ireland and Australia who were charged a regional price in GBP, EUR or AUD are refunded in that same currency.",
-      "There is no cancellation fee. We do not charge a restocking or admin fee for a cancellation made under this policy.",
+      "The platform runs on a prepaid Credit Wallet: a monthly platform fee per tier, plus credits that fund intervention signals. One credit funds one intervention signal. Purchased credits are non-refundable and unused credits expire 12 months from the date of purchase.",
+      "A consumed credit is never refunded, because the intervention it paid for has already burned carrier minutes, speech synthesis and a model turn. Refunding those would let a customer probe the platform for free. We will show you a per-intervention consumption breakdown on request, so you can see exactly how many credits were spent and on what.",
     ],
   },
   {
-    h: "Prepaid intervention credits",
+    h: "When we return credits without being asked",
     body: [
-      "Credits purchased as a prepaid balance are refundable while they are unspent. Once a credit has been consumed by a completed intervention call — an outbound call that was placed and answered — that credit is non-refundable, because the carrier minutes, speech synthesis and model inference it paid for have already been incurred.",
-      "We will show you a per-intervention consumption breakdown on request before you decide, so you can see exactly how many credits were spent and on what. Unspent credits are refundable in full on request at any time, pro rata against the purchase price paid for them.",
+      "If an intervention fails to connect, or terminates because of a SecureVoice infrastructure fault — not a carrier block, a network failure at the customer's end, or the customer being unreachable — the credit consumed by that intervention is returned to the wallet automatically within 48 hours.",
+      "Where an Enterprise agreement carries an availability commitment and that commitment is missed in a calendar month, service credits are issued as a wallet top-up rather than a cash refund, sized as (downtime minutes ÷ total minutes in the month) × the monthly platform fee. The measured figure is taken from the platform's own health endpoint, not from a customer report.",
     ],
   },
   {
-    h: "How to request one",
-    body: [
-      `Email ${SUPPORT_EMAIL} from the address on the account with the word "refund" in the subject and the organisation's name. No form, no ticket bot — a person reads it. We acknowledge within two business days and resolve within fourteen.`,
-      "You do not need to give a reason. We will not ask you to justify cancelling, and we will not ask you to complete an exit interview first. If you are cancelling because something is broken, tell us anyway — it is the most useful sentence in the thread, and it does not affect your refund.",
-    ],
-  },
-  {
-    h: "What we do not refund",
+    h: "What is not refundable",
     body: [
       "Professional services already delivered under a signed agreement; carrier pass-through charges actually incurred before cancellation; and any amount for a period during which the service was suspended for non-payment caused by a failed or expired payment method.",
-      "Where a fault on our side caused a material failure to deliver the service, we refund regardless of this policy. That is a commitment under the signed agreement, and it is also simply how we intend to operate.",
+      "Opening a card chargeback against a valid credit purchase suspends API access and webhook routing until the chargeback is resolved, because the underlying intervention may still be consuming metered capacity.",
+      "Where a fault on our side caused a material failure to deliver the service, we return credits regardless of this policy. That is a commitment under the signed agreement, and it is also simply how we intend to operate.",
+    ],
+  },
+  {
+    h: "Currency and tax on a refund",
+    body: [
+      "Plans are billed in US dollars through Paddle, our Merchant of Record, which collects any sales tax or VAT due — so a credit or refund reverses the net amount and Paddle handles any tax adjustment. Buyers in the UK, Ireland and Australia who were charged a regional price in GBP, EUR or AUD are credited in that same currency. We do not convert across currencies at a third party's rate.",
+    ],
+  },
+  {
+    h: "How to ask about a refund",
+    body: [
+      `Email ${SUPPORT_EMAIL} from the address on the account with the word "refund" in the subject and the organisation's name. No form, no ticket bot — a person reads it. We acknowledge within two business days and resolve within fourteen.`,
+      "You do not need to give a reason, and we will not ask you to complete an exit interview first. If something is broken, say so anyway — it is the most useful sentence in the thread.",
     ],
   },
   {
     h: "Changes to this policy",
     body: [
-      "We may update this policy. Material changes will be announced on this page with a new version number and effective date, and existing subscriptions keep the terms they were bought under until their next renewal.",
+      "We may update this policy. Material changes will be announced on this page with a new version number and effective date, and balances purchased under the previous terms keep those terms until they expire.",
     ],
   },
 ];
@@ -547,45 +552,52 @@ const REFUND_SECTIONS = [
 
 const REFUND_SECTIONS_AR = [
   {
-    h: "النطاق",
+    h: "النطاق والسياسة المطبّقة",
     body: [
-      "تنطبق سياسة الاسترداد هذه على الاشتراكات المدفوعة لمنصة SecureVoice، التي تُشترى عبر هذا الموقع من شركة SecureVoice Technologies FZ-LLC («SecureVoice»، «نحن»). وتُقرأ مع شروط الخدمة لدينا؛ وحيثما تكون هذه السياسة أكثر تحديداً لمسائل الدفع، فهي التي تحكم الدفع.",
-      "ولا تنطبق على عمليات النشر الإنتاجية الخاضعة لاتفاقية مستوى الخدمة الموقّعة واتفاقية معالجة البيانات مع مؤسسة مالية. فتلك تُسعَّر حسب النشر وتحددها الشروط التجارية في الاتفاقية الموقّعة، التي تتقدّم على أي مما ورد في هذه الصفحة. كما لا تنطبق على العرض التوضيحي العام المجاني، الذي يُقدَّم لأغراض التقييم ولا يحمل أي رسم يُسترد.",
+      "تنطبق سياسة الاسترداد هذه على الاستخدام المدفوع لمنصة SecureVoice المشترى عبر هذا الموقع من شركة SecureVoice Technologies FZ-LLC («SecureVoice»، «نحن»). وتُقرأ مع شروط الخدمة لدينا؛ وحيثما تكون هذه السياسة أكثر تحديداً لمسائل الدفع، فهي التي تحكم الدفع.",
+      "ولا تنطبق على عمليات النشر الإنتاجية الخاضعة لاتفاقية مستوى الخدمة الموقّعة واتفاقية معالجة البيانات مع مؤسسة مالية. فتلك تُسعَّر حسب النشر وتحددها الشروط التجارية في الاتفاقية الموقّعة، التي تتقدّم على أي مما ورد في هذه الصفحة.",
+      "كما لا تنطبق على بيئة العرض التجريبية، فهي مجانية ولا تتم فيها أي عملية دفع.",
     ],
   },
   {
-    h: "الاشتراكات الشهرية",
+    h: "محفظة الائتمان المدفوعة مسبقاً",
     body: [
-      "يمكنك إلغاء أي اشتراك شهري في أي وقت قبل تاريخ تجديده التالي. ويسري الإلغاء في نهاية الفترة المدفوعة الحالية، ونعيد المبلغ عن الجزء غير المستخدم من تلك الفترة بالتناسب.",
-      "يُصدر الاسترداد إلى وسيلة الدفع الأصلية. وتُفوترَط الخطط بالدولار الأمريكي عبر Paddle، التاجر الرسمي، الذي يحصّل أي ضريبة بيع أو قيمة مضافة مستحقة — فيعكس الاسترداد المبلغ الصافي وتتولى Paddle أي تعديل ضريبي. ولا نحوّل بين العملات بسعر طرف ثالث. والمشترون في المملكة المتحدة وأيرلندا وأستراليا الذين خُصموا لهم بسعر محلي بالإسترليني أو اليورو أو دولار أسترالي يُسترد لهم بنفس العملة.",
-      "ولا توجد رسوم إلغاء، ولا نفرض رسوم إعادة تخزين أو رسوماً إدارية على الإلغاء الذي يتم وفق هذه السياسة.",
+      "تعمل المنصة على محفظة ائتمان مدفوعة مسبقاً: رسم شهري للمنصة حسب الطبقة،加上 رصيد يغطي إشارات التدخل. ويرصد الرصيد الواحد إشارة تدخل واحدة. والأرصدة المشتراة غير قابلة للاسترداد، وتنتهي صلاحية الرصيد غير المستخدم بعد 12 شهراً من تاريخ الشراء.",
+      "ولا يُسترد الرصيد المستهلك أبداً، لأن التدخل الذي دفع ثمنه قد حجز بالفعل دقائق الاتصال وتوليد الكلام ومرور نموذج واحد. واسترداد تلك يسمح للعميل باختبار المنصة مجاناً. وسنعرض تفصيل الاستهلاك لكل تدخّل عند الطلب، لتعرفوا بدقة عدد الأرصدة التي أُنفقت وعلى ماذا.",
     ],
   },
   {
-    h: "أرصدة التدخّل المسبقة المدفوعة",
+    h: "متى نعيد الأرصدة دون أن تُطلب منا",
     body: [
-      "الأرصدة التي تُشترى كرصيد مسبق قابلة للاسترداد ما دامت لم تُنفق. وحين يُستهلك رصيد واحد في مكالمة تدخّل مكتملة — أي مكالمة صادرة تمّ الاتصال بها وتم الرد عليها — يصبح ذلك الرصيد غير قابل للاسترداد، لأن دقائق الاتصال وتوليد الكلام واستدلال النموذج التي موّلتها قد تحمّلناها بالفعل.",
-      "وسنعرض لكم تفصيل الاستهلاك لكل تدخّل عند الطلب قبل أن تقرّروا، لتعرفوا بدقة عدد الأرصدة التي أُنفقت وعلى ماذا. والأرصدة غير المنفقة قابلة للاسترداد بالكامل عند الطلب في أي وقت، بالتناسب مع السعر المدفوع مقابلها.",
+      "إذا فشل تدخل في الاتصال، أو انقطع بسبب خلل في بنية SecureVoice — لا بسبب حجب من مشغّل الاتصالات، ولا انقطاع في شبكة العميل، ولا تعذّر الوصول إلى العميل — يُعاد الرصيد المستهلك في هذا التدخل إلى المحفظة تلقائياً خلال 48 ساعة.",
+      "وفي الاتفاقيات المؤسساتية التي تتضمن التزام توافر ولم يُحقَّق في شهر ميلادي، تُصدر أرصدة خدمة كإضافة إلى المحفظة بدلاً من استرداد نقدي، وحجمها يساوي (دقائق التوقف ÷ إجمالي دقائق الشهر) × الرسم الشهري للمنصة. ويُؤخذ القياس من نقطة صحة المنصة نفسها، لا من تقرير العميل.",
     ],
   },
   {
-    h: "كيف تطلب الاسترداد",
-    body: [
-      `راسلوا ${SUPPORT_EMAIL} من العنوان المسجّل على الحساب، مع وضع كلمة «استرداد» في سطر الموضوع وذكر اسم المؤسسة. لا حاجة إلى نموذج ولا إلى روبوت تذاكر — إنسان يقرأ الرسالة. نُقرّ باستلامها خلال يومي عمل وننهيها خلال أربعة عشر يوماً.`,
-      "ولا يلزم ذكر السبب. ولن نطلب منكم تبرير الإلغاء، ولن نطلب منكم إتمام مقابلة خروج قبله. وإذا كان الإلغاء بسبب خلل، فأخبرونا على أي حال — فذلك أنفع ما في الرسالة، ولا يؤثر في استردادكم.",
-    ],
-  },
-  {
-    h: "ما لا نعيده",
+    h: "ما لا يُسترد",
     body: [
       "الخدمات المهنية التي قُدِّمت بالفعل بموجب اتفاقية موقّعة؛ ورسوم وسط مشغّلي الاتصالات التي تحمّلناها فعلاً قبل الإلغاء؛ وأي مبلغ عن فترة عُلِّقت فيها الخدمة لعدم السداد بسبب وسيلة دفع فاشلة أو منتهية الصلاحية.",
-      "وإذا أدى عيب من جانبنا إلى إخفاق جوهري في تقديم الخدمة، فإننا نعيد المبلغ بغضّ النظر عن هذه السياسة. فهذا التزام ضمن الاتفاقية الموقّعة، وهو أيضاً ببساطة كيف نعتزم أن نتعامل.",
+      "وفتح استرداد بنكي على عملية شراء رصيد سارية يوقف الوصول إلى API وتوجيه الويب هوكس حتى تسوية الاسترداد، لأن التدخل المرتبط قد يستهلك سعة مقيسة في تلك الأثناء.",
+      "وإذا أدى عيب من جانبنا إلى إخفاق جوهري في تقديم الخدمة، فإننا نعيد الأرصدة بغضّ النظر عن هذه السياسة. فهذا التزام ضمن الاتفاقية الموقّعة، وهو أيضاً ببساطة كيف نعتزم أن نتعامل.",
+    ],
+  },
+  {
+    h: "العملة والضريبة عند الاسترداد",
+    body: [
+      "تُفوترَط الخطط بالدولار الأمريكي عبر Paddle، التاجر الرسمي، الذي يحصّل أي ضريبة بيع أو قيمة مضافة مستحقة — فيعكس الرصيد أو الاسترداد المبلغ الصافي وتتولى Paddle أي تعديل ضريبي. والمشترون في المملكة المتحدة وأيرلندا وأستراليا الذين خُخصموا لههم بسعر محلي بالإسترليني أو اليورو أو دولار أسترالي يُضاف لهم بنفس العملة. ولا نحوّل بين العملات بسعر طرف ثالث.",
+    ],
+  },
+  {
+    h: "كيف تسأل عن استرداد",
+    body: [
+      `راسلوا ${SUPPORT_EMAIL} من العنوان المسجّل على الحساب، مع وضع كلمة «استرداد» في سطر الموضوع وذكر اسم المؤسسة. لا حاجة إلى نموذج ولا إلى روبوت تذاكر — إنسان يقرأ الرسالة. نُقرّ باستلامها خلال يومي عمل وننهيها خلال أربعة عشر يوماً.`,
+      "ولا يلزم ذكر السبب، ولن نطلب منكم إتمام مقابلة خروج قبله. وإذا كان هناك خلل، فأخبرونا على أي حال — فذلك أنفع ما في الرسالة.",
     ],
   },
   {
     h: "التغييرات في هذه السياسة",
     body: [
-      "يجوز لنا تحديث هذه السياسة. وستُعلن التغييرات الجوهرية في هذه الصفحة برقم إصدار وتاريخ سريان جديدين، وتحتفظ الاشتراكات القائمة بالشروط التي اشترت بها حتى موعد تجديدها التالي.",
+      "يجوز لنا تحديث هذه السياسة. وستُعلن التغييرات الجوهرية في هذه الصفحة برقم إصدار وتاريخ سريان جديدين، وتحتفظ الأرصدة المشراة تحت الشروط السابقة بتلك الشروط حتى تنتهي صلاحيتها.",
     ],
   },
 ];
@@ -597,9 +609,13 @@ export function Refund() {
       icon={Undo2}
       titleEn="Refund Policy"
       titleAr="سياسة الاسترداد"
-      subtitleEn="Cancel monthly at any time and the unused period is refunded pro rata. Unspent prepaid credits are refundable in full. No cancellation fee, no exit interview."
-      subtitleAr="ألغِ الاشتراك الشهري في أي وقت ويُسترد الجزء غير المستخدم بالتناسب. وتُسترد الأرصدة المسبقة غير المنفقة بالكامل. بلا رسوم إلغاء وبلا مقابلة خروج."
-      meta={{ version: "1.0", effective: "2026-10-10", entity: "SECUREVOICE TECHNOLOGIES FZ-LLC" }}
+      subtitleEn="Prepaid credits are non-refundable and expire 12 months after purchase. Credits consumed by a SecureVoice infrastructure fault come back automatically within 48 hours. The demo environment is free, so there is nothing to refund."
+      subtitleAr="الأرصدة المدفوعة مسبقاً غير قابلة للاسترداد وتنتهي صلاحيتها بعد 12 شهراً من الشراء. ويرجع الرصيد المستهلك بخلل في بنية SecureVoice تلقائياً خلال 48 ساعة. وبيئة العرض مجانية، فلا يوجد ما يُسترد."
+      meta={{
+        version: "2.0",
+        effective: "2026-10-10",
+        entity: "SECUREVOICE TECHNOLOGIES FZ-LLC",
+      }}
       sections={REFUND_SECTIONS}
       sectionsAr={REFUND_SECTIONS_AR}
     />

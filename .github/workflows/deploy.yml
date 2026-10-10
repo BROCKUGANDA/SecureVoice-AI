@@ -62,8 +62,8 @@ jobs:
           if [ "$EVENT" = "workflow_dispatch" ]; then
             echo "manual deploy: verifying CI on main is currently green"
             code=$(gh api "repos/$GITHUB_REPOSITORY/commits/main/check-runs" \
-              --jq '[.check_runs[] | select(.name | startswith("Lint, typecheck"))
-                      or (.name | startswith("Compose stack"))] | .[0].conclusion')
+              --jq '[.check_runs[] | select((.name | startswith("Lint, typecheck"))
+                      or (.name | startswith("Compose stack")))] | .[0].conclusion')
             [ "$code" = "success" ] || {
               echo "::error::CI on main is not green (got '${code:-none}') — refusing a manual deploy."
               exit 1

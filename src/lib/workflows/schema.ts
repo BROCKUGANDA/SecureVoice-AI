@@ -60,6 +60,12 @@ const nodeSchema = z
       ctx.addIssue({ code: "custom", message: "tool node requires `tool`" });
     if (n.kind === "subagent" && !n.subagent)
       ctx.addIssue({ code: "custom", message: "subagent node requires `subagent`" });
+    // The runner resumes at onReturn and never at next (runner.ts), so the
+    // validator's dead-end guard accepting `next` here would admit a graph
+    // that dies at runtime. Rejected at parse time as well as at graph-check
+    // time: two layers, one invariant.
+    if (n.kind === "subagent" && !n.onReturn)
+      ctx.addIssue({ code: "custom", message: "subagent node requires `onReturn`" });
     if (n.kind === "condition" && (!n.branches || n.branches.length === 0))
       ctx.addIssue({ code: "custom", message: "condition node requires at least one branch" });
     if (n.kind === "end" && !n.outcome)

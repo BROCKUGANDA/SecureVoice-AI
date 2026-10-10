@@ -16,10 +16,14 @@ import "server-only";
  *    has one-bank-event-per-case idempotency, so a QStash retry is safe.
  *  - `retry.callback` — a scheduled retry signal; enqueues the dial for the
  *    same case via the same `enqueueDialJob` path.
+ *  - `doc.vectorize` — extract/chunk/embed an uploaded policy PDF. Unlike the
+ *    call jobs this one is IDEMPOTENT-BY-STATE rather than by key: a READY
+ *    document short-circuits, so a QStash retry cannot re-embed the whole PDF.
  */
 
 import { enqueueDialJob } from "@/lib/scale/queue";
 import { markVoiceFailed } from "@/lib/elevenlabs/sms-fallback";
+import { vectorizeDocument } from "@/lib/knowledge/documents";
 import type { JobEnvelope } from "@/lib/queue/envelope";
 import { logWarn } from "@/lib/validation/safe-log";
 
@@ -96,4 +100,21 @@ export async function handleScheduledRetry(envelope: JobEnvelope): Promise<void>
     attemptNo: envelope.attempt > 0 ? envelope.attempt + 1 : 2,
     payload: { to: p.to, phone: p.to },
   });
+}
+
+export async function handleDocumentVectorize(envelope: JobEnvelope): Promise<void> {
+  const p = (envelope.payload ?? {}) as { documentId?: string };
+  if (!p.documentId) throw new TypeError("doc.vectorize requires payload.documentId");
+  // The org is read from the ENVELOPE, never from the payload, and never
+  // re-derived from the document row by this handler: the envelope's orgId is
+  // the tenant the producer authenticated as. `vectorizeDocument` reads the row
+  // for everything else, including the authoritative orgId it writes vectors
+  // under — the envelope orgId is what the retry/DLQ trail is keyed on.
+  const res = await vectorizeDocument(p.documentId);
+  if (!res.ok) {
+    // Thrown so QStash's ladder runs and an exhausted message lands in the DLQ.
+    // The document row already records the reason for the operator, so this is
+    // the machine-visible half of the same failure.
+    throw new Error(`doc.vectorize failed: ${res.error}`);
+  }
 }

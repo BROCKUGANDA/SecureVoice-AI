@@ -4,11 +4,12 @@ import { consume as consumeRateLimit, rateLimitId } from "@/lib/ratelimit";
 import { verifyProducerKey } from "@/lib/producer-keys";
 import { isE164 } from "@/lib/twilio";
 import { isAfterHours } from "@/lib/abuse/velocity";
-import { createCase } from "@/lib/case-state-machine";
+import { createCase, transitionCase } from "@/lib/case-state-machine";
 import { enqueueDialJob } from "@/lib/scale/queue";
 import { db } from "@/lib/db";
 import { preNotificationLeadMs } from "@/lib/prenotify";
 import { logInfo, logWarn } from "@/lib/validation/safe-log";
+import { SUPPORTED_LANGS, resolveDeliveryLang } from "@/lib/languages";
 
 export const dynamic = "force-dynamic";
 
@@ -40,7 +41,11 @@ const recipientSchema = z.object({
 });
 
 const bodySchema = z.object({
-  lang: z.string().optional(),
+  // The documented contract is the six supported codes. An unsupported string
+  // used to be accepted here, stored on the case, and then ignored by the dial
+  // worker (which defaults to English) — the case row and the call disagreed.
+  // Rejected at the boundary instead, exactly like the GET documents.
+  lang: z.enum(SUPPORTED_LANGS).optional(),
   callCategory: z.enum(CATEGORIES).optional(),
   institution: z.enum(["bank", "insurer"]).optional(),
   /** 1..500 campaigns per call; a larger list is chunked by the caller. */
@@ -72,7 +77,10 @@ export async function POST(req: Request) {
     );
   }
   const { recipients } = parsed.data;
-  const lang = parsed.data.lang ?? "en";
+  // resolveDeliveryLang is the single-signal ingest's normaliser: the schema
+  // has already rejected anything outside the supported set, and this keeps
+  // the stored language and the spoken language the same value.
+  const lang = resolveDeliveryLang(parsed.data.lang);
   const callCategory = parsed.data.callCategory ?? "routine";
   const institution = parsed.data.institution ?? "bank";
   const leadMs = preNotificationLeadMs();
@@ -117,12 +125,20 @@ export async function POST(req: Request) {
         phone,
         callCategory,
       });
+      // RECEIVED → SCREENED through the single writer, exactly as the
+      // single-signal ingest does before enqueueing. Without this the case
+      // stays in RECEIVED and the dial worker's SCREENED → DIALING transition
+      // is illegal, so the job retries and the recipient is called twice.
+      await transitionCase(caseRef, "SCREENED");
       await enqueueDialJob({
         caseId: id,
         caseRef,
         orgId,
         attemptNo: 1,
-        payload: { phone, institution, campaign: true },
+        // The language travels with the job: the worker resolves the ASR, the
+        // voice and every spoken line from it, and an absent language is an
+        // English call whatever the case row says.
+        payload: { phone, institution, campaign: true, language: lang },
         // Hold the dial so a pre-notification SMS lands first, exactly as the
         // single-signal ingest does.
         availableInMs: leadMs,

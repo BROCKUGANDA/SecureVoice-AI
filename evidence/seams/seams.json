@@ -952,7 +952,7 @@
     {
       "name": "the-gate-leaves-no-residue",
       "ok": true,
-      "detail": "removed {\"outbox\":1,\"auditLog\":18,\"notifications\":6,\"cases\":1,\"ledger\":2,\"payments\":1}; 0 run-scoped row(s) remain"
+      "detail": "removed {\"outbox\":1,\"auditLog\":14,\"notifications\":4,\"cases\":1,\"ledger\":2,\"payments\":1}; 0 run-scoped row(s) remain"
     },
     {
       "name": "the-gate-touched-only-its-own-rows",
@@ -961,13 +961,13 @@
     }
   ],
   "unreportedPorts": [],
-  "digest": "70c383697efd8b53201a4edb8f0da8449f1cb0663dd102fcc7f604f9e9a24eba",
-  "generatedAt": "2026-10-09T16:01:44.525Z",
+  "digest": "8249ae9930372b03874f635d86c2152439c9bb6743cdd7327102fea4b442e9c8",
+  "generatedAt": "2026-10-09T23:24:04.633Z",
   "run": {
-    "id": "mv15jyrf",
-    "org": "org-seams-mv15jyrf",
-    "caseRef": "SV-F-SEAMSMV15JYRF",
-    "chainRef": "SEAMCHAIN-mv15jyrf"
+    "id": "mv1lcwe0",
+    "org": "org-seams-mv1lcwe0",
+    "caseRef": "SV-F-SEAMSMV1LCWE0",
+    "chainRef": "SEAMCHAIN-mv1lcwe0"
   },
   "commands": {
     "test": "bun test tests/seams",

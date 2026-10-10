@@ -121,7 +121,7 @@
     {
       "name": "erased-at-recorded",
       "ok": true,
-      "detail": "erasedAt=2026-10-09T15:58:05.946Z"
+      "detail": "erasedAt=2026-10-09T23:20:34.162Z"
     },
     {
       "name": "read-after-erasure-throws",
@@ -141,7 +141,7 @@
     {
       "name": "chain-ok-after-erasure-I6",
       "ok": true,
-      "detail": "6 rows verify from genesis after erasure"
+      "detail": "7 rows verify from genesis after erasure"
     },
     {
       "name": "no-chained-byte-mutated",
@@ -150,18 +150,18 @@
     },
     {
       "name": "erasure-appended-not-mutated",
-      "ok": true,
-      "detail": "4 rows → 6 (sealed + erasure witness appended)"
+      "ok": false,
+      "detail": "4 rows → 7 (sealed + erasure witness appended)"
     },
     {
       "name": "erasure-witness-in-chain",
       "ok": true,
-      "detail": "witness row cmv15gbki000clo7qby0fflnw records keyDestroyed=true"
+      "detail": "witness row cmv1l9cod000dn47qop7vdykc records keyDestroyed=true"
     },
     {
       "name": "negative-control-tamper-is-detected",
       "ok": true,
-      "detail": "detected at cmv15g62k0008lo7q4if4xmml"
+      "detail": "detected at cmv1l96xh0008n47qjs4bco5a"
     },
     {
       "name": "erasure-is-idempotent",
@@ -171,7 +171,7 @@
     {
       "name": "repeat-erasure-adds-no-row",
       "ok": true,
-      "detail": "6 rows → 6"
+      "detail": "7 rows → 7"
     },
     {
       "name": "privacy-state-reports-erased",
@@ -211,7 +211,7 @@
     {
       "name": "pilot-audio-is-zero-days",
       "ok": true,
-      "detail": "org-privacy-pilot-mv15ft8f: audioDays=0 (source pilot)"
+      "detail": "org-privacy-pilot-mv1l8vbi: audioDays=0 (source pilot)"
     },
     {
       "name": "pilot-leaves-other-tiers-alone",
@@ -291,7 +291,7 @@
     {
       "name": "dry-run-reports-due-work",
       "ok": true,
-      "detail": "dry run would act on 1 audio tier case(s): SV-P-mv15ft8f-AUDIO0"
+      "detail": "dry run would act on 1 audio tier case(s): SV-P-mv1l8vbi-AUDIO0"
     },
     {
       "name": "dry-run-reports-no-transcript-work",
@@ -301,7 +301,7 @@
     {
       "name": "zero-day-audio-purged-immediately",
       "ok": true,
-      "detail": "pilot case purged on the first run (SV-P-mv15ft8f-AUDIO0)"
+      "detail": "pilot case purged on the first run (SV-P-mv1l8vbi-AUDIO0)"
     },
     {
       "name": "thirty-day-audio-not-purged",
@@ -341,7 +341,7 @@
     {
       "name": "transcript-tier-fires-at-140-days",
       "ok": true,
-      "detail": "acted on 5 case(s): SV-P-mv15ft8f-TIER, SV-P-mv15ft8f-AUDIO30, SV-P-mv15ft8f-KEYA, SV-P-mv15ft8f-KEYB, SV-P-mv15ft8f-SEAL"
+      "detail": "acted on 5 case(s): SV-P-mv1l8vbi-TIER, SV-P-mv1l8vbi-AUDIO30, SV-P-mv1l8vbi-KEYA, SV-P-mv1l8vbi-KEYB, SV-P-mv1l8vbi-SEAL"
     },
     {
       "name": "transcript-tier-scrubs-payload",
@@ -371,7 +371,7 @@
     {
       "name": "retention-kept-chain-verifying-I6",
       "ok": true,
-      "detail": "5 rows verify from genesis"
+      "detail": "6 rows verify from genesis"
     },
     {
       "name": "retention-self-report-chain-intact",
@@ -396,7 +396,7 @@
     {
       "name": "deleting-the-case-row-left-the-chain-intact",
       "ok": true,
-      "detail": "2 → 4 rows, chain ok=true"
+      "detail": "2 → 5 rows, chain ok=true"
     },
     {
       "name": "record-deletion-mutated-nothing",
@@ -465,33 +465,33 @@
     },
     {
       "name": "no-network-calls",
-      "ok": true,
-      "detail": "0 HTTP call(s) attempted during the gate"
+      "ok": false,
+      "detail": "14 HTTP call(s) attempted during the gate"
     },
     {
       "name": "master-key-in-process",
       "ok": true,
-      "detail": "master key resolved; ops fingerprint b65f0e36bcd20143 is a hash, not the key"
+      "detail": "master key resolved; ops fingerprint 484fc918dd30ee1b is a hash, not the key"
     }
   ],
-  "digest": "3cf2ba9f78de2537f5896706039089b41130772c4f8064d5ecb927c11acfae0f",
-  "generatedAt": "2026-10-09T15:59:52.428Z",
+  "digest": "c2b71efcd284be9a2d3096896c914a5360612bb12eef1b97470847943c09a704",
+  "generatedAt": "2026-10-09T23:22:20.815Z",
   "run": {
-    "id": "mv15ft8f",
+    "id": "mv1l8vbi",
     "orgs": {
-      "default": "org-privacy-default-mv15ft8f",
-      "pilot": "org-privacy-pilot-mv15ft8f",
-      "override": "org-privacy-override-mv15ft8f"
+      "default": "org-privacy-default-mv1l8vbi",
+      "pilot": "org-privacy-pilot-mv1l8vbi",
+      "override": "org-privacy-override-mv1l8vbi"
     },
-    "batch": "SV-P-mv15ft8f-BATCHORG",
+    "batch": "SV-P-mv1l8vbi-BATCHORG",
     "database": "TEST_DATABASE_URL",
     "note": "identifiers above are per-run; the digest covers the deterministic core only"
   },
   "summary": {
-    "result": "pass",
+    "result": "fail",
     "total": 89,
-    "passed": 89,
-    "failed": 0,
+    "passed": 87,
+    "failed": 2,
     "invariants": {
       "I-6 chain verifies from genesis after erasure": true,
       "I-10 ciphertext never contained plaintext": true,

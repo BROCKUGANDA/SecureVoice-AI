@@ -31,6 +31,7 @@ export const JOB_KINDS = [
   "call.postCall",
   "sms.fallback",
   "retry.callback",
+  "doc.vectorize",
 ] as const;
 export type JobKind = (typeof JOB_KINDS)[number];
 

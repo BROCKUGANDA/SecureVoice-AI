@@ -64,6 +64,29 @@ describe("workflow schema + validation", () => {
     expect(v.errors.some((e) => /escalate.*no way forward/.test(e))).toBe(true);
   });
 
+  test("a subagent node must declare onReturn — `next` is not an exit for it", () => {
+    // The runner resumes at onReturn and ONLY there (runner.ts does
+    // `current = nd.onReturn!`), so a subagent carrying `next` used to pass
+    // the dead-end guard and then die at runtime with
+    // `walked into missing node "undefined"`. The validator — the thing that
+    // exists to show the operator the complete list — must own this.
+    const withNext = FRAUD_WORKFLOW.nodes.map((n) =>
+      n.id === "specialist" ? { ...n, onReturn: undefined, next: "done" } : n,
+    );
+    const v = validateWorkflow({ ...FRAUD_WORKFLOW, nodes: withNext });
+    expect(v.ok).toBe(false);
+    expect(v.errors.some((e) => /specialist/.test(e) && /onReturn/.test(e))).toBe(true);
+
+    // And the schema layer says the same thing, so a builder UI gets it before
+    // the graph walk does.
+    expect(() =>
+      workflowSchema.parse({
+        ...FRAUD_WORKFLOW,
+        nodes: withNext.map((n) => ({ ...n, onReturn: undefined })),
+      }),
+    ).toThrow(/onReturn/);
+  });
+
   test("a node cannot scope a tool outside the workflow's tools", () => {
     const v = validateWorkflow(
       {

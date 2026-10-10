@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-const BankPayloadSchema = z.object({
+const ISO_CURRENCY = /^[A-Z]{3}$/;
+
+const InboundTriggerSchema = z.object({
+  amount: z.number().positive(),
+  currency: z.string().length(3).regex(ISO_CURRENCY),
   transaction_id: z.string().uuid(),
   customer_phone_token: z.string().startsWith("tok_"),
   org_id: z.string().uuid(),
@@ -10,7 +14,7 @@ const BankPayloadSchema = z.object({
 });
 
 export type GatewayDecision =
-  | { ok: true; payload: z.infer<typeof BankPayloadSchema> }
+  | { ok: true; payload: z.infer<typeof InboundTriggerSchema> }
   | { ok: false; status: number; error: string };
 
 export async function apiGateway(req: Request): Promise<GatewayDecision> {
@@ -22,7 +26,7 @@ export async function apiGateway(req: Request): Promise<GatewayDecision> {
   // auth, then allow the request through.
   try {
     const body = await req.json();
-    const parsed = BankPayloadSchema.safeParse(body);
+    const parsed = InboundTriggerSchema.safeParse(body);
     if (!parsed.success) {
       return { ok: false, status: 400, error: "Invalid payload" };
     }

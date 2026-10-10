@@ -336,6 +336,17 @@ model Case {
   currency              String?
   consentRecordId       String?
   freezeStaged          Boolean   @default(false)
+  /// Out-of-band verification word for this case (src/lib/verification-token.ts).
+  ///
+  /// STORED AS A HASH, and never spoken by the agent. It exists so the customer
+  /// can confirm on a second channel that a verification call is genuinely in
+  /// progress — the same role the case reference plays in the pre-announcement
+  /// SMS, but for the CALL rather than the EVENT. Hashing costs nothing here and
+  /// means a database dump yields no usable token; the plaintext is returned
+  /// exactly once, at case creation, to the bank integration that renders it in
+  /// the customer's app.
+  verificationTokenHash  String?
+  verificationTokenAt    DateTime?
   freezeReference       String?
   handoffQueued         Boolean   @default(false)
   handoffSpecialist     String?

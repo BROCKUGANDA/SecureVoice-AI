@@ -308,6 +308,48 @@ async function handle(job: DialJob): Promise<DialOutcome> {
       callSid: result.callSid,
     });
 
+    // TRICK 1 — pre-warm the voice plane at the DIALING state, before the
+    // customer answers.
+    //
+    // Between this line and the customer saying hello there are seconds of dead
+    // air in which nothing needs the CPU — and the voice-stream worker, a
+    // separate process with a separate cache, sits idle. Two things are warmed
+    // there by this call: the audio cache for every fixed phrase the agent will
+    // speak (so the call's first words are a memory read, not a vendor
+    // round-trip) and a pooled Deepgram socket for the call's language (so the
+    // ASR handshake is already done when Twilio opens the media stream).
+    //
+    // Fire-and-forget by design: the carrier does not wait for our warm-up,
+    // and a warm-up that could fail a dial would be disabled the first time a
+    // vendor was slow. A missed warm only costs a cold first call — the
+    // voice-stream worker also warms at stream-connect, which is the fallback
+    // for every path that does not come through this queue.
+    if (flag("twilioMediaStreams")) {
+      const prewarmBase =
+        process.env.VOICE_STREAM_INTERNAL_URL ?? "http://voice-stream-worker:8080";
+      const lang = resolveDeliveryLang(payload.language);
+      const secret = process.env.VOICE_PREWARM_SECRET;
+      void fetch(
+        `${prewarmBase}/prewarm?lang=${encodeURIComponent(lang)}&callSid=${encodeURIComponent(job.case_ref)}`,
+        {
+          method: "POST",
+          ...(secret ? { headers: { "x-prewarm-secret": secret } } : {}),
+          signal: AbortSignal.timeout(1_500),
+        },
+      )
+        .then((res) => {
+          if (!res.ok) {
+            logWarn("[dial-worker] voice pre-warm refused; the call proceeds cold", {
+              status: res.status,
+              caseRef: job.case_ref,
+            });
+          }
+        })
+        .catch(() => {
+          /* the voice plane is optional; a cold first call is not a failed dial */
+        });
+    }
+
     // The telecom outbox: the dial happened, so it is recorded with the number
     // identity the customer's handset showed. Skipped in dry-run — a simulated
     // provider round-trip must not put a delivery fact in a compliance table.

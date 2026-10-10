@@ -13,11 +13,15 @@ import {
   EyeOff,
   ImageIcon,
   Plug,
+  BookOpen,
+  Rocket,
 } from "lucide-react";
 import { useApp } from "@/lib/store";
 import { SUPPORT_EMAIL } from "@/lib/public-config";
 import { Chip } from "@/components/fx/core";
+import { LottieIcon } from "@/components/fx/LottieIcon";
 import { CrmSection } from "@/views/settings/CrmSection";
+import { DocumentsSection } from "@/views/settings/DocumentsSection";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
@@ -27,6 +31,7 @@ import { cn } from "@/lib/utils";
  * Operator Settings — the B2B tabbed surface:
  *   Organization  → white-label (name + logo shown in the Command Center)
  *   API Keys      → BYOK ElevenLabs key (AES-256-GCM encrypted at rest)
+ *   Knowledge     → the institution's own policy PDFs, embedded and retrievable
  *   Team          → invite flow (provisioned by invitation; enterprise flow)
  *   Billing       → prepaid credits wallet + tiers
  */
@@ -63,7 +68,7 @@ function Field({
 export function Settings() {
   const { lang, setView, highContrast, setHighContrast } = useApp();
   const ar = lang === "ar";
-  const [tab, setTab] = useState<"org" | "keys" | "team" | "billing">("org");
+  const [tab, setTab] = useState<"org" | "keys" | "knowledge" | "team" | "billing">("org");
   const [settings, setSettings] = useState<Settings | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -171,6 +176,7 @@ export function Settings() {
   const TABS = [
     { id: "org", label: ar ? "المؤسسة" : "Organization", icon: Building2 },
     { id: "keys", label: ar ? "مفاتيح API" : "API Keys", icon: KeyRound },
+    { id: "knowledge", label: ar ? "المعرفة" : "Knowledge", icon: BookOpen },
     { id: "team", label: ar ? "الفريق" : "Team", icon: Users },
     { id: "billing", label: ar ? "الفوترة" : "Billing", icon: Coins },
   ] as const;
@@ -183,10 +189,22 @@ export function Settings() {
       <h1 className="font-display mt-2 text-3xl font-semibold tracking-tight sm:text-4xl">
         {ar ? "الإعدادات" : "Workspace settings"}
       </h1>
+      {/* The wizard is the ordered path through exactly these tabs — telecom
+          identity, BYOK, documents, webhooks. Entering it here rather than from
+          the Command Center banner alone means an operator who came here first
+          is offered the setup they actually need. */}
+      <button
+        type="button"
+        onClick={() => setView("setup")}
+        className="mt-3 inline-flex items-center gap-2 rounded-full border border-primary/40 bg-green-tint px-4 py-2 text-[12.5px] font-semibold text-primary transition hover:bg-green-tint/70"
+      >
+        <Rocket className="h-3.5 w-3.5" />
+        {ar ? "معالج الإعداد" : "Run setup wizard"}
+      </button>
 
       {loading ? (
         <div className="mt-10 flex justify-center py-16">
-          <Loader2 className="h-6 w-6 animate-spin text-ink-3" />
+          <LottieIcon name="bars" size={40} label="Loading settings" />
         </div>
       ) : (
         <>
@@ -457,6 +475,8 @@ export function Settings() {
                 <CrmSection busy={busy} setBusy={setBusy} setMsg={setMsg} />
               </div>
             )}
+
+            {tab === "knowledge" && <DocumentsSection />}
 
             {tab === "team" && (
               <div className="space-y-5">

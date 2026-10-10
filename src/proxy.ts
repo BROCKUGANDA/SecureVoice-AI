@@ -195,11 +195,12 @@ export const INDEXABLE_PATHS: readonly string[] = ["/", "/sitemap.xml"];
  * and shortening it silently breaks the product.
  *
  * `navigator.mediaDevices.getUserMedia` is called in exactly two places:
- * `src/views/Demo.tsx` and `src/lib/voice-client.ts`. Both are reachable from
- * the `demo` VIEW, which `src/app/page.tsx` renders at path `/`. So in the
- * current single-page architecture the microphone consumer IS `/`, and denying
- * it there is denying it to the entire demo — the one thing this app exists to
- * show.
+ * `src/components/demo/LiveVoicePanel.tsx` (the mic button itself) and
+ * `src/lib/voice-client.ts` (the barge-in monitor that runs while the agent is
+ * speaking). Both are rendered from the `home` VIEW, which `src/app/page.tsx`
+ * serves at path `/` — so in the current single-page architecture the microphone
+ * consumer IS `/`, and denying it there is denying it to the landing demo and to
+ * the live browser-mic widget, which are the two things this app exists to show.
  *
  * The policy is still written as an allowlist rather than a blanket
  * `microphone=(self)` because that is the shape that survives the obvious next

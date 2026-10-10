@@ -6,23 +6,50 @@ export const dynamic = "force-dynamic";
 /**
  * Model Context Protocol server for SecureVoice's agent tools.
  *
- * An MCP-capable client (an IDE assistant, a orchestration agent, a
+ * An MCP-capable client (an IDE assistant, an orchestration agent, a
  * core-banking sandbox harness) speaks JSON-RPC 2.0 here:
  *
  *   initialize            → protocol version + capabilities
  *   tools/list            → the 5 guarded tools with JSON-schema inputs
- *   tools/call            → proxies to the REAL tool route with the tool secret
+ *   tools/call            → proxies to the REAL tool route with the CALLER's credential
  *
  * This is deliberately a THIN transport, not a second implementation. Every
  * `tools/call` is forwarded to `POST /api/elevenlabs/tools/<name>` carrying the
- * server-side `x-agent-tool-secret`, so the existing guard still authenticates,
- * scopes to the tenant, and enforces the state preconditions — the same ones an
- * ElevenLabs agent's webhook call hits. An MCP client therefore cannot reach a
- * privileged action that the guard would refuse the browser/agent path; it is a
- * new front door onto the identical, already-enforced tool surface.
+ * `x-agent-tool-secret` the CALLER presented, so the existing guard
+ * authenticates THAT caller, scopes to THEIR tenant, and enforces the state
+ * preconditions — the same enforcement an ElevenLabs agent's webhook call hits.
+ *
+ * ## Why the caller's credential and not the server's
+ *
+ * The first version of this route forwarded the platform `AGENT_TOOL_SECRET`,
+ * which made the guard authorise the PLATFORM rather than the caller: any
+ * unauthenticated visitor could invoke every allowed tool on every eligible
+ * case. Privilege is bound to the credential, not the URL, so the transport
+ * forwards what the caller holds and refuses the call when they hold nothing.
+ * A caller with a per-tenant tool credential reaches exactly their own
+ * tenant's cases — the same bleedguard the direct tool routes enforce.
+ *
+ * ## Why the origin is never taken from the request
+ *
+ * The second version derived the forwarding origin from `req.url`, which
+ * carries the caller-controlled Host (Caddy forwards it verbatim — see
+ * `header_up Host {host}` in the Caddyfile). A caller who pointed that Host at
+ * their own server received the platform tool secret there. The forwarding
+ * target is now this deployment's own, fixed origin.
  */
 const PROTOCOL_VERSION = "2025-06-18";
 const SERVER_INFO = { name: "securevoice-mcp", version: "1.0.0" };
+
+/**
+ * Where tool calls are forwarded. OUR OWN origin from OUR OWN configuration —
+ * never `new URL(req.url).origin`, which is the caller's Host wearing a
+ * server's hat. Default localhost covers a single-process deployment and the
+ * standalone server (which honours PORT); compose overrides it with the app
+ * service's name.
+ */
+function toolOrigin(): string {
+  return process.env.MCP_TOOL_FORWARD_ORIGIN ?? `http://127.0.0.1:${process.env.PORT ?? 3000}`;
+}
 
 /** Tool name → route directory under /api/elevenlabs/tools/. */
 const TOOL_ROUTES: Record<string, string> = {
@@ -110,24 +137,24 @@ const reply = (id: JsonRpc["id"], result: unknown) =>
 const fail = (id: JsonRpc["id"], code: number, message: string) =>
   NextResponse.json({ jsonrpc: "2.0", id: id ?? null, error: { code, message } });
 
-/** Forward a tool call to the real, guarded route and shape the MCP result. */
+/**
+ * Forward a tool call to the real, guarded route, carrying the CALLER's
+ * credential. The guard's verdict (401/403/409) is passed back verbatim as the
+ * MCP result — this transport never upgrades a refusal into a success, and
+ * never substitutes a credential of its own.
+ */
 async function callTool(
   name: string,
   args: unknown,
-  origin: string,
+  callerSecret: string,
 ): Promise<{ isError: boolean; content: Array<{ type: "text"; text: string }> }> {
   const dir = TOOL_ROUTES[name];
   if (!dir) {
     return { isError: true, content: [{ type: "text", text: `unknown_tool: ${name}` }] };
   }
-  const secret = process.env.AGENT_TOOL_SECRET;
-  if (!secret) {
-    // Fail closed exactly like the guard: no configured secret reaches no tool.
-    return { isError: true, content: [{ type: "text", text: "tool_scope_unconfigured" }] };
-  }
-  const res = await fetch(new URL(`/api/elevenlabs/tools/${dir}`, origin), {
+  const res = await fetch(new URL(`/api/elevenlabs/tools/${dir}`, toolOrigin()), {
     method: "POST",
-    headers: { "content-type": "application/json", "x-agent-tool-secret": secret },
+    headers: { "content-type": "application/json", "x-agent-tool-secret": callerSecret },
     body: JSON.stringify(args ?? {}),
   });
   const text = await res.text();
@@ -157,9 +184,16 @@ export async function POST(req: Request) {
 
     case "tools/call": {
       const name = String(params?.name ?? "");
-      const origin = new URL(req.url).origin;
+      // The caller must present THEIR tool credential. Without one there is no
+      // identity to authorise, and the platform secret is not a substitute —
+      // forwarding it would make the guard authorise the deployment rather
+      // than the caller.
+      const callerSecret = req.headers.get("x-agent-tool-secret");
+      if (!callerSecret) {
+        return fail(id, -32600, "unauthorized: x-agent-tool-secret is required");
+      }
       try {
-        const result = await callTool(name, params?.arguments, origin);
+        const result = await callTool(name, params?.arguments, callerSecret);
         logInfo("[mcp] tools/call", { tool: name, isError: result.isError });
         return reply(id, result);
       } catch (err) {
@@ -191,6 +225,6 @@ export async function GET() {
     serverInfo: SERVER_INFO,
     methods: ["initialize", "tools/list", "tools/call"],
     tools: TOOLS.map((t) => t.name),
-    note: "tools/call is forwarded to the existing guarded /api/elevenlabs/tools/* routes with the server-side tool secret; the guard and state preconditions are unchanged.",
+    note: "tools/call forwards to the guarded /api/elevenlabs/tools/* routes carrying the CALLER's x-agent-tool-secret, so the guard authenticates the caller and scopes to their tenant; a call without a credential is refused, and the platform secret is never substituted. The forwarding target is this deployment's own origin, never one derived from the request.",
   });
 }

@@ -12,8 +12,8 @@ Evidence: `evidence/surface/surface.json`. Gate: `bun test tests/surface`.
 **There is no `/console` URL in this application.**
 
 `src/app/page.tsx` renders every view — home, product, use cases, docs,
-security, privacy, terms, deck, auth, demo, dashboard, console, settings — from
-a single client-side `view` state held in `src/lib/store.ts`. There is no
+security, privacy, terms, deck, auth, demo, dashboard, console, settings, setup —
+from a single client-side `view` state held in `src/lib/store.ts`. There is no
 `usePathname`, no `router.push` and no `history.pushState` anywhere in the tree.
 
 Three consequences run through this entire document:
@@ -200,11 +200,12 @@ Verified live: `/api/status` and `/inspector` both returned `microphone=()`.
 **The caveat, stated plainly: the allowlist contains `/`, and it has to.**
 
 `navigator.mediaDevices.getUserMedia` is called in exactly two places —
-`src/views/Demo.tsx` and `src/lib/voice-client.ts`. Both are reachable from the
-`demo` view, which `src/app/page.tsx` renders at path `/`. Denying the
-microphone on `/` is denying it to the entire demo, which is the one thing this
-app exists to show. So "microphone only on the widget route" is not currently
-achievable: **there is no separate widget route.**
+`src/components/demo/LiveVoicePanel.tsx` (the mic button) and
+`src/lib/voice-client.ts` (the barge-in monitor). Both are rendered from the
+`home` view, which `src/app/page.tsx` serves at path `/`. Denying the microphone
+on `/` is denying it to the landing-page live voice widget and to the demo —
+the two things this app exists to show. So "microphone only on the widget route"
+is not currently achievable: **there is no separate widget route.**
 
 The policy is still written as an allowlist rather than a blanket
 `microphone=(self)` because that is the shape that survives the obvious next
@@ -337,6 +338,56 @@ exported proxy** with real `NextRequest` objects and read the headers back, so
 they are genuine end-to-end assertions through the function Next runs — not a
 reimplementation. The `next.config.ts` headers are asserted against the config
 source and, separately, confirmed on the wire by the live block.
+
+---
+
+## Console surfaces added with the judge-experience work
+
+Four operator-facing additions. All of them are **inside the single `/` page**
+(there is still no separate route), and every one of them is gated server-side,
+not by the UI.
+
+**`setup` view** — the five-step institution wizard (`src/views/SetupWizard.tsx`,
+progress on `Organization.setupStep` / `setupCompletedAt`). Operator-only.
+Backed by `GET|POST /api/console/setup` and `POST /api/console/webhooks/test`.
+Every secret it accepts (ElevenLabs key, LLM key, Twilio auth token, webhook
+signing secret) is AES-256-GCM sealed at rest and is **never** returned by the
+GET — only a masked form or a `*Configured` boolean. A blank secret field means
+"keep what is stored", never "clear it".
+
+**Knowledge tab** — `src/views/settings/DocumentsSection.tsx`, shared with step 4
+of the wizard. Backed by `GET|POST /api/console/documents`,
+`DELETE /api/console/documents/:id`, `POST /api/console/documents/:id/retry` and
+`POST /api/console/documents/test`.
+
+- Uploads are validated by **content** (`%PDF-` magic bytes), not by filename or
+  declared MIME type, and capped at 8 MB.
+- The org is derived from the session. A cross-tenant document id returns **404,
+  not 403** — a 403 body would confirm the document exists.
+- Vectorization runs as a `doc.vectorize` job through QStash, or inline after the
+  response when QStash is not configured. **A document reaches `READY` only with
+  `PINECONE_API_KEY` + `PINECONE_INDEX` set**; without them every upload lands on
+  `FAILED` with the machine-readable reason `pinecone_not_configured`, which is
+  the state the console renders with a Retry button. The status ladder
+  (Pending → Chunking → Embedding → Ready) is the pipeline actually running, not
+  a decorative spinner.
+- A scanned PDF with no text layer fails with `no_extractable_text`; OCR is not
+  built.
+
+**Recording column** — `src/components/dashboard/RecordingPlayer.tsx` on the
+"Recent intervention calls" table. A URL means a file genuinely exists; `null`
+renders a muted **sealed** chip, because audio is retained for 30 days and an
+organization can have recording disabled outright
+(`src/lib/privacy/retention.ts`). Only one recording plays at a time. Files are
+generated at seed time by `scripts/seed-demo-audio.mjs` (`bun run db:seed:audio`)
+and **require `ELEVENLABS_API_KEY`**; without it the script writes nothing and
+the column honestly shows sealed.
+
+**Loading states** — `src/components/fx/LottieIcon.tsx`, hand-authored Lottie
+JSON in `public/lottie/`. `lottie-react` is dynamically imported so it stays out
+of the initial bundle, and every failure path (import, 404, malformed JSON)
+falls back to the existing CSS spinner, so a missing decorative asset can never
+blank a screen.
 
 ---
 

@@ -191,7 +191,9 @@ export function LiveVoicePanel({ callLang }: { callLang: CallLang }) {
     streamRef.current = null;
     const blob = new Blob(chunksRef.current, { type: chunksRef.current[0]?.type || "audio/webm" });
     if (blob.size < 1200) {
-      setError(lang === "ar" ? "لم نسمع شيئاً — حاول مجدداً." : "Didn't catch anything — try again.");
+      setError(
+        lang === "ar" ? "لم نسمع شيئاً — حاول مجدداً." : "Didn't catch anything — try again.",
+      );
       setPhase("idle");
       return;
     }
@@ -344,7 +346,7 @@ export function LiveVoicePanel({ callLang }: { callLang: CallLang }) {
                       : callLang === "sw"
                         ? "Mfano: hili si jambo langu"
                         : callLang === "fr"
-                          ? 'ex. « cette transaction n\'est pas la mienne »'
+                          ? "ex. « cette transaction n'est pas la mienne »"
                           : 'e.g. "That transaction is not mine"'
               }
               maxLength={600}

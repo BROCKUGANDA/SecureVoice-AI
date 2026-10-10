@@ -28,6 +28,7 @@ import {
   handlePostCallResolution,
   handleSmsFallback,
   handleScheduledRetry,
+  handleDocumentVectorize,
 } from "./handlers";
 import { logError } from "@/lib/validation/safe-log";
 
@@ -96,6 +97,7 @@ async function dispatch(envelope: JobEnvelope): Promise<void> {
     "call.postCall": handlePostCallResolution,
     "sms.fallback": handleSmsFallback,
     "retry.callback": handleScheduledRetry,
+    "doc.vectorize": handleDocumentVectorize,
   };
   await handlers[envelope.jobKind](envelope);
 }

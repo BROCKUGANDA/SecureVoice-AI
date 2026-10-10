@@ -1,0 +1,19 @@
+=== Session final state (not polling background suite) ===
+Commits (newest first):
+93f6d28 docs: responsive audit + wizard READY dependency (post-compliance pass)
+312bfe7 feat(compliance, stage, docs): Part 8-15 verification + demo-stage hardening
+fb1cfe5 feat(judge-experience): live browser-mic landing widget, org-scoped wallet, workflow console persistence + live run wiring
+---
+Clean working tree (after PR artifact removal):
+ M evidence/latency/spans.jsonl
+ M evidence/load/results.json
+ M evidence/privacy/privacy.json
+ M evidence/seams/seams.json
+?? PR
+---
+Evidence artifacts updated by suite runs (keep):
+---
+Audit deliverables:
+---
+Link: ses_edd89cb87ffeY2PL7fzlgVG4FQ - #1
+--- Background: sh_122944... (full suite) - in progress, not polled ---

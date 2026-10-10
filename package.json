@@ -50,7 +50,10 @@
     "deploy:status": "bun scripts/deploy.mjs status",
     "db:seed:audio": "bun scripts/seed-demo-audio.mjs",
     "voice:assets": "bun scripts/build-voice-assets.mjs",
-    "icons": "bun scripts/build-icons.mjs"
+    "icons": "bun scripts/build-icons.mjs",
+    "paddle:seed": "bun scripts/seed-paddle-catalog.ts",
+    "paddle:verify": "bun scripts/paddle-verify.ts",
+    "paddle:repair-overrides": "bun scripts/paddle-repair-overrides.ts"
   },
   "dependencies": {
     "@better-auth/infra": "^0.4.14",
@@ -61,6 +64,7 @@
     "@elevenlabs/elevenlabs-js": "^2.70.0",
     "@hookform/resolvers": "^5.1.1",
     "@mdxeditor/editor": "^3.39.1",
+    "@paddle/paddle-node-sdk": "^3.10.0",
     "@pinecone-database/pinecone": "^9.0.0",
     "@prisma/adapter-pg": "^7.10.0",
     "@prisma/client": "^7.10.0",

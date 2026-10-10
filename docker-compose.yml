@@ -144,6 +144,14 @@ services:
       ELEVENLABS_VOICE_UR: ${ELEVENLABS_VOICE_UR:-}
       ELEVENLABS_VOICE_FR: ${ELEVENLABS_VOICE_FR:-}
       ELEVENLABS_VOICE_SW: ${ELEVENLABS_VOICE_SW:-}
+      # Where the voice-stream worker lives on the compose network. The dial
+      # worker POSTs /prewarm here at the DIALING state, before the customer
+      # answers, so the call's fixed phrases are already synthesised and a
+      # Deepgram socket is already open. Fire-and-forget: a warm-up that can
+      # fail a dial would be disabled, and a cold first call is not a failed
+      # dial. Same optional secret as the voice-stream worker.
+      VOICE_STREAM_INTERNAL_URL: ${VOICE_STREAM_INTERNAL_URL:-http://voice-stream-worker:8080}
+      VOICE_PREWARM_SECRET: ${VOICE_PREWARM_SECRET:-}
       DIAL_WORKER_POLL_MS: ${DIAL_WORKER_POLL_MS:-1000}
       DIAL_WORKER_BATCH: ${DIAL_WORKER_BATCH:-5}
     depends_on:
@@ -248,6 +256,10 @@ services:
       ELEVENLABS_MODEL: ${ELEVENLABS_MODEL:-eleven_multilingual_v2}
       VOICE_STREAM_HOST: ${VOICE_STREAM_HOST:-0.0.0.0}
       VOICE_STREAM_PORT: ${VOICE_STREAM_PORT:-8080}
+      # Optional shared secret for the internal /prewarm endpoint. Unset means
+      # the compose-internal port alone guards it (it is `expose`d, never
+      # published); set the same value in both services to require the header.
+      VOICE_PREWARM_SECRET: ${VOICE_PREWARM_SECRET:-}
       FEATURE_TWILIO_MEDIA_STREAMS: ${FEATURE_TWILIO_MEDIA_STREAMS:-false}
       # Per-language voices. EVERY supported language needs one: the worker
       # resolves the voice from the call's language, and an unresolvable voice id
@@ -368,6 +380,10 @@ services:
       # localhost is the app container. Empty = realtime disabled, console uses SSE.
       REALTIME_URL: ${REALTIME_URL:-http://realtime:4000}
       REALTIME_INGEST_SECRET: ${REALTIME_INGEST_SECRET:-}
+      # Where the MCP transport forwards tools/call. Always the app's OWN
+      # origin — never a request-derived one, which the caller's Host header
+      # controls (see .env.example).
+      MCP_TOOL_FORWARD_ORIGIN: ${MCP_TOOL_FORWARD_ORIGIN:-http://127.0.0.1:3000}
     env_file:
       - path: .env
         required: false

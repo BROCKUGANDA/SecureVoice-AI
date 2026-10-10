@@ -78,8 +78,8 @@ jobs:
           fi
           code=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/check-runs" \
             --jq '[.check_runs[]
-                  | select(.name | startswith("Lint, typecheck"))
-                        or (.name | startswith("Compose stack"))]
+                  | select((.name | startswith("Lint, typecheck"))
+                        or (.name | startswith("Compose stack")))]
                   | if length == 0 then "missing"
                     else (map(select(.conclusion != "success")) | if length == 0 then "success" else "failing" end)
                     end')

@@ -6,7 +6,9 @@ import { transcript as redactText } from "@/lib/redact";
 import { consume as consumeRateLimit, rateLimitId } from "@/lib/ratelimit";
 import { append as auditAppend } from "@/lib/audit-chain";
 import { analyzeSentiment } from "@/lib/sentiment";
-import { draftAgentReply } from "@/lib/llm";
+import { draftAgentReply, resolveSessionLlmCredentials } from "@/lib/llm";
+import { callerRequestsSecret, NEVER_ASK_LINE } from "@/lib/compliance/never-ask";
+import { SAFETY_EXIT } from "@/lib/compliance/safety-exit";
 import { checkBadActor, recordStrike } from "@/lib/abuse/bad-actor";
 import { detectInjectionAttempt } from "@/lib/llm-guard";
 import { screenForMemory } from "@/lib/memory-guard";
@@ -355,6 +357,20 @@ const HANDOFF_REPLIES: Record<Lang, string> = {
   sw: "Ninataka uhakikishe unapata msaada sahihi, kwa hiyo ninakuunganisha sasa na mtaalamu binadamu. Tafadhali baki kwenye mstari.",
 };
 
+/*
+ * The hang-up-safe exit, attached to the two moments where a customer is either
+ * suspicious or being escalated.
+ *
+ * `deny_fraud` and `unclear` previously carried no independent-verification
+ * instruction at all, and `handoff` told the customer to stay on the line
+ * without ever telling them they were allowed to leave. That is the vishing
+ * pattern: isolate the victim from the second channel. The exit is a constant per
+ * language rather than generated copy — see src/lib/compliance/safety-exit.ts —
+ * and the speech gate treats it as protected text so the word cap can never trim
+ * it away.
+ */
+const exit = (lang: Lang) => SAFETY_EXIT[lang];
+
 const ACTION: Record<Intent, Action> = {
   deny_fraud: "card_freeze",
   confirm_authorized: "none",
@@ -429,14 +445,47 @@ export async function POST(req: NextRequest) {
   if (hostile) recordStrike(`agent:${callerId}`, 3);
 
   // 4. Draft the reply: the deterministic scripted line is the default; when a
-  //    GROQ_API_KEY is configured the LLM rephrases it in-language (never
-  //    decides the action). Compliance still audits whichever text wins.
-  const scripted = (
-    intent === "doubt" ? DOUBT_REPLIES : intent === "handoff" ? HANDOFF_REPLIES : REPLIES[intent]
-  )[lang];
-  const drafted = await draftAgentReply({ text, lang, intent, scriptedReply: scripted });
+  //    GROQ_API_KEY — or the caller's own BYOK credential — is configured the
+  //    LLM rephrases it in-language (never decides the action). Compliance still
+  //    audits whichever text wins.
+  // RULE 2 — the never-ask line, deterministically.
+  //
+  // When the caller asks the agent for a secret ("what's my PIN?"), the reply
+  // is the fixed refusal and nothing else: no draft (the line is a commitment,
+  // and a model's paraphrase of it is worse than the line), and no appended
+  // exit — the exit rides the turns that need it, and a 25-word exit stapled
+  // to a 10-word refusal would push the pair past the spoken word cap, where
+  // the gate's protection logic would have to choose between them.
+  const secretAsk = callerRequestsSecret(text);
+  const scripted = secretAsk
+    ? NEVER_ASK_LINE[lang]
+    : (intent === "doubt"
+        ? DOUBT_REPLIES
+        : intent === "handoff"
+          ? HANDOFF_REPLIES
+          : REPLIES[intent])[lang];
+  // The two replies that previously offered the customer no way out, and the one
+  // that tells them to STAY on the line, now always close with the exit. Applied
+  // here rather than inside the tables so the invariant is one line and cannot
+  // drift per intent.
+  const scriptedWithExit =
+    !secretAsk && (intent === "deny_fraud" || intent === "unclear" || intent === "handoff")
+      ? `${scripted} ${exit(lang)}`
+      : scripted;
+  // `undefined` (not null) is what lets the environment ladder take over for an
+  // anonymous caller or an operator with no stored key.
+  const tenantLlm = await resolveSessionLlmCredentials();
+  const drafted = secretAsk
+    ? null
+    : await draftAgentReply({
+        text,
+        lang,
+        intent,
+        scriptedReply: scriptedWithExit,
+        providerOverride: tenantLlm ?? undefined,
+      });
   const audited = auditAgentReply({
-    reply: drafted ?? scripted,
+    reply: drafted ?? scriptedWithExit,
     intent,
     isOpening: intent === "greeting" || direction === "outbound",
     lang,
@@ -456,6 +505,7 @@ export async function POST(req: NextRequest) {
         replyLength: audited.reply.length,
         llm: drafted != null,
         refused: !!audited.refused,
+        neverAsk: secretAsk,
         suspicious: userInputAudit.suspicious,
         suspiciousReason: userInputAudit.reason,
         sentiment: sentimentResult.sentiment,

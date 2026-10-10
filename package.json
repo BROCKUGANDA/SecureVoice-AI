@@ -47,7 +47,9 @@
     "test:coverage:fast": "bun scripts/coverage.mjs --fast",
     "test:coverage:unit": "bun scripts/coverage.mjs unit --fast",
     "deploy": "bun scripts/deploy.mjs",
-    "deploy:status": "bun scripts/deploy.mjs status"
+    "deploy:status": "bun scripts/deploy.mjs status",
+    "db:seed:audio": "bun scripts/seed-demo-audio.mjs",
+    "voice:assets": "bun scripts/build-voice-assets.mjs"
   },
   "dependencies": {
     "@better-auth/infra": "^0.4.14",
@@ -103,6 +105,7 @@
     "framer-motion": "^12.23.2",
     "input-otp": "^1.4.2",
     "ioredis": "^6.0.0",
+    "lottie-react": "^3.1.2",
     "lucide-react": "^0.525.0",
     "next": "^16.3.4",
     "next-auth": "^4.24.11",
@@ -124,6 +127,7 @@
     "sonner": "^2.0.6",
     "tailwind-merge": "^3.3.1",
     "tailwindcss-animate": "^1.0.7",
+    "unpdf": "^1.8.1",
     "uuid": "^11.1.0",
     "vaul": "^1.1.2",
     "z-ai-web-dev-sdk": "^0.0.18",

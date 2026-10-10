@@ -15,7 +15,8 @@ export type View =
   | "deck"
   | "auth"
   | "console"
-  | "settings";
+  | "settings"
+  | "setup";
 
 /**
  * View permission model (RBAC):
@@ -39,6 +40,10 @@ export const VIEW_ACCESS: Record<View, ViewAccess> = {
   deck: "operator", // team appendix
   console: "user", // single app — demo-role users get the same Command Center with a Demo Mode badge
   settings: "operator",
+  // Institution setup configures the TENANT (telecom identity, BYOK, webhooks),
+  // so it is operator-only like settings. It is NOT the product tour, which is a
+  // per-user concern and lives behind /api/onboarding.
+  setup: "operator",
 };
 export type Lang = "en" | "ar";
 

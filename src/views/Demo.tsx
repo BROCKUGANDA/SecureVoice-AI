@@ -34,6 +34,7 @@ import {
   type Phase,
   type CallLang,
 } from "@/lib/scenario";
+import AmountDisplay from "@/components/AmountDisplay";
 import {
   TTS_VOICE,
   speakText,
@@ -360,8 +361,19 @@ export function Demo() {
                 {lang === "ar" ? m.desc.ar : m.desc.en}
               </p>
               <div className="mt-3 flex items-center justify-between">
-                <span className="num text-[11px] font-semibold text-foreground">
-                  {lang === "ar" ? m.amount.ar : m.amount.en}
+                <span className="font-semibold text-foreground">
+                  {/* Layer 4: Intl-formatted currency — never shows "$" for AED */}
+                  <AmountDisplay
+                    amount={
+                      parseFloat(
+                        (m.amount.en || m.amount.ar || "0")
+                          .replace(/[A-Z]/g, "")
+                          .trim()
+                          .replace(/,/g, ""),
+                      ) || 0
+                    }
+                    currency="AED"
+                  />
                 </span>
                 <span
                   className={cn(
@@ -732,7 +744,7 @@ export function Demo() {
       </div>
 
       {/* ——— LIVE CONVERSATION: talk to the agent ——— */}
-        <LiveVoicePanel callLang={callLang} />
+      <LiveVoicePanel callLang={callLang} />
 
       {/* ——— what to watch for ——— */}
       <div className="mt-5 rounded-2xl border border-line bg-white px-5 py-3.5">

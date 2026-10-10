@@ -120,6 +120,13 @@ describe("authorization coverage", () => {
       "/api/console/audit",
       "/api/console/crm",
       "/api/console/dead-letter",
+      // Knowledge base. Every one of these derives its org from the session and
+      // is exercised end-to-end by tests/console/documents.test.ts, including the
+      // cross-tenant 404 and the anonymous 401.
+      "/api/console/documents",
+      "/api/console/documents/[id]",
+      "/api/console/documents/[id]/retry",
+      "/api/console/documents/test",
       "/api/console/events",
       "/api/console/features",
       "/api/console/fire",
@@ -130,6 +137,8 @@ describe("authorization coverage", () => {
       "/api/console/producer-keys",
       "/api/console/realtime-token",
       "/api/console/settings",
+      "/api/console/setup",
+      "/api/console/webhooks/test",
       "/api/console/workflows",
       "/api/console/workflows/[id]",
       "/api/console/workflows/run",

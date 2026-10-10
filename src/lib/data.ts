@@ -13,11 +13,23 @@ export interface RecentCall {
   action: string;
   outcome: "prevented" | "false_alarm" | "handoff" | "no_answer";
   csat: number | null;
+  /**
+   * A playable recording, or null when none was captured.
+   *
+   * `null` is the honest state and is NOT filled in with a placeholder: audio is
+   * retained for 30 days and organizations that disable recording have none at
+   * all (src/lib/privacy/retention.ts), so a URL here means "there is genuinely
+   * a file to play". The seeded files are generated at seed time by
+   * `scripts/seed-demo-audio.mjs`; without an ElevenLabs key they are absent and
+   * this stays null, which the table renders as a sealed chip.
+   */
+  recordingUrl: string | null;
 }
 
 export const RECENT_CALLS: RecentCall[] = [
   {
     id: "SV-8642",
+    recordingUrl: "/demo-audio/SV-8642.mp3",
     customer: "Ahmed Al-Rashid",
     lang: "AR-Gulf",
     started: "14:02:11",
@@ -29,6 +41,7 @@ export const RECENT_CALLS: RecentCall[] = [
   },
   {
     id: "SV-8641",
+    recordingUrl: "/demo-audio/SV-8641.mp3",
     customer: "Priya Nair",
     lang: "EN",
     started: "13:58:47",
@@ -40,6 +53,7 @@ export const RECENT_CALLS: RecentCall[] = [
   },
   {
     id: "SV-8640",
+    recordingUrl: "/demo-audio/SV-8640.mp3",
     customer: "Mohammed Siddiq",
     lang: "UR",
     started: "13:51:03",
@@ -51,6 +65,7 @@ export const RECENT_CALLS: RecentCall[] = [
   },
   {
     id: "SV-8639",
+    recordingUrl: "/demo-audio/SV-8639.mp3",
     customer: "Grace Mwangi",
     lang: "EN",
     started: "13:44:29",
@@ -62,6 +77,7 @@ export const RECENT_CALLS: RecentCall[] = [
   },
   {
     id: "SV-8638",
+    recordingUrl: "/demo-audio/SV-8638.mp3",
     customer: "Rashid Al-Mansoori",
     lang: "AR-Gulf",
     started: "13:37:52",
@@ -73,6 +89,7 @@ export const RECENT_CALLS: RecentCall[] = [
   },
   {
     id: "SV-8637",
+    recordingUrl: null,
     customer: "Ana Lucia Reyes",
     lang: "TL",
     started: "13:29:14",
@@ -84,6 +101,7 @@ export const RECENT_CALLS: RecentCall[] = [
   },
   {
     id: "SV-8636",
+    recordingUrl: null,
     customer: "Joseph Mathew",
     lang: "ML",
     started: "13:21:40",
@@ -95,6 +113,7 @@ export const RECENT_CALLS: RecentCall[] = [
   },
   {
     id: "SV-8635",
+    recordingUrl: null,
     customer: "Omar Haddad",
     lang: "AR",
     started: "13:15:09",
@@ -106,6 +125,7 @@ export const RECENT_CALLS: RecentCall[] = [
   },
   {
     id: "SV-8634",
+    recordingUrl: null,
     customer: "Fatima Zahra",
     lang: "AR",
     started: "13:07:33",
@@ -117,6 +137,7 @@ export const RECENT_CALLS: RecentCall[] = [
   },
   {
     id: "SV-8633",
+    recordingUrl: null,
     customer: "Sanjay Kumar",
     lang: "HI",
     started: "12:58:21",
@@ -128,6 +149,7 @@ export const RECENT_CALLS: RecentCall[] = [
   },
   {
     id: "SV-8632",
+    recordingUrl: null,
     customer: "Mariam Qureshi",
     lang: "EN",
     started: "12:49:58",
@@ -139,6 +161,7 @@ export const RECENT_CALLS: RecentCall[] = [
   },
   {
     id: "SV-8631",
+    recordingUrl: null,
     customer: "Khalid Al-Suwaidi",
     lang: "AR-Gulf",
     started: "12:41:17",

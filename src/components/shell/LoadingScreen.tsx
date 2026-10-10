@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { LogoMark } from "@/components/shell/Logo";
+import { LottieIcon } from "@/components/fx/LottieIcon";
 
 const STEPS = [
   "Securing session",
@@ -54,7 +55,13 @@ export function LoadingScreen({ onDone }: { onDone: () => void }) {
               className="relative"
             >
               <LogoMark size={64} />
-              <span className="sv-pulse-ring absolute inset-0 rounded-2xl text-green-bright/60" />
+              {/* The expanding-ring flourish is the Lottie sonar animation rather
+                  than the CSS `sv-pulse-ring`. It is the same visual idea, and the
+                  component falls back to that CSS ring automatically if the
+                  animation asset or the dynamic import is unavailable. */}
+              <span className="pointer-events-none absolute -inset-6">
+                <LottieIcon name="sonar" size={112} label="" />
+              </span>
             </motion.div>
             <motion.h1
               initial={{ opacity: 0, y: 10 }}

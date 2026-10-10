@@ -20,6 +20,7 @@ import { Deck } from "@/views/Deck";
 import { Auth } from "@/views/Auth";
 import { Console } from "@/views/Console";
 import { Settings } from "@/views/Settings";
+import { SetupWizard } from "@/views/SetupWizard";
 import { IdleTimeoutHandler } from "@/components/shell/IdleTimeoutHandler";
 
 const VIEWS: Record<View, React.ComponentType> = {
@@ -36,6 +37,7 @@ const VIEWS: Record<View, React.ComponentType> = {
   auth: Auth,
   console: Console,
   settings: Settings,
+  setup: SetupWizard,
 };
 
 export default function Page() {

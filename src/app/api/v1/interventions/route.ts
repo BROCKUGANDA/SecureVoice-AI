@@ -26,10 +26,12 @@ import { logError } from "@/lib/validation/safe-log";
 
 import { notifyRealtime } from "@/lib/realtime";
 import { createCase, transitionCase } from "@/lib/case-state-machine";
+import { mintVerificationToken } from "@/lib/verification-token";
 import { SIGNAL_KINDS } from "@/lib/institution-types";
 import { getInstitutionType } from "@/lib/institution";
 import { CALL_CATEGORIES } from "@/lib/call-categories";
 import { env, replayWindowSec, IDEMPOTENCY_TTL_HOURS, SUPPORTED_LANGS } from "@/lib/config";
+import { preNotificationLeadMs as sharedPreNotificationLeadMs } from "@/lib/prenotify";
 
 /**
  * One error shape for the whole bank-facing surface: `{ code, message,
@@ -87,14 +89,19 @@ const IDEMPOTENCY_TTL_MS = IDEMPOTENCY_TTL_HOURS * 60 * 60 * 1_000;
  * Bounded so a misconfigured env value cannot park a fraud call indefinitely.
  */
 export function preNotificationLeadMs(): number {
-  // DEFAULT 0: the submission promises the agent calls within 60s of the
-  // signal, and 75s of hold breaks that SLA. An operator who wants the
+  // DEFAULT 0: the submission promises the agent calls within 60s of the signal,
+  // and 75s of hold breaks that SLA. An operator who wants the
   // pre-notification SMS to reliably land before the ring can opt in with
-  // PRENOTIF_LEAD_SECONDS (60-90); the SMS text itself is sent immediately
+  // PRENOTIF_LEAD_SECONDS (60–90); the SMS text itself is sent immediately
   // regardless.
-  const raw = Number(process.env.PRENOTIF_LEAD_SECONDS ?? 0);
-  if (!Number.isFinite(raw) || raw <= 0) return 0;
-  return Math.min(Math.trunc(raw), 300) * 1000;
+  //
+  // DELETED-IN-FAVOUR-OF: this was a SECOND, divergent copy of
+  // `preNotificationLeadMs` in src/lib/prenotify.ts. Two definitions of one
+  // policy is one too many: they clamped differently (90s here vs 300s there, in
+  // the direction that lets a misconfigured value park a fraud call for five
+  // minutes), and whichever module a caller happened to import decided the
+  // behaviour. One definition, imported.
+  return sharedPreNotificationLeadMs();
 }
 /** The SMS language set; anything unmapped falls back to English. */
 type DeliveryLang = (typeof SUPPORTED_LANGS)[number];
@@ -577,6 +584,13 @@ async function armAndDial(
   // The gates above have passed, so this is RECEIVED -> SCREENED through the
   // single writer. The dial worker then owns SCREENED -> DIALING.
   const merchant = signal.merchant ? sanitizeUntrusted(signal.merchant) : undefined;
+  // The out-of-band verification token, minted here and returned ONCE below.
+  //
+  // This is the second anchoring channel: the SMS announces the EVENT, this word
+  // lets the customer confirm on their own screen that a verification CALL is in
+  // progress. Neither works if the attacker can reach the channel — which is why
+  // the bank app is the surface, not the call.
+  const verificationToken = mintVerificationToken();
   const created = await createCase({
     caseRef,
     orgId,
@@ -591,6 +605,7 @@ async function armAndDial(
     cardLast4: signal.ref_last4 ?? null,
     signalKind: signal.signal_kind ?? null,
     callCategory: signal.call_category ?? null,
+    verificationToken,
   });
   await transitionCase(caseRef, "SCREENED");
 
@@ -892,6 +907,29 @@ async function armAndDial(
     riskScore: signal.risk_score,
     delivery,
     receivedAt: new Date().toISOString(),
+    /**
+     * The out-of-band verification token — RETURNED ONCE, HERE, AND NOWHERE ELSE.
+     *
+     * This response is the delivery mechanism: the bank integration renders this
+     * word in the customer's app so they can confirm on a channel the caller
+     * cannot reach that a verification call is genuinely in progress.
+     *
+     * It is NOT stored in the envelope. A stored response is persisted for
+     * idempotent replay and is logged, and a token that survives in an
+     * idempotency table is a token an operator can replay from the audit view.
+     * The replay path returns the stored envelope, which therefore has no token —
+     * a bank retrying the same signal gets its case reference and nothing more,
+     * which is the correct answer: the word was already delivered once, to the
+     * app, at the moment the intervention was created.
+     */
+    verification: {
+      token: verificationToken.plaintext,
+      deliver_to: "bank_app",
+      // Stated in the response so an integrator cannot ship it into a webhook,
+      // an SMS, or anywhere the caller can reach it.
+      never_speak: true,
+      purpose: "customer-side confirmation that a verification call is in progress",
+    },
   };
   // `acceptedAt` is INTERNAL telemetry plumbing, deliberately NOT part of the wire
   // envelope. It is returned alongside so the POST handler can measure a real

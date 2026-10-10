@@ -27,6 +27,7 @@ import { StatusPill, LiveDot, Skeleton, Chip } from "@/components/fx/core";
 import { Counter } from "@/components/fx/core";
 import { TrendChart, HBars, Donut, Gauge, CompareBar, Sparkline } from "@/components/fx/charts";
 import { Pagination } from "@/components/fx/Pagination";
+import { RecordingPlayer } from "@/components/dashboard/RecordingPlayer";
 import { Switch } from "@/components/ui/switch";
 import { Slider } from "@/components/ui/slider";
 import { useToast } from "@/hooks/use-toast";
@@ -256,6 +257,10 @@ const OUTCOME_MAP: Record<string, { tone: "green" | "red" | "amber" | "gray"; en
 
 function Monitor() {
   const live = RECENT_CALLS[0];
+  // Which row owns audio playback. Held here rather than inside each player so
+  // the "only one recording plays at a time" rule has a single owner — see
+  // RecordingPlayer.
+  const [playingId, setPlayingId] = useState<string | null>(null);
   return (
     <div className="grid gap-5 lg:grid-cols-[0.9fr_1.1fr]">
       {/* live call */}
@@ -332,6 +337,7 @@ function Monitor() {
                 <th className="px-2 py-2.5 font-medium">Lang</th>
                 <th className="px-2 py-2.5 font-medium">Trigger</th>
                 <th className="px-2 py-2.5 font-medium">Outcome</th>
+                <th className="px-2 py-2.5 font-medium">Recording</th>
                 <th className="px-5 py-2.5 text-right font-medium">CSAT</th>
               </tr>
             </thead>
@@ -348,6 +354,14 @@ function Monitor() {
                     </td>
                     <td className="px-2 py-3">
                       <StatusPill tone={o.tone}>{o.en}</StatusPill>
+                    </td>
+                    <td className="px-2 py-3">
+                      <RecordingPlayer
+                        src={c.recordingUrl}
+                        caseId={c.id}
+                        playingId={playingId}
+                        onPlay={setPlayingId}
+                      />
                     </td>
                     <td className="num px-5 py-3 text-right text-ink-2">
                       {c.csat ? c.csat.toFixed(1) : "—"}

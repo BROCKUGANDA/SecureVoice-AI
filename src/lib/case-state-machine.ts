@@ -285,6 +285,16 @@ export async function transitionCaseWithOutbox(
   signalKind?: string | null;
   /** fact_finding | sensitive_case | b2b | routine | time_critical_fraud (src/lib/call-categories.ts) */
   callCategory?: string | null;
+  /**
+   * The out-of-band verification token for this case.
+   *
+   * Passed IN rather than minted here so that the plaintext and the stored hash
+   * travel together and the caller can hand the word to the bank integration that
+   * renders it in the customer's app. Creating it inside this function would mean
+   * the hash is written while the plaintext is discarded — the feature would work
+   * and be undeliverable.
+   */
+  verificationToken?: { plaintext: string; hash: string } | null;
 }): Promise<{ id: string; caseRef: string; state: string }> {
   try {
     return await db.case.create({
@@ -304,6 +314,10 @@ export async function transitionCaseWithOutbox(
         cardLast4: data.cardLast4 ?? null,
         signalKind: data.signalKind ?? null,
         callCategory: data.callCategory ?? null,
+        // Write-once, and the migration's trigger refuses any later change to a
+        // token that is already set.
+        verificationTokenHash: data.verificationToken?.hash ?? null,
+        verificationTokenAt: data.verificationToken ? new Date() : null,
       },
       select: { id: true, caseRef: true, state: true },
     });

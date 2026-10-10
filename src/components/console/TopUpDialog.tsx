@@ -23,9 +23,16 @@ import { SUPPORT_EMAIL } from "@/lib/public-config";
 export function TopUpDialog({
   open,
   onOpenChange,
+  onOpenSettings,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /**
+   * Optional: jump straight to the view where the BYOK key is entered. Without
+   * it the dialog still explains the path in words; with it, "Bring your own
+   * key" is one click instead of an instruction the operator has to remember.
+   */
+  onOpenSettings?: () => void;
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -67,6 +74,18 @@ export function TopUpDialog({
           >
             Contact Sales
           </a>
+          {onOpenSettings && (
+            <button
+              type="button"
+              onClick={() => {
+                onOpenChange(false);
+                onOpenSettings();
+              }}
+              className="inline-flex h-10 items-center justify-center rounded-xl border border-line bg-white px-4 text-[13px] font-semibold text-ink-2 transition hover:border-primary/40 hover:text-primary"
+            >
+              Open Settings
+            </button>
+          )}
           <Button onClick={() => onOpenChange(false)}>Close</Button>
         </div>
       </DialogContent>

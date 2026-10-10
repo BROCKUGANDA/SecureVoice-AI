@@ -322,6 +322,28 @@
   pointer-events: none;
 }
 
+/* LoadingIndicator — three concentric expanding rings, staggered by delay.
+   This is a sibling of `.sv-pulse-ring`, not a modifier of it, for two reasons:
+   `.sv-pulse-ring` is used in a dozen places that each want the default 1.8s
+   single ring, and the stagger has to ride on a CUSTOM PROPERTY. An inline
+   `animation-delay` on the host element cannot work here — `::after` declares
+   its own `animation` shorthand, so the parent's inline value never reaches it.
+   `--sv-ring-delay` is read by the pseudo-element's own declaration instead. */
+.sv-loading-rings {
+  position: relative;
+  pointer-events: none;
+}
+.sv-loading-rings::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  border: 2px solid currentColor;
+  animation: sv-pulse-ring 2.4s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+  animation-delay: var(--sv-ring-delay, 0s);
+  pointer-events: none;
+}
+
 @keyframes sv-blink {
   0%,
   100% {
@@ -436,6 +458,7 @@
   .sv-marquee,
   .sv-float,
   .sv-pulse-ring,
+  .sv-loading-rings::after,
   .sv-blink,
   .sv-shimmer {
     animation: none !important;

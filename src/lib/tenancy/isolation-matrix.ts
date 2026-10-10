@@ -208,6 +208,18 @@ export const CANONICAL_READ_PATHS: readonly CanonicalReadPath[] = Object.freeze(
     model: "PaymentRecord",
     obligation: "An org-scoped read of a payment record cannot resolve another org's settlement.",
   },
+  {
+    id: "lib.payments.paddle-customer-by-id",
+    model: "PaddleCustomer",
+    obligation:
+      "An org-scoped read of the Paddle customer mirror cannot resolve another org's customer from a webhook id.",
+  },
+  {
+    id: "lib.payments.paddle-subscription-by-id",
+    model: "PaddleSubscription",
+    obligation:
+      "An org-scoped read of the Paddle subscription mirror cannot resolve another org's entitlement from a webhook id.",
+  },
 ]);
 
 // ── The evidence obligation ──────────────────────────────────────────────────
@@ -639,6 +651,40 @@ export const ISOLATION_MATRIX: readonly ReadPath[] = Object.freeze([
     coverage: "asserted",
     notes:
       "`PaymentRecord` carries `orgId` and was missing from TENANTED_MODELS, with the same consequence as the ledger. `reference` is globally UNIQUE, so the raw `db.paymentRecord.findUnique({ reference })` in src/lib/payments/provider.ts resolves any org's settlement from the reference alone; registering the model makes the scoped form refuse it, and an explicit cross-org `where` is refused outright rather than silently emptied.",
+  },
+  {
+    id: "lib.payments.paddle-customer-by-id",
+    title: "Org-scoped Paddle customer read",
+    model: "PaddleCustomer",
+    kind: "library",
+    module: "src/lib/tenancy/guard.ts",
+    read: "scopedDb(orgScopeFor(org)).paddleCustomer.findFirst",
+    probe: {
+      field: "customerId",
+      invoke:
+        "Resolve the other org's `ctm_...` id through this org's scoped client — must resolve to nothing.",
+    },
+    verdict: "foreign-probe-empty",
+    coverage: "asserted",
+    notes:
+      "`PaddleCustomer` carries `orgId` and was added to TENANTED_MODELS without a promised read path — which this gate caught, because a tenant model nobody has promised to read is an unowned tenant and the matrix fails closed on it. `customerId` is globally UNIQUE and is a Paddle id, so the id alone is the lookup key every mirror path uses: an unscoped `findUnique({ customerId })` resolves anyone's billing identity. The scoped form refuses it, and an explicit cross-org `where` is refused rather than emptied.",
+  },
+  {
+    id: "lib.payments.paddle-subscription-by-id",
+    title: "Org-scoped Paddle subscription read",
+    model: "PaddleSubscription",
+    kind: "library",
+    module: "src/lib/tenancy/guard.ts",
+    read: "scopedDb(orgScopeFor(org)).paddleSubscription.findFirst",
+    probe: {
+      field: "subscriptionId",
+      invoke:
+        "Resolve the other org's `sub_...` id through this org's scoped client — must resolve to nothing.",
+    },
+    verdict: "foreign-probe-empty",
+    coverage: "asserted",
+    notes:
+      "`PaddleSubscription` carries `orgId` and was added to TENANTED_MODELS without a promised read path — caught by the same fail-closed check. `subscriptionId` is globally UNIQUE, and this row is the one `hasPaidAccess` in src/lib/payments/access.ts reads to decide whether an org has a working checkout: an unscoped resolution would grant an org access it never bought. The scoped form refuses it, and an explicit cross-org `where` is refused rather than emptied.",
   },
 ]);
 

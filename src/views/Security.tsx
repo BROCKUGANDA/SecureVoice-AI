@@ -284,7 +284,9 @@ function SecurityHeadersProbe() {
 /* ————————————————— page ————————————————— */
 
 export function Security() {
-  const { lang, setView } = useApp();
+  // `setView` used to drive the in-app Privacy link, which is now a real anchor
+  // to the /privacy route so a crawler can follow it. Nothing here navigates.
+  const { lang } = useApp();
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8 lg:py-12">
@@ -538,8 +540,11 @@ export function Security() {
             </div>
           </div>
 
-          <button
-            onClick={() => setView("privacy")}
+          {/* An anchor to the real `/privacy` route, for the same reason as the
+              footer: the Security page is the one that most invites a reader to
+              check the policy, and a crawler cannot follow a button. */}
+          <a
+            href="/privacy"
             className="group flex w-full items-center justify-between rounded-3xl border border-line bg-white p-6 text-left transition hover:border-primary/40"
           >
             <div className="flex items-center gap-3.5">
@@ -558,7 +563,7 @@ export function Security() {
               </div>
             </div>
             <ArrowRight className="h-4 w-4 text-ink-3 transition group-hover:translate-x-0.5 group-hover:text-primary" />
-          </button>
+          </a>
         </div>
       </div>
     </div>

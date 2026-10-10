@@ -40,11 +40,26 @@ on:
   workflow_dispatch:
 
 permissions:
-  # `checks: read` is what the gate below actually calls. Naming only
-  # `contents: write` implicitly sets every other permission to none, so the
-  # `check-runs` read returned 403 and the job could never prove CI was green.
+  # BOTH are required, and each was once the only one named — which is how this
+  # ended up broken twice:
+  #
+  #  · `checks: read` is what the CI-green gate below calls. Naming ONLY
+  #    `contents: write` implicitly sets every unnamed permission to none, so
+  #    the `check-runs` read returned 403 and the job could never prove CI was
+  #    green at all.
+  #
+  #  · `contents: write` is what the two `git push` lines at the end need — the
+  #    bump commit and the `vX.Y.Z` tag. Naming ONLY `checks: read` left the
+  #    token read-only, so the bump committed and tagged LOCALLY and then died
+  #    on `git push origin main` with
+  #    `remote: Permission to BROCKUGANDA/SecureVoice-AI.git denied to
+  #     github-actions[bot]` / 403. Nothing was released: package.json on main
+  #    stayed at the old version and no tag existed.
+  #
+  # Granting only one of these makes this workflow fail in a different place
+  # each time, so both are named explicitly and neither is implied.
   checks: read
-  contents: read
+  contents: write
 
 # One bump at a time: two racing bumps would tag two versions off one commit.
 concurrency:
@@ -63,6 +78,20 @@ jobs:
           # The tag push below needs the tag to be creatable, and the bump needs
           # the tag list to know whether this version already shipped.
           fetch-depth: 0
+
+      # Runs on the VPS runner (securevoice-vps) and calls
+      # `bun scripts/bump-version.mjs` directly on the host. Same reasoning as
+      # ci.yml: provision it here rather than assuming a manual install
+      # happened, because a replaced runner would otherwise break the release.
+      - name: Install Bun on the runner
+        run: |
+          if command -v bun >/dev/null 2>&1; then
+            echo "bun already present: $(bun --version)"
+            exit 0
+          fi
+          curl -fsSL https://bun.sh/install | bash
+          echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
+          "$HOME/.bun/bin/bun" --version
 
       # The gating rule. A release is a claim that this commit works, and this
       # is where that claim is checked rather than asserted.

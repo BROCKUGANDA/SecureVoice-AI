@@ -673,6 +673,7 @@ jobs:
 
       # The host ports come from the override, not from docker-compose.yml,
       # because production already holds 80/443 on this machine.
+      #
       # Reclaim smoke networks leaked by earlier runs. The teardown below used to
       # name a fixed project (`securevoice-ci`) while the stack ran under the
       # per-run `$PROJECT`, so every run's `svci-*` network was never removed and
@@ -683,11 +684,40 @@ jobs:
       # and `docker network rm` refuses any network that still has connected
       # containers, so a concurrently running smoke job is left untouched; stale
       # ones have none and are removed.
-      - name: Reclaim stale smoke networks
+      #
+      # Networks were only half the leak, and the smaller half. Two more things
+      # accumulate, both measured on this box rather than assumed:
+      #
+      #   VOLUMES — each run leaves `svci-<run>_caddy-config`, `_caddy-data` and
+      #     `_db-data` behind. 75 of them had collected (3.3 GB). `down -v` is
+      #     supposed to take them but does not, so they are removed by name here.
+      #
+      #   BUILD CACHE — `docker compose build` writes cache that `down` never
+      #     touches. 79 entries, 0 active, 22.5 GB: the single largest consumer
+      #     on the disk and roughly seven times the volume leak. This is what
+      #     actually filled the disk.
+      #
+      # Together those two brought the runner from 79% full (21 GB free) to 60%
+      # (39 GB free) in one pass. Reclaiming only the networks, as this step used
+      # to, left both of them growing on every run.
+      - name: Reclaim leaked CI volumes and build cache
         run: |
-          for n in $(docker network ls --filter 'name=svci-' -q); do
-            docker network rm "$n" 2>/dev/null || true
+          set -uo pipefail
+          # Only `svci-` names are candidates, so `securevoice-ai_*` and
+          # `crucible_deployed` — the volumes production is actually using —
+          # cannot be matched. A volume still referenced by any container is
+          # skipped, so a concurrently running smoke job is never disturbed.
+          for v in $(docker volume ls --format '{{.Name}}' | grep '^svci-' || true); do
+            if [ -z "$(docker ps -a --filter volume="$v" --format '{{.Names}}' 2>/dev/null)" ]; then
+              docker volume rm "$v" >/dev/null 2>&1 || true
+            fi
           done
+
+          # Build cache older than 3 days. Not `-a`: this runner also builds the
+          # production image on deploy, and wiping its whole cache would make the
+          # next deploy a full rebuild for no benefit. 3 days keeps the deploy
+          # path warm while bounding what CI can accumulate.
+          docker builder prune --force --filter 'until=72h' 2>&1 | tail -2 || true
 
       - name: Build and start the stack
         run: docker compose -f docker-compose.yml -f docker-compose.ci.yml -p "$PROJECT" up -d --build --wait --wait-timeout 300

@@ -131,6 +131,47 @@ docker compose exec -T db psql -U securevoice -d securevoice \
    promotion PR can sit unmerged for that reason alone. `df -h` on the VPS is
    the first thing to check when the ladder stalls.
 
+## RESOLUTION (2026-10-10) — what the incident actually was, and what was done
+
+**Diagnosis corrected by hands-on triage.** The disk was never full (19G
+free); the pressure was **23 stale CI containers** left by five failed Oct 8–9
+runs (three full `svci-*` compose stacks + two `sv-ci-*` db/redis), plus
+**15.4GB of build cache** and ~4GB of dead volumes. Load average sat at 2.5.
+The app's `Can't reach database server at db` errors were from **Oct 8** —
+stale; the app was up and serving the whole time (in-container `/api/health`
+→ 200, `uptimeSec` 168376). The origin was never actually down.
+
+**Remediation executed over SSH (deploy key):**
+
+1. Brought down the three stale CI compose projects with `down -v`, removed
+   the two leftover CI containers, pruned the build cache (15.4GB), pruned
+   unused images (10.9GB) and dangling volumes (3.9GB). Disk: **81% → 30%
+   used** (78G → 29G). Production volumes (`securevoice-ai_db-data` et al.)
+   untouched; `crucible-*` (the other project on the shared edge) untouched.
+2. Merged the Caddyfile: the VPS-local changes were **pure appends** (the
+   `crucible.svalley.tech` / `securevoice.svalley.tech` site blocks, 106
+   lines), the incoming change rewrites lines 104–128 (the
+   `/realtime/media-stream` route). Took the incoming file, re-appended the
+   site blocks, `caddy validate` → **Valid configuration**, re-asserted
+   skip-worktree. The pull then succeeded and the VPS is on `f5396dd`.
+3. Dispatched a fresh deploy from main (the CI-green guard passed).
+
+**The Supabase question — settled by evidence: neither database holds
+production data.** Bundled db: `Case` 0, `AuditLog` 26, `organization` 0,
+`user` 0. Supabase: likewise empty (test residue only). So the cutover was a
+config choice with no data at stake — and **the bundled Postgres is what
+production actually runs on** (the app's `DATABASE_URL` host is `db`, the
+compose default, and it works). No cutover was performed. If Supabase is
+still preferred, it is a one-line `.env` change on the VPS plus a redeploy —
+there is nothing to migrate.
+
+**One real gap found and fixed:** `deploy.yml` built and upped
+`app dial-worker retention-worker db-setup` — the union's new
+`voice-stream-worker` (the entire Twilio Media Streams plane, plus the
+`/realtime/media-stream` Caddy route that targets it) was in neither list, so
+a roll would have left the newest plane unstarted and its route 502ing.
+Added to both lists (`fix(deploy): roll the voice-stream worker with the app`).
+
 ## Failure mode #2 — the deploy's `git pull` refuses: "local changes to Caddyfile would be overwritten"
 
 Deploy 38018564836 died at `git pull --ff-only` with:

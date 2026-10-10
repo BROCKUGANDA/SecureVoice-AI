@@ -43,7 +43,11 @@ function withEnv(env: string | undefined, token: string | undefined) {
 
 async function load() {
   // Cache-busted so each case re-evaluates the module-level `paddlePromise`.
-  return await import(`../../src/lib/paddle-browser.ts?case=${Math.random()}`);
+  // NOT `return await` — that is `no-return-await`, a lint error rather than a
+  // warning in this repo's config, and it buys nothing: returning the promise
+  // directly still awaits at the call site.
+  const spec = `../../src/lib/paddle-browser.ts?case=${Math.random()}`;
+  return import(spec);
 }
 
 describe("paddleEnvironment refuses to guess", () => {

@@ -137,10 +137,32 @@ jobs:
           echo "next version: $next"
 
           # Same command a human would run, so the one script that owns
-          # package.json is the one that writes it. Its output ends with
-          # "version X -> Y"; verify it actually applied before committing.
-          bumped=$(bun scripts/bump-version.mjs "$next" | tail -n 1)
-          if ! printf '%s' "$bumped" | grep -qF "-> $next"; then
+          # package.json is the one that writes it. Its FIRST output line is
+          # `version X -> Y`; verify that line actually appeared before
+          # committing. (See the two-fault note below for why it is `head`,
+          # and why the grep needs `--`.)
+          #
+          # Two bugs met here on 2026-10-10, and both had to be fixed together.
+          #
+          #  1. `tail -n 1` read the WRONG line. The script prints
+          #     `version 0.2.1 -> 0.2.2` and THEN
+          #     `next: git commit -am "chore: release v0.2.2" && …`. `tail -n 1`
+          #     therefore selected the "next:" hint — or the trailing empty line
+          #     — and never the confirmation line the check is looking for.
+          #     `head -n 1` is the line that actually carries `X -> Y`.
+          #
+          #  2. The grep pattern BEGINS WITH A DASH. `grep -qF "-> $next"` parses
+          #     `-> 0.2.2` as an option string and dies with
+          #     `grep: invalid option -- '>'` before it ever looks at the input.
+          #     The `--` separator ends option parsing and is what makes a
+          #     leading-dash pattern reachable at all.
+          #
+          # Either bug alone aborts the release AFTER package.json was already
+          # rewritten in the working tree but BEFORE any commit or tag, which is
+          # the worst place to fail: the repo looks bumped and nothing is
+          # released. Both are now covered by a test that runs the real script.
+          bumped=$(bun scripts/bump-version.mjs "$next" | head -n 1)
+          if ! printf '%s' "$bumped" | grep -qF -- "-> $next"; then
             echo "::error::bump-version.mjs did not apply $next (said: '$bumped')"
             exit 1
           fi

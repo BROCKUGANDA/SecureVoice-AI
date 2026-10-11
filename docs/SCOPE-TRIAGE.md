@@ -30,7 +30,7 @@ red, the demo does not run.
 | Latency badge                                        | `src/lib/telemetry/spans.ts` + `src/components/slo/SloPanel.tsx` |
 | Demo Mode badge                                      | `Console.tsx` header chip                                        |
 | Toasts                                               | `src/hooks/use-toast.ts`                                         |
-| Skeleton / Lottie loading states                     | `src/components/fx/LottieIcon.tsx`                               |
+| Skeleton / loading states                            | `src/components/fx/LoadingIndicator.tsx`                         |
 | Health endpoint                                      | `src/app/api/health/route.ts`                                    |
 | Pre-seeded playable audio URLs                       | `public/demo-audio/` via `bun run db:seed:audio`                 |
 | **Vishing blocklist refusing an utterance on stage** | `src/lib/compliance/vishing.ts`                                  |

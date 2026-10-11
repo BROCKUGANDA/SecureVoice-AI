@@ -1,6 +1,6 @@
 "use client";
 
-import { ScrollText, FileText, ArrowRight } from "lucide-react";
+import { ScrollText, FileText, ArrowRight, Undo2 } from "lucide-react";
 import { useApp, t } from "@/lib/store";
 import { SUPPORT_EMAIL } from "@/lib/public-config";
 import { Reveal } from "@/components/fx/core";
@@ -18,7 +18,7 @@ function LegalShell({
   sections,
   sectionsAr,
 }: {
-  kind: "privacy" | "terms";
+  kind: "privacy" | "terms" | "refund";
   icon: typeof ScrollText;
   titleEn: string;
   titleAr: string;
@@ -31,22 +31,28 @@ function LegalShell({
      than interleaved — the translation can never silently rewrite it. */
   sectionsAr: { h: string; body: string[] }[];
 }) {
-  const { lang, setView } = useApp();
+  const { lang } = useApp();
+
+  /** Short eyebrow above the title, and its Arabic mirror. */
+  const eyebrow: [string, string] =
+    kind === "privacy"
+      ? ["Privacy", "الخصوصية"]
+      : kind === "refund"
+        ? ["Refunds", "الاسترداد"]
+        : ["Legal", "الشروط والأحكام"];
+  const eyebrowAr =
+    kind === "privacy" ? "الخصوصية" : kind === "refund" ? "الاسترداد" : "الشروط والأحكام";
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8 lg:py-12">
       <div className="mx-auto max-w-3xl">
         {/* header */}
         <div className="flex items-center gap-3">
-          <span className="micro text-primary">
-            {kind === "privacy"
-              ? t("Privacy", "الخصوصية", lang)
-              : t("Legal", "الشروط والأحكام", lang)}
-          </span>
+          <span className="micro text-primary">{t(eyebrow[0], eyebrow[1], lang)}</span>
           <span className="h-px w-10 bg-line" />
           {lang === "en" && (
             <span dir="rtl" className="font-arabic text-[13px] text-ink-3">
-              {kind === "privacy" ? "الخصوصية" : "الشروط والأحكام"}
+              {eyebrowAr}
             </span>
           )}
         </div>
@@ -91,34 +97,68 @@ function LegalShell({
           ))}
         </div>
 
-        {/* cross-link */}
-        <div className="mt-12 rounded-2xl border border-line bg-white p-5">
-          {kind === "privacy" ? (
-            <button
-              onClick={() => setView("terms")}
-              className="group flex w-full items-center justify-between text-left"
+        {/* cross-link
+            Real anchors, not `setView` buttons. The same component renders in two
+            places: as a panel inside the SPA at `/`, and as a standalone route at
+            `/terms` etc. A `setView` call is inert on the standalone route (there
+            is no SPA mounted to receive it), so the link would look live and do
+            nothing. An `<a href>` is correct in both, and it is also what makes the
+            documents mutually reachable by a crawler rather than only by a click. */}
+        <nav
+          aria-label="Related legal documents"
+          className="mt-12 grid gap-px overflow-hidden rounded-2xl border border-line bg-line sm:grid-cols-2"
+        >
+          {LEGAL_DOCS.map((doc) => (
+            <a
+              key={doc.id}
+              href={doc.href}
+              className="group flex items-center justify-between bg-white px-5 py-4 text-left transition hover:bg-green-tint"
             >
-              <span className="text-[13.5px] font-semibold tracking-tight">
-                {t("Looking for the Terms of Service?", "تبحث عن الشروط والأحكام؟", lang)}
+              <span>
+                <span className="block text-[13.5px] font-semibold tracking-tight">
+                  {doc.titleEn}
+                </span>
+                <span className="mt-0.5 block text-[11.5px] text-ink-3">
+                  {t(doc.blurbEn, doc.blurbAr, lang)}
+                </span>
               </span>
-              <ArrowRight className="h-4 w-4 text-ink-3 transition group-hover:translate-x-0.5 group-hover:text-primary" />
-            </button>
-          ) : (
-            <button
-              onClick={() => setView("privacy")}
-              className="group flex w-full items-center justify-between text-left"
-            >
-              <span className="text-[13.5px] font-semibold tracking-tight">
-                {t("Looking for the Privacy Policy?", "تبحث عن سياسة الخصوصية؟", lang)}
-              </span>
-              <ArrowRight className="h-4 w-4 text-ink-3 transition group-hover:translate-x-0.5 group-hover:text-primary" />
-            </button>
-          )}
-        </div>
+              <ArrowRight className="h-4 w-4 shrink-0 text-ink-3 transition group-hover:translate-x-0.5 group-hover:text-primary" />
+            </a>
+          ))}
+        </nav>
       </div>
     </div>
   );
 }
+
+/**
+ * The three legal documents, so the cross-link bar renders all of them instead
+ * of the two-way Privacy↔Terms pairing it replaced. `href` is the real route;
+ * `id` is the in-app `View`, kept for the SPA navigation the footer uses.
+ */
+const LEGAL_DOCS = [
+  {
+    id: "terms",
+    href: "/terms",
+    titleEn: "Terms of Service",
+    blurbEn: "The agreement this website and any evaluation access operate under.",
+    blurbAr: "الاتفاقية التي يعمل بمقتضاها هذا الموقع وأي وصول تقييمي.",
+  },
+  {
+    id: "privacy",
+    href: "/privacy",
+    titleEn: "Privacy Policy",
+    blurbEn: "What we process, where it lives, and your rights over it.",
+    blurbAr: "ما نعالجه وأين يُحفظ وحقوقكم بشأنه.",
+  },
+  {
+    id: "refund",
+    href: "/refund",
+    titleEn: "Refund Policy",
+    blurbEn: "How cancellation and refunds work, including prepaid credits.",
+    blurbAr: "كيف يعمل الإلغاء والاسترداد، بما في ذلك الأرصدة المسبقة.",
+  },
+] as const;
 
 /* ————————————————— privacy policy ————————————————— */
 
@@ -430,6 +470,154 @@ export function Terms() {
       meta={{ version: "1.2", effective: "2026-10-02", entity: "SECUREVOICE TECHNOLOGIES FZ-LLC" }}
       sections={TERMS_SECTIONS}
       sectionsAr={TERMS_SECTIONS_AR}
+    />
+  );
+}
+
+/* ————————————————— refund policy ————————————————— */
+
+/**
+ * The Refund Policy.
+ *
+ * It describes a CREDIT WALLET, not a subscription, because that is the product
+ * `src/lib/commercial.ts` publishes: a monthly platform fee plus prepaid
+ * intervention credits. An earlier revision of this page carried a "cancel
+ * before renewal and we refund the unused portion of the period pro rata;
+ * unspent credits are refundable in full" document — a subscription policy for a
+ * product with no subscription to cancel, and one that contradicted `/pricing`
+ * outright on whether unspent credits come back.
+ *
+ * Both policies now live in `src/lib/legal-policies.ts` and every surface
+ * renders from it, so that contradiction is not reachable by editing one page.
+ * `tests/unit/refund-policy-consistency.test.ts` asserts the two agree.
+ *
+ * This page is PUBLIC and carries no session, so it cannot be role-conditional:
+ * the demo policy is a separate document on the same page rather than selected
+ * from an org type. The conditional form is `PolicyForPlan`, used where a
+ * session exists.
+ */
+const REFUND_SECTIONS = [
+  {
+    h: "Scope and which policy applies",
+    body: [
+      'This Refund Policy applies to paid use of the SecureVoice platform purchased through this website by SecureVoice Technologies FZ-LLC ("SecureVoice", "we"). It is read together with our Terms of Service; where this policy is more specific about money, it governs the money.',
+      "It does not apply to production deployments governed by a signed Master Services Agreement and Data Processing Agreement with a financial institution. Those are quoted per deployment and the commercial terms are in the signed agreement, which takes precedence over anything on this page.",
+      "It also does not apply to the demo environment, which is free and processes no payment.",
+    ],
+  },
+  {
+    h: "The prepaid credit wallet",
+    body: [
+      "The platform runs on a prepaid Credit Wallet: a monthly platform fee per tier, plus credits that fund intervention signals. One credit funds one intervention signal. Purchased credits are non-refundable and unused credits expire 12 months from the date of purchase.",
+      "A consumed credit is never refunded, because the intervention it paid for has already burned carrier minutes, speech synthesis and a model turn. Refunding those would let a customer probe the platform for free. We will show you a per-intervention consumption breakdown on request, so you can see exactly how many credits were spent and on what.",
+    ],
+  },
+  {
+    h: "When we return credits without being asked",
+    body: [
+      "If an intervention fails to connect, or terminates because of a SecureVoice infrastructure fault — not a carrier block, a network failure at the customer's end, or the customer being unreachable — the credit consumed by that intervention is returned to the wallet automatically within 48 hours.",
+      "Where an Enterprise agreement carries an availability commitment and that commitment is missed in a calendar month, service credits are issued as a wallet top-up rather than a cash refund, sized as (downtime minutes ÷ total minutes in the month) × the monthly platform fee. The measured figure is taken from the platform's own health endpoint, not from a customer report.",
+    ],
+  },
+  {
+    h: "What is not refundable",
+    body: [
+      "Professional services already delivered under a signed agreement; carrier pass-through charges actually incurred before cancellation; and any amount for a period during which the service was suspended for non-payment caused by a failed or expired payment method.",
+      "Opening a card chargeback against a valid credit purchase suspends API access and webhook routing until the chargeback is resolved, because the underlying intervention may still be consuming metered capacity.",
+      "Where a fault on our side caused a material failure to deliver the service, we return credits regardless of this policy. That is a commitment under the signed agreement, and it is also simply how we intend to operate.",
+    ],
+  },
+  {
+    h: "Currency and tax on a refund",
+    body: [
+      "Plans are billed in US dollars through Paddle, our Merchant of Record, which collects any sales tax or VAT due — so a credit or refund reverses the net amount and Paddle handles any tax adjustment. Buyers in the UK, Ireland and Australia who were charged a regional price in GBP, EUR or AUD are credited in that same currency. We do not convert across currencies at a third party's rate.",
+    ],
+  },
+  {
+    h: "How to ask about a refund",
+    body: [
+      `Email ${SUPPORT_EMAIL} from the address on the account with the word "refund" in the subject and the organisation's name. No form, no ticket bot — a person reads it. We acknowledge within two business days and resolve within fourteen.`,
+      "You do not need to give a reason, and we will not ask you to complete an exit interview first. If something is broken, say so anyway — it is the most useful sentence in the thread.",
+    ],
+  },
+  {
+    h: "Changes to this policy",
+    body: [
+      "We may update this policy. Material changes will be announced on this page with a new version number and effective date, and balances purchased under the previous terms keep those terms until they expire.",
+    ],
+  },
+];
+
+/* ————————————————— refund policy (Modern Standard Arabic) ————————————————— */
+
+const REFUND_SECTIONS_AR = [
+  {
+    h: "النطاق والسياسة المطبّقة",
+    body: [
+      "تنطبق سياسة الاسترداد هذه على الاستخدام المدفوع لمنصة SecureVoice المشترى عبر هذا الموقع من شركة SecureVoice Technologies FZ-LLC («SecureVoice»، «نحن»). وتُقرأ مع شروط الخدمة لدينا؛ وحيثما تكون هذه السياسة أكثر تحديداً لمسائل الدفع، فهي التي تحكم الدفع.",
+      "ولا تنطبق على عمليات النشر الإنتاجية الخاضعة لاتفاقية مستوى الخدمة الموقّعة واتفاقية معالجة البيانات مع مؤسسة مالية. فتلك تُسعَّر حسب النشر وتحددها الشروط التجارية في الاتفاقية الموقّعة، التي تتقدّم على أي مما ورد في هذه الصفحة.",
+      "كما لا تنطبق على بيئة العرض التجريبية، فهي مجانية ولا تتم فيها أي عملية دفع.",
+    ],
+  },
+  {
+    h: "محفظة الائتمان المدفوعة مسبقاً",
+    body: [
+      "تعمل المنصة على محفظة ائتمان مدفوعة مسبقاً: رسم شهري للمنصة حسب الطبقة،加上 رصيد يغطي إشارات التدخل. ويرصد الرصيد الواحد إشارة تدخل واحدة. والأرصدة المشتراة غير قابلة للاسترداد، وتنتهي صلاحية الرصيد غير المستخدم بعد 12 شهراً من تاريخ الشراء.",
+      "ولا يُسترد الرصيد المستهلك أبداً، لأن التدخل الذي دفع ثمنه قد حجز بالفعل دقائق الاتصال وتوليد الكلام ومرور نموذج واحد. واسترداد تلك يسمح للعميل باختبار المنصة مجاناً. وسنعرض تفصيل الاستهلاك لكل تدخّل عند الطلب، لتعرفوا بدقة عدد الأرصدة التي أُنفقت وعلى ماذا.",
+    ],
+  },
+  {
+    h: "متى نعيد الأرصدة دون أن تُطلب منا",
+    body: [
+      "إذا فشل تدخل في الاتصال، أو انقطع بسبب خلل في بنية SecureVoice — لا بسبب حجب من مشغّل الاتصالات، ولا انقطاع في شبكة العميل، ولا تعذّر الوصول إلى العميل — يُعاد الرصيد المستهلك في هذا التدخل إلى المحفظة تلقائياً خلال 48 ساعة.",
+      "وفي الاتفاقيات المؤسساتية التي تتضمن التزام توافر ولم يُحقَّق في شهر ميلادي، تُصدر أرصدة خدمة كإضافة إلى المحفظة بدلاً من استرداد نقدي، وحجمها يساوي (دقائق التوقف ÷ إجمالي دقائق الشهر) × الرسم الشهري للمنصة. ويُؤخذ القياس من نقطة صحة المنصة نفسها، لا من تقرير العميل.",
+    ],
+  },
+  {
+    h: "ما لا يُسترد",
+    body: [
+      "الخدمات المهنية التي قُدِّمت بالفعل بموجب اتفاقية موقّعة؛ ورسوم وسط مشغّلي الاتصالات التي تحمّلناها فعلاً قبل الإلغاء؛ وأي مبلغ عن فترة عُلِّقت فيها الخدمة لعدم السداد بسبب وسيلة دفع فاشلة أو منتهية الصلاحية.",
+      "وفتح استرداد بنكي على عملية شراء رصيد سارية يوقف الوصول إلى API وتوجيه الويب هوكس حتى تسوية الاسترداد، لأن التدخل المرتبط قد يستهلك سعة مقيسة في تلك الأثناء.",
+      "وإذا أدى عيب من جانبنا إلى إخفاق جوهري في تقديم الخدمة، فإننا نعيد الأرصدة بغضّ النظر عن هذه السياسة. فهذا التزام ضمن الاتفاقية الموقّعة، وهو أيضاً ببساطة كيف نعتزم أن نتعامل.",
+    ],
+  },
+  {
+    h: "العملة والضريبة عند الاسترداد",
+    body: [
+      "تُفوترَط الخطط بالدولار الأمريكي عبر Paddle، التاجر الرسمي، الذي يحصّل أي ضريبة بيع أو قيمة مضافة مستحقة — فيعكس الرصيد أو الاسترداد المبلغ الصافي وتتولى Paddle أي تعديل ضريبي. والمشترون في المملكة المتحدة وأيرلندا وأستراليا الذين خُخصموا لههم بسعر محلي بالإسترليني أو اليورو أو دولار أسترالي يُضاف لهم بنفس العملة. ولا نحوّل بين العملات بسعر طرف ثالث.",
+    ],
+  },
+  {
+    h: "كيف تسأل عن استرداد",
+    body: [
+      `راسلوا ${SUPPORT_EMAIL} من العنوان المسجّل على الحساب، مع وضع كلمة «استرداد» في سطر الموضوع وذكر اسم المؤسسة. لا حاجة إلى نموذج ولا إلى روبوت تذاكر — إنسان يقرأ الرسالة. نُقرّ باستلامها خلال يومي عمل وننهيها خلال أربعة عشر يوماً.`,
+      "ولا يلزم ذكر السبب، ولن نطلب منكم إتمام مقابلة خروج قبله. وإذا كان هناك خلل، فأخبرونا على أي حال — فذلك أنفع ما في الرسالة.",
+    ],
+  },
+  {
+    h: "التغييرات في هذه السياسة",
+    body: [
+      "يجوز لنا تحديث هذه السياسة. وستُعلن التغييرات الجوهرية في هذه الصفحة برقم إصدار وتاريخ سريان جديدين، وتحتفظ الأرصدة المشراة تحت الشروط السابقة بتلك الشروط حتى تنتهي صلاحيتها.",
+    ],
+  },
+];
+
+export function Refund() {
+  return (
+    <LegalShell
+      kind="refund"
+      icon={Undo2}
+      titleEn="Refund Policy"
+      titleAr="سياسة الاسترداد"
+      subtitleEn="Prepaid credits are non-refundable and expire 12 months after purchase. Credits consumed by a SecureVoice infrastructure fault come back automatically within 48 hours. The demo environment is free, so there is nothing to refund."
+      subtitleAr="الأرصدة المدفوعة مسبقاً غير قابلة للاسترداد وتنتهي صلاحيتها بعد 12 شهراً من الشراء. ويرجع الرصيد المستهلك بخلل في بنية SecureVoice تلقائياً خلال 48 ساعة. وبيئة العرض مجانية، فلا يوجد ما يُسترد."
+      meta={{
+        version: "2.0",
+        effective: "2026-10-10",
+        entity: "SECUREVOICE TECHNOLOGIES FZ-LLC",
+      }}
+      sections={REFUND_SECTIONS}
+      sectionsAr={REFUND_SECTIONS_AR}
     />
   );
 }

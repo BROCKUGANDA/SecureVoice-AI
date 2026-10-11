@@ -31,6 +31,7 @@ yarn-error.log*
 # env files — real keys stay local, only the template ships
 .env*
 !.env.example
+!.env.production.example
 
 # databases — runtime data (audit chains contain caller history), never tracked
 *.db

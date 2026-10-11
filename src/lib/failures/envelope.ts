@@ -441,13 +441,28 @@ export type FailureInit = {
   detail?: string;
 };
 
-const DOCS_BASE = (() => {
+/**
+ * Base for every per-code documentation URL the API emits.
+ *
+ * Exported so the published contracts (src/lib/contracts/openapi.ts and
+ * asyncapi.ts) quote the SAME origin the runtime actually hands out. They used
+ * to hardcode the string independently, which is how `securevoice.ai` ended up
+ * in three places — including the OpenAPI `docsUrl` example — pointing at a
+ * domain that no longer serves this project. One constant, one place to change
+ * when the public hostname moves.
+ */
+export const FAILURE_DOCS_BASE = (() => {
   const raw = process.env.FAILURE_DOCS_BASE_URL?.trim();
-  return raw ? raw.replace(/\/+$/, "") : "https://securevoice.ai/docs/errors";
+  // Default is the live deployment origin, NOT a literal `securevoice.ai`: that
+  // domain 301s to an unrelated third-party product, so every failure envelope
+  // was handing callers a docs link that resolves to someone else's website.
+  // Baked into every `docsUrl` the API emits, so it is load-bearing for anyone
+  // debugging a failure against the contract.
+  return raw ? raw.replace(/\/+$/, "") : "https://securevoiceai.me/docs/errors";
 })();
 
 export function docsUrlFor(code: FailureCode): string {
-  return `${DOCS_BASE}/${code}`;
+  return `${FAILURE_DOCS_BASE}/${code}`;
 }
 
 export function statusForCode(code: FailureCode): number {

@@ -63,14 +63,59 @@ ARG BUILD_DATABASE_URL=postgresql://securevoice:securevoice@db:5432/securevoice?
 # import guard; docker-compose.yml requires the secret from .env with `:?`.
 ARG BETTER_AUTH_SECRET
 ARG BETTER_AUTH_URL="https://localhost:3000"
+
+# The demo shortcut credentials are the ONE category of NEXT_PUBLIC_* that belongs
+# in the client bundle, and they must be supplied at build time.
+#
+# `NEXT_PUBLIC_*` is inlined by the Next.js compiler during `bun run build`, not
+# read at runtime. src/views/Auth.tsx gates its one-click judge login on
+# `DEMO_READY` (both values non-empty), so a build that does not carry these two
+# variables compiles the button OUT of the bundle entirely — not "hides" it,
+# removes it. A judge is then left with a bare sign-in form and no explanation.
+# That is exactly the failure docs/TODO.md warns about, and it is invisible from
+# the host env because the host env is never consulted: only the build is.
+#
+# This does NOT contradict the BETTER_AUTH_* args above. There are two different
+# things and they must not be conflated:
+#
+#   BETTER_AUTH_SECRET   a real secret. Server-side only. Never NEXT_PUBLIC_*,
+#                        never inlined, never in a client bundle. Stays a build
+#                        ARG so it reaches better-auth.ts's import guard without
+#                        being committed to an image layer.
+#
+#   DEMO_LOGIN_*         not a secret at all. It is a published demo credential
+#                        that already reaches every visitor as literal text in
+#                        the JS bundle — that is what a one-click demo shortcut
+#                        IS. Baking it into the layer exposes nothing that the
+#                        served page does not expose anyway.
+#
+# Defaults are empty so a deployment that deliberately runs without a demo seat
+# still builds; docker-compose.yml passes them from the host .env.
+ARG NEXT_PUBLIC_DEMO_LOGIN_EMAIL=""
+ARG NEXT_PUBLIC_DEMO_LOGIN_PASSWORD=""
+
+# The canonical public origin. This has to be a BUILD ARG, not just a runtime
+# env var, and that is the whole point of this line.
+#
+# `NEXT_PUBLIC_*` is inlined by the Next.js compiler AT BUILD TIME — it is a
+# literal substitution into the bundle, not a lookup at request time. Everything
+# that consumes it (metadataBase, the canonical URL, the OG/Twitter image URLs,
+# the prerendered sitemap.xml and robots.txt) is therefore frozen when
+# `bun run build` runs below. Adding NEXT_PUBLIC_SITE_URL to the VPS .env
+# WITHOUT threading it through here leaves production serving a sitemap and a
+# canonical tag that point at http://localhost:3000, which is worse than leaving
+# it unset: it is actively wrong, and search engines cache it.
+#
+# docker-compose.yml passes this from the host .env, defaulting to https://<SITE_ADDRESS>
+# so a deployment that set SITE_ADDRESS for TLS cannot forget it here too.
+ARG NEXT_PUBLIC_SITE_URL=""
+
 ENV DATABASE_URL=${BUILD_DATABASE_URL} \
     BETTER_AUTH_SECRET=${BETTER_AUTH_SECRET} \
-    BETTER_AUTH_URL=${BETTER_AUTH_URL}
-# NOTE: no NEXT_PUBLIC_* auth build arg. Clerk needed one because its publishable
-# key had to be inlined into the client bundle; Better Auth is entirely server-side
-# (BETTER_AUTH_SECRET / BETTER_AUTH_API_KEY), so both are runtime env and the build
-# stays free of auth secrets. Baking a secret into an image layer was the real
-# hazard the old plumbing created.
+    BETTER_AUTH_URL=${BETTER_AUTH_URL} \
+    NEXT_PUBLIC_SITE_URL=${NEXT_PUBLIC_SITE_URL} \
+    NEXT_PUBLIC_DEMO_LOGIN_EMAIL=${NEXT_PUBLIC_DEMO_LOGIN_EMAIL} \
+    NEXT_PUBLIC_DEMO_LOGIN_PASSWORD=${NEXT_PUBLIC_DEMO_LOGIN_PASSWORD}
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 # The client is a build artifact (git- and dockerignored), so the one generated
@@ -87,6 +132,15 @@ ENV NODE_ENV=production \
     PORT=3000 \
     DATABASE_URL=postgresql://securevoice:securevoice@db:5432/securevoice?schema=public
 COPY --from=builder /app/.next/standalone ./
+# Run as the non-root `bun` user this base image already ships (uid 1000).
+# Previously the runner stage had no USER directive, so the app ran as root.
+#
+# The image provides the user, so no `adduser` is needed. Nothing in the
+# standalone output is written at runtime — `/app` is root-owned and 755, so it
+# stays readable, and scratch files go to `/tmp` — so dropping from root to
+# 1000 does not change what this container can reach, only what an attacker
+# gains from a compromise of it.
+USER bun
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
   CMD bun -e "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"

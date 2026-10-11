@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { signIn, useSession } from "@/lib/auth-client";
 import { Copy, Check, ArrowRight, ShieldCheck, KeyRound, Loader2, LogOut } from "lucide-react";
@@ -110,6 +110,39 @@ function describeAuthError(e: unknown, lang: "en" | "ar"): string {
   // Deliberately not the raw message: Better Auth's default text can name
   // internal fields, and this is the unauthenticated surface.
   return message && message.length < 200 ? message : "";
+}
+
+/* ————— Cloudflare Turnstile (bot gate on sign-in) ————— */
+
+/**
+ * Turnstile is a GATE, not a replacement. Credential checking, lockout and
+ * session creation all still run inside Better Auth; this only decides whether a
+ * browser is plausibly human before that work is spent.
+ *
+ * The site key is public by construction — it ships in this bundle and is meant
+ * to. The secret never does: it lives only in `TURNSTILE_SECRET` on the server,
+ * where src/lib/compliance/turnstile.ts redeems the token against Cloudflare.
+ *
+ * `NEXT_PUBLIC_TURNSTILE_SITE_KEY` unset => the widget does not render and the
+ * client sends no token. The server treats a missing secret as "not enforced"
+ * (src/lib/compliance/turnstile.ts), so a deployment with neither is a working
+ * self-hosted box, just an ungated one. Production sets both; `preflight` should
+ * refuse a production deploy that sets neither.
+ */
+const TURNSTILE_SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? "";
+const TURNSTILE_ENABLED = TURNSTILE_SITE_KEY !== "";
+
+const TURNSTILE_SCRIPT = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
+
+declare global {
+  interface Window {
+    turnstile?: {
+      render: (el: HTMLElement, opts: Record<string, unknown>) => string;
+      reset: (widgetId?: string) => void;
+      remove: (widgetId: string) => void;
+      getResponse: (widgetId?: string) => string | undefined;
+    };
+  }
 }
 
 /* ————— UAE-inspired SVG set (unchanged design language) ————— */
@@ -381,6 +414,52 @@ export function Auth() {
   const [password, setPassword] = useState("");
   const role = session?.session?.activeOrganizationId ? "operator" : "demo";
 
+  /* Turnstile: load the script once, then render the widget into our own node.
+     Explicit rendering (render=explicit) rather than the auto-scanned class,
+     because this is a React view that mounts and unmounts — auto-render would
+     re-scan the DOM on every navigation and produce duplicate widgets. */
+  const turnstileRef = useRef<string | null>(null);
+  const hostRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!TURNSTILE_ENABLED) return;
+    let cancelled = false;
+
+    const mount = () => {
+      if (cancelled || !hostRef.current || turnstileRef.current) return;
+      const id = window.turnstile?.render(hostRef.current, {
+        sitekey: TURNSTILE_SITE_KEY,
+        action: "login",
+        theme: "dark",
+        // Fails open in the CLIENT only: if the widget cannot load, the user can
+        // still reach the form. The server is the real gate and fails CLOSED.
+        callback: () => setQuickErr(null),
+        "error-callback": () => setQuickErr(null),
+      });
+      if (id) turnstileRef.current = id;
+    };
+
+    if (window.turnstile) {
+      mount();
+      return;
+    }
+    const script = document.createElement("script");
+    script.src = TURNSTILE_SCRIPT;
+    script.async = true;
+    script.defer = true;
+    script.onload = mount;
+    document.head.appendChild(script);
+
+    return () => {
+      cancelled = true;
+      if (turnstileRef.current) {
+        window.turnstile?.remove(turnstileRef.current);
+        turnstileRef.current = null;
+      }
+      script.remove();
+    };
+  }, []);
+
   /* auto-navigate once a session exists */
   useEffect(() => {
     if (isSignedIn && role) {
@@ -392,13 +471,29 @@ export function Auth() {
   const quickLogin = async (identifier: string, pw: string, key: string) => {
     setQuickBusy(key);
     setQuickErr(null);
+    // Read the widget's current token. Turnstile tokens are single-use, so this
+    // value is spent the moment the sign-in is attempted and the widget is reset
+    // below — a retry must never reuse it, and a failed attempt must not leave a
+    // live token sitting in the DOM.
+    const token = turnstileRef.current
+      ? window.turnstile?.getResponse(turnstileRef.current)
+      : undefined;
     try {
       // One documented call. Clerk's version needed create() -> password() ->
       // finalize() with a device-trust branch in between; Better Auth's email
       // sign-in is a single round trip, and there is no provider-specific
       // interstitial to handle. That whole dance existed only because Clerk's
       // multi-step flow had to be driven by hand.
-      const { error } = await signIn.email({ email: identifier, password: pw });
+      //
+      // The token rides as a header rather than a body field: Better Auth owns
+      // and serialises that body, so a body-based token would have to fight it.
+      const { error } = await signIn.email({
+        email: identifier,
+        password: pw,
+        ...(token
+          ? { fetchOptions: { headers: { "cf-turnstile-response": token } } }
+          : {}),
+      });
       if (error) throw error;
     } catch (err) {
       setQuickErr(
@@ -411,6 +506,10 @@ export function Auth() {
       );
     } finally {
       setQuickBusy(null);
+      // Reset on BOTH outcomes. A token is redeemed once; leaving the solved
+      // widget in place would send a spent token on the next attempt and every
+      // later sign-in would fail with bot_check_failed for no visible reason.
+      if (turnstileRef.current) window.turnstile?.reset(turnstileRef.current);
     }
   };
 
@@ -597,6 +696,15 @@ export function Auth() {
                         className="rounded-lg border border-white/10 bg-white/[0.05] px-3 py-2 text-[13px] text-white outline-none transition focus:border-green-bright/60"
                       />
                     </label>
+                    {/* Turnstile mounts here. The node is ours; the widget is
+                        rendered explicitly by the effect above so React never
+                        reclaims a node Cloudflare owns, and so a mount/unmount
+                        cycle cannot leave a duplicate widget behind. */}
+                    {TURNSTILE_ENABLED && (
+                      <div className="flex justify-center pt-1">
+                        <div ref={hostRef} />
+                      </div>
+                    )}
                     {/* The acknowledge phase from SK-8: the control enters a
                         pending state and says "we heard you". It never claims
                         success — that is the server's answer, and UX-5 forbids

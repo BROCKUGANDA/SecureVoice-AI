@@ -82,6 +82,13 @@ services:
         BUILD_DATABASE_URL: ${DATABASE_URL}
         BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET in .env}
         BETTER_AUTH_URL: ${BETTER_AUTH_URL:-https://localhost:3000}
+        # Demo shortcut credentials. NEXT_PUBLIC_* is inlined at BUILD time, so
+        # omitting these does not merely hide the one-click judge login from
+        # src/views/Auth.tsx — it compiles the button out of the bundle. Every
+        # service built from this Dockerfile runs the builder stage (which ends
+        # in `bun run build`), so every one of them needs the pair.
+        NEXT_PUBLIC_DEMO_LOGIN_EMAIL: ${NEXT_PUBLIC_DEMO_LOGIN_EMAIL:-}
+        NEXT_PUBLIC_DEMO_LOGIN_PASSWORD: ${NEXT_PUBLIC_DEMO_LOGIN_PASSWORD:-}
     logging: *default-logging
     environment:
       # Use the same DATABASE_URL as the rest of the stack — .env is the single
@@ -107,6 +114,7 @@ services:
   # Scaling is safe by construction â€” claiming uses FOR UPDATE SKIP LOCKED â€” so
   # `--scale dial-worker=3` needs no coordination between replicas.
   dial-worker:
+    user: "1000:1000"   # non-root
     build:
       context: .
       target: builder   # full source tree: the worker is a script, not a bundle
@@ -114,6 +122,13 @@ services:
         BUILD_DATABASE_URL: ${DATABASE_URL}
         BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET in .env}
         BETTER_AUTH_URL: ${BETTER_AUTH_URL:-https://localhost:3000}
+        # Demo shortcut credentials. NEXT_PUBLIC_* is inlined at BUILD time, so
+        # omitting these does not merely hide the one-click judge login from
+        # src/views/Auth.tsx — it compiles the button out of the bundle. Every
+        # service built from this Dockerfile runs the builder stage (which ends
+        # in `bun run build`), so every one of them needs the pair.
+        NEXT_PUBLIC_DEMO_LOGIN_EMAIL: ${NEXT_PUBLIC_DEMO_LOGIN_EMAIL:-}
+        NEXT_PUBLIC_DEMO_LOGIN_PASSWORD: ${NEXT_PUBLIC_DEMO_LOGIN_PASSWORD:-}
     restart: unless-stopped
     logging: *default-logging
     mem_limit: 512m
@@ -171,6 +186,7 @@ services:
   # note. First sweep at boot (a worker that was down owes the backlog a
   # sweep), then every RETENTION_SWEEP_HOURS. `--once` for operators.
   retention-worker:
+    user: "1000:1000"   # non-root
     build:
       context: .
       target: builder   # full source tree: the worker is a script, not a bundle
@@ -178,6 +194,13 @@ services:
         BUILD_DATABASE_URL: ${DATABASE_URL}
         BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET in .env}
         BETTER_AUTH_URL: ${BETTER_AUTH_URL:-https://localhost:3000}
+        # Demo shortcut credentials. NEXT_PUBLIC_* is inlined at BUILD time, so
+        # omitting these does not merely hide the one-click judge login from
+        # src/views/Auth.tsx — it compiles the button out of the bundle. Every
+        # service built from this Dockerfile runs the builder stage (which ends
+        # in `bun run build`), so every one of them needs the pair.
+        NEXT_PUBLIC_DEMO_LOGIN_EMAIL: ${NEXT_PUBLIC_DEMO_LOGIN_EMAIL:-}
+        NEXT_PUBLIC_DEMO_LOGIN_PASSWORD: ${NEXT_PUBLIC_DEMO_LOGIN_PASSWORD:-}
     restart: unless-stopped
     logging: *default-logging
     mem_limit: 256m
@@ -236,6 +259,7 @@ services:
   # Voice stream worker (Twilio Media Streams + Deepgram + ElevenLabs).
   # Serves the WebSocket endpoint Twilio connects to for live-call audio.
   voice-stream-worker:
+    user: "1000:1000"   # non-root
     build:
       context: .
       target: builder
@@ -243,6 +267,13 @@ services:
         BUILD_DATABASE_URL: ${DATABASE_URL}
         BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET in .env}
         BETTER_AUTH_URL: ${BETTER_AUTH_URL:-https://localhost:3000}
+        # Demo shortcut credentials. NEXT_PUBLIC_* is inlined at BUILD time, so
+        # omitting these does not merely hide the one-click judge login from
+        # src/views/Auth.tsx — it compiles the button out of the bundle. Every
+        # service built from this Dockerfile runs the builder stage (which ends
+        # in `bun run build`), so every one of them needs the pair.
+        NEXT_PUBLIC_DEMO_LOGIN_EMAIL: ${NEXT_PUBLIC_DEMO_LOGIN_EMAIL:-}
+        NEXT_PUBLIC_DEMO_LOGIN_PASSWORD: ${NEXT_PUBLIC_DEMO_LOGIN_PASSWORD:-}
     restart: unless-stopped
     logging: *default-logging
     mem_limit: 512m
@@ -290,6 +321,7 @@ services:
   # This is the only place that does network I/O for outbound events; request
   # handlers never await fetch directly.
   outbox-worker:
+    user: "1000:1000"   # non-root
     build:
       context: .
       target: builder
@@ -297,6 +329,13 @@ services:
         BUILD_DATABASE_URL: ${DATABASE_URL}
         BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET in .env}
         BETTER_AUTH_URL: ${BETTER_AUTH_URL:-https://localhost:3000}
+        # Demo shortcut credentials. NEXT_PUBLIC_* is inlined at BUILD time, so
+        # omitting these does not merely hide the one-click judge login from
+        # src/views/Auth.tsx — it compiles the button out of the bundle. Every
+        # service built from this Dockerfile runs the builder stage (which ends
+        # in `bun run build`), so every one of them needs the pair.
+        NEXT_PUBLIC_DEMO_LOGIN_EMAIL: ${NEXT_PUBLIC_DEMO_LOGIN_EMAIL:-}
+        NEXT_PUBLIC_DEMO_LOGIN_PASSWORD: ${NEXT_PUBLIC_DEMO_LOGIN_PASSWORD:-}
     restart: unless-stopped
     logging: *default-logging
     mem_limit: 256m
@@ -353,6 +392,23 @@ services:
         BUILD_DATABASE_URL: ${DATABASE_URL:-postgresql://${POSTGRES_USER:-securevoice}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-securevoice}}
         BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set in .env}
         BETTER_AUTH_URL: ${BETTER_AUTH_URL:-https://localhost:3000}
+        # Demo shortcut credentials. NEXT_PUBLIC_* is inlined at BUILD time, so
+        # omitting these does not merely hide the one-click judge login from
+        # src/views/Auth.tsx — it compiles the button out of the bundle. Every
+        # service built from this Dockerfile runs the builder stage (which ends
+        # in `bun run build`), so every one of them needs the pair.
+        NEXT_PUBLIC_DEMO_LOGIN_EMAIL: ${NEXT_PUBLIC_DEMO_LOGIN_EMAIL:-}
+        NEXT_PUBLIC_DEMO_LOGIN_PASSWORD: ${NEXT_PUBLIC_DEMO_LOGIN_PASSWORD:-}
+        # Canonical public origin, inlined at BUILD time like the pair above.
+        # Defaults to https://<SITE_ADDRESS> — the same hostname Caddy issues
+        # the certificate for — so a deployment that already set SITE_ADDRESS
+        # for TLS gets a correct canonical URL and sitemap without a second
+        # variable to remember. Set NEXT_PUBLIC_SITE_URL explicitly to override.
+        #
+        # Why it must be here and not in `environment:` below: `environment:`
+        # applies at RUNTIME, and by then `next build` has already frozen the
+        # value into the bundle. A runtime-only setting is silently ignored.
+        NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-https://${SITE_ADDRESS:-localhost}}
     # IMAGE lets a release job smoke-test the image it just published instead of a
     # locally rebuilt copy. Unset (the normal case) => build from source.
     # `${VAR:-}` with no value yields an empty string, and compose treats that as
@@ -409,6 +465,7 @@ services:
   # Reverse proxy â€” the only published port. TLS via Let's Encrypt; certificates
   # and config persist in named volumes so a restart does not re-issue.
   caddy:
+    user: "1000:1000"   # non-root
     image: caddy:2-alpine
     restart: unless-stopped
     logging: *default-logging
@@ -417,6 +474,8 @@ services:
       - "80:80"
       - "443:443"
       - "443:443/udp" # HTTP/3
+    cap_add:
+      - NET_BIND_SERVICE
     environment:
       # Domain to issue a certificate for. Must resolve to this host.
       SITE_ADDRESS: ${SITE_ADDRESS:-localhost}
@@ -452,6 +511,13 @@ services:
         BUILD_DATABASE_URL: ${DATABASE_URL}
         BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET in .env}
         BETTER_AUTH_URL: ${BETTER_AUTH_URL:-https://localhost:3000}
+        # Demo shortcut credentials. NEXT_PUBLIC_* is inlined at BUILD time, so
+        # omitting these does not merely hide the one-click judge login from
+        # src/views/Auth.tsx — it compiles the button out of the bundle. Every
+        # service built from this Dockerfile runs the builder stage (which ends
+        # in `bun run build`), so every one of them needs the pair.
+        NEXT_PUBLIC_DEMO_LOGIN_EMAIL: ${NEXT_PUBLIC_DEMO_LOGIN_EMAIL:-}
+        NEXT_PUBLIC_DEMO_LOGIN_PASSWORD: ${NEXT_PUBLIC_DEMO_LOGIN_PASSWORD:-}
     logging: *default-logging
     environment:
       HOSTNAME: 0.0.0.0

@@ -169,6 +169,13 @@ export const ID = {
   // otherwise resolve any org's row.
   ledgerIdemKey: {} as Record<Side, string>,
   paymentReference: {} as Record<Side, string>,
+  // Paddle mirror fixtures. Both `customerId` and `subscriptionId` are globally
+  // UNIQUE and BOTH are Paddle's namespace, not ours — which is exactly what
+  // makes the cross-org probe meaningful: a bare id from a webhook payload must
+  // not resolve another org's billing row. The probe's control is the mirror's
+  // own upsert path being scoped (see src/lib/payments/mirror.ts).
+  paddleCustomerId: {} as Record<Side, string>,
+  paddleSubscriptionId: {} as Record<Side, string>,
 };
 
 export const AUDIT_AT: Record<Side, Date> = { A: new Date(), B: new Date() };
@@ -350,6 +357,31 @@ beforeAll(async () => {
       },
     });
 
+    // The Paddle billing mirror. A customer first, because
+    // `PaddleSubscription.customerId` references `PaddleCustomer.customerId`.
+    // The ids are Paddle-SHAPED (`ctm_`/`sub_`) and globally unique, so a
+    // cross-scope read keyed on them alone would resolve anything.
+    ID.paddleCustomerId[side] = `ctm_tenancy_${side}_${RUN}`;
+    await db.paddleCustomer.create({
+      data: {
+        customerId: ID.paddleCustomerId[side],
+        orgId: ORG[side],
+        email: `tenancy-${side}-${RUN}@example.test`,
+        name: `Tenancy probe ${side}`,
+      },
+    });
+    ID.paddleSubscriptionId[side] = `sub_tenancy_${side}_${RUN}`;
+    await db.paddleSubscription.create({
+      data: {
+        subscriptionId: ID.paddleSubscriptionId[side],
+        customerId: ID.paddleCustomerId[side],
+        orgId: ORG[side],
+        status: "active",
+        priceId: "pri_tenancy_probe",
+        productId: "pro_tenancy_probe",
+      },
+    });
+
     ID.controlProducerKeyId[side] = (
       await db.producerKey.create({
         data: {
@@ -374,6 +406,8 @@ afterAll(async () => {
   await db.userProfile.deleteMany({ where: { orgId: orgs } });
   await db.usageLedger.deleteMany({ where: { orgId: orgs } });
   await db.paymentRecord.deleteMany({ where: { orgId: orgs } });
+  await db.paddleSubscription.deleteMany({ where: { orgId: orgs } });
+  await db.paddleCustomer.deleteMany({ where: { orgId: orgs } });
   // Last: the tenant row the profile fixtures point at, so the delete above is
   // not blocked by the foreign key.
   await db.organization.deleteMany({ where: { id: { in: [ORG.A, ORG.B] } } });
@@ -552,6 +586,135 @@ export const DRIVERS: Record<string, Driver> = {
           "NEGATIVE-CONTROL-unscoped-read-reaches-foreign-row",
           unscoped?.orgId === ORG[them(dir)],
           "the raw findUnique({ reference }) the payment adapters use must still resolve the other org's row, or the isolation assertion is vacuous",
+        ),
+        check(
+          "explicit-cross-org-where-is-refused",
+          crossOrgRefused,
+          "naming another org in `where` must throw cross_org_request, not silently return zero rows",
+        ),
+      ],
+    };
+  },
+  // The Paddle billing mirror. Same shape as `paymentRecord` deliberately: a
+  // globally-unique Paddle id, a scoped read that must return nothing, a control
+  // that must resolve, and a NEGATIVE CONTROL asserting the raw read the mirror
+  // uses still reaches the foreign row — without which "returned null" could
+  // just mean the fixture was never written.
+  "lib.payments.paddle-customer-by-id": async (dir) => {
+    const own = ORG[me(dir)];
+    const sdb = scopedDb({ orgId: own });
+
+    const foreignId = ID.paddleCustomerId[them(dir)];
+    const leaked = await sdb.paddleCustomer.findFirst({ where: { customerId: foreignId } });
+    const control = await sdb.paddleCustomer.findFirst({
+      where: { customerId: ID.paddleCustomerId[me(dir)] },
+    });
+
+    const unscoped = await db.paddleCustomer.findFirst({
+      where: { customerId: foreignId },
+      select: { orgId: true },
+    });
+
+    let crossOrgRefused = false;
+    try {
+      await sdb.paddleCustomer.findFirst({
+        where: { orgId: ORG[them(dir)], customerId: foreignId },
+      });
+    } catch (err) {
+      crossOrgRefused = isTenancyScopeError(err);
+    }
+
+    return {
+      probed: true,
+      control: {
+        described: "the same scoped client resolves the caller's own Paddle customer",
+        status: null,
+        ownVisible: control?.orgId === own,
+      },
+      foreignVisible: leaked !== null,
+      guardEquivalent: {
+        applied: true,
+        empty: leaked === null,
+        detail:
+          "scopedDb({ orgId }).paddleCustomer.findFirst({ where: { customerId } }) returns nothing for the other org",
+      },
+      checks: [
+        check(
+          "cross-org-paddle-customer-not-resolvable",
+          leaked === null,
+          "scopedDb({ orgId }).paddleCustomer must not resolve the probe org's customer from its ctm_ id alone",
+        ),
+        check(
+          "control-own-paddle-customer-resolved",
+          control?.orgId === own,
+          "the caller's own customer must resolve, or the assertion above is vacuous",
+        ),
+        check(
+          "NEGATIVE-CONTROL-unscoped-read-reaches-foreign-row",
+          unscoped?.orgId === ORG[them(dir)],
+          "the raw findUnique the mirror's upsert uses must still resolve the other org's row, or the isolation assertion is vacuous",
+        ),
+        check(
+          "explicit-cross-org-where-is-refused",
+          crossOrgRefused,
+          "naming another org in `where` must throw cross_org_request, not silently return zero rows",
+        ),
+      ],
+    };
+  },
+  "lib.payments.paddle-subscription-by-id": async (dir) => {
+    const own = ORG[me(dir)];
+    const sdb = scopedDb({ orgId: own });
+
+    const foreignId = ID.paddleSubscriptionId[them(dir)];
+    const leaked = await sdb.paddleSubscription.findFirst({ where: { subscriptionId: foreignId } });
+    const control = await sdb.paddleSubscription.findFirst({
+      where: { subscriptionId: ID.paddleSubscriptionId[me(dir)] },
+    });
+
+    const unscoped = await db.paddleSubscription.findFirst({
+      where: { subscriptionId: foreignId },
+      select: { orgId: true },
+    });
+
+    let crossOrgRefused = false;
+    try {
+      await sdb.paddleSubscription.findFirst({
+        where: { orgId: ORG[them(dir)], subscriptionId: foreignId },
+      });
+    } catch (err) {
+      crossOrgRefused = isTenancyScopeError(err);
+    }
+
+    return {
+      probed: true,
+      control: {
+        described: "the same scoped client resolves the caller's own Paddle subscription",
+        status: null,
+        ownVisible: control?.orgId === own,
+      },
+      foreignVisible: leaked !== null,
+      guardEquivalent: {
+        applied: true,
+        empty: leaked === null,
+        detail:
+          "scopedDb({ orgId }).paddleSubscription.findFirst({ where: { subscriptionId } }) returns nothing for the other org",
+      },
+      checks: [
+        check(
+          "cross-org-paddle-subscription-not-resolvable",
+          leaked === null,
+          "scopedDb({ orgId }).paddleSubscription must not resolve the probe org's entitlement from its sub_ id alone",
+        ),
+        check(
+          "control-own-paddle-subscription-resolved",
+          control?.orgId === own,
+          "the caller's own subscription must resolve, or the assertion above is vacuous",
+        ),
+        check(
+          "NEGATIVE-CONTROL-unscoped-read-reaches-foreign-row",
+          unscoped?.orgId === ORG[them(dir)],
+          "the raw findUnique the mirror's upsert uses must still resolve the other org's row, or the isolation assertion is vacuous",
         ),
         check(
           "explicit-cross-org-where-is-refused",

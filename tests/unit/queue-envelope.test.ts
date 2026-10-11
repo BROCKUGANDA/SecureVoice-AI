@@ -167,12 +167,17 @@ test("dead-letter: same envelope twice writes one DeadLetter row, attempts +1", 
     caseRef: CASE_REF,
     payload: {},
   });
+  // Signed, exactly as the dispatch tests above are. The endpoint used to accept
+  // anything; it now requires the same Upstash-Signature its sibling does, so a
+  // caller here without a signature is testing nothing but the 401.
+  const raw = JSON.stringify(env);
+  const signature = await sign(raw, process.env.QSTASH_CURRENT_SIGNING_KEY!);
   const call = () =>
     POST(
       new NextRequest("http://localhost/api/queue/dead-letter", {
         method: "POST",
-        body: JSON.stringify(env),
-        headers: { "content-type": "application/json" },
+        body: raw,
+        headers: { "content-type": "application/json", "upstash-signature": signature },
       }),
     );
   await call();
@@ -182,4 +187,28 @@ test("dead-letter: same envelope twice writes one DeadLetter row, attempts +1", 
   expect(rows[0]!.attempts).toBeGreaterThanOrEqual(5);
   expect(rows[0]!.eventType).toBe("qstash.sms.fallback");
   await db.deadLetter.deleteMany({ where: { eventId: `sms:${CASE_REF}:dead` } });
+}, 120_000);
+
+// The security property this endpoint was missing. It appends to the
+// hash-chained audit log, so an unauthenticated writer could inject rows into
+// tamper-evident evidence — storage abuse was never the real risk.
+test("dead-letter: unsigned request is refused and never reaches the audit log", async () => {
+  const { POST } = await import("@/app/api/queue/dead-letter/route");
+  const env = makeEnvelope({
+    jobKind: "sms.fallback",
+    idempotencyKey: `sms:${CASE_REF}:unsigned`,
+    caseRef: CASE_REF,
+    payload: {},
+  });
+  const res = await POST(
+    new NextRequest("http://localhost/api/queue/dead-letter", {
+      method: "POST",
+      body: JSON.stringify(env),
+      headers: { "content-type": "application/json" },
+    }),
+  );
+  expect(res.status).toBe(401);
+  // Nothing was stored, and nothing was appended to the audit chain.
+  const rows = await db.deadLetter.findMany({ where: { eventId: `sms:${CASE_REF}:unsigned` } });
+  expect(rows).toHaveLength(0);
 }, 120_000);

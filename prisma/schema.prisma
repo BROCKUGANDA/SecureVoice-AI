@@ -875,3 +875,58 @@ model WorkflowDoc {
   @@unique([orgId, workflowId])
   @@index([orgId])
 }
+
+
+/// A Paddle customer, mirrored from verified `customer.*` events.
+///
+/// TENANTED on purpose: `orgId` is OUR organization, not Paddle's, and it is what
+/// makes `scopedDb(PaddleCustomer)` work. A Paddle customer with no local org
+/// would be an unbuyable orphan — the checkout mints the reference that carries
+/// the org, so the mirror always has one.
+model PaddleCustomer {
+  id         String   @id @default(cuid())
+  /// Paddle's customer id (`ctm_...`). Globally UNIQUE: the same customer cannot
+  /// be mirrored twice, and a re-sent `customer.created` is an upsert not an insert.
+  customerId String   @unique
+  /// OUR organization. Every mirror row is scoped to one of ours.
+  orgId      String
+  email      String
+  name       String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  subscriptions PaddleSubscription[]
+
+  @@index([orgId])
+}
+
+/// A Paddle subscription, mirrored from verified `subscription.*` events.
+///
+/// `scheduledChangeAction` / `scheduledChangeAt` exist because a SCHEDULED change
+/// is not a change: an `active` subscription with a pending cancellation still
+/// grants access, and `hasPaidAccess` in src/lib/payments/access.ts is explicit
+/// about that. Collapsing the scheduled state into `status` would revoke a paying
+/// customer the day they asked to cancel at period end.
+model PaddleSubscription {
+  id                    String    @id @default(cuid())
+  /// Paddle's subscription id (`sub_...`). Globally UNIQUE — the upsert key.
+  subscriptionId        String    @unique
+  customerId            String
+  orgId                 String
+  /// `active` | `trialing` | `past_due` | `paused` | `canceled`.
+  status                String
+  priceId               String
+  productId             String
+  /// `cancel` | `pause` | null. Present only while a change is SCHEDULED.
+  scheduledChangeAction String?
+  scheduledChangeAt     DateTime?
+  /// End of the current paid period, when Paddle tells us.
+  currentPeriodEnd      DateTime?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  customer PaddleCustomer @relation(fields: [customerId], references: [customerId], onDelete: Cascade)
+
+  @@index([orgId])
+  @@index([customerId])
+}

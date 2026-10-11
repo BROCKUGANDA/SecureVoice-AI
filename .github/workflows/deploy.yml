@@ -3,6 +3,24 @@
 #
 #   main ──▶ build ──▶ migrate ──▶ roll app + workers ──▶ health check
 #
+# TWO PATHS IN, ONE ROLL
+#
+#   green main  → build `app` from source, roll it
+#   v* release  → pull `app` from GHCR (the image release.yml published and
+#                 smoke-tested), roll that
+#
+# The release path exists because releases used to be decorative. release.yml
+# built, stamped and published a tagged image that nothing deployed; production
+# ran whatever `docker compose build` produced from whatever was on main. A
+# version number on a tag therefore said nothing about what was actually serving
+# traffic. Now the tag is the thing that gets rolled.
+#
+# The health check targets the ORIGIN's own address, not the public hostname.
+# That is deliberate: the public name now sits behind the Cloudflare proxy, so a
+# check through it would test Cloudflare as much as the app and would go red for
+# reasons that have nothing to do with the deploy. Checking the origin directly
+# proves the thing that was just rolled.
+#
 # WHAT CHANGED, AND WHY IT HAD TO
 #
 # This used to SSH into 57.130.80.158 with appleboy/ssh-action to run the deploy.
@@ -23,11 +41,34 @@
 name: Deploy
 
 on:
+  # SINGLE workflow_run trigger, and it must stay a mapping, not a list.
+  #
+  # GitHub Actions' `on: workflow_run:` accepts ONE mapping with ONE `workflows`
+  # list. It does NOT accept a sequence of trigger objects — a merge briefly
+  # produced both a `- workflows: ["CI"]` and a `- workflows: ["Release"]`
+  # entry, and actionlint rejects that outright:
+  #
+  #     .github/workflows/deploy.yml:44:3: no workflow is configured for
+  #     "workflow_run" event [events]
+  #     .github/workflows/deploy.yml:60:5: "workflow_run" section is sequence
+  #     node but mapping node is expected [syntax-check]
+  #
+  # Both errors are fatal and take the whole CI job red, which stops the
+  # promotion ladder at the dev -> staging edge. Verified against the
+  # rhysd/actionlint image: this mapping form passes; the sequence form fails.
+  #
+  # The Release path is therefore handled by `workflow_dispatch` below plus the
+  # resolve step inside the job, which reads the tag and behaves accordingly.
+  # A tag push cannot trigger `workflow_run` anyway (it has no branch), which is
+  # why the release path was already hand-dispatched before it worked.
   workflow_run:
     workflows: ["CI"]
-    branches: [main]
+    branches: ["main"]
     types: [completed]
-  # Manual re-run, for when the machine was down during an automatic deploy.
+  # Manual re-run, for when the machine was down during an automatic deploy, and
+  # for releasing a tagged, provenance-stamped image explicitly. `workflow_run`
+  # can only reference ONE upstream workflow, so the Release path comes in here
+  # and the job resolves what it is deploying from the SHA or tag.
   workflow_dispatch:
 
 permissions:
@@ -78,6 +119,78 @@ jobs:
           fi
           echo "CI run ${RUN_CONCLUSION}: ${RUN_ID}"
 
+      # Which upstream fired this, and — on the release path — which tag.
+      #
+      # `workflow_run.name` is the discriminator. The tag is NOT taken from
+      # `github.ref`: on a workflow_run trigger, `github.ref` is the DEFAULT
+      # branch, not the tag that was pushed. Reading the tag from the wrong field
+      # is the classic way a "wired up" release deploy ends up deploying `:main`.
+      - name: Resolve what is being deployed
+        run: |
+          set -euo pipefail
+          UPSTREAM="${{ github.event.workflow_run.name }}"
+          if [ "$UPSTREAM" = "Release" ]; then
+            TAG="${{ github.event.workflow_run.head_branch }}"
+            case "$TAG" in
+              v*) ;;
+              *) echo "::error::release run has no v* tag (head_branch='${TAG}') — refusing to deploy."; exit 1 ;;
+            esac
+            # One redirect block, not three separate `echo >>` lines: shellcheck
+            # SC2129 flags those, the CI actionlint job treats it as a failure,
+            # and a red actionlint job stalls the promotion ladder.
+            {
+              echo "DEPLOY_SOURCE=release"
+              echo "RELEASE_TAG=${TAG}"
+              echo "IMAGE=ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]'):${TAG}"
+            } >> "$GITHUB_ENV"
+          else
+            echo "DEPLOY_SOURCE=branch" >> "$GITHUB_ENV"
+            echo "branch deploy: rolling whatever main proves green"
+          fi
+
+      # The tag must point at what is actually on main.
+      #
+      # Without this, a tag cut from an old commit would deploy that old commit's
+      # source for the workers while `app` came from the newer published image —
+      # two versions of the codebase running against one database, which is the
+      # "schema ahead of the code that reads it" class of bug this file already
+      # guards against for migrations. Refusing is cheap; debugging it live is not.
+      #
+      # This is also what lets the release path keep checking out `main` below
+      # instead of detaching onto the tag: a detached HEAD interacts with the
+      # skip-worktree'd Caddyfile and can hard-fail a deploy on a live box.
+      - name: Refuse a release whose tag is not on main
+        if: env.DEPLOY_SOURCE == 'release'
+        run: |
+          set -euo pipefail
+          cd ~/securevoice-ai
+          git fetch origin main --tags --force --quiet
+          tag_sha=$(git rev-list -n 1 "$RELEASE_TAG")
+          main_sha=$(git rev-list -n 1 origin/main)
+          echo "tag  $RELEASE_TAG -> ${tag_sha}"
+          echo "main           -> ${main_sha}"
+          if [ "$tag_sha" != "$main_sha" ]; then
+            echo "::error::${RELEASE_TAG} does not point at origin/main."
+            echo "::error::Cut the tag on main, or re-run the deploy from the branch path."
+            exit 1
+          fi
+
+      - name: Log in to GHCR
+        if: env.DEPLOY_SOURCE == 'release'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull the released image
+        if: env.DEPLOY_SOURCE == 'release'
+        run: |
+          set -euo pipefail
+          cd ~/securevoice-ai
+          docker compose pull app
+          echo "pulled ${IMAGE}"
+
       # `~/securevoice-ai` is the live checkout, not the runner's throwaway
       # workspace. The runner copies the tree to a fresh directory per job, so
       # the deploy has to act on the real one.
@@ -118,7 +231,19 @@ jobs:
           # happened to be rebuilt. That is not a theoretical hazard: a deploy that
           # printed "No pending migrations to apply" against a database missing
           # three migrations was compose reusing a stale db-setup image.
-          docker compose build app dial-worker retention-worker voice-stream-worker db-setup
+          #
+          # On the RELEASE path `app` is deliberately absent from this list: it was
+          # pulled from GHCR, and rebuilding it would replace the published,
+          # provenance-stamped artifact with a fresh local compile — so the running
+          # version would again be something no release describes. The workers and
+          # db-setup are still built from the checked-out tree (they run from
+          # source, not from the bundle), and the tag-is-on-main gate above
+          # guarantees that tree IS the released commit.
+          if [ "$DEPLOY_SOURCE" = "release" ]; then
+            docker compose build dial-worker retention-worker voice-stream-worker db-setup
+          else
+            docker compose build app dial-worker retention-worker voice-stream-worker db-setup
+          fi
 
           # Schema before code. The runner image is `oven/bun:1-slim` plus the
           # standalone bundle: it has no Prisma CLI and no prisma/migrations, so

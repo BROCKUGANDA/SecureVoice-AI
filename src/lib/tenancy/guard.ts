@@ -84,6 +84,11 @@ export const TENANTED_MODELS = [
   "OutboxEvent",
   "UsageLedger",
   "PaymentRecord",
+  // Paddle billing mirror. Same rule as PaymentRecord: a payment or subscription
+  // row belonging to another org is the worst possible leak, and `reference` /
+  // `customerId` being globally UNIQUE means an unscoped read resolves anyone's.
+  "PaddleCustomer",
+  "PaddleSubscription",
 ] as const;
 
 export type TenantedModel = (typeof TENANTED_MODELS)[number];

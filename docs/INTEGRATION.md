@@ -373,10 +373,18 @@ The three `INSERT` points are the whole product gap. Everything they need —
 
 ### If you want the hosted path instead
 
-`https://securevoice.ai` runs the full surface publicly with seeded demo data. Judges
-can click through with no key, no account, and no setup. For a real bank the
-deployment is yours to run (§5) — the hosted demo deliberately does **not** accept
-real customer data.
+`https://securevoiceai.me` runs the full surface publicly with seeded demo
+data. Judges can click through with no key, no account, and no setup. For a real
+bank the deployment is yours to run (§5) — the hosted demo deliberately does
+**not** accept real customer data.
+
+> **This line used to say `https://securevoice.ai`. That domain no longer serves
+> this project** — it 301-redirects to an unrelated third-party product at
+> `zerorune.com`, and `securevoice.ae` / `api.securevoice.ae` are NXDOMAIN.
+> Anyone following the old link reached a stranger's website. The live origin is
+> the one above, also what `BETTER_AUTH_URL` is set to. See `deploy.yml`, whose
+> health check targets the origin's own address and so is unaffected by the
+> Cloudflare proxy in front of the public name.
 
 ---
 

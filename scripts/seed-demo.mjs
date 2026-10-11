@@ -369,9 +369,10 @@ const seedEnrollment = async () => {
  * This function is idempotent: it uses upsert on the user email and
  * findFirst + create on the organization, so re-running the seed is safe.
  *
- * The password is hashed with Better Auth's own scrypt (N=16384, r=8, p=1),
+ * The password is hashed with Better Auth's own scrypt (N=16384, r=16, p=1),
  * NOT a hand-rolled hash. We use node:crypto's scryptSync with the same
- * parameters Better Auth uses internally.
+ * parameters Better Auth uses internally, and the same `<salt>:<hexkey>`
+ * storage shape its verifier reads.
  */
 const seedDemoUser = async () => {
   const email = process.env.NEXT_PUBLIC_DEMO_LOGIN_EMAIL?.trim();
@@ -381,13 +382,43 @@ const seedDemoUser = async () => {
     return;
   }
 
-  // Hash password using Better Auth's scrypt format.
-  // Better Auth 1.7.x uses: scrypt$N$r$p$<salt>$<hash>
-  // where salt and hash are base64 encoded.
+  // Hash the password into the shape Better Auth 1.7 ACTUALLY verifies.
+  //
+  // The previous version of this block wrote `scrypt$N$r$p$<salt>$<hash>` — a
+  // format from an older Better Auth. In 1.7.7 the verifier is
+  // `@better-auth/utils`' `verifyPassword`, which does:
+  //     const [salt, key] = hash.split(":");
+  //     if (!salt || !key) throw new Error("Invalid password hash");
+  // so there is no `$`-delimited encoding to recognise: the value must be
+  // `<salt>:<hexkey>`. The seed was therefore producing a hash that made
+  // sign-in throw `Invalid password hash` (a 500), which is why the one-click
+  // demo login failed even with a correctly seeded user.
+  //
+  // The parameters are not a convention to approximate — they must match
+  // `config` in @better-auth/utils/dist/password.mjs exactly, or the derived
+  // key differs and the comparison fails:
+  //     N: 16384, r: 16, p: 1, dkLen: 64   (this block previously used r=8)
+  // `hashPassword` there also normalises the password to NFKC before deriving,
+  // which matters for any non-ASCII password and is a no-op for ASCII ones.
   const { scryptSync, randomBytes } = await import("node:crypto");
-  const salt = randomBytes(16).toString("base64");
-  const hash = scryptSync(password, salt, 64).toString("base64");
-  const passwordHash = `scrypt$16384$8$1$${salt}$${hash}`;
+
+  // 32 hex chars — written as a STRING, not decoded to bytes: Better Auth
+  // passes the same hex string to scrypt as a UTF-8 salt.
+  const salt = randomBytes(16).toString("hex");
+  const normalized = password.normalize("NFKC");
+  // `maxmem` is not optional. OpenSSL's default is 32 MB and N=16384/r=16 needs
+  // ~134 MB, so without it this throws ERR_CRYPTO_INVALID_SCRYPT_PARAMS
+  // ("MEMORY_LIMIT_EXCEEDED") and the demo user is seeded with NO credential at
+  // all. Better Auth's @noble implementation passes `128*N*r*2`, which is 64 MB;
+  // the same figure satisfies OpenSSL here.
+  const SCRYPT_MAXMEM = 128 * 16384 * 16 * 2;
+  const key = scryptSync(normalized, salt, 64, {
+    N: 16384,
+    r: 16,
+    p: 1,
+    maxmem: SCRYPT_MAXMEM,
+  }).toString("hex");
+  const passwordHash = `${salt}:${key}`;
 
   // Create or update the user
   const user = await db.user.upsert({

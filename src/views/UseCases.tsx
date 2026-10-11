@@ -14,6 +14,7 @@ import {
   UserRound,
 } from "lucide-react";
 import { useApp, t } from "@/lib/store";
+import { useStandalone } from "@/components/shell/standalone-context";
 import { Reveal } from "@/components/fx/core";
 import { cn } from "@/lib/utils";
 
@@ -292,6 +293,24 @@ const USE_CASES: {
 
 export function UseCases() {
   const { lang, launchDemo } = useApp();
+  // True when rendered as its own route (`/usecases`) rather than as a panel
+  // inside the SPA at `/`. On a standalone route `launchDemo` and `setView`
+  // mutate a Zustand store that nothing is subscribed to, so both CTAs below
+  // would render as live-looking controls that do nothing. Each becomes a real
+  // anchor instead.
+  //
+  // The demo anchor is `/#live-demo`, NOT `/#demo`. `demo` is a `user` view, so
+  // a signed-out visitor gets bounced to the sign-in form and the page renders
+  // blank mid-transition; the browser-mic widget on the home page is the demo
+  // that needs no sign-in. See the hash handler in src/app/page.tsx.
+  const standalone = useStandalone();
+
+  const demoCta = (
+    <>
+      <Play className="h-3.5 w-3.5" />
+      {t("Run the live demo", "شغّل العرض الحي", lang)}
+    </>
+  );
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8 lg:py-12">
@@ -355,15 +374,22 @@ export function UseCases() {
                       </div>
                     </div>
                   </div>
-                  {u.status.live && (
-                    <button
-                      onClick={launchDemo}
-                      className="group flex shrink-0 items-center gap-2 rounded-full bg-primary px-4 py-2 text-[12.5px] font-semibold text-white transition hover:bg-green-deep"
-                    >
-                      <Play className="h-3.5 w-3.5" />
-                      {t("Run the live demo", "شغّل العرض الحي", lang)}
-                    </button>
-                  )}
+                  {u.status.live &&
+                    (standalone ? (
+                      <a
+                        href="/#live-demo"
+                        className="group flex shrink-0 items-center gap-2 rounded-full bg-primary px-4 py-2 text-[12.5px] font-semibold text-white transition hover:bg-green-deep"
+                      >
+                        {demoCta}
+                      </a>
+                    ) : (
+                      <button
+                        onClick={launchDemo}
+                        className="group flex shrink-0 items-center gap-2 rounded-full bg-primary px-4 py-2 text-[12.5px] font-semibold text-white transition hover:bg-green-deep"
+                      >
+                        {demoCta}
+                      </button>
+                    ))}
                 </div>
 
                 {/* body */}
@@ -467,20 +493,40 @@ export function UseCases() {
             </p>
           </div>
           <div className="flex shrink-0 gap-2.5">
-            <button
-              onClick={launchDemo}
-              className="flex items-center gap-2 rounded-full bg-primary px-5 py-2.5 text-[13px] font-semibold text-white transition hover:bg-green-deep"
-            >
-              <Play className="h-4 w-4" />
-              {t("Launch live demo", "ابدأ العرض الحي", lang)}
-            </button>
-            <button
-              onClick={() => useApp.getState().setView("docs")}
-              className="group flex items-center gap-2 rounded-full border border-white/20 px-5 py-2.5 text-[13px] font-semibold text-white/90 transition hover:bg-white/10"
-            >
-              {t("Read the docs", "اقرأ التوثيق", lang)}
-              <ArrowRight className="h-3.5 w-3.5 transition group-hover:translate-x-0.5" />
-            </button>
+            {standalone ? (
+              <a
+                href="/#live-demo"
+                className="flex items-center gap-2 rounded-full bg-primary px-5 py-2.5 text-[13px] font-semibold text-white transition hover:bg-green-deep"
+              >
+                <Play className="h-4 w-4" />
+                {t("Launch live demo", "ابدأ العرض الحي", lang)}
+              </a>
+            ) : (
+              <button
+                onClick={launchDemo}
+                className="flex items-center gap-2 rounded-full bg-primary px-5 py-2.5 text-[13px] font-semibold text-white transition hover:bg-green-deep"
+              >
+                <Play className="h-4 w-4" />
+                {t("Launch live demo", "ابدأ العرض الحي", lang)}
+              </button>
+            )}
+            {standalone ? (
+              <a
+                href="/docs"
+                className="group flex items-center gap-2 rounded-full border border-white/20 px-5 py-2.5 text-[13px] font-semibold text-white/90 transition hover:bg-white/10"
+              >
+                {t("Read the docs", "اقرأ التوثيق", lang)}
+                <ArrowRight className="h-3.5 w-3.5 transition group-hover:translate-x-0.5" />
+              </a>
+            ) : (
+              <button
+                onClick={() => useApp.getState().setView("docs")}
+                className="group flex items-center gap-2 rounded-full border border-white/20 px-5 py-2.5 text-[13px] font-semibold text-white/90 transition hover:bg-white/10"
+              >
+                {t("Read the docs", "اقرأ التوثيق", lang)}
+                <ArrowRight className="h-3.5 w-3.5 transition group-hover:translate-x-0.5" />
+              </button>
+            )}
           </div>
         </div>
       </Reveal>

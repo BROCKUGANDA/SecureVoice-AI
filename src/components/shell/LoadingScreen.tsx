@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { LogoMark } from "@/components/shell/Logo";
-import { LottieIcon } from "@/components/fx/LottieIcon";
+import { LoadingIndicator } from "@/components/fx/LoadingIndicator";
 
 const STEPS = [
   "Securing session",
@@ -55,12 +55,11 @@ export function LoadingScreen({ onDone }: { onDone: () => void }) {
               className="relative"
             >
               <LogoMark size={64} />
-              {/* The expanding-ring flourish is the Lottie sonar animation rather
-                  than the CSS `sv-pulse-ring`. It is the same visual idea, and the
-                  component falls back to that CSS ring automatically if the
-                  animation asset or the dynamic import is unavailable. */}
-              <span className="pointer-events-none absolute -inset-6">
-                <LottieIcon name="sonar" size={112} label="" />
+              {/* The expanding-ring flourish is a CSS-only stagger of the same
+                  `sv-pulse-ring` keyframes the rest of the shell uses, so the
+                  splash paints on the first frame and never waits on a fetch. */}
+              <span className="pointer-events-none absolute -inset-6 text-white/70">
+                <LoadingIndicator size={112} label="" />
               </span>
             </motion.div>
             <motion.h1

@@ -260,9 +260,9 @@ jobs:
           # source, not from the bundle), and the tag-is-on-main gate above
           # guarantees that tree IS the released commit.
           if [ "$DEPLOY_SOURCE" = "release" ]; then
-            docker compose build dial-worker retention-worker voice-stream-worker db-setup
+            docker compose build dial-worker retention-worker voice-stream-worker email-worker db-setup
           else
-            docker compose build app dial-worker retention-worker voice-stream-worker db-setup
+            docker compose build app dial-worker retention-worker voice-stream-worker email-worker db-setup
           fi
 
           # Schema before code. The runner image is `oven/bun:1-slim` plus the
@@ -275,7 +275,7 @@ jobs:
           # database, and --no-deps keeps it off the app's dependency graph.
           docker compose run --rm --no-deps db-setup sh -c "bunx prisma migrate deploy"
 
-          docker compose up -d app dial-worker retention-worker voice-stream-worker
+          docker compose up -d app dial-worker retention-worker voice-stream-worker email-worker
           docker compose ps
 
       - name: Health check the rolled origin
@@ -297,5 +297,5 @@ jobs:
           echo "::error::production origin did not come up — app and worker logs follow"
           cd ~/securevoice-ai
           docker compose ps
-          docker compose logs --no-color --tail 150 app dial-worker retention-worker
+          docker compose logs --no-color --tail 150 app dial-worker retention-worker email-worker
           exit 1

@@ -1,8 +1,10 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import type { Prisma } from "@/generated/prisma/client";
 import { requireOperator } from "@/lib/credits";
 import { db } from "@/lib/db";
+import { withTenantScope } from "@/lib/tenancy/db-scope";
 import { decryptSecret, encryptSecret, maskKey } from "@/lib/byok";
 import { append as auditAppend } from "@/lib/audit-chain";
 import { getInstitutionType, setInstitutionType } from "@/lib/institution";
@@ -21,6 +23,37 @@ export const dynamic = "force-dynamic";
  * BYOK security: the ElevenLabs key is AES-256-GCM encrypted at rest with an
  * AUTH_SECRET-derived key, decrypted only in-process for upstream calls, and
  * only ever returned masked (sk_…last4).
+ *
+ * ── Which half of this route is database-enforced ───────────────────────────
+ * The route touches two tables, and they are not in the same position:
+ *
+ *   · `UserProfile` carries `orgId` and has a row-level policy, so a session
+ *     naming a concrete organisation reads and writes it inside
+ *     `withTenantScope` (src/lib/tenancy/db-scope.ts). This matters here more
+ *     than it looks: every profile statement in this file is keyed on
+ *     `userId`, which is the caller's OWN identity, so there is no org predicate
+ *     to write — the policy is the only thing standing between a session and a
+ *     profile row that belongs to a different tenant.
+ *   · `Organization` has no `orgId` column (it IS the tenant) and the coverage
+ *     migration gives it RLS with NO policy, which makes `sv_tenant` blind to it
+ *     on purpose: an organisation row is what resolves the tenant, so a policy
+ *     comparing `organization.id` to `app.org_id` could only be evaluated after
+ *     the tenant was already known. Those reads and the org write therefore stay
+ *     on the ordinary application client — the id used is the session's own
+ *     `orgId`, never a request field. Wrapping them would not tighten anything;
+ *     it would make `vendorWebhookUrl`/`shariahCompliant` read as unset and turn
+ *     the tenant write into a zero-row update.
+ *
+ * A session with no organisation keeps today's client too. It cannot go through
+ * `withTenantScope` (there is no tenant to pin) and it cannot go through
+ * `scopedDb` either: the guard's shared namespace is `orgId IS NULL OR
+ * orgId = 'default'`, and `UserProfile.orgId` is a `uuid` column, so the
+ * `'default'` arm is rejected by Postgres as `invalid input syntax for type
+ * uuid` before any row is read. That is a property of the schema, not of this
+ * route, and it is asserted in tests/tenancy/org-models.test.ts; the tenant
+ * boundary itself — a profile row belonging to another organisation is not
+ * readable or updatable through this session — is asserted in
+ * tests/tenancy/console-routes.test.ts against the live handler.
  */
 
 const schema = z.object({
@@ -37,14 +70,33 @@ const schema = z.object({
   shariahCompliant: z.boolean().optional(),
 });
 
+/** The delegate this route touches for the operator's own profile row. */
+type ProfileDelegate = Prisma.TransactionClient["userProfile"];
+
+/**
+ * Run `fn` against the `UserProfile` delegate on the enforcement path that
+ * matches the session: a concrete organisation enters `withTenantScope` and the
+ * row-level policy decides; an org-less session keeps the ordinary client, for
+ * the reason documented at the top of this file.
+ *
+ * The statement is the same either way, which is the point — the branch selects
+ * WHO ENFORCES IT, not what is queried.
+ */
+async function withProfileScope<T>(
+  orgId: string | null,
+  fn: (profiles: ProfileDelegate) => Promise<T>,
+): Promise<T> {
+  return orgId ? withTenantScope(orgId, (tx) => fn(tx.userProfile)) : fn(db.userProfile);
+}
+
 async function readSettings(): Promise<
   { settings: Record<string, unknown> } | { error: { status: number; error: string } }
 > {
   const guard = await requireOperator();
   if (!guard.ok) return { error: { status: guard.status, error: guard.error } };
-  const row = await db.userProfile.findUnique({
-    where: { userId: guard.profile.userId },
-  });
+  const row = await withProfileScope(guard.profile.orgId, (profiles) =>
+    profiles.findUnique({ where: { userId: guard.profile.userId } }),
+  );
   if (!row) return { error: { status: 404, error: "Profile not found" } };
   const key = row.elevenKeyEnc ? decryptSecret(row.elevenKeyEnc) : null;
   return {
@@ -73,6 +125,14 @@ async function readSettings(): Promise<
  * The signing key is deliberately absent: it is write-only, and returning it in
  * any form — masked or otherwise — turns a console session into a credential
  * exfiltration target. The console learns only whether one exists.
+ *
+ * `db.organization` and not `withTenantScope`: `organization` is the tenant table,
+ * it has no `orgId` column, and the coverage migration gives it row security with
+ * NO policy so that the tenant role cannot enumerate organisations at all. Inside
+ * a tenant scope this read returns nothing, which would report every tenant's
+ * webhook endpoint as unset. The id looked up is `guard.profile.orgId` — the
+ * session's own organisation, never a request field — so there is no org
+ * predicate to forget here.
  */
 async function readTenantVoiceSettings(orgId: string | null | undefined) {
   if (!orgId) {
@@ -182,6 +242,9 @@ export async function POST(req: NextRequest) {
       tenantData.shariahCompliant = d.shariahCompliant;
     }
 
+    // The same rule as the read above: `organization` is the tenant row and is
+    // outside the tenant role's reach by design, so this write stays on the
+    // application client with the session's own org id as the key.
     await db.organization.update({ where: { id: guard.profile.orgId }, data: tenantData });
     void auditAppend({
       action: "handoff",
@@ -195,7 +258,13 @@ export async function POST(req: NextRequest) {
   }
 
   if (Object.keys(data).length > 0) {
-    await db.userProfile.update({ where: { userId: guard.profile.userId }, data });
+    // The BYOK / white-label write. Keyed on the caller's own `userId`, so the
+    // policy is what makes it a tenant write: inside `withTenantScope` a profile
+    // row belonging to another organisation is not updatable — the WITH CHECK arm
+    // of the policy rejects the new row version and the transaction rolls back.
+    await withProfileScope(guard.profile.orgId, (profiles) =>
+      profiles.update({ where: { userId: guard.profile.userId }, data }),
+    );
   }
 
   // Storing or rotating a vendor credential is a security event, so it is
@@ -239,10 +308,12 @@ export async function DELETE(req: NextRequest) {
   if (field !== "elevenKey") {
     return NextResponse.json({ error: "field must be elevenKey" }, { status: 422 });
   }
-  await db.userProfile.update({
-    where: { userId: guard.profile.userId },
-    data: { elevenKeyEnc: null },
-  });
+  // Same two paths as the read: the BYOK key is a column on the operator's
+  // tenant-namespaced profile row, so under a concrete organisation the policy
+  // decides which row this DELETE is allowed to clear.
+  await withProfileScope(guard.profile.orgId, (profiles) =>
+    profiles.update({ where: { userId: guard.profile.userId }, data: { elevenKeyEnc: null } }),
+  );
   // Removal of a stored vendor credential is audited for the same reason as
   // setting it: both are the events a security reviewer asks to see.
   await auditAppend({

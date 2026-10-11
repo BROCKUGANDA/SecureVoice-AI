@@ -119,6 +119,11 @@ describe("authorization coverage", () => {
       "/api/auth/sessions",
       "/api/auth/sessions/revoke-all",
       "/api/auth/step-up",
+      // Usage analytics. Session-derived org, and the handler runs its aggregate
+      // reads inside `withTenantScope`, so the database decides which rows exist
+      // rather than a `where` clause someone can forget. GET only; exercised by
+      // tests/tenancy/console-analytics.test.ts.
+      "/api/console/analytics",
       "/api/console/audit",
       "/api/console/crm",
       "/api/console/dead-letter",

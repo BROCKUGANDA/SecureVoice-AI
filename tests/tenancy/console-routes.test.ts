@@ -17,7 +17,7 @@
  * registered before any module that transitively imports it is evaluated, so
  * these handlers are imported dynamically inside each test.
  */
-import { expect, test, mock } from "bun:test";
+import { afterAll, expect, test, mock } from "bun:test";
 import { NextRequest } from "next/server";
 import { db } from "@/lib/db";
 import { createHash } from "node:crypto";
@@ -290,4 +290,218 @@ test("audit: another org's caseRef answers 404, never 403", async () => {
 
   const res = await GET(new NextRequest(`http://localhost/api/console/audit?callRef=${caseRef}`));
   expect(res.status).toBe(404);
+}, 60_000);
+
+// ── The two routes converted onto the database-enforced path ─────────────────
+//
+// `GET /api/console/audit` and the `UserProfile` half of
+// `POST|DELETE /api/console/settings` now run their tenant statements inside
+// `withTenantScope(orgId, …)` (src/lib/tenancy/db-scope.ts), so the row policy on
+// `AuditLog` / `UserProfile` decides what the query can reach. The probes below
+// drive the REAL handlers with one tenant's session against another tenant's
+// rows.
+//
+// They are not redundant with the existing predicate-based tests:
+//
+//   · the audit list read is the query a forgotten predicate would produce, in the
+//     sense that its result is decided by the DATABASE rather than by the shape of
+//     the `where`;
+//   · the settings read has NO org predicate to test at all — it is keyed on
+//     `userId`, the caller's own identity — so the misfit fixture below is the
+//     only way to observe which row the statement is actually allowed to touch.
+//     Reverting that route to a bare `db.` makes the misfit test green-to-red:
+//     the handler starts returning the other tenant's white-label name.
+
+const AUDIT_REF = {
+  A: `SV-F-CONV${RUN}A`,
+  B: `SV-F-CONV${RUN}B`,
+  N: `SV-F-CONV${RUN}N`,
+} as const;
+
+/** A user whose session names org A while their profile row belongs to org B. */
+const MISFIT = uuidFor("dddddddd");
+const MISFIT_ORG_NAME = `Org B white-label ${RUN}`;
+
+const CONV_CHAINS = { in: [`ch-${AUDIT_REF.A}`, `ch-${AUDIT_REF.B}`, `ch-${AUDIT_REF.N}`] };
+
+let convFixtures: Promise<unknown> | null = null;
+
+function seedConversionFixtures() {
+  convFixtures ??= (async () => {
+    await seedBothOrgs();
+    for (const [callRef, orgId] of [
+      [AUDIT_REF.A, ORG_A],
+      [AUDIT_REF.B, ORG_B],
+      [AUDIT_REF.N, null],
+    ] as const) {
+      await db.auditLog.create({
+        data: {
+          callRef,
+          action: "freeze",
+          chainHash: `ch-${callRef}`,
+          orgId,
+          meta: JSON.stringify({ riskScore: 91, channel: "voice" }),
+        },
+      });
+    }
+    await db.user.create({
+      data: {
+        id: MISFIT,
+        email: `misfit-${RUN}@securevoice.ae`,
+        name: "Misfit",
+        emailVerified: true,
+      },
+    });
+    await db.userProfile.create({
+      data: {
+        userId: MISFIT,
+        email: `misfit-${RUN}@securevoice.ae`,
+        name: "Misfit",
+        role: "operator",
+        orgId: ORG_B,
+        orgName: MISFIT_ORG_NAME,
+      },
+    });
+  })();
+  return convFixtures;
+}
+
+afterAll(async () => {
+  await db.auditLog.deleteMany({ where: { chainHash: CONV_CHAINS } });
+  await db.userProfile.deleteMany({ where: { userId: MISFIT } });
+  await db.user.deleteMany({ where: { id: MISFIT } });
+}, 60_000);
+
+test("audit: org A's case list holds its own freeze rows and nobody else's", async () => {
+  await seedConversionFixtures();
+  asOrgA();
+  const { GET } = await import("@/app/api/console/audit/route");
+
+  const body = (await (
+    await GET(new NextRequest("http://localhost/api/console/audit"))
+  ).json()) as { cases: { callRef: string }[] };
+  const refs = body.cases.map((c) => c.callRef);
+
+  expect(refs).toContain(AUDIT_REF.A);
+  expect(refs).not.toContain(AUDIT_REF.B);
+  // A row with no owner is not fair game for an authenticated tenant either.
+  expect(refs).not.toContain(AUDIT_REF.N);
+
+  // Control: all three rows exist and the application role sees them, so the
+  // absences above are enforcement rather than missing fixtures.
+  expect(
+    await db.auditLog.count({
+      where: { callRef: { in: [AUDIT_REF.A, AUDIT_REF.B, AUDIT_REF.N] } },
+    }),
+  ).toBe(3);
+}, 60_000);
+
+test("audit: org B sees the mirror image", async () => {
+  await seedConversionFixtures();
+  asOrgB();
+  const { GET } = await import("@/app/api/console/audit/route");
+
+  const refs = (
+    (
+      (await (await GET(new NextRequest("http://localhost/api/console/audit"))).json()) as {
+        cases: { callRef: string }[];
+      }
+    ).cases ?? []
+  ).map((c) => c.callRef);
+
+  expect(refs).toContain(AUDIT_REF.B);
+  expect(refs).not.toContain(AUDIT_REF.A);
+}, 60_000);
+
+test("audit: another tenant's chain walk is 404 — and the row it looked for is real", async () => {
+  await seedConversionFixtures();
+  asOrgA();
+  const { GET } = await import("@/app/api/console/audit/route");
+
+  const foreign = await GET(
+    new NextRequest(`http://localhost/api/console/audit?callRef=${AUDIT_REF.B}`),
+  );
+  expect(foreign.status).toBe(404);
+  // A 404 for a row that does not exist would prove nothing; this one exists and
+  // belongs to org B.
+  expect(
+    (await db.auditLog.findFirst({ where: { callRef: AUDIT_REF.B }, select: { orgId: true } }))
+      ?.orgId,
+  ).toBe(ORG_B);
+
+  const unowned = await GET(
+    new NextRequest(`http://localhost/api/console/audit?callRef=${AUDIT_REF.N}`),
+  );
+  expect(unowned.status).toBe(404);
+
+  // The caller's own chain still walks.
+  const own = await GET(
+    new NextRequest(`http://localhost/api/console/audit?callRef=${AUDIT_REF.A}`),
+  );
+  expect(own.status).toBe(200);
+  const rows = ((await own.json()) as { rows: { callRef?: string }[] }).rows;
+  expect(rows.length).toBeGreaterThan(0);
+}, 60_000);
+
+test("settings: a profile row naming another tenant is not readable by this session", async () => {
+  await seedConversionFixtures();
+  // The session claims org A; the row it would resolve by userId belongs to org B.
+  session.orgId = ORG_A;
+  session.userId = MISFIT;
+  const { GET } = await import("@/app/api/console/settings/route");
+
+  const res = await GET();
+  expect(res.status).toBe(404);
+  const body = await res.text();
+  expect(body).not.toContain(MISFIT_ORG_NAME);
+
+  // The same statement through the plain client DOES find the row: the refusal
+  // came from the policy, not from the `where` clause.
+  const raw = await db.userProfile.findUnique({
+    where: { userId: MISFIT },
+    select: { orgId: true, orgName: true },
+  });
+  expect(raw?.orgId).toBe(ORG_B);
+
+  // …and org B's own session reads it, so the 404 above is the boundary working
+  // rather than the route being broken.
+  session.orgId = ORG_B;
+  const own = await GET();
+  expect(own.status).toBe(200);
+  expect(JSON.stringify(await own.json())).toContain(MISFIT_ORG_NAME);
+}, 60_000);
+
+test("settings: the converted write path still writes its own tenant's row", async () => {
+  await seedConversionFixtures();
+  asOrgA();
+  const { POST, DELETE } = await import("@/app/api/console/settings/route");
+
+  const orgName = `Converted ${RUN}`;
+  const res = await POST(
+    new Request("http://localhost/api/console/settings", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      // `vendorWebhookUrl: ""` also exercises the ORGANISATION write arm, which
+      // stays on the application client (organization is invisible to sv_tenant).
+      body: JSON.stringify({ orgName, vendorWebhookUrl: "" }),
+    }) as never,
+  );
+  expect(res.status).toBe(200);
+  expect(JSON.stringify(await res.json())).toContain(orgName);
+
+  const stored = await db.userProfile.findUnique({
+    where: { userId: USER_A },
+    select: { orgName: true },
+  });
+  expect(stored?.orgName).toBe(orgName);
+
+  const removed = await DELETE(
+    new NextRequest("http://localhost/api/console/settings?field=elevenKey"),
+  );
+  expect(removed.status).toBe(200);
+  const afterDelete = await db.userProfile.findUnique({
+    where: { userId: USER_A },
+    select: { orgName: true },
+  });
+  expect(afterDelete?.orgName).toBe(orgName);
 }, 60_000);

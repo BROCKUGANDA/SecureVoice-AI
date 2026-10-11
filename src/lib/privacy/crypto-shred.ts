@@ -76,6 +76,8 @@ import type { Prisma } from "@/generated/prisma/client";
 import { db } from "@/lib/db";
 import { append } from "@/lib/audit-chain";
 import { forgetTranscript, pineconeConfigured } from "@/lib/pinecone/transcript-index";
+import { deleteRecording } from "@/lib/storage/recordings";
+import { storageConfigured } from "@/lib/storage/s3";
 import { logError } from "@/lib/validation/safe-log";
 
 // ── Envelope + policy constants ──────────────────────────────────────────────
@@ -767,6 +769,35 @@ export async function eraseCase(
       }
     } catch (error) {
       logError("[privacy] vector erase failed", {
+        caseRef,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  // The third external copy: the call recording in object storage. Destroying the
+  // data key reaches nothing here either, and it is the copy with the most of the
+  // customer in it — their own voice, on the call where they described the fraud.
+  // Same posture as the vector delete above: best-effort, audited on failure,
+  // never allowed to block an erasure that has already committed.
+  if (storageConfigured() && row.orgId && row.conversationId) {
+    try {
+      const result = await deleteRecording({ orgId: row.orgId, conversationId: row.conversationId });
+      if (!result.ok) {
+        await append(
+          {
+            callRef: caseRef,
+            action: "agent",
+            intent: "recording_erase_failed",
+            redactedText: "object storage delete failed after local erasure",
+            meta: { caseRef, key: result.key ?? null, error: result.error.slice(0, 200) },
+            orgId: row.orgId ?? undefined,
+          },
+          { fast: true },
+        ).catch(() => {});
+      }
+    } catch (error) {
+      logError("[privacy] recording erase failed", {
         caseRef,
         error: error instanceof Error ? error.message : String(error),
       });

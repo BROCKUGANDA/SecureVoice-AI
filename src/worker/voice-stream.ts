@@ -24,6 +24,7 @@ import {
 } from "node:http";
 import { randomUUID } from "node:crypto";
 import { env, SUPPORTED_LANGS } from "@/lib/config";
+import { db } from "@/lib/db";
 import type { TtsLang } from "@/lib/elevenlabs/client";
 import { resolveTtsModel } from "@/lib/elevenlabs/client";
 import { DeepgramLiveClient, preconnectDeepgram } from "@/lib/voice/deepgram-client";
@@ -34,6 +35,7 @@ import {
   ConversationState,
   EMERGENCY_FALLBACK,
   FREEZE_CONFIRMATION,
+  FREEZE_UNSTAGED,
   HOLDING_EMPATHY,
   HOLDING_FOLLOWUP,
 } from "@/lib/voice/conversation";
@@ -166,6 +168,35 @@ function getOrCreateCall(callSid: string, lang: TtsLang = "en"): CallState {
  * never play.
  */
 const AI_TIMEOUT_MS = Number(process.env.VOICE_AI_TIMEOUT_MS ?? 2000);
+
+/**
+ * The Case a media stream belongs to, keyed by the provider call-leg sid.
+ *
+ * `Case.callSid` is persisted at dial time and the TwiML hands that same sid to
+ * the stream URL, but nothing joined the two: every audit row this worker wrote
+ * carried a synthetic `vs-<uuid>` reference, so a compliance reviewer reading the
+ * hash chain could not tie a spoken freeze confirmation to the case it concerned.
+ * Resolved once per call and cached; cleared when the call ends so the map
+ * cannot grow without bound on a long-lived worker.
+ */
+const caseRefByCallSid = new Map<string, string | null>();
+
+async function resolveCaseRef(callSid: string): Promise<string | null> {
+  const known = caseRefByCallSid.get(callSid);
+  if (known !== undefined) return known;
+  const row = await db.case
+    .findFirst({ where: { callSid }, select: { caseRef: true } })
+    .catch((err: unknown) => {
+      logError("[voice-stream] case lookup by call sid failed", {
+        callSid,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return null;
+    });
+  const ref = row?.caseRef ?? null;
+  caseRefByCallSid.set(callSid, ref);
+  return ref;
+}
 
 /**
  * Speak text to the caller, through the compliance gate.
@@ -381,6 +412,13 @@ async function handleTranscript(
 ): Promise<void> {
   const state = getOrCreateCall(callSid);
   (ws as WebSocket & { __callSid?: string }).__callSid = callSid;
+  // Fill the case reference as early as the turn allows, without making the
+  // caller wait for it. The fraud branch awaits the outcome explicitly, because
+  // that is where the difference between "staged" and "not staged" decides what
+  // the customer is told.
+  void resolveCaseRef(callSid).then((ref) => {
+    if (ref) (ws as WebSocket & { __caseRef?: string }).__caseRef = ref;
+  });
   if (state.ended) return;
 
   if (isFinal) {
@@ -503,16 +541,27 @@ async function handleTranscript(
     state.ended = true;
 
     // Just-in-time AuthZ soft freeze.
-    try {
-      await executeSoftFreeze(callSid);
-    } catch (err) {
-      logError("[voice-stream] soft freeze failed", {
-        error: err instanceof Error ? err.message : String(err),
+    //
+    // The outcome decides the sentence below, so this is not a fire-and-forget
+    // call any more. The previous version awaited `executeSoftFreeze()`, threw
+    // its result away, and then confirmed a hold to the caller — while the
+    // function it had just called was a stub that wrote nothing anywhere. On this
+    // plane a customer was told their card was restricted and their account
+    // protected, and none of it was true.
+    const freeze = await executeSoftFreeze(callSid);
+    if (freeze.ok) {
+      (ws as WebSocket & { __caseRef?: string }).__caseRef = freeze.caseRef;
+    } else {
+      logError("[voice-stream] soft freeze NOT staged — the caller must not be told it was", {
         callSid,
+        code: freeze.code,
+        error: freeze.error,
+        caseRef: freeze.caseRef ?? "unresolved",
       });
     }
 
-    await safeTtsStream(state, ws, FREEZE_CONFIRMATION[state.lang] ?? FREEZE_CONFIRMATION.en, {
+    const lines = freeze.ok ? FREEZE_CONFIRMATION : FREEZE_UNSTAGED;
+    await safeTtsStream(state, ws, lines[state.lang] ?? lines.en, {
       onFirstAudio,
       force: true,
     });
@@ -747,6 +796,7 @@ function createServer() {
       state.deepgram = null;
       state.tts = null;
       calls.delete(callSid);
+      caseRefByCallSid.delete(callSid);
       logInfo("[voice-stream] call ended", { callSid });
     });
 

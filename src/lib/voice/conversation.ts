@@ -152,6 +152,30 @@ export const FREEZE_CONFIRMATION: Record<ConvLang, string> = {
   sw: "Asante. Tumeweka kizuizi cha muda kwenye kadi yako kulinda akaunti yako. Mtaalamu wa udanganyifu atakagua hivi karibuni.",
 };
 
+/**
+ * Spoken when the hold could NOT be staged — no case for this call leg, a state
+ * that does not permit one, or an audit log that refused the write.
+ *
+ * This line exists because the alternative was a lie. The platform may only tell
+ * a customer their card is restricted when `executeSoftFreeze` says it staged;
+ * when it did not, what the customer must hear is that a human is being brought
+ * in and that they should expect a call — not a confirmation of an action nobody
+ * took.
+ *
+ * The non-English lines carry the same caveat as every other utterance in this
+ * file: they are authored against the English source and still need the native
+ * sign-off `docs/GAP-REGISTER.md` records as outstanding for Arabic. A
+ * consequence-bearing sentence should not go live on a machine translation.
+ */
+export const FREEZE_UNSTAGED: Record<ConvLang, string> = {
+  en: "I could not place the hold on your card from here. I am passing this to our fraud team now, and they will call you. If you do not hear from us, please contact your bank directly.",
+  ar: "لم أتمكن من توقيف بطاقتك من هنا. أمرّ هذا الآن إلى فريق الاحتيال وسيتصلون بك. إذا لم تتواصل معك أي جهة، يرجى مراجعة بنكك مباشرة.",
+  hi: "मैं यहाँ आपके कार्ड पर रोक नहीं लगा सकी। मैं इसे अभी धोखाधड़ी टीम को भेज रही हूँ और वे आपको कॉल करेंगे। अगर किसी ने संपर्क नहीं किया तो कृपया अपने बैंक से सीधे संपर्क करें।",
+  ur: "میں یہاں سے آپ کے کارڈ پر روک نہیں لگا سکی۔ میں یہ ابھی فراڈ ٹیم کو بھیج رہا ہوں اور وہ آپ کو کال کریں گے۔ اگر کسی سے رابطہ نہ ہو تو براہ کرم اپنے بینک سے براہ راست رابطہ کریں۔",
+  fr: "Je n'ai pas pu suspendre votre carte depuis ici. Je transmets le dossier à notre équipe antifraude maintenant, et elle vous rappellera. Sans nouvelle de notre part, contactez directement votre banque.",
+  sw: "Sikuweza kuweka kizuizi kwenye kadi yako kutoka hapa. Ninailo wasilisha su hili kwa timu yetu ya ulaghai sasa, na watakupigia simu. Ukisasikia kutoka kwetu, tafadhali wasiliana na benki yako moja kwa moja.",
+};
+
 /** Holding line for a caller routed to a human without a fraud claim. */
 export const HOLDING_FOLLOWUP: Record<ConvLang, string> = {
   en: "I understand. A fraud specialist will follow up shortly.",

@@ -38,9 +38,14 @@ import { verdictFor, describeHits } from "@/lib/compliance/vishing";
 
 import type { TtsLang } from "@/lib/elevenlabs/client";
 import { env, maxAgentWords } from "@/lib/config";
-import { CATEGORY_SCOPE, asCallCategory, type CallCategory } from "@/lib/call-categories";
+import { CATEGORY_SCOPE, asCallCategory } from "@/lib/call-categories";
 import { db } from "@/lib/db";
 import { decryptSecret } from "@/lib/byok";
+import { traceLlmCall } from "@/lib/langfuse";
+import { createLlmAdapter, type LlmProvider } from "@/lib/adapters/llm-adapter";
+import { spokenCompletionSchema } from "@/lib/validation/llm-response";
+import { auth } from "@/lib/better-auth";
+import { headers } from "next/headers";
 
 /** Intents whose reply is a commitment and must be the vetted script, verbatim. */
 const SCRIPTED_ONLY: ReadonlySet<string> = new Set([
@@ -212,16 +217,52 @@ export function selectTenantProvider(input: {
 /**
  * The tenant's own LLM credentials, or null.
  *
- * Reads `UserProfile.llmKeyEnc` / `llmBaseUrl` (written by the setup wizard) and
- * unseals the key only in-process — the plaintext never leaves this function.
- * Returns null on any failure, including an undecryptable key, so a corrupt
- * store degrades to the platform's own provider rather than throwing mid-call.
+ * Resolution order is org-first, user-fallback:
+ *
+ *   1. Organization.llmKeyEnc + llmBaseUrl — the org's own OpenAI-compatible
+ *      gateway. A bank's fraud team shares one LLM account across every
+ *      analyst, so the key belongs to the org.
+ *   2. UserProfile.llmKeyEnc + llmBaseUrl — the per-user fallback for a user
+ *      whose org has not configured one.
+ *
+ * Both are sealed with the same AES-256-GCM envelope (src/lib/byok.ts) and
+ * decrypted only in-process. Returns null on any failure, including an
+ * undecryptable key, so a corrupt store degrades to the platform's own provider
+ * rather than throwing mid-call.
+ *
+ * The org is resolved from the session's active organization — the
+ * server-derived tenant identity, never from a header or a body field.
  */
 export async function resolveLlmCredentials(
   userId: string | null | undefined,
 ): Promise<Provider | null> {
   if (!userId) return null;
   try {
+    // ── Org-level BYOK (preferred) ──────────────────────────────────────────
+    const session = await auth.api.getSession({ headers: await headers() });
+    const orgId = session?.session.activeOrganizationId ?? null;
+    if (orgId) {
+      const org = await db.organization.findUnique({
+        where: { id: orgId },
+        select: { llmKeyEnc: true, llmBaseUrl: true },
+      });
+      if (org?.llmKeyEnc) {
+        const key = decryptSecret(org.llmKeyEnc);
+        if (key) {
+          return selectTenantProvider({
+            key,
+            baseUrl: org.llmBaseUrl,
+            deploymentBaseUrl: env.litellmApiKey ? env.litellmBaseUrl : env.geminiBaseUrl,
+            model: env.groqModel,
+            timeoutMs: env.groqTimeoutMs,
+            temperature: env.groqTemperature,
+            maxTokens: env.groqMaxTokens,
+          });
+        }
+      }
+    }
+
+    // ── User-level BYOK (fallback) ──────────────────────────────────────────
     const row = await db.userProfile.findUnique({
       where: { userId },
       select: { llmKeyEnc: true, llmBaseUrl: true },
@@ -276,6 +317,33 @@ const LANGUAGE_RULE: Record<TtsLang, string> = {
   fr: "Speak in French.",
   sw: "Speak in Swahili.",
 };
+
+/**
+ * Map a provider name to an LLM adapter provider.
+ *
+ * The `Provider` type above uses names that describe the DEPLOYMENT's
+ * configuration (groq, lite_llm, gemini, tenant_byok), while the adapter uses
+ * names that describe the WIRE FORMAT (openai, groq, anthropic, gemini). Most
+ * map 1:1, but `lite_llm` and `tenant_byok` are both OpenAI-compatible
+ * endpoints — they differ only in where the key comes from, not in how the
+ * request is shaped.
+ *
+ * This function is the single place that knows both vocabularies. Adding a
+ * new provider to either side without updating this map is a compile error,
+ * which is the right failure mode: a silent mismatch would send a Groq-shaped
+ * request to an OpenAI endpoint.
+ */
+function adapterProviderFor(name: Provider["name"]): LlmProvider {
+  switch (name) {
+    case "groq":
+      return "groq";
+    case "gemini":
+      return "gemini";
+    case "lite_llm":
+    case "tenant_byok":
+      return "openai";
+  }
+}
 
 export async function draftAgentReply(args: {
   text: string;
@@ -381,26 +449,48 @@ export async function draftAgentReply(args: {
 
     const safeCallerText = wrapCallerText(args.text);
 
-    const r = await fetch(p.url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${p.key}` },
-      body: JSON.stringify({
-        model: p.model,
-        messages: [
-          { role: "system", content: system },
-          {
-            role: "user",
-            content: `The caller said (their language may differ - reply in YOUR language): ${safeCallerText}`,
-          },
-        ],
-        temperature: p.temperature,
-        max_tokens: p.maxTokens,
-      }),
-      signal: AbortSignal.timeout(p.timeoutMs),
+    const traceResult = await traceLlmCall({
+      name: "draft-agent-reply",
+      model: p.model,
+      input: {
+        system: system.slice(0, 200) + "…", // truncated for dashboard readability
+        user: safeCallerText,
+      },
+      metadata: {
+        lang: args.lang,
+        intent: args.intent,
+        provider: p.name,
+      },
+      run: async (generation) => {
+        const adapter = createLlmAdapter(adapterProviderFor(p.name), {
+          apiKey: p.key,
+          baseUrl: p.url,
+          model: p.model,
+          timeoutMs: p.timeoutMs,
+          temperature: p.temperature,
+          maxTokens: p.maxTokens,
+          systemPrompt: system,
+        });
+        const result = await adapter.complete(
+          `The caller said (their language may differ - reply in YOUR language): ${safeCallerText}`,
+        );
+        if (result.usage) {
+          generation.end({ usage: result.usage });
+        }
+        // Runtime zod validation of the completion (#53).
+        //
+        // The adapter already guarantees a non-empty trimmed string, but the
+        // schema is the explicit contract: it catches a completion that is
+        // present but unspeakable (e.g. only whitespace after the voice-hygiene
+        // strip) before it reaches TTS. A completion that fails here returns
+        // null, which falls through to the scripted reply — always spoken,
+        // always safe, always audible.
+        const validated = spokenCompletionSchema.safeParse(result.text);
+        return validated.success ? validated.data : null;
+      },
     });
-    if (!r.ok) return null;
-    const data = (await r.json()) as { choices?: { message?: { content?: string } }[] };
-    let out = (data.choices?.[0]?.message?.content ?? "").trim();
+
+    let out = traceResult.value;
     if (!out) return null;
     // voice hygiene: strip markdown artifacts an LLM might emit (TTS reads
     // asterisks/backticks aloud) and enforce the word ceiling

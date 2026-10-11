@@ -1,6 +1,5 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
-import { z } from "zod";
 import { append as auditAppend } from "@/lib/audit-chain";
 import { transcript as redactText } from "@/lib/redact";
 import { consume as consumeRateLimit, rateLimitId } from "@/lib/ratelimit";
@@ -8,7 +7,13 @@ import { analyzeSentiment } from "@/lib/sentiment";
 import { draftAgentReply } from "@/lib/llm";
 import { auditAgentReply, auditUserInput } from "@/lib/compliance/policy";
 import { verifyTwilioSignature } from "@/lib/twilio";
-import { resolveDeliveryLang } from "@/lib/languages";
+import {
+  describeDtmfForSpeech,
+  mapDtmfDigits,
+  sanitiseGatherActionUrl,
+  type DtmfAction,
+} from "@/lib/voice/dtmf";
+import { resolveDeliveryLang, type Lang } from "@/lib/languages";
 import { logError, logWarn } from "@/lib/validation/safe-log";
 
 export const dynamic = "force-dynamic";
@@ -25,8 +30,16 @@ export const dynamic = "force-dynamic";
  *      closing TwiML without a <Gather> — the call ends naturally
  *
  * Twilio sends form-encoded POST with:
- *   CallSid, From, To, SpeechResult, Confidence, CallStatus
- *   (and Digits if using DTMF fallback)
+ *   CallSid, From, To, SpeechResult, Confidence, CallStatus, and `Digits` when
+ *   the caller used the keypad.
+ *
+ * Two answer channels, one decision: every `<Gather>` this route emits (and the
+ * one in `interventionTwiml` that starts the call) collects `dtmf speech`, so the
+ * caller speaks or presses and the same intent vocabulary comes out the other
+ * side. A press wins over a transcription when both arrive, because the press is
+ * not subject to the line noise that made the transcription unreliable in the
+ * first place. See `src/lib/voice/dtmf.ts` for the mapping and the rule that a
+ * keypress classifies intent and authenticates nothing.
  */
 
 /* ── Intent classification (same keywords as /api/agent) ── */
@@ -231,11 +244,120 @@ function buildTurnTwiml(reply: string, lang: string, endCall: boolean, callSid: 
   const speakNow = escapeXml(PROMPTS.speakNow[lang] ?? PROMPTS.speakNow.en);
   const goodbye = escapeXml(PROMPTS.goodbye[lang] ?? PROMPTS.goodbye.en);
 
-  // Gather: collect speech input for up to 8 seconds of silence, then POST to this endpoint
-  return `<?xml version="1.0" encoding="UTF-8"?><Response>${say}<Gather input="speech" action="/api/twilio/turn?callSid=${escapeXml(callSid)}&lang=${lang}" method="POST" speechTimeout="auto" language="${language}"><Say voice="${voice}" language="${language}">${speakNow}</Say></Gather><Say voice="${voice}" language="${language}">${goodbye}</Say><Hangup/></Response>`;
+  return `<?xml version="1.0" encoding="UTF-8"?><Response>${say}${gather(voice, language, speakNow, callSid, lang)}<Say voice="${voice}" language="${language}">${goodbye}</Say><Hangup/></Response>`;
+}
+
+/**
+ * The one `<Gather>` this route emits, for both channels at once.
+ *
+ * `input="dtmf speech"` is the point: the same question is offered on the keypad
+ * and by voice, so a caller on a noisy line, a caller who will not speak to an
+ * unknown number, and a caller who cannot speak at all all get an answer channel
+ * that works. A single builder is deliberate — two `<Gather>` strings in this
+ * file would drift, and a caller who pressed a key into a speech-only Gather
+ * hears silence and hangs up.
+ */
+function gather(voice: string, language: string, prompt: string, callSid: string, lang: string) {
+  const action = sanitiseGatherActionUrl(
+    `/api/twilio/turn?callSid=${callSid}&lang=${lang}`,
+  ) ?? "/api/twilio/turn";
+  return `<Gather input="dtmf speech" numDigits="1" timeout="8" method="POST" speechTimeout="auto" action="${escapeXml(action)}" language="${language}"><Say voice="${voice}" language="${language}">${prompt}</Say></Gather>`;
 }
 
 /* ── Main handler ── */
+
+/**
+ * Answer a keypad turn.
+ *
+ * THE SECURITY RULE this route implements, stated where it can be audited: a
+ * press classifies INTENT and nothing else. It is a tone on a copper pair — no
+ * proof of identity, in-band, replayable — so `confirm_authorized` here is worth
+ * exactly what the spoken "yes it was me" is worth in the same position, and this
+ * path is not wired to authentication, authorisation, unblocking, or money
+ * release. Anyone extending it to a state transition must put the institution's
+ * approved challenge flow behind it first.
+ *
+ * The reply is a CONSTANT from `src/lib/voice/dtmf.ts`, never an LLM draft: the
+ * sentence that confirms a protective action, or invites a second attempt after a
+ * mis-key, is one a model does not get to paraphrase. That is also why this
+ * branch costs no inference budget and cannot be prompt-injected — a press is not
+ * text.
+ */
+async function answerKeypad(args: {
+  action: DtmfAction;
+  lang: Lang;
+  callSid: string;
+  callerId: string;
+  voice: string;
+  language: string;
+}): Promise<NextResponse> {
+  const { action, lang, callSid, callerId, voice, language } = args;
+
+  // The two actions that keep the caller in the conversation. Everything else
+  // closes it: `deny_fraud` and `confirm_authorized` are answers, `cancel` is a
+  // caller who rang off, and `request_human` is a handoff — the line is passed
+  // on, so there is nothing left for this script to say.
+  const continues = action === "repeat" || action === "none";
+  const reply =
+    action === "cancel"
+      ? (PROMPTS.goodbye[lang] ?? PROMPTS.goodbye.en)
+      : describeDtmfForSpeech(action, lang);
+
+  const auditAction =
+    action === "deny_fraud"
+      ? "card_freeze"
+      : action === "request_human"
+        ? "escalate"
+        : continues
+          ? "clarify"
+          : "none";
+
+  try {
+    await auditAppend({
+      callRef: callSid || `SV-TW-${Date.now().toString(36)}`,
+      action: "agent",
+      // The keypad's own vocabulary, not the speech one: `request_human`,
+      // `repeat`, `cancel` and `none` are answers a customer gave, and flattening
+      // them into `unclear` would make a handoff request invisible in the trail.
+      intent: action,
+      callerId,
+      meta: {
+        lang,
+        direction: "inbound",
+        channel: "twilio",
+        // Which channel the answer arrived on, so an operator can tell a press
+        // from a word — the two carry different evidential weight.
+        source: "keypad",
+        replyLength: reply.length,
+        llm: false,
+        endCall: !continues,
+        action: auditAction,
+        latencyMs: 0,
+      },
+    });
+  } catch (err) {
+    logError("[twilio-turn] audit append failed", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+
+  if (!continues) {
+    return new NextResponse(
+      `<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="${voice}" language="${language}">${escapeXml(reply)}</Say><Hangup/></Response>`,
+      { headers: { "Content-Type": "text/xml" } },
+    );
+  }
+
+  return new NextResponse(
+    `<?xml version="1.0" encoding="UTF-8"?><Response>${replyToSay(reply, voice, language)}${gather(voice, language, escapeXml(describeDtmfForSpeech("none", lang)), callSid, lang)}<Say voice="${voice}" language="${language}">${escapeXml(PROMPTS.goodbye[lang] ?? PROMPTS.goodbye.en)}</Say><Hangup/></Response>`,
+    { headers: { "Content-Type": "text/xml" } },
+  );
+}
+
+/** A <Say> with the call's voice and language attributes, escaped. */
+function replyToSay(text: string, voice: string, language: string): string {
+  return `<Say voice="${voice}" language="${language}">${escapeXml(text)}</Say>`;
+}
 
 export async function POST(req: NextRequest) {
   const callerId = rateLimitId(req, "twilio-turn");
@@ -287,6 +409,16 @@ export async function POST(req: NextRequest) {
     String(form.get("lang") ?? req.nextUrl.searchParams.get("lang") ?? ""),
   );
 
+  // The keypad channel, read as the hostile carrier field it is. `absent` (no
+  // `Digits` in the body) is the normal speech turn and falls through to the
+  // speech path; a `Digits` value that is present is handled below and WINS over
+  // `SpeechResult`, because a press is unambiguous where a transcription may not
+  // be — that ordering is the entire reason the channel exists.
+  const rawDigits = form.get("Digits");
+  const digits =
+    rawDigits === null ? "" : typeof rawDigits === "string" ? rawDigits : String(rawDigits);
+  const dtmf = mapDtmfDigits(digits);
+
   const rl = consumeRateLimit("twilio-turn", callSid || callerId);
   // Resolve the voice plane once, before any early return: every spoken path —
   // including the rate-limit refusal below — must speak in the caller's
@@ -303,10 +435,28 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // ── A key was pressed ───────────────────────────────────────────────────────
+  if (dtmf.ok) {
+    return answerKeypad({ action: dtmf.action, lang, callSid, callerId, voice, language });
+  }
+  if (dtmf.reason !== "absent") {
+    // A press that is present but not actionable: too long, a non-keypad
+    // character, two different keys in one burst, or a key nothing is bound to.
+    // Never guess the intent — say the two options again on both channels. A
+    // caller who pressed `21` meant one of them, and which one is not ours to
+    // decide: guessing is how "1, that was not me" gets recorded as "2, I
+    // authorised it" on a fraud call.
+    logWarn("[twilio-turn] keypad press not actionable", {
+      reason: dtmf.reason,
+      callSid: callSid || "unknown",
+    });
+    return answerKeypad({ action: "none", lang, callSid, callerId, voice, language });
+  }
+
   // No speech detected — ask again once, then end
   if (!speechResult) {
     return new NextResponse(
-      `<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="${voice}" language="${language}">${escapeXml(PROMPTS.notCaught[lang] ?? PROMPTS.notCaught.en)}</Say><Gather input="speech" action="/api/twilio/turn?callSid=${escapeXml(callSid)}&lang=${lang}" method="POST" speechTimeout="auto" language="${language}"></Gather><Say voice="${voice}" language="${language}">${escapeXml(PROMPTS.goodbye[lang] ?? PROMPTS.goodbye.en)}</Say><Hangup/></Response>`,
+      `<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="${voice}" language="${language}">${escapeXml(PROMPTS.notCaught[lang] ?? PROMPTS.notCaught.en)}</Say>${gather(voice, language, escapeXml(describeDtmfForSpeech("none", lang)), callSid, lang)}<Say voice="${voice}" language="${language}">${escapeXml(PROMPTS.goodbye[lang] ?? PROMPTS.goodbye.en)}</Say><Hangup/></Response>`,
       { headers: { "Content-Type": "text/xml" } },
     );
   }
@@ -315,7 +465,6 @@ export async function POST(req: NextRequest) {
   const intent = classify(speechResult);
   const userInputAudit = auditUserInput(speechResult);
   const sentiment = analyzeSentiment(speechResult);
-
   // Determine if the call should end
   const endCall = intent === "deny_fraud" || intent === "confirm_authorized" || sentiment.escalate;
 
@@ -357,6 +506,16 @@ export async function POST(req: NextRequest) {
         escalate: sentiment.escalate,
         endCall,
         action,
+        // The input guard's verdict, RECORDED rather than acted on. Computed and
+        // discarded, as it was before, would have been a fake gate — but the
+        // response here is deliberately only visibility: `/api/agent` counts an
+        // injection-shaped utterance as a strike because its callerId is the
+        // end user's own address, while this route's is Twilio's egress, shared
+        // by every call the platform places. Striking it would let one customer
+        // saying "ignore previous instructions" rate-limit the whole tenant's
+        // inbound webhooks. So: audited, never refused, never punished here.
+        injectionSuspicious: userInputAudit.suspicious,
+        ...(userInputAudit.reason ? { injectionReason: userInputAudit.reason } : {}),
         latencyMs: 0,
       },
     });

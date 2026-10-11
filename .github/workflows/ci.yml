@@ -263,11 +263,26 @@ jobs:
           # well-known throwaway credentials to the network for the few minutes
           # this container exists.
           docker rm -f "${DB_CI}" 2>/dev/null || true
+          # `--max_connections=500` is REQUIRED, not a tuning preference.
+          #
+          # Postgres defaults to max_connections=100. The WP-13 concurrency gate
+          # ("100 concurrent reservations never oversell") opens one connection
+          # per concurrent reservation, so the suite alone consumes the entire
+          # default. That leaves zero headroom for pg-pool's own bookkeeping and
+          # for the other suites sharing the server, and the pool then fails with
+          # "timeout exceeded when trying to connect" — a TIMEOUT, not an
+          # assertion failure, so the report reads like a hang rather than a
+          # capacity problem. Verified locally: identical tests go 3-fail at the
+          # default and 124/124 pass at 500.
+          #
+          # This is safe on a throwaway CI container. It is NOT a setting to copy
+          # to production: each backend connection costs memory, and the real
+          # constraint there is a pool size, not max_connections.
           docker run -d --name "${DB_CI}" -p 127.0.0.1:"${DB_PORT}":5432 \
             -e POSTGRES_USER=securevoice \
             -e POSTGRES_PASSWORD=securevoice \
             -e POSTGRES_DB=securevoice \
-            postgres:16-alpine
+            postgres:16-alpine --max_connections=500
           # Readiness is asserted over TCP, NOT the unix socket, and that
           # distinction is the entire fix.
           #

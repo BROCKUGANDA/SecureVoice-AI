@@ -27,8 +27,10 @@ import { ElevenLabs } from "@elevenlabs/elevenlabs-js";
 const OUT_DIR = path.join(process.cwd(), "public", "demo-audio");
 
 /**
- * The five cases that carry a recording, mirroring `RECENT_CALLS` in
- * src/lib/data.ts. Languages and voices follow `TTS_VOICE` in
+ * The five cases that carry a recording. The dashboard no longer keeps a
+ * mock call list (it reads /api/console/analytics), so this list is the only
+ * thing that decides which demo cases show a playable recording. Languages and
+ * voices follow `TTS_VOICE` in
  * src/lib/voice-client.ts — a demo recording in a different voice from the live
  * path would be a small lie about what the product sounds like.
  */

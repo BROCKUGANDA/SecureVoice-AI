@@ -154,3 +154,8 @@ cypress/videos/
 # Blue/green deploy state — written by scripts/deploy.mjs (state.json + the
 # active.env that feeds APP_UPSTREAM to caddy). Machine-local, never committed.
 .deploy/
+
+# PostHog onboarding wizard output — a scratch tree of generated skill files the
+# wizard drops on disk when it runs. Machine-local tooling output, not project
+# content, and it reappears on every wizard run.
+.posthog/

@@ -867,9 +867,15 @@ describe("known gaps, asserted so they cannot be forgotten", () => {
     expect(allCrawlers?.disallow).toContain("/api/");
   });
 
-  test("security.txt is a placeholder, not a working contact", () => {
-    // RFC 9116 is only worth publishing if someone answers. The placeholder
-    // mailbox is recorded here so it cannot quietly ship as a real contact.
-    expect(read("public/security.txt")).toContain("security@example.com");
+  test("security.txt routes disclosures to a monitored mailbox", () => {
+    // RFC 9116 is only worth publishing if someone answers. It used to carry a
+    // placeholder (security@example.com) and this test pinned the placeholder so
+    // it could not ship as a real contact. The contact is now real — a mailbox
+    // that exists on the sending domain — so the assertion inverts: the
+    // placeholder must be GONE, and the contact must be a securevoiceai.me
+    // address that the UI also publishes.
+    const txt = read("public/security.txt");
+    expect(txt).not.toContain("example.com");
+    expect(txt).toContain("Contact: mailto:support@securevoiceai.me");
   });
 });

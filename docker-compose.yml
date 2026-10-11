@@ -531,6 +531,21 @@ services:
       # Domain to issue a certificate for. Must resolve to this host.
       SITE_ADDRESS: ${SITE_ADDRESS:-localhost}
       ACME_EMAIL: ${ACME_EMAIL:-admin@example.com}
+    # ── The active colour, for a blue/green deploy ────────────────────────────
+    # `APP_UPSTREAM` is what the Caddyfile proxies to, and this file is the only
+    # thing that puts it into Caddy's process environment.
+    #
+    # It lives on the BASE service, not in docker-compose.bluegreen.yml, for a
+    # measured reason: an `env_file` declared on the caddy service in the
+    # OVERRIDE file is dropped by compose's file merge, so the value never
+    # reached the container and a colour flip did nothing. Declared here it is
+    # present in both modes — a plain `docker compose up` and a blue/green stack.
+    #
+    # `required: false` so a fresh checkout with no deploy state still starts;
+    # Caddy then falls back to the Caddyfile default (`app:3000`).
+    env_file:
+      - path: .deploy/active.env
+        required: false
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data      # certificates + ACME account

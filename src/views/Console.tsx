@@ -35,8 +35,10 @@ import { LiveOpsPanel, type TranscriptLine, type LiveCall } from "@/components/o
 import { SloPanel } from "@/components/slo/SloPanel";
 import { VerificationTokenBadge } from "@/components/console/VerificationTokenBadge";
 import { TopUpDialog } from "@/components/console/TopUpDialog";
+import { MailInbox } from "@/components/console/MailInbox";
 import { LoadingIndicator } from "@/components/fx/LoadingIndicator";
 import { walletEmptyNotice } from "@/lib/credits-wallet";
+import { getInstitutionLabels } from "@/lib/institution-context";
 
 /**
  * Operator Command Center — run the platform for real, on your own information:
@@ -394,6 +396,8 @@ export function Console() {
   const [branding, setBranding] = useState<{
     orgName: string | null;
     orgLogoUrl: string | null;
+    institutionType?: string;
+    shariahCompliant?: boolean;
   } | null>(null);
   // Setup wizard nudge. `null` = "not yet known", `false` = this tenant has never
   // completed setup, `true` = it has. Dismissal is per-browser-session on purpose:
@@ -412,6 +416,20 @@ export function Console() {
 
   const email = user?.email ?? "";
   const customerRef = email ? selfRef(email) : "SELF-";
+
+  /**
+   * Dynamic labels for this tenant's institution type.
+   *
+   * A bank sees "Transaction" / "Freeze Card" / "Merchant"; an insurer sees
+   * "Claim" / "Pause Payout" / "Provider / Repair Shop"; a takaful insurer
+   * sees "Contribution" instead of "Premium" and "Takaful" instead of
+   * "Insurance". The labels come from `/api/console/settings` and default to
+   * bank vocabulary when the org hasn't declared a type.
+   */
+  const labels = getInstitutionLabels(
+    branding?.institutionType,
+    branding?.shariahCompliant,
+  );
 
   // Live Operations: poll the audit chain for the active call's transcript.
   // The post_call_ingest row carries the redacted transcript in redactedText.
@@ -485,9 +503,23 @@ export function Console() {
         .catch(() => {});
       fetch("/api/console/settings")
         .then((r) => r.json())
-        .then((d: { orgName: string | null; orgLogoUrl: string | null; error?: string }) => {
-          if (alive && !d.error) setBranding({ orgName: d.orgName, orgLogoUrl: d.orgLogoUrl });
-        })
+        .then(
+          (d: {
+            orgName: string | null;
+            orgLogoUrl: string | null;
+            institutionType?: string;
+            shariahCompliant?: boolean;
+            error?: string;
+          }) => {
+            if (alive && !d.error)
+              setBranding({
+                orgName: d.orgName,
+                orgLogoUrl: d.orgLogoUrl,
+                institutionType: d.institutionType,
+                shariahCompliant: d.shariahCompliant,
+              });
+          },
+        )
         .catch(() => {});
       // Live pipeline feed. Realtime (websocket) is the preferred transport; SSE is
       // the always-on fallback. Both append the same rows to liveFeed, so the UI is
@@ -1072,7 +1104,10 @@ export function Console() {
                     onChange={(e) => setChannel(e.target.value)}
                     className={cn(inputCls, "w-full border px-3")}
                   >
-                    {["card", "login", "payment", "transfer", "remittance"].map((c) => (
+                    {(labels.productNoun === "Claim"
+                      ? ["claim_payout", "policy_change", "account_takeover"]
+                      : ["card", "login", "payment", "transfer", "remittance"]
+                    ).map((c) => (
                       <option key={c} value={c}>
                         {t(CHANNEL_LABELS[c]?.en ?? c, CHANNEL_LABELS[c]?.ar ?? c, lang)}
                       </option>
@@ -1099,7 +1134,7 @@ export function Console() {
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
                   <Label className="text-[11.5px] font-semibold">
-                    {t("Amount (AED)", "المبلغ (درهم)", lang)}
+                    {t(labels.amountLabel, labels.amountLabel, lang)}
                   </Label>
                   <Input
                     value={amount}
@@ -1110,7 +1145,7 @@ export function Console() {
                 </div>
                 <div className="space-y-1.5">
                   <Label className="text-[11.5px] font-semibold">
-                    {t("Merchant", "التاجر", lang)}
+                    {t(labels.merchantLabel, labels.merchantLabel, lang)}
                   </Label>
                   <Input
                     value={merchant}
@@ -1129,7 +1164,11 @@ export function Console() {
                 ) : (
                   <Zap className="h-4 w-4 text-green-bright" />
                 )}
-                {t("Fire intervention signal", "أطلق إشارة التدخّل", lang)}
+                {t(
+                  `Fire ${labels.productNoun.toLowerCase()} signal`,
+                  `أطلق إشارة ${labels.productNoun.toLowerCase()}`,
+                  lang,
+                )}
               </button>
             </div>
           </div>
@@ -1236,7 +1275,11 @@ export function Console() {
           <div className="rounded-3xl border border-line bg-white p-6">
             <div className="flex items-center justify-between">
               <h2 className="font-display text-[15px] font-semibold">
-                {t("Recent interventions", "التدخّلات الأخيرة", lang)}
+                {t(
+                  `Recent ${labels.productNoun.toLowerCase()}s`,
+                  `${labels.productNoun.toLowerCase()}s الأخيرة`,
+                  lang,
+                )}
               </h2>
               <div className="flex items-center gap-2">
                 <Chip className="!text-[10px]">
@@ -1278,8 +1321,8 @@ export function Console() {
             {cases.length === 0 ? (
               <p className="mt-4 text-[12.5px] text-ink-3">
                 {t(
-                  "No cases yet — fire the first signal.",
-                  "لا توجد حالات بعد — أطلق الإشارة الأولى.",
+                  `No ${labels.productNoun.toLowerCase()}s yet — fire the first signal.`,
+                  `لا توجد ${labels.productNoun.toLowerCase()}s بعد — أطلق الإشارة الأولى.`,
                   lang,
                 )}
               </p>
@@ -1295,7 +1338,14 @@ export function Console() {
                     <div className="min-w-0">
                       <p className="num text-[12px] font-semibold">{c.callRef}</p>
                       <p className="truncate text-[11px] text-ink-3">
-                        {c.channel ?? "—"} · {c.plannedAction ?? "—"} ·{" "}
+                        {c.channel
+                          ? t(
+                              CHANNEL_LABELS[c.channel]?.en ?? c.channel,
+                              CHANNEL_LABELS[c.channel]?.ar ?? c.channel,
+                              lang,
+                            )
+                          : "—"}{" "}
+                        · {c.plannedAction ?? "—"} ·{" "}
                         {new Date(c.at).toLocaleTimeString()}
                       </p>
                     </div>
@@ -1348,6 +1398,23 @@ export function Console() {
       {role === "operator" && (
         <div className="mt-6">
           <SloPanel windowMinutes={60} interventions={50} />
+        </div>
+      )}
+
+      {/*
+       * ————— Received email —————
+       *
+       * The RECEIVE half of the email surface. Mail to support@ / legal@ /
+       * founder@ is captured by the Resend `email.received` webhook into
+       * `EmailInbound` and read back here, so an operator sees a bank's reply in
+       * the console instead of only in the mailbox.
+       *
+       * Operator-only, like the route it reads (`requireOperator`), and NOT
+       * org-scoped: the mailboxes are platform-level, not per-tenant.
+       */}
+      {role === "operator" && (
+        <div className="mt-6">
+          <MailInbox />
         </div>
       )}
 

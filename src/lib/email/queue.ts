@@ -77,7 +77,16 @@ export async function enqueueAndSendEmail(input: {
 
   if (sent.ok) {
     await db.emailOutbox
-      .update({ where: { id: rowId }, data: { state: "SENT", sentAt: new Date() } })
+      .update({
+        where: { id: rowId },
+        data: {
+          state: "SENT",
+          sentAt: new Date(),
+          // Recorded for the same reason as in deliverEmail: it is the only key
+          // a delivery webhook carries, so a bounce cannot be matched without it.
+          ...(sent.id && sent.id !== "unknown" ? { providerMessageId: sent.id } : {}),
+        },
+      })
       .catch(() => {
         // The message went out. A missed status update is cosmetic — it does not
         // lose the message, and the drain worker will not re-send a SENT row.

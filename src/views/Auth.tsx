@@ -66,7 +66,7 @@ const SEEDED = [
     label: "Demo mode",
     email: process.env.NEXT_PUBLIC_DEMO_LOGIN_EMAIL ?? "",
     password: process.env.NEXT_PUBLIC_DEMO_LOGIN_PASSWORD ?? "",
-    note: "Guided simulation - the full 60-second story with sample data. 25 credits.",
+    note: "Guided live scenario — the full 60-second story. 25 credits.",
   },
 ] as const;
 

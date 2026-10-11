@@ -120,3 +120,53 @@ the first line.
 | Sending returns 403 domain mismatch | `resend_[REDACTED]` domain is not the verified one |
 | Delivered but not received | Recipient's filter — check DMARC reports via the `rua=` address |
 | Mail in spam | No DMARC, or SPF/DKIM not aligned with the visible From domain |
+
+## Status
+
+`securevoiceai.me` is **verified in Resend** (confirmed 2026-10-11), so the
+from-address is the real one: `RESEND_FROM_EMAIL="SecureVoice AI <support@securevoiceai.me>"`
+and `RESEND_REPLY_TO="support@securevoiceai.me"`. The shared
+`onboarding@resend.dev` sender is no longer used anywhere except as a
+last-resort fallback for a laptop with no `.env`.
+
+## Receiving mail — the webhook, and which events to subscribe to
+
+Resend dashboard -> Webhooks -> Add endpoint:
+
+    URL:    https://<your-host>/api/email/inbound
+    Events: email.received          <-- inbound mail
+            email.bounced           <-- delivery signal (marks the row DEAD)
+            email.complained        <-- delivery signal (marks the row DEAD)
+            email.delivery_delayed  <-- delivery signal (recorded, state kept)
+            email.delivered         <-- delivery signal (clears the error)
+
+Copy the endpoint signing secret (`whsec_...`) into `RESEND_WEBHOOK_SECRET`.
+Without it the endpoint answers 503 and stores nothing (fail closed).
+
+`email.received` alone gives you the console inbox. The other four are optional
+but recommended: without them a hard bounce is invisible, the address stays
+queued, and the retry ladder keeps mailing an address that does not exist —
+which is how a sending domain loses its reputation.
+
+### What each delivery signal does
+
+| Event | Effect on the `EmailOutbox` row |
+|---|---|
+| `email.bounced` | **DEAD**, `lastError` = `bounced: <reason>` — terminal, never retried |
+| `email.complained` | **DEAD** — a human said "stop"; sending again gets a domain blocklisted |
+| `email.delivery_delayed` | `lastError` recorded, state **unchanged** — a delay is not a failure, and flipping a SENT row back to PENDING would re-send a link that may already have arrived |
+| `email.delivered` | `lastError` cleared, state unchanged — `SENT` already means "provider accepted it" |
+
+Matching is by `providerMessageId`, written to the row at send time (both send
+paths: the synchronous one in `src/lib/email/queue.ts` and the drain worker in
+`src/lib/email/outbox.ts`). A signal whose id matches no row answers
+`{ok:true, matched:false, reason:"unknown_message_id"}` and is logged — it is
+never silently dropped, because an unmatched bounce means an address is still
+being retried.
+
+Rows written before that column existed, and sends where the provider echoed no
+id, answer `reason:"no_provider_message_id"`. Re-send those to populate it.
+
+Deliberately NOT handled: `email.sent` (duplicates the send-time API response)
+and `email.opened` / `email.clicked` (marketing telemetry — recording them would
+put a tracking signal on a credential-bearing sign-in message).

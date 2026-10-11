@@ -35,7 +35,7 @@ import { db } from "@/lib/db";
 import { logError, logWarn } from "@/lib/validation/safe-log";
 
 /** Which flow produced a message. Drives template selection at send time. */
-export type EmailKind = "magic_link" | "invite" | "password_reset";
+export type EmailKind = "magic_link" | "invite" | "password_reset" | "pilot_request";
 
 export type EmailState = "PENDING" | "SENDING" | "SENT" | "DEAD";
 
@@ -184,7 +184,19 @@ export async function deliverEmail(
   if (result.ok) {
     await db.emailOutbox.update({
       where: { id: row.id },
-      data: { state: "SENT", sentAt: new Date(), attempts: attempt, lastError: null },
+      data: {
+        state: "SENT",
+        sentAt: new Date(),
+        attempts: attempt,
+        lastError: null,
+        // The provider's id is the ONLY key a delivery webhook carries, so it is
+        // recorded here or a later bounce cannot be matched to this row. The
+        // sender returns the literal "unknown" when Resend accepted the message
+        // without echoing an id — storing that sentinel would create a column of
+        // identical "unknown" values that match nothing, so it is dropped to
+        // null instead and reported as unmatched.
+        ...(result.id && result.id !== "unknown" ? { providerMessageId: result.id } : {}),
+      },
     });
     return { id: row.id, status: "SENT", attempts: attempt };
   }
@@ -216,6 +228,95 @@ async function markDead(id: string, attempts: number, error: string): Promise<vo
   // email through it would attempt to deliver a sign-in link to a bank's
   // webhook endpoint.
   logError("[email-outbox] message exhausted retries", { id, attempts });
+}
+
+/* ── Delivery signals (provider webhooks) ───────────────────────────────────── */
+
+/**
+ * What a delivery webhook told us about a message we already sent.
+ *
+ * These arrive AFTER the send succeeded, so they are a different axis from the
+ * retry ladder: `deliverEmail` decides whether the PROVIDER accepted the
+ * message; these decide whether it then reached the human.
+ */
+export type DeliverySignal = "bounced" | "complained" | "delayed" | "delivered";
+
+export type DeliverySignalOutcome =
+  | { matched: true; id: string; state: EmailState; signal: DeliverySignal }
+  | { matched: false; signal: DeliverySignal; reason: "no_provider_message_id" | "unknown_message_id" };
+
+/**
+ * Apply a provider delivery signal to the outbox row that produced the message.
+ *
+ * Matching is by `providerMessageId` — the only identifier a delivery webhook
+ * carries. An unmatched signal is RETURNED as `matched: false` rather than
+ * swallowed: a bounce nobody can attach to a row means the address is still
+ * being retried, and silently ignoring it would hide exactly that.
+ *
+ * Treatment per signal:
+ *
+ *   · **bounced** → DEAD. A hard bounce is terminal: the address does not
+ *     exist. Retrying it burns the ladder and, worse, repeated sends to a
+ *     bouncing address damage the sending domain's reputation. `attempts` is
+ *     left as-is so the row still records how many sends it took to give up.
+ *   · **complained** → DEAD. A spam complaint is a human saying "stop". Sending
+ *     again after one is how a domain gets blocklisted.
+ *   · **delayed** → lastError only, state UNCHANGED. A delay is not a failure;
+ *     the message may still arrive, and flipping a SENT row back to PENDING
+ *     would re-send a magic link that has already been delivered.
+ *   · **delivered** → lastError cleared, state unchanged. `SENT` already means
+ *     "the provider accepted it"; this closes the loop without inventing a
+ *     fifth state the drain worker would have to understand.
+ *
+ * `reason` is truncated to the column's bound, matching markDead.
+ */
+export async function applyDeliverySignal(input: {
+  providerMessageId: string | null | undefined;
+  signal: DeliverySignal;
+  reason: string;
+}): Promise<DeliverySignalOutcome> {
+  const { providerMessageId, signal, reason } = input;
+
+  if (!providerMessageId) {
+    return { matched: false, signal, reason: "no_provider_message_id" };
+  }
+
+  const row = await db.emailOutbox.findFirst({
+    where: { providerMessageId },
+    select: { id: true, state: true },
+  });
+  if (!row) {
+    return { matched: false, signal, reason: "unknown_message_id" };
+  }
+
+  if (signal === "bounced" || signal === "complained") {
+    const detail = `${signal}: ${reason}`.slice(0, 500);
+    await db.emailOutbox.update({
+      where: { id: row.id },
+      data: { state: "DEAD", lastError: detail },
+    });
+    logError("[email-outbox] delivery signal terminated the message", {
+      id: row.id,
+      signal,
+    });
+    return { matched: true, id: row.id, state: "DEAD", signal };
+  }
+
+  if (signal === "delayed") {
+    await db.emailOutbox.update({
+      where: { id: row.id },
+      // State deliberately untouched: see the doc comment.
+      data: { lastError: `delayed: ${reason}`.slice(0, 500) },
+    });
+    logWarn("[email-outbox] delivery delayed", { id: row.id });
+    return { matched: true, id: row.id, state: row.state as EmailState, signal };
+  }
+
+  await db.emailOutbox.update({
+    where: { id: row.id },
+    data: { lastError: null },
+  });
+  return { matched: true, id: row.id, state: row.state as EmailState, signal };
 }
 
 /** Drain one batch. Called by the cron/worker tick. */

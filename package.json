@@ -57,7 +57,7 @@
     "paddle:repair-overrides": "bun scripts/paddle-repair-overrides.ts"
   },
   "dependencies": {
-    "@better-auth/infra": "^0.4.14",
+    "@better-auth/infra": "^0.4.17",
     "@better-auth/prisma-adapter": "^1.7.7",
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",

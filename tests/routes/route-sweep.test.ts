@@ -134,6 +134,10 @@ describe("authorization coverage", () => {
       "/api/console/fire",
       "/api/console/freeze/commit",
       "/api/console/inbox",
+      // Received email. Operator-gated (`requireOperator`) and NOT org-scoped:
+      // the mailboxes are platform-level, so an org predicate would hide every
+      // row. Reads `EmailInbound`, written by the Resend webhook below.
+      "/api/console/mail",
       "/api/console/me",
       "/api/console/outbox/replay",
       "/api/console/producer-keys",

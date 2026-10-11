@@ -81,12 +81,21 @@ export function isEmailConfigured(): boolean {
  * shared Resend subdomain. See docs/DEPLOY.md for the DNS records.
  */
 function fromAddress(): string {
-  return process.env.RESEND_FROM_EMAIL ?? "SecureVoice AI <onboarding@resend.dev>";
+  // The published sender is support@ on the domain we actually control. The
+  // `onboarding@resend.dev` fallback was a Resend shared-subdomain placeholder:
+  // it survives only for a laptop with no `.env`, because sending production
+  // mail from a shared Resend subdomain breaks SPF/DKIM alignment for the
+  // operator's own domain. Set RESEND_FROM_EMAIL in every real deployment.
+  return process.env.RESEND_FROM_EMAIL ?? "SecureVoice AI <support@securevoiceai.me>";
 }
 
 /** Reply-to. Bounces must not go to a no-reply address nobody monitors. */
 function replyTo(): string | undefined {
-  return process.env.RESEND_REPLY_TO ?? process.env.NEXT_PUBLIC_SUPPORT_EMAIL ?? undefined;
+  return (
+    process.env.RESEND_REPLY_TO ??
+    process.env.NEXT_PUBLIC_SUPPORT_EMAIL ??
+    "support@securevoiceai.me"
+  );
 }
 
 /**
@@ -230,6 +239,28 @@ export async function sendQueuedEmail(input: {
         to: input.to,
         subject: input.subject,
         element: PasswordResetEmail({ resetUrl, baseUrl: origin, expiresAt, name }),
+      });
+    }
+    case "pilot_request": {
+      // Internal notification, not a customer mail. Every field comes from the
+      // stored props (the submitter's own values), so a drain retry re-renders
+      // the same message without needing the request to still be in memory.
+      const { PilotRequestEmail } = await import("@/lib/email/templates/pilot-request");
+      return sendEmail({
+        to: input.to,
+        subject: input.subject,
+        element: PilotRequestEmail({
+          ref: typeof input.props.ref === "string" ? input.props.ref : "unknown",
+          name: typeof input.props.name === "string" ? input.props.name : "unknown",
+          email: typeof input.props.email === "string" ? input.props.email : "unknown",
+          institution:
+            typeof input.props.institution === "string" ? input.props.institution : "unknown",
+          role: typeof input.props.role === "string" ? input.props.role : null,
+          volume: typeof input.props.volume === "string" ? input.props.volume : null,
+          message: typeof input.props.message === "string" ? input.props.message : null,
+          source: typeof input.props.source === "string" ? input.props.source : "website",
+          baseUrl: origin,
+        }),
       });
     }
     default:

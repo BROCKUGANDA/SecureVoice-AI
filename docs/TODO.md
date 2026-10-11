@@ -26,31 +26,44 @@ Last updated: 2026-10-03.
     for one period.
   - An overage invoice carries **no entitlements** — it is a charge, so settling
     it must never credit wallet units.
-  - Covered by `tests/billing/overage.test.ts` (11 tests).
+  - Covered by `tests/billing/overage.test.ts` (13 tests).
 - Pricing shape: an included allowance per commitment period, then a per-unit
   overage rated after the period closes. Usage inside the allowance is not billed
   per unit.
 
-### The decision that is still owed
+### The rate — DECIDED 2026-10-11
 
-**The rate.** `OVERAGE_RATE_MINOR_PER_UNIT` is intentionally unset, and while it
-is unset `raiseOverageInvoice()` **refuses** with `rate_not_configured` rather
-than defaulting to zero or to a number from an old document.
+**The rate is $0.15 per intervention.** `OVERAGE_RATE_MINOR_PER_UNIT=15`
+(integer minor units — fils/cents, never a float).
 
-This is a deliberate choice: billing a bank at an invented rate is a trust
-failure that surfaces months later as a disputed invoice, whereas refusing is
-visible immediately and costs one env var to fix.
+The economics: one intervention costs roughly **$0.05** blended across Twilio,
+ElevenLabs and the model, so $0.15/unit is a **66% gross margin** on overage. See
+`docs/UNIT-ECONOMICS.md`.
 
-Before this goes live we need:
+Behaviour, and why the two states are different:
 
-- [ ] A real per-unit overage rate from the commercial conversation, not a guess.
-- [ ] `INCLUDED_UNITS_PER_PERIOD` — what the bundle actually includes.
-- [ ] `BILLING_CURRENCY` — defaults to `AED`; confirm.
-- [ ] Whether the overage rate is per intervention, per dialled minute, or per
-      attempt. **This matters more than the number**: a per-attempt rate on a
-      failed call is a pricing argument a bank will raise in procurement.
+- **Unset / empty** ⇒ the published default (`DEFAULT_OVERAGE_RATE_MINOR_PER_UNIT`
+  = 15) applies. The rate is a commercial commitment already made on the pricing
+  page, so a missing env var must not block a legitimate invoice.
+- **Set but not a positive integer** ⇒ `raiseOverageInvoice()` **refuses** with
+  `rate_not_configured`, naming the variable. A typo such as `"0.15"` in this
+  integer field is the dangerous case: silently defaulting would hide the
+  misconfiguration, and billing a fractional rate would corrupt the integer
+  arithmetic.
+
+Still owed (unchanged by the rate decision):
+
 - [ ] Carrier-level per-minute rates to complete `docs/UNIT-ECONOMICS.md`. These
       are still placeholders and must not be invented.
+- [ ] Whether the overage rate is per intervention, per dialled minute, or per
+      attempt. **This matters more than the number**: a per-attempt rate on a
+      failed call is a pricing argument a bank will raise in procurement. The
+      current unit is the intervention (`UsageLedger.kind = "consume"`).
+- [x] `INCLUDED_UNITS_PER_PERIOD` — decided per plan: Starter 500, Growth 2,500,
+      Enterprise 10,000 (`PLAN_INCLUDED_UNITS`), resolved from the org's active
+      Paddle subscription; the env var is only the fallback for an org with no
+      subscription row.
+- [x] `BILLING_CURRENCY` — `AED`.
 
 ### Expansion, when there is time
 

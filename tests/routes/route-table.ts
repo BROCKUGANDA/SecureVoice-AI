@@ -163,6 +163,8 @@ const PUBLIC_BY_DESIGN: Readonly<Record<string, string>> = {
   "/api/webhooks/receiver":
     "our own REFERENCE receiver published for integrators; holds no tenant data",
   "/api/webhooks/elevenlabs": "inbound ElevenLabs webhook authenticated by the vendor signature",
+  "/api/email/inbound":
+    "inbound email webhook (Resend `email.received`) authenticated by the Svix signature over `{svix-id}.{svix-timestamp}.{body}` with a 5-minute replay window (fails closed without RESEND_WEBHOOK_SECRET); writes only the platform-level EmailInbound triage table, never tenant state",
   "/api/pilot":
     "public pilot intake form, deliberately unauthenticated so an institution can enquire before any contract exists",
   "/api/webhooks":

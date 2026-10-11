@@ -2437,7 +2437,12 @@ describe("WP-21 / negative control — a policy refusal is 409 and NEVER 500", (
         `${code} → 409`,
       );
     }
-    expect(POLICY_REFUSAL_CODES).toHaveLength(7);
+    // Eleven codes, and the count is a tripwire rather than the check: what makes
+    // the list honest is `tests/unit/policy-refusal-codes.test.ts`, which reads the
+    // gate's source and fails on any emitted code missing here — and on any declared
+    // code the gate no longer emits. This number only fires when someone edits one
+    // side and the unit test has not been told.
+    expect(POLICY_REFUSAL_CODES).toHaveLength(11);
 
     recordSection("negativeControl", {
       policyRefusal: {
@@ -2445,17 +2450,34 @@ describe("WP-21 / negative control — a policy refusal is 409 and NEVER 500", (
         status: 409,
         retryable: false,
         retryAfterSec: null,
-        emittedByRunPolicyGate: [
+        // Refusals driven through a real `runPolicyGate` call inside THIS file.
+        drivenHere: [
           "consent_invalid",
           "country_unparseable",
           "country_not_allowed",
           "cooldown",
           "concurrency_cap",
-          "spend_ceiling",
-          "credits_exhausted",
         ],
-        declaredButNotEmitted: [],
-        note: "All seven declared codes are emitted by runPolicyGate. credits_exhausted is proven through the real route in tests/e2e/interventions-credits-gate.test.ts (zero balance → 409, one credit → one dial, concurrent signals → exactly one paid call). spend_ceiling is emitted by policy-gate step 5 on a spend-breaker stop (breaker covered in tests/billing and tests/unit/billing-breaker); no suite yet drives the gate itself into a stop, so this file asserts only its 409 mapping.",
+        // Emitted by the gate, proven through a real route elsewhere — named so a
+        // reader can go look rather than take the snapshot's word.
+        drivenElsewhere: {
+          credits_exhausted: "tests/e2e/interventions-credits-gate.test.ts",
+          subscription_paused:
+            "tests/e2e/paddle-pause-webhook.test.ts + tests/billing/subscription-dialling-access.test.ts",
+        },
+        // The remaining declared codes are emitted by the gate (`spend_ceiling`,
+        // `transaction_repeat`, `do_not_call`, `outside_calling_hours`) and are
+        // asserted here only as MAPPINGS: a refusal carrying them becomes a 409 and
+        // never a 500. No case in this file drives the gate into those four states;
+        // `spend_ceiling` needs ledger history, and the other three are covered by
+        // their own suites.
+        mappingOnly: [
+          "spend_ceiling",
+          "transaction_repeat",
+          "do_not_call",
+          "outside_calling_hours",
+        ],
+        note: "Three of the eleven codes (transaction_repeat, do_not_call, outside_calling_hours) were emitted by the gate and NOT declared until this slice — policyRefusal would have thrown a RangeError on a routine duplicate or cooldown refusal for any caller that used it. The list's completeness is now derived from the gate's source instead of asserted from its own word.",
         contrast: "internal_bug is the only code that yields 500",
       },
     });

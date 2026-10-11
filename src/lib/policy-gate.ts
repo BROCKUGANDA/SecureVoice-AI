@@ -20,6 +20,7 @@ import { append as auditAppend, type AuditEntry } from "@/lib/audit-chain";
 import { db } from "@/lib/db";
 import { assertWithinBudget, maySpend } from "@/lib/billing/breaker";
 import { reserve as reserveCredits, balance as ledgerBalance } from "@/lib/billing/ledger";
+import { diallingBlockedFor } from "@/lib/payments/access";
 import { asCallCategory, type CallCategory } from "@/lib/call-categories";
 import { isAfterHours } from "@/lib/abuse/velocity";
 
@@ -343,6 +344,19 @@ export async function runPolicyGate(input: PolicyGateInput): Promise<PolicyGateR
       percent: budget.percent,
       threshold: budget.threshold,
     });
+  }
+
+  // 5b. The tenant's own billing state, after every SAFETY gate and before any
+  //     credit is reserved. Consent, do-not-call, calling hours, geography,
+  //     cooldown and concurrency are all legal-or-abuse preconditions and none of
+  //     them is a customer's preference — a pause is. So it is checked here, and
+  //     only `paused` blocks (see `diallingBlockedFor` in
+  //     src/lib/payments/access.ts, which explains why `past_due` and `canceled`
+  //     deliberately do not, and why this differs from `decideAccess`).
+  const billing = await diallingBlockedFor(orgId);
+  if (!billing.allowed) {
+    await audit("freeze", "policy_subscription_paused", { status: billing.status });
+    return { ok: false, reason: billing.reason, code: "subscription_paused" };
   }
 
   // 6. Credits reserved.

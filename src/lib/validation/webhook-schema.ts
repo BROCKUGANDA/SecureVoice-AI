@@ -167,6 +167,13 @@ export const KNOWN_PADDLE_EVENT_TYPES = [
   "subscription.created",
   "subscription.updated",
   "subscription.canceled",
+  // Mirrored by the fulfilment layer, so they are declared here too: an event
+  // type the dispatcher does not know falls to the generic branch and is
+  // acknowledged as "seen, not ours", which is exactly how a tenant's billing
+  // state stops being current while every log says the delivery was fine.
+  "subscription.past_due",
+  "subscription.paused",
+  "subscription.resumed",
   "customer.created",
   "customer.updated",
 ] as const;
@@ -268,6 +275,14 @@ const paddleKnown = z.discriminatedUnion("event_type", [
   paddleEnvelope("subscription.created", paddleSubscriptionData),
   paddleEnvelope("subscription.updated", paddleSubscriptionData),
   paddleEnvelope("subscription.canceled", paddleSubscriptionData),
+  // The three lifecycle states the dial gate reads. Declared here as well as in
+  // `KNOWN_PADDLE_EVENT_TYPES`: adding them only to that list would make the
+  // generic branch refuse them while the discriminated union has no branch to
+  // accept them, so a real `subscription.paused` delivery 400s and Paddle retries
+  // it forever — the tenant never appears paused, and the dialler keeps calling.
+  paddleEnvelope("subscription.past_due", paddleSubscriptionData),
+  paddleEnvelope("subscription.paused", paddleSubscriptionData),
+  paddleEnvelope("subscription.resumed", paddleSubscriptionData),
   paddleEnvelope("customer.created", paddleCustomerData),
   paddleEnvelope("customer.updated", paddleCustomerData),
 ]);

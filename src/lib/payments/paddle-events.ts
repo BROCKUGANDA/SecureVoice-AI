@@ -32,6 +32,9 @@ export type PaddleEventKind =
   | "subscription.created"
   | "subscription.updated"
   | "subscription.canceled"
+  | "subscription.past_due"
+  | "subscription.paused"
+  | "subscription.resumed"
   | "customer.created"
   | "customer.updated"
   | "transaction.completed";
@@ -40,6 +43,15 @@ const HANDLED: ReadonlySet<string> = new Set([
   "subscription.created",
   "subscription.updated",
   "subscription.canceled",
+  // Three states the fulfilment gate reads, so they are handled rather than
+  // "ignored with 200". An event that only mirrors is still the difference
+  // between the tenant's access state being current and it being whatever the
+  // last `subscription.updated` happened to say: `paused` is a customer turning
+  // the dialler off on purpose, and `past_due` is Paddle telling us the card
+  // failed, which is the one fact a commercial decision has to be made on.
+  "subscription.past_due",
+  "subscription.paused",
+  "subscription.resumed",
   "customer.created",
   "customer.updated",
   "transaction.completed",
@@ -86,6 +98,9 @@ export async function handlePaddleEvent(
     case "subscription.created":
     case "subscription.updated":
     case "subscription.canceled":
+    case "subscription.past_due":
+    case "subscription.paused":
+    case "subscription.resumed":
       await onSubscription(eventType, data, ctx);
       break;
     case "transaction.completed":

@@ -1238,6 +1238,21 @@ export const ERROR_CODES: readonly ErrorCodeEntry[] = [
     remediation: "Top up the credits wallet. Retrying without credits fails identically.",
   },
   {
+    id: "gate_subscription_paused",
+    status: 409,
+    code: null,
+    literal: "subscription_paused",
+    surface: "http_message",
+    envelope: "failure_envelope_v1",
+    reachedFrom: [INGEST],
+    envelopeCode: "policy_precondition",
+    retryable: true,
+    meaning:
+      "The organisation's Paddle subscription is PAUSED, so outbound intervention calls are not being placed. This is the tenant's own billing preference, not a fault and not a spend limit: `past_due` and `canceled` deliberately do NOT produce this code, and a paused tenant keeps product access and keeps their credits. Signals are refused at ingest, before any credit is reserved, so a refused signal costs nothing.",
+    remediation:
+      "Resume the subscription from the billing portal (or wait for the scheduled resume). Dialling resumes on the next signal — no re-send of the refused ones is required for anything that is still time-critical, and a paused fraud queue should be re-driven by the bank once calls are allowed again.",
+  },
+  {
     id: "gate_invalid_e164",
     status: 409,
     code: null,

@@ -641,18 +641,33 @@ export function assertFieldName(field: unknown): string {
 // ── Policy refusals ───────────────────────────────────────────────────────────
 
 /**
- * The refusal codes `policy-gate.ts` emits today. Listed exhaustively on
- * purpose: an unmapped code is a bug, and the correct response to a bug in the
- * refusal path is a loud `RangeError` at the boundary — never a 500 dressed up
- * as a policy answer, and never a silent 200.
+ * The refusal codes `policy-gate.ts` emits. Listed exhaustively on purpose: an
+ * unmapped code is a bug, and the correct response to a bug in the refusal path
+ * is a loud `RangeError` at the boundary — never a 500 dressed up as a policy
+ * answer, and never a silent 200.
+ *
+ * "Exhaustively" is checked against the gate's source by
+ * `tests/unit/policy-refusal-codes.test.ts` rather than taken from this list's
+ * own word, because the claim was false when it was written: `transaction_repeat`,
+ * `do_not_call` and `outside_calling_hours` were all emitted by the gate and none
+ * was declared. No route happens to call `policyRefusal` today — ingest builds its
+ * own 409 — which is the only reason that was never a production incident: the
+ * first caller to use the sanctioned constructor for "the gate said no" would have
+ * taken a `RangeError` on a routine cooldown/duplicate refusal, and a thrown error
+ * at that boundary surfaces as a 500 telling the bank to retry a decision that
+ * will be refused again.
  */
 export const POLICY_REFUSAL_CODES = [
   "consent_invalid",
+  "do_not_call",
+  "transaction_repeat",
+  "outside_calling_hours",
   "country_unparseable",
   "country_not_allowed",
   "cooldown",
   "concurrency_cap",
   "spend_ceiling",
+  "subscription_paused",
   "credits_exhausted",
 ] as const;
 export type PolicyRefusalCode = (typeof POLICY_REFUSAL_CODES)[number];

@@ -2,6 +2,8 @@ import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { settlePayment, type StoredEntitlement } from "@/lib/payments/provider";
 import { handlePaddleEvent, paddleClient } from "@/lib/payments/paddle-events";
+import { orgIdForPaddleCustomer } from "@/lib/payments/mirror";
+import { validatePaddleWebhook } from "@/lib/validation/webhook-schema";
 import { logInfo, logWarn } from "@/lib/validation/safe-log";
 
 /**
@@ -125,11 +127,46 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "missing_event_type" }, { status: 400 });
   }
 
-  // OUR organization for this customer. Paddle has no notion of our tenancy, so
-  // it is decoded from the reference we minted at checkout and carried in
-  // `custom_data`. An event that does not carry one is ignored with 200 — we
-  // cannot attribute it, but Paddle did nothing wrong by sending it.
-  const orgId = decodeOrgId(data);
+  // The declared shape is checked on every authenticated delivery and gates
+  // nothing.
+  //
+  // WHY IT DOES NOT GATE: the header above documents what happens when a typed
+  // constructor decides what is valid on this path — a field Paddle legitimately
+  // omits becomes a refusal, Paddle stops retrying, and a completed payment is
+  // never credited. `unmarshal` was rejected for exactly that reason and a strict
+  // schema here is the same trap wearing a different hat.
+  //
+  // WHY IT RUNS ANYWAY: `webhook-schema` is the contract this integration is
+  // documented against, and a contract with no caller drifts in silence. Checked on
+  // live traffic, a vendor shape change names the field in a log line while there is
+  // still a retry window to widen the schema; unchecked, the first anyone hears is
+  // settlement reading a field that is no longer there.
+  const shape = validatePaddleWebhook(payload);
+  if (!shape.ok) {
+    logWarn("[billing-webhook] delivery does not match the declared shape", {
+      eventType,
+      issues: shape.issues.slice(0, 5).map((i) => `${i.path}: ${i.message}`),
+    });
+  }
+
+  // OUR organization for this customer. Paddle has no notion of our tenancy.
+  //
+  // Two sources, in order of trust:
+  //
+  //   1. the reference WE minted at checkout, echoed back in `custom_data`;
+  //   2. failing that, the `PaddleCustomer` row WE wrote — attribution by the
+  //      vendor's customer id, reading OUR org rather than accepting a claimed one.
+  //
+  // (2) exists because the state the dial gate reads is often written where (1)
+  // cannot see it: a pause or a resume made in the Paddle portal carries the
+  // subscription's `customer_id` and not necessarily our `custom_data`. Reference-only
+  // attribution answers that delivery with 200 + "unattributable", the mirror keeps
+  // saying `active`, and the tenant goes on calling bank customers on an account it
+  // stopped being billed for.
+  //
+  // An event neither source can place is ignored with 200 — we cannot attribute it,
+  // and Paddle did nothing wrong by sending it.
+  const orgId = await attributeOrg(data);
 
   // A transaction is settled even without an org id when it carries our
   // reference; that is what `settlePayment` keys on. An org is required for the
@@ -239,6 +276,40 @@ function decodeOrgId(data: Record<string, unknown>): string | null {
   const reference = typeof custom?.reference === "string" ? custom.reference : "";
   const m = /^org_([A-Za-z0-9_-]{1,40})_[A-Za-z0-9_-]{1,24}_[0-9A-Z]{26}$/.exec(reference);
   return m ? m[1]! : null;
+}
+
+/**
+ * Attribute an event to OUR org, then fall back to the mirrored customer.
+ *
+ * Both sources are read even when the first answers, because their DISAGREEMENT is
+ * the signal worth having: a minted reference for one tenant carrying another
+ * tenant's customer id means either a checkout we mis-minted or a vendor-side mixup,
+ * and either way the mirror row that follows is about to be wrong for someone. The
+ * reference wins — it is the token minted for this specific checkout, and a
+ * `PaddleCustomer` row can be re-pointed by a later `customer.updated` — but it wins
+ * loudly.
+ *
+ * Covered by `tests/e2e/paddle-pause-webhook.test.ts`, which signs its payloads the
+ * way Paddle does and so exercises this through the same door the vendor uses rather
+ * than calling it directly.
+ */
+async function attributeOrg(data: Record<string, unknown>): Promise<string | null> {
+  const fromReference = decodeOrgId(data);
+  const customerId =
+    typeof data.customer_id === "string"
+      ? data.customer_id
+      : typeof data.customer === "string"
+        ? data.customer
+        : "";
+  const fromCustomer = await orgIdForPaddleCustomer(customerId);
+  if (fromReference && fromCustomer && fromReference !== fromCustomer) {
+    logWarn("[billing-webhook] attribution conflict — minted reference wins", {
+      referenceOrg: fromReference,
+      mirroredCustomerOrg: fromCustomer,
+      customerId,
+    });
+  }
+  return fromReference ?? fromCustomer ?? null;
 }
 
 /**

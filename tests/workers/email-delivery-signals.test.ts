@@ -14,7 +14,7 @@
  */
 import { test, expect, afterAll, describe } from "bun:test";
 import { db } from "@/lib/db";
-import { applyDeliverySignal } from "@/lib/email/outbox";
+import { applyDeliverySignal, deliverEmail } from "@/lib/email/outbox";
 
 const MARK = `dsig-${Date.now().toString(36)}`;
 
@@ -168,5 +168,85 @@ describe("delivery signals", () => {
       select: { state: true },
     });
     expect(after?.state).toBe("SENT");
+  });
+});
+
+/**
+ * The delivery state machine itself, with an injected sender.
+ *
+ * `deliverEmail` persists its transition inline, so these run against the real
+ * database — but the PROVIDER is injected, so no key and no network are needed.
+ * The injected sender is what makes the failure paths testable at all: a real
+ * provider outage cannot be scheduled.
+ *
+ * The success path is the easy one nobody breaks. What matters here is the
+ * failure path, because it is where an outage silently becomes data loss.
+ */
+describe("deliverEmail — the delivery state machine", () => {
+  const okSender = async () => ({ ok: true as const, id: "msg-1" });
+  const failSender = async () => ({ ok: false as const, reason: "provider 500" });
+
+  /** A PENDING row in the shape a freshly enqueued message leaves behind. */
+  async function pendingRow(over: { attempts?: number; payload?: string } = {}) {
+    return db.emailOutbox.create({
+      data: {
+        kind: "magic_link",
+        toEmail: `${MARK}@nowhere.test`,
+        subject: "Sign in",
+        payload: over.payload ?? JSON.stringify({ origin: "https://example.test" }),
+        state: "PENDING",
+        attempts: over.attempts ?? 0,
+      },
+      select: { id: true },
+    });
+  }
+
+  test("a successful send reaches SENT", async () => {
+    const row = await pendingRow({ attempts: 0 });
+    const outcome = await deliverEmail(
+      { id: row.id, kind: "magic_link", toEmail: `${MARK}@nowhere.test`, subject: "Sign in", payload: JSON.stringify({ origin: "https://example.test" }), attempts: 0 },
+      okSender,
+    );
+    expect(outcome.status).toBe("SENT");
+    expect(outcome.attempts).toBe(1);
+  });
+
+  test("a provider failure leaves the row retryable, never DEAD", async () => {
+    // One outage must not drop every queued email. The row stays PENDING until
+    // the ladder is actually exhausted.
+    const row = await pendingRow({ attempts: 2 });
+    const outcome = await deliverEmail(
+      { id: row.id, kind: "magic_link", toEmail: `${MARK}@nowhere.test`, subject: "Sign in", payload: JSON.stringify({ origin: "https://example.test" }), attempts: 2 },
+      failSender,
+    );
+    expect(outcome.status).not.toBe("DEAD");
+    expect(outcome.attempts).toBe(3);
+  });
+
+  test("a payload that is not JSON goes straight to DEAD", async () => {
+    // It will never parse on a retry either, so spending the ladder on it only
+    // delays the messages behind it.
+    const row = await pendingRow({ attempts: 0, payload: "{not json" });
+    const outcome = await deliverEmail(
+      { id: row.id, kind: "magic_link", toEmail: `${MARK}@nowhere.test`, subject: "Sign in", payload: "{not json", attempts: 0 },
+      okSender,
+    );
+    expect(outcome.status).toBe("DEAD");
+    expect(outcome.attempts).toBe(1);
+  });
+
+  test("the sender receives the parsed props, not the raw payload", async () => {
+    const payload = JSON.stringify({ origin: "https://example.test" });
+    const row = await pendingRow({ attempts: 0 });
+    let seen: Record<string, unknown> | null = null;
+    const capture = async (input: { props: Record<string, unknown> }) => {
+      seen = input.props;
+      return { ok: true as const, id: "msg-1" };
+    };
+    await deliverEmail(
+      { id: row.id, kind: "magic_link", toEmail: `${MARK}@nowhere.test`, subject: "Sign in", payload, attempts: 0 },
+      capture as never,
+    );
+    expect(seen).toMatchObject({ origin: "https://example.test" });
   });
 });

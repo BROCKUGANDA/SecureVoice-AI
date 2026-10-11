@@ -8,8 +8,12 @@ import {
   ELEVEN_VOICE_ENV,
   allowedVoices,
   isProdVoiceMode,
+  resolveTtsModel,
   type TtsLang,
 } from "@/lib/elevenlabs/client";
+import { generateAudioWithFailover } from "@/lib/elevenlabs/pool";
+import { generatePlayhtAudio, isPlayhtConfigured } from "@/lib/elevenlabs/playht";
+import { getEmergencyAudio, EMERGENCY_AUDIO_CONTENT_TYPE } from "@/lib/elevenlabs/emergency-audio";
 import { consume as consumeRateLimit, rateLimitId } from "@/lib/ratelimit";
 import { append as auditAppend } from "@/lib/audit-chain";
 import { transcript as redactText } from "@/lib/redact";
@@ -84,6 +88,140 @@ function defaultDevVoice(lang: TtsLang): string {
   return { en: "jam", ar: "tongtong", hi: "kazi", ur: "luodo", fr: "jam", sw: "kazi" }[lang];
 }
 
+/**
+ * Synthesize speech with a fallback ladder.
+ *
+ * A fraud call cannot afford silence. If the primary TTS provider fails, the
+ * call must still speak — even if the voice is different, the quality is lower,
+ * or the content is a pre-recorded cue. This function tries each rung in order:
+ *
+ *   1. Primary: `elevenTts()` with the resolved key (BYOK or platform).
+ *   2. Fallback 1 (platform only): `generateAudioWithFailover()` — the ElevenLabs
+ *      key pool. Only used when the caller is on the PLATFORM key, because a
+ *      BYOK tenant is entitled to bill themselves and must not spend the
+ *      platform's shared quota.
+ *   3. Fallback 2: `generatePlayhtAudio()` — PlayHT, a separate vendor with
+ *      its own credentials and rate limits.
+ *   4. Fallback 3: `getEmergencyAudio("error")` — a pre-recorded WAV cue that
+ *      tells the caller "the system is still here, this is not a dead line".
+ *
+ * Each rung is tried only if the previous one failed. The function returns the
+ * audio bytes, content type, and metadata about which rung succeeded. If every
+ * rung fails, the last error is re-thrown.
+ *
+ * The `failed` array is accumulated across rungs and returned to the caller so
+ * the audit log can record which rungs were attempted and why they failed.
+ */
+async function synthesizeWithLadder(args: {
+  text: string;
+  voice: string;
+  lang: TtsLang;
+  speed?: number;
+  callerId: string;
+  callRef: string;
+  keyOverride?: string;
+  model?: string;
+}): Promise<{
+  audio: Buffer;
+  contentType: string;
+  bytes: number;
+  source: string;
+  degraded: boolean;
+  failed: Array<{ rung: string; error: string }>;
+}> {
+  const { text, voice, lang, speed, callerId, callRef, keyOverride, model } = args;
+  const failed: Array<{ rung: string; error: string }> = [];
+
+  // Rung 1: primary ElevenLabs (BYOK or platform key).
+  try {
+    const result = await elevenTts(
+      { text, voice, speed, lang, callerId, callRef },
+      { keyOverride },
+    );
+    return {
+      audio: result.audio,
+      contentType: result.contentType,
+      bytes: result.bytes,
+      source: keyOverride ? "byok" : "elevenlabs",
+      degraded: false,
+      failed,
+    };
+  } catch (err) {
+    failed.push({
+      rung: "elevenlabs",
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+
+  // Rung 2: ElevenLabs key pool (platform key only).
+  //
+  // A BYOK tenant has their own ElevenLabs account with its own quota. Sending
+  // their traffic through the platform's key pool would spend the platform's
+  // shared monthly quota on a call the tenant is entitled to bill themselves —
+  // precisely the confusion the BYOK path exists to prevent.
+  if (!keyOverride) {
+    try {
+      const result = await generateAudioWithFailover(text, voice, {
+        callerId,
+        model: model ?? resolveTtsModel(lang),
+        speed,
+      });
+      return {
+        audio: result.audio,
+        contentType: result.contentType,
+        bytes: result.bytes,
+        source: "elevenlabs-pool",
+        degraded: true,
+        failed,
+      };
+    } catch (err) {
+      failed.push({
+        rung: "elevenlabs-pool",
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  // Rung 3: PlayHT.
+  const playhtVoiceId = process.env.PLAYHT_VOICE_ID;
+  if (isPlayhtConfigured() && playhtVoiceId) {
+    try {
+      const result = await generatePlayhtAudio(text, playhtVoiceId, {
+        callerId,
+        speed,
+      });
+      return {
+        audio: result.audio,
+        contentType: result.contentType,
+        bytes: result.bytes,
+        source: "playht",
+        degraded: true,
+        failed,
+      };
+    } catch (err) {
+      failed.push({
+        rung: "playht",
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  // Rung 4: emergency audio.
+  //
+  // The last resort. A short, recognisable cue that tells the caller the system
+  // is still here. It is not speech — it cannot convey the transaction details
+  // — but it prevents the silence that a scammer's hangup would produce.
+  const emergency = getEmergencyAudio("error");
+  return {
+    audio: emergency,
+    contentType: EMERGENCY_AUDIO_CONTENT_TYPE,
+    bytes: emergency.length,
+    source: "emergency",
+    degraded: true,
+    failed,
+  };
+}
+
 export async function POST(req: NextRequest) {
   const started = Date.now();
   const callerId = rateLimitId(req);
@@ -142,17 +280,15 @@ export async function POST(req: NextRequest) {
   const keyOverride = keyRes.mode === "byok" ? keyRes.keyOverride : undefined;
 
   try {
-    const result = await elevenTts(
-      {
-        text,
-        voice,
-        speed,
-        lang,
-        callerId,
-        callRef,
-      },
-      { keyOverride },
-    );
+    const result = await synthesizeWithLadder({
+      text,
+      voice,
+      lang,
+      speed,
+      callerId,
+      callRef,
+      keyOverride,
+    });
 
     // 5. Audit-chain append — redacted text only
     auditAppend({
@@ -162,12 +298,14 @@ export async function POST(req: NextRequest) {
       redactedText: redactText(text).slice(0, 200),
       meta: {
         lang,
-        voice: result.voice,
+        voice: result.source,
         bytes: result.bytes,
-        cached: result.cached,
-        replayed: result.replayed,
-        model: result.model,
+        cached: false,
+        replayed: false,
+        model: result.source,
         latencyMs: Date.now() - started,
+        degraded: result.degraded,
+        failed_rungs: result.failed,
       },
     }).catch((err) => {
       logError("[tts] audit append failed", {
@@ -181,9 +319,8 @@ export async function POST(req: NextRequest) {
         "Content-Type": result.contentType,
         "Content-Length": String(result.bytes),
         "Cache-Control": "private, max-age=86400",
-        "X-Tts-Cached": result.cached ? "true" : "false",
-        "X-Tts-Replayed": result.replayed ? "true" : "false",
-        "X-Tts-Model": result.model,
+        "X-Voice-Source": result.source,
+        "X-Voice-Degraded": result.degraded ? "true" : "false",
       },
     });
   } catch (err) {

@@ -17,6 +17,24 @@ import { getProfile } from "@/lib/credits";
 import { db } from "@/lib/db";
 import { decryptSecret } from "@/lib/byok";
 import { env, dailyCharLimit } from "@/lib/config";
+import { auth } from "@/lib/better-auth";
+import { headers } from "next/headers";
+
+/**
+ * The session's active organization id, or null.
+ *
+ * This is the server-derived tenant identity — read from the Better Auth session
+ * row, never from a header or a body field. It is the single value that decides
+ * which tenant's BYOK key applies.
+ *
+ * Returns null when signed out or when the session names no organization (the
+ * shared namespace). A null orgId means "no tenant scope", which is a legitimate
+ * state for a signed-in user who has not switched to an org — not an error.
+ */
+async function getActiveOrgId(): Promise<string | null> {
+  const session = await auth.api.getSession({ headers: await headers() });
+  return session?.session.activeOrganizationId ?? null;
+}
 
 export type TtsKeyResolution =
   | { mode: "byok"; keyOverride: string }
@@ -60,6 +78,30 @@ export async function resolveTtsKey(): Promise<TtsKeyResolution> {
       : { mode: "unmetered" };
   }
 
+  // ── Org-level BYOK (preferred) ────────────────────────────────────────────
+  //
+  // The organisation is the tenant boundary, so its own ElevenLabs key is the
+  // first thing checked. A bank's fraud team shares one ElevenLabs account
+  // across every analyst; the key belongs to the org, not to each user.
+  //
+  // The org key is read from the session's active organization, which is the
+  // server-derived tenant identity — never from a header or a body field.
+  const orgId = await getActiveOrgId();
+  if (orgId) {
+    const org = await db.organization.findUnique({
+      where: { id: orgId },
+      select: { elevenKeyEnc: true },
+    });
+    if (org?.elevenKeyEnc) {
+      const key = decryptSecret(org.elevenKeyEnc);
+      if (key) return { mode: "byok", keyOverride: key };
+    }
+  }
+
+  // ── User-level BYOK (fallback) ────────────────────────────────────────────
+  //
+  // A user whose org has not configured an ElevenLabs key falls back to their
+  // own. This is the pre-existing behaviour, preserved for backwards compat.
   const row = await db.userProfile.findUnique({
     where: { userId: profile.userId },
     select: { userId: true, elevenKeyEnc: true, ttsCharsDate: true, ttsCharsToday: true },

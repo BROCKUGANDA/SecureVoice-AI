@@ -79,12 +79,15 @@ export function PilotRequestEmail({
             <Row label="Reference" value={ref} />
             <Row label="Name" value={name} />
             <Row label="Email" value={email} />
-            {role ? <Row label="Role" value={role} /> : null}
-            {volume ? <Row label="Monthly volume" value={volume} /> : null}
+            {/* Trimmed, because the route stores `d.role || null` and a future
+                caller may not: a labelled row with nothing in it is exactly the
+                kind of placeholder this page must never show. */}
+            {role?.trim() ? <Row label="Role" value={role} /> : null}
+            {volume?.trim() ? <Row label="Monthly volume" value={volume} /> : null}
             <Row label="Source" value={source} />
           </Section>
 
-          {message ? (
+          {message?.trim() ? (
             <>
               <Hr style={hrStyle} />
               <Text style={labelStyle}>MESSAGE</Text>

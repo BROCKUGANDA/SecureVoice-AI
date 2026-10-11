@@ -34,3 +34,26 @@ export function siteOrigin(): string {
   if (!host || host === "localhost") return env.appBaseUrl.replace(/\/+$/, "");
   return `https://${host}`;
 }
+
+/**
+ * True only for an absolute http(s) URL on this deployment's own origin.
+ *
+ * Anywhere a caller-supplied URL is handed to something that redirects a real
+ * person — Paddle's `settings.return_url` after a completed payment, an auth
+ * magic link — an unvalidated `z.string().url()` is an open redirect: the
+ * attacker supplies the destination, and the victim arrives there from a
+ * trusted domain, with a payment or a session already behind them.
+ *
+ * `javascript:` and `data:` satisfy `URL` parsing, so the scheme is checked
+ * rather than assumed.
+ */
+export function isSameOriginAsSite(raw: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    return false;
+  }
+  if (url.protocol !== "https:" && url.protocol !== "http:") return false;
+  return url.origin === siteOrigin();
+}

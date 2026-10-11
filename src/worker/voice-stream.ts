@@ -27,6 +27,8 @@ import { env, SUPPORTED_LANGS } from "@/lib/config";
 import type { TtsLang } from "@/lib/elevenlabs/client";
 import { resolveTtsModel } from "@/lib/elevenlabs/client";
 import { DeepgramLiveClient, preconnectDeepgram } from "@/lib/voice/deepgram-client";
+import { withFirstChunkDeadline } from "@/lib/voice/first-audio-deadline";
+import { installProcessCrashHandlers } from "@/lib/process-crash-handlers";
 import { ElevenLabsStream } from "@/lib/voice/elevenlabs-stream";
 import {
   ConversationState,
@@ -151,22 +153,19 @@ function getOrCreateCall(callSid: string, lang: TtsLang = "en"): CallState {
   return state;
 }
 
+/**
+ * How long the voice plane waits for the FIRST byte of synthesised audio before
+ * it cancels the vendor stream and plays the emergency fallback.
+ *
+ * This bounds first audio, not the whole utterance — a deadline on the whole
+ * stream would sever every normal sentence (see
+ * `src/lib/voice/first-audio-deadline.ts`). The value used to be spent on a
+ * `withTimeout()` wrapper that created an AbortController and never passed its
+ * signal to anything, so the ceiling it advertised could not fire; the vendor
+ * could stall a live caller in silence indefinitely and the fallback would
+ * never play.
+ */
 const AI_TIMEOUT_MS = Number(process.env.VOICE_AI_TIMEOUT_MS ?? 2000);
-
-async function withTimeout<T>(label: string, promise: Promise<T>): Promise<T> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), AI_TIMEOUT_MS);
-  try {
-    return await promise.catch((err) => {
-      if (err && err.name === "AbortError") {
-        throw new Error(`${label} timed out after ${AI_TIMEOUT_MS}ms`);
-      }
-      throw err;
-    });
-  } finally {
-    clearTimeout(timer);
-  }
-}
 
 /**
  * Speak text to the caller, through the compliance gate.
@@ -262,41 +261,42 @@ async function safeTtsStream(
   }
 
   try {
-    await withTimeout(
-      "elevenlabs-stream",
-      (async () => {
-        const safeText = gate.text;
-        const played: Buffer[] = [];
-        for await (const chunk of tts.streamText(safeText, {
-          apiKey: env.elevenLabsApiKey ?? "",
-          voiceId,
-          modelId,
-          language: state.lang,
-        })) {
-          if (state.ended && !opts.force) break;
-          ws.send(
-            JSON.stringify({
-              event: "media",
-              media: { payload: chunk.toString("base64") },
-            }),
-          );
-          played.push(chunk);
-          // First chunk out = first audio the customer can hear. Reported once,
-          // and only on a real chunk — a zero-length frame would close the span
-          // early and understate the number.
-          if (!announcedFirstAudio && chunk.length > 0) {
-            announcedFirstAudio = true;
-            opts.onFirstAudio?.({ cached: false });
-          }
-        }
-        // Cache-fill on a miss: the synthesis already happened, so storing it
-        // makes the NEXT call of this phrase free. The pre-warm at the dialing
-        // state is the fast path; this is what keeps the cache warm for calls
-        // the dial worker never saw (direct dials, demos, the TwiML plane).
-        if ((!state.ended || opts.force) && played.length > 0)
-          storeWarmChunks(state.lang, text, played);
-      })(),
-    );
+    const played: Buffer[] = [];
+    for await (const chunk of withFirstChunkDeadline(
+      tts.streamText(gate.text, {
+        apiKey: env.elevenLabsApiKey ?? "",
+        voiceId,
+        modelId,
+        language: state.lang,
+      }),
+      {
+        ms: AI_TIMEOUT_MS,
+        label: "elevenlabs-stream",
+        onExpired: () => tts.cancel(),
+      },
+    )) {
+      if (state.ended && !opts.force) break;
+      ws.send(
+        JSON.stringify({
+          event: "media",
+          media: { payload: chunk.toString("base64") },
+        }),
+      );
+      played.push(chunk);
+      // First chunk out = first audio the customer can hear. Reported once,
+      // and only on a real chunk — a zero-length frame would close the span
+      // early and understate the number.
+      if (!announcedFirstAudio && chunk.length > 0) {
+        announcedFirstAudio = true;
+        opts.onFirstAudio?.({ cached: false });
+      }
+    }
+    // Cache-fill on a miss: the synthesis already happened, so storing it
+    // makes the NEXT call of this phrase free. The pre-warm at the dialing
+    // state is the fast path; this is what keeps the cache warm for calls
+    // the dial worker never saw (direct dials, demos, the TwiML plane).
+    if ((!state.ended || opts.force) && played.length > 0)
+      storeWarmChunks(state.lang, text, played);
   } catch (err) {
     logWarn("[voice-stream] primary tts failed; playing emergency fallback", {
       error: err instanceof Error ? err.message : String(err),
@@ -337,26 +337,28 @@ async function playEmergencyFallback(state: { lang: TtsLang }, ws: WebSocket): P
   // need of it — the ones whose language the primary path could not voice.
   const voiceId = env.voiceFor(state.lang) ?? "";
   const modelId = resolveTtsModel(state.lang);
+  const fallbackTts = new ElevenLabsStream();
   try {
-    await withTimeout(
-      "emergency-fallback",
-      (async () => {
-        const tts = new ElevenLabsStream();
-        for await (const chunk of tts.streamText(text, {
-          apiKey: env.elevenLabsApiKey ?? "",
-          voiceId,
-          modelId,
-          language: state.lang,
-        })) {
-          ws.send(
-            JSON.stringify({
-              event: "media",
-              media: { payload: chunk.toString("base64") },
-            }),
-          );
-        }
-      })(),
-    );
+    for await (const chunk of withFirstChunkDeadline(
+      fallbackTts.streamText(text, {
+        apiKey: env.elevenLabsApiKey ?? "",
+        voiceId,
+        modelId,
+        language: state.lang,
+      }),
+      {
+        ms: AI_TIMEOUT_MS,
+        label: "emergency-fallback",
+        onExpired: () => fallbackTts.cancel(),
+      },
+    )) {
+      ws.send(
+        JSON.stringify({
+          event: "media",
+          media: { payload: chunk.toString("base64") },
+        }),
+      );
+    }
   } catch {
     // If even the fallback fails, end the call silently instead of hanging.
   }
@@ -737,6 +739,11 @@ function createServer() {
     ws.on("close", () => {
       if (nudgeTimer) clearTimeout(nudgeTimer);
       deepgram.stop();
+      // Cancel the vendor stream, do not just forget it. `state.tts = null`
+      // alone left an in-flight synthesis running: the ElevenLabs socket kept
+      // streaming and billing, each chunk was pushed into a closed WebSocket,
+      // and the turn's promise resolved long after the caller had hung up.
+      state.tts?.cancel();
       state.deepgram = null;
       state.tts = null;
       calls.delete(callSid);
@@ -765,6 +772,7 @@ function createServer() {
 }
 
 if (import.meta.main) {
+  installProcessCrashHandlers();
   createServer();
 }
 

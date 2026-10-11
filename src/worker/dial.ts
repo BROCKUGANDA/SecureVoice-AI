@@ -37,6 +37,7 @@ import { sweepExpiredSmsCases } from "@/lib/sms-verdict";
 import { logError, logInfo, logWarn } from "@/lib/validation/safe-log";
 import { flag } from "@/lib/flags";
 import { resolveDeliveryLang } from "@/lib/languages";
+import { installProcessCrashHandlers } from "@/lib/process-crash-handlers";
 
 const WORKER_ID =
   process.env.DIAL_WORKER_ID ?? `${hostname()}-${process.pid}-${randomUUID().slice(0, 8)}`;
@@ -487,6 +488,7 @@ async function main(): Promise<void> {
 }
 
 if (import.meta.main) {
+  installProcessCrashHandlers();
   main().catch((err) => {
     logError("[dial-worker] fatal", { error: err instanceof Error ? err.message : err });
     process.exit(1);

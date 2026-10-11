@@ -262,15 +262,21 @@ export async function POST(req: NextRequest) {
   const proto = req.headers.get("x-forwarded-proto") ?? "https";
   const fullUrl = `${proto}://${req.headers.get("host")}${req.nextUrl.pathname}${req.nextUrl.search}`;
   const sigOk = verifyTwilioSignature(fullUrl, params, req.headers.get("x-twilio-signature"));
-  if (sigOk === false) {
+  if (sigOk !== true) {
+    // Fail closed, exactly as /api/twilio/status, /sms-webhook and
+    // /inbound-voice already do. `null` means TWILIO_AUTH_TOKEN is unset, so the
+    // signature cannot be checked at all — and a webhook whose signature cannot
+    // be checked is not an authenticated webhook. Treating that as pass let
+    // anyone POST a forged SpeechResult against a live CallSid: the forged turn
+    // was written to the hash-chained audit log and spent real LLM budget, so
+    // the audit trail would carry an exchange that never happened.
+    logWarn("[twilio-turn] refused — webhook signature not verified", {
+      reason: sigOk === null ? "twilio_auth_token_unset" : "signature_mismatch",
+      callSid: params.CallSid ?? "unknown",
+    });
     return new NextResponse(
       `<?xml version="1.0" encoding="UTF-8"?><Response><Hangup/></Response>`,
       { status: 403, headers: { "Content-Type": "text/xml" } },
-    );
-  }
-  if (sigOk === null) {
-    logWarn(
-      "[twilio-turn] TWILIO_AUTH_TOKEN not set — inbound webhook signatures cannot be verified",
     );
   }
 

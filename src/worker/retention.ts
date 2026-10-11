@@ -19,6 +19,7 @@
 
 import { runRetention, type RetentionRunReport } from "@/lib/privacy/retention";
 import { logError, logInfo } from "@/lib/validation/safe-log";
+import { installProcessCrashHandlers } from "@/lib/process-crash-handlers";
 
 const SWEEP_HOURS = Number(process.env.RETENTION_SWEEP_HOURS ?? 24);
 const ONCE = process.argv.includes("--once");
@@ -91,6 +92,7 @@ async function main(): Promise<void> {
 }
 
 if (import.meta.main) {
+  installProcessCrashHandlers();
   main().catch((err) => {
     logError("[retention-worker] fatal", { error: err instanceof Error ? err.message : err });
     process.exit(1);

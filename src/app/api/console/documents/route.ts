@@ -1,7 +1,7 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { requireOperator } from "@/lib/credits";
-import { db } from "@/lib/db";
+import { withTenantScope } from "@/lib/tenancy/db-scope";
 import { consume as consumeRateLimit } from "@/lib/ratelimit";
 import { badRequest, unprocessable } from "@/lib/api-errors";
 import { MAX_PDF_BYTES, vectorizeDocument } from "@/lib/knowledge/documents";
@@ -40,31 +40,41 @@ export async function GET() {
   if (!guard.ok) {
     return NextResponse.json({ error: guard.error }, { status: guard.status });
   }
-  if (!guard.profile.orgId) {
+  // Hoisted so the narrowed non-null type survives into the scoped closure:
+  // `guard.profile.orgId` is `string | null` and TypeScript will not carry a
+  // property narrowing across a callback boundary.
+  const tenantId = guard.profile.orgId;
+  if (!tenantId) {
     return NextResponse.json(
       { error: "No organization is linked to this account, so there is no knowledge base." },
       { status: 409 },
     );
   }
 
-  const documents = await db.document.findMany({
-    where: { orgId: guard.profile.orgId },
-    orderBy: { createdAt: "desc" },
-    take: 200,
-    select: {
-      id: true,
-      title: true,
-      fileName: true,
-      mimeType: true,
-      sizeBytes: true,
-      lang: true,
-      status: true,
-      chunkCount: true,
-      error: true,
-      vectorizedAt: true,
-      createdAt: true,
-    },
-  });
+  // `withTenantScope` runs this as `sv_tenant` with `app.org_id` pinned, so the
+  // database refuses any row outside this organisation even if the `where` below
+  // is dropped by a future edit. The predicate stays: it is what makes the intent
+  // readable at the call site, and it costs nothing.
+  const documents = await withTenantScope(tenantId, (tx) =>
+    tx.document.findMany({
+      where: { orgId: tenantId },
+      orderBy: { createdAt: "desc" },
+      take: 200,
+      select: {
+        id: true,
+        title: true,
+        fileName: true,
+        mimeType: true,
+        sizeBytes: true,
+        lang: true,
+        status: true,
+        chunkCount: true,
+        error: true,
+        vectorizedAt: true,
+        createdAt: true,
+      },
+    }),
+  );
 
   return NextResponse.json({ ok: true, documents }, { headers: { "Cache-Control": "no-store" } });
 }
@@ -127,22 +137,27 @@ export async function POST(req: NextRequest) {
   }
   const lang = rawLang || "en";
 
-  const created = await db.document.create({
-    data: {
-      orgId,
-      title: title.slice(0, 160),
-      fileName: file.name.slice(0, 200) || "document.pdf",
-      mimeType: "application/pdf",
-      sizeBytes: bytes.byteLength,
-      lang,
-      status: "PENDING",
-      // The raw bytes are retained so Retry can re-extract without asking the
-      // operator to find the file again. They are the bank's own policy document,
-      // already inside the tenant boundary, capped above.
-      pdfBytes: Buffer.from(bytes),
-    },
-    select: { id: true, title: true, status: true, createdAt: true },
-  });
+  // Same scope on the write: the policy's WITH CHECK clause is what makes
+  // "upload into somebody else's knowledge base" a database error rather than a
+  // route that remembered to validate.
+  const created = await withTenantScope(orgId, (tx) =>
+    tx.document.create({
+      data: {
+        orgId,
+        title: title.slice(0, 160),
+        fileName: file.name.slice(0, 200) || "document.pdf",
+        mimeType: "application/pdf",
+        sizeBytes: bytes.byteLength,
+        lang,
+        status: "PENDING",
+        // The raw bytes are retained so Retry can re-extract without asking the
+        // operator to find the file again. They are the bank's own policy document,
+        // already inside the tenant boundary, capped above.
+        pdfBytes: Buffer.from(bytes),
+      },
+      select: { id: true, title: true, status: true, createdAt: true },
+    }),
+  );
 
   await auditAppend({
     callRef: `DOC-${created.id.slice(0, 24)}`,

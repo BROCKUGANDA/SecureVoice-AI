@@ -9,7 +9,7 @@ import { transcript as redactText } from "@/lib/redact";
 import { consume as consumeRateLimit, rateLimitId } from "@/lib/ratelimit";
 import { verifyProducerKey } from "@/lib/producer-keys";
 import { createHash } from "node:crypto";
-import { sanitizeUntrusted, sanitizeDynamicVariables } from "@/lib/sanitize-untrusted";
+import { sanitizeUntrusted } from "@/lib/sanitize-untrusted";
 import { isTwilioConfigured, liveSendAttested, sendInterventionSms } from "@/lib/twilio";
 import { qstashConfigured, publishEnvelope, dispatchPath } from "@/lib/queue/qstash";
 import { makeEnvelope } from "@/lib/queue/envelope";
@@ -32,6 +32,11 @@ import { getInstitutionType } from "@/lib/institution";
 import { CALL_CATEGORIES } from "@/lib/call-categories";
 import { env, replayWindowSec, IDEMPOTENCY_TTL_HOURS, SUPPORTED_LANGS } from "@/lib/config";
 import { preNotificationLeadMs as sharedPreNotificationLeadMs } from "@/lib/prenotify";
+import {
+  interventionAccepted,
+  interventionRefused,
+  riskBand,
+} from "@/lib/analytics";
 
 /**
  * One error shape for the whole bank-facing surface: `{ code, message,
@@ -291,6 +296,11 @@ export async function POST(req: NextRequest) {
       { fast: true },
     ).catch(() => {});
     // Consent refusal is a POLICY decision, not a fault. 409, never 5xx.
+    interventionRefused({
+      orgId: orgId ?? "unscoped",
+      stage: "consent",
+      reason: "consent_opted_out",
+    });
     return failure("policy_precondition", { detail: "consent_opted_out" });
   }
 
@@ -503,6 +513,12 @@ async function armAndDial(
     const err = new Error(gate.reason) as Error & { status: number; code: string };
     err.status = 409;
     err.code = gate.code;
+    interventionRefused({
+      orgId: orgId ?? "unscoped",
+      planTier: planTierFor(orgId ?? "unscoped"),
+      stage: "policy",
+      reason: gate.code,
+    });
     throw err;
   }
 
@@ -520,6 +536,12 @@ async function armAndDial(
     const err = new Error(compliance.reason) as Error & { status: number; code: string };
     err.status = 409;
     err.code = compliance.code;
+    interventionRefused({
+      orgId: orgId ?? "unscoped",
+      planTier: planTierFor(orgId ?? "unscoped"),
+      stage: "compliance",
+      reason: compliance.code,
+    });
     throw err;
   }
 
@@ -567,6 +589,12 @@ async function armAndDial(
     const err = new Error(abuse.detail) as Error & { status: number; code: string };
     err.status = 409;
     err.code = abuse.reason;
+    interventionRefused({
+      orgId: abuseOrg,
+      planTier: planTierFor(abuseOrg),
+      stage: "abuse",
+      reason: abuse.reason,
+    });
     throw err;
   }
   dialSlot = abuse.slot;
@@ -664,6 +692,16 @@ async function armAndDial(
     ).catch(() => {});
     const sms = await markVoiceFailed({ caseRef, reason: "hearing_impaired" });
     const smsDetail = sms.sent === true ? undefined : "skipped" in sms ? sms.skipped : sms.error;
+    interventionAccepted({
+      orgId: orgId ?? "unscoped",
+      planTier: planTierFor(orgId ?? "unscoped"),
+      outcome: "sms_only",
+      language: signal.language,
+      signalKind: signal.signal_kind,
+      callCategory: signal.call_category,
+      riskBand: riskBand(signal.risk_score),
+      hearingImpaired: true,
+    });
     const envelope = {
       ok: true,
       caseRef,
@@ -719,17 +757,18 @@ async function armAndDial(
       receivedAt: new Date().toISOString(),
     };
     // Same internal-only telemetry hand-off as the queued path below.
+    interventionAccepted({
+      orgId: orgId ?? "unscoped",
+      planTier: planTierFor(orgId ?? "unscoped"),
+      outcome: "degraded",
+      language: signal.language,
+      signalKind: signal.signal_kind,
+      callCategory: signal.call_category,
+      riskBand: riskBand(signal.risk_score),
+      hearingImpaired: false,
+    });
     return { envelope, acceptedAt };
   }
-
-  // Sanitise every bank-supplied string before it becomes a dynamic variable.
-  const dynamicVariables = sanitizeDynamicVariables({
-    merchant: merchant ?? "",
-    amount: signal.amount,
-    currency: signal.currency,
-    case_id: caseRef,
-    transaction_ref: signal.transaction_ref,
-  });
 
   // Durable queue (S-1). The request handler ENQUEUES and returns; the call is
   // placed by a worker that claims the job. Placing it inline would make the
@@ -744,6 +783,12 @@ async function armAndDial(
   let delivery: Record<string, unknown>;
   try {
     // Sanitised dial inputs only — never transcript content (invariant I-10).
+    //
+    // `merchant` is the value `sanitizeUntrusted` produced when the case row was
+    // written (bank strings are untrusted, and this one becomes a spoken merchant
+    // name, a TwiML variable and an agent dynamic variable); `transaction_ref` and
+    // `currency` are shape-validated by the request schema above, so what travels
+    // to the worker is what the customer will be told.
     const priority = Math.round(
       ((Number.isFinite(signal.risk_score) ? Math.min(Math.max(signal.risk_score, 0), 1) : 0) *
         (signal.amount ?? 0)) /
@@ -883,6 +928,16 @@ async function armAndDial(
   // Emit case.queued on the realtime channel. The state is QUEUED, not DIALING ÃƒÂ¢Ã¢šÂ¬Ã¢â‚¬Â
   // the call has not been placed yet, and a console that claims otherwise is
   // lying to the operator watching it.
+  interventionAccepted({
+    orgId: orgId ?? "unscoped",
+    planTier: planTierFor(orgId ?? "unscoped"),
+    outcome: "queued",
+    language: signal.language,
+    signalKind: signal.signal_kind,
+    callCategory: signal.call_category,
+    riskBand: riskBand(signal.risk_score),
+    hearingImpaired: false,
+  });
   notifyRealtime({
     orgId: orgId ?? undefined,
     callRef: caseRef,

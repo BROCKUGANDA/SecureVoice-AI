@@ -2,6 +2,7 @@ import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { requirePrivileged } from "@/lib/auth/guards";
 import { scopedDb, orgScopeFor } from "@/lib/tenancy/guard";
+import { withTenantScope } from "@/lib/tenancy/db-scope";
 import { toCsv, csvContentDisposition } from "@/lib/csv-export";
 
 export const dynamic = "force-dynamic";
@@ -25,6 +26,22 @@ export const dynamic = "force-dynamic";
  * unauthenticated cross-tenant read, because it never writes a `where` clause
  * of its own.
  *
+ * When the session names a concrete organisation, the read additionally runs
+ * inside `withTenantScope` (src/lib/tenancy/db-scope.ts), which switches the
+ * transaction to the `sv_tenant` role and pins `app.org_id` so the row-level
+ * policies decide the boundary from below. Two independent controls on the one
+ * read in this product whose output is handed to a regulator: the application
+ * predicate is a `where` clause somebody remembered to write, and the policy is
+ * not. This is the only route where both apply today, and it is here because
+ * "export everything we hold about a customer" is the request whose blast radius
+ * is every tenant at once — not the place to be one forgotten argument away.
+ *
+ * A session with NO organisation (the shared namespace: `orgId IS NULL` plus the
+ * literal `"default"`) has no single tenant for a policy to compare against, so
+ * it keeps the application-layer scope alone. That asymmetry is deliberate and is
+ * recorded rather than papered over with a policy that would have to match two
+ * different namespaces at once.
+ *
  * The CSV goes through `toCsv`, which formula-neutralises cells: an exported
  * merchant name beginning `=` is a CSV-injection vector when the file is opened
  * in Excel, and this is the route that hands organisation records to a
@@ -44,7 +61,11 @@ export async function GET(req: NextRequest) {
   const url = new URL(req.url);
   const take = Math.min(Math.max(Number(url.searchParams.get("take") ?? "500") || 500, 1), 5_000);
 
-  const rows = await scopedDb(orgScopeFor(authed.orgId)).case.findMany({
+  // One query, two enforcement paths. `orgScopeFor` is asked first because it is
+  // what decides whether a concrete tenant exists at all; a shared namespace has
+  // no single `app.org_id` to pin, so it cannot enter the tenant role.
+  const scope = orgScopeFor(authed.orgId);
+  const query = {
     select: {
       caseRef: true,
       state: true,
@@ -56,9 +77,14 @@ export async function GET(req: NextRequest) {
       createdAt: true,
       postCallAt: true,
     },
-    orderBy: { createdAt: "desc" },
+    orderBy: { createdAt: "desc" as const },
     take,
-  });
+  };
+
+  const rows =
+    "orgId" in scope
+      ? await withTenantScope(scope.orgId, (tx) => tx.case.findMany(query))
+      : await scopedDb(scope).case.findMany(query);
 
   type ExportRow = (typeof rows)[number];
 

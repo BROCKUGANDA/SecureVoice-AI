@@ -15,28 +15,32 @@
 # THE LOOP, AND HOW IT IS BROKEN
 #
 # This workflow pushes a commit to `main`. That commit would trigger CI, which
-# would trigger this workflow again, forever. Two independent guards stop it:
+# would trigger this workflow again, forever.
 #
-#   1. `paths-ignore: package.json` — this job only reacts to pushes that did
-#      NOT touch package.json. Its own commit does, so it cannot re-trigger.
+# TWO GUARDS, AND WHAT EACH ONE IS FOR
+#
+#   1. `workflow_run` (CI/completed/main) — this job only starts AFTER CI
+#      finishes on `main`, and refuses any upstream conclusion that is not
+#      `success`. The previous `push` trigger raced CI: the gate read
+#      check-runs while they were still queued (conclusion null) or while a
+#      flaky run was red, so nearly every push refused and main went without
+#      tags or releases. The upstream conclusion is known here, not guessed.
+#
 #   2. The tag-already-exists check — if `v<package.json version>` is already a
 #      tag, there is nothing to release and the job exits successfully without
-#      committing. This is the real guarantee: even a manual re-run, or a
-#      re-tag, produces no second bump.
+#      committing. This is the real loop guarantee: this job's own bump commit
+#      triggers CI, which triggers this job once more, and that run exits
+#      here. Even a manual re-run produces no second bump.
 #
 # It also runs ONLY on CI green, so a broken main cannot produce a release.
 # ---------------------------------------------------------------------------
 name: AutoVersion
 
 on:
-  push:
-    branches: [main]
-    paths-ignore:
-      - "package.json"
-      - "**.md"
-      - "docs/**"
-      - "evidence/**"
-      - ".github/workflows/autoversion.yml"
+  workflow_run:
+    workflows: ["CI"]
+    branches: ["main"]
+    types: [completed]
   workflow_dispatch:
 
 permissions:
@@ -94,21 +98,34 @@ jobs:
           "$HOME/.bun/bin/bun" --version
 
       # The gating rule. A release is a claim that this commit works, and this
-      # is where that claim is checked rather than asserted.
+      # is where that claim is checked rather than asserted. On the
+      # `workflow_run` path the upstream conclusion is authoritative; the
+      # check-runs read below is a second opinion on the exact commit.
       - name: Refuse to release a commit CI did not prove
         env:
           EVENT: ${{ github.event_name }}
+          UPSTREAM_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
           GH_TOKEN: ${{ secrets.PROMOTE_TOKEN }}
         run: |
           if [ "$EVENT" = "workflow_dispatch" ]; then
             echo "manual run: verifying CI on main is currently green"
           else
-            echo "push to main: verifying the CI check on this exact commit is green"
+            [ "$UPSTREAM_CONCLUSION" = "success" ] || {
+              echo "::error::upstream CI run concluded '${UPSTREAM_CONCLUSION}'. Production only releases what CI proved green."
+              exit 1
+            }
+            echo "upstream CI run: success"
           fi
+          # Second opinion, and deliberately narrow: only completed runs count,
+          # so a queued twin can neither pass nor fail this gate, and only the
+          # two required contexts are read, so unrelated red (code scanning,
+          # a stale deploy) cannot veto a release. At least one completed
+          # success and zero completed failures is green.
           code=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/check-runs" \
             --jq '[.check_runs[]
                   | select((.name | startswith("Lint, typecheck"))
-                        or (.name | startswith("Compose stack")))]
+                        or (.name | startswith("Compose stack")))
+                  | select(.status == "completed")]
                   | if length == 0 then "missing"
                     else (map(select(.conclusion != "success")) | if length == 0 then "success" else "failing" end)
                     end')

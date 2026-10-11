@@ -132,6 +132,53 @@ export function recordStrike(
   return verdictFor(e, now);
 }
 
+/**
+ * Clear a source's accumulated strikes, leaving an active block alone.
+ *
+ * A credential that verified is not an attacker, and the count exists to spot a
+ * pattern of rejection. Without this, an office behind one NAT egress loses
+ * sign-in for the rest of the window after five colleagues each mistype once —
+ * a lockout that punishes the victim, and one an attacker can aim at a tenant by
+ * failing logins from a source the office shares. Only `hits` is cleared: a
+ * block already in force was earned by behaviour this cannot undo.
+ */
+export function forgiveSource(identifier: string): void {
+  const e = table.get(keyOf(identifier));
+  if (!e) return;
+  e.hits = [];
+}
+
+/**
+ * How long until this source's live strikes fall below `threshold`.
+ *
+ * A caller that enforces its own ceiling below `BLOCK_AT` — the sign-in path
+ * does, at five failed credentials — still has to answer a refused request with a
+ * truthful `Retry-After`. "Now" would be a lie while the strikes are still in the
+ * window, and the full window would keep a person out longer than the ladder
+ * requires. This is the moment the oldest strikes needed to stay over the
+ * threshold have decayed out.
+ *
+ * @returns 0 when already below the threshold or unknown source.
+ */
+export function timeUntilStrikesBelow(
+  identifier: string,
+  threshold: number,
+  now: number = Date.now(),
+): number {
+  const e = table.get(keyOf(identifier));
+  if (!e) return 0;
+  e.hits = e.hits.filter((h) => now - h.at < WINDOW_MS);
+  let total = e.hits.reduce((n, h) => n + h.weight, 0);
+  if (total < threshold) return 0;
+  // Expire from the oldest: the answer is the first drop that brings the sum
+  // under the line the caller drew.
+  for (const hit of [...e.hits].sort((a, b) => a.at - b.at)) {
+    total -= hit.weight;
+    if (total < threshold) return Math.max(0, hit.at + WINDOW_MS - now);
+  }
+  return 0;
+}
+
 /** Test seam. */
 export function _resetBadActors(): void {
   table.clear();

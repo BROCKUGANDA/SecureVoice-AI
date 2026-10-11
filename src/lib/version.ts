@@ -30,9 +30,15 @@ export const APP_VERSION: string = process.env.NEXT_PUBLIC_APP_VERSION ?? "0.0.0
  */
 export const APP_VERSION_IS_PLACEHOLDER: boolean = APP_VERSION === "0.0.0-dev";
 
-/** Display form: `v0.2.1`. Kept in one place so every surface renders it alike. */
-export function versionLabel(): string {
-  return APP_VERSION.startsWith("v") ? APP_VERSION : `v${APP_VERSION}`;
+/**
+ * Display form: `v0.2.1`. Kept in one place so every surface renders it alike.
+ *
+ * Takes the value as an argument rather than reading the module constant so a
+ * caller — and a test — can render an arbitrary version without depending on
+ * what the build happened to inject. The UI passes APP_VERSION.
+ */
+export function versionLabel(version: string = APP_VERSION): string {
+  return version.startsWith("v") ? version : `v${version}`;
 }
 
 /** Release version, for the status page and the health probe. */

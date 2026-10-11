@@ -311,6 +311,11 @@ services:
   # Serves the WebSocket endpoint Twilio connects to for live-call audio.
   voice-stream-worker:
     user: "1000:1000"   # non-root
+    # Must exceed SHUTDOWN_DRAIN_MS (65s, src/lib/graceful-shutdown.ts) or the
+    # drain is decoration: Docker sends SIGKILL at its 10s default while a
+    # customer is mid-sentence. tests/unit/shutdown-window.test.ts enforces the
+    # relationship, so this cannot silently stop being true.
+    stop_grace_period: 75s
     build:
       context: .
       target: builder
@@ -466,6 +471,12 @@ services:
     # "no image override", so the default build path is unchanged.
     image: ${IMAGE:-securevoice-ai-app:local}
     restart: unless-stopped
+    # The app's own drain: scripts/server-preload.ts flips /api/readyz to 503 so
+    # Caddy de-rotates, then waits SHUTDOWN_DRAIN_MS (65s) for accepted requests.
+    # Docker's 10s default would kill it mid-window, so a deploy would drop the
+    # very requests the drain exists to protect. See
+    # tests/unit/shutdown-window.test.ts for the check that keeps these aligned.
+    stop_grace_period: 75s
     logging: *default-logging
     mem_limit: 1g
     environment:

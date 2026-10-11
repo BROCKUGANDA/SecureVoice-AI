@@ -30,6 +30,13 @@ import { resolveTtsModel } from "@/lib/elevenlabs/client";
 import { DeepgramLiveClient, preconnectDeepgram } from "@/lib/voice/deepgram-client";
 import { withFirstChunkDeadline } from "@/lib/voice/first-audio-deadline";
 import { installProcessCrashHandlers } from "@/lib/process-crash-handlers";
+import {
+  beginCall,
+  getActiveCallCount,
+  isShuttingDown,
+  setupGracefulShutdown,
+} from "@/lib/graceful-shutdown";
+import { initOtel } from "@/lib/telemetry/otel";
 import { ElevenLabsStream } from "@/lib/voice/elevenlabs-stream";
 import {
   ConversationState,
@@ -657,10 +664,20 @@ function createServer() {
       handlePrewarm(url, req, res);
       return;
     }
-    // A liveness probe for operators and for compose healthchecks.
+    // A liveness probe for operators and for compose healthchecks. Answers 200
+    // while draining on purpose: a probe that goes red mid-drain invites the
+    // orchestrator to SIGKILL the process, which is the exact outcome the drain
+    // exists to avoid. `draining` and `activeCalls` are the honest signals.
     if (req.method === "GET" && url.pathname === "/healthz") {
       res.writeHead(200, { "content-type": "application/json" });
-      res.end(JSON.stringify({ ok: true, calls: calls.size }));
+      res.end(
+        JSON.stringify({
+          ok: true,
+          calls: calls.size,
+          draining: isShuttingDown(),
+          activeCalls: getActiveCallCount(),
+        }),
+      );
       return;
     }
     res.writeHead(404, { "content-type": "application/json" });
@@ -671,6 +688,31 @@ function createServer() {
   // ours, so the HTTP routes above and the media stream cannot shadow each
   // other.
   const wss = new WebSocketServer({ noServer: true });
+
+  // Drain before exiting. A SIGTERM that arrives mid-fraud-call currently severs
+  // the media stream, the ASR socket and the customer's sentence at once, because
+  // nothing here handles the signal. The active-call counter is what makes the
+  // wait mean something: it reaches zero when the last open call closes.
+  //
+  // `onShutdown` runs AFTER the drain (see src/lib/graceful-shutdown.ts), so
+  // closing these sockets cannot cut short a call that was still going — it is
+  // the cleanup for whatever outlasted the window.
+  //
+  // This only holds if the orchestrator waits as long as we do. Docker's default
+  // is 10s against a 65s window, so docker-compose.yml sets stop_grace_period on
+  // this service, and tests/unit/shutdown-window.test.ts fails the build if the
+  // two numbers ever drift apart — a drain Docker kills early is decoration.
+  setupGracefulShutdown({
+    onShutdown: () => {
+      for (const client of wss.clients) {
+        try {
+          client.close(1001, "server shutting down");
+        } catch {
+          // already gone
+        }
+      }
+    },
+  });
   server.on("upgrade", (req, socket, head) => {
     wss.handleUpgrade(req, socket, head, (ws) => {
       wss.emit("connection", ws, req);
@@ -685,6 +727,9 @@ function createServer() {
     // for the whole call.
     const lang = asCallLang(url.searchParams.get("lang"));
     const state = getOrCreateCall(callSid, lang);
+    // One unit of work the shutdown drain waits for. The release is idempotent,
+    // so the close handler and any later teardown can both call it.
+    const releaseCall = beginCall();
     // The conversational state machine (greeting / nudge / barge-in) lives for
     // the life of this call and is reachable from handleTranscript via state.
     const conv = new ConversationState(lang);
@@ -797,7 +842,8 @@ function createServer() {
       state.tts = null;
       calls.delete(callSid);
       caseRefByCallSid.delete(callSid);
-      logInfo("[voice-stream] call ended", { callSid });
+      releaseCall();
+      logInfo("[voice-stream] call ended", { callSid, activeCalls: getActiveCallCount() });
     });
 
     ws.on("error", (err) => {
@@ -823,6 +869,10 @@ function createServer() {
 
 if (import.meta.main) {
   installProcessCrashHandlers();
+  // Worker-side traces, metrics and logs. No-op and non-fatal without
+  // OTEL_BETTERSTACK_TOKEN, so an unconfigured deployment loses telemetry and not
+  // the call path.
+  initOtel();
   createServer();
 }
 

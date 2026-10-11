@@ -28,6 +28,7 @@ import { Counter } from "@/components/fx/core";
 import { TrendChart, HBars, Donut, Gauge, CompareBar, Sparkline } from "@/components/fx/charts";
 import { Pagination } from "@/components/fx/Pagination";
 import { RecordingPlayer } from "@/components/dashboard/RecordingPlayer";
+import { CreditWidget } from "@/components/billing/CreditWidget";
 import { Switch } from "@/components/ui/switch";
 import { Slider } from "@/components/ui/slider";
 import { useToast } from "@/hooks/use-toast";
@@ -205,6 +206,16 @@ export function Dashboard() {
             )}
           </span>
         </div>
+      </div>
+
+      {/* Prepaid wallet. Mounted above the tabs so it is on screen whatever tab
+          the operator is on: the balance is the number that stops the console
+          from firing (402 when it reaches zero), so it belongs where it can be
+          seen before the click, not on a billing tab someone has to navigate to.
+          It self-fetches `/api/console/me` and updates on the org's realtime
+          channel, so the figure is the row's, not a snapshot from page load. */}
+      <div className="mt-6">
+        <CreditWidget />
       </div>
 
       {/* tabs */}

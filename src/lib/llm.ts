@@ -43,6 +43,7 @@ import { db } from "@/lib/db";
 import { decryptSecret } from "@/lib/byok";
 import { traceLlmCall } from "@/lib/langfuse";
 import { createLlmAdapter, type LlmProvider } from "@/lib/adapters/llm-adapter";
+import { defaultSemanticCache } from "@/lib/voice/semantic-cache";
 import { spokenCompletionSchema } from "@/lib/validation/llm-response";
 import { auth } from "@/lib/better-auth";
 import { headers } from "next/headers";
@@ -381,6 +382,24 @@ export async function draftAgentReply(args: {
   const p = args.providerOverride !== undefined ? args.providerOverride : provider();
   if (!p) return null;
 
+  // ── The semantic reply cache ───────────────────────────────────────────────
+  // A fraud call is structurally repetitive — the same handful of answers arrive
+  // thousands of times a day — and each one is a provider round-trip the customer
+  // spends in dead air. A hit is a reply that already passed every guard below
+  // AND is re-checked by `lookup` on the way out, so it is served, not trusted.
+  //
+  // The namespace is (intent, language, call category), so an Arabic clarification
+  // can never answer an English one and a routine reminder cannot answer a fraud
+  // call. `SCRIPTED_ONLY` intents returned above, so no commitment sentence can
+  // reach this line at all.
+  const cacheContext = {
+    intent: args.intent,
+    language: args.lang,
+    callCategory: asCallCategory(args.callCategory),
+  };
+  const cached = await defaultSemanticCache().lookup(args.text, cacheContext);
+  if (cached.hit) return cached.reply;
+
   const system = [
     "You are an automated fraud-intervention voice agent for a bank.",
     "You are speaking ON A PHONE CALL — your words are spoken aloud by a text-to-speech engine.",
@@ -562,6 +581,16 @@ export async function draftAgentReply(args: {
       ).catch(() => {});
       return null;
     }
+    // Approved by everything above — the output guard, the vishing blocklist and
+    // the word cap — so it may be admitted. `storeApproved` re-runs those same
+    // predicates rather than trusting this call site, which is what makes an
+    // unvetted write elsewhere harmless: whatever got written, nothing that fails
+    // a guard is ever spoken.
+    await defaultSemanticCache()
+      .storeApproved(out, { ...cacheContext, text: args.text })
+      .catch(() => {
+        // A cache that will not write is a slower reply, not a worse one.
+      });
     return out;
   } catch {
     return null; // timeout / network / quota ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢šÂ¬Ã‚Â scripted reply takes over

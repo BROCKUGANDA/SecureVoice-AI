@@ -34,6 +34,11 @@ import "server-only";
 import { db } from "@/lib/db";
 import { append as auditAppend } from "@/lib/audit-chain";
 import { isE164, isTwilioConfigured, sendInterventionSms, type DeliveryLang } from "@/lib/twilio";
+import {
+  classifyLine,
+  supportsSmsConfirmation,
+  UNKNOWN_LINE,
+} from "@/lib/voice/line-type";
 import { canTransition, transitionCase } from "@/lib/case-state-machine";
 import { getInstitutionType } from "@/lib/institution";
 import { publishResolution } from "@/lib/sms-verdict";
@@ -83,7 +88,13 @@ function asDeliveryLang(v: string | null | undefined): DeliveryLang {
 async function record(
   caseRef: string,
   orgId: string | null | undefined,
-  intent: "sms_fallback_sent" | "sms_fallback_skipped" | "sms_fallback_failed",
+  intent:
+    | "sms_fallback_sent"
+    | "sms_fallback_skipped"
+    | "sms_fallback_failed"
+    // Sent, but to a line that cannot confirm receipt — recorded separately so a
+    // reviewer can tell "we texted the customer" from "we texted a number".
+    | "sms_fallback_unconfirmable",
   reason: FallbackReason,
   detail: string,
 ): Promise<void> {
@@ -188,14 +199,49 @@ export async function markVoiceFailed(args: {
         await record(caseRef, row.orgId, "sms_fallback_failed", reason, res.error);
         return unavailable("sms_delivery_failed");
       }
+
+      // `smsSentAt` is not a timestamp here — it is the evidence that the
+      // customer WAS reached, and the case state machine and the bank event both
+      // read it that way. So it is only written when the destination can receive
+      // an SMS at all: a landline, toll-free or premium number accepts a Twilio
+      // `sent` and delivers it to a machine with no handset, and "sent, silently
+      // to nothing" is indistinguishable from "the customer was warned and said
+      // nothing" — on a fraud call, exactly the confusion that lets a transfer
+      // stand. The call is still walked to UNREACHABLE; what is withheld is the
+      // claim of reach, never the state change.
+      const line = await classifyLine(row.phone);
+      const smsCanProveReach = supportsSmsConfirmation(line.type);
+      if (!smsCanProveReach) {
+        await record(
+          caseRef,
+          row.orgId,
+          "sms_fallback_unconfirmable",
+          reason,
+          `line_type=${line.type} source=${line.source}`,
+        );
+      }
+
       await record(caseRef, row.orgId, "sms_fallback_sent", reason, `twilio ${res.status}`);
-      await enterUnreachable(caseRef, row.state, reason, new Date());
+      await enterUnreachable(caseRef, row.state, reason, smsCanProveReach ? new Date() : null);
       return { sent: true, simulated: false };
     }
 
-    // Dry-run: the whole state path runs, nothing leaves the building.
+    // Dry-run: the whole state path runs, nothing leaves the building — including
+    // the reachability claim, which is gated the same way so the demo exercises
+    // the real decision rather than a friendlier copy of it.
     await record(caseRef, row.orgId, "sms_fallback_skipped", reason, "dry_run_simulated");
-    await enterUnreachable(caseRef, row.state, reason, new Date());
+    const dryLine = row.phone ? await classifyLine(row.phone) : UNKNOWN_LINE;
+    const dryReach = supportsSmsConfirmation(dryLine.type);
+    if (!dryReach) {
+      await record(
+        caseRef,
+        row.orgId,
+        "sms_fallback_unconfirmable",
+        reason,
+        `line_type=${dryLine.type} source=${dryLine.source}`,
+      );
+    }
+    await enterUnreachable(caseRef, row.state, reason, dryReach ? new Date() : null);
     return { sent: true, simulated: true };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

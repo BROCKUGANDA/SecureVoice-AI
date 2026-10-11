@@ -7,12 +7,21 @@ import { analyzeSentiment } from "@/lib/sentiment";
 import { draftAgentReply } from "@/lib/llm";
 import { auditAgentReply, auditUserInput } from "@/lib/compliance/policy";
 import { verifyTwilioSignature } from "@/lib/twilio";
+import { db } from "@/lib/db";
+import { transitionCase } from "@/lib/case-state-machine";
 import {
   describeDtmfForSpeech,
   mapDtmfDigits,
   sanitiseGatherActionUrl,
   type DtmfAction,
 } from "@/lib/voice/dtmf";
+import {
+  auditWrongNumber,
+  buildWrongNumberClosure,
+  detectCallbackRequest,
+  detectWrongNumber,
+  type WrongNumberVerdict,
+} from "@/lib/voice/wrong-number";
 import { resolveDeliveryLang, type Lang } from "@/lib/languages";
 import { logError, logWarn } from "@/lib/validation/safe-log";
 
@@ -258,9 +267,9 @@ function buildTurnTwiml(reply: string, lang: string, endCall: boolean, callSid: 
  * hears silence and hangs up.
  */
 function gather(voice: string, language: string, prompt: string, callSid: string, lang: string) {
-  const action = sanitiseGatherActionUrl(
-    `/api/twilio/turn?callSid=${callSid}&lang=${lang}`,
-  ) ?? "/api/twilio/turn";
+  const action =
+    sanitiseGatherActionUrl(`/api/twilio/turn?callSid=${callSid}&lang=${lang}`) ??
+    "/api/twilio/turn";
   return `<Gather input="dtmf speech" numDigits="1" timeout="8" method="POST" speechTimeout="auto" action="${escapeXml(action)}" language="${language}"><Say voice="${voice}" language="${language}">${prompt}</Say></Gather>`;
 }
 
@@ -357,6 +366,124 @@ async function answerKeypad(args: {
 /** A <Say> with the call's voice and language attributes, escaped. */
 function replyToSay(text: string, voice: string, language: string): string {
   return `<Say voice="${voice}" language="${language}">${escapeXml(text)}</Say>`;
+}
+
+/**
+ * End the call on a wrong number or a callback request, and record it.
+ *
+ * THE INVARIANT, restated where it can be audited: this path stages NO freeze and
+ * queues NO escalation. A stranger saying "that's not my number" is not a fraud
+ * signal — it is a denial-of-service on the fraud programme if treated as one,
+ * because anyone could freeze any card by answering the phone and saying four
+ * words. `buildWrongNumberClosure` returns `mustNotFreeze: true` as a LITERAL
+ * type; nothing here is allowed to weaken that into a runtime flag.
+ *
+ * Two kinds, two endings. A wrong number CLOSES the case (there is no cardholder
+ * on this line and no further call will reach one). A callback request does NOT:
+ * the cardholder is real and merely busy, so the case stays open and the re-dial
+ * is recorded as required. `closurePath()` computes the edges from the case's
+ * ACTUAL state rather than assuming one, and a `null` path is reported as the gap
+ * in the machine that it is — never papered over with a direct write, because
+ * `src/lib/case-state-machine.ts` is the only writer of case state.
+ */
+async function answerWrongNumber(args: {
+  text: string;
+  verdict: WrongNumberVerdict;
+  lang: Lang;
+  voice: string;
+  language: string;
+  callSid: string;
+  callerId: string;
+}): Promise<NextResponse> {
+  const { verdict, lang, voice, language, callSid, callerId } = args;
+
+  const caseRow = callSid
+    ? await db.case
+        .findFirst({
+          where: { callSid },
+          select: { caseRef: true, orgId: true, state: true },
+        })
+        .catch(() => null)
+    : null;
+
+  const callback =
+    verdict.kind === "callback_requested"
+      ? detectCallbackRequest(args.text, { language: lang === "ar" ? "ar" : "en" })
+      : undefined;
+
+  const closure = buildWrongNumberClosure(verdict, {
+    language: lang === "ar" ? "ar" : "en",
+    ...(caseRow ? { currentState: caseRow.state } : {}),
+    ...(callback ? { callback } : {}),
+  });
+
+  const callRef = caseRow?.caseRef ?? callSid ?? "";
+
+  // The audit row is written by the module's own writer so the freeze/escalation
+  // denials are recorded in the shape the tests assert, and never throws.
+  await auditWrongNumber({
+    callRef: callRef || `SV-TW-${Date.now().toString(36)}`,
+    verdict,
+    ...(callback ? { callback } : {}),
+    ...(caseRow?.orgId ? { orgId: caseRow.orgId } : {}),
+    callerId,
+    ...(caseRow ? { currentState: caseRow.state } : {}),
+  });
+
+  // Apply the machine's own path, edge by edge, through the single writer.
+  // `record.path` is a state SEQUENCE — its first element is where the case
+  // already is — so the edges to take are everything after it. Asking the machine
+  // to transition a case into the state it already holds is not a no-op, it is an
+  // IllegalTransitionError, and applying the whole list would abort a closure on
+  // its first element.
+  //
+  // An illegal edge throws; it is caught, logged, and the state already reached
+  // stays reached, because each edge committed on its own. Reporting a half-
+  // applied closure is honest; force-writing the last state is not.
+  const applied: string[] = [];
+  const edges = closure.record.path.slice(1);
+  if (caseRow && closure.actionable && edges.length > 0) {
+    try {
+      for (const to of edges) {
+        await transitionCase(caseRow.caseRef, to);
+        applied.push(to);
+      }
+    } catch (err) {
+      logError("[twilio-turn] wrong-number closure could not be applied", {
+        caseRef: caseRow.caseRef,
+        error: err instanceof Error ? err.message : String(err),
+        attempted: edges.join("->"),
+        applied: applied.join("->"),
+      });
+    }
+  }
+
+  if (!closure.actionable && verdict.confidence > 0) {
+    // An identity question ("who is this?") is NOT a wrong number, and hanging up
+    // on the actual cardholder is the other half of this failure. The call
+    // continues with the ordinary scripted turn, and the low-confidence detection
+    // is what the audit row says it is: not conclusive.
+    logWarn("[twilio-turn] wrong-number detection below the action threshold", {
+      kind: verdict.kind,
+      confidence: verdict.confidence,
+      callSid: callSid || "unknown",
+    });
+  }
+
+  const speech = closure.speech || (REPLIES.unclear[lang] ?? REPLIES.unclear.en);
+  // A wrong number has nothing left to ask, so the call ends on that sentence.
+  // A callback request does not: the spoken line asks "later today, or another
+  // time?" and hanging up on it would be the platform asking a question it refuses
+  // to hear. The case is closed to NOTIFIED and recorded NOW — the cardholder is
+  // busy, that is established — while the turn stays open for one more answer,
+  // which is what the scripted sentence promised. After that input the ordinary
+  // goodbye-and-hangup tail ends the call.
+  const endsCall = closure.actionable && verdict.kind === "wrong_number";
+  const body = endsCall
+    ? `<?xml version="1.0" encoding="UTF-8"?><Response>${replyToSay(speech, voice, language)}<Hangup/></Response>`
+    : buildTurnTwiml(speech, lang, false, callSid);
+
+  return new NextResponse(body, { headers: { "Content-Type": "text/xml" } });
 }
 
 export async function POST(req: NextRequest) {
@@ -459,6 +586,28 @@ export async function POST(req: NextRequest) {
       `<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="${voice}" language="${language}">${escapeXml(PROMPTS.notCaught[lang] ?? PROMPTS.notCaught.en)}</Say>${gather(voice, language, escapeXml(describeDtmfForSpeech("none", lang)), callSid, lang)}<Say voice="${voice}" language="${language}">${escapeXml(PROMPTS.goodbye[lang] ?? PROMPTS.goodbye.en)}</Say><Hangup/></Response>`,
       { headers: { "Content-Type": "text/xml" } },
     );
+  }
+
+  // ── A stranger or a busy cardholder, not a customer ────────────────────────
+  // BEFORE any intent classification and before another word is spoken. The
+  // opening script has already recited merchant and amount, so every sentence
+  // after "that's not my number" is a disclosure of someone else's financial
+  // data to whoever picked up, on a recorded line, in a country whose PDPL makes
+  // that the bank's problem. Detecting it after the LLM turn would be detection
+  // that costs the disclosure it exists to prevent.
+  const wrongNumber = detectWrongNumber(speechResult, {
+    language: lang === "ar" ? "ar" : "en",
+  });
+  if (wrongNumber.kind !== "not_detected") {
+    return answerWrongNumber({
+      text: speechResult,
+      verdict: wrongNumber,
+      lang,
+      voice,
+      language,
+      callSid,
+      callerId,
+    });
   }
 
   // Classify intent

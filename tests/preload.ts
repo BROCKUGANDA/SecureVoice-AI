@@ -37,6 +37,28 @@ delete process.env.TWILIO_LIVE_SEND;
 // tests/webhooks); the post-call ingest test also asserts the key-less drop.
 delete process.env.PRIVACY_MASTER_KEY;
 
+// A test-only Better Auth secret, so a suite that reaches the auth layer runs
+// on a machine that has not configured one.
+//
+// `src/lib/better-auth.ts` refuses to construct with a missing or short
+// BETTER_AUTH_SECRET, and the import is what three tenancy suites trip on the
+// first time they touch a route (`console-routes`, `crm-and-pull-routes`,
+// `isolation`). A developer's `.env` may or may not carry one, so the suite was
+// green or red depending on the machine, which is the worst of both.
+//
+// `??=`, not `=`: a real environment wins, and this value is never a credential.
+// It is a constant in a test harness, and anything that reaches an actual Better
+// Auth crypto path in a suite should set its own — the same rule the three hard
+// floors above already follow.
+process.env.BETTER_AUTH_SECRET ??=
+  "test-only-better-auth-secret-not-a-credential-0123456789abcdef";
+
+// The origin Better Auth derives its own URLs from, same reasoning as above: the
+// three tenancy suites that construct the auth layer fail to import without it,
+// which made them red or green depending on whether the developer's `.env`
+// happened to carry it. `??=` again, and a real environment still wins.
+process.env.BETTER_AUTH_URL ??= process.env.APP_URL ?? "http://localhost:3000";
+
 // Latency gates (docs/VERIFICATION.md WP-3) assume the production topology
 // from docs/HETZNER.md: Postgres co-located with the app. When a caller
 // provides TEST_DATABASE_URL, every test runs against that database instead

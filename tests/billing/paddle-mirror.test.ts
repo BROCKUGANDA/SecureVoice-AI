@@ -45,7 +45,14 @@ beforeAll(async () => {
 }, 30_000);
 
 afterAll(async () => {
-  const orgs = { in: [ORG_A, ORG_B, "0c1c0c0c-0000-4000-8000-000000000003"] };
+  const orgs = {
+    in: [
+      ORG_A,
+      ORG_B,
+      "0c1c0c0c-0000-4000-8000-000000000003",
+      "0e1e0e0e-0000-4000-8000-000000000005",
+    ],
+  };
   // Children before the tenant row: PaddleSubscription references
   // PaddleCustomer.customerId ON DELETE CASCADE, but explicit is clearer here
   // and the order survives a cascade being changed later.
@@ -273,18 +280,28 @@ describe("paddleCustomerIdFor", () => {
   // own process, so this is belt-and-braces; it costs nothing.
   const ORG_C = "0c1c0c0c-0000-4000-8000-000000000003";
   const SOLO = "ctm_mirror_gate_solo";
+  // A SECOND org for the ordering test only, and that separation is the fix for
+  // a flake that CI caught twice. `paddleCustomerIdFor` orders by createdAt desc,
+  // and a row written by `mirrorCustomer` carries `now()`. Any hard-coded
+  // "later" date LIES about which is newer the moment the clock passes it — first
+  // with a June date on a CI runner in October, then with the `SOLO` row above
+  // beating it. An org with only fixed-date rows removes the clock from the
+  // comparison entirely.
+  const ORG_D = "0e1e0e0e-0000-4000-8000-000000000005";
 
   beforeAll(async () => {
-    await db.organization.upsert({
-      where: { id: ORG_C },
-      create: {
-        id: ORG_C,
-        name: "Paddle mirror gate solo",
-        slug: "mirror-gate-solo",
-        createdAt: new Date("2026-10-10T00:00:00.000Z"),
-      },
-      update: {},
-    });
+    for (const id of [ORG_C, ORG_D]) {
+      await db.organization.upsert({
+        where: { id },
+        create: {
+          id,
+          name: `Paddle mirror gate ${id.slice(0, 8)}`,
+          slug: `mirror-gate-${id.slice(0, 8)}`,
+          createdAt: new Date("2026-10-10T00:00:00.000Z"),
+        },
+        update: {},
+      });
+    }
   }, 30_000);
 
   test("resolves the org's own customer id", async () => {
@@ -310,19 +327,44 @@ describe("paddleCustomerIdFor", () => {
     // `paddleCustomerIdFor` orders by createdAt desc, which is what makes the
     // portal open the account that bought most recently rather than the first
     // one ever recorded.
-    const FIRST = "ctm_mirror_gate_solo_first";
-    const SECOND = "ctm_mirror_gate_solo_second";
-    await mirrorCustomer({ customerId: FIRST, orgId: ORG_C, email: "first@example.test" });
-    // A distinct createdAt, because two rows written in the same millisecond
-    // would make "the latest" a coin toss and the assertion a flake.
-    await db.paddleCustomer.create({
-      data: {
-        customerId: SECOND,
-        orgId: ORG_C,
-        email: "second@example.test",
-        createdAt: new Date("2026-10-11T00:00:00.000Z"),
+    //
+    // This test is on ORG_D, an org NOTHING else writes to, and both rows carry
+    // fixed dates. Both of those are load-bearing, and CI caught it twice:
+    //
+    //   * the first version wrote FIRST through `mirrorCustomer` (`now()`) and a
+    //     hard-coded SECOND in the past, so "latest" resolved to whichever was
+    //     later in wall-clock terms;
+    //   * the second version fixed both dates but kept them on ORG_C, where the
+    //     test above writes a `now()` row — which beat them both.
+    //
+    // A dedicated org plus fixed dates removes the clock from the comparison
+    // entirely, and removes the TIMESTAMP(3) hazard of two rows in the same
+    // millisecond comparing equal.
+    const FIRST = "ctm_mirror_gate_order_first";
+    const SECOND = "ctm_mirror_gate_order_second";
+    // `upsert` rather than `create`: the ids are fixed, so a re-run after a
+    // cleanup that did not happen would otherwise fail on the unique index
+    // rather than testing anything.
+    await db.paddleCustomer.upsert({
+      where: { customerId: FIRST },
+      create: {
+        customerId: FIRST,
+        orgId: ORG_D,
+        email: "first@example.test",
+        createdAt: new Date("2026-01-01T00:00:00.000Z"),
       },
+      update: { orgId: ORG_D, createdAt: new Date("2026-01-01T00:00:00.000Z") },
     });
-    expect(await paddleCustomerIdFor(ORG_C)).toBe(SECOND);
+    await db.paddleCustomer.upsert({
+      where: { customerId: SECOND },
+      create: {
+        customerId: SECOND,
+        orgId: ORG_D,
+        email: "second@example.test",
+        createdAt: new Date("2026-06-01T00:00:00.000Z"),
+      },
+      update: { orgId: ORG_D, createdAt: new Date("2026-06-01T00:00:00.000Z") },
+    });
+    expect(await paddleCustomerIdFor(ORG_D)).toBe(SECOND);
   });
 });

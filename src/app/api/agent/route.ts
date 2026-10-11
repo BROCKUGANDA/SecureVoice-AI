@@ -6,6 +6,7 @@ import { transcript as redactText } from "@/lib/redact";
 import { consume as consumeRateLimit, rateLimitId } from "@/lib/ratelimit";
 import { append as auditAppend } from "@/lib/audit-chain";
 import { analyzeSentiment } from "@/lib/sentiment";
+import { noteTurn } from "@/lib/voice/turn-counter";
 import { draftAgentReply, resolveSessionLlmCredentials } from "@/lib/llm";
 import { callerRequestsSecret, NEVER_ASK_LINE } from "@/lib/compliance/never-ask";
 import { SAFETY_EXIT } from "@/lib/compliance/safety-exit";
@@ -42,9 +43,10 @@ const schema = z.object({
   text: z.string().trim().min(1).max(MAX_AGENT_TEXT_CHARS),
   lang: z.enum(SUPPORTED_LANGS).default("en"),
   callRef: z.string().min(3).max(64).optional(), // supplied by the client; generated if missing
-  // 1-based turn number within the call, supplied by the client. Optional: absent
-  // means "unknown", which can never trigger the unclear-turn handoff.
-  turn: z.number().int().min(1).max(200).optional(),
+  // No client-supplied turn number: the unclear-turn handoff used to read it from
+  // here, which meant a caller that omitted it could never reach the threshold and
+  // a caller that sent `turn: 1` every time could never be handed off. The server
+  // counts consecutive unclear turns per call — src/lib/voice/turn-counter.ts.
   direction: z.enum(["inbound", "outbound"]).default("inbound"),
   consentRecordId: z.string().min(4).optional(),
 });
@@ -427,8 +429,12 @@ export async function POST(req: NextRequest) {
   // 3. Classify intent + read the customer's state (checklist #19: panicked or
   //    coached callers are flagged for immediate human takeover)
   const classified = classify(text);
-  // Four turns without a clear answer and a human takes over, instead of looping.
-  const turnCapped = classified === "unclear" && (parsed.data.turn ?? 0) >= MAX_UNCLEAR_TURNS;
+  // Four consecutive turns without a clear answer and a human takes over, rather
+  // than the loop continuing. Counted here, not by the client — see
+  // src/lib/voice/turn-counter.ts for why the previous client-supplied number
+  // made this unreachable, and defeatable.
+  const unclearStreak = noteTurn(callRef, classified === "unclear");
+  const turnCapped = classified === "unclear" && unclearStreak >= MAX_UNCLEAR_TURNS;
   const intent: Intent = turnCapped ? "handoff" : classified;
   const baseAction = ACTION[intent];
   const userInputAudit = auditUserInput(text);

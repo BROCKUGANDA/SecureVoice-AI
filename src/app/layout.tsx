@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Space_Grotesk, Inter, JetBrains_Mono, IBM_Plex_Sans_Arabic } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "@/components/ui/toaster";
+import { Providers } from "@/app/providers";
 import { JsonLd } from "@/components/seo/JsonLd";
 import { COMPANY } from "@/lib/commercial";
 import { siteOrigin } from "@/lib/site-origin";
@@ -179,11 +180,15 @@ export default function RootLayout({
         {/* Better Auth has no provider component: sessions are read from the
             database by `auth.api.getSession({ headers })` wherever they are
             needed, and the browser reads them through `authClient.useSession()`.
-            There is deliberately nothing wrapped around the tree here — a
-            client-side provider would be a cached session, and an authorisation
-            decision must never be taken from one (hazard AU-4). */}
-        {children}
-        <Toaster />
+            There is deliberately nothing auth-shaped wrapped around the tree here
+            — a client-side provider would be a cached session, and an
+            authorisation decision must never be taken from one (hazard AU-4).
+            `Providers` carries the colour theme and product analytics only; it
+            holds no session, and src/app/providers.tsx says the same. */}
+        <Providers>
+          {children}
+          <Toaster />
+        </Providers>
       </body>
     </html>
   );

@@ -150,6 +150,35 @@ async function onSubscription(
     currentPeriodEnd: iso(period?.ends_at ?? period?.endsAt),
   });
 
+  // Billing lifecycle, mirrored to analytics for the revenue workflows.
+  //
+  // A subscription that will cancel at period end still reports `active` here,
+  // which is why the scheduled change rides alongside the status rather than
+  // being folded into it — a workflow that reads status alone cannot tell a
+  // subscription that is leaving from one that is staying. Non-blocking and
+  // exception-safe by contract, so a PostHog outage cannot take down billing.
+  try {
+    const resolvedPriceId = str(price?.id) || str(first.price_id);
+    const { planFromPriceId } = await import("./overage");
+    const { subscriptionChanged } = await import("@/lib/analytics");
+    const plan = planFromPriceId(resolvedPriceId);
+    subscriptionChanged({
+      orgId: ctx.orgId,
+      status: str(data.status) || "unknown",
+      plan: plan === "starter" || plan === "growth" || plan === "enterprise" ? plan : "unknown",
+      scheduled: typeof scheduled?.action === "string",
+      scheduledAction: typeof scheduled?.action === "string" ? scheduled.action : null,
+      source:
+        eventType === "subscription.created"
+          ? "created"
+          : eventType === "subscription.canceled"
+            ? "canceled"
+            : "updated",
+    });
+  } catch {
+    // Analytics observes; it does not gate. See `src/lib/analytics.ts`.
+  }
+
   logInfo("[paddle-event] subscription mirrored", {
     eventType,
     subscriptionId,

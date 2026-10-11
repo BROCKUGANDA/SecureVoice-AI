@@ -100,8 +100,7 @@ const PRICE_KEY_TO_PLAN: Readonly<Record<string, string>> = Object.freeze({
 });
 
 type RateResolution =
-  | { ok: true; rateMinorPerUnit: number; configured: boolean }
-  | { ok: false; detail: string };
+  { ok: true; rateMinorPerUnit: number; configured: boolean } | { ok: false; detail: string };
 
 /**
  * Resolves the effective per-unit rate.
@@ -144,6 +143,12 @@ function includedUnitsFromEnv(): number {
  * checkout uses. Returns null when the id is unknown (a price created in the
  * dashboard but not wired here), which falls through to the env allowance.
  */
+export function planFromPriceKey(priceKey: string | null | undefined): string | null {
+  if (!priceKey) return null;
+  const cents = priceKey.split("_").slice(0, 2).join("_");
+  return PRICE_KEY_TO_PLAN[cents] ?? null;
+}
+
 export function planFromPriceId(priceId: string | null | undefined): string | null {
   if (!priceId) return null;
   let prices: Record<string, string>;
@@ -154,10 +159,54 @@ export function planFromPriceId(priceId: string | null | undefined): string | nu
   }
   for (const [key, id] of Object.entries(prices)) {
     if (id !== priceId) continue;
-    const cents = key.split("_").slice(0, 2).join("_");
-    return PRICE_KEY_TO_PLAN[cents] ?? null;
+    return planFromPriceKey(key);
   }
   return null;
+}
+
+/**
+ * Intervention credits a settled payment buys.
+ *
+ * Forward direction of `summarise()`: a Starter payment buys its plan's
+ * monthly allowance (500), Growth 2500, Enterprise 10000. Unknown plans and
+ * orgs with no resolvable plan fall back to `INCLUDED_UNITS_PER_PERIOD`.
+ *
+ * Money never converts 1:1 into credits — minor currency units and
+ * intervention credits are different denominations, and equating them is the
+ * #204 bug (a $99 payment booking 9900 "units"). Units are decided at MINT
+ * time (checkout / invoice raise) and carried on the payment, never
+ * re-derived at webhook time: a first purchase has no subscription row yet,
+ * and deriving from live state would credit the wrong allowance after a plan
+ * change.
+ */
+export function unitsForPlan(plan: string | null | undefined): number {
+  if (plan && PLAN_INCLUDED_UNITS[plan] !== undefined) return PLAN_INCLUDED_UNITS[plan]!;
+  return includedUnitsFromEnv();
+}
+
+/**
+ * Intervention credits for a payment minted WITHOUT a subscription context —
+ * a manual bank-transfer record, a top-up checkout, a payment made before any
+ * plan row exists.
+ *
+ * Units are still decided at mint time, from the amount and (if it names one)
+ * the purpose. `purpose` is compared case-insensitively against plan names:
+ * a record entered as `purpose: "Starter"` buys the Starter allowance, not
+ * `amountMinor` credits. An unknown or absent purpose falls back to
+ * `INCLUDED_UNITS_PER_PERIOD` — money never converts 1:1 into credits (#204).
+ */
+export function unitsForMintedPayment(input: {
+  amountMinor: number;
+  currency: string;
+  purpose?: string;
+}): number {
+  const purpose = input.purpose?.trim().toLowerCase() ?? "";
+  if (purpose !== "") {
+    for (const plan of Object.keys(PLAN_INCLUDED_UNITS)) {
+      if (purpose === plan) return PLAN_INCLUDED_UNITS[plan]!;
+    }
+  }
+  return includedUnitsFromEnv();
 }
 
 /**
@@ -306,11 +355,7 @@ export type RaiseOverageResult =
     }
   | {
       ok: false;
-      reason:
-        | "invalid_period"
-        | "rate_not_configured"
-        | "nothing_to_bill"
-        | "invalid_actor";
+      reason: "invalid_period" | "rate_not_configured" | "nothing_to_bill" | "invalid_actor";
       detail?: string;
     };
 
@@ -504,6 +549,21 @@ export async function raiseOverageInvoice(input: {
   });
 
   if (!duplicate) {
+    // Billing reached third-party analytics exactly once: this branch only runs
+    // for a genuinely new invoice, never for a retried or duplicate raise, so
+    // the `usage_summarised` event is idempotent by construction — the same
+    // property the PaymentRecord insert above guarantees for the money.
+    try {
+      const { usageSummarised } = await import("@/lib/analytics");
+      usageSummarised({
+        orgId: input.orgId,
+        netUsedUnits: s.netUsedUnits,
+        includedUnits: s.includedUnits,
+        billableOverageUnits: s.billableOverageUnits,
+      });
+    } catch {
+      // Analytics observes; it does not gate. See `src/lib/analytics.ts`.
+    }
     return { ok: true, reference, paymentId: inserted[0]!.id, duplicate: false, amount: money };
   }
   const existing = await db.paymentRecord.findUnique({

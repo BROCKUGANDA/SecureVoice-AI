@@ -479,6 +479,16 @@ export function createPaddleProvider(cfg: PaddleConfig): PaymentProvider {
     // would charge 10x for the same request.
     const chosen = matches.find((m) => m.interval === "month") ?? matches[0]!;
 
+    // The plan this checkout buys, anchored NOW and carried to the webhook in
+    // `custom_data`. Money never converts 1:1 into credits — the plan's
+    // allowance is the unit count (#204) — and it must be decided at mint time,
+    // not re-derived when the paid event arrives, because a first purchase has
+    // no subscription row and a later plan change must not retroactively
+    // re-rate this one.
+    const { planFromPriceKey } = await import("@/lib/payments/overage");
+    const plan = planFromPriceKey(chosen.key);
+    const entitlements: StoredEntitlement[] = plan ? [{ key: `plan:${plan}` }] : [];
+
     const res = await paddleRequest<TransactionResponse>(
       c,
       "POST",
@@ -486,7 +496,7 @@ export function createPaddleProvider(cfg: PaddleConfig): PaymentProvider {
       {
         items: [{ price_id: chosen.priceId, quantity: 1 }],
         collection_mode: "automatic",
-        custom_data: { reference },
+        custom_data: { reference, ...(entitlements.length > 0 ? { entitlements } : {}) },
         customer: { email: req.email },
         ...(req.returnUrl === undefined ? {} : { settings: { return_url: req.returnUrl } }),
       },

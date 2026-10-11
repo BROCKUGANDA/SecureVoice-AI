@@ -580,6 +580,55 @@ model DialJob {
   @@map("dial_job")
 }
 
+/// Transactional email queue (magic link, invite, password reset).
+///
+/// This is deliberately a SEPARATE table from OutboxEvent. OutboxEvent is the
+/// signed bank-webhook outbox: it requires a tenant endpoint, a signing secret
+/// and a canonical-JSON payload, none of which apply to an email. Reusing it
+/// would put an email in a table whose `targetUrl` column is then either NULL
+/// or a lie, and would route a sign-in credential through bank-delivery
+/// replay tooling that assumes a signed payload.
+///
+/// Why a queue at all: these three emails each carry a live credential. If
+/// Resend is briefly unavailable, fire-and-forget loses the message permanently
+/// and the operator is told "check your inbox" for mail that was never sent.
+/// With a row, the caller learns the send failed (HTTP 503) AND a worker
+/// retries with backoff, so a transient provider blip does not lock an analyst
+/// out of a fraud console.
+///
+/// NOTIFICATION ADDRESSES ARE STORED. The recipient is retained so support can
+/// answer "did the invite reach X?" and so a bounced address can be suppressed
+/// before it is mailed again. See docs/SECURITY.md — this table holds personal
+/// data and is inside the RLS boundary like every other tenant-scoped row.
+///
+/// The TOKEN IS NOT STORED. `payload` holds the rendered subject/body/labels
+/// needed to retry a send, never the URL's query string. A queued row that
+/// outlived its token's expiry would otherwise be a credential in the database.
+model EmailOutbox {
+  id        String   @id @default(cuid())
+  /// Which flow produced this: magic_link | invite | password_reset.
+  kind      String
+  /// The address being mailed. Personal data: redact in logs, never in metrics.
+  toEmail   String
+  /// Rendered subject, stored so a retry does not depend on re-rendering a
+  /// template that may have changed since the row was written.
+  subject   String
+  /// Canonical JSON: { template, props } with all credential-bearing props
+  /// stripped. Retry re-renders from this.
+  payload   String
+  state     String   @default("PENDING") // PENDING | SENDING | SENT | DEAD
+  attempts  Int      @default(0)
+  nextAttemptAt DateTime @default(now())
+  lastError String?
+  sentAt    DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([state, nextAttemptAt])
+  @@index([toEmail])
+  @@index([createdAt])
+}
+
 /// Deliveries received by the in-app receiver (the /inspector demo surface,
 /// and the fixture a bank integration team can point its own tests at).
 

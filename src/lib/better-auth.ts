@@ -25,6 +25,7 @@ import { dash, sentinel } from "@better-auth/infra";
 import { organization } from "better-auth/plugins/organization";
 import { twoFactor } from "better-auth/plugins/two-factor";
 import { db } from "@/lib/db";
+import { sendResetPassword } from "@/lib/email/resend";
 import {
   ABSOLUTE_LIFETIME_SECONDS,
   COOKIE_CACHE_SECONDS,
@@ -59,6 +60,16 @@ export const auth = betterAuth({
     // Deliberately NOT enabling auto-sign-in. A credential compromise should
     // force an MFA challenge, not land the operator straight in the console.
     requireEmailVerification: false,
+    // Password RESET for accounts Better Auth owns. Delivers through the same
+    // Resend queue as the first-party flows (src/lib/email/queue.ts), so a
+    // provider outage is retried by the email worker rather than dropped.
+    //
+    // Both magic links and resets are live, which is intentional: the
+    // first-party store (@/lib/auth/*) is what the console actually uses, and
+    // Better Auth's credential accounts need a recovery path too or they are
+    // permanently locked. See src/lib/auth/magic-link.ts:5-15 for why magic
+    // link remains the PRIMARY sign-in.
+    sendResetPassword,
   },
   session: {
     // Every number below comes from the single session policy

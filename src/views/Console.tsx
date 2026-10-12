@@ -312,7 +312,7 @@ function Runbook({ res }: { res: FireResponse }) {
         <ol className="mt-3 space-y-2.5">
           {actions.map((a, i) => (
             <li key={i} className="flex items-start gap-2.5">
-              <span className="num mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-[#0c110e] text-[10px] font-semibold text-green-bright">
+              <span className="num mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-green-tint text-[10px] font-semibold text-primary">
                 {i + 1}
               </span>
               <p className="text-[12.5px] leading-snug text-ink-2">{a}</p>
@@ -1004,7 +1004,7 @@ export function Console() {
                         aria-pressed={enrollChannel === c}
                         className={cn(
                           "flex-1 rounded-lg px-3 py-1.5 text-[12px] font-semibold transition",
-                          enrollChannel === c ? "bg-[#0c110e] text-white" : "text-ink-3",
+                          enrollChannel === c ? "bg-primary text-white" : "text-ink-3",
                         )}
                       >
                         {t(
@@ -1146,12 +1146,12 @@ export function Console() {
               <button
                 onClick={fire}
                 disabled={firing}
-                className="flex w-full items-center justify-center gap-2 rounded-full bg-[#0c110e] py-3 text-[13px] font-semibold text-white transition hover:bg-black disabled:opacity-50"
+                className="flex w-full items-center justify-center gap-2 rounded-full bg-primary py-3 text-[13px] font-semibold text-white transition hover:bg-green-deep disabled:opacity-50"
               >
                 {firing ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
                 ) : (
-                  <Zap className="h-4 w-4 text-green-bright" />
+                  <Zap className="h-4 w-4 text-primary" />
                 )}
                 {t(
                   `Fire ${labels.productNoun.toLowerCase()} signal`,

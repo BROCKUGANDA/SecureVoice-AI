@@ -275,17 +275,17 @@ export function Home() {
             >
               <div className="relative overflow-hidden rounded-3xl border border-line bg-white shadow-[0_30px_70px_-30px_rgba(16,24,18,0.28)]">
                 {/* header */}
-                <div className="flex items-center justify-between border-b border-line bg-[#0c110e] px-5 py-4">
+                <div className="flex items-center justify-between border-b border-line bg-card px-5 py-4">
                   <div className="flex items-center gap-3">
                     <span className="relative flex h-9 w-9 items-center justify-center rounded-full bg-green-bright/15">
-                      <PhoneOutgoing className="h-4 w-4 text-green-bright" />
-                      <span className="sv-pulse-ring absolute inset-0 rounded-full text-green-bright/70" />
+                      <PhoneOutgoing className="h-4 w-4 text-primary" />
+                      <span className="sv-pulse-ring absolute inset-0 rounded-full text-primary/70" />
                     </span>
                     <div className="leading-tight">
-                      <p className="num text-[11px] text-white/50">
+                      <p className="num text-[11px] text-ink-2">
                         {t("OUTBOUND · SECUREVOICE AGENT", "صادر · وكيل SecureVoice", lang)}
                       </p>
-                      <p className="text-[13.5px] font-semibold text-white">
+                      <p className="text-[13.5px] font-semibold text-foreground">
                         {t("Ahmed Al-Rashid", "أحمد الراشد", lang)} ·{" "}
                         <span className="num">+971 •• ••• 4567</span>
                       </p>
@@ -615,7 +615,7 @@ export function Home() {
             </div>
 
             {/* securevoice */}
-            <div className="relative bg-[#0c110e] p-8 text-white sm:p-12">
+            <div className="relative bg-card p-8 text-foreground sm:p-12">
               <div
                 className="absolute inset-0 opacity-70"
                 style={{
@@ -624,14 +624,14 @@ export function Home() {
                 }}
               />
               <div className="relative">
-                <p className="micro text-green-bright">
+                <p className="micro text-primary">
                   {t("With SecureVoice AI", "مع SecureVoice AI", lang)}
                 </p>
                 <div className="mt-6 flex items-baseline gap-2">
                   <Counter to={61} className="text-7xl font-semibold tracking-tight sm:text-8xl" />
-                  <span className="num text-2xl text-green-bright">{t("sec", "ثانية", lang)}</span>
+                  <span className="num text-2xl text-primary">{t("sec", "ثانية", lang)}</span>
                 </div>
-                <p className="mt-4 max-w-sm text-[14.5px] leading-relaxed text-white/70">
+                <p className="mt-4 max-w-sm text-[14.5px] leading-relaxed text-ink-2">
                   {t(
                     "From fraud signal to verified identity and frozen card — in the customer's own language, inside a CBUAE-aligned guardrail, with a human one word away.",
                     "من إشارة الاحتيال إلى هوية موثّقة وبطاقة مجمّدة — بلغة العميل نفسها، وضمن ضمانة متوافقة مع أنظمة المصرف المركزي، وبشري على بعد كلمة واحدة.",
@@ -639,13 +639,13 @@ export function Home() {
                   )}
                 </p>
                 <div className="mt-8 flex flex-wrap gap-2">
-                  <Chip className="!border-white/15 !bg-white/5 !text-white/85">
+                  <Chip className="!border-line !bg-secondary !text-ink-2">
                     {t("verify · 2/3 challenge", "تحقق · تحدي ٢ من ٣", lang)}
                   </Chip>
-                  <Chip className="!border-white/15 !bg-white/5 !text-white/85">
+                  <Chip className="!border-line !bg-secondary !text-ink-2">
                     {t("freeze · 240ms", "تجميد · ٢٤٠ مللي ثانية", lang)}
                   </Chip>
-                  <Chip className="!border-white/15 !bg-white/5 !text-white/85">
+                  <Chip className="!border-line !bg-secondary !text-ink-2">
                     {t("handoff · warm", "تسليم · تحويل دافئ", lang)}
                   </Chip>
                 </div>
@@ -796,7 +796,7 @@ export function Home() {
               </div>
               <button
                 onClick={() => setView("usecases")}
-                className="group flex shrink-0 items-center gap-2 rounded-full bg-[#0c110e] px-5 py-2.5 text-[13px] font-semibold text-white transition hover:opacity-90"
+                className="group flex shrink-0 items-center gap-2 rounded-full bg-primary px-5 py-2.5 text-[13px] font-semibold text-white transition hover:opacity-90"
               >
                 {t("Explore the use cases", "استكشف حالات الاستخدام", lang)}
                 <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
@@ -856,7 +856,7 @@ export function Home() {
       {/* ———————————————— CTA ———————————————— */}
       <section className="mx-auto max-w-7xl px-4 py-20 sm:px-6 lg:px-8 lg:py-24">
         <Reveal>
-          <div className="relative overflow-hidden rounded-3xl bg-[#0c110e] px-8 py-14 text-center sm:px-12 lg:py-16">
+          <div className="relative overflow-hidden rounded-3xl border border-line bg-card px-8 py-14 text-center sm:px-12 lg:py-16">
             <div
               className="absolute inset-0"
               style={{
@@ -865,16 +865,16 @@ export function Home() {
               }}
             />
             <div className="relative">
-              <Languages className="mx-auto h-7 w-7 text-green-bright" strokeWidth={1.5} />
-              <h2 className="font-display mx-auto mt-5 max-w-2xl text-3xl font-semibold leading-tight tracking-tight text-white sm:text-[2.6rem]">
+              <Languages className="mx-auto h-7 w-7 text-primary" strokeWidth={1.5} />
+              <h2 className="font-display mx-auto mt-5 max-w-2xl text-3xl font-semibold leading-tight tracking-tight text-foreground sm:text-[2.6rem]">
                 {t("Don't read about intervention.", "لا تقرأ عن التدخّل.", lang)}{" "}
-                <span className="text-green-bright">
+                <span className="text-primary">
                   {t("Watch it happen.", "شاهده يحدث.", lang)}
                 </span>
               </h2>
               <p
                 dir="rtl"
-                className="font-arabic mx-auto mt-4 max-w-xl text-[14px] leading-relaxed text-white/60"
+                className="font-arabic mx-auto mt-4 max-w-xl text-[14px] leading-relaxed text-ink-2"
               >
                 شاهد المحاكاة الحية: تنبيه احتيال، اتصال بالعميل، تحقق من الهوية، تجميد البطاقة،
                 وتسليم لأخصائي — كل ذلك في دقيقة واحدة.
@@ -889,23 +889,23 @@ export function Home() {
                 </button>
                 <button
                   onClick={() => setView("dashboard")}
-                  className="rounded-full border border-white/20 px-6 py-3.5 text-[14px] font-semibold text-white/85 transition hover:border-white/50 hover:text-white"
+                  className="rounded-full border border-line px-6 py-3.5 text-[14px] font-semibold text-ink-2 transition hover:border-white/50 hover:text-foreground"
                 >
                   {t("Explore the dashboard", "استكشف اللوحة", lang)}
                 </button>
                 <button
                   onClick={() => setPilotOpen(true)}
-                  className="flex items-center gap-2 rounded-full border border-white/20 px-6 py-3.5 text-[14px] font-semibold text-white/85 transition hover:border-white/50 hover:text-white"
+                  className="flex items-center gap-2 rounded-full border border-line px-6 py-3.5 text-[14px] font-semibold text-ink-2 transition hover:border-white/50 hover:text-foreground"
                 >
                   <CalendarCheck className="h-4 w-4" />
                   {t("Book a pilot", "احجز تجربة ميدانية", lang)}
                 </button>
               </div>
-              <p className="mt-5 text-center text-[12.5px] text-white/45">
+              <p className="mt-5 text-center text-[12.5px] text-ink-3">
                 {t("Bank team?", "فريق مصرفي؟", lang)}{" "}
                 <button
                   onClick={() => setView("auth")}
-                  className="font-semibold text-green-bright underline decoration-green-bright/30 underline-offset-2 transition hover:decoration-green-bright"
+                  className="font-semibold text-primary underline decoration-green-bright/30 underline-offset-2 transition hover:decoration-green-bright"
                 >
                   {t("Sign in to run the platform", "سجّل الدخول لتشغيل المنصة", lang)}
                 </button>

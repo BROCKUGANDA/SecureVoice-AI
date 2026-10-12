@@ -659,7 +659,7 @@ export function SetupWizard() {
                   type="checkbox"
                   checked={pdpl}
                   onChange={(e) => setPdpl(e.target.checked)}
-                  className="mt-0.5 h-4 w-4 shrink-0 accent-[#0c110e]"
+                  className="mt-0.5 h-4 w-4 shrink-0 accent-primary"
                 />
                 <label htmlFor="pdpl" className="text-[11.5px] leading-relaxed text-ink-2">
                   {t(

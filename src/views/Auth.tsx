@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
@@ -14,7 +14,7 @@ import { Building2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 /**
- * Double-sided sign-in / sign-up centerpiece — now powered by Better Auth.
+ * Double-sided sign-in / sign-up centerpiece â€” now powered by Better Auth.
  *
  * Identity (sessions, verification, lockout) is handled by Better Auth through
  * our own `/api/auth/[...all]` handler; the UAE framing, emblem and
@@ -35,7 +35,7 @@ import { cn } from "@/lib/utils";
  * Seeded demo credentials.
  *
  * The `+clerk_test` LOCAL-PART is a leftover from when Clerk provisioned these
- * accounts and it is now meaningless — Clerk is gone. The ADDRESSES are kept
+ * accounts and it is now meaningless â€” Clerk is gone. The ADDRESSES are kept
  * exactly as they are because `scripts/seed-demo.mjs` and
  * `scripts/supabase-setup.mjs` create the accounts with these strings, and
  * renaming one side without the other would break the quick-login buttons on the
@@ -53,7 +53,7 @@ import { cn } from "@/lib/utils";
  *
  * It used to carry `operator+clerk_test@securevoice.ae` with its password
  * written literally in this file. That value is shipped to every browser that
- * loads the sign-in page, so it was not a shortcut for judges — it was a
+ * loads the sign-in page, so it was not a shortcut for judges â€” it was a
  * published credential for an account holding 500 credits and the ability to
  * place real intervention calls. Reading it took one devtools glance. The demo
  * account is a published credential too, which is the point of it, but it is
@@ -68,7 +68,7 @@ const SEEDED = [
     label: "Demo mode",
     email: process.env.NEXT_PUBLIC_DEMO_LOGIN_EMAIL ?? "",
     password: process.env.NEXT_PUBLIC_DEMO_LOGIN_PASSWORD ?? "",
-    note: "Guided live scenario — the full 60-second story. 25 credits.",
+    note: "Guided live scenario â€” the full 60-second story. 25 credits.",
   },
 ] as const;
 
@@ -80,14 +80,14 @@ const SEEDED = [
  */
 const DEMO_READY = SEEDED[0].email !== "" && SEEDED[0].password !== "";
 
-/* ————— Cloudflare Turnstile (bot gate on sign-in) ————— */
+/* â€”â€”â€”â€”â€” Cloudflare Turnstile (bot gate on sign-in) â€”â€”â€”â€”â€” */
 
 /**
  * Turnstile is a GATE, not a replacement. Credential checking, lockout and
  * session creation all still run inside Better Auth; this only decides whether a
  * browser is plausibly human before that work is spent.
  *
- * The site key is public by construction — it ships in this bundle and is meant
+ * The site key is public by construction â€” it ships in this bundle and is meant
  * to. The secret never does: it lives only in `TURNSTILE_SECRET` on the server,
  * where src/lib/compliance/turnstile.ts redeems the token against Cloudflare.
  *
@@ -113,14 +113,14 @@ declare global {
   }
 }
 
-/* ————— UAE-inspired SVG set (unchanged design language) ————— */
+/* â€”â€”â€”â€”â€” UAE-inspired SVG set (unchanged design language) â€”â€”â€”â€”â€” */
 
 function GeoField() {
   return (
     <svg className="absolute inset-0 h-full w-full" aria-hidden="true">
       <defs>
         <pattern id="sv-geo" width="72" height="72" patternUnits="userSpaceOnUse">
-          <g fill="none" stroke="#ffffff" strokeOpacity="0.055">
+          <g fill="none" stroke="#101812" strokeOpacity="0.055">
             <rect x="24" y="24" width="24" height="24" />
             <rect x="24" y="24" width="24" height="24" transform="rotate(45 36 36)" />
             <circle cx="36" cy="36" r="2.5" />
@@ -161,8 +161,8 @@ function Horizon() {
             <stop offset="1" stopColor="#c9a227" stopOpacity="0.16" />
           </linearGradient>
           <linearGradient id="dune-c" x1="0" y1="0" x2="1" y2="0">
-            <stop offset="0" stopColor="#10160f" />
-            <stop offset="1" stopColor="#0a0f0c" />
+            <stop offset="0" stopColor="#e9f5ef" />
+            <stop offset="1" stopColor="#f1f3ec" />
           </linearGradient>
         </defs>
         <path
@@ -236,19 +236,15 @@ function CopyBtn({ value }: { value: string }) {
   return (
     <button
       type="button"
-      aria-label={t(`Copy ${value}`, `نسخ ${value}`, lang)}
+      aria-label={t(`Copy ${value}`, `Ù†Ø³Ø® ${value}`, lang)}
       onClick={() => {
         navigator.clipboard?.writeText(value).catch(() => {});
         setDone(true);
         setTimeout(() => setDone(false), 1200);
       }}
-      className="rounded-md p-1 text-white/40 transition hover:bg-white/10 hover:text-white"
+      className="rounded-md p-1 text-ink-3 transition hover:bg-secondary hover:text-foreground"
     >
-      {done ? (
-        <Check className="h-3.5 w-3.5 text-green-bright" />
-      ) : (
-        <Copy className="h-3.5 w-3.5" />
-      )}
+      {done ? <Check className="h-3.5 w-3.5 text-primary" /> : <Copy className="h-3.5 w-3.5" />}
     </button>
   );
 }
@@ -279,12 +275,12 @@ function DemoRequestForm() {
       });
       const d = (await res.json()) as { ok?: boolean; error?: string };
       if (!res.ok || !d.ok)
-        throw new Error(d.error || t("Request failed", "تعذّر إرسال الطلب", lang));
+        throw new Error(d.error || t("Request failed", "ØªØ¹Ø°Ù‘Ø± Ø¥Ø±Ø³Ø§Ù„ Ø§Ù„Ø·Ù„Ø¨", lang));
       setState({
         ok: true,
         text: t(
-          "Received — our fraud team will reach out within one business day.",
-          "تم الاستلام — سيتواصل فريق مكافحة الاحتيال لدينا خلال يوم عمل واحد.",
+          "Received â€” our fraud team will reach out within one business day.",
+          "ØªÙ… Ø§Ù„Ø§Ø³ØªÙ„Ø§Ù… â€” Ø³ÙŠØªÙˆØ§ØµÙ„ ÙØ±ÙŠÙ‚ Ù…ÙƒØ§ÙØ­Ø© Ø§Ù„Ø§Ø­ØªÙŠØ§Ù„ Ù„Ø¯ÙŠÙ†Ø§ Ø®Ù„Ø§Ù„ ÙŠÙˆÙ… Ø¹Ù…Ù„ ÙˆØ§Ø­Ø¯.",
           lang,
         ),
       });
@@ -293,7 +289,7 @@ function DemoRequestForm() {
       setInstitution("");
     } catch (err) {
       // No `err.message` here. A failed POST throws "Failed to fetch" / "Load
-      // failed" — a browser transport string on a public form, in front of a
+      // failed" â€” a browser transport string on a public form, in front of a
       // prospect, next to nothing actionable. The raw error goes to the console
       // and Sentry; the person gets a sentence that says what actually happened:
       // the request did not land, so resending is safe.
@@ -302,8 +298,8 @@ function DemoRequestForm() {
         ok: false,
         text:
           t(
-            "Your request did not reach us — nothing was submitted, so please try again. If it keeps failing, email ",
-            "لم يصلنا طلبك — لم يُرسل شيء، لذا يرجى المحاولة مرة أخرى. وإذا استمرت المشكلة راسلنا على ",
+            "Your request did not reach us â€” nothing was submitted, so please try again. If it keeps failing, email ",
+            "Ù„Ù… ÙŠØµÙ„Ù†Ø§ Ø·Ù„Ø¨Ùƒ â€” Ù„Ù… ÙŠÙØ±Ø³Ù„ Ø´ÙŠØ¡ØŒ Ù„Ø°Ø§ ÙŠØ±Ø¬Ù‰ Ø§Ù„Ù…Ø­Ø§ÙˆÙ„Ø© Ù…Ø±Ø© Ø£Ø®Ø±Ù‰. ÙˆØ¥Ø°Ø§ Ø§Ø³ØªÙ…Ø±Øª Ø§Ù„Ù…Ø´ÙƒÙ„Ø© Ø±Ø§Ø³Ù„Ù†Ø§ Ø¹Ù„Ù‰ ",
             lang,
           ) +
           SUPPORT_EMAIL +
@@ -315,7 +311,7 @@ function DemoRequestForm() {
   };
 
   const field =
-    "h-10 w-full rounded-xl border border-white/15 bg-white/[0.06] text-white placeholder:text-white/30 focus:border-[#c9a227]/60";
+    "h-10 w-full rounded-xl border border-line bg-card text-foreground placeholder:text-ink-3 focus:border-[#c9a227]/60";
   return (
     <form onSubmit={submit} className="mt-5 space-y-3.5">
       <input
@@ -329,7 +325,7 @@ function DemoRequestForm() {
         autoComplete="name"
         value={name}
         onChange={(e) => setName(e.target.value)}
-        placeholder={t("Full name", "الاسم الكامل", lang)}
+        placeholder={t("Full name", "Ø§Ù„Ø§Ø³Ù… Ø§Ù„ÙƒØ§Ù…Ù„", lang)}
         className={field}
       />
       <Input
@@ -338,7 +334,7 @@ function DemoRequestForm() {
         autoComplete="email"
         value={email}
         onChange={(e) => setEmail(e.target.value)}
-        placeholder={t("Work email", "البريد المهني", lang)}
+        placeholder={t("Work email", "Ø§Ù„Ø¨Ø±ÙŠØ¯ Ø§Ù„Ù…Ù‡Ù†ÙŠ", lang)}
         className={field}
       />
       <Input
@@ -346,7 +342,7 @@ function DemoRequestForm() {
         autoComplete="organization"
         value={institution}
         onChange={(e) => setInstitution(e.target.value)}
-        placeholder={t("Bank or insurer", "بنك أو شركة تأمين", lang)}
+        placeholder={t("Bank or insurer", "Ø¨Ù†Ùƒ Ø£Ùˆ Ø´Ø±ÙƒØ© ØªØ£Ù…ÙŠÙ†", lang)}
         className={field}
       />
       {state && (
@@ -354,7 +350,7 @@ function DemoRequestForm() {
           role="status"
           className={cn(
             "rounded-xl px-3.5 py-2.5 text-[12px] font-medium",
-            state.ok ? "bg-green-bright/15 text-green-bright" : "bg-red-500/10 text-red-300",
+            state.ok ? "bg-green-bright/15 text-primary" : "bg-red-500/10 text-red-300",
           )}
         >
           {state.text}
@@ -363,11 +359,11 @@ function DemoRequestForm() {
       <button
         type="submit"
         disabled={busy}
-        className="flex w-full items-center justify-center gap-2 rounded-full border border-[#c9a227]/50 bg-[#c9a227]/10 py-3 text-[13px] font-semibold text-[#e8c95a] transition hover:bg-[#c9a227]/20 disabled:opacity-50"
+        className="flex w-full items-center justify-center gap-2 rounded-full border border-[#c9a227]/50 bg-amber-tint py-3 text-[13px] font-semibold text-amber-soft transition hover:bg-amber-tint disabled:opacity-50"
       >
         {busy
-          ? t("Sending…", "جارٍ الإرسال…", lang)
-          : t("Request a pilot", "اطلب تجربة ميدانية", lang)}
+          ? t("Sendingâ€¦", "Ø¬Ø§Ø±Ù Ø§Ù„Ø¥Ø±Ø³Ø§Ù„â€¦", lang)
+          : t("Request a pilot", "Ø§Ø·Ù„Ø¨ ØªØ¬Ø±Ø¨Ø© Ù…ÙŠØ¯Ø§Ù†ÙŠØ©", lang)}
         <ArrowRight className="h-4 w-4" />
       </button>
     </form>
@@ -383,7 +379,7 @@ export function Auth() {
   const [quickErr, setQuickErr] = useState<string | null>(null);
   const [quickBusy, setQuickBusy] = useState<string | null>(null);
   // Manual sign-in form state. Better Auth ships no prebuilt sign-in UI, so the
-  // panel below IS the form — which is the point of T-7: the sign-in page is the
+  // panel below IS the form â€” which is the point of T-7: the sign-in page is the
   // first thing a judge sees, and it should look like this product rather than
   // like a hosted provider's default.
   const [email, setEmail] = useState("");
@@ -392,7 +388,7 @@ export function Auth() {
 
   /* Turnstile: load the script once, then render the widget into our own node.
      Explicit rendering (render=explicit) rather than the auto-scanned class,
-     because this is a React view that mounts and unmounts — auto-render would
+     because this is a React view that mounts and unmounts â€” auto-render would
      re-scan the DOM on every navigation and produce duplicate widgets. */
   const turnstileRef = useRef<string | null>(null);
   const hostRef = useRef<HTMLDivElement | null>(null);
@@ -449,7 +445,7 @@ export function Auth() {
     setQuickErr(null);
     // Read the widget's current token. Turnstile tokens are single-use, so this
     // value is spent the moment the sign-in is attempted and the widget is reset
-    // below — a retry must never reuse it, and a failed attempt must not leave a
+    // below â€” a retry must never reuse it, and a failed attempt must not leave a
     // live token sitting in the DOM.
     const token = turnstileRef.current
       ? window.turnstile?.getResponse(turnstileRef.current)
@@ -472,7 +468,7 @@ export function Auth() {
     } catch (err) {
       // Friendly text on the screen, the vendor's words in the console and Sentry.
       // `describeAuthError` has no raw-message fallback, so this is the only path
-      // the vendor string takes — which is the point: the panel used to render it.
+      // the vendor string takes â€” which is the point: the panel used to render it.
       reportAuthError(err);
       setQuickErr(describeAuthError(err, lang));
     } finally {
@@ -485,7 +481,7 @@ export function Auth() {
   };
 
   return (
-    <div className="sv-scroll sv-scroll--dark relative flex h-[100dvh] flex-col items-center justify-center overflow-y-auto bg-[#0c110e] px-4 py-8">
+    <div className="sv-scroll sv-scroll relative flex h-[100dvh] flex-col items-center justify-center overflow-y-auto bg-background px-4 py-8">
       <GeoField />
       <Horizon />
 
@@ -493,14 +489,14 @@ export function Auth() {
         {/* emblem centerpiece */}
         <div className="mb-8 flex flex-col items-center gap-3">
           <Emblem />
-          <h1 className="font-display text-center text-2xl font-semibold tracking-tight text-white sm:text-3xl">
-            {t("Welcome to SecureVoice", "مرحباً بكم في سيكور فويس", lang)}
-            <span className="text-green-bright"> AI</span>
+          <h1 className="font-display text-center text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
+            {t("Welcome to SecureVoice", "Ù…Ø±Ø­Ø¨Ø§Ù‹ Ø¨ÙƒÙ… ÙÙŠ Ø³ÙŠÙƒÙˆØ± ÙÙˆÙŠØ³", lang)}
+            <span className="text-primary"> AI</span>
           </h1>
-          <p className="max-w-md text-center text-[13px] leading-relaxed text-white/50">
+          <p className="max-w-md text-center text-[13px] leading-relaxed text-ink-2">
             {t(
-              "Real-time fraud intervention — operators sign in to run the platform; visitors explore the demo.",
-              "منصة التدخل الاحتيالي الفوري — دخول المشغلين لتشغيل المنصة؛ واستكشاف العرض الحي للزوّار.",
+              "Real-time fraud intervention â€” operators sign in to run the platform; visitors explore the demo.",
+              "Ù…Ù†ØµØ© Ø§Ù„ØªØ¯Ø®Ù„ Ø§Ù„Ø§Ø­ØªÙŠØ§Ù„ÙŠ Ø§Ù„ÙÙˆØ±ÙŠ â€” Ø¯Ø®ÙˆÙ„ Ø§Ù„Ù…Ø´ØºÙ„ÙŠÙ† Ù„ØªØ´ØºÙŠÙ„ Ø§Ù„Ù…Ù†ØµØ©Ø› ÙˆØ§Ø³ØªÙƒØ´Ø§Ù Ø§Ù„Ø¹Ø±Ø¶ Ø§Ù„Ø­ÙŠ Ù„Ù„Ø²ÙˆÙ‘Ø§Ø±.",
               lang,
             )}
           </p>
@@ -508,27 +504,27 @@ export function Auth() {
 
         {!isLoaded ? (
           <div className="flex justify-center py-16">
-            <Loader2 className="h-6 w-6 animate-spin text-white/40" />
+            <Loader2 className="h-6 w-6 animate-spin text-ink-3" />
           </div>
         ) : isSignedIn ? (
-          /* ————— signed-in state ————— */
-          <div className="mx-auto max-w-md rounded-3xl border border-white/10 bg-white/[0.05] p-6 backdrop-blur-xl">
+          /* â€”â€”â€”â€”â€” signed-in state â€”â€”â€”â€”â€” */
+          <div className="mx-auto max-w-md rounded-3xl border border-line bg-card p-6 backdrop-blur-xl">
             <UaeAccent />
             <div className="mt-6 flex flex-col items-center gap-4 text-center">
-              <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#c9a227]/15 font-display text-lg font-semibold text-[#e8c95a]">
+              <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-tint font-display text-lg font-semibold text-amber-soft">
                 {(user?.name?.charAt(0) ?? "U").toUpperCase()}
               </span>
               <div>
-                <p className="font-display text-lg font-semibold text-white">
-                  {user?.name ?? t("Signed in", "تم تسجيل الدخول", lang)}
+                <p className="font-display text-lg font-semibold text-foreground">
+                  {user?.name ?? t("Signed in", "ØªÙ… ØªØ³Ø¬ÙŠÙ„ Ø§Ù„Ø¯Ø®ÙˆÙ„", lang)}
                 </p>
-                <p className="mt-0.5 text-[12.5px] text-white/50">{user?.email}</p>
+                <p className="mt-0.5 text-[12.5px] text-ink-2">{user?.email}</p>
                 <span
                   className={cn(
                     "micro mt-2 inline-flex items-center gap-1.5 rounded-full px-2.5 py-1",
                     role === "operator"
-                      ? "bg-[#c9a227]/15 text-[#e8c95a]"
-                      : "bg-green-bright/15 text-green-bright",
+                      ? "bg-amber-tint text-amber-soft"
+                      : "bg-green-bright/15 text-primary",
                   )}
                 >
                   {role === "operator" ? (
@@ -537,26 +533,26 @@ export function Auth() {
                     <KeyRound className="h-3 w-3" />
                   )}
                   {role === "operator"
-                    ? t("OPERATOR · FULL ACCESS", "مشغّل · صلاحية كاملة", lang)
-                    : t("DEMO MODE", "وضع العرض", lang)}
+                    ? t("OPERATOR Â· FULL ACCESS", "Ù…Ø´ØºÙ‘Ù„ Â· ØµÙ„Ø§Ø­ÙŠØ© ÙƒØ§Ù…Ù„Ø©", lang)
+                    : t("DEMO MODE", "ÙˆØ¶Ø¹ Ø§Ù„Ø¹Ø±Ø¶", lang)}
                 </span>
               </div>
               <div className="mt-2 flex w-full flex-col gap-2">
                 <button
                   onClick={() => setView(role === "operator" ? "console" : "demo")}
-                  className="flex w-full items-center justify-center gap-2 rounded-full bg-primary py-3 text-[13.5px] font-semibold text-white transition hover:bg-green-deep"
+                  className="flex w-full items-center justify-center gap-2 rounded-full bg-primary py-3 text-[13.5px] font-semibold text-foreground transition hover:bg-green-deep"
                 >
                   {role === "operator"
-                    ? t("Open Command Center", "افتح مركز القيادة", lang)
-                    : t("Open the demo", "افتح العرض التجريبي", lang)}
+                    ? t("Open Command Center", "Ø§ÙØªØ­ Ù…Ø±ÙƒØ² Ø§Ù„Ù‚ÙŠØ§Ø¯Ø©", lang)
+                    : t("Open the demo", "Ø§ÙØªØ­ Ø§Ù„Ø¹Ø±Ø¶ Ø§Ù„ØªØ¬Ø±ÙŠØ¨ÙŠ", lang)}
                   <ArrowRight className="h-4 w-4" />
                 </button>
                 <button
                   onClick={() => setView("home")}
-                  className="flex w-full items-center justify-center gap-2 rounded-full border border-white/15 py-2.5 text-[12.5px] font-medium text-white/70 transition hover:bg-white/5 hover:text-white"
+                  className="flex w-full items-center justify-center gap-2 rounded-full border border-line py-2.5 text-[12.5px] font-medium text-ink-2 transition hover:bg-secondary hover:text-foreground"
                 >
                   <LogOut className="h-3.5 w-3.5" />
-                  {t("Back to overview", "العودة إلى النظرة العامة", lang)}
+                  {t("Back to overview", "Ø§Ù„Ø¹ÙˆØ¯Ø© Ø¥Ù„Ù‰ Ø§Ù„Ù†Ø¸Ø±Ø© Ø§Ù„Ø¹Ø§Ù…Ø©", lang)}
                 </button>
               </div>
             </div>
@@ -570,12 +566,12 @@ export function Auth() {
               >
                 {t(
                   "For your security, you were signed out after 15 minutes of inactivity. Sign in again to continue.",
-                  "لأمانكم، تم تسجيل خروجكم بعد ١٥ دقيقة من عدم النشاط. سجّلوا الدخول مرة أخرى للمتابعة.",
+                  "Ù„Ø£Ù…Ø§Ù†ÙƒÙ…ØŒ ØªÙ… ØªØ³Ø¬ÙŠÙ„ Ø®Ø±ÙˆØ¬ÙƒÙ… Ø¨Ø¹Ø¯ Ù¡Ù¥ Ø¯Ù‚ÙŠÙ‚Ø© Ù…Ù† Ø¹Ø¯Ù… Ø§Ù„Ù†Ø´Ø§Ø·. Ø³Ø¬Ù‘Ù„ÙˆØ§ Ø§Ù„Ø¯Ø®ÙˆÙ„ Ù…Ø±Ø© Ø£Ø®Ø±Ù‰ Ù„Ù„Ù…ØªØ§Ø¨Ø¹Ø©.",
                   lang,
                 )}
               </div>
             )}
-            {/* one-click access for evaluators — demo account only */}
+            {/* one-click access for evaluators â€” demo account only */}
             {DEMO_READY && (
               <div className="mx-auto mb-6 flex max-w-4xl flex-wrap items-center justify-center gap-2">
                 {SEEDED.map((s) => (
@@ -584,7 +580,7 @@ export function Auth() {
                     onClick={() => quickLogin(s.email, s.password, s.role)}
                     disabled={quickBusy !== null}
                     className={cn(
-                      "flex items-center gap-2 rounded-full border border-green-bright/30 bg-green-bright/10 px-4 py-2 text-[12px] font-semibold text-green-bright transition hover:bg-green-bright/20 disabled:opacity-50",
+                      "flex items-center gap-2 rounded-full border border-green-bright/30 bg-green-bright/10 px-4 py-2 text-[12px] font-semibold text-primary transition hover:bg-green-bright/20 disabled:opacity-50",
                     )}
                   >
                     {quickBusy === s.role ? (
@@ -593,17 +589,21 @@ export function Auth() {
                       <KeyRound className="h-3.5 w-3.5" />
                     )}
                     {quickBusy === s.role
-                      ? t("Signing in…", "جارٍ تسجيل الدخول…", lang)
-                      : t("One-click demo login", "دخول تجريبي بضغطة واحدة", lang)}
+                      ? t("Signing inâ€¦", "Ø¬Ø§Ø±Ù ØªØ³Ø¬ÙŠÙ„ Ø§Ù„Ø¯Ø®ÙˆÙ„â€¦", lang)
+                      : t(
+                          "One-click demo login",
+                          "Ø¯Ø®ÙˆÙ„ ØªØ¬Ø±ÙŠØ¨ÙŠ Ø¨Ø¶ØºØ·Ø© ÙˆØ§Ø­Ø¯Ø©",
+                          lang,
+                        )}
                   </button>
                 ))}
               </div>
             )}
             {!DEMO_READY && (
-              <p className="mx-auto mb-6 max-w-4xl rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2.5 text-center text-[12.5px] text-ink-3">
+              <p className="mx-auto mb-6 max-w-4xl rounded-xl border border-line bg-secondary px-4 py-2.5 text-center text-[12.5px] text-ink-3">
                 {t(
                   "Demo shortcut is not enabled on this deployment. Sign in with an account below.",
-                  "الدخول التجريبي السريع غير مُفعّل على هذا النشر. سجّل الدخول بأحد الحسابات أدناه.",
+                  "Ø§Ù„Ø¯Ø®ÙˆÙ„ Ø§Ù„ØªØ¬Ø±ÙŠØ¨ÙŠ Ø§Ù„Ø³Ø±ÙŠØ¹ ØºÙŠØ± Ù…ÙÙØ¹Ù‘Ù„ Ø¹Ù„Ù‰ Ù‡Ø°Ø§ Ø§Ù„Ù†Ø´Ø±. Ø³Ø¬Ù‘Ù„ Ø§Ù„Ø¯Ø®ÙˆÙ„ Ø¨Ø£Ø­Ø¯ Ø§Ù„Ø­Ø³Ø§Ø¨Ø§Øª Ø£Ø¯Ù†Ø§Ù‡.",
                   lang,
                 )}
               </p>
@@ -617,11 +617,11 @@ export function Auth() {
               </p>
             )}
 
-            {/* double-sided Clerk panels — height-capped on desktop so the
+            {/* double-sided Clerk panels â€” height-capped on desktop so the
                 page itself never scrolls; the ONLY scroll spot is inside a
                 panel (sv-scroll), keeping "one spot" scroll behavior */}
             <div className="mx-auto grid max-w-4xl items-stretch gap-4 md:grid-cols-2">
-              <div className="flex min-h-[280px] flex-col overflow-hidden rounded-3xl border border-white/10 bg-white/[0.05] shadow-[0_40px_120px_-40px_rgba(0,0,0,0.8)] backdrop-blur-xl transition-transform duration-300 hover:-translate-y-0.5 md:max-h-[52vh]">
+              <div className="flex min-h-[280px] flex-col overflow-hidden rounded-3xl border border-line bg-card shadow-[0_40px_120px_-40px_rgba(0,0,0,0.8)] backdrop-blur-xl transition-transform duration-300 hover:-translate-y-0.5 md:max-h-[52vh]">
                 <UaeAccent />
                 <div className="sv-scroll min-h-0 flex-1 overflow-y-auto p-6 sm:p-7">
                   {/* The sign-in form itself.
@@ -640,31 +640,31 @@ export function Auth() {
                     }}
                   >
                     <div className="flex items-center gap-2">
-                      <ShieldCheck className="h-4 w-4 text-green-bright" />
-                      <h2 className="font-display text-lg font-semibold text-white">
-                        {t("Sign in", "تسجيل الدخول", lang)}
+                      <ShieldCheck className="h-4 w-4 text-primary" />
+                      <h2 className="font-display text-lg font-semibold text-foreground">
+                        {t("Sign in", "ØªØ³Ø¬ÙŠÙ„ Ø§Ù„Ø¯Ø®ÙˆÙ„", lang)}
                       </h2>
                     </div>
-                    <label className="flex flex-col gap-1.5 text-[12px] text-white/60">
-                      {t("Email", "البريد الإلكتروني", lang)}
+                    <label className="flex flex-col gap-1.5 text-[12px] text-ink-2">
+                      {t("Email", "Ø§Ù„Ø¨Ø±ÙŠØ¯ Ø§Ù„Ø¥Ù„ÙƒØªØ±ÙˆÙ†ÙŠ", lang)}
                       <input
                         type="email"
                         required
                         autoComplete="username"
                         value={email}
                         onChange={(e) => setEmail(e.target.value)}
-                        className="rounded-lg border border-white/10 bg-white/[0.05] px-3 py-2 text-[13px] text-white outline-none transition focus:border-green-bright/60"
+                        className="rounded-lg border border-line bg-card px-3 py-2 text-[13px] text-foreground outline-none transition focus:border-green-bright/60"
                       />
                     </label>
-                    <label className="flex flex-col gap-1.5 text-[12px] text-white/60">
-                      {t("Password", "كلمة المرور", lang)}
+                    <label className="flex flex-col gap-1.5 text-[12px] text-ink-2">
+                      {t("Password", "ÙƒÙ„Ù…Ø© Ø§Ù„Ù…Ø±ÙˆØ±", lang)}
                       <input
                         type="password"
                         required
                         autoComplete="current-password"
                         value={password}
                         onChange={(e) => setPassword(e.target.value)}
-                        className="rounded-lg border border-white/10 bg-white/[0.05] px-3 py-2 text-[13px] text-white outline-none transition focus:border-green-bright/60"
+                        className="rounded-lg border border-line bg-card px-3 py-2 text-[13px] text-foreground outline-none transition focus:border-green-bright/60"
                       />
                     </label>
                     {/* Turnstile mounts here. The node is ours; the widget is
@@ -678,7 +678,7 @@ export function Auth() {
                     )}
                     {/* The acknowledge phase from SK-8: the control enters a
                         pending state and says "we heard you". It never claims
-                        success — that is the server's answer, and UX-5 forbids
+                        success â€” that is the server's answer, and UX-5 forbids
                         an optimistic "signed in" on anything account-affecting. */}
                     <button
                       type="submit"
@@ -686,24 +686,24 @@ export function Auth() {
                       className="mt-1 flex items-center justify-center gap-2 rounded-xl bg-green-bright px-4 py-2.5 text-[13px] font-semibold text-ink transition hover:brightness-110 disabled:opacity-60"
                     >
                       {quickBusy === "manual" && <Loader2 className="h-4 w-4 animate-spin" />}
-                      {t("Sign in", "دخول", lang)}
+                      {t("Sign in", "Ø¯Ø®ÙˆÙ„", lang)}
                     </button>
                   </form>
                 </div>
               </div>
-              <div className="flex min-h-[280px] flex-col overflow-hidden rounded-3xl border border-white/10 bg-white/[0.05] shadow-[0_40px_120px_-40px_rgba(0,0,0,0.8)] backdrop-blur-xl transition-transform duration-300 hover:-translate-y-0.5 md:max-h-[52vh]">
+              <div className="flex min-h-[280px] flex-col overflow-hidden rounded-3xl border border-line bg-card shadow-[0_40px_120px_-40px_rgba(0,0,0,0.8)] backdrop-blur-xl transition-transform duration-300 hover:-translate-y-0.5 md:max-h-[52vh]">
                 <UaeAccent />
                 <div className="sv-scroll min-h-0 flex-1 overflow-y-auto p-6 sm:p-7">
                   <div className="flex items-center gap-2">
-                    <Building2 className="h-4 w-4 text-green-bright" />
-                    <h2 className="font-display text-lg font-semibold text-white">
-                      {t("Request a pilot", "اطلب تجربة ميدانية", lang)}
+                    <Building2 className="h-4 w-4 text-primary" />
+                    <h2 className="font-display text-lg font-semibold text-foreground">
+                      {t("Request a pilot", "Ø§Ø·Ù„Ø¨ ØªØ¬Ø±Ø¨Ø© Ù…ÙŠØ¯Ø§Ù†ÙŠØ©", lang)}
                     </h2>
                   </div>
-                  <p className="mt-1.5 text-[12.5px] leading-relaxed text-white/45">
+                  <p className="mt-1.5 text-[12.5px] leading-relaxed text-ink-3">
                     {t(
-                      "SecureVoice is B2B — bank workspaces are provisioned manually with secure invites. Same intake as the Book-a-pilot form: our fraud team responds within one business day.",
-                      "المنصة B2B — تُنشأ حسابات البنوك يدوياً مع روابط دعوة آمنة. نفس مسار نموذج التجربة في الصفحة الرئيسية.",
+                      "SecureVoice is B2B â€” bank workspaces are provisioned manually with secure invites. Same intake as the Book-a-pilot form: our fraud team responds within one business day.",
+                      "Ø§Ù„Ù…Ù†ØµØ© B2B â€” ØªÙÙ†Ø´Ø£ Ø­Ø³Ø§Ø¨Ø§Øª Ø§Ù„Ø¨Ù†ÙˆÙƒ ÙŠØ¯ÙˆÙŠØ§Ù‹ Ù…Ø¹ Ø±ÙˆØ§Ø¨Ø· Ø¯Ø¹ÙˆØ© Ø¢Ù…Ù†Ø©. Ù†ÙØ³ Ù…Ø³Ø§Ø± Ù†Ù…ÙˆØ°Ø¬ Ø§Ù„ØªØ¬Ø±Ø¨Ø© ÙÙŠ Ø§Ù„ØµÙØ­Ø© Ø§Ù„Ø±Ø¦ÙŠØ³ÙŠØ©.",
                       lang,
                     )}
                   </p>

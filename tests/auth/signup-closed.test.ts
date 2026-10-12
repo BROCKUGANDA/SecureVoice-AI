@@ -40,9 +40,17 @@ import {
 import { POST as acceptPOST } from "@/app/api/auth/invites/accept/route";
 import { POST as verifyPOST } from "@/app/api/auth/magic-link/verify/route";
 import { POST as passwordPOST } from "@/app/api/auth/password/route";
-import { cleanupRun, makeAccount, testEmail, uniq } from "./helpers";
+import { cleanupRun, makeAccount, testEmail, uniq, RUN } from "./helpers";
 
 afterAll(async () => {
+  // `cleanupRun()` removes the first-party `account` rows this run created. The
+  // tests below exercise Better Auth's own creation path, whose shape is a `user`
+  // row plus a `credential` account — and a self-served `user` row surviving the
+  // run would leave exactly the artefact this file exists to prove cannot be
+  // created. Scoped to this run's id, so a parallel run's rows are untouched.
+  await db.user
+    .deleteMany({ where: { email: { contains: `-${RUN}-` } } })
+    .catch(() => undefined);
   await cleanupRun();
 });
 
@@ -292,4 +300,106 @@ test("acceptInvite itself refuses an empty token before any database work", asyn
   expect(result.ok).toBe(false);
   if (result.ok) throw new Error("unreachable");
   expect(result.reason).toBe("unknown_invite");
+});
+
+// ── 5. Better Auth's OWN signup path, reached through the catch-all ──────────
+//
+// Everything above proves no FIRST-PARTY route creates an account. It could not
+// prove the thing that actually mattered: `src/app/api/auth/[...all]` forwards
+// every unmatched POST to Better Auth, and Better Auth serves
+// `POST /api/auth/sign-up/email` itself. The filesystem scan saw no signup route
+// because there isn't one in `src/app`; the door was in the library behind a
+// wildcard, and `turnstileRequired()` names only `/api/auth/sign-in/email`.
+//
+// So this is the test that closes the gap, and it is written so it cannot pass
+// for the wrong reason. A request to a Better Auth endpoint can be turned away by
+// the trusted-origin check before the signup handler ever runs — which would make
+// a "refused" assertion green while `disableSignUp` did nothing at all. The
+// control request below is the proof that the SAME origin reaches the handlers.
+
+test("Better Auth's sign-up endpoint is refused through the catch-all, by name", async () => {
+  const { POST: catchAllPOST } = await import("@/app/api/auth/[...all]/route");
+  const { trustedOriginsFromEnv } = await import("@/lib/auth/origins");
+  const origin = trustedOriginsFromEnv().origins[0];
+  expect(
+    origin,
+    "no trusted origin resolves in this environment; without one the assertions below could be origin refusals",
+  ).toBeTruthy();
+
+  const post = async (path: string, body: unknown) => {
+    const response = await catchAllPOST(
+      new Request(`http://t${path}`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          origin,
+          host: new URL(origin as string).host,
+        },
+        body: JSON.stringify(body),
+      }) as unknown as Parameters<typeof catchAllPOST>[0],
+    );
+    return { status: response.status, text: await response.text() };
+  };
+
+  const email = testEmail("selfserve");
+  const signUp = await post("/api/auth/sign-up/email", {
+    email,
+    name: "Self Served",
+    password: "correct-horse-battery-staple-9",
+  });
+
+  expect(signUp.status).toBe(400);
+  // The specific code, not merely a 4xx. `EMAIL_PASSWORD_SIGN_UP_DISABLED` is what
+  // `emailAndPassword.disableSignUp` in src/lib/better-auth.ts produces, so this
+  // assertion fails the moment that flag is removed.
+  expect(signUp.text).toContain("EMAIL_PASSWORD_SIGN_UP_DISABLED");
+  expect(await db.account.count({ where: { email } })).toBe(0);
+  expect(await db.user.count({ where: { email } })).toBe(0);
+
+  // CONTROL — the identical origin on the endpoint that is allowed to serve. A
+  // wrong credential is a refused SIGN-IN, which is a different answer from the
+  // signup refusal above; if the two bodies matched, the origin was the thing
+  // rejecting both and this file would be proving nothing.
+  const signIn = await post("/api/auth/sign-in/email", {
+    email,
+    password: "wrong-password-entirely-1234",
+  });
+  expect(signIn.text).not.toContain("EMAIL_PASSWORD_SIGN_UP_DISABLED");
+  expect(signIn.status).not.toBe(400);
+});
+
+test("the catch-all does not forward signup under a different spelling", async () => {
+  // Better Auth mounts the credential signup at exactly one path, and the
+  // catch-all matches on the remainder of the URL. A renamed action must not
+  // become an unguarded way in: `/sign-up` without `/email`, and the camelCase
+  // client spelling, are both asserted here for the same reason as the test above
+  // — the control has to hold for every shape a caller can try.
+  const { POST: catchAllPOST } = await import("@/app/api/auth/[...all]/route");
+  const { trustedOriginsFromEnv } = await import("@/lib/auth/origins");
+  const origin = trustedOriginsFromEnv().origins[0] as string;
+  for (const path of [
+    "/api/auth/sign-up",
+    "/api/auth/signUp/email",
+    "/api/auth/sign-up/email?token=x",
+  ]) {
+    const response = await catchAllPOST(
+      new Request(`http://t${path}`, {
+        method: "POST",
+        headers: { "content-type": "application/json", origin, host: new URL(origin).host },
+        body: JSON.stringify({ email: testEmail("spell"), password: "a-very-long-password-1", name: "x" }),
+      }) as unknown as Parameters<typeof catchAllPOST>[0],
+    );
+    const text = await response.text();
+    // Either the disabled-signup refusal by name, or an unknown-action 4xx from
+    // Better Auth's router. What must NOT happen is a 2xx carrying a session —
+    // that would mean a spelling variant reached a working creation path.
+    expect(response.status, `${path} returned ${response.status}: ${text.slice(0, 160)}`).toBeGreaterThanOrEqual(
+      400,
+    );
+    expect(response.status).toBeLessThan(500);
+  }
+  // Run-scoped on purpose: `contains: "spell"` matched a PREVIOUS run's leftover,
+  // which is how this assertion failed for a reason it had nothing to do with —
+  // and, worse, would have passed silently on a database another run had cleaned.
+  expect(await db.user.count({ where: { email: { contains: `spell-${RUN}` } } })).toBe(0);
 });

@@ -74,6 +74,26 @@ export const auth = betterAuth({
   database: prismaAdapter(db, { provider: "postgresql" }),
   emailAndPassword: {
     enabled: true,
+    /**
+     * SIGN-UP DISABLED, and this line is the control — not the absence of a
+     * route.
+     *
+     * `src/lib/auth/signup.ts` documents that "there is no public signup route"
+     * is a claim about missing code, and `tests/auth/signup-closed.test.ts`
+     * patrols the filesystem for one. Neither of them covers the door that was
+     * already open: `src/app/api/auth/[...all]/route.ts` forwards every unmatched
+     * POST to Better Auth, and Better Auth's own `POST /api/auth/sign-up/email`
+     * is served by that catch-all. `turnstileRequired()` guards only
+     * `/api/auth/sign-in/email`, so a signup reached this handler with no CAPTCHA
+     * and no bad-actor check, while `docs/SECURITY-QUESTIONNAIRE.md` answered
+     * "Is there public sign-up?" with "No."
+     *
+     * `enabled` has to stay `true`: the console signs operators IN with
+     * credentials, and password recovery runs through Better Auth's own accounts.
+     * This flag is the half that lets the answer be true — sign-in yes, account
+     * creation only by invitation.
+     */
+    disableSignUp: true,
     // Deliberately NOT enabling auto-sign-in. A credential compromise should
     // force an MFA challenge, not land the operator straight in the console.
     requireEmailVerification: false,

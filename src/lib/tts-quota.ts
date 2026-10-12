@@ -18,6 +18,7 @@ import { db } from "@/lib/db";
 import { decryptSecret } from "@/lib/byok";
 import { env, dailyCharLimit } from "@/lib/config";
 import { auth } from "@/lib/better-auth";
+import { notify } from "@/lib/notifications";
 import { headers } from "next/headers";
 
 /**
@@ -63,6 +64,33 @@ export function isAnonymousUnmetered(res: TtsKeyResolution): boolean {
   return res.mode === "anonymous";
 }
 
+/**
+ * A stored BYOK credential that no longer decrypts (an AUTH_SECRET rotation, or
+ * a tampered row) degrades to the next key layer by deliberate ruling — the
+ * ladder keeps the caller working. What it must never be is SILENT: the org
+ * believes its own key is paying when the platform key is, and nothing tells
+ * anyone to re-enter it. This writes one deduped admin alert per org per
+ * 12-hour window; a failure in the alert pipeline must never fail the
+ * resolution itself, so it is swallowed by design.
+ */
+async function alertUnreadableByok(
+  orgId: string | null,
+  scope: "organization" | "user",
+): Promise<void> {
+  try {
+    await notify({
+      orgId,
+      alertType: "billing_anomaly",
+      severity: "urgent",
+      title: "Saved voice key could not be unlocked",
+      body: `The ${scope}-level ElevenLabs key is stored but could not be decrypted — most likely an AUTH_SECRET rotation. Voice synthesis degraded to the next key layer; re-enter the key in Settings → API Keys.`,
+      windowMinutes: 720,
+    });
+  } catch {
+    // The degrade-and-continue ruling stands even if alerting is broken.
+  }
+}
+
 export async function resolveTtsKey(): Promise<TtsKeyResolution> {
   if (env.elevenLabsDryRun) return { mode: "unmetered" };
   const profile = await getProfile();
@@ -95,6 +123,9 @@ export async function resolveTtsKey(): Promise<TtsKeyResolution> {
     if (org?.elevenKeyEnc) {
       const key = decryptSecret(org.elevenKeyEnc);
       if (key) return { mode: "byok", keyOverride: key };
+      // Stored but unreadable: degrade (deliberate ruling — continuity), but
+      // page the admins; silence here is how the platform pays forever.
+      await alertUnreadableByok(orgId, "organization");
     }
   }
 
@@ -118,6 +149,8 @@ export async function resolveTtsKey(): Promise<TtsKeyResolution> {
   if (row.elevenKeyEnc) {
     const key = decryptSecret(row.elevenKeyEnc);
     if (key) return { mode: "byok", keyOverride: key };
+    // Same unreadable case at the user layer — degrade, but say so.
+    await alertUnreadableByok(orgId, "user");
   }
 
   if (!env.elevenLabsApiKey) return { mode: "unmetered" };

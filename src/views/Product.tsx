@@ -451,7 +451,7 @@ function Architecture() {
 
         {APIS.map((a, i) => (
           <Reveal key={a.title} delay={0.14 + i * 0.05}>
-            <div className="rounded-2xl border border-line bg-[#0c110e] p-4.5 p-5">
+            <div className="rounded-2xl border border-line bg-[#0c110e] p-5">
               <p className="num text-[11px] font-semibold text-green-bright">{a.title}</p>
               <pre className="num mt-2 overflow-x-auto text-[10.5px] leading-[1.7] text-white/70">
                 {a.lines.join("\n")}

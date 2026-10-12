@@ -36,8 +36,16 @@ import { encryptSecret } from "@/lib/byok";
 // configured AUTH_SECRET cannot silently encrypt under a guessable key. This is a
 // test harness, the envelope never leaves the process, and `??=` means a real
 // environment still wins — the same rule `tests/preload.ts` follows for the other
-// hard floors.
-process.env.AUTH_SECRET ??= "test-only-byok-envelope-secret-not-a-credential";
+// hard floors. `||=` rather than `??=`: a .env carrying AUTH_SECRET="" (a
+// placeholder) must not count as "the environment provided one" — byokKey
+// refuses an empty base exactly like a missing one.
+process.env.AUTH_SECRET ||= "test-only-byok-envelope-secret-not-a-credential";
+// These tests exercise real key resolution, which resolveTtsKey never reaches
+// under dry-run (it returns "unmetered" before touching any key). A .env that
+// forces ELEVENLABS_DRY_RUN=true for the sandbox stack must not silently turn
+// this whole suite green-on-the-wrong-path — the suite owns this floor the way
+// it owns AUTH_SECRET above.
+process.env.ELEVENLABS_DRY_RUN = "false";
 
 const session: { activeOrganizationId: string | null } = { activeOrganizationId: null };
 

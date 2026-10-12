@@ -41,7 +41,7 @@ const ALL_ROUTES = discoverRoutes("src/app");
  * green while asserting nothing, which the tests below pin against.
  */
 const DB_BACKED =
-  /^(\/api\/(console|auth|metrics|status|v1|tts|agent|asr|enroll|interventions|pilot|onboarding|billing|recordings)|\/v1\/|\/api$)/;
+  /^(\/api\/(console|auth|metrics|status|v1|tts|agent|asr|enroll|interventions|pilot|onboarding|billing|recordings|support)|\/v1\/|\/api$)/;
 
 describe("the route table is derived, not declared", () => {
   test("discovery finds routes, so a sweep over an empty table cannot pass", () => {
@@ -171,6 +171,13 @@ describe("authorization coverage", () => {
       "/api/recordings/[id]",
       "/api/status",
       "/api/status/spans",
+      // Support reports from the console. `requireSignedIn` refuses an absent
+      // session, the org id is stamped from that session (never the body), and
+      // the handler writes a real EmailOutbox row — driven end-to-end by
+      // tests/console/support-ticket.test.ts, which also proves the free-text
+      // message is redacted BEFORE the row exists, since the row is what a
+      // retry re-renders from.
+      "/api/support/ticket",
       "/api/tts",
       "/api/tts/stream",
       "/api/v1/interventions",

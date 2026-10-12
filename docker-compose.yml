@@ -185,6 +185,12 @@ services:
       # loopback value, because a URL the carrier cannot reach is a recorded
       # successful dial the customer hears silence on.
       SITE_ADDRESS: ${SITE_ADDRESS:-}
+      # The dial worker is where this flag is actually READ (src/worker/dial.ts
+      # chooses ConvAI vs the media-streams pipeline in-process). Only
+      # voice-stream-worker used to receive it, so flipping the flag moved the
+      # stream worker and left the dialer on the old path — a split-brain with
+      # no error anywhere. Both services now get the same value.
+      FEATURE_TWILIO_MEDIA_STREAMS: ${FEATURE_TWILIO_MEDIA_STREAMS:-false}
       DIAL_WORKER_POLL_MS: ${DIAL_WORKER_POLL_MS:-1000}
       DIAL_WORKER_BATCH: ${DIAL_WORKER_BATCH:-5}
     depends_on:

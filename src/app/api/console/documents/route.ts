@@ -4,7 +4,7 @@ import { requireOperator } from "@/lib/credits";
 import { withTenantScope } from "@/lib/tenancy/db-scope";
 import { consume as consumeRateLimit, rateLimitHeaders } from "@/lib/ratelimit";
 import { badRequest, unprocessable } from "@/lib/api-errors";
-import { MAX_PDF_BYTES, vectorizeDocument } from "@/lib/knowledge/documents";
+import { MAX_PDF_BYTES, orgKbQuotaBytes, vectorizeDocument } from "@/lib/knowledge/documents";
 import { deferWork, scheduleVectorize } from "@/lib/knowledge/schedule";
 import { append as auditAppend } from "@/lib/audit-chain";
 import { logWarn } from "@/lib/validation/safe-log";
@@ -136,6 +136,24 @@ export async function POST(req: NextRequest) {
     return unprocessable("lang must be a BCP-47 tag such as en or ar", "invalid_lang");
   }
   const lang = rawLang || "en";
+
+  // The per-org ceiling. Every retained byte is the deployment's storage, and
+  // the rate limit only bounds upload SPEED — nothing else bounds how much one
+  // tenant accumulates. Summed inside the tenant scope, so "whose bytes are
+  // these" is the database's answer, not this route's. Checked before the
+  // insert: a refusal must not leave a row the operator then has to delete.
+  const usage = await withTenantScope(orgId, (tx) =>
+    tx.document.aggregate({ where: { orgId }, _sum: { sizeBytes: true } }),
+  );
+  const usedBytes = usage._sum.sizeBytes ?? 0;
+  const quotaBytes = orgKbQuotaBytes();
+  if (usedBytes + bytes.byteLength > quotaBytes) {
+    const mb = (n: number) => (n / 1024 / 1024).toFixed(1);
+    return unprocessable(
+      `the knowledge base holds ${mb(usedBytes)} MB of a ${mb(quotaBytes)} MB quota; this file needs ${mb(bytes.byteLength)} MB. Delete a document to free space.`,
+      "storage_quota_exceeded",
+    );
+  }
 
   // Same scope on the write: the policy's WITH CHECK clause is what makes
   // "upload into somebody else's knowledge base" a database error rather than a

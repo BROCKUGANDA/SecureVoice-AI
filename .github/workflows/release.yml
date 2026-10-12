@@ -86,6 +86,31 @@ jobs:
           sbom: true
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          # Build args, because `bun run build` executes INSIDE this build and
+          # every one of these is consumed at build time — a runtime .env cannot
+          # substitute for any of them:
+          #
+          #  · BETTER_AUTH_SECRET — better-auth's import guard throws below 32
+          #    chars and the Dockerfile deliberately ships no default, so the
+          #    build dies without an arg. Disposable on purpose: this value
+          #    would sit in the layer history of an image on a public registry,
+          #    while the production secret arrives at RUNTIME through the
+          #    container environment, which is where better-auth reads it.
+          #
+          #  · NEXT_PUBLIC_SITE_URL / NEXT_PUBLIC_PADDLE_PRICES /
+          #    NEXT_PUBLIC_DEMO_LOGIN_* — NEXT_PUBLIC_* is inlined into the
+          #    served bundle at build time (see the Dockerfile's ARG notes), so
+          #    a value not passed here is not "unset at runtime", it is ABSENT
+          #    from the JS. A missing price map makes `paddlePriceIds()` throw
+          #    while prerendering /pricing, which kills this build; the ids and
+          #    the demo credentials are published-by-design values kept in
+          #    repository variables.
+          build-args: |
+            BETTER_AUTH_SECRET=ci-only-not-a-secret-ci-only-not-a-secret
+            NEXT_PUBLIC_SITE_URL=https://securevoiceai.me
+            NEXT_PUBLIC_PADDLE_PRICES=${{ vars.NEXT_PUBLIC_PADDLE_PRICES }}
+            NEXT_PUBLIC_DEMO_LOGIN_EMAIL=${{ vars.NEXT_PUBLIC_DEMO_LOGIN_EMAIL }}
+            NEXT_PUBLIC_DEMO_LOGIN_PASSWORD=${{ vars.NEXT_PUBLIC_DEMO_LOGIN_PASSWORD }}
 
       # ── the smoke test, and why it cannot be a plain `docker compose up` ──
       #

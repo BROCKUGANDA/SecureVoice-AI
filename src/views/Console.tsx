@@ -1402,7 +1402,7 @@ export function Console() {
        */}
       {role === "operator" && (
         <div className="mt-6">
-          <MailInbox />
+          <MailInbox interventionRef={activeCallRef} />
         </div>
       )}
 

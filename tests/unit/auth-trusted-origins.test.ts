@@ -142,8 +142,20 @@ describe("buildTrustedOrigins", () => {
       else process.env.NODE_ENV = NODE_ENV;
     });
 
-    /** A fresh module, so the memoised cache does not answer for us. */
-    const reload = () => import(`@/lib/auth/origins?t=${Date.now()}`);
+    /**
+     * A fresh module, so the memoised cache does not answer for us.
+     *
+     * A monotonic counter, NOT `Date.now()`: two of these calls can land inside the
+     * same millisecond, which gives the SAME specifier, which gives the SAME cached
+     * module — and the test then asserts against the previous case's captured
+     * `process.env`. That is exactly how this file passed on a laptop and failed in
+     * CI: the flake was clock resolution, and the failure message was the tell
+     * ("a production BOOT on a loopback origin still refuses" reporting the
+     * earlier case's `https://localhost:61015`). The code under test was never
+     * wrong; the probe was.
+     */
+    let reloads = 0;
+    const reload = () => import(`@/lib/auth/origins?t=${++reloads}`);
 
     test("a production BOOT on a loopback origin still refuses", async () => {
       process.env.NODE_ENV = "production";

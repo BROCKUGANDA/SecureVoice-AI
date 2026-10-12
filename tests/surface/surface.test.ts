@@ -600,8 +600,93 @@ describe("declared security headers", () => {
       "a new dangerouslySetInnerHTML appeared — review it before merging",
     ).toEqual([
       expect.stringContaining("src/components/seo/JsonLd.tsx"),
+      // Reviewed 2026-10-12 and admitted WITH the proof below, not on the
+      // component's comment. A tenant's own brand colour reaches the console as a
+      // `<style>` element, which is a third injection site by letter if not by
+      // substance — so the set is widened only alongside an assertion that the
+      // string being injected can only ever be hex colour declarations.
+      expect.stringContaining("src/components/shell/TenantBrand.tsx"),
       expect.stringContaining("src/components/ui/chart.tsx"),
     ]);
+  });
+
+  /**
+   * The review that licenses the entry above.
+   *
+   * `TenantBrand` injects `brandStyleSheet(evaluateBrandPrimary(...))`, and the
+   * security question is never "is this a `<style>`" but "what can a tenant put in
+   * it". So: throw every shape at the producer — including the literal break-out
+   * strings — and require that whatever comes back is either nothing at all (the
+   * validator refused, so no element is rendered) or a stylesheet whose ONLY tokens
+   * are property names and six-digit hex. A `}`, a `<`, a quote or a colon-slash
+   * anywhere in the output means a tenant could close the rule and write the next
+   * declaration, which is CSS injection; `</style>` means markup injection.
+   *
+   * It is asserted as a property over hostile inputs rather than as one example,
+   * because one example is a snapshot and a snapshot cannot fail for the input
+   * nobody thought of.
+   */
+  test("a tenant's brand colour cannot break out of the stylesheet it is injected into", async () => {
+    const { brandStyleSheet, evaluateBrandPrimary } = await import("@/lib/brand/color");
+    // The sheet is two blocks — a light block and an optional dark one — and the
+    // ONLY things inside them may be a known custom property and a six-digit hex.
+    // No `}`, no `<`, no quote, no `url(`, no whitespace worth caring about: a
+    // single stray brace is the tenant writing the next rule.
+    const BLOCK = String.raw`\{(?:--[a-z][a-z0-9-]*:#[0-9a-f]{6};)+\}`;
+    const HEX_ONLY = new RegExp(String.raw`^:root${BLOCK}(\.dark${BLOCK})?$`);
+
+    const hostile = [
+      "</style><script>alert(1)</script>",
+      "}body{display:none}",
+      "#00ff00;}\n a{background:url(//evil.test)",
+      "red",
+      "#12345",
+      "#1234567",
+      "#gggggg",
+      "",
+      " ",
+      "😀",
+      "a".repeat(400),
+      "#FFF",
+    ];
+
+    /** Inputs that must be refused outright, so no element is rendered at all. */
+    const refused = [
+      "</style><script>alert(1)</script>",
+      "}body{display:none}",
+      "#00ff00;}\n a{background:url(//evil.test)",
+      "red",
+      "#gggggg",
+      "a".repeat(400),
+      "",
+    ];
+
+    let accepted = 0;
+    for (const input of hostile) {
+      const css = brandStyleSheet(evaluateBrandPrimary(input) as never);
+      if (css === null) {
+        continue; // refused outright: nothing is rendered at all
+      }
+      accepted += 1;
+      expect(css, `hostile input produced embeddable CSS: ${JSON.stringify(input)}`).toMatch(
+        HEX_ONLY,
+      );
+    }
+
+    for (const input of refused) {
+      expect(
+        brandStyleSheet(evaluateBrandPrimary(input) as never),
+        `${JSON.stringify(input)} should not have produced a stylesheet`,
+      ).toBeNull();
+    }
+
+    // Without these two, a validator that rejected EVERYTHING would make the
+    // property above pass vacuously — a green test that proves nothing, which is
+    // the failure mode this repository keeps having to design against.
+    const real = brandStyleSheet(evaluateBrandPrimary("#0f7a5a") as never);
+    expect(real).not.toBeNull();
+    expect(real).toMatch(HEX_ONLY);
+    expect(accepted).toBeGreaterThan(0);
   });
 
   test("the JSON-LD block cannot be closed early by its own payload", () => {

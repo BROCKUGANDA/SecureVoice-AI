@@ -166,7 +166,14 @@ jobs:
           # THE LOOP GUARD. A version that already has a tag is a version that
           # already shipped; bumping again would publish the same code twice
           # under two numbers and make "which build am I running?" unanswerable.
-          if git rev-parse -q --verify "refs/tags/v$current" >/dev/null; then
+          #
+          # Asked of the REMOTE, not with `git rev-parse`: actions/checkout
+          # defaults to a shallow fetch that does not carry tag refs down, so a
+          # local lookup answers "no such tag" for a version that shipped months
+          # ago — turning the guard that prevents a double publish into the reason
+          # one is attempted, or (once the push is refused) the reason this job is
+          # red on every green main.
+          if git ls-remote --exit-code --tags origin "refs/tags/v$current" >/dev/null 2>&1; then
             echo "v$current is already tagged — main is released, nothing to do."
             echo "released=false" >> "$GITHUB_OUTPUT"
             echo "### v$current is already released" >> "$GITHUB_STEP_SUMMARY"
@@ -207,28 +214,60 @@ jobs:
           # rewritten in the working tree but BEFORE any commit or tag, which is
           # the worst place to fail: the repo looks bumped and nothing is
           # released. Both are now covered by a test that runs the real script.
-          bumped=$(bun scripts/bump-version.mjs "$next" | head -n 1)
-          if ! printf '%s' "$bumped" | grep -qF -- "-> $next"; then
-            echo "::error::bump-version.mjs did not apply $next (said: '$bumped')"
-            exit 1
+          # ── Why nothing here pushes a commit to main ─────────────────────────
+          # `main` is protected by repository rules: "Changes must be made through
+          # a pull request" and "2 of 2 required status checks are expected". This
+          # step used to commit the bump and `git push origin main`, and GitHub
+          # refused it with GH013 — so the tag never got created, the tag-triggered
+          # Release job never ran, and the repository showed NO releases at all
+          # while the VPS kept being deployed by hand. That is the whole reason
+          # "I keep failing to see it on GitHub" was true.
+          #
+          # The protection is right and stays. The automation now lives inside it:
+          #
+          #   · the TAG names the version that is actually in the tree at this SHA,
+          #     and pushing a tag ref is not a branch change — so the tag fires
+          #     release.yml exactly as before, and the image, the GitHub Release
+          #     page and `git describe` all agree about which code they name;
+          #   · the package.json bump for the NEXT release travels the only
+          #     sanctioned way in: a pull request.
+          #
+          # Tagging `$current` rather than `$next` is the point. A tag `v0.2.2`
+          # pointing at a commit whose package.json says 0.2.1 is how "which build
+          # am I running?" becomes unanswerable — the failure this job's own header
+          # exists to prevent.
+          version="$current"
+          git tag -a "v$version" -m "SecureVoice AI v$version"
+          git push origin "refs/tags/v$version"
+
+          # The bump PR, best-effort ON PURPOSE. The release above has already
+          # happened by now; a red job whose Release exists teaches the next reader
+          # to distrust the badge, which is worse than a missing bump PR. Every
+          # failure path here therefore reports and continues.
+          if git ls-remote --exit-code --heads origin "chore/release-v$next" >/dev/null 2>&1; then
+            echo "chore/release-v$next already exists — not opening a second bump PR."
+          else
+            git checkout -b "chore/release-v$next"
+            if bumped=$(bun scripts/bump-version.mjs "$next" | head -n 1) &&
+               printf '%s' "$bumped" | grep -qF -- "-> $next"; then
+              git add package.json
+              # [skip ci]: a branch that only exists to be reviewed must not start a
+              # second full suite run on every release.
+              git commit -m "chore(release): v$next [skip ci]"
+              git push origin "chore/release-v$next"
+              gh pr create --base main --head "chore/release-v$next" \
+                --title "chore(release): v$next" \
+                --body "Version bump created by AutoVersion after v$version was tagged. Merge it to make the next release v$next; leaving it open is harmless — the job reuses this branch." ||
+                echo "::warning::could not open the bump PR for v$next; the release itself succeeded"
+            else
+              echo "::warning::bump-version.mjs refused $next (said: '${bumped:-<no output>}'); v$version is tagged and released, but the next bump needs a human."
+              git checkout -- package.json 2>/dev/null || true
+            fi
           fi
-
-          git add package.json
-          git commit -m "chore(release): v$next"
-
-          # Annotated, so `git describe` and the GitHub release page both carry
-          # the commit this tag points at rather than a bare pointer.
-          git tag -a "v$next" -m "SecureVoice AI v$next"
-
-          # Follow tags, so the release workflow — which is tag-triggered —
-          # actually starts. A plain `git push` leaves the tag behind and the
-          # release silently never happens.
-          git push origin main
-          git push origin "refs/tags/v$next"
 
           {
             echo "released=true"
-            echo "version=$next"
+            echo "version=$version"
           } >> "$GITHUB_OUTPUT"
           {
             echo "### Released v$next"

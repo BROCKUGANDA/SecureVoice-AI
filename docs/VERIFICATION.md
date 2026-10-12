@@ -1907,3 +1907,41 @@ tsc clean · lint 0 errors · 120 suites green across the affected slice
 (e2e/tools/routes/redteam/unit) · bleedguard verified against the real
 database · operator-manifest suite green (its "no secret in responses" guard
 caught the first wording of the new manifest note — reworded to "credential").
+
+## 2026-10-12 - The sslip.io stand-in retired; the media-stream URL made true
+
+**Commands:** `caddy validate` (caddy:2-alpine, on the box) · `curl` against
+the retired hostname and `https://securevoiceai.me/{api/health,healthz}` ·
+`docker ps` · `bun test tests/unit/dial-media-streams-truth.test.ts` plus one
+mutation run.
+
+**What was wrong — one class, two instances.** A recorded success over an
+address nobody could reach. The `57.130.80.158.sslip.io` stand-in was served
+by Caddy and probed by `deploy.yml`, `ci.yml` and `canary.yml`; separately, the
+Twilio media-stream URL was built from `SITE_ADDRESS`, which the dial-worker
+container never received, so the worker silently fell back to `localhost` and
+would have dialled a customer into silence with the dial recorded as placed.
+
+**What was done.**
+
+- Retired the stand-in: its site block removed from the box Caddyfile (applied
+  by restart — `admin off` means restart is the only reload), its Cloudflare
+  CNAME deleted, the cloudflared connector container removed, and the three
+  workflows now probe `https://securevoiceai.me`. Verified: the old hostname
+  fails TLS (`000`), `securevoiceai.me` answers `200` on `/api/health` and
+  `/healthz` with its own Let's Encrypt certificate, and `crucible.svalley.tech`
+  (the other project on the shared edge) is untouched at `200`.
+- `src/worker/dial.ts` gained `mediaStreamHost()`: it refuses to dial — and,
+  with the feature flag on, refuses to boot — when `SITE_ADDRESS` is empty or
+  a loopback/mDNS host, naming the fix in the error. `docker-compose.yml`
+  passes `SITE_ADDRESS` to the worker un-defaulted.
+- The collision the box file has to dodge is measured, not folklore: two site
+  blocks for one address is `ambiguous site definition: securevoiceai.me`,
+  exit 1, before any route loads — which is why the box's skip-worktree'd copy
+  omits the `{$SITE_ADDRESS:localhost}` block that the tracked file keeps for
+  local dev and the CI compose smoke (`SITE_ADDRESS=localhost`).
+
+**State.** `tests/unit/dial-media-streams-truth.test.ts` 10 pass 0 fail
+(mutation-proven: restoring the `?? "localhost"` fallback fails the refusal
+test) · the box Caddy re-validated and healthy · CI's smoke path unchanged and
+still validating.

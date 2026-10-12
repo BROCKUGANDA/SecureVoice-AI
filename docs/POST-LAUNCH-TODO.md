@@ -1,6 +1,13 @@
 # Post-launch to-do
 
-## 1. Swap `sslip.io` → real domain (do this before the judges arrive)
+## 1. Swap `sslip.io` → real domain — DONE (2026-10-12)
+
+Production serves `https://securevoiceai.me` on its own Let's Encrypt
+certificate (DNS-only record, HTTP-01). Both `*.sslip.io` stand-ins are gone:
+the retired SecureVoice hostname was removed from the box Caddyfile and its
+Cloudflare DNS record deleted, and `deploy.yml` / `ci.yml` / `canary.yml` probe
+`securevoiceai.me`. The steps below are kept as the record of the swap; the
+live deployment guidance is `docs/DEPLOY.md`.
 
 The site is live at `https://139.162.166.83.sslip.io` with a valid ZeroSSL
 certificate. That hostname is fine for a demo but must not be what you pitch,

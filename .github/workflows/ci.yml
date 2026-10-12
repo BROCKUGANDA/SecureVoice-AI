@@ -787,7 +787,7 @@ jobs:
             exit 1
           fi
           code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 \
-            https://57.130.80.158.sslip.io/api/health || true)
+            https://securevoiceai.me/api/health || true)
           echo "production api/health: $code"
           [ "$code" = "200" ] || { echo "::error::production origin is not healthy"; exit 1; }
 

@@ -280,8 +280,12 @@ jobs:
 
       - name: Health check the rolled origin
         run: |
+          # The public hostname Caddy serves. The 57.130.80.158.sslip.io
+          # stand-in was retired 2026-10-12 — its site block is gone from the
+          # box Caddyfile and its DNS record is deleted, so probing it here
+          # would time out on a healthy origin.
           for _ in 1 2 3 4 5 6; do
-            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 https://57.130.80.158.sslip.io/api/health || true)
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 https://securevoiceai.me/api/health || true)
             [ "$code" = "200" ] && break
             sleep 10
           done

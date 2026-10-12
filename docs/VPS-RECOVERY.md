@@ -106,14 +106,14 @@ gh run rerun 38012365047 --failed     # from any machine with gh auth
 The deploy builds `app dial-worker retention-worker db-setup`, runs
 `prisma migrate deploy` (both new migrations are additive — `WorkflowDoc` and
 the onboarding columns — so they apply cleanly to either database), rolls the
-containers, then health-checks `https://57.130.80.158.sslip.io/api/health`.
+containers, then health-checks `https://securevoiceai.me/api/health`.
 
 ## Step 3 — Verify
 
 ```bash
 docker compose ps                                   # all healthy
-curl -s https://57.130.80.158.sslip.io/api/health   # 200
-curl -s https://57.130.80.158.sslip.io/api/readyz | jq .status   # ok | degraded
+curl -s https://securevoiceai.me/api/health   # 200
+curl -s https://securevoiceai.me/api/readyz | jq .status   # ok | degraded
 docker compose logs --no-color --tail 50 app | grep -i "prisma:error"   # must be empty
 docker compose exec -T db psql -U securevoice -d securevoice \
   -c 'SELECT migration_name FROM _prisma_migrations ORDER BY finished_at;' | tail -5
@@ -150,10 +150,11 @@ stale; the app was up and serving the whole time (in-container `/api/health`
    untouched; `crucible-*` (the other project on the shared edge) untouched.
 2. Merged the Caddyfile: the VPS-local changes were **pure appends** (the
    `crucible.svalley.tech` / `securevoice.svalley.tech` site blocks, 106
-   lines), the incoming change rewrites lines 104–128 (the
-   `/realtime/media-stream` route). Took the incoming file, re-appended the
-   site blocks, `caddy validate` → **Valid configuration**, re-asserted
-   skip-worktree. The pull then succeeded and the VPS is on `f5396dd`.
+   lines — `securevoice.svalley.tech` has since been retired, 2026-10-12), the
+   incoming change rewrites lines 104–128 (the `/realtime/media-stream` route).
+   Took the incoming file, re-appended the site blocks, `caddy validate` →
+   **Valid configuration**, re-asserted skip-worktree. The pull then succeeded
+   and the VPS is on `f5396dd`.
 3. Dispatched a fresh deploy from main (the CI-green guard passed).
 
 **The Supabase question — first answered wrongly, then settled by evidence.**
@@ -243,6 +244,14 @@ Then merge: keep the VPS-local per-site blocks and add the incoming
 block (and any other incoming hunks) to the VPS file, so the file becomes
 "VPS-local + incoming". Commit it locally, or if the VPS-local diff turns out
 to be empty/stale, simply `git checkout -- Caddyfile Caddyfile.platform`. Then:
+
+**Since 2026-10-12 the box file is no longer the repo file *plus* blocks — it
+is the repo file MINUS the `{$SITE_ADDRESS:localhost}` block (on the box,
+`SITE_ADDRESS` names `securevoiceai.me` itself, and both blocks at once is the
+`ambiguous site definition` startup failure, measured with `caddy validate`),
+PLUS the crucible blocks. When merging, take comment changes in that region but
+never re-add the block, and validate before restarting — a merge that
+re-introduces it is a Caddy that refuses to boot, not a broken route.**
 
 ```bash
 git update-index --skip-worktree Caddyfile Caddyfile.platform

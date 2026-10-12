@@ -96,6 +96,17 @@ beforeAll(async () => {
     merchant: "Electronics C",
   });
   await seedCase(`SV-M-A4-${RUN}`, ORG_A, { state: "NO_ANSWER", language: "en" });
+  // A4's timestamp is pinned to millisecond 496 so the assertion below is
+  // exercised against the exact string that used to make it flaky: `.496Z` in
+  // a createdAt serializes as a "496" substring, and the check must not
+  // confuse a timestamp with a fabricated metric. One second in the past, not
+  // "now with the ms replaced": the read's window closes at `to: now`, and a
+  // timestamp pinned into the same second can land AFTER that read when the
+  // tests run within ~500 ms of this line — 4 of 5 cases counted, intermittently.
+  await db.case.update({
+    where: { caseRef: `SV-M-A4-${RUN}` },
+    data: { createdAt: new Date(new Date(Date.now() - 1_000).setUTCMilliseconds(496)) },
+  });
   await seedCase(`SV-M-A5-${RUN}`, ORG_A, {
     state: "DIALING",
     language: "en",
@@ -194,10 +205,31 @@ describe("the tenant's own numbers", () => {
     // No CSAT column exists anywhere in the schema, so nothing may report one.
     expect(body.toLowerCase()).not.toContain("csat");
     expect(body.toLowerCase()).not.toContain("satisfaction");
-    // The mock's headline claims, all of which were invented.
-    for (const fabricated of ["prevention", "false_alarm", "496", "target", "baseline"]) {
+    // The mock's headline claims, all of which were invented. The words are
+    // scanned as substrings because their absence is the assertion. "496" is
+    // checked structurally — keys and numeric values — because scanning the
+    // raw body for it also matches a millisecond timestamp (`...25.496Z`)
+    // roughly once in a thousand runs: a flake, not a fabricated metric.
+    for (const fabricated of ["prevention", "false_alarm", "target", "baseline"]) {
       expect(body.toLowerCase(), fabricated).not.toContain(fabricated);
     }
+    const keys: string[] = [];
+    const numbers: number[] = [];
+    const walk = (node: unknown): void => {
+      if (Array.isArray(node)) {
+        node.forEach(walk);
+      } else if (node !== null && typeof node === "object") {
+        for (const [k, v] of Object.entries(node)) {
+          keys.push(k);
+          walk(v);
+        }
+      } else if (typeof node === "number") {
+        numbers.push(node);
+      }
+    };
+    walk(res.body);
+    expect(keys.filter((k) => k.includes("496"))).toEqual([]);
+    expect(numbers, "the fabricated 496 claim is back").not.toContain(496);
 
     // A tenant with no cases: `of: 0`, and no average pretending to be a number.
     session.orgId = ORG_B;

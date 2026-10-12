@@ -39,6 +39,7 @@ import {
   prayerDeferralMs,
 } from "@/lib/compliance/prayer-times";
 import { sweepExpiredSmsCases } from "@/lib/sms-verdict";
+import { resolveCasePhone } from "@/lib/compliance/pii-vault";
 import { logError, logInfo, logWarn } from "@/lib/validation/safe-log";
 import { flag } from "@/lib/flags";
 import { resolveDeliveryLang } from "@/lib/languages";
@@ -135,9 +136,11 @@ async function handle(job: DialJob): Promise<DialOutcome> {
     where: { caseRef: job.case_ref },
     select: {
       id: true,
+      orgId: true,
       conversationId: true,
       state: true,
       phone: true,
+      customerPhoneToken: true,
       signalKind: true,
       callCategory: true,
     },
@@ -154,9 +157,12 @@ async function handle(job: DialJob): Promise<DialOutcome> {
   // fatal for a dial instruction. Trusting it sends "[REDACTED]" to the
   // telephony provider, which dry-run mode cannot detect because
   // `placeOutboundCall` returns a synthetic conversation id without ever
-  // looking at the number. The plaintext destination already lives on the case
-  // row, which is the one place it is legitimately stored.
-  const to = existing?.phone ?? payload.phone;
+  // looking at the number. The plaintext destination is sealed in the PII vault
+  // (org-scoped) and the case row carries only its token; rows created before
+  // tokenization still carry the legacy raw column and resolve from it until
+  // they age out.
+  const to =
+    (await resolveCasePhone(existing, existing?.orgId ?? job.org_id)) ?? payload.phone;
   if (!to) {
     return { ok: false, error: "case row has no destination phone", retryable: false };
   }

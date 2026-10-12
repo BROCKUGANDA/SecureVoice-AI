@@ -74,3 +74,25 @@ export async function resolvePii(token: string, orgId: string): Promise<string |
   if (!sealed) return null;
   return decryptSecret(sealed);
 }
+
+/**
+ * Resolve a Case row's destination phone number.
+ *
+ * Tokenized rows (everything written since the vault went live) resolve through
+ * the vault under the row's own org; rows created before tokenization carry the
+ * legacy raw `phone` column and resolve from it until they age out. A token that
+ * resolves to nothing (another org's row, or a secret rotation) falls back to the
+ * legacy column when one exists, and to null otherwise — the dial path treats
+ * null as "no destination" and fails closed, so a rotation never dials a stale
+ * or wrong number.
+ */
+export async function resolveCasePhone(
+  row: { customerPhoneToken?: string | null; phone?: string | null } | null | undefined,
+  orgId?: string | null,
+): Promise<string | null> {
+  if (row?.customerPhoneToken) {
+    const resolved = await resolvePii(row.customerPhoneToken, orgId ?? "");
+    if (resolved) return resolved;
+  }
+  return row?.phone ?? null;
+}

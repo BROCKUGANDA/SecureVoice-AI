@@ -489,6 +489,15 @@ export async function POST(req: NextRequest) {
         intent,
         scriptedReply: scriptedWithExit,
         providerOverride: tenantLlm ?? undefined,
+        // NO knowledge-base retrieval on this plane, deliberately. `orgId` is
+        // what scopes a document query, and the only tenant identifier this
+        // route has is `callRef` — which the CLIENT supplies (line 45: generated
+        // when absent) and nothing binds to the caller's own organization.
+        // Resolving a case from an unverified string is exactly the cross-tenant
+        // read `tests/tenancy/webhook-bleedguard.test.ts` exists to refuse, and
+        // the payload would be another bank's policy text inside a live call.
+        // Grounding therefore waits for this plane to carry a verified tenant,
+        // rather than being faked from a guess.
       });
   const audited = auditAgentReply({
     reply: drafted ?? scriptedWithExit,

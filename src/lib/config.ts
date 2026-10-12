@@ -267,6 +267,26 @@ export const env = {
     return Number.isFinite(raw) && raw > 0 ? raw : 25_000;
   },
   /**
+   * How long a live turn may wait for knowledge-base retrieval before the
+   * reply is drafted WITHOUT it (default 400 ms).
+   *
+   * The budget is small on purpose and it is a deadline, not a retry: this sits
+   * inside the ~2 s first-audio window that `src/worker/voice-stream.ts` holds,
+   * so a slow vector query is worth less than nothing — the customer hears
+   * silence while their policy document is found. Retrieval that misses the
+   * deadline falls through to exactly the un-grounded reply this code produced
+   * before the knowledge base existed.
+   */
+  get ragRetrievalTimeoutMs(): number {
+    const raw = Number(process.env.RAG_RETRIEVAL_TIMEOUT_MS);
+    return Number.isFinite(raw) && raw > 0 ? raw : 400;
+  },
+  /** Ceiling on the characters of retrieved text a single turn may receive. */
+  get ragContextMaxChars(): number {
+    const raw = Number(process.env.RAG_CONTEXT_MAX_CHARS);
+    return Number.isFinite(raw) && raw > 0 ? raw : 1200;
+  },
+  /**
    * ElevenLabs signed-WebSocket URL time-to-live in seconds. Defaults to 900 s
    * (15 min, the vendor maximum). Configurable so a deployment can shorten the
    * credential window.

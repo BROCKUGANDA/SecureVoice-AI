@@ -619,11 +619,24 @@ export async function POST(req: NextRequest) {
 
   // Get the scripted reply; try LLM rephrase if configured
   const scripted = REPLIES[intent][lang] ?? REPLIES[intent].en;
+  // The tenant, for knowledge-base retrieval. Resolved HERE rather than inside
+  // `draftAgentReply` for the reason that file states: the drafter keeps the
+  // database out of a live turn, so a storage blip cannot stall the reply. Same
+  // shape as the wrong-number branch above (`callSid → case → org`), and it
+  // degrades to `null`, which simply means the turn is drafted without the
+  // bank's documents — never a refused call.
+  const orgForKnowledge = callSid
+    ? await db.case
+        .findFirst({ where: { callSid }, select: { orgId: true } })
+        .then((row) => row?.orgId ?? null)
+        .catch(() => null)
+    : null;
   const drafted = await draftAgentReply({
     text: speechResult,
     lang: lang as "en" | "ar" | "hi" | "ur" | "fr" | "sw",
     intent,
     scriptedReply: scripted,
+    orgId: orgForKnowledge,
   });
 
   const audited = auditAgentReply({

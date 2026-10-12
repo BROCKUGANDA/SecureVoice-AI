@@ -76,17 +76,31 @@ if (process.env.LOAD_DATABASE_URL) {
   process.env.DATABASE_URL = process.env.LOAD_DATABASE_URL;
 }
 
-// Append-only audit log (prisma/migrations/9zzzzzzzzz_immutable_audit) adds a
-// BEFORE UPDATE/DELETE trigger that raises, so a compromised app credential
-// cannot rewrite history. Production keeps it. Several DB-backed suites mutate
-// AuditLog on purpose — teardown wipes the rows they seeded, and the chain
-// tamper-detection gates forge a row — which the fully-migrated CI test database
-// blocks (P0001). This preload runs ONLY under `bun test`, and disables the
-// trigger on whatever DATABASE_URL the run points at, best-effort: on a database
-// that has not applied the migration (the local dev instance) the ALTER simply
-// fails and is ignored, so this is a no-op there and effective on the disposable
-// CI test DB. No suite asserts the trigger fires, so this cannot mask a
-// regression of the immutability feature.
+// Append-only audit log (prisma/migrations/9zzzzzzzzz_immutable_audit and
+// ..._audit_immutability_grants) puts a BEFORE UPDATE/DELETE trigger on "AuditLog"
+// that raises, so a compromised app credential cannot rewrite history. Production
+// keeps it. Several DB-backed suites mutate AuditLog on purpose — teardown wipes
+// the rows they seeded, and the chain tamper-detection gates forge a row to prove
+// verifyChain() names it — which a fully-migrated database blocks (P0001). This
+// preload runs ONLY under `bun test` and disables the trigger on whatever
+// DATABASE_URL the run points at, best-effort: a database without the migration
+// fails the ALTER and it is ignored.
+//
+// Read what that costs. `ALTER TABLE ... DISABLE TRIGGER` is persistent TABLE
+// state, not session state — it is not reverted when the test process exits, so
+// the guard is off for EVERY connection to that database for the rest of the run,
+// and until `scripts/run-tests.mjs` restores it, after it. Measured on the dev
+// database, not reasoned: `pg_trigger.tgenabled` read 'D' between runs. That
+// window is why the control has a second, harness-independent half: the same
+// migration REVOKEs UPDATE and DELETE from `sv_tenant`, which keeps binding the
+// tenant-scoped path (`src/lib/tenancy/db-scope.ts`) while this is off, and which
+// no amount of table-state fiddling from a test process can reach.
+//
+// So this line is not "the feature is untested and therefore un-masking".
+// Prevention is asserted with the trigger live by
+// tests/tenancy/audit-immutability.test.ts, which enables it inside a transaction
+// it always rolls back, and which then asserts the catalog state it found is the
+// state it leaves.
 if (process.env.DATABASE_URL) {
   try {
     const { default: pg } = await import("pg");

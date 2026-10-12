@@ -37,7 +37,15 @@ if (files.length === 0) {
   process.exit(1);
 }
 
+// The capacity gate's database, named once because two things need it: the suite
+// that measures against it, and the guard restoration below that has to switch
+// the audit trigger back on in the same place the suite switched it off.
+const LOAD_DB =
+  process.env.LOAD_DATABASE_URL ??
+  "postgresql://postgres@127.0.0.1:5432/securevoice_load?connection_limit=20";
+
 let failed = 0;
+let ranLoadSuite = false;
 for (const f of files) {
   // The capacity gate runs against its own database. It measures how much load
   // the system sustains, and a shared database carries another suite's rows
@@ -46,9 +54,8 @@ for (const f of files) {
   // TEST_DATABASE_URL.
   const env = { ...process.env };
   if (f.startsWith("load/")) {
-    env.LOAD_DATABASE_URL =
-      process.env.LOAD_DATABASE_URL ??
-      "postgresql://postgres@127.0.0.1:5432/securevoice_load?connection_limit=20";
+    ranLoadSuite = true;
+    env.LOAD_DATABASE_URL = LOAD_DB;
   }
 
   // Per-test timeout. Bun defaults to 5_000ms, which is unrealistically tight
@@ -76,4 +83,58 @@ for (const f of files) {
   });
   if (r.status !== 0) failed = 1;
 }
+
+// ── Put the audit guard back ─────────────────────────────────────────────────
+// `tests/preload.ts` disables the BEFORE UPDATE/DELETE trigger on "AuditLog" so
+// the suites that legitimately mutate it (teardown, the chain-forging gates) can
+// run. `ALTER TABLE ... DISABLE TRIGGER` is persistent TABLE state, so nothing
+// reverts it when a suite's process exits: without this step, every `bun run test`
+// ends by leaving a production-shaped database with its append-only guarantee
+// switched off, and the application connecting to it cannot be told the table is
+// immutable.
+//
+// Restoration is part of the run's verdict, not housekeeping. A control the test
+// harness disabled and did not re-enable is a defect the next reader inherits, and
+// a `console.log` they have to notice is not a gate.
+const GUARD_READ = `
+  SELECT t.tgenabled::text AS enabled
+  FROM pg_trigger t
+  JOIN pg_class c ON c.oid = t.tgrelid
+  WHERE c.relname = 'AuditLog' AND t.tgname = 'no_modify_audit' AND NOT t.tgisinternal`;
+
+async function restoreAuditGuard(label, url) {
+  if (!url) return `${label}: no database configured — nothing to restore`;
+  let client;
+  try {
+    const { default: pg } = await import("pg");
+    client = new pg.Client({ connectionString: url, connectionTimeoutMillis: 5000 });
+    await client.connect();
+    const found = await client.query(GUARD_READ);
+    if (found.rows.length === 0) {
+      return `${label}: no audit trigger in this database — nothing to restore`;
+    }
+    if (found.rows[0].enabled !== "O")
+      await client.query(`ALTER TABLE "AuditLog" ENABLE TRIGGER no_modify_audit`);
+    const after = await client.query(GUARD_READ);
+    const state = after.rows[0]?.enabled;
+    if (state !== "O") {
+      failed = 1;
+      return `${label}: FAILED to re-enable the audit guard (catalog says ${JSON.stringify(state)})`;
+    }
+    return `${label}: audit guard re-enabled (${found.rows[0].enabled} → O)`;
+  } catch (e) {
+    failed = 1;
+    return `${label}: could not restore the audit guard — ${e.message}`;
+  } finally {
+    await client?.end().catch(() => undefined);
+  }
+}
+
+const functionalDb = process.env.TEST_DATABASE_URL ?? process.env.DATABASE_URL;
+console.log("\n— audit immutability guard —");
+console.log(await restoreAuditGuard("functional suites", functionalDb));
+// Only the database that actually ran a suite: a filtered `bun run test:unit` must
+// not be judged on a capacity database it never touched.
+if (ranLoadSuite) console.log(await restoreAuditGuard("capacity gate", LOAD_DB));
+
 process.exit(failed);

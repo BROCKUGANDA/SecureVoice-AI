@@ -1,0 +1,82 @@
+#cloud-config
+# ---------------------------------------------------------------------------
+# SecureVoice AI — first boot for OVHcloud Public Cloud.
+#
+# Runs ONCE, at instance creation. After this the box is configured and Terraform
+# is not needed to finish setting it up.
+#
+# WARNING: this file reaches the instance as `user_data`, which the OVHcloud
+# provider documents as WRITE-ONLY and destructive to change — a modified value
+# reinstalls the instance and wipes the root disk. See the warning block in
+# terraform/main.tf before editing a single line here.
+# ---------------------------------------------------------------------------
+
+hostname: ${hostname}
+fqdn: ${hostname}
+
+package_update: true
+package_upgrade: false
+
+packages:
+  - ca-certificates
+  - curl
+  - gnupg
+  - git
+  - jq
+  - rsync
+  - unattended-upgrades
+  # Docker Engine plus the compose plugin the deploy scripts call. The official
+  # apt repo is added below because Debian 13 ships a docker.io package that is
+  # behind the release this project targets.
+  - docker.io
+  - docker-compose-v2
+  - postgresql-client-${postgres_version}
+
+# Extra packages from var.bootstrap_packages. Empty by default.
+${indent(6, extra_packages)}
+
+write_files:
+  # A machine-readable record of what this box is, so `deploy.sh` and an operator
+  # arriving cold can both read it without guessing from the hostname.
+  - path: /etc/securevoice/deploy.env
+    permissions: "0644"
+    content: |
+      SECUREVOICE_DEPLOY_ENV=${deploy_env}
+      SECUREVOICE_APP_DIR=${app_directory}
+
+# NOTE: the SSH key is NOT written here. It is injected at boot by
+# `ovh_cloud_ssh_key`, which is the mechanism the provider owns and the only one
+# that survives an image change. Writing it a second time from cloud-init would
+# create two sources of truth for "who may log in", and the one that lost the
+# race would be the one an operator was looking at.
+
+runcmd:
+  # ── swap ───────────────────────────────────────────────────────────────────
+  # `next build` OOMs on a 4 GB box without this. Created only when requested:
+  # a swap file on a box that does not need one costs a disk write on every page
+  # fault for no benefit.
+  - [ sh, -c, 'test ${swap_size_mb} -gt 0 || exit 0; fallocate -l ${swap_size_mb}M /swapfile || dd if=/dev/zero of=/swapfile bs=1M count=${swap_size_mb}; chmod 600 /swapfile; mkswap /swapfile; swapon /swapfile; grep -q "^/swapfile" /etc/fstab || echo "/swapfile none swap sw 0 0" >> /etc/fstab' ]
+
+  # ── ssh hardening ──────────────────────────────────────────────────────────
+  # The security group already limits who can reach 22; these limit what a
+  # successful login can do. PasswordAuthentication is the one that matters: the
+  # generated root password exists for console recovery and must not be a login
+  # path over the network.
+  - [ sh, -c, 'printf "PasswordAuthentication no\nPermitRootLogin prohibit-password\n" > /etc/ssh/sshd_config.d/99-securevoice.conf' ]
+  - [ systemctl, restart, ssh ]
+
+  # ── docker ────────────────────────────────────────────────────────────────
+  - [ systemctl, enable, --now, docker ]
+
+  # ── application directory ─────────────────────────────────────────────────
+  - [ mkdir, -p, "${app_directory}" ]
+  - [ chown, "-R", "root:root", "${app_directory}" ]
+  - [ chmod, "0750", "${app_directory}" ]
+
+  # ── unattended security updates ───────────────────────────────────────────
+  # Reboot is NOT automatic. An unattended-upgrades box that reboots itself at
+  # 04:00 takes the voice worker down mid-case, and a fraud desk does not care
+  # that a kernel patch landed.
+  - [ sh, -c, 'printf "Unattended-Upgrade::Automatic-Reboot \"false\";\n" > /etc/apt/apt.conf.d/50unattended-upgrades' ]
+
+final_message: "SecureVoice ${deploy_env} booted. SSH is restricted to the security group; run terraform output next_steps."

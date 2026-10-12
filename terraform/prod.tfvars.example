@@ -2,17 +2,41 @@
 #
 #   terraform plan  -var-file=prod.tfvars
 #   terraform apply -var-file=prod.tfvars
+#
+# Credentials are deliberately absent. Set these in the environment instead, so
+# the secret never lands in a file:
+#
+#   $env:OVH_ENDPOINT     = "ovh-eu"
+#   $env:OVH_CLIENT_ID     = "<application key CLIENT_ID>"
+#   $env:OVH_CLIENT_SECRET = "<application key CLIENT_SECRET>"
+#
+# Use an APPLICATION key from the OVHcloud token page, not a VPS or dedicated
+# server API key — those authenticate against a different API.
 
-name        = "securevoice"
-deploy_env  = "prod"
-region      = "de"           # closest to where calls are answered
+# The Public Cloud project this box belongs to. Find it in the control panel
+# under Public Cloud > Projects. It is NOT created here: destroying it would
+# take the database with it, so it is a one-time manual act.
+service_name = "wwwwwwwwwwwwwwww"
 
-# g6-standard-2 is 4 vCPU / 8 GB — the size docs/DEPLOY.md says the current
-# deployment uses. g6-nanode-1 (2 GB) will NOT build; see the swap note below.
-instance_type = "g6-standard-2"
-disk_size_mb  = 81920
+name       = "securevoice"
+deploy_env = "prod"
 
-# 2G, because `next build` OOMs at 4 GB without it.
+# OVHcloud region CODE, not an AWS region name. GRA11 is Gravelines (the largest
+# EU region); SBG5 is Strasbourg, WBG1 is Warsaw.
+#
+# Data residency warning: OVHcloud does not have a UAE or GCC region. If a bank
+# needs in-country hosting for PDPL, this configuration does not provide it —
+# confirm the actual data path with OVHcloud in writing before promising it. See
+# docs/INFRASTRUCTURE.md.
+region = "GRA11"
+
+# d2-8 is 2 dedicated vCPU / 8 GB, the size the reference deployment ran at.
+# d2-4 is the documented minimum and needs the swap file below. b2-7 (discovery,
+# shared vCPU) will NOT hold a production build.
+flavor_name = "d2-8"
+
+# 2G, because `next build` OOMs at 4 GB without it. On d2-8 you can set this to
+# 0 if you would rather not pay the page-fault cost.
 swap_size_mb = 2048
 
 # REQUIRED. Terraform fails validation on an empty list rather than opening
@@ -26,16 +50,21 @@ allow_ssh_from = [
 # `outputs.ssh_is_open_to_world` tells you if you left it on.
 allow_ssh_from_anywhere = false
 
-# Leave empty. The app publishes no ports; every entry here widens the edge.
+# Leave empty. The app publishes no ports; every entry here is a direct grant
+# from the internet, because this provider has no separate deny policy behind
+# the list. 5432 and 9090 must never appear here.
 extra_open_ports = []
 
 # Off by default: a fraud case database is PII-bearing, so where backups live
-# is a decision rather than a default.
-enable_backups = false
+# is a decision rather than a default. When enabled the volume is created in the
+# SAME region as the box.
+enable_backups   = false
+backup_volume_gb = 100
 
 # Provide your own key and Terraform will not generate one:
 #   ssh-keygen -t ed25519 -C securevoice
 # ssh_public_key = "ssh-ed25519 AAAA... securevoice"
 ssh_public_key = null
 
-tags = ["securevoice", "prod", "terraform"]
+postgres_major_version = 17
+app_directory           = "/opt/securevoice"

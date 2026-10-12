@@ -25,12 +25,12 @@ export type Phase = "idle" | "speaking" | "listening" | "thinking";
 
 /** The opening line spoken at T+0, per language: disclosure + the question. */
 export const OPENING: Record<ConvLang, string> = {
-  en: "Hello? This call is recorded. I am your bank's security assistant calling about a transaction on your card. Did you authorize it?",
-  ar: "مرحبًا؟ هذا الاتصال مسجَّل. أنا مساعد الأمن لمصرفك، أتصل بخصوص عملية على بطاقتك. هل أجريتها أنت؟",
-  hi: "नमस्ते? यह कॉल रिकॉर्ड की जा रही है। मैं आपके बैंक का सुरक्षा सहायक हूँ, आपके कार्ड के एक लेन-देन के बारे में बात करने बुला रहा हूँ। क्या यह आपने किया था?",
-  ur: "سلام؟ یہ کال ریکارڈ کی جا رہی ہے۔ میں آپ کے بینک کا سیکیورٹی اسسٹنٹ ہوں، آپ کے کارڈ کے ایک لین دین کے بارے میں بات کرنے بلایا ہوں۔ کیا یہ آپ نے کیا تھا؟",
-  fr: "Bonjour ? Cet appel est enregistré. Je suis l'assistant sécurité de votre banque, j'appelle au sujet d'une opération sur votre carte. L'avez-vous autorisée ?",
-  sw: "Habari? Simu hii inarekodiwa. Mimi ni msaidizi wa usalama wa benki yako, nakupigia kuhusu muamala kwenye kadi yako. Je, uliidhinisha?",
+  en: "Hello? This is an automated call and it is recorded. I am your bank's security assistant calling about a transaction on your card. Did you authorize it?",
+  ar: "مرحبًا؟ هذه مكالمة آلية وهي مسجَّلة. أنا مساعد الأمن لمصرفك، أتصل بخصوص عملية على بطاقتك. هل أجريتها أنت؟",
+  hi: "नमस्ते? यह एक स्वचालित कॉल है और रिकॉर्ड की जा रही है। मैं आपके बैंक का सुरक्षा सहायक हूँ, आपके कार्ड के एक लेन-देन के बारे में बात करने बुला रहा हूँ। क्या यह आपने किया था?",
+  ur: "سلام؟ یہ ایک خودکار کال ہے اور ریکارڈ کی جا رہی ہے۔ میں آپ کے بینک کا سیکیورٹی اسسٹنٹ ہوں، آپ کے کارڈ کے ایک لین دین کے بارے میں بات کرنے بلایا ہوں۔ کیا یہ آپ نے کیا تھا؟",
+  fr: "Bonjour ? Cet appel est automatisé et enregistré. Je suis l'assistant sécurité de votre banque, j'appelle au sujet d'une opération sur votre carte. L'avez-vous autorisée ?",
+  sw: "Habari? Simu hii ni ya kiotomatiki na inarekodiwa. Mimi ni msaidizi wa usalama wa benki yako, nakupigia kuhusu muamala kwenye kadi yako. Je, uliidhinisha?",
 };
 
 /** The silence nudge for a caller who answers but says nothing. */

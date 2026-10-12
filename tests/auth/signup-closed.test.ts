@@ -48,9 +48,7 @@ afterAll(async () => {
   // row plus a `credential` account — and a self-served `user` row surviving the
   // run would leave exactly the artefact this file exists to prove cannot be
   // created. Scoped to this run's id, so a parallel run's rows are untouched.
-  await db.user
-    .deleteMany({ where: { email: { contains: `-${RUN}-` } } })
-    .catch(() => undefined);
+  await db.user.deleteMany({ where: { email: { contains: `-${RUN}-` } } }).catch(() => undefined);
   await cleanupRun();
 });
 
@@ -386,16 +384,21 @@ test("the catch-all does not forward signup under a different spelling", async (
       new Request(`http://t${path}`, {
         method: "POST",
         headers: { "content-type": "application/json", origin, host: new URL(origin).host },
-        body: JSON.stringify({ email: testEmail("spell"), password: "a-very-long-password-1", name: "x" }),
+        body: JSON.stringify({
+          email: testEmail("spell"),
+          password: "a-very-long-password-1",
+          name: "x",
+        }),
       }) as unknown as Parameters<typeof catchAllPOST>[0],
     );
     const text = await response.text();
     // Either the disabled-signup refusal by name, or an unknown-action 4xx from
     // Better Auth's router. What must NOT happen is a 2xx carrying a session —
     // that would mean a spelling variant reached a working creation path.
-    expect(response.status, `${path} returned ${response.status}: ${text.slice(0, 160)}`).toBeGreaterThanOrEqual(
-      400,
-    );
+    expect(
+      response.status,
+      `${path} returned ${response.status}: ${text.slice(0, 160)}`,
+    ).toBeGreaterThanOrEqual(400);
     expect(response.status).toBeLessThan(500);
   }
   // Run-scoped on purpose: `contains: "spell"` matched a PREVIOUS run's leftover,

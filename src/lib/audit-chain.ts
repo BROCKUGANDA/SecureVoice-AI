@@ -206,9 +206,19 @@ async function appendInner(
       // avoids the dedicated connection a $transaction requires, which is the
       // difference between a 200 ms append and a 5 s timeout against a remote
       // pooler under burst load.
+      //
+      // THE `id` TIEBREAKER IS LOAD-BEARING. `createdAt` is a millisecond
+      // DateTime and a call's audit rows are written inside one request loop, so
+      // several of them routinely share a timestamp. SQL promises nothing about
+      // tie order, so `orderBy: { createdAt: "desc" }` alone can return the
+      // SECOND-newest row; the append then reads a stale `prevHash`, and the
+      // hash it recomputes is one the table already holds. `chainHash` is
+      // @unique, so the write dies as P2002 UniqueConstraintViolation. `id` is
+      // unique and monotonic within a process, so ordering by it second makes
+      // "the last row" deterministic. Same shape in the $transaction path below.
       const last = await dbAudit.auditLog.findFirst({
         where: { callRef: clean.callRef },
-        orderBy: { createdAt: "desc" },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
         select: { chainHash: true },
       });
       const prevHash = last?.chainHash ?? GENESIS_HASH;
@@ -246,7 +256,7 @@ async function appendInner(
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${clean.callRef}))`;
       const last = await tx.auditLog.findFirst({
         where: { callRef: clean.callRef },
-        orderBy: { createdAt: "desc" },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
         select: { chainHash: true },
       });
       const prevHash = last?.chainHash ?? GENESIS_HASH;

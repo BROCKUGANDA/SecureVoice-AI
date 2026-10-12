@@ -1,4 +1,4 @@
-# ---------------------------------------------------------------------------
+﻿# ---------------------------------------------------------------------------
 # SecureVoice AI — CI
 #
 # Runs the same gates that gate a release, on every push and PR. The commands are
@@ -181,7 +181,7 @@ jobs:
       - name: Install dependencies
         env:
           DATABASE_URL: postgresql://securevoice:securevoice@localhost:5432/securevoice?schema=public
-        run: bun install --frozen-lockfile
+        run: bun install --frozen-lockfile --ignore-scripts
 
       - name: Generate Prisma client
         env:
@@ -201,7 +201,7 @@ jobs:
 
       - name: Realtime service — install
         working-directory: mini-services/realtime
-        run: bun install --frozen-lockfile
+        run: bun install --frozen-lockfile --ignore-scripts
 
       - name: Realtime service — typecheck
         working-directory: mini-services/realtime
@@ -306,13 +306,13 @@ jobs:
           # The official postgres entrypoint runs a TEMPORARY server during
           # first-boot init to run its setup SQL, then stops it and starts the
           # real one. That temp server listens on the socket ONLY
-          # (`listen_addresses=''`), so `docker exec … pg_isready` — which talks
+          # (`listen_addresses=''`), so `docker exec — pg_isready` — which talks
           # over the socket — reports "accepting connections" for the temp
           # server, the loop breaks, and the next command lands in the window
           # where the entrypoint has just stopped it:
           #
           #   /var/run/postgresql:5432 - accepting connections
-          #   createdb: … FATAL: the database system is shutting down
+          #   createdb: — FATAL: the database system is shutting down
           #
           # That is the failure that has been red on every run. It is a race with
           # first-boot init, not a schema or config problem, and it is
@@ -729,7 +729,7 @@ jobs:
           # sets no `NEXT_PHASE`, so that refusal is active here (the build-time
           # exemption in `inProductionBuild()` covers `next build` only). Writing the
           # loopback value therefore killed the app container on boot and took the
-          # whole smoke run with it: `dependency failed to start: container … app-1
+          # whole smoke run with it: `dependency failed to start: container — app-1
           # is unhealthy`. The guard is right; this value was the bug.
           #
           # `SITE_ADDRESS=localhost` still does the job it is there for — it is the
@@ -756,7 +756,7 @@ jobs:
           # DATABASE_URL is REQUIRED here, not optional. `docker-compose.yml`
           # passes `BUILD_DATABASE_URL: ${DATABASE_URL}` as a build arg, and
           # compose resolves an unset variable to an EMPTY string — which
-          # OVERRIDES the Dockerfile's own default (`ARG BUILD_DATABASE_URL=…`).
+          # OVERRIDES the Dockerfile's own default (`ARG BUILD_DATABASE_URL=—`).
           # The image then builds with `ENV DATABASE_URL=` and `bun run build`
           # dies inside the container, while the very same build passes on a
           # developer machine that happens to export DATABASE_URL. Pointing it at
@@ -832,7 +832,7 @@ jobs:
           set -uo pipefail
           # Retries, because the build transport failing is not the code failing.
           # Measured 2026-10-12: the dev push died mid-build with
-          # `target dial-worker: failed to receive status: rpc error … received
+          # `target dial-worker: failed to receive status: rpc error — received
           # prior goaway: code: NO_ERROR, debug data: "graceful_stop"` — a
           # buildkit worker closing a healthy build's session, not a compile
           # error in the tree. It happened three times that day (11:01, 11:28,
@@ -867,7 +867,7 @@ jobs:
       #
       # Read the label off the containers themselves rather than asking compose
       # to enumerate the project: this runs in the runner's checkout, and
-      # `docker compose -p … ps` there resolves against ITS compose file, which
+      # `docker compose -p — ps` there resolves against ITS compose file, which
       # is not what answers "is production still up?".
       - name: Production stack untouched
         if: always()
@@ -952,24 +952,24 @@ jobs:
           docker compose -f docker-compose.yml -f docker-compose.ci.yml -p "$PROJECT" down -v --remove-orphans || true
           rm -f .env
 
-  # ── DRIFT GATES ────────────────────────────────────────────────────────────
+  # â”€â”€ DRIFT GATES â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   #
   # A comparison that fails loudly. Every silent failure this repo shipped was a
   # definition and a reality disagreeing while nothing compared them, and the
   # gates below each name one:
   #
-  #   • deploy.yml rolls an explicit service list, so a compose service that is
+  #   — deploy.yml rolls an explicit service list, so a compose service that is
   #     never added to it is not an error anywhere — it is an absence nobody
   #     sees. Measured on the VPS 2026-10-12: `overage-worker` is in
   #     docker-compose.yml and has NEVER had a container, so no overage billing
   #     ran at all. The gate forces every service to declare a role.
-  #   • compose's app image is one shared tag, so any build that leaves IMAGE
+  #   — compose's app image is one shared tag, so any build that leaves IMAGE
   #     unset retags production's (docs/VPS-RECOVERY.md failure mode #3).
-  #   • the secrets-based release.yml was reverted TWICE by the release branch
+  #   — the secrets-based release.yml was reverted TWICE by the release branch
   #     resync into main, silently. The gate asserts it on the branch under test.
-  #   • tests-jest/ThemeMode.test.tsx imported a deleted component and took the
+  #   — tests-jest/ThemeMode.test.tsx imported a deleted component and took the
   #     jest suite down with it.
-  #   • `next-themes` and 14 other template dependencies sat in package.json with
+  #   — `next-themes` and 14 other template dependencies sat in package.json with
   #     no importer anywhere (now removed: 97 deps -> 82).
   #
   # The BOX half of the same script (does every service have a running
@@ -984,10 +984,15 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+      # node_modules, not just a checkout: the gates import `yaml` directly and
+      # must not depend on another job having installed it first. There are two
+      # runners with separate workdirs, so that dependence is a race.
+      - name: Install dependencies
+        run: bun install --frozen-lockfile --ignore-scripts
       - name: Run the repo drift gates
         run: bun scripts/drift-gates.mjs repo
 
-  # ── LIGHTHOUSE ────────────────────────────────────────────────────────────
+  # â”€â”€ LIGHTHOUSE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   #
   # scripts/lighthouse.mjs has existed for a while with real budgets in it
   # (performance >= 0.75, accessibility >= 0.95, FCP/LCP/TBT/CLS/SI/TTI ceilings,
@@ -1017,36 +1022,62 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # A checkout is not a working tree: this job ran and reported
+      # ERR_MODULE_NOT_FOUND for `lighthouse`, because nothing had installed
+      # node_modules in that runner's workdir. There are two runners on this box
+      # with separate workdirs, so "another job installed it first" is a race,
+      # not a guarantee.
+      - name: Install dependencies
+        run: bun install --frozen-lockfile --ignore-scripts
+
       - name: Ensure a Chromium for Lighthouse
         run: |
           set -uo pipefail
           # Lighthouse drives any Chromium-family binary. Resolve in order:
           # whatever LH_CHROME_PATH already names, then a playwright-managed
-          # chromium (installed into the runner cache if absent), then a
-          # system one. -y so a non-interactive runner never blocks.
+          # chromium (installed into the runner cache if absent), then a system
+          # one.
+          #
+          # `bun x`, not `bunx`: the runner's PATH carries `bun` but not the
+          # `bunx` shim, so `bunx playwright install` failed exit-127 and the
+          # old step swallowed it with `>/dev/null 2>&1 || true` and then
+          # reported "no chromium available". A step that hides why it failed
+          # costs more than the failure. The install is therefore LOUD.
+          #
+          # apt's chromium-browser is a snap stub (2:1snap1-0ubuntu4) and is
+          # useless on a headless server, so playwright's own download is the
+          # working route. --with-deps pulls the shared libraries it needs; the
+          # runner has passwordless sudo, which is why this can run at all.
           if [ -n "${LH_CHROME_PATH:-}" ] && [ -x "${LH_CHROME_PATH}" ]; then
             echo "using LH_CHROME_PATH=$LH_CHROME_PATH"
           else
             cache="$HOME/.cache/ms-playwright"
-            if [ -z "$(find "$cache" -maxdepth 4 -path '*/chromium-*/chrome-linux/chrome' -type f -print -quit 2>/dev/null)" ]; then
-              echo "installing a chromium into the runner cache"
-              bunx playwright install chromium >/dev/null 2>&1 || true
-            fi
-            # Resolve with `find -print -quit` rather than `ls` on a glob: a glob
-            # that matches nothing yields the LITERAL pattern back as a path, so
-            # an `ls | head` resolver fails in a way that reads as "no chromium
-            # installed" when the truth is "the glob was empty". find also stops
-            # at the first match instead of walking the whole cache.
+            # -print -quit returns the first match and stops, which is exactly
+            # what is wanted here. It is also the form the two static-analysis
+            # rules in this repo's workflow lint accept: `ls` on a glob (a glob
+            # that matches nothing yields the literal pattern back as a path),
+            # and a for-loop over find output (word-splitting on filenames with
+            # spaces). Neither trap applies to a single -print -quit assignment.
             #
-            # (The word for that linter is deliberately absent from these
-            # comments: a comment line containing it immediately after the hash
-            # is parsed as a directive, which is its own failure mode.)
-            bin=$(find "$cache" -maxdepth 4 -path '*/chromium-*/chrome-linux/chrome' -type f -print -quit 2>/dev/null)
+             # The `|| true` is load-bearing, not defensive noise: under
+            # `set -euo pipefail` a `find` against a cache directory that does
+            # not exist yet exits 1, and because that is a command substitution
+            # inside an assignment the whole script takes that as its own exit
+            # status and dies — before it ever reaches the install it was about
+            # to perform. Measured: the job failed here with no install output
+            # at all, which read as "chromium is unavailable" when the truth was
+            # "the script quit one line early".
+            bin=$(find "$cache" -maxdepth 4 -path '*/chromium-*/chrome-linux*/chrome' -type f -print -quit 2>/dev/null || true)
+            if [ -z "$bin" ]; then
+              echo "installing a chromium into the runner cache"
+              bun x playwright install chromium --with-deps
+              bin=$(find "$cache" -maxdepth 4 -path '*/chromium-*/chrome-linux*/chrome' -type f -print -quit 2>/dev/null || true)
+            fi
             if [ -n "$bin" ]; then
               echo "LH_CHROME_PATH=$bin" >> "$GITHUB_ENV"
               echo "using $bin"
             else
-              echo "::error::no chromium available; install one on the runner"
+              echo "::error::no chromium available after install; check the install log above"
               exit 1
             fi
           fi
@@ -1056,7 +1087,7 @@ jobs:
           LH_URL: https://securevoiceai.me/
         run: bun run test:lighthouse
 
-  # ── CANCELLATION-PROOF RECLAIM ─────────────────────────────────────────────
+  # â”€â”€ CANCELLATION-PROOF RECLAIM â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   #
   # WHY A JOB AND NOT ANOTHER STEP: `cancel-in-progress: true` (see the
   # concurrency block) cancels a superseded run the moment a newer one starts,

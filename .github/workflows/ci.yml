@@ -952,6 +952,41 @@ jobs:
           docker compose -f docker-compose.yml -f docker-compose.ci.yml -p "$PROJECT" down -v --remove-orphans || true
           rm -f .env
 
+  # ── DRIFT GATES ────────────────────────────────────────────────────────────
+  #
+  # A comparison that fails loudly. Every silent failure this repo shipped was a
+  # definition and a reality disagreeing while nothing compared them, and the
+  # gates below each name one:
+  #
+  #   • deploy.yml rolls an explicit service list, so a compose service that is
+  #     never added to it is not an error anywhere — it is an absence nobody
+  #     sees. Measured on the VPS 2026-10-12: `overage-worker` is in
+  #     docker-compose.yml and has NEVER had a container, so no overage billing
+  #     ran at all. The gate forces every service to declare a role.
+  #   • compose's app image is one shared tag, so any build that leaves IMAGE
+  #     unset retags production's (docs/VPS-RECOVERY.md failure mode #3).
+  #   • the secrets-based release.yml was reverted TWICE by the release branch
+  #     resync into main, silently. The gate asserts it on the branch under test.
+  #   • tests-jest/ThemeMode.test.tsx imported a deleted component and took the
+  #     jest suite down with it.
+  #   • `next-themes` and 14 other template dependencies sat in package.json with
+  #     no importer anywhere (now removed: 97 deps -> 82).
+  #
+  # The BOX half of the same script (does every service have a running
+  # container, is the box at origin/main's tip, is the running image tagged)
+  # runs in deploy.yml where docker and the live stack are.
+  drift:
+    name: Drift gates
+    runs-on: [self-hosted, securevoice-vps]
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name == github.repository
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run the repo drift gates
+        run: bun scripts/drift-gates.mjs repo
+
   # ── CANCELLATION-PROOF RECLAIM ─────────────────────────────────────────────
   #
   # WHY A JOB AND NOT ANOTHER STEP: `cancel-in-progress: true` (see the

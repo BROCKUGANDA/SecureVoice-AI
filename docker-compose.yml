@@ -656,8 +656,13 @@ services:
     cap_add:
       - NET_BIND_SERVICE
     environment:
-      # Domain to issue a certificate for. Must resolve to this host.
-      SITE_ADDRESS: ${SITE_ADDRESS:-localhost}
+      # ACME contact for expiry notices. SITE_ADDRESS is deliberately NOT
+      # passed to Caddy anymore: it is an APP-level value (canonical origin,
+      # Twilio media-stream URL — src/lib/site-origin.ts, src/worker/dial.ts),
+      # and Caddy cannot take it as a site address without colliding with the
+      # literal blocks in the Caddyfile ("ambiguous site definition",
+      # measured). Caddy serves the literal site list; host-local extras come
+      # from sites.d/ below.
       ACME_EMAIL: ${ACME_EMAIL:-admin@example.com}
     # ── The active colour, for a blue/green deploy ────────────────────────────
     # `APP_UPSTREAM` is what the Caddyfile proxies to, and this file is the only
@@ -676,6 +681,12 @@ services:
         required: false
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Host-local extra site blocks, imported by the Caddyfile (see
+      # sites.d/README.md). Untracked — .gitignore keeps only the README — so
+      # a shared edge's extra hostnames live on the machine, never in a commit,
+      # and the tracked Caddyfile stays byte-identical everywhere. The import
+      # wildcard matching zero files is valid, so a fresh checkout starts clean.
+      - ./sites.d:/etc/caddy/sites.d:ro
       - caddy-data:/data      # certificates + ACME account
       - caddy-config:/config
     depends_on:

@@ -1935,13 +1935,55 @@ would have dialled a customer into silence with the dial recorded as placed.
   with the feature flag on, refuses to boot — when `SITE_ADDRESS` is empty or
   a loopback/mDNS host, naming the fix in the error. `docker-compose.yml`
   passes `SITE_ADDRESS` to the worker un-defaulted.
-- The collision the box file has to dodge is measured, not folklore: two site
-  blocks for one address is `ambiguous site definition: securevoiceai.me`,
-  exit 1, before any route loads — which is why the box's skip-worktree'd copy
-  omits the `{$SITE_ADDRESS:localhost}` block that the tracked file keeps for
-  local dev and the CI compose smoke (`SITE_ADDRESS=localhost`).
+- The collision those intermediate arrangements had to dodge is measured, not
+  folklore: two site blocks for one address is `ambiguous site definition:
+  securevoiceai.me`, exit 1, before any route loads. The follow-up entry below
+  (same day) removes the last of them — the env-driven block is deleted and
+  the box-local file copy is retired.
 
 **State.** `tests/unit/dial-media-streams-truth.test.ts` 10 pass 0 fail
 (mutation-proven: restoring the `?? "localhost"` fallback fails the refusal
 test) · the box Caddy re-validated and healthy · CI's smoke path unchanged and
 still validating.
+
+## 2026-10-12 - The Caddyfile deadlock broken: host-local sites now import from sites.d
+
+The box's `Caddyfile` was hand-diverged (per-site blocks for the shared edge,
+inline) and skip-worktree'd, so every promoted change to the file made the
+deploy's `git pull` refuse until an operator merged by hand — failure mode #2
+in docs/VPS-RECOVERY.md, and still live at migration time: the box sat 163
+commits behind `origin/main` with that refusal waiting on the next pull.
+
+- Measured on the box, against the real files, with caddy:2-alpine:
+  - A wildcard import matching ZERO files is valid — `import sites.d/*.caddy`
+    with only the README present is `Valid configuration`, exit 0.
+  - With `sites.d/crucible.caddy` present, the adapted config carries all of
+    it: `crucible.svalley.tech`, its sslip redirect, `anvil:8545`, `api:8787`,
+    `web:3000`, alongside `localhost` and `securevoiceai.me` — the moved block
+    is verbatim (diff'd against the box file's own section: identical) and
+    fully live.
+  - A snippet defined in the parent Caddyfile (`secure_defaults`) imports
+    cleanly from the imported file.
+- Skip-worktree semantics, measured in a scratch repo on the box, because the
+  next deploy's behavior depends on it: flag + DIVERGED file + incoming
+  modifies → pull REFUSES; flag + CLEAN file + incoming modifies → pull
+  SUCCEEDS and the file updates. The fix is a clean, normal-tracked file — not
+  flag choreography.
+- What changed, repo-side: `{$SITE_ADDRESS:localhost}` became a literal
+  `localhost` block (the env block colliding with the literal
+  `securevoiceai.me` block was why the copies had to diverge; SITE_ADDRESS is
+  app-level only now), the site list ends with `import sites.d/*.caddy`,
+  compose mounts `./sites.d` and no longer passes SITE_ADDRESS to Caddy,
+  `.gitignore` keeps only `sites.d/README.md`, and deploy.yml CLEARS (never
+  sets) the retired skip-worktree flag.
+- Box migration, executed live: backup at `/tmp/Caddyfile.pre-sitesd-migration.*`,
+  `sites.d/crucible.caddy` written, flags cleared, `git checkout HEAD --
+  Caddyfile Caddyfile.platform`, box tree clean and ff-able to `origin/main`.
+  Serving across the whole migration: `securevoiceai.me /healthz` 200 and
+  `crucible.svalley.tech /` 200 — the running Caddy holds its config in memory
+  (`admin off`), so nothing restarted; the next deploy loads the new
+  arrangement.
+
+**State.** Box clean and ff-able · both validation cases pass · `sites.d/README.md`
+documents the add-a-host procedure; the next promotion that touches the
+Caddyfile pulls and deploys like any other file.

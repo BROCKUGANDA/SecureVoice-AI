@@ -16,12 +16,15 @@
 # Caddy 2 gotchas this file is deliberately written around. Every one of these
 # was hit and fixed during this build — do not "simplify" them away:
 #
-#   1. There is NO way to say "omit this site block when the env var is unset".
-#      A `{$VAR::81}` default makes the block exist in EVERY config, so a
-#      production config would bind plaintext :81 alongside :443. Plaintext
-#      development therefore lives in a SEPARATE file (Caddyfile.dev), which is
-#      deliberately NOT a compose service. One variable driving two site blocks is
-#      also an error ("ambiguous site definition").
+#   1. Site addresses are LITERAL — never an env var. A `{$VAR:default}` site
+#      address collides fatally with a literal block for the same host
+#      ("ambiguous site definition: securevoiceai.me", measured with `caddy
+#      validate` against caddy:2-alpine, 2026-10-12), and before that it forced
+#      the production box into a hand-diverged copy of this whole file. The
+#      list at the bottom is literal; host-local extra sites arrive through the
+#      untracked `import sites.d/*.caddy` below it, which cannot collide.
+#      Plaintext development still lives in a SEPARATE file (Caddyfile.dev),
+#      deliberately NOT a compose service.
 #   2. Snippets `(name) { … }` must be DEFINED BEFORE any block that `import`s
 #      them, or Caddy fails with "File to import not found".
 #   3. There is NO `log { redact { … } }` in Caddy 2. Redaction is
@@ -274,26 +277,36 @@
 # `{$CF_DNS_API_TOKEN}` needs Zone:DNS:Edit for this zone. Without it, proxied +
 # HTTP-01 is a silent outage for the proxied hostname only.
 
-# The env-driven site block — for the deployments that have no domain of their
-# own: a laptop (`SITE_ADDRESS` unset serves `localhost`) and CI's compose smoke,
-# which writes `SITE_ADDRESS=localhost` into its throwaway .env (ci.yml) and
-# polls `https://localhost:$CI_CADDY_HTTPS_PORT`.
+# Localhost — a laptop checkout and CI's compose smoke, which polls
+# `https://localhost:$CI_CADDY_HTTPS_PORT` (ci.yml). Caddy issues an INTERNAL
+# certificate for `localhost` (loopback names never touch ACME), so this block
+# is free on every host.
 #
-# The sharp edge, measured 2026-10-12 (caddy:2-alpine, `caddy validate`):
-# SITE_ADDRESS must never name a host that also appears literally below, or
-# startup dies with `ambiguous site definition: <host>` before any route loads.
-# Production's SITE_ADDRESS IS the public name — the app builds its Twilio
-# media-stream URL (src/worker/dial.ts) and its canonical-origin fallback
-# (src/lib/site-origin.ts) from it — so the box's skip-worktree'd copy of this
-# file DROPS this block rather than let the two collide. See the note under the
-# literal block for the full repo↔box contract.
+# This block used to be `{$SITE_ADDRESS:localhost}`, and that one choice caused
+# three separate failures, each measured:
 #
-# This block used to serve 57.130.80.158.sslip.io here. That stand-in was
-# retired 2026-10-12 — its block removed from the box file, its Cloudflare
-# record deleted, and deploy.yml / ci.yml / canary.yml now probe
-# https://securevoiceai.me. Do not re-add it; a dynamic-DNS name is for issuing
-# a certificate before the domain exists (docs/DEPLOY.md), not for serving one.
-{$SITE_ADDRESS:localhost} {
+#   1. On the production box SITE_ADDRESS names securevoiceai.me — which the
+#      literal block below ALSO serves — and both at once is a fatal
+#      `ambiguous site definition: securevoiceai.me` at startup.
+#   2. Because both blocks could not coexist, the box carried a hand-diverged
+#      copy of this file, skip-worktree'd so pulls would not trample it —
+#      which made every promoted change to this file REFUSE to pull ("local
+#      changes to Caddyfile would be overwritten by merge"). A Caddyfile fix
+#      could not deploy without an SSH session first.
+#   3. SITE_ADDRESS has an app-level job too: the canonical origin
+#      (src/lib/site-origin.ts) and the Twilio media-stream URL
+#      (src/worker/dial.ts) are built from it. One variable driving both the
+#      edge and the app cannot be set for one without lying to the other.
+#
+# A literal `localhost` splits the two: Caddy serves exactly the list below,
+# and SITE_ADDRESS is purely an app-level value again.
+#
+# This block also used to serve 57.130.80.158.sslip.io. That stand-in was
+# retired 2026-10-12 — its Cloudflare record deleted, its record and tunnel
+# gone, and deploy.yml / ci.yml / canary.yml now probe https://securevoiceai.me.
+# Do not re-add it; a dynamic-DNS name is for issuing a certificate before the
+# domain exists (docs/DEPLOY.md), not for serving one.
+localhost {
 	import site
 }
 
@@ -334,15 +347,30 @@
 # not a new exposure — but if the record is switched back to orange, this block
 # MUST acquire a static origin certificate or it returns to the 526 above.
 #
-# Note the box's own Caddyfile (skip-worktree'd) is deliberately NOT this file:
-# it is this one MINUS the `{$SITE_ADDRESS:localhost}` block above (on the box
-# SITE_ADDRESS names this very hostname, and both blocks at once is the
-# `ambiguous site definition` startup failure, measured 2026-10-12) PLUS a
-# per-site block for crucible.svalley.tech — the other project on the shared
-# edge — and its redirect. A merge must reproduce both halves and must never
-# `git checkout` over the box file. `securevoice.svalley.tech` and the
-# SecureVoice sslip.io stand-in were removed from the box file on 2026-10-12 at
-# the operator's request; docs/VPS-RECOVERY.md carries the merge procedure.
+# HOST-LOCAL SITES. This file is byte-identical on every machine — the shared
+# production box also fronts crucible.svalley.tech (another project), and that
+# site block does NOT live here: it is an untracked `sites.d/crucible.caddy` on
+# that box, pulled in by the `import sites.d/*.caddy` at the bottom. Adding a
+# host is one untracked file, and commits to THIS file deploy themselves. That
+# replaced the old arrangement — per-site blocks inline here in a skip-worktree'd
+# box copy, which made every promoted change to this file refuse to pull until
+# an operator SSH'd in and merged by hand. docs/VPS-RECOVERY.md carries the
+# history (failure mode #2).
 securevoiceai.me, www.securevoiceai.me {
 	import site
 }
+
+# ---- host-local sites ---------------------------------------------------------------
+#
+# A wildcard import matching ZERO files is valid (measured, caddy:2-alpine) — no
+# placeholder is needed, so a fresh checkout expands this to nothing. Files here
+# are machine-local and untracked (.gitignore keeps only sites.d/README.md): the
+# shared box's extra hostnames, one `<host>.caddy` each, a complete
+# `host { import site }` block. The `(site)` snippet above is defined in this
+# parent file and IS importable from here — snippets are global once defined
+# (measured). Relative imports resolve against THIS file's directory, so in the
+# container this is `/etc/caddy/sites.d/*.caddy` (mounted by docker-compose.yml).
+#
+# Editing one needs a process restart — `admin off` means there is no reload
+# endpoint: `docker compose up -d --force-recreate caddy`.
+import sites.d/*.caddy

@@ -18,9 +18,10 @@ import { env } from "@/lib/config";
  *   1. `NEXT_PUBLIC_SITE_URL` — the correct answer, and the one to set in
  *      production. It is a NEXT_PUBLIC_ var so the client bundle can read it too.
  *   2. `SITE_DOMAIN` — the bare hostname, promoted to an https:// origin.
- *   3. `SITE_ADDRESS` — the hostname Caddy issues TLS for, promoted to https.
+ *   3. `SITE_ADDRESS` — the deployment's canonical hostname, promoted to https.
  *      This is the one that quietly publishes a `*.sslip.io` stand-in; see
- *      `siteOriginIsPlaceholder` below.
+ *      `siteOriginIsPlaceholder` below. (Caddy does not read this variable —
+ *      its site list is literal, see `Caddyfile` / `sites.d/`.)
  *   4. `env.appBaseUrl` — the dev fallback (`http://localhost:3000`), so a local
  *      build emits a parseable file instead of throwing.
  *
@@ -80,7 +81,7 @@ export function siteOrigin(): string {
   if (explicit) return explicit.replace(/\/+$/, "");
 
   // `SITE_DOMAIN` is the bare-hostname spelling of the same answer, for an operator
-  // who already sets `SITE_ADDRESS` for Caddy and does not want to compose an
+  // who already sets `SITE_ADDRESS` for the app and does not want to compose an
   // `https://` string into a second variable.
   const domain = process.env.SITE_DOMAIN?.trim();
   if (domain) return `https://${domain.replace(/^https?:\/\//, "").replace(/\/+$/, "")}`;

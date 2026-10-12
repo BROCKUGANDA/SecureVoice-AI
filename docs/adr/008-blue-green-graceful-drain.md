@@ -58,9 +58,9 @@ against a live carrier before 100%.
   valuable and is not multi-region.
 - Deploys take longer by design — up to the drain window per instance.
 - Colour state is host-local file state, so two operators running deploy at once is a
-  race, and the skip-worktree'd edge config currently blocks the pull whenever a
-  promoted commit touches `Caddyfile` (recorded in `docs/VPS-RECOVERY.md` failure mode
-  #2, which understates it: the merge by hand does not unblock `--ff-only`).
+  race. (The skip-worktree'd edge config that used to block any pull touching
+  `Caddyfile` was retired 2026-10-12 — host-local sites moved to the untracked
+  `sites.d/*.caddy` the Caddyfile imports; see `docs/VPS-RECOVERY.md` failure mode #2.)
 - Blue/green holds two app containers during a deploy, and the memory ceiling for the
   box had to be measured for that overlap rather than for one instance.
 

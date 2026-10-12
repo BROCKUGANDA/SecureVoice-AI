@@ -34,9 +34,13 @@
 # run whose conclusion was not `success`. Previously a push to main started a
 # deploy in parallel with CI, so a red build could still roll forward.
 #
-# The Caddyfile on the VPS is VPS-local (per-site blocks for the shared edge)
-# and is protected with `git update-index --skip-worktree`, so the pull never
-# trips over it.
+# The Caddyfile is byte-identical between this repo and the box: the shared
+# edge's extra hostnames (crucible.svalley.tech) live in an untracked
+# sites.d/*.caddy that the tracked Caddyfile imports, so a promoted change to
+# the Caddyfile pulls and deploys like any other file. It used to be the
+# opposite — a skip-worktree'd box-local copy, where every promoted Caddyfile
+# change made the pull refuse until an operator merged by hand. See
+# docs/VPS-RECOVERY.md failure mode #2 for that history.
 # ---------------------------------------------------------------------------
 name: Deploy
 
@@ -157,8 +161,8 @@ jobs:
       # guards against for migrations. Refusing is cheap; debugging it live is not.
       #
       # This is also what lets the release path keep checking out `main` below
-      # instead of detaching onto the tag: a detached HEAD interacts with the
-      # skip-worktree'd Caddyfile and can hard-fail a deploy on a live box.
+      # instead of detaching onto the tag: the box is a `main` checkout, and
+      # every deploy path — automatic or manual — expects to find it there.
       - name: Refuse a release whose tag is not on main
         if: env.DEPLOY_SOURCE == 'release'
         run: |
@@ -220,28 +224,16 @@ jobs:
           cd ~/securevoice-ai
           git fetch origin main
           git checkout main
-          # The VPS Caddyfile is VPS-local and is meant to be skip-worktree'd so a
-          # deploy pull never trips on it (see the note at the top of this file).
-          # That flag can lapse — a manual `git checkout` or an edit outside the
-          # deploy clears it — and one deploy aborted with "Your local changes to
-          # Caddyfile would be overwritten by merge". Re-assert it here so the
-          # ff-only pull always preserves the deployment-local edge config.
-          git update-index --skip-worktree Caddyfile Caddyfile.platform 2>/dev/null || true
-          # A pull can still be refused when the PROMOTED commits modify the
-          # Caddyfile itself: skip-worktree preserves the local version, but a
-          # merge that would change a skip-worktree'd file refuses rather than
-          # silently dropping the deployment-local edge config. When that
-          # happens, print the incoming hunks so the operator can merge them by
-          # hand instead of guessing (docs/VPS-RECOVERY.md, failure mode #2).
-          if ! git pull --ff-only origin main; then
-            if git diff HEAD origin/main --name-only | grep -q '^Caddyfile'; then
-              echo "::error::the pull was refused because the promoted commits modify the Caddyfile,"
-              echo "::error::which is VPS-local (skip-worktree). Merge these incoming hunks into the"
-              echo "::error::VPS-local file by hand - see docs/VPS-RECOVERY.md failure mode #2:"
-              git --no-pager diff HEAD origin/main -- Caddyfile Caddyfile.platform || true
-            fi
-            exit 1
-          fi
+          # The Caddyfile is NOT box-local anymore. Host-local sites live in
+          # untracked sites.d/*.caddy (imported by the tracked Caddyfile), so
+          # the tracked file is byte-identical everywhere and a promoted change
+          # to it pulls like any other file. The skip-worktree flag is retired
+          # — clear it in case an older deploy left it behind, because a
+          # lingering flag would pretend local edits are clean (measured:
+          # flag + diverged file = refused pull; flag + clean file = clean
+          # pull). History: docs/VPS-RECOVERY.md, failure mode #2.
+          git update-index --no-skip-worktree Caddyfile Caddyfile.platform 2>/dev/null || true
+          git pull --ff-only origin main
           echo "deployed commit: $(git rev-parse --short HEAD)"
 
           # db-setup is in the build list on purpose. It is the image that runs

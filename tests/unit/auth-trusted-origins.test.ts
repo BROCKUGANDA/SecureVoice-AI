@@ -15,7 +15,7 @@
  * `src/lib/auth/origins.ts` is pure and takes its inputs as arguments, so none of
  * this needs a database, a server, or a mutated `process.env`.
  */
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import {
   buildTrustedOrigins,
   formatOrigin,
@@ -117,6 +117,61 @@ describe("buildTrustedOrigins", () => {
     });
     expect(cfg.origins).toEqual(["http://localhost:3000"]);
     expect(cfg.rejected).toEqual([]);
+  });
+
+  // ── build phase ───────────────────────────────────────────────────────────
+  //
+  // `trustedOriginsFromEnv` decides `production` as `NODE_ENV=production &&
+  // !inProductionBuild()`. These two tests pin BOTH halves of that, because the
+  // exemption is only safe while the other half still holds: the hazard the
+  // refusal guards is a SERVING process answering sign-ins, and `next start`
+  // never sets NEXT_PHASE, so a server cannot reach the exemption.
+  //
+  // Driven through the real process.env rather than by passing `production`
+  // directly, because the thing under test IS the combination of the two env
+  // values — a test that called `buildTrustedOrigins({production:false})` would
+  // pass even if `inProductionBuild()` were deleted.
+  describe("NEXT_PHASE=phase-production-build", () => {
+    const PHASE = process.env.NEXT_PHASE;
+    const NODE_ENV = process.env.NODE_ENV;
+
+    afterEach(() => {
+      if (PHASE === undefined) delete process.env.NEXT_PHASE;
+      else process.env.NEXT_PHASE = PHASE;
+      if (NODE_ENV === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = NODE_ENV;
+    });
+
+    /** A fresh module, so the memoised cache does not answer for us. */
+    const reload = () => import(`@/lib/auth/origins?t=${Date.now()}`);
+
+    test("a production BOOT on a loopback origin still refuses", async () => {
+      process.env.NODE_ENV = "production";
+      delete process.env.NEXT_PHASE;
+      process.env.BETTER_AUTH_URL = "http://localhost:3000";
+      const mod = await reload();
+      expect(() => mod.trustedOriginsFromEnv()).toThrow(/loopback/i);
+    });
+
+    test("a production BUILD on the same loopback origin is allowed", async () => {
+      process.env.NODE_ENV = "production";
+      process.env.NEXT_PHASE = "phase-production-build";
+      process.env.BETTER_AUTH_URL = "https://localhost:61015";
+      const mod = await reload();
+      // The CI smoke test allocates a random loopback port and builds against
+      // it; this is that case, and it used to kill every run at
+      // "Failed to collect page data for /_not-found".
+      const cfg = mod.trustedOriginsFromEnv();
+      expect(cfg.origins).toContain("https://localhost:61015");
+    });
+
+    test("an UNRELATED phase value grants nothing", async () => {
+      process.env.NODE_ENV = "production";
+      process.env.NEXT_PHASE = "phase-development-server";
+      process.env.BETTER_AUTH_URL = "http://localhost:3000";
+      const mod = await reload();
+      expect(() => mod.trustedOriginsFromEnv()).toThrow(/loopback/i);
+    });
   });
 
   test("the public origin brings its www sibling", () => {

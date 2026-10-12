@@ -195,6 +195,20 @@ export function buildTrustedOrigins(input: {
 let cached: OriginConfig | null = null;
 
 /**
+ * True while `next build` is running, false in every process that serves traffic.
+ *
+ * Set by Next's own build entrypoint — `next/dist/build/index.js` assigns
+ * `process.env.NEXT_PHASE = PHASE_PRODUCTION_BUILD` — and by nothing that starts
+ * a server. That asymmetry is the whole safety argument: a build process can
+ * never observe it, so this cannot be used to talk a real server into skipping a
+ * check, and it is not an attacker-controlled value because nobody sets it but
+ * Next.
+ */
+function inProductionBuild(): boolean {
+  return process.env.NEXT_PHASE === "phase-production-build";
+}
+
+/**
  * The allowlist this process was configured with, read from the environment once.
  *
  * Both halves of the system take it from here — `src/lib/better-auth.ts` hands the
@@ -206,12 +220,32 @@ let cached: OriginConfig | null = null;
  * would let a mid-process `process.env` edit make the log claim a host is trusted
  * while Better Auth, configured at import, does not. A test that needs a different
  * configuration imports `buildTrustedOrigins` and passes its inputs explicitly.
+ *
+ * ## Why the loopback refusal does not apply during a build
+ *
+ * The refusal exists because a SERVING process on a loopback base URL answers
+ * every sign-in with "Invalid origin". `next build` serves no sign-in — it
+ * evaluates route modules to collect page data and emits an artifact — so the
+ * hazard the check guards is not reachable from it.
+ *
+ * It has to be excluded, because the exclusion is load-bearing rather than
+ * cosmetic. CI's compose smoke test allocates a random loopback port and builds
+ * against `https://localhost:<port>`; with the check applied at build time every
+ * run died at `Failed to collect page data for /_not-found`, which is a build
+ * that cannot be produced at all. The alternative — demanding a real public
+ * origin from every build — would mean baking a placeholder origin into build
+ * environments, which is worse: it teaches operators to type a production-looking
+ * URL where none is true, and the runtime value is what actually matters.
+ *
+ * Nothing is lost at runtime. The artifact is built once and the value is read
+ * again by `next start`, which never sets NEXT_PHASE, so the refusal still fires
+ * on the process that would actually break logins.
  */
 export function trustedOriginsFromEnv(): OriginConfig {
   cached ??= buildTrustedOrigins({
     baseURL: process.env.BETTER_AUTH_URL ?? process.env.APP_URL,
     extra: process.env.BETTER_AUTH_TRUSTED_ORIGINS,
-    production: process.env.NODE_ENV === "production",
+    production: process.env.NODE_ENV === "production" && !inProductionBuild(),
   });
   return cached;
 }

@@ -79,6 +79,46 @@ function parsePayload(job: DialJob): JobPayload {
   }
 }
 
+/** Loopback and `.local` hosts — the same list `src/lib/auth/origins.ts` refuses
+ *  in production, duplicated rather than imported because that module is marked
+ *  `server-only` and importing it from this standalone Bun process throws.
+ *
+ *  `.local` is a suffix test: `printer.local` resolves only via mDNS on the local
+ *  segment, which is exactly the class of name a carrier cannot resolve. */
+const UNREACHABLE_HOST =
+  /^(localhost|127\.\d{1,3}\.\d{1,3}\.\d{1,3}|0\.0\.0\.0|\[?::1\]?|.*\.local)$/i;
+
+/**
+ * The public hostname the carrier dials BACK for the media stream.
+ *
+ * This value is not an internal address. `placeInterventionCall` hands it to
+ * Twilio, whose fleet resolves it from the public internet — so a loopback or
+ * empty host produces a call the customer answers and hears nothing on, while
+ * every log here records a successful dial. That is the worst outcome this
+ * system can produce: a fraud intervention that reports success and reaches no
+ * one.
+ *
+ * The predecessor of this function fell back to `"localhost"`. In production
+ * that value is guaranteed wrong, `docker-compose.yml` did not pass
+ * `SITE_ADDRESS` to this service at all, and the unit test could not tell: it
+ * asserted only that the URL contained `wss://` and the path. So the fallback
+ * is replaced by a refusal, and the caller (`handle`) turns it into a named,
+ * audited `dial_failed` — the same shape as every other pre-dial refusal.
+ *
+ * `SITE_ADDRESS` (not `NEXT_PUBLIC_SITE_URL`) is the input because it is the
+ * hostname Caddy's TLS certificate is issued for, and the one the tracked
+ * Caddyfile's per-site blocks are built around.
+ */
+export function mediaStreamHost(env: NodeJS.ProcessEnv = process.env): string {
+  const host = (env.SITE_ADDRESS ?? "").trim();
+  if (host === "" || UNREACHABLE_HOST.test(host)) {
+    throw new Error(
+      `SITE_ADDRESS is ${host === "" ? "not set" : JSON.stringify(host)}, but the Twilio media-stream plane needs the public hostname the carrier can reach (wss://<SITE_ADDRESS>/realtime/media-stream). Refusing to dial rather than place a call the customer cannot hear. Set SITE_ADDRESS to the hostname Caddy serves, e.g. securevoiceai.me.`,
+    );
+  }
+  return host;
+}
+
 /**
  * Place one call.
  *
@@ -253,7 +293,7 @@ async function handle(job: DialJob): Promise<DialOutcome> {
       outboxWritten: boolean;
     };
     if (flag("twilioMediaStreams")) {
-      const host = process.env.SITE_ADDRESS ?? "localhost";
+      const host = mediaStreamHost();
       // Worker plane lives on a SIBLING prefix under /realtime, not under /api:
       // an edge matcher on /api/voice-websocket would shadow the app's own
       // Next.js route of that name out of its per-route rate limiting. Caddy
@@ -505,6 +545,16 @@ async function main(): Promise<void> {
     leaseMs: LEASE_MS,
     pollMs: POLL_MS,
   });
+
+  // Fail the boot, not every call, when the media-stream plane is on and its
+  // host is unreachable: the flag is the operator's statement that this
+  // deployment has a publicly reachable WebSocket endpoint, and without one
+  // every dial this process places is a call the customer answers in silence.
+  // A crash-looping container with this message in `docker compose logs` is a
+  // diagnosable five-second fix; the alternative is a month of mute calls.
+  if (flag("twilioMediaStreams")) {
+    mediaStreamHost();
+  }
 
   if (ONCE) {
     const n = await tick();

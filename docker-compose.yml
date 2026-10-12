@@ -177,6 +177,14 @@ services:
       # dial. Same optional secret as the voice-stream worker.
       VOICE_STREAM_INTERNAL_URL: ${VOICE_STREAM_INTERNAL_URL:-http://voice-stream-worker:8080}
       VOICE_PREWARM_SECRET: ${VOICE_PREWARM_SECRET:-}
+      # The PUBLIC hostname the carrier dials back for the media stream
+      # (wss://<SITE_ADDRESS>/realtime/media-stream). Unlike VOICE_STREAM_INTERNAL_URL
+      # this is not an internal address — Twilio resolves it from the internet —
+      # so it is passed through un-defaulted: `src/worker/dial.ts` refuses to
+      # start (flag on) or to dial (flag on mid-process) with an empty or
+      # loopback value, because a URL the carrier cannot reach is a recorded
+      # successful dial the customer hears silence on.
+      SITE_ADDRESS: ${SITE_ADDRESS:-}
       DIAL_WORKER_POLL_MS: ${DIAL_WORKER_POLL_MS:-1000}
       DIAL_WORKER_BATCH: ${DIAL_WORKER_BATCH:-5}
     depends_on:

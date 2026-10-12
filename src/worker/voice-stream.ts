@@ -27,6 +27,7 @@ import { env, SUPPORTED_LANGS } from "@/lib/config";
 import { db } from "@/lib/db";
 import type { TtsLang } from "@/lib/elevenlabs/client";
 import { resolveTtsModel } from "@/lib/elevenlabs/client";
+import { markVoiceFailed } from "@/lib/elevenlabs/sms-fallback";
 import { DeepgramLiveClient, preconnectDeepgram } from "@/lib/voice/deepgram-client";
 import { withFirstChunkDeadline } from "@/lib/voice/first-audio-deadline";
 import { installProcessCrashHandlers } from "@/lib/process-crash-handlers";

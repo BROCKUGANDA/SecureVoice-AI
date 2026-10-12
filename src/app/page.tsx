@@ -8,7 +8,6 @@ import { isShellPath, pathForView, viewForPath } from "@/lib/console-routes";
 import { cn } from "@/lib/utils";
 import { Navbar } from "@/components/shell/Navbar";
 import { Footer } from "@/components/shell/Footer";
-import { LoadingScreen } from "@/components/shell/LoadingScreen";
 import { Home } from "@/views/Home";
 import { Demo } from "@/views/Demo";
 import { Dashboard } from "@/views/Dashboard";
@@ -46,7 +45,7 @@ const VIEWS: Record<View, React.ComponentType> = {
 };
 
 export function AppRoot() {
-  const { view, lang, booted, setBooted, setView, setTimedOut, highContrast } = useApp();
+  const { view, lang, setView, setTimedOut, highContrast } = useApp();
   const { data: session } = useSession();
   const isSignedIn = Boolean(session?.user);
   // Role for gating the console. Better Auth has no `publicMetadata`: the role
@@ -179,8 +178,6 @@ export function AppRoot() {
 
   return (
     <div className={cn("flex flex-col bg-paper", !fullBleed && "min-h-screen")}>
-      {!booted && <LoadingScreen onDone={() => setBooted(true)} />}
-
       <IdleTimeoutHandler onTimeout={handleIdleTimeout} />
 
       <a

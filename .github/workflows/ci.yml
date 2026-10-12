@@ -577,6 +577,18 @@ jobs:
       - name: Build
         env:
           NEXT_TELEMETRY_DISABLED: "1"
+          # `next build` prerenders `/`, and that page evaluates
+          # `src/lib/paddle-browser.ts` at module scope. Since
+          # `fix(pricing): price ids come from the environment, and a missing one
+          # refuses the button` (3967409), that module REFUSES to fall back to a
+          # bundled sandbox id — it throws while generating static pages, so the
+          # build dies and the two steps after it never run. NEXT_PUBLIC_* is
+          # inlined at BUILD time, so no runtime value can fix this: the map has
+          # to be present HERE. These are the same disposable ids the smoke job's
+          # .env writes for the same reason; the parser only requires
+          # `/^pri_[A-Za-z0-9]+$/` and every tier in AMOUNT_TO_PLAN needs BOTH
+          # intervals, or the map is rejected as incomplete.
+          NEXT_PUBLIC_PADDLE_PRICES: '{"usd_9900_month":"pri_ciStarterMonth","usd_9900_year":"pri_ciStarterYear","usd_49900_month":"pri_ciGrowthMonth","usd_49900_year":"pri_ciGrowthYear","usd_200000_month":"pri_ciEnterpriseMonth","usd_200000_year":"pri_ciEnterpriseYear"}'
         run: bun run build
 
       # `next build` fetches from Google Fonts at build time. That is fine here and

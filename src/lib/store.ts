@@ -1,6 +1,7 @@
 "use client";
 
 import { create } from "zustand";
+import type { Seat } from "@/lib/auth/seat";
 
 export type View =
   | "home"
@@ -21,12 +22,33 @@ export type View =
   | "setup";
 
 /**
- * View permission model (RBAC):
+ * View permission model (RBAC).
+ *
+ * Ordered least-privileged first, and the ORDER IS THE PERMISSION ORDER — the
+ * shell compares by index (`atLeast` in @/lib/auth/seat). Inserting a level in
+ * the wrong place silently widens or narrows everything above it.
+ *
  *   "public"   — everyone, including signed-out visitors
- *   "user"     — any authenticated session (demo or operator roles)
- *   "operator" — operator role only (full platform)
+ *   "judge"    — any signed-in session. Read-only: the tour and the recorded
+ *                evidence. A hackathon judge or press reviewer lives here.
+ *   "vendor"   — a working seat (Analyst). The queue: cases, interventions,
+ *                recordings. A bank's fraud desk lives here.
+ *   "operator" — Owner/Admin. Changes the organisation: settings, keys, team,
+ *                billing, the setup wizard.
+ *
+ * "user" was the old name for what is now "judge", which read as though it
+ * granted something. It granted nothing: a demo seat could open the Command
+ * Center under it, and every console route refused the write it was offering.
  */
-export type ViewAccess = "public" | "user" | "operator";
+export type ViewAccess = "public" | "judge" | "vendor" | "operator";
+
+/** The seat required by a view access level. "public" maps to no seat. */
+export const ACCESS_SEAT: Record<ViewAccess, Seat | null> = {
+  public: null,
+  judge: "judge",
+  vendor: "vendor",
+  operator: "operator",
+};
 
 export const VIEW_ACCESS: Record<View, ViewAccess> = {
   home: "public",
@@ -41,11 +63,17 @@ export const VIEW_ACCESS: Record<View, ViewAccess> = {
   refund: "public",
   usecases: "public",
   auth: "public",
-  demo: "user",
-  dashboard: "user",
-  product: "user",
+  demo: "judge",
+  dashboard: "judge",
+  product: "judge",
   deck: "operator", // team appendix
-  console: "user", // single app — demo-role users get the same Command Center with a Demo Mode badge
+  // The Command Center is a WORKING surface: it opens cases, fires
+  // interventions and reads the audit chain. It is `vendor` rather than
+  // `judge` because a read-only seat that can open a case and freeze a card is
+  // not read-only, and because it is what makes the seat split visible rather
+  // than cosmetic — a judge genuinely gets a different console, not the same
+  // one with fewer buttons.
+  console: "vendor",
   settings: "operator",
   // Institution setup configures the TENANT (telecom identity, BYOK, webhooks),
   // so it is operator-only like settings. It is NOT the product tour, which is a
@@ -81,7 +109,6 @@ export type SettingsTab = "org" | "keys" | "knowledge" | "team" | "security" | "
 interface AppState {
   view: View;
   lang: Lang;
-  booted: boolean;
   /** set when the user clicks any "launch demo" CTA — Demo view auto-starts playback */
   demoIntent: boolean;
   /** session was ended by the idle-timeout guard — Auth shows the banner */
@@ -97,7 +124,6 @@ interface AppState {
   settingsTab: SettingsTab;
   setView: (v: View) => void;
   setLang: (l: Lang) => void;
-  setBooted: (b: boolean) => void;
   setTimedOut: (t: boolean) => void;
   setHighContrast: (h: boolean) => void;
   openSettings: (tab: SettingsTab) => void;
@@ -108,14 +134,12 @@ interface AppState {
 export const useApp = create<AppState>((set) => ({
   view: "home",
   lang: "en",
-  booted: false,
   demoIntent: false,
   timedOut: false,
   highContrast: initialContrast(),
   settingsTab: "org",
   setView: (view) => set({ view }),
   setLang: (lang) => set({ lang }),
-  setBooted: (booted) => set({ booted }),
   setTimedOut: (timedOut) => set({ timedOut }),
   setHighContrast: (highContrast) => {
     try {

@@ -22,8 +22,23 @@ import { paddlePriceIds } from "@/lib/paddle-browser";
  * `NEXT_PUBLIC_PADDLE_PRICES` and THROWS when unset: the pricing page is where a
  * customer is about to see a Buy button, and a Buy button wired to nothing is a
  * worse failure than a page that refuses to render one.
+ *
+ * The throw is CAUGHT here rather than let to escape module scope: a raw throw
+ * at module init takes the ENTIRE pricing page down — including the policies
+ * and the tier copy, which never touch checkout. A misconfigured build should
+ * render the page with checkout honestly marked unavailable (SubscribeButtons
+ * already handles null ids), not hand every visitor a blank route. The console
+ * error still names the exact env var — the operator is its audience, not the
+ * visitor.
  */
-const PADDLE_PRICE_ID = paddlePriceIds();
+const PADDLE_PRICE_ID: ReturnType<typeof paddlePriceIds> | null = (() => {
+  try {
+    return paddlePriceIds();
+  } catch (err) {
+    console.error("[pricing] checkout is not configured for this build", err);
+    return null;
+  }
+})();
 
 /**
  * Public pricing, and the two refund policies the business actually needs.
@@ -308,8 +323,8 @@ export function Pricing({
                   description: tier.blurb[lang],
                   features: tier.features.map((f) => f[lang]),
                   priceId: {
-                    month: PADDLE_PRICE_ID[tier.id].month,
-                    year: PADDLE_PRICE_ID[tier.id].year,
+                    month: PADDLE_PRICE_ID?.[tier.id]?.month ?? null,
+                    year: PADDLE_PRICE_ID?.[tier.id]?.year ?? null,
                   },
                 }}
                 country={country}

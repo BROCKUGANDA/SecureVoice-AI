@@ -34,7 +34,7 @@ import { useApp } from "@/lib/store";
  */
 
 const KIND_STYLE: Record<WorkflowNode["kind"], string> = {
-  prompt: "border-line bg-white dark:bg-white text-ink",
+  prompt: "border-line bg-white text-ink",
   condition: "border-amber-400 bg-amber-50",
   tool: "border-primary/40 bg-primary/5",
   subagent: "border-indigo-400 bg-indigo-50",

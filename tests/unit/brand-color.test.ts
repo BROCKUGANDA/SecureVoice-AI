@@ -18,7 +18,6 @@ import { describe, expect, test } from "bun:test";
 import {
   AA_NON_TEXT_CONTRAST,
   AA_TEXT_CONTRAST,
-  DARK_SURFACE,
   DEFAULT_PRIMARY,
   DEFAULT_PRIMARY_FOREGROUND,
   LIGHT_SURFACE,
@@ -26,7 +25,6 @@ import {
   brandStyleSheet,
   contrastRatio,
   evaluateBrandPrimary,
-  forDarkSurface,
   forLightSurface,
   normalizeHex,
   readableForeground,
@@ -122,9 +120,8 @@ describe("evaluateBrandPrimary", () => {
     expect(v.ok).toBe(true);
     if (!v.ok) return;
     expect(v.primary).toBe(DEFAULT_PRIMARY);
-    // The default green reads on both surfaces, so neither scheme corrects it.
+    // The default green reads on the light card, so the scheme does not correct it.
     expect(v.lightPrimary).toBe(DEFAULT_PRIMARY);
-    expect(v.darkPrimary).toBe(DEFAULT_PRIMARY);
     // The derived foreground is NOT the hand-picked #f4faf7: a computed value
     // maximises its margin against the gate. It only has to agree that the
     // default green wants light text.
@@ -183,13 +180,16 @@ describe("evaluateBrandPrimary", () => {
     );
   });
 
-  test("black is corrected for dark mode, not refused", () => {
+  test("black needs no correction on the light card, not refused", () => {
+    // Black is already maximally dark — it cannot be darkened further, and it
+    // clears 3:1 against white by a huge margin. The function returns it
+    // unchanged at step 0, which is the correct outcome.
     const v = evaluateBrandPrimary("#000000");
     expect(v.ok).toBe(true);
     if (!v.ok) return;
     expect(v.primary).toBe("#000000");
-    expect(v.darkPrimary).not.toBe("#000000");
-    expect(contrastRatio(v.darkPrimary, DARK_SURFACE)).toBeGreaterThanOrEqual(AA_NON_TEXT_CONTRAST);
+    expect(v.lightPrimary).toBe("#000000");
+    expect(contrastRatio(v.lightPrimary, LIGHT_SURFACE)).toBeGreaterThanOrEqual(AA_NON_TEXT_CONTRAST);
   });
 
   test("refuses a non-hex with a reason the operator can act on", () => {
@@ -212,14 +212,8 @@ describe("evaluateBrandPrimary", () => {
           expect(contrastRatio(v.lightPrimary, v.lightForeground)).toBeGreaterThanOrEqual(
             AA_TEXT_CONTRAST,
           );
-          expect(contrastRatio(v.darkPrimary, v.darkForeground)).toBeGreaterThanOrEqual(
-            AA_TEXT_CONTRAST,
-          );
-          // And neither scheme's control is invisible against its own card.
+          // And the control is not invisible against its own card.
           expect(contrastRatio(v.lightPrimary, LIGHT_SURFACE)).toBeGreaterThanOrEqual(
-            AA_NON_TEXT_CONTRAST,
-          );
-          expect(contrastRatio(v.darkPrimary, DARK_SURFACE)).toBeGreaterThanOrEqual(
             AA_NON_TEXT_CONTRAST,
           );
         }
@@ -262,50 +256,6 @@ describe("forLightSurface", () => {
   });
 });
 
-describe("forDarkSurface", () => {
-  test("leaves a colour that already reads on the dark surface alone", () => {
-    expect(forDarkSurface("#17a673")).toBe("#17a673");
-  });
-
-  test("lightens a dark brand until it clears the non-text threshold", () => {
-    const lifted = forDarkSurface("#0b1f3a");
-    expect(lifted).not.toBe("#0b1f3a");
-    expect(contrastRatio(lifted, DARK_SURFACE)).toBeGreaterThanOrEqual(AA_NON_TEXT_CONTRAST);
-  });
-
-  test("stops at the FIRST passing step, not at white", () => {
-    // Overshooting to white would wash a bank's brand out to grey. Black has to
-    // clear 3:1 against #121814 well before it reaches white, and the result
-    // must be the first step that does, not the last one tried.
-    const lifted = forDarkSurface("#000000");
-    expect(lifted).not.toBe("#000000");
-    expect(lifted).not.toBe("#ffffff");
-    expect(contrastRatio(lifted, DARK_SURFACE)).toBeGreaterThanOrEqual(AA_NON_TEXT_CONTRAST);
-
-    // Reconstruct the greys `forDarkSurface` walks through — step k is
-    // round(255 * k/20) — and assert every earlier one would have been refused.
-    const greyAt = (k: number) => {
-      const v = Math.round((255 * k) / 20)
-        .toString(16)
-        .padStart(2, "0");
-      return `#${v}${v}${v}`;
-    };
-    let firstPassing = -1;
-    for (let k = 1; k <= 21; k++) {
-      if (contrastRatio(greyAt(k), DARK_SURFACE) >= AA_NON_TEXT_CONTRAST) {
-        firstPassing = k;
-        break;
-      }
-    }
-    expect(firstPassing).toBeGreaterThan(0);
-    expect(lifted).toBe(greyAt(firstPassing));
-  });
-
-  test("is deterministic, so the same brand renders identically every load", () => {
-    expect(forDarkSurface("#123456")).toBe(forDarkSurface("#123456"));
-  });
-});
-
 describe("brandStyleSheet", () => {
   test("overrides the tokens that carry the brand and leaves the tints alone", () => {
     const v = evaluateBrandPrimary("#123456");
@@ -320,14 +270,14 @@ describe("brandStyleSheet", () => {
     expect(vars["--green-tint"]).toBeUndefined();
   });
 
-  test("emits a light rule and a dark rule", () => {
+  test("emits a single light rule", () => {
     const v = evaluateBrandPrimary("#123456");
     expect(v.ok).toBe(true);
     if (!v.ok) return;
     const css = brandStyleSheet(v);
     expect(css).not.toBeNull();
     expect(css).toStartWith(":root{");
-    expect(css).toContain(".dark{");
+    expect(css).not.toContain(".dark");
   });
 
   test("is null for a refused colour, so a bad tenant setting renders nothing", () => {
@@ -351,9 +301,9 @@ describe("brandStyleSheet", () => {
     // The selectors are fixed, so an unexpected one would mean the serialiser
     // grew a branch. Anything outside this set is a bug, not a new feature.
     const selectors = [...css.matchAll(/([^{}]+)\{/g)].map((m) => (m[1] ?? "").trim());
-    expect(new Set(selectors)).toEqual(new Set([":root", ".dark"]));
+    expect(new Set(selectors)).toEqual(new Set([":root"]));
 
-    // The properties are the fixed token set, repeated once per scheme.
+    // The properties are the fixed token set.
     const ALLOWED = [
       "--primary",
       "--primary-foreground",
@@ -362,7 +312,7 @@ describe("brandStyleSheet", () => {
       "--sidebar-primary-foreground",
     ];
     const props = [...css.matchAll(/(--[a-z-]+)\s*:/g)].map((m) => m[1] ?? "");
-    expect(props.length).toBe(ALLOWED.length * 2);
+    expect(props.length).toBe(ALLOWED.length);
     for (const p of props) expect(ALLOWED).toContain(p);
   });
 });

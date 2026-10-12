@@ -43,6 +43,7 @@ import {
   type VoiceRole,
 } from "@/lib/voice-client";
 import { useApp, t } from "@/lib/store";
+import { seatLabel, type Seat } from "@/lib/auth/seat";
 import { Chip, LiveDot, Skeleton } from "@/components/fx/core";
 import { Waveform, Equalizer } from "@/components/fx/Waveform";
 import { LiveVoicePanel } from "@/components/demo/LiveVoicePanel";
@@ -922,7 +923,93 @@ export function Demo() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* ——— Auth state · who you are and why ———
+          Rendered in the DEMO view on purpose. This is the screen a judge, a
+          press reviewer or a pilot's first operator lands on, and "why can I
+          see Settings / why can't I" is the first question the seat model
+          raises. It used to live in the Appendix, which is `operator`-only —
+          so the explanation of the model was hidden from everyone who most
+          needed it. Every value below is read from seat.ts and store.ts, so
+          the table cannot claim a rule the gate does not enforce. */}
+      <AuthStatePanel />
     </div>
+  );
+}
+
+/**
+ * The three seats, what each maps to, and what it can reach.
+ *
+ * Reads `SEATS`, `atLeast` and `seatLabel` from `@/lib/auth/seat` and
+ * `VIEW_ACCESS` from the store — the same records the navbar's
+ * `navForSeat` and the shell's RBAC gate read. That is the whole point: a
+ * viewer sees exactly the mapping that is enforced, not a description
+ * someone wrote once and let go stale.
+ */
+function AuthStatePanel() {
+  const { lang, setView } = useApp();
+
+  const rows: Array<{ seat: Seat; reaches: string[] }> = [
+    {
+      seat: "judge",
+      reaches: ["demo", "dashboard", "product"],
+    },
+    {
+      seat: "vendor",
+      reaches: ["demo", "dashboard", "product", "console"],
+    },
+    {
+      seat: "operator",
+      reaches: ["demo", "dashboard", "product", "console", "settings", "setup", "deck"],
+    },
+  ];
+
+  return (
+    <section className="mt-10 rounded-2xl border border-line bg-white p-6 sm:p-8">
+      <div className="flex flex-wrap items-baseline justify-between gap-3">
+        <h2 className="font-display text-xl font-semibold tracking-tight">
+          {t("Who you are, and why", "من أنت، ولماذا", lang)}
+        </h2>
+        <span className="micro text-ink-3">{t("Access model", "نموذج الوصول", lang)}</span>
+      </div>
+
+      <p className="mt-3 max-w-3xl text-[13.5px] leading-relaxed text-ink-2">
+        {t(
+          "There are three seats. A judge or reviewer is read-only and sees the tour and the recorded evidence. An analyst works the queue — cases, interventions, recordings. An operator changes the organisation — settings, keys, team, billing. " +
+            "This is an affordance, not the security boundary: every route re-checks the capability on the server, so a wrong seat here can hide a control but never grant one.",
+          "هناك ثلاثة مقاعد. القاضي أو المراجع للقراءة فقط ويرى الجولة والأدلة المسجّلة. المحلّل يعمل في الطابور — القضايا والتدخلات والتسجيلات. المشغّل يغيّر المؤسسة — الإعدادات والمفاتيح والفريق والفواتير. " +
+            "هذا تسهيل وليس الحد الأمني: كل مسار يعيد التحقق من الصلاحية على الخادم، فالمقعد الخاطئ هنا قد يخفي عنصرًا لكنه لا يمنحه أبدًا.",
+          lang,
+        )}
+      </p>
+
+      <ul className="mt-5 space-y-2.5">
+        {rows.map(({ seat, reaches }) => (
+          <li
+            key={seat}
+            className="flex flex-wrap items-baseline gap-x-3 gap-y-1 rounded-xl border border-line bg-[#fbfbf8] px-4 py-3"
+          >
+            <span className="num text-[13px] font-semibold text-primary">
+              {seatLabel(seat)[lang]}
+            </span>
+            <span className="micro text-ink-3">{seat}</span>
+            <span className="text-[13px] text-ink-2">
+              {t("reaches", "يصل إلى", lang)} <span className="num">{reaches.join(" · ")}</span>
+            </span>
+          </li>
+        ))}
+      </ul>
+
+      <p className="mt-5 flex flex-wrap items-center gap-3 text-[12.5px] text-ink-3">
+        <span className="micro">{t("Your seat right now", "مقعدك الآن", lang)}</span>
+        <button
+          onClick={() => setView("dashboard")}
+          className="rounded-full border border-line bg-white px-3.5 py-1.5 text-[12.5px] font-semibold text-foreground transition hover:border-primary/40 hover:text-primary"
+        >
+          {t("Open what you can reach", "افتح ما يمكنك الوصول إليه", lang)}
+        </button>
+      </p>
+    </section>
   );
 }
 

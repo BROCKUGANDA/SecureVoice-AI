@@ -443,8 +443,7 @@ export function Settings() {
                           {/* Says so out loud when a scheme was corrected — a
                               silent adjustment is a colour the tenant did not
                               choose, and they are entitled to know. */}
-                          {brandVerdict.lightPrimary !== brandVerdict.primary ||
-                          brandVerdict.darkPrimary !== brandVerdict.primary
+                          {brandVerdict.lightPrimary !== brandVerdict.primary
                             ? t(" · adjusted for contrast", " · مُعدَّل لأجل التباين", lang)
                             : ""}
                         </span>

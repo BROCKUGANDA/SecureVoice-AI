@@ -77,7 +77,6 @@ afterEach(() => {
   useApp.setState({
     view: "home",
     lang: "en",
-    booted: true,
     demoIntent: false,
     timedOut: false,
     highContrast: false,

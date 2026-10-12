@@ -66,6 +66,16 @@ export const INDEXABLE_PATHS = [
  */
 export const MUST_NOT_LIST = [
   "/console",
+  // The console's sub-paths are real routes now (src/app/console/[[...path]]),
+  // so each one is named. The middleware's prefix rule is the layer that binds;
+  // this list is the assertion that the sitemap never grows an entry for one.
+  "/console/overview",
+  "/console/tour",
+  "/console/demo",
+  "/console/deck",
+  "/console/settings",
+  "/console/setup",
+  "/sign-in",
   "/dashboard",
   "/settings",
   "/deck",

@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { motion, AnimatePresence, MotionConfig } from "framer-motion";
 import { useSession } from "@/lib/auth-client";
 import { useApp, t, VIEW_ACCESS, type View } from "@/lib/store";
+import { isShellPath, pathForView, viewForPath } from "@/lib/console-routes";
 import { cn } from "@/lib/utils";
 import { Navbar } from "@/components/shell/Navbar";
 import { Footer } from "@/components/shell/Footer";
@@ -44,7 +45,7 @@ const VIEWS: Record<View, React.ComponentType> = {
   setup: SetupWizard,
 };
 
-export default function Page() {
+export function AppRoot() {
   const { view, lang, booted, setBooted, setView, setTimedOut, highContrast } = useApp();
   const { data: session } = useSession();
   const isSignedIn = Boolean(session?.user);
@@ -128,6 +129,51 @@ export default function Page() {
     }
   }, [view, isSignedIn, role, setView]);
 
+  /* ── The URL is the view, in both directions ────────────────────────────────
+   *
+   * Reading it on mount is what makes a deep link, a refresh, and a new tab work
+   * now that `/console/settings` is a real route rather than a string in a store.
+   * The `popstate` listener is what the back button was missing: nothing in this
+   * app ever wrote a history entry, so "back" left the console and landed on the
+   * same page.
+   *
+   * Writing it on change uses `replaceState` for the FIRST sync after mount (the
+   * view may be corrected by the RBAC gate, and pushing that would put a screen
+   * the user never chose into their back stack) and `pushState` afterwards.
+   */
+  useEffect(() => {
+    const apply = () => {
+      const next = viewForPath(window.location.pathname);
+      if (next) setView(next);
+    };
+    apply();
+    window.addEventListener("popstate", apply);
+    return () => window.removeEventListener("popstate", apply);
+  }, [setView]);
+
+  const syncedOnce = useRef(false);
+  useEffect(() => {
+    // The FIRST commit is skipped deliberately. On that commit `view` is still the
+    // store's initial value (`home`), because the read effect above can only
+    // schedule a state change — so writing the URL here would push `/` over the
+    // deep link the user actually asked for, and `/console/settings` would land on
+    // the landing page. Measured, not theorised: the first version of this effect
+    // did exactly that, and both new routes bounced to `/`.
+    if (!syncedOnce.current) {
+      syncedOnce.current = true;
+      return;
+    }
+    const target = pathForView(view);
+    if (target === null) return;
+    const here = window.location.pathname;
+    if (here === target) return;
+    // A path the shell does not own (a public page, or the initial `/`) is
+    // replaced rather than pushed: the user did not navigate here from a screen
+    // of the app, so it does not belong in the back stack.
+    const replace = !isShellPath(here);
+    window.history[replace ? "replaceState" : "pushState"]({ view }, "", target);
+  }, [view]);
+
   const Current = VIEWS[view];
   const fullBleed = view === "deck" || view === "auth";
 
@@ -175,3 +221,11 @@ export default function Page() {
     </div>
   );
 }
+
+/**
+ * The default export is the shell itself. `src/app/console/[[...path]]/page.tsx`
+ * and `src/app/sign-in/page.tsx` import `AppRoot` directly, so a deep link and a
+ * client-side navigation render the same component rather than two copies that can
+ * drift.
+ */
+export default AppRoot;

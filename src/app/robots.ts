@@ -16,21 +16,23 @@ export { siteOrigin };
 /**
  * Crawler policy.
  *
- * The single most important thing to know before editing this file: **there is
- * no `/console` URL in this application.**
+ * The thing to know before editing this file: **the console has real URLs now, so
+ * this list is load-bearing rather than belt-and-braces.**
  *
- * `src/app/page.tsx` renders every view — marketing, docs, security, legal, and
- * the authenticated Command Center — from a single client-side `view` state.
- * There is no `usePathname`, no `router.push` and no `history.pushState`
- * anywhere in the tree, so the console is not a route that a crawler could be
- * pointed at even if we wanted to. What we CAN do is make sure no crawler is
- * ever handed a URL that resolves to it, and that the machine-readable rules
- * match what `src/proxy.ts` puts in `X-Robots-Tag`.
+ * It used to be that `src/app/page.tsx` rendered every view — marketing, docs,
+ * security, legal and the authenticated Command Center — from a single
+ * client-side `view` state, with no `usePathname`, no `router.push` and no
+ * `history.pushState` anywhere in the tree. The console therefore had no URL for
+ * a crawler to find, and the defence was structural.
  *
- * That leaves two HTML routes in the tree, `/` and `/inspector`, and
- * `/inspector` is a webhook signature-verification debug tool. So "marketing
- * and docs indexable" is one URL, and everything else is either an API route or
- * the inspector.
+ * That is no longer true: `/console`, `/console/<screen>` and `/sign-in` are
+ * routes (see `src/app/console/[[...path]]/page.tsx`), added so the back button
+ * works and a screen can be linked. The same defence now rests on three layers
+ * that must agree, and `tests/surface/console-routes.test.ts` is what makes them:
+ * this list, the `X-Robots-Tag` `src/proxy.ts` puts on every unlisted path, and
+ * the `robots: { index: false }` metadata on the route itself. The shell's own
+ * `VIEW_ACCESS` gate and the per-request server guards are unchanged — a URL is
+ * an address, not a permission.
  *
  * Kept in step with `INDEXABLE_PATHS` in src/proxy.ts and with
  * `INDEXABLE_PATHS` in src/app/sitemap.ts; tests/surface/surface.test.ts fails
@@ -49,6 +51,12 @@ export { siteOrigin };
  * nothing.
  */
 export const NO_INDEX = [
+  // The signed-in shell. It has real URLs now — `/console`, `/console/settings`,
+  // `/sign-in` — where it used to be one page and a client-side string, which is
+  // what made the old comment below true. The prefix form covers every sub-path
+  // added later without anyone remembering to list it here.
+  "/console",
+  "/sign-in",
   "/api/", // every route handler, including the operator-only ones
   "/v1/", // the headless aliases rewritten to /api/* by next.config.ts
   "/inspector", // signature debug tool — operator material

@@ -1028,11 +1028,15 @@ jobs:
             echo "using LH_CHROME_PATH=$LH_CHROME_PATH"
           else
             cache="$HOME/.cache/ms-playwright"
-            if ! ls "$cache"/chromium-*/chrome-linux/chrome >/dev/null 2>&1; then
+            if [ -z "$(find "$cache" -maxdepth 4 -path '*/chromium-*/chrome-linux/chrome' -type f -print -quit 2>/dev/null)" ]; then
               echo "installing a chromium into the runner cache"
               bunx playwright install chromium >/dev/null 2>&1 || true
             fi
-            bin=$(ls "$cache"/chromium-*/chrome-linux/chrome 2>/dev/null | head -1 || true)
+            # `find -print -quit`, not `ls .../chromium-*/ | head -1`: actionlint's
+            # shellcheck rejects SC2012 for parsing `ls` output on a glob, and it
+            # is right to — a glob that matches nothing still yields the literal
+            # pattern, which then gets treated as a path.
+            bin=$(find "$cache" -maxdepth 4 -path '*/chromium-*/chrome-linux/chrome' -type f -print -quit 2>/dev/null)
             if [ -n "$bin" ]; then
               echo "LH_CHROME_PATH=$bin" >> "$GITHUB_ENV"
               echo "using $bin"

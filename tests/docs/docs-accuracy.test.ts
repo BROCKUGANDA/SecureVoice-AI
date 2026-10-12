@@ -22,7 +22,7 @@
  *   bun test tests/docs/docs-accuracy.test.ts
  */
 import { test, expect } from "bun:test";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 const read = (rel: string) =>
@@ -240,7 +240,50 @@ test("docs: the README links the evidence index it ships with", () => {
   expect(readme).toMatch(/\]\(evidence\/INDEX\.md\)/);
 });
 
-// ── Consent: what the documents may claim about a reference ──────────────────
+// ── ADRs: a citation that does not resolve is a fabricated document ──────────
+
+/**
+ * `docs/adr/` earns its place only if its Evidence sections point at real files.
+ * An ADR is the document an auditor or a judge reads to decide whether the
+ * architecture was deliberate, and it is also the document most likely to be
+ * written first and cited later — from memory, or from an external blueprint that
+ * described a different system. Every one of the eight records was corrected
+ * against the tree when it was written (pgvector vs the real vector store, an AWS
+ * region name this deployment rejects, an `audit_logs` table that does not exist,
+ * a module path invented from the file it was modeled on); this is the check that
+ * keeps that correction from decaying into a plausible lie.
+ *
+ * It scans backticked repo-relative paths, which is the convention the ADRs use,
+ * and skips anchors, commands and prose in backticks by requiring a known prefix.
+ */
+test("docs: every path cited in an ADR exists", () => {
+  const dir = "docs/adr";
+  const files = readdirSync(fileURLToPath(new URL(`../../${dir}`, import.meta.url)))
+    .filter((f) => f.endsWith(".md"))
+    .sort();
+
+  // Non-empty on purpose: a green run over zero files would prove nothing, and
+  // the count is the whole point of the check.
+  expect(files.length).toBeGreaterThanOrEqual(8);
+
+  const MISSING: string[] = [];
+  let citations = 0;
+  for (const file of files) {
+    const text = read(`${dir}/${file}`);
+    for (const match of text.matchAll(/`([^`\n]+)`/g)) {
+      const raw = match[1] ?? "";
+      if (!/^(src|prisma|scripts|docs|tests|\.github)\//.test(raw)) continue;
+      const path = raw.split(/[#(:\s]/)[0] ?? "";
+      if (!path) continue;
+      citations += 1;
+      if (!existsSync(fileURLToPath(new URL(`../../${path}`, import.meta.url)))) {
+        MISSING.push(`${file}: ${path}`);
+      }
+    }
+  }
+  expect(citations, "no ADR cites a file any more").toBeGreaterThan(40);
+  expect(MISSING.sort(), "an ADR cites a path that does not exist").toEqual([]);
+});
 
 /**
  * The consent control is a REQUIRED REFERENCE, and three documents described it as

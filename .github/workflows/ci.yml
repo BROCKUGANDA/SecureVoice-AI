@@ -673,6 +673,14 @@ jobs:
           SEED_DEMO=false
           ELEVENLABS_DRY_RUN=true
           APP_ENV=staging
+          # Disposable Paddle price ids. NEXT_PUBLIC_* is inlined at build time,
+          # so the smoke test's `bun run build` needs a complete map or
+          # `paddlePriceIds()` throws while prerendering /pricing. These are not
+          # real ids and this stack never reaches Paddle — the parser only
+          # requires `/^pri_[A-Za-z0-9]+$/`, so there are no underscores after the
+          # prefix, and every tier in AMOUNT_TO_PLAN needs BOTH intervals or the
+          # map is rejected as incomplete.
+          NEXT_PUBLIC_PADDLE_PRICES='{"usd_9900_month":"pri_ciStarterMonth","usd_9900_year":"pri_ciStarterYear","usd_49900_month":"pri_ciGrowthMonth","usd_49900_year":"pri_ciGrowthYear","usd_200000_month":"pri_ciEnterpriseMonth","usd_200000_year":"pri_ciEnterpriseYear"}'
           # DATABASE_URL is REQUIRED here, not optional. `docker-compose.yml`
           # passes `BUILD_DATABASE_URL: ${DATABASE_URL}` as a build arg, and
           # compose resolves an unset variable to an EMPTY string — which

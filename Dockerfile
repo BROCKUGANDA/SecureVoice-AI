@@ -110,10 +110,26 @@ ARG NEXT_PUBLIC_DEMO_LOGIN_PASSWORD=""
 # so a deployment that set SITE_ADDRESS for TLS cannot forget it here too.
 ARG NEXT_PUBLIC_SITE_URL=""
 
+# The Paddle price ids, for the same reason as NEXT_PUBLIC_SITE_URL above and with
+# the same consequence if this line is missing: the ids are inlined into the
+# bundle, so a value that never reaches the builder is not "unset at runtime", it
+# is ABSENT, and `paddlePriceIds()` throws while prerendering the pricing page.
+#
+# This was not a hypothetical. The CI compose smoke test builds against a
+# disposable loopback origin and died at
+#
+#     Error: NEXT_PUBLIC_PADDLE_PRICES is not set to a complete price map.
+#
+# with no ARG anywhere to pass one, which also means no Docker deployment could
+# have set it either — the Buy buttons were being compiled out of the production
+# bundle for the same reason the demo-login pair is threaded through two lines up.
+ARG NEXT_PUBLIC_PADDLE_PRICES=""
+
 ENV DATABASE_URL=${BUILD_DATABASE_URL} \
     BETTER_AUTH_SECRET=${BETTER_AUTH_SECRET} \
     BETTER_AUTH_URL=${BETTER_AUTH_URL} \
     NEXT_PUBLIC_SITE_URL=${NEXT_PUBLIC_SITE_URL} \
+    NEXT_PUBLIC_PADDLE_PRICES=${NEXT_PUBLIC_PADDLE_PRICES} \
     NEXT_PUBLIC_DEMO_LOGIN_EMAIL=${NEXT_PUBLIC_DEMO_LOGIN_EMAIL} \
     NEXT_PUBLIC_DEMO_LOGIN_PASSWORD=${NEXT_PUBLIC_DEMO_LOGIN_PASSWORD}
 COPY --from=deps /app/node_modules ./node_modules

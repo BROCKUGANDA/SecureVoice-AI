@@ -89,6 +89,11 @@ services:
         # in `bun run build`), so every one of them needs the pair.
         NEXT_PUBLIC_DEMO_LOGIN_EMAIL: ${NEXT_PUBLIC_DEMO_LOGIN_EMAIL:-}
         NEXT_PUBLIC_DEMO_LOGIN_PASSWORD: ${NEXT_PUBLIC_DEMO_LOGIN_PASSWORD:-}
+        # Same inlining rule, same consequence: the ids are compiled into the
+        # bundle. Without this the pricing page ships without its Buy buttons and
+        # `paddlePriceIds()` throws while prerendering — and no runtime .env can
+        # fix it, because the value has to be a build arg to exist at all.
+        NEXT_PUBLIC_PADDLE_PRICES: ${NEXT_PUBLIC_PADDLE_PRICES:-}
     logging: *default-logging
     environment:
       # Use the same DATABASE_URL as the rest of the stack — .env is the single
@@ -129,6 +134,11 @@ services:
         # in `bun run build`), so every one of them needs the pair.
         NEXT_PUBLIC_DEMO_LOGIN_EMAIL: ${NEXT_PUBLIC_DEMO_LOGIN_EMAIL:-}
         NEXT_PUBLIC_DEMO_LOGIN_PASSWORD: ${NEXT_PUBLIC_DEMO_LOGIN_PASSWORD:-}
+        # Same inlining rule, same consequence: the ids are compiled into the
+        # bundle. Without this the pricing page ships without its Buy buttons and
+        # `paddlePriceIds()` throws while prerendering — and no runtime .env can
+        # fix it, because the value has to be a build arg to exist at all.
+        NEXT_PUBLIC_PADDLE_PRICES: ${NEXT_PUBLIC_PADDLE_PRICES:-}
     restart: unless-stopped
     logging: *default-logging
     mem_limit: 512m
@@ -202,6 +212,11 @@ services:
         BETTER_AUTH_URL: ${BETTER_AUTH_URL:-https://localhost:3000}
         NEXT_PUBLIC_DEMO_LOGIN_EMAIL: ${NEXT_PUBLIC_DEMO_LOGIN_EMAIL:-}
         NEXT_PUBLIC_DEMO_LOGIN_PASSWORD: ${NEXT_PUBLIC_DEMO_LOGIN_PASSWORD:-}
+        # Same inlining rule, same consequence: the ids are compiled into the
+        # bundle. Without this the pricing page ships without its Buy buttons and
+        # `paddlePriceIds()` throws while prerendering — and no runtime .env can
+        # fix it, because the value has to be a build arg to exist at all.
+        NEXT_PUBLIC_PADDLE_PRICES: ${NEXT_PUBLIC_PADDLE_PRICES:-}
     restart: unless-stopped
     logging: *default-logging
     mem_limit: 512m
@@ -252,6 +267,11 @@ services:
         # in `bun run build`), so every one of them needs the pair.
         NEXT_PUBLIC_DEMO_LOGIN_EMAIL: ${NEXT_PUBLIC_DEMO_LOGIN_EMAIL:-}
         NEXT_PUBLIC_DEMO_LOGIN_PASSWORD: ${NEXT_PUBLIC_DEMO_LOGIN_PASSWORD:-}
+        # Same inlining rule, same consequence: the ids are compiled into the
+        # bundle. Without this the pricing page ships without its Buy buttons and
+        # `paddlePriceIds()` throws while prerendering — and no runtime .env can
+        # fix it, because the value has to be a build arg to exist at all.
+        NEXT_PUBLIC_PADDLE_PRICES: ${NEXT_PUBLIC_PADDLE_PRICES:-}
     restart: unless-stopped
     logging: *default-logging
     mem_limit: 256m
@@ -293,6 +313,11 @@ services:
         BETTER_AUTH_URL: ${BETTER_AUTH_URL:-https://localhost:3000}
         NEXT_PUBLIC_DEMO_LOGIN_EMAIL: ${NEXT_PUBLIC_DEMO_LOGIN_EMAIL:-}
         NEXT_PUBLIC_DEMO_LOGIN_PASSWORD: ${NEXT_PUBLIC_DEMO_LOGIN_PASSWORD:-}
+        # Same inlining rule, same consequence: the ids are compiled into the
+        # bundle. Without this the pricing page ships without its Buy buttons and
+        # `paddlePriceIds()` throws while prerendering — and no runtime .env can
+        # fix it, because the value has to be a build arg to exist at all.
+        NEXT_PUBLIC_PADDLE_PRICES: ${NEXT_PUBLIC_PADDLE_PRICES:-}
     restart: unless-stopped
     logging: *default-logging
     mem_limit: 256m
@@ -378,6 +403,11 @@ services:
         # in `bun run build`), so every one of them needs the pair.
         NEXT_PUBLIC_DEMO_LOGIN_EMAIL: ${NEXT_PUBLIC_DEMO_LOGIN_EMAIL:-}
         NEXT_PUBLIC_DEMO_LOGIN_PASSWORD: ${NEXT_PUBLIC_DEMO_LOGIN_PASSWORD:-}
+        # Same inlining rule, same consequence: the ids are compiled into the
+        # bundle. Without this the pricing page ships without its Buy buttons and
+        # `paddlePriceIds()` throws while prerendering — and no runtime .env can
+        # fix it, because the value has to be a build arg to exist at all.
+        NEXT_PUBLIC_PADDLE_PRICES: ${NEXT_PUBLIC_PADDLE_PRICES:-}
     restart: unless-stopped
     logging: *default-logging
     mem_limit: 512m
@@ -440,6 +470,11 @@ services:
         # in `bun run build`), so every one of them needs the pair.
         NEXT_PUBLIC_DEMO_LOGIN_EMAIL: ${NEXT_PUBLIC_DEMO_LOGIN_EMAIL:-}
         NEXT_PUBLIC_DEMO_LOGIN_PASSWORD: ${NEXT_PUBLIC_DEMO_LOGIN_PASSWORD:-}
+        # Same inlining rule, same consequence: the ids are compiled into the
+        # bundle. Without this the pricing page ships without its Buy buttons and
+        # `paddlePriceIds()` throws while prerendering — and no runtime .env can
+        # fix it, because the value has to be a build arg to exist at all.
+        NEXT_PUBLIC_PADDLE_PRICES: ${NEXT_PUBLIC_PADDLE_PRICES:-}
     restart: unless-stopped
     logging: *default-logging
     mem_limit: 256m
@@ -503,6 +538,11 @@ services:
         # in `bun run build`), so every one of them needs the pair.
         NEXT_PUBLIC_DEMO_LOGIN_EMAIL: ${NEXT_PUBLIC_DEMO_LOGIN_EMAIL:-}
         NEXT_PUBLIC_DEMO_LOGIN_PASSWORD: ${NEXT_PUBLIC_DEMO_LOGIN_PASSWORD:-}
+        # Same inlining rule, same consequence: the ids are compiled into the
+        # bundle. Without this the pricing page ships without its Buy buttons and
+        # `paddlePriceIds()` throws while prerendering — and no runtime .env can
+        # fix it, because the value has to be a build arg to exist at all.
+        NEXT_PUBLIC_PADDLE_PRICES: ${NEXT_PUBLIC_PADDLE_PRICES:-}
         # Canonical public origin, inlined at BUILD time like the pair above.
         # Defaults to https://<SITE_ADDRESS> — the same hostname Caddy issues
         # the certificate for — so a deployment that already set SITE_ADDRESS
@@ -643,6 +683,11 @@ services:
         # in `bun run build`), so every one of them needs the pair.
         NEXT_PUBLIC_DEMO_LOGIN_EMAIL: ${NEXT_PUBLIC_DEMO_LOGIN_EMAIL:-}
         NEXT_PUBLIC_DEMO_LOGIN_PASSWORD: ${NEXT_PUBLIC_DEMO_LOGIN_PASSWORD:-}
+        # Same inlining rule, same consequence: the ids are compiled into the
+        # bundle. Without this the pricing page ships without its Buy buttons and
+        # `paddlePriceIds()` throws while prerendering — and no runtime .env can
+        # fix it, because the value has to be a build arg to exist at all.
+        NEXT_PUBLIC_PADDLE_PRICES: ${NEXT_PUBLIC_PADDLE_PRICES:-}
     logging: *default-logging
     environment:
       HOSTNAME: 0.0.0.0

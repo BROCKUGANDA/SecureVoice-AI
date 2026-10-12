@@ -1,5 +1,5 @@
 import "server-only";
-import { randomUUID, createHash } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { append as auditAppend } from "@/lib/audit-chain";
 import { detectInjectionAttempt, spokenOutputIsSafe, wrapCallerText } from "@/lib/llm-guard";
 import { verdictFor, describeHits } from "@/lib/compliance/vishing";
@@ -559,7 +559,6 @@ export async function draftAgentReply(args: {
       : providerAttempts();
   if (attempts.length === 0) return null;
   const p = attempts[0]!;
-  let answeredBy: Provider | null = null;
 
   // ── The semantic reply cache ───────────────────────────────────────────────
   // A fraud call is structurally repetitive — the same handful of answers arrive

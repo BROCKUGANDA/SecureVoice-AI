@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { getProfile } from "@/lib/credits";
 import { db } from "@/lib/db";
+import { orgPlanContext } from "@/lib/billing/plan-context";
+import { netUsageUnits } from "@/lib/payments/overage";
 
 export const dynamic = "force-dynamic";
 
@@ -12,6 +14,18 @@ export const dynamic = "force-dynamic";
  * because the wizard configures the institution, not the person. A tenant-less
  * session has nothing to set up, so the field is null and the banner stays
  * hidden rather than offering a wizard with nowhere to save to.
+ *
+ * Also carries `plan`, which is what makes the usage bar honest. `CreditWidget`
+ * used to divide by a number it invented for itself: the `allowance` prop had
+ * exactly one caller in the whole tree and it was never passed, so the bar's
+ * denominator was whatever balance the widget first saw. The plan is resolved
+ * server-side here (`src/lib/billing/plan-context.ts`) — mirrored subscription,
+ * then the `Organization.planTier` column, then the deployment default — because
+ * a browser-supplied allowance is a customer telling us what they bought.
+ *
+ * Seat facts are deliberately NOT here. `GET /api/auth/invites` already answers
+ * "who is in this organization" and carries the cap next to that list; a second
+ * counter on a second route is a second number that can disagree with the first.
  *
  * Why this read is NOT on the database-enforced path (`withTenantScope`,
  * src/lib/tenancy/db-scope.ts), and is not convertible:
@@ -46,8 +60,38 @@ export async function GET() {
         )?.setupCompletedAt,
       )
     : null;
+  const plan = await orgPlanContext(profile?.orgId ?? null);
+  // The numerator of the usage bar, measured by the SAME aggregate the invoice
+  // rater runs (`netUsageUnits`) — a screen that says 2,480 used while the
+  // invoice says 2,510 is a dispute waiting to happen. Computed only when a plan
+  // published an allowance AND a mirrored period bounds the window; with no
+  // mirrored subscription there is no period to measure, and the widget falls
+  // back to showing the balance without a percentage.
+  const usage =
+    plan.period && plan.orgId && plan.allowanceUnits > 0
+      ? {
+          usedUnits: await netUsageUnits(plan.orgId, plan.period.from, plan.period.to),
+          includedUnits: plan.allowanceUnits,
+          periodFrom: plan.period.from.toISOString(),
+          periodTo: plan.period.to.toISOString(),
+        }
+      : null;
   return NextResponse.json(
-    { profile, setupCompleted },
+    {
+      profile,
+      setupCompleted,
+      plan: {
+        tier: plan.tier,
+        plan: plan.plan,
+        allowanceUnits: plan.allowanceUnits,
+        /** null = unlimited. Read from the plan, never guessed by the client. */
+        seats: plan.seats,
+        paid: plan.paid,
+        /** Which evidence answered. `none` means the console is showing the demo policy. */
+        source: plan.source,
+        usage,
+      },
+    },
     { headers: { "Cache-Control": "no-store" } },
   );
 }

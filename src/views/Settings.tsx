@@ -47,6 +47,15 @@ type Settings = {
   credits: number;
   /** Bank or insurer - how the institution is spoken about to its customers. */
   institutionType?: "bank" | "insurer";
+  /**
+   * Resolved server-side by `src/lib/billing/plan-context.ts`: mirrored
+   * subscription, then `Organization.planTier`, then the deployment default, then
+   * `demo`. Never accepted from the client — a tenant that can name its own tier
+   * can name itself a refund policy it did not buy.
+   */
+  planTier?: "demo" | "standard" | "enterprise";
+  /** Catalog plan id (`starter|growth|enterprise`), or null when nothing named one. */
+  planName?: string | null;
 };
 
 const inputCls = "h-10 rounded-xl border-line bg-paper";
@@ -711,12 +720,12 @@ export function Settings() {
                     lang,
                   )}
                 </p>
-                {/* The conditional policy, in-app where the tier is known.
-                    `planTier` is server-resolved and must be passed in — see
-                    src/components/legal/PolicyForPlan.tsx for why there is no
-                    client hook for it. Until it is threaded through, the public
-                    pair on /refund is the same content and always correct. */}
-                <PolicyForPlan planTier={null} className="mt-5" />
+                {/* The conditional policy, in-app where the tier is known. The
+                    server resolves it (see `Settings.planTier` above): this call
+                    used to pass a literal `null`, which is the DEMO tier, so a
+                    paying bank was shown the no-refunds policy while its wallet
+                    was being billed as a `creditWallet` tenant. */}
+                <PolicyForPlan planTier={settings?.planTier ?? null} className="mt-5" />
                 <a
                   href={`mailto:${SUPPORT_EMAIL}?subject=SecureVoice%20billing`}
                   className="inline-flex items-center gap-2 rounded-full bg-primary px-6 py-2.5 text-[13px] font-semibold text-white transition hover:bg-green-deep"

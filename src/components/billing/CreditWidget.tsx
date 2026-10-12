@@ -27,18 +27,21 @@
  * ## The warnings, and the denominator they need
  *
  * "Yellow at 20%, red at 0" only means something relative to an allowance. The
- * plan's included volume (`PLAN_INCLUDED_UNITS`, mirrored by `includedPerMonth`
- * in src/lib/commercial.ts) is the honest denominator, so it is accepted as a
- * prop. Where the caller does not know it — an org with no subscription row, a
- * demo tenant — the FIRST balance the widget observes becomes the baseline, so
- * the warnings still work rather than silently never firing. That fallback is a
- * baseline, not an allowance, and is documented as such in the UI copy.
+ * honest denominator is the PLAN's included volume, resolved server-side by
+ * `src/lib/billing/plan-context.ts` and delivered on `/api/console/me` as
+ * `plan.allowanceUnits`; the honest numerator is the ledger's net usage over the
+ * mirrored subscription period, delivered as `plan.usage.usedUnits` and computed
+ * by the same `netUsageUnits()` the invoice rater uses. Where the server cannot
+ * know either — no mirrored subscription, an org with no plan — the widget falls
+ * back to the FIRST balance it observes as a baseline and shows no overage badge.
+ * That fallback is a baseline, not an allowance, and `usage.measured` says which
+ * one the screen is showing.
  *
- * Overage is a distinct state, not a synonym for "empty": it is raised only
- * when we know the plan (an `allowance` was supplied) AND the balance has been
- * drawn past zero, i.e. usage is now billing beyond the included volume. With a
- * prepaid wallet that is the moment the excess starts to cost money, which is
- * the only thing a badge called "Overage" should ever mean.
+ * Overage is a distinct state, not a synonym for "empty": it is raised only when
+ * the plan published an allowance AND the period's measured usage is above it,
+ * which is the same comparison that puts a line on a bank's invoice. It used to
+ * be `credits < 0`, an expression that could never hold because the wallet
+ * decrements with a `credits > 0` guard and floors at zero.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -91,6 +94,23 @@ export function CreditWidget({
   );
   const [status, setStatus] = useState<RealtimeStatus>("connecting");
   const [fetchError, setFetchError] = useState(false);
+  /**
+   * The plan's own allowance and the period's measured usage, both read
+   * server-side. `null` means "not known", which is different from 0 and is what
+   * keeps the widget from presenting a guess as a quota.
+   *
+   * Before this, `allowance` was the only route in and no caller ever passed it:
+   * `Dashboard.tsx` rendered `<CreditWidget />` with nothing, and `Console.tsx`
+   * passed only the balance. So the bar's denominator was `baselineRef` — the
+   * first balance the widget happened to see — while the copy above the bar
+   * claimed "used this period".
+   */
+  const [planUsage, setPlanUsage] = useState<{
+    allowance: number | null;
+    used: number | null;
+    /** Catalog plan id the allowance came from, e.g. `growth`. Null = unknown. */
+    plan: string | null;
+  }>({ allowance: null, used: null, plan: null });
 
   /**
    * The denominator when the caller did not supply the plan's allowance. Seeded
@@ -152,17 +172,34 @@ export function CreditWidget({
 
   // ── Initial read ──────────────────────────────────────────────────────────
   useEffect(() => {
-    // A caller that passed a value (number or an explicit null) has already
-    // decided; only `undefined` means "please look".
-    if (initialCredits !== undefined) return;
+    // The balance is only taken from the read when the caller did not supply
+    // one (see `initialCredits`). The PLAN is always read: the denominator of a
+    // usage bar and the fact behind an "Overage" badge are not things a caller
+    // passing a balance can supply, and without them the bar divides by a number
+    // this component invented for itself.
+    const takeBalance = initialCredits === undefined;
     let alive = true;
     void (async () => {
       try {
         const res = await fetch("/api/console/me", { cache: "no-store" });
         if (!res.ok) throw new Error(String(res.status));
-        const body = (await res.json()) as { profile?: { credits?: unknown } | null };
+        const body = (await res.json()) as {
+          profile?: { credits?: unknown } | null;
+          plan?: {
+            plan?: unknown;
+            allowanceUnits?: unknown;
+            usage?: { usedUnits?: unknown } | null;
+          } | null;
+        };
+        if (!alive) return;
         const value = body.profile?.credits;
-        if (alive && typeof value === "number") applyBalance(value);
+        if (takeBalance && typeof value === "number") applyBalance(value);
+        const allowanceUnits =
+          typeof body.plan?.allowanceUnits === "number" ? body.plan.allowanceUnits : null;
+        const usedUnits =
+          typeof body.plan?.usage?.usedUnits === "number" ? body.plan.usage.usedUnits : null;
+        const planId = typeof body.plan?.plan === "string" ? body.plan.plan : null;
+        setPlanUsage({ allowance: allowanceUnits, used: usedUnits, plan: planId });
       } catch {
         // Surfaced inline, not as a toast: the balance simply does not move,
         // and a red toast on a read-only display would overstate the failure.
@@ -212,15 +249,30 @@ export function CreditWidget({
   }, []);
 
   // ── Derived state ─────────────────────────────────────────────────────────
-  const baseline = allowance && allowance > 0 ? allowance : baselineRef.current;
+  /** The plan's published allowance, from the caller or from the server read. */
+  const planAllowance = allowance && allowance > 0 ? allowance : planUsage.allowance;
+  const baseline = planAllowance && planAllowance > 0 ? planAllowance : baselineRef.current;
   const remaining = credits ?? 0;
 
   const usage = useMemo(() => {
-    if (baseline === null || baseline <= 0 || credits === null) return null;
-    const used = Math.max(0, baseline - remaining);
+    if (baseline === null || baseline <= 0) return null;
+    if (credits === null && planUsage.used === null) return null;
+    // Prefer what the LEDGER says was consumed this period — the same aggregate
+    // the invoice is rated from. Deriving "used" from the balance is only the
+    // fallback for a tenant with no mirrored subscription, and it measures what
+    // is LEFT, not what was USED: a bank that topped up last week looks like it
+    // has barely been busy.
+    const used =
+      planUsage.used !== null ? Math.max(0, planUsage.used) : Math.max(0, baseline - remaining);
     const usedPercent = Math.min(100, Math.round((used / baseline) * 100));
-    return { used, usedPercent, remainingPercent: Math.max(0, 100 - usedPercent) };
-  }, [baseline, credits, remaining]);
+    return {
+      used,
+      usedPercent,
+      remainingPercent: Math.max(0, 100 - usedPercent),
+      /** True when the numerator came from the ledger, not from the balance. */
+      measured: planUsage.used !== null,
+    };
+  }, [baseline, credits, remaining, planUsage.used]);
 
   const level: CreditLevel =
     credits === null
@@ -232,11 +284,21 @@ export function CreditWidget({
           : "ok";
 
   /**
-   * Past the included volume. Gated on `allowance` being KNOWN: without a plan
-   * we cannot say whether usage beyond the wallet is billed or refused, and a
-   * badge that guesses would be wrong on the one screen a finance team reads.
+   * Past the included volume — decided by the LEDGER's period usage against the
+   * PLAN's allowance, which is exactly the comparison `summariseOverage()` turns
+   * into an invoice.
+   *
+   * This used to read `credits < 0`, which could never be true: `deductCredit()`
+   * decrements with `where: { credits: { gt: 0 } }` (src/lib/credits.ts:252), so
+   * the wallet floors at zero. The badge was therefore dead code on every path —
+   * including the one where it was true — and the only thing that could have
+   * noticed was a customer who never saw it.
    */
-  const isOverage = Boolean(allowance && allowance > 0) && credits !== null && remaining < 0;
+  const isOverage =
+    planAllowance !== null &&
+    planAllowance > 0 &&
+    planUsage.used !== null &&
+    planUsage.used > planAllowance;
 
   // ── Threshold notifications ───────────────────────────────────────────────
   useEffect(() => {
@@ -289,6 +351,19 @@ export function CreditWidget({
           <h2 className="font-display text-[17px] font-semibold tracking-tight">
             {t("Intervention credits", "اعتمادات التدخّل", lang)}
           </h2>
+          {planUsage.plan && (
+            <Badge
+              variant="outline"
+              className="text-[10px] uppercase tracking-wide"
+              title={t(
+                "The plan this organization is billed on, read from its subscription.",
+                "الخطة التي تُفات عليها هذه المؤسسة، مقروءة من اشتراكها.",
+                lang,
+              )}
+            >
+              {planUsage.plan}
+            </Badge>
+          )}
         </div>
 
         <div className="flex items-center gap-2">
@@ -314,7 +389,11 @@ export function CreditWidget({
             title={
               live
                 ? t("Live — updates as credits move.", "مباشر — يتحدّث مع حركة الاعتمادات.", lang)
-                : t("Snapshot — refresh to re-read the balance.", "لقطة — حدّث لقراءة الرصيد.", lang)
+                : t(
+                    "Snapshot — refresh to re-read the balance.",
+                    "لقطة — حدّث لقراءة الرصيد.",
+                    lang,
+                  )
             }
           >
             <LiveDot className={cn(!live && "opacity-40")} />
@@ -339,9 +418,7 @@ export function CreditWidget({
         >
           {credits === null ? "…" : credits.toLocaleString()}
         </span>
-        <span className="text-[13px] text-ink-2">
-          {t("credits left", "رصيد متبقٍّ", lang)}
-        </span>
+        <span className="text-[13px] text-ink-2">{t("credits left", "رصيد متبقٍّ", lang)}</span>
       </p>
 
       {usage && (
@@ -351,17 +428,25 @@ export function CreditWidget({
             className={cn(
               "mt-3 h-2.5",
               level === "critical" && "bg-red-100 [&_[data-slot=progress-indicator]]:bg-red-500",
-              level === "warning" &&
-                "bg-amber-100 [&_[data-slot=progress-indicator]]:bg-amber-500",
+              level === "warning" && "bg-amber-100 [&_[data-slot=progress-indicator]]:bg-amber-500",
             )}
             aria-label={t("Credit usage this period", "استهلاك الاعتمادات هذه الفترة", lang)}
           />
           <p className="mt-1.5 text-[12px] text-ink-3">
-            {t(
-              `${usage.used.toLocaleString()} of ${baseline?.toLocaleString()} used this period`,
-              `استُهلك ${usage.used.toLocaleString()} من ${baseline?.toLocaleString()} هذه الفترة`,
-              lang,
-            )}
+            {usage.measured
+              ? t(
+                  `${usage.used.toLocaleString()} of ${baseline?.toLocaleString()} used this period`,
+                  `استُهلك ${usage.used.toLocaleString()} من ${baseline?.toLocaleString()} هذه الفترة`,
+                  lang,
+                )
+              : // No mirrored subscription, so no ledger window and no plan
+                // allowance. Saying "used this period" here would attribute the
+                // number to a period nobody measured.
+                t(
+                  `${usage.used.toLocaleString()} used of a ${baseline?.toLocaleString()} baseline (plan not mirrored)`,
+                  `استُهلك ${usage.used.toLocaleString()} من أساس ${baseline?.toLocaleString()} (الخطة غير منعكسة)`,
+                  lang,
+                )}
           </p>
         </>
       )}
@@ -377,7 +462,10 @@ export function CreditWidget({
       )}
 
       {level === "critical" && (
-        <p role="alert" className="mt-3 flex items-center gap-1.5 text-[12.5px] font-medium text-red-600">
+        <p
+          role="alert"
+          className="mt-3 flex items-center gap-1.5 text-[12.5px] font-medium text-red-600"
+        >
           <AlertTriangle className="h-3.5 w-3.5" />
           {t(
             "Wallet empty — interventions are refused until it is topped up.",

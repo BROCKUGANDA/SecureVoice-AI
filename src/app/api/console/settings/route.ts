@@ -10,6 +10,7 @@ import { append as auditAppend } from "@/lib/audit-chain";
 import { getInstitutionType, setInstitutionType } from "@/lib/institution";
 import { INSTITUTION_TYPES } from "@/lib/institution-types";
 import { assertVendorUrlSaveable } from "@/lib/vendor-endpoint";
+import { orgPlanContext } from "@/lib/billing/plan-context";
 
 export const dynamic = "force-dynamic";
 
@@ -99,6 +100,7 @@ async function readSettings(): Promise<
   );
   if (!row) return { error: { status: 404, error: "Profile not found" } };
   const key = row.elevenKeyEnc ? decryptSecret(row.elevenKeyEnc) : null;
+  const plan = await orgPlanContext(guard.profile.orgId);
   return {
     settings: {
       orgName: row.orgName ?? null,
@@ -114,6 +116,15 @@ async function readSettings(): Promise<
       // Bank or insurer: changes how the institution is spoken about to ITS
       // customers (call, voicemail, SMS). Defaults to "bank".
       institutionType: await getInstitutionType(guard.profile.orgId),
+      // The tenant's real plan, resolved server-side. `PolicyForPlan` renders the
+      // refund policy from it, and this view used to pass `planTier={null}` —
+      // which is the demo tier — so a paying bank was told it had no refunds
+      // while its own wallet was being billed as `creditWallet`. The tier is not
+      // accepted from the request for the same reason the wallet is not: it is a
+      // fact about what was bought, and the buyer does not get to state it.
+      planTier: plan.tier,
+      planName: plan.plan,
+      paid: plan.paid,
       ...(await readTenantVoiceSettings(guard.profile.orgId)),
     },
   };

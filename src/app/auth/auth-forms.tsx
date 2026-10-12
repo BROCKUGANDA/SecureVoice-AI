@@ -38,11 +38,7 @@ const emailSchema = z
   .max(254, "That email address is too long.")
   .email("Enter a valid email address.");
 
-const nameSchema = z
-  .string()
-  .trim()
-  .min(1, "Enter your name.")
-  .max(120, "That name is too long.");
+const nameSchema = z.string().trim().min(1, "Enter your name.").max(120, "That name is too long.");
 
 const passwordSchema = z
   .string()
@@ -73,7 +69,9 @@ function AuthShell({
   return (
     <main className="mx-auto flex min-h-[70vh] w-full max-w-md flex-col justify-center px-6 py-16">
       <div className="rounded-3xl border border-line bg-white p-7 shadow-sm">
-        <h1 className="font-display text-2xl font-semibold tracking-tight text-foreground">{title}</h1>
+        <h1 className="font-display text-2xl font-semibold tracking-tight text-foreground">
+          {title}
+        </h1>
         {lead ? <p className="mt-2 text-[13.5px] leading-relaxed text-ink-2">{lead}</p> : null}
         <div className="mt-6">{children}</div>
       </div>
@@ -115,8 +113,8 @@ function FormAlert({ message }: { message: string }) {
 function OriginNote({ origin }: { origin: string }) {
   return (
     <p className="rounded-xl border border-line bg-paper px-3.5 py-2.5 text-[12px] leading-relaxed text-ink-3">
-      Sign-in links are issued for <span className="font-mono text-ink-2">{origin}</span>. If you did
-      not ask for one, you can close this page.
+      Sign-in links are issued for <span className="font-mono text-ink-2">{origin}</span>. If you
+      did not ask for one, you can close this page.
     </p>
   );
 }
@@ -204,8 +202,7 @@ function PasswordStrengthMeter({ password }: { password: string }) {
 
 // ── 1. Request a magic link ──────────────────────────────────────────────────
 
-const NEUTRAL_MAGIC_LINK =
-  "If that address belongs to an account, a sign-in link is on its way.";
+const NEUTRAL_MAGIC_LINK = "If that address belongs to an account, a sign-in link is on its way.";
 
 export function MagicLinkRequest({ origin }: { origin: string }) {
   const searchParams = useSearchParams();
@@ -510,7 +507,8 @@ export function AcceptInvite() {
     }
     const parsedPassword = passwordSchema.safeParse(password);
     if (!parsedPassword.success) {
-      nextErrors.password = parsedPassword.error.issues[0]?.message ?? "Use at least 12 characters.";
+      nextErrors.password =
+        parsedPassword.error.issues[0]?.message ?? "Use at least 12 characters.";
     }
     setFieldError(nextErrors);
     if (nextErrors.name) {
@@ -538,6 +536,19 @@ export function AcceptInvite() {
         return;
       }
       const data = await readJson(res);
+      if (res.status === 402) {
+        // A FULL PLAN, not a dead invitation. The seat cap refused this
+        // redemption before consuming the token, so the link still works — and
+        // telling these people "no longer valid" would send them to request an
+        // invitation they do not need.
+        setFormError(
+          messageFrom(
+            data,
+            "This organization has no free seats on its plan yet. Ask an administrator to upgrade or free a seat, then reopen this same link — your invitation is still valid.",
+          ),
+        );
+        return;
+      }
       // 410 covers expired, already used, and not a real token alike.
       setFormError(
         messageFrom(
@@ -641,7 +652,10 @@ export function AcceptInvite() {
             value={password}
             onChange={(event) => setPassword(event.target.value)}
             aria-invalid={fieldError.password ? true : undefined}
-            aria-describedby={cn("invite-password-strength", fieldError.password ? "invite-password-error" : undefined)}
+            aria-describedby={cn(
+              "invite-password-strength",
+              fieldError.password ? "invite-password-error" : undefined,
+            )}
             className={INPUT}
           />
           <div id="invite-password-strength">

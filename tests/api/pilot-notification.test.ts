@@ -17,11 +17,13 @@
  *   bun scripts/run-tests.mjs pilot-notification
  */
 import { test, expect, afterAll, beforeAll, describe } from "bun:test";
+import { NextRequest } from "next/server";
+import type { POST as PilotPost } from "@/app/api/pilot/route";
 
 const MARK = `pilot-${Date.now().toString(36)}`;
 const NOTIFY_TO = `pilot-notify-${MARK}@nowhere.test`;
 
-let POST: (req: Request) => Promise<Response>;
+let POST: typeof PilotPost;
 
 beforeAll(async () => {
   // The route reads PILOT_NOTIFY_EMAIL at call time, not import time, so setting it
@@ -32,7 +34,7 @@ beforeAll(async () => {
   process.env.APP_BASE_URL = "http://localhost:3000";
   process.env.PILOT_NOTIFY_EMAIL = NOTIFY_TO;
   const mod = await import("@/app/api/pilot/route");
-  POST = mod.POST as (req: Request) => Promise<Response>;
+  POST = mod.POST;
 });
 
 afterAll(async () => {
@@ -45,7 +47,7 @@ afterAll(async () => {
 describe("pilot → operator notification", () => {
   test("stores the enquiry and queues a notification to the operator", async () => {
     const res = await POST(
-      new Request("http://localhost/api/pilot", {
+      new NextRequest("http://localhost/api/pilot", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
@@ -81,7 +83,7 @@ describe("pilot → operator notification", () => {
     process.env.PILOT_NOTIFY_EMAIL = "";
     try {
       const res = await POST(
-        new Request("http://localhost/api/pilot", {
+        new NextRequest("http://localhost/api/pilot", {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({

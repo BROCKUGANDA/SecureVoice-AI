@@ -47,6 +47,23 @@ describe("the view ↔ path mapping", () => {
     }
   });
 
+  test("a view with no URL is a view a real route serves", () => {
+    // Without this the block above proves nothing about coverage: it iterates
+    // `Object.keys(PATH_FOR_VIEW)`, so deleting an entry shrinks the universe it
+    // checks instead of failing. `VIEW_ACCESS` is the app's own registry of
+    // screens, and the filesystem is what says whether an unlisted screen is
+    // reachable anyway. A view missing from both is a screen the back button
+    // cannot return to and a refresh sends home.
+    for (const view of Object.keys(VIEW_ACCESS) as View[]) {
+      if (pathForView(view) !== null) continue;
+      const own = view === "home" ? "src/app/page.tsx" : `src/app/${view}/page.tsx`;
+      expect(
+        existsSync(fileURLToPath(new URL(`../../${own}`, import.meta.url))),
+        `${view} has no entry in PATH_FOR_VIEW and no route at ${own}`,
+      ).toBe(true);
+    }
+  });
+
   test("no two views share a path", () => {
     const paths = SHELL_VIEWS.map((v) => pathForView(v)!);
     expect(new Set(paths).size, paths.join(", ")).toBe(paths.length);

@@ -25,9 +25,9 @@ async function* makeSource(
   restDelay: number,
 ): AsyncGenerator<number> {
   try {
-    for (let i = 0; i < out.values.length; i++) {
+    for (const [i, value] of out.values.entries()) {
       await sleep(i === 0 ? firstDelay : restDelay);
-      yield out.values[i];
+      yield value;
     }
   } finally {
     out.closed = true;

@@ -52,12 +52,14 @@ describe("waitForActiveCalls", () => {
     let settled: boolean | null = null;
     const waiting = waitForActiveCalls(5_000).then((v) => {
       settled = v;
+      return v;
     });
     await tick();
     expect(settled).toBe(null);
     release();
-    await waiting;
-    expect(settled).toBe(true);
+    // The post-release assertion reads the resolved value: TS does not track the
+    // closure assignment to `settled`, even though the callback sets it to `v`.
+    expect(await waiting).toBe(true);
   });
 
   test("gives up with false when the window elapses", async () => {
@@ -99,15 +101,15 @@ describe("the shutdown sequence", () => {
 
   test("abandons a hung call at the window edge rather than lingering forever", async () => {
     beginCall(); // deliberately never released
-    let code: number | null = null;
+    const exitCodes: number[] = [];
     const handle = setupGracefulShutdown({
       drainMs: 40,
       exit: (c) => {
-        code = c;
+        exitCodes.push(c);
       },
     });
     await handle.shutdown("SIGTERM");
-    expect(code).toBe(0);
+    expect(exitCodes).toEqual([0]);
   });
 
   test("a second signal is a no-op, not a second exit", async () => {

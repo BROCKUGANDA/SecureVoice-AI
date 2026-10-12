@@ -49,7 +49,13 @@ const GATE = read("src/lib/policy-gate.ts");
 
 /** The literals the gate actually returns, in source order, deduped. */
 function emittedCodes(): string[] {
-  return [...new Set([...GATE.matchAll(/code:\s*"([a-z0-9_]+)"/g)].map((m) => m[1]))];
+  return [
+    ...new Set(
+      [...GATE.matchAll(/code:\s*"([a-z0-9_]+)"/g)]
+        .map((m) => m[1])
+        .filter((code): code is string => code !== undefined),
+    ),
+  ];
 }
 
 describe("policy-gate refusal codes", () => {

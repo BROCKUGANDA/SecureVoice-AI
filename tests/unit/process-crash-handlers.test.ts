@@ -35,7 +35,15 @@ function withHandlers() {
     uncaught: listenersFor("uncaughtException").slice(before.uncaught),
     rejected: listenersFor("unhandledRejection").slice(before.rejected),
   };
-  return { handle, exits, added, before };
+  // The registered function IS the contract under test; a missing one would make
+  // every assertion below vacuous, so fail loudly here instead of typing each
+  // indexed read as possibly-undefined.
+  const onUncaught = added.uncaught[0];
+  const onRejected = added.rejected[0];
+  if (!onUncaught || !onRejected) {
+    throw new Error("installProcessCrashHandlers must register exactly one listener on each event");
+  }
+  return { handle, exits, added, before, onUncaught, onRejected };
 }
 
 /** Longer than `EXIT_DEFER_MS`, the window the handler gives buffered log writes. */
@@ -61,8 +69,8 @@ describe("process crash handlers", () => {
   });
 
   test("an unhandled exception is counted, logged and exits non-zero", async () => {
-    const { exits, added, handle } = withHandlers();
-    added.uncaught[0](new Error("boom in the money path"));
+    const { exits, handle, onUncaught } = withHandlers();
+    onUncaught(new Error("boom in the money path"));
     await settle();
     expect(exits).toEqual([1]);
     expect(handle.uncaughtExceptions()).toBe(1);
@@ -70,16 +78,16 @@ describe("process crash handlers", () => {
   });
 
   test("a second exception during the fatal path does not exit twice", async () => {
-    const { exits, added } = withHandlers();
-    added.uncaught[0](new Error("first"));
-    added.uncaught[0](new Error("raised while dying"));
+    const { exits, onUncaught } = withHandlers();
+    onUncaught(new Error("first"));
+    onUncaught(new Error("raised while dying"));
     await settle();
     expect(exits).toEqual([1]);
   });
 
   test("an unhandled rejection is recorded and the process keeps running", async () => {
-    const { exits, added, handle } = withHandlers();
-    added.rejected[0](new Error("forgot a catch"), undefined);
+    const { exits, handle, onRejected } = withHandlers();
+    onRejected(new Error("forgot a catch"), undefined);
     await settle();
     expect(handle.unhandledRejections()).toBe(1);
     // No exit: one rejected request must not kill a healthy server.
@@ -87,8 +95,8 @@ describe("process crash handlers", () => {
   });
 
   test("a non-Error rejection still produces a record", async () => {
-    const { added, handle } = withHandlers();
-    added.rejected[0]("a bare string", undefined);
+    const { handle, onRejected } = withHandlers();
+    onRejected("a bare string", undefined);
     await settle();
     expect(handle.unhandledRejections()).toBe(1);
   });
@@ -102,10 +110,10 @@ describe("process crash handlers", () => {
   });
 
   test("a stack is captured but bounded", async () => {
-    const { added, handle } = withHandlers();
+    const { handle, onRejected } = withHandlers();
     const err = new Error("deep");
     err.stack = Array.from({ length: 400 }, (_, i) => `    at frame${i}`).join("\n");
-    added.rejected[0](err, undefined);
+    onRejected(err, undefined);
     await settle();
     expect(handle.unhandledRejections()).toBe(1);
   });

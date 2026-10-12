@@ -193,7 +193,13 @@ describe("paddle: permissive about new fields, strict about the ones that move m
     // `transaction.completed` whose `items` are malformed would be acknowledged
     // as an unhandled event and the payment would never settle.
     const broken = structuredClone(completed);
-    broken.data.items = [{ unit_price: { amount: "not-a-number", currency_code: "USD" } }];
+    broken.data.items = [
+      {
+        price_id: "pri_1",
+        quantity: 1,
+        unit_price: { amount: "not-a-number", currency_code: "USD" },
+      },
+    ];
 
     const res = validatePaddleWebhook(broken);
     expect(res.ok).toBe(false);
@@ -253,7 +259,11 @@ describe("paddle: permissive about new fields, strict about the ones that move m
     // is deliberately not a schema failure: absence is a routing fact, not a
     // malformed field.
     const noRef = structuredClone(completed);
-    delete noRef.data.custom_data;
+    // `custom_data` is required by the fixture's inferred type; delete through a
+    // Partial-typed alias, which refers to the same object, so the property is
+    // genuinely absent from what the validator receives.
+    const data: Partial<typeof noRef.data> = noRef.data;
+    delete data.custom_data;
     expect(validatePaddleWebhook(noRef).ok).toBe(true);
   });
 });

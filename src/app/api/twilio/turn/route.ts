@@ -148,7 +148,19 @@ function classify(text: string): Intent {
 
 /* ── Per-language replies (short — these are spoken on the phone) ── */
 
-const REPLIES: Record<Intent, Record<string, string>> = {
+/**
+ * A per-language phrase table that MUST carry English.
+ *
+ * Every lookup in this file is `<table>[lang] ?? <table>.en`, so `.en` existing
+ * is the invariant the fallback depends on. The intersection states that: `.en`
+ * stays a plain `string`, while `[lang]` on an unknown language is still
+ * `string | undefined` and falls back. A bare `Record<string, string>` would
+ * make `.en` itself `string | undefined` under noUncheckedIndexedAccess, and the
+ * fallback would fall back to nothing.
+ */
+type PhraseTable = { en: string } & Record<string, string>;
+
+const REPLIES: Record<Intent, PhraseTable> = {
   deny_fraud: {
     en: "I'm sorry that happened — you did the right thing reporting it. I have flagged this transaction as fraud and placed a temporary restriction on your card while a human fraud specialist reviews it. The specialist will confirm and follow up with you shortly. You will not be held liable for unauthorized transactions.",
     ar: "أأسف لما حدث — تصرفك صحيح تماماً. أبلغت عن هذه العملية كاحتيال ووضعت قيداً مؤقتاً على بطاقتك ريثما يراجعها أخصائي احتيال بشري. سيؤكد الأخصائي الإجراء ويتواصل معك قريباً. لن تتحمل أي مسؤولية عن العمليات غير المصرح بها.",
@@ -189,7 +201,7 @@ const REPLIES: Record<Intent, Record<string, string>> = {
  * above, and constants for the same reason: the sentence that asks a silent
  * customer to speak is not one a model gets to improvise.
  */
-const PROMPTS: Record<string, Record<string, string>> = {
+const PROMPTS: { speakNow: PhraseTable; notCaught: PhraseTable; goodbye: PhraseTable } = {
   speakNow: {
     en: "Please speak now.",
     ar: "تحدّث الآن، من فضلك.",
@@ -226,7 +238,10 @@ function escapeXml(s: string): string {
 }
 
 /** Best-available Twilio voice for a language (Polly / Google). */
-const VOICE: Record<string, { voice: string; language: string }> = {
+const VOICE: { en: { voice: string; language: string } } & Record<
+  string,
+  { voice: string; language: string }
+> = {
   en: { voice: "Polly.Joanna", language: "en-US" },
   ar: { voice: "Polly.Zeina", language: "ar" },
   hi: { voice: "Polly.Aditi", language: "hi-IN" },

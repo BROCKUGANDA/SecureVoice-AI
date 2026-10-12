@@ -32,7 +32,7 @@ beforeAll(async () => {
   process.env.APP_BASE_URL = "http://localhost:3000";
   process.env.PILOT_NOTIFY_EMAIL = NOTIFY_TO;
   const mod = await import("@/app/api/pilot/route");
-  POST = mod.POST as (req: Request) => Promise<Response>;
+  POST = mod.POST as unknown as (req: Request) => Promise<Response>;
 });
 
 afterAll(async () => {

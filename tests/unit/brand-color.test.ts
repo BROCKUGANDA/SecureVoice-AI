@@ -342,7 +342,7 @@ describe("brandStyleSheet", () => {
     expect(v.ok).toBe(true);
     if (!v.ok) return;
     const css = brandStyleSheet(v) ?? "";
-    const values = [...css.matchAll(/:([^;{}]+)[;}]/g)].map((m) => m[1].trim());
+    const values = [...css.matchAll(/:([^;{}]+)[;}]/g)].map((m) => (m[1] ?? "").trim());
     expect(values.length).toBeGreaterThan(0);
     for (const value of values) {
       expect(value).toMatch(/^#[0-9a-f]{6}$/);
@@ -350,7 +350,7 @@ describe("brandStyleSheet", () => {
 
     // The selectors are fixed, so an unexpected one would mean the serialiser
     // grew a branch. Anything outside this set is a bug, not a new feature.
-    const selectors = [...css.matchAll(/([^{}]+)\{/g)].map((m) => m[1].trim());
+    const selectors = [...css.matchAll(/([^{}]+)\{/g)].map((m) => (m[1] ?? "").trim());
     expect(new Set(selectors)).toEqual(new Set([":root", ".dark"]));
 
     // The properties are the fixed token set, repeated once per scheme.
@@ -361,7 +361,7 @@ describe("brandStyleSheet", () => {
       "--sidebar-primary",
       "--sidebar-primary-foreground",
     ];
-    const props = [...css.matchAll(/(--[a-z-]+)\s*:/g)].map((m) => m[1]);
+    const props = [...css.matchAll(/(--[a-z-]+)\s*:/g)].map((m) => m[1] ?? "");
     expect(props.length).toBe(ALLOWED.length * 2);
     for (const p of props) expect(ALLOWED).toContain(p);
   });

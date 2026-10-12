@@ -123,11 +123,21 @@ function toHex(r: number, g: number, b: number): string {
  * common way a contrast checker gets a dark colour wrong.
  */
 export function relativeLuminance(hex: string): number {
-  const [r, g, b] = channels(hex).map((c) => {
+  // Keep the tuple tuple-typed all the way to the reads. `channels(hex).map(…)`
+  // reads better, but `.map` on a tuple returns `number[]`, and under
+  // `noUncheckedIndexedAccess` every element of an ARRAY read — destructuring
+  // included — is `number | undefined`. A tuple read at a literal index is
+  // exempt from that widening; a mapped array is not, and the three elements
+  // `channels()` just constructed were being treated as possibly missing.
+  //
+  // `channels()` builds that three-element tuple itself, so these reads are in
+  // bounds by construction — the code says so, rather than asserting it away.
+  const tuple = channels(hex);
+  const linear = (c: number) => {
     const srgb = c / 255;
     return srgb <= 0.03928 ? srgb / 12.92 : Math.pow((srgb + 0.055) / 1.055, 2.4);
-  });
-  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  };
+  return 0.2126 * linear(tuple[0]) + 0.7152 * linear(tuple[1]) + 0.0722 * linear(tuple[2]);
 }
 
 /** WCAG contrast ratio, 1–21. Order-independent. */

@@ -134,12 +134,16 @@ describe("buildTrustedOrigins", () => {
   describe("NEXT_PHASE=phase-production-build", () => {
     const PHASE = process.env.NEXT_PHASE;
     const NODE_ENV = process.env.NODE_ENV;
+    // `NODE_ENV` is declared readonly (next/types/global.d.ts), so the writes below
+    // go through this alias. It is the same object and the same runtime operations;
+    // only the typing of the mutation site changes.
+    const env = process.env as Record<string, string | undefined>;
 
     afterEach(() => {
-      if (PHASE === undefined) delete process.env.NEXT_PHASE;
-      else process.env.NEXT_PHASE = PHASE;
-      if (NODE_ENV === undefined) delete process.env.NODE_ENV;
-      else process.env.NODE_ENV = NODE_ENV;
+      if (PHASE === undefined) delete env.NEXT_PHASE;
+      else env.NEXT_PHASE = PHASE;
+      if (NODE_ENV === undefined) delete env.NODE_ENV;
+      else env.NODE_ENV = NODE_ENV;
     });
 
     /**
@@ -158,17 +162,17 @@ describe("buildTrustedOrigins", () => {
     const reload = () => import(`@/lib/auth/origins?t=${++reloads}`);
 
     test("a production BOOT on a loopback origin still refuses", async () => {
-      process.env.NODE_ENV = "production";
-      delete process.env.NEXT_PHASE;
-      process.env.BETTER_AUTH_URL = "http://localhost:3000";
+      env.NODE_ENV = "production";
+      delete env.NEXT_PHASE;
+      env.BETTER_AUTH_URL = "http://localhost:3000";
       const mod = await reload();
       expect(() => mod.trustedOriginsFromEnv()).toThrow(/loopback/i);
     });
 
     test("a production BUILD on the same loopback origin is allowed", async () => {
-      process.env.NODE_ENV = "production";
-      process.env.NEXT_PHASE = "phase-production-build";
-      process.env.BETTER_AUTH_URL = "https://localhost:61015";
+      env.NODE_ENV = "production";
+      env.NEXT_PHASE = "phase-production-build";
+      env.BETTER_AUTH_URL = "https://localhost:61015";
       const mod = await reload();
       // The CI smoke test allocates a random loopback port and builds against
       // it; this is that case, and it used to kill every run at
@@ -178,9 +182,9 @@ describe("buildTrustedOrigins", () => {
     });
 
     test("an UNRELATED phase value grants nothing", async () => {
-      process.env.NODE_ENV = "production";
-      process.env.NEXT_PHASE = "phase-development-server";
-      process.env.BETTER_AUTH_URL = "http://localhost:3000";
+      env.NODE_ENV = "production";
+      env.NEXT_PHASE = "phase-development-server";
+      env.BETTER_AUTH_URL = "http://localhost:3000";
       const mod = await reload();
       expect(() => mod.trustedOriginsFromEnv()).toThrow(/loopback/i);
     });

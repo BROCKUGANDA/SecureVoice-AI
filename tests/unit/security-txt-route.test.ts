@@ -15,11 +15,12 @@
  */
 import { expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
-import { NextRequest } from "next/server";
 
 test("the canonical well-known path serves the published security contact", async () => {
   const { GET } = await import("@/app/.well-known/security.txt/route");
-  const res = await GET(new NextRequest("https://app.test/.well-known/security.txt"));
+  // The handler takes no arguments: it reads the file from the working directory,
+  // so the request object this test used to build was never consulted.
+  const res = await GET();
 
   expect(res.status).toBe(200);
   expect(res.headers.get("content-type")).toBe("text/plain; charset=utf-8");

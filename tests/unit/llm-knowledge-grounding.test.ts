@@ -67,8 +67,9 @@ const PROVIDER = {
   maxTokens: 128,
 };
 
-/** The production seam, replaced by the recorder above. */
-const retrieve = async (orgId: string, query: string, topK: number) => {
+/** The production seam, replaced by the recorder above. `topK` defaults to 5,
+ *  mirroring the `searchDocuments` signature this mock replaces. */
+const retrieve = async (orgId: string, query: string, topK = 5) => {
   retrieveCalls.push({ orgId, query, topK });
   return retrieveImpl(orgId, query, topK);
 };

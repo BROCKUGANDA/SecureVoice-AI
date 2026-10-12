@@ -422,7 +422,9 @@ describe("failure shapes a caller can reason about", () => {
         timeoutMs: 40,
         fetchImpl: never,
       }).placeCall("+15005550006"),
-      new Promise((resolve) => setTimeout(() => resolve("HUNG"), 1_500)),
+      // Annotated so the race resolves to `TelecomResult | string` instead of
+      // `unknown`; the sentinel is what the `typeof` check below narrows away.
+      new Promise<string>((resolve) => setTimeout(() => resolve("HUNG"), 1_500)),
     ]);
 
     expect(res).not.toBe("HUNG");

@@ -258,7 +258,6 @@ describe("a refund reverses what was credited, in both balances", () => {
 
     const res = await refundPayment({
       provider: "paddle",
-      orgId: bought,
       reference,
       money: { amountMinor: 9_900, currency: "USD" },
       eventId: `evt_${reference}:refund`,
@@ -279,14 +278,12 @@ describe("a refund reverses what was credited, in both balances", () => {
 
     const first = await refundPayment({
       provider: "paddle",
-      orgId: bought,
       reference,
       money: { amountMinor: 1_000, currency: "USD" },
       eventId: `evt_${reference}:refund:1`,
     });
     const second = await refundPayment({
       provider: "paddle",
-      orgId: bought,
       reference,
       money: { amountMinor: 1_000, currency: "USD" },
       eventId: `evt_${reference}:refund:2`,

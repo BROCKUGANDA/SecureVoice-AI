@@ -27,7 +27,7 @@ mock.module("@elevenlabs/elevenlabs-js", () => ({
     textToSpeech = {
       stream: async (_voiceId: string, _body: unknown) => {
         streamRequests.push(this.opts.apiKey);
-        const outcome = outcomes[Math.min(streamRequests.length - 1, outcomes.length - 1)];
+        const outcome = outcomes[Math.min(streamRequests.length - 1, outcomes.length - 1)] ?? "ok";
         if (outcome !== "ok") {
           const err = new Error(`ElevenLabs upstream ${outcome}`) as Error & { statusCode: number };
           err.statusCode = outcome;
@@ -72,7 +72,7 @@ async function poolStream(input?: Parameters<typeof streamWithKeyPool>[0]) {
     input ?? {
       open: async (key) => {
         streamRequests.push(key);
-        const outcome = outcomes[Math.min(streamRequests.length - 1, outcomes.length - 1)];
+        const outcome = outcomes[Math.min(streamRequests.length - 1, outcomes.length - 1)] ?? "ok";
         if (outcome !== "ok") {
           const err = new Error(`upstream ${outcome}`) as Error & { statusCode: number };
           err.statusCode = outcome;
@@ -142,7 +142,7 @@ describe("the stream rotates when a key is unhealthy", () => {
       caught = err;
     }
     expect(caught).toBeInstanceOf(PoolExhaustedError);
-    expect((caught as PoolExhaustedError).attempts).toBe(2);
+    expect((caught as InstanceType<typeof PoolExhaustedError>).attempts).toBe(2);
   });
 
   test("all keys cooling down attempts nothing and says so", async () => {
@@ -157,7 +157,7 @@ describe("the stream rotates when a key is unhealthy", () => {
       caught = err;
     }
     expect(caught).toBeInstanceOf(PoolExhaustedError);
-    expect((caught as PoolExhaustedError).status).toBe(503);
+    expect((caught as InstanceType<typeof PoolExhaustedError>).status).toBe(503);
     expect(streamRequests, "a parked key was tried anyway").toHaveLength(0);
   });
 });
@@ -172,7 +172,7 @@ describe("rotating is not always the answer", () => {
       caught = err;
     }
     expect(caught).toBeInstanceOf(PoolExhaustedError);
-    expect((caught as PoolExhaustedError).status).toBe(400);
+    expect((caught as InstanceType<typeof PoolExhaustedError>).status).toBe(400);
     // Every key holds the same text and the same voice id. Trying the second one
     // spends the pool to learn the answer we already have.
     expect(streamRequests).toEqual(["k1"]);
@@ -227,7 +227,7 @@ describe("a tenant's own key comes first and is not pooled", () => {
       preferred: { key: "tenant-key", label: "caller" },
     });
     expect(streamRequests[0]).toBe("tenant-key");
-    expect(["k1", "k2"]).toContain(streamRequests[1]);
+    expect(["k1", "k2"]).toContain(streamRequests[1] ?? "");
     expect(opened.key).not.toBe("caller");
   });
 

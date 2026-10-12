@@ -323,6 +323,11 @@ test("Better Auth's sign-up endpoint is refused through the catch-all, by name",
     origin,
     "no trusted origin resolves in this environment; without one the assertions below could be origin refusals",
   ).toBeTruthy();
+  if (origin === undefined) {
+    // Unreachable once the assertion above has passed — the throw is what narrows
+    // `origin` to a string for the header below.
+    throw new Error("no trusted origin resolves in this environment");
+  }
 
   const post = async (path: string, body: unknown) => {
     const response = await catchAllPOST(

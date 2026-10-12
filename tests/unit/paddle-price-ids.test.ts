@@ -23,15 +23,32 @@ afterEach(() => {
   else process.env.NEXT_PUBLIC_PADDLE_PRICES = save;
 });
 
+/**
+ * The three tiers the sandbox map must resolve. `paddlePriceIds` returns an
+ * index-signature record, so each lookup is `PriceTier | undefined` to the
+ * compiler; a map that dropped a tier would make the assertions below vacuous,
+ * so missing tiers are a hard failure here.
+ */
+function resolvedIds() {
+  const ids = paddlePriceIds();
+  const { starter, growth, enterprise } = ids;
+  if (starter === undefined || growth === undefined || enterprise === undefined) {
+    throw new Error(
+      `the fixture map must resolve all three tiers, got: ${Object.keys(ids).sort().join(", ")}`,
+    );
+  }
+  return { ids, starter, growth, enterprise };
+}
+
 describe("paddlePriceIds", () => {
   test("resolves every tier and BOTH intervals from a flat price map", () => {
     process.env.NEXT_PUBLIC_PADDLE_PRICES = SANDBOX;
-    const ids = paddlePriceIds();
+    const { ids, starter, growth, enterprise } = resolvedIds();
     expect(Object.keys(ids).sort()).toEqual(["enterprise", "growth", "starter"]);
-    expect(ids.starter.month).toBe("pri_01m4kc8amfsr590wkmf02v0q91");
-    expect(ids.starter.year).toBe("pri_01m4kmzw3cq4na5tfn6xqd6ekn");
-    expect(ids.growth.month).toBe("pri_01m4kc8bdy18z7h9g4qwbv6vqq");
-    expect(ids.enterprise.year).toBe("pri_01m4kmzwwqy407sttdb550w8dt");
+    expect(starter.month).toBe("pri_01m4kc8amfsr590wkmf02v0q91");
+    expect(starter.year).toBe("pri_01m4kmzw3cq4na5tfn6xqd6ekn");
+    expect(growth.month).toBe("pri_01m4kc8bdy18z7h9g4qwbv6vqq");
+    expect(enterprise.year).toBe("pri_01m4kmzwwqy407sttdb550w8dt");
   });
 
   test("the annual amount maps to the same tier as its monthly anchor", () => {
@@ -39,10 +56,10 @@ describe("paddlePriceIds", () => {
     // against the MONTHLY table is the bug that would silently drop every
     // annual Buy button.
     process.env.NEXT_PUBLIC_PADDLE_PRICES = SANDBOX;
-    const ids = paddlePriceIds();
-    expect(ids.starter.year).not.toBe("");
-    expect(ids.growth.year).not.toBe("");
-    expect(ids.enterprise.year).not.toBe("");
+    const { starter, growth, enterprise } = resolvedIds();
+    expect(starter.year).not.toBe("");
+    expect(growth.year).not.toBe("");
+    expect(enterprise.year).not.toBe("");
   });
 
   test("a half-filled map is rejected rather than half-rendered", () => {

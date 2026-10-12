@@ -142,8 +142,13 @@ describe("the overage rate is the plan's own", () => {
     expect(starter.ok).toBe(true);
     expect(growth.ok).toBe(true);
     if (!starter.ok || !growth.ok) return;
-    expect(starter.rateMinorPerUnit).toBe(planById("starter")!.overageCents);
-    expect(growth.rateMinorPerUnit).toBe(planById("growth")!.overageCents);
+    const starterCents = planById("starter")!.overageCents;
+    const growthCents = planById("growth")!.overageCents;
+    if (starterCents === null || growthCents === null) {
+      throw new Error("starter and growth publish a catalog overage rate");
+    }
+    expect(starter.rateMinorPerUnit).toBe(starterCents);
+    expect(growth.rateMinorPerUnit).toBe(growthCents);
     // The page quotes two DIFFERENT figures. One global rate made Growth's
     // advertised 12¢ a lie, so this fails if anyone collapses them again.
     expect(starter.rateMinorPerUnit).not.toBe(growth.rateMinorPerUnit);
@@ -190,7 +195,9 @@ describe("the overage rate is the plan's own", () => {
     const r = resolveOverageRate("starter");
     expect(r.ok).toBe(true);
     if (r.ok) {
-      expect(r.rateMinorPerUnit).toBe(planById("starter")!.overageCents);
+      const publishedCents = planById("starter")!.overageCents;
+      if (publishedCents === null) throw new Error("starter publishes no overage rate");
+      expect(r.rateMinorPerUnit).toBe(publishedCents);
       expect(r.configured).toBe(false);
     }
     restoreEnv();

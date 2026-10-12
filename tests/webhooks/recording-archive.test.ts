@@ -50,12 +50,23 @@ let failNextPut = false;
 
 const realFetch = globalThis.fetch;
 
+/**
+ * `Headers` in this project's lib set (DOM without DOM.Iterable) has no
+ * `entries()`; `forEach` is the iterable it does expose, and it visits the same
+ * key/value pairs in the same order.
+ */
+function headerPairs(headers: Headers): [string, string][] {
+  const pairs: [string, string][] = [];
+  headers.forEach((value, key) => pairs.push([key, value]));
+  return pairs;
+}
+
 function installFetch() {
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const raw = init?.headers;
     const headers =
       raw instanceof Headers
-        ? Object.fromEntries(raw.entries())
+        ? Object.fromEntries(headerPairs(raw))
         : Array.isArray(raw)
           ? Object.fromEntries(raw as [string, string][])
           : { ...((raw ?? {}) as Record<string, string>) };

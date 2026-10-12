@@ -600,7 +600,7 @@ describe("realtime reconnect — close()", () => {
     expect(h.timers.armed).toBe(0);
     // Assert the CANCELLATION, not the absence of a reconnect: a timer that was
     // merely ignored would still fire later and still open a socket.
-    expect(h.timers.cancelled).toContain(armedBefore[0]);
+    expect(h.timers.cancelled).toContain(armedBefore[0] ?? -1);
     expect(h.timers.cancelled.length).toBe(cancelsBefore + armedBefore.length);
   });
 

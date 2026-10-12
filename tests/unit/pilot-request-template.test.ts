@@ -73,7 +73,9 @@ describe("the notification carries what the founder needs", () => {
 
 describe("optional fields degrade rather than break", () => {
   test("a missing role and volume still render the rest", () => {
-    const html = render({ role: null, volume: null });
+    // undefined, not null: the template's `role?.trim()` treats both as absent,
+    // and only an explicit undefined overrides FULL's value in the spread above.
+    const html = render({ role: undefined, volume: undefined });
     expect(html).toContain("Ada Lovelace");
     expect(html).toContain("SV-P-ABC123");
     // The labels for the absent fields are simply not rendered.
@@ -81,7 +83,7 @@ describe("optional fields degrade rather than break", () => {
   });
 
   test("a missing message omits the message block entirely", () => {
-    const html = render({ message: null });
+    const html = render({ message: undefined });
     expect(html).toContain("Ada Lovelace");
     expect(html).not.toContain("MESSAGE");
   });

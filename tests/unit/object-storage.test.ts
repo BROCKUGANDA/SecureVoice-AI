@@ -424,20 +424,20 @@ describe("the secret never leaves the module", () => {
     await failing(() =>
       client({
         fetchImpl: (async () =>
-          new Response("<Error>denied</Error>", { status: 403 })) as typeof fetch,
+          new Response("<Error>denied</Error>", { status: 403 })) as unknown as typeof fetch,
       }).putObject("org_1/recordings/conv-1.mp3", Buffer.from("audio")),
     );
     await failing(() =>
       client({
         fetchImpl: (async () =>
-          new Response("<Error>nope</Error>", { status: 500 })) as typeof fetch,
+          new Response("<Error>nope</Error>", { status: 500 })) as unknown as typeof fetch,
       }).getObject("org_1/recordings/conv-1.mp3"),
     );
     await failing(() =>
       client({
         fetchImpl: (async () => {
           throw new Error(`connect ECONNREFUSED using ${SECRET}`);
-        }) as typeof fetch,
+        }) as unknown as typeof fetch,
       }).deleteObject("org_1/recordings/conv-1.mp3"),
     );
     // A validation failure is a message too. It cannot leak the secret by
@@ -518,7 +518,9 @@ describe("signed object requests", () => {
 
   test("a non-2xx response throws a typed error carrying the status", async () => {
     const fetchImpl = (async () =>
-      new Response("<Error><Code>NoSuchKey</Code></Error>", { status: 404 })) as typeof fetch;
+      new Response("<Error><Code>NoSuchKey</Code></Error>", {
+        status: 404,
+      })) as unknown as typeof fetch;
 
     try {
       await client({ fetchImpl }).getObject("org_1/x.mp3");
@@ -533,14 +535,14 @@ describe("signed object requests", () => {
   test("DELETE is idempotent — a 404 is the state the caller asked for", async () => {
     // A retention sweep runs over a prefix that is partly deleted already. If 404
     // threw, the second run of every sweep would fail forever.
-    const fetchImpl = (async () => new Response("", { status: 404 })) as typeof fetch;
+    const fetchImpl = (async () => new Response("", { status: 404 })) as unknown as typeof fetch;
     await client({ fetchImpl }).deleteObject("org_1/x.mp3");
   });
 
   test("a network failure is a typed error, not an unhandled rejection", async () => {
     const fetchImpl = (async () => {
       throw new TypeError("fetch failed");
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
 
     try {
       await client({ fetchImpl }).putObject("org_1/x.mp3", Buffer.from("a"));
@@ -577,12 +579,12 @@ describe("signed object requests", () => {
     // zero audio bytes.
     expect(method).toBe("HEAD");
 
-    const missing = (async () => new Response("", { status: 404 })) as typeof fetch;
+    const missing = (async () => new Response("", { status: 404 })) as unknown as typeof fetch;
     expect(await client({ fetchImpl: missing }).headObject("org_1/x.mp3")).toBe(false);
 
     const broken = (async () => {
       throw new Error("unreachable");
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
     // Unreachable collapses into the same answer the console already renders.
     expect(await client({ fetchImpl: broken }).headObject("org_1/x.mp3")).toBe(false);
     // And an unconfigured store, and a hostile key, are both "no".

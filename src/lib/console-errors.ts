@@ -126,8 +126,12 @@ export function describeAnalyticsError(code: string | null | undefined, lang: La
 export function describeRecordingError(code: string | null | undefined, lang: Lang): string {
   const k = keyFor(code);
   if (k && RECORDING[k]) return pick(RECORDING[k], lang);
-  if (k === "not_found") return pick(RECORDING.recording_not_found, lang);
-  if (k === "forbidden") return pick(RECORDING.no_active_organization, lang);
+  // The table is annotated `Record<string, Copy>`, so no key is guaranteed by the
+  // type even when the literal below spells it: under `noUncheckedIndexedAccess`
+  // `RECORDING.x` reads as `Copy | undefined`. Name the fallback rather than hand
+  // `pick` a possibly-missing entry.
+  if (k === "not_found") return pick(RECORDING.recording_not_found ?? GENERIC, lang);
+  if (k === "forbidden") return pick(RECORDING.no_active_organization ?? GENERIC, lang);
   return pick(GENERIC, lang);
 }
 

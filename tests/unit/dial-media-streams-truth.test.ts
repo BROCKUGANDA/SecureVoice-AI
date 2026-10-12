@@ -245,10 +245,14 @@ describe("dial worker — Twilio media-streams plane", () => {
 
 describe("dial worker — the media-stream host is configuration, not a guess", () => {
   it("returns the configured host and refuses every value a carrier cannot resolve", () => {
-    expect(mediaStreamHost({ SITE_ADDRESS: "securevoiceai.me" })).toBe("securevoiceai.me");
+    expect(mediaStreamHost({ SITE_ADDRESS: "securevoiceai.me", NODE_ENV: "test" })).toBe(
+      "securevoiceai.me",
+    );
     // A bare public IP is a real deployment (a VPS with no domain yet), the same
     // allowance `config.twilioWebhookBaseUrl` documents.
-    expect(mediaStreamHost({ SITE_ADDRESS: "57.130.80.158" })).toBe("57.130.80.158");
+    expect(mediaStreamHost({ SITE_ADDRESS: "57.130.80.158", NODE_ENV: "test" })).toBe(
+      "57.130.80.158",
+    );
 
     for (const bad of [
       undefined,
@@ -263,7 +267,9 @@ describe("dial worker — the media-stream host is configuration, not a guess", 
       "[::1]",
       "printer.local",
     ]) {
-      expect(() => mediaStreamHost({ SITE_ADDRESS: bad })).toThrow(/SITE_ADDRESS/);
+      expect(() => mediaStreamHost({ SITE_ADDRESS: bad, NODE_ENV: "test" })).toThrow(
+        /SITE_ADDRESS/,
+      );
     }
   });
 });

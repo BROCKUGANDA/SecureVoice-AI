@@ -362,7 +362,7 @@ describe("storing a recording", () => {
     // records the outcome in the audit chain either way.
     configureStore();
     const fetchImpl = (async () =>
-      new Response("<Error>nope</Error>", { status: 500 })) as typeof fetch;
+      new Response("<Error>nope</Error>", { status: 500 })) as unknown as typeof fetch;
     const res = await storeRecording({
       orgId: "org_a",
       conversationId: "conv-1",

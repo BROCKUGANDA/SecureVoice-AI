@@ -243,12 +243,12 @@ test("the application role is a superuser, which is why grants cannot be the onl
 // ── 2. Prevention, for the role that no grant can bind ───────────────────────
 
 test("UPDATE of an audit row is refused while the trigger is live", async () => {
-  const attempt = await attemptAgainstLiveGuard(async (tx) =>
-    tx.auditLog.update({
+  const attempt = await attemptAgainstLiveGuard(async (tx) => {
+    await tx.auditLog.update({
       where: { id: rowA },
       data: { redactedText: "rewritten by a forged run" },
-    }),
-  );
+    });
+  });
   expect(attempt.stateInTxn, "the guard was not enabled inside the transaction").toBe("O");
   expect(attempt.raised, "the UPDATE was accepted — the audit row is writable").toBeDefined();
   expect(messageOf(attempt.raised)).toContain("immutable");
@@ -262,9 +262,9 @@ test("UPDATE of an audit row is refused while the trigger is live", async () => 
 });
 
 test("DELETE of an audit row is refused while the trigger is live", async () => {
-  const attempt = await attemptAgainstLiveGuard(async (tx) =>
-    tx.auditLog.delete({ where: { id: rowB } }),
-  );
+  const attempt = await attemptAgainstLiveGuard(async (tx) => {
+    await tx.auditLog.delete({ where: { id: rowB } });
+  });
   expect(attempt.stateInTxn, "the guard was not enabled inside the transaction").toBe("O");
   expect(attempt.raised, "the DELETE was accepted — the audit row is deletable").toBeDefined();
   expect(messageOf(attempt.raised)).toContain("immutable");

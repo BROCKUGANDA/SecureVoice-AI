@@ -134,7 +134,13 @@ export function describeAuthError(e: unknown, lang: AuthLang): string {
 
   const message = authErrorDetail(e).toLowerCase();
   for (const entry of BY_MESSAGE) {
-    if (message.includes(entry.match)) return BY_CODE[entry.code][lang];
+    // `entry.code` is a general `string` (the keyof of an index-signature
+    // `Record`), and this read has no preceding truthiness check on the entry —
+    // so under `noUncheckedIndexedAccess` it is `Copy | undefined`. Name the
+    // fallback rather than indexing a possibly-missing table.
+    // (The `if` above needs no such handling: TypeScript narrows the two
+    // `BY_CODE[code]` reads as one expression, const index and all.)
+    if (message.includes(entry.match)) return (BY_CODE[entry.code] ?? GENERIC)[lang];
   }
   return GENERIC[lang];
 }

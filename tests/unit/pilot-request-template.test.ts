@@ -23,8 +23,9 @@
 import { test, expect, describe } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { PilotRequestEmail } from "@/lib/email/templates/pilot-request";
+import type { PilotRequestEmailProps } from "@/lib/email/templates/pilot-request";
 
-const FULL = {
+const FULL: PilotRequestEmailProps = {
   ref: "SV-P-ABC123",
   name: "Ada Lovelace",
   email: "ada@example.test",
@@ -36,7 +37,7 @@ const FULL = {
   baseUrl: "https://securevoiceai.me",
 };
 
-function render(props: Partial<typeof FULL> = {}) {
+function render(props: Partial<PilotRequestEmailProps> = {}) {
   return renderToStaticMarkup(PilotRequestEmail({ ...FULL, ...props }));
 }
 
@@ -73,9 +74,7 @@ describe("the notification carries what the founder needs", () => {
 
 describe("optional fields degrade rather than break", () => {
   test("a missing role and volume still render the rest", () => {
-    // undefined, not null: the template's `role?.trim()` treats both as absent,
-    // and only an explicit undefined overrides FULL's value in the spread above.
-    const html = render({ role: undefined, volume: undefined });
+    const html = render({ role: null, volume: null });
     expect(html).toContain("Ada Lovelace");
     expect(html).toContain("SV-P-ABC123");
     // The labels for the absent fields are simply not rendered.
@@ -83,7 +82,7 @@ describe("optional fields degrade rather than break", () => {
   });
 
   test("a missing message omits the message block entirely", () => {
-    const html = render({ message: undefined });
+    const html = render({ message: null });
     expect(html).toContain("Ada Lovelace");
     expect(html).not.toContain("MESSAGE");
   });

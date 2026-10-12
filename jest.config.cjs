@@ -22,18 +22,10 @@
  * next/jest's tsconfig `paths` handling means `@/…` resolves without a
  * hand-written moduleNameMapper. `coverageDirectory` is the FIXED path
  * `coverage/jest/`, and scripts/coverage.mjs reads `coverage/jest/lcov.info`
- * from it. `collectCoverageFrom` is deliberately scoped to the e2e tier —
- * `src/views/**` plus the app entry files — which per coverage.mjs's `tierOf()`
- * is exactly the set of paths assigned to `e2e`. Two consequences, both wanted:
- *   · Jest can only ADD coverage to the tier that was empty. It cannot move the
- *     unit or integration numbers in either direction, so this harness cannot
- *     silently weaken the gate it is supposed to feed.
- *   · Files Jest never instruments stay scored by coverage.mjs's own
- *     approximate-lines fallback, so the denominator for untested views does not
- *     change.
- * If you later add Jest specs for `src/lib/**`, widen `collectCoverageFrom` —
- * and re-check the unit tier, because the two runners measure line sets
- * differently and the merged denominator will move.
+ * from it. `collectCoverageFrom` includes the e2e views and auth client forms.
+ * The auth forms remain in coverage.mjs's unit tier: jsdom is needed to exercise
+ * their browser interactions, but the tier and thresholds do not change.
+ * Files outside this list retain coverage.mjs's whole-source denominator.
  */
 const nextJest = require("next/jest");
 
@@ -76,7 +68,12 @@ const config = {
   // lcov-report/ tree of vendored JS, and `bun run lint` (eslint .) does not
   // read .gitignore, so that tree would be linted as if it were source.
   coverageReporters: ["lcovonly", "json", "json-summary", "text-summary"],
-  collectCoverageFrom: ["src/views/**/*.tsx", "src/app/page.tsx", "src/app/layout.tsx"],
+  collectCoverageFrom: [
+    "src/views/**/*.tsx",
+    "src/app/page.tsx",
+    "src/app/layout.tsx",
+    "src/app/auth/auth-forms.tsx",
+  ],
 
   clearMocks: true,
   testTimeout: 20000,

@@ -26,8 +26,7 @@ import { sendQueuedEmail } from "@/lib/email/resend";
 import type { EmailKind } from "@/lib/email/outbox";
 
 export type EnqueueAndSendResult =
-  | { ok: true; id: string }
-  | { ok: false; reason: "queue_failed" | "send_failed"; detail: string };
+  { ok: true; id: string } | { ok: false; reason: "queue_failed" | "send_failed"; detail: string };
 
 /**
  * Persist a message, then attempt one synchronous send.

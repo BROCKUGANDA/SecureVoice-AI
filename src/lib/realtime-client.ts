@@ -133,8 +133,7 @@ const RECONNECT_MAX_MS = Number(process.env.NEXT_PUBLIC_REALTIME_RECONNECT_MAX_M
  * "realtime is down" than by a tab that reconnects every thirty seconds for the
  * rest of the shift.
  */
-const RECONNECT_MAX_ATTEMPTS =
-  Number(process.env.NEXT_PUBLIC_REALTIME_MAX_ATTEMPTS) || 8;
+const RECONNECT_MAX_ATTEMPTS = Number(process.env.NEXT_PUBLIC_REALTIME_MAX_ATTEMPTS) || 8;
 
 // ── Test seams ─────────────────────────────────────────────────────────────────
 
@@ -315,11 +314,11 @@ export async function openRealtime(opts: RealtimeOptions): Promise<RealtimeHandl
   const rand = deps?.rand ?? Math.random;
   const later = deps?.setTimeout ?? ((fn: () => void, ms: number) => setTimeout(fn, ms));
   const cancel =
-    deps?.clearTimeout ?? ((handle: unknown) => clearTimeout(handle as ReturnType<typeof setTimeout>));
+    deps?.clearTimeout ??
+    ((handle: unknown) => clearTimeout(handle as ReturnType<typeof setTimeout>));
   // `in` rather than `??` so an explicit `null` (no visibility API — SSR, a
   // bare test runner) is distinguishable from "not configured" (auto-detect).
-  const visibility =
-    deps && "visibility" in deps ? (deps.visibility ?? null) : defaultVisibility();
+  const visibility = deps && "visibility" in deps ? (deps.visibility ?? null) : defaultVisibility();
 
   // Feature gate first, so a disabled deployment never spends a grant request or
   // opens a socket that will only be refused.
@@ -486,19 +485,22 @@ export async function openRealtime(opts: RealtimeOptions): Promise<RealtimeHandl
       next.on("connect_error", () => scheduleRetry());
       next.on("disconnect", () => scheduleRetry());
 
-      next.on("activity", (msg: { channel: string; event?: { kind: string; payload?: unknown } }) => {
-        if (msg.event?.kind !== "activity") return;
-        const payload = msg.event.payload as { type?: unknown } | null | undefined;
-        // Wallet movements ride the SAME activity envelope but not the case
-        // shape. Routed by `type`, not by channel name: a mislabelled channel
-        // must not be able to feed a credit balance into the case feed, nor a
-        // case action into a wallet chip.
-        if (payload && typeof payload === "object" && payload.type === "credit.deducted") {
-          onCredit?.(payload as CreditDeductedEvent);
-          return;
-        }
-        onActivity?.(msg.event.payload as CaseActivity, msg.channel);
-      });
+      next.on(
+        "activity",
+        (msg: { channel: string; event?: { kind: string; payload?: unknown } }) => {
+          if (msg.event?.kind !== "activity") return;
+          const payload = msg.event.payload as { type?: unknown } | null | undefined;
+          // Wallet movements ride the SAME activity envelope but not the case
+          // shape. Routed by `type`, not by channel name: a mislabelled channel
+          // must not be able to feed a credit balance into the case feed, nor a
+          // case action into a wallet chip.
+          if (payload && typeof payload === "object" && payload.type === "credit.deducted") {
+            onCredit?.(payload as CreditDeductedEvent);
+            return;
+          }
+          onActivity?.(msg.event.payload as CaseActivity, msg.channel);
+        },
+      );
 
       next.on("presence", (msg: PresenceUpdate) => onPresence?.(msg));
     } catch {

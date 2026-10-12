@@ -166,7 +166,9 @@ describe("paddle: permissive about new fields, strict about the ones that move m
       currency_code: "USD",
       billed_at: "2026-10-11T09:00:00+00:00",
       custom_data: { reference: "org_abc123_REF1_ABCDEFGHIJKLMNOPQRSTUVWXYZ234567" },
-      items: [{ price_id: "pri_1", quantity: 1, unit_price: { amount: "9900", currency_code: "USD" } }],
+      items: [
+        { price_id: "pri_1", quantity: 1, unit_price: { amount: "9900", currency_code: "USD" } },
+      ],
     },
   };
 
@@ -268,7 +270,11 @@ describe("elevenlabs: the discriminator reports the field that failed", () => {
       status: "completed",
       transcript: [
         { role: "user", message: "who is this", time_in_call_secs: 0.8 },
-        { role: "agent", message: "This is an automated voice assistant.", time_in_call_secs: 11.4 },
+        {
+          role: "agent",
+          message: "This is an automated voice assistant.",
+          time_in_call_secs: 11.4,
+        },
       ],
     },
   };
@@ -288,9 +294,10 @@ describe("elevenlabs: the discriminator reports the field that failed", () => {
     expect(res.ok).toBe(false);
     if (res.ok) throw new Error("accepted an out-of-range turn offset");
     expect(res.issues.map((i) => i.path)).toContain("data.transcript.1.time_in_call_secs");
-    expect(res.issues.some((i) => i.message.includes("its own schema")), JSON.stringify(res.issues)).toBe(
-      false,
-    );
+    expect(
+      res.issues.some((i) => i.message.includes("its own schema")),
+      JSON.stringify(res.issues),
+    ).toBe(false);
   });
 
   test("an unrecognised event family is accepted generically", () => {

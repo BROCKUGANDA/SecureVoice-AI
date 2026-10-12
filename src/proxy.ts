@@ -203,6 +203,11 @@ function reject(
 export const INDEXABLE_PATHS: readonly string[] = [
   "/",
   "/sitemap.xml",
+  // Machine-readable text for an answer engine. Listed here for the same reason as
+  // `/sitemap.xml`: it is not a page, and the route declares its own robots intent
+  // (`noindex, follow`) because the file's entire purpose is to be followed to the
+  // pages it links. A blanket `nofollow` from this middleware would cancel that.
+  "/llms.txt",
   "/pricing",
   "/terms",
   "/privacy",

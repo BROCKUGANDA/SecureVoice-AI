@@ -50,8 +50,7 @@ delete process.env.PRIVACY_MASTER_KEY;
 // It is a constant in a test harness, and anything that reaches an actual Better
 // Auth crypto path in a suite should set its own — the same rule the three hard
 // floors above already follow.
-process.env.BETTER_AUTH_SECRET ??=
-  "test-only-better-auth-secret-not-a-credential-0123456789abcdef";
+process.env.BETTER_AUTH_SECRET ??= "test-only-better-auth-secret-not-a-credential-0123456789abcdef";
 
 // The origin Better Auth derives its own URLs from, same reasoning as above: the
 // three tenancy suites that construct the auth layer fail to import without it,

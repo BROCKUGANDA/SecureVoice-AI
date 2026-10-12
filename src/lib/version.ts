@@ -61,4 +61,3 @@ export function deployedVersion(): string {
   // version forever, no matter how many releases shipped.
   return APP_VERSION;
 }
-

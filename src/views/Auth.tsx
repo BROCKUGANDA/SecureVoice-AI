@@ -485,7 +485,7 @@ export function Auth() {
   };
 
   return (
-    <div className="relative flex h-[100dvh] flex-col items-center justify-center overflow-y-auto bg-[#0c110e] px-4 py-8">
+    <div className="sv-scroll sv-scroll--dark relative flex h-[100dvh] flex-col items-center justify-center overflow-y-auto bg-[#0c110e] px-4 py-8">
       <GeoField />
       <Horizon />
 

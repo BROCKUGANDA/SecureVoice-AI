@@ -32,8 +32,18 @@ type MailMessage = {
 };
 
 const MAILBOXES = [
-  { key: "support", address: SUPPORT_EMAIL, labelEn: "Product · billing · security", labelAr: "المنتج · الفواتير · الأمان" },
-  { key: "legal", address: LEGAL_EMAIL, labelEn: "DPAs · PDPL/GDPR", labelAr: "اتفاقيات · حماية البيانات" },
+  {
+    key: "support",
+    address: SUPPORT_EMAIL,
+    labelEn: "Product · billing · security",
+    labelAr: "المنتج · الفواتير · الأمان",
+  },
+  {
+    key: "legal",
+    address: LEGAL_EMAIL,
+    labelEn: "DPAs · PDPL/GDPR",
+    labelAr: "اتفاقيات · حماية البيانات",
+  },
   { key: "founder", address: FOUNDER_EMAIL, labelEn: "Direct line", labelAr: "خط مباشر" },
 ] as const;
 
@@ -103,9 +113,7 @@ export function MailInbox() {
           >
             <Mail className="h-3.5 w-3.5 text-ink-3" />
             <span className="text-[12px] font-medium">{m.address}</span>
-            <span className="text-[10.5px] text-ink-3">
-              {t(m.labelEn, m.labelAr, lang)}
-            </span>
+            <span className="text-[10.5px] text-ink-3">{t(m.labelEn, m.labelAr, lang)}</span>
           </a>
         ))}
       </div>

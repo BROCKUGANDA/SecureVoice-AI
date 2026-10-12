@@ -204,7 +204,14 @@ describe("deliverEmail — the delivery state machine", () => {
   test("a successful send reaches SENT", async () => {
     const row = await pendingRow({ attempts: 0 });
     const outcome = await deliverEmail(
-      { id: row.id, kind: "magic_link", toEmail: `${MARK}@nowhere.test`, subject: "Sign in", payload: JSON.stringify({ origin: "https://example.test" }), attempts: 0 },
+      {
+        id: row.id,
+        kind: "magic_link",
+        toEmail: `${MARK}@nowhere.test`,
+        subject: "Sign in",
+        payload: JSON.stringify({ origin: "https://example.test" }),
+        attempts: 0,
+      },
       okSender,
     );
     expect(outcome.status).toBe("SENT");
@@ -216,7 +223,14 @@ describe("deliverEmail — the delivery state machine", () => {
     // the ladder is actually exhausted.
     const row = await pendingRow({ attempts: 2 });
     const outcome = await deliverEmail(
-      { id: row.id, kind: "magic_link", toEmail: `${MARK}@nowhere.test`, subject: "Sign in", payload: JSON.stringify({ origin: "https://example.test" }), attempts: 2 },
+      {
+        id: row.id,
+        kind: "magic_link",
+        toEmail: `${MARK}@nowhere.test`,
+        subject: "Sign in",
+        payload: JSON.stringify({ origin: "https://example.test" }),
+        attempts: 2,
+      },
       failSender,
     );
     expect(outcome.status).not.toBe("DEAD");
@@ -228,7 +242,14 @@ describe("deliverEmail — the delivery state machine", () => {
     // delays the messages behind it.
     const row = await pendingRow({ attempts: 0, payload: "{not json" });
     const outcome = await deliverEmail(
-      { id: row.id, kind: "magic_link", toEmail: `${MARK}@nowhere.test`, subject: "Sign in", payload: "{not json", attempts: 0 },
+      {
+        id: row.id,
+        kind: "magic_link",
+        toEmail: `${MARK}@nowhere.test`,
+        subject: "Sign in",
+        payload: "{not json",
+        attempts: 0,
+      },
       okSender,
     );
     expect(outcome.status).toBe("DEAD");
@@ -244,7 +265,14 @@ describe("deliverEmail — the delivery state machine", () => {
       return { ok: true as const, id: "msg-1" };
     };
     await deliverEmail(
-      { id: row.id, kind: "magic_link", toEmail: `${MARK}@nowhere.test`, subject: "Sign in", payload, attempts: 0 },
+      {
+        id: row.id,
+        kind: "magic_link",
+        toEmail: `${MARK}@nowhere.test`,
+        subject: "Sign in",
+        payload,
+        attempts: 0,
+      },
       capture as never,
     );
     expect(seen).toMatchObject({ origin: "https://example.test" });

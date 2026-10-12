@@ -112,9 +112,10 @@ test("a bank's merchant string is sanitised before it becomes a dial variable", 
   expect([200, 201, 202]).toContain(res.status);
 
   const jobs = await db.dialJob.findMany({ where: { orgId: org } });
-  expect(jobs.length, "no dial job was enqueued, so the assertion would be vacuous").toBeGreaterThan(
-    0,
-  );
+  expect(
+    jobs.length,
+    "no dial job was enqueued, so the assertion would be vacuous",
+  ).toBeGreaterThan(0);
 
   const parsed = JSON.parse(String(jobs[0]!.payload)) as { merchant?: string };
   const merchant = String(parsed.merchant);

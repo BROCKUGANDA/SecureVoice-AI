@@ -26,10 +26,10 @@ the blast radius is small, but it should be rotated once setup completes.
 
 ## BLOCKER 2 — the requested pricing contradicts the product
 
-| User asked for | This product actually sells |
-| --------------- | --------------------------- |
-| Starter $10/mo, $100/yr | Starter **$490**/mo |
-| Pro $40/mo, $400/yr      | Pro **$1,490**/mo |
+| User asked for             | This product actually sells                   |
+| -------------------------- | --------------------------------------------- |
+| Starter $10/mo, $100/yr    | Starter **$490**/mo                           |
+| Pro $40/mo, $400/yr        | Pro **$1,490**/mo                             |
 | Advanced $120/mo, $1200/yr | **Enterprise** — "Custom", no published price |
 
 ~50x discrepancy, and "Advanced" is not a plan that exists. The message also said
@@ -83,7 +83,7 @@ Credits are denominated in minor units: `unitsCredited = money.amountMinor + sum
 3. **Webhook signature maps cleanly.** Paddle's `Paddle-Signature`
    (`ts=...;h1=...`, HMAC-SHA256 over `ts:body`) fits the existing
    `WebhookRejection` union (`missing_signature | malformed_signature |
-   digest_mismatch | malformed_body | unsupported_event`) almost exactly. This is
+digest_mismatch | malformed_body | unsupported_event`) almost exactly. This is
    the easy half.
 4. **`reference` has no native home.** `CheckoutSession.reference` is OURS to
    generate. Paddle transactions carry `custom_data`, which is where it would go.
@@ -95,17 +95,17 @@ Credits are denominated in minor units: `unitsCredited = money.amountMinor + sum
 
 It is generic AI boilerplate. Following it would break things:
 
-| Guide says | This repo has |
-|------------|---------------|
-| "Next.js + Supabase stack" | Prisma + PostgreSQL (`provider = "postgresql"`, no Supabase client) |
-| `supabase.from('organizations')` | `db.organization` (Prisma) |
-| `ALTER TABLE organizations ADD COLUMN paddle_customer_id` | Prisma `Organization` model, camelCase; migrations are additive-by-policy under `prisma/migrations/` |
-| `credits_balance INTEGER` mutated directly | `UsageLedger` + `src/lib/billing/ledger.ts`, append-only `topup/reserve/consume/release/refund` with signed weights |
-| `newBalance = credits_balance + 7000` | exactly the mutation the ledger design forbids |
-| `paddle.webhooks.parseEvent(rawBody, signature, secret)` | **deprecated Paddle Billing API**; current is `paddle.webhooks.unmarshal(rawBody, secret, { signatureHeader })` |
-| `$499/mo Growth plan` | $490 / $1,490 / Enterprise-custom |
-| `/api/worker-trigger-call` | does not exist |
-| `session.session.activeOrganizationId` | CORRECT — that one matches Better Auth |
+| Guide says                                                | This repo has                                                                                                       |
+| --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| "Next.js + Supabase stack"                                | Prisma + PostgreSQL (`provider = "postgresql"`, no Supabase client)                                                 |
+| `supabase.from('organizations')`                          | `db.organization` (Prisma)                                                                                          |
+| `ALTER TABLE organizations ADD COLUMN paddle_customer_id` | Prisma `Organization` model, camelCase; migrations are additive-by-policy under `prisma/migrations/`                |
+| `credits_balance INTEGER` mutated directly                | `UsageLedger` + `src/lib/billing/ledger.ts`, append-only `topup/reserve/consume/release/refund` with signed weights |
+| `newBalance = credits_balance + 7000`                     | exactly the mutation the ledger design forbids                                                                      |
+| `paddle.webhooks.parseEvent(rawBody, signature, secret)`  | **deprecated Paddle Billing API**; current is `paddle.webhooks.unmarshal(rawBody, secret, { signatureHeader })`     |
+| `$499/mo Growth plan`                                     | $490 / $1,490 / Enterprise-custom                                                                                   |
+| `/api/worker-trigger-call`                                | does not exist                                                                                                      |
+| `session.session.activeOrganizationId`                    | CORRECT — that one matches Better Auth                                                                              |
 
 ## Next steps
 

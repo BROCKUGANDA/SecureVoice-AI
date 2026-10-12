@@ -25,6 +25,7 @@ Items 1–4 are DONE. Item 5 is NOT STARTED — see "Not done" below.
 ## Done
 
 ### Committed `0f33f21` — previous session
+
 Lottie removed, icon set generated, metadata/SEO/AEO, four legal routes.
 46 files, +2671/-1112. Staged per-path so the concurrent writer's uncommitted
 `Dockerfile`, `docker-compose.yml`, `Dockerfile.caddy`,
@@ -58,14 +59,14 @@ Measured, not predicted: `demo` is `user` access, so a signed-out visitor gets
 bounced to `auth`, and `home → demo → auth` during mount leaves AnimatePresence
 with two views stacked and the entering one at opacity 0.
 
-  Fix: the CTA is `/#live-demo` (the browser-mic widget on the home page, which
-  needs no sign-in at all — `id="live-demo"` added to that section), and the hash
-  handler is restricted to `public` views. `/#demo` is explicitly ignored with the
-  reason recorded inline so nobody re-adds it.
+Fix: the CTA is `/#live-demo` (the browser-mic widget on the home page, which
+needs no sign-in at all — `id="live-demo"` added to that section), and the hash
+handler is restricted to `public` views. `/#demo` is explicitly ignored with the
+reason recorded inline so nobody re-adds it.
 
-  Note the first version's comment claimed `launchDemo()` avoided the RBAC
-  bounce. It does not — `launchDemo` sets `view: "demo"`, which RBAC then
-  redirects. The comment was wrong and was corrected.
+Note the first version's comment claimed `launchDemo()` avoided the RBAC
+bounce. It does not — `launchDemo` sets `view: "demo"`, which RBAC then
+redirects. The comment was wrong and was corrected.
 
 **NEXT_PUBLIC_SITE_URL — the actual bug.** Setting it in the VPS `.env` would
 have done nothing. `NEXT_PUBLIC_*` is inlined by the Next compiler at BUILD time;
@@ -74,9 +75,9 @@ bundle. Production would have kept serving a sitemap and a canonical tag pointin
 at `http://localhost:3000` — worse than unset, because it is actively wrong and
 crawlers cache it.
 
-  Fix: `ARG NEXT_PUBLIC_SITE_URL` in the Dockerfile + a build arg in compose,
-  defaulting to `https://${SITE_ADDRESS:-localhost}`. A deployment that already
-  sets `SITE_ADDRESS` for TLS now cannot forget this one.
+Fix: `ARG NEXT_PUBLIC_SITE_URL` in the Dockerfile + a build arg in compose,
+defaulting to `https://${SITE_ADDRESS:-localhost}`. A deployment that already
+sets `SITE_ADDRESS` for TLS now cannot forget this one.
 
 **Paddle MCP servers** added to `~/.config/opencode/opencode.json` (`paddle-sandbox`,
 `paddle-live`, `paddle-docs`), all `type: remote`, all `enabled: false` pending

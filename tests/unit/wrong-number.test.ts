@@ -15,10 +15,7 @@
  */
 import { describe, expect, test } from "bun:test";
 
-import {
-  CASE_STATES,
-  canTransition,
-} from "@/lib/case-state-machine";
+import { CASE_STATES, canTransition } from "@/lib/case-state-machine";
 import {
   MIN_ACTIONABLE_CONFIDENCE,
   buildWrongNumberClosure,
@@ -295,7 +292,11 @@ describe("buildWrongNumberClosure", () => {
   });
 
   test("does not hang up on a low-confidence match", () => {
-    const c = buildWrongNumberClosure({ kind: "wrong_number", confidence: 0.55, matched: "who is this" });
+    const c = buildWrongNumberClosure({
+      kind: "wrong_number",
+      confidence: 0.55,
+      matched: "who is this",
+    });
     expect(c.actionable).toBe(false);
     expect(c.outcome).toBe("not_detected");
     expect(c.speech).toBe("");
@@ -384,10 +385,7 @@ describe("closurePath — a QUERY against the canonical machine, not a second on
 
   test("a callback IS re-dialable once the case is in the unreachable family", () => {
     expect(closurePath("BUSY", "RETRY_SCHEDULED")).toEqual(["BUSY", "RETRY_SCHEDULED"]);
-    expect(closurePath("NO_ANSWER", "RETRY_SCHEDULED")).toEqual([
-      "NO_ANSWER",
-      "RETRY_SCHEDULED",
-    ]);
+    expect(closurePath("NO_ANSWER", "RETRY_SCHEDULED")).toEqual(["NO_ANSWER", "RETRY_SCHEDULED"]);
   });
 
   test("an unknown state has no path — the machine fails closed", () => {

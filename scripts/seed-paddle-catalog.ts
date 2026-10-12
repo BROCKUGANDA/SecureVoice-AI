@@ -116,7 +116,9 @@ function regionalAmounts(usdMinor: string): Record<string, string> {
   if (!Number.isInteger(base) || base <= 0) {
     throw new RangeError(`usd amount must be a positive integer minor value, got "${usdMinor}"`);
   }
-  return Object.fromEntries(REGIONALS.map((r) => [r.label, String(Math.round(base * r.multiplier))]));
+  return Object.fromEntries(
+    REGIONALS.map((r) => [r.label, String(Math.round(base * r.multiplier))]),
+  );
 }
 
 /**

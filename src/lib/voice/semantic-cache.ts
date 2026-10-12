@@ -204,19 +204,21 @@ const ARABIC_MARKS = /[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED\u0640]/g;
  * different answers to the same caller turn.
  */
 export function foldUtterance(raw: string): string {
-  return (raw ?? "")
-    .normalize("NFKC")
-    .replace(ARABIC_MARKS, "")
-    .replace(/[أإآٱ]/g, "ا")
-    .replace(/ى/g, "ي")
-    .replace(/ة/g, "ه")
-    // Apostrophes fold away BEFORE punctuation, so "isn't" is one token rather
-    // than two ("isn t") and a contraction cannot hide from a phrase rule.
-    .replace(/['’`]/g, "")
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}]+/gu, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+  return (
+    (raw ?? "")
+      .normalize("NFKC")
+      .replace(ARABIC_MARKS, "")
+      .replace(/[أإآٱ]/g, "ا")
+      .replace(/ى/g, "ي")
+      .replace(/ة/g, "ه")
+      // Apostrophes fold away BEFORE punctuation, so "isn't" is one token rather
+      // than two ("isn t") and a contraction cannot hide from a phrase rule.
+      .replace(/['’`]/g, "")
+      .toLowerCase()
+      .replace(/[^\p{L}\p{N}]+/gu, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+  );
 }
 
 /** FNV-1a. Chosen because it is four lines, allocation-free, and stable forever. */

@@ -43,18 +43,18 @@ would therefore work locally and **404 in production**.
 
 Three options, in order of preference:
 
-| Approach | How | Trade-off |
-|---|---|---|
-| **Docker volume (recommended)** | `docker-compose.yml` → `app.volumes: - ./apple-pay/association:/app/src/app/.well-known:ro` | No rebuild when Paddle reissues; keeps a Paddle-issued blob out of git |
-| **Bake it in** | Add the file before `docker compose build app` | Simplest, but rebuilds on every reissue and risks committing it |
-| **Commit it** | Add the file to the repo | Works, but it is a Paddle artefact in version control — prefer the volume |
+| Approach                        | How                                                                                         | Trade-off                                                                 |
+| ------------------------------- | ------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| **Docker volume (recommended)** | `docker-compose.yml` → `app.volumes: - ./apple-pay/association:/app/src/app/.well-known:ro` | No rebuild when Paddle reissues; keeps a Paddle-issued blob out of git    |
+| **Bake it in**                  | Add the file before `docker compose build app`                                              | Simplest, but rebuilds on every reissue and risks committing it           |
+| **Commit it**                   | Add the file to the repo                                                                    | Works, but it is a Paddle artefact in version control — prefer the volume |
 
 Recommended compose snippet:
 
 ```yaml
-  app:
-    volumes:
-      - ./apple-pay/apple-developer-merchantid-domain-association:/app/src/app/.well-known/apple-developer-merchantid-domain-association:ro
+app:
+  volumes:
+    - ./apple-pay/apple-developer-merchantid-domain-association:/app/src/app/.well-known/apple-developer-merchantid-domain-association:ro
 ```
 
 Keep the local directory out of git:

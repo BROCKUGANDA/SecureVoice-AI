@@ -3,10 +3,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/better-auth";
 import { headers } from "next/headers";
 import { db } from "@/lib/db";
-import {
-  recordingDownloadUrl,
-  RECORDING_CACHE_CONTROL,
-} from "@/lib/storage/recordings";
+import { recordingDownloadUrl, RECORDING_CACHE_CONTROL } from "@/lib/storage/recordings";
 import { logWarn } from "@/lib/validation/safe-log";
 
 export const dynamic = "force-dynamic";
@@ -46,10 +43,7 @@ export const dynamic = "force-dynamic";
  * 503 (the platform cannot serve this today). None of them is a server bug, so
  * none of them is a 500.
  */
-export async function GET(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> },
-) {
+export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session) {
     return NextResponse.json({ error: "authentication_required" }, { status: 401 });
@@ -61,7 +55,10 @@ export async function GET(
   const orgId = session.session.activeOrganizationId ?? null;
   if (!orgId) {
     return NextResponse.json(
-      { error: "no_active_organization", reason: "switch to an organisation to download recordings" },
+      {
+        error: "no_active_organization",
+        reason: "switch to an organisation to download recordings",
+      },
       { status: 403 },
     );
   }

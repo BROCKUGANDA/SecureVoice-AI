@@ -33,6 +33,11 @@ import { getInstitutionContext, getTelecomIdentity } from "@/lib/institution";
 import { recordTelecomEvent } from "@/lib/telecom-outbox";
 import { asCallCategory } from "@/lib/call-categories";
 import { isAfterHours, nextBusinessHoursStart } from "@/lib/abuse/velocity";
+import {
+  PRAYER_GATE_REGION,
+  isWithinPrayerWindow,
+  prayerDeferralMs,
+} from "@/lib/compliance/prayer-times";
 import { sweepExpiredSmsCases } from "@/lib/sms-verdict";
 import { logError, logInfo, logWarn } from "@/lib/validation/safe-log";
 import { flag } from "@/lib/flags";
@@ -170,6 +175,49 @@ async function handle(job: DialJob): Promise<DialOutcome> {
         retryable: true,
         retryAfterMs: wakeAt - Date.now(),
       };
+    }
+
+    // Prayer window, re-checked at the dial moment for the SAME reason calling
+    // hours are re-checked here and not only at ingest: a routine job accepted at
+    // 13:20 Gulf time can lawfully claim at 13:25, and the Jumu'ah window opens
+    // across Friday Dhuhr for an hour. Until now the ingest gate had refused the
+    // 13:20 signal, the queue had parked it, and nothing at the authoritative
+    // moment looked at prayer at all — so the one job class the policy exists to
+    // protect was the one that slipped through.
+    //
+    // Parked, not refused, and no attempt consumed: a deferred reminder is not a
+    // failed call. Time-critical fraud verification stays exempt, which is the
+    // same exemption `src/lib/compliance/gate.ts` applies at ingest — a prayer
+    // window must never stand between a cardholder and a freeze.
+    if (category !== "time_critical_fraud") {
+      // The SAME region the ingest gate consults, shared as one constant rather
+      // than repeated as a literal in two files: an assumption in two places is
+      // two assumptions, and they diverge silently.
+      if (await isWithinPrayerWindow(PRAYER_GATE_REGION)) {
+        const waitMs = await prayerDeferralMs(PRAYER_GATE_REGION);
+        // A floor of 60 s, because a zero-millisecond defer is a busy loop that
+        // re-claims the same job on every drain, and `prayerDeferralMs` answers
+        // null when a third-party lookup raced the window shut.
+        const retryAfterMs = Math.max(60_000, waitMs ?? 5 * 60_000);
+        void auditAppend({
+          callRef: job.case_ref,
+          action: "handoff",
+          intent: "dial_deferred_prayer_window",
+          callerId: WORKER_ID,
+          meta: {
+            jobId: job.id,
+            category,
+            wakeAt: new Date(Date.now() + retryAfterMs).toISOString(),
+          },
+          orgId: job.org_id ?? undefined,
+        }).catch(() => {});
+        return {
+          ok: false,
+          error: "inside the prayer window; deferred",
+          retryable: true,
+          retryAfterMs,
+        };
+      }
     }
 
     // A bank says "your card", an insurer says "your policy". Resolved per tenant,

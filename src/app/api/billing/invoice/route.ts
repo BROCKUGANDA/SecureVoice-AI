@@ -160,10 +160,7 @@ export async function POST(req: NextRequest) {
 
   if (!result.ok) {
     logWarn("[billing] invoice refused", { orgId: authed.orgId, reason: result.reason });
-    return NextResponse.json(
-      { error: "invoice_failed", detail: result.reason },
-      { status: 502 },
-    );
+    return NextResponse.json({ error: "invoice_failed", detail: result.reason }, { status: 502 });
   }
 
   return NextResponse.json(
@@ -176,9 +173,7 @@ export async function POST(req: NextRequest) {
       ...(result.paymentLink ? { paymentLink: result.paymentLink } : {}),
       // Always 0 — an invoice grants no credits until it is paid.
       settledUnits: result.settledUnits,
-      note:
-        body.data.note ??
-        "Invoice raised. No credits are granted until payment is confirmed.",
+      note: body.data.note ?? "Invoice raised. No credits are granted until payment is confirmed.",
     },
     { status: 201, headers: { "Cache-Control": "no-store" } },
   );

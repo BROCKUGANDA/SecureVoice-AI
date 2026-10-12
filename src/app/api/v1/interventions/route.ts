@@ -32,11 +32,7 @@ import { getInstitutionType } from "@/lib/institution";
 import { CALL_CATEGORIES } from "@/lib/call-categories";
 import { env, replayWindowSec, IDEMPOTENCY_TTL_HOURS, SUPPORTED_LANGS } from "@/lib/config";
 import { preNotificationLeadMs as sharedPreNotificationLeadMs } from "@/lib/prenotify";
-import {
-  interventionAccepted,
-  interventionRefused,
-  riskBand,
-} from "@/lib/analytics";
+import { interventionAccepted, interventionRefused, riskBand } from "@/lib/analytics";
 
 /**
  * One error shape for the whole bank-facing surface: `{ code, message,

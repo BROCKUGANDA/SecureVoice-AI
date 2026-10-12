@@ -120,6 +120,7 @@ describe("indexing: authenticated and API routes are never indexable", () => {
     expect(INDEXABLE_PATHS).toEqual([
       "/",
       "/sitemap.xml",
+      "/llms.txt",
       "/pricing",
       "/terms",
       "/privacy",
@@ -131,6 +132,21 @@ describe("indexing: authenticated and API routes are never indexable", () => {
     for (const path of INDEXABLE_PATHS) expect(robotsTagFor(path)).toBeNull();
     expect(robotsTagFor("/anything/new")).toBe("noindex, nofollow");
     expect(robotsTagFor("/api/")).toBe("noindex, nofollow");
+  });
+
+  test("/llms.txt is exempt from the middleware robots tag, and declares its own", async () => {
+    // The whole point of the file is that an engine follows it to the pages it
+    // lists. The middleware's default for anything unlisted is
+    // `noindex, nofollow`, which would cancel that — so the path is allowlisted
+    // here (no header from the proxy) and the ROUTE states `noindex, follow`.
+    // Asserted against the real route, because either half can regress alone.
+    expect(robotsTagFor("/llms.txt")).toBeNull();
+    const res = await (await import("@/app/llms.txt/route")).GET();
+    expect(res.headers.get("X-Robots-Tag")).toBe("noindex, follow");
+
+    const res2 = NextResponse.json({ ok: true });
+    applySurfaceHeaders(res2, "/llms.txt");
+    expect(res2.headers.get("X-Robots-Tag")).toBeNull();
   });
 
   /**

@@ -109,20 +109,22 @@ const ARABIC_MARKS = /[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED\u0640]/g;
  * `src/lib/compliance/vishing.ts` documents on its `ar.*` rules.
  */
 function fold(raw: string): string {
-  return (raw ?? "")
-    .normalize("NFKC")
-    .replace(ARABIC_MARKS, "")
-    .replace(/[أإآٱ]/g, "ا")
-    .replace(/ى/g, "ي")
-    .replace(/ة/g, "ه")
-    // Apostrophes fold away before punctuation, so "isn't" is ONE token and not
-    // two. Without this, every contraction in the language — which is most of
-    // how people actually speak — evades every phrase rule in this file.
-    .replace(/['’`]/g, "")
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}]+/gu, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+  return (
+    (raw ?? "")
+      .normalize("NFKC")
+      .replace(ARABIC_MARKS, "")
+      .replace(/[أإآٱ]/g, "ا")
+      .replace(/ى/g, "ي")
+      .replace(/ة/g, "ه")
+      // Apostrophes fold away before punctuation, so "isn't" is ONE token and not
+      // two. Without this, every contraction in the language — which is most of
+      // how people actually speak — evades every phrase rule in this file.
+      .replace(/['’`]/g, "")
+      .toLowerCase()
+      .replace(/[^\p{L}\p{N}]+/gu, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+  );
 }
 
 /**
@@ -194,8 +196,16 @@ const WRONG_NUMBER_RULES: readonly Rule[] = [
     confidence: CONFIDENT,
     lang: "en",
   },
-  { re: /\b(?:its|it\s+is)\s+not\s+mine\b[^.?!]{0,20}\bnumber\b/iu, confidence: CONFIDENT, lang: "en" },
-  { re: /\bnot\s+the\s+(?:right|correct)\s+(?:number|person)\b/iu, confidence: CONFIDENT, lang: "en" },
+  {
+    re: /\b(?:its|it\s+is)\s+not\s+mine\b[^.?!]{0,20}\bnumber\b/iu,
+    confidence: CONFIDENT,
+    lang: "en",
+  },
+  {
+    re: /\bnot\s+the\s+(?:right|correct)\s+(?:number|person)\b/iu,
+    confidence: CONFIDENT,
+    lang: "en",
+  },
   {
     re: /\bthis\s+number\s+belongs\s+to\s+(?:someone\s+else|somebody\s+else|another\s+person)\b/iu,
     confidence: CONFIDENT,
@@ -224,8 +234,16 @@ const WRONG_NUMBER_RULES: readonly Rule[] = [
   // — identity questions. NOT sufficient on their own. —
   { re: /\bwho\s+is\s+this\b/iu, confidence: INDICATIVE, lang: "en" },
   { re: /\bwhos\s+this\b/iu, confidence: INDICATIVE, lang: "en" },
-  { re: /\bwho\s+is\s+(?:calling|talking|on\s+the\s+line)\b/iu, confidence: INDICATIVE, lang: "en" },
-  { re: /\bwhere\s+did\s+you\s+get\s+(?:my|this)\s+number\b/iu, confidence: INDICATIVE, lang: "en" },
+  {
+    re: /\bwho\s+is\s+(?:calling|talking|on\s+the\s+line)\b/iu,
+    confidence: INDICATIVE,
+    lang: "en",
+  },
+  {
+    re: /\bwhere\s+did\s+you\s+get\s+(?:my|this)\s+number\b/iu,
+    confidence: INDICATIVE,
+    lang: "en",
+  },
 ];
 
 /** Arabic wrong-number phrases. `key` is squashed — see the ArRule doc. */
@@ -258,13 +276,33 @@ const WRONG_NUMBER_AR: readonly ArRule[] = [
  */
 const CALLBACK_RULES: readonly Rule[] = [
   { re: /\bcall\s+me\s+back\b/iu, confidence: CONFIDENT, lang: "en" },
-  { re: /\b(?:ring|call)\s+me\s+(?:back|later|another\s+time)\b/iu, confidence: CONFIDENT, lang: "en" },
-  { re: /\b(?:try|phone)\s+(?:me\s+)?(?:back\s+)?(?:later|again\s+later|another\s+time)\b/iu, confidence: CONFIDENT, lang: "en" },
+  {
+    re: /\b(?:ring|call)\s+me\s+(?:back|later|another\s+time)\b/iu,
+    confidence: CONFIDENT,
+    lang: "en",
+  },
+  {
+    re: /\b(?:try|phone)\s+(?:me\s+)?(?:back\s+)?(?:later|again\s+later|another\s+time)\b/iu,
+    confidence: CONFIDENT,
+    lang: "en",
+  },
   { re: /\bget\s+back\s+to\s+me\b/iu, confidence: CONFIDENT, lang: "en" },
   { re: /\bnot\s+a\s+(?:good|right|convenient)\s+time\b/iu, confidence: 0.9, lang: "en" },
-  { re: /\b(?:is|it)\s+not\s+(?:a\s+)?(?:good\s+)?time\s+(?:now|right\s+now)\b/iu, confidence: 0.9, lang: "en" },
-  { re: /\b(?:i'?m|im)\s+(?:driving|at\s+work|in\s+(?:a\s+)?meeting|in\s+class)\b/iu, confidence: 0.85, lang: "en" },
-  { re: /\b(?:i\s+cant|i\s+cannot|cant|cannot)\s+(?:talk|chat|speak)\s+(?:now|right\s+now)\b/iu, confidence: 0.85, lang: "en" },
+  {
+    re: /\b(?:is|it)\s+not\s+(?:a\s+)?(?:good\s+)?time\s+(?:now|right\s+now)\b/iu,
+    confidence: 0.9,
+    lang: "en",
+  },
+  {
+    re: /\b(?:i'?m|im)\s+(?:driving|at\s+work|in\s+(?:a\s+)?meeting|in\s+class)\b/iu,
+    confidence: 0.85,
+    lang: "en",
+  },
+  {
+    re: /\b(?:i\s+cant|i\s+cannot|cant|cannot)\s+(?:talk|chat|speak)\s+(?:now|right\s+now)\b/iu,
+    confidence: 0.85,
+    lang: "en",
+  },
   { re: /\b(?:email|text|message)\s+me\b/iu, confidence: 0.8, lang: "en" },
   { re: /\bsend\s+me\s+(?:a\s+)?(?:message|text|email)\b/iu, confidence: 0.8, lang: "en" },
   { re: /\bsome\s+other\s+time\b/iu, confidence: 0.8, lang: "en" },
@@ -359,7 +397,10 @@ function firstMatch(
  * of the whole call, and a code-switched "yes ما هو هذا الرقم" is labelled
  * `en` often enough that trusting the label alone loses the detection.
  */
-export function detectWrongNumber(text: string, opts?: { language?: WrongNumberLang }): WrongNumberVerdict {
+export function detectWrongNumber(
+  text: string,
+  opts?: { language?: WrongNumberLang },
+): WrongNumberVerdict {
   const folded = fold(text);
   if (!folded) return { kind: "not_detected", confidence: 0, matched: null };
 
@@ -417,7 +458,10 @@ export function detectCallbackRequest(
 const AttemptSchema = z.object({
   merchant: z.string().max(200).optional(),
   amountMinor: z.number().int().optional(),
-  cardLast4: z.string().regex(/^\d{4}$/).optional(),
+  cardLast4: z
+    .string()
+    .regex(/^\d{4}$/)
+    .optional(),
 });
 
 /**
@@ -468,7 +512,12 @@ const FORBIDDEN_STATES: ReadonlySet<string> = new Set(["FREEZE_STAGED", "ESCALAT
  * right one by legality alone. It has to be chosen, and it has to be chosen in
  * one place rather than by enumeration order.
  */
-const PREFERRED_SUCCESSORS: readonly string[] = ["UNCERTAIN", "NOTIFIED", "CLOSED", "RETRY_SCHEDULED"];
+const PREFERRED_SUCCESSORS: readonly string[] = [
+  "UNCERTAIN",
+  "NOTIFIED",
+  "CLOSED",
+  "RETRY_SCHEDULED",
+];
 
 /**
  * The legal path from `from` to `target`, using the canonical machine only.
@@ -478,7 +527,10 @@ const PREFERRED_SUCCESSORS: readonly string[] = ["UNCERTAIN", "NOTIFIED", "CLOSE
  * Returns null when no legal path exists, which is the honest answer for a
  * caller asking for a redial mid-verification.
  */
-export function closurePath(from: string, target: "CLOSED" | "NOTIFIED" | "RETRY_SCHEDULED"): string[] | null {
+export function closurePath(
+  from: string,
+  target: "CLOSED" | "NOTIFIED" | "RETRY_SCHEDULED",
+): string[] | null {
   if (!CASE_STATES.includes(from as (typeof CASE_STATES)[number])) return null;
   if (from === target) return [];
   const order = (s: string) => {
@@ -548,8 +600,10 @@ const SPEECH = {
 } as const satisfies Record<WrongNumberVerdict["kind"], Record<WrongNumberLang, string>>;
 
 const NOTE = {
-  wrong_number: "line reached a party who stated the number is not theirs; no account detail was disclosed",
-  callback_requested: "cardholder asked to continue on another occasion; no freeze staged and no escalation queued",
+  wrong_number:
+    "line reached a party who stated the number is not theirs; no account detail was disclosed",
+  callback_requested:
+    "cardholder asked to continue on another occasion; no freeze staged and no escalation queued",
   not_detected: "identity query or unrelated speech; call continued",
 } as const;
 
@@ -568,7 +622,8 @@ export function buildWrongNumberClosure(
   opts?: { language?: WrongNumberLang; currentState?: string; callback?: CallbackRequest },
 ): WrongNumberClosure {
   const language = opts?.language === "ar" ? "ar" : "en";
-  const actionable = verdict.kind !== "not_detected" && verdict.confidence >= MIN_ACTIONABLE_CONFIDENCE;
+  const actionable =
+    verdict.kind !== "not_detected" && verdict.confidence >= MIN_ACTIONABLE_CONFIDENCE;
   const outcome: WrongNumberVerdict["kind"] = actionable ? verdict.kind : "not_detected";
   const target: "CLOSED" | "NOTIFIED" | null =
     outcome === "wrong_number" ? "CLOSED" : outcome === "callback_requested" ? "NOTIFIED" : null;
@@ -657,7 +712,9 @@ export async function auditWrongNumber(args: {
           escalated: false,
           callCategory: asCallCategory(null),
           ...(args.callback?.when ? { callbackWhen: args.callback.when } : {}),
-          ...(closure.record.suggestedState ? { suggestedState: closure.record.suggestedState } : {}),
+          ...(closure.record.suggestedState
+            ? { suggestedState: closure.record.suggestedState }
+            : {}),
         },
       },
       { fast: true },
@@ -684,6 +741,9 @@ export function wrongNumberRuleCount(): { wrongNumber: number; callback: number 
  * state each outcome targets. It answers the question by asking `closurePath`,
  * so it cannot disagree with the machine.
  */
-export function canCloseFrom(state: string, outcome: "wrong_number" | "callback_requested"): boolean {
+export function canCloseFrom(
+  state: string,
+  outcome: "wrong_number" | "callback_requested",
+): boolean {
   return closurePath(state, outcome === "wrong_number" ? "CLOSED" : "NOTIFIED") !== null;
 }

@@ -103,8 +103,8 @@ export function MagicLinkEmail({
             </Section>
 
             <Text style={expiry}>
-              Expires at <strong>{expiryText}</strong> (UTC). After that the link stops working and you
-              can request a new one from the sign-in page.
+              Expires at <strong>{expiryText}</strong> (UTC). After that the link stops working and
+              you can request a new one from the sign-in page.
             </Text>
 
             <Hr style={rule} />
@@ -112,9 +112,9 @@ export function MagicLinkEmail({
             {/* The disarm paragraph. Deliberately prominent. */}
             <Text style={disarm}>
               <strong>If you did not request this email, ignore it.</strong> No account was changed
-              and no action is needed. This link was created by someone entering your address on
-              the {origin} sign-in page. If that was not you, you can ignore this message — the
-              link expires on its own and cannot be used twice.
+              and no action is needed. This link was created by someone entering your address on the{" "}
+              {origin} sign-in page. If that was not you, you can ignore this message — the link
+              expires on its own and cannot be used twice.
             </Text>
 
             <Hr style={rule} />
@@ -122,7 +122,9 @@ export function MagicLinkEmail({
             {/* Full link in plain text: some corporate mail gateways strip or
                 mangle styled <a> tags, and this operator must still be able to
                 sign in if the button does not render. */}
-            <Text style={fallbackLabel}>If the button does not work, paste this into your browser:</Text>
+            <Text style={fallbackLabel}>
+              If the button does not work, paste this into your browser:
+            </Text>
             <Text style={fallback}>{signInUrl}</Text>
 
             <Text style={verify}>
@@ -148,8 +150,7 @@ export function MagicLinkEmail({
 
 const body: React.CSSProperties = {
   backgroundColor: BRAND.canvas,
-  fontFamily:
-    '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
+  fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
   margin: "0",
   padding: "32px 12px",
 };
@@ -244,7 +245,7 @@ const fallbackLabel: React.CSSProperties = {
 // monospace + wrap so a long token does not overflow the 560px container.
 const fallback: React.CSSProperties = {
   color: BRAND.muted,
-  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+  fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
   fontSize: "12px",
   lineHeight: "18px",
   margin: "0 0 20px",

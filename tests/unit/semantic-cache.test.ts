@@ -195,7 +195,11 @@ describe("lookup and store — the fast path", () => {
   test("degrades to a miss when the embedder throws", async () => {
     // The cache is on the latency-critical path of a live call. A cache that
     // can fail the call has made itself a liability.
-    const c = cacheWith({ embed: async () => { throw new Error("model down"); } });
+    const c = cacheWith({
+      embed: async () => {
+        throw new Error("model down");
+      },
+    });
     const out = await c.lookup("yes", FRAME);
     expect(out).toEqual({ hit: false, reply: "", source: "miss" });
   });
@@ -334,9 +338,7 @@ describe("containsPII — the rule is 'the redactors would change this'", () => 
     // A redactor that swallows the platform's own reassurance is worse than no
     // redactor, because it silently replaces reassurance with a cache miss.
     expect(containsPII(APPROVED_REPLY)).toBe(false);
-    expect(containsPII("Your bank will never ask you to move money to a safe account")).toBe(
-      false,
-    );
+    expect(containsPII("Your bank will never ask you to move money to a safe account")).toBe(false);
     expect(containsPII("twenty five hundred dirhams")).toBe(false);
   });
 
@@ -583,12 +585,7 @@ describe("the process-wide instance", () => {
 describe("the cache cannot be made to speak a commitment", () => {
   // One end-to-end statement of the invariant, over the whole surface: every
   // intent, every write path, every read path.
-  const DANGEROUS = [
-    "deny_fraud",
-    "confirm_authorized",
-    "doubt",
-    "handoff",
-  ] as const;
+  const DANGEROUS = ["deny_fraud", "confirm_authorized", "doubt", "handoff"] as const;
 
   for (const intent of DANGEROUS) {
     test(`no path stores or serves ${intent}`, async () => {

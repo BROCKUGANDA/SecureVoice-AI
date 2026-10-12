@@ -74,8 +74,7 @@ export type WebhookIssue = { path: string; message: string };
  * payment webhook means a delivery acknowledged but never applied.
  */
 export type WebhookValidation<T> =
-  | { ok: true; event: T }
-  | { ok: false; error: string; issues: WebhookIssue[] };
+  { ok: true; event: T } | { ok: false; error: string; issues: WebhookIssue[] };
 
 /**
  * Structural caps for a vendor body.
@@ -319,34 +318,30 @@ const paddleGeneric = z.looseObject({
  * generically — and `paddleKnown` is a discriminated union, so the branch that
  * matches the discriminator is the branch whose issues are reported.
  */
-export type PaddleWebhookEvent =
-  | z.infer<typeof paddleKnown>
-  | z.infer<typeof paddleGeneric>;
+export type PaddleWebhookEvent = z.infer<typeof paddleKnown> | z.infer<typeof paddleGeneric>;
 
-export const paddleWebhookSchema = z
-  .unknown()
-  .superRefine((raw, ctx) => {
-    const eventType =
-      raw && typeof raw === "object" ? (raw as { event_type?: unknown }).event_type : undefined;
+export const paddleWebhookSchema = z.unknown().superRefine((raw, ctx) => {
+  const eventType =
+    raw && typeof raw === "object" ? (raw as { event_type?: unknown }).event_type : undefined;
 
-    const report = (result: {
-      success: boolean;
-      error?: { issues: readonly { path: PropertyKey[]; message: string }[] };
-    }) => {
-      for (const issue of (result.error?.issues ?? []).slice(0, 20)) {
-        ctx.addIssue({ code: "custom", path: issue.path, message: issue.message });
-      }
-    };
-
-    if (
-      typeof eventType === "string" &&
-      (KNOWN_PADDLE_EVENT_TYPES as readonly string[]).includes(eventType)
-    ) {
-      report(paddleKnown.safeParse(raw));
-      return;
+  const report = (result: {
+    success: boolean;
+    error?: { issues: readonly { path: PropertyKey[]; message: string }[] };
+  }) => {
+    for (const issue of (result.error?.issues ?? []).slice(0, 20)) {
+      ctx.addIssue({ code: "custom", path: issue.path, message: issue.message });
     }
-    report(paddleGeneric.safeParse(raw));
-  });
+  };
+
+  if (
+    typeof eventType === "string" &&
+    (KNOWN_PADDLE_EVENT_TYPES as readonly string[]).includes(eventType)
+  ) {
+    report(paddleKnown.safeParse(raw));
+    return;
+  }
+  report(paddleGeneric.safeParse(raw));
+});
 
 /** Narrow a validated event to one whose body we actually model. */
 export function isKnownPaddleEvent(
@@ -498,35 +493,34 @@ const elevenLabsGeneric = z.looseObject({
  * supposed to be reading.
  */
 export type ElevenLabsWebhookEvent =
-  | z.infer<typeof elevenLabsKnown>
-  | z.infer<typeof elevenLabsGeneric>;
+  z.infer<typeof elevenLabsKnown> | z.infer<typeof elevenLabsGeneric>;
 
 // A `superRefine` pipeline is a validator, so its inferred OUTPUT stays `unknown`
 // however it is annotated — Zod v4 will not narrow it. The declared type above
 // is therefore applied at the entry point instead, which is the one place a
 // caller can observe it. Safe because the dispatcher returns without transforming:
 // on success `raw` IS one of the two branch types, which is what it validated as.
-export const elevenLabsWebhookSchema = z
-  .unknown()
-  .superRefine((raw, ctx) => {
-    const report = (result: { success: boolean; error?: { issues: readonly { path: PropertyKey[]; message: string }[] } }) => {
-      for (const issue of (result.error?.issues ?? []).slice(0, 20)) {
-        ctx.addIssue({ code: "custom", path: issue.path, message: issue.message });
-      }
-    };
-
-    const type =
-      raw && typeof raw === "object" ? (raw as { type?: unknown }).type : undefined;
-
-    if (
-      typeof type === "string" &&
-      (KNOWN_ELEVENLABS_EVENT_TYPES as readonly string[]).includes(type)
-    ) {
-      report(elevenLabsKnown.safeParse(raw));
-      return;
+export const elevenLabsWebhookSchema = z.unknown().superRefine((raw, ctx) => {
+  const report = (result: {
+    success: boolean;
+    error?: { issues: readonly { path: PropertyKey[]; message: string }[] };
+  }) => {
+    for (const issue of (result.error?.issues ?? []).slice(0, 20)) {
+      ctx.addIssue({ code: "custom", path: issue.path, message: issue.message });
     }
-    report(elevenLabsGeneric.safeParse(raw));
-  });
+  };
+
+  const type = raw && typeof raw === "object" ? (raw as { type?: unknown }).type : undefined;
+
+  if (
+    typeof type === "string" &&
+    (KNOWN_ELEVENLABS_EVENT_TYPES as readonly string[]).includes(type)
+  ) {
+    report(elevenLabsKnown.safeParse(raw));
+    return;
+  }
+  report(elevenLabsGeneric.safeParse(raw));
+});
 
 // ── Twilio ──────────────────────────────────────────────────────────────────
 
@@ -674,11 +668,7 @@ export function validatePaddleWebhook(raw: unknown): WebhookValidation<PaddleWeb
   // The cast is the same one `validateElevenLabsWebhook` needs: a `superRefine`
   // pipeline infers as `unknown`, and the declared type above is the shape the
   // dispatcher validated.
-  return run(
-    paddleWebhookSchema as unknown as z.ZodType<PaddleWebhookEvent>,
-    raw,
-    "paddle",
-  );
+  return run(paddleWebhookSchema as unknown as z.ZodType<PaddleWebhookEvent>, raw, "paddle");
 }
 
 /** Validate an already-parsed ElevenLabs post-call webhook body. */
@@ -705,7 +695,8 @@ export function validateTwilioWebhook(input: unknown): WebhookValidation<TwilioW
   if (!params) {
     return {
       ok: false,
-      error: "twilio: expected form parameters (Record<string,string>, URLSearchParams or FormData)",
+      error:
+        "twilio: expected form parameters (Record<string,string>, URLSearchParams or FormData)",
       issues: [],
     };
   }

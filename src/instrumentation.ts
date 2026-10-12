@@ -29,7 +29,8 @@ export async function register() {
   // and every log record still reaches stdout.
   if (process.env.AXIOM_TOKEN) {
     try {
-      const { axiomLogSink, axiomDataset, axiomDiagnostics } = await import("@/lib/telemetry/axiom");
+      const { axiomLogSink, axiomDataset, axiomDiagnostics } =
+        await import("@/lib/telemetry/axiom");
       registerLogSink(axiomLogSink);
       logWarn("[axiom] structured log shipping enabled", {
         dataset: axiomDataset(),

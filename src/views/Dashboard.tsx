@@ -1981,7 +1981,7 @@ function WebhooksDemo() {
                     lang,
                   )}
                 </div>
-                <pre className="max-h-44 overflow-auto rounded-xl bg-[#0c110e] px-4 py-3 font-mono text-[11.5px] leading-relaxed text-white/85 sv-scroll">
+                <pre className="sv-scroll sv-scroll--dark max-h-44 overflow-auto rounded-xl bg-[#0c110e] px-4 py-3 font-mono text-[11.5px] leading-relaxed text-white/85">
                   {signed.payload}
                 </pre>
               </div>
@@ -2095,7 +2095,7 @@ function WebhooksDemo() {
           <div className="font-mono text-[10.5px] uppercase tracking-wider text-white/50">
             {t("verify in 6 lines", "تحقق في 6 أسطر", lang)}
           </div>
-          <pre className="mt-3 overflow-x-auto font-mono text-[11px] leading-relaxed text-white/85 sv-scroll">
+          <pre className="sv-scroll sv-scroll--dark mt-3 overflow-x-auto font-mono text-[11px] leading-relaxed text-white/85">
             {`const hmac = crypto
   .createHmac("sha256", secret)
   .update(\`\${t}.${"${rawBody}"}\`)

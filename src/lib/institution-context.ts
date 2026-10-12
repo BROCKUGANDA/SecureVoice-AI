@@ -85,9 +85,7 @@ export function getInstitutionLabels(
  * The signal kind that matches an institution type — what a producer's
  * `signalKind` should default to when the institution hasn't declared one.
  */
-export function defaultProductType(
-  type: InstitutionType | string | undefined | null,
-): string {
+export function defaultProductType(type: InstitutionType | string | undefined | null): string {
   const t = asInstitutionType(type ?? "bank");
   return t === "insurer" ? "claim_payout" : "card_transaction";
 }

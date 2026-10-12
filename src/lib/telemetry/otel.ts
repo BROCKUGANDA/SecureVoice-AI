@@ -111,7 +111,8 @@ export function initOtel(): NodeSDK | null {
   const token = env("OTEL_BETTERSTACK_TOKEN") ?? env("OTEL_SOURCE_TOKEN");
   if (!token) {
     logWarn("[otel] no token set — traces, metrics and logs stay local", {
-      detail: "Set OTEL_BETTERSTACK_TOKEN (or OTEL_SOURCE_TOKEN) to ship telemetry to Better Stack.",
+      detail:
+        "Set OTEL_BETTERSTACK_TOKEN (or OTEL_SOURCE_TOKEN) to ship telemetry to Better Stack.",
     });
     initialized = null;
     return null;
@@ -141,15 +142,18 @@ export function initOtel(): NodeSDK | null {
       }),
       spanProcessors: [
         // Batch: one network flush per span batch instead of one per span.
-        new BatchSpanProcessor(new OTLPTraceExporter({
-          url: `${baseUrl}/v1/traces`,
-          headers,
-          timeoutMillis,
-        }), {
-          // Keep the defaults except the queue size, bumped for a busy API.
-          maxQueueSize: 4096,
-          scheduledDelayMillis: 5_000,
-        }),
+        new BatchSpanProcessor(
+          new OTLPTraceExporter({
+            url: `${baseUrl}/v1/traces`,
+            headers,
+            timeoutMillis,
+          }),
+          {
+            // Keep the defaults except the queue size, bumped for a busy API.
+            maxQueueSize: 4096,
+            scheduledDelayMillis: 5_000,
+          },
+        ),
       ],
       metricReaders: [
         new PeriodicExportingMetricReader({
@@ -182,7 +186,9 @@ export function initOtel(): NodeSDK | null {
     });
     return sdk;
   } catch (err) {
-    logError(`[otel] init failed — continuing without remote telemetry: ${err instanceof Error ? err.message : String(err)}`);
+    logError(
+      `[otel] init failed — continuing without remote telemetry: ${err instanceof Error ? err.message : String(err)}`,
+    );
     initialized = null;
     return null;
   }

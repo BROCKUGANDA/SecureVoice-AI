@@ -34,11 +34,7 @@ import "server-only";
 import { db } from "@/lib/db";
 import { append as auditAppend } from "@/lib/audit-chain";
 import { isE164, isTwilioConfigured, sendInterventionSms, type DeliveryLang } from "@/lib/twilio";
-import {
-  classifyLine,
-  supportsSmsConfirmation,
-  UNKNOWN_LINE,
-} from "@/lib/voice/line-type";
+import { classifyLine, supportsSmsConfirmation, UNKNOWN_LINE } from "@/lib/voice/line-type";
 import { canTransition, transitionCase } from "@/lib/case-state-machine";
 import { getInstitutionType } from "@/lib/institution";
 import { publishResolution } from "@/lib/sms-verdict";

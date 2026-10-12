@@ -782,7 +782,10 @@ export async function eraseCase(
   // never allowed to block an erasure that has already committed.
   if (storageConfigured() && row.orgId && row.conversationId) {
     try {
-      const result = await deleteRecording({ orgId: row.orgId, conversationId: row.conversationId });
+      const result = await deleteRecording({
+        orgId: row.orgId,
+        conversationId: row.conversationId,
+      });
       if (!result.ok) {
         await append(
           {

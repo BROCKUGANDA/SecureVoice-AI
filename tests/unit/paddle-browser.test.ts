@@ -145,9 +145,7 @@ describe("no server-side credential can reach the browser bundle", () => {
    * comments first and matches an actual read.
    */
   function codeOnly(src: string): string {
-    return src
-      .replace(/\/\*[\s\S]*?\*\//g, "")
-      .replace(/(^|[^:])\/\/[^\n]*/g, "$1");
+    return src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/[^\n]*/g, "$1");
   }
 
   const source = async () => codeOnly(await Bun.file("src/lib/paddle-browser.ts").text());

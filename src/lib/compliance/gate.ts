@@ -5,7 +5,7 @@ import { isAfterHours, nextBusinessHoursStart } from "@/lib/abuse/velocity";
 import { CALL_CATEGORIES, type CallCategory } from "@/lib/call-categories";
 import { logError, logInfo } from "@/lib/validation/safe-log";
 import { append as auditAppend } from "@/lib/audit-chain";
-import { isWithinPrayerWindow } from "./prayer-times";
+import { PRAYER_GATE_REGION, isWithinPrayerWindow } from "./prayer-times";
 
 export type ComplianceGateResult = { ok: true } | { ok: false; code: string; reason: string };
 
@@ -116,7 +116,7 @@ export async function runComplianceGate(params: {
   // sit on the fraud path at all — an unreachable Aladhan endpoint must not be
   // able to delay or refuse a protective action.
   if (category !== "time_critical_fraud") {
-    const duringPrayer = await isWithinPrayerWindow("UAE");
+    const duringPrayer = await isWithinPrayerWindow(PRAYER_GATE_REGION);
     if (duringPrayer) {
       const reason = "Intervention paused during the local Salah window.";
       void auditAppend(

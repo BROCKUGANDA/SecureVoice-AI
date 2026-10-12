@@ -100,14 +100,24 @@ describe("the shutdown sequence", () => {
   test("abandons a hung call at the window edge rather than lingering forever", async () => {
     beginCall(); // deliberately never released
     let code: number | null = null;
-    const handle = setupGracefulShutdown({ drainMs: 40, exit: (c) => { code = c; } });
+    const handle = setupGracefulShutdown({
+      drainMs: 40,
+      exit: (c) => {
+        code = c;
+      },
+    });
     await handle.shutdown("SIGTERM");
     expect(code).toBe(0);
   });
 
   test("a second signal is a no-op, not a second exit", async () => {
     let exits = 0;
-    const handle = setupGracefulShutdown({ drainMs: 10, exit: () => { exits += 1; } });
+    const handle = setupGracefulShutdown({
+      drainMs: 10,
+      exit: () => {
+        exits += 1;
+      },
+    });
     await handle.shutdown("SIGTERM");
     await handle.shutdown("SIGINT");
     await handle.shutdown("anything-else");
@@ -123,7 +133,9 @@ describe("the shutdown sequence", () => {
     let exits = 0;
     const handle = setupGracefulShutdown({
       drainMs: 10,
-      exit: () => { exits += 1; },
+      exit: () => {
+        exits += 1;
+      },
       onShutdown: () => {
         throw new Error("connection would not close");
       },

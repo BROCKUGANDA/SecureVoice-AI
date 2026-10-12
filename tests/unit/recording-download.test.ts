@@ -259,7 +259,11 @@ describe("recordingDownloadUrl — possession of the URL IS the authorization", 
 
   test("the URL is scoped to the requesting tenant and carries the right key", async () => {
     configureStore();
-    const res = await recordingDownloadUrl({ orgId: "org_a", conversationId: "conv-1", now: () => FIXED_NOW });
+    const res = await recordingDownloadUrl({
+      orgId: "org_a",
+      conversationId: "conv-1",
+      now: () => FIXED_NOW,
+    });
     expect(res.ok).toBe(true);
     if (!res.ok) return;
     expect(res.key).toBe("org_a/recordings/conv-1.mp3");
@@ -270,7 +274,11 @@ describe("recordingDownloadUrl — possession of the URL IS the authorization", 
 
   test("the response overrides are signed into the URL, not appended to it", async () => {
     configureStore();
-    const res = await recordingDownloadUrl({ orgId: "org_a", conversationId: "conv-1", now: () => FIXED_NOW });
+    const res = await recordingDownloadUrl({
+      orgId: "org_a",
+      conversationId: "conv-1",
+      now: () => FIXED_NOW,
+    });
     expect(res.ok).toBe(true);
     if (!res.ok) return;
     const q = new URL(res.url).searchParams;
@@ -283,7 +291,11 @@ describe("recordingDownloadUrl — possession of the URL IS the authorization", 
 
   test("the bucket secret never appears in a download link", async () => {
     configureStore();
-    const res = await recordingDownloadUrl({ orgId: "org_a", conversationId: "conv-1", now: () => FIXED_NOW });
+    const res = await recordingDownloadUrl({
+      orgId: "org_a",
+      conversationId: "conv-1",
+      now: () => FIXED_NOW,
+    });
     expect(res.ok).toBe(true);
     if (!res.ok) return;
     expect(res.url).not.toContain(SECRET);
@@ -349,7 +361,8 @@ describe("storing a recording", () => {
     // A failed upload must not become a failed case transition. The caller
     // records the outcome in the audit chain either way.
     configureStore();
-    const fetchImpl = (async () => new Response("<Error>nope</Error>", { status: 500 })) as typeof fetch;
+    const fetchImpl = (async () =>
+      new Response("<Error>nope</Error>", { status: 500 })) as typeof fetch;
     const res = await storeRecording({
       orgId: "org_a",
       conversationId: "conv-1",

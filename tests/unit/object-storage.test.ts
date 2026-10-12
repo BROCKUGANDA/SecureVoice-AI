@@ -183,7 +183,9 @@ describe("storage configuration", () => {
 
 describe("object key validation", () => {
   test("a well-formed key is accepted", () => {
-    expect(assertObjectKey("org_123/recordings/conv-abc.mp3")).toBe("org_123/recordings/conv-abc.mp3");
+    expect(assertObjectKey("org_123/recordings/conv-abc.mp3")).toBe(
+      "org_123/recordings/conv-abc.mp3",
+    );
   });
 
   test("a key containing '..' is refused, not normalised", () => {
@@ -250,9 +252,7 @@ describe("SigV4 presigning", () => {
     const q = queryOf(url);
 
     expect(q.get("X-Amz-Algorithm")).toBe("AWS4-HMAC-SHA256");
-    expect(q.get("X-Amz-Credential")).toBe(
-      `${ACCESS_KEY_ID}/20261011/auto/s3/aws4_request`,
-    );
+    expect(q.get("X-Amz-Credential")).toBe(`${ACCESS_KEY_ID}/20261011/auto/s3/aws4_request`);
     expect(q.get("X-Amz-Date")).toBe("20261011T093015Z");
     expect(q.get("X-Amz-Expires")).toBe("300");
     // `host` MUST be signed: it is what binds the URL to one endpoint, so a
@@ -312,9 +312,9 @@ describe("SigV4 presigning", () => {
 
   test("a different secret produces a different signature", async () => {
     const a = await client().presignGet("org_1/recordings/conv-1.mp3");
-    const b = await client({ config: { ...CONFIG, secretAccessKey: `${SECRET}-rotated` } }).presignGet(
-      "org_1/recordings/conv-1.mp3",
-    );
+    const b = await client({
+      config: { ...CONFIG, secretAccessKey: `${SECRET}-rotated` },
+    }).presignGet("org_1/recordings/conv-1.mp3");
     expect(queryOf(a).get("X-Amz-Signature")).not.toBe(queryOf(b).get("X-Amz-Signature"));
   });
 
@@ -331,15 +331,17 @@ describe("SigV4 presigning", () => {
   });
 
   test("a PUT presign signs content-type as a header when one is given", async () => {
-    const q = queryOf(await client().presignPut("org_1/recordings/conv-1.mp3", { contentType: "audio/mpeg" }));
+    const q = queryOf(
+      await client().presignPut("org_1/recordings/conv-1.mp3", { contentType: "audio/mpeg" }),
+    );
     // `content-type;host` — sorted, semicolon-joined, both lowercased.
     expect(q.get("X-Amz-SignedHeaders")).toBe("content-type;host");
   });
 
   test("the default expiry is applied when none is given", async () => {
-    expect(queryOf(await client().presignGet("org_1/recordings/conv-1.mp3")).get("X-Amz-Expires")).toBe(
-      String(DEFAULT_EXPIRY_SECONDS),
-    );
+    expect(
+      queryOf(await client().presignGet("org_1/recordings/conv-1.mp3")).get("X-Amz-Expires"),
+    ).toBe(String(DEFAULT_EXPIRY_SECONDS));
   });
 
   test("an out-of-range expiry is refused, not clamped", () => {
@@ -421,12 +423,14 @@ describe("the secret never leaves the module", () => {
 
     await failing(() =>
       client({
-        fetchImpl: (async () => new Response("<Error>denied</Error>", { status: 403 })) as typeof fetch,
+        fetchImpl: (async () =>
+          new Response("<Error>denied</Error>", { status: 403 })) as typeof fetch,
       }).putObject("org_1/recordings/conv-1.mp3", Buffer.from("audio")),
     );
     await failing(() =>
       client({
-        fetchImpl: (async () => new Response("<Error>nope</Error>", { status: 500 })) as typeof fetch,
+        fetchImpl: (async () =>
+          new Response("<Error>nope</Error>", { status: 500 })) as typeof fetch,
       }).getObject("org_1/recordings/conv-1.mp3"),
     );
     await failing(() =>
@@ -466,9 +470,7 @@ describe("signed object requests", () => {
 
     const headers = captured!.init.headers as Record<string, string>;
     expect(headers.authorization).toMatch(/^AWS4-HMAC-SHA256 Credential=/);
-    expect(headers.authorization).toContain(
-      `${ACCESS_KEY_ID}/20261011/auto/s3/aws4_request`,
-    );
+    expect(headers.authorization).toContain(`${ACCESS_KEY_ID}/20261011/auto/s3/aws4_request`);
     // host is in SignedHeaders but is NOT transported: the runtime derives it
     // from the URL we just signed. Sending it explicitly is at best a forbidden
     // header, and at worst a second value the signature does not cover. The list
@@ -482,9 +484,7 @@ describe("signed object requests", () => {
     // right-to-erasure request cannot reach.
     expect(headers["cache-control"]).toBe("no-store");
     expect(headers["host"]).toBeUndefined();
-    expect(captured!.url).toBe(
-      `${CONFIG.endpoint}/${CONFIG.bucket}/org_1/recordings/conv-1.mp3`,
-    );
+    expect(captured!.url).toBe(`${CONFIG.endpoint}/${CONFIG.bucket}/org_1/recordings/conv-1.mp3`);
   });
 
   test("a PUT with a body signs the REAL payload hash, not UNSIGNED-PAYLOAD", async () => {

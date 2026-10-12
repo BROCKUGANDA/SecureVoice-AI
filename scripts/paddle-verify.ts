@@ -13,15 +13,24 @@ const IDS = [
 for (const { label, id } of IDS) {
   const p = await paddle.products.get(id, { include: ["prices"] });
   console.log(`\n=== ${label} ===`);
-  console.log(`  ${p.id}  status=${(p as unknown as { status?: string }).status}  tax=${(p as unknown as { taxCategory?: string }).taxCategory}`);
+  console.log(
+    `  ${p.id}  status=${(p as unknown as { status?: string }).status}  tax=${(p as unknown as { taxCategory?: string }).taxCategory}`,
+  );
   for (const pr of p.prices ?? []) {
     const o = pr as unknown as {
       billingCycle?: { interval?: string };
-      unitPriceOverrides?: { countryCodes: string[]; unitPrice: { amount: string; currencyCode: string } }[];
+      unitPriceOverrides?: {
+        countryCodes: string[];
+        unitPrice: { amount: string; currencyCode: string };
+      }[];
     };
-    console.log(`  ${pr.id}  /${o.billingCycle?.interval ?? "one-time"}  ${pr.unitPrice?.amount} ${pr.unitPrice?.currencyCode}`);
+    console.log(
+      `  ${pr.id}  /${o.billingCycle?.interval ?? "one-time"}  ${pr.unitPrice?.amount} ${pr.unitPrice?.currencyCode}`,
+    );
     for (const u of o.unitPriceOverrides ?? []) {
-      console.log(`      ${u.countryCodes.join(",")}  ${u.unitPrice.amount} ${u.unitPrice.currencyCode}`);
+      console.log(
+        `      ${u.countryCodes.join(",")}  ${u.unitPrice.amount} ${u.unitPrice.currencyCode}`,
+      );
     }
   }
 }

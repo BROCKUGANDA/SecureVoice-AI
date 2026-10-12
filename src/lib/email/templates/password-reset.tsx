@@ -134,8 +134,7 @@ export function PasswordResetEmail({
 
 const body: React.CSSProperties = {
   backgroundColor: BRAND.canvas,
-  fontFamily:
-    '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
+  fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
   margin: "0",
   padding: "32px 12px",
 };
@@ -226,7 +225,7 @@ const fallbackLabel: React.CSSProperties = {
 
 const fallback: React.CSSProperties = {
   color: BRAND.muted,
-  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+  fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
   fontSize: "12px",
   lineHeight: "18px",
   margin: "0 0 20px",

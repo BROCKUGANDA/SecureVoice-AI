@@ -162,12 +162,12 @@ that conclusion was WRONG, because it counted only the four better-auth tables
 and two test tables, never the real ones. A full count of every table on both
 sides gave the true answer:
 
-| | bundled (`db` container) | Supabase |
-|---|---|---|
-| `Case` | 0 | **1,006** |
-| `AuditLog` | 26 | **7,992** |
-| `UserProfile` | 0 | **88** |
-| tables | 19 | 37 |
+|               | bundled (`db` container) | Supabase  |
+| ------------- | ------------------------ | --------- |
+| `Case`        | 0                        | **1,006** |
+| `AuditLog`    | 26                       | **7,992** |
+| `UserProfile` | 0                        | **88**    |
+| tables        | 19                       | 37        |
 
 **Supabase is the real production database. The bundled volume is an empty
 shell that was never populated** — and the app had been pointed at it the whole
@@ -206,7 +206,6 @@ only proves the connection is up, never that there are rows behind it.
 `/realtime/media-stream` Caddy route that targets it) was in neither list, so
 a roll would have left the newest plane unstarted and its route 502ing.
 Added to both lists (`fix(deploy): roll the voice-stream worker with the app`).
-
 
 ## Failure mode #2 — the deploy's `git pull` refuses: "local changes to Caddyfile would be overwritten"
 

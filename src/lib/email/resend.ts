@@ -149,7 +149,10 @@ async function sendEmail(input: {
     // `text` is the plain-text alternative. It matters more than usual here:
     // corporate gateways strip HTML aggressively, and the templates carry a
     // plain-text copy of the link precisely for that case.
-    [html, text] = await Promise.all([render(input.element), render(input.element, { plainText: true })]);
+    [html, text] = await Promise.all([
+      render(input.element),
+      render(input.element, { plainText: true }),
+    ]);
   } catch (cause) {
     return { ok: false, reason: "render_failed", detail: describe(cause) };
   }

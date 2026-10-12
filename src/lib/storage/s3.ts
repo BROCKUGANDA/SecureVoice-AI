@@ -243,21 +243,17 @@ function storageError(
     opts.cause instanceof Error ? opts.cause.message : opts.cause ? String(opts.cause) : "";
   const full = causeText ? `${message}: ${causeText}` : message;
   const secrets = [opts.config?.secretAccessKey, opts.config?.accessKeyId];
-  return new StorageError(
-    code,
-    scrub(full, ...secrets),
-    {
-      ...(opts.status !== undefined ? { status: opts.status } : {}),
-      ...(opts.key !== undefined ? { key: opts.key } : {}),
-      // The cause is scrubbed too, not just the message. A `fetch` rejection
-      // carries the request URL, and a caller that logs `err.cause` — which is
-      // the first thing anyone does when a storage call fails from a route — would
-      // otherwise put the credential in the log line the scrub exists to prevent.
-      // The cause's own non-secret fields (name, stack) are preserved so the
-      // failure is still diagnosable.
-      ...(opts.cause !== undefined ? { cause: sanitiseCause(opts.cause, secrets) } : {}),
-    },
-  );
+  return new StorageError(code, scrub(full, ...secrets), {
+    ...(opts.status !== undefined ? { status: opts.status } : {}),
+    ...(opts.key !== undefined ? { key: opts.key } : {}),
+    // The cause is scrubbed too, not just the message. A `fetch` rejection
+    // carries the request URL, and a caller that logs `err.cause` — which is
+    // the first thing anyone does when a storage call fails from a route — would
+    // otherwise put the credential in the log line the scrub exists to prevent.
+    // The cause's own non-secret fields (name, stack) are preserved so the
+    // failure is still diagnosable.
+    ...(opts.cause !== undefined ? { cause: sanitiseCause(opts.cause, secrets) } : {}),
+  });
 }
 
 /**
@@ -397,7 +393,10 @@ const objectKeySchema = z
   .refine((k) => !k.includes("//"), "object key must not contain an empty path segment")
   .refine((k) => !k.includes(".."), "object key must not contain '..'")
   .refine((k) => !k.includes("\\"), "object key must not contain a backslash")
-  .refine((k) => !/[\u0000-\u001f\u007f]/.test(k), "object key must not contain control characters");
+  .refine(
+    (k) => !/[\u0000-\u001f\u007f]/.test(k),
+    "object key must not contain control characters",
+  );
 
 /**
  * Validate an object key, or throw.
@@ -446,9 +445,7 @@ function encodeKeyPath(key: string): string {
  * dropped when `undefined` or empty so an unset optional never becomes `k=`,
  * which the server would treat as an empty value.
  */
-export function canonicalQueryString(
-  params: Record<string, string | number | undefined>,
-): string {
+export function canonicalQueryString(params: Record<string, string | number | undefined>): string {
   return Object.entries(params)
     .filter(([, value]) => value !== undefined && value !== "")
     .map(([name, value]) => [rfc3986(name), rfc3986(String(value))] as const)
@@ -469,10 +466,13 @@ function canonicalHeaders(headers: Record<string, string>): {
   signed: string;
 } {
   const entries = Object.entries(headers)
-    .map(([name, value]) => [
-      name.toLowerCase().trim().replace(/\s+/g, " "),
-      value.trim().replace(/\s+/g, " "),
-    ] as const)
+    .map(
+      ([name, value]) =>
+        [
+          name.toLowerCase().trim().replace(/\s+/g, " "),
+          value.trim().replace(/\s+/g, " "),
+        ] as const,
+    )
     .sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
   return {
     canonical: entries.map(([name, value]) => `${name}:${value}\n`).join(""),
@@ -504,7 +504,10 @@ function signingKey(secret: string, dateStamp: string, region: string): Buffer {
 
 /** `2026-10-11T12:00:00.000Z` → `20261011T120000Z`. */
 function amzDate(when: Date): string {
-  return when.toISOString().replace(/[:-]/g, "").replace(/\.\d{3}/g, "");
+  return when
+    .toISOString()
+    .replace(/[:-]/g, "")
+    .replace(/\.\d{3}/g, "");
 }
 
 /**
@@ -827,7 +830,16 @@ export function createStorageClient(options: StorageClientOptions = {}): Storage
     async getObject(key) {
       const cfg = requireConfig();
       const safeKey = assertObjectKey(key);
-      const res = await signedRequest(cfg, "GET", safeKey, undefined, {}, fetchImpl, timeoutMs, now);
+      const res = await signedRequest(
+        cfg,
+        "GET",
+        safeKey,
+        undefined,
+        {},
+        fetchImpl,
+        timeoutMs,
+        now,
+      );
       if (!res.ok) {
         const detail = await readErrorBody(res);
         logError("object storage get failed", {
@@ -876,7 +888,16 @@ export function createStorageClient(options: StorageClientOptions = {}): Storage
     async deleteObject(key) {
       const cfg = requireConfig();
       const safeKey = assertObjectKey(key);
-      const res = await signedRequest(cfg, "DELETE", safeKey, undefined, {}, fetchImpl, timeoutMs, now);
+      const res = await signedRequest(
+        cfg,
+        "DELETE",
+        safeKey,
+        undefined,
+        {},
+        fetchImpl,
+        timeoutMs,
+        now,
+      );
       // S3 DELETE is idempotent by contract: deleting a key that is already gone
       // is the state the caller asked for. Treat 404 as success so a retention
       // sweep over a partially-deleted prefix does not fail on the second run.

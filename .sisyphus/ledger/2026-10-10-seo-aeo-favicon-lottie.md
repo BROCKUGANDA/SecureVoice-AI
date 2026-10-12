@@ -122,17 +122,17 @@ card — which Twitter/X reads from its own tags, not OG.
 
 ## Verification
 
-| Check                        | Result                                                     |
-| ---------------------------- | ---------------------------------------------------------- |
-| `bunx tsc --noEmit`          | clean                                                       |
-| `bun run lint`               | **0 errors** (108 pre-existing warnings)                   |
-| `bun run format:check`       | clean for every file touched                                |
-| `bun run build`              | green; 4 new routes prerendered as static                  |
-| `bun run test:jest`          | 67/67                                                        |
-| `tests/surface/surface.test.ts` | 78 pass / 0 fail (3 pre-existing assertions were RED and updated — they asserted the gaps this work closes) |
-| `tests/unit/commercial-consistency.test.ts` | 15/15 (new)                                    |
-| Live server (`PORT=3111`)    | all 11 asset + route paths 200; JSON-LD parsed: 5 nodes, 3 offers (Enterprise price-less), 7 FAQ Q&A, `legalName` correct |
-| Live TLS                     | `https://securevoiceai.me` 200 cert verifies; `http://` 308; `www.` 200 |
+| Check                                       | Result                                                                                                                    |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `bunx tsc --noEmit`                         | clean                                                                                                                     |
+| `bun run lint`                              | **0 errors** (108 pre-existing warnings)                                                                                  |
+| `bun run format:check`                      | clean for every file touched                                                                                              |
+| `bun run build`                             | green; 4 new routes prerendered as static                                                                                 |
+| `bun run test:jest`                         | 67/67                                                                                                                     |
+| `tests/surface/surface.test.ts`             | 78 pass / 0 fail (3 pre-existing assertions were RED and updated — they asserted the gaps this work closes)               |
+| `tests/unit/commercial-consistency.test.ts` | 15/15 (new)                                                                                                               |
+| Live server (`PORT=3111`)                   | all 11 asset + route paths 200; JSON-LD parsed: 5 nodes, 3 offers (Enterprise price-less), 7 FAQ Q&A, `legalName` correct |
+| Live TLS                                    | `https://securevoiceai.me` 200 cert verifies; `http://` 308; `www.` 200                                                   |
 
 ## Facts corrected along the way
 
@@ -143,6 +143,7 @@ card — which Twitter/X reads from its own tags, not OG.
 ## Tests
 
 Updated (asserted gaps this work closes):
+
 - `tests/surface/surface.test.ts` — allowlist contents, sitemap entry count,
   training-vs-search crawler split, manifest link, favicon set on disk, manifest
   icons are rasters, `dangerouslySetInnerHTML` allowlist now includes

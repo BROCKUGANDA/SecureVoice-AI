@@ -62,7 +62,9 @@ function isAbsolutePath(p: string): boolean {
 function joinPath(...parts: string[]): string {
   const clean = parts
     .filter((p) => p.length > 0)
-    .map((p, i) => (i === 0 ? p.replace(/[/\\]+$/, "") : p.replace(/^[/\\]+/, "").replace(/[/\\]+$/, "")));
+    .map((p, i) =>
+      i === 0 ? p.replace(/[/\\]+$/, "") : p.replace(/^[/\\]+/, "").replace(/[/\\]+$/, ""),
+    );
   return clean.join("/");
 }
 
@@ -138,7 +140,7 @@ export function flushSpans(): Promise<void> {
     if (batch.length === 0) return;
     try {
       const path = spanLogPath();
-      await mkdir/*turbopackIgnore: true*/(dirnamePath(path), { recursive: true });
+      await mkdir(/*turbopackIgnore: true*/ dirnamePath(path), { recursive: true });
       // One line per span. No pretty-printing: the file is read far more often
       // than it is read by a human, and JSON.parse per line is the fast path.
       const body = `${batch.map((r) => JSON.stringify(r)).join("\n")}\n`;
@@ -248,11 +250,11 @@ export async function readSpanRecords(options: ReadOptions = {}): Promise<SpanRe
   let truncated = false;
   let bytesRead = 0;
   try {
-    const info = await stat/*turbopackIgnore: true*/(path);
+    const info = await stat(/*turbopackIgnore: true*/ path);
     if (!info.isFile()) return { ...base, error: "not_a_file" };
     const start = Math.max(0, info.size - MAX_READ_BYTES);
     truncated = start > 0;
-    const handle = await open/*turbopackIgnore: true*/(path, "r");
+    const handle = await open(/*turbopackIgnore: true*/ path, "r");
     try {
       const length = info.size - start;
       const buffer = Buffer.alloc(length);

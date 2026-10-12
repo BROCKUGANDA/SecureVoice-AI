@@ -287,6 +287,19 @@ export const env = {
     return Number.isFinite(raw) && raw > 0 ? raw : 1200;
   },
   /**
+   * Total wall-clock a live turn may spend trying LLM providers (default 1500 ms).
+   *
+   * This is what makes failover safe to have. Each provider carries its own
+   * timeout, so a chain of them is unbounded unless something caps the TURN:
+   * without a budget, a Groq that times out at 3 s followed by a LiteLLM at 8 s
+   * replaces a fast scripted reply with eleven seconds of dead air on the phone.
+   * The drafter therefore never STARTS an attempt it cannot finish inside this.
+   */
+  get llmTurnBudgetMs(): number {
+    const raw = Number(process.env.LLM_TURN_BUDGET_MS);
+    return Number.isFinite(raw) && raw > 0 ? raw : 1_500;
+  },
+  /**
    * ElevenLabs signed-WebSocket URL time-to-live in seconds. Defaults to 900 s
    * (15 min, the vendor maximum). Configurable so a deployment can shorten the
    * credential window.

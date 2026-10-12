@@ -46,7 +46,8 @@ import { decryptSecret } from "@/lib/byok";
 import { traceLlmCall } from "@/lib/langfuse";
 import { createLlmAdapter, type LlmProvider } from "@/lib/adapters/llm-adapter";
 import { defaultSemanticCache } from "@/lib/voice/semantic-cache";
-import { logInfo } from "@/lib/validation/safe-log";
+import { logInfo, logWarn } from "@/lib/validation/safe-log";
+import { createBreaker, type Breaker } from "@/lib/failures/breaker";
 import { spokenCompletionSchema } from "@/lib/validation/llm-response";
 import { auth } from "@/lib/better-auth";
 import { headers } from "next/headers";
@@ -59,6 +60,32 @@ const SCRIPTED_ONLY: ReadonlySet<string> = new Set([
   "handoff",
 ]);
 const MAX_WORDS = maxAgentWords();
+
+/**
+ * The LLM breaker.
+ *
+ * `DEPENDENCIES` in src/lib/failures/breaker.ts has listed "llm" since that module
+ * was written, and nothing ever created it — a declared dependency whose failure
+ * counter nobody increments can never open, so the guardrail was decorative and a
+ * reviewer counting `DEPENDENCIES` would have believed the drafter was protected.
+ * This is the instance that can actually trip, and the drafter consults it before
+ * spending a turn's dead air on providers that were already failing seconds ago.
+ */
+const llmBreaker: Breaker = createBreaker("llm", {
+  failureThreshold: 5,
+  openMs: 15_000,
+  halfOpenProbes: 1,
+});
+
+/** Test seam, mirroring `_resetEgressForTest` in src/lib/elevenlabs/egress.ts. */
+export function _resetLlmBreakerForTest(): void {
+  llmBreaker.reset();
+}
+
+/** The breaker's live view, for the health surface and for tests. */
+export function llmBreakerState(): ReturnType<Breaker["snapshot"]> {
+  return llmBreaker.snapshot();
+}
 
 /**
  * A resolved inference endpoint. `name` is carried so the audit row can record
@@ -77,6 +104,85 @@ export type Provider = {
 };
 
 /**
+ * The selection ladder as DATA, in preference order, and COMPLETE.
+ *
+ * `selectProvider()` below returns the head of this list, which is what it always
+ * did. The list itself exists because a head with no tail is a precedence, not a
+ * resilience: until now a configured-but-failing Groq produced `null` and the
+ * scripted reply while a configured LiteLLM sat unused in the same environment.
+ * Failover needs the ordered whole, and so does the audit row that answers
+ * "which providers did we actually try".
+ *
+ * `provider()` reads process.env on every call, which makes it awkward to test
+ * exhaustively: env is global mutable state, tests run concurrently, and a test
+ * that blanks a variable to assert the next rung can interleave with one that
+ * sets it. So the SAME precedence, same tuning, same defaults live here as a pure
+ * function over an injected environment, and production is a thin binding of it —
+ * provably one implementation rather than two that agree today.
+ */
+/**
+ * The injected environment the ladder reads. Named rather than inferred because
+ * `providerLadder` and `selectProvider` reference each other, and a
+ * `Parameters<typeof …>` between two mutually-referencing functions is a circular
+ * alias the compiler refuses.
+ */
+export type ProviderConfig = {
+  groqApiKey?: string;
+  groqBaseUrl: string;
+  groqModel: string;
+  groqTimeoutMs: number;
+  groqTemperature: number;
+  groqMaxTokens: number;
+  litellmApiKey?: string;
+  litellmBaseUrl: string;
+  litellmModel: string;
+  litellmTimeoutMs: number;
+  litellmTemperature: number;
+  litellmMaxTokens: number;
+  geminiApiKey?: string;
+  geminiBaseUrl: string;
+  geminiModel: string;
+};
+
+export function providerLadder(cfg: ProviderConfig): Provider[] {
+  const out: Provider[] = [];
+  if (cfg.groqApiKey) {
+    out.push({
+      name: "groq",
+      url: cfg.groqBaseUrl,
+      key: cfg.groqApiKey,
+      model: cfg.groqModel,
+      timeoutMs: cfg.groqTimeoutMs,
+      temperature: cfg.groqTemperature,
+      maxTokens: cfg.groqMaxTokens,
+    });
+  }
+  if (cfg.litellmApiKey) {
+    out.push({
+      name: "lite_llm",
+      url: cfg.litellmBaseUrl,
+      key: cfg.litellmApiKey,
+      model: cfg.litellmModel,
+      timeoutMs: cfg.litellmTimeoutMs,
+      temperature: cfg.litellmTemperature,
+      maxTokens: cfg.litellmMaxTokens,
+    });
+  }
+  if (cfg.geminiApiKey) {
+    out.push({
+      name: "gemini",
+      url: cfg.geminiBaseUrl,
+      key: cfg.geminiApiKey,
+      model: cfg.geminiModel,
+      timeoutMs: 8_000,
+      temperature: 0.3,
+      maxTokens: 160,
+    });
+  }
+  return out;
+}
+
+/**
  * The configured LLM provider, or null when no key is set.
  *
  * Order is a latency-budget decision, made once, and stated here rather than
@@ -88,8 +194,19 @@ export type Provider = {
  * which is the kind of bug that only shows up as "the self-hosted model feels
  * weird" and never as an error.
  */
-export function provider(): Provider | null {
-  return selectProvider({
+export function selectProvider(cfg: ProviderConfig): Provider | null {
+  return providerLadder(cfg)[0] ?? null;
+}
+
+/**
+ * Every configured provider, in the order a live turn should try them.
+ *
+ * This is the resilience half that `provider()` never had: the head of the ladder
+ * was chosen once and any throw returned null, so an environment with both Groq
+ * and a self-hosted LiteLLM had a working second provider it never used.
+ */
+export function providerAttempts(): Provider[] {
+  return providerLadder({
     groqApiKey: env.groqApiKey,
     groqBaseUrl: env.groqBaseUrl,
     groqModel: env.groqModel,
@@ -108,72 +225,9 @@ export function provider(): Provider | null {
   });
 }
 
-/**
- * The selection ladder as DATA, so precedence can be asserted without touching
- * `process.env`.
- *
- * `provider()` reads process.env on every call, which makes it awkward to test
- * exhaustively: env is global mutable state, tests run concurrently, and a
- * test that blanks a variable to assert the next rung can interleave with one
- * that sets it. The failure mode is a test suite that passes for the wrong
- * reason and a ladder nobody can change confidently.
- *
- * So the SAME precedence, same tuning, same defaults live here as a pure
- * function over an injected environment. `provider()` is a thin binding of it
- * to the real `env` — which keeps production and test provably identical
- * rather than two implementations that agree today and diverge tomorrow.
- */
-export function selectProvider(cfg: {
-  groqApiKey?: string;
-  groqBaseUrl: string;
-  groqModel: string;
-  groqTimeoutMs: number;
-  groqTemperature: number;
-  groqMaxTokens: number;
-  litellmApiKey?: string;
-  litellmBaseUrl: string;
-  litellmModel: string;
-  litellmTimeoutMs: number;
-  litellmTemperature: number;
-  litellmMaxTokens: number;
-  geminiApiKey?: string;
-  geminiBaseUrl: string;
-  geminiModel: string;
-}): Provider | null {
-  if (cfg.groqApiKey) {
-    return {
-      name: "groq",
-      url: cfg.groqBaseUrl,
-      key: cfg.groqApiKey,
-      model: cfg.groqModel,
-      timeoutMs: cfg.groqTimeoutMs,
-      temperature: cfg.groqTemperature,
-      maxTokens: cfg.groqMaxTokens,
-    };
-  }
-  if (cfg.litellmApiKey) {
-    return {
-      name: "lite_llm",
-      url: cfg.litellmBaseUrl,
-      key: cfg.litellmApiKey,
-      model: cfg.litellmModel,
-      timeoutMs: cfg.litellmTimeoutMs,
-      temperature: cfg.litellmTemperature,
-      maxTokens: cfg.litellmMaxTokens,
-    };
-  }
-  if (cfg.geminiApiKey) {
-    return {
-      name: "gemini",
-      url: cfg.geminiBaseUrl,
-      key: cfg.geminiApiKey,
-      model: cfg.geminiModel,
-      timeoutMs: 8_000,
-      temperature: 0.3,
-      maxTokens: 160,
-    };
-  }
-  return null;
+/** The configured LLM provider, or null when no key is set. */
+export function provider(): Provider | null {
+  return providerAttempts()[0] ?? null;
 }
 
 /**
@@ -489,8 +543,23 @@ export async function draftAgentReply(args: {
   // "resolved to nothing" — the distinction is what lets a tenant with no BYOK
   // key fall through to the platform's own provider rather than being pinned to
   // an empty one.
-  const p = args.providerOverride !== undefined ? args.providerOverride : provider();
-  if (!p) return null;
+  //
+  // A BYOK override is the ONLY attempt, deliberately. Falling back from a
+  // tenant's own endpoint to a platform provider would route their call text
+  // through a processor neither side agreed to, on an availability excuse:
+  // data residency is not ours to trade for uptime. With no override the whole
+  // configured ladder is attempted in order, which is the failover this drafter
+  // did not previously have — one throw used to mean the scripted reply while a
+  // working second provider sat configured and unused.
+  const attempts: Provider[] =
+    args.providerOverride !== undefined
+      ? args.providerOverride
+        ? [args.providerOverride]
+        : []
+      : providerAttempts();
+  if (attempts.length === 0) return null;
+  const p = attempts[0]!;
+  let answeredBy: Provider | null = null;
 
   // ── The semantic reply cache ───────────────────────────────────────────────
   // A fraud call is structurally repetitive — the same handful of answers arrive
@@ -609,6 +678,10 @@ export async function draftAgentReply(args: {
     }
 
     const safeCallerText = wrapCallerText(args.text);
+    const turnStartedAt = Date.now();
+    const turnBudgetMs = env.llmTurnBudgetMs;
+    let answeredBy: Provider | null = null;
+    let failoverNote: string | null = null;
 
     const traceResult = await traceLlmCall({
       name: "draft-agent-reply",
@@ -625,38 +698,92 @@ export async function draftAgentReply(args: {
         // the policy" and "the agent improvised" are distinguishable after the
         // call instead of argued about.
         kbHits: grounding?.hits ?? 0,
+        // The whole attempt list, not just the head. "Groq timed out and LiteLLM
+        // answered" is the sentence an incident review needs, and it is
+        // unrecoverable afterwards if only the chosen provider is recorded.
+        attemptedProviders: attempts.map((a) => a.name),
       },
       run: async (generation) => {
-        const adapter = createLlmAdapter(adapterProviderFor(p.name), {
-          apiKey: p.key,
-          baseUrl: p.url,
-          model: p.model,
-          timeoutMs: p.timeoutMs,
-          temperature: p.temperature,
-          maxTokens: p.maxTokens,
-          systemPrompt: system,
-        });
-        const result = await adapter.complete(
-          `The caller said (their language may differ - reply in YOUR language): ${safeCallerText}`,
-        );
-        if (result.usage) {
-          generation.end({ usage: result.usage });
+        const userMessage = `The caller said (their language may differ - reply in YOUR language): ${safeCallerText}`;
+        const permit = llmBreaker.permit();
+        if (!permit.allowed) {
+          // Open breaker: go straight to the scripted reply rather than proving
+          // again that the providers are down, on a customer's dead air.
+          failoverNote = `breaker_${permit.state}`;
+          return null;
         }
-        // Runtime zod validation of the completion (#53).
-        //
-        // The adapter already guarantees a non-empty trimmed string, but the
-        // schema is the explicit contract: it catches a completion that is
-        // present but unspeakable (e.g. only whitespace after the voice-hygiene
-        // strip) before it reaches TTS. A completion that fails here returns
-        // null, which falls through to the scripted reply — always spoken,
-        // always safe, always audible.
-        const validated = spokenCompletionSchema.safeParse(result.text);
-        return validated.success ? validated.data : null;
+        for (const attempt of attempts) {
+          // Never START an attempt the turn cannot finish. Each provider carries
+          // its own timeout, so an attempt begun one second into the budget is
+          // dead air the customer hears instead of the scripted line it replaced.
+          if (Date.now() - turnStartedAt > turnBudgetMs) {
+            failoverNote ??= "turn_budget_exhausted";
+            break;
+          }
+          try {
+            const adapter = createLlmAdapter(adapterProviderFor(attempt.name), {
+              apiKey: attempt.key,
+              baseUrl: attempt.url,
+              model: attempt.model,
+              timeoutMs: attempt.timeoutMs,
+              temperature: attempt.temperature,
+              maxTokens: attempt.maxTokens,
+              systemPrompt: system,
+            });
+            const result = await adapter.complete(userMessage);
+            llmBreaker.recordSuccess();
+            answeredBy = attempt;
+            if (result.usage) {
+              generation.end({ usage: result.usage });
+            }
+            // Runtime zod validation of the completion (#53).
+            //
+            // The adapter already guarantees a non-empty trimmed string, but the
+            // schema is the explicit contract: it catches a completion that is
+            // present but unspeakable (e.g. only whitespace after the voice-hygiene
+            // strip) before it reaches TTS. A completion that fails here returns
+            // null, which falls through to the scripted reply — always spoken,
+            // always safe, always audible.
+            //
+            // It is NOT a reason to try the next provider: the request succeeded,
+            // the words were just unusable, and a second provider asked the same
+            // question in the same budget is a slower way to reach the script.
+            const validated = spokenCompletionSchema.safeParse(result.text);
+            if (!validated.success) failoverNote = "completion_unspeakable";
+            return validated.success ? validated.data : null;
+          } catch (err) {
+            llmBreaker.recordFailure();
+            failoverNote = `provider_${attempt.name}_failed`;
+            logWarn("[llm] provider failed; attempting the next rung", {
+              provider: attempt.name,
+              model: attempt.model,
+              elapsedMs: Date.now() - turnStartedAt,
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
+        }
+        return null;
       },
     });
 
+    const provenance = answeredBy ?? p;
+
     let out = traceResult.value;
-    if (!out) return null;
+    if (!out) {
+      // WHY there was no draft is the difference between "the ladder is down",
+      // "the breaker is open" and "every provider returned words we cannot
+      // speak" — and on the day it matters, none of those are distinguishable
+      // from a customer-facing `null`.
+      if (failoverNote) {
+        logWarn("[llm] no provider produced a draft; scripted reply", {
+          note: failoverNote,
+          attempted: attempts.map((a) => a.name),
+          elapsedMs: Date.now() - turnStartedAt,
+          turnBudgetMs,
+        });
+      }
+      return null;
+    }
     // voice hygiene: strip markdown artifacts an LLM might emit (TTS reads
     // asterisks/backticks aloud) and enforce the word ceiling
     out = out
@@ -683,7 +810,16 @@ export async function draftAgentReply(args: {
           // Provider and model travel with the refusal. "Which model produced
           // the unsafe draft" is the first question asked after an incident,
           // and it is unanswerable if the audit row only says the LLM refused.
-          meta: { lang: args.lang, intent: args.intent, provider: p.name, model: p.model },
+          meta: {
+            lang: args.lang,
+            intent: args.intent,
+            // The provider that ACTUALLY answered, which after a failover is not
+            // the one the ladder picked first. "Which model produced the unsafe
+            // draft" is the question an incident asks, and recording the head of
+            // the list would answer it wrong exactly when failover happened.
+            provider: provenance.name,
+            model: provenance.model,
+          },
         },
         { fast: true },
       ).catch(() => {});
@@ -718,8 +854,8 @@ export async function draftAgentReply(args: {
           meta: {
             lang: args.lang,
             intent: args.intent,
-            provider: p.name,
-            model: p.model,
+            provider: provenance.name,
+            model: provenance.model,
             rules: vishing.hits.map((h) => h.id),
           },
         },

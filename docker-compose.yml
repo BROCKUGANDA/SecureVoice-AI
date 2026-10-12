@@ -283,6 +283,27 @@ services:
       DB_ALLOW_PLAINTEXT_PRIVATE_NETWORK: "true"
       REQUIRE_VPS_DATABASE: ${REQUIRE_VPS_DATABASE:-false}
       RETENTION_SWEEP_HOURS: ${RETENTION_SWEEP_HOURS:-24}
+      # The object store, so the 30-day audio tier can delete what the app stored.
+      #
+      # This service declares no `env_file` (the app does, and it is the app's
+      # webhook that archives a recording), so without these five lines the worker
+      # boots, reports `audioStore: "none-configured"`, and leaves every MP3 in the
+      # bucket past the deadline the policy names — while the report's `due` count
+      # looks like a tier that ran. The adapter is
+      # `src/lib/storage/retention-audio-store.ts`; the wiring is this block, and
+      # neither half works alone.
+      #
+      # No default for the region, deliberately: `resolveStorageConfig()` requires
+      # it explicitly because a silently wrong region produces a
+      # SignatureDoesNotMatch at the far end that nobody can read, and a compose
+      # default would reintroduce exactly that. Empty here reads as "no store
+      # configured", which is the honest posture for a deployment that archives no
+      # audio — the worker logs it and deletes nothing.
+      R2_ENDPOINT: ${R2_ENDPOINT:-}
+      R2_REGION: ${R2_REGION:-}
+      R2_ACCESS_KEY_ID: ${R2_ACCESS_KEY_ID:-}
+      R2_SECRET_ACCESS_KEY: ${R2_SECRET_ACCESS_KEY:-}
+      R2_BUCKET: ${R2_BUCKET:-}
     depends_on:
       db-setup:
         condition: service_completed_successfully

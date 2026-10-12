@@ -312,14 +312,24 @@ export const AUDIT_TIER_DECISION = Object.freeze({
 // ── The audio store seam ─────────────────────────────────────────────────────
 
 /**
- * The platform stores no call recording (I-10: the provider is the system of
- * record), so the audio tier has nothing local to delete. Rather than pretend,
- * the tier purges a REGISTERED store: the integration point for wherever
- * recordings do exist (provider-side deletion, an S3 prefix, a transcript
- * vendor). With no store registered the tier reports `none-configured` and
- * deletes nothing — a real answer, and the one the gate asserts.
+ * Where recordings live decides what this tier can do.
+ *
+ * The original posture was that the platform stores no call recording (I-10: the
+ * provider is the system of record), so the audio tier had nothing local to delete.
+ * That is still true of a deployment with no object store, and it is no longer true
+ * of one that archives post-call audio to R2 (`src/lib/storage/recordings.ts`) —
+ * which is why the tier purges a REGISTERED store rather than assuming either way.
+ * The adapter for the real bucket is `src/lib/storage/retention-audio-store.ts`,
+ * registered by the retention worker at boot; with nothing registered the tier
+ * reports `none-configured` and deletes nothing — an honest answer about a
+ * deployment that has no audio at rest, and the one the gate asserts.
+ *
+ * `bytes` is `number | null` because the only existence check the storage layer
+ * exposes (`hasRecording()`) discards the HEAD response's headers. A size would
+ * have to be invented, and an object reported as 0 bytes reads as "an empty
+ * recording" — a different and falsifiable claim.
  */
-export type AudioArtifact = { id: string; caseRef: string; bytes: number };
+export type AudioArtifact = { id: string; caseRef: string; bytes: number | null };
 
 export interface AudioStore {
   listForCase(caseRef: string): Promise<AudioArtifact[]>;

@@ -1623,10 +1623,19 @@ TLS is not the same fact as a socket that negotiated it.
   as AAD, crypto-shredding on erasure, retention per tier: proven by the WP-15
   gate (`tests/privacy/privacy.test.ts`, `evidence/privacy/privacy.json`),
   including the negative control that a tampered audit row is reported.
-- **Audio** — there is none at rest: no `AudioStore` is registered anywhere in
-  this deployment, retention's status line reports `none-configured`, and the
-  interface exists for a Stage-3 store. Stated because "we do not hold audio"
-  is a stronger claim than "audio is encrypted" only if it is actually true.
+- **Audio** — none at rest unless the deployment turns archiving on, and the
+  deletion half is now wired either way. `src/lib/storage/recordings.ts` archives a
+  post-call MP3 to R2 when `R2_*` is configured (the app's webhook is the writer),
+  and the retention worker registers `src/lib/storage/retention-audio-store.ts` at
+  boot, so the 30-day audio tier purges that object instead of reporting
+  `none-configured` for ever. With `R2_*` absent — the state of this repository's
+  own `.env` — nothing is archived and `none-configured` is the truth. Both
+  configurations are measured, not described: `bun test
+tests/privacy/retention-audio-store.test.ts` runs a real `storeRecording()` into a
+  stubbed bucket and a real sweep against it, and the worker's own boot line states
+  which posture it took. The sentence this replaces asserted "there is none at
+  rest", which was only ever true because nothing deleted it — and a control that is
+  absent is not a control that is satisfied.
 - **Postgres storage-level encryption** — a Supabase vendor-managed control.
   Recorded here, honestly attributed: it is not something this codebase can
   prove from inside.

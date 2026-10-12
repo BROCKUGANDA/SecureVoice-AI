@@ -122,14 +122,34 @@ describe("usage ranking", () => {
     expect(r.ok && r.summary.netUsedUnits).toBe(0);
   });
 
-  test("an unconfigured rate reports rateConfigured=false rather than assuming zero", async () => {
+  test("an unset rate bills at the published default instead of assuming zero", async () => {
     await clearUsage();
     await addUsage({ kind: "consume", units: 500 });
     setEnv("OVERAGE_RATE_MINOR_PER_UNIT", undefined);
     setEnv("INCLUDED_UNITS_PER_PERIOD", "10");
 
     const r = await summariseOverage({ orgId: ORG, periodFrom: FROM, periodTo: TO });
-    expect(r.ok && r.summary.rateConfigured).toBe(false);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    // rateConfigured tracks whether an OPERATOR set it; the default is still in
+    // effect and still billable, which is the whole point of the fallback.
+    expect(r.summary.rateConfigured).toBe(false);
+    expect(r.summary.rateMinorPerUnit).toBe(15);
+    expect(r.summary.amountMinor).toBe((500 - 10) * 15);
+  });
+
+  test("a malformed rate is refused rather than silently defaulted", async () => {
+    await clearUsage();
+    await addUsage({ kind: "consume", units: 500 });
+    // The dangerous typo: a decimal in an integer-minor-units field.
+    setEnv("OVERAGE_RATE_MINOR_PER_UNIT", "0.15");
+    setEnv("INCLUDED_UNITS_PER_PERIOD", "10");
+
+    const r = await summariseOverage({ orgId: ORG, periodFrom: FROM, periodTo: TO });
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.reason).toBe("rate_invalid");
+    expect(r.detail).toContain("OVERAGE_RATE_MINOR_PER_UNIT");
   });
 
   test("an inverted period is refused rather than silently swapped", async () => {
@@ -143,11 +163,40 @@ describe("usage ranking", () => {
 });
 
 describe("raising the invoice", () => {
-  test("refuses when no rate is configured, naming the missing variable", async () => {
+  test("an unset rate raises at the published default, not a refusal", async () => {
     await clearUsage();
     await addUsage({ kind: "consume", units: 500 });
     setEnv("INCLUDED_UNITS_PER_PERIOD", "10");
     setEnv("OVERAGE_RATE_MINOR_PER_UNIT", undefined);
+
+    const r = await raiseOverageInvoice({
+      orgId: ORG,
+      periodFrom: FROM,
+      periodTo: TO,
+      recordedBy: "op-a",
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    // 500 - 10 included = 490 billable at the $0.15 default = 7350 minor.
+    expect(r.amount.amountMinor).toBe(490 * 15);
+    const row = await db.paymentRecord.findUnique({ where: { reference: r.reference } });
+    const env = JSON.parse(row!.entitlementsJson!) as {
+      rateMinorPerUnit: number;
+      rateConfigured: boolean;
+      includedUnits: number;
+    };
+    // The invoice records the rate that produced it, so it stays reproducible
+    // after the env var changes.
+    expect(env.rateMinorPerUnit).toBe(15);
+    expect(env.rateConfigured).toBe(false);
+    expect(env.includedUnits).toBe(10);
+  });
+
+  test("a malformed rate refuses the invoice and names the variable", async () => {
+    await clearUsage();
+    await addUsage({ kind: "consume", units: 500 });
+    setEnv("INCLUDED_UNITS_PER_PERIOD", "10");
+    setEnv("OVERAGE_RATE_MINOR_PER_UNIT", "not-a-number");
 
     const r = await raiseOverageInvoice({
       orgId: ORG,

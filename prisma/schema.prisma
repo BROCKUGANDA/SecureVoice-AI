@@ -4,6 +4,20 @@
 generator client {
   provider = "prisma-client"
   output   = "../src/generated/prisma"
+  // `relationJoins` makes `relationLoadStrategy: "join"` available, which
+  // resolves a relation with a single LATERAL JOIN instead of one extra query
+  // per parent row (Prisma's default `relationLoadStrategy: "query"`). On the
+  // console list endpoints — cases × member × organization, the inbox, the
+  // knowledge-base document list — that is the difference between one round
+  // trip and N, and the test database is a REMOTE Postgres with a ~280 ms round
+  // trip, so N+1 there is measured in seconds.
+  //
+  // It is a PER-QUERY opt-in, not a global switch: enabling the flag changes no
+  // behaviour until a query sets `relationLoadStrategy: "join"`. Deliberately so
+  // — a join is not universally faster (a one-to-many with a large child set
+  // can lose to two indexed queries), so the choice belongs at the call site
+  // where the cardinality is known.
+  previewFeatures = ["relationJoins"]
 }
 
 datasource db {
@@ -23,6 +37,13 @@ model User {
   banned           Boolean?     @default(false)
   banReason        String?
   banExpires       DateTime?
+  /// Written by the Better Auth `dash` plugin's activity tracking
+  /// (`activityTracking.enabled`). Also read by `sentinel`'s stale-user check —
+  /// `checkStaleUser(userId, activityTrackingEnabled ? user.lastActiveAt : null)`
+  /// — which is INERT while this column is absent or tracking is off, because
+  /// it is then handed `null` on every call. Nullable and additive: an existing
+  /// row simply has no recorded activity until the next update tick.
+  lastActiveAt     DateTime?
   sessions         Session[]
   accounts         Account[]
   members          Member[]
@@ -578,6 +599,100 @@ model DialJob {
   @@index([caseId], map: "dial_job_case_id_idx")
   @@index([state, createdAt], map: "dial_job_state_created_at_idx")
   @@map("dial_job")
+}
+
+/// Transactional email queue (magic link, invite, password reset).
+///
+/// This is deliberately a SEPARATE table from OutboxEvent. OutboxEvent is the
+/// signed bank-webhook outbox: it requires a tenant endpoint, a signing secret
+/// and a canonical-JSON payload, none of which apply to an email. Reusing it
+/// would put an email in a table whose `targetUrl` column is then either NULL
+/// or a lie, and would route a sign-in credential through bank-delivery
+/// replay tooling that assumes a signed payload.
+///
+/// Why a queue at all: these three emails each carry a live credential. If
+/// Resend is briefly unavailable, fire-and-forget loses the message permanently
+/// and the operator is told "check your inbox" for mail that was never sent.
+/// With a row, the caller learns the send failed (HTTP 503) AND a worker
+/// retries with backoff, so a transient provider blip does not lock an analyst
+/// out of a fraud console.
+///
+/// NOTIFICATION ADDRESSES ARE STORED. The recipient is retained so support can
+/// answer "did the invite reach X?" and so a bounced address can be suppressed
+/// before it is mailed again. See docs/SECURITY.md — this table holds personal
+/// data and is inside the RLS boundary like every other tenant-scoped row.
+///
+/// The TOKEN IS NOT STORED. `payload` holds the rendered subject/body/labels
+/// needed to retry a send, never the URL's query string. A queued row that
+/// outlived its token's expiry would otherwise be a credential in the database.
+model EmailOutbox {
+  id        String   @id @default(cuid())
+  /// Which flow produced this: magic_link | invite | password_reset.
+  kind      String
+  /// The address being mailed. Personal data: redact in logs, never in metrics.
+  toEmail   String
+  /// Rendered subject, stored so a retry does not depend on re-rendering a
+  /// template that may have changed since the row was written.
+  subject   String
+  /// Canonical JSON: { template, props } with all credential-bearing props
+  /// stripped. Retry re-renders from this.
+  payload   String
+  state     String   @default("PENDING") // PENDING | SENDING | SENT | DEAD
+  attempts  Int      @default(0)
+  nextAttemptAt DateTime @default(now())
+  lastError String?
+  sentAt    DateTime?
+  /// The provider's own id for the accepted message (`Resend` returns it from
+  /// `emails.send`). This is the JOIN KEY that makes delivery webhooks
+  /// actionable: `email.bounced` / `email.delivered` / `email.complained` /
+  /// `email.delivery_delayed` identify the message ONLY by this id, so without
+  /// it stored at send time a bounce cannot be matched back to the row that
+  /// caused it and the address is retried until the ladder exhausts.
+  ///
+  /// Nullable on purpose: rows written before this column existed, and sends
+  /// where the provider returned no id, have none — those fall back to
+  /// "unmatched", which is reported rather than silently swallowed.
+  providerMessageId String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([state, nextAttemptAt])
+  @@index([toEmail])
+  @@index([createdAt])
+  @@index([providerMessageId])
+}
+
+/// Inbound email received on the support/legal/founder mailboxes.
+///
+/// The send side is `EmailOutbox` (one row per message we send). This is the
+/// mirror: one row per message a human or a bank sent US, captured by the
+/// Resend `email.received` webhook at `POST /api/email/inbound`.
+///
+/// Bodies are stored REDACTED and truncated: an inbound email is untrusted
+/// content and, in a bank integration, may quote a customer's PII. The row is a
+/// triage record, not an archive — the mailbox itself holds the original.
+model EmailInbound {
+  id           String   @id @default(cuid())
+  /// Resend's message id. The idempotency key: a provider retry must not
+  /// create a second row.
+  messageId    String   @unique
+  /// The mailbox it arrived on: support@ | legal@ | founder@ | unknown.
+  recipient    String
+  fromEmail    String
+  fromName     String?
+  subject      String
+  /// Redacted + truncated body text. Never the raw HTML.
+  bodyText     String
+  /// Attachments are recorded by name only; the bytes stay with the provider.
+  attachmentNames String @default("[]")
+  /// Sender's verdict from Resend: delivered | bounced | spam | null.
+  verdict      String?
+  receivedAt   DateTime @default(now())
+  createdAt    DateTime @default(now())
+
+  @@index([recipient, receivedAt])
+  @@index([fromEmail])
+  @@index([receivedAt])
 }
 
 /// Deliveries received by the in-app receiver (the /inspector demo surface,

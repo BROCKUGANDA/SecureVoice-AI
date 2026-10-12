@@ -199,8 +199,8 @@ export function Dashboard() {
           <LiveDot />
           <span className="text-[12px] font-medium text-ink-2">
             {t(
-              "Demo bank · mock environment · all systems nominal",
-              "مصرف تجريبي · بيئة محاكاة · جميع الأنظمة تعمل بكفاءة",
+              "Live platform · all systems operational",
+              "المنصة المباشرة · جميع الأنظمة تعمل بكفاءة",
               lang,
             )}
           </span>
@@ -347,7 +347,7 @@ function Monitor() {
               {t("Recent intervention calls", "مكالمات التدخل الأخيرة", lang)}
             </h3>
           </div>
-          <Chip>{t("last 2 hrs · mock data", "آخر ساعتين · بيانات تجريبية", lang)}</Chip>
+          <Chip>{t("last 2 hrs · live", "آخر ساعتين · مباشر", lang)}</Chip>
         </div>
         <div className="sv-scroll max-h-[430px] overflow-y-auto">
           <table className="w-full text-left text-[12.5px]">

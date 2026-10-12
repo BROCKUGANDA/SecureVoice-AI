@@ -4,6 +4,7 @@ import { z } from "zod";
 import { env } from "@/lib/config";
 import { db } from "@/lib/db";
 import { logError } from "@/lib/validation/safe-log";
+import { enqueueAndSendEmail } from "@/lib/email/queue";
 
 export const dynamic = "force-dynamic";
 
@@ -120,6 +121,45 @@ export async function POST(req: NextRequest) {
         },
         select: { ref: true, createdAt: true },
       });
+
+      // Notify the sales inbox.
+      //
+      // AFTER the row is committed, and deliberately not awaited: a lead is
+      // captured by the INSERT, so a mail-provider outage must not turn a
+      // successful enquiry into a 500 for the person who filled the form in. The
+      // notification goes through the durable email queue, so a failure is
+      // retried by the drain worker rather than lost — the same discipline the
+      // magic-link path uses, for the same reason.
+      //
+      // The recipient is configurable because the mailbox is an operational
+      // choice, not a code constant: PILOT_NOTIFY_EMAIL. Unset means the request
+      // is still stored and still shown in the console; only the email is skipped.
+      const notifyTo = process.env.PILOT_NOTIFY_EMAIL?.trim();
+      if (notifyTo) {
+        void enqueueAndSendEmail({
+          kind: "pilot_request",
+          toEmail: notifyTo,
+          subject: `Pilot request: ${d.institution} — ${d.name}`,
+          token: "",
+          props: {
+            ref: row.ref,
+            name: d.name,
+            email: d.email,
+            institution: d.institution,
+            role: d.role || null,
+            volume: d.volume || null,
+            message: d.message || null,
+            source: d.source || "website",
+          },
+        }).catch((err: unknown) => {
+          // Visible, never fatal: the enquiry is already durable.
+          logError("[pilot] notification enqueue failed", {
+            ref: row.ref,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        });
+      }
+
       return NextResponse.json({ ok: true, ref: row.ref, createdAt: row.createdAt });
     } catch (err) {
       const code = (err as { code?: string } | null)?.code;

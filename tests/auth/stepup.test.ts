@@ -21,7 +21,7 @@
  * SESSION so it cannot be lifted to another one.
  */
 
-import { afterAll, expect, test } from "bun:test";
+import { afterAll, expect, mock, test } from "bun:test";
 import { db } from "@/lib/db";
 import { issueStepUp, requireStepUp, currentStepUp } from "@/lib/auth/stepup";
 import { requireAuth, requirePrivileged } from "@/lib/auth/guards";
@@ -49,7 +49,25 @@ function authRequest(url: string, init: RequestInit = {}) {
 
 afterAll(async () => {
   await cleanupRun();
+  mock.restore();
 });
+
+/**
+ * The invites route delivers by email (enqueue-then-attempt) and answers 502
+ * when the send fails, so an admin is never told 201 for an email that
+ * bounced. That behaviour is the subject of tests/workers/email-worker.test.ts
+ * and tests/auth/email-delivery.test.ts — NOT of this file, whose subject is
+ * whether a fresh step-up unlocks the gated route. Without a provider key or
+ * APP_BASE_URL (CI has neither) the send always fails, so the delivery is
+ * stubbed here and the 201 below asserts the gating, not the provider.
+ *
+ * Mock scope is deliberately this one module: no other test file imports
+ * `@/lib/email/resend` as code (email-delivery reads it as text), so nothing
+ * else in any shared process can observe the stub. Restored in afterAll.
+ */
+mock.module("@/lib/email/resend", () => ({
+  deliverInvite: async () => {/* empty */},
+}));
 
 /**
  * A role that holds the capability for a given action, so the step-up is

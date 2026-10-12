@@ -66,7 +66,10 @@ const Check = z.object({
 
 const ReadyzBody = z.object({
   ok: z.boolean(),
-  status: z.enum(["ok", "degraded", "unready"]),
+  // "draining" is a real state: on SIGTERM the instance reports not-ready so the
+  // proxy stops routing to it while in-flight requests finish
+  // (scripts/server-preload.ts). See the shutdown case in this suite.
+  status: z.enum(["ok", "degraded", "unready", "draining"]),
   checks: z.array(Check),
   durationMs: z.number(),
   ts: z.string(),

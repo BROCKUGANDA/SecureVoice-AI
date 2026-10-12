@@ -180,6 +180,57 @@ services:
     # right trade for a polled worker inside a 512m box.
     command: ["bun", "--smol", "--preload", "./scripts/worker-preload.ts", "src/worker/dial.ts"]
 
+  # Email outbox worker. Retries transactional auth mail (magic link, invite,
+  # password reset) that a synchronous send could not deliver.
+  #
+  # The request path already attempts one immediate send, so this worker is not
+  # needed on the happy path — it exists so a transient Resend outage does not
+  # cost an analyst their sign-in link into a fraud console. Without it the
+  # durable queue in src/lib/email/outbox.ts is decorative: rows would sit
+  # PENDING forever.
+  #
+  # SCALE IT FREELY. Claims use FOR UPDATE SKIP LOCKED plus a compare-and-set,
+  # so `--scale email-worker=2` delivers each message exactly once.
+  email-worker:
+    user: "1000:1000"   # non-root
+    build:
+      context: .
+      target: builder
+      args:
+        BUILD_DATABASE_URL: ${DATABASE_URL}
+        BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET in .env}
+        BETTER_AUTH_URL: ${BETTER_AUTH_URL:-https://localhost:3000}
+        NEXT_PUBLIC_DEMO_LOGIN_EMAIL: ${NEXT_PUBLIC_DEMO_LOGIN_EMAIL:-}
+        NEXT_PUBLIC_DEMO_LOGIN_PASSWORD: ${NEXT_PUBLIC_DEMO_LOGIN_PASSWORD:-}
+    restart: unless-stopped
+    logging: *default-logging
+    mem_limit: 512m
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql://${POSTGRES_USER:-securevoice}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-securevoice}}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      NODE_ENV: production
+      # Same explicit acknowledgement as the other workers: the compose db is a
+      # container on a private network with no server certificate.
+      DB_ALLOW_PLAINTEXT_PRIVATE_NETWORK: "true"
+      REQUIRE_VPS_DATABASE: ${REQUIRE_VPS_DATABASE:-false}
+      # The provider credentials. Unset, the worker boots and simply has nothing
+      # to send — it does not crash-loop, so a deployment that has not configured
+      # email yet still starts cleanly.
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      RESEND_FROM_EMAIL: ${RESEND_FROM_EMAIL:-SecureVoice AI <onboarding@resend.dev>}
+      RESEND_REPLY_TO: ${RESEND_REPLY_TO:-}
+      # Link origin used when a queued message is re-rendered at send time.
+      APP_BASE_URL: ${APP_BASE_URL:-http://localhost:3000}
+      # Poll interval for the drain loop.
+      EMAIL_WORKER_POLL_MS: ${EMAIL_WORKER_POLL_MS:-10000}
+      EMAIL_WORKER_BATCH: ${EMAIL_WORKER_BATCH:-25}
+    depends_on:
+      db-setup:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    command: ["bun", "--smol", "--preload", "./scripts/worker-preload.ts", "scripts/email-worker.ts", "--loop"]
+
   # Retention sweeper. The privacy tiers (audio purge, payload-key shred,
   # case-record delete) erase on the clock whether or not anyone remembers —
   # that is the point of the policy, so it runs as a service and not a cron
@@ -480,6 +531,21 @@ services:
       # Domain to issue a certificate for. Must resolve to this host.
       SITE_ADDRESS: ${SITE_ADDRESS:-localhost}
       ACME_EMAIL: ${ACME_EMAIL:-admin@example.com}
+    # ── The active colour, for a blue/green deploy ────────────────────────────
+    # `APP_UPSTREAM` is what the Caddyfile proxies to, and this file is the only
+    # thing that puts it into Caddy's process environment.
+    #
+    # It lives on the BASE service, not in docker-compose.bluegreen.yml, for a
+    # measured reason: an `env_file` declared on the caddy service in the
+    # OVERRIDE file is dropped by compose's file merge, so the value never
+    # reached the container and a colour flip did nothing. Declared here it is
+    # present in both modes — a plain `docker compose up` and a blue/green stack.
+    #
+    # `required: false` so a fresh checkout with no deploy state still starts;
+    # Caddy then falls back to the Caddyfile default (`app:3000`).
+    env_file:
+      - path: .deploy/active.env
+        required: false
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data      # certificates + ACME account

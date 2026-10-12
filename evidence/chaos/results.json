@@ -413,7 +413,7 @@
         "file": "src/lib/audit-chain.ts",
         "transactions": 1,
         "regions": [
-          "210-244"
+          "241-275"
         ],
         "findings": []
       },
@@ -478,7 +478,7 @@
         "file": "src/lib/tenancy/guard.ts",
         "transactions": 1,
         "regions": [
-          "556-556"
+          "561-561"
         ],
         "findings": []
       }
@@ -2240,7 +2240,7 @@
       "area": "gate",
       "name": "evidence-digest-is-sha256",
       "ok": true,
-      "detail": "c080b6f56c2d656e"
+      "detail": "d91b5ee9b2fb3b4a"
     },
     {
       "area": "gate",
@@ -3366,5 +3366,5 @@
     }
   ],
   "digestAlgorithm": "sha256",
-  "digest": "16195ddaf27e0cb557efe25d4908c034c7282f1a0a1f30cf21fa20b1722eb68f"
+  "digest": "363be53f24a8cfadf78b27ce52f678c5dc6f4129be517147758e77b8a3514009"
 }

@@ -174,6 +174,12 @@
 		reverse_proxy {$APP_UPSTREAM:app:3000} {
 			import forwarded_headers
 			flush_interval -1
+			# Canary + health checks: see the note on the main handler below.
+			lb_policy round_robin
+			health_uri /api/readyz
+			health_interval 10s
+			health_timeout 5s
+			health_status 2xx
 		}
 	}
 
@@ -182,11 +188,47 @@
 		# colour currently serving traffic (app-blue:3000 or app-green:3000), and
 		# `scripts/deploy.mjs` is its only writer. The `app:3000` default keeps a
 		# plain `docker compose up` working unchanged on a single-colour stack.
+		#
+		# ── Canary, and why there is no weighted load-balancing directive ───────
+		# The variable may hold MORE THAN ONE upstream, and `lb_policy round_robin`
+		# is what shares traffic between them. A canary is therefore expressed as
+		# PROPORTIONAL REPETITION — 5% of traffic is the old colour listed 19 times
+		# and the new colour once — which `scripts/deploy.mjs canary` generates.
+		#
+		# This is not the obvious implementation, so the reason is recorded:
+		# Caddy 2.11.4 has NO `weighted_round_robin` lb_policy. Verified by
+		# `caddy validate` against caddy:2-alpine — the policies it accepts are
+		# random, round_robin, least_conn, first, ip_hash, uri_hash and cookie.
+		# A `weight` subdirective is also rejected. Repetition is the mechanism
+		# that actually exists, and with round_robin the split is exact over any
+		# window rather than probabilistic.
+		#
+		# Stated plainly: round_robin is per-REQUEST, not per-session, so a canary
+		# is a traffic split and not a user cohort. That is what a canary needs —
+		# the goal is to expose a new build to a slice of real traffic and watch
+		# Sentry — but it is not sticky, and it must not be used as A/B routing.
 		reverse_proxy {$APP_UPSTREAM:app:3000} {
 			import forwarded_headers
 			# Next.js handles its own compression; double-compressing a streamed
 			# response only adds latency.
 			flush_interval -1
+			lb_policy round_robin
+
+			# Active health checks — the mechanism that makes a graceful shutdown
+			# actually graceful. On SIGTERM the instance starts answering 503 from
+			# /api/readyz (scripts/server-preload.ts), Caddy observes that here and
+			# stops sending it NEW requests, and the in-flight ones finish against a
+			# process that is still alive. Without this the instance is killed while
+			# still in rotation, which is the dropped-call case.
+			#
+			# The URI is /api/readyz, not /api/health, and that is deliberate:
+			# readiness asserts the database, so an instance that cannot serve is
+			# removed rather than sent traffic it will fail. /api/health stays a pure
+			# process probe for external monitors.
+			health_uri /api/readyz
+			health_interval 10s
+			health_timeout 5s
+			health_status 2xx
 		}
 	}
 

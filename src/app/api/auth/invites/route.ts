@@ -94,6 +94,43 @@ export async function POST(req: NextRequest) {
     issuedBy: authed.identity.accountId,
   });
 
+  // Deliver the invite by email (enqueue-then-attempt via Resend). The token is
+  // NEVER returned in this response — that was the leak this module's magic-link
+  // sibling refuses by design (src/lib/auth/magic-link.ts:19-22): an endpoint
+  // that hands a usable credential back to the caller is a password reset with
+  // an auth header, and works against any address the caller can name.
+  const { deliverInvite } = await import("@/lib/email/resend");
+  try {
+    await deliverInvite({
+      email: invite.email,
+      token,
+      expiresAt: invite.expiresAt,
+      role: invite.role,
+    });
+  } catch (err) {
+    // The invite exists (issueInvite already committed) but its email did not go
+    // out. Report it loudly: this endpoint is ADMIN-ONLY and already
+    // authenticated, so there is no enumeration concern here — an admin who was
+    // told 201 while the email bounced would believe an analyst was invited when
+    // nobody received anything.
+    console.error("[auth] invite email delivery failed", {
+      inviteId: invite.inviteId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return NextResponse.json(
+      {
+        error: "The invitation was created but the email could not be sent.",
+        invite: {
+          inviteId: invite.inviteId,
+          email: invite.email,
+          expiresAt: new Date(invite.expiresAt).toISOString(),
+        },
+        retryable: true,
+      },
+      { status: 502, headers: { "Cache-Control": "no-store" } },
+    );
+  }
+
   return NextResponse.json(
     {
       ok: true,
@@ -104,10 +141,10 @@ export async function POST(req: NextRequest) {
         expiresAt: new Date(invite.expiresAt).toISOString(),
         ttlMs: INVITE_TTL_MS,
       },
-      // Shown ONCE, to be delivered to the invitee out of band. Only the hash
-      // is stored (src/lib/auth/invite.ts), so this cannot be recovered later.
-      token,
-      note: "Single use. Bound to this email. Expires in 72 hours.",
+      // The token is emailed to the invitee and never echoed here. Delivery is
+      // queued durably, so a transient provider failure is retried by the
+      // email worker rather than lost.
+      note: "Invitation emailed. Single use. Bound to this email. Expires in 72 hours.",
     },
     { status: 201, headers: { "Cache-Control": "no-store" } },
   );

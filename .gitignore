@@ -150,3 +150,7 @@ _*.txt
 # Cypress run artefacts — failure screenshots are local debugging output, never a committed asset.
 cypress/screenshots/
 cypress/videos/
+
+# Blue/green deploy state — written by scripts/deploy.mjs (state.json + the
+# active.env that feeds APP_UPSTREAM to caddy). Machine-local, never committed.
+.deploy/

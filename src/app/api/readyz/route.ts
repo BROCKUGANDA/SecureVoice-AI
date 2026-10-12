@@ -193,13 +193,22 @@ export async function GET() {
 
   const fatal = checks.filter((c) => c.fatal && !c.ok);
   const degraded = checks.filter((c) => !c.fatal && !c.ok);
-  const ready = fatal.length === 0;
+
+  // Graceful shutdown (scripts/server-preload.ts). A draining instance is NOT
+  // ready — it must stop receiving new requests even though its dependencies are
+  // perfectly healthy, which is exactly what Caddy's active health check
+  // (`health_uri /api/readyz`) reads to take it out of rotation. Without this the
+  // instance keeps reporting ready while the process is on its way out, and the
+  // proxy keeps sending it traffic it will never serve.
+  const draining = process.env.SV_DRAINING === "1";
+  const ready = fatal.length === 0 && !draining;
 
   return NextResponse.json(
     {
       ok: ready,
-      status: !ready ? "unready" : degraded.length > 0 ? "degraded" : "ok",
+      status: draining ? "draining" : !ready ? "unready" : degraded.length > 0 ? "degraded" : "ok",
       checks,
+      ...(draining ? { draining: true } : {}),
       ts: new Date().toISOString(),
       durationMs: Date.now() - started,
     },

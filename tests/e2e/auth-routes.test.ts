@@ -787,18 +787,28 @@ describe("POST /api/auth/magic-link", () => {
   }
 
   test("a well-formed address is answered identically, and never with a token", async () => {
-    // No mailer is configured in this deployment, so the handler takes its
-    // fail-closed branch. The property that matters survives either branch: the
-    // answer is 202, the wording is the uniform one, and no usable token is in
-    // it. A login endpoint that echoes a token back to whoever asked is an open
+    // The property under test is "the response never carries a usable token",
+    // NOT a particular status code. This used to assert 202 exactly, which held
+    // only while no mailer was configured: once RESEND_API_KEY is present the
+    // route takes the send path, and a provider failure surfaces as 503 with its
+    // own wording. BOTH are correct answers, and both must withhold the token —
+    // a login endpoint that echoes a token back to whoever asked is an open
     // door, so the absence of one is asserted, not assumed.
+    //
+    // This is the same resolution already applied in
+    // tests/auth/magic-link.test.ts:61, which hit the identical problem when a
+    // developer's `.env` gained a mail provider key. It is reproduced here
+    // rather than papered over with an env deletion in tests/preload.ts,
+    // because asserting both branches keeps the outage path covered.
     const address = `probe-${Date.now().toString(36)}@nowhere.test`;
     const snap = await snapshot(await magicLinkPost(json({ email: address })));
 
-    expect(snap.status).toBe(202);
+    expect([202, 503]).toContain(snap.status);
     const parsed = parse(snap.text, MessageBody);
     expect(parsed.error).toBe(
-      "If that address belongs to an account, a sign-in link is on its way.",
+      snap.status === 202
+        ? "If that address belongs to an account, a sign-in link is on its way."
+        : "Sign-in email could not be sent. Please try again shortly.",
     );
     expectNoEcho(snap, [address, "token", "expiresAt"]);
   });

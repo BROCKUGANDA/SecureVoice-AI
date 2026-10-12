@@ -25,6 +25,7 @@ import { dash, sentinel } from "@better-auth/infra";
 import { organization } from "better-auth/plugins/organization";
 import { twoFactor } from "better-auth/plugins/two-factor";
 import { db } from "@/lib/db";
+import { sendResetPassword } from "@/lib/email/resend";
 import {
   ABSOLUTE_LIFETIME_SECONDS,
   COOKIE_CACHE_SECONDS,
@@ -59,6 +60,16 @@ export const auth = betterAuth({
     // Deliberately NOT enabling auto-sign-in. A credential compromise should
     // force an MFA challenge, not land the operator straight in the console.
     requireEmailVerification: false,
+    // Password RESET for accounts Better Auth owns. Delivers through the same
+    // Resend queue as the first-party flows (src/lib/email/queue.ts), so a
+    // provider outage is retried by the email worker rather than dropped.
+    //
+    // Both magic links and resets are live, which is intentional: the
+    // first-party store (@/lib/auth/*) is what the console actually uses, and
+    // Better Auth's credential accounts need a recovery path too or they are
+    // permanently locked. See src/lib/auth/magic-link.ts:5-15 for why magic
+    // link remains the PRIMARY sign-in.
+    sendResetPassword,
   },
   session: {
     // Every number below comes from the single session policy
@@ -76,11 +87,32 @@ export const auth = betterAuth({
     // Cookie cache is for DISPLAY only (hazard AU-4). Revocation, role and
     // tenant checks must read the database, so callers that authorize use
     // auth.api.getSession() and never trust a cached copy.
+    //
+    // STRATEGY: "jwe", not the default "compact". Read the implementation
+    // (better-auth 1.7.7, dist/cookies/index.mjs:100-105) before changing it —
+    // the three strategies are not variations on a theme:
+    //
+    //   · "compact" (the library default) → `signJWT()`: a SIGNED JWS. The
+    //     payload is base64url JSON, so anyone holding the cookie can read the
+    //     session fields with no secret at all. This file used to carry a
+    //     comment claiming compact was "not readable" — that was wrong, and the
+    //     claim is exactly what would make a reader skip the switch.
+    //   · "jwt"     → `signJWT()` with a custom signer / JWKS. Still readable.
+    //   · "jwe"     → `symmetricEncodeJWT()`: ENCRYPTED with the app secret.
+    //     The payload cannot be read without BETTER_AUTH_SECRET.
+    //
+    // So "jwe" is the only strategy that delivers the intent the old comment
+    // described. It matters here more than in a typical app: the session object
+    // carries `activeOrganizationId` (the tenant identity, hazard AU-3), and a
+    // readable cookie hands a tenant id to anything that can read the browser's
+    // cookie jar — a shared terminal, a screen-share, an XSS in a sibling page.
+    //
+    // Cost: one symmetric decryption per request that reads the cache, versus a
+    // base64 decode. That is a few microseconds against the ~280 ms database
+    // round trip the cache exists to avoid.
     cookieCache: {
       enabled: true,
-      // "compact" = base64url + HMAC. Not "jwt": there is no need for the
-      // payload to be readable, and less readable is better here.
-      strategy: "compact",
+      strategy: "jwe",
       maxAge: COOKIE_CACHE_SECONDS,
     },
   },
@@ -141,7 +173,21 @@ export const auth = betterAuth({
     organization(),
     twoFactor({ otpOptions: { storeOTP: "hashed" } }),
     admin(),
-    dash(),
+    // `dash()` telemetry, with activity tracking ON.
+    //
+    // Activity tracking writes `user.lastActiveAt` (see the schema comment and
+    // migration `9zzzzzzzzzzzzzzzzzzz_user_last_active_at`) and is off by
+    // default precisely because it needs that column. It is enabled here for a
+    // second reason beyond the dashboard's activity charts: `sentinel()`'s
+    // stale-user check reads the same field —
+    // `checkStaleUser(userId, activityTrackingEnabled ? user.lastActiveAt : null)`
+    // (infra dist/index.mjs:2899) — so while tracking is off, sentinel is handed
+    // `null` on every call and that security check cannot fire. Enabling the
+    // column makes the dormant check live.
+    //
+    // `apiKey` is not passed: it defaults to `process.env.BETTER_AUTH_API_KEY`,
+    // which is the single place the key is configured.
+    dash({ activityTracking: { enabled: true } }),
     sentinel(),
   ],
 });

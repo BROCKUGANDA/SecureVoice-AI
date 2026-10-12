@@ -163,6 +163,8 @@ const PUBLIC_BY_DESIGN: Readonly<Record<string, string>> = {
   "/api/webhooks/receiver":
     "our own REFERENCE receiver published for integrators; holds no tenant data",
   "/api/webhooks/elevenlabs": "inbound ElevenLabs webhook authenticated by the vendor signature",
+  "/api/email/inbound":
+    "inbound email webhook (Resend `email.received`) authenticated by the Svix signature over `{svix-id}.{svix-timestamp}.{body}` with a 5-minute replay window (fails closed without RESEND_WEBHOOK_SECRET); writes only the platform-level EmailInbound triage table, never tenant state",
   "/api/pilot":
     "public pilot intake form, deliberately unauthenticated so an institution can enquire before any contract exists",
   "/api/webhooks":
@@ -211,6 +213,8 @@ const PUBLIC_BY_DESIGN: Readonly<Record<string, string>> = {
     "stateless intervention-policy validator plus PII redaction over the request body; touches no tenant state, stores nothing and privileges nothing",
   "/api/billing/webhook":
     "Paddle notification destination; authenticated by Paddle's OWN signature over `ts:body`, verified with client.webhooks.isSignatureValid against PADDLE_WEBHOOK_SECRET and failing closed with 400 on an absent, stale or forged header — not an operator session, because the caller is Paddle and Paddle has no session. Proven end-to-end with the real sandbox signing secret: a correctly signed delivery returns 200 { received: true, credited: true }, while a wrong secret, a missing signature and a replayed timestamp all return 400 invalid_signature",
+  "/.well-known/apple-developer-merchantid-domain-association":
+    "Paddle Apple Pay domain-verification file; static bytes served to Apple's crawler and Paddle's verifier, neither of which holds an operator session — takes no parameters and exposes no tenant data",
 };
 
 export function isPublicByDesign(path: string): boolean {

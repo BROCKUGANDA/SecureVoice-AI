@@ -114,6 +114,8 @@ describe("authorization coverage", () => {
       "/api/auth/me",
       "/api/auth/members",
       "/api/auth/password",
+      "/api/auth/reset",
+      "/api/auth/reset/confirm",
       "/api/auth/sessions",
       "/api/auth/sessions/revoke-all",
       "/api/auth/step-up",
@@ -132,6 +134,10 @@ describe("authorization coverage", () => {
       "/api/console/fire",
       "/api/console/freeze/commit",
       "/api/console/inbox",
+      // Received email. Operator-gated (`requireOperator`) and NOT org-scoped:
+      // the mailboxes are platform-level, so an org predicate would hide every
+      // row. Reads `EmailInbound`, written by the Resend webhook below.
+      "/api/console/mail",
       "/api/console/me",
       "/api/console/outbox/replay",
       "/api/console/producer-keys",
@@ -147,6 +153,7 @@ describe("authorization coverage", () => {
       // PaddleCustomer / PaddleSubscription mirror. The webhook is NOT here: it is
       // public-by-design, guarded by Paddle's signature rather than a session.
       "/api/billing/checkout",
+      "/api/billing/invoice",
       "/api/billing/portal",
       "/api/enroll",
       "/api/interventions",

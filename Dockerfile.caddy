@@ -6,6 +6,11 @@
 # ---------------------------------------------------------------------------
 FROM caddy:2-alpine
 COPY Caddyfile.platform /etc/caddy/Caddyfile
+# caddy:2-alpine ships NO non-root user, so the numeric uid/gid is used rather
+# than a name. The image does not need root to run: it binds plaintext :80 here
+# (the platform's load balancer terminates TLS), and where it does bind 443 the
+# compose service grants NET_BIND_SERVICE instead.
+USER 1000:1000
 EXPOSE 80
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD wget -q --spider http://127.0.0.1/healthz || exit 1

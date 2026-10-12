@@ -1,4 +1,30 @@
 import type { NextConfig } from "next";
+import { readFileSync } from "node:fs";
+
+/**
+ * The version shown on the landing page.
+ *
+ * Read from package.json at BUILD time and inlined as NEXT_PUBLIC_APP_VERSION,
+ * so the displayed number is always the number of the artifact that was actually
+ * built. There is no hand-typed version string in the UI to forget: bump
+ * package.json (`bun run version:bump 0.4.0`, or the release workflow) and the
+ * next build re-injects it into every surface that renders it.
+ *
+ * Read rather than imported so the whole manifest is not pulled into the
+ * config's module graph, and guarded so a malformed manifest degrades to a
+ * visible placeholder instead of failing the build on a cosmetic string.
+ */
+function readPackageVersion(): string {
+  try {
+    const raw = readFileSync(new URL("./package.json", import.meta.url), "utf8");
+    const parsed = JSON.parse(raw) as { version?: unknown };
+    return typeof parsed.version === "string" && parsed.version.trim() !== ""
+      ? parsed.version.trim()
+      : "0.0.0-unknown";
+  } catch {
+    return "0.0.0-unknown";
+  }
+}
 
 /**
  * Content-Security-Policy notes:
@@ -90,6 +116,12 @@ const nextConfig: NextConfig = {
   poweredByHeader: false,
   reactStrictMode: true,
   compress: true,
+  // Inlined into the client bundle at build time. `env` (rather than only
+  // process.env) is what makes it readable in a client component — only
+  // NEXT_PUBLIC_* and this map survive the compiler's dead-code elimination.
+  env: {
+    NEXT_PUBLIC_APP_VERSION: readPackageVersion(),
+  },
   typescript: {
     // Fail the build on type errors — verified clean as of this hardening pass.
     ignoreBuildErrors: false,

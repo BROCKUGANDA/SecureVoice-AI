@@ -39,6 +39,8 @@ export const AUTH_AUDIT_INTENTS = {
   loginOk: "auth.login.ok",
   loginFailed: "auth.login.failed",
   magicLinkIssued: "auth.magiclink.issued",
+  passwordResetIssued: "auth.passwordreset.issued",
+  passwordChanged: "auth.password.changed",
   sessionRevoked: "auth.session.revoked",
   sessionRejected: "auth.session.rejected",
   sessionsRevokedAll: "auth.sessions.revoke_all",

@@ -95,10 +95,23 @@ services:
     ports:
       - "80:80"
       - "443:443"
-    environment:
-      # Written by scripts/deploy.mjs. Never hand-edit: the deploy script is the
-      # single writer so a rollback cannot race a manual change.
-      APP_UPSTREAM: ${APP_UPSTREAM:?set APP_UPSTREAM, or run scripts/deploy.mjs}
+    # ── How the active colour reaches Caddy ──────────────────────────────────
+    # `APP_UPSTREAM` is delivered as a FILE, not as a compose interpolation, and
+    # the `env_file` for it is declared on the BASE caddy service in
+    # docker-compose.yml — deliberately, because compose DROPS an `env_file`
+    # declared here in the override file (measured with `docker compose config`).
+    # Two consequences of that earlier shape, both real:
+    #
+    #  1. `${APP_UPSTREAM:?}` is resolved when compose PARSES the file, from the
+    #     ambient environment — never from anything the deploy script writes.
+    #     `docker compose up -d --no-deps caddy` therefore aborted with
+    #     "required variable APP_UPSTREAM is missing a value" on any host that
+    #     had not exported it, which is every host: scripts/deploy.mjs does not
+    #     export it. The traffic flip could not run at all.
+    #  2. Caddy resolves `{$APP_UPSTREAM}` from its OWN process environment, so
+    #     `.deploy/active.env` — which scripts/deploy.mjs already wrote and which
+    #     nothing read — is the real source of truth for the active colour and
+    #     the canary split.
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data

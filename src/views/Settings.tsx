@@ -280,7 +280,7 @@ export function Settings() {
                 aria-pressed={tab === t.id}
                 className={cn(
                   "flex flex-1 shrink-0 items-center justify-center gap-1.5 rounded-full px-3.5 py-2 text-[12.5px] font-semibold transition",
-                  tab === t.id ? "bg-[#0c110e] text-white" : "text-ink-2 hover:text-foreground",
+                  tab === t.id ? "bg-primary text-white" : "text-ink-2 hover:text-foreground",
                 )}
               >
                 <t.icon className="h-3.5 w-3.5" />
@@ -741,11 +741,7 @@ export function Settings() {
                           } else {
                             setInviteMsg(
                               data.error ??
-                                t(
-                                  "The invite could not be sent.",
-                                  "تعذّر إرسال الدعوة.",
-                                  lang,
-                                ),
+                                t("The invite could not be sent.", "تعذّر إرسال الدعوة.", lang),
                             );
                           }
                         } catch {
@@ -764,9 +760,7 @@ export function Settings() {
                     disabled={!inviteEmail.includes("@") || inviteBusy}
                     className="shrink-0 rounded-full bg-primary px-5 py-2.5 text-[13px] font-semibold text-white transition hover:bg-green-deep disabled:opacity-40"
                   >
-                    {inviteBusy
-                      ? t("Inviting…", "جارٍ الإرسال…", lang)
-                      : t("Invite", "دعوة", lang)}
+                    {inviteBusy ? t("Inviting…", "جارٍ الإرسال…", lang) : t("Invite", "دعوة", lang)}
                   </button>
                 </div>
                 {inviteMsg && (

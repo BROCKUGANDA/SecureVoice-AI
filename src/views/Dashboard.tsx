@@ -147,7 +147,7 @@ function WebhookConfigSection() {
                 </div>
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                <code className="min-w-0 flex-1 truncate rounded-xl bg-[#0c110e] px-3 py-2 font-mono text-[11.5px] text-white/85">
+                <code className="min-w-0 flex-1 truncate rounded-xl border border-line bg-secondary px-3 py-2 font-mono text-[11.5px] text-foreground">
                   {item.url}
                 </code>
                 <button
@@ -226,17 +226,17 @@ export function Dashboard() {
             onClick={() => setTab(x.id)}
             className={cn(
               "relative flex flex-1 items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-[13px] font-semibold transition",
-              tab === x.id ? "text-white" : "text-ink-2 hover:text-foreground",
+              tab === x.id ? "text-foreground" : "text-ink-2 hover:text-foreground",
             )}
           >
             {tab === x.id && (
               <motion.span
                 layoutId="dash-tab"
-                className="absolute inset-0 rounded-xl bg-[#0c110e]"
+                className="absolute inset-0 rounded-xl bg-primary/10"
                 transition={{ type: "spring", stiffness: 400, damping: 34 }}
               />
             )}
-            <x.icon className={cn("relative h-4 w-4", tab === x.id && "text-green-bright")} />
+            <x.icon className={cn("relative h-4 w-4", tab === x.id && "text-primary")} />
             <span className="relative whitespace-nowrap">{t(x.en, x.ar, lang)}</span>
           </button>
         ))}
@@ -435,15 +435,15 @@ function Monitor() {
     <div className="grid gap-5 lg:grid-cols-[0.9fr_1.1fr]">
       {/* the most recent intervention this tenant actually placed */}
       <div className="overflow-hidden rounded-3xl border border-primary/30 bg-white shadow-[0_18px_44px_-28px_rgba(11,122,85,0.5)]">
-        <div className="flex items-center justify-between bg-[#0c110e] px-5 py-4">
+        <div className="flex items-center justify-between border border-line bg-card px-5 py-4">
           <div className="flex items-center gap-2.5">
             <LiveDot className={latest ? "text-green-bright" : "!bg-white/40"} />
-            <span className="micro !text-[9.5px] text-white/70">
+            <span className="micro !text-[9.5px] text-ink-2">
               {t("Most recent intervention", "آخر تدخل", lang)}
               {latest ? ` · ${latest.caseRef}` : ""}
             </span>
           </div>
-          <span className="num rounded-full bg-white/10 px-2.5 py-1 text-[11px] font-semibold text-white">
+          <span className="num rounded-full bg-secondary px-2.5 py-1 text-[11px] font-semibold text-foreground">
             {latest?.durationSeconds != null
               ? `${Math.floor(latest.durationSeconds / 60)}:${String(latest.durationSeconds % 60).padStart(2, "0")}`
               : "—"}
@@ -1981,7 +1981,7 @@ function WebhooksDemo() {
                     lang,
                   )}
                 </div>
-                <pre className="sv-scroll sv-scroll--dark max-h-44 overflow-auto rounded-xl bg-[#0c110e] px-4 py-3 font-mono text-[11.5px] leading-relaxed text-white/85">
+                <pre className="sv-scroll sv-scroll max-h-44 overflow-auto rounded-xl border border-line bg-secondary px-4 py-3 font-mono text-[11.5px] leading-relaxed text-foreground">
                   {signed.payload}
                 </pre>
               </div>
@@ -1999,7 +1999,7 @@ function WebhooksDemo() {
                 <button
                   onClick={() => verify(false)}
                   disabled={busy}
-                  className="flex items-center gap-2 rounded-full bg-[#0c110e] px-4 py-2 text-[12.5px] font-semibold text-white transition hover:opacity-90 disabled:opacity-50"
+                  className="flex items-center gap-2 rounded-full bg-primary px-4 py-2 text-[12.5px] font-semibold text-white transition hover:opacity-90 disabled:opacity-50"
                 >
                   {t("Verify signature", "تحقق من التوقيع", lang)}
                 </button>
@@ -2091,11 +2091,11 @@ function WebhooksDemo() {
             )}
           </p>
         </div>
-        <div className="rounded-3xl border border-line bg-[#0c110e] p-6 text-white">
-          <div className="font-mono text-[10.5px] uppercase tracking-wider text-white/50">
+        <div className="rounded-3xl border border-line bg-card p-6 text-foreground">
+          <div className="font-mono text-[10.5px] uppercase tracking-wider text-ink-2">
             {t("verify in 6 lines", "تحقق في 6 أسطر", lang)}
           </div>
-          <pre className="sv-scroll sv-scroll--dark mt-3 overflow-x-auto font-mono text-[11px] leading-relaxed text-white/85">
+          <pre className="sv-scroll sv-scroll mt-3 overflow-x-auto font-mono text-[11px] leading-relaxed text-ink-2">
             {`const hmac = crypto
   .createHmac("sha256", secret)
   .update(\`\${t}.${"${rawBody}"}\`)

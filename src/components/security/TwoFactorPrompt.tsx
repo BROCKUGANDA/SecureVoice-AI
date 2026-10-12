@@ -118,7 +118,7 @@ export function TwoFactorPrompt() {
             <button
               type="button"
               onClick={() => openSettings("security")}
-              className="rounded-full bg-[#0c110e] px-3.5 py-2 text-[12.5px] font-semibold text-white transition hover:bg-black"
+              className="rounded-full bg-primary px-3.5 py-2 text-[12.5px] font-semibold text-white transition hover:bg-green-deep"
             >
               {t("Turn on two-factor", "شغّل المصادقة الثنائية", lang)}
             </button>

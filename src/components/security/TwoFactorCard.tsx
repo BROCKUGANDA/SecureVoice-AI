@@ -303,7 +303,7 @@ export function TwoFactorCard() {
           <button
             type="button"
             onClick={() => void requestEnable(null)}
-            className="flex items-center gap-2 rounded-full bg-[#0c110e] px-4 py-2.5 text-[13px] font-semibold text-white transition hover:bg-black"
+            className="flex items-center gap-2 rounded-full bg-primary px-4 py-2.5 text-[13px] font-semibold text-white transition hover:bg-green-deep"
           >
             <KeyRound className="h-4 w-4" />
             {t("Turn on two-factor authentication", "شغّل المصادقة الثنائية", lang)}
@@ -334,7 +334,7 @@ export function TwoFactorCard() {
           />
           <button
             type="submit"
-            className="rounded-full bg-[#0c110e] px-4 py-2.5 text-[13px] font-semibold text-white transition hover:bg-black"
+            className="rounded-full bg-primary px-4 py-2.5 text-[13px] font-semibold text-white transition hover:bg-green-deep"
           >
             {t("Continue", "متابعة", lang)}
           </button>
@@ -442,7 +442,7 @@ export function TwoFactorCard() {
               <button
                 type="submit"
                 disabled={phase === "verifying" || code.length !== 6}
-                className="flex items-center gap-2 rounded-full bg-[#0c110e] px-4 py-2.5 text-[13px] font-semibold text-white transition hover:bg-black disabled:opacity-50"
+                className="flex items-center gap-2 rounded-full bg-primary px-4 py-2.5 text-[13px] font-semibold text-white transition hover:bg-green-deep disabled:opacity-50"
               >
                 {phase === "verifying" && <Loader2 className="h-4 w-4 animate-spin" />}
                 {t("Verify and turn on", "تحقّق وشغّل", lang)}
@@ -533,7 +533,7 @@ function BackupCodeRegenerate({
       <button
         type="submit"
         disabled={disabled || !password}
-        className="rounded-full bg-[#0c110e] px-4 py-2.5 text-[13px] font-semibold text-white transition hover:bg-black disabled:opacity-50"
+        className="rounded-full bg-primary px-4 py-2.5 text-[13px] font-semibold text-white transition hover:bg-green-deep disabled:opacity-50"
       >
         {t("Generate new codes", "أنشئ رموزاً جديدة", lang)}
       </button>

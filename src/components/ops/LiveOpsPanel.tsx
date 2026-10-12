@@ -119,10 +119,10 @@ function TranscriptLineView({ line }: { line: TranscriptLine }) {
           "max-w-[80%] rounded-2xl px-3 py-2",
           isAgent
             ? "rounded-tl-sm bg-white border border-line"
-            : "rounded-tr-sm bg-[#0c110e] text-white",
+            : "rounded-tr-sm bg-primary text-white",
         )}
       >
-        <p className={cn("text-[12px] leading-snug", isAgent ? "text-ink-2" : "text-white/90")}>
+        <p className={cn("text-[12px] leading-snug", isAgent ? "text-ink-2" : "text-foreground/90")}>
           {displayed}
           {!done && (
             <span className="ml-0.5 inline-block h-3 w-0.5 animate-pulse bg-current align-middle" />
@@ -141,7 +141,7 @@ function TranscriptLineView({ line }: { line: TranscriptLine }) {
       </div>
       {!isAgent && (
         <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-ink-800">
-          <User className="h-3 w-3 text-white/70" />
+          <User className="h-3 w-3 text-ink-2" />
         </span>
       )}
     </div>
@@ -189,14 +189,14 @@ export function LiveOpsPanel({ activeCallRef, transcript, call, rtStatus }: Live
   return (
     <div className="overflow-hidden rounded-3xl border border-line bg-white">
       {/* header */}
-      <div className="flex items-center justify-between border-b border-line bg-[#0c110e] px-5 py-4">
+      <div className="flex items-center justify-between border-b border-line bg-card px-5 py-4">
         <div className="flex items-center gap-2.5">
           <LiveDot className={rtStatus === "live" ? "text-green-bright" : "text-amber-400"} />
-          <span className="micro !text-[9.5px] text-white/70">LIVE OPERATIONS</span>
+          <span className="micro !text-[9.5px] text-ink-2">LIVE OPERATIONS</span>
         </div>
         <div className="flex items-center gap-2">
           {call && (
-            <span className="num rounded-full bg-white/10 px-2.5 py-1 text-[11px] font-semibold text-white">
+            <span className="num rounded-full bg-secondary px-2.5 py-1 text-[11px] font-semibold text-foreground">
               {formatDuration(call.durationSecs)}
             </span>
           )}

@@ -187,8 +187,8 @@ function PolicySection({
   lang: "en" | "ar";
 }) {
   return (
-    <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-6">
-      <h3 className="font-display text-lg font-semibold text-white">
+    <section className="rounded-2xl border border-line bg-secondary p-6">
+      <h3 className="font-display text-lg font-semibold text-foreground">
         {t(policy.titleEn, policy.titleAr, lang)}
       </h3>
       <div className="mt-3 space-y-3 text-[13px] leading-relaxed text-ink-3">
@@ -230,10 +230,10 @@ export function Pricing({
           transition={{ duration: 0.5 }}
           className="max-w-2xl"
         >
-          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-green-bright">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-primary">
             {t("Pricing", "التسعير", lang)}
           </p>
-          <h1 className="mt-3 font-display text-4xl font-semibold text-white md:text-5xl">
+          <h1 className="mt-3 font-display text-4xl font-semibold text-foreground md:text-5xl">
             {t(
               "Platform fee, then pay for what you use.",
               "رسوم منصة، ثم تدفع مقابل ما تستخدمه.",
@@ -272,25 +272,25 @@ export function Pricing({
               ].join(" ")}
             >
               {tier.featured && (
-                <span className="absolute -top-3 left-6 inline-flex items-center gap-1.5 rounded-full border border-green-bright/40 bg-[#0c110e] px-3 py-1 text-[10.5px] font-semibold text-green-bright">
+                <span className="absolute -top-3 left-6 inline-flex items-center gap-1.5 rounded-full border border-primary/30 bg-green-tint px-3 py-1 text-[10.5px] font-semibold text-primary">
                   <Sparkles className="h-3 w-3" />
                   {t("Most deployed", "الأكثر استخداماً", lang)}
                 </span>
               )}
 
-              <h2 className="font-display text-xl font-semibold text-white">{tier.name[lang]}</h2>
+              <h2 className="font-display text-xl font-semibold text-foreground">{tier.name[lang]}</h2>
               <p className="mt-1.5 text-[12.5px] leading-relaxed text-ink-3">{tier.blurb[lang]}</p>
 
               <div className="mt-6 flex items-baseline gap-2">
-                <span className="font-display text-4xl font-semibold text-white">
+                <span className="font-display text-4xl font-semibold text-foreground">
                   ${tier.usd.toLocaleString("en-US")}
                 </span>
                 <span className="text-[13px] text-ink-3">{t("per month", "شهرياً", lang)}</span>
               </div>
               <p className="mt-1 text-[12px] text-ink-3/70">{aed(tier.usd)}</p>
 
-              <div className="mt-5 border-t border-white/10 pt-4">
-                <p className="text-[13px] font-semibold text-green-bright">
+              <div className="mt-5 border-t border-line pt-4">
+                <p className="text-[13px] font-semibold text-primary">
                   {tier.included.toLocaleString("en-US")}{" "}
                   {t("interventions included", "تدخل مشمول", lang)}
                 </p>
@@ -304,7 +304,7 @@ export function Pricing({
               <ul className="mt-5 flex-1 space-y-2.5">
                 {tier.features.map((f, j) => (
                   <li key={j} className="flex gap-2.5 text-[12.5px] leading-relaxed text-ink-3">
-                    <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-green-bright" />
+                    <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
                     <span>{f[lang]}</span>
                   </li>
                 ))}
@@ -342,7 +342,7 @@ export function Pricing({
 
         <p className="mt-8 text-[12px] text-ink-3/70">
           {t("Questions on billing: ", "استفسارات الفوترة: ", lang)}
-          <a href={`mailto:${SUPPORT_EMAIL}`} className="text-green-bright underline">
+          <a href={`mailto:${SUPPORT_EMAIL}`} className="text-primary underline">
             {SUPPORT_EMAIL}
           </a>
         </p>

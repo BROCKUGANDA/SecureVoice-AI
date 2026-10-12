@@ -312,7 +312,7 @@ export function Demo() {
                     onClick={() => setSpeed(s)}
                     className={cn(
                       "num rounded-full px-2.5 py-1.5 text-[11.5px] font-semibold transition",
-                      speed === s ? "bg-[#0c110e] text-white" : "text-ink-3 hover:text-foreground",
+                      speed === s ? "bg-primary text-white" : "text-ink-3 hover:text-foreground",
                     )}
                   >
                     {s}×
@@ -441,7 +441,7 @@ export function Demo() {
         {/* ————— CALL STAGE ————— */}
         <div className="overflow-hidden rounded-3xl border border-line bg-white shadow-[0_24px_60px_-40px_rgba(16,24,18,0.35)]">
           {/* stage header */}
-          <div className="relative overflow-hidden bg-[#0c110e] px-5 py-4 sm:px-6">
+          <div className="relative overflow-hidden border-b border-line bg-card px-5 py-4 sm:px-6">
             <div
               className="absolute inset-0 opacity-60"
               style={{
@@ -453,22 +453,22 @@ export function Demo() {
               <div className="flex items-center gap-3.5">
                 <span className="relative flex h-11 w-11 items-center justify-center rounded-full bg-green-bright/15 ring-1 ring-green-bright/30">
                   {done ? (
-                    <PhoneCall className="h-5 w-5 text-green-bright" />
+                    <PhoneCall className="h-5 w-5 text-primary" />
                   ) : (
-                    <PhoneOutgoing className="h-5 w-5 text-green-bright" />
+                    <PhoneOutgoing className="h-5 w-5 text-primary" />
                   )}
                   {running && (
-                    <span className="sv-pulse-ring absolute inset-0 rounded-full text-green-bright/70" />
+                    <span className="sv-pulse-ring absolute inset-0 rounded-full text-primary/70" />
                   )}
                 </span>
                 <div className="leading-tight">
-                  <p className="text-[14px] font-semibold text-white">
+                  <p className="text-[14px] font-semibold text-foreground">
                     {META.customer}{" "}
-                    <span className="num ml-1 text-[11px] font-normal text-white/50">
+                    <span className="num ml-1 text-[11px] font-normal text-ink-2">
                       {META.phone}
                     </span>
                   </p>
-                  <p className="num mt-1 text-[11px] text-white/50">
+                  <p className="num mt-1 text-[11px] text-ink-2">
                     {t("VOICE", "الصوت", lang)} · {VOICE_BY_LANG[callLang]} · {META.assetId}
                   </p>
                 </div>
@@ -482,7 +482,7 @@ export function Demo() {
                     </span>
                   </span>
                 )}
-                <span className="num rounded-full bg-white/10 px-3 py-1.5 text-[13px] font-semibold text-white">
+                <span className="num rounded-full bg-secondary px-3 py-1.5 text-[13px] font-semibold text-foreground">
                   {started ? `${mm}:${ss}` : "00:00"}
                 </span>
               </div>
@@ -709,7 +709,7 @@ export function Demo() {
             {time >= 45 ? (
               <div>
                 <p className="num text-[10.5px] leading-relaxed text-ink-2">{META.freezePath}</p>
-                <pre className="num mt-2 overflow-x-auto rounded-lg bg-[#0c110e] p-3 text-[10.5px] leading-relaxed text-green-bright">
+                <pre className="num mt-2 overflow-x-auto rounded-lg border border-line bg-secondary p-3 text-[10.5px] leading-relaxed text-primary">
                   {time >= 50
                     ? META.freezeOk.join("\n")
                     : `→ ${t("awaiting customer confirmation…", "في انتظار تأكيد العميل…", lang)}`}
@@ -829,7 +829,7 @@ export function Demo() {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
-            className="relative mt-6 overflow-hidden rounded-3xl bg-[#0c110e] p-8 text-white sm:p-10"
+            className="relative mt-6 overflow-hidden rounded-3xl bg-card p-8 text-foreground sm:p-10"
           >
             <div
               className="absolute inset-0"
@@ -840,17 +840,17 @@ export function Demo() {
             />
             <div className="relative flex flex-wrap items-center justify-between gap-8">
               <div>
-                <p className="micro text-green-bright">
+                <p className="micro text-primary">
                   {t("Outcome · resolved", "النتيجة · تم الحل", lang)}
                 </p>
                 <div className="mt-4 flex items-baseline gap-3">
                   <span className="num text-6xl font-semibold">
                     {kind === "voicemail" ? "66" : "61"}
                   </span>
-                  <span className="num text-xl text-green-bright">
+                  <span className="num text-xl text-primary">
                     {t("seconds", "ثانية", lang)}
                   </span>
-                  <span className="ml-2 text-[13px] text-white/55">
+                  <span className="ml-2 text-[13px] text-ink-2">
                     {kind === "voicemail"
                       ? t(
                           "demo time — a real SMS reply arrives when the customer answers",
@@ -860,7 +860,7 @@ export function Demo() {
                       : t("vs 38 minutes today", "مقابل 38 دقيقة اليوم", lang)}
                   </span>
                 </div>
-                <p className="mt-3 max-w-lg text-[14px] leading-relaxed text-white/70">
+                <p className="mt-3 max-w-lg text-[14px] leading-relaxed text-ink-2">
                   {kind === "voicemail" ? (
                     <>
                       {t(
@@ -893,7 +893,7 @@ export function Demo() {
                   {kind === "voicemail"
                     ? t("Exposure under review:", "الخسارة المحتملة قيد المراجعة:", lang)
                     : t("Estimated prevented loss:", "الخسائر المُنعّة التقديرية:", lang)}{" "}
-                  <span className="num font-semibold text-white">
+                  <span className="num font-semibold text-foreground">
                     {t(META.preventedLoss.en, META.preventedLoss.ar, lang)}
                   </span>
                   .{" "}
@@ -914,7 +914,7 @@ export function Demo() {
                 </button>
                 <button
                   onClick={() => useApp.getState().setView("dashboard")}
-                  className="rounded-full border border-white/20 px-6 py-3 text-[13px] font-semibold text-white/85 transition hover:border-white/50"
+                  className="rounded-full border border-line px-6 py-3 text-[13px] font-semibold text-ink-2 transition hover:border-white/50"
                 >
                   {t("See it in the dashboard", "شاهدها في لوحة التحكم", lang)}
                 </button>
@@ -1073,8 +1073,8 @@ function Bubble({ e, callLang }: { e: ScenarioEvent; callLang: CallLang }) {
         transition={{ duration: 0.4 }}
         className="flex items-start gap-3 py-1"
       >
-        <span className="mt-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-[#0c110e]">
-          <Zap className="h-3 w-3 text-green-bright" />
+        <span className="mt-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-green-tint">
+          <Zap className="h-3 w-3 text-primary" />
         </span>
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
@@ -1129,22 +1129,22 @@ function Bubble({ e, callLang }: { e: ScenarioEvent; callLang: CallLang }) {
         className={cn(
           "max-w-[88%] rounded-2xl px-4 py-3 sm:max-w-[80%]",
           isAgent
-            ? "rounded-tl-md bg-[#0c110e] text-white"
+            ? "rounded-tl-md bg-primary text-white"
             : "rounded-tr-md bg-green-tint text-foreground",
         )}
       >
         <div className="mb-1.5 flex items-center gap-2">
           {isAgent ? (
-            <PhoneOutgoing className="h-3 w-3 text-green-bright" />
+            <PhoneOutgoing className="h-3 w-3 text-primary" />
           ) : (
             <User className="h-3 w-3 text-green-deep" />
           )}
           <span
-            className={cn("micro !text-[9px]", isAgent ? "!text-green-bright" : "!text-green-deep")}
+            className={cn("micro !text-[9px]", isAgent ? "!text-primary" : "!text-green-deep")}
           >
             {isAgent ? t("Agent", "الوكيل", lang) : t("Customer", "العميل", lang)}
           </span>
-          <span className={cn("num text-[9.5px]", isAgent ? "text-white/40" : "text-ink-3")}>
+          <span className={cn("num text-[9.5px]", isAgent ? "text-ink-3" : "text-ink-3")}>
             t+{e.t}s
           </span>
         </div>
@@ -1159,7 +1159,7 @@ function Bubble({ e, callLang }: { e: ScenarioEvent; callLang: CallLang }) {
           className={cn(
             primaryRtl ? "" : "font-arabic",
             "mt-1.5 border-t pt-1.5 text-[11px] leading-relaxed",
-            isAgent ? "border-white/10 text-white/55" : "border-green-deep/10 text-ink-3",
+            isAgent ? "border-line text-ink-2" : "border-green-deep/10 text-ink-3",
           )}
         >
           {secondary}

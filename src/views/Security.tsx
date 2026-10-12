@@ -532,12 +532,12 @@ export function Security() {
 
         {/* trust principles + disclosure */}
         <div className="space-y-6">
-          <div className="rounded-3xl border border-line bg-[#0c110e] p-7 text-white">
-            <ShieldCheck className="h-5 w-5 text-green-bright" />
+          <div className="rounded-3xl border border-line bg-card p-7 text-foreground">
+            <ShieldCheck className="h-5 w-5 text-primary" />
             <h3 className="font-display mt-3 text-[17px] font-semibold tracking-tight">
               {t("The one rule that defines the product", "القاعدة الوحيدة التي تحدد المنتج", lang)}
             </h3>
-            <p className="mt-2.5 text-[13.5px] leading-relaxed text-white/70">
+            <p className="mt-2.5 text-[13.5px] leading-relaxed text-ink-2">
               {t(
                 "The agent never asks for PINs, passwords, OTPs or full card numbers. This is not a prompt instruction — it is structural: the classifier has no branch that can produce such a request, and the signed guardrail policy makes any deviation fail closed.",
                 "الوكيل لا يطلب أبداً رمز PIN أو كلمة مرور أو OTP أو رقم البطاقة كاملاً. ليست تعليماً نصياً — بل قيد بنيوي: لا يوجد مسار في المصنّف ينتج مثل هذا الطلب، وسياسة الضمانات الموقّعة تجعل أي انحراف يفشل بأمان.",
@@ -546,7 +546,7 @@ export function Security() {
             </p>
             <div
               dir="rtl"
-              className="mt-4 border-t border-white/10 pt-4 font-arabic text-[13px] leading-relaxed text-white/60"
+              className="mt-4 border-t border-line pt-4 font-arabic text-[13px] leading-relaxed text-ink-2"
             >
               لا يطلب الوكيل رمزاً سرياً ولا كلمة مرور ولا رقم بطاقة — قيد بنيوي مضمّن في التصنّف
               نفسه، لا مجرد تعليمات نصية.

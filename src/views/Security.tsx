@@ -560,7 +560,7 @@ export function Security() {
             </h3>
             <p className="mt-2.5 text-[13.5px] leading-relaxed text-ink-2">
               {t(
-                `Found something? Report to ${SUPPORT_EMAIL} (PGP key on request). We acknowledge within 24 hours, triage within 72, and credit researchers who follow scope rules. No legal action for good-faith research that avoids service degradation and never touches customer data.`,
+                `Found something? Report to ${SUPPORT_EMAIL}. We acknowledge within 24 hours, triage within 72, and credit researchers who follow scope rules. No legal action for good-faith research that avoids service degradation and never touches customer data.`,
                 `وجدت ثغرة؟ أرسل إلى ${SUPPORT_EMAIL}. نؤكد الاستلام خلال ٢٤ ساعة ونصنّفها خلال ٧٢، ونشكر الباحثين الملتزمين بالنطاق دون إجراءات قانونية للأبحاث بحسن نية.`,
                 lang,
               )}
@@ -568,7 +568,18 @@ export function Security() {
             <div className="mt-4 rounded-xl border border-line bg-paper p-4 font-mono text-[11.5px] leading-relaxed text-ink-2">
               {t("Contact", "للتواصل", lang)}: {SUPPORT_EMAIL}
               <br />
-              {t("Encryption", "التشفير", lang)}: PGP · key ID 0x5ECURE
+              {/* No key material, because there is no key. This line used to name a
+                  fingerprint that was never generated — not valid hex, published
+                  nowhere — while public/security.txt deliberately leaves the RFC 9116
+                  Encryption field undeclared for exactly that reason. A reporter told
+                  to encrypt to it verifies their report against nothing, and the test
+                  in tests/surface/surface.test.ts keeps it that way. */}
+              {t("Encryption", "التشفير", lang)}:{" "}
+              {t(
+                "no PGP key is published — the channel is the mailbox itself",
+                "لا يُنشر مفتاح PGP — القناة هي صندوق البريد نفسه",
+                lang,
+              )}
               <br />
               {t("Preferred languages", "اللغات المفضّلة", lang)}: EN, AR
               <br />

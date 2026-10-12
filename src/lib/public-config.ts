@@ -17,11 +17,9 @@
  *
  * Override any of them with NEXT_PUBLIC_*_EMAIL at build time.
  */
-export const SUPPORT_EMAIL =
-  process.env.NEXT_PUBLIC_SUPPORT_EMAIL ?? "support@securevoiceai.me";
+export const SUPPORT_EMAIL = process.env.NEXT_PUBLIC_SUPPORT_EMAIL ?? "support@securevoiceai.me";
 export const LEGAL_EMAIL = process.env.NEXT_PUBLIC_LEGAL_EMAIL ?? "legal@securevoiceai.me";
-export const FOUNDER_EMAIL =
-  process.env.NEXT_PUBLIC_FOUNDER_EMAIL ?? "founder@securevoiceai.me";
+export const FOUNDER_EMAIL = process.env.NEXT_PUBLIC_FOUNDER_EMAIL ?? "founder@securevoiceai.me";
 
 /**
  * Fallback origin for server-rendered API examples.

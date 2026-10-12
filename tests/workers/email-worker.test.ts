@@ -106,7 +106,9 @@ describe("email worker — source invariants", () => {
     expect(queue).toContain("delete (persistable as Record<string, unknown>).token");
     // And the row is written BEFORE the provider send, so a crash between mint
     // and send cannot drop the message.
-    expect(queue.indexOf("await enqueueEmail(")).toBeLessThan(queue.indexOf("await sendQueuedEmail("));
+    expect(queue.indexOf("await enqueueEmail(")).toBeLessThan(
+      queue.indexOf("await sendQueuedEmail("),
+    );
   });
 
   test("the worker never prints a token", () => {

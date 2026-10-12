@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireOrgWithCapability } from "@/lib/route-helpers";
 import { resolvePaymentProvider } from "@/lib/payments/gateway";
-import { consume as consumeRateLimit, rateLimitId } from "@/lib/ratelimit";
+import { consume as consumeRateLimit, rateLimitHeaders, rateLimitId } from "@/lib/ratelimit";
 import { logInfo, logWarn } from "@/lib/validation/safe-log";
 
 export const dynamic = "force-dynamic";
@@ -86,7 +86,7 @@ export async function POST(req: NextRequest) {
   if (!rl.ok) {
     return NextResponse.json(
       { error: "rate_limited" },
-      { status: 429, headers: { "Retry-After": String(Math.ceil(rl.retryAfterMs / 1000)) } },
+      { status: 429, headers: rateLimitHeaders(rl) },
     );
   }
 
@@ -160,10 +160,7 @@ export async function POST(req: NextRequest) {
 
   if (!result.ok) {
     logWarn("[billing] invoice refused", { orgId: authed.orgId, reason: result.reason });
-    return NextResponse.json(
-      { error: "invoice_failed", detail: result.reason },
-      { status: 502 },
-    );
+    return NextResponse.json({ error: "invoice_failed", detail: result.reason }, { status: 502 });
   }
 
   return NextResponse.json(
@@ -176,9 +173,7 @@ export async function POST(req: NextRequest) {
       ...(result.paymentLink ? { paymentLink: result.paymentLink } : {}),
       // Always 0 — an invoice grants no credits until it is paid.
       settledUnits: result.settledUnits,
-      note:
-        body.data.note ??
-        "Invoice raised. No credits are granted until payment is confirmed.",
+      note: body.data.note ?? "Invoice raised. No credits are granted until payment is confirmed.",
     },
     { status: 201, headers: { "Cache-Control": "no-store" } },
   );

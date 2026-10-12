@@ -27,6 +27,7 @@ import { neutraliseStrings, screenForMemory } from "@/lib/memory-guard";
 import { recordStrike } from "@/lib/abuse/bad-actor";
 import { masterKeyConfigured, sealCasePayload } from "@/lib/privacy/crypto-shred";
 import { indexTranscript, pineconeConfigured } from "@/lib/pinecone/transcript-index";
+import { storeRecording } from "@/lib/storage/recordings";
 
 type WebhookEventRow = {
   id: string;
@@ -505,17 +506,65 @@ async function handleAudio(row: WebhookEventRow, data: any): Promise<void> {
     });
     return;
   }
-  // The base64 MP3 is deliberately NOT persisted — see I-10/PII note above;
-  // the ingest record plus the provider as system of record suffice for WP-4.
+  // The base64 MP3 is never written to Postgres (I-10: a transcript-bearing
+  // binary in a row would be picked up by every dump, replica and backup). It IS
+  // now archived to object storage when the deployment configures it, which is
+  // what makes `GET /api/recordings/[id]/download` able to answer at all.
+  //
+  // Why archive rather than keep relying on the vendor: a recording is a bank
+  // customer's voice, PDPL personal data with an erasure obligation and a
+  // retention period the tenant sets. "ElevenLabs still has it for N days" is
+  // neither a deletion guarantee we can execute nor a retention policy we
+  // control, and a re-investigation six weeks later needs the audio on the side
+  // of the contract that was promised it.
   const audioBytes =
     typeof data?.full_audio === "string" ? Math.floor((data.full_audio.length * 3) / 4) : null;
+
+  let stored: { key: string } | null = null;
+  let storeError: string | null = null;
+  if (typeof data?.full_audio === "string" && data.full_audio.length > 0) {
+    if (!caseRow.orgId) {
+      storeError = "case_has_no_organization";
+    } else {
+      let audio: Buffer | null = null;
+      try {
+        audio = Buffer.from(data.full_audio, "base64");
+      } catch {
+        audio = null;
+      }
+      // A non-base64 payload decodes to garbage rather than throwing, so the
+      // only guard left is that something came out.
+      if (audio && audio.length > 0) {
+        const result = await storeRecording({
+          orgId: caseRow.orgId,
+          conversationId: caseRow.conversationId ?? conversationId ?? "",
+          audio,
+        });
+        if (result.ok) stored = { key: result.key };
+        else storeError = result.error;
+      } else {
+        storeError = "audio_not_decodable";
+      }
+    }
+  }
+
   await auditAppend(
     {
       callRef: caseRow.caseRef,
       action: "agent",
       intent: "post_call_audio",
       callerId: "elevenlabs-webhook",
-      meta: { eventType: row.eventType, approxAudioBytes: audioBytes },
+      meta: {
+        eventType: row.eventType,
+        approxAudioBytes: audioBytes,
+        // Which of the three outcomes this was. `storage_not_configured` is a
+        // deployment fact, any other error is a fault worth alerting on, and a
+        // silent absence of both would be indistinguishable from a call that
+        // produced no audio at all.
+        archived: stored !== null,
+        ...(stored ? { recordingKey: stored.key } : {}),
+        ...(storeError ? { archiveError: storeError } : {}),
+      },
       orgId: caseRow.orgId ?? undefined,
     },
     { fast: true },

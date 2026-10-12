@@ -26,7 +26,9 @@ import type { InstitutionType } from "@/lib/institution-types";
 import { getTelecomIdentity, type TelecomIdentity } from "@/lib/institution";
 import { prepareSpeech, type SpeechContext } from "@/lib/compliance/speech-gate";
 import { recordTelecomEvent } from "@/lib/telecom-outbox";
-import { logError } from "@/lib/validation/safe-log";
+import { createTelecomAdapter, type TelecomResult } from "@/lib/adapters/telecom-adapter";
+import { describeDtmfForSpeech } from "@/lib/voice/dtmf";
+import { logError, logWarn } from "@/lib/validation/safe-log";
 
 export { twilioMode, isTwilioConfigured };
 export type { TwilioMode } from "@/lib/config";
@@ -157,6 +159,13 @@ export function interventionTwiml(
 
   const turnUrl = `/api/twilio/turn?lang=${lang}${callRef ? `&callSid=${escapeXml(callRef)}` : ""}`;
 
+  // The question the caller answers, in their language, on both channels:
+  // "press one / press two" is also the spoken instruction, so a customer who
+  // cannot speak does not have to parse a sentence a keypad cannot ask.
+  // English-only copy here used to be the prompt for every language, which is
+  // the same defect the rest of the voice plane spent this session fixing.
+  const ask = escapeXml(describeDtmfForSpeech("none", lang));
+
   // ElevenLabs opening via <Play> when we have a public origin. The audio URL
   // is HMAC-signed: /api/twilio/audio renders TTS on the shared platform key,
   // so an unsigned URL would let anyone synthesize arbitrary audio on our bill.
@@ -170,7 +179,7 @@ export function interventionTwiml(
     opening = `<Say voice="${voice}" language="${language}">${escapeXml(text)}</Say>`;
   }
 
-  return `<?xml version="1.0" encoding="UTF-8"?><Response>${opening}<Gather input="speech" action="${escapeXml(turnUrl)}" method="POST" speechTimeout="auto" language="${language}"><Say voice="${voice}" language="${language}">Is this transaction yours? Please say yes or no.</Say></Gather><Say voice="${voice}" language="${language}">I didn't catch a response. A fraud specialist will follow up shortly. Thank you.</Say><Hangup/></Response>`;
+  return `<?xml version="1.0" encoding="UTF-8"?><Response>${opening}<Gather input="dtmf speech" numDigits="1" timeout="8" action="${escapeXml(turnUrl)}" method="POST" speechTimeout="auto" language="${language}"><Say voice="${voice}" language="${language}">${ask}</Say></Gather><Say voice="${voice}" language="${language}">I didn't catch a response. A fraud specialist will follow up shortly. Thank you.</Say><Hangup/></Response>`;
 }
 
 /* ————— webhook + audio-URL authentication ————— */
@@ -481,6 +490,66 @@ export type CallResult =
  *  `orgId` decides the caller ID and the outbox row — see
  *  `resolveVoiceCallerId`. A customer's caller ID is the institution's, or the
  *  alert is not the institution's. */
+/**
+ * The carrier adapter fast-path.
+ *
+ * `TELECOM_ADAPTER` names a carrier (twilio, infobip, sip) whose plain
+ * "place a call to this number" operation is handled by the formal adapter in
+ * `src/lib/adapters/telecom-adapter.ts` rather than by the Twilio-specific code
+ * below. It is a FAST-PATH, not a replacement, and the distinction is the whole
+ * design:
+ *
+ *   The adapter's `placeCall(number)` returns a bare `{ ok, sid, status }`. It
+ *   cannot carry the three things a fraud-intervention call is made of:
+ *
+ *     · INLINE TWIML — the spoken script (disclosure + fraud alert) is built by
+ *       `interventionTwiml` and handed to Twilio as the call's program. The
+ *       adapter has no parameter for a TwiML document, and inventing one would
+ *       mean the adapter starts to know what a bank says to a customer.
+ *     · STATUS CALLBACK — the delivery receipt that closes the case. The adapter
+ *       returns a carrier status word, not a webhook URL to register.
+ *     · TENANT CALLER ID — `resolveVoiceCallerId` picks the institution's own
+ *       number per org. The adapter takes a destination, not a sender.
+ *
+ *   So the adapter is used ONLY when the call is genuinely simple: no media
+ *   stream to play, no speech context to apply, and the platform's own caller
+ *   ID is acceptable. The moment a call needs any of the three, it falls
+ *   through to the direct path below, which is the path every live fraud call
+ *   actually takes.
+ *
+ *   This is why the adapter is wired in at all: it is the seam a second carrier
+ *   (Infobip, a SIP trunk) plugs into, and it is the reference implementation
+ *   the parity tests compare against. It is not on the hot path of a call that
+ *   has to speak.
+ *
+ * Returns null when the adapter does not apply, so the caller falls through.
+ */
+function adapterFastPathApplies(args: {
+  mediaStreamUrl?: string | null;
+  speech?: SpeechContext;
+}): { adapter: ReturnType<typeof createTelecomAdapter>; from: string } | null {
+  const name = process.env.TELECOM_ADAPTER?.trim().toLowerCase();
+  if (!name) return null;
+  // A call with a media stream or a speech context is not a plain call — see
+  // the header. Refusing here is what keeps the adapter honest about what it
+  // can carry.
+  if (args.mediaStreamUrl) return null;
+  if (args.speech) return null;
+  try {
+    const adapter = createTelecomAdapter(name);
+    return { adapter, from: env.twilioFromNumber! };
+  } catch {
+    // An unknown carrier name is a configuration error, not a runtime one: the
+    // factory throws a TypeError naming every provider it does know. Falling
+    // through to the direct path means a typo degrades the call rather than
+    // failing it.
+    logWarn("[telecom] TELECOM_ADAPTER is not a known carrier; using the direct path", {
+      adapter: name,
+    });
+    return null;
+  }
+}
+
 export async function placeInterventionCall(args: {
   to: string;
   lang: DeliveryLang;
@@ -500,6 +569,34 @@ export async function placeInterventionCall(args: {
 }): Promise<CallResult & { telecomEventId?: string; from?: string }> {
   const c = creds();
   if (!isE164(args.to)) return { ok: false, status: 422, error: "Destination phone is not E.164" };
+
+  // ── Adapter fast-path ──────────────────────────────────────────────────────
+  // A plain call to a number, on a carrier the adapter speaks. See the header
+  // for why this is a fast-path and not the default.
+  const fast = adapterFastPathApplies(args);
+  if (fast) {
+    const res: TelecomResult = await fast.adapter.placeCall(args.to);
+    if (!res.ok) {
+      logWarn("[telecom] adapter placeCall failed", {
+        provider: res.provider,
+        status: res.status,
+        error: res.error,
+      });
+      return { ok: false, status: res.status, error: res.error, from: fast.from };
+    }
+    const telecomEventId = await recordTelecomEvent({
+      orgId: args.orgId ?? null,
+      caseId: args.caseId ?? null,
+      channel: "voice",
+      toPhone: args.to,
+      fromPhone: fast.from,
+      providerSid: res.id || null,
+      status: "queued",
+      payload: { callRef: args.callRef ?? null, lang: args.lang, adapter: res.provider },
+    });
+    return { ok: true, sid: res.id, status: res.status, from: fast.from, telecomEventId };
+  }
+
   const caller = await resolveVoiceCallerId(args.orgId);
   if (!caller.ok) return { ok: false, status: caller.status, error: caller.error };
   const from = caller.from;
@@ -651,6 +748,47 @@ export async function sendInterventionSms(args: {
 }): Promise<CallResult & { telecomEventId?: string; from?: string }> {
   const c = creds();
   if (!isE164(args.to)) return { ok: false, status: 422, error: "Destination phone is not E.164" };
+
+  // ── Adapter fast-path ──────────────────────────────────────────────────────
+  // Same rule as the voice path: the adapter carries a destination and a
+  // message, nothing more. A blind-ping SMS (which carries a card's last four
+  // and an institution wording) is still just a message, so it qualifies; the
+  // tenant sender is resolved below on the direct path and the adapter uses
+  // the platform sender, which is why this is gated on the same env flag.
+  const fastSms = adapterFastPathApplies({});
+  if (fastSms) {
+    const body =
+      args.kind === "unreachable"
+        ? unreachableSmsBody(args.lang, {
+            last4: args.last4 ?? null,
+            institution: args.institution ?? "bank",
+          })
+        : headsUpSms(args.lang, {
+            caseRef: args.caseRef,
+            institution: args.institution ?? "bank",
+          });
+    const res: TelecomResult = await fastSms.adapter.sendSms(args.to, body);
+    if (!res.ok) {
+      logWarn("[telecom] adapter sendSms failed", {
+        provider: res.provider,
+        status: res.status,
+        error: res.error,
+      });
+      return { ok: false, status: res.status, error: res.error, from: fastSms.from };
+    }
+    const telecomEventId = await recordTelecomEvent({
+      orgId: args.orgId ?? null,
+      caseId: args.caseId ?? null,
+      channel: "sms",
+      toPhone: args.to,
+      fromPhone: fastSms.from,
+      providerSid: res.id || null,
+      status: "queued",
+      payload: { caseRef: args.caseRef ?? null, lang: args.lang, adapter: res.provider },
+    });
+    return { ok: true, sid: res.id, status: res.status, from: fastSms.from, telecomEventId };
+  }
+
   const sender = await resolveSmsSender(args.orgId);
   if (!sender.ok) return { ok: false, status: sender.status, error: sender.error };
   const callback = statusCallbackUrl(TWILIO_STATUS_CALLBACK_PATH);

@@ -125,7 +125,10 @@ business case.
 
 ## 3. Infrastructure
 
-Measured on the current reference deployment (Akamai/Linode, 8 GB, Frankfurt):
+Originally measured on the previous reference deployment (Akamai/Linode, 8 GB,
+Frankfurt). **The box has since moved to OVHcloud Public Cloud** and these figures
+have NOT been re-measured there — treat the host line as the last known figure,
+not a current quote, and re-measure before this reaches a pricing conversation:
 
 | Item                                            | Cost                                         |
 | ----------------------------------------------- | -------------------------------------------- |

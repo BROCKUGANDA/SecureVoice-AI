@@ -1,35 +1,29 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { Check, ShieldCheck, Sparkles, Building2 } from "lucide-react";
+import { Check, Sparkles } from "lucide-react";
 import { useApp, t } from "@/lib/store";
 import { SUPPORT_EMAIL } from "@/lib/public-config";
 import { REFUND_POLICIES } from "@/lib/legal-policies";
 import { SubscribeButtons } from "@/components/billing/SubscribeButtons";
+import { paddlePriceIds } from "@/lib/paddle-browser";
 
 /**
- * Paddle price ids per tier, from the seeded catalog. Both intervals exist for
- * every tier — `tests/billing/catalog-parity.test.ts` asserts the ids, the 10x
- * annual ratio, and that `src/lib/commercial.ts` carries the same figures.
+ * Paddle price ids per tier, from the environment.
  *
- * Sandbox ids. Live differs (separate catalog), so these are read from env in
- * any build that is not sandbox — see `src/lib/paddle-browser.ts`. The ids are
- * needed client-side, hence the `NEXT_PUBLIC_` source.
+ * Both intervals exist for every tier — `tests/billing/catalog-parity.test.ts`
+ * asserts the ids, the 10x annual ratio, and that `src/lib/commercial.ts`
+ * carries the same figures.
+ *
+ * These were previously a hardcoded `Record` of SANDBOX `pri_…` literals. A
+ * price id is environment-specific by definition — a sandbox id does not exist
+ * in the live catalog — so a hardcoded value could only ever be right in one
+ * environment and wrong in the other. `paddlePriceIds()` reads them from
+ * `NEXT_PUBLIC_PADDLE_PRICES` and THROWS when unset: the pricing page is where a
+ * customer is about to see a Buy button, and a Buy button wired to nothing is a
+ * worse failure than a page that refuses to render one.
  */
-const PADDLE_PRICE_ID: Record<string, { month: string; year: string }> = {
-  starter: {
-    month: "pri_01m4kc8amfsr590wkmf02v0q91",
-    year: "pri_01m4kmzw3cq4na5tfn6xqd6ekn",
-  },
-  growth: {
-    month: "pri_01m4kc8bdy18z7h9g4qwbv6vqq",
-    year: "pri_01m4kmzwg9vdfe2c4x5qnz2s4s",
-  },
-  enterprise: {
-    month: "pri_01m4kc8c6y167c8jx1pk7vcazx",
-    year: "pri_01m4kmzwwqy407sttdb550w8dt",
-  },
-};
+const PADDLE_PRICE_ID = paddlePriceIds();
 
 /**
  * Public pricing, and the two refund policies the business actually needs.

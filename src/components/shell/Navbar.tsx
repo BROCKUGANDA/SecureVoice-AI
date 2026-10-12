@@ -21,6 +21,7 @@ import { useApp, t, type View, type Lang } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { LogoMark } from "@/components/shell/Logo";
 import { OrgSwitcher } from "@/components/shell/OrgSwitcher";
+import { ThemeToggle } from "@/components/shell/ThemeToggle";
 import { CurrentUserAvatar } from "@/components/current-user-avatar";
 
 const PUBLIC_NAV: { id: View; en: string; ar: string; icon: typeof Home }[] = [
@@ -171,6 +172,7 @@ export function Navbar() {
                 <span className="max-w-[10rem] truncate text-[12.5px] font-semibold text-ink-2">
                   {session?.user?.name || session?.user?.email}
                 </span>
+                <ThemeToggle />
                 {/* Only rendered for a session that belongs to more than one
                     organization — see OrgSwitcher for why the tenant is the
                     session and not a request parameter. */}
@@ -271,6 +273,7 @@ export function Navbar() {
                     <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-ink-2">
                       {session?.user?.name || session?.user?.email}
                     </span>
+                    <ThemeToggle compact />
                     <OrgSwitcher />
                   </div>
                   <button

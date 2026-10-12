@@ -28,6 +28,17 @@
  * Values are also redacted with `@/lib/redact` before they are written, so a
  * PAN or IBP typed into a "notes" field does not become a durable copy in the
  * log aggregator.
+ *
+ * ── Sinks ────────────────────────────────────────────────────────────────────
+ *
+ * One record in, one line out — and the line is handed to every sink. The
+ * default sink is `console.*`; `registerLogSink()` adds more (a log-shipping
+ * backend, a test capture). Registration is a runtime call rather than an import
+ * on purpose: this module is bundled into the edge proxy (`src/proxy.ts`) and
+ * the browser (via `src/lib/languages.ts`), so it must not statically import a
+ * `server-only` or Node-only shipper. The server entry
+ * (`src/instrumentation.ts`) registers the Axiom sink instead. A sink that
+ * throws is contained — it can never fail the `safeLog()` call that fed it.
  */
 
 import { transcript as redactText } from "@/lib/redact";
@@ -172,7 +183,42 @@ export function renderLogLine(record: LogRecord): string {
   return line.replace(LINE_BREAKS_RE, " ");
 }
 
-export type LogSink = (level: LogLevel, line: string) => void;
+/**
+ * A destination for a rendered log record.
+ *
+ * The third argument is the structured record the line was rendered from. It is
+ * supplied so a shipping sink does not have to `JSON.parse` the line it was
+ * just handed, and so a sink can rely on the record being the exact object
+ * `safeLog` produced. Existing two-argument sinks remain assignable — a function
+ * that ignores a trailing parameter is still a valid sink.
+ */
+export type LogSink = (level: LogLevel, line: string, record: LogRecord) => void;
+
+/**
+ * Additional sinks, invoked after the primary sink on every `safeLog()` call.
+ * Empty by default: with nothing registered, behaviour is exactly the console
+ * sink and nothing else. Populated at server boot by `src/instrumentation.ts`.
+ */
+const extraSinks = new Set<LogSink>();
+
+/**
+ * Register a sink to receive every subsequent log record.
+ *
+ * Returns an unregister function, so a caller that installs a sink for a bounded
+ * scope (a test, a request) can remove it without a global reset. Registering
+ * the same function twice is idempotent.
+ */
+export function registerLogSink(sink: LogSink): () => void {
+  extraSinks.add(sink);
+  return () => {
+    extraSinks.delete(sink);
+  };
+}
+
+/** Test-only: remove every registered extra sink. */
+export function resetLogSinks(): void {
+  extraSinks.clear();
+}
 
 /** Default sink: one `console.*` call per record, so the line count is preserved. */
 const consoleSink: LogSink = (level, line) => {
@@ -206,7 +252,17 @@ export function safeLog(
     fields: sanitiseLogFields(fields),
   };
   const line = renderLogLine(record);
-  sink(level, line);
+  sink(level, line, record);
+  // Extra sinks (log shipping) run after the primary one, and each is isolated:
+  // a shipper that throws must not turn a successful log call into a failure.
+  for (const extra of extraSinks) {
+    try {
+      extra(level, line, record);
+    } catch {
+      // Deliberately swallowed. The record already reached the primary sink;
+      // the shipper's own diagnostics are where this is surfaced.
+    }
+  }
   return line;
 }
 

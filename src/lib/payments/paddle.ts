@@ -277,7 +277,9 @@ export function decodePaddleEvent(payload: Record<string, unknown>): ProviderEve
 
   const custom = d.custom_data;
   const reference =
-    custom && typeof custom === "object" && typeof (custom as { reference?: unknown }).reference === "string"
+    custom &&
+    typeof custom === "object" &&
+    typeof (custom as { reference?: unknown }).reference === "string"
       ? (custom as { reference: string }).reference
       : "";
   // A reference we did not mint is not ours to settle. Without this a Paddle
@@ -337,7 +339,9 @@ export type PaddleConfig = {
   http?: HttpClient;
 };
 
-function normalizeConfig(cfg: PaddleConfig): Required<Omit<PaddleConfig, "apiKey" | "webhookSecret">> & {
+function normalizeConfig(cfg: PaddleConfig): Required<
+  Omit<PaddleConfig, "apiKey" | "webhookSecret">
+> & {
   apiKey: string;
   webhookSecret: string;
   prices: PaddlePriceMap;
@@ -479,18 +483,23 @@ export function createPaddleProvider(cfg: PaddleConfig): PaymentProvider {
     // would charge 10x for the same request.
     const chosen = matches.find((m) => m.interval === "month") ?? matches[0]!;
 
-    const res = await paddleRequest<TransactionResponse>(
-      c,
-      "POST",
-      "/transactions",
-      {
-        items: [{ price_id: chosen.priceId, quantity: 1 }],
-        collection_mode: "automatic",
-        custom_data: { reference },
-        customer: { email: req.email },
-        ...(req.returnUrl === undefined ? {} : { settings: { return_url: req.returnUrl } }),
-      },
-    );
+    // The plan this checkout buys, anchored NOW and carried to the webhook in
+    // `custom_data`. Money never converts 1:1 into credits — the plan's
+    // allowance is the unit count (#204) — and it must be decided at mint time,
+    // not re-derived when the paid event arrives, because a first purchase has
+    // no subscription row and a later plan change must not retroactively
+    // re-rate this one.
+    const { planFromPriceKey } = await import("@/lib/payments/overage");
+    const plan = planFromPriceKey(chosen.key);
+    const entitlements: StoredEntitlement[] = plan ? [{ key: `plan:${plan}` }] : [];
+
+    const res = await paddleRequest<TransactionResponse>(c, "POST", "/transactions", {
+      items: [{ price_id: chosen.priceId, quantity: 1 }],
+      collection_mode: "automatic",
+      custom_data: { reference, ...(entitlements.length > 0 ? { entitlements } : {}) },
+      customer: { email: req.email },
+      ...(req.returnUrl === undefined ? {} : { settings: { return_url: req.returnUrl } }),
+    });
     if (!res.ok) throw new Error(`paddle: checkout failed (${res.error})`);
 
     const url = res.value.data?.checkout?.url ?? "";
@@ -541,28 +550,35 @@ export function createPaddleProvider(cfg: PaddleConfig): PaymentProvider {
       return { ok: false, reference: req.reference, reason: "invoice_has_no_items" };
     }
 
-    const res = await paddleRequest<TransactionResponse>(
-      c,
-      "POST",
-      "/transactions",
-      {
-        items,
-        // THE line that makes this an invoice rather than a checkout.
-        collection_mode: "manual",
-        ...(req.dueInDays === undefined
-          ? {}
-          : { due_date: new Date(Date.now() + req.dueInDays * 86_400_000).toISOString() }),
-        // OUR reference, so the paid webhook hands back something we can match.
-        custom_data: { reference: req.reference },
-        ...(req.customer?.email
-          ? { customer: { email: req.customer.email, ...(req.customer.name ? { name: req.customer.name } : {}) } }
-          : {}),
-        // A VAT/GST number triggers reverse-charge treatment at the gateway.
-        // Absent ⇒ standard rate. Never inferred from the address: guessing here
-        // would under-charge a taxable buyer.
-        ...(req.taxId ? { customer: { ...(req.customer?.email ? { email: req.customer.email } : {}), tax_id: req.taxId } } : {}),
-      },
-    );
+    const res = await paddleRequest<TransactionResponse>(c, "POST", "/transactions", {
+      items,
+      // THE line that makes this an invoice rather than a checkout.
+      collection_mode: "manual",
+      ...(req.dueInDays === undefined
+        ? {}
+        : { due_date: new Date(Date.now() + req.dueInDays * 86_400_000).toISOString() }),
+      // OUR reference, so the paid webhook hands back something we can match.
+      custom_data: { reference: req.reference },
+      ...(req.customer?.email
+        ? {
+            customer: {
+              email: req.customer.email,
+              ...(req.customer.name ? { name: req.customer.name } : {}),
+            },
+          }
+        : {}),
+      // A VAT/GST number triggers reverse-charge treatment at the gateway.
+      // Absent ⇒ standard rate. Never inferred from the address: guessing here
+      // would under-charge a taxable buyer.
+      ...(req.taxId
+        ? {
+            customer: {
+              ...(req.customer?.email ? { email: req.customer.email } : {}),
+              tax_id: req.taxId,
+            },
+          }
+        : {}),
+    });
 
     if (!res.ok) {
       // Surfaced as a refusal, not a throw: an enterprise sales flow needs to

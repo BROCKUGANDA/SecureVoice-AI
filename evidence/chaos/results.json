@@ -169,7 +169,11 @@
       "country_not_allowed",
       "country_unparseable",
       "credits_exhausted",
-      "spend_ceiling"
+      "do_not_call",
+      "outside_calling_hours",
+      "spend_ceiling",
+      "subscription_paused",
+      "transaction_repeat"
     ],
     "policyRefusalStatus": 409,
     "statusDiscipline": [
@@ -356,27 +360,38 @@
     "policyRefusal": {
       "declaredCodes": [
         "consent_invalid",
+        "do_not_call",
+        "transaction_repeat",
+        "outside_calling_hours",
         "country_unparseable",
         "country_not_allowed",
         "cooldown",
         "concurrency_cap",
         "spend_ceiling",
+        "subscription_paused",
         "credits_exhausted"
       ],
       "status": 409,
       "retryable": false,
       "retryAfterSec": null,
-      "emittedByRunPolicyGate": [
+      "drivenHere": [
         "consent_invalid",
         "country_unparseable",
         "country_not_allowed",
         "cooldown",
-        "concurrency_cap",
-        "spend_ceiling",
-        "credits_exhausted"
+        "concurrency_cap"
       ],
-      "declaredButNotEmitted": [],
-      "note": "All seven declared codes are emitted by runPolicyGate. credits_exhausted is proven through the real route in tests/e2e/interventions-credits-gate.test.ts (zero balance → 409, one credit → one dial, concurrent signals → exactly one paid call). spend_ceiling is emitted by policy-gate step 5 on a spend-breaker stop (breaker covered in tests/billing and tests/unit/billing-breaker); no suite yet drives the gate itself into a stop, so this file asserts only its 409 mapping.",
+      "drivenElsewhere": {
+        "credits_exhausted": "tests/e2e/interventions-credits-gate.test.ts",
+        "subscription_paused": "tests/e2e/paddle-pause-webhook.test.ts + tests/billing/subscription-dialling-access.test.ts"
+      },
+      "mappingOnly": [
+        "spend_ceiling",
+        "transaction_repeat",
+        "do_not_call",
+        "outside_calling_hours"
+      ],
+      "note": "Three of the eleven codes (transaction_repeat, do_not_call, outside_calling_hours) were emitted by the gate and NOT declared until this slice — policyRefusal would have thrown a RangeError on a routine duplicate or cooldown refusal for any caller that used it. The list's completeness is now derived from the gate's source instead of asserted from its own word.",
       "contrast": "internal_bug is the only code that yields 500"
     }
   },
@@ -470,7 +485,7 @@
         "file": "src/lib/payments/provider.ts",
         "transactions": 1,
         "regions": [
-          "316-388"
+          "454-590"
         ],
         "findings": []
       },
@@ -619,8 +634,8 @@
     "result": "pass",
     "areas": 7,
     "checks": {
-      "total": 455,
-      "passed": 455,
+      "total": 459,
+      "passed": 459,
       "failed": 0
     },
     "matrixRows": {
@@ -2240,7 +2255,7 @@
       "area": "gate",
       "name": "evidence-digest-is-sha256",
       "ok": true,
-      "detail": "d91b5ee9b2fb3b4a"
+      "detail": "98a97120e4d557d6"
     },
     {
       "area": "gate",
@@ -2252,7 +2267,7 @@
       "area": "gate",
       "name": "evidence-is-byte-identical-across-builds",
       "ok": true,
-      "detail": "65466 chars"
+      "detail": "66250 chars"
     },
     {
       "area": "gate",
@@ -2892,9 +2907,33 @@
     },
     {
       "area": "negative-control",
+      "name": "declared-policy-code-is-409:do_not_call",
+      "ok": true,
+      "detail": "do_not_call → 409"
+    },
+    {
+      "area": "negative-control",
+      "name": "declared-policy-code-is-409:outside_calling_hours",
+      "ok": true,
+      "detail": "outside_calling_hours → 409"
+    },
+    {
+      "area": "negative-control",
       "name": "declared-policy-code-is-409:spend_ceiling",
       "ok": true,
       "detail": "spend_ceiling → 409"
+    },
+    {
+      "area": "negative-control",
+      "name": "declared-policy-code-is-409:subscription_paused",
+      "ok": true,
+      "detail": "subscription_paused → 409"
+    },
+    {
+      "area": "negative-control",
+      "name": "declared-policy-code-is-409:transaction_repeat",
+      "ok": true,
+      "detail": "transaction_repeat → 409"
     },
     {
       "area": "negative-control",
@@ -3366,5 +3405,5 @@
     }
   ],
   "digestAlgorithm": "sha256",
-  "digest": "363be53f24a8cfadf78b27ce52f678c5dc6f4129be517147758e77b8a3514009"
+  "digest": "d315bbe2f877e17431901dd99c079fcf5eb102d38d7f5b3cdd0efaedb1b85989"
 }

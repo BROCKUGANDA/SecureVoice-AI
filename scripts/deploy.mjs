@@ -107,7 +107,10 @@ const CANARY_SLOTS = 20;
  */
 function upstreamList(active, canary, percent) {
   if (!canary || percent === undefined || percent <= 0) return `app-${active}:3000`;
-  const canarySlots = Math.min(CANARY_SLOTS, Math.max(0, Math.round((percent / 100) * CANARY_SLOTS)));
+  const canarySlots = Math.min(
+    CANARY_SLOTS,
+    Math.max(0, Math.round((percent / 100) * CANARY_SLOTS)),
+  );
   const activeSlots = CANARY_SLOTS - canarySlots;
   return [
     ...Array.from({ length: activeSlots }, () => `app-${active}:3000`),
@@ -352,7 +355,9 @@ async function stage(image) {
 
   const probe = probeDirect(target);
   if (!probe.ok) {
-    console.error(`\n  ✗ app-${target} is healthy but /api/readyz failed in-container (${probe.code}).`);
+    console.error(
+      `\n  ✗ app-${target} is healthy but /api/readyz failed in-container (${probe.code}).`,
+    );
     stopColour(target);
     process.exit(1);
   }
@@ -423,12 +428,22 @@ function canary({ to, percent }) {
   }
 
   const split = upstreamList(state.active, target, pct);
-  console.log(`\n  canary ${slots}/${CANARY_SLOTS} slots → ${pct}% app-${target}, ${100 - pct}% app-${state.active}`);
-  console.log(`  upstreams: ${split.split(" ").length} entries (repetition + lb_policy round_robin)`);
+  console.log(
+    `\n  canary ${slots}/${CANARY_SLOTS} slots → ${pct}% app-${target}, ${100 - pct}% app-${state.active}`,
+  );
+  console.log(
+    `  upstreams: ${split.split(" ").length} entries (repetition + lb_policy round_robin)`,
+  );
   flipTraffic(target, split);
   // `active` stays the colour taking the majority: `rollback` and `promote`
   // reason about which colour is the safe one, and at <50% the canary is not.
-  writeState({ ...readState(), active: state.active, previous: state.previous, canary: { colour: target, percent: pct }, upstream: split });
+  writeState({
+    ...readState(),
+    active: state.active,
+    previous: state.previous,
+    canary: { colour: target, percent: pct },
+    upstream: split,
+  });
   console.log(`\n  ✓ split live. Watch Sentry, then:`);
   console.log(`      bun scripts/deploy.mjs canary --percent 100   # accept the canary`);
   console.log(`      bun scripts/deploy.mjs canary --percent 0     # abandon it`);

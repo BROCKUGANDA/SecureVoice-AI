@@ -32,6 +32,9 @@ export type PaddleEventKind =
   | "subscription.created"
   | "subscription.updated"
   | "subscription.canceled"
+  | "subscription.past_due"
+  | "subscription.paused"
+  | "subscription.resumed"
   | "customer.created"
   | "customer.updated"
   | "transaction.completed";
@@ -40,6 +43,15 @@ const HANDLED: ReadonlySet<string> = new Set([
   "subscription.created",
   "subscription.updated",
   "subscription.canceled",
+  // Three states the fulfilment gate reads, so they are handled rather than
+  // "ignored with 200". An event that only mirrors is still the difference
+  // between the tenant's access state being current and it being whatever the
+  // last `subscription.updated` happened to say: `paused` is a customer turning
+  // the dialler off on purpose, and `past_due` is Paddle telling us the card
+  // failed, which is the one fact a commercial decision has to be made on.
+  "subscription.past_due",
+  "subscription.paused",
+  "subscription.resumed",
   "customer.created",
   "customer.updated",
   "transaction.completed",
@@ -86,6 +98,9 @@ export async function handlePaddleEvent(
     case "subscription.created":
     case "subscription.updated":
     case "subscription.canceled":
+    case "subscription.past_due":
+    case "subscription.paused":
+    case "subscription.resumed":
       await onSubscription(eventType, data, ctx);
       break;
     case "transaction.completed":
@@ -149,6 +164,35 @@ async function onSubscription(
     scheduledChangeAt: iso(scheduled?.effective_at ?? scheduled?.effectiveAt),
     currentPeriodEnd: iso(period?.ends_at ?? period?.endsAt),
   });
+
+  // Billing lifecycle, mirrored to analytics for the revenue workflows.
+  //
+  // A subscription that will cancel at period end still reports `active` here,
+  // which is why the scheduled change rides alongside the status rather than
+  // being folded into it — a workflow that reads status alone cannot tell a
+  // subscription that is leaving from one that is staying. Non-blocking and
+  // exception-safe by contract, so a PostHog outage cannot take down billing.
+  try {
+    const resolvedPriceId = str(price?.id) || str(first.price_id);
+    const { planFromPriceId } = await import("./overage");
+    const { subscriptionChanged } = await import("@/lib/analytics");
+    const plan = planFromPriceId(resolvedPriceId);
+    subscriptionChanged({
+      orgId: ctx.orgId,
+      status: str(data.status) || "unknown",
+      plan: plan === "starter" || plan === "growth" || plan === "enterprise" ? plan : "unknown",
+      scheduled: typeof scheduled?.action === "string",
+      scheduledAction: typeof scheduled?.action === "string" ? scheduled.action : null,
+      source:
+        eventType === "subscription.created"
+          ? "created"
+          : eventType === "subscription.canceled"
+            ? "canceled"
+            : "updated",
+    });
+  } catch {
+    // Analytics observes; it does not gate. See `src/lib/analytics.ts`.
+  }
 
   logInfo("[paddle-event] subscription mirrored", {
     eventType,

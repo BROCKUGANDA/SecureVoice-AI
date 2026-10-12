@@ -8,6 +8,7 @@ import { CONSOLE_ROLES } from "@/lib/auth/identity";
 import { isRole } from "@/lib/auth/roles";
 import { inviteStatus } from "@/lib/auth/invite";
 import { INVITE_TTL_MS } from "@/lib/auth/constants";
+import { seatFacts, seatGate } from "@/lib/billing/seats";
 
 export const dynamic = "force-dynamic";
 
@@ -36,6 +37,10 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: authed.error, code: authed.code }, { status: authed.status });
   }
   const members = await listOrgMembers(authed.orgId);
+  // The seat line travels with the member list, because the list is where an
+  // operator looks to find out whether they can invite someone. A cap that only
+  // appears as a 402 on the button is a cap discovered by being refused.
+  const facts = await seatFacts(authed.orgId);
   return NextResponse.json(
     {
       members: members.map((m) => ({
@@ -45,6 +50,15 @@ export async function GET(req: NextRequest) {
         role: m.role,
         orgId: m.orgId,
       })),
+      seats: {
+        /** null = unlimited, including "no plan resolved for this organization". */
+        allowed: facts.seats,
+        used: facts.members,
+        remaining: facts.remaining,
+        plan: facts.plan,
+        /** Already above the plan's seats (a downgrade). Members are NOT removed. */
+        overCap: facts.members > (facts.seats ?? Infinity),
+      },
     },
     { headers: { "Cache-Control": "no-store" } },
   );
@@ -84,6 +98,30 @@ export async function POST(req: NextRequest) {
   }
   if (role === "Owner" && authed.role !== "Owner") {
     return NextResponse.json({ error: "Only an Owner may invite another Owner." }, { status: 403 });
+  }
+
+  // Seat cap. Runs AFTER every authorization check and BEFORE `issueInvite`, so
+  // a caller who was never allowed to invite is still refused for the reason
+  // that comes first, and an allowed caller is refused before an invitation
+  // record or an email exists — a minted-then-discarded invite is a credential
+  // with a 72-hour life that nobody intended to issue.
+  //
+  // 402, not 403: nothing about the caller's permission is wrong, and the fix is
+  // commercial (upgrade), not procedural (ask an Owner). `api-errors.ts`'s
+  // `paymentRequired()` is deliberately NOT reused here — it stamps
+  // `X-Credits-Balance: 0`, and this refusal says nothing about the wallet.
+  const seats = await seatGate(authed.orgId);
+  if (!seats.ok) {
+    return NextResponse.json(
+      {
+        error: seats.message,
+        code: seats.code,
+        seats: seats.facts.seats,
+        members: seats.facts.members,
+        plan: seats.facts.plan,
+      },
+      { status: 402, headers: { "Cache-Control": "no-store" } },
+    );
   }
 
   const { invite, token } = await issueInvite({

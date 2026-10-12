@@ -290,8 +290,17 @@ model UserProfile {
   id            String        @id @default(cuid())
   // References the Better Auth `user` row. Renamed from clerkUserId at the
   // Clerk -> Better Auth cutover; the column type moves to uuid because
-  // better-auth.ts sets advanced.database.generateId = "uuid" so the tenant
-  // RLS ::uuid cast works on the auth tables without special-casing.
+  // better-auth.ts sets advanced.database.generateId = "uuid" so the id is a
+  // proper UUID rather than a cuid.
+  //
+  // Tenant isolation note: RLS is enforced at the database layer via migration
+  // `9zzzzzzzzzzzzzzzzzzzzzz_tenant_rls` and
+  // `9zzzzzzzzzzzzzzzzzzzzzzz_tenant_rls_coverage`. The policies compare
+  // `"orgId"` against `current_setting('app.org_id')` inside a transaction
+  // that has run `SET LOCAL ROLE sv_tenant`. The connecting role is a superuser
+  // with BYPASSRLS, so the policies bind only inside `withTenantScope` — see
+  // `src/lib/tenancy/db-scope.ts` for the enforcement path and the documented
+  // plan to move the deployment onto a least-privilege database user.
   userId        String        @unique @db.Uuid
   user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   email         String
@@ -627,6 +636,26 @@ model DialJob {
 /// outlived its token's expiry would otherwise be a credential in the database.
 model EmailOutbox {
   id        String   @id @default(cuid())
+  /// Tenant scope. Added by `9zzzzzzzzzzzzzzzzzzzzzzz_tenant_rls_coverage` because
+  /// the comment below claimed this table was "inside the RLS boundary like every
+  /// other tenant-scoped row" while it carried no organisation column at all, so
+  /// there was nothing to be inside.
+  ///
+  /// NULLABLE and additive: a row written before the column existed has no
+  /// recoverable owner, so it keeps a null orgId and falls to the same
+  /// default-deny every other null-orgId row gets from the policy — an unknown
+  /// owner is not an authorisation.
+  ///
+  /// NOTHING WRITES IT YET, and that is stated rather than glossed. The three
+  /// kinds in `kind` below are pre-session by construction: a magic link, an
+  /// invite and a password reset are all produced for an address, from a flow
+  /// that has no signed-in session and therefore no active organization to stamp
+  /// (src/lib/email/outbox.ts, src/lib/email/resend.ts). So for these rows a null
+  /// orgId is not a bug to fix but the correct value, and this column's real use
+  /// is an org-scoped mail flow — which does not exist yet. The policy is still
+  /// worth having: it makes the boundary explicit and it binds the day a caller
+  /// does know its tenant.
+  orgId     String?
   /// Which flow produced this: magic_link | invite | password_reset.
   kind      String
   /// The address being mailed. Personal data: redact in logs, never in metrics.
@@ -660,6 +689,7 @@ model EmailOutbox {
   @@index([toEmail])
   @@index([createdAt])
   @@index([providerMessageId])
+  @@index([orgId, createdAt], map: "EmailOutbox_orgId_createdAt_idx")
 }
 
 /// Inbound email received on the support/legal/founder mailboxes.
@@ -673,6 +703,11 @@ model EmailOutbox {
 /// triage record, not an archive — the mailbox itself holds the original.
 model EmailInbound {
   id           String   @id @default(cuid())
+  /// Tenant scope, same column and same null-means-service-path rule as
+  /// EmailOutbox.orgId. Inbound mail is untrusted and may quote a customer's PII,
+  /// so "which tenant's inbox is this" is the first question a reviewer asks of
+  /// the row — it was unanswerable before this column.
+  orgId        String?
   /// Resend's message id. The idempotency key: a provider retry must not
   /// create a second row.
   messageId    String   @unique
@@ -693,6 +728,7 @@ model EmailInbound {
   @@index([recipient, receivedAt])
   @@index([fromEmail])
   @@index([receivedAt])
+  @@index([orgId, receivedAt], map: "EmailInbound_orgId_receivedAt_idx")
 }
 
 /// Deliveries received by the in-app receiver (the /inspector demo surface,
@@ -816,6 +852,16 @@ model Organization {
   name                String
   slug                String
   logo                String?
+  // White-label primary colour, `#rrggbb` lower case, or null for the platform
+  // default. Stored ALREADY VALIDATED: `src/lib/brand/color.ts` refuses a hex
+  // that fails the WCAG contrast gate, so this column cannot hold a colour that
+  // would render unreadable text. The derived foreground is NOT stored — it is a
+  // pure function of this value, and a second column is a second answer.
+  //
+  // Why it lives on Organization rather than in `metadata`: metadata is an opaque
+  // JSON string with no constraint, and this value is read on every console
+  // paint and written from a settings form that has to be able to reject it.
+  brandPrimary        String?
   createdAt           DateTime
   metadata            String?
   members             Member[]
@@ -874,6 +920,27 @@ model Organization {
   // The tenant's own Twilio auth token, AES-256-GCM sealed like the vendor
   // webhook secret (write-only: the console learns only whether one exists).
   twilioAuthTokenEnc          String?
+
+  // ── Per-tenant BYOK credentials ────────────────────────────────────────────
+  //
+  // These live on the ORGANISATION, not on UserProfile, because the tenant is
+  // the billing and data-isolation boundary. A bank's fraud team shares one
+  // ElevenLabs account and one LLM gateway across every analyst; storing the
+  // key per-user would mean N copies of the same secret, N places to rotate it,
+  // and no way to revoke it for the whole tenant at once.
+  //
+  // Resolution order is org-first, user-fallback: an org-level key wins when
+  // present, and a user-level key (UserProfile.elevenKeyEnc / llmKeyEnc) is the
+  // fallback for a user whose org has not configured one. Both are sealed with
+  // the same AES-256-GCM envelope (src/lib/byok.ts) and decrypted only
+  // in-process.
+  //
+  // `llmBaseUrl` is the OpenAI-compatible endpoint for the org's LLM gateway.
+  // Null means "use the deployment's own configured endpoint" — the same rule
+  // `selectTenantProvider` in src/lib/llm.ts already applies.
+  elevenKeyEnc                String?
+  llmKeyEnc                   String?
+  llmBaseUrl                  String?
   // Institution wallet in intervention credits (1 credit = 1 fired
   // intervention). Consulted whenever the session carries an active
   // organization; the per-user wallet on UserProfile is the org-less

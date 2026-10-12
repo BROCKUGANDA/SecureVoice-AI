@@ -62,7 +62,9 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  PUBLIC_URL: "https://57.130.80.158.sslip.io"
+  # The public hostname Caddy serves. Replaces the retired
+  # 57.130.80.158.sslip.io stand-in (site block + DNS record removed 2026-10-12).
+  PUBLIC_URL: "https://securevoiceai.me"
 
 jobs:
   canary:

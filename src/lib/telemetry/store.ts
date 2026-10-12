@@ -28,7 +28,6 @@ import "server-only";
  */
 
 import { appendFile, mkdir, open, stat } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
 
 import { env } from "../config";
 import {
@@ -49,11 +48,41 @@ const PENDING_MAX = 10_000;
 /** Tail read cap — the log is append-only, so only the tail is ever interesting. */
 export const MAX_READ_BYTES = 8 * 1024 * 1024;
 
+/**
+ * True when a path is already absolute — POSIX (`/x`), Windows drive (`C:\x`,
+ * `C:/x`) or UNC (`\\host\share`). Used in place of `path.isAbsolute` so this
+ * module never imports `node:path`, whose presence makes Turbopack trace the
+ * whole project for filesystem access.
+ */
+function isAbsolutePath(p: string): boolean {
+  return /^([/\\]|[A-Za-z]:[/\\])/.test(p);
+}
+
+/** Minimal `path.join`: normalise the seam and join with `/` (valid on Windows too). */
+function joinPath(...parts: string[]): string {
+  const clean = parts
+    .filter((p) => p.length > 0)
+    .map((p, i) =>
+      i === 0 ? p.replace(/[/\\]+$/, "") : p.replace(/^[/\\]+/, "").replace(/[/\\]+$/, ""),
+    );
+  return clean.join("/");
+}
+
+/** Minimal `path.dirname`: strip the last path segment, keeping the root intact. */
+function dirnamePath(p: string): string {
+  const idx = Math.max(p.lastIndexOf("/"), p.lastIndexOf("\\"));
+  if (idx < 0) return ".";
+  if (idx === 0) return p.slice(0, 1);
+  return p.slice(0, idx);
+}
+
 export function spanLogPath(): string {
   const configured = process.env.TELEMETRY_SPAN_LOG;
-  if (typeof configured === "string" && configured.trim().length > 0)
-    return resolve(configured.trim());
-  return resolve(join(process.cwd(), "evidence", "latency", "spans.jsonl"));
+  if (typeof configured === "string" && configured.trim().length > 0) {
+    const trimmed = configured.trim();
+    return isAbsolutePath(trimmed) ? trimmed : joinPath(process.cwd(), trimmed);
+  }
+  return joinPath(process.cwd(), "evidence", "latency", "spans.jsonl");
 }
 
 /**
@@ -67,7 +96,7 @@ export function spanLogPath(): string {
  */
 export function spanLogDisplayPath(): string {
   const path = spanLogPath();
-  const cwd = resolve/*turbopackIgnore: true*/(process.cwd());
+  const cwd = process.cwd();
   if (path.length > cwd.length && path.slice(0, cwd.length).toLowerCase() === cwd.toLowerCase()) {
     const rest = path.slice(cwd.length).replace(/^[\\/]+/, "");
     if (rest.length > 0) return rest;
@@ -111,7 +140,7 @@ export function flushSpans(): Promise<void> {
     if (batch.length === 0) return;
     try {
       const path = spanLogPath();
-      await mkdir(dirname(path), { recursive: true });
+      await mkdir(/*turbopackIgnore: true*/ dirnamePath(path), { recursive: true });
       // One line per span. No pretty-printing: the file is read far more often
       // than it is read by a human, and JSON.parse per line is the fast path.
       const body = `${batch.map((r) => JSON.stringify(r)).join("\n")}\n`;
@@ -221,11 +250,11 @@ export async function readSpanRecords(options: ReadOptions = {}): Promise<SpanRe
   let truncated = false;
   let bytesRead = 0;
   try {
-    const info = await stat/*turbopackIgnore: true*/(path);
+    const info = await stat(/*turbopackIgnore: true*/ path);
     if (!info.isFile()) return { ...base, error: "not_a_file" };
     const start = Math.max(0, info.size - MAX_READ_BYTES);
     truncated = start > 0;
-    const handle = await open/*turbopackIgnore: true*/(path, "r");
+    const handle = await open(/*turbopackIgnore: true*/ path, "r");
     try {
       const length = info.size - start;
       const buffer = Buffer.alloc(length);

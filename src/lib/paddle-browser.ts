@@ -57,6 +57,129 @@ export function paddleToken(): { env: PaddleEnvironment; token: string } {
 }
 
 /**
+ * Price ids per tier, read from the environment.
+ *
+ * WHY THIS EXISTS, AND WHY IT IS NOT A CONSTANT
+ *
+ * These six ids used to be a hardcoded `Record` of SANDBOX `pri_…` values
+ * declared in `src/views/Pricing.tsx`, with a comment claiming they were "read
+ * from env in any build that is not sandbox". That claim was false: nothing
+ * anywhere read a price id from the environment. A production build therefore
+ * rendered real prices wired to sandbox price objects — a checkout that either
+ * fails outright or, worse, resolves to nothing, with no error to explain it.
+ *
+ * Price ids are environment-specific by definition. A sandbox id is not a stale
+ * live id; it does not exist in the live catalog at all. So they are
+ * configuration, and configuration belongs in the environment.
+ *
+ * ── WHY THERE IS A SEPARATE `NEXT_PUBLIC_` VAR RATHER THAN REUSING PADDLE_PRICES
+ *
+ * `PADDLE_PRICES` is server-only; `NEXT_PUBLIC_*` is inlined into the browser
+ * bundle at build time, so the browser genuinely cannot read the server var.
+ * That forces two vars — but it does NOT force two SHAPES, and this deliberately
+ * uses the identical `key -> pri_…` shape that `parsePriceMap` enforces
+ * server-side, so there is one mental model and one shape to review.
+ *
+ * The tier is recovered from the key's amount prefix (`usd_9900_month` ->
+ * starter) using the same `usd_<cents>` -> plan table the billing code already
+ * uses. An unrecognised amount is a hard error rather than a skipped entry: a
+ * silently-dropped price is a pricing page with a missing Buy button that
+ * reports nothing.
+ */
+
+/**
+ * `usd_<cents>` -> plan id.
+ *
+ * BOTH intervals are listed because the price key encodes the AMOUNT actually
+ * charged, and the annual amount is ten times the monthly one (`usd_99000_year`
+ * is $990/yr against `usd_9900_month` at $99/mo — the 10x annual ratio
+ * `tests/billing/catalog-parity.test.ts` asserts). Listing only the monthly
+ * amounts would leave every `*_year` key unresolvable, and the completeness
+ * check below would then reject the whole map and the pricing page would refuse
+ * to render. Mirrors PRICE_KEY_TO_PLAN in payments/overage.ts, which carries the
+ * monthly set because billing only ever quotes a monthly anchor.
+ */
+const AMOUNT_TO_PLAN: Readonly<Record<string, string>> = Object.freeze({
+  usd_9900: "starter",
+  usd_99000: "starter",
+  usd_49900: "growth",
+  usd_499000: "growth",
+  usd_200000: "enterprise",
+  usd_2000000: "enterprise",
+});
+
+type PriceTier = { month: string; year: string };
+
+/**
+ * The price id map by tier, or null when the environment does not supply one.
+ *
+ * `null` rather than a throw here: the caller decides what a missing map means.
+ * The pricing page turns it into a loud failure (see `paddlePriceIds`), while a
+ * component that merely wants to know "is checkout wired?" can ask
+ * `paddlePricesConfigured` without catching.
+ */
+function readPriceIds(): Record<string, PriceTier> | null {
+  const raw = process.env.NEXT_PUBLIC_PADDLE_PRICES;
+  if (!raw) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+
+  const byTier: Record<string, PriceTier> = {};
+  for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
+    if (typeof value !== "string" || !/^pri_[A-Za-z0-9]+$/.test(value)) continue;
+    // Key shape: `usd_<cents>_<interval>`.
+    const parts = key.split("_");
+    if (parts.length < 3) continue;
+    const plan = AMOUNT_TO_PLAN[parts.slice(0, 2).join("_")];
+    if (!plan) continue;
+    const interval = parts[2];
+    if (interval !== "month" && interval !== "year") continue;
+    const tier = (byTier[plan] ??= { month: "", year: "" });
+    tier[interval] = value;
+  }
+
+  // Only usable if EVERY tier has BOTH intervals. A half-filled map would render
+  // a working monthly Buy and a dead annual one, which reads as a bug in one tier
+  // rather than a config error.
+  const complete = Object.values(byTier).every(
+    (t) => t.month.startsWith("pri_") && t.year.startsWith("pri_"),
+  );
+  return Object.keys(byTier).length > 0 && complete ? byTier : null;
+}
+
+/**
+ * Price ids for the pricing page, by tier.
+ *
+ * Throws when the environment supplies no complete map. This is the ONE place
+ * the missing config is allowed to be loud: the pricing page is where a customer
+ * is about to be shown a Buy button, and a Buy button wired to nothing is worse
+ * than a build that refuses to render one.
+ */
+export function paddlePriceIds(): Record<string, PriceTier> {
+  const ids = readPriceIds();
+  if (!ids) {
+    throw new Error(
+      "NEXT_PUBLIC_PADDLE_PRICES is not set to a complete price map. It must be " +
+        'JSON of usd_<cents>_<month|year> -> "pri_...", e.g. ' +
+        '{"usd_9900_month":"pri_…","usd_9900_year":"pri_…", …}. ' +
+        "Refusing to fall back to any bundled id — sandbox price ids do not exist " +
+        "in the live catalog.",
+    );
+  }
+  return ids;
+}
+
+/** True when the environment supplies a complete price map. */
+export function paddlePricesConfigured(): boolean {
+  return readPriceIds() !== null;
+}
+
+/**
  * Initialise Paddle once, idempotently.
  *
  * The promise is cached so a component re-mounting (a view switch in this SPA,

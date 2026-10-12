@@ -113,17 +113,15 @@ export function Footer() {
         </div>
 
         <div className="mt-8 flex flex-wrap items-center justify-between gap-2 border-t border-line pt-4">
-          <p className="text-[10.5px] text-ink-3">
-            © 2026 SecureVoice AI · Built for UAE banking
-          </p>
+          <p className="text-[10.5px] text-ink-3">© 2026 SecureVoice AI · Built for UAE banking</p>
           {/*
-            * Release version.
-            *
-            * Read from package.json at build time (see src/lib/version.ts) — not
-            * typed here, so it cannot drift from the build that is actually
-            * serving. `title` carries the full string because the visible label is
-            * deliberately small.
-            */}
+           * Release version.
+           *
+           * Read from package.json at build time (see src/lib/version.ts) — not
+           * typed here, so it cannot drift from the build that is actually
+           * serving. `title` carries the full string because the visible label is
+           * deliberately small.
+           */}
           <p
             className="num text-[10.5px] text-ink-3"
             title={`SecureVoice AI release ${APP_VERSION}`}

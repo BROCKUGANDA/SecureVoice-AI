@@ -19,7 +19,6 @@ import {
   Timer,
   Siren,
   ClipboardCheck,
-  Coins,
   Download,
   Mail,
 } from "lucide-react";
@@ -39,6 +38,7 @@ import { MailInbox } from "@/components/console/MailInbox";
 import { LoadingIndicator } from "@/components/fx/LoadingIndicator";
 import { walletEmptyNotice } from "@/lib/credits-wallet";
 import { getInstitutionLabels } from "@/lib/institution-context";
+import { CreditWidget } from "@/components/billing/CreditWidget";
 
 /**
  * Operator Command Center — run the platform for real, on your own information:
@@ -426,10 +426,7 @@ export function Console() {
    * "Insurance". The labels come from `/api/console/settings` and default to
    * bank vocabulary when the org hasn't declared a type.
    */
-  const labels = getInstitutionLabels(
-    branding?.institutionType,
-    branding?.shariahCompliant,
-  );
+  const labels = getInstitutionLabels(branding?.institutionType, branding?.shariahCompliant);
 
   // Live Operations: poll the audit chain for the active call's transcript.
   // The post_call_ingest row carries the redacted transcript in redactedText.
@@ -853,15 +850,7 @@ export function Console() {
               🟡 {t("Demo Mode", "وضع العرض التجريبي", lang)}
             </span>
           )}
-          <Chip
-            className={cn(
-              "!text-[10.5px]",
-              credits === 0 && "!border-red-200 !bg-red-50 !text-red-700",
-            )}
-          >
-            <Coins className="h-3 w-3" /> {credits === null ? "…" : credits.toLocaleString()}{" "}
-            {t("credits left", "رصيد متبقٍّ", lang)}
-          </Chip>
+          <CreditWidget initialCredits={credits ?? undefined} className="!text-[10.5px]" />
           <Chip className="!text-[10.5px]">
             <PhoneCall className="h-3 w-3 text-primary" /> {t("telephony", "الهاتف", lang)}:{" "}
             {status?.telephony ?? "…"}
@@ -1345,8 +1334,7 @@ export function Console() {
                               lang,
                             )
                           : "—"}{" "}
-                        · {c.plannedAction ?? "—"} ·{" "}
-                        {new Date(c.at).toLocaleTimeString()}
+                        · {c.plannedAction ?? "—"} · {new Date(c.at).toLocaleTimeString()}
                       </p>
                     </div>
                     <span

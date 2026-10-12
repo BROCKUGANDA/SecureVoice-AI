@@ -37,6 +37,27 @@ delete process.env.TWILIO_LIVE_SEND;
 // tests/webhooks); the post-call ingest test also asserts the key-less drop.
 delete process.env.PRIVACY_MASTER_KEY;
 
+// A test-only Better Auth secret, so a suite that reaches the auth layer runs
+// on a machine that has not configured one.
+//
+// `src/lib/better-auth.ts` refuses to construct with a missing or short
+// BETTER_AUTH_SECRET, and the import is what three tenancy suites trip on the
+// first time they touch a route (`console-routes`, `crm-and-pull-routes`,
+// `isolation`). A developer's `.env` may or may not carry one, so the suite was
+// green or red depending on the machine, which is the worst of both.
+//
+// `??=`, not `=`: a real environment wins, and this value is never a credential.
+// It is a constant in a test harness, and anything that reaches an actual Better
+// Auth crypto path in a suite should set its own — the same rule the three hard
+// floors above already follow.
+process.env.BETTER_AUTH_SECRET ??= "test-only-better-auth-secret-not-a-credential-0123456789abcdef";
+
+// The origin Better Auth derives its own URLs from, same reasoning as above: the
+// three tenancy suites that construct the auth layer fail to import without it,
+// which made them red or green depending on whether the developer's `.env`
+// happened to carry it. `??=` again, and a real environment still wins.
+process.env.BETTER_AUTH_URL ??= process.env.APP_URL ?? "http://localhost:3000";
+
 // Latency gates (docs/VERIFICATION.md WP-3) assume the production topology
 // from docs/HETZNER.md: Postgres co-located with the app. When a caller
 // provides TEST_DATABASE_URL, every test runs against that database instead
@@ -55,17 +76,31 @@ if (process.env.LOAD_DATABASE_URL) {
   process.env.DATABASE_URL = process.env.LOAD_DATABASE_URL;
 }
 
-// Append-only audit log (prisma/migrations/9zzzzzzzzz_immutable_audit) adds a
-// BEFORE UPDATE/DELETE trigger that raises, so a compromised app credential
-// cannot rewrite history. Production keeps it. Several DB-backed suites mutate
-// AuditLog on purpose — teardown wipes the rows they seeded, and the chain
-// tamper-detection gates forge a row — which the fully-migrated CI test database
-// blocks (P0001). This preload runs ONLY under `bun test`, and disables the
-// trigger on whatever DATABASE_URL the run points at, best-effort: on a database
-// that has not applied the migration (the local dev instance) the ALTER simply
-// fails and is ignored, so this is a no-op there and effective on the disposable
-// CI test DB. No suite asserts the trigger fires, so this cannot mask a
-// regression of the immutability feature.
+// Append-only audit log (prisma/migrations/9zzzzzzzzz_immutable_audit and
+// ..._audit_immutability_grants) puts a BEFORE UPDATE/DELETE trigger on "AuditLog"
+// that raises, so a compromised app credential cannot rewrite history. Production
+// keeps it. Several DB-backed suites mutate AuditLog on purpose — teardown wipes
+// the rows they seeded, and the chain tamper-detection gates forge a row to prove
+// verifyChain() names it — which a fully-migrated database blocks (P0001). This
+// preload runs ONLY under `bun test` and disables the trigger on whatever
+// DATABASE_URL the run points at, best-effort: a database without the migration
+// fails the ALTER and it is ignored.
+//
+// Read what that costs. `ALTER TABLE ... DISABLE TRIGGER` is persistent TABLE
+// state, not session state — it is not reverted when the test process exits, so
+// the guard is off for EVERY connection to that database for the rest of the run,
+// and until `scripts/run-tests.mjs` restores it, after it. Measured on the dev
+// database, not reasoned: `pg_trigger.tgenabled` read 'D' between runs. That
+// window is why the control has a second, harness-independent half: the same
+// migration REVOKEs UPDATE and DELETE from `sv_tenant`, which keeps binding the
+// tenant-scoped path (`src/lib/tenancy/db-scope.ts`) while this is off, and which
+// no amount of table-state fiddling from a test process can reach.
+//
+// So this line is not "the feature is untested and therefore un-masking".
+// Prevention is asserted with the trigger live by
+// tests/tenancy/audit-immutability.test.ts, which enables it inside a transaction
+// it always rolls back, and which then asserts the catalog state it found is the
+// state it leaves.
 if (process.env.DATABASE_URL) {
   try {
     const { default: pg } = await import("pg");

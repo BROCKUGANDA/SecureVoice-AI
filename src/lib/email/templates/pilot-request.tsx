@@ -97,8 +97,8 @@ export function PilotRequestEmail({
 
           <Hr style={hrStyle} />
           <Text style={footerStyle}>
-            Reply directly to this email to answer {name}. The request is also
-            stored against reference {ref} in the platform.
+            Reply directly to this email to answer {name}. The request is also stored against
+            reference {ref} in the platform.
           </Text>
           <Text style={footerStyle}>
             {BRAND.name} · {baseUrl}
@@ -111,8 +111,7 @@ export function PilotRequestEmail({
 
 const bodyStyle: React.CSSProperties = {
   backgroundColor: "#f6f7f6",
-  fontFamily:
-    '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
+  fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
   padding: "24px 0",
 };
 const containerStyle: React.CSSProperties = {

@@ -111,9 +111,7 @@ describe("CurrentUserAvatar", () => {
     const user = userEvent.setup();
     signIn({ name: "Fatima", email: "f@bank.ae", image: null });
     render(<CurrentUserAvatar />);
-    expect(
-      screen.getByLabelText("Profile photo of the signed-in user"),
-    ).toBeTruthy();
+    expect(screen.getByLabelText("Profile photo of the signed-in user")).toBeTruthy();
   });
 
   it("tolerates a doubled space in the name rather than emitting a stray character", () => {

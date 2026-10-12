@@ -215,6 +215,10 @@ const PUBLIC_BY_DESIGN: Readonly<Record<string, string>> = {
     "Paddle notification destination; authenticated by Paddle's OWN signature over `ts:body`, verified with client.webhooks.isSignatureValid against PADDLE_WEBHOOK_SECRET and failing closed with 400 on an absent, stale or forged header — not an operator session, because the caller is Paddle and Paddle has no session. Proven end-to-end with the real sandbox signing secret: a correctly signed delivery returns 200 { received: true, credited: true }, while a wrong secret, a missing signature and a replayed timestamp all return 400 invalid_signature",
   "/.well-known/apple-developer-merchantid-domain-association":
     "Paddle Apple Pay domain-verification file; static bytes served to Apple's crawler and Paddle's verifier, neither of which holds an operator session — takes no parameters and exposes no tenant data",
+  "/.well-known/security.txt":
+    "RFC 9116 security contact, read from public/security.txt; static bytes served to researchers and scanners, who hold no operator session — takes no parameters and exposes no tenant data",
+  "/llms.txt":
+    "plain-text site brief for search and answer-engine crawlers, in the same family as /robots.txt and /sitemap.xml: derived from INDEXABLE_PATHS and PLANS, takes no parameters, reads no database and exposes no tenant data — proven by tests/surface/llms-txt.test.ts, which also pins that every link it emits is an already-public page",
 };
 
 export function isPublicByDesign(path: string): boolean {

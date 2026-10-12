@@ -111,7 +111,11 @@ export function Docs() {
           {t("INTEGRATION SUPPORT", "دعم التكامل", lang)}
         </span>
         <span className="text-[13px] text-ink-2">
-          {t("Questions on the contract, a key, or a live pilot:", "أسئلة حول العقد أو المفتاح أو تجربة ميدانية:", lang)}
+          {t(
+            "Questions on the contract, a key, or a live pilot:",
+            "أسئلة حول العقد أو المفتاح أو تجربة ميدانية:",
+            lang,
+          )}
         </span>
         <a
           href={`mailto:${SUPPORT_EMAIL}?subject=SecureVoice%20integration%20question`}
@@ -119,9 +123,7 @@ export function Docs() {
         >
           {SUPPORT_EMAIL}
         </a>
-        <span className="text-[12.5px] text-ink-3">
-          {t("·", "·", lang)}
-        </span>
+        <span className="text-[12.5px] text-ink-3">{t("·", "·", lang)}</span>
         <a
           href={`${API_BASE_URL}/openapi`}
           className="text-[12.5px] text-ink-2 underline underline-offset-2"

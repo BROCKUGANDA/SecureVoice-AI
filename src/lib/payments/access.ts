@@ -1,5 +1,6 @@
 import "server-only";
 import { db } from "@/lib/db";
+import { logWarn } from "@/lib/validation/safe-log";
 
 /**
  * Does this subscription currently grant paid access?
@@ -94,9 +95,10 @@ export function isAtRisk(status: string | null | undefined): boolean {
 /**
  * The newest mirror row for an org, or null.
  *
- * Scoped through `scopedDb`, so it cannot resolve another org's subscription —
- * `subscriptionId` is globally unique and an unscoped read would happily return
- * anyone's row from the id alone.
+ * The read is filtered by `orgId`, and `orgId` comes from the session at every
+ * call site — never from a request body. `subscriptionId` is globally unique, so
+ * a lookup by id alone would resolve another tenant's row; going org-first is what
+ * keeps the id unguessable from the outside.
  */
 export async function currentSubscription(orgId: string): Promise<{
   subscriptionId: string;
@@ -142,4 +144,66 @@ export async function accessFor(orgId: string): Promise<
     return { granted: false, reason: "no_subscription", needsAttention: false, subscription: null };
   const decision = decideAccess(sub.status);
   return { ...decision, subscription: sub };
+}
+
+/**
+ * May this tenant place a NEW outbound intervention call?
+ *
+ * A DIFFERENT question from `decideAccess` above, which asks whether they may use
+ * the product they paid for. The two deliberately disagree on `paused`, and one
+ * module owns both so the disagreement is visible rather than accidental:
+ *
+ *   `paused` blocks dialling. A pause is the customer turning the dialler off as
+ *     well as the invoice: nothing else in the system knows that decision, the
+ *     credits are still in the ledger, consent is still valid, and the calling-hour
+ *     gate would happily place the call. Without this the tenant keeps calling
+ *     their own customers on a carrier account that stopped billing them.
+ *   `past_due` does NOT block. Paddle's dunning ladder runs for up to about two
+ *     weeks, and cutting off a bank mid-incident because a card expired on a Friday
+ *     night is a worse outcome than an invoice that may still be collected. That
+ *     is the same call `decideAccess` makes, for the same reason.
+ *   `canceled` does NOT block either: a tenant who cancelled at period end keeps
+ *     the prepaid credits they already bought, and stranding paid-for credits to
+ *     punish a cancellation is not a wallet policy a bank will trust. They spend
+ *     down, then stop.
+ *   No subscription row at all does NOT block. The reference deployment, a
+ *     self-hosted pilot and a manual bank-transfer tenant have no Paddle mirror row
+ *     by definition, so absence cannot mean revocation — the ledger and the budget
+ *     breaker are the authority for them.
+ *
+ * Read-only, and the conservative direction on failure is the one that keeps
+ * protecting customers: an unreadable billing state allows the dial and is logged,
+ * which is safe precisely because `paused` is a preference and not a security
+ * boundary.
+ */
+const BLOCKS_DIALLING: ReadonlySet<string> = new Set(["paused"]);
+
+export type DiallingAccess =
+  { allowed: true; status: string | null } | { allowed: false; status: string; reason: string };
+
+export async function diallingBlockedFor(orgId: string | null): Promise<DiallingAccess> {
+  if (!orgId) return { allowed: true, status: null };
+  try {
+    const sub = await currentSubscription(orgId);
+    if (!sub) return { allowed: true, status: null };
+    if (BLOCKS_DIALLING.has(sub.status)) {
+      return {
+        allowed: false,
+        status: sub.status,
+        reason: "this organisation's subscription is paused",
+      };
+    }
+    return { allowed: true, status: sub.status };
+  } catch (err) {
+    logWarn("[billing-access] subscription state unreadable — allowing the dial", {
+      orgId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return { allowed: true, status: null };
+  }
+}
+
+/** Boolean form, for the `if (...) refuse(thisSignal)` call site in the gate. */
+export async function mayDialFor(orgId: string | null): Promise<boolean> {
+  return (await diallingBlockedFor(orgId)).allowed;
 }

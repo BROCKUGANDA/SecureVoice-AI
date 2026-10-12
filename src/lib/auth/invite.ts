@@ -135,11 +135,28 @@ export type AcceptInviteInput = {
    *  (magic-link-only), which is the primary operator path. */
   password?: string;
   now?: number;
+  /**
+   * Seat cap checked at REDEMPTION, before the invitation is consumed.
+   *
+   * The cap at issuance cannot cover this path on its own: a tenant can be
+   * downgraded to a plan with fewer seats while invitations sit unconsumed for
+   * their full 72-hour TTL, and without this every one of those emails would
+   * still create an account. Injected rather than imported so this module does
+   * not depend on billing (which depends on the tenant read, which depends on
+   * auth) — the caller supplies the policy, this module supplies the ordering.
+   *
+   * A refusal here must NOT consume the invite: the seat may free, and a
+   * credential destroyed by the TENANT's billing state is unrecoverable work
+   * for a recoverable condition.
+   */
+  seatGate?: (orgId: string) => Promise<{ ok: true } | { ok: false; message: string }>;
 };
 
 export type AcceptInviteResult =
   | { ok: true; identity: Identity; session: IssuedSession }
-  | { ok: false; reason: InviteRejection; error: string };
+  | { ok: false; reason: InviteRejection; error: string }
+  /** Distinct from `InviteRejection`: those are 410 Gone, this one is 402. */
+  | { ok: false; reason: "seat_full"; error: string; orgId: string };
 
 const REJECTION: Record<InviteRejection, string> = {
   unknown_invite: "That invitation is not valid.",
@@ -199,6 +216,24 @@ export async function acceptInvite(input: AcceptInviteInput): Promise<AcceptInvi
       meta: { inviteId: invite.inviteId, reason: "email_mismatch" },
     });
     return reject("email_mismatch");
+  }
+
+  // Seat cap, checked BEFORE the consume marker is written. Past `take()` the
+  // invitation is dead, so a cap enforced after it would turn a tenant's plan
+  // change into destroyed credentials — and the seat could free an hour later
+  // with nothing left to redeem.
+  if (input.seatGate) {
+    const seat = await input.seatGate(invite.orgId);
+    if (!seat.ok) {
+      await auditAuthEvent({
+        intent: AUTH_AUDIT_INTENTS.inviteRejected,
+        actorId: invite.issuedBy,
+        orgId: invite.orgId,
+        note: "invite redemption refused by the plan's seat cap (invitation left usable)",
+        meta: { inviteId: invite.inviteId, reason: "seat_limit_reached" },
+      });
+      return { ok: false, reason: "seat_full", error: seat.message, orgId: invite.orgId };
+    }
   }
 
   // Validate the password BEFORE the invite is consumed. A weak or over-long

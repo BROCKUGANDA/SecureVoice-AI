@@ -60,7 +60,13 @@ function event(reference: string, over: Record<string, unknown> = {}) {
       id: "txn_01test",
       status: "completed",
       custom_data: { reference },
-      items: [{ price_id: "pri_01test", quantity: 1, unit_price: { amount: "1000", currency_code: "USD" } }],
+      items: [
+        {
+          price_id: "pri_01test",
+          quantity: 1,
+          unit_price: { amount: "1000", currency_code: "USD" },
+        },
+      ],
       ...over,
     },
   };
@@ -100,7 +106,9 @@ describe("signature header parsing", () => {
 describe("digest", () => {
   test("signs `${ts}:${body}` — the ts prefix is part of the signed string", () => {
     const body = '{"a":1}';
-    const withPrefix = createHmac("sha256", SECRET).update("123:" + body).digest("hex");
+    const withPrefix = createHmac("sha256", SECRET)
+      .update("123:" + body)
+      .digest("hex");
     const withoutPrefix = createHmac("sha256", SECRET).update(body).digest("hex");
 
     expect(paddleDigest(body, SECRET, "123")).toBe(withPrefix);
@@ -277,13 +285,22 @@ describe("verifyWebhook — refuses what it must", () => {
 
 describe("event decoding", () => {
   test("maps transaction.refunded to refund.succeeded", () => {
-    const e = decodePaddleEvent({ ...event(buildReference("o", "p")), event_type: "transaction.refunded" });
+    const e = decodePaddleEvent({
+      ...event(buildReference("o", "p")),
+      event_type: "transaction.refunded",
+    });
     expect(e?.kind).toBe("refund.succeeded");
   });
 
   test("refuses a payload with no items", () => {
     const r = buildReference("o", "p");
-    expect(decodePaddleEvent({ event_id: "e", event_type: "transaction.completed", data: { custom_data: { reference: r } } })).toBeNull();
+    expect(
+      decodePaddleEvent({
+        event_id: "e",
+        event_type: "transaction.completed",
+        data: { custom_data: { reference: r } },
+      }),
+    ).toBeNull();
   });
 
   test("refuses a zero or non-integer amount", () => {
@@ -422,9 +439,12 @@ describe("createCheckout", () => {
       cfg({
         http: async (url, init) => {
           seen = { url, init };
-          return new Response(JSON.stringify({ data: { id: "txn_1", checkout: { url: "https://pay.example/x" } } }), {
-            headers: { "content-type": "application/json" },
-          });
+          return new Response(
+            JSON.stringify({ data: { id: "txn_1", checkout: { url: "https://pay.example/x" } } }),
+            {
+              headers: { "content-type": "application/json" },
+            },
+          );
         },
       }),
     );

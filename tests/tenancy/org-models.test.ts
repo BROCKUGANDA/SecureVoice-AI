@@ -206,3 +206,62 @@ test("DialJob: a worker read is genuinely cross-org, which is why it is not scop
 
   await db.$executeRawUnsafe(`DELETE FROM dial_job WHERE "id" LIKE $1`, `reg-probe-${RUN}-%`);
 });
+
+// ── The routes that CANNOT reach a scope at all ──────────────────────────────
+//
+// The conversion brief for the console routes has a second failure mode besides
+// "the policy is not binding": a path that cannot be expressed through the guard.
+// Three of the five handlers in this pass hit that, and these asserts are the
+// evidence — they are the reason `GET /api/console/me`, `GET /api/console/mail`
+// and the organisation half of `/api/console/settings` stay on the application
+// client instead of being wrapped in something that would silently return
+// nothing.
+
+test("Organization and EmailInbound are in neither registry, so scopedDb refuses them", () => {
+  for (const model of ["Organization", "EmailInbound"]) {
+    expect(isTenantedModel(model), `${model} must not be registered as a tenant model`).toBe(false);
+    expect(
+      Object.prototype.hasOwnProperty.call(PLATFORM_MODELS, model),
+      `${model} must not be platform-declared either`,
+    ).toBe(false);
+  }
+});
+
+test("EmailInbound: the guard throws rather than guessing a scope for it", async () => {
+  let caught: unknown = null;
+  try {
+    await scopedDb({ shared: true }).emailInbound.count();
+  } catch (err) {
+    caught = err;
+  }
+  expect(isTenancyScopeError(caught)).toBe(true);
+  expect((caught as { reason: string }).reason).toBe("unregistered_model");
+  // Which means the org-less arm of `/api/console/mail` is not available either:
+  // the only client that can read that table is the plain one, so the route's
+  // control is its operator-role gate.
+});
+
+test("UserProfile: the shared namespace cannot be expressed against a uuid org column", async () => {
+  // `orgScopeFor(null)` is `{ OR: [{ orgId: null }, { orgId: "default" }] }`, and
+  // `UserProfile.orgId` is `@db.Uuid`. Postgres rejects the literal before any row
+  // is read, so an org-less session cannot go through `scopedDb` for this model —
+  // the reason `/api/console/settings` keeps the plain client on that arm while a
+  // concrete tenant goes through `withTenantScope`.
+  const SOME_USER = `00000000-0000-4000-8000-${Date.now().toString(16).padStart(12, "0")}`;
+  let shared: unknown = null;
+  try {
+    await scopedDb({ shared: true }).userProfile.findFirst({ where: { userId: SOME_USER } });
+  } catch (err) {
+    shared = err;
+  }
+  expect(String(shared)).toMatch(/uuid/i);
+
+  // Control: the same delegate DOES work through a concrete scope, so the failure
+  // above is the `'default'` literal and not the model being unreachable.
+  const orgId = `11111111-0000-4000-8000-${Date.now().toString(16).padStart(12, "0")}`;
+  const rows = await scopedDb({ orgId }).userProfile.findMany({
+    where: { userId: SOME_USER },
+    select: { userId: true },
+  });
+  expect(rows).toEqual([]);
+});

@@ -134,13 +134,16 @@ export async function claimBatch(
   return rows;
 }
 
-export type SendOutcome = { id: string; status: "SENT"; attempts: number } | {
-  id: string;
-  status: "RETRY";
-  attempts: number;
-  nextAttemptAt: Date;
-  reason: string;
-} | { id: string; status: "DEAD"; attempts: number; reason: string };
+export type SendOutcome =
+  | { id: string; status: "SENT"; attempts: number }
+  | {
+      id: string;
+      status: "RETRY";
+      attempts: number;
+      nextAttemptAt: Date;
+      reason: string;
+    }
+  | { id: string; status: "DEAD"; attempts: number; reason: string };
 
 /**
  * Send one claimed message via the Resend sender.
@@ -152,10 +155,20 @@ export type SendOutcome = { id: string; status: "SENT"; attempts: number } | {
  * worth a support page.
  */
 export async function deliverEmail(
-  row: { id: string; kind: string; toEmail: string; subject: string; payload: string; attempts: number },
-  sendRaw: (input: { to: string; subject: string; kind: string; props: Record<string, unknown> }) => Promise<
-    { ok: true; id: string } | { ok: false; reason: string }
-  >,
+  row: {
+    id: string;
+    kind: string;
+    toEmail: string;
+    subject: string;
+    payload: string;
+    attempts: number;
+  },
+  sendRaw: (input: {
+    to: string;
+    subject: string;
+    kind: string;
+    props: Record<string, unknown>;
+  }) => Promise<{ ok: true; id: string } | { ok: false; reason: string }>,
 ): Promise<SendOutcome> {
   const attempt = row.attempts + 1;
 
@@ -243,7 +256,11 @@ export type DeliverySignal = "bounced" | "complained" | "delayed" | "delivered";
 
 export type DeliverySignalOutcome =
   | { matched: true; id: string; state: EmailState; signal: DeliverySignal }
-  | { matched: false; signal: DeliverySignal; reason: "no_provider_message_id" | "unknown_message_id" };
+  | {
+      matched: false;
+      signal: DeliverySignal;
+      reason: "no_provider_message_id" | "unknown_message_id";
+    };
 
 /**
  * Apply a provider delivery signal to the outbox row that produced the message.

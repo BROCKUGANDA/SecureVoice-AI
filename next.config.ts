@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import { withSentryConfig } from "@sentry/nextjs/config";
 import { readFileSync } from "node:fs";
 
 /**
@@ -163,4 +164,27 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+// Sentry's build wrapper IS exported by `@sentry/nextjs@11.4.0` — from the
+// `./config` subpath, not the root entry. A note left here previously claimed the
+// wrapper did not exist, which is how browser-side error capture stayed switched
+// off while the code that configures it sat in the repo looking complete.
+//
+// Applied only when upload credentials exist. `SENTRY_DSN` governs RUNTIME
+// reporting (see src/instrumentation-client.ts); `SENTRY_AUTH_TOKEN` governs
+// BUILD-TIME source-map upload, and running the wrapper without it makes the
+// build do work it cannot finish for a reason that has nothing to do with the
+// application. `telemetry: false` because a build must not phone home.
+export function withObservability(
+  config: NextConfig,
+  env: Record<string, string | undefined> = process.env,
+): NextConfig {
+  if (!env.SENTRY_AUTH_TOKEN || !env.SENTRY_DSN) return config;
+  return withSentryConfig(config, {
+    org: env.SENTRY_ORG,
+    project: env.SENTRY_PROJECT,
+    telemetry: false,
+    silent: true,
+  });
+}
+
+export default withObservability(nextConfig);

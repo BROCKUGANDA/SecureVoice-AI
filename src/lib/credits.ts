@@ -35,6 +35,53 @@ import { logError } from "@/lib/validation/safe-log";
 
 export type Role = "operator" | "demo";
 
+/**
+ * Better Auth's membership role, resolved into this module's two values.
+ *
+ * This used to be `membershipRole as Role` — a cast that turned "owner" into
+ * "operator" by assertion. It was not wrong, it was unchecked: TypeScript accepted
+ * a string from another vocabulary, every member row written by Better Auth is
+ * `owner`/`admin`/`member`, and the next line of the program is
+ * `requireOperator()`'s `profile.role !== "operator"` — so the day a real
+ * membership exists, EVERY institution admin starts answering 403 on settings,
+ * billing, seats, documents and the guardrail surface, and the console shows a
+ * paying bank "Operator access required" while it is signed in as the Owner.
+ *
+ * It has stayed invisible because this deployment's `member` table is empty: the
+ * fallback branch below has been the only one ever taken. An unexercised branch
+ * of an authorisation check is not a low-risk branch, it is an untested one.
+ *
+ * ── The mapping, and why it goes this way ────────────────────────────────────
+ * `operator` is "this person administers the institution" (the 403 message says
+ * exactly that), so it maps to the roles that can change an organisation:
+ * `owner` and `admin`. A plain `member` is a console user who is not the
+ * institution's administrator, and an unknown or empty role gets the least
+ * privileged answer rather than the convenient one — a typo'd role in the
+ * provider must not read as an admin. `ServiceAccount` is a machine identity
+ * authenticated by a producer key; honouring it on a browser session is refused
+ * by the same reasoning in `src/lib/identity/session-role-map.ts`.
+ *
+ * The name `demo` is legacy and is kept because 45 call sites read it. It means
+ * "signed in, not an institution administrator", and the console renders a Demo
+ * Mode badge for it — see `requireSignedIn`.
+ */
+export function roleFromMembership(membershipRole: string | null, orgId: string | null): Role {
+  if (membershipRole === null) {
+    // No membership row consulted: an org-less session is the shared demo
+    // workspace; a session WITH an active org but no member row is the pre-
+    // Better-Auth shape this file was written against, and stays an operator so
+    // the existing pilot logins keep working the day memberships are introduced.
+    return orgId ? "operator" : "demo";
+  }
+  switch (membershipRole.toLowerCase()) {
+    case "owner":
+    case "admin":
+      return "operator";
+    default:
+      return "demo";
+  }
+}
+
 export type PlatformProfile = {
   userId: string;
   email: string;
@@ -85,7 +132,9 @@ export async function getProfile(): Promise<PlatformProfile | null> {
     const member = await auth.api.getActiveMember({ headers: await headers() });
     membershipRole = member?.role ?? null;
   }
-  const role: Role = membershipRole ? (membershipRole as Role) : orgId ? "operator" : "demo";
+  // Mapped, never cast: see `roleFromMembership`. A value from Better Auth's
+  // vocabulary is not a `Role` because the compiler was told to believe it is.
+  const role: Role = roleFromMembership(membershipRole, orgId);
 
   const row = await db.userProfile.upsert({
     where: { userId: user.id },
@@ -122,7 +171,12 @@ export async function getProfile(): Promise<PlatformProfile | null> {
     userId: row.userId,
     email: row.email,
     name: row.name,
-    role: row.role as Role,
+    // Normalised, not cast. `userProfile.role` is a free-form TEXT column, and a
+    // row written by the old `membershipRole as Role` would have stored the
+    // literal "owner" — which `requireOperator()` then reads as "not an operator"
+    // and 403s forever, with no way to repair it from the console. Anything that
+    // is not exactly the operator value is not an operator.
+    role: row.role === "operator" ? "operator" : "demo",
     orgId: row.orgId,
     credits,
     walletScope,

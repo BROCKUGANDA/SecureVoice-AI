@@ -19,7 +19,7 @@
 | Languages covered          | English, Arabic (live end-to-end) + Hindi, Urdu (live) + French, Bengali (roadmap)                 |
 | Prior ElevenLabs use (Y/N) | N                                                                                                  |
 | Team size / based in       | Solo founder + AI engineering pipeline · Dubai, UAE                                                |
-| Website or repo            | https://github.com/aaron-otema/securevoice (private) · live demo at https://57.130.80.158.sslip.io |
+| Website or repo            | https://github.com/aaron-otema/securevoice (private) · live demo at https://securevoiceai.me |
 
 ### B. The idea in one line (25 words max)
 
@@ -277,7 +277,7 @@ between them is a documentation bug.
 
 ### Q. Proof of build (two links)
 
-1. **Live deployed app** — https://57.130.80.158.sslip.io (public demo, real product surface, all five tracks scoped: fraud = SHIPPED, collections/servicing = pilot pipeline, pre-auth/hard-moments = reference build). The pilot bank gets a dedicated hostname on its own domain once carrier caller-ID approval lands.
+1. **Live deployed app** — https://securevoiceai.me (public demo, real product surface, all five tracks scoped: fraud = SHIPPED, collections/servicing = pilot pipeline, pre-auth/hard-moments = reference build). The pilot bank gets a dedicated hostname on its own domain once carrier caller-ID approval lands.
 2. **60-second walkthrough of the architecture (box L)** — recorded; see `docs/WALKTHROUGH.md` (script, scene table, and the cut at `scripts/walkthrough/out/video/take.webm`, 2:37).
 
 ---

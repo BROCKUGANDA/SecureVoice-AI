@@ -246,7 +246,14 @@ function signedWebhook(payload: Record<string, unknown>): { raw: Buffer; signatu
 }
 
 const entitlements: StoredEntitlement[] = [
-  { key: "platform_licence", label: "Platform licence", units: 0 },
+  // A real unit count, so settlement credits the allowance the customer bought
+  // — NOT the payment's minor-unit amount. `units: 0` used to sit here, and the
+  // settlement logic fell back to `money.amountMinor` when a payment carried no
+  // positive unit count: a 250,000-minor-unit payment booked 250,000 "credits".
+  // That is bug #204 — money and intervention credits are different
+  // denominations. The allowance now travels on the entitlement (mint-time),
+  // and a payment with no units and no plan token credits nothing.
+  { key: "platform_licence", label: "Platform licence", units: 250_000 },
 ];
 
 beforeAll(() => {
@@ -910,8 +917,11 @@ test("WP-13: manual invoice enforces dual control and audit-chains both actions"
   });
   expect(verified.ok).toBe(true);
   if (!verified.ok) throw new Error("unreachable");
-  expect(verified.unitsCredited).toBe(500_000);
-  expect(await balance(org)).toBe(500_000);
+  // The credited units are the entitlement's allowance (250,000), NOT the
+  // transfer's minor-unit amount (500,000) — bug #204: money and credits are
+  // different denominations.
+  expect(verified.unitsCredited).toBe(250_000);
+  expect(await balance(org)).toBe(250_000);
 
   const row = await db.paymentRecord.findUnique({ where: { reference: bankRef } });
   expect(row?.provider).toBe(MANUAL_INVOICE_PROVIDER_ID);
@@ -925,7 +935,9 @@ test("WP-13: manual invoice enforces dual control and audit-chains both actions"
   // Re-verifying is a no-op, not a second credit.
   const secondVerify = await verifyPayment({ bankReference: bankRef, verifiedBy: operatorB });
   expect(secondVerify.ok && secondVerify.alreadyVerified).toBe(true);
-  expect(await balance(org)).toBe(500_000);
+  // Still the entitlement allowance (250,000), not the transfer amount
+  // (500,000) — bug #204.
+  expect(await balance(org)).toBe(250_000);
   expect(await db.usageLedger.count({ where: { orgId: org, kind: "topup" } })).toBe(1);
 
   // â”€â”€ both actions are audit-chained under one callRef â”€â”€

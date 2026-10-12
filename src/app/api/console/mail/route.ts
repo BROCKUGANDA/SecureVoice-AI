@@ -17,6 +17,27 @@ export const dynamic = "force-dynamic";
  * the operator role, exactly like `/api/console/dead-letter`, rather than on an
  * org predicate that would silently hide every row.
  *
+ * Why it cannot move to the database-enforced path (`withTenantScope`) either,
+ * even though `EmailInbound` DOES carry `orgId` and does have a `tenant_scope`
+ * policy (added by `9zzzzzzzzzzzzzzzzzzzzzzz_tenant_rls_coverage`):
+ *
+ *   · Nothing populates that column. The only writer, `POST /api/email/inbound`,
+ *     cannot attribute an inbound message to an organisation — the sender is a
+ *     customer answering support@ — so it stores every row with `orgId` NULL.
+ *     The policy is `"orgId" IS NOT NULL AND "orgId" = current_setting('app.org_id')`,
+ *     so inside a tenant scope this route would return ZERO rows for every
+ *     organisation: an inbox that is empty, not an inbox that is bounded. That is
+ *     a behavioural break presented as a security win.
+ *   · The org-less arm is not available either: `EmailInbound` is in neither
+ *     `TENANTED_MODELS` nor `PLATFORM_MODELS` (src/lib/tenancy/guard.ts), so
+ *     `scopedDb()` refuses the model with `unregistered_model` rather than
+ *     guessing a scope for it.
+ *
+ * Both facts are asserted — the first in tests/tenancy/rls-enforcement.test.ts
+ * (a real inbound row is invisible to `sv_tenant`), the second in
+ * tests/tenancy/org-models.test.ts — so if inbound mail ever IS correlated to a
+ * tenant, those gates flip and this route becomes convertible.
+ *
  * Read-only. There is no mutation here: replying is a human action in the
  * mailbox, and a half-built reply path that writes nothing would be worse than
  * none.

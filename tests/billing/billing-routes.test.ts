@@ -34,11 +34,12 @@
  * `paddleClient()` decides, so the portal's "billing unavailable" branch is a
  * real 503 rather than a stubbed one.
  */
-import { afterAll, beforeAll, describe, expect, mock, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { NextRequest, NextResponse } from "next/server";
 
 import * as realRouteHelpers from "@/lib/route-helpers";
 import { db } from "@/lib/db";
+import { _reset as resetRateLimits } from "@/lib/ratelimit";
 
 // `paddleClient()` returns null when this is unset and a real SDK client when it
 // is set, so the portal branches are reachable by changing a variable rather
@@ -301,6 +302,96 @@ describe("checkout refuses before it looks at the body", () => {
       }),
     );
     expect(res.status).toBe(409);
+  });
+});
+
+describe("checkout pins returnUrl to the deployment's own origin", () => {
+  // `siteOrigin()` reads these at call time, so the suite owns the answer
+  // instead of inheriting whatever .env happens to carry.
+  const SITE_URL = "https://securevoice.test";
+  let priorSiteUrl: string | undefined;
+  let priorSiteAddress: string | undefined;
+
+  beforeEach(() => {
+    priorSiteUrl = process.env.NEXT_PUBLIC_SITE_URL;
+    priorSiteAddress = process.env.SITE_ADDRESS;
+    process.env.NEXT_PUBLIC_SITE_URL = SITE_URL;
+    delete process.env.SITE_ADDRESS;
+    // The route's limiter keys on the session org, and every case here sends
+    // eight bodies through the one 20/hour bucket. Without this the cases that
+    // run after this block get a 429 and report it as a broken checkout.
+    resetRateLimits();
+  });
+  afterEach(() => {
+    if (priorSiteUrl === undefined) delete process.env.NEXT_PUBLIC_SITE_URL;
+    else process.env.NEXT_PUBLIC_SITE_URL = priorSiteUrl;
+    if (priorSiteAddress === undefined) delete process.env.SITE_ADDRESS;
+    else process.env.SITE_ADDRESS = priorSiteAddress;
+  });
+
+  // This is the whole point of the check: the value lands in Paddle's
+  // `settings.return_url`, i.e. where a customer's browser goes after a
+  // completed payment. Every one of these would have been accepted by
+  // `z.string().url()`.
+  const FOREIGN = [
+    "https://evil.example/claim",
+    "http://securevoice.test:999/x",
+    "https://securevoice.test.evil.example/x",
+    "https://evil.example/#https://securevoice.test",
+    "javascript:alert(1)",
+    `https://attacker.test/?back=${SITE_URL}`,
+  ];
+
+  test.each(FOREIGN)("a foreign or unsafe returnUrl is refused with 400: %s", async (returnUrl) => {
+    signIn();
+    let gatewaySawBody = false;
+    gatewayState = GATEWAY(async () => {
+      gatewaySawBody = true;
+      return { url: "https://sandbox.paddle.test/checkout", reference: "ref_off" };
+    });
+    const r = await checkout(
+      req("/api/billing/checkout", {
+        body: JSON.stringify({ amountMinor: 9900, currency: "USD", returnUrl }),
+      }),
+    );
+    expect(r.status).toBe(400);
+    const body = await r.json();
+    expect(body.error).toBe("invalid_request");
+    expect(body.issues).toContain("returnUrl");
+    expect(gatewaySawBody).toBe(false);
+  });
+
+  test("a same-origin returnUrl reaches the gateway untouched", async () => {
+    signIn();
+    let handed: Record<string, unknown> | null = null;
+    gatewayState = GATEWAY(async (args) => {
+      handed = args as unknown as Record<string, unknown>;
+      return { url: "https://sandbox.paddle.test/checkout", reference: "ref_ok" };
+    });
+    const returnUrl = `${SITE_URL}/welcome?order=42`;
+    const r = await checkout(
+      req("/api/billing/checkout", {
+        body: JSON.stringify({ amountMinor: 9900, currency: "USD", returnUrl }),
+      }),
+    );
+    expect(r.status).toBe(200);
+    expect(handed!.returnUrl).toBe(returnUrl);
+  });
+
+  test("omitting returnUrl still mints a checkout", async () => {
+    signIn();
+    let handed: Record<string, unknown> | null = null;
+    gatewayState = GATEWAY(async (args) => {
+      handed = args as unknown as Record<string, unknown>;
+      return { url: "https://sandbox.paddle.test/checkout", reference: "ref_none" };
+    });
+    const r = await checkout(
+      req("/api/billing/checkout", {
+        body: JSON.stringify({ amountMinor: 9900, currency: "USD" }),
+      }),
+    );
+    expect(r.status).toBe(200);
+    expect("returnUrl" in (handed ?? {})).toBe(false);
   });
 });
 

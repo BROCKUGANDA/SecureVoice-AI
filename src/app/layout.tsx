@@ -2,9 +2,11 @@ import type { Metadata, Viewport } from "next";
 import { Space_Grotesk, Inter, JetBrains_Mono, IBM_Plex_Sans_Arabic } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "@/components/ui/toaster";
+import { Providers } from "@/app/providers";
 import { JsonLd } from "@/components/seo/JsonLd";
 import { COMPANY } from "@/lib/commercial";
 import { siteOrigin } from "@/lib/site-origin";
+import { TenantBrand } from "@/components/shell/TenantBrand";
 
 const display = Space_Grotesk({
   variable: "--font-display",
@@ -176,14 +178,26 @@ export default function RootLayout({
       <body
         className={`${display.variable} ${sans.variable} ${mono.variable} ${arabic.variable} antialiased bg-background text-foreground`}
       >
+        {/* The tenant's brand colour, resolved server-side from the session's
+            organisation and emitted before anything paints. A `<style>` in the
+            SSR output applies at first paint, so the console never shows the
+            platform green and then corrects itself. Renders nothing when the
+            visitor has no tenant or the tenant set no colour, which is the
+            default path and costs one session cookie parse. See the component
+            for why this is a database read rather than a cookie. */}
+        <TenantBrand />
         {/* Better Auth has no provider component: sessions are read from the
             database by `auth.api.getSession({ headers })` wherever they are
             needed, and the browser reads them through `authClient.useSession()`.
-            There is deliberately nothing wrapped around the tree here — a
-            client-side provider would be a cached session, and an authorisation
-            decision must never be taken from one (hazard AU-4). */}
-        {children}
-        <Toaster />
+            There is deliberately nothing auth-shaped wrapped around the tree here
+            — a client-side provider would be a cached session, and an
+            authorisation decision must never be taken from one (hazard AU-4).
+            `Providers` carries the colour theme and product analytics only; it
+            holds no session, and src/app/providers.tsx says the same. */}
+        <Providers>
+          {children}
+          <Toaster />
+        </Providers>
       </body>
     </html>
   );

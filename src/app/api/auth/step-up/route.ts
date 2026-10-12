@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireAuth } from "@/lib/auth/guards";
 import { issueStepUp } from "@/lib/auth/stepup";
-import { loginWithPassword } from "@/lib/auth/guards";
 import { verifyPassword } from "@/lib/auth/password";
 import { db } from "@/lib/db";
 import { STEP_UP_WINDOW_MS } from "@/lib/auth/constants";
@@ -20,6 +19,31 @@ export const dynamic = "force-dynamic";
  *
  * A grant is not a privilege: `requirePrivileged` still checks the role's
  * capability, so a grant held by an Auditor does not permit a card freeze.
+ *
+ * Why this route is NOT on the database-enforced path (`withTenantScope`,
+ * src/lib/tenancy/db-scope.ts), and cannot be:
+ *
+ *   · Its single read is `db.account`, and `account` is one of the Better Auth
+ *     tables that migration `9zzzzzzzzzzzzzzzzzzzzzzz_tenant_rls_coverage`
+ *     deliberately gives row security with NO policy — not because it is
+ *     unimportant, but because a credential row belongs to no tenant until the
+ *     session has been resolved FROM it. Inside `sv_tenant` the table is empty
+ *     (asserted against the live database in
+ *     tests/tenancy/rls-enforcement.test.ts), so wrapping this read makes every
+ *     password step-up answer "that password is not correct" — and
+ *     `GET /api/auth/export`, the route that requires a fresh step-up, becomes
+ *     unreachable. That is an availability regression, not a tightening.
+ *   · `authed.identity.accountId` comes from the resolved session, never from the
+ *     body, so there is no tenant predicate here to forget: the read can only
+ *     address the caller's own account row.
+ *   · The application guard is not an option either. `Account` is a declared
+ *     PLATFORM model (src/lib/tenancy/guard.ts), so `scopedDb()` passes it
+ *     through untouched — routing it through the guard would relabel the same
+ *     query while enforcing nothing.
+ *
+ * The control on this route is the credential check plus the session binding in
+ * src/lib/auth/stepup.ts, and the step-up it issues is what gates the tenant data
+ * reads downstream.
  *
  * One honest limitation: a password cannot be "re-entered" by a session that was
  * never password-authenticated — an operator who signed in purely by magic link

@@ -80,6 +80,17 @@ export type Plan = {
   includedPerMonth: number | null;
   /** Cents per intervention beyond the included volume. `null` = negotiated. */
   overageCents: number | null;
+  /**
+   * People this plan may hold an invitation for. `null` = unlimited.
+   *
+   * ENFORCED, not advertised: `src/lib/billing/seats.ts` refuses the
+   * invitation once the organisation's member count reaches this number. It is
+   * a seat COUNT, and the Owner counts against it — a Starter plan is one
+   * person, which is what its own bullet says. A plan with no cap is `null`,
+   * never a big number: `999` would be a cap that behaves like a wall at
+   * exactly the moment a large bank adds its thousandth analyst.
+   */
+  seats: number | null;
   /** Blurb under the price. */
   tagline: string;
   taglineAr: string;
@@ -146,6 +157,7 @@ export const PLANS: Plan[] = [
     yearlyUsd: 990,
     includedPerMonth: 500,
     overageCents: 15,
+    seats: 1,
     tagline: "For evaluation teams proving the voice loop end to end.",
     taglineAr: "لفرق التقييم التي تثبت الحلقة الصوتية من طرف إلى طرف.",
     summary: "500 interventions · 1 organization · AR/EN voices · email support",
@@ -153,6 +165,7 @@ export const PLANS: Plan[] = [
     includes: [
       "500 intervention signals per month",
       "One organization, browser-based Command Center",
+      "One named seat",
       "Sealed audit chain with hash-linked evidence",
       "Arabic and English voice agents",
       "Email support",
@@ -160,6 +173,7 @@ export const PLANS: Plan[] = [
     includesAr: [
       "٥٠٠ إشارة تدخّل شهرياً",
       "منظمة واحدة، ومركز تشغيل عبر المتصفح",
+      "مقعد واحد مسمّى",
       "سجل تدقيق مختوم بأدلة مترابطة بالتجزئة",
       "وكلاء صوتيون بالعربية والإنجليزية",
       "دعم عبر البريد الإلكتروني",
@@ -181,6 +195,7 @@ export const PLANS: Plan[] = [
     yearlyUsd: 4990,
     includedPerMonth: 2500,
     overageCents: 12,
+    seats: 5,
     tagline: "For mid-market banks and insurers running live fraud desks.",
     taglineAr: "للبنوك وشركات التأمين متوسطة الحجم التي تدير مكاتب احتيال حيّة.",
     summary: "2,500 interventions · multi-tenant · BYOK · priority support",
@@ -188,6 +203,7 @@ export const PLANS: Plan[] = [
     includes: [
       "2,500 intervention signals per month",
       "Multi-tenant organization support",
+      "Five named seats",
       "Signed webhooks with replay protection",
       "Bring your own ElevenLabs key (BYOK)",
       "Guardrail policy configurable per institution",
@@ -196,6 +212,7 @@ export const PLANS: Plan[] = [
     includesAr: [
       "٢٬٥٠٠ إشارة تدخّل شهرياً",
       "دعم تعدد المستأجرين",
+      "خمسة مقاعد مسماة",
       "ويب هوكس موقّعة مع حماية من إعادة الإرسال",
       "استخدام مفتاح ElevenLabs الخاص بك (BYOK)",
       "سياسة ضوابط قابلة للتهيئة لكل مؤسسة",
@@ -218,12 +235,14 @@ export const PLANS: Plan[] = [
     yearlyUsd: 20000,
     includedPerMonth: 10000,
     overageCents: null,
+    seats: null,
     tagline: "For Tier-1 UAE banks deploying inside their own perimeter.",
     taglineAr: "للبنوك من الفئة الأولى في الإمارات التي تنشر داخل محيطها الخاص.",
     summary: "10,000 interventions · in-VPC or data centre · custom beyond",
     summaryAr: "١٠٬٠٠٠ تدخّل · نشر داخلي · تسعير مخصص لما يزيد",
     includes: [
       "10,000 intervention signals per month, custom volume pricing beyond",
+      "Unlimited named seats",
       "Deploys inside your own VPC or data centre",
       "Dedicated deployment for the WebSocket voice plane",
       "Shariah-compliant terminology engine",
@@ -232,6 +251,7 @@ export const PLANS: Plan[] = [
     ],
     includesAr: [
       "١٠٬٠٠٠ إشارة تدخّل شهرياً، وتسعير حجم مخصص لما يزيد",
+      "مقاعد مسماة بلا حد",
       "النشر داخل شبكتك الافتراضية الخاصة أو مركز بياناتك",
       "نشر مخصص لمستوى الصوت عبر WebSocket",
       "محرك مصطلحات متوافق مع الشريعة",
@@ -283,6 +303,24 @@ export function formatOverage(plan: Plan, lang: "en" | "ar" = "en"): string {
     currency: PRICE_CURRENCY,
     maximumFractionDigits: 2,
   }).format(plan.overageCents / 100);
+}
+
+/** A plan by id, or `null` for an id this catalog does not publish. */
+export function planById(id: string | null | undefined): Plan | null {
+  if (!id) return null;
+  return PLANS.find((p) => p.id === id) ?? null;
+}
+
+/**
+ * The seat line for the pricing card.
+ *
+ * One place formats it so a card can never promise "Unlimited" while
+ * `billing/seats.ts` refuses the sixth invitation.
+ */
+export function formatSeats(plan: Plan, lang: "en" | "ar" = "en"): string {
+  if (plan.seats === null) return lang === "ar" ? "مقاعد بلا حد" : "Unlimited seats";
+  if (plan.seats === 1) return lang === "ar" ? "مقعد واحد" : "1 seat";
+  return lang === "ar" ? `${plan.seats} مقاعد` : `${plan.seats} seats`;
 }
 
 /**

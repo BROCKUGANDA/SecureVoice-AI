@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { signIn, useSession } from "@/lib/auth-client";
+import { describeAuthError, reportAuthError } from "@/lib/auth/errors";
+import { reportClientError } from "@/lib/client-diagnostics";
 import { Copy, Check, ArrowRight, ShieldCheck, KeyRound, Loader2, LogOut } from "lucide-react";
 import { useApp, t } from "@/lib/store";
 import { SUPPORT_EMAIL } from "@/lib/public-config";
@@ -77,40 +79,6 @@ const SEEDED = [
  * that fails with "invalid credentials" and looks broken.
  */
 const DEMO_READY = SEEDED[0].email !== "" && SEEDED[0].password !== "";
-
-/**
- * Turn a Better Auth client error into something a non-engineer can act on.
- *
- * Better Auth returns `{ error: { message, code } }` rather than a thrown
- * `ClerkError`, so there is no `longMessage` to reach for. The important part is
- * that we never render a raw vendor error: it can contain an internal field name
- * or a stack fragment, and this panel is on the public sign-in surface.
- */
-function describeAuthError(e: unknown, lang: "en" | "ar"): string {
-  if (!e || typeof e !== "object") return "";
-  const { message, code } = e as { message?: string; code?: string };
-  if (code === "INVALID_EMAIL_OR_PASSWORD")
-    return t(
-      "That email and password do not match an account.",
-      "لا يتطابق البريد الإلكتروني وكلمة المرور مع أي حساب.",
-      lang,
-    );
-  if (code === "USER_NOT_FOUND")
-    return t(
-      "That email and password do not match an account.",
-      "لا يتطابق البريد الإلكتروني وكلمة المرور مع أي حساب.",
-      lang,
-    );
-  if (code === "TOO_MANY_REQUESTS")
-    return t(
-      "Too many attempts. Wait a minute and try again.",
-      "محاولات كثيرة. انتظر دقيقة وحاول مرة أخرى.",
-      lang,
-    );
-  // Deliberately not the raw message: Better Auth's default text can name
-  // internal fields, and this is the unauthenticated surface.
-  return message && message.length < 200 ? message : "";
-}
 
 /* ————— Cloudflare Turnstile (bot gate on sign-in) ————— */
 
@@ -324,14 +292,22 @@ function DemoRequestForm() {
       setEmail("");
       setInstitution("");
     } catch (err) {
+      // No `err.message` here. A failed POST throws "Failed to fetch" / "Load
+      // failed" — a browser transport string on a public form, in front of a
+      // prospect, next to nothing actionable. The raw error goes to the console
+      // and Sentry; the person gets a sentence that says what actually happened:
+      // the request did not land, so resending is safe.
+      reportClientError("pilot-request", err);
       setState({
         ok: false,
         text:
-          err instanceof Error
-            ? err.message
-            : t("Something went wrong — email ", "حدث خطأ ما — راسلنا على ", lang) +
-              SUPPORT_EMAIL +
-              ".",
+          t(
+            "Your request did not reach us — nothing was submitted, so please try again. If it keeps failing, email ",
+            "لم يصلنا طلبك — لم يُرسل شيء، لذا يرجى المحاولة مرة أخرى. وإذا استمرت المشكلة راسلنا على ",
+            lang,
+          ) +
+          SUPPORT_EMAIL +
+          ".",
       });
     } finally {
       setBusy(false);
@@ -490,20 +466,15 @@ export function Auth() {
       const { error } = await signIn.email({
         email: identifier,
         password: pw,
-        ...(token
-          ? { fetchOptions: { headers: { "cf-turnstile-response": token } } }
-          : {}),
+        ...(token ? { fetchOptions: { headers: { "cf-turnstile-response": token } } } : {}),
       });
       if (error) throw error;
     } catch (err) {
-      setQuickErr(
-        describeAuthError(err, lang) ||
-          t(
-            "Sign-in failed — check the credentials and try again.",
-            "فشل تسجيل الدخول — تحقّق من بيانات الاعتماد وحاول مرة أخرى.",
-            lang,
-          ),
-      );
+      // Friendly text on the screen, the vendor's words in the console and Sentry.
+      // `describeAuthError` has no raw-message fallback, so this is the only path
+      // the vendor string takes — which is the point: the panel used to render it.
+      reportAuthError(err);
+      setQuickErr(describeAuthError(err, lang));
     } finally {
       setQuickBusy(null);
       // Reset on BOTH outcomes. A token is redeemed once; leaving the solved
@@ -514,7 +485,7 @@ export function Auth() {
   };
 
   return (
-    <div className="relative flex h-[100dvh] flex-col items-center justify-center overflow-y-auto bg-[#0c110e] px-4 py-8">
+    <div className="sv-scroll sv-scroll--dark relative flex h-[100dvh] flex-col items-center justify-center overflow-y-auto bg-[#0c110e] px-4 py-8">
       <GeoField />
       <Horizon />
 

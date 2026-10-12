@@ -69,7 +69,24 @@ jobs:
       # can import the module. The stack's own value comes from the smoke job's
       # .env, which is a separate file written per run.
       BETTER_AUTH_SECRET: ci-only-not-a-secret-ci-only-not-a-secret
-      BETTER_AUTH_URL: http://localhost:3000
+      # The PRODUCTION origin, deliberately, not a loopback one.
+      #
+      # Every sign-in CSRF decision in Better Auth is made against this value, so
+      # a CI job that runs on `http://localhost:3000` is testing a configuration
+      # no customer will ever get: the VPS came up with a loopback default, the
+      # app refused to serve under NODE_ENV=production, and the public host
+      # answered "Invalid origin" while CI was green. Measured here first —
+      # `BETTER_AUTH_URL=https://securevoiceai.me bun run test auth console
+      # surface` passes — so the suites that care about origin behaviour either
+      # set their own value explicitly (`tests/unit/auth-trusted-origins.test.ts`)
+      # or are origin-agnostic.
+      #
+      # The compose smoke job below writes the same value for the same reason:
+      # its app container runs `next start`, which sets no NEXT_PHASE, so the
+      # loopback refusal in `src/lib/auth/origins.ts` is active there and a
+      # localhost `.env` killed the app on boot (see the comment on that value).
+      # That is the deployment rehearsal; this is the configuration.
+      BETTER_AUTH_URL: https://securevoiceai.me
       # `docker-compose.yml` declares POSTGRES_PASSWORD as REQUIRED (`:?`) — a
       # known fallback password on a public deployment is a compromised database,
       # which is the right default. But `docker compose config` interpolates the
@@ -560,6 +577,18 @@ jobs:
       - name: Build
         env:
           NEXT_TELEMETRY_DISABLED: "1"
+          # `next build` prerenders `/`, and that page evaluates
+          # `src/lib/paddle-browser.ts` at module scope. Since
+          # `fix(pricing): price ids come from the environment, and a missing one
+          # refuses the button` (3967409), that module REFUSES to fall back to a
+          # bundled sandbox id — it throws while generating static pages, so the
+          # build dies and the two steps after it never run. NEXT_PUBLIC_* is
+          # inlined at BUILD time, so no runtime value can fix this: the map has
+          # to be present HERE. These are the same disposable ids the smoke job's
+          # .env writes for the same reason; the parser only requires
+          # `/^pri_[A-Za-z0-9]+$/` and every tier in AMOUNT_TO_PLAN needs BOTH
+          # intervals, or the map is rejected as incomplete.
+          NEXT_PUBLIC_PADDLE_PRICES: '{"usd_9900_month":"pri_ciStarterMonth","usd_9900_year":"pri_ciStarterYear","usd_49900_month":"pri_ciGrowthMonth","usd_49900_year":"pri_ciGrowthYear","usd_200000_month":"pri_ciEnterpriseMonth","usd_200000_year":"pri_ciEnterpriseYear"}'
         run: bun run build
 
       # `next build` fetches from Google Fonts at build time. That is fine here and
@@ -667,12 +696,38 @@ jobs:
           POSTGRES_PASSWORD=ci-only-not-a-secret
           POSTGRES_DB=securevoice
           BETTER_AUTH_SECRET=ci-only-not-a-secret-ci-only-not-a-secret
-          BETTER_AUTH_URL="https://localhost:${CI_CADDY_HTTPS_PORT}"
+          # The PUBLIC origin, deliberately — NOT `https://localhost:${CI_CADDY_HTTPS_PORT}`.
+          #
+          # `src/lib/auth/origins.ts` refuses to serve a production boot on a loopback
+          # base URL, because Better Auth compares the browser's Origin against this
+          # value and every sign-in would be answered "Invalid origin". `next start`
+          # sets no `NEXT_PHASE`, so that refusal is active here (the build-time
+          # exemption in `inProductionBuild()` covers `next build` only). Writing the
+          # loopback value therefore killed the app container on boot and took the
+          # whole smoke run with it: `dependency failed to start: container … app-1
+          # is unhealthy`. The guard is right; this value was the bug.
+          #
+          # `SITE_ADDRESS=localhost` still does the job it is there for — it is the
+          # hostname Caddy issues the self-signed certificate for, and the one every
+          # probe below curls. `BETTER_AUTH_URL` never appears in a URL this job
+          # requests: /api/health, / and the realtime handshake are all origin-agnostic,
+          # and no step here performs a sign-in. So the value is free to be the
+          # production origin, which is exactly what the verify job's `env:` uses for
+          # the same reason (see the comment there).
+          BETTER_AUTH_URL=https://securevoiceai.me
           SITE_ADDRESS=localhost
           ACME_EMAIL=ci@example.invalid
           SEED_DEMO=false
           ELEVENLABS_DRY_RUN=true
           APP_ENV=staging
+          # Disposable Paddle price ids. NEXT_PUBLIC_* is inlined at build time,
+          # so the smoke test's `bun run build` needs a complete map or
+          # `paddlePriceIds()` throws while prerendering /pricing. These are not
+          # real ids and this stack never reaches Paddle — the parser only
+          # requires `/^pri_[A-Za-z0-9]+$/`, so there are no underscores after the
+          # prefix, and every tier in AMOUNT_TO_PLAN needs BOTH intervals or the
+          # map is rejected as incomplete.
+          NEXT_PUBLIC_PADDLE_PRICES='{"usd_9900_month":"pri_ciStarterMonth","usd_9900_year":"pri_ciStarterYear","usd_49900_month":"pri_ciGrowthMonth","usd_49900_year":"pri_ciGrowthYear","usd_200000_month":"pri_ciEnterpriseMonth","usd_200000_year":"pri_ciEnterpriseYear"}'
           # DATABASE_URL is REQUIRED here, not optional. `docker-compose.yml`
           # passes `BUILD_DATABASE_URL: ${DATABASE_URL}` as a build arg, and
           # compose resolves an unset variable to an EMPTY string — which
@@ -764,7 +819,7 @@ jobs:
             exit 1
           fi
           code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 \
-            https://57.130.80.158.sslip.io/api/health || true)
+            https://securevoiceai.me/api/health || true)
           echo "production api/health: $code"
           [ "$code" = "200" ] || { echo "::error::production origin is not healthy"; exit 1; }
 

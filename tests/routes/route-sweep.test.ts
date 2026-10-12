@@ -41,7 +41,7 @@ const ALL_ROUTES = discoverRoutes("src/app");
  * green while asserting nothing, which the tests below pin against.
  */
 const DB_BACKED =
-  /^(\/api\/(console|auth|metrics|status|v1|tts|agent|asr|enroll|interventions|pilot|onboarding|billing)|\/v1\/|\/api$)/;
+  /^(\/api\/(console|auth|metrics|status|v1|tts|agent|asr|enroll|interventions|pilot|onboarding|billing|recordings)|\/v1\/|\/api$)/;
 
 describe("the route table is derived, not declared", () => {
   test("discovery finds routes, so a sweep over an empty table cannot pass", () => {
@@ -119,6 +119,11 @@ describe("authorization coverage", () => {
       "/api/auth/sessions",
       "/api/auth/sessions/revoke-all",
       "/api/auth/step-up",
+      // Usage analytics. Session-derived org, and the handler runs its aggregate
+      // reads inside `withTenantScope`, so the database decides which rows exist
+      // rather than a `where` clause someone can forget. GET only; exercised by
+      // tests/tenancy/console-analytics.test.ts.
+      "/api/console/analytics",
       "/api/console/audit",
       "/api/console/crm",
       "/api/console/dead-letter",
@@ -159,6 +164,11 @@ describe("authorization coverage", () => {
       "/api/interventions",
       "/api/metrics",
       "/api/pilot",
+      // Call-recording download. Session-derived org, and a cross-tenant case is
+      // answered with the SAME 404 a missing one gets (see
+      // src/app/api/recordings/[id]/route.ts) — the endpoint must not become an
+      // oracle for which case ids another tenant holds.
+      "/api/recordings/[id]",
       "/api/status",
       "/api/status/spans",
       "/api/tts",

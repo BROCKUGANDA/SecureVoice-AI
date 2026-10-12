@@ -4,6 +4,7 @@ import { ElevenLabsClient } from "@elevenlabs/elevenlabs-js";
 import { Prisma } from "@/generated/prisma/client";
 import { db } from "@/lib/db";
 import { processInboundEvent } from "@/lib/elevenlabs/inbound";
+import { validateElevenLabsWebhook } from "@/lib/validation/webhook-schema";
 import { logError, logWarn } from "@/lib/validation/safe-log";
 
 export const dynamic = "force-dynamic";
@@ -19,6 +20,16 @@ export const dynamic = "force-dynamic";
  *
  * Signature scheme (verified with the platform SDK, not hand-rolled):
  *   ElevenLabs-Signature: t={unix},v0={hmac-sha256(`${t}.${body}`, secret)}
+ *
+ * ── The JSON-vs-form gap this closes ──────────────────────────────────────────
+ * ElevenLabs posts JSON; Twilio posts `application/x-www-form-urlencoded`. Until
+ * this handler existed there was no shared notion of "a webhook body we
+ * understand" — each route hand-parsed its own, with `any` here and bare
+ * `JSON.parse` plus `String(x ?? "")` coercion in the receiver. A vendor could
+ * ship a field we silently dropped, and the only symptom was a case that never
+ * closed. `src/lib/validation/webhook-schema.ts` is that shared notion; the
+ * order here (verify, THEN validate) is what keeps it from becoming an
+ * unauthenticated shape oracle.
  */
 export async function POST(req: NextRequest) {
   const raw = await req.text();
@@ -62,6 +73,43 @@ export async function POST(req: NextRequest) {
       : typeof event?.event_timestamp === "string"
         ? Number(event.event_timestamp)
         : null;
+
+  // ── Shape validation, AFTER the signature and never before ────────────────
+  //
+  // Order is the security property, not a detail. The SDK has already proved
+  // this body came from ElevenLabs with a valid HMAC, so validating now costs an
+  // unauthenticated caller nothing and buys a real guarantee: the object handed
+  // to `processInboundEvent` below matches a declared shape instead of being an
+  // `any` that some future field access trusts.
+  //
+  // Validating BEFORE the signature would turn this endpoint into an oracle —
+  // anyone could learn which shapes we accept without a credential. Validating
+  // after means an invalid shape is only ever reported to a verified sender.
+  //
+  // The field extraction above stays exactly as it was. It is deliberately
+  // total — every one of those reads has a fallback, so a body that fails this
+  // check would still have produced a usable `conversationId` and been processed.
+  // That is the point of putting the gate here: the schema's job is to REJECT,
+  // and a rejection has to be one we chose rather than one that happened
+  // somewhere deeper in the pipeline.
+  //
+  // 422, not 400: the request was well-formed and correctly signed, but the
+  // payload is not one this build understands. ElevenLabs treats a 2xx as
+  // delivered, so anything non-2xx becomes a retry — which is right here, since
+  // a schema that rejects a real event is a bug that should keep nagging until
+  // it is fixed rather than being silently swallowed.
+  const shape = validateElevenLabsWebhook(event);
+  if (!shape.ok) {
+    logWarn("webhook ingest rejected", {
+      provider: "elevenlabs",
+      outcome: "shape_validation_failed",
+      eventType,
+      conversationId,
+      detail: shape.error,
+      issues: shape.issues.slice(0, 5),
+    });
+    return NextResponse.json({ error: "invalid_payload" }, { status: 422 });
+  }
 
   try {
     const row = await db.webhookEvent.create({

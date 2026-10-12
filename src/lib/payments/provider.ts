@@ -23,6 +23,37 @@ import "server-only";
 
 import { db } from "@/lib/db";
 import { appendInTransaction, refund as ledgerRefund } from "@/lib/billing/ledger";
+import type { AnalyticsPlan } from "@/lib/analytics";
+
+/**
+ * Organization.id is a UUID column; the append-only ledger keys on a String
+ * orgId that also accepts synthetic ids (tests, the `"unscoped"` fallback in
+ * the policy gate). The org spend-wallet update is therefore gated on the id
+ * actually being a UUID, so a synthetic org id records its ledger movement
+ * without throwing against the Organization table.
+ */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * What a committed settlement says it earned, held back until the transaction
+ * has committed. `plan` is the plan id from the minted `plan:` token, mapped to
+ * analytics' own plan names; anything unrecognised is `"unknown"` rather than a
+ * string PostHog would file under a name no workflow can query.
+ */
+type RevenueFacts = {
+  revenueMinor: number;
+  currency: string;
+  plan: AnalyticsPlan | undefined;
+  kind: "new_sale" | "proration";
+};
+
+/** The plan ids in `src/views/Pricing.tsx`, as analytics' union names them. */
+const PLAN_NAMES: readonly AnalyticsPlan[] = ["starter", "growth", "enterprise", "demo"];
+
+function analyticsPlan(name: string | undefined): AnalyticsPlan | undefined {
+  if (name === undefined) return undefined;
+  return (PLAN_NAMES as readonly string[]).includes(name) ? (name as AnalyticsPlan) : "unknown";
+}
 
 export type Money = {
   /** Integer minor units (fils, kobo, cents). Never a float. */
@@ -383,9 +414,26 @@ export async function settlePayment(input: SettleInput): Promise<SettleResult> {
   }
 
   const entitlements = input.entitlements ?? [];
-  // Credits are paid units: the payment amount in minor currency units plus any
-  // explicit entitlement quantities. Integers only — no float arithmetic.
-  const unitsCredited = entitlements.reduce((acc, e) => acc + (e.units ?? 0), money.amountMinor);
+  // Credits are paid units, decided at MINT time and carried on the payment —
+  // never re-derived from live state at webhook time. A first purchase has no
+  // subscription row yet, and deriving from one after a plan change would
+  // credit the wrong allowance. Minor currency units and intervention credits
+  // are different denominations: money never converts 1:1 into credits (#204 —
+  // a $99 payment booking 9900 "units"). A payment whose entitlements carry
+  // no `units` and no `plan:` token credits NOTHING: it is a charge (an
+  // overage settlement), not a purchase of units.
+  const explicit = entitlements.reduce((acc, e) => acc + (e.units ?? 0), 0);
+  const planTokens = entitlements
+    .map((e) => e.key)
+    .filter((k): k is string => typeof k === "string" && k.startsWith("plan:"));
+  let unitsCredited: number = explicit;
+  let resolvedPlan: string | undefined;
+  if (unitsCredited <= 0 && planTokens.length > 0) {
+    const { unitsForPlan } = await import("@/lib/payments/overage");
+    resolvedPlan = planTokens[0]!.slice("plan:".length);
+    unitsCredited = unitsForPlan(resolvedPlan);
+  }
+  if (unitsCredited < 0) unitsCredited = 0;
   const envelopeJson = encodeEntitlements({
     version: 1,
     entitlements,
@@ -397,8 +445,13 @@ export async function settlePayment(input: SettleInput): Promise<SettleResult> {
   });
   const verifiedBy = input.verifiedBy ?? "gateway";
   const now = new Date();
+  // Set inside the transaction on the branch that actually moved money; read
+  // after the commit. `null` for every path that did not settle. Held in an
+  // object because TypeScript narrows a `let` to its initializer across a
+  // callback boundary it cannot see into.
+  const pending: { revenue: RevenueFacts | null } = { revenue: null };
 
-  return db.$transaction(
+  const settlement = await db.$transaction(
     async (tx) => {
       const paymentId = `pay_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 12)}`;
       const inserted = await tx.$queryRaw<{ id: string }[]>`
@@ -462,6 +515,70 @@ export async function settlePayment(input: SettleInput): Promise<SettleResult> {
         reason: `${input.provider}:${input.reference}`,
       });
 
+      // The ledger top-up above is the audit trail; Organization.credits is the
+      // balance deductCredit actually spends. Both must move together, in the
+      // SAME transaction — a payment that books ledger units but never funds
+      // the spend wallet is the #204 bug. The org increment is keyed to the
+      // SAME event idempotency as the ledger row, so a replayed webhook that
+      // landed a duplicate ledger row credits the org wallet nothing.
+      //
+      // Organization.id is a UUID column, while the append-only ledger keys on
+      // a String orgId (which also accepts synthetic ids in tests). So the org
+      // wallet is funded only when `input.orgId` is a real UUID: a payment
+      // scoped to a ledger-only synthetic org records its top-up in the ledger
+      // and skips the wallet update rather than throwing and poisoning the
+      // whole settlement. In production the org id is always a UUID.
+      if (
+        credit.ok &&
+        !credit.duplicate &&
+        unitsCredited > 0 &&
+        input.orgId &&
+        UUID_RE.test(input.orgId)
+      ) {
+        await tx.organization.update({
+          where: { id: input.orgId },
+          data: { credits: { increment: unitsCredited } },
+          select: { credits: true },
+        });
+      }
+
+      // ── Revenue ──────────────────────────────────────────────────────────────
+      // Recorded here, emitted after the COMMIT (below, outside the transaction).
+      // Emitted on the SAME non-duplicate branch as the wallet increment, and for
+      // the same reason: a replayed Paddle webhook must not book revenue twice.
+      //
+      // Deferring it to after the commit is what makes the guarantee real. The
+      // transport itself cannot throw and never blocks (`emit` in
+      // src/lib/analytics.ts is fire-and-forget and swallows everything), so a
+      // PostHog 5xx could not roll this settlement back even from in here — but
+      // an event recorded BEFORE the money is committed is a phantom if the
+      // commit then fails, and a revenue figure that includes settlements that
+      // never happened is worse than one that occasionally loses an event. The
+      // trade is stated in that order deliberately: analytics observes, it does
+      // not gate, and it must never invent.
+      //
+      // `orgId` is NOT narrowed to a UUID here, unlike the wallet increment
+      // above. The ledger-only synthetic-org path the wallet tolerates is a test
+      // fixture whose revenue is equally useless and equally harmless to emit —
+      // and gating one and not the other would make the ledger and the revenue
+      // view disagree about which payments settled.
+      if (credit.ok && !credit.duplicate) {
+        pending.revenue = {
+          revenueMinor: money.amountMinor,
+          currency: money.currency,
+          plan: analyticsPlan(resolvedPlan),
+          // Paddle reports a proration charge as an ordinary completed
+          // transaction, so the event alone cannot separate an upgrade
+          // mid-cycle from a fresh purchase. `settled === false` is the only
+          // signal this function has, so the distinction stays explicit and
+          // documented rather than being guessed from a field that is not here:
+          // a settlement that was not itself a first-time settlement is reported
+          // as `proration`, which is the conservative reading (it never counts a
+          // repeat charge as new MRR).
+          kind: settled ? "new_sale" : "proration",
+        };
+      }
+
       return {
         applied: true,
         paymentId: settledId,
@@ -471,11 +588,24 @@ export async function settlePayment(input: SettleInput): Promise<SettleResult> {
     },
     { maxWait: 30_000, timeout: 30_000 },
   );
+
+  if (settlement.applied && pending.revenue) {
+    const { revenueRecognised } = await import("@/lib/analytics");
+    revenueRecognised({
+      orgId: input.orgId,
+      ...pending.revenue,
+      source: "transaction_completed",
+    });
+  }
+
+  return settlement;
 }
 
 /**
  * Reverse a settled payment: mark it refunded and write the matching ledger
- * `refund` row, so `available` falls by exactly the credited units.
+ * `refund` row, so `available` falls by exactly the credited units — and
+ * decrement Organization.credits by the same amount, so the spend wallet
+ * mirrors the ledger.
  */
 export async function refundPayment(input: {
   provider: string;
@@ -484,10 +614,10 @@ export async function refundPayment(input: {
   eventId: string;
   reason?: string;
 }): Promise<SettleResult> {
-  const money = assertMoney(input.money, "refundPayment.money");
+  assertMoney(input.money, "refundPayment.money");
   const existing = await db.paymentRecord.findUnique({
     where: { reference: input.reference },
-    select: { id: true, orgId: true, status: true },
+    select: { id: true, orgId: true, status: true, entitlementsJson: true },
   });
   if (!existing) {
     return { applied: false, paymentId: "", unitsCredited: 0, duplicate: false };
@@ -501,12 +631,38 @@ export async function refundPayment(input: {
     data: { status: "refunded" },
   });
   if (existing.orgId) {
-    await ledgerRefund({
-      orgId: existing.orgId,
-      units: money.amountMinor,
-      eventId: input.eventId,
-      reason: input.reason ?? `${input.provider}:${input.reference}:refund`,
-    });
+    // Refund the SAME units settlement credited — read back from the payment
+    // envelope (explicit `units`, else the `plan:` token's allowance),
+    // never money.amountMinor and never re-derived from live state.
+    const settled = decodeEntitlements(existing.entitlementsJson).entitlements;
+    const explicit = settled.reduce((acc, e) => acc + (e.units ?? 0), 0);
+    let units = explicit;
+    if (units <= 0) {
+      const token = settled
+        .map((e) => e.key)
+        .find((k): k is string => typeof k === "string" && k.startsWith("plan:"));
+      if (token) {
+        const { unitsForPlan } = await import("@/lib/payments/overage");
+        units = unitsForPlan(token.slice("plan:".length));
+      }
+    }
+    if (units > 0) {
+      await ledgerRefund({
+        orgId: existing.orgId,
+        units,
+        eventId: input.eventId,
+        reason: input.reason ?? `${input.provider}:${input.reference}:refund`,
+      });
+      // Mirror the settlement-side wallet update. Organization.id is a UUID
+      // column, so decrement only for a real UUID org id (see settlePayment).
+      if (UUID_RE.test(existing.orgId)) {
+        await db.organization.update({
+          where: { id: existing.orgId },
+          data: { credits: { decrement: units } },
+          select: { credits: true },
+        });
+      }
+    }
   }
   return { applied: true, paymentId: existing.id, unitsCredited: 0, duplicate: false };
 }

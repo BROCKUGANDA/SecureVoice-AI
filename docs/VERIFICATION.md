@@ -1623,10 +1623,19 @@ TLS is not the same fact as a socket that negotiated it.
   as AAD, crypto-shredding on erasure, retention per tier: proven by the WP-15
   gate (`tests/privacy/privacy.test.ts`, `evidence/privacy/privacy.json`),
   including the negative control that a tampered audit row is reported.
-- **Audio** — there is none at rest: no `AudioStore` is registered anywhere in
-  this deployment, retention's status line reports `none-configured`, and the
-  interface exists for a Stage-3 store. Stated because "we do not hold audio"
-  is a stronger claim than "audio is encrypted" only if it is actually true.
+- **Audio** — none at rest unless the deployment turns archiving on, and the
+  deletion half is now wired either way. `src/lib/storage/recordings.ts` archives a
+  post-call MP3 to R2 when `R2_*` is configured (the app's webhook is the writer),
+  and the retention worker registers `src/lib/storage/retention-audio-store.ts` at
+  boot, so the 30-day audio tier purges that object instead of reporting
+  `none-configured` for ever. With `R2_*` absent — the state of this repository's
+  own `.env` — nothing is archived and `none-configured` is the truth. Both
+  configurations are measured, not described: `bun test
+tests/privacy/retention-audio-store.test.ts` runs a real `storeRecording()` into a
+  stubbed bucket and a real sweep against it, and the worker's own boot line states
+  which posture it took. The sentence this replaces asserted "there is none at
+  rest", which was only ever true because nothing deleted it — and a control that is
+  absent is not a control that is satisfied.
 - **Postgres storage-level encryption** — a Supabase vendor-managed control.
   Recorded here, honestly attributed: it is not something this codebase can
   prove from inside.
@@ -1898,3 +1907,83 @@ tsc clean · lint 0 errors · 120 suites green across the affected slice
 (e2e/tools/routes/redteam/unit) · bleedguard verified against the real
 database · operator-manifest suite green (its "no secret in responses" guard
 caught the first wording of the new manifest note — reworded to "credential").
+
+## 2026-10-12 - The sslip.io stand-in retired; the media-stream URL made true
+
+**Commands:** `caddy validate` (caddy:2-alpine, on the box) · `curl` against
+the retired hostname and `https://securevoiceai.me/{api/health,healthz}` ·
+`docker ps` · `bun test tests/unit/dial-media-streams-truth.test.ts` plus one
+mutation run.
+
+**What was wrong — one class, two instances.** A recorded success over an
+address nobody could reach. The `57.130.80.158.sslip.io` stand-in was served
+by Caddy and probed by `deploy.yml`, `ci.yml` and `canary.yml`; separately, the
+Twilio media-stream URL was built from `SITE_ADDRESS`, which the dial-worker
+container never received, so the worker silently fell back to `localhost` and
+would have dialled a customer into silence with the dial recorded as placed.
+
+**What was done.**
+
+- Retired the stand-in: its site block removed from the box Caddyfile (applied
+  by restart — `admin off` means restart is the only reload), its Cloudflare
+  CNAME deleted, the cloudflared connector container removed, and the three
+  workflows now probe `https://securevoiceai.me`. Verified: the old hostname
+  fails TLS (`000`), `securevoiceai.me` answers `200` on `/api/health` and
+  `/healthz` with its own Let's Encrypt certificate, and `crucible.svalley.tech`
+  (the other project on the shared edge) is untouched at `200`.
+- `src/worker/dial.ts` gained `mediaStreamHost()`: it refuses to dial — and,
+  with the feature flag on, refuses to boot — when `SITE_ADDRESS` is empty or
+  a loopback/mDNS host, naming the fix in the error. `docker-compose.yml`
+  passes `SITE_ADDRESS` to the worker un-defaulted.
+- The collision those intermediate arrangements had to dodge is measured, not
+  folklore: two site blocks for one address is `ambiguous site definition:
+  securevoiceai.me`, exit 1, before any route loads. The follow-up entry below
+  (same day) removes the last of them — the env-driven block is deleted and
+  the box-local file copy is retired.
+
+**State.** `tests/unit/dial-media-streams-truth.test.ts` 10 pass 0 fail
+(mutation-proven: restoring the `?? "localhost"` fallback fails the refusal
+test) · the box Caddy re-validated and healthy · CI's smoke path unchanged and
+still validating.
+
+## 2026-10-12 - The Caddyfile deadlock broken: host-local sites now import from sites.d
+
+The box's `Caddyfile` was hand-diverged (per-site blocks for the shared edge,
+inline) and skip-worktree'd, so every promoted change to the file made the
+deploy's `git pull` refuse until an operator merged by hand — failure mode #2
+in docs/VPS-RECOVERY.md, and still live at migration time: the box sat 163
+commits behind `origin/main` with that refusal waiting on the next pull.
+
+- Measured on the box, against the real files, with caddy:2-alpine:
+  - A wildcard import matching ZERO files is valid — `import sites.d/*.caddy`
+    with only the README present is `Valid configuration`, exit 0.
+  - With `sites.d/crucible.caddy` present, the adapted config carries all of
+    it: `crucible.svalley.tech`, its sslip redirect, `anvil:8545`, `api:8787`,
+    `web:3000`, alongside `localhost` and `securevoiceai.me` — the moved block
+    is verbatim (diff'd against the box file's own section: identical) and
+    fully live.
+  - A snippet defined in the parent Caddyfile (`secure_defaults`) imports
+    cleanly from the imported file.
+- Skip-worktree semantics, measured in a scratch repo on the box, because the
+  next deploy's behavior depends on it: flag + DIVERGED file + incoming
+  modifies → pull REFUSES; flag + CLEAN file + incoming modifies → pull
+  SUCCEEDS and the file updates. The fix is a clean, normal-tracked file — not
+  flag choreography.
+- What changed, repo-side: `{$SITE_ADDRESS:localhost}` became a literal
+  `localhost` block (the env block colliding with the literal
+  `securevoiceai.me` block was why the copies had to diverge; SITE_ADDRESS is
+  app-level only now), the site list ends with `import sites.d/*.caddy`,
+  compose mounts `./sites.d` and no longer passes SITE_ADDRESS to Caddy,
+  `.gitignore` keeps only `sites.d/README.md`, and deploy.yml CLEARS (never
+  sets) the retired skip-worktree flag.
+- Box migration, executed live: backup at `/tmp/Caddyfile.pre-sitesd-migration.*`,
+  `sites.d/crucible.caddy` written, flags cleared, `git checkout HEAD --
+  Caddyfile Caddyfile.platform`, box tree clean and ff-able to `origin/main`.
+  Serving across the whole migration: `securevoiceai.me /healthz` 200 and
+  `crucible.svalley.tech /` 200 — the running Caddy holds its config in memory
+  (`admin off`), so nothing restarted; the next deploy loads the new
+  arrangement.
+
+**State.** Box clean and ff-able · both validation cases pass · `sites.d/README.md`
+documents the add-a-host procedure; the next promotion that touches the
+Caddyfile pulls and deploys like any other file.

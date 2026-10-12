@@ -11,10 +11,10 @@ it. Sending requires a domain Resend can verify in DNS and attach SPF/DKIM to.
 
 Two separate concepts, frequently confused:
 
-| Concept | What it is | Where it lives |
-|---------|-----------|----------------|
-| **Sending domain** | The domain Resend is authorised to send *as* | Cloudflare DNS records below |
-| **Reply-to address** | Where replies and bounces go | `resend_[REDACTED]` env var |
+| Concept              | What it is                                   | Where it lives               |
+| -------------------- | -------------------------------------------- | ---------------------------- |
+| **Sending domain**   | The domain Resend is authorised to send _as_ | Cloudflare DNS records below |
+| **Reply-to address** | Where replies and bounces go                 | `resend_[REDACTED]` env var  |
 
 So the target setup is:
 
@@ -45,7 +45,7 @@ domain. Reasons, in order of importance here:
 1. Resend dashboard → **Domains** → **Add Domain**.
 2. Enter the subdomain, e.g. `mail.securevoiceai.me`.
 3. Leave "Receiving" **off** unless you want inbound mail on that subdomain.
-   Inbound makes Resend receive *everything* addressed to it.
+   Inbound makes Resend receive _everything_ addressed to it.
 4. Resend shows the exact record values. Copy them from there — the DKIM value
    is a public key unique to your account and cannot be derived.
 
@@ -55,18 +55,19 @@ Resend shows 4 records. Add each under **Cloudflare → DNS → Records**. Cloud
 proxies everything by default; **every one of these must be DNS Only (grey
 cloud)** or verification silently fails (Cloudflare error 1004).
 
-| Type | Name | Content / Target | Proxy | TTL |
-|------|------|------------------|-------|-----|
-| MX | `send` | `feedback-smtp.us-east-1.amazonses.com` | **DNS only** | Auto |
-| TXT | `send` | `"v=spf1 include:amazonses.com ~all"` | **DNS only** | Auto |
-| TXT | `resend._domainkey` | `p=<your DKIM public key from Resend>` | **DNS only** | Auto |
-| TXT | `dmarc` (optional) | see below | **DNS only** | Auto |
+| Type | Name                | Content / Target                        | Proxy        | TTL  |
+| ---- | ------------------- | --------------------------------------- | ------------ | ---- |
+| MX   | `send`              | `feedback-smtp.us-east-1.amazonses.com` | **DNS only** | Auto |
+| TXT  | `send`              | `"v=spf1 include:amazonses.com ~all"`   | **DNS only** | Auto |
+| TXT  | `resend._domainkey` | `p=<your DKIM public key from Resend>`  | **DNS only** | Auto |
+| TXT  | `dmarc` (optional)  | see below                               | **DNS only** | Auto |
 
 **The single most common failure:** leaving the orange proxy cloud on. Cloudflare
 will not proxy MX/TXT-for-DKIM correctly, and Resend reports verification failed
 with no useful detail. Check this first.
 
 **Value gotchas:**
+
 - **Omit your domain from the values.** Cloudflare appends it. Paste `send`, not
   `send.mail.securevoiceai.me`. Same for `resend._domainkey` — paste that, not
   the full FQDN.
@@ -113,13 +114,13 @@ the first line.
 
 ## Troubleshooting
 
-| Symptom | Cause |
-|---------|-------|
-| Cloudflare error 1004 | Orange proxy cloud on — set DNS Only |
-| Verification stuck pending | Values include your domain, or a second SPF record exists |
-| Sending returns 403 domain mismatch | `resend_[REDACTED]` domain is not the verified one |
-| Delivered but not received | Recipient's filter — check DMARC reports via the `rua=` address |
-| Mail in spam | No DMARC, or SPF/DKIM not aligned with the visible From domain |
+| Symptom                             | Cause                                                           |
+| ----------------------------------- | --------------------------------------------------------------- |
+| Cloudflare error 1004               | Orange proxy cloud on — set DNS Only                            |
+| Verification stuck pending          | Values include your domain, or a second SPF record exists       |
+| Sending returns 403 domain mismatch | `resend_[REDACTED]` domain is not the verified one              |
+| Delivered but not received          | Recipient's filter — check DMARC reports via the `rua=` address |
+| Mail in spam                        | No DMARC, or SPF/DKIM not aligned with the visible From domain  |
 
 ## Status
 
@@ -150,12 +151,12 @@ which is how a sending domain loses its reputation.
 
 ### What each delivery signal does
 
-| Event | Effect on the `EmailOutbox` row |
-|---|---|
-| `email.bounced` | **DEAD**, `lastError` = `bounced: <reason>` — terminal, never retried |
-| `email.complained` | **DEAD** — a human said "stop"; sending again gets a domain blocklisted |
+| Event                    | Effect on the `EmailOutbox` row                                                                                                                                  |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `email.bounced`          | **DEAD**, `lastError` = `bounced: <reason>` — terminal, never retried                                                                                            |
+| `email.complained`       | **DEAD** — a human said "stop"; sending again gets a domain blocklisted                                                                                          |
 | `email.delivery_delayed` | `lastError` recorded, state **unchanged** — a delay is not a failure, and flipping a SENT row back to PENDING would re-send a link that may already have arrived |
-| `email.delivered` | `lastError` cleared, state unchanged — `SENT` already means "provider accepted it" |
+| `email.delivered`        | `lastError` cleared, state unchanged — `SENT` already means "provider accepted it"                                                                               |
 
 Matching is by `providerMessageId`, written to the row at send time (both send
 paths: the synchronous one in `src/lib/email/queue.ts` and the drain worker in

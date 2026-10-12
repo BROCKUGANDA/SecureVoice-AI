@@ -21,13 +21,15 @@ import { NextRequest } from "next/server";
 const { POST } = await import("@/app/api/agent/route");
 const { _resetBadActors } = await import("@/lib/abuse/bad-actor");
 const { _reset: resetRateLimits } = await import("@/lib/ratelimit");
+const { _resetTurnCounter } = await import("@/lib/voice/turn-counter");
 
 const SLOW = 90_000;
+const RUN_ID = Date.now().toString(36).toUpperCase();
 let ipSeq = 0;
 
 function ask(
   text: string,
-  opts: { lang?: string; turn?: number; ip?: string } = {},
+  opts: { lang?: string; turn?: number; ip?: string; callRef?: string } = {},
 ): Promise<Response> {
   const ip = opts.ip ?? `198.51.100.${(ipSeq = (ipSeq % 250) + 1)}`;
   return POST(
@@ -37,6 +39,7 @@ function ask(
       body: JSON.stringify({
         text,
         lang: opts.lang ?? "en",
+        ...(opts.callRef ? { callRef: opts.callRef } : {}),
         ...(opts.turn ? { turn: opts.turn } : {}),
       }),
     }),
@@ -46,6 +49,7 @@ function ask(
 beforeEach(() => {
   _resetBadActors();
   resetRateLimits();
+  _resetTurnCounter();
 });
 afterAll(() => {
   _resetBadActors();
@@ -151,12 +155,19 @@ describe("a careful customer is not a fraud report", () => {
 });
 
 describe("no endless loops", () => {
+  // The cap counts CONSECUTIVE unclear turns per call, on the server. These
+  // cases used to pass by sending a `turn` number in the body, which is why they
+  // proved nothing: the only real caller never sent one, and anyone who did could
+  // keep the handoff away by sending the same number forever.
   test(
     "an unclear answer is asked again early, then a human takes over",
     async () => {
-      const early = await (await ask("hmm", { turn: 2 })).json();
-      expect(early.action).toBe("clarify");
-      const late = await (await ask("hmm", { turn: 4 })).json();
+      const callRef = `SV-C-${RUN_ID}-LOOP1`;
+      for (let n = 1; n <= 3; n++) {
+        const body = await (await ask("hmm", { callRef })).json();
+        expect(body.action, `turn ${n}`).toBe("clarify");
+      }
+      const late = await (await ask("hmm", { callRef })).json();
       expect(late.intent).toBe("handoff");
       expect(late.action).toBe("human_handoff");
       expect(late.reply).toContain("human specialist");
@@ -165,19 +176,59 @@ describe("no endless loops", () => {
   );
 
   test(
-    "a CLEAR answer is never turned into a handoff by a high turn number",
+    "a caller cannot keep the handoff away by renumbering its own turns",
     async () => {
-      const body = await (await ask("it was me", { turn: 9 })).json();
-      expect(body.intent).toBe("confirm_authorized");
+      const callRef = `SV-C-${RUN_ID}-LOOP2`;
+      let handedOff = false;
+      for (let n = 0; n < 4; n++) {
+        const body = await (await ask("hmm", { callRef, turn: 1 })).json();
+        if (body.intent === "handoff") handedOff = true;
+      }
+      expect(handedOff).toBe(true);
     },
     SLOW,
   );
 
   test(
-    "an absent turn number can never trigger the handoff",
+    "a clear answer resets the streak, so understanding someone is not punished",
     async () => {
-      const body = await (await ask("hmm")).json();
-      expect(body.action).toBe("clarify");
+      const callRef = `SV-C-${RUN_ID}-LOOP3`;
+      await ask("hmm", { callRef });
+      await ask("hmm", { callRef });
+      const clear = await (await ask("it was me", { callRef })).json();
+      expect(clear.intent).toBe("confirm_authorized");
+      // Three more unclear turns after being understood are still three, not six.
+      for (let n = 1; n <= 3; n++) {
+        const body = await (await ask("hmm", { callRef })).json();
+        expect(body.action, `post-clarity turn ${n}`).toBe("clarify");
+      }
+    },
+    SLOW,
+  );
+
+  test(
+    "unclear turns on one call do not count against another",
+    async () => {
+      const a = `SV-C-${RUN_ID}-LOOP4A`;
+      const b = `SV-C-${RUN_ID}-LOOP4B`;
+      await ask("hmm", { callRef: a });
+      await ask("hmm", { callRef: a });
+      const other = await (await ask("hmm", { callRef: b })).json();
+      expect(other.action).toBe("clarify");
+      expect(other.intent).not.toBe("handoff");
+    },
+    SLOW,
+  );
+
+  test(
+    "a different ip on the same call still hands off — the streak is the call's, not the socket's",
+    async () => {
+      const callRef = `SV-C-${RUN_ID}-LOOP5`;
+      await ask("hmm", { callRef, ip: "203.0.113.201" });
+      await ask("hmm", { callRef, ip: "203.0.113.202" });
+      await ask("hmm", { callRef, ip: "203.0.113.203" });
+      const body = await (await ask("hmm", { callRef, ip: "203.0.113.204" })).json();
+      expect(body.intent).toBe("handoff");
     },
     SLOW,
   );

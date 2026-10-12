@@ -17,8 +17,7 @@ const CURRENT = process.env.QSTASH_CURRENT_SIGNING_KEY ?? "";
 const NEXT = process.env.QSTASH_NEXT_SIGNING_KEY ?? "";
 
 export type QStashVerification =
-  | { ok: true; body: unknown }
-  | { ok: false; status: number; error: string };
+  { ok: true; body: unknown } | { ok: false; status: number; error: string };
 
 /**
  * Verify `upstash-signature` against the raw request body.

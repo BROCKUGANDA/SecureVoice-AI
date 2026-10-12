@@ -24,14 +24,25 @@ import {
 } from "node:http";
 import { randomUUID } from "node:crypto";
 import { env, SUPPORTED_LANGS } from "@/lib/config";
+import { db } from "@/lib/db";
 import type { TtsLang } from "@/lib/elevenlabs/client";
 import { resolveTtsModel } from "@/lib/elevenlabs/client";
 import { DeepgramLiveClient, preconnectDeepgram } from "@/lib/voice/deepgram-client";
+import { withFirstChunkDeadline } from "@/lib/voice/first-audio-deadline";
+import { installProcessCrashHandlers } from "@/lib/process-crash-handlers";
+import {
+  beginCall,
+  getActiveCallCount,
+  isShuttingDown,
+  setupGracefulShutdown,
+} from "@/lib/graceful-shutdown";
+import { initOtel } from "@/lib/telemetry/otel";
 import { ElevenLabsStream } from "@/lib/voice/elevenlabs-stream";
 import {
   ConversationState,
   EMERGENCY_FALLBACK,
   FREEZE_CONFIRMATION,
+  FREEZE_UNSTAGED,
   HOLDING_EMPATHY,
   HOLDING_FOLLOWUP,
 } from "@/lib/voice/conversation";
@@ -151,21 +162,47 @@ function getOrCreateCall(callSid: string, lang: TtsLang = "en"): CallState {
   return state;
 }
 
+/**
+ * How long the voice plane waits for the FIRST byte of synthesised audio before
+ * it cancels the vendor stream and plays the emergency fallback.
+ *
+ * This bounds first audio, not the whole utterance — a deadline on the whole
+ * stream would sever every normal sentence (see
+ * `src/lib/voice/first-audio-deadline.ts`). The value used to be spent on a
+ * `withTimeout()` wrapper that created an AbortController and never passed its
+ * signal to anything, so the ceiling it advertised could not fire; the vendor
+ * could stall a live caller in silence indefinitely and the fallback would
+ * never play.
+ */
 const AI_TIMEOUT_MS = Number(process.env.VOICE_AI_TIMEOUT_MS ?? 2000);
 
-async function withTimeout<T>(label: string, promise: Promise<T>): Promise<T> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), AI_TIMEOUT_MS);
-  try {
-    return await promise.catch((err) => {
-      if (err && err.name === "AbortError") {
-        throw new Error(`${label} timed out after ${AI_TIMEOUT_MS}ms`);
-      }
-      throw err;
+/**
+ * The Case a media stream belongs to, keyed by the provider call-leg sid.
+ *
+ * `Case.callSid` is persisted at dial time and the TwiML hands that same sid to
+ * the stream URL, but nothing joined the two: every audit row this worker wrote
+ * carried a synthetic `vs-<uuid>` reference, so a compliance reviewer reading the
+ * hash chain could not tie a spoken freeze confirmation to the case it concerned.
+ * Resolved once per call and cached; cleared when the call ends so the map
+ * cannot grow without bound on a long-lived worker.
+ */
+const caseRefByCallSid = new Map<string, string | null>();
+
+async function resolveCaseRef(callSid: string): Promise<string | null> {
+  const known = caseRefByCallSid.get(callSid);
+  if (known !== undefined) return known;
+  const row = await db.case
+    .findFirst({ where: { callSid }, select: { caseRef: true } })
+    .catch((err: unknown) => {
+      logError("[voice-stream] case lookup by call sid failed", {
+        callSid,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return null;
     });
-  } finally {
-    clearTimeout(timer);
-  }
+  const ref = row?.caseRef ?? null;
+  caseRefByCallSid.set(callSid, ref);
+  return ref;
 }
 
 /**
@@ -262,41 +299,42 @@ async function safeTtsStream(
   }
 
   try {
-    await withTimeout(
-      "elevenlabs-stream",
-      (async () => {
-        const safeText = gate.text;
-        const played: Buffer[] = [];
-        for await (const chunk of tts.streamText(safeText, {
-          apiKey: env.elevenLabsApiKey ?? "",
-          voiceId,
-          modelId,
-          language: state.lang,
-        })) {
-          if (state.ended && !opts.force) break;
-          ws.send(
-            JSON.stringify({
-              event: "media",
-              media: { payload: chunk.toString("base64") },
-            }),
-          );
-          played.push(chunk);
-          // First chunk out = first audio the customer can hear. Reported once,
-          // and only on a real chunk — a zero-length frame would close the span
-          // early and understate the number.
-          if (!announcedFirstAudio && chunk.length > 0) {
-            announcedFirstAudio = true;
-            opts.onFirstAudio?.({ cached: false });
-          }
-        }
-        // Cache-fill on a miss: the synthesis already happened, so storing it
-        // makes the NEXT call of this phrase free. The pre-warm at the dialing
-        // state is the fast path; this is what keeps the cache warm for calls
-        // the dial worker never saw (direct dials, demos, the TwiML plane).
-        if ((!state.ended || opts.force) && played.length > 0)
-          storeWarmChunks(state.lang, text, played);
-      })(),
-    );
+    const played: Buffer[] = [];
+    for await (const chunk of withFirstChunkDeadline(
+      tts.streamText(gate.text, {
+        apiKey: env.elevenLabsApiKey ?? "",
+        voiceId,
+        modelId,
+        language: state.lang,
+      }),
+      {
+        ms: AI_TIMEOUT_MS,
+        label: "elevenlabs-stream",
+        onExpired: () => tts.cancel(),
+      },
+    )) {
+      if (state.ended && !opts.force) break;
+      ws.send(
+        JSON.stringify({
+          event: "media",
+          media: { payload: chunk.toString("base64") },
+        }),
+      );
+      played.push(chunk);
+      // First chunk out = first audio the customer can hear. Reported once,
+      // and only on a real chunk — a zero-length frame would close the span
+      // early and understate the number.
+      if (!announcedFirstAudio && chunk.length > 0) {
+        announcedFirstAudio = true;
+        opts.onFirstAudio?.({ cached: false });
+      }
+    }
+    // Cache-fill on a miss: the synthesis already happened, so storing it
+    // makes the NEXT call of this phrase free. The pre-warm at the dialing
+    // state is the fast path; this is what keeps the cache warm for calls
+    // the dial worker never saw (direct dials, demos, the TwiML plane).
+    if ((!state.ended || opts.force) && played.length > 0)
+      storeWarmChunks(state.lang, text, played);
   } catch (err) {
     logWarn("[voice-stream] primary tts failed; playing emergency fallback", {
       error: err instanceof Error ? err.message : String(err),
@@ -337,26 +375,28 @@ async function playEmergencyFallback(state: { lang: TtsLang }, ws: WebSocket): P
   // need of it — the ones whose language the primary path could not voice.
   const voiceId = env.voiceFor(state.lang) ?? "";
   const modelId = resolveTtsModel(state.lang);
+  const fallbackTts = new ElevenLabsStream();
   try {
-    await withTimeout(
-      "emergency-fallback",
-      (async () => {
-        const tts = new ElevenLabsStream();
-        for await (const chunk of tts.streamText(text, {
-          apiKey: env.elevenLabsApiKey ?? "",
-          voiceId,
-          modelId,
-          language: state.lang,
-        })) {
-          ws.send(
-            JSON.stringify({
-              event: "media",
-              media: { payload: chunk.toString("base64") },
-            }),
-          );
-        }
-      })(),
-    );
+    for await (const chunk of withFirstChunkDeadline(
+      fallbackTts.streamText(text, {
+        apiKey: env.elevenLabsApiKey ?? "",
+        voiceId,
+        modelId,
+        language: state.lang,
+      }),
+      {
+        ms: AI_TIMEOUT_MS,
+        label: "emergency-fallback",
+        onExpired: () => fallbackTts.cancel(),
+      },
+    )) {
+      ws.send(
+        JSON.stringify({
+          event: "media",
+          media: { payload: chunk.toString("base64") },
+        }),
+      );
+    }
   } catch {
     // If even the fallback fails, end the call silently instead of hanging.
   }
@@ -379,6 +419,13 @@ async function handleTranscript(
 ): Promise<void> {
   const state = getOrCreateCall(callSid);
   (ws as WebSocket & { __callSid?: string }).__callSid = callSid;
+  // Fill the case reference as early as the turn allows, without making the
+  // caller wait for it. The fraud branch awaits the outcome explicitly, because
+  // that is where the difference between "staged" and "not staged" decides what
+  // the customer is told.
+  void resolveCaseRef(callSid).then((ref) => {
+    if (ref) (ws as WebSocket & { __caseRef?: string }).__caseRef = ref;
+  });
   if (state.ended) return;
 
   if (isFinal) {
@@ -501,16 +548,27 @@ async function handleTranscript(
     state.ended = true;
 
     // Just-in-time AuthZ soft freeze.
-    try {
-      await executeSoftFreeze(callSid);
-    } catch (err) {
-      logError("[voice-stream] soft freeze failed", {
-        error: err instanceof Error ? err.message : String(err),
+    //
+    // The outcome decides the sentence below, so this is not a fire-and-forget
+    // call any more. The previous version awaited `executeSoftFreeze()`, threw
+    // its result away, and then confirmed a hold to the caller — while the
+    // function it had just called was a stub that wrote nothing anywhere. On this
+    // plane a customer was told their card was restricted and their account
+    // protected, and none of it was true.
+    const freeze = await executeSoftFreeze(callSid);
+    if (freeze.ok) {
+      (ws as WebSocket & { __caseRef?: string }).__caseRef = freeze.caseRef;
+    } else {
+      logError("[voice-stream] soft freeze NOT staged — the caller must not be told it was", {
         callSid,
+        code: freeze.code,
+        error: freeze.error,
+        caseRef: freeze.caseRef ?? "unresolved",
       });
     }
 
-    await safeTtsStream(state, ws, FREEZE_CONFIRMATION[state.lang] ?? FREEZE_CONFIRMATION.en, {
+    const lines = freeze.ok ? FREEZE_CONFIRMATION : FREEZE_UNSTAGED;
+    await safeTtsStream(state, ws, lines[state.lang] ?? lines.en, {
       onFirstAudio,
       force: true,
     });
@@ -606,10 +664,20 @@ function createServer() {
       handlePrewarm(url, req, res);
       return;
     }
-    // A liveness probe for operators and for compose healthchecks.
+    // A liveness probe for operators and for compose healthchecks. Answers 200
+    // while draining on purpose: a probe that goes red mid-drain invites the
+    // orchestrator to SIGKILL the process, which is the exact outcome the drain
+    // exists to avoid. `draining` and `activeCalls` are the honest signals.
     if (req.method === "GET" && url.pathname === "/healthz") {
       res.writeHead(200, { "content-type": "application/json" });
-      res.end(JSON.stringify({ ok: true, calls: calls.size }));
+      res.end(
+        JSON.stringify({
+          ok: true,
+          calls: calls.size,
+          draining: isShuttingDown(),
+          activeCalls: getActiveCallCount(),
+        }),
+      );
       return;
     }
     res.writeHead(404, { "content-type": "application/json" });
@@ -620,6 +688,31 @@ function createServer() {
   // ours, so the HTTP routes above and the media stream cannot shadow each
   // other.
   const wss = new WebSocketServer({ noServer: true });
+
+  // Drain before exiting. A SIGTERM that arrives mid-fraud-call currently severs
+  // the media stream, the ASR socket and the customer's sentence at once, because
+  // nothing here handles the signal. The active-call counter is what makes the
+  // wait mean something: it reaches zero when the last open call closes.
+  //
+  // `onShutdown` runs AFTER the drain (see src/lib/graceful-shutdown.ts), so
+  // closing these sockets cannot cut short a call that was still going — it is
+  // the cleanup for whatever outlasted the window.
+  //
+  // This only holds if the orchestrator waits as long as we do. Docker's default
+  // is 10s against a 65s window, so docker-compose.yml sets stop_grace_period on
+  // this service, and tests/unit/shutdown-window.test.ts fails the build if the
+  // two numbers ever drift apart — a drain Docker kills early is decoration.
+  setupGracefulShutdown({
+    onShutdown: () => {
+      for (const client of wss.clients) {
+        try {
+          client.close(1001, "server shutting down");
+        } catch {
+          // already gone
+        }
+      }
+    },
+  });
   server.on("upgrade", (req, socket, head) => {
     wss.handleUpgrade(req, socket, head, (ws) => {
       wss.emit("connection", ws, req);
@@ -634,6 +727,9 @@ function createServer() {
     // for the whole call.
     const lang = asCallLang(url.searchParams.get("lang"));
     const state = getOrCreateCall(callSid, lang);
+    // One unit of work the shutdown drain waits for. The release is idempotent,
+    // so the close handler and any later teardown can both call it.
+    const releaseCall = beginCall();
     // The conversational state machine (greeting / nudge / barge-in) lives for
     // the life of this call and is reachable from handleTranscript via state.
     const conv = new ConversationState(lang);
@@ -681,11 +777,83 @@ function createServer() {
       });
     });
 
+    // The transcription socket's own fate, reported to the call.
+    //
+    // An empty `onclose` in the client used to make a dropped ASR leg invisible:
+    // the caller talked to a dead transcriber, the agent kept playing nudges at
+    // them, the audit chain recorded a call in which nobody spoke, and the only
+    // trace was Deepgram's own dashboard. The client now redials once (bounded in
+    // `src/lib/voice/deepgram-client.ts`) and says so; a second close ends the
+    // call ALOUD.
+    //
+    // `SAFETY_EXIT` is spoken rather than a bespoke "we have lost your line"
+    // sentence for two reasons: it already exists, vetted, in all six languages,
+    // and it is the correct instruction when a verification cannot be completed.
+    // Authoring new compliance copy under incident conditions — and translating it
+    // into five languages nobody here speaks — is how a safety line ends up wrong.
+    deepgram.onAsrEvent((event) => {
+      if (state.ended) return;
+
+      void auditAppend({
+        callRef: (ws as WebSocket & { __caseRef?: string }).__caseRef ?? `vs-${randomUUID()}`,
+        action: "asr",
+        intent: event.kind === "dead" ? "asr_stream_dead" : "asr_stream_reconnected",
+        callerId: "system-voice-stream",
+        redactedText:
+          event.kind === "dead"
+            ? "live transcription failed after one redial; the call was ended with the hang-up-safe exit"
+            : "live transcription redialled; speech inside the handshake window was not transcribed",
+        meta: { lang: state.lang, callSid, ...event },
+      }).catch(() => {});
+
+      if (event.kind === "reconnected") {
+        logWarn("[voice-stream] live transcription redialled", {
+          callSid,
+          attempt: event.attempt,
+          closeCode: event.closeCode,
+        });
+        return;
+      }
+
+      logError(
+        "[voice-stream] live transcription died — ending the call rather than talking past the caller",
+        {
+          callSid,
+          attempts: event.attempts,
+          closeCode: event.closeCode,
+        },
+      );
+      if (nudgeTimer) clearTimeout(nudgeTimer);
+      // `state.ended` here, with the terminal utterance `force: true`: the same
+      // ordering rule the freeze path follows — the flag stops the nudge loop and
+      // any barge-in, but must never silence the last thing the customer hears.
+      state.ended = true;
+      void safeTtsStream(state, ws, SAFETY_EXIT[state.lang] ?? SAFETY_EXIT.en, { force: true })
+        .catch(() => {})
+        .finally(() => {
+          try {
+            ws.send(JSON.stringify({ event: "clear" }));
+          } catch {
+            // already closing
+          }
+          setTimeout(() => {
+            try {
+              ws.close();
+            } catch {
+              // already closed
+            }
+          }, 1000);
+        });
+    });
+
     // Pinned to the CALL's language, not "en". This is what makes Urdu
     // comprehensible at all: nova-2 in English mode returns phonetic garbage for
     // Urdu speech, which the Urdu-aware router then cannot recognise as a
     // denial, so the soft freeze never fires.
-    const dgWs = deepgram.start(lang);
+    // Started for its effect, and the socket is deliberately not retained: a
+    // reconnect replaces it inside the client, so a reference held here would be a
+    // dead socket by the time anyone wanted to act on it.
+    deepgram.start(lang);
 
     // T+0 opening greeting. This worker was previously purely reactive — silent
     // until the first inbound transcript — which left the caller facing dead air
@@ -737,10 +905,17 @@ function createServer() {
     ws.on("close", () => {
       if (nudgeTimer) clearTimeout(nudgeTimer);
       deepgram.stop();
+      // Cancel the vendor stream, do not just forget it. `state.tts = null`
+      // alone left an in-flight synthesis running: the ElevenLabs socket kept
+      // streaming and billing, each chunk was pushed into a closed WebSocket,
+      // and the turn's promise resolved long after the caller had hung up.
+      state.tts?.cancel();
       state.deepgram = null;
       state.tts = null;
       calls.delete(callSid);
-      logInfo("[voice-stream] call ended", { callSid });
+      caseRefByCallSid.delete(callSid);
+      releaseCall();
+      logInfo("[voice-stream] call ended", { callSid, activeCalls: getActiveCallCount() });
     });
 
     ws.on("error", (err) => {
@@ -765,6 +940,11 @@ function createServer() {
 }
 
 if (import.meta.main) {
+  installProcessCrashHandlers();
+  // Worker-side traces, metrics and logs. No-op and non-fatal without
+  // OTEL_BETTERSTACK_TOKEN, so an unconfigured deployment loses telemetry and not
+  // the call path.
+  initOtel();
   createServer();
 }
 

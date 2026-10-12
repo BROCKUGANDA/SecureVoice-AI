@@ -295,3 +295,27 @@ describe("the answer is TwiML the customer's handset can render", () => {
     expect(replies).toHaveLength(0);
   });
 });
+
+describe("shape validation bounds the reply; it never adjudicates it", () => {
+  test("a recognised field that lies is answered empty TwiML at 200, not a 4xx", async () => {
+    // The signature is valid, so this is not an authorisation failure — and a
+    // 4xx makes Twilio retry a body it will keep signing correctly. The delivery
+    // never settles, the incident pages, and the reply is dropped regardless.
+    const res = await send({ From: PHONE, Body: "NO", MessageSid: "SM1", NumMedia: "two" });
+    expect(res.status).toBe(200);
+    expect(res.body).toBe(`<?xml version="1.0" encoding="UTF-8"?><Response/>`);
+    expect(replies).toHaveLength(0);
+    // Not hostile, just malformed: no strike, or a vendor field change would
+    // eventually lock the number out of its own webhook.
+    expect(strikes).toHaveLength(0);
+  });
+
+  test("a reply with no sid and no AccountSid still resolves the case", async () => {
+    // The shape check runs after the signature, so it may not require anything
+    // handleSmsReply does not need. Requiring an identifier here is how a
+    // customer's fraud answer gets dropped by a guard meant for forged posts.
+    const res = await send({ From: PHONE, Body: "NO" });
+    expect(replies).toHaveLength(1);
+    expect(res.status).toBe(200);
+  });
+});

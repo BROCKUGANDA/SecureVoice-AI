@@ -17,7 +17,7 @@
  * the case reference, so the hand-off would have addressed a leg that does not
  * exist.
  */
-import { beforeEach, describe, expect, it, mock } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 
 type CallResult =
   | { ok: true; sid: string; status: string; from?: string }
@@ -122,7 +122,13 @@ mock.module("@/lib/sms-verdict", () => ({ sweepExpiredSmsCases: async () => 0 })
 mock.module("@/lib/elevenlabs/sms-fallback", () => ({ markVoiceFailed: async () => {} }));
 mock.module("@/lib/scale/queue", () => ({ drainDialQueue: async () => [] }));
 
-const { handle } = await import("@/worker/dial");
+const { handle, mediaStreamHost } = await import("@/worker/dial");
+
+// The media-stream host is configuration, not a fact the process can invent:
+// these tests set it explicitly and put the environment back afterwards so a
+// real SITE_ADDRESS in the running shell cannot make them pass or fail.
+const ORIGINAL_SITE_ADDRESS = process.env.SITE_ADDRESS;
+const PUBLIC_HOST = "voice.example.com";
 
 const JOB = {
   id: "job-1",
@@ -151,7 +157,13 @@ beforeEach(() => {
   audits.length = 0;
   mediaStreamsOn = true;
   convai.throwWith = null;
+  process.env.SITE_ADDRESS = PUBLIC_HOST;
   twilio.next = { ok: true, sid: "AC22222222222222222222222222222222", status: "queued" };
+});
+
+afterEach(() => {
+  if (ORIGINAL_SITE_ADDRESS === undefined) delete process.env.SITE_ADDRESS;
+  else process.env.SITE_ADDRESS = ORIGINAL_SITE_ADDRESS;
 });
 
 describe("dial worker — Twilio media-streams plane", () => {
@@ -208,6 +220,57 @@ describe("dial worker — Twilio media-streams plane", () => {
     // Worker plane is a /realtime sibling, not under /api (which the app owns).
     expect(url).toContain("/realtime/media-stream");
     expect(url).toContain("callSid=SV-C-8F3K2");
+    // The HOST is the configured public one. Asserting only `wss://` + path is
+    // what let a `?? "localhost"` fallback ship: every one of those assertions
+    // passes for a URL the carrier can never reach.
+    expect(new URL(url).hostname).toBe(PUBLIC_HOST);
+  });
+
+  it("refuses to dial when the media-stream host is missing or loopback", async () => {
+    for (const bad of [undefined, "", "localhost", "127.0.0.1", "0.0.0.0", "[::1]", "box.local"]) {
+      if (bad === undefined) delete process.env.SITE_ADDRESS;
+      else process.env.SITE_ADDRESS = bad;
+
+      const outcome = await handle(JOB);
+
+      expect(outcome.ok).toBe(false);
+      if (!outcome.ok) expect(outcome.error).toContain("SITE_ADDRESS");
+      expect(twilio.calls).toHaveLength(0); // no call placed
+      expect(transitions).toHaveLength(0); // never moved to DIALING
+      expect(audits.some((a) => a.intent === "dial_failed")).toBe(true);
+      audits.length = 0;
+    }
+  });
+});
+
+describe("dial worker — the media-stream host is configuration, not a guess", () => {
+  it("returns the configured host and refuses every value a carrier cannot resolve", () => {
+    expect(mediaStreamHost({ SITE_ADDRESS: "securevoiceai.me", NODE_ENV: "test" })).toBe(
+      "securevoiceai.me",
+    );
+    // A bare public IP is a real deployment (a VPS with no domain yet), the same
+    // allowance `config.twilioWebhookBaseUrl` documents.
+    expect(mediaStreamHost({ SITE_ADDRESS: "57.130.80.158", NODE_ENV: "test" })).toBe(
+      "57.130.80.158",
+    );
+
+    for (const bad of [
+      undefined,
+      "",
+      "   ",
+      "localhost",
+      "LOCALHOST",
+      "127.0.0.1",
+      "127.8.9.10",
+      "0.0.0.0",
+      "::1",
+      "[::1]",
+      "printer.local",
+    ]) {
+      expect(() => mediaStreamHost({ SITE_ADDRESS: bad, NODE_ENV: "test" })).toThrow(
+        /SITE_ADDRESS/,
+      );
+    }
   });
 });
 

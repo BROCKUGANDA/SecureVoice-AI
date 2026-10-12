@@ -25,12 +25,12 @@ export type Phase = "idle" | "speaking" | "listening" | "thinking";
 
 /** The opening line spoken at T+0, per language: disclosure + the question. */
 export const OPENING: Record<ConvLang, string> = {
-  en: "Hello? This call is recorded. I am your bank's security assistant calling about a transaction on your card. Did you authorize it?",
-  ar: "مرحبًا؟ هذا الاتصال مسجَّل. أنا مساعد الأمن لمصرفك، أتصل بخصوص عملية على بطاقتك. هل أجريتها أنت؟",
-  hi: "नमस्ते? यह कॉल रिकॉर्ड की जा रही है। मैं आपके बैंक का सुरक्षा सहायक हूँ, आपके कार्ड के एक लेन-देन के बारे में बात करने बुला रहा हूँ। क्या यह आपने किया था?",
-  ur: "سلام؟ یہ کال ریکارڈ کی جا رہی ہے۔ میں آپ کے بینک کا سیکیورٹی اسسٹنٹ ہوں، آپ کے کارڈ کے ایک لین دین کے بارے میں بات کرنے بلایا ہوں۔ کیا یہ آپ نے کیا تھا؟",
-  fr: "Bonjour ? Cet appel est enregistré. Je suis l'assistant sécurité de votre banque, j'appelle au sujet d'une opération sur votre carte. L'avez-vous autorisée ?",
-  sw: "Habari? Simu hii inarekodiwa. Mimi ni msaidizi wa usalama wa benki yako, nakupigia kuhusu muamala kwenye kadi yako. Je, uliidhinisha?",
+  en: "Hello? This is an automated call and it is recorded. I am your bank's security assistant calling about a transaction on your card. Did you authorize it?",
+  ar: "مرحبًا؟ هذه مكالمة آلية وهي مسجَّلة. أنا مساعد الأمن لمصرفك، أتصل بخصوص عملية على بطاقتك. هل أجريتها أنت؟",
+  hi: "नमस्ते? यह एक स्वचालित कॉल है और रिकॉर्ड की जा रही है। मैं आपके बैंक का सुरक्षा सहायक हूँ, आपके कार्ड के एक लेन-देन के बारे में बात करने बुला रहा हूँ। क्या यह आपने किया था?",
+  ur: "سلام؟ یہ ایک خودکار کال ہے اور ریکارڈ کی جا رہی ہے۔ میں آپ کے بینک کا سیکیورٹی اسسٹنٹ ہوں، آپ کے کارڈ کے ایک لین دین کے بارے میں بات کرنے بلایا ہوں۔ کیا یہ آپ نے کیا تھا؟",
+  fr: "Bonjour ? Cet appel est automatisé et enregistré. Je suis l'assistant sécurité de votre banque, j'appelle au sujet d'une opération sur votre carte. L'avez-vous autorisée ?",
+  sw: "Habari? Simu hii ni ya kiotomatiki na inarekodiwa. Mimi ni msaidizi wa usalama wa benki yako, nakupigia kuhusu muamala kwenye kadi yako. Je, uliidhinisha?",
 };
 
 /** The silence nudge for a caller who answers but says nothing. */
@@ -150,6 +150,30 @@ export const FREEZE_CONFIRMATION: Record<ConvLang, string> = {
   ur: "شکریہ۔ آپکے اکاؤنٹ کی حفاظت کے لیے میں نے آپ کے کارڈ پر عارضی پابندی لگا دی ہے۔ ایک انسانی ماہر جلد اس کا جائزہ لے گا۔",
   fr: "Merci. Nous avons temporairement restreint votre carte pour protéger votre compte. Un spécialiste de la fraude examinera cela prochainement.",
   sw: "Asante. Tumeweka kizuizi cha muda kwenye kadi yako kulinda akaunti yako. Mtaalamu wa udanganyifu atakagua hivi karibuni.",
+};
+
+/**
+ * Spoken when the hold could NOT be staged — no case for this call leg, a state
+ * that does not permit one, or an audit log that refused the write.
+ *
+ * This line exists because the alternative was a lie. The platform may only tell
+ * a customer their card is restricted when `executeSoftFreeze` says it staged;
+ * when it did not, what the customer must hear is that a human is being brought
+ * in and that they should expect a call — not a confirmation of an action nobody
+ * took.
+ *
+ * The non-English lines carry the same caveat as every other utterance in this
+ * file: they are authored against the English source and still need the native
+ * sign-off `docs/GAP-REGISTER.md` records as outstanding for Arabic. A
+ * consequence-bearing sentence should not go live on a machine translation.
+ */
+export const FREEZE_UNSTAGED: Record<ConvLang, string> = {
+  en: "I could not place the hold on your card from here. I am passing this to our fraud team now, and they will call you. If you do not hear from us, please contact your bank directly.",
+  ar: "لم أتمكن من توقيف بطاقتك من هنا. أمرّ هذا الآن إلى فريق الاحتيال وسيتصلون بك. إذا لم تتواصل معك أي جهة، يرجى مراجعة بنكك مباشرة.",
+  hi: "मैं यहाँ आपके कार्ड पर रोक नहीं लगा सकी। मैं इसे अभी धोखाधड़ी टीम को भेज रही हूँ और वे आपको कॉल करेंगे। अगर किसी ने संपर्क नहीं किया तो कृपया अपने बैंक से सीधे संपर्क करें।",
+  ur: "میں یہاں سے آپ کے کارڈ پر روک نہیں لگا سکی۔ میں یہ ابھی فراڈ ٹیم کو بھیج رہا ہوں اور وہ آپ کو کال کریں گے۔ اگر کسی سے رابطہ نہ ہو تو براہ کرم اپنے بینک سے براہ راست رابطہ کریں۔",
+  fr: "Je n'ai pas pu suspendre votre carte depuis ici. Je transmets le dossier à notre équipe antifraude maintenant, et elle vous rappellera. Sans nouvelle de notre part, contactez directement votre banque.",
+  sw: "Sikuweza kuweka kizuizi kwenye kadi yako kutoka hapa. Ninailo wasilisha su hili kwa timu yetu ya ulaghai sasa, na watakupigia simu. Ukisasikia kutoka kwetu, tafadhali wasiliana na benki yako moja kwa moja.",
 };
 
 /** Holding line for a caller routed to a human without a fraud claim. */

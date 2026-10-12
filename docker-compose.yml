@@ -94,6 +94,8 @@ services:
         # `paddlePriceIds()` throws while prerendering — and no runtime .env can
         # fix it, because the value has to be a build arg to exist at all.
         NEXT_PUBLIC_PADDLE_PRICES: ${NEXT_PUBLIC_PADDLE_PRICES:-}
+        NEXT_PUBLIC_PADDLE_ENVIRONMENT: ${NEXT_PUBLIC_PADDLE_ENVIRONMENT:-}
+        NEXT_PUBLIC_PADDLE_CLIENT_TOKEN: ${NEXT_PUBLIC_PADDLE_CLIENT_TOKEN:-}
     logging: *default-logging
     environment:
       # Use the same DATABASE_URL as the rest of the stack — .env is the single
@@ -139,6 +141,8 @@ services:
         # `paddlePriceIds()` throws while prerendering — and no runtime .env can
         # fix it, because the value has to be a build arg to exist at all.
         NEXT_PUBLIC_PADDLE_PRICES: ${NEXT_PUBLIC_PADDLE_PRICES:-}
+        NEXT_PUBLIC_PADDLE_ENVIRONMENT: ${NEXT_PUBLIC_PADDLE_ENVIRONMENT:-}
+        NEXT_PUBLIC_PADDLE_CLIENT_TOKEN: ${NEXT_PUBLIC_PADDLE_CLIENT_TOKEN:-}
     restart: unless-stopped
     logging: *default-logging
     mem_limit: 512m
@@ -231,6 +235,8 @@ services:
         # `paddlePriceIds()` throws while prerendering — and no runtime .env can
         # fix it, because the value has to be a build arg to exist at all.
         NEXT_PUBLIC_PADDLE_PRICES: ${NEXT_PUBLIC_PADDLE_PRICES:-}
+        NEXT_PUBLIC_PADDLE_ENVIRONMENT: ${NEXT_PUBLIC_PADDLE_ENVIRONMENT:-}
+        NEXT_PUBLIC_PADDLE_CLIENT_TOKEN: ${NEXT_PUBLIC_PADDLE_CLIENT_TOKEN:-}
     restart: unless-stopped
     logging: *default-logging
     mem_limit: 512m
@@ -286,6 +292,8 @@ services:
         # `paddlePriceIds()` throws while prerendering — and no runtime .env can
         # fix it, because the value has to be a build arg to exist at all.
         NEXT_PUBLIC_PADDLE_PRICES: ${NEXT_PUBLIC_PADDLE_PRICES:-}
+        NEXT_PUBLIC_PADDLE_ENVIRONMENT: ${NEXT_PUBLIC_PADDLE_ENVIRONMENT:-}
+        NEXT_PUBLIC_PADDLE_CLIENT_TOKEN: ${NEXT_PUBLIC_PADDLE_CLIENT_TOKEN:-}
     restart: unless-stopped
     logging: *default-logging
     mem_limit: 256m
@@ -353,6 +361,8 @@ services:
         # `paddlePriceIds()` throws while prerendering — and no runtime .env can
         # fix it, because the value has to be a build arg to exist at all.
         NEXT_PUBLIC_PADDLE_PRICES: ${NEXT_PUBLIC_PADDLE_PRICES:-}
+        NEXT_PUBLIC_PADDLE_ENVIRONMENT: ${NEXT_PUBLIC_PADDLE_ENVIRONMENT:-}
+        NEXT_PUBLIC_PADDLE_CLIENT_TOKEN: ${NEXT_PUBLIC_PADDLE_CLIENT_TOKEN:-}
     restart: unless-stopped
     logging: *default-logging
     mem_limit: 256m
@@ -443,6 +453,8 @@ services:
         # `paddlePriceIds()` throws while prerendering — and no runtime .env can
         # fix it, because the value has to be a build arg to exist at all.
         NEXT_PUBLIC_PADDLE_PRICES: ${NEXT_PUBLIC_PADDLE_PRICES:-}
+        NEXT_PUBLIC_PADDLE_ENVIRONMENT: ${NEXT_PUBLIC_PADDLE_ENVIRONMENT:-}
+        NEXT_PUBLIC_PADDLE_CLIENT_TOKEN: ${NEXT_PUBLIC_PADDLE_CLIENT_TOKEN:-}
     restart: unless-stopped
     logging: *default-logging
     mem_limit: 512m
@@ -510,6 +522,8 @@ services:
         # `paddlePriceIds()` throws while prerendering — and no runtime .env can
         # fix it, because the value has to be a build arg to exist at all.
         NEXT_PUBLIC_PADDLE_PRICES: ${NEXT_PUBLIC_PADDLE_PRICES:-}
+        NEXT_PUBLIC_PADDLE_ENVIRONMENT: ${NEXT_PUBLIC_PADDLE_ENVIRONMENT:-}
+        NEXT_PUBLIC_PADDLE_CLIENT_TOKEN: ${NEXT_PUBLIC_PADDLE_CLIENT_TOKEN:-}
     restart: unless-stopped
     logging: *default-logging
     mem_limit: 256m
@@ -578,6 +592,8 @@ services:
         # `paddlePriceIds()` throws while prerendering — and no runtime .env can
         # fix it, because the value has to be a build arg to exist at all.
         NEXT_PUBLIC_PADDLE_PRICES: ${NEXT_PUBLIC_PADDLE_PRICES:-}
+        NEXT_PUBLIC_PADDLE_ENVIRONMENT: ${NEXT_PUBLIC_PADDLE_ENVIRONMENT:-}
+        NEXT_PUBLIC_PADDLE_CLIENT_TOKEN: ${NEXT_PUBLIC_PADDLE_CLIENT_TOKEN:-}
         # Canonical public origin, inlined at BUILD time like the pair above.
         # Defaults to https://<SITE_ADDRESS> — the same hostname Caddy issues
         # the certificate for — so a deployment that already set SITE_ADDRESS
@@ -734,6 +750,8 @@ services:
         # `paddlePriceIds()` throws while prerendering — and no runtime .env can
         # fix it, because the value has to be a build arg to exist at all.
         NEXT_PUBLIC_PADDLE_PRICES: ${NEXT_PUBLIC_PADDLE_PRICES:-}
+        NEXT_PUBLIC_PADDLE_ENVIRONMENT: ${NEXT_PUBLIC_PADDLE_ENVIRONMENT:-}
+        NEXT_PUBLIC_PADDLE_CLIENT_TOKEN: ${NEXT_PUBLIC_PADDLE_CLIENT_TOKEN:-}
     logging: *default-logging
     environment:
       HOSTNAME: 0.0.0.0

@@ -234,7 +234,7 @@ conflict instead of resolving it instance by instance:
   list is literal (`localhost`, `securevoiceai.me`) and ends with
   `import sites.d/*.caddy`. The env-driven `{$SITE_ADDRESS:localhost}` block
   is gone — besides colliding with the literal block (`ambiguous site
-  definition`, measured), it was the reason the two copies had to diverge.
+definition`, measured), it was the reason the two copies had to diverge.
 - The box's own site blocks — `crucible.svalley.tech` and its `*.sslip.io`
   redirect — live in an untracked `sites.d/crucible.caddy` (`.gitignore` keeps
   only `sites.d/README.md`). Adding or editing a host-local site never touches
@@ -258,3 +258,39 @@ git pull --ff-only origin main
 Editing a file in `sites.d/` needs a Caddy process restart — `admin off` means
 there is no reload endpoint: `docker compose up -d --force-recreate caddy`.
 The deploy recreates Caddy for free whenever the compose definition changes.
+
+## Failure mode #3 — the shared `:local` image tag (RESOLVED 2026-10-12)
+
+`docker-compose.yml:611` pins the app service to
+`image: ${IMAGE:-securevoice-ai-app:local}` — **one tag, shared by whatever
+compose project builds the app service on this host**. Production's deploy path
+builds that tag from `main`; so does every CI smoke test, because the smoke
+throwaway `.env` never set `IMAGE`. Measured on the box: the production app
+container ran `sha256:2a44dee87a3b` (the v0.2.2 deploy build, dangling/untagged)
+while the tag `securevoice-ai-app:local` pointed at `sha256:1db8b90dd056`, a
+**v0.2.1** build left by a smoke test of a dev checkout. Any `up -d` from that
+state rolls production BACKWARD to the stale image, silently — the health check
+would still be 200, because v0.2.1 boots fine.
+
+**What was done:**
+
+1. Rolled `app` forward to the published release artifact
+   (`IMAGE=ghcr.io/brockuganda/securevoice-ai:v0.2.2 docker compose up -d
+--no-deps --force-recreate app`); verified `/api/health` reports `version:
+0.2.2` and the container's image ID is the registry digest.
+2. Repaired the box's tag: `docker tag 2a44dee87a3b securevoice-ai-app:local`
+   so a future default-tag roll cannot resurrect v0.2.1.
+3. Fixed the cause in the workflows: both smoke jobs (ci.yml's
+   `compose-smoke`, release.yml's smoke) now write
+   `IMAGE=<project>-app:latest` into their throwaway `.env`, so a test build
+   can never name itself after production again.
+4. Pruned ~30 GB of leaked `svci-*` smoke-stack images (eight ~3.8 GB worker
+   images per run, never reclaimed — `down` never touches images). The
+   reclaim step in ci.yml now removes `svci-`/`sv-ci-` images by name, with the
+   same never-match-production guard its volume loop carries.
+
+**Standing rule:** the disk this runner lives on filled from exactly these
+leaks (stacks, caches, images) — three of the same kind of failure, and the
+buildkit `graceful_stop` that killed three dev pushes on 2026-10-12 died on the
+same 79%-full disk. Check `df -h /` before believing any compose failure here
+is a code failure.

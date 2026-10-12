@@ -2,8 +2,9 @@
 
 import { useCallback, useEffect, useRef } from "react";
 import { motion, AnimatePresence, MotionConfig } from "framer-motion";
-import { useSession } from "@/lib/auth-client";
-import { useApp, t, VIEW_ACCESS, type View } from "@/lib/store";
+import { useApp, t, VIEW_ACCESS, ACCESS_SEAT, type View } from "@/lib/store";
+import { atLeast } from "@/lib/auth/seat";
+import { useViewerSeat } from "@/lib/auth/use-viewer-seat";
 import { isShellPath, pathForView, viewForPath } from "@/lib/console-routes";
 import { cn } from "@/lib/utils";
 import { Navbar } from "@/components/shell/Navbar";
@@ -46,13 +47,11 @@ const VIEWS: Record<View, React.ComponentType> = {
 
 export function AppRoot() {
   const { view, lang, setView, setTimedOut, highContrast } = useApp();
-  const { data: session } = useSession();
-  const isSignedIn = Boolean(session?.user);
-  // Role for gating the console. Better Auth has no `publicMetadata`: the role
-  // lives on the organization membership. This is a UI AFFORDANCE only — every
-  // route re-checks the capability server-side, so a wrong value here can hide a
-  // nav item but can never grant one.
-  const role = session?.session?.activeOrganizationId ? "operator" : undefined;
+  // `seat` comes from the membership row, NOT from `activeOrganizationId ? "operator"`
+  // — see the doc comment on useViewerSeat. Both values the gate below needs are
+  // read here so there is exactly one subscription and one chance of the header
+  // and the gate disagreeing.
+  const { seat, isLoading: seatLoading, isSignedIn } = useViewerSeat();
 
   /* keep scroll sane between views */
   useEffect(() => {
@@ -115,18 +114,47 @@ export function AppRoot() {
     setView("auth");
   }, [setTimedOut, setView]);
 
-  /* RBAC gate: every view declares who may see it (VIEW_ACCESS) */
+  /* RBAC gate: every view declares who may see it (VIEW_ACCESS).
+   *
+   * THE `seatLoading` GUARD IS THE ORG-SWITCH FIX, and it is load-bearing.
+   *
+   * `setActive` (OrgSwitcher) refetches the session and the active membership
+   * together. For the duration of that round trip both are briefly unavailable:
+   * `useSession()` reports pending, and `activeOrganizationId` is momentarily
+   * absent. This gate used to read that absence as "signed out" and redirect the
+   * operator to the sign-in screen mid-switch — the bounce that sent a tenant
+   * change back to the landing page. Nothing about the switch had failed; the
+   * gate had simply been asked a question while the answer was in flight.
+   *
+   * So: while the seat is unresolved the gate does NOTHING. It is a UI gate, not
+   * an authorisation boundary — every route re-checks server-side, so declining
+   * to redirect during a 200ms refetch cannot grant access to anything. Deferring
+   * the decision is strictly safer than making it on incomplete data.
+   */
   useEffect(() => {
+    if (seatLoading) return;
     const access = VIEW_ACCESS[view];
-    if (access === "public") return;
-    if (access === "user" && !isSignedIn) {
+    const required = ACCESS_SEAT[access];
+    if (required === null) return; // public view — everyone, including signed out
+    if (required === "judge" && !isSignedIn) {
       setView("auth");
       return;
     }
-    if (access === "operator" && (!isSignedIn || role !== "operator")) {
-      setView("auth");
+    // A signed-in seat below the bar is sent to the DASHBOARD, not to the
+    // sign-in screen and not to the console. They ARE signed in, they simply may
+    // not open this screen, and bouncing to `/auth` told them to log in again
+    // with a perfectly valid session.
+    //
+    // The dashboard specifically: it is the one view every signed-in seat can
+    // reach (`judge` in VIEW_ACCESS), so it is a destination this gate can never
+    // itself reject. Sending them to the console instead — which is what an
+    // earlier version of this line did — is a redirect loop whenever the console
+    // is the very screen that was refused, because the console is `vendor` and a
+    // `judge` will be bounced straight back out of it, forever.
+    if (seat === null || !atLeast(seat, required)) {
+      setView(isSignedIn ? "dashboard" : "auth");
     }
-  }, [view, isSignedIn, role, setView]);
+  }, [view, isSignedIn, seat, seatLoading, setView]);
 
   /* ── The URL is the view, in both directions ────────────────────────────────
    *

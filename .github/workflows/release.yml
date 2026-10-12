@@ -153,6 +153,13 @@ jobs:
         run: |
           cat > .env <<'ENV'
           COMPOSE_PROJECT_NAME=${{ env.PROJECT }}
+          # Per-run app image tag — the same isolation ci.yml's smoke job carries.
+          # `docker-compose.yml` names the app image `securevoice-ai-app:local`
+          # by default, and any compose build on this host that leaves IMAGE
+          # unset retags it, which is how production was left reconciling
+          # against a stale test build. See ci.yml's env-file comment for the
+          # measured history.
+          IMAGE=${{ env.PROJECT }}-app:latest
           POSTGRES_USER=securevoice
           POSTGRES_PASSWORD=ci-only-not-a-secret
           POSTGRES_DB=securevoice

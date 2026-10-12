@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect } from "react";
-import { ThemeProvider as NextThemesProvider } from "next-themes";
 import posthog from "posthog-js";
 import { PostHogProvider } from "posthog-js/react";
 
@@ -9,18 +8,7 @@ const POSTHOG_KEY = process.env.NEXT_PUBLIC_POSTHOG_KEY ?? "";
 const POSTHOG_HOST = process.env.NEXT_PUBLIC_POSTHOG_HOST ?? "https://us.i.posthog.com";
 
 /**
- * The two client-side contexts the app actually needs: the colour theme, and
- * product analytics.
- *
- * ── Why the theme half was not optional ──────────────────────────────────────
- * `tailwind.config.ts` declares `darkMode: "class"` and `globals.css` carries a
- * full `.dark` token block, and `src/components/ui/sonner.tsx` reads the theme
- * through `useTheme()`. Nothing mounted a provider, so no code path could ever
- * put `.dark` on `<html>`: the dark palette was dead CSS, the toggle promised in
- * the product tour did not exist, and the toast theme read a context with no
- * provider behind it. `suppressHydrationWarning` was already on `<html>` for
- * exactly the script next-themes injects, which is what keeps the first paint on
- * the customer's stored theme instead of flashing the wrong one (checklist 375).
+ * The client-side context the app needs: product analytics.
  *
  * ── What this file must never carry ─────────────────────────────────────────
  * No auth state, and no cached session. Better Auth sessions are read from the
@@ -53,21 +41,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
-  const themed = (
-    <NextThemesProvider
-      attribute="class"
-      defaultTheme="system"
-      enableSystem
-      disableTransitionOnChange
-      // `themes` is what a toggle cycles through; declaring it keeps the stored
-      // value's domain explicit instead of whatever a caller invents.
-      themes={["light", "dark", "system"]}
-    >
-      {children}
-    </NextThemesProvider>
-  );
+  if (!POSTHOG_KEY) return children;
 
-  if (!POSTHOG_KEY) return themed;
-
-  return <PostHogProvider client={posthog}>{themed}</PostHogProvider>;
+  return <PostHogProvider client={posthog}>{children}</PostHogProvider>;
 }

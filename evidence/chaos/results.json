@@ -168,7 +168,6 @@
       "cooldown",
       "country_not_allowed",
       "country_unparseable",
-      "credits_exhausted",
       "do_not_call",
       "outside_calling_hours",
       "spend_ceiling",
@@ -225,6 +224,13 @@
         "retryable": false,
         "retryAfter": false,
         "disposition": "too_large"
+      },
+      {
+        "code": "payment_required",
+        "status": 402,
+        "retryable": false,
+        "retryAfter": false,
+        "disposition": "billing"
       },
       {
         "code": "policy_precondition",
@@ -368,8 +374,7 @@
         "cooldown",
         "concurrency_cap",
         "spend_ceiling",
-        "subscription_paused",
-        "credits_exhausted"
+        "subscription_paused"
       ],
       "status": 409,
       "retryable": false,
@@ -382,8 +387,15 @@
         "concurrency_cap"
       ],
       "drivenElsewhere": {
-        "credits_exhausted": "tests/e2e/interventions-credits-gate.test.ts",
         "subscription_paused": "tests/e2e/paddle-pause-webhook.test.ts + tests/billing/subscription-dialling-access.test.ts"
+      },
+      "billingRefusal": {
+        "codes": [
+          "credits_exhausted"
+        ],
+        "status": 402,
+        "envelopeCode": "payment_required",
+        "drivenBy": "tests/e2e/interventions-credits-gate.test.ts"
       },
       "mappingOnly": [
         "spend_ceiling",
@@ -634,8 +646,8 @@
     "result": "pass",
     "areas": 7,
     "checks": {
-      "total": 459,
-      "passed": 459,
+      "total": 464,
+      "passed": 464,
       "failed": 0
     },
     "matrixRows": {
@@ -1059,6 +1071,12 @@
     },
     {
       "area": "envelope",
+      "name": "five-fields:payment_required",
+      "ok": true,
+      "detail": "keys=code,docsUrl,message,requestId,retryable"
+    },
+    {
+      "area": "envelope",
       "name": "five-fields:policy_precondition",
       "ok": true,
       "detail": "keys=code,docsUrl,message,requestId,retryable"
@@ -1161,6 +1179,12 @@
     },
     {
       "area": "envelope",
+      "name": "map-agrees:payment_required",
+      "ok": true,
+      "detail": "402"
+    },
+    {
+      "area": "envelope",
       "name": "map-agrees:policy_precondition",
       "ok": true,
       "detail": "409"
@@ -1257,6 +1281,12 @@
     },
     {
       "area": "envelope",
+      "name": "never-403:payment_required",
+      "ok": true,
+      "detail": "402"
+    },
+    {
+      "area": "envelope",
       "name": "never-403:policy_precondition",
       "ok": true,
       "detail": "409"
@@ -1348,6 +1378,12 @@
     {
       "area": "envelope",
       "name": "no-leak:payload_too_large",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "area": "envelope",
+      "name": "no-leak:payment_required",
       "ok": true,
       "detail": ""
     },
@@ -1480,6 +1516,12 @@
     {
       "area": "envelope",
       "name": "retry-after-absent:payload_too_large",
+      "ok": true,
+      "detail": "undefined"
+    },
+    {
+      "area": "envelope",
+      "name": "retry-after-absent:payment_required",
       "ok": true,
       "detail": "undefined"
     },
@@ -1989,6 +2031,12 @@
     },
     {
       "area": "envelope",
+      "name": "sanctioned-status:payment_required",
+      "ok": true,
+      "detail": "402"
+    },
+    {
+      "area": "envelope",
       "name": "sanctioned-status:policy_precondition",
       "ok": true,
       "detail": "409"
@@ -2255,7 +2303,7 @@
       "area": "gate",
       "name": "evidence-digest-is-sha256",
       "ok": true,
-      "detail": "98a97120e4d557d6"
+      "detail": "143634967d73b793"
     },
     {
       "area": "gate",
@@ -2267,7 +2315,7 @@
       "area": "gate",
       "name": "evidence-is-byte-identical-across-builds",
       "ok": true,
-      "detail": "66250 chars"
+      "detail": "66819 chars"
     },
     {
       "area": "gate",
@@ -2871,6 +2919,12 @@
     },
     {
       "area": "negative-control",
+      "name": "billing-refusal-is-402",
+      "ok": true,
+      "detail": "credits_exhausted → 402 payment_required (and refuses to be a 409)"
+    },
+    {
+      "area": "negative-control",
       "name": "declared-policy-code-is-409:concurrency_cap",
       "ok": true,
       "detail": "concurrency_cap → 409"
@@ -2898,12 +2952,6 @@
       "name": "declared-policy-code-is-409:country_unparseable",
       "ok": true,
       "detail": "country_unparseable → 409"
-    },
-    {
-      "area": "negative-control",
-      "name": "declared-policy-code-is-409:credits_exhausted",
-      "ok": true,
-      "detail": "credits_exhausted → 409"
     },
     {
       "area": "negative-control",
@@ -2970,12 +3018,6 @@
       "name": "policy-refusal-is-409:country_unparseable",
       "ok": true,
       "detail": "country_unparseable → 409"
-    },
-    {
-      "area": "negative-control",
-      "name": "policy-refusal-is-409:credits_exhausted",
-      "ok": true,
-      "detail": "credits_exhausted → 409 (emitted by runPolicyGate)"
     },
     {
       "area": "negative-control",
@@ -3405,5 +3447,5 @@
     }
   ],
   "digestAlgorithm": "sha256",
-  "digest": "d315bbe2f877e17431901dd99c079fcf5eb102d38d7f5b3cdd0efaedb1b85989"
+  "digest": "e7666f45bfb7e48dba398061cc1d7cff7e92489e9201aefb91066173b97c6b28"
 }

@@ -4,8 +4,8 @@
  *
  * ## Why this module exists rather than a `style={{ background: org.brand }}`
  *
- * A tenant picks one hex. Three things then have to be true at once, and none
- * of them is the tenant's problem to solve:
+ * A tenant picks one hex. Two things then have to be true at once, and neither
+ * is the tenant's problem to solve:
  *
  *   1. The hex has to be a hex. `javascript:alert(1)` is a string like any
  *      other, and this value is interpolated into a CSS custom property that
@@ -15,8 +15,6 @@
  *      pale blue turns that into white-on-pale, which is unreadable — and the
  *      console is the surface an analyst uses to decide whether a customer's
  *      money is being moved.
- *   3. The same colour has to survive DARK MODE, where it sits on `#121814`
- *      rather than white. A dark navy brand is invisible there.
  *
  * The gate therefore REJECTS at save time rather than degrading at render time.
  * A colour that cannot pass never enters the database, so no screen has to
@@ -27,7 +25,7 @@
  *   · 4.5:1 against the chosen foreground — WCAG 2.1 AA for normal text. The
  *     console's primary buttons carry 13-14px labels, which is body text, not
  *     large text, so the 3:1 large-text allowance does not apply.
- *   · 3:1 against the dark surface — WCAG 1.4.11 non-text contrast. The button
+ *   · 3:1 against the light card — WCAG 1.4.11 non-text contrast. The button
  *     has to be distinguishable from the page behind it; this is about the
  *     EDGE of the control, not the text on it.
  *
@@ -37,10 +35,9 @@
  *
  * ## No colour is rejected for being dark or light
  *
- * There is no "too light" rule. Near-white brands are darkened toward black and
- * near-black brands are lightened toward white, in fixed steps, until they pass.
- * A bank's palette is theirs; this module's only opinion is that the result has
- * to be legible.
+ * There is no "too light" rule. Near-white brands are darkened toward black in
+ * fixed steps until they pass. A bank's palette is theirs; this module's only
+ * opinion is that the result has to be legible.
  */
 
 // ── the defaults this module falls back to ────────────────────────────────────
@@ -51,10 +48,7 @@
 export const DEFAULT_PRIMARY = "#0b7a55";
 export const DEFAULT_PRIMARY_FOREGROUND = "#f4faf7";
 
-/** globals.css `.dark` `--card`. The surface a brand-coloured control sits on in dark mode. */
-export const DARK_SURFACE = "#121814";
-
-/** globals.css `:root` `--card`. The same control, light scheme. */
+/** globals.css `:root` `--card`. The surface a brand-coloured control sits on. */
 export const LIGHT_SURFACE = "#ffffff";
 
 /** WCAG 2.1 AA, normal text. */
@@ -183,11 +177,15 @@ function darkenTowardBlack(hex: string, steps: number): string {
  * Move `primary` toward black until it clears the non-text threshold against the
  * light card.
  *
- * The mirror of `forDarkSurface`, and needed for the same reason. A bank's white
- * or pale-yellow primary produces a button whose EDGE disappears into a white
- * card even when its label is perfectly readable — the text check passes, the
- * control is invisible, and the failure is invisible to any contrast ratio the
- * operator is shown. This is the check that catches it.
+ * Needed because a bank's white or pale-yellow primary produces a button whose
+ * EDGE disappears into a white card even when its label is perfectly readable —
+ * the text check passes, the control is invisible, and the failure is invisible
+ * to any contrast ratio the operator is shown. This is the check that catches it.
+ *
+ * Returns the input unchanged when it already passes, and otherwise the FIRST
+ * step that passes — not the extreme. Twenty steps of 5% is the CAP that makes
+ * termination explicit; in practice a colour reaches the threshold well short of
+ * black, and overshooting would wash a bank's brand out to grey.
  */
 export function forLightSurface(primary: string): string {
   let candidate = primary;
@@ -196,24 +194,6 @@ export function forLightSurface(primary: string): string {
     candidate = darkenTowardBlack(primary, steps + 1);
   }
   return "#000000";
-}
-
-/**
- * Move `primary` toward white until it clears the non-text threshold against
- * the dark surface.
- *
- * Returns the input unchanged when it already passes, and otherwise the FIRST
- * step that passes — not the extreme. Twenty steps of 5% is the CAP that makes
- * termination explicit; in practice a colour reaches the threshold well short of
- * white, and overshooting would wash a bank's brand out to grey.
- */
-export function forDarkSurface(primary: string): string {
-  let candidate = primary;
-  for (let steps = 0; steps <= 20; steps++) {
-    if (contrastRatio(candidate, DARK_SURFACE) >= AA_NON_TEXT_CONTRAST) return candidate;
-    candidate = lightenTowardWhite(primary, steps + 1);
-  }
-  return "#ffffff";
 }
 
 export type BrandVerdict =
@@ -232,11 +212,7 @@ export type BrandVerdict =
       lightPrimary: string;
       /** Text colour for `lightPrimary`, always ≥ 4.5:1 against it. */
       lightForeground: string;
-      /** Corrected for `.dark`; equals `primary` when it already reads. */
-      darkPrimary: string;
-      /** Text colour for `darkPrimary`. */
-      darkForeground: string;
-      /** The light-scheme text contrast ratio, for the audit record. */
+      /** The text contrast ratio, for the audit record. */
       contrast: number;
     }
   | { ok: false; reason: "invalid" | "unreadable"; detail: string };
@@ -259,10 +235,6 @@ export function evaluateBrandPrimary(input: unknown): BrandVerdict {
     };
   }
 
-  // Each scheme gets its own correction, because a colour cannot be corrected
-  // for two opposite backgrounds by one adjustment: a near-white brand needs to
-  // go DOWN for the light card and a near-black brand needs to go UP for the dark
-  // one. `primary` itself is corrected by neither.
   const lightPrimary = forLightSurface(primary);
   const lightForeground = readableForeground(lightPrimary);
   if (lightForeground.ratio < AA_TEXT_CONTRAST) {
@@ -275,16 +247,11 @@ export function evaluateBrandPrimary(input: unknown): BrandVerdict {
     };
   }
 
-  const darkPrimary = forDarkSurface(primary);
-  const darkForeground = readableForeground(darkPrimary);
-
   return {
     ok: true,
     primary,
     lightPrimary,
     lightForeground: lightForeground.hex,
-    darkPrimary,
-    darkForeground: darkForeground.hex,
     contrast: Number(lightForeground.ratio.toFixed(2)),
   };
 }
@@ -325,19 +292,6 @@ export function brandCssVariables(verdict: BrandVerdict & { ok: true }): Record<
   };
 }
 
-/** The same, wrapped so it can sit inside a `.dark` selector. */
-export function brandCssVariablesDark(
-  verdict: BrandVerdict & { ok: true },
-): Record<string, string> {
-  return {
-    "--primary": verdict.darkPrimary,
-    "--primary-foreground": verdict.darkForeground,
-    "--ring": verdict.darkPrimary,
-    "--sidebar-primary": verdict.darkPrimary,
-    "--sidebar-primary-foreground": verdict.darkForeground,
-  };
-}
-
 /**
  * The full stylesheet text, or `null` when there is no brand.
  *
@@ -352,8 +306,5 @@ export function brandStyleSheet(verdict: BrandVerdict): string | null {
   const light = Object.entries(brandCssVariables(verdict))
     .map(([k, v]) => `${k}:${v};`)
     .join("");
-  const dark = Object.entries(brandCssVariablesDark(verdict))
-    .map(([k, v]) => `${k}:${v};`)
-    .join("");
-  return `:root{${light}}.dark{${dark}}`;
+  return `:root{${light}}`;
 }

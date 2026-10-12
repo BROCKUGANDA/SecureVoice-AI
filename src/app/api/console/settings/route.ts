@@ -11,6 +11,11 @@ import { getInstitutionType, setInstitutionType } from "@/lib/institution";
 import { INSTITUTION_TYPES } from "@/lib/institution-types";
 import { assertVendorUrlSaveable } from "@/lib/vendor-endpoint";
 import { orgPlanContext } from "@/lib/billing/plan-context";
+import {
+  checkEntitlement,
+  entitlementFacts,
+  entitlementResponse,
+} from "@/lib/billing/entitlements";
 import { evaluateBrandPrimary } from "@/lib/brand/color";
 
 export const dynamic = "force-dynamic";
@@ -131,6 +136,12 @@ async function readSettings(): Promise<
       planTier: plan.tier,
       planName: plan.plan,
       paid: plan.paid,
+      // Which paid features this tenant's plan unlocks, so the console can show
+      // an honest "included in Growth" state on the control instead of letting an
+      // operator fill in a BYOK field and then hit a 402 on save. Read from the
+      // same resolver the POST refuses with, so the two cannot disagree about what
+      // the plan includes.
+      entitlements: entitlementFacts(plan),
       ...(await readTenantVoiceSettings(guard.profile.orgId)),
     },
   };
@@ -209,6 +220,42 @@ export async function POST(req: NextRequest) {
     );
   }
   const d = parsed.data;
+
+  // ── Plan entitlements, before anything is written ──────────────────────────
+  //
+  // The role check above (`requireOperator`) says this person may change
+  // settings. It has never said anything about whether their ORGANISATION BOUGHT
+  // the feature, and until `src/lib/billing/entitlements.ts` nothing did: a
+  // Starter tenant's Owner could attach its own ElevenLabs key and set
+  // institution policy, exactly like an Enterprise one, while the pricing card
+  // listed both under Growth.
+  //
+  // Checked against `guard.profile.orgId` — the session's own tenant, never a
+  // field from the body — so a Starter request cannot be validated against an
+  // Enterprise neighbour.
+  //
+  // Compliance surfaces are deliberately absent from this list. Redaction,
+  // vishing refusal, the verification-token anchoring, prayer-window suppression
+  // and the Shariah terminology engine are not tiered by anything, and a
+  // guardrail that switches off under a pricing plan is not a guardrail.
+  // ADDING is gated; CLEARING is not. An empty string in either webhook field is
+  // the tenant giving the feature up, and a downgraded tenant must always be able
+  // to stop its customer data being POSTed at an old endpoint. `institutionType`
+  // is not gated at all: it decides how the agent addresses a customer in a live
+  // fraud call, and that is a correctness requirement for every paying tenant.
+  const wantsByok = d.elevenKey !== undefined && d.elevenKey.length > 0;
+  const wantsSignedWebhooks =
+    (d.vendorWebhookUrl !== undefined && d.vendorWebhookUrl.length > 0) ||
+    (d.vendorWebhookSecret !== undefined && d.vendorWebhookSecret.length > 0);
+
+  for (const entitlement of [
+    wantsSignedWebhooks ? ("signedWebhooks" as const) : null,
+    wantsByok ? ("byok" as const) : null,
+  ]) {
+    if (!entitlement) continue;
+    const check = await checkEntitlement(guard.profile.orgId, entitlement);
+    if (!check.ok) return entitlementResponse(check);
+  }
 
   const data: Record<string, unknown> = {};
   if (d.orgName !== undefined) data.orgName = d.orgName || null;

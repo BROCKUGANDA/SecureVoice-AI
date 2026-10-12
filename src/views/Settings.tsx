@@ -47,6 +47,14 @@ type Settings = {
   /** Normalised `#rrggbb`, already contrast-validated server-side. Null = default. */
   brandPrimary?: string | null;
   elevenKeyMasked: string | null;
+  /**
+   * Which paid features this tenant's plan unlocks, resolved server-side by
+   * `src/lib/billing/entitlements.ts` from the SAME context the POST refuses with.
+   * Optional because a response from before this field existed is a legitimate
+   * shape an older deployment still serves; the UI then says nothing rather than
+   * guessing "included".
+   */
+  entitlements?: { byok: boolean; signedWebhooks: boolean } | null;
   credits: number;
   /** Bank or insurer - how the institution is spoken about to its customers. */
   institutionType?: "bank" | "insurer";
@@ -510,6 +518,20 @@ export function Settings() {
                     lang,
                   )}
                 </p>
+                {/* The server refuses this field on a plan that does not include it
+                    (402 `plan_entitlement_required`). Showing the input as though it
+                    worked and letting the operator discover that on Save is the same
+                    class of lie as a pricing card that omits the feature: the
+                    interface is making a claim about what this tenant bought. */}
+                {settings?.entitlements && !settings.entitlements.byok && (
+                  <p className="rounded-xl border border-line bg-paper px-4 py-3 text-[12.5px] leading-relaxed text-ink-2">
+                    {t(
+                      "Not included in your plan. Attaching your own ElevenLabs key needs a Growth subscription — upgrading unlocks this field, and nothing here has been changed.",
+                      "غير مشمول في خطتك. إرفاق مفتاح ElevenLabs الخاص بك يتطلب اشتراك Growth، وعند الترقية يُفتح هذا الحقل، ولم يتغير أي شيء هنا.",
+                      lang,
+                    )}
+                  </p>
+                )}
                 {settings?.elevenKeyMasked && (
                   <div className="flex items-center justify-between rounded-xl border border-[#c4e5d6] bg-green-tint px-4 py-3 text-[12.5px] font-medium text-green-deep">
                     <span className="num flex items-center gap-2">

@@ -692,6 +692,17 @@ jobs:
           # and the database is a throwaway container deleted on teardown.
           cat > .env <<'ENV'
           COMPOSE_PROJECT_NAME=${{ env.PROJECT }}
+          # THE IMAGE TAG IS PART OF THE SMOKE TEST'S ISOLATION, NOT THE STACK'S.
+          # `docker-compose.yml` pins the app service to
+          # `image: ${IMAGE:-securevoice-ai-app:local}` — one tag shared by
+          # WHATEVER compose project builds the app service on this host. That is
+          # how the production stack was left serving a dangling image: a smoke
+          # build from a dev checkout (v0.2.1) retagged
+          # `securevoice-ai-app:local`, so `up -d` on the box recreated the
+          # production container from the stale tag. Measured 2026-10-12 via
+          # docs/VPS-RECOVERY.md failure mode #3. Pointing IMAGE at a per-run tag
+          # keeps a test build from ever naming itself after production.
+          IMAGE=${{ env.PROJECT }}-app:latest
           POSTGRES_USER=securevoice
           POSTGRES_PASSWORD=ci-only-not-a-secret
           POSTGRES_DB=securevoice
@@ -789,8 +800,44 @@ jobs:
           # path warm while bounding what CI can accumulate.
           docker builder prune --force --filter 'until=72h' 2>&1 | tail -2 || true
 
+          # IMAGES — the third leak, and the one that actually filled the disk.
+          # Each smoke run leaves its whole stack tagged `svci-<run>-...` (~3.8 GB
+          # per worker image, eight of them per run) and nothing ever reclaimed
+          # them: `down` removes containers, networks and -v volumes, never
+          # images. Four runs' worth measured ~30 GB on a 96 GB disk, which is
+          # what put the box at 79% when a build then died mid-`prisma generate`
+          # with buildkit's `graceful_stop` GOAWAY. Only `svci-`/`sv-ci-` names
+          # are candidates, so `securevoice-ai-*` (production) and `crucible-*`
+          # (the other product on this host) cannot be matched.
+          for i in $(docker images --format '{{.Repository}}:{{.Tag}}' | grep -E '^svci-|^sv-ci-' || true); do
+            docker rmi "$i" >/dev/null 2>&1 || true
+          done
+
       - name: Build and start the stack
-        run: docker compose -f docker-compose.yml -f docker-compose.ci.yml -p "$PROJECT" up -d --build --wait --wait-timeout 300
+        run: |
+          set -uo pipefail
+          # Retries, because the build transport failing is not the code failing.
+          # Measured 2026-10-12: the dev push died mid-build with
+          # `target dial-worker: failed to receive status: rpc error … received
+          # prior goaway: code: NO_ERROR, debug data: "graceful_stop"` — a
+          # buildkit worker closing a healthy build's session, not a compile
+          # error in the tree. It happened three times that day (11:01, 11:28,
+          # 13:12) while the identical build succeeded on the reruns of the same
+          # commit, so the failure tracked the box (its disk was 79% full of
+          # exactly the images the reclaim step above now removes), never the
+          # diff. A single transient GOAWAY therefore must not fail a promotion:
+          # three attempts, tearing the partial stack down between them, and the
+          # last exit code is the honest one.
+          for attempt in 1 2 3; do
+            if docker compose -f docker-compose.yml -f docker-compose.ci.yml -p "$PROJECT" up -d --build --wait --wait-timeout 300; then
+              exit 0
+            fi
+            echo "::warning::compose build/up attempt $attempt failed — retrying"
+            docker compose -f docker-compose.yml -f docker-compose.ci.yml -p "$PROJECT" down --remove-orphans >/dev/null 2>&1 || true
+            sleep 10
+          done
+          echo "::error::compose stack failed to come up after 3 attempts"
+          exit 1
 
       - name: Report status
         if: always()

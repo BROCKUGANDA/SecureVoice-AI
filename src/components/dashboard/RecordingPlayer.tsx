@@ -142,7 +142,13 @@ export function RecordingPlayer({
       });
       const body = (await res.json().catch(() => ({}))) as { url?: string; error?: string };
       if (!res.ok || !body.url) {
-        setUnavailable(body.error ?? `download_refused_${res.status}`);
+        // Keep the CODE (`storage_not_configured`, `recording_not_found`) and
+        // render the operator's sentence from it; the status goes to the report.
+        const code = body.error ?? `download_refused_${res.status}`;
+        reportClientError("recording-download", new Error(code), {
+          http_status: String(res.status),
+        });
+        setUnavailable(code);
         return;
       }
       setResolved(body.url);

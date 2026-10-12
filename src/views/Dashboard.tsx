@@ -27,6 +27,8 @@ import { StatusPill, LiveDot, Skeleton, Chip } from "@/components/fx/core";
 import { TrendChart, HBars, Donut } from "@/components/fx/charts";
 import { Pagination } from "@/components/fx/Pagination";
 import { RecordingPlayer } from "@/components/dashboard/RecordingPlayer";
+import { describeAnalyticsError } from "@/lib/console-errors";
+import { reportClientError } from "@/lib/client-diagnostics";
 import { CreditWidget } from "@/components/billing/CreditWidget";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
@@ -347,20 +349,21 @@ function useAnalytics(days = 30): AnalyticsView {
         const body = (await res.json()) as { data?: Analytics; error?: string };
         if (cancelled) return;
         if (!res.ok || !body.data) {
-          setState({
-            phase: "error",
-            error: body.error ?? `analytics request failed (${res.status})`,
-          });
+          // A CODE, not a sentence: `AnalyticsUnavailable` renders the operator's
+          // language from it, and the raw status stays in the report below.
+          const code = body.error ?? `analytics_request_failed_${res.status}`;
+          reportClientError("analytics", new Error(code), { http_status: String(res.status) });
+          setState({ phase: "error", error: code });
           return;
         }
         setState({ phase: "ready", data: body.data });
       })
       .catch((err: unknown) => {
         if (cancelled) return;
-        setState({
-          phase: "error",
-          error: err instanceof Error ? err.message : "analytics request failed",
-        });
+        // "Failed to fetch" is a browser transport string. It goes to the console
+        // and Sentry; the panel gets a code and a sentence.
+        reportClientError("analytics", err);
+        setState({ phase: "error", error: "fetch_failed" });
       });
     return () => {
       cancelled = true;
@@ -398,6 +401,11 @@ function AnalyticsUnavailable({ lang, error }: { lang: Lang; error: string | nul
           lang,
         )}
       </p>
+      <p className="mt-2 text-[12.5px] leading-relaxed text-red-700">
+        {describeAnalyticsError(error, lang)}
+      </p>
+      {/* The code stays visible on purpose: it is what an operator quotes in a
+          support thread, and it is a code rather than a vendor sentence. */}
       <p className="num mt-2 text-[11px] text-red-600">{error ?? "unavailable"}</p>
     </div>
   );

@@ -26,6 +26,8 @@ import { organization } from "better-auth/plugins/organization";
 import { twoFactor } from "better-auth/plugins/two-factor";
 import { db } from "@/lib/db";
 import { sendResetPassword } from "@/lib/email/resend";
+import { trustedOriginsFromEnv } from "@/lib/auth/origins";
+import { logError } from "@/lib/validation/safe-log";
 import {
   ABSOLUTE_LIFETIME_SECONDS,
   COOKIE_CACHE_SECONDS,
@@ -33,7 +35,6 @@ import {
 } from "@/lib/auth/session-policy";
 
 const secret = process.env.BETTER_AUTH_SECRET;
-const baseURL = process.env.BETTER_AUTH_URL ?? process.env.APP_URL;
 
 // Fail at boot rather than at first login. Better Auth requires >= 32 chars;
 // a short or missing secret would otherwise surface as a confusing runtime
@@ -43,17 +44,33 @@ if (!secret || secret.length < 32) {
     "BETTER_AUTH_SECRET must be set and at least 32 characters. Generate with: openssl rand -base64 32",
   );
 }
-if (!baseURL) {
-  throw new Error("BETTER_AUTH_URL (or APP_URL) must be set so auth knows its own origin");
+
+// The CSRF allowlist, and the boot failure that keeps it honest. See
+// src/lib/auth/origins.ts for why a wildcard, a path, and a reflected `Host` are
+// all refused, and why a loopback base URL under NODE_ENV=production is fatal
+// rather than a warning. The same derivation is what the auth route logs against,
+// so the diagnostic can never describe a different list from the one enforced here.
+const origins = trustedOriginsFromEnv();
+if (origins.rejected.length > 0) {
+  // Not fatal: one typo in a four-host list should not stop the app. It is loud,
+  // because the silent version of this is the operator assuming the host they
+  // added is trusted when it was dropped.
+  logError("[auth] BETTER_AUTH_TRUSTED_ORIGINS entries ignored — not origins", {
+    rejected: origins.rejected.join(", "),
+    expected: "https://host or https://host:port, with no path",
+  });
 }
+const baseURL = origins.baseURL;
 
 export const auth = betterAuth({
   appName: "SecureVoice AI",
   secret,
   baseURL,
   // CSRF allowlist. The console and the public site are served from the same
-  // origin behind Caddy today; adding a subdomain means adding it here too.
-  trustedOrigins: [baseURL],
+  // origin behind Caddy today; adding a subdomain means adding it to
+  // BETTER_AUTH_TRUSTED_ORIGINS, not editing this line. The apex/www sibling of
+  // every accepted entry is included by the builder.
+  trustedOrigins: origins.origins,
   database: prismaAdapter(db, { provider: "postgresql" }),
   emailAndPassword: {
     enabled: true,

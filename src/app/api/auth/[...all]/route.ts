@@ -1,6 +1,7 @@
 import { toNextJsHandler } from "better-auth/next-js";
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/better-auth";
+import { isTrustedOrigin, trustedOriginsFromEnv } from "@/lib/auth/origins";
 import {
   checkBadActor,
   forgiveSource,
@@ -91,6 +92,27 @@ function refusedCredentialSource(retryAfterMs: number): NextResponse {
 async function guarded(req: Request): Promise<Response> {
   const { pathname } = new URL(req.url);
   const action = turnstileRequired(pathname);
+
+  // A credential POST whose `Origin` Better Auth will refuse. Logged here because
+  // the refusal itself is silent: the browser gets two words — `Invalid origin` —
+  // and the server gets nothing, so the operator's only lead is a screenshot. The
+  // log names both sides of the mismatch and the env var that closes it.
+  //
+  // Diagnostic only. The decision stays Better Auth's, because it is the code that
+  // has to agree with the allowlist; refusing here as well would let the two
+  // definitions of "trusted" drift and leave a request refused by neither.
+  if (req.method === "POST") {
+    const origin = req.headers.get("origin");
+    const allowlist = trustedOriginsFromEnv().origins;
+    if (origin && !isTrustedOrigin(origin, allowlist)) {
+      logWarn("[auth] credential request from an origin outside the CSRF allowlist", {
+        action,
+        rejectedOrigin: origin,
+        trustedOrigins: allowlist.join(" "),
+        fix: "add this origin to BETTER_AUTH_TRUSTED_ORIGINS, or point BETTER_AUTH_URL at the host users actually reach",
+      });
+    }
+  }
 
   // POST only. A GET to the same path is a session/cookie read, not a
   // credential submission; gating it would break Better Auth's own endpoints.

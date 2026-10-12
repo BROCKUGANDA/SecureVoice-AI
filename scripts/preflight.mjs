@@ -47,6 +47,37 @@ add(
     : "MISSING — app runs, but Better Auth infra features are disabled",
   false,
 );
+// The CSRF allowlist. Better Auth compares a browser's `Origin` against
+// BETTER_AUTH_URL (plus BETTER_AUTH_TRUSTED_ORIGINS), so a leftover localhost here
+// is not a cosmetic default: every sign-in from the public host comes back
+// "Invalid origin" while the same stack works perfectly on a laptop. The app now
+// refuses to boot that way under NODE_ENV=production; this catches it before the
+// deploy rather than at the container's first restart.
+const baUrl = (env.BETTER_AUTH_URL ?? env.APP_URL ?? "").trim();
+const baOrigin = (() => {
+  try {
+    return new URL(baUrl);
+  } catch {
+    return null;
+  }
+})();
+const baLoopback =
+  baOrigin !== null &&
+  /^(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])$/.test(baOrigin.hostname) === true;
+add(
+  "BETTER_AUTH_URL",
+  baOrigin !== null && !baLoopback,
+  baUrl === ""
+    ? "MISSING — better-auth.ts throws at import and every request 500s"
+    : baOrigin === null
+      ? `NOT AN ORIGIN (${baUrl}) — use https://host with no path`
+      : baLoopback
+        ? `${baUrl} is loopback — every public sign-in answers "Invalid origin"${
+            env.NODE_ENV === "production" ? " and the app will refuse to boot" : ""
+          }`
+        : `${baUrl} (its www/apex sibling is trusted automatically)`,
+  true,
+);
 add(
   "AUTH_SECRET (BYOK encryption)",
   set(env.AUTH_SECRET),

@@ -217,6 +217,8 @@ const PUBLIC_BY_DESIGN: Readonly<Record<string, string>> = {
     "Paddle Apple Pay domain-verification file; static bytes served to Apple's crawler and Paddle's verifier, neither of which holds an operator session — takes no parameters and exposes no tenant data",
   "/.well-known/security.txt":
     "RFC 9116 security contact, read from public/security.txt; static bytes served to researchers and scanners, who hold no operator session — takes no parameters and exposes no tenant data",
+  "/llms.txt":
+    "plain-text site brief for search and answer-engine crawlers, in the same family as /robots.txt and /sitemap.xml: derived from INDEXABLE_PATHS and PLANS, takes no parameters, reads no database and exposes no tenant data — proven by tests/surface/llms-txt.test.ts, which also pins that every link it emits is an already-public page",
 };
 
 export function isPublicByDesign(path: string): boolean {

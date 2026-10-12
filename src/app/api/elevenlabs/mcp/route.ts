@@ -41,6 +41,18 @@ const PROTOCOL_VERSION = "2025-06-18";
 const SERVER_INFO = { name: "securevoice-mcp", version: "1.0.0" };
 
 /**
+ * How long a forwarded tool call may take before it is abandoned.
+ *
+ * The target is a fixed internal origin, so this is not an SSRF control — it is
+ * a resource one. Without it a `tools/call` inherits fetch's default of waiting
+ * indefinitely, so a caller holding a tool credential can pin a request handler
+ * for as long as the far side stalls, and the cost scales with how many they hold.
+ * The other three outbound fetches in the API tier all bound themselves
+ * (console/webhooks/test uses 3s); this one was the only one that did not.
+ */
+const TOOL_FORWARD_TIMEOUT_MS = 10_000;
+
+/**
  * Where tool calls are forwarded. OUR OWN origin from OUR OWN configuration —
  * never `new URL(req.url).origin`, which is the caller's Host wearing a
  * server's hat. Default localhost covers a single-process deployment and the
@@ -156,6 +168,7 @@ async function callTool(
     method: "POST",
     headers: { "content-type": "application/json", "x-agent-tool-secret": callerSecret },
     body: JSON.stringify(args ?? {}),
+    signal: AbortSignal.timeout(TOOL_FORWARD_TIMEOUT_MS),
   });
   const text = await res.text();
   return { isError: !res.ok, content: [{ type: "text", text }] };

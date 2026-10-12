@@ -852,6 +852,16 @@ model Organization {
   name                String
   slug                String
   logo                String?
+  // White-label primary colour, `#rrggbb` lower case, or null for the platform
+  // default. Stored ALREADY VALIDATED: `src/lib/brand/color.ts` refuses a hex
+  // that fails the WCAG contrast gate, so this column cannot hold a colour that
+  // would render unreadable text. The derived foreground is NOT stored — it is a
+  // pure function of this value, and a second column is a second answer.
+  //
+  // Why it lives on Organization rather than in `metadata`: metadata is an opaque
+  // JSON string with no constraint, and this value is read on every console
+  // paint and written from a settings form that has to be able to reject it.
+  brandPrimary        String?
   createdAt           DateTime
   metadata            String?
   members             Member[]

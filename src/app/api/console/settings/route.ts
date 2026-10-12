@@ -11,6 +11,7 @@ import { getInstitutionType, setInstitutionType } from "@/lib/institution";
 import { INSTITUTION_TYPES } from "@/lib/institution-types";
 import { assertVendorUrlSaveable } from "@/lib/vendor-endpoint";
 import { orgPlanContext } from "@/lib/billing/plan-context";
+import { evaluateBrandPrimary } from "@/lib/brand/color";
 
 export const dynamic = "force-dynamic";
 
@@ -69,6 +70,11 @@ const schema = z.object({
   // Written once, never read back — the response only says whether one is set.
   vendorWebhookSecret: z.string().trim().min(16).max(200).optional(),
   shariahCompliant: z.boolean().optional(),
+  // White-label colour. Zod only bounds the SHAPE (a short string); whether it
+  // is a legible hex is decided by `evaluateBrandPrimary` below, because that
+  // gate is WCAG arithmetic and does not belong in a schema. Empty string clears
+  // it back to the platform default.
+  brandPrimary: z.string().trim().max(32).optional(),
 });
 
 /** The delegate this route touches for the operator's own profile row. */
@@ -147,16 +153,31 @@ async function readSettings(): Promise<
  */
 async function readTenantVoiceSettings(orgId: string | null | undefined) {
   if (!orgId) {
-    return { vendorWebhookUrl: null, vendorWebhookConfigured: false, shariahCompliant: false };
+    return {
+      vendorWebhookUrl: null,
+      vendorWebhookConfigured: false,
+      shariahCompliant: false,
+      brandPrimary: null,
+    };
   }
   const org = await db.organization.findUnique({
     where: { id: orgId },
-    select: { vendorWebhookUrl: true, vendorWebhookSecretEnc: true, shariahCompliant: true },
+    select: {
+      vendorWebhookUrl: true,
+      vendorWebhookSecretEnc: true,
+      shariahCompliant: true,
+      brandPrimary: true,
+    },
   });
   return {
     vendorWebhookUrl: org?.vendorWebhookUrl ?? null,
     vendorWebhookConfigured: Boolean(org?.vendorWebhookSecretEnc),
     shariahCompliant: org?.shariahCompliant === true,
+    // The STORED value, normalised. It passed the contrast gate on the way in and
+    // the database CHECK holds the shape, so this is already `#rrggbb` lower case
+    // — re-deriving the verdict here would let a colour that somehow became
+    // unreadable paint the console anyway.
+    brandPrimary: org?.brandPrimary ?? null,
   };
 }
 
@@ -225,7 +246,8 @@ export async function POST(req: NextRequest) {
   const wantsTenantWrite =
     d.vendorWebhookUrl !== undefined ||
     d.vendorWebhookSecret !== undefined ||
-    d.shariahCompliant !== undefined;
+    d.shariahCompliant !== undefined ||
+    d.brandPrimary !== undefined;
   if (wantsTenantWrite) {
     if (!guard.profile.orgId) {
       return NextResponse.json(
@@ -251,6 +273,24 @@ export async function POST(req: NextRequest) {
     }
     if (d.shariahCompliant !== undefined) {
       tenantData.shariahCompliant = d.shariahCompliant;
+    }
+    if (d.brandPrimary !== undefined) {
+      if (d.brandPrimary === "") {
+        tenantData.brandPrimary = null;
+      } else {
+        // The gate. A colour that is not a hex, or that no foreground can reach
+        // 4.5:1 on, is REFUSED with the reason — it is never stored in a
+        // "clamped" form, because a clamped colour is one the operator did not
+        // choose and nobody told them about.
+        const verdict = evaluateBrandPrimary(d.brandPrimary);
+        if (!verdict.ok) {
+          return NextResponse.json(
+            { error: verdict.detail, reason: verdict.reason },
+            { status: 422 },
+          );
+        }
+        tenantData.brandPrimary = verdict.primary;
+      }
     }
 
     // The same rule as the read above: `organization` is the tenant row and is

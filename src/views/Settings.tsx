@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Building2,
   KeyRound,
@@ -21,6 +21,7 @@ import { t, useApp } from "@/lib/store";
 import { PLANS, formatMonthly } from "@/lib/commercial";
 import { PolicyForPlan } from "@/components/legal/PolicyForPlan";
 import { SUPPORT_EMAIL } from "@/lib/public-config";
+import { brandPreview, evaluateBrandPrimary } from "@/lib/brand/color";
 import { Chip } from "@/components/fx/core";
 import { LoadingIndicator } from "@/components/fx/LoadingIndicator";
 import { CrmSection } from "@/views/settings/CrmSection";
@@ -43,6 +44,8 @@ import { cn } from "@/lib/utils";
 type Settings = {
   orgName: string | null;
   orgLogoUrl: string | null;
+  /** Normalised `#rrggbb`, already contrast-validated server-side. Null = default. */
+  brandPrimary?: string | null;
   elevenKeyMasked: string | null;
   credits: number;
   /** Bank or insurer - how the institution is spoken about to its customers. */
@@ -93,6 +96,7 @@ export function Settings() {
   const [orgName, setOrgName] = useState("");
   const [orgLogoUrl, setOrgLogoUrl] = useState("");
   const [institutionType, setInstitutionType] = useState<"bank" | "insurer">("bank");
+  const [brandPrimary, setBrandPrimary] = useState("");
   const [elevenKey, setElevenKey] = useState("");
   const [inviteEmail, setInviteEmail] = useState("");
   const [producerKeys, setProducerKeys] = useState<
@@ -100,6 +104,18 @@ export function Settings() {
   >([]);
   const [newKey, setNewKey] = useState<{ key: string; label: string } | null>(null);
   const [keyLabel, setKeyLabel] = useState("");
+
+  // The gate, run on every keystroke so the operator sees a refusal and its
+  // reason before they press Save rather than after. Empty means "no colour set",
+  // which is a valid state and shows no preview — so the check is on the
+  // TRIMMED value, not on truthiness.
+  const brandVerdict = useMemo(
+    () => (brandPrimary.trim() ? evaluateBrandPrimary(brandPrimary) : null),
+    [brandPrimary],
+  );
+  // What the colour picker shows when there is no tenant colour: the platform
+  // default, matching globals.css `:root`.
+  const brandSwatch = useMemo(() => brandPreview(brandPrimary), [brandPrimary]);
 
   useEffect(() => {
     fetch("/api/console/settings")
@@ -110,6 +126,7 @@ export function Settings() {
           setOrgName(d.orgName ?? "");
           setOrgLogoUrl(d.orgLogoUrl ?? "");
           setInstitutionType(d.institutionType === "insurer" ? "insurer" : "bank");
+          setBrandPrimary(d.brandPrimary ?? "");
         }
       })
       .catch(() => {});
@@ -357,9 +374,82 @@ export function Settings() {
                     dir="ltr"
                   />
                 </Field>
+
+                {/* Brand colour. The gate runs in the BROWSER too, via the same
+                    `evaluateBrandPrimary` the route runs, so the operator sees a
+                    refusal and its reason before they press Save instead of
+                    after. It is a preview, not the authority: the server
+                    re-runs the identical function, and the database constrains
+                    the shape. */}
+                <Field
+                  label={t("Brand colour", "لون الهوية", lang)}
+                  hint={t(
+                    "Your primary colour, used for buttons, focus rings and the sidebar. Checked against WCAG AA — a colour that cannot carry readable text is corrected or refused, never applied as-is.",
+                    "لونك الأساسي، يُستخدم للأزرار وحلقات التركيز والشريط الجانبي. يُفحص مقابل معيار WCAG AA — أي لون لا يحتمل نصًا مقروءًا يُصحَّح أو يُرفض، ولا يُطبَّق كما هو.",
+                    lang,
+                  )}
+                >
+                  <div className="flex flex-wrap items-center gap-3">
+                    <input
+                      type="color"
+                      aria-label={t("Brand colour picker", "منتقي لون الهوية", lang)}
+                      value={brandSwatch.primary}
+                      onChange={(e) => setBrandPrimary(e.target.value)}
+                      className="h-10 w-14 cursor-pointer rounded-lg border border-line bg-paper p-1"
+                    />
+                    <Input
+                      value={brandPrimary}
+                      onChange={(e) => setBrandPrimary(e.target.value)}
+                      placeholder={t("#0b7a55", "#0b7a55", lang)}
+                      aria-label={t("Brand colour hex value", "قيمة لون الهوية", lang)}
+                      className={cn(inputCls, "max-w-[11rem]")}
+                      dir="ltr"
+                    />
+                    {brandPrimary.trim() ? (
+                      <button
+                        type="button"
+                        onClick={() => setBrandPrimary("")}
+                        className="text-[12px] font-semibold text-ink-3 underline underline-offset-2 hover:text-foreground"
+                      >
+                        {t("Use the platform default", "استخدم لون المنصة الافتراضي", lang)}
+                      </button>
+                    ) : null}
+                  </div>
+
+                  {brandVerdict ? (
+                    brandVerdict.ok ? (
+                      <div className="mt-3 flex flex-wrap items-center gap-3">
+                        <span
+                          className="inline-flex items-center rounded-full px-3.5 py-1.5 text-[12px] font-semibold"
+                          style={{
+                            background: brandVerdict.lightPrimary,
+                            color: brandVerdict.lightForeground,
+                          }}
+                        >
+                          {t("Preview", "معاينة", lang)}
+                        </span>
+                        <span className="text-[12px] text-ink-3">
+                          {t("Text contrast", "تباين النص", lang)} {brandVerdict.contrast}:1
+                          {/* Says so out loud when a scheme was corrected — a
+                              silent adjustment is a colour the tenant did not
+                              choose, and they are entitled to know. */}
+                          {brandVerdict.lightPrimary !== brandVerdict.primary ||
+                          brandVerdict.darkPrimary !== brandVerdict.primary
+                            ? t(" · adjusted for contrast", " · مُعدَّل لأجل التباين", lang)
+                            : ""}
+                        </span>
+                      </div>
+                    ) : (
+                      <p role="alert" className="mt-2 text-[12px] font-semibold text-red-soft">
+                        {brandVerdict.detail}
+                      </p>
+                    )
+                  ) : null}
+                </Field>
+
                 <button
-                  onClick={() => save({ orgName, orgLogoUrl, institutionType })}
-                  disabled={busy}
+                  onClick={() => save({ orgName, orgLogoUrl, institutionType, brandPrimary })}
+                  disabled={busy || brandVerdict?.ok === false}
                   className="flex items-center gap-2 rounded-full bg-primary px-6 py-2.5 text-[13px] font-semibold text-white transition hover:bg-green-deep disabled:opacity-40"
                 >
                   {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}

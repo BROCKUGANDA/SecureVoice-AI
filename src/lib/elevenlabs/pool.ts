@@ -441,6 +441,170 @@ export async function generateAudioWithFailover(
  * Reset the pool's in-process state. Suites that drive the pool through several
  * failures need this, or a cooldown (or the cursor) leaks into the next test.
  */
+/**
+ * Open a STREAMED synthesis on a pooled key, rotating when the key answers badly.
+ *
+ * ## Why this exists separately from `generateAudioWithFailover`
+ *
+ * The buffered path below fetches whole files and has had this pool since it was
+ * written. The live media-stream path opened an SDK stream on
+ * `ELEVENLABS_API_KEY` — one key, no rotation on a 429, no six-hour parking on a
+ * 422 out-of-credits, no per-key spend, and none of the egress guard's budget,
+ * commercial-use attestation or breaker — while `egress.ts` asserted in its own
+ * header that it was the only code in the repo that opens a socket to ElevenLabs.
+ * That claim was load-bearing documentation and it was false. A deployment that
+ * added `ELEVENLABS_KEY_2` got failover for its console's audio and NONE for the
+ * calls that actually matter.
+ *
+ * Both transports now share ONE pool's state, which is the point: a key that ran
+ * out of credits mid-call is parked for the buffered route too, instead of being
+ * discovered twice by two sets of counters.
+ *
+ * ## Only the OPEN is retried
+ *
+ * Once chunks are flowing, re-asking would splice a second copy of half-spoken
+ * audio into a customer's ear. So this returns the caller's opened stream and the
+ * caller owns it from there; a drop after the first byte is the call's to end, not
+ * a reason to rotate.
+ *
+ * @throws {PoolExhaustedError} when no key could open the stream, or the vendor
+ *         refused the REQUEST (a bad voice id, a malformed body) which every key
+ *         would refuse identically.
+ */
+export async function streamWithKeyPool<T>(input: {
+  /** Opens the stream on the given key. Throw something `statusOf` can read. */
+  open: (key: string) => Promise<T>;
+  /**
+   * HTTP status to attribute to a thrown error. `0` means "no status at all" —
+   * a transport fault — which is rotatable, because the next key may well be on a
+   * healthy socket.
+   */
+  statusOf: (err: unknown) => number;
+  /** Characters to record against the key that served, for per-key spend. */
+  chars?: number;
+  /**
+   * A key the CALLER named, tried before the pool and not a member of it — a
+   * tenant's own BYOK credential, whose quota is theirs and whose health must not
+   * park one of ours. A failure here still falls through to the pool, which is
+   * the same posture the buffered ladder takes: the caller's voice first, our
+   * account's audio rather than silence.
+   */
+  preferred?: { key: string; label: string };
+  /** Lets the caller record which key answered (audit, never the key itself). */
+  onServed?: (label: string) => void;
+}): Promise<{ value: T; key: string; attempts: number }> {
+  const pool = ensurePool();
+  if (pool.length === 0 && !input.preferred) {
+    throw new PoolExhaustedError(
+      "no ElevenLabs keys configured (set ELEVENLABS_KEY_1 … ELEVENLABS_KEY_8, or ELEVENLABS_API_KEY)",
+      503,
+      0,
+    );
+  }
+
+  // WHAT IS DELIBERATELY NOT HERE, and why a reviewer should stop reading for a
+  // moment. The buffered transport also consults the commercial-use attestation
+  // and the shared monthly character budget. Neither is applied to the live
+  // streaming path by this function, because each one is a NEW WAY FOR A CALL TO
+  // GET NO AUDIO, and the live path today has neither:
+  //
+  //   · attestation is not set in `.env.example` or `docker-compose.yml` on
+  //     purpose, so gating the audio of a real customer call on it would stop
+  //     this deployment's calls the moment it shipped.
+  //   · the monthly limit is a number nobody has measured against streamed audio,
+  //     and a reservation that exhausts mid-month silently mutes every call.
+  //
+  // Both are correct end states and both are an OWNER DECISION with a launch
+  // consequence, not a refactor. Rotation alone is different in kind: a pool of
+  // one behaves exactly as it did before, and a pool of eight only ever turns a
+  // failure that had no second chance into one that does.
+
+  let attempts = 0;
+  let lastStatus = 0;
+  let lastError = "";
+
+  // The caller's own credential, once, outside the pool's bookkeeping: a tenant's
+  // exhausted key is not one of ours to park, and its spend is not ours to meter.
+  // A rotatable failure still falls through, because the alternative is a silent
+  // customer on a call we already agreed to place.
+  if (input.preferred) {
+    attempts += 1;
+    try {
+      const value = await input.open(input.preferred.key);
+      input.onServed?.(input.preferred.label);
+      return { value, key: input.preferred.label, attempts };
+    } catch (err) {
+      const status = input.statusOf(err);
+      lastStatus = status;
+      lastError = err instanceof Error ? err.message : String(err);
+      if (!ROTATABLE_STATUS.has(status)) {
+        throw new PoolExhaustedError(
+          `ElevenLabs refused the streamed request (${status}): ${lastError.slice(0, 200)}`,
+          status,
+          attempts,
+        );
+      }
+    }
+  }
+
+  const start = cursor % pool.length;
+
+  for (let i = 0; i < pool.length; i++) {
+    const idx = (start + i) % pool.length;
+    const slot = pool[idx]!;
+    if (Date.now() < slot.cooldownUntil) continue;
+
+    attempts += 1;
+    try {
+      const value = await input.open(slot.key);
+      recordSuccess(slot);
+      cursor = (idx + 1) % pool.length;
+      // Accounting only, and fire-and-forget: per-key spend is what tells an
+      // operator which member of the pool is near its own quota. It must never
+      // be able to fail a call that already has audio.
+      void trackKeyUsage(slot.key, Math.max(0, Math.trunc(input.chars ?? 0)));
+      input.onServed?.(slot.label);
+      return { value, key: slot.label, attempts };
+    } catch (err) {
+      const status = input.statusOf(err);
+      lastStatus = status;
+      lastError = err instanceof Error ? err.message : String(err);
+      recordFailure(slot, status, lastError);
+      if (!ROTATABLE_STATUS.has(status)) {
+        // A request-shaped failure: every key holds the same text and the same
+        // voice id, so rotating spends the whole pool learning the same answer.
+        throw new PoolExhaustedError(
+          `ElevenLabs refused the streamed request (${status}): ${lastError.slice(0, 200)}`,
+          status,
+          attempts,
+        );
+      }
+    }
+  }
+
+  if (attempts === 0) {
+    throw new PoolExhaustedError(`all ${pool.length} ElevenLabs key(s) are cooling down`, 503, 0);
+  }
+  throw new PoolExhaustedError(
+    `no ElevenLabs key could stream the audio: ${lastError.slice(0, 200)}`,
+    lastStatus,
+    attempts,
+  );
+}
+
+/**
+ * Is this key value already a pool member?
+ *
+ * A caller that names a key the pool already holds must not give it two turns of
+ * the queue — one as "preferred" and one as `key_3` — because the second attempt
+ * re-discovers a failure the first one just recorded, and on a live call that is
+ * dead air bought with a round trip.
+ */
+export function isPoolKey(value: string | null | undefined): boolean {
+  if (!value) return false;
+  return ensurePool().some((slot) => slot.key === value);
+}
+
 export function _resetPoolForTest(): void {
   slots = [];
   poolSignature = "";

@@ -125,11 +125,23 @@ ARG NEXT_PUBLIC_SITE_URL=""
 # bundle for the same reason the demo-login pair is threaded through two lines up.
 ARG NEXT_PUBLIC_PADDLE_PRICES=""
 
+# The Paddle checkout environment ("sandbox" | "production") and the CLIENT-side
+# Paddle.js token, for the same reason as the price ids two lines up: all three
+# are inlined into the browser bundle at build time. A missing ARG here is not
+# "unset at runtime" — it is ABSENT from the bundle, and paddleEnvironment()
+# then throws in every visitor's console ("got undefined") while every Buy
+# button is dead. The token is the client-side Paddle.js token, public by
+# design; the server-side PADDLE_API_KEY never passes through this stage.
+ARG NEXT_PUBLIC_PADDLE_ENVIRONMENT=""
+ARG NEXT_PUBLIC_PADDLE_CLIENT_TOKEN=""
+
 ENV DATABASE_URL=${BUILD_DATABASE_URL} \
     BETTER_AUTH_SECRET=${BETTER_AUTH_SECRET} \
     BETTER_AUTH_URL=${BETTER_AUTH_URL} \
     NEXT_PUBLIC_SITE_URL=${NEXT_PUBLIC_SITE_URL} \
     NEXT_PUBLIC_PADDLE_PRICES=${NEXT_PUBLIC_PADDLE_PRICES} \
+    NEXT_PUBLIC_PADDLE_ENVIRONMENT=${NEXT_PUBLIC_PADDLE_ENVIRONMENT} \
+    NEXT_PUBLIC_PADDLE_CLIENT_TOKEN=${NEXT_PUBLIC_PADDLE_CLIENT_TOKEN} \
     NEXT_PUBLIC_DEMO_LOGIN_EMAIL=${NEXT_PUBLIC_DEMO_LOGIN_EMAIL} \
     NEXT_PUBLIC_DEMO_LOGIN_PASSWORD=${NEXT_PUBLIC_DEMO_LOGIN_PASSWORD}
 COPY --from=deps /app/node_modules ./node_modules

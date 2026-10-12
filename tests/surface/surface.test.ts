@@ -633,7 +633,7 @@ describe("declared security headers", () => {
     // No `}`, no `<`, no quote, no `url(`, no whitespace worth caring about: a
     // single stray brace is the tenant writing the next rule.
     const BLOCK = String.raw`\{(?:--[a-z][a-z0-9-]*:#[0-9a-f]{6};)+\}`;
-    const HEX_ONLY = new RegExp(String.raw`^:root${BLOCK}(\.dark${BLOCK})?$`);
+    const HEX_ONLY = new RegExp(String.raw`^:root${BLOCK}$`);
 
     const hostile = [
       "</style><script>alert(1)</script>",
@@ -755,10 +755,9 @@ describe("web app manifest", () => {
   });
 
   test("theme_color matches the viewport themeColor in the root layout", () => {
-    // Two different dark greens declared in two files is a visible flash of the
-    // wrong chrome colour on install. `themeColor` is now an array (light + dark
-    // media queries), so every declared colour is collected and the manifest must
-    // match one of them — the manifest can only carry one.
+    // Two different greens declared in two files is a visible flash of the
+    // wrong chrome colour on install. `themeColor` is a single value, so the
+    // manifest must match it exactly.
     const themes = [...read("src/app/layout.tsx").matchAll(/color:\s*"(#[0-9A-Fa-f]{3,8})"/g)].map(
       (m) => m[1],
     );

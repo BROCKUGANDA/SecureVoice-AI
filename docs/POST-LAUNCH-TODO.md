@@ -101,9 +101,14 @@ one, because a judge would experience silence.
 - [ ] Delete the Northflank API token pasted in chat (app.northflank.com → API keys).
 - [ ] Rotate any other credential pasted in chat.
 - [ ] Review the 2 high Dependabot alerts on GitHub.
-- [ ] Set up the nightly `pg_dump` cron (docs/DEPLOY.md §8) — nothing is
-      backed up yet, and the audit chain is the compliance artifact you will be
-      asked to demonstrate.
+- [x] Set up the nightly `pg_dump` cron (docs/DEPLOY.md §8) — **done
+      2026-10-12**: `/home/ubuntu/sv-backup.sh` on the VPS, `30 2 * * *` UTC,
+      dumps production (Supabase pooler) with `postgres:17-alpine`'s pg_dump —
+      the box's bundled db is postgres 16 and refuses a 17.6 server — strips
+      the pooler URI's `connection_limit` and rewrites `sslmode=no-verify`
+      (libpq has no such spelling) to `require`, keeps 14 days in
+      `/srv/backups`, logs to `/srv/backups/backup.log`. The connection string
+      is read from the box `.env` at run time and never written to the log.
 - [ ] Confirm the legal entity named in the footer/privacy policy is actually
       registered before quoting it to a bank.
 - [ ] `bun run preflight` on the server before any demo.

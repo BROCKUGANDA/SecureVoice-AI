@@ -33,6 +33,10 @@ yarn-error.log*
 !.env.example
 !.env.production.example
 
+# graphflow MCP scratch — a 10 MB generated graph, regenerated on demand
+.graphflow-cache/
+graphflow-out/
+
 # databases — runtime data (audit chains contain caller history), never tracked
 *.db
 *.db-journal

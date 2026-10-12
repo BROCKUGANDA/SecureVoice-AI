@@ -162,6 +162,18 @@ jobs:
           git remote set-url origin \
             "https://x-access-token:${GIT_AUTH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
 
+          # ...and clear the header that would override it. actions/checkout
+          # persists `http.https://github.com/.extraheader` — an Authorization
+          # header carried on every request to github.com — and that header
+          # WINS over the token embedded in the remote URL above. Measured
+          # 2026-10-12: v0.2.2's tag landed as github-actions[bot] despite the
+          # set-url, GitHub's loop guard suppressed the tag push, and the
+          # Release workflow never started — the tag and the Deployments were
+          # visible while the Releases page stayed empty, which is exactly the
+          # "I keep failing to see it on GitHub" symptom. Unsetting it here is
+          # what actually makes GIT_AUTH_TOKEN the pushing identity.
+          git config --unset-all "http.https://github.com/.extraheader" || true
+
           # Configure git identity: a workflow checkout has none, and a commit
           # without one fails with "unable to auto-detect email address".
           git config user.name "github-actions[bot]"

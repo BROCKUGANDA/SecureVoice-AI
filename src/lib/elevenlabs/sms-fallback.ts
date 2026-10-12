@@ -38,6 +38,7 @@ import { classifyLine, supportsSmsConfirmation, UNKNOWN_LINE } from "@/lib/voice
 import { canTransition, transitionCase } from "@/lib/case-state-machine";
 import { getInstitutionType } from "@/lib/institution";
 import { publishResolution } from "@/lib/sms-verdict";
+import { resolveCasePhone } from "@/lib/compliance/pii-vault";
 import { logError } from "@/lib/validation/safe-log";
 
 export type FallbackReason = "dial_exhausted" | "voicemail" | "no_answer" | "hearing_impaired";
@@ -140,6 +141,7 @@ export async function markVoiceFailed(args: {
       select: {
         id: true,
         phone: true,
+        customerPhoneToken: true,
         language: true,
         state: true,
         orgId: true,
@@ -156,6 +158,13 @@ export async function markVoiceFailed(args: {
 
     if (row.smsSentAt) return skip("already_sent");
     if (!stateAllowsFallback(row.state)) return skip(`customer_engaged_${row.state}`);
+
+    // The destination resolves token-first through the PII vault under the
+    // case's own org; rows created before tokenization still carry the legacy
+    // raw column and answer from it. Null means no destination: the live send
+    // below refuses with no_valid_destination, and dry run classifies
+    // UNKNOWN_LINE instead.
+    const to = await resolveCasePhone(row, row.orgId);
 
     /** The bank hears now: no SMS can be sent, so nobody else will tell it. */
     const unavailable = async (why: string): Promise<FallbackResult> => {
@@ -174,13 +183,13 @@ export async function markVoiceFailed(args: {
     const dryRun = process.env.ELEVENLABS_DRY_RUN === "true";
     if (!dryRun) {
       if (!isTwilioConfigured()) return unavailable("sms_not_configured");
-      if (!row.phone || !isE164(row.phone)) return unavailable("no_valid_destination");
-      const suppressed = await db.smsSuppression.findUnique({ where: { phone: row.phone } });
+      if (!to || !isE164(to)) return unavailable("no_valid_destination");
+      const suppressed = await db.smsSuppression.findUnique({ where: { phone: to } });
       if (suppressed) return unavailable("customer_opted_out");
 
       const institution = await getInstitutionType(row.orgId);
       const res = await sendInterventionSms({
-        to: row.phone,
+        to,
         lang: asDeliveryLang(row.language),
         caseRef,
         kind: "unreachable",
@@ -205,7 +214,7 @@ export async function markVoiceFailed(args: {
       // nothing" — on a fraud call, exactly the confusion that lets a transfer
       // stand. The call is still walked to UNREACHABLE; what is withheld is the
       // claim of reach, never the state change.
-      const line = await classifyLine(row.phone);
+      const line = await classifyLine(to);
       const smsCanProveReach = supportsSmsConfirmation(line.type);
       if (!smsCanProveReach) {
         await record(
@@ -226,7 +235,7 @@ export async function markVoiceFailed(args: {
     // the reachability claim, which is gated the same way so the demo exercises
     // the real decision rather than a friendlier copy of it.
     await record(caseRef, row.orgId, "sms_fallback_skipped", reason, "dry_run_simulated");
-    const dryLine = row.phone ? await classifyLine(row.phone) : UNKNOWN_LINE;
+    const dryLine = to ? await classifyLine(to) : UNKNOWN_LINE;
     const dryReach = supportsSmsConfirmation(dryLine.type);
     if (!dryReach) {
       await record(

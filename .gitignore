@@ -135,6 +135,12 @@ backfill.mjs
 tool-results/
 *.tsbuildinfo
 
+# Agent-session debris: screenshots a session captured and ledgers it wrote
+# for itself. Untracked 2026-10-12; the files stay on the machine that made
+# them, the repo stays free of them.
+.openchamber/
+.sisyphus/
+
 # Local transcripts and dumps from debugging sessions.
 *.tsbuildinfo.bak
 dev.log

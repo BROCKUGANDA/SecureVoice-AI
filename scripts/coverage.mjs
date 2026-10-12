@@ -67,8 +67,9 @@ const JEST_LCOV = resolve(OUT, "jest", "lcov.info");
 // value is the default rather than the only option.
 // NOTE: the main merge bar is temporarily 65 (reachable) so the ladder can
 // promote to `main` and deploy while coverage below 85% is being closed
-// (see .sisyphus/ledger/2026-10-08-requirements.md). CI sets 65 on PRs into
-// main (report-only elsewhere); raise it back toward 85 as views land.
+// (the pilot acceptance threshold from the 2026-10-08 requirement run).
+// CI sets 65 on PRs into main (report-only elsewhere); raise it back toward
+// 85 as views land.
 const THRESHOLDS = {
   overall: Number(process.env.COVERAGE_MIN_OVERALL ?? 65),
   unit: 70,

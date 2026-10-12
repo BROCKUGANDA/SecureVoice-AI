@@ -266,6 +266,29 @@ export async function sendQueuedEmail(input: {
         }),
       });
     }
+    case "support_ticket": {
+      // Operator report → our own support inbox. The message was scrubbed by
+      // `redactPII` BEFORE the row was written (src/app/api/support/ticket/route.ts),
+      // so a drain retry re-renders exactly the same already-redacted text and
+      // no retry can reintroduce a raw identifier.
+      const { SupportTicketEmail } = await import("@/lib/email/templates/support-ticket");
+      return sendEmail({
+        to: input.to,
+        subject: input.subject,
+        element: SupportTicketEmail({
+          ref: typeof input.props.ref === "string" ? input.props.ref : "unknown",
+          orgId: typeof input.props.orgId === "string" ? input.props.orgId : null,
+          operatorName:
+            typeof input.props.operatorName === "string" ? input.props.operatorName : "unknown",
+          operatorEmail:
+            typeof input.props.operatorEmail === "string" ? input.props.operatorEmail : "unknown",
+          interventionRef:
+            typeof input.props.interventionRef === "string" ? input.props.interventionRef : null,
+          message: typeof input.props.message === "string" ? input.props.message : "",
+          baseUrl: origin,
+        }),
+      });
+    }
     default:
       return { ok: false, reason: `unknown email kind: ${input.kind}` };
   }

@@ -646,17 +646,15 @@ model EmailOutbox {
   /// default-deny every other null-orgId row gets from the policy — an unknown
   /// owner is not an authorisation.
   ///
-  /// NOTHING WRITES IT YET, and that is stated rather than glossed. The three
-  /// kinds in `kind` below are pre-session by construction: a magic link, an
-  /// invite and a password reset are all produced for an address, from a flow
-  /// that has no signed-in session and therefore no active organization to stamp
-  /// (src/lib/email/outbox.ts, src/lib/email/resend.ts). So for these rows a null
-  /// orgId is not a bug to fix but the correct value, and this column's real use
-  /// is an org-scoped mail flow — which does not exist yet. The policy is still
-  /// worth having: it makes the boundary explicit and it binds the day a caller
-  /// does know its tenant.
+  /// The AUTH kinds (magic link, invite, password reset) are pre-session by
+  /// construction and keep writing null — for those rows null is not a bug to
+  /// fix but the correct value. The first flow that DOES know its tenant is the
+  /// console's support ticket (POST /api/support/ticket): it stamps the
+  /// session-derived org id (`enqueueAndSendEmail({ orgId })`), which is what
+  /// this column and its tenant_scope policy were added for.
   orgId     String?
-  /// Which flow produced this: magic_link | invite | password_reset.
+  /// Which flow produced this: magic_link | invite | password_reset |
+  /// pilot_request | support_ticket.
   kind      String
   /// The address being mailed. Personal data: redact in logs, never in metrics.
   toEmail   String

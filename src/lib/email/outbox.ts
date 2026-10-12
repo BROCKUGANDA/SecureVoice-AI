@@ -1,6 +1,7 @@
 import "server-only";
 /**
- * Durable queue for transactional email (magic link, invite, password reset).
+ * Durable queue for transactional email (magic link, invite, password reset)
+ * and the internal notifications (pilot request, support ticket).
  *
  * Mirrors the discipline of src/lib/outbox.ts — the bank-webhook outbox — but
  * is a separate table and a separate module, because the two payloads have
@@ -35,7 +36,12 @@ import { db } from "@/lib/db";
 import { logError, logWarn } from "@/lib/validation/safe-log";
 
 /** Which flow produced a message. Drives template selection at send time. */
-export type EmailKind = "magic_link" | "invite" | "password_reset" | "pilot_request";
+export type EmailKind =
+  | "magic_link"
+  | "invite"
+  | "password_reset"
+  | "pilot_request"
+  | "support_ticket";
 
 export type EmailState = "PENDING" | "SENDING" | "SENT" | "DEAD";
 
@@ -62,6 +68,14 @@ export type EnqueueInput = {
   subject: string;
   /** Non-credential props for re-render. NEVER include a token or signed URL. */
   props: Record<string, string | number | null>;
+  /**
+   * The tenant the flow was acting in, when it has one. The auth flows are
+   * pre-session by construction and pass nothing (the column stays null, see
+   * schema.prisma); a console flow like the support ticket knows its active
+   * organization and stamps it, which is what binds the column's tenant_scope
+   * policy to a real value.
+   */
+  orgId?: string | null;
 };
 
 /** Persist a message for delivery. Does NOT send. */
@@ -71,6 +85,7 @@ export async function enqueueEmail(input: EnqueueInput): Promise<{ id: string }>
       kind: input.kind,
       toEmail: input.toEmail,
       subject: input.subject,
+      orgId: input.orgId ?? null,
       // Canonical-ish JSON: stable key order makes the row diffable when
       // debugging "why did the retry render differently".
       payload: JSON.stringify(input.props),

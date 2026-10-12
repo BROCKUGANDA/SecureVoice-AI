@@ -88,6 +88,18 @@ jobs:
   deploy:
     name: Build, migrate and roll production
     runs-on: [self-hosted, securevoice-vps]
+    # A GitHub Environment is what puts a Deployment record — and the URL below
+    # — on the repository's Deployments tab. Without it the deploy is real but
+    # invisible: the run goes green, the VPS is rolled, and the Deployments view
+    # stays empty, which is indistinguishable from "the deploy never happened".
+    #
+    # `production` has no protection rules (verified against the API: the only
+    # environment that exists is `copilot`), so declaring it here does not gate
+    # the automatic roll — it records it. GitHub creates the environment on the
+    # first run that references it.
+    environment:
+      name: production
+      url: https://securevoiceai.me
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4

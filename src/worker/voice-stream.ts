@@ -777,11 +777,83 @@ function createServer() {
       });
     });
 
+    // The transcription socket's own fate, reported to the call.
+    //
+    // An empty `onclose` in the client used to make a dropped ASR leg invisible:
+    // the caller talked to a dead transcriber, the agent kept playing nudges at
+    // them, the audit chain recorded a call in which nobody spoke, and the only
+    // trace was Deepgram's own dashboard. The client now redials once (bounded in
+    // `src/lib/voice/deepgram-client.ts`) and says so; a second close ends the
+    // call ALOUD.
+    //
+    // `SAFETY_EXIT` is spoken rather than a bespoke "we have lost your line"
+    // sentence for two reasons: it already exists, vetted, in all six languages,
+    // and it is the correct instruction when a verification cannot be completed.
+    // Authoring new compliance copy under incident conditions — and translating it
+    // into five languages nobody here speaks — is how a safety line ends up wrong.
+    deepgram.onAsrEvent((event) => {
+      if (state.ended) return;
+
+      void auditAppend({
+        callRef: (ws as WebSocket & { __caseRef?: string }).__caseRef ?? `vs-${randomUUID()}`,
+        action: "asr",
+        intent: event.kind === "dead" ? "asr_stream_dead" : "asr_stream_reconnected",
+        callerId: "system-voice-stream",
+        redactedText:
+          event.kind === "dead"
+            ? "live transcription failed after one redial; the call was ended with the hang-up-safe exit"
+            : "live transcription redialled; speech inside the handshake window was not transcribed",
+        meta: { lang: state.lang, callSid, ...event },
+      }).catch(() => {});
+
+      if (event.kind === "reconnected") {
+        logWarn("[voice-stream] live transcription redialled", {
+          callSid,
+          attempt: event.attempt,
+          closeCode: event.closeCode,
+        });
+        return;
+      }
+
+      logError(
+        "[voice-stream] live transcription died — ending the call rather than talking past the caller",
+        {
+          callSid,
+          attempts: event.attempts,
+          closeCode: event.closeCode,
+        },
+      );
+      if (nudgeTimer) clearTimeout(nudgeTimer);
+      // `state.ended` here, with the terminal utterance `force: true`: the same
+      // ordering rule the freeze path follows — the flag stops the nudge loop and
+      // any barge-in, but must never silence the last thing the customer hears.
+      state.ended = true;
+      void safeTtsStream(state, ws, SAFETY_EXIT[state.lang] ?? SAFETY_EXIT.en, { force: true })
+        .catch(() => {})
+        .finally(() => {
+          try {
+            ws.send(JSON.stringify({ event: "clear" }));
+          } catch {
+            // already closing
+          }
+          setTimeout(() => {
+            try {
+              ws.close();
+            } catch {
+              // already closed
+            }
+          }, 1000);
+        });
+    });
+
     // Pinned to the CALL's language, not "en". This is what makes Urdu
     // comprehensible at all: nova-2 in English mode returns phonetic garbage for
     // Urdu speech, which the Urdu-aware router then cannot recognise as a
     // denial, so the soft freeze never fires.
-    const dgWs = deepgram.start(lang);
+    // Started for its effect, and the socket is deliberately not retained: a
+    // reconnect replaces it inside the client, so a reference held here would be a
+    // dead socket by the time anyone wanted to act on it.
+    deepgram.start(lang);
 
     // T+0 opening greeting. This worker was previously purely reactive — silent
     // until the first inbound transcript — which left the caller facing dead air

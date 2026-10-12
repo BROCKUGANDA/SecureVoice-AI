@@ -109,6 +109,12 @@ mock.module("@/lib/tts-quota", () => ({
 mock.module("@/lib/ratelimit", () => ({
   consume: () => ({ ok: true }),
   rateLimitId: () => "127.0.0.1",
+  // Every export the routes under test touch has to be in this object: `mock.module`
+  // replaces the MODULE, so a route that later starts calling another function from
+  // it fails at import time with "Export named … not found" and every test in the
+  // file dies on the load error rather than on an assertion. `rateLimitHeaders` was
+  // added for the 429 headers and this file's suite went red without a TTS change.
+  rateLimitHeaders: () => ({}),
 }));
 
 mock.module("@/lib/audit-chain", () => ({

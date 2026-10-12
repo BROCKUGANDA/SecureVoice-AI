@@ -107,6 +107,8 @@ export function Settings() {
   const [brandPrimary, setBrandPrimary] = useState("");
   const [elevenKey, setElevenKey] = useState("");
   const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteBusy, setInviteBusy] = useState(false);
+  const [inviteMsg, setInviteMsg] = useState<string | null>(null);
   const [producerKeys, setProducerKeys] = useState<
     { id: string; label: string; revoked: boolean; lastUsedAt: string | null; createdAt: string }[]
   >([]);
@@ -706,20 +708,85 @@ export function Settings() {
                   />
                   <button
                     onClick={() => {
-                      window.location.href = `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(
-                        `${t("SecureVoice seat invite", "دعوة مقعد في SecureVoice", lang)}: ${inviteEmail}`,
-                      )}`;
+                      void (async () => {
+                        if (inviteBusy || !inviteEmail.includes("@")) return;
+                        setInviteBusy(true);
+                        setInviteMsg(null);
+                        try {
+                          const res = await fetch("/api/auth/invites", {
+                            method: "POST",
+                            headers: { "content-type": "application/json" },
+                            body: JSON.stringify({ email: inviteEmail, role: "Analyst" }),
+                          });
+                          const data = (await res.json().catch(() => ({}))) as {
+                            ok?: boolean;
+                            error?: string;
+                          };
+                          if (res.ok && data.ok) {
+                            setInviteMsg(
+                              t(
+                                "Invite sent — the link expires in 72 hours.",
+                                "تم إرسال الدعوة — تنتهي صلاحية الرابط بعد ٧٢ ساعة.",
+                                lang,
+                              ),
+                            );
+                            setInviteEmail("");
+                          } else if (res.status === 428) {
+                            setInviteMsg(
+                              t(
+                                "Confirm it's you first: open the Security tab, complete the password confirmation, then send the invite again.",
+                                "أكّد هويتك أولًا: افتح تبويب الأمان وأكّد كلمة المرور ثم أعد إرسال الدعوة.",
+                                lang,
+                              ),
+                            );
+                          } else {
+                            setInviteMsg(
+                              data.error ??
+                                t(
+                                  "The invite could not be sent.",
+                                  "تعذّر إرسال الدعوة.",
+                                  lang,
+                                ),
+                            );
+                          }
+                        } catch {
+                          setInviteMsg(
+                            t(
+                              "Network error — the invite was not sent.",
+                              "خطأ في الشبكة — لم يتم إرسال الدعوة.",
+                              lang,
+                            ),
+                          );
+                        } finally {
+                          setInviteBusy(false);
+                        }
+                      })();
                     }}
-                    disabled={!inviteEmail.includes("@")}
+                    disabled={!inviteEmail.includes("@") || inviteBusy}
                     className="shrink-0 rounded-full bg-primary px-5 py-2.5 text-[13px] font-semibold text-white transition hover:bg-green-deep disabled:opacity-40"
                   >
-                    {t("Invite", "دعوة", lang)}
+                    {inviteBusy
+                      ? t("Inviting…", "جارٍ الإرسال…", lang)
+                      : t("Invite", "دعوة", lang)}
                   </button>
                 </div>
+                {inviteMsg && (
+                  <p
+                    className={cn(
+                      "rounded-xl px-4 py-3 text-[11.5px] leading-relaxed",
+                      inviteMsg.startsWith(t("Invite sent", "تم إرسال الدعوة", lang))
+                        ? "bg-green-tint text-green-deep"
+                        : "bg-red-tint text-red-soft",
+                    )}
+                    role="status"
+                  >
+                    {inviteMsg}
+                  </p>
+                )}
                 <p className="rounded-xl bg-paper px-4 py-3 text-[11.5px] leading-relaxed text-ink-3">
                   {t(
-                    "Enterprise flow: seats are created manually by the SecureVoice admin against your Better Auth organization, and the invitee sets their own password via a one-time link. Roles:",
-                    "مسار المؤسسات: يُنشئ مسؤول SecureVoice المقاعد يدويًا ضمن مؤسستك في Better Auth، ويضع المدعو كلمة مروره بنفسه عبر رابط يُستخدم مرة واحدة. الأدوار:",
+                    "The invite reaches the email above as a one-time link that expires in 72 hours; the invitee sets their own password. Roles:",
+                    "تصل الدعوة إلى البريد أعلاه كرابط يُستخدم مرة واحدة وينتهي بعد ٧٢ ساعة؛ ويضع المدعو كلمة مروره بنفسه. الأدوار:",
                     lang,
                   )}{" "}
                   <span className="font-semibold">{t("Admin", "مسؤول", lang)}</span>{" "}

@@ -239,3 +239,45 @@ test("docs: a p95 in the model card is never stated without a measurement status
 test("docs: the README links the evidence index it ships with", () => {
   expect(readme).toMatch(/\]\(evidence\/INDEX\.md\)/);
 });
+
+// ── Consent: what the documents may claim about a reference ──────────────────
+
+/**
+ * The consent control is a REQUIRED REFERENCE, and three documents described it as
+ * a verification: the policy gate's own step list, `docs/INTEGRATION.md` §2, and
+ * the row in `docs/INTEGRATION-CONTRACT.md` that a bank's integrator reads as a
+ * compliance promise. None of them could be true, and the reason is structural
+ * rather than a matter of wording — asserted against the schema below, not argued.
+ *
+ * The failure mode this pins is the expensive kind. A document that says "we verify
+ * the consent record" lets a customer believe an obligation has been discharged by
+ * us, when the platform only ever requires the reference and records it. Opt-out is
+ * the real enforcement, and only for the numbers whose rows we hold.
+ */
+test("docs: no document claims a consent verification the schema cannot support", () => {
+  // Structural half: there is nothing to verify AGAINST.
+  expect(
+    /model\s+Consent\b/.test(schema),
+    "a Consent model exists now — re-derive what the gate can honestly claim, then update these documents",
+  ).toBe(false);
+  expect(schema).toMatch(/consentRecordId\s+String\?/);
+
+  const sources = ["src/lib/policy-gate.ts", "docs/INTEGRATION.md", "docs/INTEGRATION-CONTRACT.md"];
+  for (const file of sources) {
+    const text = read(file);
+    // The retired claims, each phrased as a check the platform performs.
+    expect(text, `${file}: claims the record's existence and currency were checked`).not.toMatch(
+      /exists and is current/i,
+    );
+    expect(text, `${file}: claims a consent record is held here`).not.toMatch(
+      /consent record on file/i,
+    );
+    expect(text, `${file}: promises a dialling refusal it does not implement`).not.toMatch(
+      /without a consent record (the platform |we )?will not/i,
+    );
+    // The positive half: any description of this control has to name whose record
+    // it is. That phrase is the difference between a reference and a verification,
+    // so a document that drops it has quietly become the claim above again.
+    expect(text, `${file}: stopped saying whose consent record it is`).toMatch(/system of record/);
+  }
+});

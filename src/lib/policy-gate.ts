@@ -5,12 +5,23 @@ import "server-only";
  * The decision is written to the audit chain either way (WP-2 step 4).
  *
  * Order (fail-fast):
- *   1. consent record exists and is current
+ *   1. a consent reference is present and well-formed (4–64 characters)
  *   2. destination country on the org allowlist
  *   3. destination not in cooldown
  *   4. org concurrency below cap
  *   5. org spend ceiling not breached
  *   6. credits reserved
+ *
+ * Step 1 is a REFERENCE check, not a lookup, and the distinction is load-bearing
+ * for anything said about consent anywhere in this product. There is no consent
+ * table in this schema — `consentRecordId` is a plain string on `Customer` and on
+ * `Case` — because the record itself lives in the institution's system of record.
+ * What this layer can and does enforce is that every signal carries a reference
+ * before anything is dialled, that the reference lands in the case and the audit
+ * chain so a call is attributable to a consent record, and that a number whose
+ * stored row says opted-out is never dialled. The wording this replaces promised a
+ * verification nobody could run, and docs/INTEGRATION.md §2 passed that promise on
+ * to customers.
  *
  * No model is in this path. A signal that fails any check is rejected with a
  * typed reason and never reaches the conversation plane.
@@ -238,8 +249,9 @@ export async function runPolicyGate(input: PolicyGateInput): Promise<PolicyGateR
   // 1b. Do-not-call registry. A number here must not receive routine or
   //     non-critical outbound calls, whatever the fraud score says — the
   //     customer's standing instruction outranks our triage. Time-critical
-  //     fraud verification is consent-record-backed (checked above) and in the
-  //     customer's interest, so it is deliberately not gated on the registry.
+  //     fraud verification carries a required consent reference (step 1 above)
+  //     and is in the customer's interest, so it is deliberately not gated on
+  //     the registry.
   const category: CallCategory = asCallCategory(input.callCategory);
   if (category !== "time_critical_fraud") {
     const dnc = await db.doNotCall.findUnique({ where: { phone } });

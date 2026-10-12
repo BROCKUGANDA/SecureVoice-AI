@@ -37,6 +37,8 @@ tool-results
 download
 .claude
 .z-ai-config
+.openchamber
+.sisyphus
 skills
 local-*
 svpg

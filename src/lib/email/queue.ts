@@ -44,6 +44,8 @@ export async function enqueueAndSendEmail(input: {
   subject: string;
   token: string;
   props: Record<string, string | number | null>;
+  /** The acting tenant, when the flow has one (the auth flows do not). */
+  orgId?: string | null;
 }): Promise<EnqueueAndSendResult> {
   // Defensive: never let a caller smuggle a token into the persisted payload.
   const persistable: Record<string, string | number | null> = { ...input.props };
@@ -56,6 +58,7 @@ export async function enqueueAndSendEmail(input: {
       toEmail: input.toEmail,
       subject: input.subject,
       props: persistable,
+      orgId: input.orgId ?? null,
     });
     rowId = row.id;
   } catch (cause) {

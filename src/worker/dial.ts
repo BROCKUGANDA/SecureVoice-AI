@@ -23,6 +23,7 @@ import { hostname } from "node:os";
 import { randomUUID } from "node:crypto";
 
 import { drainDialQueue, type DialJob, type DialOutcome } from "@/lib/scale/queue";
+import { createBreaker, type Breaker } from "@/lib/failures/breaker";
 import { placeOutboundCall } from "@/lib/elevenlabs/outbound-call";
 import { placeInterventionCall } from "@/lib/twilio";
 import { append as auditAppend } from "@/lib/audit-chain";
@@ -51,6 +52,36 @@ const POLL_MS = Number(process.env.DIAL_WORKER_POLL_MS ?? 1_000);
 const BATCH = Number(process.env.DIAL_WORKER_BATCH ?? 5);
 const LEASE_MS = Number(process.env.DIAL_WORKER_LEASE_MS ?? 60_000);
 const ONCE = process.argv.includes("--once");
+
+/**
+ * The telephony breaker.
+ *
+ * `DEPENDENCIES` in src/lib/failures/breaker.ts has listed "telephony" since
+ * that module was written, with a declared fallback ("telephony down → queue
+ * and alert"), and nothing ever created it — a declared dependency whose
+ * failure counter nobody increments can never open, so the guardrail was
+ * decorative and a reviewer counting `DEPENDENCIES` would have believed a dead
+ * carrier stops dispatch. This worker is the only carrier caller in the repo,
+ * so the instance lives here: five consecutive carrier refusals stop the loop
+ * from proving the carrier is down once per queued job, and the job is
+ * deferred with the fallback's Retry-After instead — the "queue" leg of the
+ * declared fallback, with the refusal audited rather than silent.
+ */
+const telephonyBreaker: Breaker = createBreaker("telephony", {
+  failureThreshold: 5,
+  openMs: 60_000,
+  halfOpenProbes: 1,
+});
+
+/** Test seam, mirroring `_resetLlmBreakerForTest` in src/lib/llm.ts. */
+export function _resetDialTelephonyBreakerForTest(): void {
+  telephonyBreaker.reset();
+}
+
+/** The breaker's live view, for tests and for verification runs. */
+export function dialTelephonyBreakerState(): ReturnType<Breaker["snapshot"]> {
+  return telephonyBreaker.snapshot();
+}
 
 type JobPayload = {
   to?: string;
@@ -285,6 +316,38 @@ async function handle(job: DialJob): Promise<DialOutcome> {
       };
     }
 
+    // The carrier circuit breaker. An open breaker means the previous five
+    // attempts failed AT the carrier and this one will too — asking again per
+    // queued job is how a provider outage becomes a retry storm against a
+    // vendor that is already refusing. The declared fallback for this
+    // dependency is "queue and alert": the job is deferred with the fallback's
+    // Retry-After (the queue preserves the intervention), and the refusal is
+    // audited so an operator sees why calls stopped, not just that they did.
+    const permit = telephonyBreaker.permit();
+    if (!permit.allowed) {
+      const retryAfterMs = (permit.fallback?.retryAfterSec ?? 60) * 1_000;
+      void auditAppend({
+        callRef: job.case_ref,
+        action: "handoff",
+        intent: "dial_deferred_carrier_breaker",
+        callerId: WORKER_ID,
+        redactedText: `telephony breaker ${permit.state}; retry in ${retryAfterMs / 1_000}s`,
+        meta: {
+          jobId: job.id,
+          state: permit.state,
+          consecutiveFailures: permit.consecutiveFailures,
+          retryAfterMs,
+        },
+        orgId: job.org_id ?? undefined,
+      }).catch(() => {});
+      return {
+        ok: false,
+        error: `telephony circuit breaker open — carrier failing; job deferred ${retryAfterMs / 1_000}s`,
+        retryable: true,
+        retryAfterMs,
+      };
+    }
+
     // Both planes must report the truth about the carrier. `placeOutboundCall`
     // throws on failure; `placeInterventionCall` RETURNS one, so the ok flag has
     // to be read here or a refused call becomes a recorded successful dial.
@@ -334,8 +397,10 @@ async function handle(job: DialJob): Promise<DialOutcome> {
         speech: { shariahCompliant: institution.shariahCompliant },
       });
       if (!dial.ok) {
+        telephonyBreaker.recordFailure();
         throw new Error(`twilio dial refused (status ${dial.status}): ${dial.error}`);
       }
+      telephonyBreaker.recordSuccess();
       result = {
         // The app-side conversation key is the case ref — the same value the
         // media-stream socket is opened with. `callSid` is the carrier's call
@@ -375,7 +440,13 @@ async function handle(job: DialJob): Promise<DialOutcome> {
           transaction_ref: payload.transaction_ref ?? "",
           signal_kind: existing?.signalKind ?? "",
         },
+      }).catch((err: unknown) => {
+        // `placeOutboundCall` throws on a carrier failure; count it against the
+        // breaker before the worker's own catch turns it into a retry.
+        telephonyBreaker.recordFailure();
+        throw err;
       });
+      telephonyBreaker.recordSuccess();
       result = {
         conversationId: outbound.conversationId,
         callSid: outbound.callSid,

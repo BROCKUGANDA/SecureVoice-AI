@@ -41,6 +41,22 @@ import { pineconeConfigured } from "@/lib/pinecone/transcript-index";
 export const MAX_PDF_BYTES = 8 * 1024 * 1024;
 
 /**
+ * Per-ORGANISATION knowledge-base ceiling, in bytes.
+ *
+ * `MAX_PDF_BYTES` bounds one upload; this bounds the tenant. `pdfBytes` is
+ * retained in Postgres for Retry, and every retained byte is storage the
+ * deployment pays for — the per-user rate limit bounds how FAST a tenant can
+ * upload, not how MUCH they hold, so without this a single org could quietly
+ * become most of a small deployment's database. 128 MiB is sixteen files at
+ * the per-file maximum: generous for a pilot bank's policy library, and still
+ * a bound someone can audit. `KB_ORG_MAX_BYTES` overrides it per deployment.
+ */
+export const orgKbQuotaBytes = (): number => {
+  const raw = Number(process.env.KB_ORG_MAX_BYTES);
+  return Number.isFinite(raw) && raw > 0 ? Math.trunc(raw) : 128 * 1024 * 1024;
+};
+
+/**
  * The status ladder, as a closed set.
  *
  * A closed set rather than a free string because the console renders a pill per

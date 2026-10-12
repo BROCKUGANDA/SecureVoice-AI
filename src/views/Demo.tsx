@@ -953,7 +953,7 @@ function RailCard({
   return (
     <div
       className={cn(
-        "rounded-2xl border bg-white p-4.5 p-5 transition-all",
+        "rounded-2xl border bg-white p-5 transition-all",
         active
           ? "border-primary/30 shadow-[0_14px_34px_-24px_rgba(11,122,85,0.45)]"
           : "border-line",

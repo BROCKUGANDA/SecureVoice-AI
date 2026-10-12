@@ -114,6 +114,19 @@ export class ConversationState {
     this.phase = "speaking";
     return { speak: this.line(NUDGE) };
   }
+
+  /**
+   * True while LISTENING with the per-turn nudge budget spent. The worker's
+   * signal to end the call rather than leave a live line in silence forever:
+   * `onSilence()` returning null means either "not listening" (nothing to do)
+   * or "the caller has stayed silent through every nudge" (act). The worker
+   * cannot tell those apart from the return value alone, and guessing wrong
+   * either hangs up on an active answer or leaves dead air until the carrier
+   * gives up.
+   */
+  get silenceBudgetSpent(): boolean {
+    return this.phase === "listening" && this.nudges >= MAX_NUDGES;
+  }
 }
 
 /* ---------------------------------------------------------------------------

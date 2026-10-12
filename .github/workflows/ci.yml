@@ -818,8 +818,21 @@ jobs:
             echo "::error::production has $up/7 containers running — a smoke-test job disturbed it"
             exit 1
           fi
-          code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 \
-            https://securevoiceai.me/api/health || true)
+          # Retry loop, same shape as deploy.yml's health check, and here for a
+          # measured reason: this job BUILDS the stack on the same host that
+          # serves production, so a saturated box can answer one probe with 503
+          # (Caddy briefly marking its upstream down) and the next probe with
+          # 200 — observed 2026-10-12: build step green, single probe 503, run
+          # red. Six attempts over ~a minute keeps the gate honest — a truly
+          # down origin fails all of them — without failing the ladder at the
+          # smoke test's own noise floor.
+          code=""
+          for _ in 1 2 3 4 5 6; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 \
+              https://securevoiceai.me/api/health || true)
+            [ "$code" = "200" ] && break
+            sleep 10
+          done
           echo "production api/health: $code"
           [ "$code" = "200" ] || { echo "::error::production origin is not healthy"; exit 1; }
 

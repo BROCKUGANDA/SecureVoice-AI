@@ -136,6 +136,25 @@ describe("silence nudge", () => {
     expect(fired).toBe(MAX_NUDGES);
   });
 
+  test("reports the budget spent so the worker can end the call instead of leaving dead air", () => {
+    const c = listening();
+    // Before any nudge, the budget is not spent — a null from onSilence() here
+    // means "not listening", not "hang up".
+    expect(c.silenceBudgetSpent).toBe(false);
+    for (let i = 0; i < MAX_NUDGES; i++) {
+      const nudge = c.onSilence();
+      expect(nudge).toBeTruthy();
+      c.onSpeechEnd(); // nudge drained, listening again
+    }
+    // The whole budget is burned while still LISTENING: exactly the state in
+    // which the worker must end the call and fire the SMS fallback.
+    expect(c.silenceBudgetSpent).toBe(true);
+    // Once the caller finally says something, the flag must clear — a routed
+    // answer re-arms the budget, and the call must not be ended under them.
+    c.markThinking();
+    expect(c.silenceBudgetSpent).toBe(false);
+  });
+
   test("answering resets the dead-air budget for the next turn", () => {
     const c = listening();
     // Burn this turn's whole nudge budget.

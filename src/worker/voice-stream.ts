@@ -27,6 +27,7 @@ import { env, SUPPORTED_LANGS } from "@/lib/config";
 import { db } from "@/lib/db";
 import type { TtsLang } from "@/lib/elevenlabs/client";
 import { resolveTtsModel } from "@/lib/elevenlabs/client";
+import { markVoiceFailed } from "@/lib/elevenlabs/sms-fallback";
 import { DeepgramLiveClient, preconnectDeepgram } from "@/lib/voice/deepgram-client";
 import { withFirstChunkDeadline } from "@/lib/voice/first-audio-deadline";
 import { installProcessCrashHandlers } from "@/lib/process-crash-handlers";
@@ -752,7 +753,29 @@ function createServer() {
       nudgeTimer = setTimeout(() => {
         if (state.ended) return;
         const nudge = conv.onSilence();
-        if (!nudge) return; // not listening, or the per-turn budget is spent
+        if (!nudge) {
+          // Budget spent while still LISTENING: the caller answered, heard the
+          // opening, and stayed silent through every nudge. Leaving the line
+          // open is silence until the carrier gives up — end the call aloud
+          // (the same vetted SAFETY_EXIT the ASR-close path speaks) and make
+          // sure the bank is told the customer was never reached.
+          if (conv.silenceBudgetSpent) {
+            state.ended = true;
+            void safeTtsStream(state, ws, SAFETY_EXIT[state.lang] ?? SAFETY_EXIT.en, {
+              force: true,
+            })
+              .catch(() => {})
+              .finally(() => {
+                ws.send(JSON.stringify({ event: "clear" }));
+                setTimeout(() => ws.close(), 1000);
+              });
+            const caseRef = (ws as WebSocket & { __caseRef?: string }).__caseRef;
+            if (caseRef) {
+              void markVoiceFailed({ caseRef, reason: "no_answer" }).catch(() => {});
+            }
+          }
+          return; // not listening, or the call is already closing
+        }
         void safeTtsStream(state, ws, nudge.speak)
           .then(() => {
             if (!state.ended) conv.onSpeechEnd();

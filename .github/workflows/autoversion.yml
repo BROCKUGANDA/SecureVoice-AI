@@ -273,9 +273,14 @@ jobs:
             if bumped=$(bun scripts/bump-version.mjs "$next" | head -n 1) &&
                printf '%s' "$bumped" | grep -qF -- "-> $next"; then
               git add package.json
-              # [skip ci]: a branch that only exists to be reviewed must not start a
-              # second full suite run on every release.
-              git commit -m "chore(release): v$next [skip ci]"
+              # NO [skip ci], and that is load-bearing. main's protection
+              # requires the two named status checks on every pull request, and
+              # a workflow skipped by a commit message reports NO check run at
+              # all — the PR sat at "Expected — waiting for status to be
+              # reported" forever, so the bump could never be armed or merged
+              # and the release chain stalled one step before the tag. The full
+              # suite runs; that is the price of a protected main.
+              git commit -m "chore(release): v$next"
               git push origin "chore/release-v$next"
               gh pr create --base main --head "chore/release-v$next" \
                 --title "chore(release): v$next" \

@@ -21,8 +21,14 @@ import { planTierFor } from "@/lib/abuse/tiers";
 import { enqueueDialJob } from "@/lib/scale/queue";
 import { admitOrDegrade } from "@/lib/admission";
 import { markVoiceFailed } from "@/lib/elevenlabs/sms-fallback";
-import { makeFailure, type FailureCode, type FailureInit } from "@/lib/failures/envelope";
-import { logError } from "@/lib/validation/safe-log";
+import {
+  BILLING_REFUSAL_CODES,
+  makeFailure,
+  POLICY_REFUSAL_CODES,
+  type FailureCode,
+  type FailureInit,
+} from "@/lib/failures/envelope";
+import { logError, logWarn } from "@/lib/validation/safe-log";
 
 import { notifyRealtime } from "@/lib/realtime";
 import { createCase, transitionCase } from "@/lib/case-state-machine";
@@ -433,12 +439,28 @@ export async function POST(req: NextRequest) {
     if (typeof typed.status === "number" && typeof typed.code === "string") {
       const status = typed.status;
       const detail = typeof typed.message === "string" ? typed.message : typed.code;
-      return failure(
-        status >= 400 && status < 500 ? "policy_precondition" : "dependency_unavailable",
-        {
-          detail: `${typed.code}: ${detail}`,
-        },
-      );
+      const code = typeof typed.code === "string" ? typed.code : "";
+      const isBilling = (BILLING_REFUSAL_CODES as readonly string[]).includes(code);
+      const isPolicy = (POLICY_REFUSAL_CODES as readonly string[]).includes(code);
+      if (status >= 400 && status < 500 && !isBilling && !isPolicy) {
+        // Not fatal: the refusal still goes out with a 4xx. Logged because an
+        // unclassified code is a refusal whose CLASS has not been decided yet,
+        // and the difference (409 "we won't do this" vs 402 "pay and we will") is
+        // the one thing the caller branches on.
+        logWarn("[v1/interventions] refusal code is in neither declared set", { code });
+      }
+      // Three explicit branches rather than a nested ternary, because the
+      // published contract catalog proves itself against this source by looking for
+      // `failure("<code>")`. A code that only ever appears inside an expression is
+      // undocumented as far as that gate is concerned — which is precisely the kind
+      // of drift it exists to catch, so the expression form was the wrong trade.
+      if (isBilling) {
+        return failure("payment_required", { detail: `${code}: ${detail}` });
+      }
+      if (status >= 400 && status < 500) {
+        return failure("policy_precondition", { detail: `${code}: ${detail}` });
+      }
+      return failure("dependency_unavailable", { detail: `${code}: ${detail}` });
     }
     logError("[v1/interventions] arming failed", {
       error: err instanceof Error ? err.message : String(err),

@@ -124,16 +124,18 @@ Non-negotiable rules, each of which is enforced rather than documented:
 
 ### Responses
 
-| Status                    | Meaning                                                                                       | `code`                   |
-| ------------------------- | --------------------------------------------------------------------------------------------- | ------------------------ |
-| `202`                     | Accepted and **queued**. `status: "queued"` or `status: "degraded_to_async"`.                 | —                        |
-| `202` + `duplicate: true` | An idempotent replay of a key we already stored. Not an error.                                | —                        |
-| `400`                     | Unparseable body, or missing/short `Idempotency-Key`.                                         | `malformed_request`      |
-| `401`                     | No acceptable credential. Deliberately ONE code for a bad signature and a revoked key.        | `unauthenticated`        |
-| `409`                     | Refused by policy: opt-out, country not allowed, cooldown, cap, spend ceiling, credits.       | `policy_precondition`    |
-| `422`                     | Well-formed JSON that failed validation, or a `callback_url` the outbound-URL policy refused. | `semantically_invalid`   |
-| `429`                     | Caller budget spent. Honours `Retry-After`.                                                   | `rate_limited`           |
-| `503`                     | A dependency failed while the case was being armed. Honours `Retry-After`.                    | `dependency_unavailable` |
+| Status                    | Meaning                                                                                                                                                           | `code`                   |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------ |
+| `202`                     | Accepted and **queued**. `status: "queued"` or `status: "degraded_to_async"`.                                                                                     | —                        |
+| `202` + `duplicate: true` | An idempotent replay of a key we already stored. Not an error.                                                                                                    | —                        |
+| `400`                     | Unparseable body, or missing/short `Idempotency-Key`.                                                                                                             | `malformed_request`      |
+| `401`                     | No acceptable credential. Deliberately ONE code for a bad signature and a revoked key.                                                                            | `unauthenticated`        |
+| `402`                     | The prepaid balance cannot cover the call. The one refusal you can clear yourself: top up, then re-send. Reserved nothing, so re-sending costs one call, not two. |
+|                           | `credits_exhausted` is the cause in `message`.                                                                                                                    | `payment_required`       |
+| `409`                     | Refused by policy: opt-out, country not allowed, cooldown, cap, spend ceiling, paused subscription.                                                               | `policy_precondition`    |
+| `422`                     | Well-formed JSON that failed validation, or a `callback_url` the outbound-URL policy refused.                                                                     | `semantically_invalid`   |
+| `429`                     | Caller budget spent. Honours `Retry-After`.                                                                                                                       | `rate_limited`           |
+| `503`                     | A dependency failed while the case was being armed. Honours `Retry-After`.                                                                                        | `dependency_unavailable` |
 
 Errors use one envelope, with every field always present:
 
@@ -377,14 +379,15 @@ forwarded-IP trust is gone.
 
 ### When something looks wrong
 
-| Symptom                                       | Likely cause                                                         | First move                                                                                                        |
-| --------------------------------------------- | -------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `401 unauthenticated` on every signal         | Clock skew, or re-serialising the body                               | Verify NTP; sign the exact transmitted bytes                                                                      |
-| `422 semantically_invalid` you cannot explain | An undeclared field — usually `account_number` or a nested object    | Read `message`; it names the field                                                                                |
-| `409 policy_precondition`                     | Consent, geography, cooldown, cap, spend ceiling, credits            | Read `message` for the cause; `x-error-catalog` has per-cause retryability                                        |
-| `202 degraded_to_async`                       | Voice channel shed under load; the case degraded to SMS/app push     | Nothing — the case is accepted and auditable. Have an asynchronous step for the cases you cannot lose.            |
-| Bank event never arrives                      | Your receiver answered outside the retryable set, or answered slowly | `408`, `429`, `5xx` and network errors retry for ~21 h; anything else stops the ladder. Slow 2xx is a lost event. |
-| Duplicate bank events                         | Normal. Retries reuse `event_id` with a byte-identical body.         | Dedupe on `event_id`.                                                                                             |
+| Symptom                                       | Likely cause                                                          | First move                                                                                                        |
+| --------------------------------------------- | --------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `401 unauthenticated` on every signal         | Clock skew, or re-serialising the body                                | Verify NTP; sign the exact transmitted bytes                                                                      |
+| `422 semantically_invalid` you cannot explain | An undeclared field — usually `account_number` or a nested object     | Read `message`; it names the field                                                                                |
+| `402 payment_required`                        | Prepaid balance cannot cover the call                                 | Top up the wallet, then re-send the signal as a fresh request                                                     |
+| `409 policy_precondition`                     | Consent, geography, cooldown, cap, spend ceiling, paused subscription | Read `message` for the cause; `x-error-catalog` has per-cause retryability                                        |
+| `202 degraded_to_async`                       | Voice channel shed under load; the case degraded to SMS/app push      | Nothing — the case is accepted and auditable. Have an asynchronous step for the cases you cannot lose.            |
+| Bank event never arrives                      | Your receiver answered outside the retryable set, or answered slowly  | `408`, `429`, `5xx` and network errors retry for ~21 h; anything else stops the ladder. Slow 2xx is a lost event. |
+| Duplicate bank events                         | Normal. Retries reuse `event_id` with a byte-identical body.          | Dedupe on `event_id`.                                                                                             |
 
 **Quote these three, in this order, when you raise anything:** the `requestId`
 from the error body (or the `x-request-id` header), the `caseRef` from the `202`,

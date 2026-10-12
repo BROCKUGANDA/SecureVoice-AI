@@ -72,7 +72,10 @@ describe("status discipline table", () => {
   test("every status is a sanctioned 4xx/5xx value", () => {
     for (const code of ALL_CODES) {
       const s = STATUS_DISCIPLINE[code].status;
-      expect([400, 401, 404, 409, 413, 422, 429, 500, 503]).toContain(s);
+      // 402 is sanctioned because the wallet refusal is a class of its own: it is
+      // the one gate refusal a caller clears by paying, and 409 says "no, about the
+      // customer", which a top-up does not change.
+      expect([400, 401, 402, 404, 409, 413, 422, 429, 500, 503]).toContain(s);
     }
   });
 

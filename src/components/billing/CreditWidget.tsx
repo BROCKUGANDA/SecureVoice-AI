@@ -164,7 +164,7 @@ export function CreditWidget({
   const callbacksRef = useRef<{
     onCredit: (event: CreditDeductedEvent) => void;
     onStatus: (next: RealtimeStatus) => void;
-  }>({ onCredit: () => {}, onStatus: () => {} });
+  }>({ onCredit: () => {}, onStatus: () => {/* empty */} });
 
   useEffect(() => {
     callbacksRef.current = { onCredit: handleCredit, onStatus: setStatus };

@@ -10,10 +10,14 @@ Estimated time: ~15 minutes on a fresh box.
 
 ## 1. Provision
 
-- **Server**: 2 vCPU / 4 GB minimum (current deployment: Akamai/Linode, 8 GB, Frankfurt) — Next build + Postgres + sockets
+- **Server**: 2 vCPU / 4 GB minimum (reference deployment: OVHcloud, `d2-8`, 8 GB) — Next build + Postgres + sockets
   do not fit comfortably in 2 GB. Debian 13 or Ubuntu 24.04.
 - **Region**: pick the one closest to where calls are answered (tool
   round-trips are in the voice path; transatlantic latency is audible).
+  **OVHcloud region codes, not AWS names**: `GRA11` (Gravelines), `GRA9`,
+  `SBG5` (Strasbourg), `BHS5` (Beauharnois), `WBG1` (Warsaw). There is **no UAE
+  or GCC region** — if a deployment must promise in-country hosting for PDPL,
+  confirm the actual data path with OVHcloud in writing first.
 - **Swap** (builds OOM without it on 4 GB):
 
 ```bash
@@ -37,7 +41,15 @@ EOF
 systemctl restart docker
 ```
 
-## 2. Firewall (provider cloud firewall if one exists — Akamai/Linode, Hetzner, DigitalOcean all have them — otherwise ufw. Pick one, not both.)
+## 2. Firewall (provider cloud firewall if one exists — OVHcloud, Hetzner and DigitalOcean all have them — otherwise ufw. Pick one, not both.)
+
+**On OVHcloud, an OpenStack security group is an allow list**: traffic matching
+no rule does not pass, on every interface. That is default-deny in effect, but
+it is not a deny _policy_ — there is nothing behind your rules to catch a mistake.
+Anything not in the list below is denied by omission, so an omitted rule is a
+hole you have to notice rather than one that fails loudly. Postgres (5432) and
+the realtime socket service (9090) are unpublished for exactly this reason and
+must never appear in this list.
 
 | Inbound | Why                          |
 | ------- | ---------------------------- |

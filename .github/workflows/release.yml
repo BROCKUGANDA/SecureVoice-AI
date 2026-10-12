@@ -102,19 +102,15 @@ jobs:
           #    served bundle at build time (see the Dockerfile's ARG notes), so
           #    a value not passed here is not "unset at runtime", it is ABSENT
           #    from the JS. A missing price map makes `paddlePriceIds()` throw
-          #    while prerendering /pricing, which kills this build; the price
-          #    ids stay variables (public pricing is the product) but the demo
-          #    credentials are repository SECRETS — `vars` are plaintext-readable
-          #    by anyone with settings access, and the standing ask is that the
-          #    demo credentials not be visible on the remote. The built bundle
-          #    still contains them; that is the NEXT_PUBLIC_ contract, and the
-          #    account is a throwaway demo-org owner for exactly that reason.
+          #    while prerendering /pricing, which kills this build; the ids and
+          #    the demo credentials are published-by-design values kept in
+          #    repository variables.
           build-args: |
             BETTER_AUTH_SECRET=ci-only-not-a-secret-ci-only-not-a-secret
             NEXT_PUBLIC_SITE_URL=https://securevoiceai.me
             NEXT_PUBLIC_PADDLE_PRICES=${{ vars.NEXT_PUBLIC_PADDLE_PRICES }}
-            NEXT_PUBLIC_DEMO_LOGIN_EMAIL=${{ secrets.NEXT_PUBLIC_DEMO_LOGIN_EMAIL }}
-            NEXT_PUBLIC_DEMO_LOGIN_PASSWORD=${{ secrets.NEXT_PUBLIC_DEMO_LOGIN_PASSWORD }}
+            NEXT_PUBLIC_DEMO_LOGIN_EMAIL=${{ vars.NEXT_PUBLIC_DEMO_LOGIN_EMAIL }}
+            NEXT_PUBLIC_DEMO_LOGIN_PASSWORD=${{ vars.NEXT_PUBLIC_DEMO_LOGIN_PASSWORD }}
 
       # ── the smoke test, and why it cannot be a plain `docker compose up` ──
       #

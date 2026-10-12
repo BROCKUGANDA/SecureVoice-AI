@@ -47,7 +47,13 @@ const VIEWS: Record<View, React.ComponentType> = {
 
 export function AppRoot() {
   const { view, lang, setView, setTimedOut, highContrast } = useApp();
-  const { seat, isSignedIn, isLoading: seatLoading } = useViewerSeat();
+  const { data: session } = useSession();
+  const isSignedIn = Boolean(session?.user);
+  // Role for gating the console. Better Auth has no `publicMetadata`: the role
+  // lives on the organization membership. This is a UI AFFORDANCE only — every
+  // route re-checks the capability server-side, so a wrong value here can hide a
+  // nav item but can never grant one.
+  const role = session?.session?.activeOrganizationId ? "operator" : undefined;
 
   /* keep scroll sane between views */
   useEffect(() => {

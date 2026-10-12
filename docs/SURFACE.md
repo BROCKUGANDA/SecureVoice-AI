@@ -473,6 +473,18 @@ boundary. This replaced a `lottie-react` layer whose CSS fallback was what users
 actually saw on a cold load anyway; see the component's own header comment for the
 three reasons it went.
 
+**Auth-state panel** — the "Who you are, and why" section at the foot of the
+**demo** view (`src/views/Demo.tsx`, `AuthStatePanel`). It renders the three
+seats (`judge` / `vendor` / `operator`), what each seat maps to and what each can
+reach, reading `SEATS`, `atLeast` and `seatLabel` from `src/lib/auth/seat.ts` and
+the store's `VIEW_ACCESS` — the same records the navbar's `navForSeat` and the
+shell's RBAC gate read, so the table cannot claim a rule the gate does not
+enforce. It lived in the operator-only appendix before, which hid the explanation
+of the model from exactly the audience that first asks "why can I see Settings?".
+The panel says so in its own copy: the seats are an affordance, and every route
+re-checks the capability on the server, so a wrong seat can hide a control but
+never grant one.
+
 ---
 
 ## Before the demo

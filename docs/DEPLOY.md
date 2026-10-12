@@ -10,10 +10,14 @@ Estimated time: ~15 minutes on a fresh box.
 
 ## 1. Provision
 
-- **Server**: 2 vCPU / 4 GB minimum (current deployment: Akamai/Linode, 8 GB, Frankfurt) — Next build + Postgres + sockets
+- **Server**: 2 vCPU / 4 GB minimum (reference deployment: OVHcloud, `d2-8`, 8 GB) — Next build + Postgres + sockets
   do not fit comfortably in 2 GB. Debian 13 or Ubuntu 24.04.
 - **Region**: pick the one closest to where calls are answered (tool
   round-trips are in the voice path; transatlantic latency is audible).
+  **OVHcloud region codes, not AWS names**: `GRA11` (Gravelines), `GRA9`,
+  `SBG5` (Strasbourg), `BHS5` (Beauharnois), `WBG1` (Warsaw). There is **no UAE
+  or GCC region** — if a deployment must promise in-country hosting for PDPL,
+  confirm the actual data path with OVHcloud in writing first.
 - **Swap** (builds OOM without it on 4 GB):
 
 ```bash
@@ -37,7 +41,15 @@ EOF
 systemctl restart docker
 ```
 
-## 2. Firewall (provider cloud firewall if one exists — Akamai/Linode, Hetzner, DigitalOcean all have them — otherwise ufw. Pick one, not both.)
+## 2. Firewall (provider cloud firewall if one exists — OVHcloud, Hetzner and DigitalOcean all have them — otherwise ufw. Pick one, not both.)
+
+**On OVHcloud, an OpenStack security group is an allow list**: traffic matching
+no rule does not pass, on every interface. That is default-deny in effect, but
+it is not a deny _policy_ — there is nothing behind your rules to catch a mistake.
+Anything not in the list below is denied by omission, so an omitted rule is a
+hole you have to notice rather than one that fails loudly. Postgres (5432) and
+the realtime socket service (9090) are unpublished for exactly this reason and
+must never appear in this list.
 
 | Inbound | Why                          |
 | ------- | ---------------------------- |
@@ -89,9 +101,16 @@ another tenant's data.
 verification to complete - unlike the retired Clerk flow, which required a
 production instance before real users. Deploy directly.
 
-No domain yet for TLS either? Use `<vps-ip>.sslip.io` as `SITE_ADDRESS` -
-free instant DNS that resolves to your IP; Let's Encrypt issues for it. Swap
-to the real domain later by editing `.env` and restarting Caddy.
+No domain yet for TLS either? The tracked `Caddyfile` serves a literal
+`localhost` block with an internal (self-signed) certificate, so the stack is
+reachable on the box immediately. To serve a real hostname before DNS exists,
+add `<vps-ip>.sslip.io` (free instant DNS that resolves to your IP) as a site
+block — `echo '<vps-ip>.sslip.io { import site }' > sites.d/<vps-ip>.sslip.io.caddy`
+on the box, then `docker compose up -d --force-recreate caddy`; Let's Encrypt
+issues for it. Swap to the real domain later by editing `securevoiceai.me` and
+`www.securevoiceai.me` in the `Caddyfile` and restarting Caddy. Note
+`SITE_ADDRESS` does NOT choose what Caddy serves — it is the app's own
+canonical hostname (see below) and Caddy's site list is separate.
 
 ## 5. Configure
 
@@ -106,6 +125,8 @@ Edit `.env`:
 
 ```ini
 # — Required —
+# The app's canonical hostname (canonical links, Twilio media-stream URL). What
+# Caddy SERVES is the literal site list in Caddyfile + sites.d/*.caddy — not this.
 SITE_ADDRESS=voice.example.com
 ACME_EMAIL=ops@example.com
 POSTGRES_PASSWORD=<openssl rand -base64 24>
@@ -223,7 +244,7 @@ Copy `/srv/backups` off the box. Certs are cheap to re-issue; the database
 | Symptom                                      | Cause                                                                                                                     |
 | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
 | `app` healthy never happens; every page 500s | `BETTER_AUTH_SECRET` missing or <32 chars → set it in `.env` and restart the app                                          |
-| `caddy` unhealthy                            | leftover from an old config: the healthcheck probes `/healthz` on itself — confirm `SITE_ADDRESS` matches DNS             |
+| `caddy` unhealthy                            | leftover from an old config: the healthcheck probes `/healthz` on itself — confirm the hostname is in the `Caddyfile` site list (or `sites.d/`) and its DNS record is DNS-only (grey cloud)                                  |
 | 521 / TLS errors                             | DNS not propagated, AAAA record without IPv6, or port 80 blocked (ACME needs it)                                          |
 | Console shows SSE but never websocket        | `REALTIME_INGEST_SECRET` unset, or `REALTIME_URL` overridden to 127.0.0.1                                                 |
 | `db-setup` keeps failing                     | read `docker compose logs db-setup`; after 3 retries it stays down — fix the cause and `docker compose up db-setup` again |

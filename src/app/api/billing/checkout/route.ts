@@ -6,7 +6,8 @@ import { fail, ok } from "@/lib/route-helpers";
 import { unauthenticated } from "@/lib/failures/envelope";
 import { resolvePaymentProvider } from "@/lib/payments/gateway";
 import { assertMoney } from "@/lib/payments/provider";
-import { consume as consumeRateLimit, rateLimitId } from "@/lib/ratelimit";
+import { isSameOriginAsSite } from "@/lib/site-origin";
+import { consume as consumeRateLimit, rateLimitHeaders, rateLimitId } from "@/lib/ratelimit";
 import { logInfo, logWarn } from "@/lib/validation/safe-log";
 
 /**
@@ -44,7 +45,19 @@ const Body = z.object({
   amountMinor: z.number().int().positive().max(100_000_000),
   currency: z.string().regex(/^[A-Za-z]{3}$/),
   purpose: z.string().min(1).max(64).default("subscription"),
-  returnUrl: z.string().url().max(2048).optional(),
+  // Forwarded verbatim into Paddle's `settings.return_url`, which is where the
+  // customer's browser lands AFTER a completed payment. A bare `z.string().url()`
+  // accepted any absolute URL, so any caller could send a paying customer to a
+  // host of their choosing from a checkout this origin minted — an open redirect
+  // at the highest-trust moment in the flow. Pinned to this deployment's origin.
+  returnUrl: z
+    .string()
+    .url()
+    .max(2048)
+    .optional()
+    .refine((v) => v === undefined || isSameOriginAsSite(v), {
+      message: "returnUrl must be on this site's own origin",
+    }),
 });
 
 export async function POST(req: NextRequest) {
@@ -55,7 +68,7 @@ export async function POST(req: NextRequest) {
   if (!rl.ok) {
     return NextResponse.json(
       { error: "rate_limited" },
-      { status: 429, headers: { "Retry-After": String(Math.ceil(rl.retryAfterMs / 1000)) } },
+      { status: 429, headers: rateLimitHeaders(rl) },
     );
   }
 

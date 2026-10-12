@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { twilioMode, env, SUPPORTED_LANGS } from "@/lib/config";
+import { deployedVersion } from "@/lib/version";
 import { requireOperator } from "@/lib/credits";
 import { admissionSnapshot } from "@/lib/admission";
 
@@ -60,7 +61,14 @@ export async function GET() {
       service: "securevoice-api",
       // Env-derived, not hardcoded: a status endpoint that reports a fixed
       // version and region is worse than none, because it looks current.
-      version: process.env.npm_package_version ?? "0.2.1",
+      //
+      // `deployedVersion()` resolves the promoted release tag first and the
+      // build-time package.json version second. It deliberately does NOT read
+      // `npm_package_version`: that is set by NPM, this app runs under bun, so in
+      // production it was always undefined and this field fell through to the
+      // hardcoded literal below — the status page reported one frozen version
+      // across every release.
+      version: deployedVersion(),
       region: process.env.DEPLOY_REGION ?? "self-hosted",
       // Environment posture, so a deployment's blast radius is visible
       // from outside instead of being implicit in the branch name.

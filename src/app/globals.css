@@ -174,6 +174,76 @@
   background: #b7c0b6;
 }
 
+/* Dark-surface variant. The panels that sit on the near-black hero
+   (`bg-[#0c110e]`) would otherwise get a light-grey thumb on a black track —
+   visible, and wrong. Applied alongside `.sv-scroll`, never instead of it. */
+.sv-scroll--dark::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+}
+.sv-scroll--dark::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.32);
+}
+.sv-scroll--dark {
+  scrollbar-color: rgba(255, 255, 255, 0.22) transparent;
+}
+
+/* ——— The document's own scrollbar ———
+ *
+ * This is the bar on the right edge of the viewport, and until now it was the
+ * operating system's default: a wide, opaque grey track laid over a dark hero
+ * like the frame of a different window. It is the first thing in the product a
+ * visitor sees, on the page with the most traffic.
+ *
+ * Styled, deliberately NOT hidden. `::-webkit-scrollbar { display: none }` is
+ * the tempting fix and it is an accessibility regression: the bar is the only
+ * affordance that says "this page continues below", and removing it leaves
+ * keyboard and touch users scrolling a page that looks complete. So it stays
+ * present, stays functional, and stops shouting — thin, transparent track,
+ * thumb tinted per theme, with a padding-box border that makes the visible
+ * thumb slimmer than the gutter it lives in.
+ *
+ * `html.dark` is the class next-themes puts on the root element (see
+ * src/app/providers.tsx); the light values are the default so a deployment
+ * without the theme script still looks intentional.
+ */
+html {
+  scrollbar-width: thin;
+  scrollbar-color: #cdd4cb transparent;
+}
+html.dark {
+  scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+}
+html::-webkit-scrollbar,
+body::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+html::-webkit-scrollbar-track,
+body::-webkit-scrollbar-track {
+  background: transparent;
+}
+html::-webkit-scrollbar-thumb,
+body::-webkit-scrollbar-thumb {
+  background: #cdd4cb;
+  border: 3px solid transparent;
+  border-radius: 99px;
+  background-clip: padding-box;
+}
+html.dark::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border: 3px solid transparent;
+  border-radius: 99px;
+  background-clip: padding-box;
+}
+html::-webkit-scrollbar-thumb:hover {
+  background: #b4bdb2;
+  background-clip: padding-box;
+}
+html.dark::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.32);
+  background-clip: padding-box;
+}
+
 /* ——— Typography helpers ——— */
 .font-display {
   font-family: var(--font-display), var(--font-sans), sans-serif;

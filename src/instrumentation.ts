@@ -1,4 +1,4 @@
-import { logError, logWarn } from "@/lib/validation/safe-log";
+import { logError, logWarn, registerLogSink } from "@/lib/validation/safe-log";
 
 /**
  * Next.js instrumentation hook — runs once at server boot (Node runtime).
@@ -22,6 +22,31 @@ export async function register() {
     });
   }
 
+  // Axiom log shipping. Registered HERE, not imported by `safe-log` itself,
+  // because `safe-log` is bundled into the edge proxy and the browser bundle
+  // (`src/proxy.ts`, `src/lib/languages.ts`) where `server-only` and
+  // `@axiomhq/js` must never appear. With AXIOM_TOKEN unset the sink is a no-op
+  // and every log record still reaches stdout.
+  if (process.env.AXIOM_TOKEN) {
+    try {
+      const { axiomLogSink, axiomDataset, axiomDiagnostics } =
+        await import("@/lib/telemetry/axiom");
+      registerLogSink(axiomLogSink);
+      logWarn("[axiom] structured log shipping enabled", {
+        dataset: axiomDataset(),
+        diagnostics: axiomDiagnostics(),
+      });
+    } catch (err) {
+      logError("[axiom] init failed — continuing without remote log shipping", {
+        error: err instanceof Error ? err.message : err,
+      });
+    }
+  } else {
+    logWarn("[config] AXIOM_TOKEN unset", {
+      detail: "structured logs stay on stdout; nothing is shipped to Axiom.",
+    });
+  }
+
   // Sentry is surfaced the moment the DSN env var exists, and ONLY then —
   // importing the Sentry SDK unconditionally at boot adds its transport
   // overhead to every request path even when a deployment has not opted in.
@@ -37,6 +62,15 @@ export async function register() {
         // SMS body or a partial transcript, and Sentry's own request-body
         // capture would transmit it off-platform.
         beforeSend(event) {
+          // Scrub authorization headers from the request
+          if (event.request?.headers) {
+            const headers = event.request.headers as Record<string, unknown>;
+            for (const k of Object.keys(headers)) {
+              if (/authorization|auth|token|api.?key|secret|cookie/i.test(k)) {
+                delete headers[k];
+              }
+            }
+          }
           if (event.request?.data) delete event.request.data;
           if (event.extra) {
             for (const k of Object.keys(event.extra)) {
@@ -56,6 +90,27 @@ export async function register() {
         error: err instanceof Error ? err.message : err,
       });
     }
+  }
+
+  // OpenTelemetry → Better Stack.
+  //
+  // Three signals (traces, metrics, logs) ship to the OTLP/HTTP endpoint when
+  // OTEL_BETTERSTACK_TOKEN is set. Without it the SDK is a no-op and the app runs
+  // without remote telemetry — the same "degrade loudly, never silently" contract
+  // as every other optional subsystem here.
+  try {
+    const { initOtel } = await import("@/lib/telemetry/otel");
+    const sdk = initOtel();
+    if (sdk) {
+      logWarn("[otel] OpenTelemetry SDK initialised", {
+        endpoint: process.env.OTEL_BETTERSTACK_ENDPOINT ?? process.env.OTEL_BETTERSTACK_HOST,
+        service: process.env.OTEL_SERVICE_NAME ?? "securevoice-api",
+      });
+    }
+  } catch (err) {
+    logError("[otel] init failed — continuing without remote telemetry", {
+      error: err instanceof Error ? err.message : err,
+    });
   }
 
   // The "did we forget to flip it?" class of failure — loud at every boot,
@@ -89,7 +144,6 @@ export async function register() {
   try {
     const { abuseConfig } = await import("@/lib/abuse/config");
     const { isE164 } = await import("@/lib/twilio");
-    const { maskE164 } = await import("@/lib/abuse/geo");
 
     const geo = abuseConfig().geo;
     const upperAllowlist = geo.allowlist.map((c) => c.trim().toUpperCase()).filter(Boolean);

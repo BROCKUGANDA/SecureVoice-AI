@@ -18,7 +18,7 @@ import {
   FileJson2,
 } from "lucide-react";
 import { useApp, t } from "@/lib/store";
-import { API_BASE_URL } from "@/lib/public-config";
+import { API_BASE_URL, SUPPORT_EMAIL } from "@/lib/public-config";
 import { Reveal } from "@/components/fx/core";
 import { cn } from "@/lib/utils";
 
@@ -96,6 +96,40 @@ export function Docs() {
             {section === "languages" && <LanguagesSection />}
           </motion.div>
         </div>
+      </div>
+
+      {/*
+       * Contact band.
+       *
+       * Integrators read this page to wire their fraud engine to our API, so the
+       * question this page most reliably produces is "who do I ask?" — and the
+       * answer must be the SAME address the footer, the security page and every
+       * transactional email use (SUPPORT_EMAIL), not a second one that drifts.
+       */}
+      <div className="mt-12 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-2xl border border-line bg-white/60 px-5 py-4">
+        <span className="micro text-[9px] text-ink-3">
+          {t("INTEGRATION SUPPORT", "دعم التكامل", lang)}
+        </span>
+        <span className="text-[13px] text-ink-2">
+          {t(
+            "Questions on the contract, a key, or a live pilot:",
+            "أسئلة حول العقد أو المفتاح أو تجربة ميدانية:",
+            lang,
+          )}
+        </span>
+        <a
+          href={`mailto:${SUPPORT_EMAIL}?subject=SecureVoice%20integration%20question`}
+          className="text-[13px] font-semibold underline underline-offset-2"
+        >
+          {SUPPORT_EMAIL}
+        </a>
+        <span className="text-[12.5px] text-ink-3">{t("·", "·", lang)}</span>
+        <a
+          href={`${API_BASE_URL}/openapi`}
+          className="text-[12.5px] text-ink-2 underline underline-offset-2"
+        >
+          {t("OpenAPI contract", "عقد OpenAPI", lang)}
+        </a>
       </div>
     </div>
   );

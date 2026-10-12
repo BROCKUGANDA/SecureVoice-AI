@@ -1,4 +1,31 @@
 import type { NextConfig } from "next";
+import { withSentryConfig } from "@sentry/nextjs/config";
+import { readFileSync } from "node:fs";
+
+/**
+ * The version shown on the landing page.
+ *
+ * Read from package.json at BUILD time and inlined as NEXT_PUBLIC_APP_VERSION,
+ * so the displayed number is always the number of the artifact that was actually
+ * built. There is no hand-typed version string in the UI to forget: bump
+ * package.json (`bun run version:bump 0.4.0`, or the release workflow) and the
+ * next build re-injects it into every surface that renders it.
+ *
+ * Read rather than imported so the whole manifest is not pulled into the
+ * config's module graph, and guarded so a malformed manifest degrades to a
+ * visible placeholder instead of failing the build on a cosmetic string.
+ */
+function readPackageVersion(): string {
+  try {
+    const raw = readFileSync(new URL("./package.json", import.meta.url), "utf8");
+    const parsed = JSON.parse(raw) as { version?: unknown };
+    return typeof parsed.version === "string" && parsed.version.trim() !== ""
+      ? parsed.version.trim()
+      : "0.0.0-unknown";
+  } catch {
+    return "0.0.0-unknown";
+  }
+}
 
 /**
  * Content-Security-Policy notes:
@@ -90,6 +117,12 @@ const nextConfig: NextConfig = {
   poweredByHeader: false,
   reactStrictMode: true,
   compress: true,
+  // Inlined into the client bundle at build time. `env` (rather than only
+  // process.env) is what makes it readable in a client component — only
+  // NEXT_PUBLIC_* and this map survive the compiler's dead-code elimination.
+  env: {
+    NEXT_PUBLIC_APP_VERSION: readPackageVersion(),
+  },
   typescript: {
     // Fail the build on type errors — verified clean as of this hardening pass.
     ignoreBuildErrors: false,
@@ -131,4 +164,27 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+// Sentry's build wrapper IS exported by `@sentry/nextjs@11.4.0` — from the
+// `./config` subpath, not the root entry. A note left here previously claimed the
+// wrapper did not exist, which is how browser-side error capture stayed switched
+// off while the code that configures it sat in the repo looking complete.
+//
+// Applied only when upload credentials exist. `SENTRY_DSN` governs RUNTIME
+// reporting (see src/instrumentation-client.ts); `SENTRY_AUTH_TOKEN` governs
+// BUILD-TIME source-map upload, and running the wrapper without it makes the
+// build do work it cannot finish for a reason that has nothing to do with the
+// application. `telemetry: false` because a build must not phone home.
+export function withObservability(
+  config: NextConfig,
+  env: Record<string, string | undefined> = process.env,
+): NextConfig {
+  if (!env.SENTRY_AUTH_TOKEN || !env.SENTRY_DSN) return config;
+  return withSentryConfig(config, {
+    org: env.SENTRY_ORG,
+    project: env.SENTRY_PROJECT,
+    telemetry: false,
+    silent: true,
+  });
+}
+
+export default withObservability(nextConfig);

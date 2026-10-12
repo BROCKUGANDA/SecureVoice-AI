@@ -33,10 +33,17 @@ import { getInstitutionContext, getTelecomIdentity } from "@/lib/institution";
 import { recordTelecomEvent } from "@/lib/telecom-outbox";
 import { asCallCategory } from "@/lib/call-categories";
 import { isAfterHours, nextBusinessHoursStart } from "@/lib/abuse/velocity";
+import {
+  PRAYER_GATE_REGION,
+  isWithinPrayerWindow,
+  prayerDeferralMs,
+} from "@/lib/compliance/prayer-times";
 import { sweepExpiredSmsCases } from "@/lib/sms-verdict";
+import { resolveCasePhone } from "@/lib/compliance/pii-vault";
 import { logError, logInfo, logWarn } from "@/lib/validation/safe-log";
 import { flag } from "@/lib/flags";
 import { resolveDeliveryLang } from "@/lib/languages";
+import { installProcessCrashHandlers } from "@/lib/process-crash-handlers";
 
 const WORKER_ID =
   process.env.DIAL_WORKER_ID ?? `${hostname()}-${process.pid}-${randomUUID().slice(0, 8)}`;
@@ -73,6 +80,46 @@ function parsePayload(job: DialJob): JobPayload {
   }
 }
 
+/** Loopback and `.local` hosts — the same list `src/lib/auth/origins.ts` refuses
+ *  in production, duplicated rather than imported because that module is marked
+ *  `server-only` and importing it from this standalone Bun process throws.
+ *
+ *  `.local` is a suffix test: `printer.local` resolves only via mDNS on the local
+ *  segment, which is exactly the class of name a carrier cannot resolve. */
+const UNREACHABLE_HOST =
+  /^(localhost|127\.\d{1,3}\.\d{1,3}\.\d{1,3}|0\.0\.0\.0|\[?::1\]?|.*\.local)$/i;
+
+/**
+ * The public hostname the carrier dials BACK for the media stream.
+ *
+ * This value is not an internal address. `placeInterventionCall` hands it to
+ * Twilio, whose fleet resolves it from the public internet — so a loopback or
+ * empty host produces a call the customer answers and hears nothing on, while
+ * every log here records a successful dial. That is the worst outcome this
+ * system can produce: a fraud intervention that reports success and reaches no
+ * one.
+ *
+ * The predecessor of this function fell back to `"localhost"`. In production
+ * that value is guaranteed wrong, `docker-compose.yml` did not pass
+ * `SITE_ADDRESS` to this service at all, and the unit test could not tell: it
+ * asserted only that the URL contained `wss://` and the path. So the fallback
+ * is replaced by a refusal, and the caller (`handle`) turns it into a named,
+ * audited `dial_failed` — the same shape as every other pre-dial refusal.
+ *
+ * `SITE_ADDRESS` (not `NEXT_PUBLIC_SITE_URL`) is the input because it is the
+ * hostname Caddy's TLS certificate is issued for, and the one the tracked
+ * Caddyfile's per-site blocks are built around.
+ */
+export function mediaStreamHost(env: NodeJS.ProcessEnv = process.env): string {
+  const host = (env.SITE_ADDRESS ?? "").trim();
+  if (host === "" || UNREACHABLE_HOST.test(host)) {
+    throw new Error(
+      `SITE_ADDRESS is ${host === "" ? "not set" : JSON.stringify(host)}, but the Twilio media-stream plane needs the public hostname the carrier can reach (wss://<SITE_ADDRESS>/realtime/media-stream). Refusing to dial rather than place a call the customer cannot hear. Set SITE_ADDRESS to the hostname Caddy serves, e.g. securevoiceai.me.`,
+    );
+  }
+  return host;
+}
+
 /**
  * Place one call.
  *
@@ -89,9 +136,11 @@ async function handle(job: DialJob): Promise<DialOutcome> {
     where: { caseRef: job.case_ref },
     select: {
       id: true,
+      orgId: true,
       conversationId: true,
       state: true,
       phone: true,
+      customerPhoneToken: true,
       signalKind: true,
       callCategory: true,
     },
@@ -108,9 +157,12 @@ async function handle(job: DialJob): Promise<DialOutcome> {
   // fatal for a dial instruction. Trusting it sends "[REDACTED]" to the
   // telephony provider, which dry-run mode cannot detect because
   // `placeOutboundCall` returns a synthetic conversation id without ever
-  // looking at the number. The plaintext destination already lives on the case
-  // row, which is the one place it is legitimately stored.
-  const to = existing?.phone ?? payload.phone;
+  // looking at the number. The plaintext destination is sealed in the PII vault
+  // (org-scoped) and the case row carries only its token; rows created before
+  // tokenization still carry the legacy raw column and resolve from it until
+  // they age out.
+  const to =
+    (await resolveCasePhone(existing, existing?.orgId ?? job.org_id)) ?? payload.phone;
   if (!to) {
     return { ok: false, error: "case row has no destination phone", retryable: false };
   }
@@ -171,6 +223,49 @@ async function handle(job: DialJob): Promise<DialOutcome> {
       };
     }
 
+    // Prayer window, re-checked at the dial moment for the SAME reason calling
+    // hours are re-checked here and not only at ingest: a routine job accepted at
+    // 13:20 Gulf time can lawfully claim at 13:25, and the Jumu'ah window opens
+    // across Friday Dhuhr for an hour. Until now the ingest gate had refused the
+    // 13:20 signal, the queue had parked it, and nothing at the authoritative
+    // moment looked at prayer at all — so the one job class the policy exists to
+    // protect was the one that slipped through.
+    //
+    // Parked, not refused, and no attempt consumed: a deferred reminder is not a
+    // failed call. Time-critical fraud verification stays exempt, which is the
+    // same exemption `src/lib/compliance/gate.ts` applies at ingest — a prayer
+    // window must never stand between a cardholder and a freeze.
+    if (category !== "time_critical_fraud") {
+      // The SAME region the ingest gate consults, shared as one constant rather
+      // than repeated as a literal in two files: an assumption in two places is
+      // two assumptions, and they diverge silently.
+      if (await isWithinPrayerWindow(PRAYER_GATE_REGION)) {
+        const waitMs = await prayerDeferralMs(PRAYER_GATE_REGION);
+        // A floor of 60 s, because a zero-millisecond defer is a busy loop that
+        // re-claims the same job on every drain, and `prayerDeferralMs` answers
+        // null when a third-party lookup raced the window shut.
+        const retryAfterMs = Math.max(60_000, waitMs ?? 5 * 60_000);
+        void auditAppend({
+          callRef: job.case_ref,
+          action: "handoff",
+          intent: "dial_deferred_prayer_window",
+          callerId: WORKER_ID,
+          meta: {
+            jobId: job.id,
+            category,
+            wakeAt: new Date(Date.now() + retryAfterMs).toISOString(),
+          },
+          orgId: job.org_id ?? undefined,
+        }).catch(() => {});
+        return {
+          ok: false,
+          error: "inside the prayer window; deferred",
+          retryable: true,
+          retryAfterMs,
+        };
+      }
+    }
+
     // A bank says "your card", an insurer says "your policy". Resolved per tenant,
     // and a lookup fault falls back to the default rather than blocking the call.
     const institution = await getInstitutionContext(job.org_id);
@@ -204,7 +299,7 @@ async function handle(job: DialJob): Promise<DialOutcome> {
       outboxWritten: boolean;
     };
     if (flag("twilioMediaStreams")) {
-      const host = process.env.SITE_ADDRESS ?? "localhost";
+      const host = mediaStreamHost();
       // Worker plane lives on a SIBLING prefix under /realtime, not under /api:
       // an edge matcher on /api/voice-websocket would shadow the app's own
       // Next.js route of that name out of its per-route rate limiting. Caddy
@@ -457,6 +552,16 @@ async function main(): Promise<void> {
     pollMs: POLL_MS,
   });
 
+  // Fail the boot, not every call, when the media-stream plane is on and its
+  // host is unreachable: the flag is the operator's statement that this
+  // deployment has a publicly reachable WebSocket endpoint, and without one
+  // every dial this process places is a call the customer answers in silence.
+  // A crash-looping container with this message in `docker compose logs` is a
+  // diagnosable five-second fix; the alternative is a month of mute calls.
+  if (flag("twilioMediaStreams")) {
+    mediaStreamHost();
+  }
+
   if (ONCE) {
     const n = await tick();
     logInfo("[dial-worker] claimed jobs and exiting", { count: n, mode: "--once" });
@@ -487,6 +592,7 @@ async function main(): Promise<void> {
 }
 
 if (import.meta.main) {
+  installProcessCrashHandlers();
   main().catch((err) => {
     logError("[dial-worker] fatal", { error: err instanceof Error ? err.message : err });
     process.exit(1);

@@ -1056,10 +1056,15 @@ describe("error catalog covers every code the code actually returns", () => {
 
   test("a gate cause never claims to be a body code, and never claims a 503", () => {
     // The route used to flatten every gate refusal into a 503. It no longer does:
-    // a typed refusal is a 409 `policy_precondition` with the cause in `message`.
-    // Both facts are asserted so neither can quietly regress.
+    // a typed refusal is a 4xx with the cause in `message`. Both facts are asserted
+    // so neither can quietly regress.
     expect(INTERVENTIONS_ROUTE).toContain('failure("policy_precondition"');
-    expect(INTERVENTIONS_ROUTE).toContain('status >= 400 && status < 500 ? "policy_precondition"');
+    expect(INTERVENTIONS_ROUTE).toContain("if (status >= 400 && status < 500) {");
+    // The wallet refusal is its own class, emitted as its own code. Pinned here as
+    // well as in the envelope's constructor tests, because this route is the only
+    // place the classification is actually applied to a live response.
+    expect(INTERVENTIONS_ROUTE).toContain('failure("payment_required"');
+    expect(INTERVENTIONS_ROUTE).toContain("BILLING_REFUSAL_CODES");
     expect(INTERVENTIONS_ROUTE).not.toContain('upstreamError("Case recording failed');
     const causes = ERROR_CODES.filter((e) => e.surface === "http_message");
     expect(causes.length).toBeGreaterThan(25);

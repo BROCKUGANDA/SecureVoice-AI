@@ -120,6 +120,7 @@ describe("indexing: authenticated and API routes are never indexable", () => {
     expect(INDEXABLE_PATHS).toEqual([
       "/",
       "/sitemap.xml",
+      "/llms.txt",
       "/pricing",
       "/terms",
       "/privacy",
@@ -131,6 +132,21 @@ describe("indexing: authenticated and API routes are never indexable", () => {
     for (const path of INDEXABLE_PATHS) expect(robotsTagFor(path)).toBeNull();
     expect(robotsTagFor("/anything/new")).toBe("noindex, nofollow");
     expect(robotsTagFor("/api/")).toBe("noindex, nofollow");
+  });
+
+  test("/llms.txt is exempt from the middleware robots tag, and declares its own", async () => {
+    // The whole point of the file is that an engine follows it to the pages it
+    // lists. The middleware's default for anything unlisted is
+    // `noindex, nofollow`, which would cancel that — so the path is allowlisted
+    // here (no header from the proxy) and the ROUTE states `noindex, follow`.
+    // Asserted against the real route, because either half can regress alone.
+    expect(robotsTagFor("/llms.txt")).toBeNull();
+    const res = await (await import("@/app/llms.txt/route")).GET();
+    expect(res.headers.get("X-Robots-Tag")).toBe("noindex, follow");
+
+    const res2 = NextResponse.json({ ok: true });
+    applySurfaceHeaders(res2, "/llms.txt");
+    expect(res2.headers.get("X-Robots-Tag")).toBeNull();
   });
 
   /**
@@ -584,8 +600,93 @@ describe("declared security headers", () => {
       "a new dangerouslySetInnerHTML appeared — review it before merging",
     ).toEqual([
       expect.stringContaining("src/components/seo/JsonLd.tsx"),
+      // Reviewed 2026-10-12 and admitted WITH the proof below, not on the
+      // component's comment. A tenant's own brand colour reaches the console as a
+      // `<style>` element, which is a third injection site by letter if not by
+      // substance — so the set is widened only alongside an assertion that the
+      // string being injected can only ever be hex colour declarations.
+      expect.stringContaining("src/components/shell/TenantBrand.tsx"),
       expect.stringContaining("src/components/ui/chart.tsx"),
     ]);
+  });
+
+  /**
+   * The review that licenses the entry above.
+   *
+   * `TenantBrand` injects `brandStyleSheet(evaluateBrandPrimary(...))`, and the
+   * security question is never "is this a `<style>`" but "what can a tenant put in
+   * it". So: throw every shape at the producer — including the literal break-out
+   * strings — and require that whatever comes back is either nothing at all (the
+   * validator refused, so no element is rendered) or a stylesheet whose ONLY tokens
+   * are property names and six-digit hex. A `}`, a `<`, a quote or a colon-slash
+   * anywhere in the output means a tenant could close the rule and write the next
+   * declaration, which is CSS injection; `</style>` means markup injection.
+   *
+   * It is asserted as a property over hostile inputs rather than as one example,
+   * because one example is a snapshot and a snapshot cannot fail for the input
+   * nobody thought of.
+   */
+  test("a tenant's brand colour cannot break out of the stylesheet it is injected into", async () => {
+    const { brandStyleSheet, evaluateBrandPrimary } = await import("@/lib/brand/color");
+    // The sheet is two blocks — a light block and an optional dark one — and the
+    // ONLY things inside them may be a known custom property and a six-digit hex.
+    // No `}`, no `<`, no quote, no `url(`, no whitespace worth caring about: a
+    // single stray brace is the tenant writing the next rule.
+    const BLOCK = String.raw`\{(?:--[a-z][a-z0-9-]*:#[0-9a-f]{6};)+\}`;
+    const HEX_ONLY = new RegExp(String.raw`^:root${BLOCK}(\.dark${BLOCK})?$`);
+
+    const hostile = [
+      "</style><script>alert(1)</script>",
+      "}body{display:none}",
+      "#00ff00;}\n a{background:url(//evil.test)",
+      "red",
+      "#12345",
+      "#1234567",
+      "#gggggg",
+      "",
+      " ",
+      "😀",
+      "a".repeat(400),
+      "#FFF",
+    ];
+
+    /** Inputs that must be refused outright, so no element is rendered at all. */
+    const refused = [
+      "</style><script>alert(1)</script>",
+      "}body{display:none}",
+      "#00ff00;}\n a{background:url(//evil.test)",
+      "red",
+      "#gggggg",
+      "a".repeat(400),
+      "",
+    ];
+
+    let accepted = 0;
+    for (const input of hostile) {
+      const css = brandStyleSheet(evaluateBrandPrimary(input) as never);
+      if (css === null) {
+        continue; // refused outright: nothing is rendered at all
+      }
+      accepted += 1;
+      expect(css, `hostile input produced embeddable CSS: ${JSON.stringify(input)}`).toMatch(
+        HEX_ONLY,
+      );
+    }
+
+    for (const input of refused) {
+      expect(
+        brandStyleSheet(evaluateBrandPrimary(input) as never),
+        `${JSON.stringify(input)} should not have produced a stylesheet`,
+      ).toBeNull();
+    }
+
+    // Without these two, a validator that rejected EVERYTHING would make the
+    // property above pass vacuously — a green test that proves nothing, which is
+    // the failure mode this repository keeps having to design against.
+    const real = brandStyleSheet(evaluateBrandPrimary("#0f7a5a") as never);
+    expect(real).not.toBeNull();
+    expect(real).toMatch(HEX_ONLY);
+    expect(accepted).toBeGreaterThan(0);
   });
 
   test("the JSON-LD block cannot be closed early by its own payload", () => {
@@ -867,9 +968,44 @@ describe("known gaps, asserted so they cannot be forgotten", () => {
     expect(allCrawlers?.disallow).toContain("/api/");
   });
 
-  test("security.txt is a placeholder, not a working contact", () => {
-    // RFC 9116 is only worth publishing if someone answers. The placeholder
-    // mailbox is recorded here so it cannot quietly ship as a real contact.
-    expect(read("public/security.txt")).toContain("security@example.com");
+  test("security.txt routes disclosures to a monitored mailbox", () => {
+    // RFC 9116 is only worth publishing if someone answers. It used to carry a
+    // placeholder (security@example.com) and this test pinned the placeholder so
+    // it could not ship as a real contact. The contact is now real — a mailbox
+    // that exists on the sending domain — so the assertion inverts: the
+    // placeholder must be GONE, and the contact must be a securevoiceai.me
+    // address that the UI also publishes.
+    const txt = read("public/security.txt");
+    expect(txt).not.toContain("example.com");
+    expect(txt).toContain("Contact: mailto:support@securevoiceai.me");
+  });
+
+  test("one disclosure channel, and no key material that does not exist", () => {
+    // The Security page published `PGP · key ID 0x5ECURE` and offered "PGP key on
+    // request" in the same card, while public/security.txt deliberately declares NO
+    // Encryption field because "pointing at a key ID would send a reporter to verify
+    // against nothing". Both halves cannot be true, and the false one is the half a
+    // researcher acts on — they encrypt to a key that was never generated and the
+    // report never arrives. (The key ID was not even hex: `…CURE`.)
+    const page = read("src/views/Security.tsx");
+    // The honest sentence "no PGP key is published" is allowed; a key that is
+    // offered, named, or given a fingerprint is not.
+    expect(page).not.toMatch(/key on request/i);
+    expect(page).not.toMatch(/key\s*ID/i);
+    expect(page).not.toMatch(/0x[0-9A-Fa-f]{4,}/);
+
+    // One address across every surface that answers to it. Derived from the RFC 9116
+    // file rather than repeated here, so the test fails on drift between the
+    // surfaces instead of failing together with them.
+    const contact = read("public/security.txt").match(/^Contact: mailto:(\S+)$/m)?.[1];
+    expect(contact).toBeDefined();
+    // The questionnaire is the document a bank's security reviewer answers from, and
+    // it carried a personal gmail address while the product published the monitored
+    // mailbox. A disclosure sent to one and followed up in the other is a report
+    // nobody owns.
+    expect(read("docs/SECURITY-QUESTIONNAIRE.md")).toContain(contact!);
+    // And the constant the UI actually renders is the same value, not a fourth one.
+    expect(read("src/lib/public-config.ts")).toContain(contact!);
+    expect(page).toContain("SUPPORT_EMAIL");
   });
 });

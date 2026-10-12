@@ -4,6 +4,7 @@ import { consume as consumeRateLimit, rateLimitId } from "@/lib/ratelimit";
 import { checkBadActor, recordStrike } from "@/lib/abuse/bad-actor";
 import { verifyTwilioSignature, twilioSignedUrl } from "@/lib/twilio";
 import { handleSmsReply } from "@/lib/sms-verdict";
+import { validateTwilioWebhook } from "@/lib/validation/webhook-schema";
 import { logError, logInfo } from "@/lib/validation/safe-log";
 
 export const dynamic = "force-dynamic";
@@ -64,6 +65,11 @@ function refused(status: number): NextResponse {
   return new NextResponse(EMPTY, { status, headers: { "Content-Type": "text/xml" } });
 }
 
+/** The message identifier for logging, whichever of Twilio's three sid fields carried it. */
+function smsSidFor(params: Record<string, string>): string {
+  return params.SmsSid || params.MessageSid || params.CallSid || "";
+}
+
 export async function POST(req: NextRequest) {
   const ip = rateLimitId(req, "twilio-sms-webhook");
   if (checkBadActor(`ip:${ip}`).action === "block") return refused(403);
@@ -85,6 +91,26 @@ export async function POST(req: NextRequest) {
   ) {
     recordStrike(`ip:${ip}`, 3);
     return refused(403);
+  }
+
+  // Shape validation, AFTER the signature is proven and BEFORE the reply is
+  // handled. The signature proves the bytes came from Twilio; it says nothing
+  // about them being a message this handler can act on — a `NumMedia` that is
+  // not a digit, or a `Body` past the bound, is malformed data with a valid
+  // signature.
+  //
+  // A refusal here is answered like the rate-limit path, NOT with a 4xx: the
+  // request already authenticated, and a 4xx on a signed webhook makes Twilio
+  // retry a body that will never parse, alerting on a message we can only ever
+  // reject. Empty TwiML closes the delivery; the reply resolves nothing, which
+  // is what a malformed reply already meant, and the log says why.
+  const shape = validateTwilioWebhook(params);
+  if (!shape.ok) {
+    logInfo("[twilio-sms-webhook] params failed shape validation", {
+      smsSid: smsSidFor(params),
+      issues: shape.issues.map((i) => i.path),
+    });
+    return twiml(null);
   }
 
   const rl = consumeRateLimit("twilio-sms-webhook", ip, 1, 5);

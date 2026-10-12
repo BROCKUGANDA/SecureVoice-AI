@@ -147,3 +147,31 @@ export async function paddleCustomerIdFor(orgId: string): Promise<string | null>
   });
   return row?.customerId ?? null;
 }
+
+/**
+ * OUR org for a Paddle customer id, or null.
+ *
+ * The direction matters. This reads the org out of a row WE wrote — stamped from
+ * an authenticated session when the checkout was minted — rather than accepting an
+ * org the payload names. `vendor id → our tenancy` is a lookup; `claimed tenancy →
+ * our rows` is the bug.
+ *
+ * It exists because a pause made in the Paddle portal does not necessarily carry
+ * our `custom_data.reference`: the customer created the subscription, Paddle's own
+ * UI wrote the change. Attribution from the reference alone therefore ignores the
+ * exact event the dial gate is waiting for, with a 200 and a log line saying so —
+ * the tenant believes it stopped being billed for calls, and the calls keep being
+ * placed.
+ *
+ * Reached only after a valid Paddle signature, so the id cannot be forged by
+ * someone who merely wants another tenant's state rewritten: they would need the
+ * notification signing secret first.
+ */
+export async function orgIdForPaddleCustomer(customerId: string): Promise<string | null> {
+  if (customerId === "") return null;
+  const row = await db.paddleCustomer.findUnique({
+    where: { customerId },
+    select: { orgId: true },
+  });
+  return row?.orgId ?? null;
+}

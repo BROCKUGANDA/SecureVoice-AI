@@ -16,12 +16,15 @@
 # Caddy 2 gotchas this file is deliberately written around. Every one of these
 # was hit and fixed during this build — do not "simplify" them away:
 #
-#   1. There is NO way to say "omit this site block when the env var is unset".
-#      A `{$VAR::81}` default makes the block exist in EVERY config, so a
-#      production config would bind plaintext :81 alongside :443. Plaintext
-#      development therefore lives in a SEPARATE file (Caddyfile.dev), which is
-#      deliberately NOT a compose service. One variable driving two site blocks is
-#      also an error ("ambiguous site definition").
+#   1. Site addresses are LITERAL — never an env var. A `{$VAR:default}` site
+#      address collides fatally with a literal block for the same host
+#      ("ambiguous site definition: securevoiceai.me", measured with `caddy
+#      validate` against caddy:2-alpine, 2026-10-12), and before that it forced
+#      the production box into a hand-diverged copy of this whole file. The
+#      list at the bottom is literal; host-local extra sites arrive through the
+#      untracked `import sites.d/*.caddy` below it, which cannot collide.
+#      Plaintext development still lives in a SEPARATE file (Caddyfile.dev),
+#      deliberately NOT a compose service.
 #   2. Snippets `(name) { … }` must be DEFINED BEFORE any block that `import`s
 #      them, or Caddy fails with "File to import not found".
 #   3. There is NO `log { redact { … } }` in Caddy 2. Redaction is
@@ -174,6 +177,12 @@
 		reverse_proxy {$APP_UPSTREAM:app:3000} {
 			import forwarded_headers
 			flush_interval -1
+			# Canary + health checks: see the note on the main handler below.
+			lb_policy round_robin
+			health_uri /api/readyz
+			health_interval 10s
+			health_timeout 5s
+			health_status 2xx
 		}
 	}
 
@@ -182,11 +191,47 @@
 		# colour currently serving traffic (app-blue:3000 or app-green:3000), and
 		# `scripts/deploy.mjs` is its only writer. The `app:3000` default keeps a
 		# plain `docker compose up` working unchanged on a single-colour stack.
+		#
+		# ── Canary, and why there is no weighted load-balancing directive ───────
+		# The variable may hold MORE THAN ONE upstream, and `lb_policy round_robin`
+		# is what shares traffic between them. A canary is therefore expressed as
+		# PROPORTIONAL REPETITION — 5% of traffic is the old colour listed 19 times
+		# and the new colour once — which `scripts/deploy.mjs canary` generates.
+		#
+		# This is not the obvious implementation, so the reason is recorded:
+		# Caddy 2.11.4 has NO `weighted_round_robin` lb_policy. Verified by
+		# `caddy validate` against caddy:2-alpine — the policies it accepts are
+		# random, round_robin, least_conn, first, ip_hash, uri_hash and cookie.
+		# A `weight` subdirective is also rejected. Repetition is the mechanism
+		# that actually exists, and with round_robin the split is exact over any
+		# window rather than probabilistic.
+		#
+		# Stated plainly: round_robin is per-REQUEST, not per-session, so a canary
+		# is a traffic split and not a user cohort. That is what a canary needs —
+		# the goal is to expose a new build to a slice of real traffic and watch
+		# Sentry — but it is not sticky, and it must not be used as A/B routing.
 		reverse_proxy {$APP_UPSTREAM:app:3000} {
 			import forwarded_headers
 			# Next.js handles its own compression; double-compressing a streamed
 			# response only adds latency.
 			flush_interval -1
+			lb_policy round_robin
+
+			# Active health checks — the mechanism that makes a graceful shutdown
+			# actually graceful. On SIGTERM the instance starts answering 503 from
+			# /api/readyz (scripts/server-preload.ts), Caddy observes that here and
+			# stops sending it NEW requests, and the in-flight ones finish against a
+			# process that is still alive. Without this the instance is killed while
+			# still in rotation, which is the dropped-call case.
+			#
+			# The URI is /api/readyz, not /api/health, and that is deliberate:
+			# readiness asserts the database, so an instance that cannot serve is
+			# removed rather than sent traffic it will fail. /api/health stays a pure
+			# process probe for external monitors.
+			health_uri /api/readyz
+			health_interval 10s
+			health_timeout 5s
+			health_status 2xx
 		}
 	}
 
@@ -232,9 +277,36 @@
 # `{$CF_DNS_API_TOKEN}` needs Zone:DNS:Edit for this zone. Without it, proxied +
 # HTTP-01 is a silent outage for the proxied hostname only.
 
-# The sslip.io name stays: deploy.yml's health check targets it, and it is the one
-# address that is guaranteed to resolve to the box without touching DNS.
-{$SITE_ADDRESS:localhost} {
+# Localhost — a laptop checkout and CI's compose smoke, which polls
+# `https://localhost:$CI_CADDY_HTTPS_PORT` (ci.yml). Caddy issues an INTERNAL
+# certificate for `localhost` (loopback names never touch ACME), so this block
+# is free on every host.
+#
+# This block used to be `{$SITE_ADDRESS:localhost}`, and that one choice caused
+# three separate failures, each measured:
+#
+#   1. On the production box SITE_ADDRESS names securevoiceai.me — which the
+#      literal block below ALSO serves — and both at once is a fatal
+#      `ambiguous site definition: securevoiceai.me` at startup.
+#   2. Because both blocks could not coexist, the box carried a hand-diverged
+#      copy of this file, skip-worktree'd so pulls would not trample it —
+#      which made every promoted change to this file REFUSE to pull ("local
+#      changes to Caddyfile would be overwritten by merge"). A Caddyfile fix
+#      could not deploy without an SSH session first.
+#   3. SITE_ADDRESS has an app-level job too: the canonical origin
+#      (src/lib/site-origin.ts) and the Twilio media-stream URL
+#      (src/worker/dial.ts) are built from it. One variable driving both the
+#      edge and the app cannot be set for one without lying to the other.
+#
+# A literal `localhost` splits the two: Caddy serves exactly the list below,
+# and SITE_ADDRESS is purely an app-level value again.
+#
+# This block also used to serve 57.130.80.158.sslip.io. That stand-in was
+# retired 2026-10-12 — its Cloudflare record deleted, its record and tunnel
+# gone, and deploy.yml / ci.yml / canary.yml now probe https://securevoiceai.me.
+# Do not re-add it; a dynamic-DNS name is for issuing a certificate before the
+# domain exists (docs/DEPLOY.md), not for serving one.
+localhost {
 	import site
 }
 
@@ -270,15 +342,35 @@
 #
 # What is traded away, stated plainly: with the record grey-clouded, Cloudflare's
 # DDoS protection and WAF are not in front of this hostname. The origin IP is
-# already directly reachable (`57.130.80.158.sslip.io` resolves straight to the
-# box and serves the same app), so this is not a new exposure — but if the
-# record is switched back to orange, this block MUST acquire a static origin
-# certificate or it returns to the 526 above.
+# directly reachable from anywhere on the internet — that is what a grey-clouded
+# record means, and it never depended on the retired sslip.io name — so this is
+# not a new exposure — but if the record is switched back to orange, this block
+# MUST acquire a static origin certificate or it returns to the 526 above.
 #
-# Note the box's own Caddyfile (skip-worktree'd) also carries per-site blocks for
-# crucible.svalley.tech and securevoice.svalley.tech that exist only on that
-# host. The two files are intentionally different for that reason; the box's
-# version is this one plus those blocks, and a merge must never replace it.
+# HOST-LOCAL SITES. This file is byte-identical on every machine — the shared
+# production box also fronts crucible.svalley.tech (another project), and that
+# site block does NOT live here: it is an untracked `sites.d/crucible.caddy` on
+# that box, pulled in by the `import sites.d/*.caddy` at the bottom. Adding a
+# host is one untracked file, and commits to THIS file deploy themselves. That
+# replaced the old arrangement — per-site blocks inline here in a skip-worktree'd
+# box copy, which made every promoted change to this file refuse to pull until
+# an operator SSH'd in and merged by hand. docs/VPS-RECOVERY.md carries the
+# history (failure mode #2).
 securevoiceai.me, www.securevoiceai.me {
 	import site
 }
+
+# ---- host-local sites ---------------------------------------------------------------
+#
+# A wildcard import matching ZERO files is valid (measured, caddy:2-alpine) — no
+# placeholder is needed, so a fresh checkout expands this to nothing. Files here
+# are machine-local and untracked (.gitignore keeps only sites.d/README.md): the
+# shared box's extra hostnames, one `<host>.caddy` each, a complete
+# `host { import site }` block. The `(site)` snippet above is defined in this
+# parent file and IS importable from here — snippets are global once defined
+# (measured). Relative imports resolve against THIS file's directory, so in the
+# container this is `/etc/caddy/sites.d/*.caddy` (mounted by docker-compose.yml).
+#
+# Editing one needs a process restart — `admin off` means there is no reload
+# endpoint: `docker compose up -d --force-recreate caddy`.
+import sites.d/*.caddy

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Building2,
   KeyRound,
@@ -21,6 +21,7 @@ import { t, useApp } from "@/lib/store";
 import { PLANS, formatMonthly } from "@/lib/commercial";
 import { PolicyForPlan } from "@/components/legal/PolicyForPlan";
 import { SUPPORT_EMAIL } from "@/lib/public-config";
+import { brandPreview, evaluateBrandPrimary } from "@/lib/brand/color";
 import { Chip } from "@/components/fx/core";
 import { LoadingIndicator } from "@/components/fx/LoadingIndicator";
 import { CrmSection } from "@/views/settings/CrmSection";
@@ -43,10 +44,29 @@ import { cn } from "@/lib/utils";
 type Settings = {
   orgName: string | null;
   orgLogoUrl: string | null;
+  /** Normalised `#rrggbb`, already contrast-validated server-side. Null = default. */
+  brandPrimary?: string | null;
   elevenKeyMasked: string | null;
+  /**
+   * Which paid features this tenant's plan unlocks, resolved server-side by
+   * `src/lib/billing/entitlements.ts` from the SAME context the POST refuses with.
+   * Optional because a response from before this field existed is a legitimate
+   * shape an older deployment still serves; the UI then says nothing rather than
+   * guessing "included".
+   */
+  entitlements?: { byok: boolean; signedWebhooks: boolean } | null;
   credits: number;
   /** Bank or insurer - how the institution is spoken about to its customers. */
   institutionType?: "bank" | "insurer";
+  /**
+   * Resolved server-side by `src/lib/billing/plan-context.ts`: mirrored
+   * subscription, then `Organization.planTier`, then the deployment default, then
+   * `demo`. Never accepted from the client — a tenant that can name its own tier
+   * can name itself a refund policy it did not buy.
+   */
+  planTier?: "demo" | "standard" | "enterprise";
+  /** Catalog plan id (`starter|growth|enterprise`), or null when nothing named one. */
+  planName?: string | null;
 };
 
 const inputCls = "h-10 rounded-xl border-line bg-paper";
@@ -84,6 +104,7 @@ export function Settings() {
   const [orgName, setOrgName] = useState("");
   const [orgLogoUrl, setOrgLogoUrl] = useState("");
   const [institutionType, setInstitutionType] = useState<"bank" | "insurer">("bank");
+  const [brandPrimary, setBrandPrimary] = useState("");
   const [elevenKey, setElevenKey] = useState("");
   const [inviteEmail, setInviteEmail] = useState("");
   const [producerKeys, setProducerKeys] = useState<
@@ -91,6 +112,18 @@ export function Settings() {
   >([]);
   const [newKey, setNewKey] = useState<{ key: string; label: string } | null>(null);
   const [keyLabel, setKeyLabel] = useState("");
+
+  // The gate, run on every keystroke so the operator sees a refusal and its
+  // reason before they press Save rather than after. Empty means "no colour set",
+  // which is a valid state and shows no preview — so the check is on the
+  // TRIMMED value, not on truthiness.
+  const brandVerdict = useMemo(
+    () => (brandPrimary.trim() ? evaluateBrandPrimary(brandPrimary) : null),
+    [brandPrimary],
+  );
+  // What the colour picker shows when there is no tenant colour: the platform
+  // default, matching globals.css `:root`.
+  const brandSwatch = useMemo(() => brandPreview(brandPrimary), [brandPrimary]);
 
   useEffect(() => {
     fetch("/api/console/settings")
@@ -101,6 +134,7 @@ export function Settings() {
           setOrgName(d.orgName ?? "");
           setOrgLogoUrl(d.orgLogoUrl ?? "");
           setInstitutionType(d.institutionType === "insurer" ? "insurer" : "bank");
+          setBrandPrimary(d.brandPrimary ?? "");
         }
       })
       .catch(() => {});
@@ -348,9 +382,82 @@ export function Settings() {
                     dir="ltr"
                   />
                 </Field>
+
+                {/* Brand colour. The gate runs in the BROWSER too, via the same
+                    `evaluateBrandPrimary` the route runs, so the operator sees a
+                    refusal and its reason before they press Save instead of
+                    after. It is a preview, not the authority: the server
+                    re-runs the identical function, and the database constrains
+                    the shape. */}
+                <Field
+                  label={t("Brand colour", "لون الهوية", lang)}
+                  hint={t(
+                    "Your primary colour, used for buttons, focus rings and the sidebar. Checked against WCAG AA — a colour that cannot carry readable text is corrected or refused, never applied as-is.",
+                    "لونك الأساسي، يُستخدم للأزرار وحلقات التركيز والشريط الجانبي. يُفحص مقابل معيار WCAG AA — أي لون لا يحتمل نصًا مقروءًا يُصحَّح أو يُرفض، ولا يُطبَّق كما هو.",
+                    lang,
+                  )}
+                >
+                  <div className="flex flex-wrap items-center gap-3">
+                    <input
+                      type="color"
+                      aria-label={t("Brand colour picker", "منتقي لون الهوية", lang)}
+                      value={brandSwatch.primary}
+                      onChange={(e) => setBrandPrimary(e.target.value)}
+                      className="h-10 w-14 cursor-pointer rounded-lg border border-line bg-paper p-1"
+                    />
+                    <Input
+                      value={brandPrimary}
+                      onChange={(e) => setBrandPrimary(e.target.value)}
+                      placeholder={t("#0b7a55", "#0b7a55", lang)}
+                      aria-label={t("Brand colour hex value", "قيمة لون الهوية", lang)}
+                      className={cn(inputCls, "max-w-[11rem]")}
+                      dir="ltr"
+                    />
+                    {brandPrimary.trim() ? (
+                      <button
+                        type="button"
+                        onClick={() => setBrandPrimary("")}
+                        className="text-[12px] font-semibold text-ink-3 underline underline-offset-2 hover:text-foreground"
+                      >
+                        {t("Use the platform default", "استخدم لون المنصة الافتراضي", lang)}
+                      </button>
+                    ) : null}
+                  </div>
+
+                  {brandVerdict ? (
+                    brandVerdict.ok ? (
+                      <div className="mt-3 flex flex-wrap items-center gap-3">
+                        <span
+                          className="inline-flex items-center rounded-full px-3.5 py-1.5 text-[12px] font-semibold"
+                          style={{
+                            background: brandVerdict.lightPrimary,
+                            color: brandVerdict.lightForeground,
+                          }}
+                        >
+                          {t("Preview", "معاينة", lang)}
+                        </span>
+                        <span className="text-[12px] text-ink-3">
+                          {t("Text contrast", "تباين النص", lang)} {brandVerdict.contrast}:1
+                          {/* Says so out loud when a scheme was corrected — a
+                              silent adjustment is a colour the tenant did not
+                              choose, and they are entitled to know. */}
+                          {brandVerdict.lightPrimary !== brandVerdict.primary ||
+                          brandVerdict.darkPrimary !== brandVerdict.primary
+                            ? t(" · adjusted for contrast", " · مُعدَّل لأجل التباين", lang)
+                            : ""}
+                        </span>
+                      </div>
+                    ) : (
+                      <p role="alert" className="mt-2 text-[12px] font-semibold text-red-soft">
+                        {brandVerdict.detail}
+                      </p>
+                    )
+                  ) : null}
+                </Field>
+
                 <button
-                  onClick={() => save({ orgName, orgLogoUrl, institutionType })}
-                  disabled={busy}
+                  onClick={() => save({ orgName, orgLogoUrl, institutionType, brandPrimary })}
+                  disabled={busy || brandVerdict?.ok === false}
                   className="flex items-center gap-2 rounded-full bg-primary px-6 py-2.5 text-[13px] font-semibold text-white transition hover:bg-green-deep disabled:opacity-40"
                 >
                   {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
@@ -411,6 +518,20 @@ export function Settings() {
                     lang,
                   )}
                 </p>
+                {/* The server refuses this field on a plan that does not include it
+                    (402 `plan_entitlement_required`). Showing the input as though it
+                    worked and letting the operator discover that on Save is the same
+                    class of lie as a pricing card that omits the feature: the
+                    interface is making a claim about what this tenant bought. */}
+                {settings?.entitlements && !settings.entitlements.byok && (
+                  <p className="rounded-xl border border-line bg-paper px-4 py-3 text-[12.5px] leading-relaxed text-ink-2">
+                    {t(
+                      "Not included in your plan. Attaching your own ElevenLabs key needs a Growth subscription — upgrading unlocks this field, and nothing here has been changed.",
+                      "غير مشمول في خطتك. إرفاق مفتاح ElevenLabs الخاص بك يتطلب اشتراك Growth، وعند الترقية يُفتح هذا الحقل، ولم يتغير أي شيء هنا.",
+                      lang,
+                    )}
+                  </p>
+                )}
                 {settings?.elevenKeyMasked && (
                   <div className="flex items-center justify-between rounded-xl border border-[#c4e5d6] bg-green-tint px-4 py-3 text-[12.5px] font-medium text-green-deep">
                     <span className="num flex items-center gap-2">
@@ -711,12 +832,12 @@ export function Settings() {
                     lang,
                   )}
                 </p>
-                {/* The conditional policy, in-app where the tier is known.
-                    `planTier` is server-resolved and must be passed in — see
-                    src/components/legal/PolicyForPlan.tsx for why there is no
-                    client hook for it. Until it is threaded through, the public
-                    pair on /refund is the same content and always correct. */}
-                <PolicyForPlan planTier={null} className="mt-5" />
+                {/* The conditional policy, in-app where the tier is known. The
+                    server resolves it (see `Settings.planTier` above): this call
+                    used to pass a literal `null`, which is the DEMO tier, so a
+                    paying bank was shown the no-refunds policy while its wallet
+                    was being billed as a `creditWallet` tenant. */}
+                <PolicyForPlan planTier={settings?.planTier ?? null} className="mt-5" />
                 <a
                   href={`mailto:${SUPPORT_EMAIL}?subject=SecureVoice%20billing`}
                   className="inline-flex items-center gap-2 rounded-full bg-primary px-6 py-2.5 text-[13px] font-semibold text-white transition hover:bg-green-deep"

@@ -101,9 +101,13 @@ tool-call surface instead of push, the ElevenLabs agent's server tools hit
 
 ## 2. Customer enrolment for outbound calls
 
-`POST /api/enroll` registers a number and — critically — the **consent record** that
-permits the platform to dial it. Without a consent record the platform will not place
-a call.
+`POST /api/enroll` registers a number and — critically — the **consent reference**
+that the platform requires before it will dial it. Enrolling puts that reference in
+our store, which is what makes opt-out enforceable per number. The consent record
+itself stays in your system of record: the platform requires the reference, refuses a
+signal without one, and writes it into the case and the audit chain — it does not
+audit the paperwork behind the reference, and it says so rather than claiming a check
+nobody can run.
 
 The body is **flat** (there is no `enroll` wrapper) and requires `action: "enroll"`:
 
@@ -119,7 +123,7 @@ The body is **flat** (there is no `enroll` wrapper) and requires `action: "enrol
 ```
 
 `customerRef` must match `/^[\w.:-]+$/`, and `consentRecordId` is mandatory — the
-platform will not dial a number without a consent record on file. `lang` accepts
+platform will not place a call whose signal carries no consent reference. `lang` accepts
 `en · ar · hi · ur · fr · sw`; `channel` is `call` or `sms`.
 
 A successful enrollment returns `"delivery": "live (Twilio)"`.

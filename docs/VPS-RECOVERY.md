@@ -106,14 +106,14 @@ gh run rerun 38012365047 --failed     # from any machine with gh auth
 The deploy builds `app dial-worker retention-worker db-setup`, runs
 `prisma migrate deploy` (both new migrations are additive — `WorkflowDoc` and
 the onboarding columns — so they apply cleanly to either database), rolls the
-containers, then health-checks `https://57.130.80.158.sslip.io/api/health`.
+containers, then health-checks `https://securevoiceai.me/api/health`.
 
 ## Step 3 — Verify
 
 ```bash
 docker compose ps                                   # all healthy
-curl -s https://57.130.80.158.sslip.io/api/health   # 200
-curl -s https://57.130.80.158.sslip.io/api/readyz | jq .status   # ok | degraded
+curl -s https://securevoiceai.me/api/health   # 200
+curl -s https://securevoiceai.me/api/readyz | jq .status   # ok | degraded
 docker compose logs --no-color --tail 50 app | grep -i "prisma:error"   # must be empty
 docker compose exec -T db psql -U securevoice -d securevoice \
   -c 'SELECT migration_name FROM _prisma_migrations ORDER BY finished_at;' | tail -5
@@ -150,10 +150,11 @@ stale; the app was up and serving the whole time (in-container `/api/health`
    untouched; `crucible-*` (the other project on the shared edge) untouched.
 2. Merged the Caddyfile: the VPS-local changes were **pure appends** (the
    `crucible.svalley.tech` / `securevoice.svalley.tech` site blocks, 106
-   lines), the incoming change rewrites lines 104–128 (the
-   `/realtime/media-stream` route). Took the incoming file, re-appended the
-   site blocks, `caddy validate` → **Valid configuration**, re-asserted
-   skip-worktree. The pull then succeeded and the VPS is on `f5396dd`.
+   lines — `securevoice.svalley.tech` has since been retired, 2026-10-12), the
+   incoming change rewrites lines 104–128 (the `/realtime/media-stream` route).
+   Took the incoming file, re-appended the site blocks, `caddy validate` →
+   **Valid configuration**, re-asserted skip-worktree. The pull then succeeded
+   and the VPS is on `f5396dd`.
 3. Dispatched a fresh deploy from main (the CI-green guard passed).
 
 **The Supabase question — first answered wrongly, then settled by evidence.**
@@ -162,12 +163,12 @@ that conclusion was WRONG, because it counted only the four better-auth tables
 and two test tables, never the real ones. A full count of every table on both
 sides gave the true answer:
 
-| | bundled (`db` container) | Supabase |
-|---|---|---|
-| `Case` | 0 | **1,006** |
-| `AuditLog` | 26 | **7,992** |
-| `UserProfile` | 0 | **88** |
-| tables | 19 | 37 |
+|               | bundled (`db` container) | Supabase  |
+| ------------- | ------------------------ | --------- |
+| `Case`        | 0                        | **1,006** |
+| `AuditLog`    | 26                       | **7,992** |
+| `UserProfile` | 0                        | **88**    |
+| tables        | 19                       | 37        |
 
 **Supabase is the real production database. The bundled volume is an empty
 shell that was never populated** — and the app had been pointed at it the whole
@@ -207,8 +208,7 @@ only proves the connection is up, never that there are rows behind it.
 a roll would have left the newest plane unstarted and its route 502ing.
 Added to both lists (`fix(deploy): roll the voice-stream worker with the app`).
 
-
-## Failure mode #2 — the deploy's `git pull` refuses: "local changes to Caddyfile would be overwritten"
+## Failure mode #2 — the deploy's `git pull` refuses on `Caddyfile` (RESOLVED 2026-10-12)
 
 Deploy 38018564836 died at `git pull --ff-only` with:
 
@@ -218,38 +218,43 @@ error: Your local changes to the following files would be overwritten by merge:
 Please commit your changes or stash them before you merge.
 ```
 
-The VPS Caddyfile is deliberately VPS-local (per-site blocks for the shared
-edge) and protected with `git update-index --skip-worktree` — and the deploy
-re-asserts that flag before pulling. It still refused because the promoted
-commits **modify the Caddyfile itself** (the union added the
-`handle /realtime/media-stream` block that routes the voice-stream worker's
-Twilio Media Streams websocket). Skip-worktree preserves the local version, but
-a merge that would change a skip-worktree'd file is refused rather than
-silently dropped — the deployment-local edge config wins, loudly.
+The VPS Caddyfile was then VPS-local — per-site blocks for the shared edge,
+inline — and protected with `git update-index --skip-worktree`. Skip-worktree
+preserves the local version, but a merge that would change a skip-worktree'd
+file is refused rather than silently dropped: the deployment-local edge config
+wins, loudly. So every promoted commit that touched the Caddyfile blocked the
+roll until an operator SSH'd in and merged the two copies by hand — and the
+hand-merge only unblocked `--ff-only` until the next Caddyfile commit.
 
-This is the correct behavior; the VPS-local Caddyfile now needs the new block
-merged into it by hand. On the VPS:
+**The root cause was the arrangement, not the merge: one tracked file was both
+product config and host-local edge config.** The fix (2026-10-12) removes the
+conflict instead of resolving it instance by instance:
+
+- The tracked `Caddyfile` is now the SAME BYTES on every machine. Its site
+  list is literal (`localhost`, `securevoiceai.me`) and ends with
+  `import sites.d/*.caddy`. The env-driven `{$SITE_ADDRESS:localhost}` block
+  is gone — besides colliding with the literal block (`ambiguous site
+  definition`, measured), it was the reason the two copies had to diverge.
+- The box's own site blocks — `crucible.svalley.tech` and its `*.sslip.io`
+  redirect — live in an untracked `sites.d/crucible.caddy` (`.gitignore` keeps
+  only `sites.d/README.md`). Adding or editing a host-local site never touches
+  a tracked file again.
+- Skip-worktree is RETIRED, on the box and in deploy.yml. A promoted
+  Caddyfile change now pulls and deploys like any other file.
+
+**If a pull is ever refused on `Caddyfile` again**, the box has hand-edits the
+repo does not know about — that is the only way to make the file dirty now.
+Run `git update-index --no-skip-worktree Caddyfile Caddyfile.platform` first
+(a lingering flag hides the dirtiness from `git diff`), then `git diff --
+Caddyfile`; anything worth keeping is a host-local site block that belongs in
+`sites.d/*.caddy`. Move it there (see `sites.d/README.md`), then:
 
 ```bash
 cd ~/securevoice-ai
-git fetch origin main
-# 1. See what the VPS-local version adds (the per-site blocks to KEEP):
-git diff HEAD -- Caddyfile Caddyfile.platform
-# 2. See what the incoming commits add (the block to TAKE):
-git diff HEAD origin/main -- Caddyfile Caddyfile.platform
-```
-
-Then merge: keep the VPS-local per-site blocks and add the incoming
-`handle /realtime/media-stream { reverse_proxy voice-stream-worker:8080 … }`
-block (and any other incoming hunks) to the VPS file, so the file becomes
-"VPS-local + incoming". Commit it locally, or if the VPS-local diff turns out
-to be empty/stale, simply `git checkout -- Caddyfile Caddyfile.platform`. Then:
-
-```bash
-git update-index --skip-worktree Caddyfile Caddyfile.platform
+git checkout -- Caddyfile Caddyfile.platform
 git pull --ff-only origin main
 ```
 
-Do this **before or together with** the db remediation — the deploy runs the
-pull first, so an unmerged Caddyfile blocks the roll regardless of the db
-state.
+Editing a file in `sites.d/` needs a Caddy process restart — `admin off` means
+there is no reload endpoint: `docker compose up -d --force-recreate caddy`.
+The deploy recreates Caddy for free whenever the compose definition changes.

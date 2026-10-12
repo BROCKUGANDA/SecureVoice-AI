@@ -69,6 +69,13 @@ export function LiveVoicePanel({ callLang }: { callLang: CallLang }) {
   const [typed, setTyped] = useState("");
   const [error, setError] = useState<string | null>(null);
   const turnId = useRef(0);
+  /**
+   * This panel's mount IS one call. The server counts consecutive unclear turns
+   * against `callRef` and hands a caller who cannot be understood over to a human
+   * after four; send nothing and every request looks like a fresh call, so that
+   * ceiling is unreachable from the surface judges actually use.
+   */
+  const callRefRef = useRef<string | null>(null);
   const recRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
@@ -119,9 +126,18 @@ export function LiveVoicePanel({ callLang }: { callLang: CallLang }) {
       const res = await fetch("/api/agent", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: clean, lang: callLang }),
+        body: JSON.stringify({
+          text: clean,
+          lang: callLang,
+          ...(callRefRef.current ? { callRef: callRefRef.current } : {}),
+        }),
       });
       const data = await res.json().catch(() => ({ error: "Unreadable response" }));
+      // The route returns the reference it audited under — adopt it and every
+      // later turn on this call lands on the same streak.
+      if (typeof data?.callRef === "string" && !callRefRef.current) {
+        callRefRef.current = data.callRef;
+      }
       if (!res.ok || !data.reply) throw new Error(data.error || "Agent unavailable");
       turnId.current += 1;
       setTurns((p) => [

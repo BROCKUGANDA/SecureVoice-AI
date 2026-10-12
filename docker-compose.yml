@@ -81,7 +81,7 @@ services:
       args:
         BUILD_DATABASE_URL: ${DATABASE_URL}
         BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET in .env}
-        BETTER_AUTH_URL: ${BETTER_AUTH_URL:-https://localhost:3000}
+        BETTER_AUTH_URL: ${BETTER_AUTH_URL:-https://securevoiceai.me}
         # Demo shortcut credentials. NEXT_PUBLIC_* is inlined at BUILD time, so
         # omitting these does not merely hide the one-click judge login from
         # src/views/Auth.tsx — it compiles the button out of the bundle. Every
@@ -89,6 +89,11 @@ services:
         # in `bun run build`), so every one of them needs the pair.
         NEXT_PUBLIC_DEMO_LOGIN_EMAIL: ${NEXT_PUBLIC_DEMO_LOGIN_EMAIL:-}
         NEXT_PUBLIC_DEMO_LOGIN_PASSWORD: ${NEXT_PUBLIC_DEMO_LOGIN_PASSWORD:-}
+        # Same inlining rule, same consequence: the ids are compiled into the
+        # bundle. Without this the pricing page ships without its Buy buttons and
+        # `paddlePriceIds()` throws while prerendering — and no runtime .env can
+        # fix it, because the value has to be a build arg to exist at all.
+        NEXT_PUBLIC_PADDLE_PRICES: ${NEXT_PUBLIC_PADDLE_PRICES:-}
     logging: *default-logging
     environment:
       # Use the same DATABASE_URL as the rest of the stack — .env is the single
@@ -121,7 +126,7 @@ services:
       args:
         BUILD_DATABASE_URL: ${DATABASE_URL}
         BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET in .env}
-        BETTER_AUTH_URL: ${BETTER_AUTH_URL:-https://localhost:3000}
+        BETTER_AUTH_URL: ${BETTER_AUTH_URL:-https://securevoiceai.me}
         # Demo shortcut credentials. NEXT_PUBLIC_* is inlined at BUILD time, so
         # omitting these does not merely hide the one-click judge login from
         # src/views/Auth.tsx — it compiles the button out of the bundle. Every
@@ -129,6 +134,11 @@ services:
         # in `bun run build`), so every one of them needs the pair.
         NEXT_PUBLIC_DEMO_LOGIN_EMAIL: ${NEXT_PUBLIC_DEMO_LOGIN_EMAIL:-}
         NEXT_PUBLIC_DEMO_LOGIN_PASSWORD: ${NEXT_PUBLIC_DEMO_LOGIN_PASSWORD:-}
+        # Same inlining rule, same consequence: the ids are compiled into the
+        # bundle. Without this the pricing page ships without its Buy buttons and
+        # `paddlePriceIds()` throws while prerendering — and no runtime .env can
+        # fix it, because the value has to be a build arg to exist at all.
+        NEXT_PUBLIC_PADDLE_PRICES: ${NEXT_PUBLIC_PADDLE_PRICES:-}
     restart: unless-stopped
     logging: *default-logging
     mem_limit: 512m
@@ -167,6 +177,14 @@ services:
       # dial. Same optional secret as the voice-stream worker.
       VOICE_STREAM_INTERNAL_URL: ${VOICE_STREAM_INTERNAL_URL:-http://voice-stream-worker:8080}
       VOICE_PREWARM_SECRET: ${VOICE_PREWARM_SECRET:-}
+      # The PUBLIC hostname the carrier dials back for the media stream
+      # (wss://<SITE_ADDRESS>/realtime/media-stream). Unlike VOICE_STREAM_INTERNAL_URL
+      # this is not an internal address — Twilio resolves it from the internet —
+      # so it is passed through un-defaulted: `src/worker/dial.ts` refuses to
+      # start (flag on) or to dial (flag on mid-process) with an empty or
+      # loopback value, because a URL the carrier cannot reach is a recorded
+      # successful dial the customer hears silence on.
+      SITE_ADDRESS: ${SITE_ADDRESS:-}
       DIAL_WORKER_POLL_MS: ${DIAL_WORKER_POLL_MS:-1000}
       DIAL_WORKER_BATCH: ${DIAL_WORKER_BATCH:-5}
     depends_on:
@@ -179,6 +197,62 @@ services:
     # little throughput for a measurably smaller heap (docs/CAPACITY.md §10) — the
     # right trade for a polled worker inside a 512m box.
     command: ["bun", "--smol", "--preload", "./scripts/worker-preload.ts", "src/worker/dial.ts"]
+
+  # Email outbox worker. Retries transactional auth mail (magic link, invite,
+  # password reset) that a synchronous send could not deliver.
+  #
+  # The request path already attempts one immediate send, so this worker is not
+  # needed on the happy path — it exists so a transient Resend outage does not
+  # cost an analyst their sign-in link into a fraud console. Without it the
+  # durable queue in src/lib/email/outbox.ts is decorative: rows would sit
+  # PENDING forever.
+  #
+  # SCALE IT FREELY. Claims use FOR UPDATE SKIP LOCKED plus a compare-and-set,
+  # so `--scale email-worker=2` delivers each message exactly once.
+  email-worker:
+    user: "1000:1000"   # non-root
+    build:
+      context: .
+      target: builder
+      args:
+        BUILD_DATABASE_URL: ${DATABASE_URL}
+        BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET in .env}
+        BETTER_AUTH_URL: ${BETTER_AUTH_URL:-https://securevoiceai.me}
+        NEXT_PUBLIC_DEMO_LOGIN_EMAIL: ${NEXT_PUBLIC_DEMO_LOGIN_EMAIL:-}
+        NEXT_PUBLIC_DEMO_LOGIN_PASSWORD: ${NEXT_PUBLIC_DEMO_LOGIN_PASSWORD:-}
+        # Same inlining rule, same consequence: the ids are compiled into the
+        # bundle. Without this the pricing page ships without its Buy buttons and
+        # `paddlePriceIds()` throws while prerendering — and no runtime .env can
+        # fix it, because the value has to be a build arg to exist at all.
+        NEXT_PUBLIC_PADDLE_PRICES: ${NEXT_PUBLIC_PADDLE_PRICES:-}
+    restart: unless-stopped
+    logging: *default-logging
+    mem_limit: 512m
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql://${POSTGRES_USER:-securevoice}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-securevoice}}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      NODE_ENV: production
+      # Same explicit acknowledgement as the other workers: the compose db is a
+      # container on a private network with no server certificate.
+      DB_ALLOW_PLAINTEXT_PRIVATE_NETWORK: "true"
+      REQUIRE_VPS_DATABASE: ${REQUIRE_VPS_DATABASE:-false}
+      # The provider credentials. Unset, the worker boots and simply has nothing
+      # to send — it does not crash-loop, so a deployment that has not configured
+      # email yet still starts cleanly.
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      RESEND_FROM_EMAIL: ${RESEND_FROM_EMAIL:-SecureVoice AI <onboarding@resend.dev>}
+      RESEND_REPLY_TO: ${RESEND_REPLY_TO:-}
+      # Link origin used when a queued message is re-rendered at send time.
+      APP_BASE_URL: ${APP_BASE_URL:-http://localhost:3000}
+      # Poll interval for the drain loop.
+      EMAIL_WORKER_POLL_MS: ${EMAIL_WORKER_POLL_MS:-10000}
+      EMAIL_WORKER_BATCH: ${EMAIL_WORKER_BATCH:-25}
+    depends_on:
+      db-setup:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    command: ["bun", "--smol", "--preload", "./scripts/worker-preload.ts", "scripts/email-worker.ts", "--loop"]
 
   # Retention sweeper. The privacy tiers (audio purge, payload-key shred,
   # case-record delete) erase on the clock whether or not anyone remembers —
@@ -193,7 +267,7 @@ services:
       args:
         BUILD_DATABASE_URL: ${DATABASE_URL}
         BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET in .env}
-        BETTER_AUTH_URL: ${BETTER_AUTH_URL:-https://localhost:3000}
+        BETTER_AUTH_URL: ${BETTER_AUTH_URL:-https://securevoiceai.me}
         # Demo shortcut credentials. NEXT_PUBLIC_* is inlined at BUILD time, so
         # omitting these does not merely hide the one-click judge login from
         # src/views/Auth.tsx — it compiles the button out of the bundle. Every
@@ -201,6 +275,11 @@ services:
         # in `bun run build`), so every one of them needs the pair.
         NEXT_PUBLIC_DEMO_LOGIN_EMAIL: ${NEXT_PUBLIC_DEMO_LOGIN_EMAIL:-}
         NEXT_PUBLIC_DEMO_LOGIN_PASSWORD: ${NEXT_PUBLIC_DEMO_LOGIN_PASSWORD:-}
+        # Same inlining rule, same consequence: the ids are compiled into the
+        # bundle. Without this the pricing page ships without its Buy buttons and
+        # `paddlePriceIds()` throws while prerendering — and no runtime .env can
+        # fix it, because the value has to be a build arg to exist at all.
+        NEXT_PUBLIC_PADDLE_PRICES: ${NEXT_PUBLIC_PADDLE_PRICES:-}
     restart: unless-stopped
     logging: *default-logging
     mem_limit: 256m
@@ -212,11 +291,85 @@ services:
       DB_ALLOW_PLAINTEXT_PRIVATE_NETWORK: "true"
       REQUIRE_VPS_DATABASE: ${REQUIRE_VPS_DATABASE:-false}
       RETENTION_SWEEP_HOURS: ${RETENTION_SWEEP_HOURS:-24}
+      # The object store, so the 30-day audio tier can delete what the app stored.
+      #
+      # This service declares no `env_file` (the app does, and it is the app's
+      # webhook that archives a recording), so without these five lines the worker
+      # boots, reports `audioStore: "none-configured"`, and leaves every MP3 in the
+      # bucket past the deadline the policy names — while the report's `due` count
+      # looks like a tier that ran. The adapter is
+      # `src/lib/storage/retention-audio-store.ts`; the wiring is this block, and
+      # neither half works alone.
+      #
+      # No default for the region, deliberately: `resolveStorageConfig()` requires
+      # it explicitly because a silently wrong region produces a
+      # SignatureDoesNotMatch at the far end that nobody can read, and a compose
+      # default would reintroduce exactly that. Empty here reads as "no store
+      # configured", which is the honest posture for a deployment that archives no
+      # audio — the worker logs it and deletes nothing.
+      R2_ENDPOINT: ${R2_ENDPOINT:-}
+      R2_REGION: ${R2_REGION:-}
+      R2_ACCESS_KEY_ID: ${R2_ACCESS_KEY_ID:-}
+      R2_SECRET_ACCESS_KEY: ${R2_SECRET_ACCESS_KEY:-}
+      R2_BUCKET: ${R2_BUCKET:-}
     depends_on:
       db-setup:
         condition: service_completed_successfully
     # --smol: measured heap trade, see docs/CAPACITY.md §10 (256m box, idle sweeper).
     command: ["bun", "--smol", "--preload", "./scripts/worker-preload.ts", "src/worker/retention.ts"]
+
+  # Overage billing worker. Rates each tenant's most recently CLOSED subscription
+  # period against ITS plan (Starter 15¢, Growth 12¢) and raises a manual-
+  # collection invoice — a Net-30 document, never an automatic charge, because a
+  # Merchant of Record holds no card authorization to charge later.
+  #
+  # It writes NOTHING until `OVERAGE_INVOICING_ENABLED=1`. With the switch unset
+  # every tenant is rated and reported as `would_bill`, which is how a deployment
+  # checks the arithmetic against a real closed period before any of it reaches a
+  # bank's accounts team. The live-money guard is not duplicated here: the Paddle
+  # adapter itself refuses a `pdl_live_` key unless `PADDLE_ALLOW_LIVE_KEYS=1`.
+  #
+  # A service rather than a cron note, for the same reason as the sweeper above:
+  # a period closes whether or not anyone remembers to bill it.
+  overage-worker:
+    user: "1000:1000"   # non-root
+    build:
+      context: .
+      target: builder   # full source tree: the worker is a script, not a bundle
+      args:
+        BUILD_DATABASE_URL: ${DATABASE_URL}
+        BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET in .env}
+        BETTER_AUTH_URL: ${BETTER_AUTH_URL:-https://securevoiceai.me}
+        NEXT_PUBLIC_DEMO_LOGIN_EMAIL: ${NEXT_PUBLIC_DEMO_LOGIN_EMAIL:-}
+        NEXT_PUBLIC_DEMO_LOGIN_PASSWORD: ${NEXT_PUBLIC_DEMO_LOGIN_PASSWORD:-}
+        # Same inlining rule, same consequence: the ids are compiled into the
+        # bundle. Without this the pricing page ships without its Buy buttons and
+        # `paddlePriceIds()` throws while prerendering — and no runtime .env can
+        # fix it, because the value has to be a build arg to exist at all.
+        NEXT_PUBLIC_PADDLE_PRICES: ${NEXT_PUBLIC_PADDLE_PRICES:-}
+    restart: unless-stopped
+    logging: *default-logging
+    mem_limit: 256m
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql://${POSTGRES_USER:-securevoice}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-securevoice}}
+      NODE_ENV: production
+      DB_ALLOW_PLAINTEXT_PRIVATE_NETWORK: "true"
+      REQUIRE_VPS_DATABASE: ${REQUIRE_VPS_DATABASE:-false}
+      OVERAGE_SWEEP_HOURS: ${OVERAGE_SWEEP_HOURS:-24}
+      # Deliberately defaults OFF. Setting this to 1 is the decision to send
+      # invoices to customers, and it should not be a side effect of a deploy.
+      OVERAGE_INVOICING_ENABLED: ${OVERAGE_INVOICING_ENABLED:-false}
+      PADDLE_API_KEY: ${PADDLE_API_KEY:-}
+      PADDLE_WEBHOOK_SECRET: ${PADDLE_WEBHOOK_SECRET:-}
+      PADDLE_PRICES: ${PADDLE_PRICES:-}
+      PADDLE_ALLOW_LIVE_KEYS: ${PADDLE_ALLOW_LIVE_KEYS:-}
+      BILLING_CURRENCY: ${BILLING_CURRENCY:-AED}
+      INCLUDED_UNITS_PER_PERIOD: ${INCLUDED_UNITS_PER_PERIOD:-}
+      OVERAGE_RATE_MINOR_PER_UNIT: ${OVERAGE_RATE_MINOR_PER_UNIT:-}
+    depends_on:
+      db-setup:
+        condition: service_completed_successfully
+    command: ["bun", "--smol", "--preload", "./scripts/worker-preload.ts", "src/worker/overage.ts"]
 
   # LiteLLM proxy (optional). Provider precedence is GROQ_API_KEY >
   # LITELLM_API_KEY > GEMINI_API_KEY — the first configured one wins, so with
@@ -260,13 +413,18 @@ services:
   # Serves the WebSocket endpoint Twilio connects to for live-call audio.
   voice-stream-worker:
     user: "1000:1000"   # non-root
+    # Must exceed SHUTDOWN_DRAIN_MS (65s, src/lib/graceful-shutdown.ts) or the
+    # drain is decoration: Docker sends SIGKILL at its 10s default while a
+    # customer is mid-sentence. tests/unit/shutdown-window.test.ts enforces the
+    # relationship, so this cannot silently stop being true.
+    stop_grace_period: 75s
     build:
       context: .
       target: builder
       args:
         BUILD_DATABASE_URL: ${DATABASE_URL}
         BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET in .env}
-        BETTER_AUTH_URL: ${BETTER_AUTH_URL:-https://localhost:3000}
+        BETTER_AUTH_URL: ${BETTER_AUTH_URL:-https://securevoiceai.me}
         # Demo shortcut credentials. NEXT_PUBLIC_* is inlined at BUILD time, so
         # omitting these does not merely hide the one-click judge login from
         # src/views/Auth.tsx — it compiles the button out of the bundle. Every
@@ -274,6 +432,11 @@ services:
         # in `bun run build`), so every one of them needs the pair.
         NEXT_PUBLIC_DEMO_LOGIN_EMAIL: ${NEXT_PUBLIC_DEMO_LOGIN_EMAIL:-}
         NEXT_PUBLIC_DEMO_LOGIN_PASSWORD: ${NEXT_PUBLIC_DEMO_LOGIN_PASSWORD:-}
+        # Same inlining rule, same consequence: the ids are compiled into the
+        # bundle. Without this the pricing page ships without its Buy buttons and
+        # `paddlePriceIds()` throws while prerendering — and no runtime .env can
+        # fix it, because the value has to be a build arg to exist at all.
+        NEXT_PUBLIC_PADDLE_PRICES: ${NEXT_PUBLIC_PADDLE_PRICES:-}
     restart: unless-stopped
     logging: *default-logging
     mem_limit: 512m
@@ -328,7 +491,7 @@ services:
       args:
         BUILD_DATABASE_URL: ${DATABASE_URL}
         BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET in .env}
-        BETTER_AUTH_URL: ${BETTER_AUTH_URL:-https://localhost:3000}
+        BETTER_AUTH_URL: ${BETTER_AUTH_URL:-https://securevoiceai.me}
         # Demo shortcut credentials. NEXT_PUBLIC_* is inlined at BUILD time, so
         # omitting these does not merely hide the one-click judge login from
         # src/views/Auth.tsx — it compiles the button out of the bundle. Every
@@ -336,6 +499,11 @@ services:
         # in `bun run build`), so every one of them needs the pair.
         NEXT_PUBLIC_DEMO_LOGIN_EMAIL: ${NEXT_PUBLIC_DEMO_LOGIN_EMAIL:-}
         NEXT_PUBLIC_DEMO_LOGIN_PASSWORD: ${NEXT_PUBLIC_DEMO_LOGIN_PASSWORD:-}
+        # Same inlining rule, same consequence: the ids are compiled into the
+        # bundle. Without this the pricing page ships without its Buy buttons and
+        # `paddlePriceIds()` throws while prerendering — and no runtime .env can
+        # fix it, because the value has to be a build arg to exist at all.
+        NEXT_PUBLIC_PADDLE_PRICES: ${NEXT_PUBLIC_PADDLE_PRICES:-}
     restart: unless-stopped
     logging: *default-logging
     mem_limit: 256m
@@ -391,7 +559,7 @@ services:
       args:
         BUILD_DATABASE_URL: ${DATABASE_URL:-postgresql://${POSTGRES_USER:-securevoice}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-securevoice}}
         BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set in .env}
-        BETTER_AUTH_URL: ${BETTER_AUTH_URL:-https://localhost:3000}
+        BETTER_AUTH_URL: ${BETTER_AUTH_URL:-https://securevoiceai.me}
         # Demo shortcut credentials. NEXT_PUBLIC_* is inlined at BUILD time, so
         # omitting these does not merely hide the one-click judge login from
         # src/views/Auth.tsx — it compiles the button out of the bundle. Every
@@ -399,6 +567,11 @@ services:
         # in `bun run build`), so every one of them needs the pair.
         NEXT_PUBLIC_DEMO_LOGIN_EMAIL: ${NEXT_PUBLIC_DEMO_LOGIN_EMAIL:-}
         NEXT_PUBLIC_DEMO_LOGIN_PASSWORD: ${NEXT_PUBLIC_DEMO_LOGIN_PASSWORD:-}
+        # Same inlining rule, same consequence: the ids are compiled into the
+        # bundle. Without this the pricing page ships without its Buy buttons and
+        # `paddlePriceIds()` throws while prerendering — and no runtime .env can
+        # fix it, because the value has to be a build arg to exist at all.
+        NEXT_PUBLIC_PADDLE_PRICES: ${NEXT_PUBLIC_PADDLE_PRICES:-}
         # Canonical public origin, inlined at BUILD time like the pair above.
         # Defaults to https://<SITE_ADDRESS> — the same hostname Caddy issues
         # the certificate for — so a deployment that already set SITE_ADDRESS
@@ -415,6 +588,12 @@ services:
     # "no image override", so the default build path is unchanged.
     image: ${IMAGE:-securevoice-ai-app:local}
     restart: unless-stopped
+    # The app's own drain: scripts/server-preload.ts flips /api/readyz to 503 so
+    # Caddy de-rotates, then waits SHUTDOWN_DRAIN_MS (65s) for accepted requests.
+    # Docker's 10s default would kill it mid-window, so a deploy would drop the
+    # very requests the drain exists to protect. See
+    # tests/unit/shutdown-window.test.ts for the check that keeps these aligned.
+    stop_grace_period: 75s
     logging: *default-logging
     mem_limit: 1g
     environment:
@@ -477,11 +656,37 @@ services:
     cap_add:
       - NET_BIND_SERVICE
     environment:
-      # Domain to issue a certificate for. Must resolve to this host.
-      SITE_ADDRESS: ${SITE_ADDRESS:-localhost}
+      # ACME contact for expiry notices. SITE_ADDRESS is deliberately NOT
+      # passed to Caddy anymore: it is an APP-level value (canonical origin,
+      # Twilio media-stream URL — src/lib/site-origin.ts, src/worker/dial.ts),
+      # and Caddy cannot take it as a site address without colliding with the
+      # literal blocks in the Caddyfile ("ambiguous site definition",
+      # measured). Caddy serves the literal site list; host-local extras come
+      # from sites.d/ below.
       ACME_EMAIL: ${ACME_EMAIL:-admin@example.com}
+    # ── The active colour, for a blue/green deploy ────────────────────────────
+    # `APP_UPSTREAM` is what the Caddyfile proxies to, and this file is the only
+    # thing that puts it into Caddy's process environment.
+    #
+    # It lives on the BASE service, not in docker-compose.bluegreen.yml, for a
+    # measured reason: an `env_file` declared on the caddy service in the
+    # OVERRIDE file is dropped by compose's file merge, so the value never
+    # reached the container and a colour flip did nothing. Declared here it is
+    # present in both modes — a plain `docker compose up` and a blue/green stack.
+    #
+    # `required: false` so a fresh checkout with no deploy state still starts;
+    # Caddy then falls back to the Caddyfile default (`app:3000`).
+    env_file:
+      - path: .deploy/active.env
+        required: false
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Host-local extra site blocks, imported by the Caddyfile (see
+      # sites.d/README.md). Untracked — .gitignore keeps only the README — so
+      # a shared edge's extra hostnames live on the machine, never in a commit,
+      # and the tracked Caddyfile stays byte-identical everywhere. The import
+      # wildcard matching zero files is valid, so a fresh checkout starts clean.
+      - ./sites.d:/etc/caddy/sites.d:ro
       - caddy-data:/data      # certificates + ACME account
       - caddy-config:/config
     depends_on:
@@ -510,7 +715,7 @@ services:
       args:
         BUILD_DATABASE_URL: ${DATABASE_URL}
         BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET in .env}
-        BETTER_AUTH_URL: ${BETTER_AUTH_URL:-https://localhost:3000}
+        BETTER_AUTH_URL: ${BETTER_AUTH_URL:-https://securevoiceai.me}
         # Demo shortcut credentials. NEXT_PUBLIC_* is inlined at BUILD time, so
         # omitting these does not merely hide the one-click judge login from
         # src/views/Auth.tsx — it compiles the button out of the bundle. Every
@@ -518,6 +723,11 @@ services:
         # in `bun run build`), so every one of them needs the pair.
         NEXT_PUBLIC_DEMO_LOGIN_EMAIL: ${NEXT_PUBLIC_DEMO_LOGIN_EMAIL:-}
         NEXT_PUBLIC_DEMO_LOGIN_PASSWORD: ${NEXT_PUBLIC_DEMO_LOGIN_PASSWORD:-}
+        # Same inlining rule, same consequence: the ids are compiled into the
+        # bundle. Without this the pricing page ships without its Buy buttons and
+        # `paddlePriceIds()` throws while prerendering — and no runtime .env can
+        # fix it, because the value has to be a build arg to exist at all.
+        NEXT_PUBLIC_PADDLE_PRICES: ${NEXT_PUBLIC_PADDLE_PRICES:-}
     logging: *default-logging
     environment:
       HOSTNAME: 0.0.0.0

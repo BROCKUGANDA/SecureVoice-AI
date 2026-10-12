@@ -4,7 +4,8 @@ import { consume as consumeRateLimit, rateLimitId } from "@/lib/ratelimit";
 import { twilioSignedUrl, verifyTwilioSignature } from "@/lib/twilio";
 import { handleSmsReply } from "@/lib/sms-verdict";
 import { checkBadActor, recordStrike } from "@/lib/abuse/bad-actor";
-import { logError } from "@/lib/validation/safe-log";
+import { validateTwilioWebhook } from "@/lib/validation/webhook-schema";
+import { logError, logInfo } from "@/lib/validation/safe-log";
 
 export const dynamic = "force-dynamic";
 
@@ -81,6 +82,22 @@ export async function POST(req: NextRequest) {
   if (sigOk !== true) {
     recordStrike(`ip:${ip}`, 3); // forged / unsigned webhooks are hostile, not mistakes
     return new NextResponse(EMPTY, { status: 403, headers: { "Content-Type": "text/xml" } });
+  }
+
+  // Shape validation after the signature, before the reply is handled — the
+  // same validator /api/twilio/sms-webhook uses, so the two Twilio reply entry
+  // points cannot drift on what they accept.
+  //
+  // Malformed-but-signed data gets the same answer the rate-limit path gives:
+  // empty TwiML at 200. A 4xx would make Twilio retry a body it will keep
+  // signing correctly, so the delivery never settles and the customer's reply
+  // is dropped anyway — with an incident attached.
+  const shape = validateTwilioWebhook(params);
+  if (!shape.ok) {
+    logInfo("[sms-inbound] params failed shape validation", {
+      issues: shape.issues.map((i) => i.path),
+    });
+    return twiml(null);
   }
 
   // Per-sender budget, so one handset cannot hammer the case lookup.

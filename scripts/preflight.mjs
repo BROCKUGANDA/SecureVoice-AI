@@ -47,6 +47,81 @@ add(
     : "MISSING — app runs, but Better Auth infra features are disabled",
   false,
 );
+// The CSRF allowlist. Better Auth compares a browser's `Origin` against
+// BETTER_AUTH_URL (plus BETTER_AUTH_TRUSTED_ORIGINS), so a leftover localhost here
+// is not a cosmetic default: every sign-in from the public host comes back
+// "Invalid origin" while the same stack works perfectly on a laptop. The app now
+// refuses to boot that way under NODE_ENV=production; this catches it before the
+// deploy rather than at the container's first restart.
+const baUrl = (env.BETTER_AUTH_URL ?? env.APP_URL ?? "").trim();
+const baOrigin = (() => {
+  try {
+    return new URL(baUrl);
+  } catch {
+    return null;
+  }
+})();
+const baLoopback =
+  baOrigin !== null &&
+  /^(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])$/.test(baOrigin.hostname) === true;
+add(
+  "BETTER_AUTH_URL",
+  baOrigin !== null && !baLoopback,
+  baUrl === ""
+    ? "MISSING — better-auth.ts throws at import and every request 500s"
+    : baOrigin === null
+      ? `NOT AN ORIGIN (${baUrl}) — use https://host with no path`
+      : baLoopback
+        ? `${baUrl} is loopback — every public sign-in answers "Invalid origin"${
+            env.NODE_ENV === "production" ? " and the app will refuse to boot" : ""
+          }`
+        : `${baUrl} (its www/apex sibling is trusted automatically)`,
+  true,
+);
+// The published identity of the site: what `<link rel="canonical">`, the sitemap's
+// `<loc>` entries, robots' `Sitemap:` line and the Open Graph URLs all say about
+// where this deployment lives. `src/lib/site-origin.ts` is the authority; the
+// resolution is repeated here in plain JS because preflight must run without the
+// app's module graph.
+//
+// A `*.sslip.io` or `*.nip.io` host, or a bare IP, is fine for Caddy to issue a
+// certificate against and fatal as a canonical origin: every crawler is then told
+// the real page lives on a dynamic-DNS hostname instead of the domain the operator
+// registered. The site stays crawlable and never ranks for its own name — which
+// looks like "SEO is not working" from the outside and is one unset variable.
+const siteUrl = (() => {
+  const explicit = (env.NEXT_PUBLIC_SITE_URL ?? "").trim();
+  if (explicit) return explicit;
+  const domain = (env.SITE_DOMAIN ?? "").trim();
+  if (domain) return `https://${domain.replace(/^https?:\/\//, "").replace(/\/+$/, "")}`;
+  const address = (env.SITE_ADDRESS ?? "").trim();
+  if (address && address !== "localhost") return `https://${address}`;
+  return "";
+})();
+const siteHost = (() => {
+  try {
+    return new URL(siteUrl).hostname.toLowerCase();
+  } catch {
+    return "";
+  }
+})();
+const placeholder =
+  /(^|\.)(sslip\.io|nip\.io|dedyn\.io|vcap\.me|ngrok\.(io|app)|trycloudflare\.com|loca\.lt)$/i;
+const siteBad =
+  siteUrl === "" ||
+  siteHost === "localhost" ||
+  /^\d+\.\d+\.\d+\.\d+$/.test(siteHost) ||
+  placeholder.test(siteHost);
+add(
+  "Site origin (canonical, sitemap, robots)",
+  !siteBad,
+  siteUrl === ""
+    ? "UNSET — falls back to http://localhost:3000, so the sitemap and every canonical name localhost"
+    : siteBad
+      ? `${siteUrl} is a stand-in host: canonical, og:url and every <loc> point at it instead of the public domain, so the domain cannot rank. Set NEXT_PUBLIC_SITE_URL=https://<your domain> (and rebuild — NEXT_PUBLIC_ values are baked in).`
+      : `${siteUrl}`,
+  true,
+);
 add(
   "AUTH_SECRET (BYOK encryption)",
   set(env.AUTH_SECRET),

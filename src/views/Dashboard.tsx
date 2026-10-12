@@ -11,8 +11,6 @@ import {
   Download,
   Snowflake,
   ShieldCheck,
-  Languages,
-  Timer,
   Search,
   Webhook,
   XCircle,
@@ -20,16 +18,19 @@ import {
   Wrench,
   Boxes,
   Workflow,
+  CheckCheck,
 } from "lucide-react";
-import { useApp, t } from "@/lib/store";
-import { RECENT_CALLS, AUDIT_LOG, KPIS, LANG_DIST, OUTCOME_DIST, TREND, VOICES } from "@/lib/data";
+import { useApp, t, type Lang } from "@/lib/store";
+import { VOICES } from "@/lib/data";
 import { StatusPill, LiveDot, Skeleton, Chip } from "@/components/fx/core";
-import { Counter } from "@/components/fx/core";
-import { TrendChart, HBars, Donut, Gauge, CompareBar, Sparkline } from "@/components/fx/charts";
+
+import { TrendChart, HBars, Donut } from "@/components/fx/charts";
 import { Pagination } from "@/components/fx/Pagination";
 import { RecordingPlayer } from "@/components/dashboard/RecordingPlayer";
+import { describeAnalyticsError } from "@/lib/console-errors";
+import { reportClientError } from "@/lib/client-diagnostics";
+import { CreditWidget } from "@/components/billing/CreditWidget";
 import { Switch } from "@/components/ui/switch";
-import { Slider } from "@/components/ui/slider";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { WorkflowGraph } from "./WorkflowGraph";
@@ -199,12 +200,22 @@ export function Dashboard() {
           <LiveDot />
           <span className="text-[12px] font-medium text-ink-2">
             {t(
-              "Demo bank · mock environment · all systems nominal",
-              "مصرف تجريبي · بيئة محاكاة · جميع الأنظمة تعمل بكفاءة",
+              "Live platform · all systems operational",
+              "المنصة المباشرة · جميع الأنظمة تعمل بكفاءة",
               lang,
             )}
           </span>
         </div>
+      </div>
+
+      {/* Prepaid wallet. Mounted above the tabs so it is on screen whatever tab
+          the operator is on: the balance is the number that stops the console
+          from firing (402 when it reaches zero), so it belongs where it can be
+          seen before the click, not on a billing tab someone has to navigate to.
+          It self-fetches `/api/console/me` and updates on the org's realtime
+          channel, so the figure is the row's, not a snapshot from page load. */}
+      <div className="mt-6">
+        <CreditWidget />
       </div>
 
       {/* tabs */}
@@ -253,6 +264,153 @@ export function Dashboard() {
   );
 }
 
+/* ————————————————— MEASURED OPERATIONAL DATA ————————————————— */
+
+/**
+ * The shape of `GET /api/console/analytics` (src/app/api/console/analytics/route.ts).
+ *
+ * Every number here is a query over this tenant's own `Case`, `UsageLedger` and
+ * `AuditLog` rows. Ratios arrive as `{ value, of }` rather than as percentages:
+ * `of: 0` is an UNKNOWN rate, not 0%, and a dashboard that renders "0.0%" to a
+ * tenant that has not placed a call tells their fraud team their contact rate is
+ * bad when nothing has happened yet. Metrics the platform does not record — CSAT
+ * above all, since no survey is sent and no column stores one — are absent from
+ * this type, so they cannot be rendered by accident.
+ */
+type Ratio = { value: number; of: number };
+
+type Analytics = {
+  window: { from: string; to: string; days: number };
+  kpis: {
+    casesOpened: number;
+    reached: Ratio;
+    confirmedFraud: Ratio;
+    handoffs: Ratio;
+    noAnswer: Ratio;
+    freezesStaged: number;
+    callDurationSeconds: { average: number | null; longest: number | null; measuredOver: number };
+    creditsConsumed: number;
+  };
+  lossAvoided: { currency: string; amountMinor: number; cases: number }[];
+  languages: { language: string; cases: number }[];
+  outcomes: { outcome: string; cases: number }[];
+  states: { state: string; cases: number }[];
+  trend: { weekStart: string; cases: number; confirmed: number; reached: number }[];
+  recentCalls: {
+    id: string;
+    caseRef: string;
+    state: string;
+    language: string;
+    outcome: string | null;
+    durationSeconds: number | null;
+    merchant: string | null;
+    amountMinor: number | null;
+    currency: string | null;
+    freezeStaged: boolean;
+    handoffQueued: boolean;
+    hasConversation: boolean;
+    createdAt: string;
+  }[];
+  audit: {
+    id: string;
+    callRef: string;
+    action: string;
+    intent: string | null;
+    callerId: string | null;
+    redactedText: string | null;
+    chainHash: string;
+    createdAt: string;
+  }[];
+};
+
+type AnalyticsView = {
+  data: Analytics | null;
+  loading: boolean;
+  /** Non-null when the read failed. The panel says so rather than showing zeros. */
+  error: string | null;
+};
+
+function useAnalytics(days = 30): AnalyticsView {
+  // One state object, written only from the request's own callbacks. The React
+  // compiler rule this satisfies is not pedantry here: a synchronous
+  // `setLoading(true)` in the effect body cascades a render on every mount, and
+  // on a panel whose whole job is to be on screen while an operator decides
+  // whether the product works.
+  const [state, setState] = useState<{
+    phase: "loading" | "ready" | "error";
+    data?: Analytics;
+    error?: string;
+  }>({ phase: "loading" });
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/console/analytics?days=${days}`, { cache: "no-store" })
+      .then(async (res) => {
+        const body = (await res.json()) as { data?: Analytics; error?: string };
+        if (cancelled) return;
+        if (!res.ok || !body.data) {
+          // A CODE, not a sentence: `AnalyticsUnavailable` renders the operator's
+          // language from it, and the raw status stays in the report below.
+          const code = body.error ?? `analytics_request_failed_${res.status}`;
+          reportClientError("analytics", new Error(code), { http_status: String(res.status) });
+          setState({ phase: "error", error: code });
+          return;
+        }
+        setState({ phase: "ready", data: body.data });
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        // "Failed to fetch" is a browser transport string. It goes to the console
+        // and Sentry; the panel gets a code and a sentence.
+        reportClientError("analytics", err);
+        setState({ phase: "error", error: "fetch_failed" });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [days]);
+
+  return {
+    data: state.data ?? null,
+    loading: state.phase === "loading",
+    error: state.phase === "error" ? (state.error ?? "unavailable") : null,
+  };
+}
+
+/** Minor units to a spoken figure: AED 250 000 minis → "250,000". */
+function minorUnits(minor: number): string {
+  return (minor / 100).toLocaleString("en-US", { maximumFractionDigits: 2 });
+}
+
+function pctOf(ratio: Ratio): string {
+  if (ratio.of <= 0) return "—";
+  return `${((ratio.value / ratio.of) * 100).toFixed(0)}%`;
+}
+
+/** The failed-read panel. A blank dashboard reads as an empty tenant. */
+function AnalyticsUnavailable({ lang, error }: { lang: Lang; error: string | null }) {
+  return (
+    <div className="rounded-3xl border border-red-200 bg-red-50 px-5 py-6">
+      <p className="text-[13.5px] font-semibold text-red-800">
+        {t("These numbers could not be read", "تعذّر قراءة هذه الأرقام", lang)}
+      </p>
+      <p className="mt-1 text-[12.5px] leading-relaxed text-red-700">
+        {t(
+          "The dashboard shows measured figures only, so it will not fill the gap with defaults. Nothing has been displayed rather than something inaccurate.",
+          "تعرض اللوحة الأرقام المقاسة فقط، ولن تملأ النقص بقيم افتراضية. لذا لم يُعرض أي شيء بدلاً من عرض رقم غير دقيق.",
+          lang,
+        )}
+      </p>
+      <p className="mt-2 text-[12.5px] leading-relaxed text-red-700">
+        {describeAnalyticsError(error, lang)}
+      </p>
+      {/* The code stays visible on purpose: it is what an operator quotes in a
+          support thread, and it is a code rather than a vendor sentence. */}
+      <p className="num mt-2 text-[11px] text-red-600">{error ?? "unavailable"}</p>
+    </div>
+  );
+}
+
 /* ————————————————— MONITOR ————————————————— */
 
 const OUTCOME_MAP: Record<
@@ -267,74 +425,136 @@ const OUTCOME_MAP: Record<
 
 function Monitor() {
   const { lang } = useApp();
-  const live = RECENT_CALLS[0];
+  const { data, loading, error } = useAnalytics();
+  const latest = data?.recentCalls[0] ?? null;
   // Which row owns audio playback. Held here rather than inside each player so
   // the "only one recording plays at a time" rule has a single owner — see
   // RecordingPlayer.
   const [playingId, setPlayingId] = useState<string | null>(null);
   return (
     <div className="grid gap-5 lg:grid-cols-[0.9fr_1.1fr]">
-      {/* live call */}
+      {/* the most recent intervention this tenant actually placed */}
       <div className="overflow-hidden rounded-3xl border border-primary/30 bg-white shadow-[0_18px_44px_-28px_rgba(11,122,85,0.5)]">
         <div className="flex items-center justify-between bg-[#0c110e] px-5 py-4">
           <div className="flex items-center gap-2.5">
-            <LiveDot className="text-green-bright" />
+            <LiveDot className={latest ? "text-green-bright" : "!bg-white/40"} />
             <span className="micro !text-[9.5px] text-white/70">
-              {t("Active call", "مكالمة نشطة", lang)} · SV-8642
+              {t("Most recent intervention", "آخر تدخل", lang)}
+              {latest ? ` · ${latest.caseRef}` : ""}
             </span>
           </div>
           <span className="num rounded-full bg-white/10 px-2.5 py-1 text-[11px] font-semibold text-white">
-            00:41
+            {latest?.durationSeconds != null
+              ? `${Math.floor(latest.durationSeconds / 60)}:${String(latest.durationSeconds % 60).padStart(2, "0")}`
+              : "—"}
           </span>
         </div>
         <div className="px-5 py-5">
-          <div className="flex items-start justify-between">
-            <div>
-              <p className="font-display text-lg font-semibold">{live.customer}</p>
-              <p className="num mt-1 text-[11px] text-ink-3">
-                +971 •• ••• 4567 · {live.lang} · {t("card", "بطاقة", lang)} ••4417
-              </p>
+          {loading && (
+            <div className="space-y-3">
+              <Skeleton className="h-5 w-40" />
+              <Skeleton className="h-3 w-56" />
+              <Skeleton className="h-3 w-full" />
             </div>
-            <StatusPill tone="red">{t("risk", "درجة الخطر", lang)} 0.94</StatusPill>
-          </div>
-
-          {/* state timeline */}
-          <div className="mt-5 space-y-2.5">
-            {[
-              { en: "Alert received", ar: "تم استلام التنبيه", ok: true, t: "0.0s" },
-              { en: "Call connected", ar: "تم توصيل المكالمة", ok: true, t: "1.2s" },
-              { en: "Identity verified", ar: "تم التحقق من الهوية", ok: true, t: "33s" },
-              { en: "Fraud confirmed", ar: "تم تأكيد الاحتيال", ok: true, t: "44s" },
-              { en: "Card freeze executed", ar: "تم تنفيذ تجميد البطاقة", ok: true, t: "50s" },
-              { en: "Warm handoff", ar: "تسليم مباشر", ok: false, t: "…" },
-            ].map((r) => (
-              <div key={r.en} className="flex items-center gap-2.5 text-[12.5px]">
-                <span
-                  className={cn(
-                    "flex h-4 w-4 items-center justify-center rounded-full border",
-                    r.ok ? "border-primary bg-primary" : "border-line bg-white",
-                  )}
-                >
-                  {r.ok && <span className="h-1.5 w-1.5 rounded-full bg-white" />}
-                </span>
-                <span className={r.ok ? "text-foreground" : "text-ink-3"}>
-                  {t(r.en, r.ar, lang)}
-                </span>
-                <span className="num ml-auto text-[10.5px] text-ink-3">{r.t}</span>
-              </div>
-            ))}
-          </div>
-
-          <div className="mt-5 flex items-center gap-2 rounded-xl bg-green-tint px-3.5 py-2.5">
-            <Snowflake className="h-3.5 w-3.5 text-green-deep" />
-            <span className="text-[12px] font-medium text-green-deep">
+          )}
+          {error && (
+            <p className="text-[12.5px] text-ink-2">
               {t(
-                "Temporary freeze active on ••4417 — reversible after case review",
-                "تجميد مؤقت نشط على ••4417 — قابل للإلغاء بعد مراجعة الحالة",
+                "The last call cannot be shown: the measured read failed.",
+                "لا يمكن عرض آخر مكالمة: تعذّرت القراءة المقيسة.",
                 lang,
               )}
-            </span>
-          </div>
+            </p>
+          )}
+          {!loading && !error && !latest && (
+            <p className="text-[12.5px] leading-relaxed text-ink-2">
+              {t(
+                "No intervention has been placed from this workspace yet. Nothing is shown until a real call exists — this panel never displays a representative call.",
+                "لم يتم تنفيذ أي تدخل من هذه المساحة بعد. لا يُعرض شيء حتى وجود مكالمة حقيقية — هذه اللوحة لا تعرض أي مكالمة تمثيلية.",
+                lang,
+              )}
+            </p>
+          )}
+          {latest && (
+            <>
+              <div className="flex items-start justify-between">
+                <div>
+                  <p className="font-display text-lg font-semibold">
+                    {latest.merchant ??
+                      t("No merchant on the signal", "لا يوجد تاجر في الإشارة", lang)}
+                  </p>
+                  <p className="num mt-1 text-[11px] text-ink-3">
+                    {latest.language} ·{" "}
+                    {latest.amountMinor != null && latest.currency
+                      ? `${minorUnits(latest.amountMinor)} ${latest.currency}`
+                      : t("no amount on the signal", "لا يوجد مبلغ في الإشارة", lang)}
+                  </p>
+                </div>
+                <StatusPill tone={latest.freezeStaged ? "red" : "gray"}>{latest.state}</StatusPill>
+              </div>
+
+              {/* What actually happened, as recorded by the case state machine —
+                  the machine's own states, not a scripted six-step story. A
+                  step is lit because a row says it is, and the list is the
+                  states this case reached rather than a fixed timeline. */}
+              <div className="mt-5 space-y-2.5">
+                {[
+                  { key: "signal", en: "Signal received", ar: "تم استلام التنبيه", ok: true },
+                  {
+                    key: "dial",
+                    en: "Call placed",
+                    ar: "تم إجراء المكالمة",
+                    ok: latest.durationSeconds != null,
+                  },
+                  {
+                    key: "outcome",
+                    en: "Answer recorded",
+                    ar: "تم تسجيل الرد",
+                    ok: latest.outcome != null,
+                  },
+                  {
+                    key: "freeze",
+                    en: "Freeze staged",
+                    ar: "تجميد مؤقت",
+                    ok: latest.freezeStaged,
+                  },
+                  {
+                    key: "handoff",
+                    en: "Warm handoff",
+                    ar: "تسليم مباشر",
+                    ok: latest.handoffQueued,
+                  },
+                ].map((r) => (
+                  <div key={r.key} className="flex items-center gap-2.5 text-[12.5px]">
+                    <span
+                      className={cn(
+                        "flex h-4 w-4 items-center justify-center rounded-full border",
+                        r.ok ? "border-primary bg-primary" : "border-line bg-white",
+                      )}
+                    >
+                      {r.ok && <span className="h-1.5 w-1.5 rounded-full bg-white" />}
+                    </span>
+                    <span className={r.ok ? "text-foreground" : "text-ink-3"}>
+                      {t(r.en, r.ar, lang)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+
+              {latest.freezeStaged && (
+                <div className="mt-5 flex items-center gap-2 rounded-xl bg-green-tint px-3.5 py-2.5">
+                  <Snowflake className="h-3.5 w-3.5 text-green-deep" />
+                  <span className="text-[12px] font-medium text-green-deep">
+                    {t(
+                      "A temporary freeze is staged on this case — reversible after case review",
+                      "تجميد مؤقت مُهيّأ على هذه الحالة — قابل للإلغاء بعد المراجعة",
+                      lang,
+                    )}
+                  </span>
+                </div>
+              )}
+            </>
+          )}
         </div>
       </div>
 
@@ -347,45 +567,79 @@ function Monitor() {
               {t("Recent intervention calls", "مكالمات التدخل الأخيرة", lang)}
             </h3>
           </div>
-          <Chip>{t("last 2 hrs · mock data", "آخر ساعتين · بيانات تجريبية", lang)}</Chip>
+          <Chip>
+            {data
+              ? t(`last ${data.window.days} days`, `آخر ${data.window.days} يوماً`, lang)
+              : t("loading", "جارٍ التحميل", lang)}
+          </Chip>
         </div>
         <div className="sv-scroll max-h-[430px] overflow-y-auto">
           <table className="w-full text-left text-[12.5px]">
             <thead className="sticky top-0 bg-paper">
               <tr className="micro !text-[9px] text-ink-3">
                 <th className="px-5 py-2.5 font-medium">{t("ID", "المعرّف", lang)}</th>
-                <th className="px-2 py-2.5 font-medium">{t("Customer", "العميل", lang)}</th>
+                <th className="px-2 py-2.5 font-medium">{t("Merchant", "التاجر", lang)}</th>
                 <th className="px-2 py-2.5 font-medium">{t("Lang", "اللغة", lang)}</th>
-                <th className="px-2 py-2.5 font-medium">{t("Trigger", "المُشغّل", lang)}</th>
+                <th className="px-2 py-2.5 font-medium">{t("State", "الحالة", lang)}</th>
                 <th className="px-2 py-2.5 font-medium">{t("Outcome", "النتيجة", lang)}</th>
-                <th className="px-2 py-2.5 font-medium">{t("Recording", "التسجيل", lang)}</th>
-                <th className="px-5 py-2.5 text-right font-medium">{t("CSAT", "الرضا", lang)}</th>
+                <th className="px-5 py-2.5 text-right font-medium">
+                  {t("Recording", "التسجيل", lang)}
+                </th>
               </tr>
             </thead>
             <tbody>
-              {RECENT_CALLS.map((c) => {
-                const o = OUTCOME_MAP[c.outcome];
+              {loading && (
+                <tr>
+                  <td colSpan={6} className="px-5 py-4">
+                    <Skeleton className="h-4 w-full" />
+                  </td>
+                </tr>
+              )}
+              {error && (
+                <tr>
+                  <td colSpan={6} className="px-5 py-4 text-[12.5px] text-ink-2">
+                    {t("The calls could not be read.", "تعذّرت قراءة المكالمات.", lang)}
+                  </td>
+                </tr>
+              )}
+              {!loading && !error && (data?.recentCalls.length ?? 0) === 0 && (
+                <tr>
+                  <td colSpan={6} className="px-5 py-4 text-[12.5px] text-ink-2">
+                    {t("No calls in this window.", "لا توجد مكالمات في هذه النافذة.", lang)}
+                  </td>
+                </tr>
+              )}
+              {data?.recentCalls.map((c) => {
+                const o = c.outcome ? OUTCOME_MAP[c.outcome] : undefined;
                 return (
                   <tr key={c.id} className="border-t border-line/70 transition hover:bg-paper/70">
-                    <td className="num px-5 py-3 text-ink-3">{c.id}</td>
-                    <td className="px-2 py-3 font-medium">{c.customer}</td>
-                    <td className="num px-2 py-3 text-ink-2">{c.lang}</td>
-                    <td className="max-w-[190px] truncate px-2 py-3 text-ink-2" title={c.trigger}>
-                      {c.trigger}
+                    <td className="num px-5 py-3 text-ink-3">{c.caseRef}</td>
+                    <td
+                      className="max-w-[190px] truncate px-2 py-3 font-medium"
+                      title={c.merchant ?? ""}
+                    >
+                      {c.merchant ?? "—"}
                     </td>
+                    <td className="num px-2 py-3 text-ink-2">{c.language}</td>
+                    <td className="num px-2 py-3 text-ink-2">{c.state}</td>
                     <td className="px-2 py-3">
-                      <StatusPill tone={o.tone}>{t(o.en, o.ar, lang)}</StatusPill>
+                      {o ? (
+                        <StatusPill tone={o.tone}>{t(o.en, o.ar, lang)}</StatusPill>
+                      ) : (
+                        <span className="num text-[11px] text-ink-3">
+                          {t("not recorded", "غير مُسجّلة", lang)}
+                        </span>
+                      )}
                     </td>
-                    <td className="px-2 py-3">
+                    <td className="px-5 py-3 text-right">
                       <RecordingPlayer
-                        src={c.recordingUrl}
+                        src={null}
                         caseId={c.id}
+                        caseRef={c.caseRef}
+                        retrievable={c.hasConversation}
                         playingId={playingId}
                         onPlay={setPlayingId}
                       />
-                    </td>
-                    <td className="num px-5 py-3 text-right text-ink-2">
-                      {c.csat ? c.csat.toFixed(1) : "—"}
                     </td>
                   </tr>
                 );
@@ -400,61 +654,132 @@ function Monitor() {
 
 /* ————————————————— ANALYTICS ————————————————— */
 
-/** 12-week x-axis labels for the prevented-loss trend chart */
-const WEEKS = Array.from({ length: 12 }, (_, i) => ({ en: `W${i + 1}`, ar: `أ${i + 1}` }));
+const OUTCOME_TONES: Record<string, { en: string; ar: string; color: string }> = {
+  fraud_confirmed: { en: "Fraud confirmed", ar: "احتيال مؤكد", color: "#d64550" },
+  legitimate: { en: "Legitimate", ar: "عملية مشروعة", color: "#0b7a55" },
+  unclear: { en: "Unclear", ar: "غير واضح", color: "#8aa396" },
+  not_recorded: { en: "No outcome recorded", ar: "لا نتيجة مسجلة", color: "#b97a11" },
+};
 
 function Analytics() {
   const { lang } = useApp();
+  const { data, loading, error } = useAnalytics(30);
+
+  if (error) return <AnalyticsUnavailable lang={lang} error={error} />;
+
+  if (loading || !data) {
+    return (
+      <div className="space-y-5">
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          {[0, 1, 2, 3].map((i) => (
+            <div key={i} className="rounded-2xl border border-line bg-white p-5">
+              <Skeleton className="h-3 w-24" />
+              <Skeleton className="mt-3 h-7 w-16" />
+              <Skeleton className="mt-3 h-1 w-full" />
+            </div>
+          ))}
+        </div>
+        <div className="rounded-3xl border border-line bg-white p-6">
+          <Skeleton className="h-4 w-52" />
+          <Skeleton className="mt-6 h-40 w-full" />
+        </div>
+      </div>
+    );
+  }
+
+  const k = data.kpis;
+  const totalCases = Math.max(1, k.casesOpened);
+
+  const cards: {
+    key: string;
+    en: string;
+    ar: string;
+    head: string;
+    noteEn: string;
+    noteAr: string;
+    icon: typeof BarChart3;
+  }[] = [
+    {
+      key: "opened",
+      en: "Interventions placed",
+      ar: "تدخلات نُفّذت",
+      head: k.casesOpened.toLocaleString(),
+      noteEn: `cases opened in the last ${data.window.days} days`,
+      noteAr: `حالات فُتحت خلال ${data.window.days} يوماً`,
+      icon: BarChart3,
+    },
+    {
+      key: "reached",
+      en: "Reached a human",
+      ar: "الوصول إلى شخص",
+      head: pctOf(k.reached),
+      noteEn: `${k.reached.value} of ${k.reached.of} cases${k.reached.of === 0 ? " — nothing to measure yet" : ""}`,
+      noteAr: `${k.reached.value} من ${k.reached.of}${k.reached.of === 0 ? " — لا يوجد ما يُقاس بعد" : ""}`,
+      icon: PhoneCall,
+    },
+    {
+      key: "fraud",
+      en: "Fraud confirmed",
+      ar: "احتيال مؤكد",
+      head: pctOf(k.confirmedFraud),
+      noteEn: `${k.confirmedFraud.value} of ${k.confirmedFraud.of} cases`,
+      noteAr: `${k.confirmedFraud.value} من ${k.confirmedFraud.of}`,
+      icon: ShieldCheck,
+    },
+    {
+      key: "handoff",
+      en: "Warm handoffs",
+      ar: "تسليم لأخصائي",
+      head: pctOf(k.handoffs),
+      noteEn: `${k.handoffs.value} of ${k.handoffs.of} reached calls`,
+      noteAr: `${k.handoffs.value} من ${k.handoffs.of} مكالمة وصلت`,
+      icon: Webhook,
+    },
+  ];
+
+  const trendSeries = data.trend;
+  const outcomeTotal = data.outcomes.reduce((acc, o) => acc + o.cases, 0);
+  const languageTotal = data.languages.reduce((acc, l) => acc + l.cases, 0);
+
   return (
     <div className="space-y-5">
-      {/* KPI cards */}
+      {/* KPI cards — every figure is this tenant's own rows, and a ratio shows its
+          denominator so an unknown rate cannot be read as a bad one. */}
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {KPIS.map((k, i) => {
-          const pctGood =
-            k.good === "up" ? (k.current / k.target) * 100 : (k.baseline / k.current) * 100;
+        {cards.map((c, i) => {
+          const Icon = c.icon;
+          const filled =
+            c.key === "opened"
+              ? 1
+              : c.key === "fraud"
+                ? k.confirmedFraud.value / totalCases
+                : c.key === "handoff"
+                  ? k.handoffs.value / Math.max(1, k.reached.of)
+                  : k.reached.value / totalCases;
           return (
             <motion.div
-              key={k.key}
+              key={c.key}
               initial={{ opacity: 0, y: 14 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: i * 0.06, duration: 0.45 }}
               className="rounded-2xl border border-line bg-white p-5"
             >
               <div className="flex items-center justify-between">
-                <p className="text-[12px] font-medium text-ink-2">{t(k.en, k.ar, lang)}</p>
-                {k.key === "delay" && <Timer className="h-3.5 w-3.5 text-ink-3" />}
-                {k.key === "csat" && <Languages className="h-3.5 w-3.5 text-ink-3" />}
-                {k.key === "prevention" && <ShieldCheck className="h-3.5 w-3.5 text-ink-3" />}
-                {k.key === "verify" && <Webhook className="h-3.5 w-3.5 text-ink-3" />}
+                <p className="text-[12px] font-medium text-ink-2">{t(c.en, c.ar, lang)}</p>
+                <Icon className="h-3.5 w-3.5 text-ink-3" />
               </div>
               <div className="mt-3 flex items-baseline gap-2">
-                <Counter
-                  to={k.current}
-                  decimals={k.key === "csat" ? 1 : 0}
-                  className="text-[30px] font-semibold tracking-tight"
-                />
-                <span className="num text-[12px] text-ink-3">{k.unit}</span>
-                <span
-                  className={cn(
-                    "num ml-auto rounded-full px-2 py-0.5 text-[10.5px] font-semibold",
-                    k.good === "up"
-                      ? "bg-green-tint text-green-deep"
-                      : "bg-amber-tint text-amber-soft",
-                  )}
-                >
-                  {t("base", "الأساس", lang)} {k.baseline}
-                  {k.unit === "s" && k.baseline >= 60 ? "m→" : k.unit}
-                </span>
+                <span className="num text-[30px] font-semibold tracking-tight">{c.head}</span>
               </div>
-              <div className="mt-3">
-                <Sparkline data={TREND.map((v) => v * (0.7 + i * 0.1))} up={k.good === "up"} />
-              </div>
-              <div className="mt-1 h-1 w-full overflow-hidden rounded-full bg-secondary">
+              <p className="mt-1 text-[11.5px] leading-snug text-ink-3">
+                {t(c.noteEn, c.noteAr, lang)}
+              </p>
+              <div className="mt-3 h-1 w-full overflow-hidden rounded-full bg-secondary">
                 <motion.div
                   className="h-full rounded-full bg-primary"
                   initial={{ width: 0 }}
-                  animate={{ width: `${Math.min(100, pctGood)}%` }}
-                  transition={{ duration: 1, delay: 0.3 }}
+                  animate={{ width: `${Math.min(100, Math.max(0, filled * 100))}%` }}
+                  transition={{ duration: 0.8, delay: 0.2 }}
                 />
               </div>
             </motion.div>
@@ -462,89 +787,183 @@ function Analytics() {
         })}
       </div>
 
-      {/* charts row */}
+      {/* measured amounts + the weekly series */}
       <div className="grid gap-5 lg:grid-cols-[1.25fr_0.75fr]">
         <div className="rounded-3xl border border-line bg-white p-5 sm:p-6">
           <div className="flex items-baseline justify-between">
             <h3 className="text-[14px] font-semibold">
-              {t(
-                "Prevented losses · 12 weeks (AED K)",
-                "الخسائر المُنعّة · 12 أسبوعاً (ألف درهم)",
-                lang,
-              )}
+              {t("Cases per week", "الحالات لكل أسبوع", lang)}
             </h3>
-            <span className="num text-[11px] text-green-deep">
-              {t("+172% since launch", "+172% منذ الإطلاق", lang)}
+            <span className="num text-[11px] text-ink-3">
+              {trendSeries.length === 0
+                ? t("no cases in window", "لا حالات في النافذة", lang)
+                : t(
+                    `${trendSeries.reduce((a, w) => a + w.cases, 0)} total`,
+                    `${trendSeries.reduce((a, w) => a + w.cases, 0)} إجمالاً`,
+                    lang,
+                  )}
             </span>
           </div>
-          <TrendChart
-            data={[...TREND]}
-            labels={WEEKS.map((w) => t(w.en, w.ar, lang))}
-            className="mt-4"
-          />
+          {trendSeries.length === 0 ? (
+            <p className="mt-6 text-[12.5px] leading-relaxed text-ink-2">
+              {t(
+                "Nothing to plot. This chart stays empty until the tenant has cases in the window — an invented curve is the one thing an operator cannot audit afterwards.",
+                "لا يوجد ما يُعرض. يبقى الرسم فارغاً حتى وجود حالات ضمن النافذة — المنحنى المخترع هو الشيء الوحيد الذي لا يستطيع المشرف تدقيقه لاحقاً.",
+                lang,
+              )}
+            </p>
+          ) : (
+            <TrendChart
+              data={trendSeries.map((w) => w.cases)}
+              labels={trendSeries.map((w) =>
+                new Date(w.weekStart).toLocaleDateString("en-GB", {
+                  day: "2-digit",
+                  month: "short",
+                }),
+              )}
+              className="mt-4"
+            />
+          )}
         </div>
+
         <div className="rounded-3xl border border-line bg-white p-5 sm:p-6">
           <h3 className="text-[14px] font-semibold">
-            {t("Call outcomes", "نتائج المكالمات", lang)}
+            {t("Outcome of recorded calls", "نتائج المكالمات المسجلة", lang)}
           </h3>
-          <div className="mt-4 flex items-center justify-center">
-            <Donut items={OUTCOME_DIST} />
-          </div>
-          <div className="mt-5 space-y-2">
-            {OUTCOME_DIST.map((o) => (
-              <div key={o.label} className="flex items-center gap-2.5 text-[12px]">
-                <span className="h-2.5 w-2.5 rounded-[4px]" style={{ background: o.color }} />
-                <span className="text-ink-2">{t(o.label, o.labelAr, lang)}</span>
-                <span className="num ml-auto font-semibold">{o.pct}%</span>
+          {outcomeTotal === 0 ? (
+            <p className="mt-4 text-[12.5px] text-ink-2">
+              {t("No outcomes recorded yet.", "لم تُسجل نتائج بعد.", lang)}
+            </p>
+          ) : (
+            <>
+              <div className="mt-4 flex items-center justify-center">
+                <Donut
+                  items={data.outcomes.map((o) => ({
+                    label: t(
+                      OUTCOME_TONES[o.outcome]?.en ?? o.outcome,
+                      OUTCOME_TONES[o.outcome]?.ar ?? o.outcome,
+                      lang,
+                    ),
+                    pct: Math.round((o.cases / outcomeTotal) * 100),
+                    color: OUTCOME_TONES[o.outcome]?.color ?? "#8aa396",
+                  }))}
+                />
               </div>
-            ))}
-          </div>
+              <div className="mt-5 space-y-2">
+                {data.outcomes.map((o) => (
+                  <div key={o.outcome} className="flex items-center gap-2.5 text-[12px]">
+                    <span
+                      className="h-2.5 w-2.5 rounded-[4px]"
+                      style={{ background: OUTCOME_TONES[o.outcome]?.color ?? "#8aa396" }}
+                    />
+                    <span className="text-ink-2">
+                      {t(
+                        OUTCOME_TONES[o.outcome]?.en ?? o.outcome,
+                        OUTCOME_TONES[o.outcome]?.ar ?? o.outcome,
+                        lang,
+                      )}
+                    </span>
+                    <span className="num ml-auto font-semibold">
+                      {o.cases}
+                      <span className="ml-1 text-ink-3">
+                        ({Math.round((o.cases / outcomeTotal) * 100)}%)
+                      </span>
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
         </div>
       </div>
 
-      {/* language + gauges */}
+      {/* money, languages, and what the platform actually enforced */}
       <div className="grid gap-5 lg:grid-cols-2">
         <div className="rounded-3xl border border-line bg-white p-5 sm:p-6">
           <h3 className="text-[14px] font-semibold">
             {t("Calls by customer language", "توزيع المكالمات حسب لغة العميل", lang)}
           </h3>
-          <HBars
-            items={LANG_DIST.map((l) => ({ label: t(l.lang, l.langAr, lang), pct: l.pct }))}
-            className="mt-5"
-          />
+          {languageTotal === 0 ? (
+            <p className="mt-5 text-[12.5px] text-ink-2">
+              {t("No calls in this window.", "لا مكالمات في هذه النافذة.", lang)}
+            </p>
+          ) : (
+            <HBars
+              items={data.languages.map((l) => ({
+                label: l.language,
+                sub: `${l.cases}`,
+                pct: Math.round((l.cases / languageTotal) * 100),
+              }))}
+              className="mt-5"
+            />
+          )}
+          <h3 className="mt-6 text-[14px] font-semibold">
+            {t("Amount at stake, by currency", "المبلغ المُهدد حسب العملة", lang)}
+          </h3>
+          {data.lossAvoided.length === 0 ? (
+            <p className="mt-2 text-[12.5px] text-ink-2">
+              {t(
+                "No confirmed-fraud case in this window carried an amount.",
+                "لم تحمل أي حالة احتيال مؤكدة مبلغاً في هذه النافذة.",
+                lang,
+              )}
+            </p>
+          ) : (
+            <ul className="mt-2 space-y-1.5">
+              {data.lossAvoided.map((l) => (
+                <li key={l.currency} className="flex items-center gap-2 text-[12.5px]">
+                  <span className="num text-ink-3">{l.cases}×</span>
+                  <span className="font-medium">
+                    {minorUnits(l.amountMinor)} {l.currency}
+                  </span>
+                  <span className="ml-auto text-[11px] text-ink-3">
+                    {t(
+                      "transaction value on confirmed cases",
+                      "قيمة العمليات في الحالات المؤكدة",
+                      lang,
+                    )}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
+
         <div className="rounded-3xl border border-line bg-white p-5 sm:p-6">
           <h3 className="text-[14px] font-semibold">
-            {t("Verification quality", "جودة التحقق", lang)}
+            {t("What the platform recorded", "ما سجلته المنصة", lang)}
           </h3>
-          <div className="mt-2 grid grid-cols-2 gap-4">
-            <div className="flex flex-col items-center pt-4">
-              <Gauge pct={87} label={t("challenge pass", "نجاح التحدي", lang)} />
-            </div>
-            <div className="flex flex-col items-center pt-4">
-              <Gauge pct={93} label={t("language lock held", "تثبيت اللغة", lang)} />
-            </div>
-          </div>
+          <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 text-[12.5px]">
+            <dt className="text-ink-2">{t("Freezes staged", "تجميدات مُهيّأة", lang)}</dt>
+            <dd className="num text-right font-semibold">{k.freezesStaged}</dd>
+            <dt className="text-ink-2">{t("No answer / unreachable", "لا رد / لم يُوصل", lang)}</dt>
+            <dd className="num text-right font-semibold">
+              {k.noAnswer.value}
+              <span className="ml-1 text-ink-3">/ {k.noAnswer.of}</span>
+            </dd>
+            <dt className="text-ink-2">{t("Average call length", "متوسط مدة المكالمة", lang)}</dt>
+            <dd className="num text-right font-semibold">
+              {k.callDurationSeconds.average === null ? "—" : `${k.callDurationSeconds.average}s`}
+            </dd>
+            <dt className="text-ink-2">{t("Longest call", "أطول مكالمة", lang)}</dt>
+            <dd className="num text-right font-semibold">
+              {k.callDurationSeconds.longest === null ? "—" : `${k.callDurationSeconds.longest}s`}
+            </dd>
+            <dt className="text-ink-2">{t("Credits consumed", "اعتمادات مُستهلكة", lang)}</dt>
+            <dd className="num text-right font-semibold">{k.creditsConsumed}</dd>
+          </dl>
           <div className="mt-4 rounded-xl bg-paper px-4 py-3 text-[12px] leading-relaxed text-ink-2">
             {t(
-              "Zero PIN/password request attempts across",
-              "صفر محاولات لطلب الرموز السرية أو كلمات المرور في",
+              "Every figure above is a query over this workspace's own cases. Metrics the platform does not collect — a satisfaction score, for one — are not shown, because a number nobody measured cannot be defended in an audit.",
+              "كل رقم أعلاه استعلام عن حالات هذه المساحة نفسها. المقاييس التي لا تجمعها المنصة — مثل درجة الرضا — لا تُعرض، لأن رقماً لم يُقاس لا يمكن الدفاع عنه في التدقيق.",
               lang,
-            )}{" "}
-            <span className="num font-semibold">1,284</span>{" "}
-            {t(
-              "calls · 30-day window. Guardrail violations:",
-              "مكالمة · نافذة 30 يوماً. مخالفات الضوابط:",
-              lang,
-            )}{" "}
-            <span className="num font-semibold text-green-deep">0</span>.
+            )}
           </div>
         </div>
       </div>
     </div>
   );
 }
-
 /* ————————————————— CONFIG ————————————————— */
 
 const GUARDRAILS = [
@@ -1046,7 +1465,6 @@ function AgentWorkflowsSection() {
 function Config() {
   const { lang } = useApp();
   const [guards, setGuards] = useState(GUARDRAILS.map((g) => g.on));
-  const [threshold, setThreshold] = useState([0.8]);
   const [selectedVoice, setSelectedVoice] = useState("fatima");
   const { toast } = useToast();
 
@@ -1186,33 +1604,45 @@ function Config() {
           </div>
         </div>
 
-        {/* threshold */}
+        {/* what decides whether a call is placed at all */}
         <div className="rounded-3xl border border-line bg-white p-5 sm:p-6">
           <h3 className="text-[14px] font-semibold">
-            {t("Intervention risk threshold", "حد مخاطر التدخل", lang)}
+            {t("Gates a signal must clear", "البوابات التي يجب أن تتجاوزها الإشارة", lang)}
           </h3>
-          <div className="mt-5 flex items-center gap-5">
-            <Slider
-              value={threshold}
-              onValueChange={setThreshold}
-              min={0.5}
-              max={0.99}
-              step={0.01}
-              className="flex-1"
-            />
-            <span className="num w-16 rounded-lg bg-green-tint py-1.5 text-center text-[14px] font-bold text-green-deep">
-              {threshold[0].toFixed(2)}
-            </span>
-          </div>
-          <p className="mt-4 text-[12px] leading-relaxed text-ink-2">
-            {t(
-              "Agent triggers only above this risk score — keeps false positives off customers' phones. Current rate:",
-              "لا يتخذ الوكيل إجراءً إلا فوق درجة الخطر هذه — مما يُبعد الإنذارات الكاذبة عن هواتف العملاء. المعدل الحالي:",
-              lang,
-            )}{" "}
-            <span className="num font-semibold">3.1%</span>{" "}
-            {t("of alerts suppressed.", "من التنبيهات تم كبتها.", lang)}
-          </p>
+          {/*
+            No risk-score knob. There was a slider here bound to local state that
+            nothing read: moving it changed nothing about which calls were placed,
+            which is worse than absent because it looked like the control. The
+            score is the bank's own model's output — this platform has no basis to
+            second-guess it — and the gates that actually refuse a signal are the
+            four below, each enforced in `armAndDial`
+            (src/app/api/v1/interventions/route.ts).
+          */}
+          <ul className="mt-4 space-y-2 text-[12.5px] leading-relaxed">
+            {[
+              {
+                en: "Consent and do-not-call — an opted-out number is never dialled.",
+                ar: "الموافقة وعدم الاتصال — لا يُطلب أي رقم انسحب.",
+              },
+              {
+                en: "Geo allowlist — the destination country must be permitted for this organisation.",
+                ar: "قائمة الدول — يجب أن تكون وجهة الاتصال مسموحة لهذه المؤسسة.",
+              },
+              {
+                en: "Velocity and prefix-burst — a campaign cannot hammer the carrier account.",
+                ar: "السرعة وتجمّع الأرقام — لا يمكن لحملة أن تُغرق حساب الناقل.",
+              },
+              {
+                en: "Credit balance — an empty wallet refuses with 402 rather than dialling on trust.",
+                ar: "رصيد الاعتمادات — الرصيد الخالي يرفض بـ 402 بدلاً من الاتصال على الافتراض.",
+              },
+            ].map((g) => (
+              <li key={g.en} className="flex items-start gap-2.5">
+                <CheckCheck className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
+                <span className="text-ink-2">{t(g.en, g.ar, lang)}</span>
+              </li>
+            ))}
+          </ul>
         </div>
       </div>
     </div>
@@ -1226,27 +1656,67 @@ const PAGE_SIZE = 5;
 function Compliance() {
   const { lang } = useApp();
   const [page, setPage] = useState(1);
-  const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
   const { toast } = useToast();
+  // The sealed rows, read from the same tenant-scoped query the KPI panels use.
+  // There is no `loading` timer here: the previous version waited 750ms to
+  // pretend it had fetched something, then rendered a hand-written array.
+  const { data, loading, error } = useAnalytics(90);
 
-  useEffect(() => {
-    const timer = setTimeout(() => setLoading(false), 750);
-    return () => clearTimeout(timer);
-  }, []);
-
+  const events = data?.audit ?? [];
   const filtered = useMemo(
     () =>
-      AUDIT_LOG.filter(
+      events.filter(
         (a) =>
-          a.event.toLowerCase().includes(query.toLowerCase()) ||
-          a.detail.toLowerCase().includes(query.toLowerCase()),
+          `${a.action} ${a.intent ?? ""} ${a.callRef}`
+            .toLowerCase()
+            .includes(query.toLowerCase()) ||
+          (a.redactedText ?? "").toLowerCase().includes(query.toLowerCase()),
       ),
-    [query],
+    [query, events],
   );
   const pages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const safePage = Math.min(page, pages);
   const rows = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+
+  // A real file from the rows on screen, not a toast promising one. BOM first so
+  // Excel reads the Arabic; every field quoted because a redacted transcript can
+  // contain commas and quotes by construction.
+  const exportCsv = () => {
+    const header = ["created_at", "case_ref", "action", "intent", "actor", "detail", "chain_hash"];
+    const escape = (v: string) => `"${v.replace(/"/g, '""')}"`;
+    const lines = [
+      header.join(","),
+      ...filtered.map((a) =>
+        [
+          a.createdAt,
+          a.callRef,
+          a.action,
+          a.intent ?? "",
+          a.callerId ?? "",
+          a.redactedText ?? "",
+          a.chainHash,
+        ]
+          .map(escape)
+          .join(","),
+      ),
+    ];
+    const blob = new Blob(["" + lines.join("\r\n")], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `securevoice-audit-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast({
+      title: t("Audit rows exported", "تم تصدير سجل التدقيق", lang),
+      description: t(
+        `${filtered.length} sealed rows. Exporting does not verify them — run the chain check on the case page.`,
+        `${filtered.length} مدخلاً مُغلّفاً. التصدير لا يتحقق منها — نفّذ فحص السلسلة في صفحة الحالة.`,
+        lang,
+      ),
+    });
+  };
 
   return (
     <div className="rounded-3xl border border-line bg-white">
@@ -1272,17 +1742,9 @@ function Compliance() {
             />
           </div>
           <button
-            onClick={() =>
-              toast({
-                title: t("Compliance report queued", "تم جدولة تقرير الامتثال", lang),
-                description: t(
-                  "CSV export of 14 sealed entries will download shortly (demo).",
-                  "سيتم تنزيل تصدير CSV لـ 14 مدخلة مُغلّفة بعد قليل (عرض توضيحي).",
-                  lang,
-                ),
-              })
-            }
-            className="flex h-9 items-center gap-2 rounded-lg border border-line bg-white px-3 text-[12px] font-semibold text-ink-2 transition hover:border-primary/40 hover:text-primary"
+            onClick={exportCsv}
+            disabled={filtered.length === 0}
+            className="flex h-9 items-center gap-2 rounded-lg border border-line bg-white px-3 text-[12px] font-semibold text-ink-2 transition hover:border-primary/40 hover:text-primary disabled:opacity-50"
           >
             <Download className="h-3.5 w-3.5" />
             {t("Export", "تصدير", lang)}
@@ -1314,29 +1776,61 @@ function Compliance() {
               </tr>
             </thead>
             <tbody>
+              {error && (
+                <tr>
+                  <td colSpan={5} className="py-4 text-[12.5px] text-ink-2">
+                    {t(
+                      "The audit feed could not be read. An empty table here is not evidence the log is empty.",
+                      "تعذّرت قراءة سجل التدقيق. جدول فارغ هنا ليس دليلاً على أن السجل فارغ.",
+                      lang,
+                    )}
+                  </td>
+                </tr>
+              )}
+              {!loading && !error && rows.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="py-4 text-[12.5px] text-ink-2">
+                    {t(
+                      "No sealed rows match this filter in the last 90 days.",
+                      "لا توجد مدخلات مُغلّفة تطابق هذا التصفية خلال آخر 90 يوماً.",
+                      lang,
+                    )}
+                  </td>
+                </tr>
+              )}
               {rows.map((a) => (
                 <tr
-                  key={a.ts + a.hash}
+                  key={a.id}
                   className="border-t border-line/70 align-top transition hover:bg-paper/60"
                 >
-                  <td className="num py-3 pr-3 text-ink-3">{a.ts}</td>
+                  <td className="num py-3 pr-3 text-ink-3">
+                    {new Date(a.createdAt).toLocaleString("en-GB", {
+                      day: "2-digit",
+                      month: "short",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                  </td>
                   <td className="py-3 pr-3">
                     <span
                       className={cn(
                         "num rounded-md px-1.5 py-0.5 text-[10px] font-semibold",
-                        a.event.includes("FROZEN") || a.event.includes("CONFIRMED")
-                          ? "bg-green-tint text-green-deep"
-                          : a.event.includes("ALERT")
-                            ? "bg-red-tint text-red-soft"
+                        a.action === "freeze"
+                          ? "bg-red-tint text-red-soft"
+                          : a.action === "agent"
+                            ? "bg-green-tint text-green-deep"
                             : "bg-secondary text-ink-2",
                       )}
                     >
-                      {a.event}
+                      {a.intent ?? a.action}
                     </span>
                   </td>
-                  <td className="num py-3 pr-3 text-ink-2">{a.actor}</td>
-                  <td className="max-w-[340px] py-3 pr-3 text-ink-2">{a.detail}</td>
-                  <td className="num py-3 text-right text-[10.5px] text-ink-3">{a.hash}</td>
+                  <td className="num py-3 pr-3 text-ink-2">{a.callerId ?? "system"}</td>
+                  <td className="max-w-[340px] py-3 pr-3 text-ink-2">
+                    <span className="num text-[10.5px] text-ink-3">{a.callRef}</span>
+                    {a.redactedText ? ` · ${a.redactedText}` : ""}
+                  </td>
+                  <td className="num py-3 text-right text-[10.5px] text-ink-3">{a.chainHash}</td>
                 </tr>
               ))}
             </tbody>
@@ -1487,7 +1981,7 @@ function WebhooksDemo() {
                     lang,
                   )}
                 </div>
-                <pre className="max-h-44 overflow-auto rounded-xl bg-[#0c110e] px-4 py-3 font-mono text-[11.5px] leading-relaxed text-white/85 sv-scroll">
+                <pre className="sv-scroll sv-scroll--dark max-h-44 overflow-auto rounded-xl bg-[#0c110e] px-4 py-3 font-mono text-[11.5px] leading-relaxed text-white/85">
                   {signed.payload}
                 </pre>
               </div>
@@ -1601,7 +2095,7 @@ function WebhooksDemo() {
           <div className="font-mono text-[10.5px] uppercase tracking-wider text-white/50">
             {t("verify in 6 lines", "تحقق في 6 أسطر", lang)}
           </div>
-          <pre className="mt-3 overflow-x-auto font-mono text-[11px] leading-relaxed text-white/85 sv-scroll">
+          <pre className="sv-scroll sv-scroll--dark mt-3 overflow-x-auto font-mono text-[11px] leading-relaxed text-white/85">
             {`const hmac = crypto
   .createHmac("sha256", secret)
   .update(\`\${t}.${"${rawBody}"}\`)

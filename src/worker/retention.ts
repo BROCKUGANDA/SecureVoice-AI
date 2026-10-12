@@ -17,8 +17,11 @@
  */
 // NOTE: deliberately NO `import "server-only"` here — see src/worker/dial.ts.
 
-import { runRetention, type RetentionRunReport } from "@/lib/privacy/retention";
+import { runRetention, registerAudioStore, type RetentionRunReport } from "@/lib/privacy/retention";
+import { retentionAudioStore } from "@/lib/storage/retention-audio-store";
+import { storageConfigured } from "@/lib/storage/s3";
 import { logError, logInfo } from "@/lib/validation/safe-log";
+import { installProcessCrashHandlers } from "@/lib/process-crash-handlers";
 
 const SWEEP_HOURS = Number(process.env.RETENTION_SWEEP_HOURS ?? 24);
 const ONCE = process.argv.includes("--once");
@@ -50,6 +53,29 @@ async function sweep(): Promise<RetentionRunReport> {
 
 async function main(): Promise<void> {
   logInfo("[retention-worker] starting", { sweepHours: SWEEP_HOURS, dryRun: DRY_RUN });
+
+  // The audio tier can only delete an object store it can reach, and reaching it
+  // is a registration the library cannot make for itself: `retention.ts` keeps the
+  // seam so a deployment without a bucket stays honest (`none-configured`) instead
+  // of pretending. Until this line existed, NOTHING outside the privacy suite ever
+  // called `registerAudioStore()`, so a deployment archiving recordings to R2 ran
+  // its 30-day audio tier, reported it, and left every object in the bucket.
+  //
+  // Conditional rather than unconditional on purpose: registering against an
+  // unconfigured store would turn every due case into a thrown refusal and fill
+  // `report.errors` with a deployment fact, not a failure. The sweep's own report
+  // carries the posture (`audioStore: configured | none-configured`), which is the
+  // evidence; this log line is so the reason appears next to it.
+  if (storageConfigured()) {
+    registerAudioStore(retentionAudioStore);
+    logInfo("[retention-worker] audio tier wired to the object store", {
+      store: "recordings (R2/S3)",
+    });
+  } else {
+    logInfo("[retention-worker] no object store configured; audio tier deletes nothing", {
+      expectedWhen: "R2_* / S3_* environment is absent",
+    });
+  }
 
   if (ONCE) {
     const report = await sweep();
@@ -91,6 +117,7 @@ async function main(): Promise<void> {
 }
 
 if (import.meta.main) {
+  installProcessCrashHandlers();
   main().catch((err) => {
     logError("[retention-worker] fatal", { error: err instanceof Error ? err.message : err });
     process.exit(1);

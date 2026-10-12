@@ -4,11 +4,11 @@
   "command": "bun test tests/tenancy/isolation.test.ts --timeout 300000",
   "ok": true,
   "exit_code": 0,
-  "duration_ms": 99636,
+  "duration_ms": 5410,
   "passed": 4,
   "failed": 0,
-  "assertions": 524,
+  "assertions": 570,
   "database": "shared test database",
-  "generated_at": "2026-10-07T12:25:58.607Z",
-  "output_tail": "bun test v1.4.2 (744846f84)\n\n\ntests\\tenancy\\isolation.test.ts:\n(pass) WP-12 · matrix fails closed: canonical list and matrix are the same set [1.34ms]\n(pass) WP-12 · guard is fail-closed: an unscoped read is refused, not served [5794.02ms]\n(pass) WP-12 · isolation: every read path × both orgs [67216.99ms]\n(pass) WP-12 · evidence artifact is deterministic and well-formed [12.52ms]\n\n 4 pass\n 0 fail\n 524 expect() calls\nRan 4 tests across 1 file. [99.58s]\n"
+  "generated_at": "2026-10-11T23:25:52.997Z",
+  "output_tail": "bun test v1.4.2 (744846f84)\n\n\ntests\\tenancy\\isolation.test.ts:\n\u001b[2m2026-10-11T23:25:49.239Z\u001b[0m \u001b[33mWARN\u001b[0m \u001b[1m[Better Auth]:\u001b[0m [Sentinel] Missing BETTER_AUTH_API_KEY. Security checks may fall back to allow mode when the Infra API rejects requests.\n\u001b[2m2026-10-11T23:25:49.239Z\u001b[0m \u001b[33mWARN\u001b[0m \u001b[1m[Better Auth]:\u001b[0m [Dash] No API key provided for email sending. Set BETTER_AUTH_API_KEY environment variable or pass apiKey in config.\n(pass) WP-12 · matrix fails closed: canonical list and matrix are the same set [4.03ms]\n(pass) WP-12 · guard is fail-closed: an unscoped read is refused, not served [174.20ms]\n{\"level\":\"error\",\"msg\":\"[pilot] notification enqueue failed\",\"ts\":\"2026-10-11T23:25:51.874Z\",\"fields\":{\"ref\":\"SV-P-G2QCC\",\"error\":\"APP_BASE_URL (or NEXT_PUBLIC_APP_URL) must be set to build email links\"}}\n(pass) WP-12 · isolation: every read path × both orgs [2077.21ms]\n(pass) WP-12 · evidence artifact is deterministic and well-formed [175.81ms]\n\n 4 pass\n 0 fail\n 570 expect() calls\nRan 4 tests across 1 file. [5.12s]\n"
 }

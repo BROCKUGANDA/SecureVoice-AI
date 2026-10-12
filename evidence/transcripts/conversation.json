@@ -1,9 +1,9 @@
 {
   "schema_version": "1.0",
   "artifact": "conversation-transcript",
-  "case_ref": "SV-F-TMV1ONGUZ",
-  "conversation_id": "conv_dryrun_SV-F-TMV1ONGUZ",
-  "captured_at": "2026-10-10T00:56:40.613Z",
+  "case_ref": "SV-F-TMV4HZXZU",
+  "conversation_id": "conv_dryrun_SV-F-TMV4HZXZU",
+  "captured_at": "2026-10-12T00:12:40.197Z",
   "mode": {
     "dial": "dry-run",
     "vendor_evidence": false,
@@ -14,7 +14,7 @@
     "adapter": "conversation.elevenlabs (registry binding)",
     "via": "placeOutboundCall (src/lib/elevenlabs/outbound-call.ts)",
     "dry_run": true,
-    "call_sid": "CA_dryrun_SV-F-TMV1ONGUZ"
+    "call_sid": "CA_dryrun_SV-F-TMV4HZXZU"
   },
   "ingest": {
     "handler": "POST /api/webhooks/elevenlabs",
@@ -84,7 +84,7 @@
     "case_state_after_ingest": "NOTIFIED",
     "audit_chain": {
       "verified": true,
-      "entries": 3
+      "entries": 2
     }
   },
   "bank_notification": {

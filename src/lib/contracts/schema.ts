@@ -979,6 +979,20 @@ export const ERROR_CODES: readonly ErrorCodeEntry[] = [
       "Read `message`, fix the named field, re-send. Do not retry unchanged. NOTE: this ingest does not distinguish an unknown field from any other validation failure — `unknown_field` is emitted only by the legacy tool endpoints below. See `docs/INTEGRATION-CONTRACT.md` for the full field table.",
   },
   {
+    id: "payment_required",
+    status: 402,
+    code: "payment_required",
+    literal: "payment_required",
+    surface: "http_body",
+    envelope: "failure_envelope_v1",
+    reachedFrom: [INGEST],
+    retryable: false,
+    meaning:
+      "The signal was refused because the organisation's prepaid balance cannot cover the call. This is the ONLY refusal on this endpoint that the caller can resolve itself — every `policy_precondition` refusal is a decision about the customer that retrying cannot change, while an empty wallet is a decision about the account that a top-up changes immediately. The specific cause (`credits_exhausted`) appears in `message`.",
+    remediation:
+      "Top up the credits wallet, then re-send the signal. Do NOT retry unchanged: nothing becomes available on its own, and a retry loop against an unpaid account is the traffic a 402 exists to stop. The refused signal reserved nothing, so re-sending it after funding costs one call, not two.",
+  },
+  {
     id: "policy_precondition",
     status: 409,
     code: "policy_precondition",
@@ -988,7 +1002,7 @@ export const ERROR_CODES: readonly ErrorCodeEntry[] = [
     reachedFrom: [INGEST],
     retryable: false,
     meaning:
-      "The signal was refused by a policy or a guardrail: the customer has opted out, the destination country is not allowed, the org is at its concurrency cap or spend ceiling, credits are exhausted, the destination is in cooldown, or the velocity breaker has paused the org. The specific cause is the `gate_*` / `abuse_*` row whose literal appears in `message`.",
+      "The signal was refused by a policy or a guardrail: the customer has opted out, the destination country is not allowed, the org is at its concurrency cap or spend ceiling, the destination is in cooldown, the velocity breaker has paused the org, or its subscription is paused. An empty prepaid balance is NOT this code — it is `payment_required` (402), because that is the one refusal the caller can clear by paying. The specific cause is the `gate_*` / `abuse_*` row whose literal appears in `message`.",
     remediation:
       "Do NOT blind-retry: most policy refusals (consent, geography) must never be retried. The cause is named in `message` and is the value to branch on after reading it. For the transient causes — cooldown, concurrency caps, spend ceiling — a delayed retry is correct.",
   },
@@ -1225,17 +1239,40 @@ export const ERROR_CODES: readonly ErrorCodeEntry[] = [
     remediation: "Retry after the window resets, or have the ceiling raised.",
   },
   {
+    // 402, not 409 — and the distinction is load-bearing for the caller. Every
+    // other gate refusal is a decision about the CUSTOMER (consent, geography,
+    // do-not-call, cooldown) that retrying cannot change; an empty wallet is a
+    // decision about the ACCOUNT that a top-up changes immediately. A bank's
+    // integration branches on exactly this, so the status says it as plainly as
+    // the code does.
     id: "gate_credits_exhausted",
-    status: 409,
+    status: 402,
     code: null,
     literal: "credits_exhausted",
     surface: "http_message",
     envelope: "failure_envelope_v1",
     reachedFrom: [INGEST],
-    envelopeCode: "policy_precondition",
+    envelopeCode: "payment_required",
     retryable: false,
-    meaning: "No credits remain for this organisation, or the credit reservation was refused.",
-    remediation: "Top up the credits wallet. Retrying without credits fails identically.",
+    meaning:
+      "No credits remain for this organisation, or the credit reservation was refused. Nothing was reserved and no call was placed — the refusal happens before any spend is committed, so a rejected signal costs nothing. This is the one gate refusal a caller can clear itself: top up the wallet and the same signal is diallable again.",
+    remediation:
+      "Top up the credits wallet (a prepaid pack, or resume the subscription). Retrying the identical signal with the SAME `Idempotency-Key` after funding will not re-dial — the key was released on refusal, so re-send it as a fresh request once the balance covers the call.",
+  },
+  {
+    id: "gate_subscription_paused",
+    status: 409,
+    code: null,
+    literal: "subscription_paused",
+    surface: "http_message",
+    envelope: "failure_envelope_v1",
+    reachedFrom: [INGEST],
+    envelopeCode: "policy_precondition",
+    retryable: true,
+    meaning:
+      "The organisation's Paddle subscription is PAUSED, so outbound intervention calls are not being placed. This is the tenant's own billing preference, not a fault and not a spend limit: `past_due` and `canceled` deliberately do NOT produce this code, and a paused tenant keeps product access and keeps their credits. Signals are refused at ingest, before any credit is reserved, so a refused signal costs nothing.",
+    remediation:
+      "Resume the subscription from the billing portal (or wait for the scheduled resume). Dialling resumes on the next signal — no re-send of the refused ones is required for anything that is still time-critical, and a paused fraud queue should be re-driven by the bank once calls are allowed again.",
   },
   {
     id: "gate_invalid_e164",

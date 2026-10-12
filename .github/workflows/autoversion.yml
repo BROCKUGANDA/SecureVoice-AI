@@ -1,8 +1,9 @@
 # ---------------------------------------------------------------------------
 # SecureVoice AI — automatic version and tag
 #
-#   green CI on main ─▶ patch bump package.json ─▶ commit ─▶ tag vX.Y.Z ─▶ push tag
+#   green CI on main ─▶ tag vX.Y.Z (the version already in the tree) ─▶ push tag
 #                      ─▶ Release workflow publishes the image + GitHub Release
+#                      ─▶ bump PR for vX.Y.(Z+1) opened for the next release
 #
 # WHY A VERSION BUMP AUTOMATICALLY
 #
@@ -15,28 +16,38 @@
 # THE LOOP, AND HOW IT IS BROKEN
 #
 # This workflow pushes a commit to `main`. That commit would trigger CI, which
-# would trigger this workflow again, forever. Two independent guards stop it:
+# would trigger this workflow again, forever.
 #
-#   1. `paths-ignore: package.json` — this job only reacts to pushes that did
-#      NOT touch package.json. Its own commit does, so it cannot re-trigger.
+# TWO GUARDS, AND WHAT EACH ONE IS FOR
+#
+#   1. `workflow_run` (CI/completed/main) — this job only starts AFTER CI
+#      finishes on `main`, and refuses any upstream conclusion that is not
+#      `success`. The previous `push` trigger raced CI: the gate read
+#      check-runs while they were still queued (conclusion null) or while a
+#      flaky run was red, so nearly every push refused and main went without
+#      tags or releases. The upstream conclusion is known here, not guessed.
+#
 #   2. The tag-already-exists check — if `v<package.json version>` is already a
-#      tag, there is nothing to release and the job exits successfully without
-#      committing. This is the real guarantee: even a manual re-run, or a
-#      re-tag, produces no second bump.
+#      tag, this run cuts no new tag. It still ensures the bump PR for the next
+#      version exists (see below), because that PR is the only way package.json
+#      ever moves on: a run that exited outright here would leave a tagged main
+#      stuck forever, which is exactly what happened before 2026-10-12. The
+#      branch check makes the repeat runs no-ops.
+#
+# The version bump for the NEXT release travels as a `chore(release)` pull
+# request, because `main` is protected ("changes must be made through a pull
+# request") and a tag push — the thing that fires release.yml — is not a branch
+# change. So: this workflow tags what is in the tree, and prepares the bump.
 #
 # It also runs ONLY on CI green, so a broken main cannot produce a release.
 # ---------------------------------------------------------------------------
 name: AutoVersion
 
 on:
-  push:
-    branches: [main]
-    paths-ignore:
-      - "package.json"
-      - "**.md"
-      - "docs/**"
-      - "evidence/**"
-      - ".github/workflows/autoversion.yml"
+  workflow_run:
+    workflows: ["CI"]
+    branches: ["main"]
+    types: [completed]
   workflow_dispatch:
 
 permissions:
@@ -94,21 +105,34 @@ jobs:
           "$HOME/.bun/bin/bun" --version
 
       # The gating rule. A release is a claim that this commit works, and this
-      # is where that claim is checked rather than asserted.
+      # is where that claim is checked rather than asserted. On the
+      # `workflow_run` path the upstream conclusion is authoritative; the
+      # check-runs read below is a second opinion on the exact commit.
       - name: Refuse to release a commit CI did not prove
         env:
           EVENT: ${{ github.event_name }}
+          UPSTREAM_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
           GH_TOKEN: ${{ secrets.PROMOTE_TOKEN }}
         run: |
           if [ "$EVENT" = "workflow_dispatch" ]; then
             echo "manual run: verifying CI on main is currently green"
           else
-            echo "push to main: verifying the CI check on this exact commit is green"
+            [ "$UPSTREAM_CONCLUSION" = "success" ] || {
+              echo "::error::upstream CI run concluded '${UPSTREAM_CONCLUSION}'. Production only releases what CI proved green."
+              exit 1
+            }
+            echo "upstream CI run: success"
           fi
+          # Second opinion, and deliberately narrow: only completed runs count,
+          # so a queued twin can neither pass nor fail this gate, and only the
+          # two required contexts are read, so unrelated red (code scanning,
+          # a stale deploy) cannot veto a release. At least one completed
+          # success and zero completed failures is green.
           code=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/check-runs" \
             --jq '[.check_runs[]
                   | select((.name | startswith("Lint, typecheck"))
-                        or (.name | startswith("Compose stack")))]
+                        or (.name | startswith("Compose stack")))
+                  | select(.status == "completed")]
                   | if length == 0 then "missing"
                     else (map(select(.conclusion != "success")) | if length == 0 then "success" else "failing" end)
                     end')
@@ -146,16 +170,6 @@ jobs:
           current=$(node -p "require('./package.json').version")
           echo "current version: $current"
 
-          # THE LOOP GUARD. A version that already has a tag is a version that
-          # already shipped; bumping again would publish the same code twice
-          # under two numbers and make "which build am I running?" unanswerable.
-          if git rev-parse -q --verify "refs/tags/v$current" >/dev/null; then
-            echo "v$current is already tagged — main is released, nothing to do."
-            echo "released=false" >> "$GITHUB_OUTPUT"
-            echo "### v$current is already released" >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-
           # scripts/bump-version.mjs takes an EXPLICIT version and refuses
           # anything not strictly greater — the property worth keeping. It does
           # not compute the next version, so the patch increment happens here and
@@ -164,6 +178,34 @@ jobs:
           # intact instead of the shell expanding `${maj}` as a variable.
           next=$(node -e 'const [maj, min, pat] = process.argv[1].split(".").map(Number); console.log(maj + "." + min + "." + (pat + 1));' "$current")
           echo "next version: $next"
+
+          # THE LOOP GUARD. A version that already has a tag is a version that
+          # already shipped; tagging again would publish the same code twice
+          # under two numbers and make "which build am I running?" unanswerable.
+          #
+          # Asked of the REMOTE, not with `git rev-parse`: actions/checkout
+          # defaults to a shallow fetch that does not carry tag refs down, so a
+          # local lookup answers "no such tag" for a version that shipped months
+          # ago — turning the guard that prevents a double publish into the reason
+          # one is attempted, or (once the push is refused) the reason this job is
+          # red on every green main.
+          #
+          # THE GUARD SUPPRESSES THE TAG, NOT THE WORK. This block used to
+          # `exit 0` when the version was already tagged, which left the ladder
+          # with no way forward: package.json only ever moves on via the bump PR
+          # below, so skipping that PR left a tagged main permanently stuck on
+          # its current version — no next tag, no next release, nothing to see
+          # on GitHub. That is not theoretical: on 2026-10-12 main sat at
+          # v0.2.1, tagged, with no bump PR in existence, and no run of this
+          # workflow (nor any other) could advance it. The already-tagged case
+          # now falls through to the same bump-PR step as the tagging case; the
+          # branch check there is idempotent, so repeats are no-ops.
+          tagged=false
+          if git ls-remote --exit-code --tags origin "refs/tags/v$current" >/dev/null 2>&1; then
+            echo "v$current is already tagged — no new tag this run."
+          else
+            tagged=true
+          fi
 
           # Same command a human would run, so the one script that owns
           # package.json is the one that writes it. Its FIRST output line is
@@ -190,32 +232,80 @@ jobs:
           # rewritten in the working tree but BEFORE any commit or tag, which is
           # the worst place to fail: the repo looks bumped and nothing is
           # released. Both are now covered by a test that runs the real script.
-          bumped=$(bun scripts/bump-version.mjs "$next" | head -n 1)
-          if ! printf '%s' "$bumped" | grep -qF -- "-> $next"; then
-            echo "::error::bump-version.mjs did not apply $next (said: '$bumped')"
-            exit 1
+          # ── Why nothing here pushes a commit to main ─────────────────────────
+          # `main` is protected by repository rules: "Changes must be made through
+          # a pull request" and "2 of 2 required status checks are expected". This
+          # step used to commit the bump and `git push origin main`, and GitHub
+          # refused it with GH013 — so the tag never got created, the tag-triggered
+          # Release job never ran, and the repository showed NO releases at all
+          # while the VPS kept being deployed by hand. That is the whole reason
+          # "I keep failing to see it on GitHub" was true.
+          #
+          # The protection is right and stays. The automation now lives inside it:
+          #
+          #   · the TAG names the version that is actually in the tree at this SHA,
+          #     and pushing a tag ref is not a branch change — so the tag fires
+          #     release.yml exactly as before, and the image, the GitHub Release
+          #     page and `git describe` all agree about which code they name;
+          #   · the package.json bump for the NEXT release travels the only
+          #     sanctioned way in: a pull request.
+          #
+          # Tagging `$current` rather than `$next` is the point. A tag `v0.2.2`
+          # pointing at a commit whose package.json says 0.2.1 is how "which build
+          # am I running?" becomes unanswerable — the failure this job's own header
+          # exists to prevent.
+          version="$current"
+          if [ "$tagged" = "true" ]; then
+            git tag -a "v$version" -m "SecureVoice AI v$version"
+            git push origin "refs/tags/v$version"
           fi
 
-          git add package.json
-          git commit -m "chore(release): v$next"
+          # The bump PR, best-effort ON PURPOSE. On the tagging path the release
+          # has already happened by now; a red job whose Release exists teaches
+          # the next reader to distrust the badge, which is worse than a missing
+          # bump PR. Every failure path here therefore reports and continues.
+          # On the already-tagged path this block is the entire point of the
+          # run — it is what unsticks a main that had no way to the next version.
+          if git ls-remote --exit-code --heads origin "chore/release-v$next" >/dev/null 2>&1; then
+            echo "chore/release-v$next already exists — not opening a second bump PR."
+          else
+            git checkout -b "chore/release-v$next"
+            if bumped=$(bun scripts/bump-version.mjs "$next" | head -n 1) &&
+               printf '%s' "$bumped" | grep -qF -- "-> $next"; then
+              git add package.json
+              # [skip ci]: a branch that only exists to be reviewed must not start a
+              # second full suite run on every release.
+              git commit -m "chore(release): v$next [skip ci]"
+              git push origin "chore/release-v$next"
+              gh pr create --base main --head "chore/release-v$next" \
+                --title "chore(release): v$next" \
+                --body "Version bump created by AutoVersion after v$version was tagged. Merge it to make the next release v$next; leaving it open is harmless — the job reuses this branch." ||
+                echo "::warning::could not open the bump PR for v$next; the release itself succeeded"
+            else
+              echo "::warning::bump-version.mjs refused $next (said: '${bumped:-<no output>}'); v$version is tagged and released, but the next bump needs a human."
+              git checkout -- package.json 2>/dev/null || true
+            fi
+          fi
 
-          # Annotated, so `git describe` and the GitHub release page both carry
-          # the commit this tag points at rather than a bare pointer.
-          git tag -a "v$next" -m "SecureVoice AI v$next"
-
-          # Follow tags, so the release workflow — which is tag-triggered —
-          # actually starts. A plain `git push` leaves the tag behind and the
-          # release silently never happens.
-          git push origin main
-          git push origin "refs/tags/v$next"
-
-          {
-            echo "released=true"
-            echo "version=$next"
-          } >> "$GITHUB_OUTPUT"
-          {
-            echo "### Released v$next"
-            echo ""
-            echo "- tag: \`v$next\`"
-            echo "- package: \`ghcr.io/$GITHUB_REPOSITORY:v$next\`"
-          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$tagged" = "true" ]; then
+            {
+              echo "released=true"
+              echo "version=$version"
+            } >> "$GITHUB_OUTPUT"
+            # `v$version` — the tag that was actually cut. This used to print
+            # `v$next`, the NEXT version, which no artifact in existence carried.
+            {
+              echo "### Released v$version"
+              echo ""
+              echo "- tag: \`v$version\`"
+              echo "- package: \`ghcr.io/$GITHUB_REPOSITORY:v$version\`"
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "released=false" >> "$GITHUB_OUTPUT"
+            {
+              echo "### v$version was already released — ensured the bump PR for v$next"
+              echo ""
+              echo "- tag (existing): \`v$version\`"
+              echo "- next release: merge \`chore/release-v$next\`"
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi

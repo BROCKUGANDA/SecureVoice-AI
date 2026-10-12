@@ -18,15 +18,42 @@ import "server-only";
  * customer-facing error, and rating runs on a schedule where a bug is a wrong
  * number on an invoice.
  *
- * ## Why this does not guess a price
+ * ## The rate: one override knob, otherwise the plan's OWN published rate
  *
- * A rate is a commercial commitment. `OVERAGE_RATE_MINOR_PER_UNIT` is unset by
- * default, and when it is unset `raiseOverageInvoice` REFUSES with
- * `rate_not_configured` instead of defaulting to zero or to a number from an
- * old document. Billing a bank at an invented rate is a trust failure that
- * surfaces months later as a disputed invoice; refusing is visible immediately
- * and costs one env var to fix. See docs/TODO.md for the rate decision that
- * still needs a human.
+ * `OVERAGE_RATE_MINOR_PER_UNIT` (integer minor units — fils/cents, never a
+ * decimal) is the operator's knob and beats every plan when set. Three states,
+ * deliberately separated (implementation in `plans.ts`'s `resolveOverageRate()`):
+ *
+ *   · **set but not a positive integer** → REFUSE with `rate_not_configured`.
+ *     A typo'd rate (`"0.15"` in an integer field, `"abc"`, `"0"`, `"-5"`) is
+ *     the dangerous case: silently defaulting would hide a misconfiguration, and
+ *     silently billing a fractional rate would corrupt the integer arithmetic.
+ *     Refusing is visible immediately and costs one env var to fix.
+ *   · **unset, plan known** → the plan's `commercial.ts` `overageCents`. Starter
+ *     bills at 15¢ and Growth at 12¢ because that is what `/pricing` says to
+ *     each buyer. This used to be one global 15¢ for every plan, which made the
+ *     page's Growth figure a promise the rater did not keep.
+ *   · **unset, Enterprise** → REFUSE with `rate_not_negotiated`. Enterprise
+ *     publishes `overageCents: null` — its volume beyond the bundle is a
+ *     negotiated contract. Rating a negotiated deal at the Starter default would
+ *     put an invented number on a bank's invoice, and a missing invoice is
+ *     recoverable while a wrong one is a dispute.
+ *   · **unset, no plan resolvable** → the published default
+ *     (`DEFAULT_OVERAGE_RATE_MINOR_PER_UNIT`, 15) so a demo org or a period
+ *     before billing was mirrored still produces an invoice.
+ *
+ * $0.15/unit against the ~$0.05 blended Twilio + ElevenLabs + model cost of one
+ * intervention is a 66% gross margin on overage — see docs/UNIT-ECONOMICS.md.
+ *
+ * ## Why the plan, the allowance, and the rate all come from one read
+ *
+ * "Their monthly limit" is a property of the plan the bank bought, not of the
+ * deployment. The plan is resolved by `src/lib/billing/plan-context.ts` — the
+ * mirrored `PaddleSubscription` status, then `Organization.planTier`, then the
+ * deployment default — and the allowance and rate are read off `PLANS[]` for
+ * that one answer. There used to be a second subscription query here with a
+ * narrower status filter, which is how a rater and a screen start disagreeing
+ * about what a tenant bought.
  *
  * ## Why the invoice reference is ours, not the bank's
  *
@@ -46,7 +73,10 @@ import "server-only";
 import { db } from "@/lib/db";
 import { append as auditAppend } from "@/lib/audit-chain";
 import { assertMoney, type Money } from "@/lib/payments/provider";
+import { resolvePaymentProvider } from "@/lib/payments/gateway";
 import { logError } from "@/lib/validation/safe-log";
+import { orgPlanContext } from "@/lib/billing/plan-context";
+import { resolveOverageRate } from "./plans";
 
 /** Usage kinds that count TOWARDS a billable total. */
 const CONSUMING_KINDS = ["consume"] as const;
@@ -54,27 +84,45 @@ const CONSUMING_KINDS = ["consume"] as const;
 const RETURNING_KINDS = ["release", "refund"] as const;
 
 /**
- * Minor units charged per overage unit (fils, cents). Unset by default: see the
- * header. Read per call rather than cached so a rate change takes effect on the
- * next period without a redeploy.
+ * Plan facts — the included volumes, the price-id mapping, the units a payment
+ * buys, and the published default rate — now live in `./plans.ts`, which DERIVES
+ * them from `PLANS[]` in `src/lib/commercial.ts` instead of restating them.
+ *
+ * They are re-exported here because this module was their original home and
+ * `payments/provider.ts`, `payments/paddle.ts`, `payments/paddle-events.ts` and
+ * `tests/billing/spend-wallet.test.ts` import them from it. A re-export is a
+ * compatibility seam; a second definition is the drift that made the pricing
+ * page and the rater able to disagree about what a bank bought.
  */
-function configuredRateMinorPerUnit(): number | null {
-  const raw = process.env.OVERAGE_RATE_MINOR_PER_UNIT;
-  if (raw === undefined || raw.trim() === "") return null;
-  const n = Number(raw);
-  if (!Number.isInteger(n) || n < 0) return null;
-  return n;
-}
+export {
+  DEFAULT_OVERAGE_RATE_MINOR_PER_UNIT,
+  PLAN_INCLUDED_UNITS,
+  includedUnitsFromEnv,
+  planFromPriceId,
+  planFromPriceKey,
+  unitsForMintedPayment,
+  unitsForPlan,
+} from "./plans";
 
 function billingCurrency(): string {
   return (process.env.BILLING_CURRENCY ?? "AED").toUpperCase();
 }
 
-/** Units included in the bundle before overage applies. */
-function includedUnitsPerPeriod(): number {
-  const raw = process.env.INCLUDED_UNITS_PER_PERIOD;
-  const n = Number(raw);
-  return Number.isInteger(n) && n > 0 ? n : 0;
+/**
+ * What this org is on, and what that plan includes.
+ *
+ * Resolved through `billing/plan-context.ts` — the same read the console's
+ * usage bar uses — rather than a second subscription query here with its own
+ * status filter. Two readers of one fact is how a bill and a screen start
+ * disagreeing about the allowance.
+ *
+ * Never throws for a reason that matters: `orgPlanContext` swallows its own DB
+ * failure and reports the demo plan, and a billing read must not take the
+ * rater down.
+ */
+async function planForOrg(orgId: string): Promise<{ plan: string | null; includedUnits: number }> {
+  const ctx = await orgPlanContext(orgId);
+  return { plan: ctx.plan, includedUnits: ctx.allowanceUnits };
 }
 
 export type OverageSummary = {
@@ -88,12 +136,24 @@ export type OverageSummary = {
   billableOverageUnits: number;
   amountMinor: number;
   currency: string;
-  /** False when no rate is configured; the amounts are then 0 and NOT billable. */
+  /** The rate actually applied, in minor units. Reproduces `amountMinor`. */
+  rateMinorPerUnit: number;
+  /**
+   * True when the operator set the rate explicitly. False means the PLAN's
+   * published rate is in effect — not that nothing is billable.
+   */
   rateConfigured: boolean;
+  /** The plan this was rated against, or null when nothing resolved one. */
+  plan: string | null;
 };
 
 export type SummariseResult =
-  { ok: true; summary: OverageSummary } | { ok: false; reason: "invalid_period"; detail?: string };
+  | { ok: true; summary: OverageSummary }
+  | {
+      ok: false;
+      reason: "invalid_period" | "rate_invalid" | "rate_not_negotiated";
+      detail?: string;
+    };
 
 function assertPeriod(from: Date, to: Date): boolean {
   return (
@@ -106,19 +166,22 @@ function assertPeriod(from: Date, to: Date): boolean {
 }
 
 /**
- * Ranks a period's usage. Read-only: touches no state, so it is safe to call
- * from a quote screen, a scheduled job, or a test.
+ * Net units consumed by one organisation in one window, from the ledger.
+ *
+ * Extracted from `summariseOverage` so the console's usage bar and the invoice
+ * rater run the SAME arithmetic. The alternative — a second query for the
+ * display — is how a screen tells a customer they used 2,480 interventions while
+ * the invoice that arrives says 2,510.
+ *
+ * Clamped at zero. A refund larger than the consume would otherwise produce a
+ * negative figure, and a negative usage number on an invoice is a credit note
+ * wearing a bill's clothes.
  */
-export async function summariseOverage(input: {
-  orgId: string;
-  periodFrom: Date;
-  periodTo: Date;
-}): Promise<SummariseResult> {
-  const { orgId, periodFrom, periodTo } = input;
-  if (!orgId || !assertPeriod(periodFrom, periodTo)) {
-    return { ok: false, reason: "invalid_period" };
-  }
-
+export async function netUsageUnits(
+  orgId: string,
+  periodFrom: Date,
+  periodTo: Date,
+): Promise<number> {
   // One aggregate query rather than N per-case lookups. `units` is signed by
   // `kind` (see the UsageLedger model), so consuming minus returning is the net.
   const rows = await db.usageLedger.groupBy({
@@ -138,14 +201,32 @@ export async function summariseOverage(input: {
     if ((CONSUMING_KINDS as readonly string[]).includes(r.kind)) consumed += n;
     if ((RETURNING_KINDS as readonly string[]).includes(r.kind)) returned += n;
   }
-  // Clamp at zero. A refund larger than the consume would otherwise produce a
-  // negative billable figure, and a negative invoice is a credit note wearing a
-  // bill's clothes.
-  const netUsedUnits = Math.max(0, consumed - Math.abs(returned));
+  return Math.max(0, consumed - Math.abs(returned));
+}
 
-  const includedUnits = includedUnitsPerPeriod();
+/**
+ * Ranks a period's usage. Read-only: touches no state, so it is safe to call
+ * from a quote screen, a scheduled job, or a test.
+ */
+export async function summariseOverage(input: {
+  orgId: string;
+  periodFrom: Date;
+  periodTo: Date;
+}): Promise<SummariseResult> {
+  const { orgId, periodFrom, periodTo } = input;
+  if (!orgId || !assertPeriod(periodFrom, periodTo)) {
+    return { ok: false, reason: "invalid_period" };
+  }
+
+  const { plan, includedUnits } = await planForOrg(orgId);
+  // The rate is resolved from the PLAN, so a Growth tenant is rated at Growth's
+  // published 12¢ and not at one global figure the pricing page contradicts.
+  const rate = resolveOverageRate(plan);
+  if (!rate.ok) return { ok: false, reason: rate.reason, detail: rate.detail };
+
+  const netUsedUnits = await netUsageUnits(orgId, periodFrom, periodTo);
+
   const billableOverageUnits = Math.max(0, netUsedUnits - includedUnits);
-  const rate = configuredRateMinorPerUnit();
   const currency = billingCurrency();
 
   return {
@@ -157,9 +238,11 @@ export async function summariseOverage(input: {
       netUsedUnits,
       includedUnits,
       billableOverageUnits,
-      amountMinor: rate === null ? 0 : Math.round(billableOverageUnits * rate),
+      amountMinor: Math.round(billableOverageUnits * rate.rateMinorPerUnit),
       currency,
-      rateConfigured: rate !== null,
+      rateMinorPerUnit: rate.rateMinorPerUnit,
+      rateConfigured: rate.configured,
+      plan,
     },
   };
 }
@@ -180,12 +263,116 @@ export function overageInvoiceReference(input: {
 }
 
 export type RaiseOverageResult =
-  | { ok: true; reference: string; paymentId: string; duplicate: boolean; amount: Money }
+  | {
+      ok: true;
+      reference: string;
+      paymentId: string;
+      duplicate: boolean;
+      amount: Money;
+      /** Present only when the raise was pushed to the gateway. */
+      invoice?: { invoiceId: string; paymentLink?: string };
+    }
   | {
       ok: false;
-      reason: "invalid_period" | "rate_not_configured" | "nothing_to_bill" | "invalid_actor";
+      reason:
+        | "invalid_period"
+        | "rate_not_configured"
+        | "rate_not_negotiated"
+        | "nothing_to_bill"
+        | "invalid_actor";
       detail?: string;
     };
+
+export type OverageInvoicePushResult =
+  | { ok: true; reference: string; invoiceId: string; paymentLink?: string }
+  | { ok: false; reason: string; detail?: string };
+
+/**
+ * Raises the overage invoice AT THE GATEWAY — a manual-collection document the
+ * bank settles on terms, not an automatic card charge.
+ *
+ * ## Why manual collection, and why an auto-charge cannot work
+ *
+ * Paddle is a Merchant of Record: it holds no stored card authorization for a
+ * later charge, so `chargeStoredAuthorization` refuses by design (see
+ * paddle.ts). A "create a transaction and auto-collect it" call for a bank
+ * overage therefore cannot be implemented against Paddle, and pretending
+ * otherwise would produce an invoice that silently never collects.
+ *
+ * What a bank overage actually is: a B2B receivable with a VAT number, a PO and
+ * bank-transfer settlement. That is Paddle's `collection_mode: "manual"`, which
+ * the port exposes as `createInvoice` (due date, no units credited at issue).
+ * The rate is ours, not a catalog lookup, so it is sent as custom pricing with
+ * the per-unit amount as the line price and the billable units as the quantity.
+ *
+ * Refuses rather than silently no-op'ing when no gateway is bound — the same
+ * posture `resolvePaymentProvider` takes, because a billing path that quietly
+ * does nothing on misconfiguration fails on the day a customer owes money.
+ */
+export async function pushOverageInvoiceToGateway(input: {
+  orgId: string;
+  periodFrom: Date;
+  periodTo: Date;
+  recordedBy: string;
+  /** Days until due. A bank overage is normally Net-30. */
+  dueInDays?: number;
+}): Promise<OverageInvoicePushResult> {
+  const gateway = resolvePaymentProvider();
+  if (!gateway.ok) return { ok: false, reason: gateway.reason };
+  // Invoicing is optional on the port: a provider that cannot express a
+  // manual-collection document must REFUSE, not silently skip the billing.
+  const createInvoice = gateway.provider.createInvoice?.bind(gateway.provider);
+  if (!createInvoice) {
+    return {
+      ok: false,
+      reason: `gateway "${gateway.name}" does not support invoicing`,
+    };
+  }
+
+  const summarised = await summariseOverage(input);
+  if (!summarised.ok) {
+    return { ok: false, reason: summarised.reason, detail: summarised.detail };
+  }
+  const s = summarised.summary;
+  if (s.billableOverageUnits === 0 || s.amountMinor === 0) {
+    return { ok: false, reason: "nothing_to_bill" };
+  }
+
+  const reference = overageInvoiceReference(input);
+  const result = await createInvoice({
+    orgId: input.orgId,
+    reference,
+    currency: s.currency,
+    dueInDays: input.dueInDays ?? 30,
+    // The rate is a commercial decision, not a catalog lookup — send the amount.
+    customPricing: true,
+    recordedBy: input.recordedBy,
+    items: [
+      {
+        description: `Overage: ${s.billableOverageUnits} intervention(s) beyond the ${s.includedUnits}-unit plan allowance`,
+        amountMinor: s.rateMinorPerUnit,
+        quantity: s.billableOverageUnits,
+      },
+    ],
+  });
+
+  if (!result.ok) {
+    logError("[overage] gateway invoice refused", {
+      orgId: input.orgId,
+      reference,
+      gateway: gateway.name,
+      reason: result.reason,
+    });
+    return { ok: false, reason: result.reason };
+  }
+
+  return {
+    ok: true,
+    reference,
+    invoiceId: result.invoiceId,
+    ...(result.paymentLink ? { paymentLink: result.paymentLink } : {}),
+  };
+}
 
 /**
  * Raises (or re-raises) the overage invoice for a closed period.
@@ -204,19 +391,22 @@ export async function raiseOverageInvoice(input: {
   if (!actor) return { ok: false, reason: "invalid_actor" };
 
   const summarised = await summariseOverage(input);
-  if (!summarised.ok) return { ok: false, reason: "invalid_period" };
+  if (!summarised.ok) {
+    // A malformed rate is the one refusal that must name its variable: the
+    // operator set something, and only they can fix it.
+    if (summarised.reason === "rate_invalid") {
+      return { ok: false, reason: "rate_not_configured", detail: summarised.detail };
+    }
+    // A negotiated plan has no posted rate. This is NOT the same refusal — the
+    // operator did nothing wrong, and "go set the env var" would invite them to
+    // bill a contracted customer at a price neither party agreed.
+    if (summarised.reason === "rate_not_negotiated") {
+      return { ok: false, reason: "rate_not_negotiated", detail: summarised.detail };
+    }
+    return { ok: false, reason: "invalid_period" };
+  }
   const s = summarised.summary;
 
-  if (!s.rateConfigured) {
-    // Deliberately BEFORE the "nothing to bill" check: an operator with no rate
-    // configured needs to be told the rate is missing, not told there is
-    // nothing owed when in fact nothing could be priced.
-    return {
-      ok: false,
-      reason: "rate_not_configured",
-      detail: "set OVERAGE_RATE_MINOR_PER_UNIT before raising an overage invoice",
-    };
-  }
   if (s.billableOverageUnits === 0 || s.amountMinor === 0) {
     return { ok: false, reason: "nothing_to_bill" };
   }
@@ -242,6 +432,18 @@ export async function raiseOverageInvoice(input: {
               entitlements: [],
               recordedBy: actor,
               purpose: "overage",
+              // Reproducibility: the rate that produced the amount, so a
+              // disputed invoice can be re-derived from (units, rate) alone
+              // even after the env var changes.
+              rateMinorPerUnit: s.rateMinorPerUnit,
+              rateConfigured: s.rateConfigured,
+              // Which plan the rate came from, so a disputed invoice can be
+              // re-derived even after the tenant changes plan or the catalog is
+              // re-priced.
+              plan: s.plan,
+              includedUnits: s.includedUnits,
+              netUsedUnits: s.netUsedUnits,
+              billableOverageUnits: s.billableOverageUnits,
               note: input.note ?? "",
             })},
             ${new Date()})
@@ -262,6 +464,8 @@ export async function raiseOverageInvoice(input: {
         reference,
         amountMinor: money.amountMinor,
         currency: money.currency,
+        rateMinorPerUnit: s.rateMinorPerUnit,
+        rateConfigured: s.rateConfigured,
         netUsedUnits: s.netUsedUnits,
         includedUnits: s.includedUnits,
         billableOverageUnits: s.billableOverageUnits,
@@ -278,6 +482,21 @@ export async function raiseOverageInvoice(input: {
   });
 
   if (!duplicate) {
+    // Billing reached third-party analytics exactly once: this branch only runs
+    // for a genuinely new invoice, never for a retried or duplicate raise, so
+    // the `usage_summarised` event is idempotent by construction — the same
+    // property the PaymentRecord insert above guarantees for the money.
+    try {
+      const { usageSummarised } = await import("@/lib/analytics");
+      usageSummarised({
+        orgId: input.orgId,
+        netUsedUnits: s.netUsedUnits,
+        includedUnits: s.includedUnits,
+        billableOverageUnits: s.billableOverageUnits,
+      });
+    } catch {
+      // Analytics observes; it does not gate. See `src/lib/analytics.ts`.
+    }
     return { ok: true, reference, paymentId: inserted[0]!.id, duplicate: false, amount: money };
   }
   const existing = await db.paymentRecord.findUnique({

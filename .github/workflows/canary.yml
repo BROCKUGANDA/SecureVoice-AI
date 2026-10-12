@@ -1,19 +1,191 @@
+# Automatic canary + blue-green rollout.
+#
+# WHAT THIS IS FOR
+# ---------------
+# `deploy.yml` rolls production by replacing the single `app` container, so every
+# release takes a brief outage while that one container is recreated. This
+# workflow is the zero-downtime alternative: it starts the new image on the
+# STANDBY colour, moves a small slice of traffic to it, watches, and only then
+# promotes it to full traffic — rolling back automatically if a gate fails.
+#
+# It is TRIGGERED BY HAND (`workflow_dispatch`), not on push. That is deliberate:
+# nothing about how the edge behaves changes until someone runs this, so the
+# existing deploy path stays the default and this stays a choice. Making it the
+# automatic-on-release path is a one-line change to `on:` documented below.
+#
+# Prerequisites on the VPS (the self-hosted `securevoice-vps` runner):
+#   - `bun` on PATH
+#   - `docker compose` >= 2
+#   - `scripts/deploy.mjs` and the blue-green compose stack checked out
+#
+# HOW IT RUNS
+# -----------
+#   stage  →  canary P1  →  soak + verify  →  canary P2  →  soak + verify  →  100%  →  promote
+#
+# Every input is passed through `env:` rather than interpolated into a `run:`
+# string, so a value can never be read as shell syntax.
+#
+# ⚠  FIRST RUN HAZARD (read before using): production currently runs the PLAIN
+#    stack from `docker-compose.yml` — a single `app` container. This workflow
+#    assumes the BLUE-GREEN stack is the running one. Switching projects without
+#    first standing the two colours up leaves BOTH stacks running and traffic on
+#    whichever Caddyfile wins. `docs/VPS-RECOVERY.md` covers the migration.
+
 name: Canary
 
-on: workflow_dispatch
+on:
+  workflow_dispatch:
+    inputs:
+      image:
+        description: "Image reference to roll out (sha, tag, or registry ref)"
+        required: true
+      startPercent:
+        description: "First canary split"
+        required: false
+        default: "5"
+      midPercent:
+        description: "Second canary split before full rollout"
+        required: false
+        default: "25"
+      soakSeconds:
+        description: "Seconds to observe each split before widening"
+        required: false
+        default: "120"
 
 permissions:
   contents: read
 
-# Only the newest probe matters: a superseded run proves nothing and costs a
-# runner slot on the box that also serves production.
+# Only the newest run matters: a superseded run proves nothing and costs a runner
+# slot on the box that also serves production.
 concurrency:
-  group: canary-${{ github.ref }}
+  group: canary
   cancel-in-progress: true
+
+env:
+  # The public hostname Caddy serves. Replaces the retired
+  # 57.130.80.158.sslip.io stand-in (site block + DNS record removed 2026-10-12).
+  PUBLIC_URL: "https://securevoiceai.me"
+
 jobs:
-  ping:
-    name: Ping
+  canary:
+    name: Stage, canary, promote
     runs-on: [self-hosted, securevoice-vps]
-    timeout-minutes: 5
+    timeout-minutes: 60
     steps:
-      - run: echo "runner alive on ${{ runner.os }} / ${{ runner.name }}"
+      - name: Verify the toolchain
+        env:
+          EXPECTED_IMAGE: ${{ inputs.image }}
+        run: |
+          set -euo pipefail
+          bun --version
+          docker compose version
+          cd ~/securevoice-ai
+          test -f scripts/deploy.mjs || { echo "::error::scripts/deploy.mjs missing on the runner"; exit 1; }
+          echo "will roll out: $EXPECTED_IMAGE"
+
+      - name: Stage the new image on the standby colour (no traffic move)
+        env:
+          IMAGE_REF: ${{ inputs.image }}
+        run: |
+          set -euo pipefail
+          cd ~/securevoice-ai
+          bun scripts/deploy.mjs stage --image "$IMAGE_REF"
+
+      # ── a gate ───────────────────────────────────────────────────────────────
+      # A gate that cannot fail is decoration. Each one checks the PUBLIC edge and
+      # the staged colour directly (in-container), because an edge answering 200
+      # while the canary upstream is broken is exactly the failure a canary exists
+      # to catch.
+      - name: Gate — staged colour serving
+        run: |
+          set -euo pipefail
+          for _ in 1 2 3 4 5 6; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 "$PUBLIC_URL/api/health" || true)
+            [ "$code" = "200" ] && break
+            sleep 10
+          done
+          echo "edge health: $code"
+          test "$code" = "200"
+          cd ~/securevoice-ai
+          bun scripts/deploy.mjs status
+
+      - name: Canary to the first split
+        env:
+          PERCENT: ${{ inputs.startPercent }}
+        run: |
+          set -euo pipefail
+          cd ~/securevoice-ai
+          bun scripts/deploy.mjs canary --percent "$PERCENT"
+
+      - name: Observe the first split
+        env:
+          PERCENT: ${{ inputs.startPercent }}
+          SOAK: ${{ inputs.soakSeconds }}
+        run: |
+          set -euo pipefail
+          echo "soaking $PERCENT% for ${SOAK}s"
+          sleep "$SOAK"
+          cd ~/securevoice-ai
+          bun scripts/deploy.mjs status
+          for _ in 1 2 3 4 5; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 "$PUBLIC_URL/api/health" || true)
+            [ "$code" = "200" ] && break
+            sleep 10
+          done
+          echo "post-soak edge health: $code"
+          test "$code" = "200"
+
+      - name: Canary to the second split
+        env:
+          PERCENT: ${{ inputs.midPercent }}
+        run: |
+          set -euo pipefail
+          cd ~/securevoice-ai
+          bun scripts/deploy.mjs canary --percent "$PERCENT"
+
+      - name: Observe the second split
+        env:
+          PERCENT: ${{ inputs.midPercent }}
+          SOAK: ${{ inputs.soakSeconds }}
+        run: |
+          set -euo pipefail
+          echo "soaking $PERCENT% for ${SOAK}s"
+          sleep "$SOAK"
+          for _ in 1 2 3 4 5; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 "$PUBLIC_URL/api/health" || true)
+            [ "$code" = "200" ] && break
+            sleep 10
+          done
+          echo "post-soak edge health: $code"
+          test "$code" = "200"
+
+      - name: Full rollout — 100% to the new colour
+        run: |
+          set -euo pipefail
+          cd ~/securevoice-ai
+          bun scripts/deploy.mjs canary --percent 100
+
+      - name: Promote the new colour and retire the old one
+        run: |
+          set -euo pipefail
+          cd ~/securevoice-ai
+          bun scripts/deploy.mjs promote
+          bun scripts/deploy.mjs status
+
+      # ── rollback ─────────────────────────────────────────────────────────────
+      # Runs after any red gate above, and standalone if the rollout turns out to
+      # have been a mistake. Restores the previously active colour and the split
+      # it was serving, then confirms the edge answers before declaring success.
+      - name: Rollback to the previous colour
+        if: failure()
+        run: |
+          set -euo pipefail
+          cd ~/securevoice-ai
+          bun scripts/deploy.mjs rollback || true
+          for _ in 1 2 3 4 5 6; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 "$PUBLIC_URL/api/health" || true)
+            [ "$code" = "200" ] && break
+            sleep 10
+          done
+          echo "post-rollback edge health: $code"
+          test "$code" = "200"

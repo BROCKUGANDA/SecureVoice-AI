@@ -52,6 +52,10 @@ export const CAPABILITIES = [
   "settings:write",
   "export:bulk",
   "org:revokeSessions",
+  // Money OUT on terms: raising an invoice commits the organisation to a
+  // payment obligation. Held by Owner only — an Admin manages analysts, not
+  // the bank's money.
+  "billing:write",
 ] as const;
 
 export type Capability = (typeof CAPABILITIES)[number];
@@ -72,6 +76,7 @@ export const WRITE_CAPABILITIES: ReadonlySet<Capability> = new Set<Capability>([
   "settings:write",
   "export:bulk",
   "org:revokeSessions",
+  "billing:write",
 ]);
 
 export function isWriteCapability(cap: Capability): boolean {

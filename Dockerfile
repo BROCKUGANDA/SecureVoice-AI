@@ -62,7 +62,7 @@ ARG BUILD_DATABASE_URL=postgresql://securevoice:securevoice@db:5432/securevoice?
 # A bare `docker build` without --build-arg now fails loudly at better-auth's
 # import guard; docker-compose.yml requires the secret from .env with `:?`.
 ARG BETTER_AUTH_SECRET
-ARG BETTER_AUTH_URL="https://localhost:3000"
+ARG BETTER_AUTH_URL="https://securevoiceai.me"
 
 # The demo shortcut credentials are the ONE category of NEXT_PUBLIC_* that belongs
 # in the client bundle, and they must be supplied at build time.
@@ -110,10 +110,26 @@ ARG NEXT_PUBLIC_DEMO_LOGIN_PASSWORD=""
 # so a deployment that set SITE_ADDRESS for TLS cannot forget it here too.
 ARG NEXT_PUBLIC_SITE_URL=""
 
+# The Paddle price ids, for the same reason as NEXT_PUBLIC_SITE_URL above and with
+# the same consequence if this line is missing: the ids are inlined into the
+# bundle, so a value that never reaches the builder is not "unset at runtime", it
+# is ABSENT, and `paddlePriceIds()` throws while prerendering the pricing page.
+#
+# This was not a hypothetical. The CI compose smoke test builds against a
+# disposable loopback origin and died at
+#
+#     Error: NEXT_PUBLIC_PADDLE_PRICES is not set to a complete price map.
+#
+# with no ARG anywhere to pass one, which also means no Docker deployment could
+# have set it either — the Buy buttons were being compiled out of the production
+# bundle for the same reason the demo-login pair is threaded through two lines up.
+ARG NEXT_PUBLIC_PADDLE_PRICES=""
+
 ENV DATABASE_URL=${BUILD_DATABASE_URL} \
     BETTER_AUTH_SECRET=${BETTER_AUTH_SECRET} \
     BETTER_AUTH_URL=${BETTER_AUTH_URL} \
     NEXT_PUBLIC_SITE_URL=${NEXT_PUBLIC_SITE_URL} \
+    NEXT_PUBLIC_PADDLE_PRICES=${NEXT_PUBLIC_PADDLE_PRICES} \
     NEXT_PUBLIC_DEMO_LOGIN_EMAIL=${NEXT_PUBLIC_DEMO_LOGIN_EMAIL} \
     NEXT_PUBLIC_DEMO_LOGIN_PASSWORD=${NEXT_PUBLIC_DEMO_LOGIN_PASSWORD}
 COPY --from=deps /app/node_modules ./node_modules
@@ -144,4 +160,4 @@ USER bun
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
   CMD bun -e "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
-CMD ["bun", "server.js"]
+CMD ["bun", "--preload", "./server-preload.ts", "server.js"]

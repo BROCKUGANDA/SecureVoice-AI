@@ -1,5 +1,6 @@
 import { COMPANY, PLANS, FAQ } from "@/lib/commercial";
 import { siteOrigin } from "@/lib/site-origin";
+import { SUPPORT_EMAIL } from "@/lib/public-config";
 
 /**
  * schema.org structured data, for answer engines.
@@ -54,7 +55,7 @@ export function JsonLd({ origin = siteOrigin() }: { origin?: string }) {
         name: COMPANY.name,
         legalName: COMPANY.legalName,
         url: `${origin}/`,
-        email: `mailto:${process.env.NEXT_PUBLIC_SUPPORT_EMAIL ?? "otemaach@gmail.com"}`,
+        email: `mailto:${SUPPORT_EMAIL}`,
         foundingDate: COMPANY.foundingYear,
         description:
           "Real-time voice fraud-intervention platform for banks and insurers in the United Arab Emirates.",

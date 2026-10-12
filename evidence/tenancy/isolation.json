@@ -2,35 +2,35 @@
   "schemaVersion": 1,
   "gate": "WP-12 multi-tenancy isolation",
   "digestAlgorithm": "sha256",
-  "digest": "f91255ce6900e348fd83981a860a85d6461f59047bfaa585a9b36696eddf6cf5",
-  "generatedAt": "2026-10-10T00:53:14.729Z",
+  "digest": "b988205cd785bbfd2141c415609daf2e98b6aff77d48306ab76ef96f18260c9a",
+  "generatedAt": "2026-10-12T00:22:12.164Z",
   "run": {
-    "id": "mv1oin1i",
+    "id": "mv4ic8du",
     "orgs": {
-      "A": "0a0a0a0a-0000-4000-8000-ebdd47779455",
-      "B": "0b0b0b0b-0000-4000-8000-ebdd47779455"
+      "A": "0a0a0a0a-0000-4000-8000-4317c98fa3ce",
+      "B": "0b0b0b0b-0000-4000-8000-4317c98fa3ce"
     },
     "database": "DATABASE_URL",
     "note": "identifiers above are per-run; the digest covers the deterministic core only"
   },
   "summary": {
     "result": "pass",
-    "pathsDeclared": 22,
-    "pathsProbed": 20,
-    "directionsProbed": 40,
+    "pathsDeclared": 24,
+    "pathsProbed": 22,
+    "directionsProbed": 44,
     "coverage": {
-      "asserted": 20,
+      "asserted": 22,
       "declaredGap": 0,
       "declaredGlobal": 2
     },
     "checks": {
-      "total": 198,
-      "passed": 198,
+      "total": 218,
+      "passed": 218,
       "failed": 0
     },
     "http404Asserted": 5,
     "never403Asserted": 10,
-    "tenantModelsDeclared": 9,
+    "tenantModelsDeclared": 11,
     "unscopedReadPaths": []
   },
   "canonicalReadPaths": [
@@ -143,6 +143,16 @@
       "id": "lib.payments.record-by-reference",
       "model": "PaymentRecord",
       "obligation": "An org-scoped read of a payment record cannot resolve another org's settlement."
+    },
+    {
+      "id": "lib.payments.paddle-customer-by-id",
+      "model": "PaddleCustomer",
+      "obligation": "An org-scoped read of the Paddle customer mirror cannot resolve another org's customer from a webhook id."
+    },
+    {
+      "id": "lib.payments.paddle-subscription-by-id",
+      "model": "PaddleSubscription",
+      "obligation": "An org-scoped read of the Paddle subscription mirror cannot resolve another org's entitlement from a webhook id."
     }
   ],
   "matrix": [
@@ -430,6 +440,28 @@
       "module": "src/lib/tenancy/guard.ts",
       "read": "scopedDb(orgScopeFor(org)).paymentRecord.findFirst",
       "probeField": "reference",
+      "http": null
+    },
+    {
+      "id": "lib.payments.paddle-customer-by-id",
+      "model": "PaddleCustomer",
+      "verdict": "foreign-probe-empty",
+      "coverage": "asserted",
+      "kind": "library",
+      "module": "src/lib/tenancy/guard.ts",
+      "read": "scopedDb(orgScopeFor(org)).paddleCustomer.findFirst",
+      "probeField": "customerId",
+      "http": null
+    },
+    {
+      "id": "lib.payments.paddle-subscription-by-id",
+      "model": "PaddleSubscription",
+      "verdict": "foreign-probe-empty",
+      "coverage": "asserted",
+      "kind": "library",
+      "module": "src/lib/tenancy/guard.ts",
+      "read": "scopedDb(orgScopeFor(org)).paddleSubscription.findFirst",
+      "probeField": "subscriptionId",
       "http": null
     }
   ],
@@ -2704,6 +2736,234 @@
               "name": "not-probed-requires-a-declared-reason",
               "ok": true,
               "detail": "an unprobed path must be classified declared-global and say why inline"
+            }
+          ],
+          "ok": true,
+          "error": null
+        }
+      ],
+      "ok": true
+    },
+    {
+      "path": "lib.payments.paddle-customer-by-id",
+      "title": "Org-scoped Paddle customer read",
+      "model": "PaddleCustomer",
+      "verdict": "foreign-probe-empty",
+      "coverage": "asserted",
+      "module": "src/lib/tenancy/guard.ts",
+      "read": "scopedDb(orgScopeFor(org)).paddleCustomer.findFirst",
+      "probeField": "customerId",
+      "probeInvoke": "Resolve the other org's `ctm_...` id through this org's scoped client — must resolve to nothing.",
+      "http": null,
+      "notes": "`PaddleCustomer` carries `orgId` and was added to TENANTED_MODELS without a promised read path — which this gate caught, because a tenant model nobody has promised to read is an unowned tenant and the matrix fails closed on it. `customerId` is globally UNIQUE and is a Paddle id, so the id alone is the lookup key every mirror path uses: an unscoped `findUnique({ customerId })` resolves anyone's billing identity. The scoped form refuses it, and an explicit cross-org `where` is refused rather than emptied.",
+      "directions": [
+        {
+          "direction": "A-reads-B",
+          "sessionOrg": "A",
+          "probeOwner": "B",
+          "probed": true,
+          "axisApplicable": true,
+          "http": null,
+          "control": {
+            "described": "the same scoped client resolves the caller's own Paddle customer",
+            "status": null,
+            "ownVisible": true
+          },
+          "foreignVisible": false,
+          "foreignMutated": null,
+          "guardEquivalent": {
+            "applied": true,
+            "empty": true,
+            "detail": "scopedDb({ orgId }).paddleCustomer.findFirst({ where: { customerId } }) returns nothing for the other org"
+          },
+          "checks": [
+            {
+              "name": "cross-org-paddle-customer-not-resolvable",
+              "ok": true,
+              "detail": "scopedDb({ orgId }).paddleCustomer must not resolve the probe org's customer from its ctm_ id alone"
+            },
+            {
+              "name": "control-own-paddle-customer-resolved",
+              "ok": true,
+              "detail": "the caller's own customer must resolve, or the assertion above is vacuous"
+            },
+            {
+              "name": "NEGATIVE-CONTROL-unscoped-read-reaches-foreign-row",
+              "ok": true,
+              "detail": "the raw findUnique the mirror's upsert uses must still resolve the other org's row, or the isolation assertion is vacuous"
+            },
+            {
+              "name": "explicit-cross-org-where-is-refused",
+              "ok": true,
+              "detail": "naming another org in `where` must throw cross_org_request, not silently return zero rows"
+            },
+            {
+              "name": "recorded-foreign-probe-is-empty",
+              "ok": true,
+              "detail": "foreignVisible=false contradicts verdict foreign-probe-empty"
+            }
+          ],
+          "ok": true,
+          "error": null
+        },
+        {
+          "direction": "B-reads-A",
+          "sessionOrg": "B",
+          "probeOwner": "A",
+          "probed": true,
+          "axisApplicable": true,
+          "http": null,
+          "control": {
+            "described": "the same scoped client resolves the caller's own Paddle customer",
+            "status": null,
+            "ownVisible": true
+          },
+          "foreignVisible": false,
+          "foreignMutated": null,
+          "guardEquivalent": {
+            "applied": true,
+            "empty": true,
+            "detail": "scopedDb({ orgId }).paddleCustomer.findFirst({ where: { customerId } }) returns nothing for the other org"
+          },
+          "checks": [
+            {
+              "name": "cross-org-paddle-customer-not-resolvable",
+              "ok": true,
+              "detail": "scopedDb({ orgId }).paddleCustomer must not resolve the probe org's customer from its ctm_ id alone"
+            },
+            {
+              "name": "control-own-paddle-customer-resolved",
+              "ok": true,
+              "detail": "the caller's own customer must resolve, or the assertion above is vacuous"
+            },
+            {
+              "name": "NEGATIVE-CONTROL-unscoped-read-reaches-foreign-row",
+              "ok": true,
+              "detail": "the raw findUnique the mirror's upsert uses must still resolve the other org's row, or the isolation assertion is vacuous"
+            },
+            {
+              "name": "explicit-cross-org-where-is-refused",
+              "ok": true,
+              "detail": "naming another org in `where` must throw cross_org_request, not silently return zero rows"
+            },
+            {
+              "name": "recorded-foreign-probe-is-empty",
+              "ok": true,
+              "detail": "foreignVisible=false contradicts verdict foreign-probe-empty"
+            }
+          ],
+          "ok": true,
+          "error": null
+        }
+      ],
+      "ok": true
+    },
+    {
+      "path": "lib.payments.paddle-subscription-by-id",
+      "title": "Org-scoped Paddle subscription read",
+      "model": "PaddleSubscription",
+      "verdict": "foreign-probe-empty",
+      "coverage": "asserted",
+      "module": "src/lib/tenancy/guard.ts",
+      "read": "scopedDb(orgScopeFor(org)).paddleSubscription.findFirst",
+      "probeField": "subscriptionId",
+      "probeInvoke": "Resolve the other org's `sub_...` id through this org's scoped client — must resolve to nothing.",
+      "http": null,
+      "notes": "`PaddleSubscription` carries `orgId` and was added to TENANTED_MODELS without a promised read path — caught by the same fail-closed check. `subscriptionId` is globally UNIQUE, and this row is the one `hasPaidAccess` in src/lib/payments/access.ts reads to decide whether an org has a working checkout: an unscoped resolution would grant an org access it never bought. The scoped form refuses it, and an explicit cross-org `where` is refused rather than emptied.",
+      "directions": [
+        {
+          "direction": "A-reads-B",
+          "sessionOrg": "A",
+          "probeOwner": "B",
+          "probed": true,
+          "axisApplicable": true,
+          "http": null,
+          "control": {
+            "described": "the same scoped client resolves the caller's own Paddle subscription",
+            "status": null,
+            "ownVisible": true
+          },
+          "foreignVisible": false,
+          "foreignMutated": null,
+          "guardEquivalent": {
+            "applied": true,
+            "empty": true,
+            "detail": "scopedDb({ orgId }).paddleSubscription.findFirst({ where: { subscriptionId } }) returns nothing for the other org"
+          },
+          "checks": [
+            {
+              "name": "cross-org-paddle-subscription-not-resolvable",
+              "ok": true,
+              "detail": "scopedDb({ orgId }).paddleSubscription must not resolve the probe org's entitlement from its sub_ id alone"
+            },
+            {
+              "name": "control-own-paddle-subscription-resolved",
+              "ok": true,
+              "detail": "the caller's own subscription must resolve, or the assertion above is vacuous"
+            },
+            {
+              "name": "NEGATIVE-CONTROL-unscoped-read-reaches-foreign-row",
+              "ok": true,
+              "detail": "the raw findUnique the mirror's upsert uses must still resolve the other org's row, or the isolation assertion is vacuous"
+            },
+            {
+              "name": "explicit-cross-org-where-is-refused",
+              "ok": true,
+              "detail": "naming another org in `where` must throw cross_org_request, not silently return zero rows"
+            },
+            {
+              "name": "recorded-foreign-probe-is-empty",
+              "ok": true,
+              "detail": "foreignVisible=false contradicts verdict foreign-probe-empty"
+            }
+          ],
+          "ok": true,
+          "error": null
+        },
+        {
+          "direction": "B-reads-A",
+          "sessionOrg": "B",
+          "probeOwner": "A",
+          "probed": true,
+          "axisApplicable": true,
+          "http": null,
+          "control": {
+            "described": "the same scoped client resolves the caller's own Paddle subscription",
+            "status": null,
+            "ownVisible": true
+          },
+          "foreignVisible": false,
+          "foreignMutated": null,
+          "guardEquivalent": {
+            "applied": true,
+            "empty": true,
+            "detail": "scopedDb({ orgId }).paddleSubscription.findFirst({ where: { subscriptionId } }) returns nothing for the other org"
+          },
+          "checks": [
+            {
+              "name": "cross-org-paddle-subscription-not-resolvable",
+              "ok": true,
+              "detail": "scopedDb({ orgId }).paddleSubscription must not resolve the probe org's entitlement from its sub_ id alone"
+            },
+            {
+              "name": "control-own-paddle-subscription-resolved",
+              "ok": true,
+              "detail": "the caller's own subscription must resolve, or the assertion above is vacuous"
+            },
+            {
+              "name": "NEGATIVE-CONTROL-unscoped-read-reaches-foreign-row",
+              "ok": true,
+              "detail": "the raw findUnique the mirror's upsert uses must still resolve the other org's row, or the isolation assertion is vacuous"
+            },
+            {
+              "name": "explicit-cross-org-where-is-refused",
+              "ok": true,
+              "detail": "naming another org in `where` must throw cross_org_request, not silently return zero rows"
+            },
+            {
+              "name": "recorded-foreign-probe-is-empty",
+              "ok": true,
+              "detail": "foreignVisible=false contradicts verdict foreign-probe-empty"
             }
           ],
           "ok": true,

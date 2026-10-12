@@ -63,6 +63,16 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # THIS STEP IS THE FIX FOR THE FIRST RELEASE RUN (v0.2.1, tag push).
+      #
+      # `docker/build-push-action` drives BuildKit through the `docker buildx`
+      # plugin, and a self-hosted runner with only the docker CLI has no builder
+      # instance configured — the run died with `##[error]Docker buildx is
+      # required.` before it built anything. This action creates the builder;
+      # it is also what makes `provenance: true` and the SBOM below work at all.
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
       - name: Build and push image
         uses: docker/build-push-action@v6
         with:
@@ -77,28 +87,124 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      # The published image is what a consumer actually runs, so the smoke test
-      # targets it rather than a locally built copy.
-      - name: Smoke test the published image
+      # ── the smoke test, and why it cannot be a plain `docker compose up` ──
+      #
+      # THIS RUNNER IS THE PRODUCTION VPS, and docker-compose.yml hardcodes
+      # `name: securevoice-ai` — the live stack. A plain `docker compose up`
+      # here resolves to the SAME project as production and would reconcile
+      # against (i.e. replace) the live app, db and Caddy with test containers;
+      # the teardown would then delete the production database volume. The
+      # previous version of this job did exactly that and only survived because
+      # the buildx failure above killed the run first.
+      #
+      # The mechanisms below are the ones ci.yml's compose-smoke job measured
+      # out, mirrored wholesale so the two jobs cannot drift:
+      #   · `-p svci-rel-<run>-<attempt>` — its own project, never production's;
+      #   · per-run host ports — production holds 80/443 on this host, and two
+      #     overlapping smoke runs must not fight over a fixed port either;
+      #   · a throwaway .env — the app boots from `env_file: .env` and dies
+      #     without BETTER_AUTH_SECRET, and BETTER_AUTH_URL must be the PUBLIC
+      #     origin because src/lib/auth/origins.ts refuses a production boot on
+      #     a loopback base URL (full story in ci.yml's compose-smoke job).
+      - name: Allocate per-run ports and project name
         run: |
-          docker compose up -d --no-build --wait --wait-timeout 300
-          docker compose ps
-          code=$(curl -sk -o /dev/null -w '%{http_code}' https://localhost/api/health || true)
+          set -euo pipefail
+          rid=${{ github.run_id }}
+          attempt=${{ github.run_attempt }}
+          span=$(( rid % 4000 ))   # clamped: 60000+8999 overruns 65535 on some run ids
+          HTTP=$(( 50000 + span + (attempt * 7) ))
+          HTTPS=$(( 60000 + span + (attempt * 7) ))
+          if [ "$HTTPS" -gt 65535 ] || [ "$HTTP" -gt 65535 ]; then
+            echo "::error::allocated smoke ports exceed 65535 (http=$HTTP https=$HTTPS)"
+            exit 1
+          fi
+          {
+            echo "CI_CADDY_HTTP_PORT=$HTTP"
+            echo "CI_CADDY_HTTPS_PORT=$HTTPS"
+            echo "PROJECT=svci-rel-$rid-$attempt"
+          } >> "$GITHUB_ENV"
+
+      - name: Write the throwaway environment file
+        run: |
+          cat > .env <<'ENV'
+          COMPOSE_PROJECT_NAME=${{ env.PROJECT }}
+          POSTGRES_USER=securevoice
+          POSTGRES_PASSWORD=ci-only-not-a-secret
+          POSTGRES_DB=securevoice
+          BETTER_AUTH_SECRET=ci-only-not-a-secret-ci-only-not-a-secret
+          BETTER_AUTH_URL=https://securevoiceai.me
+          SITE_ADDRESS=localhost
+          ACME_EMAIL=ci@example.invalid
+          SEED_DEMO=false
+          ELEVENLABS_DRY_RUN=true
+          APP_ENV=staging
+          NEXT_PUBLIC_PADDLE_PRICES='{"usd_9900_month":"pri_ciStarterMonth","usd_9900_year":"pri_ciStarterYear","usd_49900_month":"pri_ciGrowthMonth","usd_49900_year":"pri_ciGrowthYear","usd_200000_month":"pri_ciEnterpriseMonth","usd_200000_year":"pri_ciEnterpriseYear"}'
+          DATABASE_URL=postgresql://securevoice:ci-only-not-a-secret@db:5432/securevoice?schema=public
+          ENV
+          echo "wrote a throwaway .env for the release smoke"
+
+      # The from-source half of the topology. `app` is deliberately ABSENT: the
+      # artifact under test is the image just pushed to GHCR, which the next
+      # step pulls exactly as a consumer would.
+      - name: Build the from-source services
+        run: docker compose -f docker-compose.yml -f docker-compose.ci.yml -p "$PROJECT" build db-setup realtime
+
+      - name: Smoke test the published image through Caddy
+        run: |
+          set -euo pipefail
+          docker compose -f docker-compose.yml -f docker-compose.ci.yml -p "$PROJECT" pull app
+          # Only the services on the /api/health path. Naming them keeps the
+          # worker images (nothing published those) out of an --no-build start.
+          docker compose -f docker-compose.yml -f docker-compose.ci.yml -p "$PROJECT" \
+            up -d --no-build --wait --wait-timeout 300 db db-setup redis realtime app caddy
+          docker compose -f docker-compose.yml -f docker-compose.ci.yml -p "$PROJECT" ps
+          for _ in $(seq 1 30); do
+            code=$(curl -sk -o /dev/null -w '%{http_code}' "https://localhost:${CI_CADDY_HTTPS_PORT}"/api/health || true)
+            [ "$code" = "200" ] && break
+            sleep 5
+          done
           echo "api/health via Caddy: $code"
           test "$code" = "200"
         env:
-          # Tag the compose-built services with what we just pushed. Must be the
-          # SAME lowercased name the build used, or compose looks for an image
-          # that was never published and the smoke test fails on a typo.
+          # The pulled tag. Must be the SAME lowercased name the build pushed,
+          # or compose looks for an image that was never published.
           IMAGE: ${{ env.IMAGE }}:${{ github.ref_name }}
+
+      - name: Report status
+        if: always()
+        run: docker compose -f docker-compose.yml -f docker-compose.ci.yml -p "$PROJECT" ps
 
       - name: Logs on failure
         if: failure()
-        run: docker compose logs --no-color --tail 200
+        run: docker compose -f docker-compose.yml -f docker-compose.ci.yml -p "$PROJECT" logs --no-color --tail 200
 
+      # Same assertion as ci.yml: isolation is a claim until it is observed.
+      # Read the label off the containers themselves rather than asking compose
+      # to enumerate a project: this runs in the runner's throwaway checkout,
+      # whose compose file is not what answers "is production still up?".
+      - name: Production stack untouched
+        if: always()
+        run: |
+          up=$(docker ps --filter "label=com.docker.compose.project=securevoice-ai" \
+                 --filter status=running --format '{{.Names}}' | wc -l)
+          echo "production containers running: $up"
+          if [ "$up" -lt 7 ]; then
+            echo "::error::production has $up/7 containers running — a smoke-test job disturbed it"
+            exit 1
+          fi
+          code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 \
+            https://securevoiceai.me/api/health || true)
+          echo "production api/health: $code"
+          [ "$code" = "200" ] || { echo "::error::production origin is not healthy"; exit 1; }
+
+      # Must name the SAME per-run project the smoke created ($PROJECT). A bare
+      # `docker compose down -v` resolves to `securevoice-ai` and would delete
+      # the PRODUCTION database volume.
       - name: Tear down
         if: always()
-        run: docker compose down -v
+        run: |
+          docker compose -f docker-compose.yml -f docker-compose.ci.yml -p "$PROJECT" down -v --remove-orphans || true
+          rm -f .env
 
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2

@@ -22,7 +22,7 @@
  *   bun test tests/docs/docs-accuracy.test.ts
  */
 import { test, expect } from "bun:test";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 const read = (rel: string) =>
@@ -238,4 +238,89 @@ test("docs: a p95 in the model card is never stated without a measurement status
 
 test("docs: the README links the evidence index it ships with", () => {
   expect(readme).toMatch(/\]\(evidence\/INDEX\.md\)/);
+});
+
+// ── ADRs: a citation that does not resolve is a fabricated document ──────────
+
+/**
+ * `docs/adr/` earns its place only if its Evidence sections point at real files.
+ * An ADR is the document an auditor or a judge reads to decide whether the
+ * architecture was deliberate, and it is also the document most likely to be
+ * written first and cited later — from memory, or from an external blueprint that
+ * described a different system. Every one of the eight records was corrected
+ * against the tree when it was written (pgvector vs the real vector store, an AWS
+ * region name this deployment rejects, an `audit_logs` table that does not exist,
+ * a module path invented from the file it was modeled on); this is the check that
+ * keeps that correction from decaying into a plausible lie.
+ *
+ * It scans backticked repo-relative paths, which is the convention the ADRs use,
+ * and skips anchors, commands and prose in backticks by requiring a known prefix.
+ */
+test("docs: every path cited in an ADR exists", () => {
+  const dir = "docs/adr";
+  const files = readdirSync(fileURLToPath(new URL(`../../${dir}`, import.meta.url)))
+    .filter((f) => f.endsWith(".md"))
+    .sort();
+
+  // Non-empty on purpose: a green run over zero files would prove nothing, and
+  // the count is the whole point of the check.
+  expect(files.length).toBeGreaterThanOrEqual(8);
+
+  const MISSING: string[] = [];
+  let citations = 0;
+  for (const file of files) {
+    const text = read(`${dir}/${file}`);
+    for (const match of text.matchAll(/`([^`\n]+)`/g)) {
+      const raw = match[1] ?? "";
+      if (!/^(src|prisma|scripts|docs|tests|\.github)\//.test(raw)) continue;
+      const path = raw.split(/[#(:\s]/)[0] ?? "";
+      if (!path) continue;
+      citations += 1;
+      if (!existsSync(fileURLToPath(new URL(`../../${path}`, import.meta.url)))) {
+        MISSING.push(`${file}: ${path}`);
+      }
+    }
+  }
+  expect(citations, "no ADR cites a file any more").toBeGreaterThan(40);
+  expect(MISSING.sort(), "an ADR cites a path that does not exist").toEqual([]);
+});
+
+/**
+ * The consent control is a REQUIRED REFERENCE, and three documents described it as
+ * a verification: the policy gate's own step list, `docs/INTEGRATION.md` §2, and
+ * the row in `docs/INTEGRATION-CONTRACT.md` that a bank's integrator reads as a
+ * compliance promise. None of them could be true, and the reason is structural
+ * rather than a matter of wording — asserted against the schema below, not argued.
+ *
+ * The failure mode this pins is the expensive kind. A document that says "we verify
+ * the consent record" lets a customer believe an obligation has been discharged by
+ * us, when the platform only ever requires the reference and records it. Opt-out is
+ * the real enforcement, and only for the numbers whose rows we hold.
+ */
+test("docs: no document claims a consent verification the schema cannot support", () => {
+  // Structural half: there is nothing to verify AGAINST.
+  expect(
+    /model\s+Consent\b/.test(schema),
+    "a Consent model exists now — re-derive what the gate can honestly claim, then update these documents",
+  ).toBe(false);
+  expect(schema).toMatch(/consentRecordId\s+String\?/);
+
+  const sources = ["src/lib/policy-gate.ts", "docs/INTEGRATION.md", "docs/INTEGRATION-CONTRACT.md"];
+  for (const file of sources) {
+    const text = read(file);
+    // The retired claims, each phrased as a check the platform performs.
+    expect(text, `${file}: claims the record's existence and currency were checked`).not.toMatch(
+      /exists and is current/i,
+    );
+    expect(text, `${file}: claims a consent record is held here`).not.toMatch(
+      /consent record on file/i,
+    );
+    expect(text, `${file}: promises a dialling refusal it does not implement`).not.toMatch(
+      /without a consent record (the platform |we )?will not/i,
+    );
+    // The positive half: any description of this control has to name whose record
+    // it is. That phrase is the difference between a reference and a verification,
+    // so a document that drops it has quietly become the claim above again.
+    expect(text, `${file}: stopped saying whose consent record it is`).toMatch(/system of record/);
+  }
 });

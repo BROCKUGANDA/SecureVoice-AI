@@ -581,9 +581,9 @@ Because CI shares the host with production, the smoke test runs under its **own 
 project** (`securevoice-ci`) on its **own host ports** (`18080`/`18443`), and asserts after
 every run that production still has its full set of containers and a healthy origin. A CI
 job therefore cannot replace or delete the live stack — see `docker-compose.ci.yml`. The
-VPS checkout keeps its own edge configuration (`Caddyfile` site blocks for the shared
-proxy) under `git update-index --skip-worktree`, so a deploy pull never trips over
-deployment-local state.
+The VPS checkout's edge configuration is the repo's `Caddyfile` unmodified — the shared
+proxy's extra hostnames live in an untracked `sites.d/*.caddy` the Caddyfile imports —
+so a deploy pull updates it like any other file, with no host-local state to trip over.
 
 The platform agent's own configuration is **not** deployed by CI — it is applied
 declaratively by `bun run agent:apply` (deep-diffed against the YAML), so agent prompt and

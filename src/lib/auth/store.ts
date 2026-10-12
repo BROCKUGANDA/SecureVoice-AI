@@ -63,6 +63,13 @@ export const AUTH_SCOPES = {
    *  records that it was spent. Conflating them would mean redeeming is a
    *  no-op, because the token row is already there from issuance. */
   magicLinkConsumed: "sv.auth.magiclink.consumed",
+  /** A password-reset token. Bound to the address it was issued for; single
+   *  use, short TTL, arbitrated by the store's take() like every other scope. */
+  passwordReset: "sv.auth.passwordreset",
+  /** The atomic consumption marker for a password reset. Separate from the
+   *  token row itself, for the same reason as magicLinkConsumed: the token row
+   *  records the binding and expiry, the marker records that it was spent. */
+  passwordResetConsumed: "sv.auth.passwordreset.consumed",
   stepUp: "sv.auth.stepup",
 } as const;
 

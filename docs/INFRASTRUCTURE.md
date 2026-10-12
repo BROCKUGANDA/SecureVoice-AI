@@ -67,9 +67,9 @@ against the new schema. `scripts/deploy.mjs` deliberately does not run migration
 
 ## Terraform
 
-Provisions the box `docs/DEPLOY.md` describes by hand: a Linode instance, the
-swap file a 4 GB Next build needs, and — the point of the whole exercise — a
-firefirewall that leaves only Caddy public.
+Provisions the box `docs/DEPLOY.md` describes by hand: an **OVHcloud Public Cloud**
+instance, the swap file a 4 GB Next build needs, and — the point of the whole
+exercise — a security group that leaves only Caddy public.
 
 ```bash
 cd terraform
@@ -88,8 +88,29 @@ rate limiting and the audit trail. The test suite asserts the app never publishe
 a port in compose — this asserts it at the _network_ layer, which no test can
 reach.
 
-`inbound_policy = "DROP"` with an explicit allow-list, because Linode firewalls
-default to `ACCEPT`: an omitted rule is a hole, not a wall.
+`ovh_cloud_security_group` is an OpenStack **allow list**: traffic matching no
+rule does not pass, on every interface. The previous Linode configuration said
+`inbound_policy = "DROP"` and then listed what to accept, so an omitted rule was
+covered by a deny policy standing behind it. OVHcloud has no such attribute, and
+that difference is load-bearing the next time this file is edited:
+
+- on Linode, adding a port meant adding a rule and the deny policy stayed behind
+  it;
+- here, one entry in `local.ingress_rules` opens a port to `0.0.0.0/0` and
+  nothing re-closes it.
+
+So the guarantee is not "a deny policy is set" — it is **"the list is short"**.
+`local.open_ports` is therefore the single value both the security group and
+`outputs.public_ports` read, so the docs cannot promise less than the box grants,
+and `outputs.denied_ports_of_note` names 5432 (Postgres) and 9090 (realtime)
+explicitly so a CI check can fail a future edit that opens them instead of leaving
+it to review.
+
+There is no private network by design. A vRack + subnet + gateway is a billed
+resource per month, and it buys nothing this control does not already provide:
+Postgres and the realtime socket service are unpublished because **no rule
+admits their ports**, not because they sit on a private address. Binding them to
+`127.0.0.1` inside the compose network is defence in depth, not the control.
 
 ### Guardrails, so a plan cannot quietly do the wrong thing
 
@@ -97,10 +118,26 @@ default to `ACCEPT`: an omitted rule is a hole, not a wall.
   validation rather than opening 22 to the world.
 - `allow_ssh_from_anywhere` defaults to `false`, and when set, `outputs` prints a
   loud warning: it is a bootstrap escape hatch, not a configuration.
-- `instance_type` must be a `g6-*` slug, so a typo cannot resolve to nothing.
+- `region` must look like an OVHcloud region code (`GRA11`, `SBG5`, `BHS5`), so
+  an AWS-style name like `me-central-1` fails validation with a readable message
+  instead of an opaque 404 from the API.
+- `flavor_name` must look like an OVH flavor (`d2-8`, `c2-7`), and is resolved to
+  its per-region `flavor_id` through the catalog data source rather than
+  hardcoded — so the config names a size and the region decides the SKU.
 - `deploy_env` is constrained to `pilot|staging|prod`.
 - `outputs.next_steps` prints an ordered checklist including the "turn SSH back
   off" reminder, because that is the step that gets forgotten.
+
+### `user_data` is the sharp edge
+
+The cloud-init payload reaches the instance as `user_data`, which the provider
+documents as **write-only** and destructive to change. A modified value
+**reinstalls the instance and wipes the root disk**, while Terraform reports a
+successful in-place update — the instance id, ports and IPs all survive, so
+nothing in the apply output says data was lost. Removing the argument does
+nothing; setting it to `""` is a clear, and a clear reinstalls. Editing
+`templates/cloud-init.yaml.tftpl` on a live box is a production data-loss event.
+This is why `next_steps` repeats it on every run.
 
 ### Scope, stated honestly
 

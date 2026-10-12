@@ -264,12 +264,12 @@ describe("setRateLimitStore", () => {
     setRateLimitStore({
       consume: (scope, id, cost, capacity, refillPerSec) => {
         calls.push([scope, id, cost, capacity, refillPerSec]);
-        return { ok: true, remaining: 42, resetMs: 0 };
+        return { ok: true, limit: 100, remaining: 42, resetMs: 0 };
       },
     });
     try {
       const r = consume("scoped", "who", 2, 100);
-      expect(r).toEqual({ ok: true, remaining: 42, resetMs: 0 });
+      expect(r).toEqual({ ok: true, limit: 100, remaining: 42, resetMs: 0 });
       expect(calls).toHaveLength(1);
       // refillPerSec is derived from the capacity — the store depends on it.
       expect(calls[0]![4]).toBeCloseTo(100 / 3600, 10);
@@ -281,9 +281,8 @@ describe("setRateLimitStore", () => {
           void scope;
           void id;
           void cost;
-          void capacity;
           void refillPerSec;
-          return { ok: true, remaining: 0, resetMs: 0 };
+          return { ok: true, limit: capacity, remaining: 0, resetMs: 0 };
         },
       });
     }

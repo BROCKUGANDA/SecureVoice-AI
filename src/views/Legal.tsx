@@ -2,7 +2,7 @@
 
 import { ScrollText, FileText, ArrowRight, Undo2 } from "lucide-react";
 import { useApp, t } from "@/lib/store";
-import { SUPPORT_EMAIL } from "@/lib/public-config";
+import { SUPPORT_EMAIL, LEGAL_EMAIL } from "@/lib/public-config";
 import { Reveal } from "@/components/fx/core";
 
 /* ————————————————— shared legal shell ————————————————— */
@@ -235,7 +235,7 @@ const PRIVACY_SECTIONS = [
   {
     h: "Contact",
     body: [
-      `Data protection questions: ${SUPPORT_EMAIL}. Postal: SecureVoice Technologies FZ-LLC, Dubai, United Arab Emirates. We answer every privacy email personally — no ticket bots.`,
+      `Data protection questions: ${LEGAL_EMAIL}. Product, billing and security questions: ${SUPPORT_EMAIL}. Postal: SecureVoice Technologies FZ-LLC, Dubai, United Arab Emirates. We answer every privacy email personally — no ticket bots.`,
     ],
   },
 ];

@@ -25,15 +25,33 @@ import { cn } from "@/lib/utils";
 
 /* ————————————————— live platform probe ————————————————— */
 
+/**
+ * The PUBLIC shape. Deliberately a subset of `/api/status`.
+ *
+ * `/api/status` is operator-only on purpose — its own docstring calls the DB ping
+ * "a free query amplifier" and heap/rss "fingerprinting data". This page is
+ * public, so it reads `/api/health`, which is the documented public probe.
+ *
+ * The bug this replaces: the band fetched `/api/status` and stored whatever came
+ * back WITHOUT checking `r.ok`. An anonymous visitor therefore got the 401 body
+ * `{error: "Operator access required…"}` as its "status", and the panel rendered
+ * `status.ok` undefined as **"Degraded"**, `status.version` undefined as
+ * **"vundefined"**, and dashes for everything else. It looked like a broken
+ * deployment while reporting a status it had never received.
+ */
 type Status = {
   ok: boolean;
   version: string;
-  region: string;
-  dbLatencyMs: number | null;
-  heapUsedMb: number;
-  rssMb: number;
-  ts: string;
+  region: string | null;
+  uptimeSec: number;
 };
+
+/** Shape guard: an error body must never be mistaken for a status payload. */
+function isStatus(v: unknown): v is Status {
+  if (typeof v !== "object" || v === null) return false;
+  const o = v as Record<string, unknown>;
+  return typeof o.ok === "boolean" && typeof o.uptimeSec === "number";
+}
 
 function useStatus(pollMs = 20000) {
   const [status, setStatus] = useState<Status | null>(null);
@@ -41,15 +59,30 @@ function useStatus(pollMs = 20000) {
   useEffect(() => {
     let alive = true;
     const load = () =>
-      fetch("/api/status")
-        .then((r) => r.json())
+      fetch("/api/health", { cache: "no-store" })
+        .then(async (r) => {
+          // `r.ok` AND the shape, because a 200 carrying an unexpected body is
+          // the same failure in a different costume.
+          if (!r.ok) throw new Error(`health ${r.status}`);
+          const body: unknown = await r.json();
+          if (!isStatus(body)) throw new Error("unexpected health body");
+          return body;
+        })
         .then((d) => {
           if (alive) {
             setStatus(d);
             setErr(false);
           }
         })
-        .catch(() => alive && setErr(true));
+        .catch(() => {
+          if (alive) {
+            // A failed probe clears the reading rather than leaving a stale one:
+            // a status panel showing an old number as if it were live is worse
+            // than one admitting it has none.
+            setStatus(null);
+            setErr(true);
+          }
+        });
     load();
     const id = setInterval(load, pollMs);
     return () => {
@@ -60,8 +93,17 @@ function useStatus(pollMs = 20000) {
   return { status, err };
 }
 
-function fmtMem(mb: number) {
-  return mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${mb} MB`;
+/**
+ * Human-readable process uptime. Replaces the old `fmtMem`: memory footprint is
+ * one of the operator-only fields this public band no longer reads.
+ */
+function fmtUptime(seconds: number, lang: "en" | "ar"): string {
+  if (seconds < 60) return t(`${seconds}s`, `${seconds} ث`, lang);
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return t(`${minutes}m`, `${minutes} د`, lang);
+  const hours = Math.floor(minutes / 60);
+  const rem = minutes % 60;
+  return t(`${hours}h ${rem}m`, `${hours} س ${rem} د`, lang);
 }
 
 function LiveStatusBand() {
@@ -75,15 +117,11 @@ function LiveStatusBand() {
           value: status.ok ? t("Operational", "تعمل", lang) : t("Degraded", "متدهورة", lang),
           pulse: status.ok,
         },
-        {
-          label: t("Database round-trip", "زمن قاعدة البيانات", lang),
-          value: `${status.dbLatencyMs ?? "—"} ms`,
-        },
-        { label: t("Region", "المنطقة", lang), value: status.region },
+        { label: t("Region", "المنطقة", lang), value: status.region ?? t("UAE", "الإمارات", lang) },
         { label: t("Build", "الإصدار", lang), value: `v${status.version}` },
         {
-          label: t("Memory footprint", "استهلاك الذاكرة", lang),
-          value: status.rssMb ? fmtMem(status.rssMb) : "—",
+          label: t("Process uptime", "زمن التشغيل", lang),
+          value: fmtUptime(status.uptimeSec, lang),
         },
       ]
     : [
@@ -91,10 +129,9 @@ function LiveStatusBand() {
           label: t("API service", "خدمة الواجهة", lang),
           value: t("Probing…", "جارٍ الفحص…", lang),
         },
-        { label: t("Database round-trip", "زمن قاعدة البيانات", lang), value: "—" },
         { label: t("Region", "المنطقة", lang), value: "—" },
         { label: t("Build", "الإصدار", lang), value: "—" },
-        { label: t("Memory footprint", "استهلاك الذاكرة", lang), value: "—" },
+        { label: t("Process uptime", "زمن التشغيل", lang), value: "—" },
       ];
 
   return (
@@ -120,7 +157,7 @@ function LiveStatusBand() {
         </span>
       </div>
 
-      <div className="mt-5 grid grid-cols-2 gap-4 sm:grid-cols-5">
+      <div className="mt-5 grid grid-cols-2 gap-4 sm:grid-cols-4">
         {cells.map((c) => (
           <div key={c.label}>
             <div className="micro text-[9px] text-ink-3">{c.label.toUpperCase()}</div>
@@ -523,7 +560,7 @@ export function Security() {
             </h3>
             <p className="mt-2.5 text-[13.5px] leading-relaxed text-ink-2">
               {t(
-                `Found something? Report to ${SUPPORT_EMAIL} (PGP key on request). We acknowledge within 24 hours, triage within 72, and credit researchers who follow scope rules. No legal action for good-faith research that avoids service degradation and never touches customer data.`,
+                `Found something? Report to ${SUPPORT_EMAIL}. We acknowledge within 24 hours, triage within 72, and credit researchers who follow scope rules. No legal action for good-faith research that avoids service degradation and never touches customer data.`,
                 `وجدت ثغرة؟ أرسل إلى ${SUPPORT_EMAIL}. نؤكد الاستلام خلال ٢٤ ساعة ونصنّفها خلال ٧٢، ونشكر الباحثين الملتزمين بالنطاق دون إجراءات قانونية للأبحاث بحسن نية.`,
                 lang,
               )}
@@ -531,7 +568,18 @@ export function Security() {
             <div className="mt-4 rounded-xl border border-line bg-paper p-4 font-mono text-[11.5px] leading-relaxed text-ink-2">
               {t("Contact", "للتواصل", lang)}: {SUPPORT_EMAIL}
               <br />
-              {t("Encryption", "التشفير", lang)}: PGP · key ID 0x5ECURE
+              {/* No key material, because there is no key. This line used to name a
+                  fingerprint that was never generated — not valid hex, published
+                  nowhere — while public/security.txt deliberately leaves the RFC 9116
+                  Encryption field undeclared for exactly that reason. A reporter told
+                  to encrypt to it verifies their report against nothing, and the test
+                  in tests/surface/surface.test.ts keeps it that way. */}
+              {t("Encryption", "التشفير", lang)}:{" "}
+              {t(
+                "no PGP key is published — the channel is the mailbox itself",
+                "لا يُنشر مفتاح PGP — القناة هي صندوق البريد نفسه",
+                lang,
+              )}
               <br />
               {t("Preferred languages", "اللغات المفضّلة", lang)}: EN, AR
               <br />

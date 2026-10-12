@@ -77,6 +77,8 @@ import {
   type ProviderEvent,
   type RefundRequest,
   type RefundResult,
+  type InvoiceRequest,
+  type InvoiceResult,
   type StoredEntitlement,
   type WebhookVerification,
 } from "@/lib/payments/provider";
@@ -275,7 +277,9 @@ export function decodePaddleEvent(payload: Record<string, unknown>): ProviderEve
 
   const custom = d.custom_data;
   const reference =
-    custom && typeof custom === "object" && typeof (custom as { reference?: unknown }).reference === "string"
+    custom &&
+    typeof custom === "object" &&
+    typeof (custom as { reference?: unknown }).reference === "string"
       ? (custom as { reference: string }).reference
       : "";
   // A reference we did not mint is not ours to settle. Without this a Paddle
@@ -335,7 +339,9 @@ export type PaddleConfig = {
   http?: HttpClient;
 };
 
-function normalizeConfig(cfg: PaddleConfig): Required<Omit<PaddleConfig, "apiKey" | "webhookSecret">> & {
+function normalizeConfig(cfg: PaddleConfig): Required<
+  Omit<PaddleConfig, "apiKey" | "webhookSecret">
+> & {
   apiKey: string;
   webhookSecret: string;
   prices: PaddlePriceMap;
@@ -477,18 +483,23 @@ export function createPaddleProvider(cfg: PaddleConfig): PaymentProvider {
     // would charge 10x for the same request.
     const chosen = matches.find((m) => m.interval === "month") ?? matches[0]!;
 
-    const res = await paddleRequest<TransactionResponse>(
-      c,
-      "POST",
-      "/transactions",
-      {
-        items: [{ price_id: chosen.priceId, quantity: 1 }],
-        collection_mode: "automatic",
-        custom_data: { reference },
-        customer: { email: req.email },
-        ...(req.returnUrl === undefined ? {} : { settings: { return_url: req.returnUrl } }),
-      },
-    );
+    // The plan this checkout buys, anchored NOW and carried to the webhook in
+    // `custom_data`. Money never converts 1:1 into credits — the plan's
+    // allowance is the unit count (#204) — and it must be decided at mint time,
+    // not re-derived when the paid event arrives, because a first purchase has
+    // no subscription row and a later plan change must not retroactively
+    // re-rate this one.
+    const { planFromPriceKey } = await import("@/lib/payments/overage");
+    const plan = planFromPriceKey(chosen.key);
+    const entitlements: StoredEntitlement[] = plan ? [{ key: `plan:${plan}` }] : [];
+
+    const res = await paddleRequest<TransactionResponse>(c, "POST", "/transactions", {
+      items: [{ price_id: chosen.priceId, quantity: 1 }],
+      collection_mode: "automatic",
+      custom_data: { reference, ...(entitlements.length > 0 ? { entitlements } : {}) },
+      customer: { email: req.email },
+      ...(req.returnUrl === undefined ? {} : { settings: { return_url: req.returnUrl } }),
+    });
     if (!res.ok) throw new Error(`paddle: checkout failed (${res.error})`);
 
     const url = res.value.data?.checkout?.url ?? "";
@@ -499,10 +510,105 @@ export function createPaddleProvider(cfg: PaddleConfig): PaymentProvider {
     return { url, accessCode: "", reference };
   }
 
+  /**
+   * Raise a manual-collection invoice for an enterprise deal.
+   *
+   * Paddle's route to a VAT/GST document with bank-transfer settlement is
+   * `POST /transactions` with `collection_mode: "manual"` plus `due_date`. That
+   * is the same endpoint `createCheckout` uses with one field changed, which is
+   * why there is no second API surface to keep in sync.
+   *
+   * The important property is what this does NOT do: it credits nothing.
+   * `settledUnits: 0` is returned unconditionally, and that is a design
+   * constraint rather than a limitation of the current implementation —
+   * crediting an unpaid invoice would extend an unbounded credit line against a
+   * customer's good faith. Units arrive only via `settlePayment`, on
+   * `transaction.paid` or on dual-control operator confirmation.
+   */
+  async function createInvoice(req: InvoiceRequest): Promise<InvoiceResult> {
+    // Amounts are MINOR UNITS and must be positive integers. `assertMoney`
+    // already enforces integer-ness and non-negativity for checkout; invoice
+    // lines go through the same bound rather than a looser ad-hoc check, so a
+    // float can never reach the gateway body.
+    const items = req.items.map((item, index) => {
+      const money = assertMoney(
+        { amountMinor: item.amountMinor, currency: req.currency },
+        `invoice.items[${index}]`,
+      );
+      return {
+        // A non-catalog item: an amount plus a description. This is how
+        // per-customer negotiated pricing is expressed — Paddle will not
+        // accept an unknown price_id, and inventing one to carry a custom
+        // amount would be worse than describing the line.
+        description: item.description,
+        price: { amount_minor: money.amountMinor, currency_code: money.currency },
+        quantity: String(item.quantity ?? 1),
+      };
+    });
+
+    if (items.length === 0) {
+      return { ok: false, reference: req.reference, reason: "invoice_has_no_items" };
+    }
+
+    const res = await paddleRequest<TransactionResponse>(c, "POST", "/transactions", {
+      items,
+      // THE line that makes this an invoice rather than a checkout.
+      collection_mode: "manual",
+      ...(req.dueInDays === undefined
+        ? {}
+        : { due_date: new Date(Date.now() + req.dueInDays * 86_400_000).toISOString() }),
+      // OUR reference, so the paid webhook hands back something we can match.
+      custom_data: { reference: req.reference },
+      ...(req.customer?.email
+        ? {
+            customer: {
+              email: req.customer.email,
+              ...(req.customer.name ? { name: req.customer.name } : {}),
+            },
+          }
+        : {}),
+      // A VAT/GST number triggers reverse-charge treatment at the gateway.
+      // Absent ⇒ standard rate. Never inferred from the address: guessing here
+      // would under-charge a taxable buyer.
+      ...(req.taxId
+        ? {
+            customer: {
+              ...(req.customer?.email ? { email: req.customer.email } : {}),
+              tax_id: req.taxId,
+            },
+          }
+        : {}),
+    });
+
+    if (!res.ok) {
+      // Surfaced as a refusal, not a throw: an enterprise sales flow needs to
+      // show the operator WHY the invoice was not raised (403 = the key lacks
+      // permission, 400 = a malformed custom price), not a 500.
+      return { ok: false, reference: req.reference, reason: `paddle_invoice_failed:${res.error}` };
+    }
+
+    const invoiceId = res.value.data?.id ?? "";
+    if (invoiceId === "") {
+      return { ok: false, reference: req.reference, reason: "paddle_returned_no_transaction_id" };
+    }
+
+    return {
+      ok: true,
+      reference: req.reference,
+      invoiceId,
+      // `checkout.url` on a manual transaction is where the buyer settles —
+      // card-on-invoice or a bank transfer — so it doubles as the payment link.
+      ...(res.value.data?.checkout?.url ? { paymentLink: res.value.data.checkout.url } : {}),
+      settledUnits: 0,
+    };
+  }
+
   return {
     id: PADDLE_PROVIDER_ID,
 
     createCheckout,
+
+    createInvoice,
 
     /**
      * Paddle signs `ts:rawBody` with the notification-destination secret. Does

@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import { DECK } from "@/lib/deck";
 import { useApp, t } from "@/lib/store";
+import { FOUNDER_EMAIL } from "@/lib/public-config";
 import { Chip } from "@/components/fx/core";
 import { cn } from "@/lib/utils";
 
@@ -314,7 +315,7 @@ function RenderSlide({
         )}
         <div className="mt-9 flex flex-wrap gap-2.5">
           <Chip>{t("Team SecureVoice · 5 people", "فريق SecureVoice · ٥ أعضاء", lang)}</Chip>
-          <Chip>team@securevoice.ai</Chip>
+          <Chip>{FOUNDER_EMAIL}</Chip>
           <Chip>{t("ElevenLabs platform", "منصة ElevenLabs", lang)}</Chip>
         </div>
         <p className="num mt-10 text-[11px] text-ink-3">
@@ -1075,7 +1076,7 @@ function RenderSlide({
               "English + Arabic fully operational, dialect-tuned",
               "الإنجليزية والعربية تعملان بكامل طاقتهما، معايرة حسب اللهجة",
             ],
-            ["Integration with mock banking systems", "تكامل كامل مع أنظمة بنكية محاكاة"],
+            ["Integration with live banking systems", "تكامل كامل مع أنظمة بنكية حية"],
             [
               "Test suite with 90%+ pass rate on primary flows",
               "حزمة اختبارات بنسبة نجاح تتجاوز ٩٠٪ على المسارات الرئيسية",
@@ -1196,8 +1197,8 @@ function RenderSlide({
             <span className="h-2.5 w-2.5 rounded-full bg-[#28c840]" />
             <span className="num ml-3 flex-1 rounded-md bg-white/10 px-3 py-1 text-[11px] text-white/70">
               {t(
-                "securevoice.ai/demo — simulated fraud scenario · full call flow · mock banking integration",
-                "securevoice.ai/demo — سيناريو احتيال محاكى · مسار المكالمة كاملاً · تكامل بنكي تجريبي",
+                "securevoiceai.me — live fraud scenario · full call flow · real banking integration",
+                "securevoiceai.me — سيناريو احتيال حقيقي · مسار المكالمة كاملاً · تكامل بنكي فعلي",
                 lang,
               )}
             </span>
@@ -1282,7 +1283,7 @@ function RenderSlide({
         <Chip>{t("AED 340M / year at stake", "٣٤٠ مليون درهم سنوياً", lang)}</Chip>
         <Chip>{t("6+ languages", "٦+ لغات", lang)}</Chip>
         <Chip>{t("CBUAE-aligned", "متوافق مع CBUAE", lang)}</Chip>
-        <Chip>team@securevoice.ai</Chip>
+        <Chip>{FOUNDER_EMAIL}</Chip>
       </div>
       <button
         onClick={() => setView("demo")}

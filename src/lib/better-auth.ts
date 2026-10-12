@@ -25,6 +25,9 @@ import { dash, sentinel } from "@better-auth/infra";
 import { organization } from "better-auth/plugins/organization";
 import { twoFactor } from "better-auth/plugins/two-factor";
 import { db } from "@/lib/db";
+import { sendResetPassword } from "@/lib/email/resend";
+import { trustedOriginsFromEnv } from "@/lib/auth/origins";
+import { logError } from "@/lib/validation/safe-log";
 import {
   ABSOLUTE_LIFETIME_SECONDS,
   COOKIE_CACHE_SECONDS,
@@ -32,7 +35,6 @@ import {
 } from "@/lib/auth/session-policy";
 
 const secret = process.env.BETTER_AUTH_SECRET;
-const baseURL = process.env.BETTER_AUTH_URL ?? process.env.APP_URL;
 
 // Fail at boot rather than at first login. Better Auth requires >= 32 chars;
 // a short or missing secret would otherwise surface as a confusing runtime
@@ -42,23 +44,69 @@ if (!secret || secret.length < 32) {
     "BETTER_AUTH_SECRET must be set and at least 32 characters. Generate with: openssl rand -base64 32",
   );
 }
-if (!baseURL) {
-  throw new Error("BETTER_AUTH_URL (or APP_URL) must be set so auth knows its own origin");
+
+// The CSRF allowlist, and the boot failure that keeps it honest. See
+// src/lib/auth/origins.ts for why a wildcard, a path, and a reflected `Host` are
+// all refused, and why a loopback base URL under NODE_ENV=production is fatal
+// rather than a warning. The same derivation is what the auth route logs against,
+// so the diagnostic can never describe a different list from the one enforced here.
+const origins = trustedOriginsFromEnv();
+if (origins.rejected.length > 0) {
+  // Not fatal: one typo in a four-host list should not stop the app. It is loud,
+  // because the silent version of this is the operator assuming the host they
+  // added is trusted when it was dropped.
+  logError("[auth] BETTER_AUTH_TRUSTED_ORIGINS entries ignored — not origins", {
+    rejected: origins.rejected.join(", "),
+    expected: "https://host or https://host:port, with no path",
+  });
 }
+const baseURL = origins.baseURL;
 
 export const auth = betterAuth({
   appName: "SecureVoice AI",
   secret,
   baseURL,
   // CSRF allowlist. The console and the public site are served from the same
-  // origin behind Caddy today; adding a subdomain means adding it here too.
-  trustedOrigins: [baseURL],
+  // origin behind Caddy today; adding a subdomain means adding it to
+  // BETTER_AUTH_TRUSTED_ORIGINS, not editing this line. The apex/www sibling of
+  // every accepted entry is included by the builder.
+  trustedOrigins: origins.origins,
   database: prismaAdapter(db, { provider: "postgresql" }),
   emailAndPassword: {
     enabled: true,
+    /**
+     * SIGN-UP DISABLED, and this line is the control — not the absence of a
+     * route.
+     *
+     * `src/lib/auth/signup.ts` documents that "there is no public signup route"
+     * is a claim about missing code, and `tests/auth/signup-closed.test.ts`
+     * patrols the filesystem for one. Neither of them covers the door that was
+     * already open: `src/app/api/auth/[...all]/route.ts` forwards every unmatched
+     * POST to Better Auth, and Better Auth's own `POST /api/auth/sign-up/email`
+     * is served by that catch-all. `turnstileRequired()` guards only
+     * `/api/auth/sign-in/email`, so a signup reached this handler with no CAPTCHA
+     * and no bad-actor check, while `docs/SECURITY-QUESTIONNAIRE.md` answered
+     * "Is there public sign-up?" with "No."
+     *
+     * `enabled` has to stay `true`: the console signs operators IN with
+     * credentials, and password recovery runs through Better Auth's own accounts.
+     * This flag is the half that lets the answer be true — sign-in yes, account
+     * creation only by invitation.
+     */
+    disableSignUp: true,
     // Deliberately NOT enabling auto-sign-in. A credential compromise should
     // force an MFA challenge, not land the operator straight in the console.
     requireEmailVerification: false,
+    // Password RESET for accounts Better Auth owns. Delivers through the same
+    // Resend queue as the first-party flows (src/lib/email/queue.ts), so a
+    // provider outage is retried by the email worker rather than dropped.
+    //
+    // Both magic links and resets are live, which is intentional: the
+    // first-party store (@/lib/auth/*) is what the console actually uses, and
+    // Better Auth's credential accounts need a recovery path too or they are
+    // permanently locked. See src/lib/auth/magic-link.ts:5-15 for why magic
+    // link remains the PRIMARY sign-in.
+    sendResetPassword,
   },
   session: {
     // Every number below comes from the single session policy
@@ -76,11 +124,32 @@ export const auth = betterAuth({
     // Cookie cache is for DISPLAY only (hazard AU-4). Revocation, role and
     // tenant checks must read the database, so callers that authorize use
     // auth.api.getSession() and never trust a cached copy.
+    //
+    // STRATEGY: "jwe", not the default "compact". Read the implementation
+    // (better-auth 1.7.7, dist/cookies/index.mjs:100-105) before changing it —
+    // the three strategies are not variations on a theme:
+    //
+    //   · "compact" (the library default) → `signJWT()`: a SIGNED JWS. The
+    //     payload is base64url JSON, so anyone holding the cookie can read the
+    //     session fields with no secret at all. This file used to carry a
+    //     comment claiming compact was "not readable" — that was wrong, and the
+    //     claim is exactly what would make a reader skip the switch.
+    //   · "jwt"     → `signJWT()` with a custom signer / JWKS. Still readable.
+    //   · "jwe"     → `symmetricEncodeJWT()`: ENCRYPTED with the app secret.
+    //     The payload cannot be read without BETTER_AUTH_SECRET.
+    //
+    // So "jwe" is the only strategy that delivers the intent the old comment
+    // described. It matters here more than in a typical app: the session object
+    // carries `activeOrganizationId` (the tenant identity, hazard AU-3), and a
+    // readable cookie hands a tenant id to anything that can read the browser's
+    // cookie jar — a shared terminal, a screen-share, an XSS in a sibling page.
+    //
+    // Cost: one symmetric decryption per request that reads the cache, versus a
+    // base64 decode. That is a few microseconds against the ~280 ms database
+    // round trip the cache exists to avoid.
     cookieCache: {
       enabled: true,
-      // "compact" = base64url + HMAC. Not "jwt": there is no need for the
-      // payload to be readable, and less readable is better here.
-      strategy: "compact",
+      strategy: "jwe",
       maxAge: COOKIE_CACHE_SECONDS,
     },
   },
@@ -141,7 +210,21 @@ export const auth = betterAuth({
     organization(),
     twoFactor({ otpOptions: { storeOTP: "hashed" } }),
     admin(),
-    dash(),
+    // `dash()` telemetry, with activity tracking ON.
+    //
+    // Activity tracking writes `user.lastActiveAt` (see the schema comment and
+    // migration `9zzzzzzzzzzzzzzzzzzz_user_last_active_at`) and is off by
+    // default precisely because it needs that column. It is enabled here for a
+    // second reason beyond the dashboard's activity charts: `sentinel()`'s
+    // stale-user check reads the same field —
+    // `checkStaleUser(userId, activityTrackingEnabled ? user.lastActiveAt : null)`
+    // (infra dist/index.mjs:2899) — so while tracking is off, sentinel is handed
+    // `null` on every call and that security check cannot fire. Enabling the
+    // column makes the dormant check live.
+    //
+    // `apiKey` is not passed: it defaults to `process.env.BETTER_AUTH_API_KEY`,
+    // which is the single place the key is configured.
+    dash({ activityTracking: { enabled: true } }),
     sentinel(),
   ],
 });

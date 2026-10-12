@@ -26,6 +26,11 @@ ENV NODE_ENV=production \
 COPY --from=deps /app/node_modules ./node_modules
 COPY package.json ./
 COPY src ./src
+# The base image ships a non-root `bun` user (uid 1000); no adduser needed.
+# Same reasoning as the app: nothing here is written at runtime — src and
+# node_modules are root-owned and world-readable, scratch goes to /tmp — so
+# dropping to 1000 removes root without removing any capability.
+USER bun
 EXPOSE 4000
 
 # Liveness only — /readyz additionally asserts a signing secret is present, which

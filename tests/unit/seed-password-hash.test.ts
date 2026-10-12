@@ -14,7 +14,10 @@ import { describe, expect, test } from "bun:test";
 import { scryptSync, randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 
-const SCRIPT = new URL("../../scripts/seed-demo.mjs", import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1");
+const SCRIPT = new URL("../../scripts/seed-demo.mjs", import.meta.url).pathname.replace(
+  /^\/([A-Za-z]:)/,
+  "$1",
+);
 
 /** The exact derivation the seed now performs. */
 function seedHash(password: string): string {

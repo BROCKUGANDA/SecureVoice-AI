@@ -2,8 +2,36 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { acceptInvite } from "@/lib/auth/invite";
 import { SESSION_COOKIE_ATTRS, SESSION_COOKIE_NAME } from "@/lib/auth/constants";
+import { seatGate } from "@/lib/billing/seats";
+import { logError } from "@/lib/validation/safe-log";
 
 export const dynamic = "force-dynamic";
+
+/**
+ * The seat cap for redemption, wrapped so it can only ever refuse on a real
+ * limit.
+ *
+ * If the cap cannot be evaluated — the identity store or the billing mirror is
+ * unreachable — the redemption PROCEEDS. This is the same asymmetry
+ * `src/lib/billing/seats.ts` documents: the control being enforced is
+ * commercial, and the cost of a wrong answer here is a legitimate new operator
+ * who holds a working invitation and cannot use it, cannot tell anyone why, and
+ * whose invite expires in 72 hours. A tenant that gains one seat because a
+ * database blipped is recoverable in the next billing cycle.
+ */
+async function redeemSeatGate(
+  orgId: string,
+): Promise<{ ok: true } | { ok: false; message: string }> {
+  try {
+    return await seatGate(orgId);
+  } catch (err) {
+    logError("[auth] seat cap unreadable at redemption; allowing it through", {
+      orgId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return { ok: true };
+  }
+}
 
 /**
  * POST /api/auth/invites/accept — redeem an invitation. The ONLY path by which
@@ -43,9 +71,19 @@ export async function POST(req: Request) {
     token: parsed.data.token,
     name: parsed.data.name,
     password: parsed.data.password,
+    seatGate: redeemSeatGate,
   });
 
   if (!result.ok) {
+    // A full plan is a COMMERCIAL refusal, not a dead invitation: 402 with the
+    // seat facts, and — the part that matters — the invitation was not consumed,
+    // so it still works the moment the organization upgrades or frees a seat.
+    if (result.reason === "seat_full") {
+      return NextResponse.json(
+        { error: result.error, code: "seat_limit_reached", inviteStillValid: true },
+        { status: 402, headers: { "Cache-Control": "no-store" } },
+      );
+    }
     // 410 Gone for every invitation failure: expired, already used, or simply
     // not a real token. Distinguishing them would tell a prober which token
     // guesses were real invitations.

@@ -230,6 +230,48 @@ export async function createIdentity(input: CreateIdentityInput): Promise<Identi
   return identity;
 }
 
+/**
+ * Replace an identity's password hash and revoke every live session for it.
+ *
+ * Used only by the password-reset flow (src/lib/auth/password-reset.ts). The
+ * session revocation is the security-relevant half: a reset exists precisely
+ * because the operator believes their password may be compromised, so any
+ * session an attacker holds must die the moment the real owner recovers
+ * control. Bumping `roleEpoch` achieves that without enumerating sessions —
+ * every live session carries the epoch it was issued under and `verifySession`
+ * refuses any mismatch — the same mechanism setRole uses.
+ *
+ * The hash is written to the first-party `passwordHash` column, matching
+ * createIdentity: Better Auth's own hash column is left untouched because this
+ * codebase verifies these accounts with its own scrypt/argon2 store.
+ */
+export async function setIdentityPassword(input: {
+  accountId: string;
+  orgId: string | null | undefined;
+  passwordHash: string;
+  auditRequired: () => Promise<void>;
+}): Promise<{ ok: true; identity: Identity } | { ok: false; reason: "no_such_member" }> {
+  const org = orgOrDefault(input.orgId);
+  const current = await getIdentity(input.accountId, org);
+  if (!current) {
+    return { ok: false, reason: "no_such_member" };
+  }
+
+  // Audit BEFORE the write, and let it throw — a password change that cannot be
+  // recorded in the tamper-evident chain does not happen.
+  await input.auditRequired();
+
+  await db.account.update({
+    where: { id: input.accountId },
+    data: { passwordHash: input.passwordHash },
+    select: { id: true },
+  });
+
+  const updated: Identity = { ...current, roleEpoch: current.roleEpoch + 1 };
+  await put(AUTH_SCOPES.identity, input.accountId, org, updated, PERMANENT_EXPIRY);
+  return { ok: true, identity: updated };
+}
+
 // ── Role change (item 6: automatic revocation on role change) ────────────────
 
 export type SetRoleResult = { ok: true; identity: Identity; previousRole: Role };

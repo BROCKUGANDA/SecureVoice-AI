@@ -8,6 +8,7 @@ import { CONSOLE_ROLES } from "@/lib/auth/identity";
 import { isRole } from "@/lib/auth/roles";
 import { inviteStatus } from "@/lib/auth/invite";
 import { INVITE_TTL_MS } from "@/lib/auth/constants";
+import { seatFacts, seatGate } from "@/lib/billing/seats";
 
 export const dynamic = "force-dynamic";
 
@@ -36,6 +37,10 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: authed.error, code: authed.code }, { status: authed.status });
   }
   const members = await listOrgMembers(authed.orgId);
+  // The seat line travels with the member list, because the list is where an
+  // operator looks to find out whether they can invite someone. A cap that only
+  // appears as a 402 on the button is a cap discovered by being refused.
+  const facts = await seatFacts(authed.orgId);
   return NextResponse.json(
     {
       members: members.map((m) => ({
@@ -45,6 +50,15 @@ export async function GET(req: NextRequest) {
         role: m.role,
         orgId: m.orgId,
       })),
+      seats: {
+        /** null = unlimited, including "no plan resolved for this organization". */
+        allowed: facts.seats,
+        used: facts.members,
+        remaining: facts.remaining,
+        plan: facts.plan,
+        /** Already above the plan's seats (a downgrade). Members are NOT removed. */
+        overCap: facts.members > (facts.seats ?? Infinity),
+      },
     },
     { headers: { "Cache-Control": "no-store" } },
   );
@@ -86,6 +100,30 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Only an Owner may invite another Owner." }, { status: 403 });
   }
 
+  // Seat cap. Runs AFTER every authorization check and BEFORE `issueInvite`, so
+  // a caller who was never allowed to invite is still refused for the reason
+  // that comes first, and an allowed caller is refused before an invitation
+  // record or an email exists — a minted-then-discarded invite is a credential
+  // with a 72-hour life that nobody intended to issue.
+  //
+  // 402, not 403: nothing about the caller's permission is wrong, and the fix is
+  // commercial (upgrade), not procedural (ask an Owner). `api-errors.ts`'s
+  // `paymentRequired()` is deliberately NOT reused here — it stamps
+  // `X-Credits-Balance: 0`, and this refusal says nothing about the wallet.
+  const seats = await seatGate(authed.orgId);
+  if (!seats.ok) {
+    return NextResponse.json(
+      {
+        error: seats.message,
+        code: seats.code,
+        seats: seats.facts.seats,
+        members: seats.facts.members,
+        plan: seats.facts.plan,
+      },
+      { status: 402, headers: { "Cache-Control": "no-store" } },
+    );
+  }
+
   const { invite, token } = await issueInvite({
     email: parsed.data.email,
     name: parsed.data.name ?? "",
@@ -93,6 +131,43 @@ export async function POST(req: NextRequest) {
     orgId: authed.orgId,
     issuedBy: authed.identity.accountId,
   });
+
+  // Deliver the invite by email (enqueue-then-attempt via Resend). The token is
+  // NEVER returned in this response — that was the leak this module's magic-link
+  // sibling refuses by design (src/lib/auth/magic-link.ts:19-22): an endpoint
+  // that hands a usable credential back to the caller is a password reset with
+  // an auth header, and works against any address the caller can name.
+  const { deliverInvite } = await import("@/lib/email/resend");
+  try {
+    await deliverInvite({
+      email: invite.email,
+      token,
+      expiresAt: invite.expiresAt,
+      role: invite.role,
+    });
+  } catch (err) {
+    // The invite exists (issueInvite already committed) but its email did not go
+    // out. Report it loudly: this endpoint is ADMIN-ONLY and already
+    // authenticated, so there is no enumeration concern here — an admin who was
+    // told 201 while the email bounced would believe an analyst was invited when
+    // nobody received anything.
+    console.error("[auth] invite email delivery failed", {
+      inviteId: invite.inviteId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return NextResponse.json(
+      {
+        error: "The invitation was created but the email could not be sent.",
+        invite: {
+          inviteId: invite.inviteId,
+          email: invite.email,
+          expiresAt: new Date(invite.expiresAt).toISOString(),
+        },
+        retryable: true,
+      },
+      { status: 502, headers: { "Cache-Control": "no-store" } },
+    );
+  }
 
   return NextResponse.json(
     {
@@ -104,10 +179,10 @@ export async function POST(req: NextRequest) {
         expiresAt: new Date(invite.expiresAt).toISOString(),
         ttlMs: INVITE_TTL_MS,
       },
-      // Shown ONCE, to be delivered to the invitee out of band. Only the hash
-      // is stored (src/lib/auth/invite.ts), so this cannot be recovered later.
-      token,
-      note: "Single use. Bound to this email. Expires in 72 hours.",
+      // The token is emailed to the invitee and never echoed here. Delivery is
+      // queued durably, so a transient provider failure is retried by the
+      // email worker rather than lost.
+      note: "Invitation emailed. Single use. Bound to this email. Expires in 72 hours.",
     },
     { status: 201, headers: { "Cache-Control": "no-store" } },
   );

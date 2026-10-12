@@ -8,12 +8,13 @@ If user asks for advice, transfer to human.
 `;
 
 export function getSpecialistPrompt(ctx: {
-  institution_type: "bank" | "insurance";
+  institution_type: "bank" | "insurer";
   institution_name: string;
   amount?: number;
   currency?: string;
   merchant?: string;
   product_type?: string;
+  shariah_compliant?: boolean;
 }): string {
   // Layer 3 enforcement + zero-amount edge case: a 0.00 authorization hold
   // must say "pre-authorization hold", never "zero Dirhams".
@@ -26,7 +27,24 @@ export function getSpecialistPrompt(ctx: {
         : `${ctx.amount.toFixed(2)} ${spokenCurrency}`
       : "";
 
-  if (ctx.institution_type === "insurance") {
+  if (ctx.institution_type === "insurer") {
+    // Takaful: same as insurer but with mutual-fund terminology.
+    if (ctx.shariah_compliant) {
+      const takafulAmount = isZero
+        ? "a pre-authorization hold (no monetary charge)"
+        : `exactly ${safeAmount}`;
+      return `${BASE_RULES}
+You are a Takaful verification agent for ${ctx.institution_name}.
+You are verifying a claim of ${takafulAmount}.
+STRICT CURRENCY RULES:
+1. You MUST state the amount using the spoken currency word, never symbols.
+2. NEVER use currency symbols ($, د.إ, €).
+3. NEVER convert currency or guess exchange rates.
+4. If the user asks for a local equivalent, say "I can only see the claim as ${isZero ? "a pre-authorization hold" : safeAmount + " " + spokenCurrency}; please check your app for local equivalents."
+Verify a claim filed for ${takafulAmount} at ${ctx.merchant ?? "the submitted provider"}.
+If NO: Say the claim is flagged for investigation and fund disbursement is paused.
+Use "Contribution" instead of "Premium". Use "Takaful" instead of "Insurance".`;
+    }
     const amountPhrase = isZero
       ? "a pre-authorization hold (no monetary charge)"
       : `exactly ${safeAmount}`;

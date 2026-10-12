@@ -69,6 +69,16 @@ export const FAILURE_CODES = [
   // "cross-tenant" code: a distinct code would itself be the existence oracle
   // that the 404 is meant to deny.
   "not_found",
+  // 402
+  /**
+   * The refusal a caller can only clear by paying. It exists because
+   * "out of credits" is NOT a policy precondition: every other 409 from the
+   * gate (consent, geography, do-not-call, cooldown) is a decision about the
+   * *customer* that retrying cannot change, while an empty wallet is a decision
+   * about *us* that a top-up changes immediately. A client that treats them
+   * alike either retries a refusal forever or gives up on a solvable one.
+   */
+  "payment_required",
   // 409
   "state_conflict",
   "policy_precondition",
@@ -127,6 +137,12 @@ export const STATUS_DISCIPLINE: Record<FailureCode, StatusRule> = {
     retryable: false,
     retryAfter: false,
     disposition: "state_precondition",
+  },
+  payment_required: {
+    status: 402,
+    retryable: false,
+    retryAfter: false,
+    disposition: "billing",
   },
   policy_precondition: {
     status: 409,
@@ -203,6 +219,20 @@ const PUBLIC_MESSAGE: Record<FailureCode, string> = {
   malformed_request: "The request could not be parsed.",
   unauthenticated: "Sign in required.",
   not_found: "Not found.",
+  /**
+   * The HTTP 402 reason phrase, deliberately parallel to `unauthenticated`'s
+   * "Sign in required." — both are cases where the caller clears it by doing
+   * something outside this request, and neither is worth elaborating.
+   *
+   * This is the FALLBACK text. `billingRefusal` passes the gate's own
+   * `refusal.reason` as a `detail`, and that is what reaches the bank whenever it
+   * survives `sanitizePublicMessage`. Deliberately vague where the detail is
+   * redacted: an empty wallet and a full seat cap are both "pay or upgrade", and
+   * naming which one happened here would tell a caller the state of an account
+   * they may not own. It is also not phrased as retryable, because it is not —
+   * see the `FAILURE_CODES` note on why this is not a 409.
+   */
+  payment_required: "Payment required.",
   state_conflict: "The record is not in a state that permits this request.",
   policy_precondition: "The request was refused by policy.",
   unique_conflict: "This request has already been recorded.",
@@ -439,6 +469,15 @@ export type FailureInit = {
    * redacted and length-capped; if it cannot be made safe it is dropped.
    */
   detail?: string;
+  /**
+   * Additional response headers for this failure — currently only the
+   * `X-RateLimit-*` trio, which a `429` from the token-bucket limiter must carry
+   * so a client can see its remaining budget without parsing the body.
+   *
+   * Merged BEFORE the canonical headers, so an extras map can never replace
+   * `x-request-id` or the `Retry-After` the code rule already decided.
+   */
+  headers?: Record<string, string>;
 };
 
 /**
@@ -506,7 +545,10 @@ export function makeFailure(code: FailureCode, init: FailureInit = {}): Failure 
   const declared = normaliseRetryAfter(init.retryAfterSec);
   const retryAfterSec = rule.retryAfter ? (declared ?? 1) : declared;
 
-  const headers: Record<string, string> = { "x-request-id": requestId };
+  const headers: Record<string, string> = {
+    ...(init.headers ?? {}),
+    "x-request-id": requestId,
+  };
   if (retryAfterSec !== null) headers["Retry-After"] = String(retryAfterSec);
 
   return {
@@ -641,21 +683,49 @@ export function assertFieldName(field: unknown): string {
 // ── Policy refusals ───────────────────────────────────────────────────────────
 
 /**
- * The refusal codes `policy-gate.ts` emits today. Listed exhaustively on
- * purpose: an unmapped code is a bug, and the correct response to a bug in the
- * refusal path is a loud `RangeError` at the boundary — never a 500 dressed up
- * as a policy answer, and never a silent 200.
+ * The refusal codes `policy-gate.ts` emits. Listed exhaustively on purpose: an
+ * unmapped code is a bug, and the correct response to a bug in the refusal path
+ * is a loud `RangeError` at the boundary — never a 500 dressed up as a policy
+ * answer, and never a silent 200.
+ *
+ * "Exhaustively" is checked against the gate's source by
+ * `tests/unit/policy-refusal-codes.test.ts` rather than taken from this list's
+ * own word, because the claim was false when it was written: `transaction_repeat`,
+ * `do_not_call` and `outside_calling_hours` were all emitted by the gate and none
+ * was declared. No route happens to call `policyRefusal` today — ingest builds its
+ * own 409 — which is the only reason that was never a production incident: the
+ * first caller to use the sanctioned constructor for "the gate said no" would have
+ * taken a `RangeError` on a routine cooldown/duplicate refusal, and a thrown error
+ * at that boundary surfaces as a 500 telling the bank to retry a decision that
+ * will be refused again.
  */
 export const POLICY_REFUSAL_CODES = [
   "consent_invalid",
+  "do_not_call",
+  "transaction_repeat",
+  "outside_calling_hours",
   "country_unparseable",
   "country_not_allowed",
   "cooldown",
   "concurrency_cap",
   "spend_ceiling",
-  "credits_exhausted",
+  "subscription_paused",
 ] as const;
 export type PolicyRefusalCode = (typeof POLICY_REFUSAL_CODES)[number];
+
+/**
+ * Gate refusals that are about the wallet rather than the customer.
+ *
+ * `credits_exhausted` is here, and deliberately NOT in `POLICY_REFUSAL_CODES`.
+ * The distinction is what a caller does next: a `policy_precondition` refusal is
+ * final for that signal (retry it and you re-dial a customer who opted out),
+ * while an empty balance becomes diallable the moment a top-up lands. That is
+ * also why the status is 402 and not 409 — it is the one refusal code in this
+ * API a client is expected to resolve by paying, and a bank's integration
+ * branches on exactly that.
+ */
+export const BILLING_REFUSAL_CODES = ["credits_exhausted"] as const;
+export type BillingRefusalCode = (typeof BILLING_REFUSAL_CODES)[number];
 
 export type PolicyRefusal = { ok: false; code: string; reason: string };
 
@@ -666,6 +736,26 @@ export type PolicyRefusal = { ok: false; code: string; reason: string };
  * not a fault, so it can never surface as a 500 — a 500 would tell the bank
  * "retry", and a retry would be refused again for the same reason.
  */
+/**
+ * Map a wallet refusal onto the envelope. ALWAYS 402.
+ *
+ * The mirror of `policyRefusal`, and the reason the two are separate functions
+ * rather than one with a branch: an unmapped code throws, so a new gate refusal
+ * cannot quietly arrive at the bank as the wrong class of "no".
+ */
+export function billingRefusal(
+  refusal: { ok: false; code: string; reason: string },
+  init?: FailureInit,
+): Failure {
+  const known = (BILLING_REFUSAL_CODES as readonly string[]).includes(refusal?.code ?? "");
+  if (!known) {
+    throw new RangeError(`unmapped billing refusal code: ${String(refusal?.code)}`);
+  }
+  const failure = makeFailure("payment_required", { ...init, detail: refusal.reason });
+  if (failure.status !== 402) throw new Error("billing refusal must be 402");
+  return failure;
+}
+
 export function policyRefusal(refusal: PolicyRefusal, init?: FailureInit): Failure {
   const known = (POLICY_REFUSAL_CODES as readonly string[]).includes(refusal?.code ?? "");
   if (!known) {

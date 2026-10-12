@@ -1,16 +1,27 @@
 import "server-only";
 /**
- * Policy gate Ã¢â‚¬ the deterministic authorization layer between a risk signal
+ * Policy gate — the deterministic authorization layer between a risk signal
  * and a dial. Every check runs in order and fails fast with a typed reason.
  * The decision is written to the audit chain either way (WP-2 step 4).
  *
  * Order (fail-fast):
- *   1. consent record exists and is current
+ *   1. a consent reference is present and well-formed (4–64 characters)
  *   2. destination country on the org allowlist
  *   3. destination not in cooldown
  *   4. org concurrency below cap
  *   5. org spend ceiling not breached
  *   6. credits reserved
+ *
+ * Step 1 is a REFERENCE check, not a lookup, and the distinction is load-bearing
+ * for anything said about consent anywhere in this product. There is no consent
+ * table in this schema — `consentRecordId` is a plain string on `Customer` and on
+ * `Case` — because the record itself lives in the institution's system of record.
+ * What this layer can and does enforce is that every signal carries a reference
+ * before anything is dialled, that the reference lands in the case and the audit
+ * chain so a call is attributable to a consent record, and that a number whose
+ * stored row says opted-out is never dialled. The wording this replaces promised a
+ * verification nobody could run, and docs/INTEGRATION.md §2 passed that promise on
+ * to customers.
  *
  * No model is in this path. A signal that fails any check is rejected with a
  * typed reason and never reaches the conversation plane.
@@ -20,6 +31,7 @@ import { append as auditAppend, type AuditEntry } from "@/lib/audit-chain";
 import { db } from "@/lib/db";
 import { assertWithinBudget, maySpend } from "@/lib/billing/breaker";
 import { reserve as reserveCredits, balance as ledgerBalance } from "@/lib/billing/ledger";
+import { diallingBlockedFor } from "@/lib/payments/access";
 import { asCallCategory, type CallCategory } from "@/lib/call-categories";
 import { isAfterHours } from "@/lib/abuse/velocity";
 
@@ -34,7 +46,7 @@ export type PolicyGateInput = {
    *
    * Idempotency-Key only protects against the SAME request being retried. It
    * does nothing when a bank sends one transaction twice under two different
-   * keys Ã¢â‚¬ a retry storm with a fresh key per attempt, two fraud engines racing,
+   * keys — a retry storm with a fresh key per attempt, two fraud engines racing,
    * or an integration bug that regenerates the header. Both then pass the
    * idempotency claim and both reach the dial path, and a fraud victim gets two
    * "your card is frozen" calls about one transaction. That is the exact failure
@@ -64,9 +76,9 @@ function countryFromE164(phone: string): string | null {
   // Required capture group (1-3 digits), so it cannot actually be undefined.
   const cc = m[1]!;
   // 1-digit codes
-  if (cc === "1") return "US"; // +1 Ã¢â‚¬ US/CA (treated as one NANP zone)
+  if (cc === "1") return "US"; // +1 — US/CA (treated as one NANP zone)
   if (cc === "7") return "RU";
-  if (cc === "2") return "EG"; // +20 Egypt Ã¢â‚¬ wait, +20 is Egypt
+  if (cc === "2") return "EG"; // +20 Egypt — wait, +20 is Egypt
   // 2-digit codes
   const twoDigit: Record<string, string> = {
     "20": "EG",
@@ -115,7 +127,7 @@ function countryFromE164(phone: string): string | null {
     "98": "IR",
   };
   if (twoDigit[cc]) return twoDigit[cc];
-  // 3-digit codes Ã¢â‚¬ UAE is +971
+  // 3-digit codes — UAE is +971
   const threeDigit: Record<string, string> = {
     "971": "AE",
     "972": "IL",
@@ -129,7 +141,7 @@ function countryFromE164(phone: string): string | null {
   return null;
 }
 
-/** Default country allowlist Ã¢â‚¬ overridable per org via env. */
+/** Default country allowlist — overridable per org via env. */
 function allowedCountries(orgId: string | null): Set<string> {
   const raw =
     process.env.ALLOWED_COUNTRIES ?? "AE,US,GB,IN,EG,SA,QA,BH,KW,OM,JO,LB,PK,PH,SG,NG,KE,GH,ZA";
@@ -144,16 +156,16 @@ function allowedCountries(orgId: string | null): Set<string> {
 /** Cooldown: minimum seconds between calls to the same destination. */
 const COOLDOWN_SECONDS = Number(process.env.DIAL_COOLDOWN_SECONDS ?? 300);
 
-/** Org concurrency cap Ã¢â‚¬ max simultaneous active calls. */
+/** Org concurrency cap — max simultaneous active calls. */
 const CONCURRENCY_CAP = Number(process.env.ORG_CONCURRENCY_CAP ?? 10);
 
 /** Org spend ceiling in minor units (default 100 AED = 10000 fils). */
 const SPEND_CEILING_MINOR = Number(process.env.ORG_SPEND_CEILING_MINOR ?? 10_000);
 
-// Ã¢â‚¬Ã¢â‚¬ In-memory cooldown + concurrency state Ã¢â‚¬Ã¢â‚¬
+// ── In-memory cooldown + concurrency state ──
 // These are per-org, per-destination guards that must be fast on the hot
 // path. A DB query per signal would add ~1.2 s of remote round-trip latency
-// Ã¢â‚¬ the difference between meeting the 1.5 s p95 and missing it. The state
+// — the difference between meeting the 1.5 s p95 and missing it. The state
 // is eventually consistent (a replica restart resets it) which is acceptable
 // for a demo guard; production moves these to Redis.
 const lastCallByPhone = new Map<string, number>();
@@ -197,7 +209,7 @@ export async function runPolicyGate(input: PolicyGateInput): Promise<PolicyGateR
   //
   //    This read is a fast path, not the guarantee. Two signals with DIFFERENT
   //    idempotency keys can pass it simultaneously, so the atomic backstop is a
-  //    unique index on (orgId, transactionRef) Ã¢â‚¬ the second Case insert fails at
+  //    unique index on (orgId, transactionRef) — the second Case insert fails at
   //    the database, which is the only place a race can actually be settled.
   if (input.transactionRef) {
     const prior = await db.case.findFirst({
@@ -237,8 +249,9 @@ export async function runPolicyGate(input: PolicyGateInput): Promise<PolicyGateR
   // 1b. Do-not-call registry. A number here must not receive routine or
   //     non-critical outbound calls, whatever the fraud score says — the
   //     customer's standing instruction outranks our triage. Time-critical
-  //     fraud verification is consent-record-backed (checked above) and in the
-  //     customer's interest, so it is deliberately not gated on the registry.
+  //     fraud verification carries a required consent reference (step 1 above)
+  //     and is in the customer's interest, so it is deliberately not gated on
+  //     the registry.
   const category: CallCategory = asCallCategory(input.callCategory);
   if (category !== "time_critical_fraud") {
     const dnc = await db.doNotCall.findUnique({ where: { phone } });
@@ -291,7 +304,7 @@ export async function runPolicyGate(input: PolicyGateInput): Promise<PolicyGateR
     };
   }
 
-  // 3. Destination not in cooldown (in-memory Ã¢â‚¬ see recordCallPlacement).
+  // 3. Destination not in cooldown (in-memory — see recordCallPlacement).
   const lastCall = lastCallByPhone.get(phone);
   if (lastCall && Date.now() - lastCall < COOLDOWN_SECONDS * 1000) {
     await audit("freeze", "policy_cooldown", { phone: phone.replace(/\d(?=\d{4})/g, "*") });
@@ -302,7 +315,7 @@ export async function runPolicyGate(input: PolicyGateInput): Promise<PolicyGateR
     };
   }
 
-  // 4. Org concurrency below cap (in-memory Ã¢â‚¬ see recordCallPlacement).
+  // 4. Org concurrency below cap (in-memory — see recordCallPlacement).
   if (orgId) {
     const active = activeCallsByOrg.get(orgId) ?? 0;
     if (active >= CONCURRENCY_CAP) {
@@ -343,6 +356,19 @@ export async function runPolicyGate(input: PolicyGateInput): Promise<PolicyGateR
       percent: budget.percent,
       threshold: budget.threshold,
     });
+  }
+
+  // 5b. The tenant's own billing state, after every SAFETY gate and before any
+  //     credit is reserved. Consent, do-not-call, calling hours, geography,
+  //     cooldown and concurrency are all legal-or-abuse preconditions and none of
+  //     them is a customer's preference — a pause is. So it is checked here, and
+  //     only `paused` blocks (see `diallingBlockedFor` in
+  //     src/lib/payments/access.ts, which explains why `past_due` and `canceled`
+  //     deliberately do not, and why this differs from `decideAccess`).
+  const billing = await diallingBlockedFor(orgId);
+  if (!billing.allowed) {
+    await audit("freeze", "policy_subscription_paused", { status: billing.status });
+    return { ok: false, reason: billing.reason, code: "subscription_paused" };
   }
 
   // 6. Credits reserved.

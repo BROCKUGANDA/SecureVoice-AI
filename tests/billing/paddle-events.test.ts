@@ -25,6 +25,14 @@ describe("event routing", () => {
       "subscription.created",
       "subscription.updated",
       "subscription.canceled",
+      // These three moved into the claimed set when the dial gate started reading
+      // billing state: `paused` is the tenant turning its own dialler off, and an
+      // event that is only "acknowledged as not ours" leaves the mirror reporting
+      // whatever the last `subscription.updated` said while the dialler keeps
+      // calling. See tests/billing/subscription-dialling-access.test.ts.
+      "subscription.paused",
+      "subscription.past_due",
+      "subscription.resumed",
       "customer.created",
       "customer.updated",
       "transaction.completed",
@@ -34,7 +42,6 @@ describe("event routing", () => {
   });
 
   test.each([
-    "subscription.paused",
     "transaction.billed",
     "adjustment.created",
     "customer.deleted",

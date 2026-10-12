@@ -150,3 +150,19 @@ _*.txt
 # Cypress run artefacts — failure screenshots are local debugging output, never a committed asset.
 cypress/screenshots/
 cypress/videos/
+
+# Blue/green deploy state — written by scripts/deploy.mjs (state.json + the
+# active.env that feeds APP_UPSTREAM to caddy). Machine-local, never committed.
+.deploy/
+
+# Per-host Caddy blocks for the machine this stack runs on — the shared box's
+# extra hostnames (crucible.svalley.tech) are untracked sites.d/<host>.caddy
+# files imported by the Caddyfile. Only the README ships; the tracked Caddyfile
+# must stay byte-identical everywhere or deploy pulls trip over it.
+sites.d/*
+!sites.d/README.md
+
+# PostHog onboarding wizard output — a scratch tree of generated skill files the
+# wizard drops on disk when it runs. Machine-local tooling output, not project
+# content, and it reappears on every wizard run.
+.posthog/

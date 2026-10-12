@@ -25,6 +25,15 @@ const standalone = resolve(root, ".next", "standalone");
 const COPIES = [
   [".next/static", ".next/standalone/.next/static"],
   ["public", ".next/standalone/public"],
+  // The graceful-shutdown preload, placed INSIDE the bundle on purpose.
+  //
+  // The Dockerfile's runner stage copies only `.next/standalone`, so anything the
+  // container runs at boot must live in there. `scripts/` currently appears in
+  // the output by accident — Next traces the whole project in because of a
+  // filesystem access in src/lib/telemetry/store.ts, and that warning is itself
+  // something to fix. Relying on it would mean the container's CMD breaks the day
+  // that tracing is tightened, so the dependency is made explicit here instead.
+  ["scripts/server-preload.ts", ".next/standalone/server-preload.ts"],
 ];
 
 const exists = async (p) => {

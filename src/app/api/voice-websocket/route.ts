@@ -58,17 +58,22 @@ async function handleTranscript(
     if (confirmed) {
       state.ended = true;
 
-      try {
-        await executeSoftFreeze(callSid);
-      } catch (err) {
-        logError("[voice-websocket] soft freeze failed", {
-          error: err instanceof Error ? err.message : String(err),
+      // The hold has to exist before the line below claims it does. See
+      // src/lib/ai/ai-authz.ts — this call's result used to be discarded and a
+      // confirmation spoken regardless of it.
+      const freeze = await executeSoftFreeze(callSid, "voice_websocket");
+      if (!freeze.ok) {
+        logError("[voice-websocket] soft freeze NOT staged — the caller must not be told it was", {
           callSid,
+          code: freeze.code,
+          error: freeze.error,
+          caseRef: freeze.caseRef ?? "unresolved",
         });
       }
 
-      const finalText =
-        "Thank you. I have temporarily restricted your card to protect your account. A human fraud specialist will review this shortly.";
+      const finalText = freeze.ok
+        ? "Thank you. I have temporarily restricted your card to protect your account. A human fraud specialist will review this shortly."
+        : "I could not place the hold on your card from here. I am passing this to our fraud team now, and they will call you. If you do not hear from us, please contact your bank directly.";
 
       const tts = new ElevenLabsStream();
       state.tts = tts;

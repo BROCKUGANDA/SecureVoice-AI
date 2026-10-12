@@ -1,27 +1,29 @@
 /**
  * E2E — the wallet gate on the production dial path.
  *
- * This file is the runtime proof behind the chaos snapshot's
- * `emittedByRunPolicyGate` entry for `credits_exhausted`: the code is declared
- * in POLICY_REFUSAL_CODES and implemented at policy-gate step 6, but a code
- * that nothing drives through the real route is a comment wearing a test's
- * clothes. (The snapshot once listed it under `declaredButNotEmitted` while
- * step 6 was already implemented — a hand-maintained snapshot drifted until a
- * measured one corrected it.)
+ * This file is the runtime proof behind the contract row `gate_credits_exhausted`
+ * and the split in `src/lib/failures/envelope.ts` that puts `credits_exhausted` in
+ * BILLING_REFUSAL_CODES rather than POLICY_REFUSAL_CODES. A code that nothing
+ * drives through the real route is a comment wearing a test's clothes, and the
+ * status is the part a bank branches on: 402 means "pay and come back", 409 means
+ * "we have decided no", and the two are not interchangeable. (The chaos snapshot
+ * once listed this code under `declaredButNotEmitted` while step 6 was already
+ * implemented — a hand-maintained snapshot drifted until a measured one corrected
+ * it.)
  *
  * Driving the real route:
  *
- *   · An organisation with a genuinely zero ledger balance is refused, and the
- *     refusal is a 409 policy refusal — not a 503 that would tell the bank to
- *     retry an unpaid account forever.
+ *   · An organisation with a genuinely zero ledger balance is refused with 402 —
+ *     not a 503, which would tell the bank to retry an unpaid account forever,
+ *     and not a 409, which would tell it the refusal is about the customer.
  *   · Funding it makes the same call succeed, and reserves exactly one unit.
  *   · Spending the last unit returns it to refused.
  *   · Two concurrent signals against one remaining credit produce exactly one
  *     dial, and the balance never goes negative.
  *
- * Each case uses a fresh `org_id`, because balance is the sum of that org's
- * ledger rows and the suite shares one database — reusing "unscoped" would make
- * the zero-balance premise depend on what an earlier run left behind.
+ * Each case uses a fresh `org_id`, because balance is the sum of that org's ledger
+ * rows and the suite shares one database — reusing "unscoped" would make the
+ * zero-balance premise depend on what an earlier run left behind.
  *
  *   bun scripts/run-tests.mjs interventions-credits
  * (not a bare `bun test`: the remote test database's round trips exceed bun's
@@ -85,7 +87,7 @@ async function wire(org: string) {
 
 const run = () => `credits_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 
-test("an organisation with no credits is refused with 409, and nothing is reserved or dialled", async () => {
+test("an organisation with no credits is refused with 402, and nothing is reserved or dialled", async () => {
   const org = `${run()}_a`;
   const { POST, db, balance } = await wire(org);
 
@@ -94,9 +96,11 @@ test("an organisation with no credits is refused with 409, and nothing is reserv
   const res = await POST(signal(org, GATE_NUMBERS[0]!, `TXN-${org}-1`));
   const text = await res.text();
 
-  // A refusal, not an outage: 503 would tell the bank to retry an unpaid
-  // account indefinitely, and would hide the reason behind "unavailable".
-  expect(res.status).toBe(409);
+  // 402, not 409 and not 503. Not 503 because that tells the bank to retry an
+  // account that is merely unpaid; not 409 because a 409 from this gate is a
+  // decision about the CUSTOMER that retrying cannot change, and an empty
+  // wallet is exactly the refusal a caller CAN change, by paying.
+  expect(res.status).toBe(402);
   expect(text).toContain("credits_exhausted");
 
   // Refused BEFORE spend: no reservation was written, so the balance is still
@@ -136,7 +140,7 @@ test("spending the last credit returns the organisation to refused", async () =>
 
   const second = await POST(signal(org, GATE_NUMBERS[3]!, `TXN-${org}-2`));
   const text = await second.text();
-  expect(second.status).toBe(409);
+  expect(second.status).toBe(402);
   expect(text).toContain("credits_exhausted");
   expect(await balance(org)).toBe(0);
 });

@@ -1,7 +1,8 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { requireSignedIn } from "@/lib/credits";
-import { db } from "@/lib/db";
+import { orgScopeFor, scopedDb } from "@/lib/tenancy/guard";
+import { withTenantScope } from "@/lib/tenancy/db-scope";
 import { verifyChain } from "@/lib/audit-chain";
 
 export const dynamic = "force-dynamic";
@@ -13,6 +14,24 @@ export const dynamic = "force-dynamic";
  *   GET /api/console/audit?callRef=X  → full chain walk for one case:
  *                                       tamper-evidence verdict + rows
  * Operator session required.
+ *
+ * Every read here is an `AuditLog` read, and `AuditLog` carries `orgId`, so these
+ * rows are tenant-owned and a row-level policy exists for the table
+ * (`9zzzzzzzzzzzzzzzzzzzzzz_tenant_rls`). That makes this the straightforward
+ * case: a session naming a concrete organisation reads inside `withTenantScope`,
+ * where the database — not the `where` clause — decides which rows exist. The
+ * predicates stay anyway, because whoever reads this file should see the intended
+ * scope without having to know what a policy is, and because a policy only binds
+ * on the paths that opt in (src/lib/tenancy/db-scope.ts).
+ *
+ * The org-less session is the deployment's shared namespace (`orgId IS NULL` plus
+ * the literal `"default"`). There is no single tenant to pin into `app.org_id`, so
+ * the policy has nothing to compare against and that arm keeps the application
+ * layer's scope — the same asymmetry `src/app/api/auth/export/route.ts` records.
+ *
+ * The three reads are not merged into one transaction: they are three statements
+ * today, with `verifyChain()` (a library call over its own client) between two of
+ * them, and collapsing them would be a restructure rather than a conversion.
  */
 
 export async function GET(req: NextRequest) {
@@ -29,20 +48,26 @@ export async function GET(req: NextRequest) {
   const orgId = guard.profile.orgId;
   // Prisma's `in` filter rejects null members, so the null namespace is an OR.
   const orgScope = orgId ? { orgId } : { OR: [{ orgId: null }, { orgId: "default" }] };
-  if (callRef) {
+  // The same namespace as a scope object, because it is what selects the path.
+  const scope = orgScopeFor(orgId);
+  // Hoisted: the slice is applied to the raw query parameter at every use.
+  const ref = callRef ? callRef.slice(0, 64) : null;
+
+  if (ref) {
     // tenant check: a probe of another org's caseRef must not confirm existence —
     // same 404 whether the case is foreign or nonexistent.
-    const any = await db.auditLog.findFirst({
-      where: { callRef: callRef.slice(0, 64), ...orgScope },
-      select: { id: true },
-    });
+    const probe = { where: { callRef: ref, ...orgScope }, select: { id: true } } as const;
+    const any =
+      "orgId" in scope
+        ? await withTenantScope(scope.orgId, (tx) => tx.auditLog.findFirst(probe))
+        : await scopedDb(scope).auditLog.findFirst(probe);
     if (!any) {
       return NextResponse.json({ error: "Case not found in this workspace" }, { status: 404 });
     }
-    const verification = await verifyChain(callRef.slice(0, 64), orgId);
-    const rows = await db.auditLog.findMany({
-      where: { callRef: callRef.slice(0, 64), ...orgScope },
-      orderBy: { createdAt: "asc" },
+    const verification = await verifyChain(ref, orgId);
+    const walk = {
+      where: { callRef: ref, ...orgScope },
+      orderBy: { createdAt: "asc" as const },
       select: {
         id: true,
         action: true,
@@ -52,17 +77,25 @@ export async function GET(req: NextRequest) {
         createdAt: true,
       },
       take: 50,
-    });
+    };
+    const rows =
+      "orgId" in scope
+        ? await withTenantScope(scope.orgId, (tx) => tx.auditLog.findMany(walk))
+        : await scopedDb(scope).auditLog.findMany(walk);
     return NextResponse.json({ verification, rows }, { headers: { "Cache-Control": "no-store" } });
   }
 
   // Case list: the "freeze" action marks case creation in /api/interventions.
-  const creations = await db.auditLog.findMany({
+  const list = {
     where: { action: "freeze", ...orgScope },
-    orderBy: { createdAt: "desc" },
+    orderBy: { createdAt: "desc" as const },
     select: { callRef: true, intent: true, redactedText: true, meta: true, createdAt: true },
     take: 12,
-  });
+  };
+  const creations =
+    "orgId" in scope
+      ? await withTenantScope(scope.orgId, (tx) => tx.auditLog.findMany(list))
+      : await scopedDb(scope).auditLog.findMany(list);
   const cases = creations.map((c) => {
     let meta: Record<string, unknown> = {};
     try {

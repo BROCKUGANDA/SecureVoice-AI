@@ -151,6 +151,57 @@ COPY . .
 COPY --from=deps /app/src/generated ./src/generated
 RUN bun run build
 
+# ---------- worker: the long-lived scripts, and only what they can use ---------
+#
+# SEVEN services used to ask for `target: builder`. The builder stage is the
+# heaviest thing in this file by design — it carries every devDependency, the
+# whole source tree, and the Next.js `.next/` output that `bun run build`
+# produces, none of which a background worker ever opens. Measured on the box
+# 2026-10-12 with `docker history` on the dial-worker: 762 MB of install layer,
+# 2 GB of node_modules, 130 MB of source, 4.07 GB total, seven services' worth
+# of it on one disk.
+#
+# This stage is the same runtime with the build weight left behind. It runs NO
+# install and NO build: `node_modules` and the generated Prisma client are
+# copied from the stages that already produced them, so nothing here can drift
+# from what the app image runs against.
+#
+# It also closes a leak the builder-target images were carrying. The builder
+# stage bakes `ENV DATABASE_URL=${BUILD_DATABASE_URL}` (plus BETTER_AUTH_SECRET
+# and the demo-login pair) so that page-data collection can instantiate Prisma
+# during the build. Because the workers shared that stage, every worker image
+# on this host carried the PRODUCTION DATABASE URL — password included — as an
+# ENV layer and in its build history. Compose supplies DATABASE_URL at runtime
+# for each service, so nothing needs it baked. A worker image that does not
+# contain the database credentials is strictly better, and this stage does not
+# set any of those variables.
+FROM oven/bun:1-slim AS worker
+WORKDIR /app
+ENV NODE_ENV=production \
+    NEXT_TELEMETRY_DISABLED=1
+# The full dependency tree, from the stage that already installed and validated
+# it against the lockfile. Deliberately NOT a fresh `--production` install:
+# measured, that saves only ~100 MB of the 2 GB while re-introducing a second
+# install whose scripts (esbuild's binary download, prisma's postinstall) could
+# differ from the one the app image used. Same tree, one source of truth.
+COPY --from=deps /app/node_modules ./node_modules
+# The Prisma client is a build artifact of the deps stage and a runtime
+# dependency of every worker. `prisma` and `dotenv` are in `dependencies`, not
+# `devDependencies`, so db-setup's `bunx prisma migrate deploy` works here too —
+# which is why all seven services, migrations included, can use this stage.
+COPY --from=deps /app/src/generated ./src/generated
+COPY package.json tsconfig.json ./
+# Prisma 7's CLI reads its schema and migrations paths from here, so db-setup
+# needs this file at runtime, not just at build time.
+COPY prisma.config.ts ./
+# mini-services/ is NOT optional: src/lib/realtime-client.ts and
+# src/lib/realtime-token.ts import from it, so any worker that speaks to the
+# realtime bus fails to resolve without it.
+COPY prisma ./prisma
+COPY scripts ./scripts
+COPY src ./src
+COPY mini-services ./mini-services
+
 # ---------- runner: minimal standalone server ----------
 FROM oven/bun:1-slim AS runner
 WORKDIR /app

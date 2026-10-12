@@ -617,12 +617,26 @@ jobs:
   compose-smoke:
     name: Compose stack smoke test
     runs-on: [self-hosted, securevoice-vps]
+    # SEQUENTIAL, AND IT MUST STAY THAT WAY. `needs: verify` is not scheduling
+    # tidiness: this runner is the box that serves production, it has 4 cores
+    # and 4 GB of swap, and the two jobs used to run SIMULTANEOUSLY — the
+    # whole-suite test run sharing 4 cores with a full `docker compose build`
+    # (Next.js build plus five worker images). Measured consequence 2026-10-12:
+    # the WP-20 cross-node fan-out gate — two realtime servers and a Redis
+    # pub/sub round trip, a 10 s inner deadline — failed at 10018 ms while the
+    # concurrent build held the box at load 11, and that single red check
+    # fail-closed AutoVersion and blocked a production deploy for two releases
+    # (v0.2.5 stayed live while main was already at v0.2.6). Serialising costs
+    # nothing real: the build steps get the box to themselves and finish faster
+    # per step, and CI's wall time is not on the critical path of a promotion.
+    #
     # Fork-pull-request guard, same reason as the verify job above — and this job
     # is the more dangerous of the two: it runs `docker compose up` on the host
     # that serves two live products, so a fork's checkout could reconcile
     # against the real `securevoice-ai` project. `verify` only ever starts a
     # throwaway container; this one reaches the production stack. Pushes and
     # same-repo branches are unaffected.
+    needs: verify
     if: >-
       github.event_name != 'pull_request' ||
       github.event.pull_request.head.repo.full_name == github.repository
@@ -923,8 +937,91 @@ jobs:
       # fixed project here (as this used to) tears down nothing and leaks the
       # run's network — the bug that exhausted the address pool. `$PROJECT` is
       # written to $GITHUB_ENV by the allocate step, so it is in scope here.
+      #
+      # This step CANNOT run when the run is cancelled — GitHub stops the job
+      # dead on `cancel-in-progress`, and `if: always()` only survives a FAILED
+      # step, not a cancelled job. That is precisely the case the ladder runs
+      # into: a superseded push cancels the run whose smoke stack is already
+      # half-built, and the stack is left running. Measured 2026-10-12 while
+      # chasing the WP-20 timeout: a smoke project's litellm container was
+      # burning 96% of a core while the suite tried to run on the same 4 cores.
+      # The job below is the cancellation-proof half of this teardown.
       - name: Tear down
         if: always()
         run: |
           docker compose -f docker-compose.yml -f docker-compose.ci.yml -p "$PROJECT" down -v --remove-orphans || true
           rm -f .env
+
+  # ── CANCELLATION-PROOF RECLAIM ─────────────────────────────────────────────
+  #
+  # WHY A JOB AND NOT ANOTHER STEP: `cancel-in-progress: true` (see the
+  # concurrency block) cancels a superseded run the moment a newer one starts,
+  # and GitHub does not run remaining steps of a CANCELLED job — `if: always()`
+  # rescues a failed step, not a cancelled job. So every step above can be
+  # perfectly correct and a stack still leaks. A job with `if: always()` does
+  # run when a job in `needs` was cancelled, which makes this the only place
+  # that reliably executes on every path out of a run.
+  #
+  # WHAT IT CLEANS: whatever a cancelled or crashed run left behind —
+  # containers, networks, volumes and images, all scoped to `svci-` so that
+  # `securevoice-ai_*` (production, the thing this host exists for) and
+  # `crucible_*` (the other product sharing the box) can never be matched.
+  # A container still running under a DIFFERENT, live run is refused by
+  # `docker stop`'s sibling guards: `docker rm` on a running container needs
+  # `-f`, so the loop removes only what is not currently running, and the
+  # volume/network/image removals all refuse referenced objects. Nothing here
+  # can take production down; that is asserted, not assumed.
+  cleanup:
+    name: Reclaim leaked smoke stacks
+    runs-on: [self-hosted, securevoice-vps]
+    # Runs on every outcome, including a cancelled dependency. Never gates.
+    if: always()
+    needs: [verify, compose-smoke]
+    timeout-minutes: 10
+    steps:
+      - name: Tear down anything a cancelled run left running
+        run: |
+          set -uo pipefail
+          # Containers first: they hold the networks and volumes. Age is the
+          # discriminator, not a name — the compose-smoke job's own timeout is
+          # 25 minutes, so a smoke stack CANNOT legitimately be older than that
+          # plus the margin below. Anything past it belongs to a job that is
+          # already dead (cancelled by a superseded push, or crashed), which is
+          # exactly the leak this job exists to clean. A live concurrent run's
+          # stack is therefore never touched: it is younger than the threshold
+          # by construction.
+          now=$(date +%s)
+          for c in $(docker ps --format '{{.Names}}' | grep '^svci-' || true); do
+            started=$(docker inspect -f '{{.State.StartedAt}}' "$c" 2>/dev/null || true)
+            if [ -z "$started" ]; then continue; fi
+            age=$(( now - $(date -d "$started" +%s 2>/dev/null || echo "$now") ))
+            if [ "$age" -gt 1800 ]; then
+              docker rm -f "$c" >/dev/null 2>&1 || true
+            fi
+          done
+          for n in $(docker network ls --format '{{.Name}}' | grep '^svci-' || true); do
+            docker network rm "$n" >/dev/null 2>&1 || true
+          done
+          for v in $(docker volume ls --format '{{.Name}}' | grep '^svci-' || true); do
+            if [ -z "$(docker ps -a --filter volume="$v" --format '{{.Names}}' 2>/dev/null)" ]; then
+              docker volume rm "$v" >/dev/null 2>&1 || true
+            fi
+          done
+          for i in $(docker images --format '{{.Repository}}:{{.Tag}}' | grep -E '^svci-|^sv-ci-' || true); do
+            docker rmi "$i" >/dev/null 2>&1 || true
+          done
+          echo "reclaim done"
+      - name: Production is still up after the reclaim
+        run: |
+          set -uo pipefail
+          # The same assertion the smoke job makes, repeated here because this
+          # job is the one that force-removes containers: prove on the way out
+          # that the box it was protecting is still serving.
+          up=$(docker ps --filter "label=com.docker.compose.project=securevoice-ai" \
+                 --filter status=running --format '{{.Names}}' | wc -l)
+          echo "production containers running: $up"
+          [ "$up" -ge 7 ] || { echo "::error::production has $up/7 containers running"; exit 1; }
+          code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 \
+            https://securevoiceai.me/api/health || true)
+          echo "production api/health: $code"
+          [ "$code" = "200" ] || { echo "::error::production origin is not healthy"; exit 1; }

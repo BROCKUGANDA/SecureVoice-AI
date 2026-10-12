@@ -20,6 +20,11 @@
  *      which is only possible because the upload bytes are retained.
  *   5. **Cross-tenant is 404, never 403.** A 403 with a body confirms the
  *      document exists; a 404 does not. This is asserted directly.
+ *   6. A per-ORG storage quota bounds how MUCH one tenant accumulates — the
+ *      per-file cap bounds one upload and the rate limit bounds upload speed,
+ *      but neither bounds retained bytes. Proven at the exact boundary: the
+ *      upload that lands ON the quota is allowed, the next byte is refused,
+ *      the refusal leaves no row, and another org's bytes do not count.
  *
  * Pinecone is NOT configured in this environment, which is deliberate: it is the
  * one failure mode an operator WILL actually meet, so the test asserts the
@@ -110,6 +115,8 @@ async function readJson(res: Response) {
     id?: string;
     status?: string;
     error?: string;
+    /** The machine-readable reason on `unprocessable` refusals (api-errors.ts). */
+    code?: string;
     matches?: unknown[];
   };
 }
@@ -393,3 +400,54 @@ test("documents: test search validates its input before spending an embedding ca
   );
   expect(res.status).toBe(422);
 });
+
+test("documents: the per-org storage quota refuses the byte that exceeds it, by exact boundary", async () => {
+  // The quota is set to exactly ONE of these PDFs' byte length, so the boundary
+  // is a single byte wide and the first upload lands ON it. That pins `>` vs
+  // `>=` in the route: a quota you cannot fill exactly is off by one, and the
+  // first assertion below is the one a `>=` regression breaks.
+  //
+  // The per-file cap (8 MB) and the rate limit both exist already, and neither
+  // bounds retained bytes — `pdfBytes` lives in Postgres for Retry. So this is
+  // the property that keeps one tenant from quietly becoming most of a small
+  // deployment's database.
+  const pdf = pdfFile("quota.pdf");
+  const quota = pdf.size;
+  const priorQuota = process.env.KB_ORG_MAX_BYTES;
+  process.env.KB_ORG_MAX_BYTES = String(quota);
+  // Both orgs start empty so "exactly at quota" is arithmetic, not a hope:
+  // earlier tests in this file have uploaded into ORG, and those bytes would
+  // count against the sum.
+  await db.document.deleteMany({ where: { orgId: { in: [ORG, OTHER_ORG] } } });
+  try {
+    const first = await uploadDoc(
+      post("/api/console/documents", { method: "POST", body: uploadForm(pdf) }),
+    );
+    expect(first.status).toBe(201);
+    expect((await readJson(first)).document!.status).toBe("PENDING");
+
+    const second = await uploadDoc(
+      post("/api/console/documents", { method: "POST", body: uploadForm(pdfFile("over.pdf")) }),
+    );
+    expect(second.status).toBe(422);
+    const refused = await readJson(second);
+    expect(refused.code).toBe("storage_quota_exceeded");
+    expect(refused.error).toContain("quota");
+    // Checked BEFORE the insert: the refusal must not leave a row (or its
+    // retained bytes) that the operator then has to find and delete.
+    expect(await db.document.count({ where: { orgId: ORG } })).toBe(1);
+
+    // Another tenant is unaffected: the same bytes that just overflowed ORG
+    // fit fine in OTHER_ORG, so the bound is per-org, not a global counter.
+    session.orgId = OTHER_ORG;
+    const other = await uploadDoc(
+      post("/api/console/documents", { method: "POST", body: uploadForm(pdfFile("other.pdf")) }),
+    );
+    expect(other.status).toBe(201);
+    expect(await db.document.count({ where: { orgId: OTHER_ORG } })).toBe(1);
+  } finally {
+    if (priorQuota === undefined) delete process.env.KB_ORG_MAX_BYTES;
+    else process.env.KB_ORG_MAX_BYTES = priorQuota;
+    session.orgId = ORG;
+  }
+}, 30_000);

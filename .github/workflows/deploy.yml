@@ -347,18 +347,43 @@ jobs:
             docker compose build app dial-worker retention-worker voice-stream-worker email-worker db-setup
           fi
 
-          # Schema before code. The runner image is `oven/bun:1-slim` plus the
-          # standalone bundle: it has no Prisma CLI and no prisma/migrations, so
-          # the app container cannot migrate itself, and a deploy that only rolls
-          # containers leaves the database one column behind the code that reads
-          # it — which surfaces as a 500 on the request that touches the new
-          # field, not as a failed deploy. `sh -c` overrides db-setup's entrypoint
-          # so this applies migrations WITHOUT re-seeding demo cases into a live
-          # database, and --no-deps keeps it off the app's dependency graph.
-          docker compose run --rm --no-deps db-setup sh -c "bunx prisma migrate deploy"
+           # Schema before code. The runner image is `oven/bun:1-slim` plus the
+           # standalone bundle: it has no Prisma CLI and no prisma/migrations, so
+           # the app container cannot migrate itself, and a deploy that only rolls
+           # containers leaves the database one column behind the code that reads
+           # it — which surfaces as a 500 on the request that touches the new
+           # field, not as a failed deploy. `sh -c` overrides db-setup's entrypoint
+           # so this applies migrations WITHOUT re-seeding demo cases into a live
+           # database, and --no-deps keeps it off the app's dependency graph.
+           docker compose run --rm --no-deps db-setup sh -c "bunx prisma migrate deploy"
 
-          docker compose up -d app dial-worker retention-worker voice-stream-worker email-worker
-          docker compose ps
+           # THE LIST IS THE INVENTORY, and that is the trap. Measured on this box
+           # 2026-10-12: `overage-worker` is in docker-compose.yml and has NEVER
+           # had a container — `docker ps -a --filter name=overage` is empty — for
+           # exactly as long as the service has existed in the file, because it was
+           # never added to this command. A service nobody rolls is not an error
+           # anywhere; it is an absence nobody sees, and the overage billing that
+           # worker computes simply did not run.
+           #
+           # scripts/drift-gates.mjs now compares this list against
+           # docker-compose.yml and fails CI on any service with no declared role
+           # (rolled / one-shot / infra-with-a-reason), so a future addition cannot
+           # be forgotten the same way. The box gate in the same script then
+           # verifies the claim on the live host after the roll.
+           docker compose up -d app dial-worker retention-worker voice-stream-worker email-worker overage-worker
+           docker compose ps
+
+      # ── the drift gate, run against what actually just rolled ──────────────
+      #
+      # Not a lint pass: this asks the box questions. Does every compose service
+      # have a running container (the overage-worker class)? Is the box's HEAD
+      # origin/main's tip, or is production serving a commit that is not main
+      # (which is what silently happened while AutoVersion was blocked)? Is the
+      # running app image actually tagged, or dangling the way the stale-image
+      # incident left it? A deploy that answers "green" while any of those drift
+      # is a deploy that lied.
+      - name: Drift gates against the rolled stack
+        run: bun scripts/drift-gates.mjs box
 
       - name: Health check the rolled origin
         run: |

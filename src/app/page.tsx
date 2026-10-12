@@ -47,11 +47,13 @@ const VIEWS: Record<View, React.ComponentType> = {
 
 export function AppRoot() {
   const { view, lang, setView, setTimedOut, highContrast } = useApp();
-  // `seat` comes from the membership row, NOT from `activeOrganizationId ? "operator"`
-  // — see the doc comment on useViewerSeat. Both values the gate below needs are
-  // read here so there is exactly one subscription and one chance of the header
-  // and the gate disagreeing.
-  const { seat, isLoading: seatLoading, isSignedIn } = useViewerSeat();
+  const { data: session } = useSession();
+  const isSignedIn = Boolean(session?.user);
+  // Role for gating the console. Better Auth has no `publicMetadata`: the role
+  // lives on the organization membership. This is a UI AFFORDANCE only — every
+  // route re-checks the capability server-side, so a wrong value here can hide a
+  // nav item but can never grant one.
+  const role = session?.session?.activeOrganizationId ? "operator" : undefined;
 
   /* keep scroll sane between views */
   useEffect(() => {

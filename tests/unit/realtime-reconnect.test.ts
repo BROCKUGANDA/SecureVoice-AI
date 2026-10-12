@@ -675,7 +675,7 @@ describe("realtime reconnect — the handshake that lands after close()", () => 
     h.sockets[0]!.fire("disconnect", "transport close");
 
     // The component unmounts while the reconnect's grant request is in flight.
-    let release: () => void = () => {};
+    let release: () => void = () => {/* empty */};
     grantGate = new Promise<void>((resolve) => {
       release = resolve;
     });

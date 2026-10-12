@@ -23,8 +23,9 @@
 import { test, expect, describe } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { PilotRequestEmail } from "@/lib/email/templates/pilot-request";
+import type { PilotRequestEmailProps } from "@/lib/email/templates/pilot-request";
 
-const FULL = {
+const FULL: PilotRequestEmailProps = {
   ref: "SV-P-ABC123",
   name: "Ada Lovelace",
   email: "ada@example.test",
@@ -36,7 +37,7 @@ const FULL = {
   baseUrl: "https://securevoiceai.me",
 };
 
-function render(props: Partial<typeof FULL> = {}) {
+function render(props: Partial<PilotRequestEmailProps> = {}) {
   return renderToStaticMarkup(PilotRequestEmail({ ...FULL, ...props }));
 }
 

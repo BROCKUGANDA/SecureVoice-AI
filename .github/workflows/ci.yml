@@ -69,7 +69,22 @@ jobs:
       # can import the module. The stack's own value comes from the smoke job's
       # .env, which is a separate file written per run.
       BETTER_AUTH_SECRET: ci-only-not-a-secret-ci-only-not-a-secret
-      BETTER_AUTH_URL: http://localhost:3000
+      # The PRODUCTION origin, deliberately, not a loopback one.
+      #
+      # Every sign-in CSRF decision in Better Auth is made against this value, so
+      # a CI job that runs on `http://localhost:3000` is testing a configuration
+      # no customer will ever get: the VPS came up with a loopback default, the
+      # app refused to serve under NODE_ENV=production, and the public host
+      # answered "Invalid origin" while CI was green. Measured here first —
+      # `BETTER_AUTH_URL=https://securevoiceai.me bun run test auth console
+      # surface` passes — so the suites that care about origin behaviour either
+      # set their own value explicitly (`tests/unit/auth-trusted-origins.test.ts`)
+      # or are origin-agnostic.
+      #
+      # The compose smoke job below still writes a localhost `.env`, because it
+      # drives a real Caddy on a real port and cannot terminate TLS for a public
+      # hostname. That is the deployment rehearsal; this is the configuration.
+      BETTER_AUTH_URL: https://securevoiceai.me
       # `docker-compose.yml` declares POSTGRES_PASSWORD as REQUIRED (`:?`) — a
       # known fallback password on a public deployment is a compromised database,
       # which is the right default. But `docker compose config` interpolates the

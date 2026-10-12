@@ -62,7 +62,7 @@ ARG BUILD_DATABASE_URL=postgresql://securevoice:securevoice@db:5432/securevoice?
 # A bare `docker build` without --build-arg now fails loudly at better-auth's
 # import guard; docker-compose.yml requires the secret from .env with `:?`.
 ARG BETTER_AUTH_SECRET
-ARG BETTER_AUTH_URL="https://localhost:3000"
+ARG BETTER_AUTH_URL="https://securevoiceai.me"
 
 # The demo shortcut credentials are the ONE category of NEXT_PUBLIC_* that belongs
 # in the client bundle, and they must be supplied at build time.

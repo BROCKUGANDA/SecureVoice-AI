@@ -81,7 +81,7 @@ services:
       args:
         BUILD_DATABASE_URL: ${DATABASE_URL}
         BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET in .env}
-        BETTER_AUTH_URL: ${BETTER_AUTH_URL:-https://localhost:3000}
+        BETTER_AUTH_URL: ${BETTER_AUTH_URL:-https://securevoiceai.me}
         # Demo shortcut credentials. NEXT_PUBLIC_* is inlined at BUILD time, so
         # omitting these does not merely hide the one-click judge login from
         # src/views/Auth.tsx — it compiles the button out of the bundle. Every
@@ -126,7 +126,7 @@ services:
       args:
         BUILD_DATABASE_URL: ${DATABASE_URL}
         BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET in .env}
-        BETTER_AUTH_URL: ${BETTER_AUTH_URL:-https://localhost:3000}
+        BETTER_AUTH_URL: ${BETTER_AUTH_URL:-https://securevoiceai.me}
         # Demo shortcut credentials. NEXT_PUBLIC_* is inlined at BUILD time, so
         # omitting these does not merely hide the one-click judge login from
         # src/views/Auth.tsx — it compiles the button out of the bundle. Every
@@ -209,7 +209,7 @@ services:
       args:
         BUILD_DATABASE_URL: ${DATABASE_URL}
         BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET in .env}
-        BETTER_AUTH_URL: ${BETTER_AUTH_URL:-https://localhost:3000}
+        BETTER_AUTH_URL: ${BETTER_AUTH_URL:-https://securevoiceai.me}
         NEXT_PUBLIC_DEMO_LOGIN_EMAIL: ${NEXT_PUBLIC_DEMO_LOGIN_EMAIL:-}
         NEXT_PUBLIC_DEMO_LOGIN_PASSWORD: ${NEXT_PUBLIC_DEMO_LOGIN_PASSWORD:-}
         # Same inlining rule, same consequence: the ids are compiled into the
@@ -259,7 +259,7 @@ services:
       args:
         BUILD_DATABASE_URL: ${DATABASE_URL}
         BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET in .env}
-        BETTER_AUTH_URL: ${BETTER_AUTH_URL:-https://localhost:3000}
+        BETTER_AUTH_URL: ${BETTER_AUTH_URL:-https://securevoiceai.me}
         # Demo shortcut credentials. NEXT_PUBLIC_* is inlined at BUILD time, so
         # omitting these does not merely hide the one-click judge login from
         # src/views/Auth.tsx — it compiles the button out of the bundle. Every
@@ -331,7 +331,7 @@ services:
       args:
         BUILD_DATABASE_URL: ${DATABASE_URL}
         BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET in .env}
-        BETTER_AUTH_URL: ${BETTER_AUTH_URL:-https://localhost:3000}
+        BETTER_AUTH_URL: ${BETTER_AUTH_URL:-https://securevoiceai.me}
         NEXT_PUBLIC_DEMO_LOGIN_EMAIL: ${NEXT_PUBLIC_DEMO_LOGIN_EMAIL:-}
         NEXT_PUBLIC_DEMO_LOGIN_PASSWORD: ${NEXT_PUBLIC_DEMO_LOGIN_PASSWORD:-}
         # Same inlining rule, same consequence: the ids are compiled into the
@@ -416,7 +416,7 @@ services:
       args:
         BUILD_DATABASE_URL: ${DATABASE_URL}
         BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET in .env}
-        BETTER_AUTH_URL: ${BETTER_AUTH_URL:-https://localhost:3000}
+        BETTER_AUTH_URL: ${BETTER_AUTH_URL:-https://securevoiceai.me}
         # Demo shortcut credentials. NEXT_PUBLIC_* is inlined at BUILD time, so
         # omitting these does not merely hide the one-click judge login from
         # src/views/Auth.tsx — it compiles the button out of the bundle. Every
@@ -483,7 +483,7 @@ services:
       args:
         BUILD_DATABASE_URL: ${DATABASE_URL}
         BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET in .env}
-        BETTER_AUTH_URL: ${BETTER_AUTH_URL:-https://localhost:3000}
+        BETTER_AUTH_URL: ${BETTER_AUTH_URL:-https://securevoiceai.me}
         # Demo shortcut credentials. NEXT_PUBLIC_* is inlined at BUILD time, so
         # omitting these does not merely hide the one-click judge login from
         # src/views/Auth.tsx — it compiles the button out of the bundle. Every
@@ -551,7 +551,7 @@ services:
       args:
         BUILD_DATABASE_URL: ${DATABASE_URL:-postgresql://${POSTGRES_USER:-securevoice}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-securevoice}}
         BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set in .env}
-        BETTER_AUTH_URL: ${BETTER_AUTH_URL:-https://localhost:3000}
+        BETTER_AUTH_URL: ${BETTER_AUTH_URL:-https://securevoiceai.me}
         # Demo shortcut credentials. NEXT_PUBLIC_* is inlined at BUILD time, so
         # omitting these does not merely hide the one-click judge login from
         # src/views/Auth.tsx — it compiles the button out of the bundle. Every
@@ -696,7 +696,7 @@ services:
       args:
         BUILD_DATABASE_URL: ${DATABASE_URL}
         BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET in .env}
-        BETTER_AUTH_URL: ${BETTER_AUTH_URL:-https://localhost:3000}
+        BETTER_AUTH_URL: ${BETTER_AUTH_URL:-https://securevoiceai.me}
         # Demo shortcut credentials. NEXT_PUBLIC_* is inlined at BUILD time, so
         # omitting these does not merely hide the one-click judge login from
         # src/views/Auth.tsx — it compiles the button out of the bundle. Every

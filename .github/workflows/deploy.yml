@@ -230,6 +230,84 @@ jobs:
           docker builder prune --force --filter 'until=72h' 2>&1 | tail -2 || true
           df -h / | tail -1
 
+      # ── Feature flags: repository variable → box .env → rolling containers ──
+      #
+      # The registry (src/lib/flags.ts) reads FEATURE_* from each process's
+      # environment. On the box that env is ~/securevoice-ai/.env, which compose
+      # reads for `app` directly (env_file) and interpolates into each worker's
+      # `environment:` block. Nothing before this step connected the GitHub side
+      # to that file, so a flag "set in GitHub" existed nowhere: the run said
+      # nothing, .env said nothing, and the console kept showing the old state.
+      #
+      # Precedence, stated once and enforced below: a repository variable that
+      # is SET is authoritative and is written into .env; a variable that is
+      # UNSET is left exactly as the box has it, so deleting a variable can
+      # never silently clobber a box-local setting. Values must be exactly
+      # true/false — same loud-failure doctrine as the registry reader, because
+      # a typo'd flag that reads as "off" is a feature that silently vanished.
+      #
+      # The summary table below is the visibility half: it lands on the run's
+      # own page, so "which flags is production running, and where did each
+      # value come from" is answerable from GitHub without SSH.
+      - name: Apply feature flags from repository variables
+        env:
+          FEATURE_REALTIME: ${{ vars.FEATURE_REALTIME }}
+          FEATURE_ELEVEN_LABS_LIVE: ${{ vars.FEATURE_ELEVEN_LABS_LIVE }}
+          FEATURE_PII_REDACTION: ${{ vars.FEATURE_PII_REDACTION }}
+          FEATURE_CONSOLE_LIVE_FEED: ${{ vars.FEATURE_CONSOLE_LIVE_FEED }}
+          FEATURE_COMPLIANCE_DISCLOSURE: ${{ vars.FEATURE_COMPLIANCE_DISCLOSURE }}
+          FEATURE_COMPLIANCE_NO_SECRETS: ${{ vars.FEATURE_COMPLIANCE_NO_SECRETS }}
+          FEATURE_COMPLIANCE_PII_REDACTION: ${{ vars.FEATURE_COMPLIANCE_PII_REDACTION }}
+          FEATURE_SEED_DEMO: ${{ vars.FEATURE_SEED_DEMO }}
+          FEATURE_WEBHOOK_STRICT_SIGNATURES: ${{ vars.FEATURE_WEBHOOK_STRICT_SIGNATURES }}
+          FEATURE_TWILIO_MEDIA_STREAMS: ${{ vars.FEATURE_TWILIO_MEDIA_STREAMS }}
+        run: |
+          set -euo pipefail
+          cd ~/securevoice-ai
+          touch .env
+          rows=()
+          apply() {
+            key="$1"
+            val="${!key:-}"
+            case "$val" in
+              "")
+                rows+=("| \`${key}\` | — | unset in GitHub; box .env (or registry default) stands |")
+                return 0
+                ;;
+              true|false) ;;
+              *)
+                echo "::error::${key} must be exactly true or false (got '${val}') — refusing to write it."
+                exit 1
+                ;;
+            esac
+            if grep -q "^${key}=" .env; then
+              awk -v k="$key" -v v="$val" 'index($0, k"=") == 1 { print k"="v; next } { print }' .env > .env.flags.tmp
+              mv .env.flags.tmp .env
+              rows+=("| \`${key}\` | \`${val}\` | updated in .env |")
+            else
+              echo "${key}=${val}" >> .env
+              rows+=("| \`${key}\` | \`${val}\` | appended to .env |")
+            fi
+          }
+          apply FEATURE_REALTIME
+          apply FEATURE_ELEVEN_LABS_LIVE
+          apply FEATURE_PII_REDACTION
+          apply FEATURE_CONSOLE_LIVE_FEED
+          apply FEATURE_COMPLIANCE_DISCLOSURE
+          apply FEATURE_COMPLIANCE_NO_SECRETS
+          apply FEATURE_COMPLIANCE_PII_REDACTION
+          apply FEATURE_SEED_DEMO
+          apply FEATURE_WEBHOOK_STRICT_SIGNATURES
+          apply FEATURE_TWILIO_MEDIA_STREAMS
+          {
+            echo "### Feature flags (applied to this deploy)"
+            echo ""
+            echo "| flag | value | action |"
+            echo "| --- | --- | --- |"
+            printf '%s\n' "${rows[@]}"
+          } >> "$GITHUB_STEP_SUMMARY"
+          printf '%s\n' "${rows[@]}"
+
       - name: Build, migrate and roll the live stack
         run: |
           set -euo pipefail

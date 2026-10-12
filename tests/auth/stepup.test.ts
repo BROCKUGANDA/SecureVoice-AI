@@ -66,7 +66,7 @@ afterAll(async () => {
  * else in any shared process can observe the stub. Restored in afterAll.
  */
 mock.module("@/lib/email/resend", () => ({
-  deliverInvite: async () => {},
+  deliverInvite: async () => {/* empty */},
 }));
 
 /**

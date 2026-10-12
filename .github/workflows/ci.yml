@@ -81,9 +81,11 @@ jobs:
       # set their own value explicitly (`tests/unit/auth-trusted-origins.test.ts`)
       # or are origin-agnostic.
       #
-      # The compose smoke job below still writes a localhost `.env`, because it
-      # drives a real Caddy on a real port and cannot terminate TLS for a public
-      # hostname. That is the deployment rehearsal; this is the configuration.
+      # The compose smoke job below writes the same value for the same reason:
+      # its app container runs `next start`, which sets no NEXT_PHASE, so the
+      # loopback refusal in `src/lib/auth/origins.ts` is active there and a
+      # localhost `.env` killed the app on boot (see the comment on that value).
+      # That is the deployment rehearsal; this is the configuration.
       BETTER_AUTH_URL: https://securevoiceai.me
       # `docker-compose.yml` declares POSTGRES_PASSWORD as REQUIRED (`:?`) — a
       # known fallback password on a public deployment is a compromised database,
@@ -682,7 +684,25 @@ jobs:
           POSTGRES_PASSWORD=ci-only-not-a-secret
           POSTGRES_DB=securevoice
           BETTER_AUTH_SECRET=ci-only-not-a-secret-ci-only-not-a-secret
-          BETTER_AUTH_URL="https://localhost:${CI_CADDY_HTTPS_PORT}"
+          # The PUBLIC origin, deliberately — NOT `https://localhost:${CI_CADDY_HTTPS_PORT}`.
+          #
+          # `src/lib/auth/origins.ts` refuses to serve a production boot on a loopback
+          # base URL, because Better Auth compares the browser's Origin against this
+          # value and every sign-in would be answered "Invalid origin". `next start`
+          # sets no `NEXT_PHASE`, so that refusal is active here (the build-time
+          # exemption in `inProductionBuild()` covers `next build` only). Writing the
+          # loopback value therefore killed the app container on boot and took the
+          # whole smoke run with it: `dependency failed to start: container … app-1
+          # is unhealthy`. The guard is right; this value was the bug.
+          #
+          # `SITE_ADDRESS=localhost` still does the job it is there for — it is the
+          # hostname Caddy issues the self-signed certificate for, and the one every
+          # probe below curls. `BETTER_AUTH_URL` never appears in a URL this job
+          # requests: /api/health, / and the realtime handshake are all origin-agnostic,
+          # and no step here performs a sign-in. So the value is free to be the
+          # production origin, which is exactly what the verify job's `env:` uses for
+          # the same reason (see the comment there).
+          BETTER_AUTH_URL=https://securevoiceai.me
           SITE_ADDRESS=localhost
           ACME_EMAIL=ci@example.invalid
           SEED_DEMO=false

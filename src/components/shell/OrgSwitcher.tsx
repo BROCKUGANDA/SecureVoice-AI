@@ -36,7 +36,7 @@ import { reportClientError } from "@/lib/client-diagnostics";
 export function OrgSwitcher({ className }: { className?: string }) {
   const router = useRouter();
   const { data: session } = useSession();
-  const { lang } = useApp();
+  const { lang, setView } = useApp();
   const [open, setOpen] = useState(false);
   const [pending, setPending] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -60,6 +60,31 @@ export function OrgSwitcher({ className }: { className?: string }) {
   const active = list.find((o) => o.id === activeId);
   const label = active?.name ?? "Select workspace";
 
+  /**
+   * Change tenant, and STAY WHERE YOU WERE.
+   *
+   * This handler used to end at a bare `router.refresh()`, which is what sent a
+   * tenant change back to the landing page. Two things went wrong, and both had
+   * to be fixed:
+   *
+   *  1. `router.refresh()` re-renders the RSC tree. The screen in the address bar
+   *     is written with a raw `history.pushState` (src/app/page.tsx) rather than
+   *     `router.push`, so a refresh re-resolved the route from a URL the router
+   *     had never been told about, and the shell fell back to its initial view.
+   *
+   *  2. The refresh left the session mid-refetch, and the shell's RBAC gate read
+   *     the momentarily-absent `activeOrganizationId` as "signed out" and sent
+   *     the operator to the sign-in screen. That is fixed in src/app/page.tsx —
+   *     the gate now declines to decide while the seat is unresolved — and the
+   *     `setView(view)` below is the belt to that braces: the current view is
+   *     re-asserted AFTER the switch, so even if something upstream resets it,
+   *     the operator lands back on the screen they switched from.
+   *
+   * `router.refresh()` itself is kept, because it is the only thing that makes
+   * every SERVER-rendered read of the session (TenantBrand in the root layout,
+   * the console routes) re-evaluate against the new tenant. It is the client
+   * view that needed pinning, not the server data.
+   */
   const choose = async (id: string) => {
     if (id === activeId) {
       setOpen(false);
@@ -67,6 +92,10 @@ export function OrgSwitcher({ className }: { className?: string }) {
     }
     setPending(id);
     setError(null);
+    // Captured now, re-applied below. Read from the store at click time rather
+    // than closed over, so it is the view that was on screen when the operator
+    // committed to the switch.
+    const stayOn = useApp.getState().view;
     const { error: err } = await authClient.organization.setActive({ organizationId: id });
     setPending(null);
     if (err) {
@@ -81,6 +110,9 @@ export function OrgSwitcher({ className }: { className?: string }) {
     }
     setOpen(false);
     router.refresh();
+    // Same view, re-asserted — see the handler comment for why this is the belt
+    // to the RBAC gate's braces.
+    setView(stayOn);
   };
 
   return (

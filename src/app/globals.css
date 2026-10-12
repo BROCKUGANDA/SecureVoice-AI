@@ -1,8 +1,6 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
-@custom-variant dark (&:is(.dark *));
-
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -112,32 +110,6 @@
   --sidebar-ring: #0b7a55;
 }
 
-.dark {
-  --background: #0c110e;
-  --foreground: #eef2ec;
-  /* dark mode kept minimal — app is light-first */
-  --card: #121814;
-  --card-foreground: #eef2ec;
-  --popover: #121814;
-  --popover-foreground: #eef2ec;
-  --primary: #17a673;
-  --primary-foreground: #07130d;
-  --secondary: #1a221d;
-  --secondary-foreground: #eef2ec;
-  --muted: #1a221d;
-  --muted-foreground: #97a49b;
-  --accent: #14261e;
-  --accent-foreground: #9fe3c4;
-  --border: #232b25;
-  --input: #232b25;
-  --ring: #17a673;
-  --line: #232b25;
-  --paper: #0c110e;
-  --green-tint: #14261e;
-  --red-tint: #2a1a1c;
-  --amber-tint: #2a231a;
-}
-
 @layer base {
   * {
     @apply border-border outline-ring/50;
@@ -174,23 +146,10 @@
   background: #b7c0b6;
 }
 
-/* Dark-surface variant. The panels that sit on the near-black hero
-   (`bg-[#0c110e]`) would otherwise get a light-grey thumb on a black track —
-   visible, and wrong. Applied alongside `.sv-scroll`, never instead of it. */
-.sv-scroll--dark::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.2);
-}
-.sv-scroll--dark::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.32);
-}
-.sv-scroll--dark {
-  scrollbar-color: rgba(255, 255, 255, 0.22) transparent;
-}
-
 /* ——— The document's own scrollbar ———
  *
  * This is the bar on the right edge of the viewport, and until now it was the
- * operating system's default: a wide, opaque grey track laid over a dark hero
+ * operating system's default: a wide, opaque grey track laid over the page
  * like the frame of a different window. It is the first thing in the product a
  * visitor sees, on the page with the most traffic.
  *
@@ -199,19 +158,12 @@
  * affordance that says "this page continues below", and removing it leaves
  * keyboard and touch users scrolling a page that looks complete. So it stays
  * present, stays functional, and stops shouting — thin, transparent track,
- * thumb tinted per theme, with a padding-box border that makes the visible
- * thumb slimmer than the gutter it lives in.
- *
- * `html.dark` is the class next-themes puts on the root element (see
- * src/app/providers.tsx); the light values are the default so a deployment
- * without the theme script still looks intentional.
+ * thumb tinted to sit quietly on the light surface, with a padding-box border
+ * that makes the visible thumb slimmer than the gutter it lives in.
  */
 html {
   scrollbar-width: thin;
   scrollbar-color: #cdd4cb transparent;
-}
-html.dark {
-  scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
 }
 html::-webkit-scrollbar,
 body::-webkit-scrollbar {
@@ -229,18 +181,8 @@ body::-webkit-scrollbar-thumb {
   border-radius: 99px;
   background-clip: padding-box;
 }
-html.dark::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.2);
-  border: 3px solid transparent;
-  border-radius: 99px;
-  background-clip: padding-box;
-}
 html::-webkit-scrollbar-thumb:hover {
   background: #b4bdb2;
-  background-clip: padding-box;
-}
-html.dark::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.32);
   background-clip: padding-box;
 }
 

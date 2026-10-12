@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import { Lock, Pause, Play, Loader2 } from "lucide-react";
 import { useApp, t } from "@/lib/store";
 import { cn } from "@/lib/utils";
+import { describeRecordingError } from "@/lib/console-errors";
+import { reportClientError } from "@/lib/client-diagnostics";
 
 /**
  * Play a case recording, one at a time.
@@ -103,11 +105,7 @@ export function RecordingPlayer({
     return (
       <span
         className={cn("inline-flex items-center gap-1 text-ink-3", className)}
-        title={t(
-          "This recording could not be retrieved. Audio is kept for 30 days, an organization can switch recording off, and the archive itself may not be configured on this deployment.",
-          "تعذّر استرجاع هذا التسجيل. يُحفظ الصوت لمدة 30 يوماً، ويمكن للمؤسسة تعطيل التسجيل، وقد لا يكون الأرشيف مُهيّأً على هذا النشر.",
-          lang,
-        )}
+        title={describeRecordingError(unavailable, lang)}
       >
         <Lock className="h-3 w-3" aria-hidden="true" />
         <span className="text-[10.5px]">{t("unavailable", "غير متاح", lang)}</span>
@@ -155,7 +153,10 @@ export function RecordingPlayer({
       onPlay(caseId);
       setPlaying(true);
     } catch (err) {
-      setUnavailable(err instanceof Error ? err.message : "download_failed");
+      // "Failed to fetch" on a chip is worse than nothing: a browser transport
+      // string, in English, on a bank's case table.
+      reportClientError("recording-download", err);
+      setUnavailable("fetch_failed");
     } finally {
       setBusy(false);
     }

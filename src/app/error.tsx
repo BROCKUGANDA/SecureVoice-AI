@@ -1,6 +1,8 @@
 "use client";
 
+import { useEffect } from "react";
 import { ShieldCheck, RotateCcw } from "lucide-react";
+import { reportClientError } from "@/lib/client-diagnostics";
 import { useApp, t } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
@@ -15,8 +17,13 @@ export default function Error({
   const { lang } = useApp();
   const ar = lang === "ar";
 
-  // Client component: no server logger here. The digest below is the operator
-  // correlation id; no beacon (no /api/client-error endpoint exists).
+  // A boundary that only renders is a boundary that hides: the crash lands here,
+  // the user sees a polite card, and the platform reports a healthy session. So
+  // the error is forwarded to the console and Sentry first. No server logger is
+  // reachable from a client component, which is what `reportClientError` is for.
+  useEffect(() => {
+    reportClientError("route-error", error, error.digest ? { digest: error.digest } : {});
+  }, [error]);
 
   return (
     <div className="flex min-h-[70vh] flex-col items-center justify-center px-6 text-center">

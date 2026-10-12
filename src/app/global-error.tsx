@@ -1,6 +1,8 @@
 "use client";
 
+import { useEffect } from "react";
 import { useApp, t } from "@/lib/store";
+import { reportClientError } from "@/lib/client-diagnostics";
 
 /** Last-resort boundary — renders its own minimal shell if the root layout itself fails */
 export default function GlobalError({
@@ -10,6 +12,13 @@ export default function GlobalError({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
+  // The last-resort boundary still has to report: a root-layout failure is the
+  // most severe thing that can happen to this page, and the one a boundary that
+  // only renders would hide completely.
+  useEffect(() => {
+    reportClientError("global-error", error, error.digest ? { digest: error.digest } : {});
+  }, [error]);
+
   // The root layout is gone, so this screen cannot borrow an Arabic font class
   // from it: the Arabic copy carries dir="rtl" + fontFamily inline instead.
   const { lang } = useApp();

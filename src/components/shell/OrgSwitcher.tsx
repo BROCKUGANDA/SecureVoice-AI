@@ -5,6 +5,9 @@ import { useRouter } from "next/navigation";
 import { Building2, Check, ChevronDown, Loader2 } from "lucide-react";
 import { authClient, useSession } from "@/lib/auth-client";
 import { cn } from "@/lib/utils";
+import { useApp } from "@/lib/store";
+import { describeWorkspaceSwitchError } from "@/lib/console-errors";
+import { reportClientError } from "@/lib/client-diagnostics";
 
 /**
  * Tenant switcher — "which institution am I acting as".
@@ -33,6 +36,7 @@ import { cn } from "@/lib/utils";
 export function OrgSwitcher({ className }: { className?: string }) {
   const router = useRouter();
   const { data: session } = useSession();
+  const { lang } = useApp();
   const [open, setOpen] = useState(false);
   const [pending, setPending] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -66,7 +70,13 @@ export function OrgSwitcher({ className }: { className?: string }) {
     const { error: err } = await authClient.organization.setActive({ organizationId: id });
     setPending(null);
     if (err) {
-      setError(err.message || "Could not switch organization");
+      // The CODE, not `err.message`: Better Auth's text is English-only vendor
+      // prose ("Organization not found", "Invalid origin") and this control sits
+      // in the top nav of an Arabic-first console. The raw error is reported.
+      reportClientError("workspace-switch", err, {
+        ...(err.code ? { auth_code: String(err.code) } : {}),
+      });
+      setError(typeof err.code === "string" ? err.code : "switch_failed");
       return;
     }
     setOpen(false);
@@ -141,7 +151,7 @@ export function OrgSwitcher({ className }: { className?: string }) {
                 role="alert"
                 className="border-t border-line px-4 py-2.5 text-[11.5px] text-red-soft"
               >
-                {error}
+                {describeWorkspaceSwitchError(error, lang)}
               </li>
             )}
           </ul>

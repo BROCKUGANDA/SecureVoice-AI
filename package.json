@@ -33,6 +33,7 @@
     "test:contracts": "bun test tests/contracts",
     "test:seams": "bun test tests/seams",
     "outbox:work": "bun --preload ./tests/preload.ts scripts/outbox-worker.ts",
+    "overage:work": "bun --preload ./scripts/worker-preload.ts src/worker/overage.ts --once",
     "email:work": "bun --preload ./scripts/worker-preload.ts scripts/email-worker.ts --loop",
     "test": "bun scripts/run-tests.mjs",
     "test:unit": "bun scripts/run-tests.mjs unit",

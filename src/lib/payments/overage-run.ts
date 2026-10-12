@@ -103,23 +103,29 @@ export type OverageRunReport = {
 /**
  * The closed period for one subscription, derived from the mirrored end date.
  *
+ * Key names match what `summariseOverage()`, `overageInvoiceReference()`,
+ * `raiseOverageInvoice()` and `pushOverageInvoiceToGateway()` all take, so a
+ * caller can spread this straight in. That matters: `{ from, to }` silently
+ * produced `periodFrom: undefined`, the rater reported `invalid_period`, and the
+ * run "failed" for reasons that had nothing to do with the tenant.
+ *
  * Null when there is no `currentPeriodEnd` to anchor on. Refusing to invent a
  * window is the whole point: an invoice whose period is a guess cannot be
  * defended when the bank's accounts team asks what dates it covers.
  */
 export function closedPeriodFor(
   currentPeriodEnd: Date | null | undefined,
-): { from: Date; to: Date } | null {
+): { periodFrom: Date; periodTo: Date } | null {
   if (!currentPeriodEnd) return null;
-  const to = subMonths(currentPeriodEnd, 1);
-  const from = subMonths(to, 1);
-  return to.getTime() > from.getTime() ? { from, to } : null;
+  const periodTo = subMonths(currentPeriodEnd, 1);
+  const periodFrom = subMonths(periodTo, 1);
+  return periodTo.getTime() > periodFrom.getTime() ? { periodFrom, periodTo } : null;
 }
 
 /** The newest mirrored subscription per org, for orgs that could owe money. */
-async function candidateOrgs(only?: string): Promise<
-  { orgId: string; priceId: string; status: string; currentPeriodEnd: Date | null }[]
-> {
+async function candidateOrgs(
+  only?: string,
+): Promise<{ orgId: string; priceId: string; status: string; currentPeriodEnd: Date | null }[]> {
   const rows = await db.paddleSubscription.findMany({
     where: {
       status: { in: ["active", "trialing", "past_due"] },
@@ -148,7 +154,7 @@ async function candidateOrgs(only?: string): Promise<
  * `ON CONFLICT ("reference") DO NOTHING`, so a retried run reports `duplicate`
  * rather than a second bill.
  */
-export async function runOverageBilling(input: { now?: Date; orgId?: string } = {}) {
+export async function runOverageBilling(input: { orgId?: string } = {}) {
   const invoicingEnabled = process.env[INVOICING_ENABLED_ENV] === "1";
   const report: OverageRunReport = {
     invoicingEnabled,
@@ -163,7 +169,6 @@ export async function runOverageBilling(input: { now?: Date; orgId?: string } = 
       failed: 0,
     },
   };
-  void input.now;
 
   // The gateway is checked BEFORE any rating, so a deployment with no billing
   // adapter, or a live key nobody acknowledged, says so once instead of once
@@ -184,7 +189,7 @@ export async function runOverageBilling(input: { now?: Date; orgId?: string } = 
   report.totals.candidates = candidates.length;
 
   for (const sub of candidates) {
-    const one = await billOne(sub);
+    const one = await billOne(sub, invoicingEnabled);
     report.results.push(one);
     switch (one.outcome) {
       case "billed":
@@ -215,12 +220,15 @@ export async function runOverageBilling(input: { now?: Date; orgId?: string } = 
   return report;
 }
 
-async function billOne(sub: {
-  orgId: string;
-  priceId: string;
-  status: string;
-  currentPeriodEnd: Date | null;
-}): Promise<OverageOrgResult> {
+async function billOne(
+  sub: {
+    orgId: string;
+    priceId: string;
+    status: string;
+    currentPeriodEnd: Date | null;
+  },
+  invoicingEnabled: boolean,
+): Promise<OverageOrgResult> {
   const { orgId } = sub;
 
   const period = closedPeriodFor(sub.currentPeriodEnd);
@@ -248,13 +256,12 @@ async function billOne(sub: {
       outcome: "nothing_to_bill",
       plan: s.plan,
       billableUnits: s.billableOverageUnits,
-      includedUnitsHint: s.includedUnits,
-    } as OverageOrgResult;
+    };
   }
 
   const reference = overageInvoiceReference({ orgId, ...period });
 
-  if (!sub.invoicingEnabled) {
+  if (!invoicingEnabled) {
     return {
       orgId,
       outcome: "would_bill",

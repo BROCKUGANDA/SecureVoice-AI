@@ -91,7 +91,7 @@ test("the label is a word, not only an icon", async () => {
 // and tell nobody anything. What is always true, and what the console depends on,
 // is the two properties below.
 test("analytics can neither break the tree nor initialise twice", () => {
-  const posthog = require("posthog-js") as { default: { init: jest.Mock } };
+  const posthog = jest.requireMock("posthog-js") as { default: { init: jest.Mock } };
   posthog.default.init.mockClear();
 
   const { unmount } = render(

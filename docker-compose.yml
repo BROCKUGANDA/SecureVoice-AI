@@ -1,30 +1,30 @@
 ﻿# ---------------------------------------------------------------------------
-# SecureVoice AI Ã¢â‚¬â€ one-command reproducible demo
+# SecureVoice AI — one-command reproducible demo
 #
-#   docker compose up --build          Ã¢â€ â€™ https://localhost (via Caddy)
-#   docker compose --profile direct up --build   Ã¢â€ â€™ http://localhost:3000
+#   docker compose up --build          Ã¢→ https://localhost (via Caddy)
+#   docker compose --profile direct up --build   Ã¢→ http://localhost:3000
 #
 # What happens:
-#   1. db  Ã¢â‚¬â€ Postgres 16 comes up on the compose network. The datasource in
+#   1. db  — Postgres 16 comes up on the compose network. The datasource in
 #      prisma/schema.prisma is `postgresql` and Prisma REJECTS a `file:` URL
-#      outright (P1012), so Postgres is the only supported mode Ã¢â‚¬â€ this is what
+#      outright (P1012), so Postgres is the only supported mode — this is what
 #      makes `docker compose up --build` genuinely reproducible.
 #   2. db-setup waits for it healthy, runs `prisma migrate deploy` (versioned
-#      SQL in prisma/migrations Ã¢â‚¬â€ never `db push --accept-data-loss` on a real
+#      SQL in prisma/migrations — never `db push --accept-data-loss` on a real
 #      deployment), then seeds a demo case history (SEED_DEMO=false to skip).
-#   3. realtime  Ã¢â‚¬â€ the Command Center's push path (Bun + socket.io). Holds a
+#   3. realtime  — the Command Center's push path (Bun + socket.io). Holds a
 #      signing secret but NO database client: it only moves already-redacted,
 #      already-authorised events to sockets.
 #   4. app serves the Next.js standalone bundle on port 3000.
 #   5. caddy is the ONLY service that publishes a port, and terminates TLS.
 #
 # Two access paths, and why both exist:
-#   Ã¢â‚¬Â¢ Default (`caddy` service): the real topology. :80/:443 Ã¢â€ â€™ caddy Ã¢â€ â€™ app+realtime.
+#   Ã¢â‚¬Â¢ Default (`caddy` service): the real topology. :80/:443 Ã¢→ caddy Ã¢→ app+realtime.
 #     Nothing else is reachable from outside, which is what makes the trust
 #     model in src/proxy.ts sound.
 #   Ã¢â‚¬Â¢ `--profile direct`: publishes app's :3000 straight to the host for quick
 #     local work. Convenient, but then the origin IS internet-reachable if the
-#     host is Ã¢â‚¬â€ and every X-Forwarded-For header becomes forgeable, so the edge
+#     host is — and every X-Forwarded-For header becomes forgeable, so the edge
 #     layer falls back to a single shared rate-limit bucket. Fine for a laptop;
 #     do not ship it.
 #
@@ -34,7 +34,7 @@
 #   docker compose up --build app realtime caddy
 #
 # Secrets: app loads an optional local .env (ElevenLabs / Twilio / webhook
-# keys). Without one the platform boots in audit-only / dry-run mode Ã¢â‚¬â€
+# keys). Without one the platform boots in audit-only / dry-run mode —
 # everything works, nothing is dialed, no quota is burned. Safe for judges.
 # Realtime is also optional: with no REALTIME_INGEST_SECRET the service starts
 # but refuses every connection, /api/console/realtime-token returns 503, and the
@@ -84,21 +84,21 @@ services:
         BETTER_AUTH_URL: ${BETTER_AUTH_URL:-https://securevoiceai.me}
         # Demo shortcut credentials. NEXT_PUBLIC_* is inlined at BUILD time, so
         # omitting these does not merely hide the one-click judge login from
-        # src/views/Auth.tsx â€” it compiles the button out of the bundle. Every
+        # src/views/Auth.tsx — it compiles the button out of the bundle. Every
         # service built from this Dockerfile runs the builder stage (which ends
         # in `bun run build`), so every one of them needs the pair.
         NEXT_PUBLIC_DEMO_LOGIN_EMAIL: ${NEXT_PUBLIC_DEMO_LOGIN_EMAIL:-}
         NEXT_PUBLIC_DEMO_LOGIN_PASSWORD: ${NEXT_PUBLIC_DEMO_LOGIN_PASSWORD:-}
         # Same inlining rule, same consequence: the ids are compiled into the
         # bundle. Without this the pricing page ships without its Buy buttons and
-        # `paddlePriceIds()` throws while prerendering â€” and no runtime .env can
+        # `paddlePriceIds()` throws while prerendering — and no runtime .env can
         # fix it, because the value has to be a build arg to exist at all.
         NEXT_PUBLIC_PADDLE_PRICES: ${NEXT_PUBLIC_PADDLE_PRICES:-}
         NEXT_PUBLIC_PADDLE_ENVIRONMENT: ${NEXT_PUBLIC_PADDLE_ENVIRONMENT:-}
         NEXT_PUBLIC_PADDLE_CLIENT_TOKEN: ${NEXT_PUBLIC_PADDLE_CLIENT_TOKEN:-}
     logging: *default-logging
     environment:
-      # Use the same DATABASE_URL as the rest of the stack â€” .env is the single
+      # Use the same DATABASE_URL as the rest of the stack — .env is the single
       # source of truth, all containers hit the same Postgres (Supabase).
       DATABASE_URL: ${DATABASE_URL:-postgresql://${POSTGRES_USER:-securevoice}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-securevoice}}
       # The compose database is a container on a private network with no server
@@ -110,7 +110,7 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    # Retry on transient failure Ã¢â‚¬â€ `restart: "no"` made a single failed push an
+    # Retry on transient failure — `restart: "no"` made a single failed push an
     # unrecoverable gate (app requires service_completed_successfully).
     restart: on-failure:3
     command: ["sh", "-c", "bunx prisma migrate deploy && if [ \"$SEED_DEMO\" = \"true\" ]; then bun scripts/seed-demo.mjs; fi"]
@@ -118,7 +118,7 @@ services:
   # Dial worker (S-1). Places the calls the ingest handler queued. A separate
   # service, not a thread in the app: a hung carrier call must never occupy a
   # web request, and killing the web tier must not stop fraud interventions.
-  # Scaling is safe by construction Ã¢â‚¬â€ claiming uses FOR UPDATE SKIP LOCKED Ã¢â‚¬â€ so
+  # Scaling is safe by construction — claiming uses FOR UPDATE SKIP LOCKED — so
   # `--scale dial-worker=3` needs no coordination between replicas.
   dial-worker:
     user: "1000:1000"   # non-root
@@ -131,14 +131,14 @@ services:
         BETTER_AUTH_URL: ${BETTER_AUTH_URL:-https://securevoiceai.me}
         # Demo shortcut credentials. NEXT_PUBLIC_* is inlined at BUILD time, so
         # omitting these does not merely hide the one-click judge login from
-        # src/views/Auth.tsx â€” it compiles the button out of the bundle. Every
+        # src/views/Auth.tsx — it compiles the button out of the bundle. Every
         # service built from this Dockerfile runs the builder stage (which ends
         # in `bun run build`), so every one of them needs the pair.
         NEXT_PUBLIC_DEMO_LOGIN_EMAIL: ${NEXT_PUBLIC_DEMO_LOGIN_EMAIL:-}
         NEXT_PUBLIC_DEMO_LOGIN_PASSWORD: ${NEXT_PUBLIC_DEMO_LOGIN_PASSWORD:-}
         # Same inlining rule, same consequence: the ids are compiled into the
         # bundle. Without this the pricing page ships without its Buy buttons and
-        # `paddlePriceIds()` throws while prerendering â€” and no runtime .env can
+        # `paddlePriceIds()` throws while prerendering — and no runtime .env can
         # fix it, because the value has to be a build arg to exist at all.
         NEXT_PUBLIC_PADDLE_PRICES: ${NEXT_PUBLIC_PADDLE_PRICES:-}
         NEXT_PUBLIC_PADDLE_ENVIRONMENT: ${NEXT_PUBLIC_PADDLE_ENVIRONMENT:-}
@@ -160,7 +160,7 @@ services:
       DB_ALLOW_PLAINTEXT_PRIVATE_NETWORK: "true"
       REQUIRE_VPS_DATABASE: ${REQUIRE_VPS_DATABASE:-false}
       # Per-case envelope encryption (WP-15). Unset in compose means the ingest
-      # stores no evidence payload at all â€” set PRIVACY_MASTER_KEY in .env to
+      # stores no evidence payload at all — set PRIVACY_MASTER_KEY in .env to
       # enable sealed transcripts. Never defaulted: see .env.example.
       PRIVACY_MASTER_KEY: ${PRIVACY_MASTER_KEY:-}
       ELEVENLABS_DRY_RUN: ${ELEVENLABS_DRY_RUN:-true}
@@ -183,7 +183,7 @@ services:
       VOICE_PREWARM_SECRET: ${VOICE_PREWARM_SECRET:-}
       # The PUBLIC hostname the carrier dials back for the media stream
       # (wss://<SITE_ADDRESS>/realtime/media-stream). Unlike VOICE_STREAM_INTERNAL_URL
-      # this is not an internal address â€” Twilio resolves it from the internet â€”
+      # this is not an internal address — Twilio resolves it from the internet —
       # so it is passed through un-defaulted: `src/worker/dial.ts` refuses to
       # start (flag on) or to dial (flag on mid-process) with an empty or
       # loopback value, because a URL the carrier cannot reach is a recorded
@@ -192,7 +192,7 @@ services:
       # The dial worker is where this flag is actually READ (src/worker/dial.ts
       # chooses ConvAI vs the media-streams pipeline in-process). Only
       # voice-stream-worker used to receive it, so flipping the flag moved the
-      # stream worker and left the dialer on the old path â€” a split-brain with
+      # stream worker and left the dialer on the old path — a split-brain with
       # no error anywhere. Both services now get the same value.
       FEATURE_TWILIO_MEDIA_STREAMS: ${FEATURE_TWILIO_MEDIA_STREAMS:-false}
       DIAL_WORKER_POLL_MS: ${DIAL_WORKER_POLL_MS:-1000}
@@ -204,7 +204,7 @@ services:
         condition: service_healthy
     # The preload neutralises the Next-only `server-only` marker for this plain Bun
     # process; see scripts/worker-preload.ts for why that is safe. --smol trades a
-    # little throughput for a measurably smaller heap (docs/CAPACITY.md Â§10) â€” the
+    # little throughput for a measurably smaller heap (docs/CAPACITY.md Â§10) — the
     # right trade for a polled worker inside a 512m box.
     command: ["bun", "--smol", "--preload", "./scripts/worker-preload.ts", "src/worker/dial.ts"]
 
@@ -212,7 +212,7 @@ services:
   # password reset) that a synchronous send could not deliver.
   #
   # The request path already attempts one immediate send, so this worker is not
-  # needed on the happy path â€” it exists so a transient Resend outage does not
+  # needed on the happy path — it exists so a transient Resend outage does not
   # cost an analyst their sign-in link into a fraud console. Without it the
   # durable queue in src/lib/email/outbox.ts is decorative: rows would sit
   # PENDING forever.
@@ -232,7 +232,7 @@ services:
         NEXT_PUBLIC_DEMO_LOGIN_PASSWORD: ${NEXT_PUBLIC_DEMO_LOGIN_PASSWORD:-}
         # Same inlining rule, same consequence: the ids are compiled into the
         # bundle. Without this the pricing page ships without its Buy buttons and
-        # `paddlePriceIds()` throws while prerendering â€” and no runtime .env can
+        # `paddlePriceIds()` throws while prerendering — and no runtime .env can
         # fix it, because the value has to be a build arg to exist at all.
         NEXT_PUBLIC_PADDLE_PRICES: ${NEXT_PUBLIC_PADDLE_PRICES:-}
         NEXT_PUBLIC_PADDLE_ENVIRONMENT: ${NEXT_PUBLIC_PADDLE_ENVIRONMENT:-}
@@ -249,7 +249,7 @@ services:
       DB_ALLOW_PLAINTEXT_PRIVATE_NETWORK: "true"
       REQUIRE_VPS_DATABASE: ${REQUIRE_VPS_DATABASE:-false}
       # The provider credentials. Unset, the worker boots and simply has nothing
-      # to send â€” it does not crash-loop, so a deployment that has not configured
+      # to send — it does not crash-loop, so a deployment that has not configured
       # email yet still starts cleanly.
       RESEND_API_KEY: ${RESEND_API_KEY:-}
       RESEND_FROM_EMAIL: ${RESEND_FROM_EMAIL:-SecureVoice AI <onboarding@resend.dev>}
@@ -267,7 +267,7 @@ services:
     command: ["bun", "--smol", "--preload", "./scripts/worker-preload.ts", "scripts/email-worker.ts", "--loop"]
 
   # Retention sweeper. The privacy tiers (audio purge, payload-key shred,
-  # case-record delete) erase on the clock whether or not anyone remembers â€”
+  # case-record delete) erase on the clock whether or not anyone remembers —
   # that is the point of the policy, so it runs as a service and not a cron
   # note. First sweep at boot (a worker that was down owes the backlog a
   # sweep), then every RETENTION_SWEEP_HOURS. `--once` for operators.
@@ -282,14 +282,14 @@ services:
         BETTER_AUTH_URL: ${BETTER_AUTH_URL:-https://securevoiceai.me}
         # Demo shortcut credentials. NEXT_PUBLIC_* is inlined at BUILD time, so
         # omitting these does not merely hide the one-click judge login from
-        # src/views/Auth.tsx â€” it compiles the button out of the bundle. Every
+        # src/views/Auth.tsx — it compiles the button out of the bundle. Every
         # service built from this Dockerfile runs the builder stage (which ends
         # in `bun run build`), so every one of them needs the pair.
         NEXT_PUBLIC_DEMO_LOGIN_EMAIL: ${NEXT_PUBLIC_DEMO_LOGIN_EMAIL:-}
         NEXT_PUBLIC_DEMO_LOGIN_PASSWORD: ${NEXT_PUBLIC_DEMO_LOGIN_PASSWORD:-}
         # Same inlining rule, same consequence: the ids are compiled into the
         # bundle. Without this the pricing page ships without its Buy buttons and
-        # `paddlePriceIds()` throws while prerendering â€” and no runtime .env can
+        # `paddlePriceIds()` throws while prerendering — and no runtime .env can
         # fix it, because the value has to be a build arg to exist at all.
         NEXT_PUBLIC_PADDLE_PRICES: ${NEXT_PUBLIC_PADDLE_PRICES:-}
         NEXT_PUBLIC_PADDLE_ENVIRONMENT: ${NEXT_PUBLIC_PADDLE_ENVIRONMENT:-}
@@ -310,7 +310,7 @@ services:
       # This service declares no `env_file` (the app does, and it is the app's
       # webhook that archives a recording), so without these five lines the worker
       # boots, reports `audioStore: "none-configured"`, and leaves every MP3 in the
-      # bucket past the deadline the policy names â€” while the report's `due` count
+      # bucket past the deadline the policy names — while the report's `due` count
       # looks like a tier that ran. The adapter is
       # `src/lib/storage/retention-audio-store.ts`; the wiring is this block, and
       # neither half works alone.
@@ -320,7 +320,7 @@ services:
       # SignatureDoesNotMatch at the far end that nobody can read, and a compose
       # default would reintroduce exactly that. Empty here reads as "no store
       # configured", which is the honest posture for a deployment that archives no
-      # audio â€” the worker logs it and deletes nothing.
+      # audio — the worker logs it and deletes nothing.
       R2_ENDPOINT: ${R2_ENDPOINT:-}
       R2_REGION: ${R2_REGION:-}
       R2_ACCESS_KEY_ID: ${R2_ACCESS_KEY_ID:-}
@@ -334,7 +334,7 @@ services:
 
   # Overage billing worker. Rates each tenant's most recently CLOSED subscription
   # period against ITS plan (Starter 15Â¢, Growth 12Â¢) and raises a manual-
-  # collection invoice â€” a Net-30 document, never an automatic charge, because a
+  # collection invoice — a Net-30 document, never an automatic charge, because a
   # Merchant of Record holds no card authorization to charge later.
   #
   # It writes NOTHING until `OVERAGE_INVOICING_ENABLED=1`. With the switch unset
@@ -358,7 +358,7 @@ services:
         NEXT_PUBLIC_DEMO_LOGIN_PASSWORD: ${NEXT_PUBLIC_DEMO_LOGIN_PASSWORD:-}
         # Same inlining rule, same consequence: the ids are compiled into the
         # bundle. Without this the pricing page ships without its Buy buttons and
-        # `paddlePriceIds()` throws while prerendering â€” and no runtime .env can
+        # `paddlePriceIds()` throws while prerendering — and no runtime .env can
         # fix it, because the value has to be a build arg to exist at all.
         NEXT_PUBLIC_PADDLE_PRICES: ${NEXT_PUBLIC_PADDLE_PRICES:-}
         NEXT_PUBLIC_PADDLE_ENVIRONMENT: ${NEXT_PUBLIC_PADDLE_ENVIRONMENT:-}
@@ -388,7 +388,7 @@ services:
     command: ["bun", "--smol", "--preload", "./scripts/worker-preload.ts", "src/worker/overage.ts"]
 
   # LiteLLM proxy (optional). Provider precedence is GROQ_API_KEY >
-  # LITELLM_API_KEY > GEMINI_API_KEY â€” the first configured one wins, so with
+  # LITELLM_API_KEY > GEMINI_API_KEY — the first configured one wins, so with
   # none of them set the agent speaks the vetted scripted reply and the demo
   # works unchanged.
   #
@@ -398,7 +398,7 @@ services:
   #   Â· customer transcripts are bank-customer PII, which should stay inside
   #     this deployment's boundary rather than a third party that trains on it.
   #
-  # `main-lite` is the slim image â€” it carries the proxy and the model registry,
+  # `main-lite` is the slim image — it carries the proxy and the model registry,
   # not every provider SDK. Point LITELLM_MODEL at whatever the proxy serves;
   # the default (llama-3.3-70b-instruct) is permissively licensed and covers the
   # languages this agent speaks (ar, hi, ur, fr, sw).
@@ -412,7 +412,7 @@ services:
     mem_limit: 1g
     environment:
       # The proxy's own auth key. This is the value a caller presents as a
-      # bearer token, so it is NOT a secret the proxy needs to be told twice â€”
+      # bearer token, so it is NOT a secret the proxy needs to be told twice —
       # GENERATE_KEYS=false plus an explicit LITELLM_API_KEY keeps one source of
       # truth, and the same value works whether the caller is this app or a
       # developer's curl.
@@ -443,14 +443,14 @@ services:
         BETTER_AUTH_URL: ${BETTER_AUTH_URL:-https://securevoiceai.me}
         # Demo shortcut credentials. NEXT_PUBLIC_* is inlined at BUILD time, so
         # omitting these does not merely hide the one-click judge login from
-        # src/views/Auth.tsx â€” it compiles the button out of the bundle. Every
+        # src/views/Auth.tsx — it compiles the button out of the bundle. Every
         # service built from this Dockerfile runs the builder stage (which ends
         # in `bun run build`), so every one of them needs the pair.
         NEXT_PUBLIC_DEMO_LOGIN_EMAIL: ${NEXT_PUBLIC_DEMO_LOGIN_EMAIL:-}
         NEXT_PUBLIC_DEMO_LOGIN_PASSWORD: ${NEXT_PUBLIC_DEMO_LOGIN_PASSWORD:-}
         # Same inlining rule, same consequence: the ids are compiled into the
         # bundle. Without this the pricing page ships without its Buy buttons and
-        # `paddlePriceIds()` throws while prerendering â€” and no runtime .env can
+        # `paddlePriceIds()` throws while prerendering — and no runtime .env can
         # fix it, because the value has to be a build arg to exist at all.
         NEXT_PUBLIC_PADDLE_PRICES: ${NEXT_PUBLIC_PADDLE_PRICES:-}
         NEXT_PUBLIC_PADDLE_ENVIRONMENT: ${NEXT_PUBLIC_PADDLE_ENVIRONMENT:-}
@@ -475,7 +475,7 @@ services:
       FEATURE_TWILIO_MEDIA_STREAMS: ${FEATURE_TWILIO_MEDIA_STREAMS:-false}
       # Per-language voices. EVERY supported language needs one: the worker
       # resolves the voice from the call's language, and an unresolvable voice id
-      # fails synthesis â€” silence on a fraud call. `ur` in particular is not
+      # fails synthesis — silence on a fraud call. `ur` in particular is not
       # optional: the Governed Collections brief names Urdu, and a missing
       # ELEVENLABS_VOICE_UR means the Urdu path is dead while every English test
       # still passes.
@@ -498,7 +498,7 @@ services:
         condition: service_completed_successfully
     command: ["bun", "--smol", "--preload", "./scripts/worker-preload.ts", "src/worker/voice-stream.ts"]
 
-  # Outbox worker â€” drains signed bank/operator webhook deliveries from Postgres.
+  # Outbox worker — drains signed bank/operator webhook deliveries from Postgres.
   # This is the only place that does network I/O for outbound events; request
   # handlers never await fetch directly.
   outbox-worker:
@@ -512,14 +512,14 @@ services:
         BETTER_AUTH_URL: ${BETTER_AUTH_URL:-https://securevoiceai.me}
         # Demo shortcut credentials. NEXT_PUBLIC_* is inlined at BUILD time, so
         # omitting these does not merely hide the one-click judge login from
-        # src/views/Auth.tsx â€” it compiles the button out of the bundle. Every
+        # src/views/Auth.tsx — it compiles the button out of the bundle. Every
         # service built from this Dockerfile runs the builder stage (which ends
         # in `bun run build`), so every one of them needs the pair.
         NEXT_PUBLIC_DEMO_LOGIN_EMAIL: ${NEXT_PUBLIC_DEMO_LOGIN_EMAIL:-}
         NEXT_PUBLIC_DEMO_LOGIN_PASSWORD: ${NEXT_PUBLIC_DEMO_LOGIN_PASSWORD:-}
         # Same inlining rule, same consequence: the ids are compiled into the
         # bundle. Without this the pricing page ships without its Buy buttons and
-        # `paddlePriceIds()` throws while prerendering â€” and no runtime .env can
+        # `paddlePriceIds()` throws while prerendering — and no runtime .env can
         # fix it, because the value has to be a build arg to exist at all.
         NEXT_PUBLIC_PADDLE_PRICES: ${NEXT_PUBLIC_PADDLE_PRICES:-}
         NEXT_PUBLIC_PADDLE_ENVIRONMENT: ${NEXT_PUBLIC_PADDLE_ENVIRONMENT:-}
@@ -545,7 +545,7 @@ services:
   # independently restartable: a hung socket layer must never take the API with it.
   realtime:
     build:
-      # Its own context Ã¢â‚¬â€ different dependency tree (socket.io, no Prisma, no Next).
+      # Its own context — different dependency tree (socket.io, no Prisma, no Next).
       context: ./mini-services/realtime
     restart: unless-stopped
     logging: *default-logging
@@ -582,21 +582,21 @@ services:
         BETTER_AUTH_URL: ${BETTER_AUTH_URL:-https://securevoiceai.me}
         # Demo shortcut credentials. NEXT_PUBLIC_* is inlined at BUILD time, so
         # omitting these does not merely hide the one-click judge login from
-        # src/views/Auth.tsx â€” it compiles the button out of the bundle. Every
+        # src/views/Auth.tsx — it compiles the button out of the bundle. Every
         # service built from this Dockerfile runs the builder stage (which ends
         # in `bun run build`), so every one of them needs the pair.
         NEXT_PUBLIC_DEMO_LOGIN_EMAIL: ${NEXT_PUBLIC_DEMO_LOGIN_EMAIL:-}
         NEXT_PUBLIC_DEMO_LOGIN_PASSWORD: ${NEXT_PUBLIC_DEMO_LOGIN_PASSWORD:-}
         # Same inlining rule, same consequence: the ids are compiled into the
         # bundle. Without this the pricing page ships without its Buy buttons and
-        # `paddlePriceIds()` throws while prerendering â€” and no runtime .env can
+        # `paddlePriceIds()` throws while prerendering — and no runtime .env can
         # fix it, because the value has to be a build arg to exist at all.
         NEXT_PUBLIC_PADDLE_PRICES: ${NEXT_PUBLIC_PADDLE_PRICES:-}
         NEXT_PUBLIC_PADDLE_ENVIRONMENT: ${NEXT_PUBLIC_PADDLE_ENVIRONMENT:-}
         NEXT_PUBLIC_PADDLE_CLIENT_TOKEN: ${NEXT_PUBLIC_PADDLE_CLIENT_TOKEN:-}
         # Canonical public origin, inlined at BUILD time like the pair above.
-        # Defaults to https://<SITE_ADDRESS> â€” the same hostname Caddy issues
-        # the certificate for â€” so a deployment that already set SITE_ADDRESS
+        # Defaults to https://<SITE_ADDRESS> — the same hostname Caddy issues
+        # the certificate for — so a deployment that already set SITE_ADDRESS
         # for TLS gets a correct canonical URL and sitemap without a second
         # variable to remember. Set NEXT_PUBLIC_SITE_URL explicitly to override.
         #
@@ -620,7 +620,7 @@ services:
     mem_limit: 1g
     environment:
       HOSTNAME: 0.0.0.0
-      # Built from parts Ã¢â‚¬â€ see db-setup for why a whole-URL interpolation is unsafe.
+      # Built from parts — see db-setup for why a whole-URL interpolation is unsafe.
       DATABASE_URL: ${DATABASE_URL:-postgresql://${POSTGRES_USER:-securevoice}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-securevoice}}
       # Durable ElevenLabs character meter (10k/month account ceiling). With it
       # unset the guard degrades to a per-process count at a tightened ceiling
@@ -638,7 +638,7 @@ services:
       REALTIME_URL: ${REALTIME_URL:-http://realtime:4000}
       REALTIME_INGEST_SECRET: ${REALTIME_INGEST_SECRET:-}
       # Where the MCP transport forwards tools/call. Always the app's OWN
-      # origin â€” never a request-derived one, which the caller's Host header
+      # origin — never a request-derived one, which the caller's Host header
       # controls (see .env.example).
       MCP_TOOL_FORWARD_ORIGIN: ${MCP_TOOL_FORWARD_ORIGIN:-http://127.0.0.1:3000}
     env_file:
@@ -663,7 +663,7 @@ services:
       retries: 3
       start_period: 15s
 
-  # Reverse proxy Ã¢â‚¬â€ the only published port. TLS via Let's Encrypt; certificates
+  # Reverse proxy — the only published port. TLS via Let's Encrypt; certificates
   # and config persist in named volumes so a restart does not re-issue.
   caddy:
     user: "1000:1000"   # non-root
@@ -680,7 +680,7 @@ services:
     environment:
       # ACME contact for expiry notices. SITE_ADDRESS is deliberately NOT
       # passed to Caddy anymore: it is an APP-level value (canonical origin,
-      # Twilio media-stream URL â€” src/lib/site-origin.ts, src/worker/dial.ts),
+      # Twilio media-stream URL — src/lib/site-origin.ts, src/worker/dial.ts),
       # and Caddy cannot take it as a site address without colliding with the
       # literal blocks in the Caddyfile ("ambiguous site definition",
       # measured). Caddy serves the literal site list; host-local extras come
@@ -694,7 +694,7 @@ services:
     # measured reason: an `env_file` declared on the caddy service in the
     # OVERRIDE file is dropped by compose's file merge, so the value never
     # reached the container and a colour flip did nothing. Declared here it is
-    # present in both modes â€” a plain `docker compose up` and a blue/green stack.
+    # present in both modes — a plain `docker compose up` and a blue/green stack.
     #
     # `required: false` so a fresh checkout with no deploy state still starts;
     # Caddy then falls back to the Caddyfile default (`app:3000`).
@@ -704,7 +704,7 @@ services:
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       # Host-local extra site blocks, imported by the Caddyfile (see
-      # sites.d/README.md). Untracked â€” .gitignore keeps only the README â€” so
+      # sites.d/README.md). Untracked — .gitignore keeps only the README — so
       # a shared edge's extra hostnames live on the machine, never in a commit,
       # and the tracked Caddyfile stays byte-identical everywhere. The import
       # wildcard matching zero files is valid, so a fresh checkout starts clean.
@@ -718,9 +718,9 @@ services:
         condition: service_started
     healthcheck:
       # Probe the edge itself. Must NOT depend on the ACME cert: before (and
-      # during) issuance, :80 answers with a 308Ã¢â€ â€™https redirect, so accept any
+      # during) issuance, :80 answers with a 308Ã¢→https redirect, so accept any
       # HTTP response line as proof Caddy is serving. (The previous check hit
-      # the admin API on :2019, which `admin off` disables Ã¢â‚¬â€ never healthy.)
+      # the admin API on :2019, which `admin off` disables — never healthy.)
       test: ["CMD-SHELL", "wget -S --spider http://127.0.0.1/healthz 2>&1 | grep -qE 'HTTP/1\\.[01] (200|301|302|307|308)'"]
       interval: 30s
       timeout: 5s
@@ -728,7 +728,7 @@ services:
       start_period: 15s
 
   # Opt-in escape hatch for local work: publish the app's :3000 directly and skip
-  # TLS. Off by default Ã¢â‚¬â€ see the note at the top of this file.
+  # TLS. Off by default — see the note at the top of this file.
   app-direct:
     profiles: ["direct"]
     build:
@@ -740,14 +740,14 @@ services:
         BETTER_AUTH_URL: ${BETTER_AUTH_URL:-https://securevoiceai.me}
         # Demo shortcut credentials. NEXT_PUBLIC_* is inlined at BUILD time, so
         # omitting these does not merely hide the one-click judge login from
-        # src/views/Auth.tsx â€” it compiles the button out of the bundle. Every
+        # src/views/Auth.tsx — it compiles the button out of the bundle. Every
         # service built from this Dockerfile runs the builder stage (which ends
         # in `bun run build`), so every one of them needs the pair.
         NEXT_PUBLIC_DEMO_LOGIN_EMAIL: ${NEXT_PUBLIC_DEMO_LOGIN_EMAIL:-}
         NEXT_PUBLIC_DEMO_LOGIN_PASSWORD: ${NEXT_PUBLIC_DEMO_LOGIN_PASSWORD:-}
         # Same inlining rule, same consequence: the ids are compiled into the
         # bundle. Without this the pricing page ships without its Buy buttons and
-        # `paddlePriceIds()` throws while prerendering â€” and no runtime .env can
+        # `paddlePriceIds()` throws while prerendering — and no runtime .env can
         # fix it, because the value has to be a build arg to exist at all.
         NEXT_PUBLIC_PADDLE_PRICES: ${NEXT_PUBLIC_PADDLE_PRICES:-}
         NEXT_PUBLIC_PADDLE_ENVIRONMENT: ${NEXT_PUBLIC_PADDLE_ENVIRONMENT:-}
@@ -765,7 +765,7 @@ services:
       db-setup:
         condition: service_completed_successfully
 
-  # Redis â€” shared pub/sub for Socket.IO across app replicas (WP-20).
+  # Redis — shared pub/sub for Socket.IO across app replicas (WP-20).
   # Without this, a client connected to app replica A never receives an event
   # published on replica B, and the console goes silently stale.
   redis:

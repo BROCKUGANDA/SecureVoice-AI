@@ -987,6 +987,66 @@ jobs:
       - name: Run the repo drift gates
         run: bun scripts/drift-gates.mjs repo
 
+  # ── LIGHTHOUSE ────────────────────────────────────────────────────────────
+  #
+  # scripts/lighthouse.mjs has existed for a while with real budgets in it
+  # (performance >= 0.75, accessibility >= 0.95, FCP/LCP/TBT/CLS/SI/TTI ceilings,
+  # and ZERO critical-or-serious a11y violations). Nothing ever ran it, and it
+  # could not have: its dev-server probe matched the bare word `turbopack`, which
+  # is the name of a chunk every Next 16 PRODUCTION build ships
+  # (`/_next/static/chunks/turbopack-<hash>.js`) — so it read a production page as
+  # a dev one and refused to measure anything. A budget that never runs is a
+  # comment. The probe is fixed to match HMR fingerprints, and this job runs it.
+  #
+  # It measures the LIVE origin, not a local build, for two reasons: what a
+  # customer gets is the only artefact a budget is about, and the runner is the
+  # box that serves it — so this also measures the origin under the same
+  # conditions production runs in (Caddy, the realtime bus, the pooler).
+  #
+  # The runner has no browser, so one is installed into the runner's cache. The
+  # download is the only heavy step and it is cached by the runner after the
+  # first run.
+  lighthouse:
+    name: Lighthouse budgets (live origin)
+    runs-on: [self-hosted, securevoice-vps]
+    needs: verify
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name == github.repository
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Ensure a Chromium for Lighthouse
+        run: |
+          set -uo pipefail
+          # Lighthouse drives any Chromium-family binary. Resolve in order:
+          # whatever LH_CHROME_PATH already names, then a playwright-managed
+          # chromium (installed into the runner cache if absent), then a
+          # system one. -y so a non-interactive runner never blocks.
+          if [ -n "${LH_CHROME_PATH:-}" ] && [ -x "${LH_CHROME_PATH}" ]; then
+            echo "using LH_CHROME_PATH=$LH_CHROME_PATH"
+          else
+            cache="$HOME/.cache/ms-playwright"
+            if ! ls "$cache"/chromium-*/chrome-linux/chrome >/dev/null 2>&1; then
+              echo "installing a chromium into the runner cache"
+              bunx playwright install chromium >/dev/null 2>&1 || true
+            fi
+            bin=$(ls "$cache"/chromium-*/chrome-linux/chrome 2>/dev/null | head -1 || true)
+            if [ -n "$bin" ]; then
+              echo "LH_CHROME_PATH=$bin" >> "$GITHUB_ENV"
+              echo "using $bin"
+            else
+              echo "::error::no chromium available; install one on the runner"
+              exit 1
+            fi
+          fi
+
+      - name: Run the lighthouse budgets
+        env:
+          LH_URL: https://securevoiceai.me/
+        run: bun run test:lighthouse
+
   # ── CANCELLATION-PROOF RECLAIM ─────────────────────────────────────────────
   #
   # WHY A JOB AND NOT ANOTHER STEP: `cancel-in-progress: true` (see the

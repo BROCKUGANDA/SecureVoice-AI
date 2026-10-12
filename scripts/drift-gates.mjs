@@ -221,6 +221,13 @@ function checkTestImports() {
         let m;
         while ((m = re.exec(src))) {
           const spec = m[1].slice(2); // strip @/
+          // `src/generated` is gitignored and produced by `prisma generate`, so
+          // it is absent in a fresh checkout — a gate that requires it would fail
+          // on a clean clone and pass only where someone had already installed.
+          // It is also the wrong target: this check exists to find imports of
+          // modules a human DELETED (the ThemeToggle case), not to verify
+          // generated output, which is `bun install`'s job.
+          if (spec.startsWith("generated/")) continue;
           const cands = [
             join(ROOT, "src", spec),
             join(ROOT, "src", `${spec}.ts`),
@@ -272,9 +279,18 @@ function checkUnusedDependencies() {
   }
   const blob = haystack.join("\n");
 
-  // Binaries and runtime config referenced by name rather than imported.
+  // Binaries, runtime config and generator targets referenced by name rather
+  // than imported by a bare specifier.
+  //
+  // `@prisma/client` is the one to be careful about: nothing imports that
+  // specifier. The generator is configured to emit into `src/generated/prisma`,
+  // and every file in the repo imports the ALIAS (`@/generated/prisma/client`)
+  // instead — which is the whole point, since a direct import would break when
+  // the output path changes. Treating it as unused here would have been a false
+  // positive that read as advice to delete the ORM.
   const BY_NAME = new Set([
     "prisma",
+    "@prisma/client",
     "dotenv",
     "typescript",
     "prettier",
@@ -295,6 +311,50 @@ function checkUnusedDependencies() {
     );
   }
   info(`checked ${deps.length} dependencies for importers`);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CHECK 6 — no double-encoded text anywhere in the repo
+//
+// `—` whose UTF-8 bytes were decoded as CP1252 renders as three characters
+// instead of one (spelled by code point below, so this file cannot be its own
+// offender) and ships looking like a typo the author made. Measured 2026-10-12:
+// 55 runs in src/views/Auth.tsx — visible in the sign-in screen's own copy — and
+// 61 in docker-compose.yml's header comments, including a run that had been
+// encoded twice. A viewer never sees the intent, only the damage, and nothing
+// checks for it because every file still parses.
+//
+// This is the one check a human cannot review away: the pattern is unambiguous
+// by code point, so the gate states it rather than describing it.
+// ─────────────────────────────────────────────────────────────────────────────
+function checkMojibake() {
+  const files = execSync("git ls-files", { encoding: "utf8" })
+    .split("\n")
+    .map((s) => s.trim())
+    .filter((f) => /\.(tsx?|mjs|js|md|json|css|ya?ml|prisma)$/.test(f));
+
+  const offenders = [];
+  for (const f of files) {
+    let s;
+    try {
+      s = readFileSync(join(ROOT, f), "utf8");
+    } catch {
+      continue;
+    }
+    // `â` + `€` + one continuation byte: the CP1252 rendering of a 3-byte UTF-8
+    // sequence. Stated by code point so this file's own encoding cannot mangle it.
+    const runs = s.match(/\u00e2\u20ac[\s\S]/g);
+    if (runs) offenders.push(`${f} (${runs.length})`);
+  }
+  if (offenders.length) {
+    fail(
+      `double-encoded UTF-8 renders as garbage: ${offenders.join(", ")}\n` +
+        `       repair with Buffer.from(run, "latin1").toString("utf8") per run —` +
+        ` never blanket-decode a whole file, it eats the Arabic and the accents.`,
+    );
+  } else {
+    info(`no double-encoded text in ${files.length} tracked files`);
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -395,6 +455,7 @@ const SUITES = {
     checkSecretsProvenance,
     checkTestImports,
     checkUnusedDependencies,
+    checkMojibake,
   ],
   box: [checkBoxInventory, checkBoxCurrency, checkBoxImageConformance],
 };

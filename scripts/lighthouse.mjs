@@ -125,7 +125,18 @@ async function looksLikeDev(url) {
     const res = await fetch(url, { redirect: "follow" });
     if (!res.ok) return false;
     const html = await res.text();
-    return /webpack-hmr|turbopack|__next_react_dev|development/i.test(html);
+    // HMR fingerprints, and only those. This used to include the bare word
+    // `turbopack`, which was correct for Next 14 and is wrong from Next 16
+    // onward: the production compiler IS Turbopack now, so every production
+    // build ships `/_next/static/chunks/turbopack-<hash>.js` in its HTML. The
+    // check therefore read a production page as a dev one and refused to
+    // measure it — the budget silently stopped running at all, which is worse
+    // than a bad number. What dev actually leaves behind is the HMR CLIENT:
+    // webpack-hmr, react-refresh, the vite client, __next_react_dev. Those are
+    // absent from a production bundle by construction.
+    return /webpack-hmr|__next_react_dev|react-refresh|@vite\/client|next-hmr|hmr-endpoint/i.test(
+      html,
+    );
   } catch {
     return false;
   }

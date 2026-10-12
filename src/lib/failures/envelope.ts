@@ -439,6 +439,15 @@ export type FailureInit = {
    * redacted and length-capped; if it cannot be made safe it is dropped.
    */
   detail?: string;
+  /**
+   * Additional response headers for this failure — currently only the
+   * `X-RateLimit-*` trio, which a `429` from the token-bucket limiter must carry
+   * so a client can see its remaining budget without parsing the body.
+   *
+   * Merged BEFORE the canonical headers, so an extras map can never replace
+   * `x-request-id` or the `Retry-After` the code rule already decided.
+   */
+  headers?: Record<string, string>;
 };
 
 /**
@@ -506,7 +515,10 @@ export function makeFailure(code: FailureCode, init: FailureInit = {}): Failure 
   const declared = normaliseRetryAfter(init.retryAfterSec);
   const retryAfterSec = rule.retryAfter ? (declared ?? 1) : declared;
 
-  const headers: Record<string, string> = { "x-request-id": requestId };
+  const headers: Record<string, string> = {
+    ...(init.headers ?? {}),
+    "x-request-id": requestId,
+  };
   if (retryAfterSec !== null) headers["Retry-After"] = String(retryAfterSec);
 
   return {

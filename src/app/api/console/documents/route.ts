@@ -2,7 +2,7 @@ import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { requireOperator } from "@/lib/credits";
 import { withTenantScope } from "@/lib/tenancy/db-scope";
-import { consume as consumeRateLimit } from "@/lib/ratelimit";
+import { consume as consumeRateLimit, rateLimitHeaders } from "@/lib/ratelimit";
 import { badRequest, unprocessable } from "@/lib/api-errors";
 import { MAX_PDF_BYTES, vectorizeDocument } from "@/lib/knowledge/documents";
 import { deferWork, scheduleVectorize } from "@/lib/knowledge/schedule";
@@ -96,7 +96,7 @@ export async function POST(req: NextRequest) {
   if (!rl.ok) {
     return NextResponse.json(
       { error: "Rate limit exceeded; retry later." },
-      { status: 429, headers: { "Retry-After": String(Math.ceil(rl.retryAfterMs / 1000)) } },
+      { status: 429, headers: rateLimitHeaders(rl) },
     );
   }
 

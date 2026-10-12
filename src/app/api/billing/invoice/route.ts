@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireOrgWithCapability } from "@/lib/route-helpers";
 import { resolvePaymentProvider } from "@/lib/payments/gateway";
-import { consume as consumeRateLimit, rateLimitId } from "@/lib/ratelimit";
+import { consume as consumeRateLimit, rateLimitHeaders, rateLimitId } from "@/lib/ratelimit";
 import { logInfo, logWarn } from "@/lib/validation/safe-log";
 
 export const dynamic = "force-dynamic";
@@ -86,7 +86,7 @@ export async function POST(req: NextRequest) {
   if (!rl.ok) {
     return NextResponse.json(
       { error: "rate_limited" },
-      { status: 429, headers: { "Retry-After": String(Math.ceil(rl.retryAfterMs / 1000)) } },
+      { status: 429, headers: rateLimitHeaders(rl) },
     );
   }
 

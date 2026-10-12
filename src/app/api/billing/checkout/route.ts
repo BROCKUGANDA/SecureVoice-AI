@@ -7,7 +7,7 @@ import { unauthenticated } from "@/lib/failures/envelope";
 import { resolvePaymentProvider } from "@/lib/payments/gateway";
 import { assertMoney } from "@/lib/payments/provider";
 import { isSameOriginAsSite } from "@/lib/site-origin";
-import { consume as consumeRateLimit, rateLimitId } from "@/lib/ratelimit";
+import { consume as consumeRateLimit, rateLimitHeaders, rateLimitId } from "@/lib/ratelimit";
 import { logInfo, logWarn } from "@/lib/validation/safe-log";
 
 /**
@@ -68,7 +68,7 @@ export async function POST(req: NextRequest) {
   if (!rl.ok) {
     return NextResponse.json(
       { error: "rate_limited" },
-      { status: 429, headers: { "Retry-After": String(Math.ceil(rl.retryAfterMs / 1000)) } },
+      { status: 429, headers: rateLimitHeaders(rl) },
     );
   }
 

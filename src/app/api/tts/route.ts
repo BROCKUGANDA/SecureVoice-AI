@@ -257,7 +257,7 @@ export async function POST(req: NextRequest) {
   //    fast reject here keeps the audit log clean of "denied" entries)
   const rl = consumeRateLimit("tts", callerId);
   if (!rl.ok) {
-    return tooManyRequests("Rate limit exceeded; retry later.", Math.ceil(rl.retryAfterMs / 1000));
+    return tooManyRequests("Rate limit exceeded; retry later.", rl);
   }
 
   // 4. Synthesize via the wrapper (cached + idempotent + upstream).

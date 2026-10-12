@@ -389,7 +389,7 @@ export async function POST(req: NextRequest) {
   // 1. Rate limit BEFORE we parse the body (cheapest possible reject)
   const rl = consumeRateLimit("agent", callerId);
   if (!rl.ok) {
-    return tooManyRequests("Rate limit exceeded; retry later.", Math.ceil(rl.retryAfterMs / 1000));
+    return tooManyRequests("Rate limit exceeded; retry later.", rl);
   }
 
   // A source that has spent an hour probing this endpoint (hunting for an

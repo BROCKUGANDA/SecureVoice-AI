@@ -25,8 +25,8 @@ type Bucket = {
 };
 
 export type ConsumeResult =
-  | { ok: true; remaining: number; resetMs: number }
-  | { ok: false; retryAfterMs: number; remaining: 0; resetMs: number };
+  | { ok: true; limit: number; remaining: number; resetMs: number }
+  | { ok: false; limit: number; retryAfterMs: number; remaining: 0; resetMs: number };
 
 /**
  * Pluggable store interface. Implement this with Redis/Upstash for
@@ -97,11 +97,11 @@ class InMemoryStore implements RateLimitStore {
     if (b.tokens >= cost) {
       b.tokens -= cost;
       const resetMs = Math.ceil(((capacity - b.tokens) / refillPerSec) * 1000);
-      return { ok: true, remaining: Math.floor(b.tokens), resetMs };
+      return { ok: true, limit: b.capacity, remaining: Math.floor(b.tokens), resetMs };
     }
     const deficit = cost - b.tokens;
     const retryAfterMs = Math.ceil((deficit / refillPerSec) * 1000);
-    return { ok: false, retryAfterMs, remaining: 0, resetMs: retryAfterMs };
+    return { ok: false, limit: b.capacity, retryAfterMs, remaining: 0, resetMs: retryAfterMs };
   }
 }
 
@@ -136,7 +136,38 @@ export function consume(
   return store.consume(scope, id, cost, capacity, refillPerSec);
 }
 
+/**
+ * The standard rate-limit headers for a limiter decision.
+ *
+ * A bank's client does not read the body to decide when to come back — it reads
+ * the headers, because that is what a generic HTTP client, a gateway, or a
+ * retrying SDK can act on without knowing this API's error vocabulary. Emitting
+ * only `Retry-After` (which this codebase did, on nine separate sites, each with
+ * its own copy of the millisecond-to-second rounding) answers "how long" but not
+ * "how much room do I have left", which is the number a batch integration needs
+ * before it sends the next thousand signals.
+ *
+ * `X-RateLimit-Reset` is a wall-clock second, per the convention clients
+ * already implement, so it is derived from `now` rather than from a duration.
+ * `Retry-After` appears only on a refusal: on an allowed request there is
+ * nothing to wait for, and a header that means "you may proceed" is a header
+ * that will be misread.
+ */
+export function rateLimitHeaders(
+  r: ConsumeResult,
+  now: number = Date.now(),
+): Record<string, string> {
+  const headers: Record<string, string> = {
+    "X-RateLimit-Limit": String(Math.max(0, Math.floor(r.limit))),
+    "X-RateLimit-Remaining": String(Math.max(0, Math.floor(r.remaining))),
+    "X-RateLimit-Reset": String(Math.ceil((now + Math.max(0, r.resetMs)) / 1000)),
+  };
+  if (!r.ok) headers["Retry-After"] = String(Math.max(1, Math.ceil(r.retryAfterMs / 1000)));
+  return headers;
+}
+
 /** Test helper. Not for production use. */
+
 export function _reset(): void {
   BUCKETS.clear();
 }
@@ -198,8 +229,8 @@ export class RedisStore implements RateLimitStore {
     `;
     const [ok, val] = await this.redis.eval(script, 1, key, cost, capacity, refillPerSec, Date.now()) as [number, number];
     return ok === 1
-      ? { ok: true, remaining: val, resetMs: 0 }
-      : { ok: false, retryAfterMs: val, remaining: 0, resetMs: val };
+      ? { ok: true, limit: capacity, remaining: val, resetMs: 0 }
+      : { ok: false, limit: capacity, retryAfterMs: val, remaining: 0, resetMs: val };
   }
 }
 

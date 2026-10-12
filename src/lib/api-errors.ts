@@ -16,6 +16,8 @@ import "server-only";
  */
 
 import { NextResponse } from "next/server";
+import type { ConsumeResult } from "@/lib/ratelimit";
+import { rateLimitHeaders } from "@/lib/ratelimit";
 
 export function badRequest(error: string): NextResponse {
   return NextResponse.json({ error }, { status: 400 });
@@ -59,17 +61,36 @@ export function paymentRequired(error: string, extra?: Record<string, unknown>):
   );
 }
 
+/**
+ * A `429` from the token-bucket limiter.
+ *
+ * Pass the `ConsumeResult`, not a rounded number: the result is the only thing
+ * that still knows the bucket's capacity, and `X-RateLimit-Limit` / `-Remaining`
+ * / `-Reset` are what a client with a queue of signals actually needs. A bare
+ * `Retry-After` says when to come back; it does not say how much room is left
+ * when you do.
+ */
 export function tooManyRequests(
   error = "Rate limit exceeded; retry later.",
-  retryAfterSec?: number,
+  rl?: ConsumeResult | number,
 ): NextResponse {
-  return NextResponse.json(
-    { error },
-    {
-      status: 429,
-      headers: retryAfterSec !== undefined ? { "Retry-After": String(retryAfterSec) } : {},
-    },
-  );
+  let headers: Record<string, string>;
+  if (typeof rl === "number") {
+    // A budget refusal (the monthly upstream spend breaker), not a windowed
+    // bucket: there is no per-window capacity to report, so `Retry-After` and an
+    // empty remaining are the honest answer. Emitting a fabricated
+    // `X-RateLimit-Limit` here would be a client parsing a number that means
+    // nothing.
+    headers = {
+      "Retry-After": String(Math.max(1, Math.ceil(rl))),
+      "X-RateLimit-Remaining": "0",
+    };
+  } else if (rl) {
+    headers = rateLimitHeaders(rl);
+  } else {
+    headers = { "Retry-After": "60", "X-RateLimit-Remaining": "0" };
+  }
+  return NextResponse.json({ error }, { status: 429, headers });
 }
 
 export function upstreamError(error: string, status = 503): NextResponse {

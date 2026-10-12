@@ -1,7 +1,7 @@
 import type { NextRequest } from "next/server";
 import { db } from "@/lib/db";
 import { verifyProducerKey } from "@/lib/producer-keys";
-import { consume as consumeRateLimit } from "@/lib/ratelimit";
+import { consume as consumeRateLimit, rateLimitHeaders } from "@/lib/ratelimit";
 import { append as auditAppend } from "@/lib/audit-chain";
 import { gatewayFailure, gatewayJson } from "@/lib/gateway";
 import {
@@ -50,6 +50,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
   if (!rl.ok)
     return gatewayFailure("rate_limited", req, {
       retryAfterSec: Math.ceil(rl.retryAfterMs / 1000),
+      headers: rateLimitHeaders(rl),
     });
 
   const { id } = await ctx.params;

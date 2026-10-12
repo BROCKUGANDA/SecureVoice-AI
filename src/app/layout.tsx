@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Space_Grotesk, Inter, JetBrains_Mono, IBM_Plex_Sans_Arabic } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "@/components/ui/toaster";
+import { Toaster as SonnerToaster } from "@/components/ui/sonner";
 import { Providers } from "@/app/providers";
 import { JsonLd } from "@/components/seo/JsonLd";
 import { COMPANY } from "@/lib/commercial";
@@ -196,7 +197,14 @@ export default function RootLayout({
             holds no session, and src/app/providers.tsx says the same. */}
         <Providers>
           {children}
+          {/* Two toast families are live and each has callers: the radix
+              pipeline (hooks/use-toast → Dashboard, Home) and sonner
+              (CreditWidget's toast.success/error). Only the radix one was
+              mounted, so every sonner call rendered nowhere. Mount both until
+              the call sites consolidate — an unmounted toast is a silent
+              failure of a feedback channel. */}
           <Toaster />
+          <SonnerToaster />
         </Providers>
       </body>
     </html>

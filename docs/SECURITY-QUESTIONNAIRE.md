@@ -98,11 +98,11 @@ request; 30 days' notice before any change.
 
 ## 9. Incident response
 
-| #   | Question                      | Answer                                                                                                                                                              |
-| --- | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 9.1 | Is there an incident process? | **Partially — this is an early-stage company and we say so.** Detection, triage and a documented escalation path exist; a formal, tabletop-tested IRP is target Q1. |
-| 9.2 | Breach notification           | We notify the institution without undue delay and within 72 hours of confirmation, and support their regulatory notification obligations.                           |
-| 9.3 | Contact for security reports  | `otemaach@gmail.com`. Responsible disclosure is welcome; we acknowledge within one business day.                                                                    |
+| #   | Question                      | Answer                                                                                                                                                                                                                                           |
+| --- | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 9.1 | Is there an incident process? | **Partially — this is an early-stage company and we say so.** Detection, triage and a documented escalation path exist; a formal, tabletop-tested IRP is target Q1.                                                                              |
+| 9.2 | Breach notification           | We notify the institution without undue delay and within 72 hours of confirmation, and support their regulatory notification obligations.                                                                                                        |
+| 9.3 | Contact for security reports  | `support@securevoiceai.me` — the same monitored mailbox `/.well-known/security.txt` publishes and the console renders. No PGP key is published, so none is asked for. Responsible disclosure is welcome; we acknowledge within one business day. |
 
 ## 10. Assurance — where we are genuinely early
 

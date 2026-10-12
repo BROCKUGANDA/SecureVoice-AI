@@ -894,4 +894,33 @@ describe("known gaps, asserted so they cannot be forgotten", () => {
     expect(txt).not.toContain("example.com");
     expect(txt).toContain("Contact: mailto:support@securevoiceai.me");
   });
+
+  test("one disclosure channel, and no key material that does not exist", () => {
+    // The Security page published `PGP · key ID 0x5ECURE` and offered "PGP key on
+    // request" in the same card, while public/security.txt deliberately declares NO
+    // Encryption field because "pointing at a key ID would send a reporter to verify
+    // against nothing". Both halves cannot be true, and the false one is the half a
+    // researcher acts on — they encrypt to a key that was never generated and the
+    // report never arrives. (The key ID was not even hex: `…CURE`.)
+    const page = read("src/views/Security.tsx");
+    // The honest sentence "no PGP key is published" is allowed; a key that is
+    // offered, named, or given a fingerprint is not.
+    expect(page).not.toMatch(/key on request/i);
+    expect(page).not.toMatch(/key\s*ID/i);
+    expect(page).not.toMatch(/0x[0-9A-Fa-f]{4,}/);
+
+    // One address across every surface that answers to it. Derived from the RFC 9116
+    // file rather than repeated here, so the test fails on drift between the
+    // surfaces instead of failing together with them.
+    const contact = read("public/security.txt").match(/^Contact: mailto:(\S+)$/m)?.[1];
+    expect(contact).toBeDefined();
+    // The questionnaire is the document a bank's security reviewer answers from, and
+    // it carried a personal gmail address while the product published the monitored
+    // mailbox. A disclosure sent to one and followed up in the other is a report
+    // nobody owns.
+    expect(read("docs/SECURITY-QUESTIONNAIRE.md")).toContain(contact!);
+    // And the constant the UI actually renders is the same value, not a fourth one.
+    expect(read("src/lib/public-config.ts")).toContain(contact!);
+    expect(page).toContain("SUPPORT_EMAIL");
+  });
 });

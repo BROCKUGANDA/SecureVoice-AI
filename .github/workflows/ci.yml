@@ -1032,10 +1032,15 @@ jobs:
               echo "installing a chromium into the runner cache"
               bunx playwright install chromium >/dev/null 2>&1 || true
             fi
-            # `find -print -quit`, not `ls .../chromium-*/ | head -1`: actionlint's
-            # shellcheck rejects SC2012 for parsing `ls` output on a glob, and it
-            # is right to — a glob that matches nothing still yields the literal
-            # pattern, which then gets treated as a path.
+            # Resolve with `find -print -quit` rather than `ls` on a glob: a glob
+            # that matches nothing yields the LITERAL pattern back as a path, so
+            # an `ls | head` resolver fails in a way that reads as "no chromium
+            # installed" when the truth is "the glob was empty". find also stops
+            # at the first match instead of walking the whole cache.
+            #
+            # (The word for that linter is deliberately absent from these
+            # comments: a comment line containing it immediately after the hash
+            # is parsed as a directive, which is its own failure mode.)
             bin=$(find "$cache" -maxdepth 4 -path '*/chromium-*/chrome-linux/chrome' -type f -print -quit 2>/dev/null)
             if [ -n "$bin" ]; then
               echo "LH_CHROME_PATH=$bin" >> "$GITHUB_ENV"

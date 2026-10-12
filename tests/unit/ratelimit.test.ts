@@ -118,7 +118,15 @@ describe("consume — token bucket", () => {
 
   test("a capacity-1 bucket refills one token per hour", () => {
     const realNow = Date.now;
-    const base = realNow();
+    // A constant base, and pinned BEFORE the first consume — the same fix the
+    // test above records. The bucket's `lastRefill` is stamped from whatever
+    // `Date.now` returns on the creating call, so with a live clock it lands at
+    // `base + ε`. One hour later the refill is then `3600000 - ε` ms of tokens,
+    // which is `1 - ε/3600000` — under 1, so `tokens >= cost` goes false and the
+    // last assertion fails. Any ε of a millisecond is enough, and under CI load
+    // that is the common case rather than the rare one.
+    const base = 1_700_000_000_000;
+    Date.now = () => base;
     try {
       expect(consume("s", "id", 1, 1).ok).toBe(true);
       expect(consume("s", "id", 1, 1).ok).toBe(false);

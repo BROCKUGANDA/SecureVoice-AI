@@ -159,6 +159,7 @@
     "lighthouse": "^13.5.0",
     "prettier": "^3.9.9",
     "tailwindcss": "^4",
+    "tailwindcss-animate": "^1.0.7",
     "tw-animate-css": "^1.3.5",
     "typescript": "^5",
     "yaml": "^2.9.1"

@@ -259,12 +259,35 @@ function checkUnusedDependencies() {
   const deps = Object.keys(pkg.dependencies ?? {});
   if (!deps.length) return;
 
-  const roots = ["src", "scripts", "mini-services", "tests", "tests-jest"]
-    .map((d) => join(ROOT, d))
-    .filter((d) => existsSync(d));
+  // ROOT CONFIG FILES COUNT AS IMPORTERS. The first version of this check
+  // scanned src/, scripts/, mini-services/, tests/ and tests-jest/ only, and
+  // declared `tailwindcss-animate` unused on that basis — it is imported by
+  // `tailwind.config.ts` as a plugin, and CI's typecheck failed with TS2307
+  // "Cannot find module 'tailwindcss-animate'". A config file cannot be
+  // grepped by the rules a source file can; it is still an importer.
+  const roots = [
+    "src",
+    "scripts",
+    "mini-services",
+    "tests",
+    "tests-jest",
+    // Config files that name packages by import or by plugin.
+    "tailwind.config.ts",
+    "next.config.ts",
+    "vitest.config.ts",
+    "jest.config.ts",
+    "postcss.config.mjs",
+    "bunfig.toml",
+    "playwright.config.ts",
+  ].map((d) => join(ROOT, d));
 
   const haystack = [];
   for (const r of roots) {
+    if (!existsSync(r)) continue;
+    if (statSync(r).isFile()) {
+      haystack.push(readFileSync(r, "utf8"));
+      continue;
+    }
     const walk = (p) => {
       for (const e of readdirSync(p)) {
         const full = join(p, e);

@@ -85,7 +85,13 @@ async function handleTranscript(
           modelId: env.elevenLabsModel,
           language: "en",
         })) {
-          if (state.ended) break;
+          // NO `state.ended` guard here, unlike the loop below. `ended` was
+          // raised above precisely to stop a new turn from starting, and this
+          // loop is that terminal turn: guarding on the flag it exists to set
+          // broke out on the first chunk, so the caller who denied the fraud
+          // heard nothing at the moment the platform told them the card was
+          // restricted. The worker plane hit the same defect and answers it
+          // with `force: true` (src/worker/voice-stream.ts, handleTranscript).
           ws.send(
             JSON.stringify({
               event: "media",

@@ -124,6 +124,42 @@ describe("TTS model resolution", () => {
     }
   });
 
+  test("the compose default is that same model, because the worker reads no env_file", () => {
+    // `app` declares `env_file: .env`; `voice-stream-worker` does not. So for the
+    // service that carries a live customer's audio, the `${ELEVENLABS_MODEL:-…}`
+    // interpolation in docker-compose.yml IS the deployment default when `.env`
+    // omits the variable — and it carried eleven_multilingual_v2, a model that
+    // cannot voice Urdu or Swahili, after the code default moved to
+    // eleven_v4_turbo. Every English test stayed green, which is the whole problem.
+    const compose = readFileSync(join(ROOT, "docker-compose.yml"), "utf8");
+    const defaults = [
+      ...compose.matchAll(/ELEVENLABS_MODEL:\s*\$\{ELEVENLABS_MODEL:-([^\}]+)\}/g),
+    ].map((m) => m[1]);
+    if (defaults.length === 0) {
+      throw new Error(
+        "docker-compose.yml no longer interpolates ELEVENLABS_MODEL with a default — " +
+          "this gate is the only thing keeping the worker's model in sync, so update " +
+          "it rather than letting it pass on an empty list",
+      );
+    }
+    const prev = process.env.ELEVENLABS_MODEL;
+    delete process.env.ELEVENLABS_MODEL;
+    try {
+      for (const lang of LANGS) {
+        for (const d of defaults) {
+          expect({ lang, compose: d, code: resolveTtsModel(lang) }).toEqual({
+            lang,
+            compose: resolveTtsModel(lang),
+            code: resolveTtsModel(lang),
+          });
+        }
+      }
+    } finally {
+      if (prev === undefined) delete process.env.ELEVENLABS_MODEL;
+      else process.env.ELEVENLABS_MODEL = prev;
+    }
+  });
+
   test("the streaming route resolves through the shared table, not a local ternary", () => {
     const src = routeSource("tts/stream/route.ts");
     // The regression in its original form.

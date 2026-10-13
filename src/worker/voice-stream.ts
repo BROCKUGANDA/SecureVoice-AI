@@ -133,6 +133,23 @@ type CallState = {
    * tests that build a bare CallState stay valid.
    */
   conv?: ConversationState;
+  /**
+   * The turn queue. Deepgram hands every final transcript to this worker as it
+   * arrives, and a caller who speaks while the agent is still answering — or
+   * whose answer splits into two finals — therefore produced TWO turns in
+   * flight. Each one ran `safeTtsStream`, which does `state.tts = tts` and then
+   * `state.tts = null` when it finishes: the second turn overwrote the first's
+   * cancel handle and the first's `finally` then nulled the second's, so
+   * barge-in cancelled a stream that was already gone while the live one kept
+   * sending audio. The customer heard the agent talk over itself and could not
+   * interrupt it.
+   *
+   * One turn per call, in arrival order: a transcript is chained onto whatever
+   * the call is still doing rather than started alongside it. A turn that needs
+   * to cut in does so by cancelling `state.tts` (barge-in), which is only
+   * meaningful while at most one stream owns that field.
+   */
+  turnChain: Promise<void>;
 };
 
 /**
@@ -157,6 +174,7 @@ function getOrCreateCall(callSid: string, lang: TtsLang = "en"): CallState {
       ended: false,
       lastFinal: "",
       lang,
+      turnChain: Promise.resolve(),
     };
     calls.set(callSid, state);
   }
@@ -792,12 +810,19 @@ function createServer() {
       // Any inbound speech means the caller is alive: restart the dead-air
       // clock so a nudge never fires over someone mid-answer.
       if (!state.ended) armNudge();
-      handleTranscript(callSid, text, isFinal, ws).catch((err) => {
-        logError("[voice-stream] transcript handler failed", {
-          error: err instanceof Error ? err.message : String(err),
-          callSid,
+      // ONE TURN AT A TIME. Chained rather than started: see CallState.turnChain.
+      // The rejection handler re-arms the nudge because a turn that threw is a
+      // turn the customer never heard, and a call with no voice and no nudge is
+      // a dead line that waits for the caller to hang up.
+      state.turnChain = state.turnChain
+        .then(() => handleTranscript(callSid, text, isFinal, ws))
+        .catch((err) => {
+          logError("[voice-stream] transcript handler failed", {
+            error: err instanceof Error ? err.message : String(err),
+            callSid,
+          });
+          if (!state.ended) armNudge();
         });
-      });
     });
 
     // The transcription socket's own fate, reported to the call.
@@ -887,23 +912,34 @@ function createServer() {
       // While the opening is in flight, no back-channel may play: the first
       // thing a customer hears from an unfamiliar number is the disclosure.
       state.openingInFlight = true;
-      void safeTtsStream(state, ws, opener.speak)
-        .then(() => {
-          if (state.ended) return;
-          conv.onSpeechEnd();
-          // RULE 4 — the hang-up-safe exit is ALWAYS offered. It gets its own
-          // short turn immediately after the disclosure rather than being
-          // appended to it: the two together would blow the spoken word cap,
-          // and `withinWordLimit` would then protect the exit by trimming the
-          // disclosure — a guardrail destroying the sentence it guards. Two
-          // turns, both from the warm cache, cost nothing measurable.
-          return safeTtsStream(state, ws, SAFETY_EXIT[state.lang] ?? SAFETY_EXIT.en);
-        })
-        .then(() => {
-          state.openingInFlight = false;
-          if (!state.ended) conv.onSpeechEnd();
-          armNudge();
-        })
+      // The disclosure owns the turn queue too. A caller who answers before the
+      // opening has drained would otherwise start their turn alongside it:
+      // two streams, one `state.tts`, and the barge-in that should have stopped
+      // the disclosure cancelling whichever one happened to be recorded last.
+      state.turnChain = state.turnChain
+        .then(() =>
+          safeTtsStream(state, ws, opener.speak)
+            .then(() => {
+              if (state.ended) return;
+              conv.onSpeechEnd();
+              // RULE 4 — the hang-up-safe exit is ALWAYS offered. It gets its own
+              // short turn immediately after the disclosure rather than being
+              // appended to it: the two together would blow the spoken word cap,
+              // and `withinWordLimit` would then protect the exit by trimming the
+              // disclosure — a guardrail destroying the sentence it guards. Two
+              // turns, both from the warm cache, cost nothing measurable.
+              return safeTtsStream(state, ws, SAFETY_EXIT[state.lang] ?? SAFETY_EXIT.en);
+            })
+            .then(() => {
+              state.openingInFlight = false;
+              if (!state.ended) conv.onSpeechEnd();
+              armNudge();
+            })
+            .catch(() => {
+              state.openingInFlight = false;
+              armNudge();
+            }),
+        )
         .catch(() => {
           state.openingInFlight = false;
           armNudge();

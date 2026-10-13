@@ -29,6 +29,15 @@
  *      customer's answer for them.
  *   5. The keypad is offered FROM THE FIRST PROMPT, in the caller's language.
  *      A Gather that only listens is how the channel ends up unused.
+ *   6. A denial STAGES THE HOLD before the confirming sentence is spoken, and
+ *      speaks a different sentence when the staging fails. This file used to
+ *      assert `card_freeze` in the trail for a press that nothing froze: the
+ *      route contained no call to `executeSoftFreeze` on either the keypad or the
+ *      speech path, so the caller was told their card was restricted and could
+ *      then go back to sleep. The assertion below is only honest because the
+ *      freeze is now real, so it is mocked here with its outcome RECORDED —
+ *      success and failure are both tested, because the failure wording is the
+ *      part the customer acts on.
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { createHmac } from "node:crypto";
@@ -39,6 +48,24 @@ const TURN_URL = "https://turn.test/api/twilio/turn";
 
 const audits: Record<string, unknown>[] = [];
 const llmCalls: Record<string, unknown>[] = [];
+const freezeCalls: { callSid: string; source: string }[] = [];
+
+/** The hold's outcome, set per test. Success is the default so the pre-existing
+ *  assertions keep describing the plane working. */
+let freezeOutcome:
+  | { ok: true; caseRef: string; reference: string; alreadyStaged?: boolean }
+  | { ok: false; code: string; error: string } = {
+  ok: true,
+  caseRef: "SV-FREEZE-1",
+  reference: "SV-FRZ-SV-FREEZE-1",
+};
+
+mock.module("@/lib/ai/ai-authz", () => ({
+  executeSoftFreeze: async (callSid: string, source = "voice_media_stream") => {
+    freezeCalls.push({ callSid, source });
+    return freezeOutcome;
+  },
+}));
 
 mock.module("@/lib/audit-chain", () => ({
   append: async (entry: Record<string, unknown>) => {
@@ -102,6 +129,66 @@ async function withToken<T>(fn: () => Promise<T>): Promise<T> {
 beforeEach(() => {
   audits.length = 0;
   llmCalls.length = 0;
+  freezeCalls.length = 0;
+  freezeOutcome = {
+    ok: true,
+    caseRef: "SV-FREEZE-1",
+    reference: "SV-FRZ-SV-FREEZE-1",
+  };
+});
+
+describe("a denial stages the hold it then confirms", () => {
+  test("key 1 reaches executeSoftFreeze before the confirming sentence is spoken", async () => {
+    await withToken(async () => {
+      const res = await turn({ CallSid: "CA_dtmf", Digits: "1" });
+
+      expect(freezeCalls).toEqual([{ callSid: "CA_dtmf", source: "twilio_turn_keypad" }]);
+      expect(res.text).toContain(DTMF_DENY);
+      expect((audits[0]!.meta as Record<string, unknown>).action).toBe("card_freeze");
+    });
+  });
+
+  test("spoken denial does the same on the speech path", async () => {
+    await withToken(async () => {
+      await turn(SPEECH);
+
+      expect(freezeCalls).toEqual([{ callSid: "CA_dtmf", source: "twilio_turn" }]);
+      expect((audits[0]!.meta as Record<string, unknown>).action).toBe("card_freeze");
+    });
+  });
+
+  test("when the hold fails the caller is told so, and the trail does not claim a freeze", async () => {
+    freezeOutcome = { ok: false, code: "no_case", error: "no case for this call" };
+    await withToken(async () => {
+      const res = await turn({ CallSid: "CA_dtmf", Digits: "1" });
+
+      // The whole point of the branch: the confirming constant must NOT be
+      // spoken, and the line that replaces it has to tell the caller to lock the
+      // card themselves.
+      expect(res.text).not.toContain(DTMF_DENY);
+      expect(res.text).toContain("could not place the hold");
+      expect(res.text).toContain("lock the card in your app");
+      expect((audits[0]!.meta as Record<string, unknown>).action).toBe("freeze_not_staged");
+      expect(res.text).toContain("<Hangup/>");
+    });
+  });
+
+  test("the failed hold is spoken in the caller's language, not English", async () => {
+    freezeOutcome = { ok: false, code: "illegal_state", error: "case already closed" };
+    await withToken(async () => {
+      const ar = await turn({ CallSid: "CA_dtmf", Digits: "1", lang: "ar" });
+      expect(ar.text).not.toContain(AR_DENY);
+      expect(ar.text).toContain("لم أستطع وضع الحجز على بطاقتك");
+
+      const sw = await turn({ CallSid: "CA_dtmf", Digits: "1", lang: "sw" });
+      expect(sw.text).toContain("Sikuweza kizuizi kwenye kadi yako");
+
+      // A language the table has no line for still says the true thing, in
+      // English, rather than the false confirming one.
+      const de = await turn({ CallSid: "CA_dtmf", Digits: "1", lang: "de" });
+      expect(de.text).toContain("could not place the hold");
+    });
+  });
 });
 
 describe("a press answers the call", () => {

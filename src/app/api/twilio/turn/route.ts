@@ -8,6 +8,7 @@ import { draftAgentReply } from "@/lib/llm";
 import { auditAgentReply, auditUserInput } from "@/lib/compliance/policy";
 import { verifyTwilioSignature } from "@/lib/twilio";
 import { db } from "@/lib/db";
+import { executeSoftFreeze } from "@/lib/ai/ai-authz";
 import { transitionCase } from "@/lib/case-state-machine";
 import {
   describeDtmfForSpeech,
@@ -147,6 +148,27 @@ function classify(text: string): Intent {
 }
 
 /* ── Per-language replies (short — these are spoken on the phone) ── */
+
+/**
+ * Spoken when the customer denied the transaction and the hold could NOT be
+ * staged. `REPLIES.deny_fraud` and `describeDtmfForSpeech("deny_fraud")` both
+ * tell the caller their card is restricted; that sentence is only true after
+ * `executeSoftFreeze` says so, and this platform's own compliance rule is that a
+ * protective action is never announced before it exists (see
+ * src/app/api/voice-websocket/route.ts and the worker plane, which both branch on
+ * the freeze result). A caller who is told "your card is safe" and whose card is
+ * not safe stays on the line instead of locking it in the app, so the false
+ * confirmation is not a wording problem — it costs the customer the window in
+ * which they can act.
+ */
+const HOLD_NOT_STAGED: PhraseTable = {
+  en: "I could not place the hold on your card from here. I am passing this to our fraud team now and they will call you. If you do not hear from us, lock the card in your app or call the number on the back of it.",
+  ar: "لم أستطع وضع الحجز على بطاقتك من هنا. أنقل هذا الآن إلى فريق الاحتيال وسيتصلون بك. إذا لم تتلقَ منا اتصالاً، فاقفل بطاقتك من التطبيق أو اتصل بالرقم المدوّن خلف البطاقة.",
+  hi: "इस तरफ से मैं आपके कार्ड पर रोक नहीं लगा सका। मैं इसे अभी हमारी फ्रॉड टीम को भेज रहा हूँ और वे आपको कॉल करेंगे। अगर हमारी कॉल न आए तो अपने ऐप से कार्ड लॉक करें या कार्ड के पीछे लिखे नंबर पर कॉल करें।",
+  ur: "میں یہاں سے آپ کے کارڈ پر روک نہیں لگا سکا۔ میں یہ معاملہ ابھی ہماری فراڈ ٹیم کو بھیج رہا ہوں اور وہ آپ کو کال کریں گی۔ اگر ہماری کال نہ آئے تو ایپ سے اپنا کارڈ لاک کر دیں یا کارڈ کے پیچھے لکھے نمبر پر کال کریں۔",
+  fr: "Je n'ai pas pu bloquer votre carte depuis ici. Je transmets immédiatement votre dossier à notre équipe anti-fraude qui vous rappellera. Si vous n'avez pas de nos nouvelles, verrouillez votre carte dans l'application ou appelez le numéro au dos de celle-ci.",
+  sw: "Sikuweza kizuizi kwenye kadi yako kutoka hapa. Nimpesha kesi huku timu yetu ya udanganyifu sasa watakupigia. Wasipokee wito wetu, funga kadi yako kwenye aplikisheni au piga namba iliyo nyuma ya kadi.",
+};
 
 /**
  * A per-language phrase table that MUST carry English.
@@ -322,14 +344,33 @@ async function answerKeypad(args: {
   // caller who rang off, and `request_human` is a handoff — the line is passed
   // on, so there is nothing left for this script to say.
   const continues = action === "repeat" || action === "none";
+  // The same rule the speech branch applies, for the same reason: the keypad's
+  // confirming line is a CONSTANT precisely because a model must not paraphrase
+  // a protective action — which also meant nothing staged it. "1" is a customer
+  // denying a transaction, and it reached the audit trail as `card_freeze`
+  // whether or not a hold exists.
+  const hold =
+    action === "deny_fraud" ? await executeSoftFreeze(callSid, "twilio_turn_keypad") : null;
+  if (hold && !hold.ok) {
+    logError("[twilio-turn] keypad freeze NOT staged — the caller must not be told it was", {
+      callSid: callSid || "unknown",
+      code: hold.code,
+      error: hold.error,
+      caseRef: hold.caseRef ?? "unresolved",
+    });
+  }
   const reply =
     action === "cancel"
       ? (PROMPTS.goodbye[lang] ?? PROMPTS.goodbye.en)
-      : describeDtmfForSpeech(action, lang);
+      : hold && !hold.ok
+        ? (HOLD_NOT_STAGED[lang] ?? HOLD_NOT_STAGED.en)
+        : describeDtmfForSpeech(action, lang);
 
   const auditAction =
     action === "deny_fraud"
-      ? "card_freeze"
+      ? hold?.ok
+        ? "card_freeze"
+        : "freeze_not_staged"
       : action === "request_human"
         ? "escalate"
         : continues
@@ -633,7 +674,27 @@ export async function POST(req: NextRequest) {
   const endCall = intent === "deny_fraud" || intent === "confirm_authorized" || sentiment.escalate;
 
   // Get the scripted reply; try LLM rephrase if configured
-  const scripted = REPLIES[intent][lang] ?? REPLIES[intent].en;
+  //
+  // A denial is the one answer that has to BUY something before it is spoken.
+  // `REPLIES.deny_fraud` tells the caller their card is restricted, so the hold
+  // is staged first and its result decides which sentence is said: on this plane
+  // the confirmation used to be unconditional, and `executeSoftFreeze` was not
+  // called anywhere in the route — the caller hung up believing a restriction
+  // existed while the case row still read as untouched. `alreadyStaged` counts as
+  // success; the SMS path or an earlier turn may have placed the same hold.
+  const hold = intent === "deny_fraud" ? await executeSoftFreeze(callSid, "twilio_turn") : null;
+  if (hold && !hold.ok) {
+    logError("[twilio-turn] soft freeze NOT staged — the caller must not be told it was", {
+      callSid: callSid || "unknown",
+      code: hold.code,
+      error: hold.error,
+      caseRef: hold.caseRef ?? "unresolved",
+    });
+  }
+  const scripted =
+    hold && !hold.ok
+      ? (HOLD_NOT_STAGED[lang] ?? HOLD_NOT_STAGED.en)
+      : (REPLIES[intent][lang] ?? REPLIES[intent].en);
   // The tenant, for knowledge-base retrieval. Resolved HERE rather than inside
   // `draftAgentReply` for the reason that file states: the drafter keeps the
   // database out of a live turn, so a storage blip cannot stall the reply. Same
@@ -662,7 +723,17 @@ export async function POST(req: NextRequest) {
   });
 
   const reply = audited.reply;
-  const action = endCall ? (intent === "deny_fraud" ? "card_freeze" : "none") : "clarify";
+  const action = endCall
+    ? intent === "deny_fraud"
+      ? hold?.ok
+        ? "card_freeze"
+        : // The refusal is recorded, not smoothed over. An audit trail that says
+          // `card_freeze` for a denial whose hold failed is the record a
+          // compliance reviewer reads to decide whether the platform protects
+          // customers, and it would be false in exactly the case they care about.
+          "freeze_not_staged"
+      : "none"
+    : "clarify";
 
   // Audit the turn
   try {

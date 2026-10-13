@@ -57,6 +57,10 @@ const SEAT_NAV: Record<Seat, NavItem[]> = {
     { id: "dashboard", en: "Dashboard", ar: "اللوحة", icon: Table2 },
     { id: "product", en: "Deep Dive", ar: "التفاصيل", icon: Presentation },
     { id: "demo", en: "Demo", ar: "العرض", icon: Play },
+    // The appendix is a read-only deck, so a read-only seat may open it. It is
+    // deliberately absent from the vendor nav below: a working seat is not
+    // offered the pitch.
+    { id: "deck", en: "Appendix", ar: "ملحق", icon: NotebookPen },
   ],
   // A working seat. Same as a judge plus the queue.
   vendor: [
@@ -99,7 +103,7 @@ function navForSeat(seat: Seat | null): NavItem[] {
 }
 
 export function Navbar() {
-  const { view, setView, lang, setLang, launchDemo } = useApp();
+  const { view, setView, lang, setLang } = useApp();
   const { seat, isSignedIn, user } = useViewerSeat();
   const [menuOpen, setMenuOpen] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
@@ -300,24 +304,27 @@ export function Navbar() {
             )}
           </div>
 
-          {/* demo CTA — visitors only; signed-in users are already inside the
-              platform. Desktop only for the same reason as the account control:
-              on mobile it is in the menu panel.
-
-              Suppressed while the demo is already open. The button was rendered
-              to any signed-out visitor regardless of where they were, so a
-              person watching the demo was invited to launch the demo — the same
-              control, offered to the one audience that had already taken it. */}
-          {!isSignedIn && view !== "demo" && (
+          {/* THE DEMO CTA, AND WHY IT NOW SAYS "SIGN IN".
+              The demo view lives at /console/demo and is `judge`-level, so a
+              signed-out visitor cannot be handed it: this button used to call
+              `launchDemo()` and the shell's RBAC gate immediately sent them to
+              /sign-in. The most prominent control on the landing page was
+              therefore a dead end that silently changed destination.
+              Making `demo` public is not the fix — it breaks four asserted
+              invariants, including "no console view is public". So the button
+              now names what it actually does. */}
+          {!isSignedIn && (
             <button
-              onClick={launchDemo}
+              onClick={() => setView("auth")}
               className="group hidden items-center gap-2 whitespace-nowrap rounded-full bg-primary px-4 py-2 text-[13px] font-semibold text-white shadow-[0_6px_18px_-6px_rgba(11,122,85,0.55)] transition hover:bg-green-deep md:flex"
             >
               <span className="relative flex h-1.5 w-1.5">
                 <span className="sv-pulse-ring absolute inset-0 text-white" />
                 <span className="h-1.5 w-1.5 rounded-full bg-white" />
               </span>
-              <span className="relative">{t("Launch live demo", "ابدأ العرض الحي", lang)}</span>
+              <span className="relative">
+                {t("Sign in to run the demo", "سجّل الدخول لتشغيل العرض", lang)}
+              </span>
             </button>
           )}
 
@@ -399,23 +406,19 @@ export function Navbar() {
                     <UserRound className="h-4 w-4" />
                     {t("Sign in", "دخول", lang)}
                   </button>
-                  {/* Same suppression as the desktop CTA: no "launch the demo"
-                      button while the demo is the screen you are on. */}
-                  {view !== "demo" && (
-                    <button
-                      onClick={() => {
-                        setMenuOpen(false);
-                        launchDemo();
-                      }}
-                      className="flex items-center justify-center gap-2 rounded-xl bg-primary px-3.5 py-2.5 text-[13px] font-semibold text-white transition hover:bg-green-deep"
-                    >
-                      <span className="relative flex h-1.5 w-1.5">
-                        <span className="sv-pulse-ring absolute inset-0 text-white" />
-                        <span className="h-1.5 w-1.5 rounded-full bg-white" />
-                      </span>
-                      {t("Launch live demo", "ابدأ العرض الحي", lang)}
-                    </button>
-                  )}
+                  {/* Same reasoning as the desktop CTA above: the demo needs a
+                      session, so this names the sign-in rather than promising a
+                      demo it cannot deliver. */}
+                  <button
+                    onClick={() => go("auth")}
+                    className="flex items-center justify-center gap-2 rounded-xl bg-primary px-3.5 py-2.5 text-[13px] font-semibold text-white transition hover:bg-green-deep"
+                  >
+                    <span className="relative flex h-1.5 w-1.5">
+                      <span className="sv-pulse-ring absolute inset-0 text-white" />
+                      <span className="h-1.5 w-1.5 rounded-full bg-white" />
+                    </span>
+                    {t("Sign in to run the demo", "سجّل الدخول لتشغيل العرض", lang)}
+                  </button>
                 </>
               )}
             </div>

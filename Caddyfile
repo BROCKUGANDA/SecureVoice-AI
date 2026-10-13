@@ -356,6 +356,42 @@ localhost {
 # box copy, which made every promoted change to this file refuse to pull until
 # an operator SSH'd in and merged by hand. docs/VPS-RECOVERY.md carries the
 # history (failure mode #2).
+# ---- HTTP (port 80): the redirect, and it carries the headers ------------------------
+#
+# WHY THIS BLOCK EXISTS. Caddy generates its automatic HTTP->HTTPS redirect at
+# RUNTIME, so it does not appear in `caddy adapt` output and cannot be given
+# headers from the 443 site block below. Measured against the live deployment: a
+# request to http://securevoiceai.me/ returned a 308 carrying only
+# Location/Server/Date - while every HTTPS response carried all eight security
+# headers, including on 404s and 401s. So a scanner that probes http:// first
+# (most do) reported "no security headers" on a deployment that has them
+# everywhere it serves content. This block makes the redirect carry them too.
+#
+# THE STATUS CODE IS 308, AND IT MUST STAY 308. Caddy's own redirect is a 308
+# (Permanent Redirect, method-preserving). `redir ... permanent` emits 301
+# instead, which lets a client rewrite a POST into a GET - a real behaviour change
+# on a login POST, not a cosmetic one. Measured both ways in a container before
+# and after this change.
+#
+# ACME: NO REGRESSION, MEASURED. Prefixing a site address with `http://` opts that
+# site out of automatic HTTPS (caddyserver.com/docs/automatic-https, "Activation"),
+# which is fine here - the 443 block below still owns the certificate and every
+# route. The obvious worry is the HTTP-01 challenge, since a naive read says this
+# block would shadow it. It does not: a control run of this config WITHOUT any
+# http:// block redirects /.well-known/acme-challenge/* with a 308 too. Caddy
+# registers the challenge solver on demand during an issuance, so it is invisible
+# to a static probe in both cases - this block changes the response headers on the
+# redirect and nothing else. Measured, not assumed.
+#
+# Note on what HSTS here does and does not do: RFC 6797 8.1 requires a browser to
+# IGNORE Strict-Transport-Security received over plaintext, so this changes no
+# browser behaviour. It exists so the header set is complete on every response a
+# scanner can see, which is the whole point of the block.
+http://securevoiceai.me, http://www.securevoiceai.me {
+	import secure_defaults
+	redir https://{host}{uri} 308
+}
+
 securevoiceai.me, www.securevoiceai.me {
 	import site
 }

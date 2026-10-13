@@ -104,8 +104,7 @@ export function Footer() {
               <div className="mt-3 space-y-2">
                 {group(
                   CONSOLE_LINKS.filter((l) => {
-                    const required =
-                      l.id === "settings" ? "operator" : l.id === "console" ? "vendor" : null;
+                    const required = l.id === "settings" ? "operator" : l.id === "console" ? "vendor" : null;
                     return required === null || (seat !== null && atLeast(seat, required));
                   }),
                 )}
@@ -147,17 +146,8 @@ export function Footer() {
             </nav>
           </div>
         ) : (
-          /* ── Signed out: the public marketing footer ──────────────────────────
-             Four even columns, not three ragged ones. It used to be
-             `[1.4fr_1fr_3fr]` with all seven public links poured into one
-             4-wide sub-grid, which laid them out 4 + 3 and left the second row
-             hanging under the first with nothing saying why those three were
-             together. The signed-in footer above already groups by WHAT the
-             link is for (console / platform / legal); this one now says the
-             same thing, so a visitor and an operator read the same hierarchy
-             and "Refund Policy" sits with its own kind instead of under
-             "Documentation" by accident of grid order. */
-          <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-[1.4fr_1fr_1fr_1fr]">
+          /* ── Signed out: the public marketing footer ────────────────────────── */
+          <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-[1.4fr_1fr_3fr]">
             {/* brand */}
             <div>
               <div className="flex items-center gap-2.5">
@@ -181,14 +171,11 @@ export function Footer() {
               <div className="mt-3 space-y-2">{group(PRODUCT)}</div>
             </nav>
 
-            {/* platform — what the product is and how it behaves. Anchors, not
-                buttons — see ROUTES above for why a crawler needs them. */}
-            <nav aria-label="Platform">
-              <p className="micro text-[9px] text-ink-3">PLATFORM</p>
-              <div className="mt-3 space-y-2">
-                {ROUTES.filter((l) =>
-                  ["/pricing", "/docs", "/security", "/usecases"].includes(l.href ?? ""),
-                ).map((l) => (
+            {/* every real public route. Anchors, not buttons — see ROUTES above. */}
+            <nav aria-label="Public pages" className="sm:col-span-2 lg:col-span-3">
+              <p className="micro text-[9px] text-ink-3">SITE</p>
+              <div className="mt-3 grid grid-cols-2 gap-x-6 gap-y-2 sm:grid-cols-3 lg:grid-cols-4">
+                {ROUTES.map((l) => (
                   <a
                     key={l.href}
                     href={l.href}
@@ -197,26 +184,6 @@ export function Footer() {
                     {label(l)}
                   </a>
                 ))}
-              </div>
-            </nav>
-
-            {/* legal — grouped together because a procurement reviewer looks for
-                these three by name and should not have to find them next to
-                "Use Cases". */}
-            <nav aria-label="Legal">
-              <p className="micro text-[9px] text-ink-3">LEGAL</p>
-              <div className="mt-3 space-y-2">
-                {ROUTES.filter((l) => ["/terms", "/privacy", "/refund"].includes(l.href ?? "")).map(
-                  (l) => (
-                    <a
-                      key={l.href}
-                      href={l.href}
-                      className="block text-[12px] font-medium text-ink-2 transition hover:text-primary"
-                    >
-                      {label(l)}
-                    </a>
-                  ),
-                )}
               </div>
             </nav>
           </div>
@@ -235,9 +202,7 @@ export function Footer() {
             {SUPPORT_EMAIL}
           </a>
           <p className="mt-2.5 text-[11px] leading-snug text-ink-3">
-            {ar
-              ? "للبنوك وشركات التأمين — تجارب ميدانية متاحة"
-              : "For banks & insurers — pilot programs open"}
+            {ar ? "للبنوك وشركات التأمين — تجارب ميدانية متاحة" : "For banks & insurers — pilot programs open"}
           </p>
         </div>
 

@@ -6,6 +6,7 @@ import { Building2, Check, ChevronDown, Loader2 } from "lucide-react";
 import { authClient, useSession } from "@/lib/auth-client";
 import { cn } from "@/lib/utils";
 import { useApp } from "@/lib/store";
+import { useViewerSeat } from "@/lib/auth/use-viewer-seat";
 import { describeWorkspaceSwitchError } from "@/lib/console-errors";
 import { reportClientError } from "@/lib/client-diagnostics";
 
@@ -36,7 +37,8 @@ import { reportClientError } from "@/lib/client-diagnostics";
 export function OrgSwitcher({ className }: { className?: string }) {
   const router = useRouter();
   const { data: session } = useSession();
-  const { lang, setView } = useApp();
+  const { lang, setView, view } = useApp();
+  const { seat, isLoading: seatLoading } = useViewerSeat();
   const [open, setOpen] = useState(false);
   const [pending, setPending] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -47,6 +49,29 @@ export function OrgSwitcher({ className }: { className?: string }) {
   const { data: orgs, isPending } = authClient.useListOrganizations();
 
   const list = (orgs ?? []) as { id: string; name: string }[];
+
+  /*
+   * WHO MAY SEE THIS CONTROL — the whole rule, in one place.
+   *
+   * The gate lives here rather than at the mount site so it cannot drift: the
+   * navbar renders this component twice (desktop cluster and mobile panel), and
+   * a rule written at both call sites is a rule that will eventually be edited
+   * at one of them.
+   *
+   *   · `seatLoading` — the membership has not resolved. Rendering now would
+   *     flash the chip at a judge and then withdraw it, which reads as a glitch.
+   *   · `seat !== "operator"` — changing the tenant is an ADMINISTRATIVE act.
+   *     A judge, a vendor seat and a demo viewer are all reading a tenant that
+   *     is not theirs to choose. Before this, the control was offered to any
+   *     signed-in session with two memberships, which is a description of the
+   *     data, not of a permission.
+   *   · `view === "demo"` — the demo is a recorded tour of a fictional tenant.
+   *     Offering to switch workspace in the middle of it invites the viewer to
+   *     change something that has no effect on what they are watching, and it
+   *     crowded the bar with the one control nothing on screen depended on.
+   */
+  if (seatLoading || seat !== "operator" || view === "demo") return null;
+
   // One org is not a choice — the control stays hidden rather than showing a
   // single-item menu that implies something can change.
   //

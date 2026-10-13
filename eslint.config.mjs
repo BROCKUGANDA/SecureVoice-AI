@@ -103,6 +103,13 @@ const eslintConfig = [
       ".gitnexus/**",
       ".coverage/**",
       ".covprobe2/**",
+      // Vendored minified bundles. `demo/walkthrough/source/assets/gsap.min.js` is
+      // a downloaded GSAP build committed as an asset for the walkthrough film,
+      // not source anybody edits: it alone produced 206 `no-var` errors, which is
+      // the entire failure count CI's Lint step reported. Linting it would ask for
+      // a rewrite of a third party's compressed output, and any fix would be
+      // undone the day the file is re-downloaded.
+      "**/*.min.js",
     ],
   },
 ];

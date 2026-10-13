@@ -128,6 +128,7 @@ describe("indexing: authenticated and API routes are never indexable", () => {
       "/docs",
       "/security",
       "/usecases",
+      "/faq",
     ]);
     for (const path of INDEXABLE_PATHS) expect(robotsTagFor(path)).toBeNull();
     expect(robotsTagFor("/anything/new")).toBe("noindex, nofollow");
@@ -301,10 +302,10 @@ describe("sitemap", () => {
   });
 
   test("every public route is listed exactly once, and `/` is first", () => {
-    // Eight entries: the single-page app plus the seven standalone documents.
+    // Nine entries: the single-page app plus the eight standalone documents.
     // The count is asserted rather than derived so that ADDING a route to the
     // list without thinking about the sitemap fails here instead of shipping.
-    expect(entries).toHaveLength(8);
+    expect(entries).toHaveLength(9);
     const paths = entries.map((e) => new URL(e.url).pathname);
     expect(paths).toEqual([
       "/",
@@ -315,6 +316,7 @@ describe("sitemap", () => {
       "/docs",
       "/security",
       "/usecases",
+      "/faq",
     ]);
     expect(new Set(paths).size).toBe(paths.length);
   });

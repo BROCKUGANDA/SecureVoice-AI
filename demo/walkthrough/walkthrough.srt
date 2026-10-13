@@ -1,0 +1,32 @@
+1
+00:00:00,000 --> 00:00:10,500
+SecureVoice AI. Real-time voice fraud intervention for banking and insurance.
+
+2
+00:00:10,500 --> 00:00:21,500
+A Tier-1 analyst takes nine minutes to see the case and thirty-eight to work it. The fraudster moves in seconds.
+
+3
+00:00:21,500 --> 00:00:39,500
+A signed risk signal arrives — HMAC verified, case open, dial enqueued, under a second.
+
+4
+00:00:39,500 --> 00:00:54,500
+Disclosure, verification, then a freeze the agent can only stage. It never asks for a PIN, an OTP, or a password.
+
+5
+00:00:54,500 --> 00:01:07,000
+The controls live in the server, not in the prompt. A human finalises every freeze.
+
+6
+00:01:07,000 --> 00:01:15,500
+Captured live from securevoiceai.me — not a mock-up, not a staging screenshot.
+
+7
+00:01:15,500 --> 00:01:28,500
+Measured: 551 ms to call placement, 9 ms tool round-trip. The 60-second claim is still a target.
+
+8
+00:01:28,500 --> 00:01:36,000
+Sixty seconds, with the proof attached. SecureVoice AI.
+

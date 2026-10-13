@@ -35,9 +35,9 @@ export async function generateMetadata({
   params: Promise<{ code: string }>;
 }): Promise<Metadata> {
   const { code } = await params;
-  if (!isErrorCode(code)) return { title: "Unknown error code — SecureVoice AI" };
+  if (!isErrorCode(code)) return { title: "Unknown error code" };
   return {
-    title: `${code} — SecureVoice AI error code`,
+    title: `${code} — error code`,
     description:
       "What this failure means, what the caller should do about it, and the exact response body the API returns.",
     alternates: { canonical: `/docs/errors/${code}` },

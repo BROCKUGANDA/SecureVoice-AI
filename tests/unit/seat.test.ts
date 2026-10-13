@@ -175,11 +175,26 @@ describe("VIEW_ACCESS is total and consistent", () => {
   });
 
   test("the mutating surfaces are operator-only", () => {
-    // Settings, the appendix and the tenant setup wizard all change or expose
-    // the organisation. None may be reachable by a seat that only reads.
-    for (const view of ["settings", "deck", "setup"] as View[]) {
+    // Settings and the tenant setup wizard both CHANGE the organisation. Neither
+    // may be reachable by a seat that only reads.
+    //
+    // The appendix was asserted here until it moved to `judge`. It is a
+    // read-only deck: it renders no organisation data and has no write path, so
+    // "changes or exposes the organisation" did not hold for it. Its own
+    // assertion is directly below, and it is still deliberately NOT `vendor`.
+    for (const view of ["settings", "setup"] as View[]) {
       expect(ACCESS_SEAT[VIEW_ACCESS[view]], `${view} is not operator-only`).toBe("operator");
     }
+  });
+
+  test("the appendix is readable by a judge, and is not a working-seat screen", () => {
+    // A reviewer evaluating the submission is exactly who the deck is for, so it
+    // must be judge-level — a judge who cannot open the appendix cannot assess
+    // the submission. It is NOT vendor-level: the navbar keeps it out of the
+    // vendor nav, because the split is about who a screen is FOR and the pitch
+    // is not a working surface.
+    expect(ACCESS_SEAT[VIEW_ACCESS.deck], "deck is not judge-level").toBe("judge");
+    expect(atLeast("vendor", ACCESS_SEAT[VIEW_ACCESS.deck]!)).toBe(true);
   });
 
   test("the Command Center is a working seat, not a read-only one", () => {

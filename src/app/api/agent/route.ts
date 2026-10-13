@@ -7,6 +7,7 @@ import { consume as consumeRateLimit, rateLimitId } from "@/lib/ratelimit";
 import { append as auditAppend } from "@/lib/audit-chain";
 import { analyzeSentiment } from "@/lib/sentiment";
 import { noteTurn } from "@/lib/voice/turn-counter";
+import { paceForTurn } from "@/lib/voice/presets";
 import { draftAgentReply, resolveSessionLlmCredentials } from "@/lib/llm";
 import { callerRequestsSecret, NEVER_ASK_LINE } from "@/lib/compliance/never-ask";
 import { SAFETY_EXIT } from "@/lib/compliance/safety-exit";
@@ -538,6 +539,20 @@ export async function POST(req: NextRequest) {
     // trip an alert. (See docs/RUNBOOK.md — "Audit append failure".)
   }
 
+  const turnKind: import("@/lib/voice/presets").TurnKind =
+    intent === "greeting"
+      ? "filler"
+      : baseAction === "none"
+        ? "prompt"
+        : baseAction === "clarify"
+          ? "guarded"
+          : baseAction === "human_handoff"
+            ? "handoff"
+            : intent === "deny_fraud" || intent === "handoff" || baseAction === "card_freeze"
+              ? "confirmation"
+              : "guarded"; // default for agent speech
+  const pace = paceForTurn(turnKind);
+
   return NextResponse.json({
     ok: true,
     callRef,
@@ -550,5 +565,7 @@ export async function POST(req: NextRequest) {
     escalate: sentimentResult.escalate,
     escalationReason: sentimentResult.reason,
     latencyMs: Date.now() - started,
+    pace, // The named preset the synthesis layer resolves from.
+    turnKind, // The turn classification (`paceForTurn` input) for audit.
   });
 }

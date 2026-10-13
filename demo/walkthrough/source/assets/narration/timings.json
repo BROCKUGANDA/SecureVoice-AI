@@ -1,0 +1,34 @@
+{
+  "01-title": {
+    "duration": 8.256,
+    "text": "SecureVoice AI. Real-time voice fraud intervention for banking and insurance. Deployed, live, and audited end to end."
+  },
+  "02-gap": {
+    "duration": 8.277,
+    "text": "A bank's fraud engine flags a case. An analyst takes nine minutes to see it, and thirty-eight to work it. The fraudster moves in seconds."
+  },
+  "03-ingest": {
+    "duration": 15.616,
+    "text": "A signed risk signal arrives. The platform verifies the signature, resolves the customer, and opens a case, under a second. The call category then selects the agent's prompt, its powers, and the preconditions enforced before a single dial."
+  },
+  "04-call": {
+    "duration": 12.693,
+    "text": "The platform places an outbound call. The agent opens with a disclosure, verifies the transaction, and stages a protective action. It never asks for a PIN, an OTP, or a password."
+  },
+  "05-guardrails": {
+    "duration": 9.728,
+    "text": "The controls live in the server, not in the prompt. A freeze is only ever staged, and a human finalises it. Pre-production cannot reach a real customer."
+  },
+  "06-live": {
+    "duration": 4.779,
+    "text": "Everything you have just seen is running. Captured live from securevoiceai.me."
+  },
+  "07-evidence": {
+    "duration": 10.624,
+    "text": "Two legs are measured. Five hundred fifty-one milliseconds from signal to call placement, and nine milliseconds for a tool round-trip. The sixty-second claim is still a target."
+  },
+  "08-close": {
+    "duration": 3.755,
+    "text": "Sixty seconds, with the proof attached. SecureVoice AI."
+  }
+}

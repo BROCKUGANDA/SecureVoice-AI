@@ -33,6 +33,7 @@ const LINKS: { href: string; label: string }[] = [
   { href: "/", label: "Overview" },
   { href: "/pricing", label: "Pricing" },
   { href: "/docs", label: "Documentation" },
+  { href: "/faq", label: "FAQ" },
   { href: "/security", label: "Security" },
   { href: "/usecases", label: "Use Cases" },
   { href: "/terms", label: "Terms" },

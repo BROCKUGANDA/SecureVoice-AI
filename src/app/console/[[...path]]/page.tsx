@@ -37,7 +37,7 @@ export const dynamic = "force-dynamic";
  * remembering to list it.
  */
 export const metadata: Metadata = {
-  title: "Console — SecureVoice AI",
+  title: "Command Center",
   description: "The SecureVoice AI operator console.",
   robots: { index: false, follow: false },
 };

@@ -1,9 +1,15 @@
 /**
  * SecureVoice AI — fraud scenario library + simulated call scripts.
- * Four-language call delivery (EN / AR / HI / UR) — the language selector
- * represents the language the AGENT speaks on the call:
+ * Six-language call delivery (EN / AR / HI / UR / FR / SW) — the language
+ * selector represents the language the AGENT speaks on the call:
  *   en → Marcus (EN-UK) · ar → Fatima (AR-Gulf) · hi → Kavita (HI-IN)
  *   ur → Sana (UR-UAE) — Urdu layer lives in ./scenario-ur
+ *   fr → Céline (FR-FR) — French layer lives in ./scenario-fr
+ *   sw → Amina (SW-KE) — Swahili layer lives in ./scenario-sw
+ * A selectable language without a transcript layer is a silent defect: the deck
+ * would announce French or Swahili and speak English words. The per-language
+ * modules exist so the selector never lies, and
+ * tests/unit/scenario-language-coverage.test.ts fails if one drifts.
  * Timings are virtual seconds from call start; the demo player scales them.
  *
  * Three triggerable cases so any visitor can TEST the pipeline, not just
@@ -13,6 +19,8 @@
  *   wire — social-engineering wire scam (fake "bank security team")
  */
 
+import { FR_PACKS } from "./scenario-fr";
+import { SW_PACKS } from "./scenario-sw";
 import { UR_PACKS } from "./scenario-ur";
 import type { ScenarioKind, ScenarioMeta } from "./scenario-types";
 
@@ -68,6 +76,8 @@ export interface ScenarioEvent {
   ar: string;
   hi?: string;
   ur?: string;
+  fr?: string;
+  sw?: string;
   tag?: string; // mono chip e.g. "webhook", "POST /freeze"
 }
 
@@ -219,7 +229,7 @@ export const SCENARIO_LIBRARY: ScenarioMeta[] = [
 ];
 
 /** [en, ar, hi] — every pack is a self-consistent call in that language. */
-interface Pack {
+export interface Pack {
   alert: [string, string, string];
   dial: [string, string, string];
   connected: [string, string, string];
@@ -234,8 +244,13 @@ interface Pack {
   done: [string, string, string];
 }
 
-/** "voicemail" has its own story (failure/escalation) and is built separately. */
-const PACKS: Record<Exclude<ScenarioKind, "voicemail">, Pack> = {
+/**
+ * "voicemail" has its own story (failure/escalation) and is built separately.
+ * Exported so the language-coverage gate can enumerate the pack FIELDS from
+ * data (a field that is written but never rendered into an event, or rendered
+ * without a translation, fails there instead of silently).
+ */
+export const PACKS: Record<Exclude<ScenarioKind, "voicemail">, Pack> = {
   /* ————————— CARD-NOT-PRESENT ————————— */
   card: {
     alert: [
@@ -473,6 +488,36 @@ const PACKS: Record<Exclude<ScenarioKind, "voicemail">, Pack> = {
   },
 };
 
+/**
+ * One line of a non-English transcript layer: fixed text, or a function of the
+ * case metadata for the templated lines. Same shape every layer module exports
+ * (UrLine / FrLine / SwLine), kept structurally identical on purpose so a line
+ * in any language can be checked the same way.
+ */
+type LangLine = string | ((m: ScenarioMeta, first: string) => string);
+
+/**
+ * Patch one language layer onto a timeline.
+ *
+ * The layer is consumed POSITIONALLY (`lines[i]`), so it must be as long as the
+ * timeline; a shorter or longer layer silently shifts every later line onto the
+ * wrong event. An absent line degrades to "no text for this language" — which
+ * `eventText` renders as English — rather than renumbering the rest.
+ */
+function patchLayer(
+  events: ScenarioEvent[],
+  lines: LangLine[],
+  m: ScenarioMeta,
+  first: string,
+  set: (e: ScenarioEvent, text: string) => ScenarioEvent,
+): ScenarioEvent[] {
+  return events.map((e, i) => {
+    const line = lines[i];
+    if (line === undefined) return e;
+    return set(e, typeof line === "function" ? line(m, first) : line);
+  });
+}
+
 /** Urdu layer — aligned 1:1 with the timeline; falls back to EN when absent. */
 function withUrdu(
   events: ScenarioEvent[],
@@ -480,12 +525,43 @@ function withUrdu(
   m: ScenarioMeta,
   first: string,
 ): ScenarioEvent[] {
-  const urp = UR_PACKS[kind];
-  return events.map((e, i) => {
-    const u = urp[i];
-    if (u === undefined) return e;
-    return { ...e, ur: typeof u === "function" ? u(m, first) : u };
-  });
+  return patchLayer(events, UR_PACKS[kind], m, first, (e, ur) => ({ ...e, ur }));
+}
+
+/** French layer — same contract as Urdu; no entry, no `fr`, renders as EN. */
+function withFrench(
+  events: ScenarioEvent[],
+  kind: ScenarioKind,
+  m: ScenarioMeta,
+  first: string,
+): ScenarioEvent[] {
+  return patchLayer(events, FR_PACKS[kind], m, first, (e, fr) => ({ ...e, fr }));
+}
+
+/** Swahili layer — same contract as Urdu; no entry, no `sw`, renders as EN. */
+function withSwahili(
+  events: ScenarioEvent[],
+  kind: ScenarioKind,
+  m: ScenarioMeta,
+  first: string,
+): ScenarioEvent[] {
+  return patchLayer(events, SW_PACKS[kind], m, first, (e, sw) => ({ ...e, sw }));
+}
+
+/**
+ * Every non-English layer, in one call. Ordered so a scenario cannot be built
+ * with one language wired and another forgotten — the failure mode this whole
+ * module used to have for fr and sw, which were selectable but untranslated.
+ */
+function withLangLayers(
+  events: ScenarioEvent[],
+  kind: ScenarioKind,
+  m: ScenarioMeta,
+  first: string,
+): ScenarioEvent[] {
+  const ur = withUrdu(events, kind, m, first);
+  const fr = withFrench(ur, kind, m, first);
+  return withSwahili(fr, kind, m, first);
 }
 
 /**
@@ -691,7 +767,7 @@ export function buildScenario(kind: ScenarioKind): ScenarioEvent[] {
   // (UrLine takes `first: string`) honest if `customer` is ever blank rather
   // than asserting an index that can be missing.
   const first = m.customer.split(" ")[0] ?? m.customer;
-  if (kind === "voicemail") return withUrdu(voicemailEvents(m), kind, m, first);
+  if (kind === "voicemail") return withLangLayers(voicemailEvents(m), kind, m, first);
   const p = PACKS[kind];
   // An insurer's call is "your insurer ... your policy"; a bank's is "your bank ...
   // your account". Only the introduction names the institution, so this is the one
@@ -880,8 +956,8 @@ export function buildScenario(kind: ScenarioKind): ScenarioEvent[] {
     },
   ];
 
-  /* Urdu layer — aligned 1:1 with the timeline above; falls back to EN */
-  return withUrdu(events, kind, m, first);
+  /* Language layers (ur / fr / sw) — aligned 1:1 with the timeline above. */
+  return withLangLayers(events, kind, m, first);
 }
 
 /** Primary transcript text for a call language (graceful fallback to EN). */
@@ -889,6 +965,8 @@ export function eventText(e: ScenarioEvent, lang: CallLang): string {
   if (lang === "ar") return e.ar;
   if (lang === "hi") return e.hi ?? e.en;
   if (lang === "ur") return e.ur ?? e.en;
+  if (lang === "fr") return e.fr ?? e.en;
+  if (lang === "sw") return e.sw ?? e.en;
   return e.en;
 }
 

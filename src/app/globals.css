@@ -63,7 +63,12 @@
   --background: #fbfbf8;
   --foreground: #101812;
   --ink-2: #46524a;
-  --ink-3: #667467;
+  /* Darkened from #667467, which measured 4.76:1 on --paper and 4.93:1 on
+     --card: passing, but with no margin for a lighter surface behind it. These
+     tokens are the muted-text colour at ~100 call sites, so one value decides
+     whether the whole site passes or fails — it needs headroom, not a
+     technical pass. Now 5.64 / 5.84. */
+  --ink-3: #5c685d;
   --line: #e7eae3;
   --border: #e7eae3;
   --input: #dde2d9;
@@ -87,7 +92,7 @@
   --accent-foreground: #085c3f;
 
   --destructive: #d64550;
-  --red-soft: #d64550;
+  --red-soft: #b63b44;
   --red-tint: #fceff0;
   --amber-soft: #b97a11;
   --amber-tint: #faf3e3;

@@ -31,7 +31,9 @@ const exists = (p) =>
 async function synthesize(client, text, voiceId, file) {
   const audio = await client.textToSpeech.convert({
     text,
-    modelId: "eleven_multilingual_v2",
+    // Same model as the live agent, or the pre-rendered cue sounds like a different
+    // speaker from the voice that answers the call.
+    modelId: process.env.ELEVENLABS_MODEL || "eleven_v4_turbo",
     voiceId,
     outputFormat: "mp3_44100_128",
   });

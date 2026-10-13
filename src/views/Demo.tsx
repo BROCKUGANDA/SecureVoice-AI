@@ -40,6 +40,7 @@ import {
   speakText,
   stopVoice,
   prefetchSpeech,
+  VOICE_FALLBACK_COPY,
   type VoiceRole,
 } from "@/lib/voice-client";
 import { useApp, t } from "@/lib/store";
@@ -103,6 +104,15 @@ export function Demo() {
   const [time, setTime] = useState(0);
   const [speed, setSpeed] = useState(2);
   const [audioOn, setAudioOn] = useState(true);
+  /**
+   * Why the audible voice is not the neural one, or null while it is.
+   *
+   * The browser fallback speaks the line in the visitor's own system voice. That is
+   * worth saying out loud: a demo whose copy claims ElevenLabs and whose audio is
+   * Windows or Safari has a claim its artifact cannot support, and today only the
+   * audit row knows.
+   */
+  const [voiceNote, setVoiceNote] = useState<string | null>(null);
   const [callLang, setCallLang] = useState<CallLang>("en");
   const spokenRef = useRef<Set<string>>(new Set());
   const audioBusyRef = useRef(false); // scenario clock freezes while a line is spoken
@@ -179,10 +189,14 @@ export function Demo() {
     audioBusyRef.current = true;
     const role: VoiceRole = latest.speaker === "agent" ? "agent" : "customer";
     const text = eventText(latest, callLang);
-    speakText(text, callLang, role, Math.min(speed, 2)).then((neural) => {
+    speakText(text, callLang, role, Math.min(speed, 2)).then((outcome) => {
       if (seq !== speakSeq.current) return; // a newer line owns the flag now
       audioBusyRef.current = false;
-      if (!neural) return;
+      // Say which voice the visitor is hearing. `browserSpeak` already ran inside
+      // speakText, so the line is audible either way — what changes is whether the
+      // claim on the page matches the sound.
+      setVoiceNote(outcome.neural ? null : VOICE_FALLBACK_COPY[outcome.reason ?? "failed"]);
+      if (!outcome.neural) return;
       /* browser fallback already spoken inside speakText */
     });
     // pre-warm the next spoken line so the reply starts without a gap
@@ -624,6 +638,15 @@ export function Demo() {
               {t("Agent audio", "صوت الوكيل", lang)}{" "}
               {audioOn ? t("on", "مُفعّل", lang) : t("off", "مُعطّل", lang)}
             </button>
+            {audioOn && voiceNote && (
+              // The line is still audible — this says in whose voice. A demo whose
+              // copy promises a neural voice and whose audio is the device's own
+              // speech engine has to say so, or the claim is unfalsifiable by the
+              // person hearing it.
+              <p role="status" className="text-[11px] leading-snug text-amber-soft">
+                {voiceNote}
+              </p>
+            )}
           </div>
         </div>
 

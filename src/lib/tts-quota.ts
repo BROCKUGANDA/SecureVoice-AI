@@ -16,7 +16,8 @@ import "server-only";
 import { getProfile } from "@/lib/credits";
 import { db } from "@/lib/db";
 import { decryptSecret } from "@/lib/byok";
-import { env, dailyCharLimit } from "@/lib/config";
+import { env, dailyCharLimit, anonCharPerHour } from "@/lib/config";
+import { consume as consumeRate } from "@/lib/ratelimit";
 import { auth } from "@/lib/better-auth";
 import { notify } from "@/lib/notifications";
 import { headers } from "next/headers";
@@ -42,6 +43,48 @@ export type TtsKeyResolution =
   | { mode: "platform"; userId: string; usedToday: number }
   | { mode: "unmetered" }
   /**
+   * A signed-out caller spending the platform key under a per-caller ceiling.
+   *
+   * This exists so the public demo can tell the truth. Without it, a visitor with
+   * no session gets 401 from `/api/tts` and `voice-client` silently falls back to
+   * the browser's `SpeechSynthesis` — the page still says the agent answered in a
+   * neural voice, and the audio is the visitor's own operating system, in whatever
+   * language their device happens to have. The claim and the artifact disagree, and
+   * nobody can see the difference.
+   *
+   * There is no UserProfile row to charge, so the bound is the rate limiter's own
+   * per-caller bucket sized in whole requests: `TTS_ANON_DAILY_CHAR_LIMIT /
+   * MAX_TTS_CHARS` fills a day. Coarse deliberately — it caps what one anonymous
+   * caller can drain, and it fails closed at 0 (the default), which is the previous
+   * behaviour.
+   *
+   * Known sharp edge, inherited from `rateLimitId`: a request that arrives with no
+   * resolvable client IP gets the literal id `anon`, so every such caller shares one
+   * bucket. Through Caddy a real IP is always present, and a shared bucket only ever
+   * makes the cap stricter, never looser.
+   */
+  /**
+   * A signed-out caller spending the platform key under a per-caller ceiling.
+   *
+   * This exists so the public demo can tell the truth. Without it, a visitor with
+   * no session gets 401 from `/api/tts` and `voice-client` silently falls back to
+   * the browser's `SpeechSynthesis` — the page still says the agent answered in a
+   * neural voice, and the audio is the visitor's own operating system, in whatever
+   * language their device happens to have. The claim and the artifact disagree, and
+   * nobody can see the difference.
+   *
+   * There is no UserProfile row to charge, so the bound is the limiter's own bucket,
+   * charged in characters against `TTS_ANON_CHAR_LIMIT_PER_HOUR` — see
+   * `anonCharPerHour()` for why that is an hourly per-caller ceiling rather than the
+   * daily total the counter would give a signed-in tenant.
+   *
+   * Known sharp edge, inherited from `rateLimitId`: a request with no resolvable
+   * client IP gets the literal id `anon`, so every such caller shares one bucket.
+   * Through Caddy a real IP is always present, and a shared bucket only makes the
+   * cap stricter, never looser.
+   */
+  | { mode: "anon"; charsPerHour: number }
+  /**
    * No profile and no BYOK, so there is no per-user budget to charge.
    *
    * BEFORE this variant existed, an unauthenticated caller fell through to
@@ -62,6 +105,43 @@ export type TtsKeyResolution =
 /** True when this resolution must not be allowed to spend a vendor key. */
 export function isAnonymousUnmetered(res: TtsKeyResolution): boolean {
   return res.mode === "anonymous";
+}
+
+/**
+ * Decide what an unmeterable caller may do: fall through when there is no platform
+ * key to spend, allow a capped anonymous turn when the deployment opts in, refuse
+ * otherwise.
+ *
+ * Shared by both refusal sites — signed out, and signed in with no profile row —
+ * because they are the same exposure (nothing to charge) and two copies of the rule
+ * would drift the first time one was edited.
+ */
+function anonOrRefuse(reason: string): TtsKeyResolution {
+  if (!env.elevenLabsApiKey) return { mode: "unmetered" };
+  const cap = anonCharPerHour();
+  if (cap > 0) return { mode: "anon", charsPerHour: cap };
+  return { mode: "anonymous", reason };
+}
+
+/**
+ * Charge one synthesis against the anonymous per-caller ceiling.
+ *
+ * Lives here rather than in each route because the point of this module is that the
+ * two TTS surfaces — buffered and streaming — cannot carry different policies for
+ * the same spend. A cap enforced on `/api/tts` and not on `/api/tts/stream` is not a
+ * cap; the demo would simply be served by the unmetered door.
+ *
+ * The bucket is charged in CHARACTERS, not requests: `cost` is the text length, the
+ * same unit the signed-in daily counter uses, so a caller cannot spend the anonymous
+ * allowance faster by sending many short requests.
+ */
+export async function allowAnonTurn(
+  res: Extract<TtsKeyResolution, { mode: "anon" }>,
+  callerId: string,
+  chars: number,
+): Promise<{ ok: true } | { ok: false; retryAfterMs: number }> {
+  const r = await consumeRate("tts-anon", callerId, chars, res.charsPerHour);
+  return r.ok ? { ok: true } : { ok: false, retryAfterMs: r.retryAfterMs };
 }
 
 /**
@@ -95,15 +175,10 @@ export async function resolveTtsKey(): Promise<TtsKeyResolution> {
   if (env.elevenLabsDryRun) return { mode: "unmetered" };
   const profile = await getProfile();
   if (!profile) {
-    // Signed out. Never hand an anonymous caller the platform key: there is no
-    // UserProfile row to charge, so `consumeCharQuota` has nothing to
-    // decrement and would return ok:true forever.
-    return env.elevenLabsApiKey
-      ? {
-          mode: "anonymous",
-          reason: "sign in to use the platform voice key, or supply your own key",
-        }
-      : { mode: "unmetered" };
+    // Signed out. There is no UserProfile row to charge, so `consumeCharQuota`
+    // has nothing to decrement — the caller is either capped by the per-caller
+    // limiter or refused, never simply allowed.
+    return anonOrRefuse("sign in to use the platform voice key, or supply your own key");
   }
 
   // ── Org-level BYOK (preferred) ────────────────────────────────────────────
@@ -139,11 +214,9 @@ export async function resolveTtsKey(): Promise<TtsKeyResolution> {
   });
   if (!row) {
     // The signed-in user has no profile row, so the per-user daily counter
-    // cannot be charged. Same exposure as signed-out, so it is refused the
-    // same way rather than silently falling through to the platform key.
-    return env.elevenLabsApiKey
-      ? { mode: "anonymous", reason: "voice quota is not provisioned for this account" }
-      : { mode: "unmetered" };
+    // cannot be charged. Same exposure as signed-out, so the same policy applies:
+    // capped through the per-caller limiter, or refused — never allowed freely.
+    return anonOrRefuse("voice quota is not provisioned for this account");
   }
 
   if (row.elevenKeyEnc) {

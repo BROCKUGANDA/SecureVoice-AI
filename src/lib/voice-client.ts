@@ -30,6 +30,19 @@ export const TTS_VOICE: Record<CallLang, Record<VoiceRole, string>> = {
  */
 type Speech = { url: string; degraded: boolean };
 
+/**
+ * Stands in of a playable URL when the server could not synthesise.
+ *
+ * /api/tts answers 200 with real bytes when every rung of its fallback ladder fails:
+ * the body is the pre-recorded hold cue, deliberately larger than the 512-byte floor
+ * the check below enforces, because on a live fraud call a tone beats silence. The
+ * route marks that response `X-Voice-Degraded: true`, and nothing used to read it —
+ * so the demo played a test tone and reported the agent's neural voice. Returning a
+ * sentinel rather than the cue's URL means no path can hand the tone to `Audio()` and
+ * call it speech, and a cache replay carries the same verdict as the first attempt.
+ */
+export const DEGRADED = "degraded";
+
 const AUDIO_CACHE = new Map<string, Speech>();
 const INFLIGHT = new Map<string, Promise<Speech>>();
 // Bounded: every entry holds a live object URL (~100KB of blob). Evicting
@@ -68,6 +81,9 @@ export function fetchSpeech(text: string, voice: string, lang?: CallLang): Promi
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ text, voice, ...(lang ? { lang } : {}) }),
     });
+    // Carrying the status into the message is what lets speakText tell a spent
+    // demo budget (429) from a refused anonymous call (401) from a vendor outage.
+    // Swallowing it here would leave the fallback reason a guess.
     if (!res.ok) throw new Error(`tts ${res.status}`);
     const blob = await res.blob();
     if (blob.size < 512) throw new Error("tts empty");
@@ -85,7 +101,7 @@ export function fetchSpeech(text: string, voice: string, lang?: CallLang): Promi
 
 /** Back-compat for callers that only need the playable URL. */
 export function fetchSpeechUrl(text: string, voice: string, lang?: CallLang): Promise<string> {
-  return fetchSpeech(text, voice, lang).then((s) => s.url);
+  return fetchSpeech(text, voice, lang).then((s) => (s.degraded ? DEGRADED : s.url));
 }
 
 /* ————— single active audio channel ————— */
@@ -147,30 +163,60 @@ export function browserSpeak(text: string, lang: CallLang, rate = 1): void {
   }
 }
 
-/** Neural speech with automatic browser fallback. Resolves true if neural. */
+/**
+ * Why the neural voice did not answer, as far as the browser can tell.
+ *
+ * `browserSpeak` is a real fallback — the line still gets spoken — but it is the
+ * visitor's own operating-system voice, not the product's. A demo that swaps between
+ * them invisibly is making a claim about ElevenLabs that the audio does not support,
+ * so the reason travels with the result instead of being swallowed.
+ */
+export type VoiceFallback = "degraded" | "rate_limited" | "unauthorized" | "failed";
+
+export type SpeechOutcome = { neural: boolean; reason?: VoiceFallback };
+
+/**
+ * What to tell the visitor, per reason. Written for a bank's customer, not an
+ * operator: each one names the voice they are about to hear, and the two that are
+ * actionable say what would change it.
+ */
+export const VOICE_FALLBACK_COPY: Record<VoiceFallback, string> = {
+  degraded: "Neural voice unavailable right now — playing with your device's voice.",
+  rate_limited: "Demo voice budget spent — sign in for the full neural voice.",
+  unauthorized: "Neural voice needs a signed-in session — using your device's voice.",
+  failed: "Could not reach the voice service — using your device's voice.",
+};
+
+function classify(err: unknown): VoiceFallback {
+  const msg = err instanceof Error ? err.message : String(err ?? "");
+  if (/429/.test(msg)) return "rate_limited";
+  if (/401/.test(msg)) return "unauthorized";
+  return "failed";
+}
+
+/** Neural speech with automatic browser fallback. Reports which one you got. */
 export async function speakText(
   text: string,
   lang: CallLang,
   role: VoiceRole,
   rate = 1,
-): Promise<boolean> {
+): Promise<SpeechOutcome> {
+  let url: string;
   try {
-    const { url, degraded } = await fetchSpeech(text, TTS_VOICE[lang][role], lang);
-    if (degraded) {
-      // The server could not synthesize and sent the hold-cue tone instead. That
-      // tone is the right thing to hear on a live fraud call and the wrong thing
-      // to hear in a demo, so the demo speaks this line in the browser's voice for
-      // the language and reports `false` — the answer a caller at Demo.tsx:185
-      // already branches on to avoid pausing the clock for a voice it did not use.
-      browserSpeak(text, lang, rate);
-      return false;
-    }
-    await playUrl(url, rate);
-    return true;
-  } catch {
+    url = await fetchSpeechUrl(text, TTS_VOICE[lang][role], lang);
+  } catch (err) {
     browserSpeak(text, lang, rate);
-    return false;
+    return { neural: false, reason: classify(err) };
   }
+  if (url === DEGRADED) {
+    // The server could not synthesise and sent the hold-cue tone instead. Right on
+    // a live fraud call; in a demo the visitor hears their own device voice and is
+    // told why.
+    browserSpeak(text, lang, rate);
+    return { neural: false, reason: "degraded" };
+  }
+  await playUrl(url, rate);
+  return { neural: true };
 }
 
 /* ————— streaming playback with barge-in ————— */

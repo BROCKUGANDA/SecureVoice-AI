@@ -99,7 +99,10 @@ export class ElevenLabsStream {
     if (!text) return;
 
     const { ElevenLabsClient } = await import("@elevenlabs/elevenlabs-js");
-    const modelId = opts.modelId ?? "eleven_multilingual_v2";
+    // Never a literal: a caller that forgets `modelId` must still speak with the
+    // model this deployment chose, not with whatever generation was current when
+    // this line was written. See tests/unit/tts-model-resolution.test.ts.
+    const modelId = opts.modelId ?? env.elevenLabsModel;
     const openOn = (apiKey: string) =>
       new ElevenLabsClient({ apiKey }).textToSpeech.stream(opts.voiceId, {
         text,

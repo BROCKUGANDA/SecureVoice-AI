@@ -48,6 +48,40 @@ export function dailyCharLimit(): number {
 export function maxTtsChars(): number {
   return Number(process.env.MAX_TTS_CHARS) || 1_024;
 }
+
+/**
+ * Synthesis characters one anonymous caller may spend on the PLATFORM ElevenLabs
+ * key, per hour. `0` (the default) refuses the request outright — the historically
+ * safe behaviour, and the reason this is opt-in.
+ *
+ * Setting it above zero is what lets the public demo tell the truth. Until now a
+ * signed-out visitor got 401 from `/api/tts` and `voice-client` quietly fell back to
+ * the browser's `SpeechSynthesis`, so the page claimed a neural voice while the audio
+ * was the visitor's own operating system.
+ *
+ * The window is hourly because that is what the limiter natively enforces: this
+ * becomes the bucket's capacity, charged in characters per request. It is a per
+ * client-IP bound, not a global one, so it caps what one scraped visitor can drain
+ * rather than what the demo costs in aggregate — a deployment that wants a total
+ * ceiling needs a counter with a daily row, which an anonymous caller does not have.
+ */
+export function anonCharPerHour(): number {
+  const raw = Number(process.env.TTS_ANON_CHAR_LIMIT_PER_HOUR);
+  return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 0;
+}
+
+/**
+ * Is a real neural voice configured for this deployment at all?
+ *
+ * A deployment with no ElevenLabs key and dry-run off synthesises nothing: the
+ * buffered ladder's last resort is a pre-recorded hold cue, and the streaming
+ * transport has no voice to open. Telling the visitor "neural voice unavailable,
+ * this is your device's speech engine" requires knowing that in advance, so the
+ * answer is exposed rather than inferred at the call site.
+ */
+export function neuralVoiceConfigured(): boolean {
+  return Boolean(process.env.ELEVENLABS_API_KEY) || env.elevenLabsDryRun;
+}
 export const TTS_CACHE_TTL_MS = Number(process.env.TTS_CACHE_TTL_MS) || 60 * 60 * 1_000; // 1h
 export const TTS_CACHE_MAX = Number(process.env.TTS_CACHE_MAX) || 96;
 
@@ -147,7 +181,12 @@ export const env = {
     return process.env.ELEVENLABS_DRY_RUN === "true";
   },
   get elevenLabsModel(): string {
-    return process.env.ELEVENLABS_MODEL || "eleven_multilingual_v2";
+    // Must equal `tts.model_id` in agent/securevoice.agent.yaml. It used to default
+    // to eleven_multilingual_v2 while the agent ran eleven_v4_turbo, so the same
+    // sentence sounded different in the console preview than on the call, and
+    // nothing compared the two. tests/unit/tts-model-resolution.test.ts now asserts
+    // the pair per language, so changing one side alone fails CI.
+    return process.env.ELEVENLABS_MODEL || "eleven_v4_turbo";
   },
   get elevenLabsSttModel(): string {
     return process.env.ELEVENLABS_STT_MODEL || "scribe_v2";

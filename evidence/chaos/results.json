@@ -2303,7 +2303,7 @@
       "area": "gate",
       "name": "evidence-digest-is-sha256",
       "ok": true,
-      "detail": "938771421ec082b5"
+      "detail": "59768c5bc815b265"
     },
     {
       "area": "gate",
@@ -3447,5 +3447,5 @@
     }
   ],
   "digestAlgorithm": "sha256",
-  "digest": "0391bc4e733368654022c6b05fe6512a4252ebf18e9ba7c7f675aa7378d422c0"
+  "digest": "de7d96338e1ad11c09c1084dd188384f29e74cfaf129c308eafc8a0697d945c1"
 }

@@ -181,3 +181,8 @@ sites.d/*
 # every `hyperframes check` / `render`. The composition source itself
 # (demo/walkthrough/source/) is committed; this is not.
 demo/walkthrough/source/.hyperframes/
+
+# Deploy-local backups. When main begins tracking a path the box already holds as
+# an untracked stray, the roll moves that copy here instead of deleting it, so the
+# file survives the pull and a human can diff it against the tracked version.
+.deploy-local-collisions/

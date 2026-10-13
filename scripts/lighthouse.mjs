@@ -65,7 +65,16 @@ const BUDGETS = {
     interactive: 6000,
   },
   a11y: {
-    maxFailingA11yItems: 0,
+    // Counted separately from the failing-audit count above, and at zero, per
+    // the note at the top of this file.
+    //
+    // This key was named `maxFailingA11yItems` and read as
+    // `maxCriticalOrSeriousViolations`. Nothing used the first name and nothing
+    // defined the second, so every comparison was `<= undefined` — always false,
+    // always FAIL, on a site with no accessibility problems at all. A gate that
+    // cannot pass is not a gate; it is a wall, and the log line
+    // `budget <= undefined` is the only evidence anything was wrong with it.
+    maxCriticalOrSeriousViolations: 0,
   },
 };
 

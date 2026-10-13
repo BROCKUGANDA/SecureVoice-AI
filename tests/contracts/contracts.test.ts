@@ -1448,7 +1448,7 @@ describe("SSRF: a blocked target is refused before any probe", () => {
           return validateOutboundUrl(raw);
         },
         authenticate: async () => ({ ok: true, callerId: "pk:test", orgId: null }),
-        rateLimit: () => ({ ok: true }),
+        rateLimit: async () => ({ ok: true }),
         transport: async (req) => {
           calls.push(req);
           throw new Error("the transport must never be reached for a blocked target");
@@ -1481,7 +1481,7 @@ describe("SSRF: a blocked target is refused before any probe", () => {
       {
         validateUrl: async (raw) => ({ ok: true, url: new URL(raw), addresses: ["93.184.216.34"] }),
         authenticate: async () => ({ ok: true, callerId: "pk:test", orgId: "bank-core-uae" }),
-        rateLimit: () => ({ ok: true }),
+        rateLimit: async () => ({ ok: true }),
         transport: wrapper,
       },
     );
@@ -1505,7 +1505,7 @@ describe("conformance request validation and auth", () => {
       addresses: ["93.184.216.34"],
     }),
     authenticate: async () => ({ ok: true as const, callerId: "pk:test", orgId: null }),
-    rateLimit: () => ({ ok: true as const }),
+    rateLimit: async () => ({ ok: true as const }),
   };
   const spyTransportNever: ConformanceTransport = async () => {
     throw new Error("must not be reached");
@@ -1546,7 +1546,7 @@ describe("conformance request validation and auth", () => {
       {
         ...baseDeps,
         transport: spyTransportNever,
-        rateLimit: () => ({ ok: false as const, retryAfterSec: 42 }),
+        rateLimit: async () => ({ ok: false as const, retryAfterSec: 42 }),
       },
     );
     const r = refusal(outcome);

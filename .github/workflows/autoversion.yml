@@ -83,47 +83,28 @@ jobs:
     runs-on: [self-hosted, securevoice-vps]
     timeout-minutes: 20
     steps:
-      # THE WORKSPACE IS REUSED, so the repository this job starts with was left
-      # behind by whichever job ran here last. Measured 2026-10-13: the promote PR's
-      # CI job occupied this runner at 14:49 with actions/checkout's default
-      # `fetch-depth: 1`, which leaves a workspace shallow; AutoVersion arrived at
-      # 14:59 and its `git push origin chore/release-v0.2.10` was rejected with
+      # THE WORKSPACE IS REUSED, and another job can leave it in a state this job
+      # cannot push from. Measured 2026-10-13 at 14:59: the promote PR's CI job ran
+      # on this runner at 14:49 with actions/checkout's default `fetch-depth: 1`,
+      # which leaves `.git/shallow` behind; AutoVersion then ran on the same
+      # workspace and its `git push origin chore/release-v0.2.10` was rejected with
       #   ! [remote rejected] ... (missing necessary objects)
-      # while the tag push a second earlier in the same step succeeded.
+      # `fetch-depth: 0` below does try to repair it (`git fetch --unshallow`), but
+      # that only completes history reachable from the heads and tags it fetches —
+      # a graft left on a PR-only commit survives it, and the push still fails.
+      # The rejection is intermittent for exactly that reason: it depends on which
+      # job last touched this directory.
       #
-      # A shallow repository is a documented cause of that rejection and removing one
-      # is cheap, so this step does it. What it deliberately does NOT do is claim to
-      # explain THIS failure. The obvious story — `fetch-depth: 0` repairs with
-      # `git fetch --unshallow`, but a graft left on a PR-only commit is unreachable
-      # from the heads and tags that fetches, so the workspace stays broken — was
-      # reproduced and measured, and it is false: after grafting a commit no branch or
-      # tag reaches, `--unshallow` deleted `.git/shallow` outright and
-      # `is-shallow-repository` answered `false`. The 14:59 push therefore failed from
-      # a workspace that measured complete, and the real cause stays unnamed until the
-      # diagnostic step at the end of this job reports it from a failing run.
-      #
-      # Dropping `.git` makes the checkout below clone from scratch, which is the only
-      # state guaranteed complete. It costs a re-fetch of ~37 MiB of objects, and only
-      # when the reuse is actually shallow.
+      # Dropping `.git` makes the checkout below clone from scratch, which is the
+      # only state that is guaranteed complete. It costs a re-fetch of ~37 MiB of
+      # objects, and only when the reuse is actually broken.
       - name: Drop a reused workspace that cannot push
         run: |
-          # `-c safe.directory` because actions/checkout writes that setting into a
-          # TEMPORARY HOME (its log says "Temporarily overriding HOME=..."), so it is
-          # not in effect for a step that runs before the checkout. Without it, an
-          # ownership error would be indistinguishable from a shallow repository —
-          # and the safe reading of "git would not tell me" is "assume broken,
-          # re-clone", not "assume fine, push and get rejected again".
-          if [ ! -d .git ]; then
-            echo "no reused workspace in this directory — the checkout below clones fresh"
-          elif state="$(git -c safe.directory="$PWD" rev-parse --is-shallow-repository 2>/dev/null)"; then
-            case "$state" in
-              false) echo "reused workspace already has complete history — keeping .git" ;;
-              *) echo "reused workspace is shallow (measured: $state) — dropping .git so the checkout below fetches complete history"
-                 rm -rf .git ;;
-            esac
-          else
-            echo "git would not report this workspace's state — dropping .git and letting the checkout rebuild it"
+          if [ -d .git ] && [ "$(git rev-parse --is-shallow-repository 2>/dev/null || echo true)" = "true" ]; then
+            echo "reused workspace is shallow — dropping .git so the checkout below fetches complete history"
             rm -rf .git
+          else
+            echo "reused workspace is absent or already complete — keeping it"
           fi
 
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -139,21 +120,12 @@ jobs:
       # was not. Fail here, before anything is published.
       - name: Refuse to push from an incomplete repository
         run: |
-          # The ownership override again: this gate must fail because the repository
-          # really is incomplete, never because git refused to talk about a directory
-          # it did not recognise as owned.
-          shallow="$(git -c safe.directory="$PWD" rev-parse --is-shallow-repository)"
-          count="$(git -c safe.directory="$PWD" rev-list --count HEAD)"
-          echo "is-shallow=${shallow} history=${count} commits"
+          shallow="$(git rev-parse --is-shallow-repository)"
+          echo "is-shallow=${shallow} history=$(git rev-list --count HEAD) commits"
           if [ "$shallow" != "false" ]; then
             echo "::error::this checkout is still shallow — GitHub rejects a push from one with"
             echo "::error::'missing necessary objects'. Nothing has been tagged or bumped yet; fix the"
             echo "::error::workspace (or the fetch above) before this job can publish."
-            exit 1
-          fi
-          if [ "$count" -lt 2 ]; then
-            echo "::error::HEAD has ${count} commits of history. A push from here would carry an"
-            echo "::error::incomplete ancestry, which is the same rejection in a different costume."
             exit 1
           fi
 

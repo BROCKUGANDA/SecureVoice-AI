@@ -18,31 +18,43 @@ export const TTS_VOICE: Record<CallLang, Record<VoiceRole, string>> = {
 };
 
 /* ————— audio cache (object URLs, session-scoped) ————— */
-const AUDIO_CACHE = new Map<string, string>();
-const INFLIGHT = new Map<string, Promise<string>>();
+/**
+ * `degraded` is whether the server said it could NOT synthesize this and served
+ * its last resort instead. The route returns HTTP 200 with `X-Voice-Degraded: true`
+ * for that — the last resort is the two-tone "the line is still alive" cue, which
+ * exists so a fraud call never goes silent mid-conversation. It is bigger than the
+ * empty-response threshold below, so a caller that only checks `res.ok` and blob
+ * size will play a test tone and believe it heard the agent's neural voice. On a
+ * live call that is the right trade. In a demo it is a false statement about the
+ * product, so the flag has to reach the caller that decides what to claim.
+ */
+type Speech = { url: string; degraded: boolean };
+
+const AUDIO_CACHE = new Map<string, Speech>();
+const INFLIGHT = new Map<string, Promise<Speech>>();
 // Bounded: every entry holds a live object URL (~100KB of blob). Evicting
 // WITHOUT revokeObjectURL leaks the blob for the tab's lifetime.
 const AUDIO_CACHE_MAX = 64;
 
-function cacheSet(key: string, url: string): void {
+function cacheSet(key: string, speech: Speech): void {
   if (AUDIO_CACHE.size >= AUDIO_CACHE_MAX) {
     // Map iterates in insertion order — the first key is the oldest.
     const oldest = AUDIO_CACHE.keys().next().value;
     if (oldest !== undefined) {
-      const oldUrl = AUDIO_CACHE.get(oldest);
+      const old = AUDIO_CACHE.get(oldest);
       AUDIO_CACHE.delete(oldest);
-      if (oldUrl) URL.revokeObjectURL(oldUrl);
+      if (old) URL.revokeObjectURL(old.url);
     }
   }
-  AUDIO_CACHE.set(key, url);
+  AUDIO_CACHE.set(key, speech);
 }
 
 export function prefetchSpeech(text: string, voice: string, lang?: CallLang): void {
-  fetchSpeechUrl(text, voice, lang).catch(() => {});
+  fetchSpeech(text, voice, lang).catch(() => {});
 }
 
-/** Fetch (or reuse) a neural-voice WAV object URL for the given text. */
-export function fetchSpeechUrl(text: string, voice: string, lang?: CallLang): Promise<string> {
+/** Fetch (or reuse) the neural-voice audio for the given text. */
+export function fetchSpeech(text: string, voice: string, lang?: CallLang): Promise<Speech> {
   const key = `${voice}::${lang ?? ""}::${text}`;
   const hit = AUDIO_CACHE.get(key);
   if (hit) return Promise.resolve(hit);
@@ -59,13 +71,21 @@ export function fetchSpeechUrl(text: string, voice: string, lang?: CallLang): Pr
     if (!res.ok) throw new Error(`tts ${res.status}`);
     const blob = await res.blob();
     if (blob.size < 512) throw new Error("tts empty");
-    const url = URL.createObjectURL(blob);
-    cacheSet(key, url);
-    return url;
+    const speech: Speech = {
+      url: URL.createObjectURL(blob),
+      degraded: res.headers.get("x-voice-degraded") === "true",
+    };
+    cacheSet(key, speech);
+    return speech;
   })().finally(() => INFLIGHT.delete(key));
 
   INFLIGHT.set(key, p);
   return p;
+}
+
+/** Back-compat for callers that only need the playable URL. */
+export function fetchSpeechUrl(text: string, voice: string, lang?: CallLang): Promise<string> {
+  return fetchSpeech(text, voice, lang).then((s) => s.url);
 }
 
 /* ————— single active audio channel ————— */
@@ -135,7 +155,16 @@ export async function speakText(
   rate = 1,
 ): Promise<boolean> {
   try {
-    const url = await fetchSpeechUrl(text, TTS_VOICE[lang][role], lang);
+    const { url, degraded } = await fetchSpeech(text, TTS_VOICE[lang][role], lang);
+    if (degraded) {
+      // The server could not synthesize and sent the hold-cue tone instead. That
+      // tone is the right thing to hear on a live fraud call and the wrong thing
+      // to hear in a demo, so the demo speaks this line in the browser's voice for
+      // the language and reports `false` — the answer a caller at Demo.tsx:185
+      // already branches on to avoid pausing the clock for a voice it did not use.
+      browserSpeak(text, lang, rate);
+      return false;
+    }
     await playUrl(url, rate);
     return true;
   } catch {

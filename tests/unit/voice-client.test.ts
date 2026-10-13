@@ -18,7 +18,7 @@
  * independent.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { TTS_VOICE, fetchSpeechUrl } from "@/lib/voice-client";
+import { TTS_VOICE, fetchSpeech, fetchSpeechUrl } from "@/lib/voice-client";
 
 const realFetch = globalThis.fetch;
 const realCreate = URL.createObjectURL;
@@ -247,5 +247,45 @@ describe("voice routing table", () => {
     expect(TTS_VOICE.ar.agent).not.toBe(TTS_VOICE.hi.agent);
     expect(TTS_VOICE.hi.agent).not.toBe(TTS_VOICE.ur.agent);
     expect(TTS_VOICE.ar.agent).not.toBe(TTS_VOICE.ur.agent);
+  });
+});
+
+describe("fetchSpeech — the server's degradation mark reaches the caller", () => {
+  test("a normal synthesis is reported as neural", async () => {
+    const s = await fetchSpeech(`nd-${Date.now()}-${Math.random()}`, "jam", "en");
+    expect(s.degraded).toBe(false);
+    expect(s.url).toStartWith("blob:test-");
+  });
+
+  test("a 200 that carries X-Voice-Degraded is NOT reported as neural", async () => {
+    // /api/tts answers HTTP 200 with a real audio body when every synthesis rung
+    // failed: the body is the pre-recorded hold-cue tone, deliberately >512 bytes
+    // so it clears the empty-response floor, and it says what it is only in this
+    // header. A caller that checks `res.ok` and size alone plays a test tone and
+    // reports that the agent spoke. The flag has to survive to the caller.
+    installFetch(
+      () =>
+        new Response(bigBlob(), {
+          status: 200,
+          headers: { "x-voice-degraded": "true", "x-voice-source": "emergency" },
+        }),
+    );
+    const s = await fetchSpeech(`deg-${Date.now()}-${Math.random()}`, "jam", "en");
+    expect(s.degraded).toBe(true);
+  });
+
+  test("the degraded verdict is what the cache replays", async () => {
+    // Same text twice: the second read comes from the cache, so if the flag were
+    // dropped on the way in, a replayed line would claim neural on the second
+    // play while the first one admitted it did not.
+    installFetch(
+      () => new Response(bigBlob(), { status: 200, headers: { "x-voice-degraded": "true" } }),
+    );
+    const text = `degr-cache-${Date.now()}-${Math.random()}`;
+    const first = await fetchSpeech(text, "jam", "en");
+    const second = await fetchSpeech(text, "jam", "en");
+    expect(first.degraded).toBe(true);
+    expect(second.degraded).toBe(true);
+    expect(second.url).toBe(first.url);
   });
 });

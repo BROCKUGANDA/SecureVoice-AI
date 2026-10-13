@@ -72,7 +72,7 @@ export async function POST(req: NextRequest) {
   const started = Date.now();
   const callerId = rateLimitId(req);
 
-  const rl = consumeRateLimit("tts-stream", callerId);
+  const rl = await consumeRateLimit("tts-stream", callerId);
   if (!rl.ok) {
     return NextResponse.json(
       { error: "Rate limit exceeded; retry later." },

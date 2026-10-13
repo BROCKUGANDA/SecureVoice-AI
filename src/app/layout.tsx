@@ -155,9 +155,17 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
+  // THE PAPER COLOUR, NOT THE INK ONE. `themeColor` paints the browser chrome
+  // — the mobile address bar, the task-switcher card — so it has to match the
+  // canvas the visitor actually lands on. This pair used to read
+  // `#0D1512` (the ink) for BOTH schemes, which is why the product still
+  // *looked* dark-mode on a light page: the browser furniture around it was ink.
+  // The palette is light now, and the two media entries are kept as a pair
+  // because they are the same value on purpose — the chrome must not change
+  // with the OS preference, or Safari's toolbar and the page would disagree.
   themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#0D1512" },
-    { media: "(prefers-color-scheme: dark)", color: "#0D1512" },
+    { media: "(prefers-color-scheme: light)", color: "#fbfbf8" },
+    { media: "(prefers-color-scheme: dark)", color: "#fbfbf8" },
   ],
   width: "device-width",
   initialScale: 1,

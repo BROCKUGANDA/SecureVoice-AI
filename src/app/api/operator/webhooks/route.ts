@@ -140,7 +140,7 @@ function publicOrigin(req: Request): string {
 }
 
 export async function GET(req: Request) {
-  const rl = consumeRateLimit(
+  const rl = await consumeRateLimit(
     "operator-webhooks",
     rateLimitId(req as never, "operator-webhooks"),
     1,

@@ -39,7 +39,9 @@ mock.module("@/lib/adapters/llm-adapter", () => ({
   LLM_PROVIDERS: ["groq", "openai", "gemini", "anthropic"],
   LLM_ADAPTERS: {},
   isLlmProvider: () => true,
-  registerLlmAdapter: () => {/* empty */},
+  registerLlmAdapter: () => {
+    /* empty */
+  },
 }));
 
 const SAVED = {

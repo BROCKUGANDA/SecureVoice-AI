@@ -112,7 +112,7 @@ function verifySignature(
 }
 
 export async function POST(req: NextRequest) {
-  const rl = consumeRateLimit("ingest", rateLimitId(req, "ingest"));
+  const rl = await consumeRateLimit("ingest", rateLimitId(req, "ingest"));
   if (!rl.ok) {
     return NextResponse.json(
       { error: "Rate limit exceeded; retry later." },

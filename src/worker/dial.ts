@@ -192,8 +192,7 @@ async function handle(job: DialJob): Promise<DialOutcome> {
   // (org-scoped) and the case row carries only its token; rows created before
   // tokenization still carry the legacy raw column and resolve from it until
   // they age out.
-  const to =
-    (await resolveCasePhone(existing, existing?.orgId ?? job.org_id)) ?? payload.phone;
+  const to = (await resolveCasePhone(existing, existing?.orgId ?? job.org_id)) ?? payload.phone;
   if (!to) {
     return { ok: false, error: "case row has no destination phone", retryable: false };
   }

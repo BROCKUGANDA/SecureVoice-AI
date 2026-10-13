@@ -105,7 +105,7 @@ export async function POST(req: NextRequest) {
   // would let an attacker create unlimited Redis keys and exhaust memory.
   const from = String(params.From ?? "");
   const rateKey = /^\+[1-9]\d{7,14}$/.test(from) ? from : ip;
-  const rl = consumeRateLimit("sms-inbound", rateKey, 1, 30);
+  const rl = await consumeRateLimit("sms-inbound", rateKey, 1, 30);
   if (!rl.ok) return twiml(null);
 
   try {

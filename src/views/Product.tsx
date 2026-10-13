@@ -62,17 +62,17 @@ export function Product() {
             onClick={() => setSub(x.id)}
             className={cn(
               "relative flex flex-1 items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-[13px] font-semibold transition",
-              sub === x.id ? "text-white" : "text-ink-2 hover:text-foreground",
+              sub === x.id ? "text-foreground" : "text-ink-2 hover:text-foreground",
             )}
           >
             {sub === x.id && (
               <motion.span
                 layoutId="prod-tab"
-                className="absolute inset-0 rounded-xl bg-[#0c110e]"
+                className="absolute inset-0 rounded-xl bg-primary/10"
                 transition={{ type: "spring", stiffness: 400, damping: 34 }}
               />
             )}
-            <x.icon className={cn("relative h-4 w-4", sub === x.id && "text-green-bright")} />
+            <x.icon className={cn("relative h-4 w-4", sub === x.id && "text-primary")} />
             <span className="relative whitespace-nowrap">{lang === "ar" ? x.ar : x.en}</span>
           </button>
         ))}
@@ -208,7 +208,7 @@ function Flow() {
               </div>
               <div className="flex-1 rounded-2xl border border-line bg-white p-5 transition hover:border-primary/30 sm:p-6">
                 <div className="flex flex-wrap items-center gap-3">
-                  <span className="num flex h-7 w-7 items-center justify-center rounded-lg bg-[#0c110e] text-[11px] font-bold text-green-bright sm:hidden">
+                  <span className="num flex h-7 w-7 items-center justify-center rounded-lg bg-green-tint text-[11px] font-bold text-text-primary sm:hidden">
                     {f.n}
                   </span>
                   <h3 className="font-display text-[16.5px] font-semibold tracking-tight">
@@ -227,11 +227,11 @@ function Flow() {
                   {t(f.body, FLOW_AR[f.n].body, lang)}
                 </p>
                 <div className="mt-4 grid gap-3 lg:grid-cols-[1.2fr_0.8fr]">
-                  <div className="rounded-xl bg-[#0c110e] px-4 py-3">
-                    <p className="micro !text-[8.5px] text-green-bright">
+                  <div className="rounded-xl border border-line bg-secondary px-4 py-3">
+                    <p className="micro !text-[8.5px] text-primary">
                       {t("Script", "نص المكالمة", lang)}
                     </p>
-                    <p className="mt-1.5 text-[12.5px] leading-relaxed text-white/85">
+                    <p className="mt-1.5 text-[12.5px] leading-relaxed text-ink-2">
                       {t(f.script, FLOW_AR[f.n].script, lang)}
                     </p>
                   </div>
@@ -451,9 +451,9 @@ function Architecture() {
 
         {APIS.map((a, i) => (
           <Reveal key={a.title} delay={0.14 + i * 0.05}>
-            <div className="rounded-2xl border border-line bg-[#0c110e] p-5">
-              <p className="num text-[11px] font-semibold text-green-bright">{a.title}</p>
-              <pre className="num mt-2 overflow-x-auto text-[10.5px] leading-[1.7] text-white/70">
+            <div className="rounded-2xl border border-line bg-card p-5">
+              <p className="num text-[11px] font-semibold text-primary">{a.title}</p>
+              <pre className="num mt-2 overflow-x-auto text-[10.5px] leading-[1.7] text-ink-2">
                 {a.lines.join("\n")}
               </pre>
             </div>
@@ -647,8 +647,8 @@ function Metrics() {
         ))}
       </div>
       <Reveal delay={0.15}>
-        <div className="rounded-2xl bg-[#0c110e] p-6 text-white sm:p-8">
-          <p className="micro text-green-bright">Measurement plan · خطة القياس</p>
+        <div className="rounded-2xl bg-card p-6 text-foreground sm:p-8">
+          <p className="micro text-primary">Measurement plan · خطة القياس</p>
           <div className="mt-4 grid gap-4 sm:grid-cols-3">
             {[
               {
@@ -664,11 +664,11 @@ function Metrics() {
                 d: "Target confirmation · loss-run report vs. AED 340M baseline · board review pack",
               },
             ].map((m) => (
-              <div key={m.t} className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                <p className="num text-[13px] font-bold text-green-bright">
+              <div key={m.t} className="rounded-2xl border border-line bg-secondary p-4">
+                <p className="num text-[13px] font-bold text-primary">
                   {t(m.t, MEASUREMENT_PLAN_AR[m.t].t, lang)}
                 </p>
-                <p className="mt-2 text-[12px] leading-relaxed text-white/65">
+                <p className="mt-2 text-[12px] leading-relaxed text-ink-2">
                   {t(m.d, MEASUREMENT_PLAN_AR[m.t].d, lang)}
                 </p>
               </div>

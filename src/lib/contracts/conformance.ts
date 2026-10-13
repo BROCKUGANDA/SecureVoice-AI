@@ -596,7 +596,9 @@ export type ConformanceDeps = {
   /** The real `verifyProducerKey` in production. */
   readonly authenticate: () => Promise<AuthOutcome>;
   /** Returns a retry-after in seconds, or null when the caller may proceed. */
-  readonly rateLimit: (callerId: string) => { ok: true } | { ok: false; retryAfterSec: number };
+  readonly rateLimit: (
+    callerId: string,
+  ) => Promise<{ ok: true } | { ok: false; retryAfterSec: number }>;
   readonly now?: () => number;
   readonly newRunId?: () => string;
 };
@@ -665,7 +667,7 @@ export async function handleConformanceRun(
     };
   }
 
-  const limit = deps.rateLimit(auth.callerId);
+  const limit = await deps.rateLimit(auth.callerId);
   if (!limit.ok) {
     return {
       kind: "refused",

@@ -89,9 +89,9 @@ export function Deck() {
   const script = isAr ? slide.scriptAr : slide.scriptEn;
 
   return (
-    <div className="flex h-[calc(100vh-64px)] flex-col bg-[#0c110e]">
+    <div className="flex h-[calc(100vh-64px)] flex-col bg-card">
       {/* progress */}
-      <div className="h-1 w-full bg-white/10">
+      <div className="h-1 w-full bg-secondary">
         <motion.div
           className="h-full bg-gradient-to-r from-[#0b7a55] to-[#17a673]"
           animate={{ width: `${((idx + 1) / DECK.length) * 100}%` }}
@@ -102,21 +102,21 @@ export function Deck() {
       {/* top bar */}
       <div className="flex items-center justify-between px-4 py-3 sm:px-6">
         <div className="flex items-center gap-3">
-          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/10">
-            <ShieldCheck className="h-4 w-4 text-green-bright" strokeWidth={1.7} />
+          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-secondary">
+            <ShieldCheck className="h-4 w-4 text-primary" strokeWidth={1.7} />
           </span>
           <div className="leading-none">
-            <p className="text-[12.5px] font-semibold text-white">
+            <p className="text-[12.5px] font-semibold text-foreground">
               {t("SecureVoice AI — Pitch Deck", "SecureVoice AI — العرض التقديمي", lang)}
             </p>
-            <p className="micro mt-1 !text-[8.5px] text-white/40">
+            <p className="micro mt-1 !text-[8.5px] text-ink-3">
               {t(slide.kicker, KICKER_AR[slide.id] ?? slide.kicker, lang)}
             </p>
           </div>
         </div>
         <div className="flex items-center gap-2">
           <div
-            className="flex items-center rounded-full border border-white/15 p-0.5"
+            className="flex items-center rounded-full border border-line p-0.5"
             role="group"
             aria-label={t("Deck language", "لغة العرض", lang)}
           >
@@ -150,7 +150,7 @@ export function Deck() {
           </button>
           <button
             onClick={() => setView("home")}
-            className="flex items-center gap-1.5 rounded-full border border-white/15 px-3.5 py-2 text-[11.5px] font-semibold text-white/60 transition hover:text-white"
+            className="flex items-center gap-1.5 rounded-full border border-line px-3.5 py-2 text-[11.5px] font-semibold text-ink-2 transition hover:text-foreground"
           >
             {t("Exit", "خروج", lang)}
           </button>
@@ -188,7 +188,7 @@ export function Deck() {
               <button
                 onClick={prev}
                 disabled={idx === 0}
-                className="flex h-10 w-10 items-center justify-center rounded-full border border-white/15 text-white/80 transition hover:bg-white/10 disabled:opacity-30"
+                className="flex h-10 w-10 items-center justify-center rounded-full border border-line text-ink-2 transition hover:bg-secondary disabled:opacity-30"
                 aria-label={t("Previous slide", "الشريحة السابقة", lang)}
               >
                 <ChevronLeft className="h-4 w-4" />
@@ -201,11 +201,11 @@ export function Deck() {
               >
                 <ChevronRight className="h-4 w-4" />
               </button>
-              <span className="num ml-2 text-[12px] text-white/50">
+              <span className="num ml-2 text-[12px] text-ink-2">
                 {String(idx + 1).padStart(2, "0")} / {DECK.length}
               </span>
             </div>
-            <p className="hidden text-[11px] text-white/35 sm:block">
+            <p className="hidden text-[11px] text-ink-3 sm:block">
               {t(
                 "← → navigate · S script · Space next",
                 "→ ← للتنقل · S للسكريبت · مسافة للتالي",
@@ -225,25 +225,25 @@ export function Deck() {
               transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
               className="hidden shrink-0 overflow-hidden lg:block"
             >
-              <div className="flex h-full w-[340px] flex-col rounded-3xl border border-white/10 bg-white/5 p-5">
+              <div className="flex h-full w-[340px] flex-col rounded-3xl border border-line bg-secondary p-5">
                 <div className="flex items-center gap-2">
-                  <NotebookPen className="h-4 w-4 text-green-bright" />
-                  <span className="micro !text-[9px] text-white/50">
+                  <NotebookPen className="h-4 w-4 text-primary" />
+                  <span className="micro !text-[9px] text-ink-2">
                     Speaker script · سكريبت المتحدث
                   </span>
                 </div>
                 <div className="sv-scroll mt-4 flex-1 overflow-y-auto" dir={isAr ? "rtl" : "ltr"}>
                   <p
                     className={cn(
-                      "text-[13.5px] leading-[1.85] text-white/85",
+                      "text-[13.5px] leading-[1.85] text-ink-2",
                       isAr && "font-arabic text-[14px] leading-[2]",
                     )}
                   >
                     {script}
                   </p>
                 </div>
-                <div className="mt-4 border-t border-white/10 pt-4">
-                  <p className="num text-[10.5px] text-white/40">
+                <div className="mt-4 border-t border-line pt-4">
+                  <p className="num text-[10.5px] text-ink-3">
                     ~{Math.max(30, Math.round(script.split(" ").length / 2.4))}
                     {t("s spoken", "ث منطوقة", lang)} · {t("slide", "شريحة", lang)} {idx + 1}{" "}
                     {t("of", "من", lang)} {DECK.length}
@@ -521,9 +521,9 @@ function RenderSlide({
             </div>
           ))}
         </div>
-        <div className="mt-7 flex items-center gap-3 rounded-2xl bg-[#0c110e] px-5 py-4">
-          <Play className="h-4 w-4 fill-green-bright text-green-bright" />
-          <p className="text-[12.5px] text-white/75">
+        <div className="mt-7 flex items-center gap-3 rounded-2xl border border-line bg-card px-5 py-4">
+          <Play className="h-4 w-4 fill-green-bright text-primary" />
+          <p className="text-[12.5px] text-ink-2">
             {t(
               "Watch this exact flow run live — the demo reproduces it second by second.",
               "شاهد هذا المسار يعمل حيّاً — العرض الحي يعيد إنتاجه ثانية بثانية.",
@@ -670,7 +670,7 @@ function RenderSlide({
                 <span
                   className={cn(
                     "flex h-12 w-12 items-center justify-center rounded-full font-display text-lg font-bold",
-                    v.tint ? "bg-primary text-white" : "bg-[#0c110e] text-green-bright",
+                    v.tint ? "bg-primary text-white" : "bg-green-tint text-primary",
                   )}
                 >
                   {v.n[0]}
@@ -687,7 +687,7 @@ function RenderSlide({
             </div>
           ))}
         </div>
-        <pre className="num mt-5 rounded-2xl bg-[#0c110e] p-5 text-[11.5px] leading-[1.8] text-green-bright">
+        <pre className="num mt-5 rounded-2xl border border-line bg-card p-5 text-[11.5px] leading-[1.8] text-primary">
           {`voice_config = {
   "stability": 0.70,          // consistent, steady
   "similarity_boost": 0.75,   // brand-accurate timbre
@@ -1091,7 +1091,7 @@ function RenderSlide({
               className="flex items-center gap-3 rounded-xl border border-line bg-white px-5 py-3.5"
             >
               <span className="flex h-5 w-5 items-center justify-center rounded-full bg-primary">
-                <CheckCheck className="h-3 w-3 text-white" />
+                <CheckCheck className="h-3 w-3 text-foreground" />
               </span>
               <span className="text-[13.5px] font-medium">{t(c, cAr, lang)}</span>
             </div>
@@ -1191,11 +1191,11 @@ function RenderSlide({
           )}
         </h2>
         <div className="mt-7 overflow-hidden rounded-2xl border border-line shadow-lg">
-          <div className="flex items-center gap-2 bg-[#0c110e] px-4 py-3">
+          <div className="flex items-center gap-2 border-b border-line bg-card px-4 py-3">
             <span className="h-2.5 w-2.5 rounded-full bg-[#ff5f57]" />
             <span className="h-2.5 w-2.5 rounded-full bg-[#febc2e]" />
             <span className="h-2.5 w-2.5 rounded-full bg-[#28c840]" />
-            <span className="num ml-3 flex-1 rounded-md bg-white/10 px-3 py-1 text-[11px] text-white/70">
+            <span className="num ml-3 flex-1 rounded-md bg-secondary px-3 py-1 text-[11px] text-ink-2">
               {t(
                 "securevoiceai.me — live fraud scenario · full call flow · real banking integration",
                 "securevoiceai.me — سيناريو احتيال حقيقي · مسار المكالمة كاملاً · تكامل بنكي فعلي",
@@ -1287,7 +1287,7 @@ function RenderSlide({
       </div>
       <button
         onClick={() => setView("demo")}
-        className="mt-8 flex w-fit items-center gap-2.5 rounded-full bg-[#0c110e] px-6 py-3.5 text-[14px] font-semibold text-white transition hover:bg-green-deep"
+        className="mt-8 flex w-fit items-center gap-2.5 rounded-full bg-primary px-6 py-3.5 text-[14px] font-semibold text-white transition hover:bg-green-deep"
       >
         <RotateCcw className="h-4 w-4" />
         {t("Replay the whole demo from the start", "أعد تشغيل العرض الحي من البداية", lang)}

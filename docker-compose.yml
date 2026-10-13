@@ -1,30 +1,30 @@
-# ---------------------------------------------------------------------------
-# SecureVoice AI â€” one-command reproducible demo
+﻿# ---------------------------------------------------------------------------
+# SecureVoice AI — one-command reproducible demo
 #
-#   docker compose up --build          â†’ https://localhost (via Caddy)
-#   docker compose --profile direct up --build   â†’ http://localhost:3000
+#   docker compose up --build          Ã¢→ https://localhost (via Caddy)
+#   docker compose --profile direct up --build   Ã¢→ http://localhost:3000
 #
 # What happens:
-#   1. db  â€” Postgres 16 comes up on the compose network. The datasource in
+#   1. db  — Postgres 16 comes up on the compose network. The datasource in
 #      prisma/schema.prisma is `postgresql` and Prisma REJECTS a `file:` URL
-#      outright (P1012), so Postgres is the only supported mode â€” this is what
+#      outright (P1012), so Postgres is the only supported mode — this is what
 #      makes `docker compose up --build` genuinely reproducible.
 #   2. db-setup waits for it healthy, runs `prisma migrate deploy` (versioned
-#      SQL in prisma/migrations â€” never `db push --accept-data-loss` on a real
+#      SQL in prisma/migrations — never `db push --accept-data-loss` on a real
 #      deployment), then seeds a demo case history (SEED_DEMO=false to skip).
-#   3. realtime  â€” the Command Center's push path (Bun + socket.io). Holds a
+#   3. realtime  — the Command Center's push path (Bun + socket.io). Holds a
 #      signing secret but NO database client: it only moves already-redacted,
 #      already-authorised events to sockets.
 #   4. app serves the Next.js standalone bundle on port 3000.
 #   5. caddy is the ONLY service that publishes a port, and terminates TLS.
 #
 # Two access paths, and why both exist:
-#   â€¢ Default (`caddy` service): the real topology. :80/:443 â†’ caddy â†’ app+realtime.
+#   Ã¢â‚¬Â¢ Default (`caddy` service): the real topology. :80/:443 Ã¢→ caddy Ã¢→ app+realtime.
 #     Nothing else is reachable from outside, which is what makes the trust
 #     model in src/proxy.ts sound.
-#   â€¢ `--profile direct`: publishes app's :3000 straight to the host for quick
+#   Ã¢â‚¬Â¢ `--profile direct`: publishes app's :3000 straight to the host for quick
 #     local work. Convenient, but then the origin IS internet-reachable if the
-#     host is â€” and every X-Forwarded-For header becomes forgeable, so the edge
+#     host is — and every X-Forwarded-For header becomes forgeable, so the edge
 #     layer falls back to a single shared rate-limit bucket. Fine for a laptop;
 #     do not ship it.
 #
@@ -34,7 +34,7 @@
 #   docker compose up --build app realtime caddy
 #
 # Secrets: app loads an optional local .env (ElevenLabs / Twilio / webhook
-# keys). Without one the platform boots in audit-only / dry-run mode â€”
+# keys). Without one the platform boots in audit-only / dry-run mode —
 # everything works, nothing is dialed, no quota is burned. Safe for judges.
 # Realtime is also optional: with no REALTIME_INGEST_SECRET the service starts
 # but refuses every connection, /api/console/realtime-token returns 503, and the
@@ -77,7 +77,7 @@ services:
   db-setup:
     build:
       context: .
-      target: builder
+      target: worker
       args:
         BUILD_DATABASE_URL: ${DATABASE_URL}
         BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET in .env}
@@ -110,7 +110,7 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    # Retry on transient failure â€” `restart: "no"` made a single failed push an
+    # Retry on transient failure — `restart: "no"` made a single failed push an
     # unrecoverable gate (app requires service_completed_successfully).
     restart: on-failure:3
     command: ["sh", "-c", "bunx prisma migrate deploy && if [ \"$SEED_DEMO\" = \"true\" ]; then bun scripts/seed-demo.mjs; fi"]
@@ -118,13 +118,13 @@ services:
   # Dial worker (S-1). Places the calls the ingest handler queued. A separate
   # service, not a thread in the app: a hung carrier call must never occupy a
   # web request, and killing the web tier must not stop fraud interventions.
-  # Scaling is safe by construction â€” claiming uses FOR UPDATE SKIP LOCKED â€” so
+  # Scaling is safe by construction — claiming uses FOR UPDATE SKIP LOCKED — so
   # `--scale dial-worker=3` needs no coordination between replicas.
   dial-worker:
     user: "1000:1000"   # non-root
     build:
       context: .
-      target: builder   # full source tree: the worker is a script, not a bundle
+      target: worker
       args:
         BUILD_DATABASE_URL: ${DATABASE_URL}
         BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET in .env}
@@ -204,7 +204,7 @@ services:
         condition: service_healthy
     # The preload neutralises the Next-only `server-only` marker for this plain Bun
     # process; see scripts/worker-preload.ts for why that is safe. --smol trades a
-    # little throughput for a measurably smaller heap (docs/CAPACITY.md §10) — the
+    # little throughput for a measurably smaller heap (docs/CAPACITY.md Â§10) — the
     # right trade for a polled worker inside a 512m box.
     command: ["bun", "--smol", "--preload", "./scripts/worker-preload.ts", "src/worker/dial.ts"]
 
@@ -223,7 +223,7 @@ services:
     user: "1000:1000"   # non-root
     build:
       context: .
-      target: builder
+      target: worker
       args:
         BUILD_DATABASE_URL: ${DATABASE_URL}
         BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET in .env}
@@ -275,7 +275,7 @@ services:
     user: "1000:1000"   # non-root
     build:
       context: .
-      target: builder   # full source tree: the worker is a script, not a bundle
+      target: worker
       args:
         BUILD_DATABASE_URL: ${DATABASE_URL}
         BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET in .env}
@@ -329,11 +329,11 @@ services:
     depends_on:
       db-setup:
         condition: service_completed_successfully
-    # --smol: measured heap trade, see docs/CAPACITY.md §10 (256m box, idle sweeper).
+    # --smol: measured heap trade, see docs/CAPACITY.md Â§10 (256m box, idle sweeper).
     command: ["bun", "--smol", "--preload", "./scripts/worker-preload.ts", "src/worker/retention.ts"]
 
   # Overage billing worker. Rates each tenant's most recently CLOSED subscription
-  # period against ITS plan (Starter 15¢, Growth 12¢) and raises a manual-
+  # period against ITS plan (Starter 15Â¢, Growth 12Â¢) and raises a manual-
   # collection invoice — a Net-30 document, never an automatic charge, because a
   # Merchant of Record holds no card authorization to charge later.
   #
@@ -349,7 +349,7 @@ services:
     user: "1000:1000"   # non-root
     build:
       context: .
-      target: builder   # full source tree: the worker is a script, not a bundle
+      target: worker
       args:
         BUILD_DATABASE_URL: ${DATABASE_URL}
         BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET in .env}
@@ -394,8 +394,8 @@ services:
   #
   # This is the recommended production path, and it exists for two reasons that
   # are not preferences:
-  #   · voice turns are latency-budgeted at ~2s, and
-  #   · customer transcripts are bank-customer PII, which should stay inside
+  #   Â· voice turns are latency-budgeted at ~2s, and
+  #   Â· customer transcripts are bank-customer PII, which should stay inside
   #     this deployment's boundary rather than a third party that trains on it.
   #
   # `main-lite` is the slim image — it carries the proxy and the model registry,
@@ -436,7 +436,7 @@ services:
     stop_grace_period: 75s
     build:
       context: .
-      target: builder
+      target: worker
       args:
         BUILD_DATABASE_URL: ${DATABASE_URL}
         BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET in .env}
@@ -505,7 +505,7 @@ services:
     user: "1000:1000"   # non-root
     build:
       context: .
-      target: builder
+      target: worker
       args:
         BUILD_DATABASE_URL: ${DATABASE_URL}
         BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET in .env}
@@ -545,7 +545,7 @@ services:
   # independently restartable: a hung socket layer must never take the API with it.
   realtime:
     build:
-      # Its own context â€” different dependency tree (socket.io, no Prisma, no Next).
+      # Its own context — different dependency tree (socket.io, no Prisma, no Next).
       context: ./mini-services/realtime
     restart: unless-stopped
     logging: *default-logging
@@ -604,10 +604,22 @@ services:
         # applies at RUNTIME, and by then `next build` has already frozen the
         # value into the bundle. A runtime-only setting is silently ignored.
         NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-https://${SITE_ADDRESS:-localhost}}
-    # IMAGE lets a release job smoke-test the image it just published instead of a
-    # locally rebuilt copy. Unset (the normal case) => build from source.
-    # `${VAR:-}` with no value yields an empty string, and compose treats that as
-    # "no image override", so the default build path is unchanged.
+    # IMAGE selects WHICH app artifact runs. Three callers, and they must not collide:
+    #
+    #   • production deploy  — deploy.yml exports IMAGE=securevoice-ai-app:<sha12>
+    #     after `git pull`, so every build gets its own immutable tag.
+    #   • release deploy     — IMAGE=ghcr.io/<repo>:<v-tag>, pulled, never rebuilt.
+    #   • CI smoke builds    — IMAGE=svci-<run>-<attempt>-*, pinned per job.
+    #
+    # The default below is for LOCAL `docker compose up --build` only, and it is
+    # deliberately the weakest name in the set: a single mutable tag that any build
+    # on the box can claim. It was also the production default until the stale-image
+    # incident — the branch deploy path never exported IMAGE, so every production
+    # build, every smoke build, and any `docker compose build` an operator typed by
+    # hand all wrote the same tag, and `up -d` resolved `app.image` to whichever
+    # build happened to own it. Production now rolls by SHA and asserts the running
+    # container's image ID equals the ID just built; nothing on the deploy path
+    # resolves this default any more.
     image: ${IMAGE:-securevoice-ai-app:local}
     restart: unless-stopped
     # The app's own drain: scripts/server-preload.ts flips /api/readyz to 503 so
@@ -620,7 +632,7 @@ services:
     mem_limit: 1g
     environment:
       HOSTNAME: 0.0.0.0
-      # Built from parts â€” see db-setup for why a whole-URL interpolation is unsafe.
+      # Built from parts — see db-setup for why a whole-URL interpolation is unsafe.
       DATABASE_URL: ${DATABASE_URL:-postgresql://${POSTGRES_USER:-securevoice}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-securevoice}}
       # Durable ElevenLabs character meter (10k/month account ceiling). With it
       # unset the guard degrades to a per-process count at a tightened ceiling
@@ -663,7 +675,7 @@ services:
       retries: 3
       start_period: 15s
 
-  # Reverse proxy â€” the only published port. TLS via Let's Encrypt; certificates
+  # Reverse proxy — the only published port. TLS via Let's Encrypt; certificates
   # and config persist in named volumes so a restart does not re-issue.
   caddy:
     user: "1000:1000"   # non-root
@@ -686,7 +698,7 @@ services:
       # measured). Caddy serves the literal site list; host-local extras come
       # from sites.d/ below.
       ACME_EMAIL: ${ACME_EMAIL:-admin@example.com}
-    # ── The active colour, for a blue/green deploy ────────────────────────────
+    # â”€â”€ The active colour, for a blue/green deploy â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     # `APP_UPSTREAM` is what the Caddyfile proxies to, and this file is the only
     # thing that puts it into Caddy's process environment.
     #
@@ -718,9 +730,9 @@ services:
         condition: service_started
     healthcheck:
       # Probe the edge itself. Must NOT depend on the ACME cert: before (and
-      # during) issuance, :80 answers with a 308â†’https redirect, so accept any
+      # during) issuance, :80 answers with a 308Ã¢→https redirect, so accept any
       # HTTP response line as proof Caddy is serving. (The previous check hit
-      # the admin API on :2019, which `admin off` disables â€” never healthy.)
+      # the admin API on :2019, which `admin off` disables — never healthy.)
       test: ["CMD-SHELL", "wget -S --spider http://127.0.0.1/healthz 2>&1 | grep -qE 'HTTP/1\\.[01] (200|301|302|307|308)'"]
       interval: 30s
       timeout: 5s
@@ -728,7 +740,7 @@ services:
       start_period: 15s
 
   # Opt-in escape hatch for local work: publish the app's :3000 directly and skip
-  # TLS. Off by default â€” see the note at the top of this file.
+  # TLS. Off by default — see the note at the top of this file.
   app-direct:
     profiles: ["direct"]
     build:

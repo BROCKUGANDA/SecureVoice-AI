@@ -242,7 +242,7 @@ export function LiveVoicePanel({ callLang }: { callLang: CallLang }) {
   return (
     <section className="overflow-hidden rounded-3xl border border-line bg-white shadow-[0_24px_60px_-40px_rgba(16,24,18,0.35)]">
       {/* header */}
-      <div className="relative flex flex-wrap items-center justify-between gap-3 overflow-hidden bg-[#0c110e] px-5 py-4 sm:px-6">
+      <div className="relative flex flex-wrap items-center justify-between gap-3 overflow-hidden border-b border-line bg-card px-5 py-4 sm:px-6">
         <div
           className="absolute inset-0 opacity-50"
           style={{
@@ -252,25 +252,25 @@ export function LiveVoicePanel({ callLang }: { callLang: CallLang }) {
         />
         <div className="relative flex items-center gap-3">
           <span className="relative flex h-10 w-10 items-center justify-center rounded-full bg-green-bright/15 ring-1 ring-green-bright/30">
-            <AudioLines className="h-5 w-5 text-green-bright" />
+            <AudioLines className="h-5 w-5 text-primary" />
             {phase === "recording" && (
-              <span className="sv-pulse-ring absolute inset-0 rounded-full text-green-bright/70" />
+              <span className="sv-pulse-ring absolute inset-0 rounded-full text-primary/70" />
             )}
           </span>
           <div className="leading-tight">
-            <p className="text-[14px] font-semibold text-white">
+            <p className="text-[14px] font-semibold text-foreground">
               {lang === "ar" ? "تحدّث مع الوكيل" : "Talk to the agent"}{" "}
-              <span dir="rtl" className="font-arabic text-[12px] font-normal text-white/55">
+              <span dir="rtl" className="font-arabic text-[12px] font-normal text-ink-2">
                 · تحدث مع الوكيل
               </span>
             </p>
-            <p className="num mt-1 text-[10.5px] text-white/50">
+            <p className="num mt-1 text-[10.5px] text-ink-2">
               REAL STT → GUARDRAILED ROUTING → NEURAL VOICE · {VOICE_BY_LANG[callLang]}
             </p>
           </div>
         </div>
-        <span className="relative flex items-center gap-1.5 rounded-full bg-white/10 px-3 py-1.5 text-[10.5px] font-semibold text-white/80">
-          <Fingerprint className="h-3 w-3 text-green-bright" />
+        <span className="relative flex items-center gap-1.5 rounded-full bg-secondary px-3 py-1.5 text-[10.5px] font-semibold text-ink-2">
+          <Fingerprint className="h-3 w-3 text-primary" />
           {lang === "ar" ? "لا رموز سرية · أبداً" : "No PINs · No OTPs · Ever"}
         </span>
       </div>
@@ -464,9 +464,9 @@ export function LiveVoicePanel({ callLang }: { callLang: CallLang }) {
                   animate={{ opacity: 1, y: 0 }}
                   className="flex justify-start"
                 >
-                  <div className="max-w-[88%] rounded-2xl rounded-tl-md bg-[#0c110e] px-4 py-3 text-white">
+                  <div className="max-w-[88%] rounded-2xl rounded-tl-md bg-green-tint px-4 py-3 text-foreground">
                     <div className="mb-1 flex items-center gap-2">
-                      <PhoneOutgoing className="h-3 w-3 text-green-bright" />
+                      <PhoneOutgoing className="h-3 w-3 text-primary" />
                       {t.escalate && (
                         <span
                           className="micro !text-[8.5px] rounded-full bg-red-soft/20 px-1.5 py-0.5 !text-red-soft"
@@ -475,12 +475,12 @@ export function LiveVoicePanel({ callLang }: { callLang: CallLang }) {
                           {lang === "ar" ? "تسليم بشري" : "HUMAN TALKOVER"}
                         </span>
                       )}
-                      <span className="micro !text-[9px] !text-green-bright">
+                      <span className="micro !text-[9px] !text-primary">
                         {lang === "ar" ? "الوكيل · " : "Agent · "}
                         {VOICE_BY_LANG[callLang].split(" ")[0]}
                       </span>
                       {typeof t.latencyMs === "number" && (
-                        <span className="num text-[9.5px] text-white/40">turn {t.latencyMs}ms</span>
+                        <span className="num text-[9.5px] text-ink-3">turn {t.latencyMs}ms</span>
                       )}
                     </div>
                     <p
@@ -492,12 +492,12 @@ export function LiveVoicePanel({ callLang }: { callLang: CallLang }) {
                     >
                       {t.text}
                     </p>
-                    <div className="mt-2 flex flex-wrap items-center gap-1.5 border-t border-white/10 pt-2">
+                    <div className="mt-2 flex flex-wrap items-center gap-1.5 border-t border-line pt-2">
                       {t.intent && (
                         <span
                           className={cn(
                             "num rounded-full px-2 py-0.5 text-[9.5px] font-bold",
-                            INTENT_CHIP[t.intent]?.tone ?? "bg-white/10 text-white/70",
+                            INTENT_CHIP[t.intent]?.tone ?? "bg-secondary text-ink-2",
                           )}
                         >
                           {INTENT_CHIP[t.intent]?.label ?? t.intent}
@@ -509,12 +509,12 @@ export function LiveVoicePanel({ callLang }: { callLang: CallLang }) {
                         </span>
                       )}
                       {t.action === "none" && (
-                        <span className="num rounded-full bg-white/10 px-2 py-0.5 text-[9.5px] font-bold text-white/70">
+                        <span className="num rounded-full bg-secondary px-2 py-0.5 text-[9.5px] font-bold text-ink-2">
                           action: none · {lang === "ar" ? "أُغلقت المراجعة" : "review closed"}
                         </span>
                       )}
                       {t.action === "clarify" && (
-                        <span className="num rounded-full bg-white/10 px-2 py-0.5 text-[9.5px] font-bold text-white/70">
+                        <span className="num rounded-full bg-secondary px-2 py-0.5 text-[9.5px] font-bold text-ink-2">
                           action: clarify · {lang === "ar" ? "لم يُنفّذ شيء" : "nothing executed"}
                         </span>
                       )}

@@ -108,7 +108,14 @@ export const PUBLIC_ROUTE_FOR_VIEW: Partial<Record<View, string>> = {
   privacy: "/privacy",
   terms: "/terms",
   refund: "/refund",
-  faq: "/faq",
+  // NOTE: there is deliberately no `faq` entry. `/faq` is a real, indexable
+  // server route (src/app/faq/page.tsx, listed in INDEXABLE_PATHS in both
+  // sitemap.ts and proxy.ts) but it is NOT one of the shell's views — it is
+  // rendered standalone by PublicPageLayout, and no in-app nav links to it.
+  // An entry here would have to name a `View` that does not exist, which is
+  // what this map's own type prevents: `Partial<Record<View, string>>` cannot
+  // be given a key outside the union, and `faq` is outside it. The previous
+  // line was a type error for exactly that reason.
 };
 
 /** The real route a public view lives at, or null when it has none. */

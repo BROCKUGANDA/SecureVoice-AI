@@ -9,6 +9,7 @@ import {
   ShieldCheck,
   LayoutDashboard,
   Menu,
+  NotebookPen,
   Play,
   Presentation,
   Settings as SettingsIcon,
@@ -23,7 +24,6 @@ import { useViewerSeat } from "@/lib/auth/use-viewer-seat";
 import { cn } from "@/lib/utils";
 import { LogoMark } from "@/components/shell/Logo";
 import { OrgSwitcher } from "@/components/shell/OrgSwitcher";
-import { ThemeToggle } from "@/components/shell/ThemeToggle";
 import { CurrentUserAvatar } from "@/components/current-user-avatar";
 
 type NavItem = { id: View; en: string; ar: string; icon: typeof Home };
@@ -72,7 +72,7 @@ const SEAT_NAV: Record<Seat, NavItem[]> = {
     { id: "demo", en: "Demo", ar: "العرض", icon: Play },
     { id: "product", en: "Deep Dive", ar: "التفاصيل", icon: Presentation },
     { id: "settings", en: "Settings", ar: "الإعدادات", icon: SettingsIcon },
-    { id: "deck", en: "Appendix", ar: "ملحق", icon: Presentation },
+    { id: "deck", en: "Appendix", ar: "ملحق", icon: NotebookPen },
   ],
 };
 
@@ -272,10 +272,10 @@ export function Navbar() {
                 <span className="max-w-[10rem] truncate text-[12.5px] font-semibold text-ink-2">
                   {user?.name || user?.email}
                 </span>
-                <ThemeToggle />
-                {/* Only rendered for a session that belongs to more than one
-                    organization — see OrgSwitcher for why the tenant is the
-                    session and not a request parameter. */}
+                {/* The rule for WHO may see the tenant switcher lives inside
+                    OrgSwitcher, not here — this component renders it twice
+                    (desktop cluster and mobile panel) and a rule written at both
+                    call sites is one that gets edited at only one of them. */}
                 <OrgSwitcher />
                 <button
                   type="button"
@@ -302,8 +302,13 @@ export function Navbar() {
 
           {/* demo CTA — visitors only; signed-in users are already inside the
               platform. Desktop only for the same reason as the account control:
-              on mobile it is in the menu panel. */}
-          {!isSignedIn && (
+              on mobile it is in the menu panel.
+
+              Suppressed while the demo is already open. The button was rendered
+              to any signed-out visitor regardless of where they were, so a
+              person watching the demo was invited to launch the demo — the same
+              control, offered to the one audience that had already taken it. */}
+          {!isSignedIn && view !== "demo" && (
             <button
               onClick={launchDemo}
               className="group hidden items-center gap-2 whitespace-nowrap rounded-full bg-primary px-4 py-2 text-[13px] font-semibold text-white shadow-[0_6px_18px_-6px_rgba(11,122,85,0.55)] transition hover:bg-green-deep md:flex"
@@ -371,7 +376,6 @@ export function Navbar() {
                     <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-ink-2">
                       {user?.name || user?.email}
                     </span>
-                    <ThemeToggle compact />
                     <OrgSwitcher />
                   </div>
                   <button
@@ -395,19 +399,23 @@ export function Navbar() {
                     <UserRound className="h-4 w-4" />
                     {t("Sign in", "دخول", lang)}
                   </button>
-                  <button
-                    onClick={() => {
-                      setMenuOpen(false);
-                      launchDemo();
-                    }}
-                    className="flex items-center justify-center gap-2 rounded-xl bg-primary px-3.5 py-2.5 text-[13px] font-semibold text-white transition hover:bg-green-deep"
-                  >
-                    <span className="relative flex h-1.5 w-1.5">
-                      <span className="sv-pulse-ring absolute inset-0 text-white" />
-                      <span className="h-1.5 w-1.5 rounded-full bg-white" />
-                    </span>
-                    {t("Launch live demo", "ابدأ العرض الحي", lang)}
-                  </button>
+                  {/* Same suppression as the desktop CTA: no "launch the demo"
+                      button while the demo is the screen you are on. */}
+                  {view !== "demo" && (
+                    <button
+                      onClick={() => {
+                        setMenuOpen(false);
+                        launchDemo();
+                      }}
+                      className="flex items-center justify-center gap-2 rounded-xl bg-primary px-3.5 py-2.5 text-[13px] font-semibold text-white transition hover:bg-green-deep"
+                    >
+                      <span className="relative flex h-1.5 w-1.5">
+                        <span className="sv-pulse-ring absolute inset-0 text-white" />
+                        <span className="h-1.5 w-1.5 rounded-full bg-white" />
+                      </span>
+                      {t("Launch live demo", "ابدأ العرض الحي", lang)}
+                    </button>
+                  )}
                 </>
               )}
             </div>

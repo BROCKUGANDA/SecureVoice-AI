@@ -87,10 +87,26 @@ def rounded(img: Image.Image, radius: int = 18) -> Image.Image:
 
 
 def drop_shadow(img: Image.Image, blur: int = 26, alpha: int = 90) -> Image.Image:
-    alpha_ch = img.split()[3]
-    sh = Image.new("RGBA", img.size, (0, 0, 0, 0))
-    sh.putalpha(alpha_ch.filter(ImageFilter.GaussianBlur(blur)).point(lambda v: v * alpha // 255))
-    return Image.composite(Image.new("RGBA", img.size, (0, 0, 0, 255)), sh, alpha_ch)
+    """Add a soft shadow behind a rounded RGBA card.
+
+    The previous implementation returned `composite(black_opaque, sh, mask)`,
+    which evaluates to opaque BLACK everywhere the mask is non-zero — it
+    replaced the entire screenshot with a black rectangle. Verified broken by
+    extracting a frame from the output MP4 and reading it.
+
+    The correct shape: paste the card onto a shadow-coloured canvas, using the
+    card's own alpha as the mask, offset by a few pixels.
+    """
+    pad = blur + 8
+    canvas = Image.new("RGBA", (img.width + pad * 2, img.height + pad * 2), (0, 0, 0, 0))
+    # 1. The shadow: the card's alpha, blurred, painted in shadow black.
+    alpha_ch = img.split()[3].filter(ImageFilter.GaussianBlur(blur))
+    shadow = Image.new("RGBA", img.size, (16, 24, 18, alpha))
+    shadow.putalpha(alpha_ch.point(lambda v: v * alpha // 255))
+    canvas.paste(shadow, (pad, pad + 4), shadow)
+    # 2. The card itself, on top, offset up-left so the shadow reads as depth.
+    canvas.paste(img, (pad, pad), img)
+    return canvas
 
 
 def title_card() -> Image.Image:
@@ -149,11 +165,15 @@ def main() -> int:
 
     slides: list[tuple[Image.Image, float, str]] = []
     slides.append((title_card(), 4.0, "frames/00-title.png"))
-    title_card().save(os.path.join(OUT_DIR, "00-title.png"))
+    title_card().save(os.path.join(FRAMES, "00-title.png"))
 
     idx = 1
+    # Capture in a fixed, known order: the OLDEST captures sort first
+    # ("01b-landing-2026..." < "01b-landing-after-settle-..."? no), so take the
+    # newest by mtime, not by filename. Glob + sorted(..., key=mtime)[-1].
     for pattern, heading, sub, secs in SLIDES:
-        shot = newest(pattern)
+        candidates = sorted(glob.glob(os.path.join(SHOTS, pattern + "*.jpg")), key=os.path.getmtime)
+        shot = candidates[-1] if candidates else None
         if not shot:
             print(f"  !! no capture matched {pattern!r} — skipping that slide", file=sys.stderr)
             continue
@@ -167,21 +187,35 @@ def main() -> int:
     print(f"\n{len(slides)} frames; encoding with ffmpeg at {FPS}fps")
 
     # One image per frame -> mp4, crossfaded between slides.
-    # Compute crossfade offsets BEFORE filters (previous bug: offsets used before defined).
-    offsets: list[float] = []
-    running = slides[0][1] if slides else 0.0
-    for i in range(len(slides) - 1):
-        offsets.append(round(running - 0.6, 3))
-        running += slides[i + 1][1]
-
     inputs: list[str] = []
     filters: list[str] = []
     for i, (_img, secs, _name) in enumerate(slides):
-        inputs += ["-loop", "1", "-t", f"{secs}", "-i", os.path.join(OUT_DIR, _name)]
+        # Forward slashes: ffmpeg on Windows rejects mixed separators.
+        path = (os.path.join(OUT_DIR, _name)).replace("\\", "/")
+        inputs += ["-loop", "1", "-t", f"{secs}", "-i", path]
+
+    # Chained xfades: offsets are measured in the ALREADY-MERGED stream, so each
+    # is the previous offset plus the next clip's duration minus the crossfade.
+    # The original accumulation added RAW durations, which drifted further off
+    # with every slide and truncated the output (verified: 7.9s of an expected
+    # 14.7s, with the last slides never rendered).
+    D = 0.6
+    offsets: list[float] = []
     for i in range(len(slides) - 1):
-        d = 0.6
-        a, b = f"[{i}:v]", f"[{i + 1}:v]"
-        filters.append(f"{a}{b}xfade=transition=fade:duration={d}:offset={offsets[i]}[xf{i}]")
+        if i == 0:
+            o = slides[0][1] - D
+        else:
+            o = offsets[i - 1] + slides[i][1] - D
+        offsets.append(round(o, 3))
+    total = (offsets[-1] + slides[-1][1]) if offsets else (slides[0][1] if slides else 0.0)
+
+    for i in range(len(slides) - 1):
+        # Each xfade consumes the PREVIOUS xfade's output, not the raw inputs.
+        # The original chain re-used [i:v][i+1:v], which left every earlier
+        # output unconnected and produced an invalid filtergraph.
+        a = f"[{i}:v]" if i == 0 else f"[xf{i - 1}]"
+        b = f"[{i + 1}:v]"
+        filters.append(f"{a}{b}xfade=transition=fade:duration={D}:offset={offsets[i]}[xf{i}]")
     tail = (
         "[xf%d]fps=%d,format=yuv420p[v]" % (len(slides) - 2, FPS)
         if len(slides) > 1
@@ -198,7 +232,8 @@ def main() -> int:
         + inputs
         + ["-filter_complex", ";".join(filters + [tail]), "-map", "[v]",
            "-c:v", "libx264", "-preset", "medium", "-crf", "21",
-           "-movflags", "+faststart", os.path.join(OUT_DIR, "securevoice-demo.mp4")]
+           "-movflags", "+faststart",
+           (os.path.join(OUT_DIR, "securevoice-demo.mp4")).replace("\\", "/")]
     )
     subprocess.run(cmd, check=True)
     size = os.path.getsize(os.path.join(OUT_DIR, "securevoice-demo.mp4"))

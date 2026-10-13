@@ -5,7 +5,6 @@ import { motion } from "framer-motion";
 import { signOut } from "@/lib/auth-client";
 import {
   BookOpenText,
-  HelpCircle,
   Home,
   ShieldCheck,
   LayoutDashboard,
@@ -24,6 +23,7 @@ import { useViewerSeat } from "@/lib/auth/use-viewer-seat";
 import { cn } from "@/lib/utils";
 import { LogoMark } from "@/components/shell/Logo";
 import { OrgSwitcher } from "@/components/shell/OrgSwitcher";
+import { ThemeToggle } from "@/components/shell/ThemeToggle";
 import { CurrentUserAvatar } from "@/components/current-user-avatar";
 
 type NavItem = { id: View; en: string; ar: string; icon: typeof Home };
@@ -31,15 +31,10 @@ type NavItem = { id: View; en: string; ar: string; icon: typeof Home };
 /**
  * Everything a signed-out visitor may reach. Real anchors in the footer for the
  * routes that have URLs; these are the in-app ones.
- *
- * `faq` is here rather than in the footer because it is the page a buyer opens
- * from the docs and the security page — its placement is beside them. Selecting
- * any of these leaves the SPA for the real route; see `PUBLIC_ROUTE_FOR_VIEW`.
  */
 const PUBLIC_NAV: NavItem[] = [
   { id: "home", en: "Overview", ar: "الرئيسية", icon: Home },
   { id: "docs", en: "Docs", ar: "التوثيق", icon: BookOpenText },
-  { id: "faq", en: "FAQ", ar: "الأسئلة", icon: HelpCircle },
   { id: "security", en: "Security", ar: "الأمن", icon: ShieldCheck },
 ];
 
@@ -190,7 +185,10 @@ export function Navbar() {
         </button>
 
         {/* Nav — the only shrinkable element in the bar. */}
-        <nav className="min-w-0 flex-1 overflow-x-auto md:overflow-visible" aria-label="Primary">
+        <nav
+          className="min-w-0 flex-1 overflow-x-auto md:overflow-visible"
+          aria-label="Primary"
+        >
           <div className="mx-auto flex w-max items-center gap-1 rounded-full border border-line bg-white p-1 md:mx-auto md:w-auto md:justify-center">
             {navItems.map((n) => {
               const active = view === n.id;
@@ -201,17 +199,19 @@ export function Navbar() {
                   aria-current={active ? "page" : undefined}
                   className={cn(
                     "relative flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-3.5 py-1.5 text-[13px] font-medium transition-colors",
-                    active ? "text-foreground" : "text-ink-2 hover:text-foreground",
+                    active ? "text-white" : "text-ink-2 hover:text-foreground",
                   )}
                 >
                   {active && (
                     <motion.span
                       layoutId="nav-pill"
-                      className="absolute inset-0 rounded-full bg-primary/15"
+                      className="absolute inset-0 rounded-full bg-[#0c110e]"
                       transition={{ type: "spring", stiffness: 420, damping: 34 }}
                     />
                   )}
-                  <n.icon className={cn("relative h-3.5 w-3.5", active && "text-primary")} />
+                  <n.icon
+                    className={cn("relative h-3.5 w-3.5", active && "text-green-bright")}
+                  />
                   <span className="relative">{lang === "ar" ? n.ar : n.en}</span>
                 </button>
               );
@@ -235,7 +235,7 @@ export function Navbar() {
                 className={cn(
                   "relative rounded-full px-2.5 py-1 text-[11.5px] font-semibold transition-colors",
                   l === "ar" && "font-arabic",
-                  lang === l ? "text-foreground" : "text-ink-3 hover:text-foreground",
+                  lang === l ? "text-white" : "text-ink-3 hover:text-foreground",
                 )}
               >
                 {lang === l && (
@@ -272,6 +272,7 @@ export function Navbar() {
                 <span className="max-w-[10rem] truncate text-[12.5px] font-semibold text-ink-2">
                   {user?.name || user?.email}
                 </span>
+                <ThemeToggle />
                 {/* Only rendered for a session that belongs to more than one
                     organization — see OrgSwitcher for why the tenant is the
                     session and not a request parameter. */}
@@ -308,7 +309,7 @@ export function Navbar() {
               className="group hidden items-center gap-2 whitespace-nowrap rounded-full bg-primary px-4 py-2 text-[13px] font-semibold text-white shadow-[0_6px_18px_-6px_rgba(11,122,85,0.55)] transition hover:bg-green-deep md:flex"
             >
               <span className="relative flex h-1.5 w-1.5">
-                <span className="sv-pulse-ring absolute inset-0 text-foreground" />
+                <span className="sv-pulse-ring absolute inset-0 text-white" />
                 <span className="h-1.5 w-1.5 rounded-full bg-white" />
               </span>
               <span className="relative">{t("Launch live demo", "ابدأ العرض الحي", lang)}</span>
@@ -322,9 +323,7 @@ export function Navbar() {
             aria-expanded={menuOpen}
             aria-controls="mobile-menu"
             aria-label={
-              menuOpen
-                ? t("Close menu", "إغلاق القائمة", lang)
-                : t("Open menu", "فتح القائمة", lang)
+              menuOpen ? t("Close menu", "إغلاق القائمة", lang) : t("Open menu", "فتح القائمة", lang)
             }
             className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-line bg-white text-ink-2 transition hover:border-primary/40 hover:text-primary md:hidden"
           >
@@ -355,12 +354,10 @@ export function Navbar() {
                   aria-current={active ? "page" : undefined}
                   className={cn(
                     "flex items-center gap-2.5 rounded-xl px-3.5 py-2.5 text-[13.5px] font-medium transition",
-                    active
-                      ? "bg-primary text-white"
-                      : "text-ink-2 hover:bg-white hover:text-foreground",
+                    active ? "bg-[#0c110e] text-white" : "text-ink-2 hover:bg-white hover:text-foreground",
                   )}
                 >
-                  <n.icon className={cn("h-4 w-4", active && "text-primary")} />
+                  <n.icon className={cn("h-4 w-4", active && "text-green-bright")} />
                   {lang === "ar" ? n.ar : n.en}
                 </button>
               );
@@ -374,6 +371,7 @@ export function Navbar() {
                     <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-ink-2">
                       {user?.name || user?.email}
                     </span>
+                    <ThemeToggle compact />
                     <OrgSwitcher />
                   </div>
                   <button
@@ -405,7 +403,7 @@ export function Navbar() {
                     className="flex items-center justify-center gap-2 rounded-xl bg-primary px-3.5 py-2.5 text-[13px] font-semibold text-white transition hover:bg-green-deep"
                   >
                     <span className="relative flex h-1.5 w-1.5">
-                      <span className="sv-pulse-ring absolute inset-0 text-foreground" />
+                      <span className="sv-pulse-ring absolute inset-0 text-white" />
                       <span className="h-1.5 w-1.5 rounded-full bg-white" />
                     </span>
                     {t("Launch live demo", "ابدأ العرض الحي", lang)}

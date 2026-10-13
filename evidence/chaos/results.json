@@ -440,7 +440,7 @@
         "file": "src/lib/audit-chain.ts",
         "transactions": 1,
         "regions": [
-          "251-285"
+          "241-275"
         ],
         "findings": []
       },
@@ -476,8 +476,8 @@
         "file": "src/lib/outbox.ts",
         "transactions": 2,
         "regions": [
-          "319-337",
-          "371-377"
+          "311-329",
+          "363-369"
         ],
         "findings": []
       },
@@ -2303,7 +2303,7 @@
       "area": "gate",
       "name": "evidence-digest-is-sha256",
       "ok": true,
-      "detail": "938771421ec082b5"
+      "detail": "143634967d73b793"
     },
     {
       "area": "gate",
@@ -3447,5 +3447,5 @@
     }
   ],
   "digestAlgorithm": "sha256",
-  "digest": "0391bc4e733368654022c6b05fe6512a4252ebf18e9ba7c7f675aa7378d422c0"
+  "digest": "e7666f45bfb7e48dba398061cc1d7cff7e92489e9201aefb91066173b97c6b28"
 }

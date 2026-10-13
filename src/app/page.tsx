@@ -1,72 +1,30 @@
 "use client";
 
 import { useCallback, useEffect, useRef } from "react";
-import dynamic from "next/dynamic";
-import { useRouter } from "next/navigation";
 import { motion, AnimatePresence, MotionConfig } from "framer-motion";
 import { useApp, t, VIEW_ACCESS, ACCESS_SEAT, type View } from "@/lib/store";
 import { atLeast } from "@/lib/auth/seat";
 import { useViewerSeat } from "@/lib/auth/use-viewer-seat";
-import { isShellPath, pathForView, viewForPath, publicRouteForView } from "@/lib/console-routes";
+import { isShellPath, pathForView, viewForPath } from "@/lib/console-routes";
 import { cn } from "@/lib/utils";
 import { Navbar } from "@/components/shell/Navbar";
 import { Footer } from "@/components/shell/Footer";
 import { Home } from "@/views/Home";
+import { Demo } from "@/views/Demo";
+import { Dashboard } from "@/views/Dashboard";
+import { Product } from "@/views/Product";
+import { UseCases } from "@/views/UseCases";
+import { Docs } from "@/views/Docs";
+import { Security } from "@/views/Security";
+import { Privacy, Terms, Refund } from "@/views/Legal";
+import { Pricing } from "@/views/Pricing";
+import { Deck } from "@/views/Deck";
+import { Auth } from "@/views/Auth";
+import { Console } from "@/views/Console";
+import { Settings } from "@/views/Settings";
+import { SetupWizard } from "@/views/SetupWizard";
 import { IdleTimeoutHandler } from "@/components/shell/IdleTimeoutHandler";
 import { TwoFactorPrompt } from "@/components/security/TwoFactorPrompt";
-
-/**
- * Only `Home` is bundled into the initial page.
- *
- * Everything else is code-split. This file is the app's single client-side
- * router — it renders marketing, docs, legal AND the authenticated Command
- * Center from one `view` state — so a static import of every view meant a
- * first-time visitor downloaded the entire product, chart library included,
- * before the hero could paint.
- *
- * Measured against the live origin: 0.73 MB of script, 5.4 s of main-thread
- * work, and 2.6 s of Lighthouse's "unused JavaScript" budget on `/`, with the
- * largest contentful paint landing 8.5 s after first contentful paint. The page
- * was not slow because it was heavy — it was heavy because one visitor's journey
- * decided what everyone downloads.
- *
- * `Home` stays eager on purpose: it is the LCP element on `/`, and deferring it
- * would trade a smaller bundle for a later first paint, which is the wrong
- * trade on the one screen almost every visitor lands on.
- *
- * The authenticated views (dashboard, console, settings, setup) are the real
- * prize here — they are behind a sign-in that most visitors never reach, and
- * they are the heaviest of the set.
- *
- * `loading` keeps the frame occupied while a chunk lands. There is no spinner
- * because the swap already runs inside an `AnimatePresence` transition; an
- * empty frame would read as a blank page rather than a load.
- */
-const viewChunk = (loader: () => Promise<unknown>) =>
-  dynamic(loader as () => Promise<{ default: React.ComponentType }>, {
-    ssr: false,
-    loading: () => <div className="min-h-[60vh]" aria-hidden />,
-  });
-
-const Demo = viewChunk(() => import("@/views/Demo"));
-const Dashboard = viewChunk(() => import("@/views/Dashboard"));
-const Product = viewChunk(() => import("@/views/Product"));
-const UseCases = viewChunk(() => import("@/views/UseCases"));
-const Docs = viewChunk(() => import("@/views/Docs"));
-const Security = viewChunk(() => import("@/views/Security"));
-const Pricing = viewChunk(() => import("@/views/Pricing"));
-const Privacy = viewChunk(() => import("@/views/Legal").then((m) => ({ default: m.Privacy })));
-const Terms = viewChunk(() => import("@/views/Legal").then((m) => ({ default: m.Terms })));
-const Refund = viewChunk(() => import("@/views/Legal").then((m) => ({ default: m.Refund })));
-const Deck = viewChunk(() => import("@/views/Deck"));
-const Auth = viewChunk(() => import("@/views/Auth"));
-const Console = viewChunk(() => import("@/views/Console"));
-const Settings = viewChunk(() => import("@/views/Settings"));
-const SetupWizard = viewChunk(() => import("@/views/SetupWizard"));
-// The FAQ is deferred like the rest. It is almost never reached from the shell
-// — the redirect above sends `/faq` to its own route instead — but it stays in
-// the map so the type stays total and a deep link has somewhere to land.
-const Faq = viewChunk(() => import("@/views/Faq"));
 
 const VIEWS: Record<View, React.ComponentType> = {
   home: Home,
@@ -80,7 +38,6 @@ const VIEWS: Record<View, React.ComponentType> = {
   privacy: Privacy,
   terms: Terms,
   refund: Refund,
-  faq: Faq,
   deck: Deck,
   auth: Auth,
   console: Console,
@@ -90,11 +47,7 @@ const VIEWS: Record<View, React.ComponentType> = {
 
 export function AppRoot() {
   const { view, lang, setView, setTimedOut, highContrast } = useApp();
-  // `seat` comes from the membership row, NOT from `activeOrganizationId ? "operator"`
-  // — see the doc comment on useViewerSeat. Both values the gate below needs are
-  // read here so there is exactly one subscription and one chance of the header
-  // and the gate disagreeing.
-  const { seat, isLoading: seatLoading, isSignedIn } = useViewerSeat();
+  const { seat, isSignedIn, isLoading: seatLoading } = useViewerSeat();
 
   /* keep scroll sane between views */
   useEffect(() => {
@@ -183,19 +136,11 @@ export function AppRoot() {
       setView("auth");
       return;
     }
-    // A signed-in seat below the bar is sent to the DASHBOARD, not to the
-    // sign-in screen and not to the console. They ARE signed in, they simply may
-    // not open this screen, and bouncing to `/auth` told them to log in again
-    // with a perfectly valid session.
-    //
-    // The dashboard specifically: it is the one view every signed-in seat can
-    // reach (`judge` in VIEW_ACCESS), so it is a destination this gate can never
-    // itself reject. Sending them to the console instead — which is what an
-    // earlier version of this line did — is a redirect loop whenever the console
-    // is the very screen that was refused, because the console is `vendor` and a
-    // `judge` will be bounced straight back out of it, forever.
+    // A signed-in seat below the bar goes to the console rather than the
+    // sign-in screen: they ARE signed in, they simply may not open this one, and
+    // bouncing to `/auth` told them to log in again with a valid session.
     if (seat === null || !atLeast(seat, required)) {
-      setView(isSignedIn ? "dashboard" : "auth");
+      setView(isSignedIn ? "console" : "auth");
     }
   }, [view, isSignedIn, seat, seatLoading, setView]);
 
@@ -243,28 +188,6 @@ export function AppRoot() {
     const replace = !isShellPath(here);
     window.history[replace ? "replaceState" : "pushState"]({ view }, "", target);
   }, [view]);
-
-  /* ── Public pages navigate to their own URL ────────────────────────────────
-   *
-   * The effect above only writes a URL for views in `PATH_FOR_VIEW`. For the
-   * public marketing views it returns early, so `setView("docs")` rendered the
-   * Docs panel while the address bar kept saying `/` — and a refresh there sent
-   * the visitor back to Home, because `/` serves Home and the panel state was
-   * never in the URL.
-   *
-   * So when a public view is selected, leave the SPA for the real route. This
-   * is a client-side navigation (not a reload), the route renders server-side,
-   * and the back button still works because the App Router writes a history
-   * entry for it. `PublicPageLayout` then wraps the same view component, which
-   * is the guarantee that the standalone page and the panel cannot drift.
-   */
-  const router = useRouter();
-  useEffect(() => {
-    const route = publicRouteForView(view);
-    if (!route) return;
-    if (window.location.pathname === route) return;
-    router.push(route);
-  }, [view, router]);
 
   const Current = VIEWS[view];
   const fullBleed = view === "deck" || view === "auth";

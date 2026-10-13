@@ -1173,11 +1173,21 @@ jobs:
             code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 \
               https://securevoiceai.me/api/health || true)
             echo "production api/health: $code"
-            [ "$code" = "200" ] || [ "$code" = "429" ] && break
+            if [ "$code" = "200" ] || [ "$code" = "429" ]; then break; fi
             sleep 20
           done
           if [ "$code" != "200" ] && [ "$code" != "429" ]; then
             echo "::error::production origin is not healthy (last: $code)"
             exit 1
           fi
-          [ "$code" = "429" ] && echo "origin rate-limited the probe; it is up, leaving the bucket alone"
+          # An `if`, not a bare `[ ... ] && echo`. As the last statement of the
+          # step this was the step's exit status: when the probe answered 200 the
+          # test was false, `&&` short-circuited, the list returned 1, and
+          # GitHub's `bash -e` failed the job — on a run where production was
+          # demonstrably UP (log: `production api/health: 200`). It only ever
+          # passed by accident, on the runs where the probe was rate-limited and
+          # the echo made the list return 0. An unhealthy origin must be the only
+          # thing that fails this step.
+          if [ "$code" = "429" ]; then
+            echo "origin rate-limited the probe; it is up, leaving the bucket alone"
+          fi

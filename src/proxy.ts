@@ -215,6 +215,7 @@ export const INDEXABLE_PATHS: readonly string[] = [
   "/docs",
   "/security",
   "/usecases",
+  "/faq",
 ];
 
 /**

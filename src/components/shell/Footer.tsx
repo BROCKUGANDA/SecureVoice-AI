@@ -35,6 +35,7 @@ const ROUTES: Link[] = [
   { href: "/docs", en: "Documentation", ar: "التوثيق" },
   { href: "/security", en: "Security", ar: "الأمن" },
   { href: "/usecases", en: "Use Cases", ar: "حالات الاستخدام" },
+  { href: "/faq", en: "FAQ", ar: "الأسئلة الشائعة" },
   { href: "/terms", en: "Terms of Service", ar: "الشروط والأحكام" },
   { href: "/privacy", en: "Privacy Policy", ar: "سياسة الخصوصية" },
   { href: "/refund", en: "Refund Policy", ar: "سياسة الاسترداد" },

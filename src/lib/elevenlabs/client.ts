@@ -29,6 +29,7 @@ import { withIdempotency } from "@/lib/idempotency";
 import { transcript as redactText } from "@/lib/redact";
 import { prepareSpeech, type SpeechContext } from "@/lib/compliance/speech-gate";
 import { env, isProdVoiceMode, TTS_CACHE_TTL_MS, TTS_CACHE_MAX } from "@/lib/config";
+import { voiceProfileFor, type VoicePace } from "@/lib/voice/presets";
 
 export type TtsLang = "en" | "ar" | "hi" | "ur" | "fr" | "sw";
 
@@ -42,6 +43,15 @@ export type TtsRequest = {
   /** Tenant context for the speech gate. Omitting it still applies redaction
    *  and speakability; it only declines the Islamic terminology pass. */
   speech?: SpeechContext;
+  /**
+   * Which named voice profile shapes this utterance. Resolved centrally so the
+   * pooled fallback and the PlayHT path cannot end up speaking differently from
+   * this one — see `@/lib/voice/presets`. Defaults to "paced": this is the path
+   * that talks to the customer on a fraud call, and a filler that arrives a beat
+   * late is the only thing here worth optimising for, which is what
+   * `paceForTurn` is for.
+   */
+  pace?: VoicePace;
 };
 
 export type TtsResult = {
@@ -157,9 +167,33 @@ export function resolveVoice(voice: string): string {
   return voice; // unknown — route layer rejects before we get here
 }
 
+/**
+ * Cache key for a synthesis.
+ *
+ * Keys the RESOLVED voice profile, not just the request. Two turns can share text
+ * and a voice while differing in pace, and the cache must not hand one to the
+ * other — a "hold on" filler and a guarded confirmation with identical words are
+ * not the same audio. This is also why the RESOLVED speed goes in rather than
+ * `req.speed ?? 1`: an unset `speed` made the key say `1.00` while the vendor
+ * was sent the deployment's real default, so two different outputs hashed
+ * identically even before pace existed.
+ */
 function ttsCacheKey(req: TtsRequest): string {
+  const p = voiceProfileFor(req.pace ?? "paced", req.lang);
+  const effectiveSpeed = (req.speed ?? p.speed).toFixed(2);
   return createHash("sha1")
-    .update(`${req.voice}|${(req.speed ?? 1).toFixed(2)}|${redactText(req.text)}`)
+    .update(
+      [
+        req.voice,
+        effectiveSpeed,
+        p.stability.toFixed(3),
+        p.similarityBoost.toFixed(3),
+        String(p.useSpeakerBoost),
+        p.speed.toFixed(2),
+        req.lang,
+        redactText(req.text),
+      ].join("|"),
+    )
     .digest("hex");
 }
 
@@ -356,6 +390,10 @@ async function callElevenLabsTts(req: TtsRequest, keyOverride?: string): Promise
   // monthly account budget, conversation-plane breaker, jittered retry.
   const { fetchUpstreamBinary } = await import("@/lib/elevenlabs/egress");
   const model = resolveTtsModel(req.lang);
+  // Resolved once, here, and handed to the vendor body. The same profile the
+  // pooled and PlayHT paths use — a tuned voice must not depend on which path
+  // happened to answer.
+  const profile = voiceProfileFor(req.pace ?? "paced", req.lang);
 
   // A BYOK caller spends their own quota, not the platform's 10k, so nothing is
   // reserved — but the key must be THEIRS. Passing it through `apiKey` is what
@@ -369,10 +407,12 @@ async function callElevenLabsTts(req: TtsRequest, keyOverride?: string): Promise
         text: req.text,
         model_id: model,
         voice_settings: {
-          stability: env.voiceStability,
-          similarity_boost: env.voiceSimilarityBoost,
-          use_speaker_boost: env.voiceUseSpeakerBoost,
-          speed: req.speed ?? env.voiceDefaultSpeed,
+          stability: profile.stability,
+          similarity_boost: profile.similarityBoost,
+          use_speaker_boost: profile.useSpeakerBoost,
+          // An explicit `speed` on the request still wins: that is a caller
+          // asking for this specific utterance, not a deployment default.
+          speed: req.speed ?? profile.speed,
         },
       }),
       billableChars: keyOverride ? 0 : req.text.length,

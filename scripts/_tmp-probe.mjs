@@ -1,0 +1,13 @@
+const r = await fetch("https://securevoiceai.me/", { headers: { "user-agent": "Mozilla/5.0" } });
+const html = await r.text();
+console.log(`status ${r.status}  bytes ${html.length}`);
+const body = html.match(/<body[^>]*>([\s\S]*)<\/body>/i);
+const inner = body ? body[1] : "";
+const noScripts = inner.replace(/<script[\s\S]*?<\/script>/g, "");
+const text = noScripts.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+console.log(`body inner ${inner.length}b | minus scripts ${noScripts.length}b | visible text ${text.length} chars`);
+console.log(`\nSSR tag counts: h1=${(html.match(/<h1/g)||[]).length} h2=${(html.match(/<h2/g)||[]).length} nav=${(html.match(/<nav/g)||[]).length} main=${(html.match(/<main/g)||[]).length}`);
+console.log(`\n--- first 400 chars of script-stripped body ---`);
+console.log(noScripts.slice(0, 400));
+console.log(`\n--- visible text sample ---`);
+console.log(text.slice(0, 400));

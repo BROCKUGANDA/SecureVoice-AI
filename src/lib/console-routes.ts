@@ -73,6 +73,50 @@ export function pathForView(view: View): string | null {
 }
 
 /**
+ * The real URL of a PUBLIC view, when one exists.
+ *
+ * `PATH_FOR_VIEW` above is the *shell* map, and it is deliberately not the whole
+ * site. Seven of the sixteen views are public marketing pages that have their
+ * own `src/app/<name>/page.tsx` and are indexable; they are absent from
+ * `PATH_FOR_VIEW` because every entry there becomes a `SHELL_PATHS` entry that
+ * `tests/surface/console-routes.test.ts` asserts is `noindex`. Putting `/docs`
+ * in that map would stamp `noindex` on the documentation.
+ *
+ * Before this map existed, those views were reachable only through `setView()`,
+ * and the URL sync in `src/app/page.tsx` returns early when `pathForView()` is
+ * null — so clicking "Docs" in the navbar rendered the Docs panel while the
+ * address bar still said `/`. The page existed at `/docs`; the navigation never
+ * went there, and nothing else on the site would send a crawler there either.
+ *
+ * This is the map that closes that. `AppRoot` consults it when a view has no
+ * shell path and navigates to the real route, which means:
+ *
+ *   - The address bar matches the screen, so the back button and bookmarks work.
+ *   - Every public page gets real inbound links, rather than only being reachable
+ *     by clicking through `/`.
+ *   - SSR still owns the content: the route renders server-side, exactly as
+ *     `/pricing` and `/usecases` already do.
+ *
+ * Adding a public page? Add the route file, then an entry here, then opt the
+ * path into `INDEXABLE_PATHS` in both `src/app/sitemap.ts` and `src/proxy.ts`.
+ */
+export const PUBLIC_ROUTE_FOR_VIEW: Partial<Record<View, string>> = {
+  docs: "/docs",
+  security: "/security",
+  pricing: "/pricing",
+  usecases: "/usecases",
+  privacy: "/privacy",
+  terms: "/terms",
+  refund: "/refund",
+  faq: "/faq",
+};
+
+/** The real route a public view lives at, or null when it has none. */
+export function publicRouteForView(view: View): string | null {
+  return PUBLIC_ROUTE_FOR_VIEW[view] ?? null;
+}
+
+/**
  * True when a path belongs to the signed-in shell and must never be indexed.
  *
  * Prefix-matched on purpose: `/console/anything` is console material even if

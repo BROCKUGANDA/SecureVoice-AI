@@ -15,7 +15,7 @@ export const dynamic = "force-dynamic";
  * crawl-budget waste, not an asset.
  */
 export const metadata: Metadata = {
-  title: "Sign in — SecureVoice AI",
+  title: "Sign in",
   description: "Operator and demo sign-in for SecureVoice AI.",
   robots: { index: false, follow: false },
 };

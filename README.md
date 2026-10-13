@@ -4,6 +4,8 @@
 
 # SecureVoice AI
 
+**Live at [https://securevoiceai.me](https://securevoiceai.me)** — real-time voice fraud intervention for banking & insurance.
+
 **Real-time voice fraud intervention for banking & insurance.**
 **Fraud detected. Customer called. Account frozen — in 60 seconds, not 38 minutes.**
 
@@ -216,14 +218,9 @@ docker run -p 3000:3000 \
 
 </details>
 
-## Demo walkthrough
+## Live site
 
-1. **Land on the pitch page** — _"Fraud detected. Call placed. Frozen. In 60 seconds."_
-2. **Launch the live demo** — a seeded intervention case appears in the **Command Center** (operator view) with live status transitions.
-3. **Trigger an intervention** — the pilot flow places a real outbound call/SMS (Twilio trial: verified numbers only) or runs the simulated stream when keys are absent.
-4. **Watch the voice agent work** — streaming TTS with barge-in, guardrail chips ("No PINs requested"), Arabic voice live on the call.
-5. **Inspect the audit trail** — every step is hash-chained and verifiable against the canonical chain spec in `src/lib/audit-chain.ts`.
-6. **Escalation** — sentiment analysis hands the customer to a human specialist ("Handoff ready — Sara H.").
+The deployed site is at [https://securevoiceai.me](https://securevoiceai.me). It is a single-page app with real server-rendered public routes (`/pricing`, `/docs`, `/security`, `/usecases`, `/faq`, `/terms`, `/privacy`, `/refund`); `.env` is never published; `APP_ENV` enforced (`staging` returns 403 for real telephony). See [deployment](#deployment) and [crawlers](#crawlers--search-indexers-vs-training-crawlers).
 
 ## API surface
 
@@ -598,8 +595,6 @@ The agent's **intent routing and compliance guardrails are deterministic server-
 - never breaks character, never asks for PINs/OTPs/passwords
 
 Without a key the platform runs identically on scripted replies. The default Groq model, `qwen/qwen3.8-27b`, is **preview-tier** — Groq's own documentation warns preview models "should not be used in production environments as they may be discontinued at short notice", so pin `GROQ_MODEL` to a production-tier slug before a pilot. Model provenance and refusal behavior: [MODEL_CARD.md](MODEL_CARD.md).
-
-**Judges running a clone:** create a free key at console.groq.com → API Keys, put it in your local `.env` (`GROQ_API_KEY=…`) — never commit yours. **Hosted demo:** the deployment injects the key server-side, so judges get the live-LLM experience with zero setup while the key never reaches the browser.
 
 ## Measured latency
 

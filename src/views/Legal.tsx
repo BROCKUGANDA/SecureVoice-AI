@@ -196,7 +196,7 @@ const PRIVACY_SECTIONS = [
   {
     h: "Sub-processors",
     body: [
-      "We use a small number of processors, each under contract and each limited to the purpose stated: identity and session management, which we host ourselves on our own infrastructure (the Clerk processor was retired at the Clerk -> Better Auth cutover, and no account data is sent to a third-party identity provider); telephony for outbound intervention calls and SMS (Twilio); speech synthesis and transcription (ElevenLabs, with Deepgram as fallback); optional reply drafting (Groq or Google Gemini); infrastructure and database hosting (the cloud provider and database provider named in our sub-processor register); and transactional email for support replies. Where a deployment enables Better Auth's optional hosted telemetry (BETTER_AUTH_API_KEY), Better Auth receives request metadata only — never case content, credentials, or personal data — and that processor must be added to the register below before such a deployment is offered.",
+      "We use a small number of processors, each under contract and each limited to the purpose stated: identity and session management, which we host ourselves on our own infrastructure (the Clerk processor was retired at the Clerk -> Better Auth cutover, and no account data is sent to a third-party identity provider); telephony for outbound intervention calls and SMS (Twilio); speech synthesis and transcription (ElevenLabs, with Deepgram as fallback); optional reply drafting (Groq or Google Gemini); infrastructure and database hosting (the cloud provider and database provider named in our sub-processor register); and transactional email (Resend) for support replies. Where a deployment enables Better Auth's optional hosted telemetry (BETTER_AUTH_API_KEY), Better Auth receives request metadata only — never case content, credentials, or personal data — and that processor must be added to the register below before such a deployment is offered.",
       "Where a bank requires additional residency, silence, or a written commitment for any of these, we will either pin the processor to an in-region endpoint or remove it from that deployment. The current register, with processing locations and the standard contractual clauses where applicable, is available on request.",
     ],
   },
@@ -210,7 +210,7 @@ const PRIVACY_SECTIONS = [
   {
     h: "How long we keep it",
     body: [
-      "Pilot requests are retained for up to 24 months from last contact, then deleted or anonymised. In platform deployments, transcripts are pseudonymised after case closure and raw audio retention is configurable by the bank — down to zero once the tamper-evident audit hash has been written.",
+      "Pilot requests are retained for up to 24 months from last contact, then deleted or anonymised. Inside a bank deployment, retention runs in four tiers, each configurable per organisation: call audio is kept for 30 days and then deleted — an organisation under a no-recording agreement keeps no recording at all; transcripts are retained for 90 days, after which the per-case encryption key is shredded so the sealed payload can no longer be read while the audit chain stays verifiable; the redacted case row is kept for 7 years; and the tamper-evident audit chain is retained permanently, holding hashes only and no personal data.",
     ],
   },
   {
@@ -276,7 +276,7 @@ const PRIVACY_SECTIONS_AR = [
   {
     h: "المعالجون الفرعيون",
     body: [
-      "نستخدم عدداً قليلاً من المعالجين، كل منهم بموجب عقد وكل منهم مقيّد بالغرض المذكور: إدارة الهوية والجلسات، التي نستضيفها بأنفسنا على بنيتنا التحتية (وقد أُوقف معالج Clerk عند الانتقال من Clerk إلى Better Auth، ولا تُرسل أي بيانات حساب إلى مزوّد هوية خارجي)؛ والاتصالات الهاتفية للمكالمات الصادرة والرسائل النصية (Twilio)؛ وتوليف الكلام وتحويله إلى نص (ElevenLabs، مع Deepgram كبديل)؛ وصياغة الردود الاختيارية (Groq أو Google Gemini)؛ واستضافة البنية التحتية وقاعدة البيانات (مزوّد الخدمات السحابية ومزوّد قاعدة البيانات المذكورين في سجل المعالجين الفرعيين)؛ والبريد الإلكتروني للردود على الاستفسارات. وحيثما يُفعّل النشر القياسات الاختيارية المستضافة لدى Better Auth (BETTER_AUTH_API_KEY)، فإن Better Auth يستقبل بيانات وصفية عن الطلبات فقط — لا محتوى الحالات ولا بيانات الاعتماد ولا البيانات الشخصية — ويجب إضافة ذلك المعالج إلى السجل أدناه قبل طرح مثل هذا النشر.",
+      "نستخدم عدداً قليلاً من المعالجين، كل منهم بموجب عقد وكل منهم مقيّد بالغرض المذكور: إدارة الهوية والجلسات، التي نستضيفها بأنفسنا على بنيتنا التحتية (وقد أُوقف معالج Clerk عند الانتقال من Clerk إلى Better Auth، ولا تُرسل أي بيانات حساب إلى مزوّد هوية خارجي)؛ والاتصالات الهاتفية للمكالمات الصادرة والرسائل النصية (Twilio)؛ وتوليف الكلام وتحويله إلى نص (ElevenLabs، مع Deepgram كبديل)؛ وصياغة الردود الاختيارية (Groq أو Google Gemini)؛ واستضافة البنية التحتية وقاعدة البيانات (مزوّد الخدمات السحابية ومزوّد قاعدة البيانات المذكورين في سجل المعالجين الفرعيين)؛ والبريد الإلكتروني للردود على الاستفسارات (Resend). وحيثما يُفعّل النشر القياسات الاختيارية المستضافة لدى Better Auth (BETTER_AUTH_API_KEY)، فإن Better Auth يستقبل بيانات وصفية عن الطلبات فقط — لا محتوى الحالات ولا بيانات الاعتماد ولا البيانات الشخصية — ويجب إضافة ذلك المعالج إلى السجل أدناه قبل طرح مثل هذا النشر.",
       "وحيثما يشترط أحد البنوك موقعاً إضافياً للبيانات، أو التزاماً بالسرّية، أو تعهّداً كتابياً بأي من هذه الجهات، فسنقوم إما بتثبيت المعالج على نقطة نهاية داخل المنطقة أو بإزالته من ذلك النشر. والسجل الحالي، بمواقع المعالجة والبنود التعاقدية النموذجية حيث تنطبق، متاح عند الطلب.",
     ],
   },
@@ -290,7 +290,7 @@ const PRIVACY_SECTIONS_AR = [
   {
     h: "مدة الاحتفاظ بها",
     body: [
-      "تُحتفظ بطلبات التجربة لمدة تصل إلى ٢٤ شهراً من آخر تواصل، ثم تُحذف أو تُصبح مجهولة الهوية. وفي عمليات نشر المنصة، تُجعل النصوص المحوّلة مجهولة الهوية بعد إغلاق الحالة، ومدة الاحتفاظ بالصوت الخام قابلة للتحديد من البنك — وصولاً إلى الصفر بعد كتابة بصمة التدقيق المقاومة للعبث.",
+      "تُحتفظ بطلبات التجربة لمدة تصل إلى ٢٤ شهراً من آخر تواصل، ثم تُحذف أو تُصبح مجهولة الهوية. وداخل النشر البنكي، تسري مدة الاحتفاظ على أربع شرائح، كل منها قابلة للتحديد لكل مؤسسة: يُحتفظ بصوت المكالمات ٣٠ يوماً ثم يُحذف — والمؤسسة الخاضعة لاتفاقية عدم التسجيل لا تحتفظ بأي تسجيل إطلاقاً؛ وتُحتفظ النصوص المحوّلة ٩٠ يوماً، وبعدها يُتلف مفتاح التشفير الخاص بالحالة فيصبح المحتوى المغلق غير قابل للقراءة مع بقاء سلسلة التدقيق قابلة للتحقق؛ ويُحتفظ صف الحالة المجرَّد ٧ سنوات؛ وتُحتفظ سلسلة التدقيق المقاومة للعبث دائماً، وهي لا تحفظ بصمات فقط ولا بيانات شخصية.",
     ],
   },
   {
@@ -315,7 +315,7 @@ const PRIVACY_SECTIONS_AR = [
   {
     h: "التواصل",
     body: [
-      `أسئلة حماية البيانات: ${SUPPORT_EMAIL}. البريد البريدي: SecureVoice Technologies FZ-LLC، دبي، الإمارات العربية المتحدة. نردّ على كل رسالة خصوصية شخصياً — بلا روبوتات تذاكر.`,
+      `أسئلة حماية البيانات: ${LEGAL_EMAIL}. وأسئلة المنتج والفوترة والأمان: ${SUPPORT_EMAIL}. البريد البريدي: SecureVoice Technologies FZ-LLC، دبي، الإمارات العربية المتحدة. نردّ على كل رسالة خصوصية شخصياً — بلا روبوتات تذاكر.`,
     ],
   },
 ];

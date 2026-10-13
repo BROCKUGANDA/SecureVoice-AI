@@ -314,7 +314,15 @@ export const env = {
    */
   get voiceStability(): number {
     const raw = Number(process.env.TTS_VOICE_STABILITY);
-    return Number.isFinite(raw) && raw >= 0 && raw <= 1 ? raw : 0.5;
+    // 0.7, not 0.5. This default disagreed with every other statement of the
+    // voice — the comment above it, and the pitch copy in src/lib/deck.ts
+    // ("We tuned stability at 0.7 for consistency, similarity boost at 0.75,
+    // and style at 0.3"). The code shipped 0.5, so the product was describing a
+    // voice setting it was not using: lower stability means more expressive
+    // variance between utterances, and this agent reads money back to a
+    // frightened cardholder. Env-overridable, so a deployment that set it keeps
+    // its own value.
+    return Number.isFinite(raw) && raw >= 0 && raw <= 1 ? raw : 0.7;
   },
   get voiceSimilarityBoost(): number {
     const raw = Number(process.env.TTS_VOICE_SIMILARITY_BOOST);

@@ -2,11 +2,12 @@
 
 import { useCallback, useEffect, useRef } from "react";
 import dynamic from "next/dynamic";
+import { useRouter } from "next/navigation";
 import { motion, AnimatePresence, MotionConfig } from "framer-motion";
 import { useApp, t, VIEW_ACCESS, ACCESS_SEAT, type View } from "@/lib/store";
 import { atLeast } from "@/lib/auth/seat";
 import { useViewerSeat } from "@/lib/auth/use-viewer-seat";
-import { isShellPath, pathForView, viewForPath } from "@/lib/console-routes";
+import { isShellPath, pathForView, viewForPath, publicRouteForView } from "@/lib/console-routes";
 import { cn } from "@/lib/utils";
 import { Navbar } from "@/components/shell/Navbar";
 import { Footer } from "@/components/shell/Footer";
@@ -62,6 +63,10 @@ const Auth = viewChunk(() => import("@/views/Auth"));
 const Console = viewChunk(() => import("@/views/Console"));
 const Settings = viewChunk(() => import("@/views/Settings"));
 const SetupWizard = viewChunk(() => import("@/views/SetupWizard"));
+// The FAQ is deferred like the rest. It is almost never reached from the shell
+// — the redirect above sends `/faq` to its own route instead — but it stays in
+// the map so the type stays total and a deep link has somewhere to land.
+const Faq = viewChunk(() => import("@/views/Faq"));
 
 const VIEWS: Record<View, React.ComponentType> = {
   home: Home,
@@ -75,6 +80,7 @@ const VIEWS: Record<View, React.ComponentType> = {
   privacy: Privacy,
   terms: Terms,
   refund: Refund,
+  faq: Faq,
   deck: Deck,
   auth: Auth,
   console: Console,
@@ -237,6 +243,28 @@ export function AppRoot() {
     const replace = !isShellPath(here);
     window.history[replace ? "replaceState" : "pushState"]({ view }, "", target);
   }, [view]);
+
+  /* ── Public pages navigate to their own URL ────────────────────────────────
+   *
+   * The effect above only writes a URL for views in `PATH_FOR_VIEW`. For the
+   * public marketing views it returns early, so `setView("docs")` rendered the
+   * Docs panel while the address bar kept saying `/` — and a refresh there sent
+   * the visitor back to Home, because `/` serves Home and the panel state was
+   * never in the URL.
+   *
+   * So when a public view is selected, leave the SPA for the real route. This
+   * is a client-side navigation (not a reload), the route renders server-side,
+   * and the back button still works because the App Router writes a history
+   * entry for it. `PublicPageLayout` then wraps the same view component, which
+   * is the guarantee that the standalone page and the panel cannot drift.
+   */
+  const router = useRouter();
+  useEffect(() => {
+    const route = publicRouteForView(view);
+    if (!route) return;
+    if (window.location.pathname === route) return;
+    router.push(route);
+  }, [view, router]);
 
   const Current = VIEWS[view];
   const fullBleed = view === "deck" || view === "auth";

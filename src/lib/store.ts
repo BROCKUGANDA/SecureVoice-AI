@@ -15,6 +15,7 @@ export type View =
   | "privacy"
   | "terms"
   | "refund"
+  | "faq"
   | "deck"
   | "auth"
   | "console"
@@ -63,6 +64,9 @@ export const VIEW_ACCESS: Record<View, ViewAccess> = {
   refund: "public",
   usecases: "public",
   auth: "public",
+  // The FAQ is public for the same reason as the rest of this block: it is
+  // content a buyer's procurement team reads before they have an account.
+  faq: "public",
   demo: "judge",
   dashboard: "judge",
   product: "judge",

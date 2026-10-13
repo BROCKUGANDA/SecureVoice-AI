@@ -5,6 +5,7 @@ import { motion } from "framer-motion";
 import { signOut } from "@/lib/auth-client";
 import {
   BookOpenText,
+  HelpCircle,
   Home,
   ShieldCheck,
   LayoutDashboard,
@@ -30,10 +31,15 @@ type NavItem = { id: View; en: string; ar: string; icon: typeof Home };
 /**
  * Everything a signed-out visitor may reach. Real anchors in the footer for the
  * routes that have URLs; these are the in-app ones.
+ *
+ * `faq` is here rather than in the footer because it is the page a buyer opens
+ * from the docs and the security page — its placement is beside them. Selecting
+ * any of these leaves the SPA for the real route; see `PUBLIC_ROUTE_FOR_VIEW`.
  */
 const PUBLIC_NAV: NavItem[] = [
   { id: "home", en: "Overview", ar: "الرئيسية", icon: Home },
   { id: "docs", en: "Docs", ar: "التوثيق", icon: BookOpenText },
+  { id: "faq", en: "FAQ", ar: "الأسئلة", icon: HelpCircle },
   { id: "security", en: "Security", ar: "الأمن", icon: ShieldCheck },
 ];
 

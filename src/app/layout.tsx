@@ -4,7 +4,7 @@ import "./globals.css";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as SonnerToaster } from "@/components/ui/sonner";
 import { Providers } from "@/app/providers";
-import { JsonLd } from "@/components/seo/JsonLd";
+import { JsonLd, ProductJsonLd } from "@/components/seo/JsonLd";
 import { COMPANY } from "@/lib/commercial";
 import { siteOrigin } from "@/lib/site-origin";
 import { TenantBrand } from "@/components/shell/TenantBrand";
@@ -183,6 +183,7 @@ export default function RootLayout({
             Server-rendered so it is in the first byte of HTML, not something a
             crawler has to run JS to find. */}
         <JsonLd />
+        <ProductJsonLd />
       </head>
       <body
         className={`${display.variable} ${sans.variable} ${mono.variable} ${arabic.variable} antialiased bg-background text-foreground`}

@@ -76,14 +76,15 @@ export function SupportTicketEmail({
             {/* "none" is stated rather than left blank: a ticket filed from a
                 signed-in session with no active organization is a fact support
                 should see, not a gap they have to guess at. */}
-            <Row label="Organisation" value={orgId ?? "none (signed-in session without an organization)"} />
+            <Row
+              label="Organisation"
+              value={orgId ?? "none (signed-in session without an organization)"}
+            />
             <Row label="Reported by" value={`${operatorName} · ${operatorEmail}`} />
             {/* The route stores `|| null` and the test pins that a blank is
                 treated as absent — a labelled row with nothing in it is exactly
                 the placeholder this page must never show. */}
-            {interventionRef?.trim() ? (
-              <Row label="Intervention" value={interventionRef} />
-            ) : null}
+            {interventionRef?.trim() ? <Row label="Intervention" value={interventionRef} /> : null}
           </Section>
 
           <Hr style={hrStyle} />
@@ -92,8 +93,8 @@ export function SupportTicketEmail({
 
           <Hr style={hrStyle} />
           <Text style={footerStyle}>
-            Reply to {operatorEmail} to answer directly. The queued record for this ticket
-            carries reference {ref}.
+            Reply to {operatorEmail} to answer directly. The queued record for this ticket carries
+            reference {ref}.
           </Text>
           <Text style={footerStyle}>
             {BRAND.name} · {baseUrl}

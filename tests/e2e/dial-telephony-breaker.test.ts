@@ -44,9 +44,8 @@ mock.module("@/lib/elevenlabs/outbound-call", () => ({
   },
 }));
 
-const { handle, _resetDialTelephonyBreakerForTest, dialTelephonyBreakerState } = await import(
-  "@/worker/dial"
-);
+const { handle, _resetDialTelephonyBreakerForTest, dialTelephonyBreakerState } =
+  await import("@/worker/dial");
 const { createCase, transitionCase } = await import("@/lib/case-state-machine");
 
 const REAL_NUMBER = "+971501234567";
@@ -122,9 +121,9 @@ describe("the telephony breaker is wired into the carrier path", () => {
     // (Appends are fire-and-forget on the worker path, so give them a moment.)
     const { db } = await import("@/lib/db");
     const intents = async () =>
-      (
-        await db.auditLog.findMany({ where: { callRef: ref }, select: { intent: true } })
-      ).map((r) => r.intent);
+      (await db.auditLog.findMany({ where: { callRef: ref }, select: { intent: true } })).map(
+        (r) => r.intent,
+      );
     let seen = await intents();
     for (let i = 0; i < 20 && !seen.includes("dial_deferred_carrier_breaker"); i++) {
       await new Promise((r) => setTimeout(r, 50));

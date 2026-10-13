@@ -847,9 +847,7 @@ export function Demo() {
                   <span className="num text-6xl font-semibold">
                     {kind === "voicemail" ? "66" : "61"}
                   </span>
-                  <span className="num text-xl text-primary">
-                    {t("seconds", "ثانية", lang)}
-                  </span>
+                  <span className="num text-xl text-primary">{t("seconds", "ثانية", lang)}</span>
                   <span className="ml-2 text-[13px] text-ink-2">
                     {kind === "voicemail"
                       ? t(
@@ -1139,9 +1137,7 @@ function Bubble({ e, callLang }: { e: ScenarioEvent; callLang: CallLang }) {
           ) : (
             <User className="h-3 w-3 text-green-deep" />
           )}
-          <span
-            className={cn("micro !text-[9px]", isAgent ? "!text-primary" : "!text-green-deep")}
-          >
+          <span className={cn("micro !text-[9px]", isAgent ? "!text-primary" : "!text-green-deep")}>
             {isAgent ? t("Agent", "الوكيل", lang) : t("Customer", "العميل", lang)}
           </span>
           <span className={cn("num text-[9.5px]", isAgent ? "text-ink-3" : "text-ink-3")}>

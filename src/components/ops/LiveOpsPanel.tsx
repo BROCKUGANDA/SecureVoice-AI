@@ -122,7 +122,9 @@ function TranscriptLineView({ line }: { line: TranscriptLine }) {
             : "rounded-tr-sm bg-primary text-white",
         )}
       >
-        <p className={cn("text-[12px] leading-snug", isAgent ? "text-ink-2" : "text-foreground/90")}>
+        <p
+          className={cn("text-[12px] leading-snug", isAgent ? "text-ink-2" : "text-foreground/90")}
+        >
           {displayed}
           {!done && (
             <span className="ml-0.5 inline-block h-3 w-0.5 animate-pulse bg-current align-middle" />

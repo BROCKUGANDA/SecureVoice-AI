@@ -124,9 +124,7 @@ export function MailInbox({ interventionRef }: { interventionRef?: string | null
       setReportResult(body.data);
       setReportMessage("");
     } catch {
-      setReportError(
-        t("The report could not be sent.", "تعذّر إرسال البلاغ.", lang),
-      );
+      setReportError(t("The report could not be sent.", "تعذّر إرسال البلاغ.", lang));
     } finally {
       setReportBusy(false);
     }

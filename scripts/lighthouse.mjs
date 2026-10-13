@@ -325,6 +325,39 @@ async function main() {
     );
   }
 
+  // A run that never measured anything is not a budget failure and must not be
+  // reported as one. `lhr.runError` means Lighthouse itself could not trace the
+  // page — the origin refused it, the URL 404'd, the browser crashed. Reporting
+  // that as "performance 0 < 75" is a lie about the product: it reads as "the
+  // site is slow" when the truth is "nothing was measured".
+  //
+  // Measured 2026-10-12, first CI run against the live origin: every value came
+  // back n/a while the site answered 200 for a human. The origin's edge
+  // rate-limits by source IP and CI runs ON the box, so CI's own health probes
+  // exhausted the shared bucket and Lighthouse was refused. Exited 3 (distinct
+  // from 1, a genuine budget miss, and 2, a harness crash) so a caller can tell
+  // "cannot measure" from "measured badly" without parsing the message.
+  if (lhr.runError) {
+    console.error(`lighthouse: RUN DID NOT COMPLETE: ${lhr.runError.message}`);
+    console.error(
+      "  nothing was measured, so no budget verdict is possible. If the origin" +
+        " rate-limits by source IP and you are running from the same box, the" +
+        " probes are the cause — reduce them, or run against a rebuilt page." +
+        " re-run once before concluding anything.",
+    );
+    process.exit(3);
+  }
+
+  const measured = Object.values(BUDGETS.scores).some((need) => {
+    const score =
+      lhr.categories[Object.keys(BUDGETS.scores).find((n) => BUDGETS.scores[n] === need)]?.score;
+    return typeof score === "number";
+  });
+  if (!measured) {
+    console.error("lighthouse: the report carries no scores at all — nothing was measured");
+    process.exit(3);
+  }
+
   if (lhr.runError) problems.push(`runError: ${lhr.runError.message}`);
 
   console.log(`  report: coverage/lighthouse/report.json`);

@@ -37,11 +37,7 @@ import { logError, logWarn } from "@/lib/validation/safe-log";
 
 /** Which flow produced a message. Drives template selection at send time. */
 export type EmailKind =
-  | "magic_link"
-  | "invite"
-  | "password_reset"
-  | "pilot_request"
-  | "support_ticket";
+  "magic_link" | "invite" | "password_reset" | "pilot_request" | "support_ticket";
 
 export type EmailState = "PENDING" | "SENDING" | "SENT" | "DEAD";
 

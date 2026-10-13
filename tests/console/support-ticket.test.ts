@@ -168,9 +168,7 @@ test(
       where: { kind: "support_ticket", payload: { contains: body.data.ref } },
     });
     expect(row?.orgId).toBe(ORG);
-    expect(JSON.stringify(row?.payload)).not.toContain(
-      "99999999-0000-4000-8000-000000000999",
-    );
+    expect(JSON.stringify(row?.payload)).not.toContain("99999999-0000-4000-8000-000000000999");
   },
   TIMEOUT_MS,
 );
@@ -200,7 +198,10 @@ test(
 
     // Free text where an identifier belongs — a pasted phone number is the
     // realistic mistake, and it must be refused, not silently carried.
-    const ref = await post({ message: `${MARK} valid length message here.`, interventionRef: "+971 50 123 4567" });
+    const ref = await post({
+      message: `${MARK} valid length message here.`,
+      interventionRef: "+971 50 123 4567",
+    });
     expect(ref.status).toBe(422);
 
     // Not JSON at all.
@@ -240,22 +241,18 @@ test("a signed-out caller gets 401, and nothing is written", async () => {
   }
 });
 
-test(
-  "the rate limit bites on the 11th report in an hour",
-  async () => {
-    // A fresh bucket, so this test does not depend on how many requests the
-    // tests above happened to spend. Capacity is 10/hour per operator.
-    resetRateLimits();
+test("the rate limit bites on the 11th report in an hour", async () => {
+  // A fresh bucket, so this test does not depend on how many requests the
+  // tests above happened to spend. Capacity is 10/hour per operator.
+  resetRateLimits();
 
-    for (let i = 0; i < 10; i++) {
-      const res = await post({ message: `${MARK} burst report number ${i} with content.` });
-      if (res.status !== 202) {
-        throw new Error(`report ${i} was refused with ${res.status} before the budget ran out`);
-      }
+  for (let i = 0; i < 10; i++) {
+    const res = await post({ message: `${MARK} burst report number ${i} with content.` });
+    if (res.status !== 202) {
+      throw new Error(`report ${i} was refused with ${res.status} before the budget ran out`);
     }
-    const eleventh = await post({ message: `${MARK} the eleventh report in the same hour.` });
-    expect(eleventh.status).toBe(429);
-    expect(eleventh.headers.get("Retry-After")).toBeTruthy();
-  },
-  120_000,
-);
+  }
+  const eleventh = await post({ message: `${MARK} the eleventh report in the same hour.` });
+  expect(eleventh.status).toBe(429);
+  expect(eleventh.headers.get("Retry-After")).toBeTruthy();
+}, 120_000);

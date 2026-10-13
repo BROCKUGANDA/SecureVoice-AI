@@ -41,10 +41,7 @@ describe("resolveCasePhone", () => {
     const token = await storePii({ orgId, type: "phone", plaintext: phone });
     mintedTokens.push(token);
 
-    const resolved = await resolveCasePhone(
-      { customerPhoneToken: token, phone: null },
-      orgId,
-    );
+    const resolved = await resolveCasePhone({ customerPhoneToken: token, phone: null }, orgId);
     expect(resolved).toBe(phone);
   });
 
@@ -67,9 +64,7 @@ describe("resolveCasePhone", () => {
 
   test("a legacy row without a token resolves from the raw column", async () => {
     const legacy = "+971502222222";
-    expect(await resolveCasePhone({ customerPhoneToken: null, phone: legacy }, null)).toBe(
-      legacy,
-    );
+    expect(await resolveCasePhone({ customerPhoneToken: null, phone: legacy }, null)).toBe(legacy);
   });
 
   test("a token with no org context cannot resolve and there is nothing to fall back to", async () => {
@@ -82,8 +77,6 @@ describe("resolveCasePhone", () => {
 
   test("nothing anywhere resolves to null — the dial path fails closed", async () => {
     expect(await resolveCasePhone(null, null)).toBeNull();
-    expect(
-      await resolveCasePhone({ customerPhoneToken: null, phone: null }, "org-x"),
-    ).toBeNull();
+    expect(await resolveCasePhone({ customerPhoneToken: null, phone: null }, "org-x")).toBeNull();
   });
 });

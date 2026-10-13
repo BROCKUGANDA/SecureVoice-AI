@@ -868,9 +868,7 @@ export function Home() {
               <Languages className="mx-auto h-7 w-7 text-primary" strokeWidth={1.5} />
               <h2 className="font-display mx-auto mt-5 max-w-2xl text-3xl font-semibold leading-tight tracking-tight text-foreground sm:text-[2.6rem]">
                 {t("Don't read about intervention.", "لا تقرأ عن التدخّل.", lang)}{" "}
-                <span className="text-primary">
-                  {t("Watch it happen.", "شاهده يحدث.", lang)}
-                </span>
+                <span className="text-primary">{t("Watch it happen.", "شاهده يحدث.", lang)}</span>
               </h2>
               <p
                 dir="rtl"

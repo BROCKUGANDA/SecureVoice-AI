@@ -9,16 +9,16 @@
 
 ### A. Submission details
 
-| FIELD                      | YOUR ANSWER                                                                                        |
-| -------------------------- | -------------------------------------------------------------------------------------------------- |
-| Team name                  | SecureVoice                                                                                        |
-| Contact email              | otemaach@gmail.com                                                                                 |
-| Track (1 or 2)             | 1 — Banking & Insurance                                                                            |
-| Use case (1–8)             | 1 — Real-time fraud intervention for retail banking customers                                      |
-| Stage                      | Stage 1 submission                                                                                 |
-| Languages covered          | English, Arabic (live end-to-end) + Hindi, Urdu (live) + French, Bengali (roadmap)                 |
-| Prior ElevenLabs use (Y/N) | N                                                                                                  |
-| Team size / based in       | Solo founder + AI engineering pipeline · Dubai, UAE                                                |
+| FIELD                      | YOUR ANSWER                                                                                  |
+| -------------------------- | -------------------------------------------------------------------------------------------- |
+| Team name                  | SecureVoice                                                                                  |
+| Contact email              | otemaach@gmail.com                                                                           |
+| Track (1 or 2)             | 1 — Banking & Insurance                                                                      |
+| Use case (1–8)             | 1 — Real-time fraud intervention for retail banking customers                                |
+| Stage                      | Stage 1 submission                                                                           |
+| Languages covered          | English, Arabic (live end-to-end) + Hindi, Urdu (live) + French, Bengali (roadmap)           |
+| Prior ElevenLabs use (Y/N) | N                                                                                            |
+| Team size / based in       | Solo founder + AI engineering pipeline · Dubai, UAE                                          |
 | Website or repo            | https://github.com/aaron-otema/securevoice (private) · live demo at https://securevoiceai.me |
 
 ### B. The idea in one line (25 words max)

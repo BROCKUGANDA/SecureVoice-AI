@@ -161,7 +161,15 @@ describe("VIEW_ACCESS is total and consistent", () => {
   test("the public marketing and legal pages stay public", () => {
     // The inverse, stated so the check above cannot be satisfied by making
     // everything private.
-    for (const view of ["home", "docs", "security", "pricing", "privacy", "terms", "refund"] as View[]) {
+    for (const view of [
+      "home",
+      "docs",
+      "security",
+      "pricing",
+      "privacy",
+      "terms",
+      "refund",
+    ] as View[]) {
       expect(VIEW_ACCESS[view], `${view} is not public`).toBe("public");
     }
   });
@@ -228,9 +236,7 @@ describe("the mirrored role list cannot drift from the server", () => {
     // the assertion above does not narrow it for the next line.
     const serverBody = declared?.[1];
     expect(serverBody, "ROLES capture group was empty").toBeDefined();
-    const serverRoles = [...(serverBody ?? "").matchAll(/"([A-Za-z]+)"/g)]
-      .map((m) => m[1])
-      .sort();
+    const serverRoles = [...(serverBody ?? "").matchAll(/"([A-Za-z]+)"/g)].map((m) => m[1]).sort();
 
     // Compare against the literal in seat.ts, which is the thing at risk.
     const seatFile = read("src/lib/auth/seat.ts");

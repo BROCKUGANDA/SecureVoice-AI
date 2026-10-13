@@ -278,7 +278,9 @@ export function Pricing({
                 </span>
               )}
 
-              <h2 className="font-display text-xl font-semibold text-foreground">{tier.name[lang]}</h2>
+              <h2 className="font-display text-xl font-semibold text-foreground">
+                {tier.name[lang]}
+              </h2>
               <p className="mt-1.5 text-[12.5px] leading-relaxed text-ink-3">{tier.blurb[lang]}</p>
 
               <div className="mt-6 flex items-baseline gap-2">

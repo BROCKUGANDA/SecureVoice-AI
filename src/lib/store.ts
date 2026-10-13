@@ -66,7 +66,16 @@ export const VIEW_ACCESS: Record<View, ViewAccess> = {
   demo: "judge",
   dashboard: "judge",
   product: "judge",
-  deck: "operator", // team appendix
+  // The team appendix is a 16-slide READ-ONLY deck — the pitch, not a working
+  // surface. `judge` rather than `operator` because a reviewer evaluating the
+  // submission is exactly who it is for: it renders no organisation data and has
+  // no write path, so the "changes or exposes the organisation" reasoning that
+  // keeps settings and setup at `operator` does not apply to it.
+  //
+  // `judge` and not `vendor` on purpose — the navbar offers it to the judge and
+  // operator navs only. The split is about who a screen is FOR, and a working
+  // seat is not offered the pitch.
+  deck: "judge",
   // The Command Center is a WORKING surface: it opens cases, fires
   // interventions and reads the audit chain. It is `vendor` rather than
   // `judge` because a read-only seat that can open a case and freeze a card is

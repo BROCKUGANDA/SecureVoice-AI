@@ -50,6 +50,7 @@ import { env } from "@/lib/config";
 import { fetchUpstreamBinary } from "@/lib/elevenlabs/egress";
 import { trackKeyUsage } from "@/lib/elevenlabs/token-tracker";
 import { logWarn } from "@/lib/validation/safe-log";
+import { voiceProfileFor, type VoicePace } from "@/lib/voice/presets";
 
 /** How many numbered keys the pool reads: `ELEVENLABS_KEY_1` … `ELEVENLABS_KEY_8`. */
 export const POOL_SIZE = 8;
@@ -322,6 +323,12 @@ export async function generateAudioWithFailover(
     timeoutMs?: number;
     maxRetriesPerKey?: number;
     speed?: number;
+    /** Named voice profile; resolved from the same preset module as the
+     *  primary client path. See `@/lib/voice/presets`. */
+    pace?: VoicePace;
+    /** Per-language pacing multiplier, when this call targets a specific
+     *  language's prosody rather than the deployment default. */
+    lang?: string;
   } = {},
 ): Promise<PoolAudioResult> {
   const body = text ?? "";
@@ -338,6 +345,7 @@ export async function generateAudioWithFailover(
   }
 
   const model = opts.model ?? env.elevenLabsModel;
+  const prof = voiceProfileFor(opts.pace ?? "paced", opts.lang);
   const maxRetriesPerKey =
     opts.maxRetriesPerKey ?? numEnv("POOL_MAX_RETRIES_PER_KEY", pool.length > 1 ? 0 : 2);
   const callerId = opts.callerId ?? "elevenlabs-pool";
@@ -363,10 +371,14 @@ export async function generateAudioWithFailover(
           text: body,
           model_id: model,
           voice_settings: {
-            stability: env.voiceStability,
-            similarity_boost: env.voiceSimilarityBoost,
-            use_speaker_boost: env.voiceUseSpeakerBoost,
-            speed: opts.speed ?? env.voiceDefaultSpeed,
+            // Resolved through the same preset as the primary client path. This
+            // is the fallback a customer hears WITHOUT knowing they are on it,
+            // which makes it the place the voice most easily drifts from what
+            // was tuned.
+            stability: prof.stability,
+            similarity_boost: prof.similarityBoost,
+            use_speaker_boost: prof.useSpeakerBoost,
+            speed: opts.speed ?? prof.speed,
           },
         }),
         // Each pooled key carries its own quota; reserving the shared platform

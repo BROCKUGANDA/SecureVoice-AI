@@ -49,6 +49,7 @@ import "server-only";
 import { backoffMs } from "@/lib/elevenlabs/egress";
 import { consume as consumeRateLimit } from "@/lib/ratelimit";
 import { logWarn } from "@/lib/validation/safe-log";
+import { voiceProfileFor, type VoicePace } from "@/lib/voice/presets";
 
 /* ── Config (read per call, mirroring src/lib/config.ts's contract) ─────────── */
 
@@ -278,7 +279,16 @@ export const playhtVoice = (): string | undefined => playhtVoiceId();
 export async function generatePlayhtAudio(
   text: string,
   voiceId: string,
-  opts: { callerId?: string; maxRetries?: number; timeoutMs?: number; speed?: number } = {},
+  opts: {
+    callerId?: string;
+    maxRetries?: number;
+    timeoutMs?: number;
+    speed?: number;
+    /** Named voice profile; see `@/lib/voice/presets`. */
+    pace?: VoicePace;
+    /** Per-language pacing multiplier, when targeting a specific language. */
+    lang?: string;
+  } = {},
 ): Promise<PlayhtAudio> {
   const apiKey = playhtApiKey();
   const userId = playhtUserId();
@@ -325,7 +335,13 @@ export async function generatePlayhtAudio(
     output_format: format,
     sample_rate: playhtSampleRate(),
     quality: playhtQuality(),
-    speed: opts.speed ?? 1,
+    // PlayHT's request shape carries a rate and nothing else, so `speed` is the
+    // only part of a preset that can travel here. That is also why this engine
+    // is the one place the voice can audibly differ from the ElevenLabs path —
+    // stability and speaker boost have no equivalent, and the two vendors will
+    // not sound identical even at the same rate. Resolved from the same preset
+    // module so at least the PACING agrees.
+    speed: opts.speed ?? voiceProfileFor(opts.pace ?? "paced", opts.lang).speed,
   });
   const headers: Record<string, string> = {
     accept: contentTypeFor(format),

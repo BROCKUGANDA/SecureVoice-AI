@@ -1,0 +1,63 @@
+{
+  "lead": 1.8,
+  "tail": 0.6,
+  "total": 96.0,
+  "scenes": {
+    "01-title": {
+      "start": 0.0,
+      "dur": 10.5,
+      "audio_start": 1.8,
+      "audio_dur": 8.26,
+      "slack": 0.44
+    },
+    "02-gap": {
+      "start": 10.5,
+      "dur": 11.0,
+      "audio_start": 12.3,
+      "audio_dur": 8.28,
+      "slack": 0.92
+    },
+    "03-ingest": {
+      "start": 21.5,
+      "dur": 18.0,
+      "audio_start": 23.3,
+      "audio_dur": 15.62,
+      "slack": 0.58
+    },
+    "04-call": {
+      "start": 39.5,
+      "dur": 15.0,
+      "audio_start": 41.3,
+      "audio_dur": 12.69,
+      "slack": 0.51
+    },
+    "05-guardrails": {
+      "start": 54.5,
+      "dur": 12.5,
+      "audio_start": 56.3,
+      "audio_dur": 9.73,
+      "slack": 0.97
+    },
+    "06-live": {
+      "start": 67.0,
+      "dur": 8.5,
+      "audio_start": 68.8,
+      "audio_dur": 4.78,
+      "slack": 1.92
+    },
+    "07-evidence": {
+      "start": 75.5,
+      "dur": 13.0,
+      "audio_start": 77.3,
+      "audio_dur": 10.62,
+      "slack": 0.58
+    },
+    "08-close": {
+      "start": 88.5,
+      "dur": 7.5,
+      "audio_start": 90.3,
+      "audio_dur": 3.75,
+      "slack": 1.95
+    }
+  }
+}

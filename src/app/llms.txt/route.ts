@@ -37,8 +37,9 @@ export const dynamic = "force-dynamic";
 /** One-line description of each indexable path, for a reader with no context. */
 const PURPOSE: Record<string, string> = {
   "/": "Product overview: real-time phone-based fraud intervention for banks and insurers in the UAE and Gulf markets.",
-  "/pricing":
-    "Plans, included volume, per-call overage and the FAQ — the same figures the checkout uses.",
+  "/pricing": "Plans, included volume, per-call overage — the same figures the checkout uses.",
+  "/faq":
+    "Frequently asked questions: pricing, VAT and Merchant of Record, whether the agent can ask for a PIN, CBUAE alignment, data residency, and refunds.",
   "/docs":
     "Integration documentation: the ingest contract, webhook signing, verification, and the call lifecycle.",
   "/security":
@@ -119,7 +120,7 @@ Prepaid credit packs are also available as one-time purchases, and an unused bal
 
 - Every outbound call passes a policy gate first: consent record, do-not-call registry, calling hours, country allowlist, cooldown, concurrency cap, spend ceiling, then a credit reservation. A refusal is a 409 with a machine-readable code, never a 500.
 - Regulatory calling windows are honoured for routine calls, including UAE prayer times and Friday Jumu'ah. A time-critical fraud verification is not blocked by them.
-- Call audio and transcripts are retained for 30 days and then deleted. Transcripts are redacted before storage, and a raw card number is never held.
+- Call audio is retained for 30 days and then deleted. Transcripts are retained for 90 days, after which the per-case encryption key is shredded; they are redacted before storage, and a raw card number is never held. The tamper-evident audit chain is retained permanently and holds hashes only.
 - The AI cannot give financial advice, cannot unfreeze an account, and cannot ask for a PIN or password. Those are prompt-level rules AND post-processing checks on the spoken output; a request for advice transfers to a human.
 - A soft freeze is a 24-hour hold. A permanent action requires a human on the bank's side, and the audit chain — hash-linked, append-only — records who did what.
 - Tenant isolation is enforced in Postgres row-level security on tenant-owned tables, not only in the application layer.

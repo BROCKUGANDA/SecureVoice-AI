@@ -13,6 +13,7 @@ import {
 } from "@/lib/elevenlabs/client";
 import { generateAudioWithFailover } from "@/lib/elevenlabs/pool";
 import { generatePlayhtAudio, isPlayhtConfigured } from "@/lib/elevenlabs/playht";
+import { paceForTurn, type VoicePace } from "@/lib/voice/presets";
 import { getEmergencyAudio, EMERGENCY_AUDIO_CONTENT_TYPE } from "@/lib/elevenlabs/emergency-audio";
 import { consume as consumeRateLimit, rateLimitId } from "@/lib/ratelimit";
 import { append as auditAppend } from "@/lib/audit-chain";
@@ -49,6 +50,7 @@ const schema = z.object({
   voice: z.string().min(1).max(64),
   speed: z.number().min(0.5).max(2.0).optional(),
   lang: z.enum(SUPPORTED_LANGS).default("en"),
+  pace: z.enum(["instant", "paced"]).optional().default("paced"),
   callRef: z.string().min(3).max(64).optional(),
 });
 
@@ -121,6 +123,7 @@ async function synthesizeWithLadder(args: {
   callRef: string;
   keyOverride?: string;
   model?: string;
+  pace?: "instant" | "paced";
 }): Promise<{
   audio: Buffer;
   contentType: string;
@@ -129,13 +132,13 @@ async function synthesizeWithLadder(args: {
   degraded: boolean;
   failed: Array<{ rung: string; error: string }>;
 }> {
-  const { text, voice, lang, speed, callerId, callRef, keyOverride, model } = args;
+  const { text, voice, lang, speed, callerId, callRef, keyOverride, model, pace } = args;
   const failed: Array<{ rung: string; error: string }> = [];
 
   // Rung 1: primary ElevenLabs (BYOK or platform key).
   try {
     const result = await elevenTts(
-      { text, voice, speed, lang, callerId, callRef },
+      { text, voice, speed, lang, callerId, callRef, pace },
       { keyOverride },
     );
     return {
@@ -165,6 +168,8 @@ async function synthesizeWithLadder(args: {
         callerId,
         model: model ?? resolveTtsModel(lang),
         speed,
+        pace: pace ?? "paced",
+        lang,
       });
       return {
         audio: result.audio,
@@ -280,6 +285,12 @@ export async function POST(req: NextRequest) {
   const keyOverride = keyRes.mode === "byok" ? keyRes.keyOverride : undefined;
 
   try {
+    // Default to "paced" for agent-facing speech. Callers that pass no pace
+    // get the deliberate, slightly-slower setting the pitch describes (see
+    // `src/lib/deck.ts` and `src/lib/voice/presets.ts`). A caller that knows
+    // exactly what it wants — e.g. the agent's filler/prompt path — passes
+    // `pace: "instant"` explicitly.
+    const pace = (parsed.data.pace as VoicePace | undefined) ?? "paced";
     const result = await synthesizeWithLadder({
       text,
       voice,
@@ -288,6 +299,7 @@ export async function POST(req: NextRequest) {
       callerId,
       callRef,
       keyOverride,
+      pace,
     });
 
     // 5. Audit-chain append — redacted text only

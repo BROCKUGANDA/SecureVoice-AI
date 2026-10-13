@@ -323,7 +323,60 @@ jobs:
           # flag + diverged file = refused pull; flag + clean file = clean
           # pull). History: docs/VPS-RECOVERY.md, failure mode #2.
           git update-index --no-skip-worktree Caddyfile Caddyfile.platform 2>/dev/null || true
-          git pull --ff-only origin main
+
+          # ── Park box-local files that main has started to track ───────────────
+          #
+          # Measured 2026-10-13: this deploy died two seconds in, on every green
+          # main, with
+          #   error: The following untracked working tree files would be
+          #   overwritten by merge: scripts/drift-gates.mjs
+          #   Aborting
+          # Someone had written that script straight onto the box while debugging,
+          # and the commit that added it to the repository arrived later. Git will
+          # not silently overwrite an untracked file, so one stray copy held a
+          # 154-commit roll hostage — and the log made it look like a build error.
+          #
+          # The files are MOVED, never deleted, and only for paths this range
+          # actually writes. `git clean` is not the answer: the same checkout holds
+          # host-local state with no other copy (.env carries live secrets,
+          # sites.d/*.caddy is imported by the tracked Caddyfile), and a clean here
+          # would take production down to fix a pull.
+          #
+          # A collision on host-local state is a decision nobody should make at
+          # 3am inside an automated roll, so it stops the deploy loudly instead of
+          # guessing.
+          INCOMING_SHA="$(git rev-parse origin/main)"
+          COLLISION_DIR=".deploy-local-collisions"
+          parked=0
+          while IFS= read -r -d '' path; do
+            [ -e "$path" ] || continue
+            git ls-files --error-unmatch -- "$path" >/dev/null 2>&1 && continue
+            case "$path" in
+              .env|.env.*|sites.d/*)
+                echo "::error::$path is untracked on the box AND tracked by incoming main."
+                echo "::error::this is host-local state — reconcile it by hand, do not let a roll move it."
+                exit 1
+                ;;
+            esac
+            dest="$COLLISION_DIR/$INCOMING_SHA/$path"
+            mkdir -p "$(dirname "$dest")"
+            mv -- "$path" "$dest"
+            echo "parked box-local copy: $path -> $dest"
+            parked=$((parked + 1))
+          done < <(git diff --name-only -z HEAD "$INCOMING_SHA" --)
+          if [ "$parked" -gt 0 ]; then
+            echo "$parked box-local file(s) parked under ${COLLISION_DIR}/${INCOMING_SHA}/."
+            echo "diff them against the tracked versions; nothing here deletes them."
+          fi
+
+          if ! git pull --ff-only origin main; then
+            echo "::error::git pull --ff-only refused to roll ~/securevoice-ai forward."
+            echo "--- git status --short ---"
+            git status --short || true
+            echo "--- HEAD vs origin/main ---"
+            git rev-parse HEAD origin/main 2>/dev/null || true
+            exit 1
+          fi
           DEPLOY_SHA="$(git rev-parse HEAD)"
           echo "deployed commit: ${DEPLOY_SHA:0:12}"
 

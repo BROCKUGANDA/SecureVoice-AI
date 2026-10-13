@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { PublicPageLayout } from "@/components/shell/PublicPageLayout";
 import { Pricing } from "@/views/Pricing";
+import { ProductJsonLd } from "@/components/seo/JsonLd";
 import { countryFromHeaders } from "@/lib/geo";
 import { auth } from "@/lib/better-auth";
 
@@ -62,6 +63,15 @@ export default async function PricingPage() {
 
   return (
     <PublicPageLayout current="/pricing">
+      {/*
+        The plan/pricing schema moved here from the root layout, so a buyer who
+        lands on this URL gets a crawler that can read the actual prices, and
+        the legal pages stop advertising them.
+
+        `withFaq={false}` because nothing on this page is a question — see the
+        note on `withFaq` in JsonLd.tsx.
+      */}
+      <ProductJsonLd withFaq={false} />
       <Pricing country={country} customerEmail={customerEmail} />
     </PublicPageLayout>
   );

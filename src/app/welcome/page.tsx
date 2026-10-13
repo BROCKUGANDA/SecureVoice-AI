@@ -19,7 +19,7 @@ import { CheckCircle2 } from "lucide-react";
  */
 
 export const metadata = {
-  title: "Welcome — SecureVoice AI",
+  title: "Welcome",
   robots: { index: false, follow: false },
 };
 

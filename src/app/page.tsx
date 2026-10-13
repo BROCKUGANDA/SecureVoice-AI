@@ -84,11 +84,7 @@ const VIEWS: Record<View, React.ComponentType> = {
 
 export function AppRoot() {
   const { view, lang, setView, setTimedOut, highContrast } = useApp();
-  // `seat` comes from the membership row, NOT from `activeOrganizationId ? "operator"`
-  // — see the doc comment on useViewerSeat. Both values the gate below needs are
-  // read here so there is exactly one subscription and one chance of the header
-  // and the gate disagreeing.
-  const { seat, isLoading: seatLoading, isSignedIn } = useViewerSeat();
+  const { seat, isSignedIn, isLoading: seatLoading } = useViewerSeat();
 
   /* keep scroll sane between views */
   useEffect(() => {
@@ -177,19 +173,11 @@ export function AppRoot() {
       setView("auth");
       return;
     }
-    // A signed-in seat below the bar is sent to the DASHBOARD, not to the
-    // sign-in screen and not to the console. They ARE signed in, they simply may
-    // not open this screen, and bouncing to `/auth` told them to log in again
-    // with a perfectly valid session.
-    //
-    // The dashboard specifically: it is the one view every signed-in seat can
-    // reach (`judge` in VIEW_ACCESS), so it is a destination this gate can never
-    // itself reject. Sending them to the console instead — which is what an
-    // earlier version of this line did — is a redirect loop whenever the console
-    // is the very screen that was refused, because the console is `vendor` and a
-    // `judge` will be bounced straight back out of it, forever.
+    // A signed-in seat below the bar goes to the console rather than the
+    // sign-in screen: they ARE signed in, they simply may not open this one, and
+    // bouncing to `/auth` told them to log in again with a valid session.
     if (seat === null || !atLeast(seat, required)) {
-      setView(isSignedIn ? "dashboard" : "auth");
+      setView(isSignedIn ? "console" : "auth");
     }
   }, [view, isSignedIn, seat, seatLoading, setView]);
 

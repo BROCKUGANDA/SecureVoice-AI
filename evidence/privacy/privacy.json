@@ -121,7 +121,7 @@
     {
       "name": "erased-at-recorded",
       "ok": true,
-      "detail": "erasedAt=2026-10-13T02:10:45.053Z"
+      "detail": "erasedAt=2026-10-12T11:40:38.067Z"
     },
     {
       "name": "read-after-erasure-throws",
@@ -156,12 +156,12 @@
     {
       "name": "erasure-witness-in-chain",
       "ok": true,
-      "detail": "witness row cmv61npav000c1c7qojn83cg1 records keyDestroyed=true"
+      "detail": "witness row cmv56kq4k000cj47qf085oy55 records keyDestroyed=true"
     },
     {
       "name": "negative-control-tamper-is-detected",
       "ok": true,
-      "detail": "detected at cmv61np7y00081c7ql61mt9hd"
+      "detail": "detected at cmv56kq2f0008j47qlilczfuw"
     },
     {
       "name": "erasure-is-idempotent",
@@ -211,7 +211,7 @@
     {
       "name": "pilot-audio-is-zero-days",
       "ok": true,
-      "detail": "org-privacy-pilot-mv61nowt: audioDays=0 (source pilot)"
+      "detail": "org-privacy-pilot-mv56kpt4: audioDays=0 (source pilot)"
     },
     {
       "name": "pilot-leaves-other-tiers-alone",
@@ -291,7 +291,7 @@
     {
       "name": "dry-run-reports-due-work",
       "ok": true,
-      "detail": "dry run would act on 1 audio tier case(s): SV-P-mv61nowt-AUDIO0"
+      "detail": "dry run would act on 1 audio tier case(s): SV-P-mv56kpt4-AUDIO0"
     },
     {
       "name": "dry-run-reports-no-transcript-work",
@@ -301,7 +301,7 @@
     {
       "name": "zero-day-audio-purged-immediately",
       "ok": true,
-      "detail": "pilot case purged on the first run (SV-P-mv61nowt-AUDIO0)"
+      "detail": "pilot case purged on the first run (SV-P-mv56kpt4-AUDIO0)"
     },
     {
       "name": "thirty-day-audio-not-purged",
@@ -341,7 +341,7 @@
     {
       "name": "transcript-tier-fires-at-140-days",
       "ok": true,
-      "detail": "acted on 5 case(s): SV-P-mv61nowt-TIER, SV-P-mv61nowt-AUDIO30, SV-P-mv61nowt-KEYA, SV-P-mv61nowt-KEYB, SV-P-mv61nowt-SEAL"
+      "detail": "acted on 5 case(s): SV-P-mv56kpt4-TIER, SV-P-mv56kpt4-AUDIO30, SV-P-mv56kpt4-KEYA, SV-P-mv56kpt4-KEYB, SV-P-mv56kpt4-SEAL"
     },
     {
       "name": "transcript-tier-scrubs-payload",
@@ -471,19 +471,19 @@
     {
       "name": "master-key-in-process",
       "ok": true,
-      "detail": "master key resolved; ops fingerprint 998f3635deaad634 is a hash, not the key"
+      "detail": "master key resolved; ops fingerprint 8f992171c1e213c2 is a hash, not the key"
     }
   ],
-  "digest": "b75a5ef34155d0d2be1f29d794bb636db790497f8a60fcb8427886fe52cb08c8",
-  "generatedAt": "2026-10-13T02:10:46.290Z",
+  "digest": "db4cba56e4dee49e922032296674c72d088cd4b5a73c354919ac6bc88d370547",
+  "generatedAt": "2026-10-12T11:40:39.104Z",
   "run": {
-    "id": "mv61nowt",
+    "id": "mv56kpt4",
     "orgs": {
-      "default": "org-privacy-default-mv61nowt",
-      "pilot": "org-privacy-pilot-mv61nowt",
-      "override": "org-privacy-override-mv61nowt"
+      "default": "org-privacy-default-mv56kpt4",
+      "pilot": "org-privacy-pilot-mv56kpt4",
+      "override": "org-privacy-override-mv56kpt4"
     },
-    "batch": "SV-P-mv61nowt-BATCHORG",
+    "batch": "SV-P-mv56kpt4-BATCHORG",
     "database": "TEST_DATABASE_URL",
     "note": "identifiers above are per-run; the digest covers the deterministic core only"
   },

@@ -22,7 +22,7 @@ import {
   type IncomingMessage,
   type ServerResponse,
 } from "node:http";
-import { randomUUID } from "node:crypto";
+import { randomUUID, timingSafeEqual, createHash } from "node:crypto";
 import { env, SUPPORTED_LANGS } from "@/lib/config";
 import { db } from "@/lib/db";
 import type { TtsLang } from "@/lib/elevenlabs/client";
@@ -650,10 +650,24 @@ async function handleTranscript(
  * worker must also present it, which costs nothing and closes the "internal"
  * assumption to a check rather than a network diagram.
  */
+/** Equal-length, timing-safe comparison of a presented header to the shared
+ *  secret. Non-string (an array of values, or absent) is simply not a match. */
+function secretMatches(presented: unknown, expected: string): boolean {
+  if (typeof presented !== "string") return false;
+  const a = createHash("sha256").update(presented).digest();
+  const b = createHash("sha256").update(expected).digest();
+  return timingSafeEqual(a, b);
+}
+
 function handlePrewarm(url: URL, req: IncomingMessage, res: ServerResponse): void {
   if (PREWARM_SECRET) {
     const presented = req.headers["x-prewarm-secret"];
-    if (presented !== PREWARM_SECRET) {
+    // `timingSafeEqual` rather than `!==`, and a digest of both sides first: the
+    // comparison throws on unequal lengths, which would turn the secret's length
+    // into the error path. A shared secret compared by `!==` is a per-character
+    // oracle, and the repo already uses the digest-then-compare shape for HMAC
+    // verification (src/lib/twilio.ts, src/lib/payments/paddle.ts).
+    if (!secretMatches(presented, PREWARM_SECRET)) {
       res.writeHead(401, { "content-type": "application/json" });
       res.end(JSON.stringify({ ok: false, error: "invalid prewarm secret" }));
       return;

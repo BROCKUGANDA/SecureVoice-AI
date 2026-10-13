@@ -65,7 +65,7 @@ import "server-only";
  * the network from.
  */
 
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import {
   assertMoney,
   entitlementsFor,
@@ -183,8 +183,13 @@ export function ulid(now: number = Date.now()): string {
     time = ULID_ALPHABET[t % 32] + time;
     t = Math.floor(t / 32);
   }
-  const buf = new Uint8Array(16);
-  for (let i = 0; i < 16; i++) buf[i] = Math.floor(Math.random() * 256);
+  // CSPRNG, not `Math.random()`: this 80 bits is the only thing separating one
+  // payment reference from the next, and `buildReference()` hands the result to
+  // the gateway as the merchant-side id a webhook is matched on. A V8 xorshift
+  // seeded by the process start is reconstructible from two nearby references,
+  // which is why src/lib/ids.ts exists and names it. Same fix, same file, for
+  // the reference that authorises a charge.
+  const buf = randomBytes(16);
   let random = "";
   for (const byte of buf) random = ULID_ALPHABET[byte % 32] + random;
   return (time + random).slice(0, 26);

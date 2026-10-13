@@ -252,10 +252,21 @@ services:
       # to send — it does not crash-loop, so a deployment that has not configured
       # email yet still starts cleanly.
       RESEND_API_KEY: ${RESEND_API_KEY:-}
-      RESEND_FROM_EMAIL: ${RESEND_FROM_EMAIL:-SecureVoice AI <onboarding@resend.dev>}
+      # No default. `src/lib/email/resend.ts:fromAddress()` already falls back to
+      # support@securevoiceai.me and its comment records why the shared
+      # `onboarding@resend.dev` placeholder was removed: mail from a Resend
+      # subdomain is SPF/DKIM-aligned with Resend, not with the operator's
+      # domain, so a compose deploy that inherited the placeholder here would
+      # silently re-add the thing the code decided against.
+      RESEND_FROM_EMAIL: ${RESEND_FROM_EMAIL:-}
       RESEND_REPLY_TO: ${RESEND_REPLY_TO:-}
       # Link origin used when a queued message is re-rendered at send time.
-      APP_BASE_URL: ${APP_BASE_URL:-http://localhost:3000}
+      # Deliberately no `:-http://localhost:3000`: `baseUrl()` throws when the
+      # origin is unset precisely so a password-reset or magic link is never
+      # mailed pointing at a machine the recipient cannot reach, and a default
+      # here makes that guard unreachable — the mail goes out, the link is dead,
+      # and the worker logs a clean send.
+      APP_BASE_URL: ${APP_BASE_URL:-${NEXT_PUBLIC_APP_URL:-}}
       # Poll interval for the drain loop.
       EMAIL_WORKER_POLL_MS: ${EMAIL_WORKER_POLL_MS:-10000}
       EMAIL_WORKER_BATCH: ${EMAIL_WORKER_BATCH:-25}

@@ -176,5 +176,16 @@ describe("TTS model resolution", () => {
     // deployment, and nothing reports the difference.
     const stream = readFileSync(join(ROOT, "src", "lib", "voice", "elevenlabs-stream.ts"), "utf8");
     expect(stream).not.toMatch(/modelId\s*\?\?\s*["']eleven_/);
+    // The same file carried the voice character as literals — `stability: 0.5` —
+    // while src/lib/config.ts documents a deliberate 0.7 for this agent ("this
+    // agent reads money back to a frightened cardholder", and lower stability is
+    // more expressive variance between utterances). The knob existed, was
+    // documented in .env.example, was applied to the console preview, and never
+    // reached live call audio. A settings literal here is the deployment's
+    // `TTS_VOICE_*` being silently ignored on the plane customers actually hear.
+    expect(stream).not.toMatch(/voiceSettings:\s*\{[^}]*stability:\s*[\d.]/);
+    expect(stream).not.toMatch(/voiceSettings:\s*\{[^}]*similarityBoost:\s*[\d.]/);
+    expect(stream).toContain("env.voiceStability");
+    expect(stream).toContain("env.voiceSimilarityBoost");
   });
 });

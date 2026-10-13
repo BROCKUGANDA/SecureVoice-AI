@@ -49,10 +49,37 @@ const REQUEST_ID = "x-request-id";
 const EDGE_RATE_PER_HOUR = Number(process.env.EDGE_RATE_LIMIT_PER_HOUR) || 600;
 
 /**
- * Paths exempt from the rate limiter — infrastructure probes and static assets,
- * which would otherwise consume a shared bucket.
+ * Paths exempt from the rate limiter entirely — static assets and framework
+ * internals, which are not decisions about callers at all.
  */
-const RL_EXEMPT = [/^\/api\/health$/, /^\/_next\//, /^\/favicon\.ico$/, /^\/robots\.txt$/];
+const STATIC_EXEMPT = [/^\/_next\//, /^\/favicon\.ico$/, /^\/robots\.txt$/];
+
+/**
+ * The paths the INFRASTRUCTURE probes, and the budget it gets.
+ *
+ * These are not user traffic. Caddy active-checks `health_uri /api/readyz` every
+ * 10s, once per reverse_proxy block (the `/v1/*` handler and the main handler), and
+ * only `health_status 2xx` counts as healthy. The probes arrive without a proxy
+ * marker, so `clientIp()` keys every one of them as the same caller — and two 10s
+ * handlers is 720 requests an hour against a 600/hour page budget. The load balancer
+ * was therefore always going to be throttled by the thing it probes; production logs
+ * show the resulting stream of `429 rate_limited` on `/api/readyz`.
+ *
+ * A 429 there is not noise: Caddy may pull a healthy origin out of rotation for it,
+ * and ADR-008's graceful drain signals "leaving rotation" with a 503 from this same
+ * path, so a second meaning on the probe breaks a deployment mechanism.
+ *
+ * Probes are NOT exempt, though. `/api/readyz` reads the database, and an
+ * unthrottled DB-backed endpoint is a cheap way to buy load. They get their own
+ * bucket instead: a ceiling no legitimate probe schedule approaches (720/h here,
+ * 6000/h there) and still far below what hammering looks like.
+ *
+ * Exported because tests/surface/probe-budget.test.ts reads the Caddyfile's
+ * `health_uri` list and fails if it ever points at a path this list would throttle.
+ */
+export const PROBE_PATHS = [/^\/api\/health$/, /^\/api\/readyz$/];
+
+const PROBE_RATE_PER_HOUR = Number(process.env.PROBE_RATE_LIMIT_PER_HOUR) || 6000;
 
 /**
  * Hard ceiling on any request body. Set above experimental.proxyClientMaxBodySize
@@ -353,9 +380,17 @@ export default async function proxy(req: NextRequest): Promise<NextResponse> {
 
   // 2. Pre-auth rate limit, before any session lookup and before any body is
   //    handler runs. Keyed by resolved client IP so one noisy caller cannot
-  //    exhaust a shared bucket.
-  if (!RL_EXEMPT.some((re) => re.test(pathname))) {
-    const rl = await consume("edge", clientIp(req), 1, EDGE_RATE_PER_HOUR);
+  //    exhaust a shared bucket — with one deliberate exception: infrastructure
+  //    probes get their own scope, because a load balancer that is throttled by
+  //    the origin it is checking turns a healthy deployment into an outage.
+  if (!STATIC_EXEMPT.some((re) => re.test(pathname))) {
+    const probe = PROBE_PATHS.some((re) => re.test(pathname));
+    const rl = await consume(
+      probe ? "probe" : "edge",
+      clientIp(req),
+      1,
+      probe ? PROBE_RATE_PER_HOUR : EDGE_RATE_PER_HOUR,
+    );
     if (!rl.ok) {
       return reject(req, 429, "rate_limited", requestId, {
         "Retry-After": String(Math.ceil(rl.retryAfterMs / 1000)),

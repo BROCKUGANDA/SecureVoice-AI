@@ -7,6 +7,12 @@ build/
 coverage/
 tool-results/
 
+# Vendored minified bundles are downloaded artifacts, not source. Reformatting
+# one expands it into a diff nobody can review, and the next download of the
+# same file undoes it.
+**/*.min.js
+**/*.min.css
+
 # Prisma ORM v7 client output: regenerable TypeScript that lives under src/
 # so the bundler can compile it. Same category as tool-results/.
 src/generated/

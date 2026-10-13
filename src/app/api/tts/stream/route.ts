@@ -148,15 +148,15 @@ export async function POST(req: NextRequest) {
   }
   if (keyRes.mode === "anon") {
     // The same ceiling as the buffered route. Enforcing it on one door only would
-    // leave the other unmetered, and the demo streams through this one.
-    const allowed = await allowAnonTurn(keyRes, rateLimitId(req), text.length);
-    if (!allowed.ok) {
+    // leave the other unmetered, and the demo streams through this one. The
+    // limiter's own result goes into `rateLimitHeaders` rather than a hand-built
+    // Retry-After, so an anonymous refusal reports the same trio as any other
+    // bucket denial (tests/unit/rate-limit-headers.test.ts).
+    const rl = await allowAnonTurn(keyRes, rateLimitId(req), text.length);
+    if (!rl.ok) {
       return NextResponse.json(
         { error: "Demo voice budget spent — sign in, or supply your own ElevenLabs key." },
-        {
-          status: 429,
-          headers: { "Retry-After": String(Math.ceil(allowed.retryAfterMs / 1000)) },
-        },
+        { status: 429, headers: rateLimitHeaders(rl) },
       );
     }
   }

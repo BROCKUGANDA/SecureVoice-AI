@@ -104,6 +104,10 @@ mock.module("@/lib/tts-quota", () => ({
         : { mode: "platform", userId: "user-1" },
   consumeCharQuota: async () => ({ ok: true }),
   quotaExceededResponse: () => ({ error: "Daily character quota exceeded." }),
+  // The routes import this for the anonymous demo ceiling, so a stub of the module
+  // must carry it or importing the route under this mock throws at load and the
+  // whole ladder suite errors out without testing a single rung.
+  allowAnonTurn: async () => ({ ok: true, limit: 2000, remaining: 1990, resetMs: 60_000 }),
 }));
 
 mock.module("@/lib/ratelimit", () => ({

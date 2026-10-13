@@ -291,11 +291,14 @@ export async function POST(req: NextRequest) {
     // The public demo, under the deployment's anonymous ceiling. Refused here
     // rather than quietly downgraded: the caller is told the demo budget is spent,
     // and the browser fallback says what it is (see src/lib/voice-client.ts).
-    const allowed = await allowAnonTurn(keyRes, callerId, text.length);
-    if (!allowed.ok) {
+    // The limiter result is handed to `tooManyRequests` whole so the refusal carries
+    // the canonical trio; rebuilding Retry-After here is what the header contract
+    // in tests/unit/rate-limit-headers.test.ts exists to prevent.
+    const rl = await allowAnonTurn(keyRes, callerId, text.length);
+    if (!rl.ok) {
       return tooManyRequests(
         "Demo voice budget spent — sign in, or supply your own ElevenLabs key.",
-        Math.ceil(allowed.retryAfterMs / 1000),
+        rl,
       );
     }
   }

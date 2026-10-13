@@ -17,7 +17,7 @@ import { getProfile } from "@/lib/credits";
 import { db } from "@/lib/db";
 import { decryptSecret } from "@/lib/byok";
 import { env, dailyCharLimit, anonCharPerHour } from "@/lib/config";
-import { consume as consumeRate } from "@/lib/ratelimit";
+import { consume as consumeRate, type ConsumeResult } from "@/lib/ratelimit";
 import { auth } from "@/lib/better-auth";
 import { notify } from "@/lib/notifications";
 import { headers } from "next/headers";
@@ -134,14 +134,19 @@ function anonOrRefuse(reason: string): TtsKeyResolution {
  * The bucket is charged in CHARACTERS, not requests: `cost` is the text length, the
  * same unit the signed-in daily counter uses, so a caller cannot spend the anonymous
  * allowance faster by sending many short requests.
+ *
+ * It returns the limiter's own result rather than a trimmed `{ok}` shape, because the
+ * routes answer 429 from it and `rate-limit-headers` requires every bucket refusal to
+ * emit `X-RateLimit-Limit` / `-Remaining` / `Retry-After`. A helper that swallowed the
+ * capacity would force its callers to rebuild the trio by hand or omit it, and the
+ * whole point of the shared type is that the shape cannot degrade per call site.
  */
 export async function allowAnonTurn(
   res: Extract<TtsKeyResolution, { mode: "anon" }>,
   callerId: string,
   chars: number,
-): Promise<{ ok: true } | { ok: false; retryAfterMs: number }> {
-  const r = await consumeRate("tts-anon", callerId, chars, res.charsPerHour);
-  return r.ok ? { ok: true } : { ok: false, retryAfterMs: r.retryAfterMs };
+): Promise<ConsumeResult> {
+  return consumeRate("tts-anon", callerId, chars, res.charsPerHour);
 }
 
 /**

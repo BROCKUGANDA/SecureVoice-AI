@@ -1015,23 +1015,6 @@ jobs:
     name: Lighthouse budgets (live origin)
     runs-on: [self-hosted, securevoice-vps]
     needs: verify
-    # REPORT-ONLY, deliberately — see below.
-    #
-    # This job measures the LIVE origin. The deploy workflow is gated on CI being
-    # green. So a budget the live site cannot currently meet blocks the very deploy
-    # that would fix it: a ratchet that only tightens on the artefact it gates is a
-    # deadlock, not a gate, and the first run proved it — red on day one, with
-    # performance 39 (bar 75), LCP 6723ms (bar 4000) and 5 critical/serious a11y
-    # violations, against a site nobody had changed.
-    #
-    # So the measurement stays and the block goes. The report is still produced and
-    # uploaded and the run still shows the numbers, so the trend is trackable; what
-    # changes is that a regression stops halting production while the numbers come
-    # back under the bar.
-    #
-    # Deleting this line is the whole change once the live site clears every budget,
-    # and it should be deleted then.
-    continue-on-error: true
     if: >-
       github.event_name != 'pull_request' ||
       github.event.pull_request.head.repo.full_name == github.repository

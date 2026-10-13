@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef } from "react";
+import dynamic from "next/dynamic";
 import { motion, AnimatePresence, MotionConfig } from "framer-motion";
 import { useApp, t, VIEW_ACCESS, ACCESS_SEAT, type View } from "@/lib/store";
 import { atLeast } from "@/lib/auth/seat";
@@ -10,21 +11,57 @@ import { cn } from "@/lib/utils";
 import { Navbar } from "@/components/shell/Navbar";
 import { Footer } from "@/components/shell/Footer";
 import { Home } from "@/views/Home";
-import { Demo } from "@/views/Demo";
-import { Dashboard } from "@/views/Dashboard";
-import { Product } from "@/views/Product";
-import { UseCases } from "@/views/UseCases";
-import { Docs } from "@/views/Docs";
-import { Security } from "@/views/Security";
-import { Privacy, Terms, Refund } from "@/views/Legal";
-import { Pricing } from "@/views/Pricing";
-import { Deck } from "@/views/Deck";
-import { Auth } from "@/views/Auth";
-import { Console } from "@/views/Console";
-import { Settings } from "@/views/Settings";
-import { SetupWizard } from "@/views/SetupWizard";
 import { IdleTimeoutHandler } from "@/components/shell/IdleTimeoutHandler";
 import { TwoFactorPrompt } from "@/components/security/TwoFactorPrompt";
+
+/**
+ * Only `Home` is bundled into the initial page.
+ *
+ * Everything else is code-split. This file is the app's single client-side
+ * router — it renders marketing, docs, legal AND the authenticated Command
+ * Center from one `view` state — so a static import of every view meant a
+ * first-time visitor downloaded the entire product, chart library included,
+ * before the hero could paint.
+ *
+ * Measured against the live origin: 0.73 MB of script, 5.4 s of main-thread
+ * work, and 2.6 s of Lighthouse's "unused JavaScript" budget on `/`, with the
+ * largest contentful paint landing 8.5 s after first contentful paint. The page
+ * was not slow because it was heavy — it was heavy because one visitor's journey
+ * decided what everyone downloads.
+ *
+ * `Home` stays eager on purpose: it is the LCP element on `/`, and deferring it
+ * would trade a smaller bundle for a later first paint, which is the wrong
+ * trade on the one screen almost every visitor lands on.
+ *
+ * The authenticated views (dashboard, console, settings, setup) are the real
+ * prize here — they are behind a sign-in that most visitors never reach, and
+ * they are the heaviest of the set.
+ *
+ * `loading` keeps the frame occupied while a chunk lands. There is no spinner
+ * because the swap already runs inside an `AnimatePresence` transition; an
+ * empty frame would read as a blank page rather than a load.
+ */
+const viewChunk = (loader: () => Promise<unknown>) =>
+  dynamic(loader as () => Promise<{ default: React.ComponentType }>, {
+    ssr: false,
+    loading: () => <div className="min-h-[60vh]" aria-hidden />,
+  });
+
+const Demo = viewChunk(() => import("@/views/Demo"));
+const Dashboard = viewChunk(() => import("@/views/Dashboard"));
+const Product = viewChunk(() => import("@/views/Product"));
+const UseCases = viewChunk(() => import("@/views/UseCases"));
+const Docs = viewChunk(() => import("@/views/Docs"));
+const Security = viewChunk(() => import("@/views/Security"));
+const Pricing = viewChunk(() => import("@/views/Pricing"));
+const Privacy = viewChunk(() => import("@/views/Legal").then((m) => ({ default: m.Privacy })));
+const Terms = viewChunk(() => import("@/views/Legal").then((m) => ({ default: m.Terms })));
+const Refund = viewChunk(() => import("@/views/Legal").then((m) => ({ default: m.Refund })));
+const Deck = viewChunk(() => import("@/views/Deck"));
+const Auth = viewChunk(() => import("@/views/Auth"));
+const Console = viewChunk(() => import("@/views/Console"));
+const Settings = viewChunk(() => import("@/views/Settings"));
+const SetupWizard = viewChunk(() => import("@/views/SetupWizard"));
 
 const VIEWS: Record<View, React.ComponentType> = {
   home: Home,

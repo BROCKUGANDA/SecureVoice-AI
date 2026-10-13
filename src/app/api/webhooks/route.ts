@@ -50,14 +50,15 @@ export const dynamic = "force-dynamic";
 const DEMO_SECRET =
   process.env.WEBHOOK_DEMO_SECRET || `whsec_demo_${randomBytes(24).toString("hex")}`;
 
-const EVENTS = new Set([
-  "intervention.started",
-  "identity.verified",
-  "account.frozen",
-  "customer.confirmed",
-  "case.closed",
-  "escalated.human",
-]);
+/**
+ * The signable events.
+ *
+ * This replaces a separate `EVENTS` Set that duplicated these exact six keys.
+ * Two allowlists for one decision is a pair that can disagree: adding an event to
+ * the map but not the set (or the reverse) yields a route that 422s an event its
+ * own docs list, and nothing catches it. The map below is now the only list, and
+ * membership is proven by the lookup rather than asserted separately.
+ */
 
 const signSchema = z.object({
   action: z.literal("sign"),
@@ -160,13 +161,18 @@ export async function POST(req: NextRequest) {
   const parsedSign = signSchema.safeParse(body);
   if (parsedSign.success) {
     const { event } = parsedSign.data;
-    if (!EVENTS.has(event)) {
+    // Membership in SAMPLES is the allowlist — see its declaration. Under
+    // `noUncheckedIndexedAccess` the lookup is `| undefined`, so this guard is
+    // both the unknown-event rejection and the type narrowing that lets the call
+    // below be made at all.
+    const sample = SAMPLES[event];
+    if (!sample) {
       return NextResponse.json({ error: `Unknown event "${event}"` }, { status: 422 });
     }
     const t = Math.floor(Date.now() / 1000).toString();
     const id = `evt_${randomBytes(6).toString("hex")}`;
     const created = new Date().toISOString();
-    const payload = JSON.stringify(SAMPLES[event](id, created));
+    const payload = JSON.stringify(sample(id, created));
     const v1 = hmac(t, payload);
     return NextResponse.json({
       ok: true,
@@ -183,14 +189,19 @@ export async function POST(req: NextRequest) {
   const parsedVerify = verifySchema.safeParse(body);
   if (parsedVerify.success) {
     const { payload, header } = parsedVerify.data;
-    const m = /^t=(\d{10}),v1=([0-9a-f]{64})$/.exec(header.trim());
+    const m = /^t=(?<t>\d{10}),v1=(?<v1>[0-9a-f]{64})$/.exec(header.trim());
     if (!m) {
       return NextResponse.json(
         { valid: false, reason: "Malformed signature header — expected t={unix},v1={hex64}" },
         { status: 200 },
       );
     }
-    const [, t, v1] = m;
+    // Named captures rather than a destructured exec array: under
+    // `noUncheckedIndexedAccess` the array's elements are `string | undefined`.
+    // `groups` is an index signature, which has the same problem, so it is
+    // narrowed once here — the regex makes both groups mandatory, so this is a
+    // statement about the pattern above, not a hope about the runtime.
+    const { t, v1 } = m.groups as { t: string; v1: string };
     // replay protection: reject deliveries older than 5 minutes
     const age = Math.floor(Date.now() / 1000) - Number(t);
     if (age > 300) {

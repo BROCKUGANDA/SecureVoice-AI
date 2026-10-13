@@ -387,7 +387,7 @@ export async function POST(req: NextRequest) {
   const callerId = rateLimitId(req);
 
   // 1. Rate limit BEFORE we parse the body (cheapest possible reject)
-  const rl = consumeRateLimit("agent", callerId);
+  const rl = await consumeRateLimit("agent", callerId);
   if (!rl.ok) {
     return tooManyRequests("Rate limit exceeded; retry later.", rl);
   }

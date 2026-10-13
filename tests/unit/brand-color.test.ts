@@ -189,7 +189,9 @@ describe("evaluateBrandPrimary", () => {
     if (!v.ok) return;
     expect(v.primary).toBe("#000000");
     expect(v.lightPrimary).toBe("#000000");
-    expect(contrastRatio(v.lightPrimary, LIGHT_SURFACE)).toBeGreaterThanOrEqual(AA_NON_TEXT_CONTRAST);
+    expect(contrastRatio(v.lightPrimary, LIGHT_SURFACE)).toBeGreaterThanOrEqual(
+      AA_NON_TEXT_CONTRAST,
+    );
   });
 
   test("refuses a non-hex with a reason the operator can act on", () => {

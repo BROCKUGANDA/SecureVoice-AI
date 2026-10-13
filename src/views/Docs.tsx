@@ -60,14 +60,14 @@ export function Docs() {
                   className={cn(
                     "group flex shrink-0 items-center gap-2.5 rounded-xl px-3.5 py-2.5 text-[13.5px] font-medium transition lg:w-full",
                     active
-                      ? "bg-[#0c110e] text-white shadow-sm"
+                      ? "bg-primary text-white shadow-sm"
                       : "text-ink-2 hover:bg-white hover:text-foreground",
                   )}
                 >
                   <s.icon
                     className={cn(
                       "h-4 w-4",
-                      active ? "text-green-bright" : "text-ink-3 group-hover:text-primary",
+                      active ? "text-primary" : "text-ink-3 group-hover:text-primary",
                     )}
                   />
                   <span>{lang === "ar" ? s.ar : s.en}</span>
@@ -278,21 +278,21 @@ function CodeBlock({ title, code }: { title: string; code: string }) {
     } catch {}
   };
   return (
-    <div className="overflow-hidden rounded-2xl border border-line bg-[#0c110e]">
-      <div className="flex items-center justify-between border-b border-white/10 px-4 py-2.5">
-        <span className="flex items-center gap-2 font-mono text-[10.5px] uppercase tracking-wider text-white/50">
+    <div className="overflow-hidden rounded-2xl border border-line bg-card">
+      <div className="flex items-center justify-between border-b border-line px-4 py-2.5">
+        <span className="flex items-center gap-2 font-mono text-[10.5px] uppercase tracking-wider text-ink-2">
           <Terminal className="h-3 w-3" /> {title}
         </span>
         <button
           onClick={copy}
-          className="flex items-center gap-1.5 rounded-md px-2 py-1 font-mono text-[10.5px] text-white/60 transition hover:bg-white/10 hover:text-white"
+          className="flex items-center gap-1.5 rounded-md px-2 py-1 font-mono text-[10.5px] text-ink-2 transition hover:bg-secondary hover:text-foreground"
           aria-label={t("Copy code", "نسخ الشيفرة", lang)}
         >
-          {copied ? <Check className="h-3 w-3 text-green-bright" /> : <Copy className="h-3 w-3" />}
+          {copied ? <Check className="h-3 w-3 text-primary" /> : <Copy className="h-3 w-3" />}
           {copied ? t("copied", "تم النسخ", lang) : t("copy", "نسخ", lang)}
         </button>
       </div>
-      <pre className="overflow-x-auto px-4 py-3.5 font-mono text-[12px] leading-relaxed text-white/85 sv-scroll">
+      <pre className="overflow-x-auto px-4 py-3.5 font-mono text-[12px] leading-relaxed text-ink-2 sv-scroll">
         {code}
       </pre>
     </div>

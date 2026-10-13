@@ -25,7 +25,7 @@ import { dash, sentinel } from "@better-auth/infra";
 import { organization } from "better-auth/plugins/organization";
 import { twoFactor } from "better-auth/plugins/two-factor";
 import { db } from "@/lib/db";
-import { sendResetPassword } from "@/lib/email/resend";
+import { sendResetPassword } from "@/lib/email/deliverers";
 import { trustedOriginsFromEnv } from "@/lib/auth/origins";
 import { logError } from "@/lib/validation/safe-log";
 import {

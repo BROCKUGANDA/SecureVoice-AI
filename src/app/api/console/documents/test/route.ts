@@ -36,7 +36,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const rl = consumeRateLimit("console-documents-test", guard.profile.userId);
+  const rl = await consumeRateLimit("console-documents-test", guard.profile.userId);
   if (!rl.ok) {
     return NextResponse.json(
       { error: "Rate limit exceeded; retry later." },

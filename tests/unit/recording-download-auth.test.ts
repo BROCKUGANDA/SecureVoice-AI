@@ -66,7 +66,9 @@ mock.module("@/lib/validation/safe-log", () => ({
       },
     ]),
   ),
-  logError: () => {/* empty */},
+  logError: () => {
+    /* empty */
+  },
 }));
 
 function uuid(slot: number): string {

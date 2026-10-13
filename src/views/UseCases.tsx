@@ -479,12 +479,12 @@ export function UseCases() {
 
       {/* closing band */}
       <Reveal delay={0.1}>
-        <div className="mt-10 flex flex-col items-center justify-between gap-4 rounded-3xl bg-[#0c110e] px-8 py-7 text-white sm:flex-row">
+        <div className="mt-10 flex flex-col items-center justify-between gap-4 rounded-3xl border border-line bg-card px-8 py-7 text-foreground sm:flex-row">
           <div>
             <div className="font-display text-[17px] font-semibold tracking-tight">
               {t("Hear the platform speak", "استمع إلى المنصة تتحدث", lang)}
             </div>
-            <p className="mt-1 text-[13px] text-white/60">
+            <p className="mt-1 text-[13px] text-ink-2">
               {t(
                 "Four languages, three triggerable fraud cases, one guardrailed engine — 61 seconds, signal to freeze.",
                 "أربع لغات، ثلاث حالات احتيال قابلة للتفعيل، محرك واحد خاضع للضمانات — ٦١ ثانية من الإشارة إلى التجميد.",
@@ -513,7 +513,7 @@ export function UseCases() {
             {standalone ? (
               <a
                 href="/docs"
-                className="group flex items-center gap-2 rounded-full border border-white/20 px-5 py-2.5 text-[13px] font-semibold text-white/90 transition hover:bg-white/10"
+                className="group flex items-center gap-2 rounded-full border border-line px-5 py-2.5 text-[13px] font-semibold text-foreground/90 transition hover:bg-secondary"
               >
                 {t("Read the docs", "اقرأ التوثيق", lang)}
                 <ArrowRight className="h-3.5 w-3.5 transition group-hover:translate-x-0.5" />
@@ -521,7 +521,7 @@ export function UseCases() {
             ) : (
               <button
                 onClick={() => useApp.getState().setView("docs")}
-                className="group flex items-center gap-2 rounded-full border border-white/20 px-5 py-2.5 text-[13px] font-semibold text-white/90 transition hover:bg-white/10"
+                className="group flex items-center gap-2 rounded-full border border-line px-5 py-2.5 text-[13px] font-semibold text-foreground/90 transition hover:bg-secondary"
               >
                 {t("Read the docs", "اقرأ التوثيق", lang)}
                 <ArrowRight className="h-3.5 w-3.5 transition group-hover:translate-x-0.5" />

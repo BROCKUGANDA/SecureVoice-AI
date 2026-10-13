@@ -22,6 +22,31 @@ export async function register() {
     });
   }
 
+  // Rate-limit backend. Chosen here, once, because this is the only place that
+  // runs on the Node runtime before any route handler — and a limiter whose
+  // store were chosen per-request would just be the in-process one again.
+  //
+  // REDIS_URL present => a shared, cluster-wide bucket. Absent => per-process
+  // memory, which is only equivalent on a single instance. The distinction is
+  // logged rather than assumed: "rate limiting is on" is not the same claim as
+  // "the limit being enforced is the one we configured", and on a multi-instance
+  // box only one of those two is true.
+  try {
+    const { installRateLimitStoreFromEnv } = await import("@/lib/ratelimit");
+    const store = await installRateLimitStoreFromEnv();
+    logWarn("[ratelimit] store installed", {
+      store,
+      detail:
+        store === "memory"
+          ? "REDIS_URL unset — limits are per-process and reset on restart. Set REDIS_URL for a cluster-wide limit."
+          : "REDIS_URL set — limits are shared across instances.",
+    });
+  } catch (err) {
+    logError("[ratelimit] store install failed — continuing with the in-process default", {
+      error: err instanceof Error ? err.message : err,
+    });
+  }
+
   // Axiom log shipping. Registered HERE, not imported by `safe-log` itself,
   // because `safe-log` is bundled into the edge proxy and the browser bundle
   // (`src/proxy.ts`, `src/lib/languages.ts`) where `server-only` and

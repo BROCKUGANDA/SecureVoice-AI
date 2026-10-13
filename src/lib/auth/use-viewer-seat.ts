@@ -1,10 +1,7 @@
 "use client";
 
 import { useSession, authClient } from "@/lib/auth-client";
-import {
-  seatFromMembershipRole,
-  type Seat,
-} from "@/lib/auth/seat";
+import { seatFromMembershipRole, type Seat } from "@/lib/auth/seat";
 
 /**
  * The signed-in seat, read from the ORGANIZATION MEMBERSHIP.

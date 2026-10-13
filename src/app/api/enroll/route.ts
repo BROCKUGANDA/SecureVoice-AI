@@ -102,7 +102,7 @@ async function authorize(
 export async function POST(req: NextRequest) {
   const callerId = rateLimitId(req, "enroll");
 
-  const rl = consumeRateLimit("enroll", callerId);
+  const rl = await consumeRateLimit("enroll", callerId);
   if (!rl.ok) {
     return NextResponse.json(
       { error: "Rate limit exceeded; retry later." },

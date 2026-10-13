@@ -367,7 +367,7 @@ async function guardedRequest(o: RequestOptions): Promise<GuardOutcome> {
   }
 
   // 1. Throttle — before any spend, so a loop costs nothing but a refusal.
-  const rl = consumeRateLimit("elevenlabs-egress", callerId, 1, egressPerHour());
+  const rl = await consumeRateLimit("elevenlabs-egress", callerId, 1, egressPerHour());
   if (!rl.ok) {
     return {
       kind: "refusal",

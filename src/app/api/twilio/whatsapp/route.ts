@@ -78,7 +78,7 @@ export async function POST(req: NextRequest) {
     return refused(403);
   }
 
-  const rl = consumeRateLimit("twilio-whatsapp", ip, 1, 5);
+  const rl = await consumeRateLimit("twilio-whatsapp", ip, 1, 5);
   if (!rl.ok) return twiml(null);
 
   const from = stripWa(params.From);

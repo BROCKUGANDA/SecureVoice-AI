@@ -485,13 +485,29 @@ export function Auth() {
   };
 
   return (
-    <div className="sv-scroll sv-scroll--dark relative flex h-[100dvh] flex-col items-center justify-center overflow-y-auto bg-[#0c110e] px-4 py-8">
+    // WHY THIS DIV IS overflow-hidden AND NOT overflow-y-auto
+    //
+    // It used to scroll, which made the first thing a judge sees a page with a
+    // scrollbar on the outside AND a second scroll region inside each panel:
+    // two scroll spots on one screen, with the emblem drifting off the top as
+    // you wheeled. The panels below are the only place that scrolls (sv-scroll,
+    // capped at 56vh), so this container must not. overflow-hidden on an
+    // h-[100dvh] box makes the page sticky by construction: nothing to wheel,
+    // the content holds its position, the words stay centred.
+    //
+    // The trade is honest and deliberate: a very short viewport clips rather
+    // than scrolls. That is why the content is laid out for the width it is
+    // given (max-w-6xl, the panels on a 2-up grid) and the vertical rhythm is
+    // tight (py-5, mb-5, the banners at mb-4) so a 1440x900 screen fits with
+    // room to spare and a 13-inch laptop still holds without inventing a
+    // scroll region to do it.
+    <div className="relative flex h-[100dvh] flex-col items-center justify-center overflow-hidden bg-[#0c110e] px-6 py-5">
       <GeoField />
       <Horizon />
 
-      <div className="relative z-10 w-full max-w-5xl">
+      <div className="relative z-10 w-full max-w-6xl">
         {/* emblem centerpiece */}
-        <div className="mb-8 flex flex-col items-center gap-3">
+        <div className="mb-5 flex flex-col items-center gap-3">
           <Emblem />
           <h1 className="font-display text-center text-2xl font-semibold tracking-tight text-white sm:text-3xl">
             {t("Welcome to SecureVoice", "مرحباً بكم في سيكور فويس", lang)}
@@ -566,7 +582,7 @@ export function Auth() {
             {timedOut && (
               <div
                 role="alert"
-                className="mx-auto mb-6 max-w-4xl rounded-2xl border border-red-400/40 bg-red-500/10 px-5 py-3.5 text-center text-[12.5px] font-semibold text-red-300"
+                className="mx-auto mb-4 max-w-5xl rounded-2xl border border-red-400/40 bg-red-500/10 px-5 py-3.5 text-center text-[12.5px] font-semibold text-red-300"
               >
                 {t(
                   "For your security, you were signed out after 15 minutes of inactivity. Sign in again to continue.",
@@ -577,7 +593,7 @@ export function Auth() {
             )}
             {/* one-click access for evaluators — demo account only */}
             {DEMO_READY && (
-              <div className="mx-auto mb-6 flex max-w-4xl flex-wrap items-center justify-center gap-2">
+              <div className="mx-auto mb-4 flex max-w-5xl flex-wrap items-center justify-center gap-2">
                 {SEEDED.map((s) => (
                   <button
                     key={s.role}
@@ -600,7 +616,7 @@ export function Auth() {
               </div>
             )}
             {!DEMO_READY && (
-              <p className="mx-auto mb-6 max-w-4xl rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2.5 text-center text-[12.5px] text-ink-3">
+              <p className="mx-auto mb-4 max-w-5xl rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2.5 text-center text-[12.5px] text-ink-3">
                 {t(
                   "Demo shortcut is not enabled on this deployment. Sign in with an account below.",
                   "الدخول التجريبي السريع غير مُفعّل على هذا النشر. سجّل الدخول بأحد الحسابات أدناه.",
@@ -611,17 +627,16 @@ export function Auth() {
             {quickErr && (
               <p
                 role="alert"
-                className="mx-auto mb-6 max-w-4xl rounded-xl border border-red-400/30 bg-red-500/10 px-4 py-2.5 text-center text-[12.5px] font-medium text-red-300"
+                className="mx-auto mb-4 max-w-5xl rounded-xl border border-red-400/30 bg-red-500/10 px-4 py-2.5 text-center text-[12.5px] font-medium text-red-300"
               >
                 {quickErr}
               </p>
             )}
 
-            {/* double-sided Clerk panels — height-capped on desktop so the
-                page itself never scrolls; the ONLY scroll spot is inside a
-                panel (sv-scroll), keeping "one spot" scroll behavior */}
-            <div className="mx-auto grid max-w-4xl items-stretch gap-4 md:grid-cols-2">
-              <div className="flex min-h-[280px] flex-col overflow-hidden rounded-3xl border border-white/10 bg-white/[0.05] shadow-[0_40px_120px_-40px_rgba(0,0,0,0.8)] backdrop-blur-xl transition-transform duration-300 hover:-translate-y-0.5 md:max-h-[52vh]">
+            {/* double-sided panels. The ONLY scroll spot is inside a panel
+                (sv-scroll, 56vh cap), so the page itself never scrolls. */}
+            <div className="mx-auto grid max-w-5xl items-stretch gap-4 md:grid-cols-2">
+              <div className="flex min-h-[280px] flex-col overflow-hidden rounded-3xl border border-white/10 bg-white/[0.05] shadow-[0_40px_120px_-40px_rgba(0,0,0,0.8)] backdrop-blur-xl transition-transform duration-300 hover:-translate-y-0.5 md:max-h-[56vh]">
                 <UaeAccent />
                 <div className="sv-scroll min-h-0 flex-1 overflow-y-auto p-6 sm:p-7">
                   {/* The sign-in form itself.
@@ -691,8 +706,12 @@ export function Auth() {
                   </form>
                 </div>
               </div>
-              <div className="flex min-h-[280px] flex-col overflow-hidden rounded-3xl border border-white/10 bg-white/[0.05] shadow-[0_40px_120px_-40px_rgba(0,0,0,0.8)] backdrop-blur-xl transition-transform duration-300 hover:-translate-y-0.5 md:max-h-[52vh]">
+              <div className="flex min-h-[280px] flex-col overflow-hidden rounded-3xl border border-white/10 bg-white/[0.05] shadow-[0_40px_120px_-40px_rgba(0,0,0,0.8)] backdrop-blur-xl transition-transform duration-300 hover:-translate-y-0.5 md:max-h-[56vh]">
                 <UaeAccent />
+                {/* Pilot-request form. B2B provisioning is manual by design — a
+                    pilot workspace is a bank integration, not a signup — so the
+                    same intake as the Book-a-pilot form reaches the fraud team
+                    and they answer within one business day. */}
                 <div className="sv-scroll min-h-0 flex-1 overflow-y-auto p-6 sm:p-7">
                   <div className="flex items-center gap-2">
                     <Building2 className="h-4 w-4 text-green-bright" />

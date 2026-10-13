@@ -64,7 +64,12 @@ export async function POST(req: NextRequest) {
   const auth = await requireOrg(req);
   if (!auth.ok) return fail(auth.failure ?? unauthenticated());
 
-  const rl = consumeRateLimit("billing-checkout", rateLimitId(req, auth.orgId), 1, CHECKOUT_LIMIT);
+  const rl = await consumeRateLimit(
+    "billing-checkout",
+    rateLimitId(req, auth.orgId),
+    1,
+    CHECKOUT_LIMIT,
+  );
   if (!rl.ok) {
     return NextResponse.json(
       { error: "rate_limited" },

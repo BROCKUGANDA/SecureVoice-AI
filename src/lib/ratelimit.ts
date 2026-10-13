@@ -1,11 +1,19 @@
 import "server-only";
 import { env, rateLimitPerHour } from "@/lib/config";
+import { logWarn } from "@/lib/validation/safe-log";
 /**
  * Token-bucket rate limiter with a pluggable store backend.
  *
- * Default: in-process Map (single-instance deployments).
- * Swap for Redis: implement the RateLimitStore interface and call
- * `setRateLimitStore()` at boot — no call-site changes needed.
+ * Backend: a Redis store when `REDIS_URL` is set, otherwise an in-process Map.
+ * `installRateLimitStoreFromEnv()` picks one at boot (src/instrumentation.ts).
+ *
+ * WHY `consume` IS ASYNC: the store interface used to be synchronous, which made
+ * a shared backend impossible — Redis is async, and keeping a sync signature would
+ * mean blocking on it. So the limiter was pinned to per-process memory, and on a
+ * multi-instance deployment every instance enforced its own bucket: the effective
+ * limit became `capacity x instances` and a restart reset every bucket. A control
+ * that reads as enforced but is not worse than one that is honestly absent.
+ * Every call site awaits `consume`; TypeScript is what proves they all did.
  *
  * Interface is deliberately Redis-shaped (`consume(scope, id, cost)`) so the
  * atomic check-and-decrement lives in one place.
@@ -29,9 +37,9 @@ export type ConsumeResult =
   | { ok: false; limit: number; retryAfterMs: number; remaining: 0; resetMs: number };
 
 /**
- * Pluggable store interface. Implement this with Redis/Upstash for
- * multi-instance deployments. The default InMemoryStore is fine for
- * single-instance (the SecureVoice reference architecture).
+ * Pluggable store interface. `installRateLimitStoreFromEnv()` wires the Redis
+ * implementation below when REDIS_URL is present; without it the InMemoryStore
+ * stands, which is only equivalent on a single-instance deployment.
  */
 export interface RateLimitStore {
   consume(
@@ -40,10 +48,10 @@ export interface RateLimitStore {
     cost: number,
     capacity: number,
     refillPerSec: number,
-  ): ConsumeResult;
+  ): Promise<ConsumeResult>;
 }
 
-/* ── In-memory store (default) ── */
+/* ── In-memory store (single-instance fallback) ── */
 
 const BUCKETS = new Map<string, Bucket>();
 
@@ -72,13 +80,13 @@ function sweep(now: number): void {
 }
 
 class InMemoryStore implements RateLimitStore {
-  consume(
+  async consume(
     scope: string,
     id: string,
     cost: number,
     capacity: number,
     refillPerSec: number,
-  ): ConsumeResult {
+  ): Promise<ConsumeResult> {
     const key = `${safeId(scope)}:${safeId(id)}`;
     const now = Date.now();
     if (++callsSinceSweep >= EVICT_SWEEP_EVERY) {
@@ -107,28 +115,40 @@ class InMemoryStore implements RateLimitStore {
 
 let store: RateLimitStore = new InMemoryStore();
 
-/** Swap the store backend (call once at boot for Redis/etc). */
+/** Swap the store backend. */
 export function setRateLimitStore(s: RateLimitStore): void {
   store = s;
 }
 
 /**
- * Try to consume `cost` tokens for (scope, id). Always returns within O(1)
- * and never throws.
+ * Put the in-process store back.
+ *
+ * Exists because there is no other way to get it. A test that installs a stub
+ * store and restores it with another stub is not restoring anything — the next
+ * suite then runs against an always-allow limiter and silently proves nothing.
+ * Production has no caller; this is for tests and for a boot path that decides
+ * to back out of the shared store.
+ */
+export function restoreDefaultRateLimitStore(): void {
+  store = new InMemoryStore();
+}
+
+/**
+ * Try to consume `cost` tokens for (scope, id).
  *
  * `capacityPerHour` lets a caller ask for a budget appropriate to its own
  * traffic rather than inheriting RATE_LIMIT_PER_HOUR. That default is sized for
  * expensive metered calls (TTS/ASR/agent turns), so reusing it for a per-request
  * edge check would rate-limit ordinary page navigation on those same numbers —
- * a demo visitor would be locked out after a handful of requests. Omit it and
- * the historical behaviour is unchanged.
+ * a demo visitor would be locked out after a handful of requests. Omit it and the
+ * historical behaviour is unchanged.
  */
-export function consume(
+export async function consume(
   scope: string,
   id: string,
   cost = 1,
   capacityPerHour?: number,
-): ConsumeResult {
+): Promise<ConsumeResult> {
   // An explicit capacity wins even when it is 0 — 0 is a legitimate "allow
   // nothing" budget, which a falsy fallback would silently turn into the default.
   const capacity = capacityPerHour ?? rateLimitPerHour();
@@ -195,43 +215,138 @@ export function rateLimitId(req: Request, fallback = "anon"): string {
   return fallback;
 }
 
-/* ── Redis store template (reference — not wired by default) ──
+/* ── Redis store (installed when REDIS_URL is set) ── */
 
-import Redis from "ioredis";
+/**
+ * Atomic refill + check-and-decrement, in Lua.
+ *
+ * Doing this in the client would be a race: two app instances reading the same
+ * bucket and both writing back would both grant the request, so the shared limit
+ * would be the sum of the per-instance limits — the exact bug the shared store
+ * exists to remove. Redis runs this as one unit, so the read-modify-write cannot
+ * interleave.
+ *
+ * `now` is passed in rather than read with TIME inside the script: the caller and
+ * the server can disagree, and a bucket whose clock is the caller's is refillable
+ * by a client with a skewed one.
+ */
+const CONSUME_LUA = `
+local key = KEYS[1]
+local cost = tonumber(ARGV[1])
+local capacity = tonumber(ARGV[2])
+local refillPerSec = tonumber(ARGV[3])
+local now = tonumber(ARGV[4])
+local ttl = tonumber(ARGV[5])
+local data = redis.call("HMGET", key, "tokens", "last")
+local tokens = tonumber(data[1]) or capacity
+local last = tonumber(data[2]) or now
+local elapsed = (now - last) / 1000
+tokens = math.min(capacity, tokens + elapsed * refillPerSec)
+if tokens >= cost then
+  tokens = tokens - cost
+end
+redis.call("HSET", key, "tokens", tokens, "last", now)
+redis.call("EXPIRE", key, ttl)
+if tokens >= cost then
+  return {1, math.floor(tokens - cost)}
+end
+local deficit = cost - tokens
+local retry = math.ceil(deficit / refillPerSec * 1000)
+return {0, retry}
+`;
 
-export class RedisStore implements RateLimitStore {
-  private redis: Redis;
-  constructor(redis: Redis) { this.redis = redis; }
+/**
+ * Bucket TTL. Comfortably longer than the longest full refill, so a live bucket
+ * never expires and hands its holder a fresh capacity.
+ */
+const BUCKET_TTL_SEC = 7200;
 
-  async consume(scope, id, cost, capacity, refillPerSec): Promise<ConsumeResult> {
+/**
+ * A shared, cross-instance limiter.
+ *
+ * Degradation is deliberate and is NOT fail-open-to-nothing: if Redis is
+ * unreachable, `consume` falls back to the in-process store rather than
+ * returning "allowed". That yields the pre-existing per-instance behaviour — a
+ * real but weaker limit — instead of an unlimited one, and it logs, so the
+ * condition is visible rather than silent. Returning "allowed" on error would
+ * turn a Redis blip into no rate limiting at all.
+ */
+class RedisStore implements RateLimitStore {
+  private redis: import("ioredis").Redis;
+  private fallback = new InMemoryStore();
+  private degradedLogged = false;
+
+  constructor(redis: import("ioredis").Redis) {
+    this.redis = redis;
+  }
+
+  async consume(
+    scope: string,
+    id: string,
+    cost: number,
+    capacity: number,
+    refillPerSec: number,
+  ): Promise<ConsumeResult> {
     const key = `rl:${safeId(scope)}:${safeId(id)}`;
-    // Lua script: atomic refill + check-and-decrement
-    const script = `
-      local key = KEYS[1]
-      local cost = tonumber(ARGV[1])
-      local capacity = tonumber(ARGV[2])
-      local refillPerSec = tonumber(ARGV[3])
-      local now = tonumber(ARGV[4])
-      local data = redis.call("HMGET", key, "tokens", "last")
-      local tokens = tonumber(data[1]) or capacity
-      local last = tonumber(data[2]) or now
-      local elapsed = (now - last) / 1000
-      tokens = math.min(capacity, tokens + elapsed * refillPerSec)
-      if tokens >= cost then
-        tokens = tokens - cost
-        redis.call("HMSET", key, "tokens", tokens, "last", now)
-        redis.call("EXPIRE", key, 7200)
-        return {1, math.floor(tokens)}
-      end
-      local deficit = cost - tokens
-      local retry = math.ceil(deficit / refillPerSec * 1000)
-      return {0, retry}
-    `;
-    const [ok, val] = await this.redis.eval(script, 1, key, cost, capacity, refillPerSec, Date.now()) as [number, number];
-    return ok === 1
-      ? { ok: true, limit: capacity, remaining: val, resetMs: 0 }
-      : { ok: false, limit: capacity, retryAfterMs: val, remaining: 0, resetMs: val };
+    try {
+      const raw = (await this.redis.eval(
+        CONSUME_LUA,
+        1,
+        key,
+        String(cost),
+        String(capacity),
+        String(refillPerSec),
+        String(Date.now()),
+        String(BUCKET_TTL_SEC),
+      )) as [number, number];
+      const [ok, val] = raw;
+      return ok === 1
+        ? { ok: true, limit: capacity, remaining: val, resetMs: 0 }
+        : { ok: false, limit: capacity, retryAfterMs: val, remaining: 0, resetMs: val };
+    } catch (err) {
+      if (!this.degradedLogged) {
+        this.degradedLogged = true;
+        logWarn("[ratelimit] redis unreachable — falling back to per-process buckets", {
+          error: err instanceof Error ? err.message : String(err),
+          detail:
+            "limits are still enforced, but per-instance rather than cluster-wide. Restore Redis to restore the shared limit.",
+        });
+      }
+      return this.fallback.consume(scope, id, cost, capacity, refillPerSec);
+    }
   }
 }
 
-*/
+/**
+ * Install the shared limiter if `REDIS_URL` names a reachable Redis.
+ *
+ * Called once from `register()` in src/instrumentation.ts. A deployment with no
+ * REDIS_URL keeps the in-process store — correct for a single instance, and the
+ * reason the async signature does not make the zero-config path heavier: ioredis
+ * is imported dynamically and only when a URL is actually present.
+ *
+ * Returns which store is in force so the caller can log it.
+ */
+export async function installRateLimitStoreFromEnv(): Promise<"redis" | "memory"> {
+  const url = process.env.REDIS_URL?.trim();
+  if (!url) return "memory";
+  try {
+    const { default: Redis } = await import("ioredis");
+    const redis = new Redis(url, {
+      maxRetriesPerRequest: 2,
+      enableOfflineQueue: true,
+    });
+    // Attach the error handler immediately: an ioredis client with no listener
+    // emits an unhandled 'error' event, which takes the process down.
+    redis.on("error", () => {
+      /* surfaced per-request by RedisStore.consume's own log */
+    });
+    setRateLimitStore(new RedisStore(redis));
+    return "redis";
+  } catch (err) {
+    logWarn("[ratelimit] REDIS_URL set but the client could not be created — using memory", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return "memory";
+  }
+}

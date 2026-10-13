@@ -90,7 +90,7 @@ export async function POST(req: NextRequest) {
     return refused(403);
   }
 
-  const rl = consumeRateLimit("twilio-status", ip, 1, 5);
+  const rl = await consumeRateLimit("twilio-status", ip, 1, 5);
   if (!rl.ok) return accepted();
 
   // A callback names its subject by sid, and the channel follows from which sid

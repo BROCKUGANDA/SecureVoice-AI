@@ -113,7 +113,7 @@ export async function POST(req: NextRequest) {
     return twiml(null);
   }
 
-  const rl = consumeRateLimit("twilio-sms-webhook", ip, 1, 5);
+  const rl = await consumeRateLimit("twilio-sms-webhook", ip, 1, 5);
   if (!rl.ok) return twiml(null);
 
   const from = params.From ?? "";

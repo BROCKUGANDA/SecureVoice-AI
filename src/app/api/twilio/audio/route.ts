@@ -113,7 +113,7 @@ export async function GET(req: NextRequest) {
   }
 
   const callRef = callRefParam || `SV-A-${Date.now().toString(36)}`;
-  const rl = consumeRateLimit("twilio-audio", rateLimitId(req, callRef));
+  const rl = await consumeRateLimit("twilio-audio", rateLimitId(req, callRef));
   if (!rl.ok) {
     return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
   }

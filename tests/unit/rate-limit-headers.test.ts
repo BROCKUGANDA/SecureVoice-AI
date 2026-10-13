@@ -37,9 +37,9 @@ function routeSources(): string[] {
 const rel = (file: string) => file.replace(REPO, "").replace(/\\/g, "/");
 
 describe("rateLimitHeaders", () => {
-  test("an allowed request reports the budget, not a wait", () => {
+  test("an allowed request reports the budget, not a wait", async () => {
     _reset();
-    const rl = consume("unit-headers", "caller-a", 1, 100);
+    const rl = await consume("unit-headers", "caller-a", 1, 100);
     expect(rl.ok).toBe(true);
     const h = rateLimitHeaders(rl, 1_700_000_000_000);
     expect(h["X-RateLimit-Limit"]).toBe("100");
@@ -50,10 +50,10 @@ describe("rateLimitHeaders", () => {
     expect(h["Retry-After"]).toBeUndefined();
   });
 
-  test("a refused request carries all four", () => {
+  test("a refused request carries all four", async () => {
     _reset();
-    expect(consume("unit-headers-denied", "caller-b", 1, 1).ok).toBe(true);
-    const second = consume("unit-headers-denied", "caller-b", 1, 1);
+    expect((await consume("unit-headers-denied", "caller-b", 1, 1)).ok).toBe(true);
+    const second = await consume("unit-headers-denied", "caller-b", 1, 1);
     expect(second.ok).toBe(false);
     const h = rateLimitHeaders(second, 1_700_000_000_000);
     expect(h["X-RateLimit-Limit"]).toBe("1");
@@ -82,12 +82,12 @@ describe("rateLimitHeaders", () => {
     expect(Number(h["X-RateLimit-Reset"])).toBeGreaterThanOrEqual(1_700_000_000);
   });
 
-  test("the limit survives the store boundary", () => {
+  test("the limit survives the store boundary", async () => {
     // `limit` is produced by the store, not the caller, so a backend that forgets
     // it would surface as `undefined` inside a header a client parses.
     _reset();
     for (const capacity of [1, 37, 5000]) {
-      const rl = consume(`unit-headers-limit-${capacity}`, "caller-c", 1, capacity);
+      const rl = await consume(`unit-headers-limit-${capacity}`, "caller-c", 1, capacity);
       expect(rl.limit, String(capacity)).toBe(capacity);
       expect(rateLimitHeaders(rl)["X-RateLimit-Limit"]).toBe(String(capacity));
     }
@@ -153,7 +153,7 @@ describe("the routes", () => {
     }
   });
 
-  test("a budget refusal says what it knows and nothing more", () => {
+  test("a budget refusal says what it knows and nothing more", async () => {
     // The monthly upstream spend breaker is not a windowed bucket: there is no
     // capacity to advertise, and an invented `X-RateLimit-Limit` would be a
     // number a client parses that means nothing.
@@ -165,8 +165,10 @@ describe("the routes", () => {
 
     _reset();
     // Drain the bucket so the result under test is genuinely a refusal.
-    let rl = consume("unit-headers-route", "caller-d", 1, 5);
-    for (let i = 0; i < 8 && rl.ok; i += 1) rl = consume("unit-headers-route", "caller-d", 1, 5);
+    let rl = await consume("unit-headers-route", "caller-d", 1, 5);
+    for (let i = 0; i < 8 && rl.ok; i += 1) {
+      rl = await consume("unit-headers-route", "caller-d", 1, 5);
+    }
     expect(rl.ok).toBe(false);
     const bucket = tooManyRequests("slow down", rl);
     expect(bucket.headers.get("X-RateLimit-Limit")).toBe("5");

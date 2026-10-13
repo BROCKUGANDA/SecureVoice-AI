@@ -105,7 +105,7 @@ export async function POST(req: NextRequest) {
   }
   const profile = guard.profile;
 
-  const rl = consumeRateLimit("support-ticket", profile.userId, 1, RATE_LIMIT_PER_HOUR);
+  const rl = await consumeRateLimit("support-ticket", profile.userId, 1, RATE_LIMIT_PER_HOUR);
   if (!rl.ok) {
     return tooManyRequests("Too many reports from this account; retry later.", rl);
   }

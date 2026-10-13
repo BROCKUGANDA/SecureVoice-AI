@@ -46,7 +46,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
 
   // Per-key budget, so a polling loop cannot become the rate limiter of our
   // database. Generous: polling every 10s for a day is 8,640 requests.
-  const rl = consumeRateLimit("pull", auth.callerId, 1, 10_000);
+  const rl = await consumeRateLimit("pull", auth.callerId, 1, 10_000);
   if (!rl.ok)
     return gatewayFailure("rate_limited", req, {
       retryAfterSec: Math.ceil(rl.retryAfterMs / 1000),

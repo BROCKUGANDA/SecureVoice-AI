@@ -56,7 +56,7 @@ type Outcome =
   "accepted" | "invalid_phone" | "skipped_do_not_call" | "deferred_calling_hours" | "failed";
 
 export async function POST(req: Request) {
-  const rl = consumeRateLimit("campaigns", rateLimitId(req, "campaigns"), 1, 20);
+  const rl = await consumeRateLimit("campaigns", rateLimitId(req, "campaigns"), 1, 20);
   if (!rl.ok) return NextResponse.json({ ok: false, error: "rate_limited" }, { status: 429 });
 
   const bearer = req.headers.get("authorization")?.replace(/^Bearer /i, "") ?? null;

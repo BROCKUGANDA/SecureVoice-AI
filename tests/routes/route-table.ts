@@ -168,7 +168,7 @@ const PUBLIC_BY_DESIGN: Readonly<Record<string, string>> = {
   "/api/pilot":
     "public pilot intake form, deliberately unauthenticated so an institution can enquire before any contract exists",
   "/api/webhooks":
-    "signing DEMO for integrators; mints a signature over a caller-supplied event name, holds no tenant data and arms nothing",
+    "signing DEMO for integrators; requires an authenticated session (requireSignedIn), mints a signature over a caller-supplied event name, holds no tenant data and arms nothing. The secret it returns is an ephemeral WEBHOOK_DEMO_SECRET value, never derived from the production WEBHOOK_SECRET ingest key",
   "/api/elevenlabs/signed-url":
     "agent tool endpoint guarded by the x-agent-tool-secret via authorizeToolCall('signed_url'), not an operator session",
   "/api/elevenlabs/tools/card-freeze":

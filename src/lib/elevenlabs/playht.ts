@@ -304,7 +304,7 @@ export async function generatePlayhtAudio(
 
   // 1. Throttle — before any spend, so a loop costs nothing but a refusal.
   const callerId = opts.callerId ?? "playht";
-  const rl = consumeRateLimit("playht-egress", callerId, 1, playhtEgressPerHour());
+  const rl = await consumeRateLimit("playht-egress", callerId, 1, playhtEgressPerHour());
   if (!rl.ok) {
     throw new PlayhtError("PlayHT egress throttle exceeded", 429, "throttled");
   }

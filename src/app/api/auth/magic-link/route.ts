@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { issueMagicLink } from "@/lib/auth/magic-link";
-import { deliverMagicLink, isEmailConfigured } from "@/lib/email/resend";
+import { isEmailConfigured } from "@/lib/email/resend";
+import { deliverMagicLink } from "@/lib/email/deliverers";
 
 export const dynamic = "force-dynamic";
 

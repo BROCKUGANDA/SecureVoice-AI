@@ -213,7 +213,7 @@ export async function tts(req: TtsRequest, opts?: { keyOverride?: string }): Pro
 
   // 1. Rate-limit (cheap; runs first). Distinct scope from the route-level
   //    limiter so a single request doesn't burn two tokens of the same bucket.
-  const rl = consumeRateLimit(TTS_BUCKET, req.callerId);
+  const rl = await consumeRateLimit(TTS_BUCKET, req.callerId);
   if (!rl.ok) {
     throw new UpstreamError(
       `Rate limit exceeded for caller ${req.callerId}; retry in ${Math.ceil(rl.retryAfterMs / 1000)}s`,

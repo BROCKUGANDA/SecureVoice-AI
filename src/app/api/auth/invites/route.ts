@@ -137,7 +137,7 @@ export async function POST(req: NextRequest) {
   // sibling refuses by design (src/lib/auth/magic-link.ts:19-22): an endpoint
   // that hands a usable credential back to the caller is a password reset with
   // an auth header, and works against any address the caller can name.
-  const { deliverInvite } = await import("@/lib/email/resend");
+  const { deliverInvite } = await import("@/lib/email/deliverers");
   try {
     await deliverInvite({
       email: invite.email,

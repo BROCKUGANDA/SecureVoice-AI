@@ -1620,7 +1620,7 @@ describe("the request entry point validates before it authorises, and grades", (
       addresses: ["93.184.216.34"],
     }),
     authenticate: async () => ({ ok: true as const, callerId: "pk:unit", orgId: null }),
-    rateLimit: () => ({ ok: true as const }),
+    rateLimit: async () => ({ ok: true as const }),
     transport: receiver(),
   };
 
@@ -1710,7 +1710,7 @@ describe("the request entry point validates before it authorises, and grades", (
   test("a rate-limited caller is refused with the retry delay attached", async () => {
     const outcome = await handleConformanceRun(
       { receiver_url: RECEIVER_URL, secret: RECEIVER_SECRET },
-      { ...deps, rateLimit: () => ({ ok: false as const, retryAfterSec: 42 }) },
+      { ...deps, rateLimit: async () => ({ ok: false as const, retryAfterSec: 42 }) },
     );
     expect(outcome.kind).toBe("refused");
     if (outcome.kind !== "refused") return;

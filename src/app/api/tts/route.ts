@@ -255,7 +255,7 @@ export async function POST(req: NextRequest) {
 
   // 3. Rate-limit BEFORE the upstream call (the wrapper has its own, but a
   //    fast reject here keeps the audit log clean of "denied" entries)
-  const rl = consumeRateLimit("tts", callerId);
+  const rl = await consumeRateLimit("tts", callerId);
   if (!rl.ok) {
     return tooManyRequests("Rate limit exceeded; retry later.", rl);
   }

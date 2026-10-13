@@ -23,7 +23,7 @@ export const dynamic = "force-dynamic";
  *       and never credential. Rate-limited because it is still a scrape target.
  */
 export async function GET(req: Request) {
-  const rl = consumeRateLimit(
+  const rl = await consumeRateLimit(
     "operator-evaluation",
     rateLimitId(req as never, "operator-evaluation"),
     1,

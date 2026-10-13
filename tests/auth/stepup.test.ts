@@ -23,6 +23,7 @@
 
 import { afterAll, expect, mock, test } from "bun:test";
 import { db } from "@/lib/db";
+import * as realDeliverers from "@/lib/email/deliverers";
 import { issueStepUp, requireStepUp, currentStepUp } from "@/lib/auth/stepup";
 import { requireAuth, requirePrivileged } from "@/lib/auth/guards";
 import {
@@ -61,12 +62,26 @@ afterAll(async () => {
  * APP_BASE_URL (CI has neither) the send always fails, so the delivery is
  * stubbed here and the 201 below asserts the gating, not the provider.
  *
- * Mock scope is deliberately this one module: no other test file imports
- * `@/lib/email/resend` as code (email-delivery reads it as text), so nothing
- * else in any shared process can observe the stub. Restored in afterAll.
+ * Mock scope is deliberately this one module, and it now spreads the real one.
+ * Two things made the narrow version wrong:
+ *
+ *   · `deliverInvite` MOVED to `@/lib/email/deliverers` (it used to live in
+ *     `@/lib/email/resend`, which created a queue↔resend import cycle).
+ *   · `@/lib/email/deliverers` imports `@/lib/email/queue`, which imports
+ *     `sendQueuedEmail` from `@/lib/email/resend`. Stubbing that module with
+ *     only `deliverInvite` therefore replaced the transport module with an
+ *     object that no longer exported `sendQueuedEmail`, and the failure was
+ *     `SyntaxError: Export named 'sendQueuedEmail' not found` — a module-graph
+ *     error, not a behavioural one.
+ *
+ * Spreading the real module means a partial stub can no longer break an import
+ * chain it does not know about. Restored in afterAll.
  */
-mock.module("@/lib/email/resend", () => ({
-  deliverInvite: async () => {/* empty */},
+mock.module("@/lib/email/deliverers", () => ({
+  ...realDeliverers,
+  deliverInvite: async () => {
+    /* empty */
+  },
 }));
 
 /**

@@ -65,7 +65,16 @@ const BUDGETS = {
     interactive: 6000,
   },
   a11y: {
-    maxFailingA11yItems: 0,
+    // Counted separately from the failing-audit count above, and at zero, per
+    // the note at the top of this file.
+    //
+    // This key was named `maxFailingA11yItems` and read as
+    // `maxCriticalOrSeriousViolations`. Nothing used the first name and nothing
+    // defined the second, so every comparison was `<= undefined` — always false,
+    // always FAIL, on a site with no accessibility problems at all. A gate that
+    // cannot pass is not a gate; it is a wall, and the log line
+    // `budget <= undefined` is the only evidence anything was wrong with it.
+    maxCriticalOrSeriousViolations: 0,
   },
 };
 
@@ -125,7 +134,18 @@ async function looksLikeDev(url) {
     const res = await fetch(url, { redirect: "follow" });
     if (!res.ok) return false;
     const html = await res.text();
-    return /webpack-hmr|turbopack|__next_react_dev|development/i.test(html);
+    // HMR fingerprints, and only those. This used to include the bare word
+    // `turbopack`, which was correct for Next 14 and is wrong from Next 16
+    // onward: the production compiler IS Turbopack now, so every production
+    // build ships `/_next/static/chunks/turbopack-<hash>.js` in its HTML. The
+    // check therefore read a production page as a dev one and refused to
+    // measure it — the budget silently stopped running at all, which is worse
+    // than a bad number. What dev actually leaves behind is the HMR CLIENT:
+    // webpack-hmr, react-refresh, the vite client, __next_react_dev. Those are
+    // absent from a production bundle by construction.
+    return /webpack-hmr|__next_react_dev|react-refresh|@vite\/client|next-hmr|hmr-endpoint/i.test(
+      html,
+    );
   } catch {
     return false;
   }
@@ -312,6 +332,39 @@ async function main() {
     problems.push(
       `accessibility critical/serious violations ${a11y.total} > ${BUDGETS.a11y.maxCriticalOrSeriousViolations}`,
     );
+  }
+
+  // A run that never measured anything is not a budget failure and must not be
+  // reported as one. `lhr.runError` means Lighthouse itself could not trace the
+  // page — the origin refused it, the URL 404'd, the browser crashed. Reporting
+  // that as "performance 0 < 75" is a lie about the product: it reads as "the
+  // site is slow" when the truth is "nothing was measured".
+  //
+  // Measured 2026-10-12, first CI run against the live origin: every value came
+  // back n/a while the site answered 200 for a human. The origin's edge
+  // rate-limits by source IP and CI runs ON the box, so CI's own health probes
+  // exhausted the shared bucket and Lighthouse was refused. Exited 3 (distinct
+  // from 1, a genuine budget miss, and 2, a harness crash) so a caller can tell
+  // "cannot measure" from "measured badly" without parsing the message.
+  if (lhr.runError) {
+    console.error(`lighthouse: RUN DID NOT COMPLETE: ${lhr.runError.message}`);
+    console.error(
+      "  nothing was measured, so no budget verdict is possible. If the origin" +
+        " rate-limits by source IP and you are running from the same box, the" +
+        " probes are the cause — reduce them, or run against a rebuilt page." +
+        " re-run once before concluding anything.",
+    );
+    process.exit(3);
+  }
+
+  const measured = Object.values(BUDGETS.scores).some((need) => {
+    const score =
+      lhr.categories[Object.keys(BUDGETS.scores).find((n) => BUDGETS.scores[n] === need)]?.score;
+    return typeof score === "number";
+  });
+  if (!measured) {
+    console.error("lighthouse: the report carries no scores at all — nothing was measured");
+    process.exit(3);
   }
 
   if (lhr.runError) problems.push(`runError: ${lhr.runError.message}`);

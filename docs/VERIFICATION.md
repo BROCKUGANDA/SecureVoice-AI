@@ -1937,7 +1937,7 @@ would have dialled a customer into silence with the dial recorded as placed.
   passes `SITE_ADDRESS` to the worker un-defaulted.
 - The collision those intermediate arrangements had to dodge is measured, not
   folklore: two site blocks for one address is `ambiguous site definition:
-  securevoiceai.me`, exit 1, before any route loads. The follow-up entry below
+securevoiceai.me`, exit 1, before any route loads. The follow-up entry below
   (same day) removes the last of them — the env-driven block is deleted and
   the box-local file copy is retired.
 
@@ -1978,7 +1978,7 @@ commits behind `origin/main` with that refusal waiting on the next pull.
   sets) the retired skip-worktree flag.
 - Box migration, executed live: backup at `/tmp/Caddyfile.pre-sitesd-migration.*`,
   `sites.d/crucible.caddy` written, flags cleared, `git checkout HEAD --
-  Caddyfile Caddyfile.platform`, box tree clean and ff-able to `origin/main`.
+Caddyfile Caddyfile.platform`, box tree clean and ff-able to `origin/main`.
   Serving across the whole migration: `securevoiceai.me /healthz` 200 and
   `crucible.svalley.tech /` 200 — the running Caddy holds its config in memory
   (`admin off`), so nothing restarted; the next deploy loads the new

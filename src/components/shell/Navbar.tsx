@@ -184,10 +184,7 @@ export function Navbar() {
         </button>
 
         {/* Nav — the only shrinkable element in the bar. */}
-        <nav
-          className="min-w-0 flex-1 overflow-x-auto md:overflow-visible"
-          aria-label="Primary"
-        >
+        <nav className="min-w-0 flex-1 overflow-x-auto md:overflow-visible" aria-label="Primary">
           <div className="mx-auto flex w-max items-center gap-1 rounded-full border border-line bg-white p-1 md:mx-auto md:w-auto md:justify-center">
             {navItems.map((n) => {
               const active = view === n.id;
@@ -198,19 +195,17 @@ export function Navbar() {
                   aria-current={active ? "page" : undefined}
                   className={cn(
                     "relative flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-3.5 py-1.5 text-[13px] font-medium transition-colors",
-                    active ? "text-white" : "text-ink-2 hover:text-foreground",
+                    active ? "text-foreground" : "text-ink-2 hover:text-foreground",
                   )}
                 >
                   {active && (
                     <motion.span
                       layoutId="nav-pill"
-                      className="absolute inset-0 rounded-full bg-[#0c110e]"
+                      className="absolute inset-0 rounded-full bg-primary/15"
                       transition={{ type: "spring", stiffness: 420, damping: 34 }}
                     />
                   )}
-                  <n.icon
-                    className={cn("relative h-3.5 w-3.5", active && "text-green-bright")}
-                  />
+                  <n.icon className={cn("relative h-3.5 w-3.5", active && "text-primary")} />
                   <span className="relative">{lang === "ar" ? n.ar : n.en}</span>
                 </button>
               );
@@ -234,7 +229,7 @@ export function Navbar() {
                 className={cn(
                   "relative rounded-full px-2.5 py-1 text-[11.5px] font-semibold transition-colors",
                   l === "ar" && "font-arabic",
-                  lang === l ? "text-white" : "text-ink-3 hover:text-foreground",
+                  lang === l ? "text-foreground" : "text-ink-3 hover:text-foreground",
                 )}
               >
                 {lang === l && (
@@ -307,7 +302,7 @@ export function Navbar() {
               className="group hidden items-center gap-2 whitespace-nowrap rounded-full bg-primary px-4 py-2 text-[13px] font-semibold text-white shadow-[0_6px_18px_-6px_rgba(11,122,85,0.55)] transition hover:bg-green-deep md:flex"
             >
               <span className="relative flex h-1.5 w-1.5">
-                <span className="sv-pulse-ring absolute inset-0 text-white" />
+                <span className="sv-pulse-ring absolute inset-0 text-foreground" />
                 <span className="h-1.5 w-1.5 rounded-full bg-white" />
               </span>
               <span className="relative">{t("Launch live demo", "ابدأ العرض الحي", lang)}</span>
@@ -321,7 +316,9 @@ export function Navbar() {
             aria-expanded={menuOpen}
             aria-controls="mobile-menu"
             aria-label={
-              menuOpen ? t("Close menu", "إغلاق القائمة", lang) : t("Open menu", "فتح القائمة", lang)
+              menuOpen
+                ? t("Close menu", "إغلاق القائمة", lang)
+                : t("Open menu", "فتح القائمة", lang)
             }
             className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-line bg-white text-ink-2 transition hover:border-primary/40 hover:text-primary md:hidden"
           >
@@ -352,10 +349,12 @@ export function Navbar() {
                   aria-current={active ? "page" : undefined}
                   className={cn(
                     "flex items-center gap-2.5 rounded-xl px-3.5 py-2.5 text-[13.5px] font-medium transition",
-                    active ? "bg-[#0c110e] text-white" : "text-ink-2 hover:bg-white hover:text-foreground",
+                    active
+                      ? "bg-primary text-white"
+                      : "text-ink-2 hover:bg-white hover:text-foreground",
                   )}
                 >
-                  <n.icon className={cn("h-4 w-4", active && "text-green-bright")} />
+                  <n.icon className={cn("h-4 w-4", active && "text-primary")} />
                   {lang === "ar" ? n.ar : n.en}
                 </button>
               );
@@ -400,7 +399,7 @@ export function Navbar() {
                     className="flex items-center justify-center gap-2 rounded-xl bg-primary px-3.5 py-2.5 text-[13px] font-semibold text-white transition hover:bg-green-deep"
                   >
                     <span className="relative flex h-1.5 w-1.5">
-                      <span className="sv-pulse-ring absolute inset-0 text-white" />
+                      <span className="sv-pulse-ring absolute inset-0 text-foreground" />
                       <span className="h-1.5 w-1.5 rounded-full bg-white" />
                     </span>
                     {t("Launch live demo", "ابدأ العرض الحي", lang)}

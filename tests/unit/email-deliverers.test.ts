@@ -6,8 +6,13 @@ const enqueue = mock(async (_input: unknown): Promise<EnqueueAndSendResult> => (
   id: "synthetic-message",
 }));
 mock.module("@/lib/email/queue", () => ({ enqueueAndSendEmail: enqueue }));
-const { buildLink, deliverMagicLink, deliverInvite, sendResetPassword } =
-  await import("@/lib/email/resend");
+// `buildLink` stayed in `@/lib/email/resend`; the three deliverers moved to
+// `@/lib/email/deliverers` so the queue↔resend import cycle could be broken.
+// Importing them from resend yields undefined — which is why they are now
+// imported from the module that actually owns them.
+const { buildLink } = await import("@/lib/email/resend");
+const { deliverMagicLink, deliverInvite, sendResetPassword } =
+  await import("@/lib/email/deliverers");
 
 const envKeys = ["APP_BASE_URL", "NEXT_PUBLIC_APP_URL", "APP_URL"] as const;
 const saved = Object.fromEntries(envKeys.map((key) => [key, process.env[key]]));

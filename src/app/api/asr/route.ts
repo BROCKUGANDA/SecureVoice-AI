@@ -31,7 +31,7 @@ export async function POST(req: NextRequest) {
 
   // 1. Rate limit BEFORE touching the (potentially huge) body — cheapest
   //    possible reject; an exhausted caller can't make us buffer 18MB.
-  const rl = consumeRateLimit("asr", callerId);
+  const rl = await consumeRateLimit("asr", callerId);
   if (!rl.ok) {
     return NextResponse.json(
       { error: "Rate limit exceeded; retry later." },

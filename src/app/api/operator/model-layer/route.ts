@@ -19,7 +19,7 @@ export const dynamic = "force-dynamic";
  *       /api/operator/* metadata routes.
  */
 export async function GET(req: Request) {
-  const rl = consumeRateLimit(
+  const rl = await consumeRateLimit(
     "operator-model-layer",
     rateLimitId(req as never, "operator-model-layer"),
     1,

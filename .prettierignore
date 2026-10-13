@@ -58,3 +58,7 @@ Dockerfile*
 # formatting rule should apply.
 AGENTS.md
 CLAUDE.md
+# Policy documents the agent cites, one per spoken language. These are compliance
+# source text: prettier reflowing a clause changes what a translator and a regulator
+# read, and the section markers the coverage gate counts are prose.
+agent/policy/**/*.md

@@ -6,13 +6,16 @@ radius traces back to `src/app/globals.css` / `src/app/layout.tsx` — the deck
 speaks the product's own design language rather than inventing one. Every
 screenshot inside it is a live capture of https://securevoiceai.me.
 
-Three stages, one per tool:
+Four stages:
 
   1. capture   — Puppeteer drives chrome-headless-shell over the real
                  deployment and writes PNGs into assets/.
-  2. render    — HyperFrames compiles index.html (GSAP timelines + the
-                 captured frames) into an MP4.
-  3. finish    — ffmpeg pulls the poster frame, Pillow types the poster
+  2. narration — hyperframes tts (Kokoro) synthesises one clip per scene.
+                 Scene durations are retimed to fit the measured audio so no
+                 line is ever truncated by a crossfade.
+  3. render    — HyperFrames compiles index.html (GSAP timelines + the
+                 captured frames + the narration audio) into an MP4.
+  4. finish    — ffmpeg pulls the poster frame, Pillow types the poster
                  copy over it, and the sidecar .srt is written.
 
 Run:  python scripts/build_walkthrough.py [--skip-capture]
@@ -126,33 +129,19 @@ def finish() -> None:
     raw = OUT / ".poster-raw.png"
     run(
         ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
-         "-ss", "3.2", "-i", str(OUT / "securevoice-walkthrough.mp4"),
+         "-ss", "5.5", "-i", str(OUT / "securevoice-walkthrough.mp4"),
          "-frames:v", "1", "-vf", f"scale={W // 2}:-1", str(raw)],
         "extracting poster frame",
     )
 
+    # No text overlay — the scene's own typography is the poster. Just a subtle
+    # paper-tint veil at the bottom so it reads as a finished card.
     frame = Image.open(raw).convert("RGB").resize((W, H), Image.Resampling.LANCZOS)
-
-    # Paper-tint veil, heavier toward the lower-left where the copy sits, so
-    # the poster text reads over the screenshot without hiding the product.
     veil = Image.new("RGBA", (W, H), (251, 251, 248, 0))
     dv = ImageDraw.Draw(veil)
     for y in range(H):
-        dv.line([(0, y), (W, y)], fill=(251, 251, 248, int(210 * (y / H) ** 1.35)))
+        dv.line([(0, y), (W, y)], fill=(251, 251, 248, int(120 * (y / H) ** 2.0)))
     out = Image.alpha_composite(frame.convert("RGBA"), veil).convert("RGB")
-
-    def f(size: int, bold: bool = False):
-        p = "C:/Windows/Fonts/segoeuib.ttf" if bold else "C:/Windows/Fonts/segoeui.ttf"
-        return ImageFont.truetype(p, size) if Path(p).exists() else ImageFont.load_default()
-
-    d = ImageDraw.Draw(out)
-    d.rectangle((140, 470, 260, 477), fill=(11, 122, 85))
-    d.text((140, 520), "SecureVoice AI", font=f(104, True), fill=(16, 24, 18))
-    d.text((140, 660), "Platform walkthrough — fraud detected to account frozen,",
-           font=f(40), fill=(70, 82, 74))
-    d.text((140, 716), "with the audit trail that proves it afterwards.",
-           font=f(40), fill=(70, 82, 74))
-    d.text((140, 830), "securevoiceai.me", font=f(34, True), fill=(11, 122, 85))
     out.save(OUT / "poster.png", optimize=True)
     raw.unlink()
     print(f"  → poster.png  {(OUT / 'poster.png').stat().st_size // 1024} KB")
@@ -191,7 +180,7 @@ def verify() -> None:
 
     probe = subprocess.run(
         ["ffprobe", "-v", "error", "-show_entries",
-         "format=duration:stream=codec_name,width,height,nb_frames",
+         "format=duration:stream=codec_type,codec_name,width,height,nb_frames",
          "-of", "default=noprint_wrappers=1", str(mp4)],
         capture_output=True, text=True, check=True,
     ).stdout
@@ -206,6 +195,12 @@ def verify() -> None:
         raise SystemExit(f"duration {dur}s != expected {DURATION}s")
     if frames != DURATION * FPS:
         raise SystemExit(f"{frames} frames != expected {DURATION * FPS}")
+
+    # The walkthrough is narrated — assert the audio track actually exists.
+    kinds = [l.split("=")[1] for l in probe.splitlines() if l.startswith("codec_type")]
+    if "audio" not in kinds:
+        raise SystemExit("no audio stream — narration missing")
+    print("  ✓ video + narration audio track present")
     print("  ✓ duration and frame count match the composition")
 
 
@@ -221,9 +216,11 @@ def main() -> int:
     else:
         print("stage 1 — capture the live deployment")
         capture()
-    print("\nstage 2 — render the composition")
+    print("\nstage 2 — narration (kokoro tts, one clip per scene)")
+    subprocess.run([sys.executable, str(Path(__file__).parent / "build_narration.py")], check=True)
+    print("\nstage 3 — render the composition (with audio)")
     render()
-    print("\nstage 3 — poster and captions")
+    print("\nstage 4 — poster and captions")
     finish()
     print("\nverify")
     verify()

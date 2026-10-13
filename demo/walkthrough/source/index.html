@@ -244,8 +244,8 @@
         class="scene"
         id="scene-title"
         data-composition-id="scene-title"
-        data-start="0"
-        data-duration="7"
+        data-start="0.0"
+        data-duration="10.5"
         data-track-index="0"
       >
         <div class="scene-inner" style="justify-content: center">
@@ -279,8 +279,8 @@
         class="scene"
         id="scene-problem"
         data-composition-id="scene-problem"
-        data-start="7"
-        data-duration="11"
+        data-start="10.5"
+        data-duration="11.0"
         data-track-index="1"
       >
         <div class="scene-inner">
@@ -339,8 +339,8 @@
         class="scene"
         id="scene-signal"
         data-composition-id="scene-signal"
-        data-start="18"
-        data-duration="13"
+        data-start="21.5"
+        data-duration="18.0"
         data-track-index="2"
       >
         <div class="scene-inner">
@@ -413,8 +413,8 @@
         class="scene"
         id="scene-call"
         data-composition-id="scene-call"
-        data-start="31"
-        data-duration="15"
+        data-start="39.5"
+        data-duration="15.0"
         data-track-index="3"
       >
         <div class="scene-inner">
@@ -491,8 +491,8 @@
         class="scene"
         id="scene-guard"
         data-composition-id="scene-guard"
-        data-start="46"
-        data-duration="14"
+        data-start="54.5"
+        data-duration="12.5"
         data-track-index="4"
       >
         <div class="scene-inner">
@@ -553,8 +553,8 @@
         class="scene"
         id="scene-live"
         data-composition-id="scene-live"
-        data-start="60"
-        data-duration="16"
+        data-start="67.0"
+        data-duration="8.5"
         data-track-index="5"
       >
         <div class="scene-inner" style="padding: 84px 120px">
@@ -626,8 +626,8 @@
         class="scene"
         id="scene-numbers"
         data-composition-id="scene-numbers"
-        data-start="76"
-        data-duration="12"
+        data-start="75.5"
+        data-duration="13.0"
         data-track-index="6"
       >
         <div class="scene-inner">
@@ -696,8 +696,8 @@
         class="scene"
         id="scene-close"
         data-composition-id="scene-close"
-        data-start="88"
-        data-duration="8"
+        data-start="88.5"
+        data-duration="7.5"
         data-track-index="7"
       >
         <div class="scene-inner" style="justify-content: center">
@@ -722,6 +722,63 @@
         </div>
       </div>
     </div>
+
+      <audio
+        id="narr-01-title"
+        src="assets/narration/01-title.wav"
+        data-start="1.8"
+        data-duration="8.26"
+        data-track-index="100"
+      ></audio>
+      <audio
+        id="narr-02-gap"
+        src="assets/narration/02-gap.wav"
+        data-start="12.3"
+        data-duration="8.28"
+        data-track-index="101"
+      ></audio>
+      <audio
+        id="narr-03-ingest"
+        src="assets/narration/03-ingest.wav"
+        data-start="23.3"
+        data-duration="15.62"
+        data-track-index="102"
+      ></audio>
+      <audio
+        id="narr-04-call"
+        src="assets/narration/04-call.wav"
+        data-start="41.3"
+        data-duration="12.69"
+        data-track-index="103"
+      ></audio>
+      <audio
+        id="narr-05-guardrails"
+        src="assets/narration/05-guardrails.wav"
+        data-start="56.3"
+        data-duration="9.73"
+        data-track-index="104"
+      ></audio>
+      <audio
+        id="narr-06-live"
+        src="assets/narration/06-live.wav"
+        data-start="68.8"
+        data-duration="4.78"
+        data-track-index="105"
+      ></audio>
+      <audio
+        id="narr-07-evidence"
+        src="assets/narration/07-evidence.wav"
+        data-start="77.3"
+        data-duration="10.62"
+        data-track-index="106"
+      ></audio>
+      <audio
+        id="narr-08-close"
+        src="assets/narration/08-close.wav"
+        data-start="90.3"
+        data-duration="3.75"
+        data-track-index="107"
+      ></audio>
 
     <script>
       window.__timelines = window.__timelines || {};
@@ -867,7 +924,7 @@
         duration: 1.1,
         ease: "power2.in",
         stagger: 0.05,
-      }, 6.3);
+      }, 6.0);
       window.__timelines["scene-close"] = tlClose;
     </script>
   </body>

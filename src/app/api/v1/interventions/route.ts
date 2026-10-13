@@ -191,7 +191,7 @@ export async function POST(req: NextRequest) {
   const started = Date.now();
   const callerId = rateLimitId(req, "ingest");
 
-  const rl = consumeRateLimit("ingest", callerId);
+  const rl = await consumeRateLimit("ingest", callerId);
   if (!rl.ok) {
     return failure("rate_limited", {
       retryAfterSec: Math.ceil(rl.retryAfterMs / 1000),

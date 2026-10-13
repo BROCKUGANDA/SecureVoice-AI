@@ -114,7 +114,7 @@ export async function POST(req: NextRequest) {
     return refused(403);
   }
 
-  const rl = consumeRateLimit("twilio-inbound-voice", ip, 1, 15);
+  const rl = await consumeRateLimit("twilio-inbound-voice", ip, 1, 15);
   if (!rl.ok) return hangup();
 
   // Twilio's `To` is the number that was dialled; `From` is the customer. Both

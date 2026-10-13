@@ -604,10 +604,22 @@ services:
         # applies at RUNTIME, and by then `next build` has already frozen the
         # value into the bundle. A runtime-only setting is silently ignored.
         NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-https://${SITE_ADDRESS:-localhost}}
-    # IMAGE lets a release job smoke-test the image it just published instead of a
-    # locally rebuilt copy. Unset (the normal case) => build from source.
-    # `${VAR:-}` with no value yields an empty string, and compose treats that as
-    # "no image override", so the default build path is unchanged.
+    # IMAGE selects WHICH app artifact runs. Three callers, and they must not collide:
+    #
+    #   • production deploy  — deploy.yml exports IMAGE=securevoice-ai-app:<sha12>
+    #     after `git pull`, so every build gets its own immutable tag.
+    #   • release deploy     — IMAGE=ghcr.io/<repo>:<v-tag>, pulled, never rebuilt.
+    #   • CI smoke builds    — IMAGE=svci-<run>-<attempt>-*, pinned per job.
+    #
+    # The default below is for LOCAL `docker compose up --build` only, and it is
+    # deliberately the weakest name in the set: a single mutable tag that any build
+    # on the box can claim. It was also the production default until the stale-image
+    # incident — the branch deploy path never exported IMAGE, so every production
+    # build, every smoke build, and any `docker compose build` an operator typed by
+    # hand all wrote the same tag, and `up -d` resolved `app.image` to whichever
+    # build happened to own it. Production now rolls by SHA and asserts the running
+    # container's image ID equals the ID just built; nothing on the deploy path
+    # resolves this default any more.
     image: ${IMAGE:-securevoice-ai-app:local}
     restart: unless-stopped
     # The app's own drain: scripts/server-preload.ts flips /api/readyz to 503 so

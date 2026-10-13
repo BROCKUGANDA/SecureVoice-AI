@@ -107,11 +107,19 @@ export function bankEventUrl(): string {
   return process.env.BANK_WEBHOOK_URL ?? `${env.appBaseUrl}/api/webhooks/receiver`;
 }
 
-export function signingSecret(): string {
-  const s = process.env.BANK_WEBHOOK_SECRET;
-  if (!s) throw new Error("BANK_WEBHOOK_SECRET is not configured");
-  return s;
-}
+/**
+ * REMOVED: `signingSecret()`.
+ *
+ * It read `BANK_WEBHOOK_SECRET` and threw when it was unset, but nothing called
+ * it. GitNexus reported it as an unresolved symbol; a text search confirmed the
+ * only occurrence in the repo was its own definition, so it was dead rather
+ * than merely unindexed.
+ *
+ * That matters beyond tidiness: a function that *looks* like the single source of
+ * the outbound signing secret, and that throws if the secret is missing, is the
+ * kind of thing a reader trusts as the enforced access path. It enforced nothing.
+ * The real secret read is `vendor-endpoint.ts`, which signs outbound deliveries.
+ */
 
 /** Build the canonical body for an event. `event_id` is the dedupe key. */
 // The parameter is annotated `string` (not left to inference from

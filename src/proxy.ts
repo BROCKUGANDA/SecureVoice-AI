@@ -337,7 +337,7 @@ export function applySurfaceHeaders(res: NextResponse, pathname: string): NextRe
  * presence is NOT checked in this file, deliberately. Every page, route handler
  * and Server Action performs its own authoritative `getSession`.
  */
-export default function proxy(req: NextRequest): NextResponse {
+export default async function proxy(req: NextRequest): Promise<NextResponse> {
   const requestId = req.headers.get(REQUEST_ID)?.slice(0, 64) || crypto.randomUUID();
   const pathname = req.nextUrl.pathname;
 
@@ -354,7 +354,7 @@ export default function proxy(req: NextRequest): NextResponse {
   //    handler runs. Keyed by resolved client IP so one noisy caller cannot
   //    exhaust a shared bucket.
   if (!RL_EXEMPT.some((re) => re.test(pathname))) {
-    const rl = consume("edge", clientIp(req), 1, EDGE_RATE_PER_HOUR);
+    const rl = await consume("edge", clientIp(req), 1, EDGE_RATE_PER_HOUR);
     if (!rl.ok) {
       return reject(req, 429, "rate_limited", requestId, {
         "Retry-After": String(Math.ceil(rl.retryAfterMs / 1000)),

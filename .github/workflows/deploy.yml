@@ -102,7 +102,7 @@ jobs:
       url: https://securevoiceai.me
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: main
 
@@ -193,7 +193,7 @@ jobs:
 
       - name: Log in to GHCR
         if: env.DEPLOY_SOURCE == 'release'
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -324,7 +324,32 @@ jobs:
           # pull). History: docs/VPS-RECOVERY.md, failure mode #2.
           git update-index --no-skip-worktree Caddyfile Caddyfile.platform 2>/dev/null || true
           git pull --ff-only origin main
-          echo "deployed commit: $(git rev-parse --short HEAD)"
+          DEPLOY_SHA="$(git rev-parse HEAD)"
+          echo "deployed commit: ${DEPLOY_SHA:0:12}"
+
+          # ── Roll by IMMUTABLE tag, never by the shared `local` tag ─────────────
+          #
+          # The stale-image incident this replaces: on the branch path `IMAGE` was
+          # never exported, so docker-compose.yml's `${IMAGE:-securevoice-ai-app:local}`
+          # resolved EVERY build — production deploys, CI smoke builds, and a manual
+          # `docker compose build` typed by an operator — to one mutable tag. Any of
+          # them could retag it with a different build, and the next `up -d` resolved
+          # `app.image` to whatever the tag happened to point at rather than to the
+          # image just built. That is how production ends up serving the previous
+          # release's UI with a green deploy log: nothing in the pipeline ever
+          # asserted that the running container is the build that was just made.
+          #
+          # The release path already rolled by tag (ghcr.io/…:${TAG}) and was never
+          # affected. Only the branch path was. So the SHA tag is applied here, on
+          # the box, AFTER the pull — which is the only place the SHA is authoritative
+          # — and only when this is not a release, whose IMAGE comes from GITHUB_ENV.
+          #
+          # A per-SHA tag also makes `up -d` deterministic: the tag is written once
+          # by this build and can only be overwritten by a rebuild of that exact SHA.
+          if [ "$DEPLOY_SOURCE" != "release" ]; then
+            export IMAGE="securevoice-ai-app:${DEPLOY_SHA:0:12}"
+            echo "rolling immutable tag ${IMAGE}"
+          fi
 
           # db-setup is in the build list on purpose. It is the image that runs
           # `migrate deploy`, and it is a separate compose image from `app` even
@@ -372,6 +397,47 @@ jobs:
            # verifies the claim on the live host after the roll.
            docker compose up -d app dial-worker retention-worker voice-stream-worker email-worker overage-worker
            docker compose ps
+
+           # ── Prove the roll actually happened ─────────────────────────────────
+           #
+           # `docker compose ps` printing a row is not evidence that the new build is
+           # the one running: compose recreates a container only when it decides the
+           # image or config changed, and it prints a healthy row either way. This is
+           # the check that was missing when the stale image shipped — the deploy
+           # reported success because nothing had failed, not because the right
+           # artifact was serving traffic.
+           #
+           # Compare the image ID the build produced against the ID the running
+           # container was created from. Those are two different questions, and only
+           # the second one is about production.
+           BUILT_ID="$(docker image inspect --format '{{.Id}}' "${IMAGE}")"
+           RUNNING_ID="$(docker inspect --format '{{.Image}}' "$(docker compose ps -q app)")"
+           echo "built   ${BUILT_ID}"
+           echo "running ${RUNNING_ID}"
+           if [ "$BUILT_ID" != "$RUNNING_ID" ]; then
+             echo "::error::production is NOT serving the build that was just made."
+             echo "::error::built=${BUILT_ID} running=${RUNNING_ID} (${IMAGE})"
+             echo "::error::this is the stale-image condition — do not report this deploy as successful."
+             exit 1
+           fi
+           echo "verified: the running app container is exactly ${IMAGE}"
+
+           # Retire the ambiguous shared tag. `securevoice-ai-app:local` was the
+           # whole mechanism behind the stale-image incident: it was a mutable name
+           # that any build could claim, so it outlives the deploy that wrote it and
+           # stays resolvable by anything that runs compose without IMAGE set. Once
+           # production rolls by SHA there is no reason to keep a second, vaguer
+           # name for the same artifact on the box.
+           #
+           # Guarded, and only on the branch path: the release path's IMAGE is a
+           # remote GHCR ref that was pulled, not built here, so removing a local
+           # tag is not its business.
+           if [ "$DEPLOY_SOURCE" != "release" ] && docker image inspect "securevoice-ai-app:local" >/dev/null 2>&1; then
+             if [ "$(docker image inspect --format '{{.Id}}' securevoice-ai-app:local)" != "$BUILT_ID" ]; then
+               docker image rm "securevoice-ai-app:local" >/dev/null 2>&1 || true
+               echo "retired securevoice-ai-app:local (pointed at a different build)"
+             fi
+           fi
 
       # ── the drift gate, run against what actually just rolled ──────────────
       #

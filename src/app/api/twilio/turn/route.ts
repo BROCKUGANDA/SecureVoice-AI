@@ -561,7 +561,7 @@ export async function POST(req: NextRequest) {
     rawDigits === null ? "" : typeof rawDigits === "string" ? rawDigits : String(rawDigits);
   const dtmf = mapDtmfDigits(digits);
 
-  const rl = consumeRateLimit("twilio-turn", callSid || callerId);
+  const rl = await consumeRateLimit("twilio-turn", callSid || callerId);
   // Resolve the voice plane once, before any early return: every spoken path —
   // including the rate-limit refusal below — must speak in the caller's
   // language, so no branch may skip this lookup.

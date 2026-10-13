@@ -161,7 +161,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ...payload, creditsRemaining }, { status });
   };
 
-  const rl = consumeRateLimit("console-fire", profile.userId);
+  const rl = await consumeRateLimit("console-fire", profile.userId);
   if (!rl.ok) {
     return refundAnd({ error: "Rate limit exceeded; retry later." }, 429);
   }

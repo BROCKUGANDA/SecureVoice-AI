@@ -82,7 +82,12 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const rl = consumeRateLimit("billing-invoice", rateLimitId(req, authed.orgId), 1, INVOICE_LIMIT);
+  const rl = await consumeRateLimit(
+    "billing-invoice",
+    rateLimitId(req, authed.orgId),
+    1,
+    INVOICE_LIMIT,
+  );
   if (!rl.ok) {
     return NextResponse.json(
       { error: "rate_limited" },

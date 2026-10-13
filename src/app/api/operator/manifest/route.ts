@@ -32,7 +32,7 @@ export const dynamic = "force-dynamic";
  * target and the cost of serving it should stay bounded.
  */
 export async function GET(req: Request) {
-  const rl = consumeRateLimit(
+  const rl = await consumeRateLimit(
     "operator-manifest",
     rateLimitId(req as never, "operator-manifest"),
     1,

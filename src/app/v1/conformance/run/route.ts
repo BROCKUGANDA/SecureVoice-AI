@@ -150,8 +150,8 @@ export async function POST(req: NextRequest) {
           ? { ok: true as const, callerId: auth.callerId, orgId: auth.orgId }
           : { ok: false as const, reason: "missing, unknown or revoked producer key" };
       },
-      rateLimit: (callerId) => {
-        const result = consumeRateLimit(
+      rateLimit: async (callerId) => {
+        const result = await consumeRateLimit(
           "conformance",
           // The authenticated caller id, not the request IP: a bank runs this
           // from shared egress behind NAT, so an IP-keyed budget would hand one

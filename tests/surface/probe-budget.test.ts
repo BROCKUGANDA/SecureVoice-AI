@@ -40,14 +40,15 @@ import { fileURLToPath } from "url";
  */
 const TEST_IP = "203.0.113.96";
 
-function request(pathname: string): NextRequest {
+/** `marked` = the request carries Caddy's proxy marker and a real client IP. */
+function request(pathname: string, marked = true): NextRequest {
   return new NextRequest(`https://probe.test${pathname}`, {
-    headers: { "x-securevoice-proxy": "1", "x-forwarded-for": TEST_IP },
+    headers: marked ? { "x-securevoice-proxy": "1", "x-forwarded-for": TEST_IP } : {},
   });
 }
 
-async function status(pathname: string): Promise<number> {
-  const res = await proxy(request(pathname));
+async function status(pathname: string, marked = true): Promise<number> {
+  const res = await proxy(request(pathname, marked));
   return res?.status ?? -1;
 }
 
@@ -71,6 +72,18 @@ describe("infrastructure probes are not throttled by the page budget", () => {
     // page bucket fails here.
     expect(await status("/api/readyz")).toBe(200);
     expect(await status("/api/health")).toBe(200);
+  });
+
+  test("the shape the load balancer actually sends is not throttled either", async () => {
+    // A health probe may arrive WITHOUT the proxy marker, in which case clientIp()
+    // resolves it to the constant "direct" and every probe in the fleet shares one
+    // bucket. That is the shape production was logging: a stream of
+    // `429 rate_limited` on GET /api/readyz while real traffic was untouched. So the
+    // unmarked path is tested on its own bucket, not folded into the marked one.
+    let last = 200;
+    for (let i = 0; i < EDGE_RATE_PER_HOUR + 1; i++) last = await status("/", false);
+    expect(last).toBe(429);
+    expect(await status("/api/readyz", false)).toBe(200);
   });
 
   test("probe paths are matched exactly, not by prefix", () => {

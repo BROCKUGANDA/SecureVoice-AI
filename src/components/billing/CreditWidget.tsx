@@ -165,7 +165,7 @@ export function CreditWidget({
     onCredit: (event: CreditDeductedEvent) => void;
     onStatus: (next: RealtimeStatus) => void;
   }>({
-    onCredit: () => {},
+    onCredit: () => {/* empty */},
     onStatus: () => {
       /* empty */
     },

@@ -1083,6 +1083,13 @@ jobs:
           fi
 
       - name: Run the lighthouse budgets
+        # Step-level as well as job-level, and the step is where it has to be.
+        # `continue-on-error` on the JOB alone left the job concluding `failure`,
+        # and the deploy gate reads the RUN conclusion — so a report-only budget
+        # was still stopping production, which is the thing this was meant to stop.
+        # Here the step's exit status is recorded and discarded, the job finishes
+        # green, and the numbers still appear in the log and in the artifact.
+        continue-on-error: true
         env:
           LH_URL: https://securevoiceai.me/
         run: bun run test:lighthouse

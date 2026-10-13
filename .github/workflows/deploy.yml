@@ -502,7 +502,16 @@ jobs:
       # incident left it? A deploy that answers "green" while any of those drift
       # is a deploy that lied.
       - name: Drift gates against the rolled stack
-        run: bun scripts/drift-gates.mjs box
+        # BOX_DIR, not `cd`. The box checkout has no node_modules — the app runs in
+        # containers there — so executing the script from inside it would fail on the
+        # `yaml` import instead of checking anything. What the box gates need is the
+        # box's compose project and the box's git HEAD, and they now take both from
+        # this variable while bun keeps resolving in the workspace it installed into.
+        # Without it the gate measured the runner workspace and reported all twelve
+        # services as never-created on a healthy stack (measured 2026-10-13: compose
+        # exits 1 there on missing POSTGRES_PASSWORD / BETTER_AUTH_SECRET, because the
+        # .env belongs to the box checkout).
+        run: BOX_DIR="$HOME/securevoice-ai" bun scripts/drift-gates.mjs box
 
       - name: Health check the rolled origin
         run: |

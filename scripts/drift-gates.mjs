@@ -383,27 +383,62 @@ function checkMojibake() {
 // ─────────────────────────────────────────────────────────────────────────────
 // BOX-SIDE gates — these run on the VPS where docker and the live stack are.
 // ─────────────────────────────────────────────────────────────────────────────
-function sh(cmd) {
-  return execSync(cmd, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+// The deploy step runs in the runner's workspace, but the stack lives in the box
+// checkout. Compose resolves its `.env` from the project directory, so asking it
+// from anywhere else does not return a stale answer — it fails outright. Measured
+// 2026-10-13 on the box: from the workspace, `docker compose ps` exits 1 with
+// "required variable BETTER_AUTH_SECRET is missing a value" and
+// "required variable POSTGRES_PASSWORD is missing a value", while from
+// ~/securevoice-ai the same command lists all twelve running services. The old
+// `2>/dev/null || true` collapsed those into an empty list, so the gate declared
+// every service never-created on a healthy production stack.
+const BOX = process.env.BOX_DIR || process.cwd();
+
+function sh(cmd, cwd = BOX) {
+  return execSync(cmd, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], cwd }).trim();
+}
+
+/**
+ * Query the box's compose project. A compose that cannot be asked is reported as
+ * compose failing, never as "nothing is running" — the two look identical as an
+ * empty string, and only one of them is an outage.
+ */
+function composeQuery(args) {
+  try {
+    return { out: sh(`docker compose --project-directory "${BOX}" ${args}`) };
+  } catch (e) {
+    const where = e.stderr?.toString?.() || e.message || String(e);
+    const lines = where
+      .split("\n")
+      .map((l) => l.trim())
+      .filter(Boolean);
+    return { error: lines.slice(-2).join(" / ") || "docker compose failed with no message" };
+  }
 }
 
 function checkBoxInventory() {
-  const compose = YAML.parse(read("docker-compose.yml"));
-  const defined = Object.keys(compose.services ?? {});
-  const running = new Set(
-    sh("docker compose ps --services --filter status=running 2>/dev/null || true")
-      .split("\n")
-      .filter(Boolean),
-  );
-  const all = new Set(
-    sh("docker compose ps -a --services 2>/dev/null || true").split("\n").filter(Boolean),
-  );
+  const declared = YAML.parse(read("docker-compose.yml"));
+  const defined = Object.keys(declared.services ?? {});
+
+  const runningQ = composeQuery("ps --services --filter status=running");
+  if (runningQ.error) {
+    fail(
+      `compose could not be queried for running services (project directory ${BOX}):\n` +
+        `       ${runningQ.error}\n` +
+        `       this is NOT evidence anything is down — it means the gate could not ask.` +
+        ` Set BOX_DIR to the checkout that owns the stack's .env.`,
+    );
+    return;
+  }
+  const running = new Set(runningQ.out.split("\n").filter(Boolean));
+  const allQ = composeQuery("ps -a --services");
+  const all = new Set(allQ.out ? allQ.out.split("\n").filter(Boolean) : []);
 
   const ONESHOT = new Set(["db-setup"]);
   // Profile-gated: opt-in by design, so a plain `up -d` correctly leaves them out.
   const PROFILED = new Set(
     defined.filter(
-      (s) => Array.isArray(compose.services[s]?.profiles) && compose.services[s].profiles.length,
+      (s) => Array.isArray(declared.services[s]?.profiles) && declared.services[s].profiles.length,
     ),
   );
 
@@ -428,7 +463,7 @@ function checkBoxCurrency() {
   try {
     head = sh("git rev-parse HEAD");
   } catch {
-    fail("cannot read the box's git HEAD");
+    fail(`cannot read the box's git HEAD in ${BOX}`);
     return;
   }
   const remote = sh("git ls-remote origin refs/heads/main").split(/\s+/)[0] ?? "";
@@ -442,21 +477,29 @@ function checkBoxCurrency() {
         `       production is serving a commit that is not main's tip.`,
     );
   } else {
-    info("box HEAD == origin/main");
+    info(`box HEAD == origin/main (${head.slice(0, 7)})`);
   }
 }
 
 function checkBoxImageConformance() {
   // The running app container must use the image compose expects, and that image
   // must be tagged. This is the stale-image gate from VPS-RECOVERY #3.
-  const running = sh(
-    "docker inspect securevoice-ai-app-1 --format '{{.Image}}' 2>/dev/null || true",
-  );
-  if (!running) {
-    fail("securevoice-ai-app-1 is not inspectable — is the app running?");
+  let running = "";
+  try {
+    running = sh("docker inspect securevoice-ai-app-1 --format '{{.Image}}'");
+  } catch (e) {
+    const where = e.stderr?.toString?.() || e.message || String(e);
+    fail(
+      `docker could not inspect securevoice-ai-app-1: ${where.split("\n").filter(Boolean).slice(-1)[0] ?? where}` +
+        ` — that is the gate failing to look, not proof the app is down.`,
+    );
     return;
   }
-  const tagged = sh("docker images --format '{{.ID}}' 2>/dev/null").split("\n").filter(Boolean);
+  if (!running) {
+    fail("securevoice-ai-app-1 has no image id — is the app running?");
+    return;
+  }
+  const tagged = sh("docker images --format '{{.ID}}'").split("\n").filter(Boolean);
   const short = running.replace("sha256:", "").slice(0, 12);
   const dangling = !tagged.some((id) => id.startsWith(short));
   if (dangling) {

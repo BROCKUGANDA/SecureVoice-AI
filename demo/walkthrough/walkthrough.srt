@@ -1,0 +1,31 @@
+1
+00:00:00,000 --> 00:00:07,000
+Fraud detected. Customer called. Account frozen.
+
+2
+00:00:07,000 --> 00:00:18,000
+A Tier-1 analyst takes 38 minutes. The fraudster needs seconds.
+
+3
+00:00:18,000 --> 00:00:31,000
+A signed risk signal in — HMAC verified, case open, dial enqueued.
+
+4
+00:00:31,000 --> 00:00:46,000
+Disclosure, verification, then a freeze the agent can only stage.
+
+5
+00:00:46,000 --> 00:01:00,000
+The controls live in the server, not in the prompt.
+
+6
+00:01:00,000 --> 00:01:16,000
+Captured live from securevoiceai.me — not a mock-up.
+
+7
+00:01:16,000 --> 00:01:28,000
+Measured: 551 ms to call placement, 9 ms tool round-trip. The 60-second claim is still a target.
+
+8
+00:01:28,000 --> 00:01:36,000
+Sixty seconds, with the proof attached.

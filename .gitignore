@@ -176,3 +176,8 @@ sites.d/*
 # wizard drops on disk when it runs. Machine-local tooling output, not project
 # content, and it reappears on every wizard run.
 .posthog/
+
+# HyperFrames build output — check reports and render state, regenerated on
+# every `hyperframes check` / `render`. The composition source itself
+# (demo/walkthrough/source/) is committed; this is not.
+demo/walkthrough/source/.hyperframes/

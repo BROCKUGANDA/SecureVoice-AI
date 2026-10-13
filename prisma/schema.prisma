@@ -155,6 +155,12 @@ model OnboardingState {
 /// chunks it, embeds the chunks and stores the vectors in Pinecone under a
 /// strict `orgId` metadata filter. The raw PDF bytes are retained so a failed
 /// vectorization can be retried without asking the bank to upload again.
+///
+/// A second plane is optional and off by default: the same extracted text can also
+/// be published as a document on the ElevenLabs agent itself (`platformDocId`), so
+/// the live call can quote the bank's policy without going through Pinecone. The
+/// two planes fail independently, which is why the row carries a separate reason
+/// column for the platform side.
 model Document {
   id           String    @id @default(cuid())
   /// Tenant scope. Every query — vector and row — filters on this.
@@ -173,6 +179,20 @@ model Document {
   /// embedding without a second upload; deleted with the row.
   pdfBytes     Bytes?
   vectorizedAt DateTime?
+  /// ElevenLabs platform-KB document id, when this row has been published to the
+  /// conversation plane's own knowledge base (src/lib/knowledge/platform-kb.ts).
+  ///
+  /// This column IS the idempotency record: a retry PATCHes the document it names
+  /// instead of POSTing a second copy of the same policy onto the vendor — the
+  /// failure every other retry in this product is built to avoid. Nothing already
+  /// in the row can hold it (`error` means "the RAG document is broken",
+  /// `vectorizedAt` is a timestamp), so the column is unavoidable.
+  platformDocId String?
+  /// Why the platform publish failed for a row whose tenant-side vectorization
+  /// SUCCEEDED. Kept out of `error` deliberately: the console renders `error` next
+  /// to a Retry button that re-embeds a PDF, and a document that embedded fine
+  /// must never read as broken. Cleared when a later run publishes it.
+  platformError String?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 

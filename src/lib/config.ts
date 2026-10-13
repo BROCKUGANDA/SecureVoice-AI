@@ -208,6 +208,34 @@ export const env = {
   get elevenLabsAgentId(): string | undefined {
     return process.env.ELEVENLABS_AGENT_ID;
   },
+  /**
+   * Publish each READY tenant document into the agent's OWN knowledge base too,
+   * not only into Pinecone. Off unless this says `true`.
+   *
+   * The default matters more here than anywhere else in this file: attaching a
+   * bank's policy text to a platform agent is a write to a shared vendor resource
+   * that outlives the request, and a deployment that simply has an ElevenLabs key
+   * configured must not acquire it by inheritance. `scripts/agent-apply.ts` is the
+   * other half of that resource, so this is opt-in on the same terms as
+   * `ELEVENLABS_COMMERCIAL_USE` and `TWILIO_LIVE_SEND`: an explicit `true`, and
+   * anything else is off.
+   */
+  get kbPlatformSync(): boolean {
+    return process.env.KB_PLATFORM_SYNC === "true";
+  },
+  /**
+   * Ceiling on the text one platform-KB document may carry (default 200 000 chars).
+   *
+   * A refused publish is better than a partial one. The alternative — truncating a
+   * policy mid-clause so the vendor accepts the call — makes the agent quote half an
+   * obligation on a live fraud call and records nothing odd about it. Over the
+   * ceiling the document is reported on the row (`platformError`) and the tenant's
+   * RAG path is untouched, so the operator raises the ceiling or shortens the
+   * document with the reason in front of them.
+   */
+  get kbPlatformMaxChars(): number {
+    return numSetting("KB_PLATFORM_MAX_CHARS", 200_000, 1_000);
+  },
   voiceFor(lang: Lang): string | undefined {
     return process.env[`ELEVENLABS_VOICE_${lang.toUpperCase()}`];
   },

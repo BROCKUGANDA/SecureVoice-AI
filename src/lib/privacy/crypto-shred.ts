@@ -111,11 +111,21 @@ export const AUDIT_INTENT_CASE_DELETED = "case_record_deleted_v1";
 /**
  * `Case` columns that can hold personal data. Erasure clears ALL of them in one
  * transaction — a partial erasure is not erasure.
+ *
+ * The three destination columns are here because the vault moved the number, it did
+ * not remove it: a case now holds a token and a keyed pseudonym instead of the
+ * E.164, and neither is something an erased customer should keep pointing at. The
+ * sealed value itself is destroyed alongside them — `shredVaultRow` deletes the
+ * `pii_vault` row once no case references it, because a token that resolves to
+ * nothing is a copy of the number that outlives the erasure request quietly.
  */
 export const CASE_PAYLOAD_COLUMNS = [
   "transcriptRedacted",
   "evaluationResults",
   "dataCollectionResults",
+  "phone",
+  "phoneIndex",
+  "customerPhoneToken",
 ] as const;
 
 export type CasePayloadColumn = (typeof CASE_PAYLOAD_COLUMNS)[number];
@@ -655,6 +665,8 @@ export type ErasureResult = {
   clearedColumns: string[];
   keyDestroyed: boolean;
   ciphertextRows: number;
+  /** `pii_vault` rows destroyed by this erasure: 0 or 1. */
+  vaultRowsDestroyed: number;
   chainEvent:
     { rowId: string; chainHash: string } | { rowId: null; chainHash: null; error: string };
 };
@@ -679,6 +691,32 @@ async function clearPayloadColumns(
 
 async function countSealedRows(callRef: string): Promise<number> {
   return db.auditLog.count({ where: { callRef, action: "agent", intent: AUDIT_INTENT_SEALED } });
+}
+
+/**
+ * Delete the sealed value a case pointed at, once nothing points at it.
+ *
+ * Runs INSIDE the erasure transaction and after `clearPayloadColumns`, so this
+ * case's own pointer is already gone when the reference check is made, and a second
+ * case in the same tenant that shares the number (the vault dedupes per tenant, so
+ * repeat customers hold one token) keeps the row alive. Deleting it anyway would
+ * erase one customer's request into another customer's data.
+ *
+ * Returns the rows destroyed, which is 0 or 1: reporting a deletion that the
+ * reference check refused would make the receipt claim more erasure than happened.
+ */
+async function shredVaultRow(
+  tx: Prisma.TransactionClient,
+  token: string | null | undefined,
+): Promise<number> {
+  if (!token) return 0;
+  return tx.$executeRaw`
+    DELETE FROM "pii_vault" AS v
+    WHERE v."token" = ${token}
+      AND NOT EXISTS (
+        SELECT 1 FROM "Case" AS c WHERE c."customerPhoneToken" = v."token"
+      )
+  `;
 }
 
 /**
@@ -709,6 +747,7 @@ export async function eraseCase(
       clearedColumns: [],
       keyDestroyed: false,
       ciphertextRows: await countSealedRows(caseRef),
+      vaultRowsDestroyed: 0,
       chainEvent: {
         rowId: null,
         chainHash: null,
@@ -729,7 +768,7 @@ export async function eraseCase(
 
   const erasedAt = new Date();
   const ciphertextRows = await countSealedRows(caseRef);
-  const clearedColumns = await db.$transaction(async (tx) => {
+  const { clearedColumns, vaultRowsDestroyed } = await db.$transaction(async (tx) => {
     const cleared = await clearPayloadColumns(tx, caseRef);
     await tx.case.update({
       where: { caseRef },
@@ -742,7 +781,10 @@ export async function eraseCase(
       },
       select: { id: true },
     });
-    return cleared;
+    // After the pointer columns are nulled, above, so the reference check inside it
+    // sees this case as no longer holding the value.
+    const destroyed = await shredVaultRow(tx, row.customerPhoneToken);
+    return { clearedColumns: cleared, vaultRowsDestroyed: destroyed };
   });
 
   // External copies. Destroying the data key makes the sealed ciphertext inert,
@@ -820,6 +862,7 @@ export async function eraseCase(
           keyDestroyed: true,
           clearedColumns,
           ciphertextRows,
+          vaultRowsDestroyed,
           sealedAt: erasedAt.toISOString(),
           reason: (opts.reason ?? "unspecified").slice(0, 64),
           requestedBy: (opts.requestedBy ?? "system").slice(0, 64),
@@ -843,6 +886,7 @@ export async function eraseCase(
     clearedColumns,
     keyDestroyed: true,
     ciphertextRows,
+    vaultRowsDestroyed,
     chainEvent,
   };
 }
@@ -861,6 +905,7 @@ export async function deleteCaseRecord(
   caseRef: string;
   clearedColumns: string[];
   keyDestroyed: boolean;
+  vaultRowsDestroyed: number;
 }> {
   const row = await db.case.findUnique({ where: { caseRef } });
   if (!row) throw new CaseNotFoundError(caseRef);
@@ -879,8 +924,11 @@ export async function deleteCaseRecord(
       },
       select: { id: true },
     });
+    // The record is going away entirely, so its sealed destination goes with it —
+    // unless another case still points at the same vault row.
+    const destroyed = await shredVaultRow(tx, row.customerPhoneToken);
     await tx.case.delete({ where: { caseRef }, select: { id: true } });
-    return { cleared, hadKey };
+    return { cleared, hadKey, destroyed };
   });
 
   try {
@@ -897,6 +945,7 @@ export async function deleteCaseRecord(
           legalBasis: (opts.legalBasis ?? "unspecified").slice(0, 64),
           clearedColumns: outcome.cleared,
           keyDestroyed: outcome.hadKey,
+          vaultRowsDestroyed: outcome.destroyed,
         },
         orgId: row.orgId ?? undefined,
       },
@@ -909,7 +958,12 @@ export async function deleteCaseRecord(
     });
   }
 
-  return { caseRef, clearedColumns: outcome.cleared, keyDestroyed: outcome.hadKey };
+  return {
+    caseRef,
+    clearedColumns: outcome.cleared,
+    keyDestroyed: outcome.hadKey,
+    vaultRowsDestroyed: outcome.destroyed,
+  };
 }
 
 // ── Read-only state ──────────────────────────────────────────────────────────

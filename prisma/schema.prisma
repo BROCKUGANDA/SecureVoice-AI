@@ -122,8 +122,18 @@ model PIIVault {
   orgId         String
   encryptedValue String
   type          String // "phone" | "name" | "pan" | "address"
+  /// Deterministic HMAC of `orgId|type|normalised value` under a key derived from
+  /// `AUTH_SECRET` in its own domain (`sv-blind:`), so re-sealing the same value for
+  /// the same tenant returns the SAME token instead of accumulating a second vault
+  /// row per case. It includes the org on purpose: this index exists to dedupe
+  /// within a tenant, and an org-scoped message means a database reader cannot use
+  /// it to discover that one customer banks at two of this platform's tenants.
+  /// NULL on rows sealed before it existed, and Postgres treats NULLs as distinct,
+  /// so the unique index does not reject them.
+  blindIndex    String?
   createdAt     DateTime @default(now())
 
+  @@unique([orgId, type, blindIndex], map: "pii_vault_org_type_blind_uniq")
   @@index([orgId, type])
   @@map("pii_vault")
 }
@@ -436,6 +446,21 @@ model Case {
   // when a privileged, scoped operation requires them.
   customerPhoneToken    String?
   customerNameToken     String?
+  /// HMAC of the normalised destination number under `sv-blind:` — deliberately
+  /// WITHOUT the org in its message, unlike the vault's own dedupe index.
+  ///
+  /// This column exists so a callback can be matched to its case at all. Two live
+  /// paths receive a customer's number and hold no tenant: an inbound SMS reply
+  /// (`src/lib/sms-verdict.ts` matches a YES/NO to the alert it answers) and an
+  /// inbound voice callback that has not identified the org yet. An org-scoped
+  /// index could not be computed from either, which is what kept the plaintext
+  /// `phone` column load-bearing.
+  ///
+  /// The correlation it gives a reader with full database access — "this number
+  /// appears in these tenants" — is the same one the plaintext column already gave
+  /// them, row by row. It is not a new exposure, and it is what lets the plaintext
+  /// go. RLS still confines every application read to one tenant's rows.
+  phoneIndex            String?
   // The Twilio call-leg sid, persisted at dial time. The warm_transfer tool
   // rewrites this leg's TwiML to bridge the customer to a live human.
   callSid               String?
@@ -470,6 +495,9 @@ model Case {
   @@index([orgId, createdAt])
   @@index([conversationId])
   @@index([phone, smsSentAt], map: "Case_phone_smsSentAt_idx")
+  // The reply-matching lookup's shape, once the plaintext column is gone: a
+  // customer's number and the SMS window it is answering.
+  @@index([phoneIndex, smsSentAt], map: "Case_phoneIndex_smsSentAt_idx")
   // The reversal-window sweep runs every tick across ALL tenants (it is a
   // platform duty, not a tenant console list), and it is bounded by the staging
   // timestamp, so it needs the state + clock pair. Without it the sweep is a

@@ -74,6 +74,16 @@ type Tier = {
   name: { en: string; ar: string };
   blurb: { en: string; ar: string };
   usd: number;
+  /**
+   * Whether the figure is PRINTED. Mirrors `Plan.publiclyPriced` in
+   * src/lib/commercial.ts — see that field for why a tier can carry a real,
+   * billed price that this page chooses not to show. Absent means shown.
+   *
+   * This file keeps its own `TIERS` rather than rendering `PLANS`, which is a
+   * second source of truth for the same numbers; tests/unit/tier-parity.test.ts
+   * exists to keep the two from drifting.
+   */
+  publiclyPriced?: boolean;
   included: number;
   overage: { en: string; ar: string } | null;
   features: { en: string; ar: string }[];
@@ -139,12 +149,15 @@ const TIERS: Tier[] = [
       ar: "للبنوك من الفئة الأولى في الإمارات التي تنشر داخل محيطها الخاص.",
     },
     usd: 2000,
+    // The price is real — Paddle still charges it and the catalog parity test
+    // still holds. It is simply not printed. See `publiclyPriced`.
+    publiclyPriced: false,
     included: 10000,
     overage: null,
     features: [
       {
         en: "10,000 interventions included, custom volume pricing beyond",
-        ar: "10,000 تدخل مشمول، وتسعير volumes مخصص لما يزيد",
+        ar: "10,000 تدخل مشمول، وتسعير حجم مخصص لما يزيد",
       },
       {
         en: "Deploys inside your own VPC or data centre",
@@ -285,11 +298,27 @@ export function Pricing({
 
               <div className="mt-6 flex items-baseline gap-2">
                 <span className="font-display text-4xl font-semibold text-foreground">
-                  ${tier.usd.toLocaleString("en-US")}
+                  {tier.publiclyPriced === false
+                    ? t("Custom", "حسب الطلب", lang)
+                    : `$${tier.usd.toLocaleString("en-US")}`}
                 </span>
-                <span className="text-[13px] text-ink-3">{t("per month", "شهرياً", lang)}</span>
+                {tier.publiclyPriced !== false && (
+                  <span className="text-[13px] text-ink-3">{t("per month", "شهرياً", lang)}</span>
+                )}
               </div>
-              <p className="mt-1 text-[12px] text-ink-3/70">{aed(tier.usd)}</p>
+              {tier.publiclyPriced !== false ? (
+                <p className="mt-1 text-[12px] text-ink-3/70">{aed(tier.usd)}</p>
+              ) : (
+                // Saying WHY there is no number is the difference between "Custom"
+                // reading as a negotiating position and reading as a missing value.
+                <p className="mt-2 text-[12.5px] leading-relaxed text-ink-3">
+                  {t(
+                    "Priced to your deployment — intervention volume, named seats, and where it runs.",
+                    "تسعير حسب نشرك — حجم التدخلات، والمقاعد المسماة، ومكان التشغيل.",
+                    lang,
+                  )}
+                </p>
+              )}
 
               <div className="mt-5 border-t border-line pt-4">
                 <p className="text-[13px] font-semibold text-primary">
@@ -317,21 +346,39 @@ export function Pricing({
                     all three have to come from Paddle, so none of them live in
                     this view. The ids come from the seeded catalog, matching
                     `src/lib/commercial.ts` and asserted by
-                    tests/billing/catalog-parity.test.ts. */}
-              <SubscribeButtons
-                tier={{
-                  id: tier.id,
-                  name: tier.name[lang],
-                  description: tier.blurb[lang],
-                  features: tier.features.map((f) => f[lang]),
-                  priceId: {
-                    month: PADDLE_PRICE_ID?.[tier.id]?.month ?? null,
-                    year: PADDLE_PRICE_ID?.[tier.id]?.year ?? null,
-                  },
-                }}
-                country={country}
-                customerEmail={customerEmail}
-              />
+                    tests/billing/catalog-parity.test.ts.
+
+                    A contact-sales tier does NOT get this. Its Paddle product
+                    still exists and the catalog parity test still holds — but a
+                    Buy button next to "Custom" is a contradiction, and a buyer
+                    who checks out at a list price is a worse outcome for both
+                    sides than a conversation. The product is kept for the sales
+                    team to quote from; the page does not offer it. */}
+              {tier.publiclyPriced === false ? (
+                <a
+                  href={`mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(
+                    `SecureVoice Enterprise — ${tier.included.toLocaleString("en-US")} interventions/mo`,
+                  )}`}
+                  className="mt-6 inline-flex w-full items-center justify-center rounded-xl border border-primary/40 bg-primary/10 px-5 py-3 text-[13.5px] font-semibold text-primary transition-colors hover:bg-primary/15"
+                >
+                  {t("Contact sales", "تواصل مع المبيعات", lang)}
+                </a>
+              ) : (
+                <SubscribeButtons
+                  tier={{
+                    id: tier.id,
+                    name: tier.name[lang],
+                    description: tier.blurb[lang],
+                    features: tier.features.map((f) => f[lang]),
+                    priceId: {
+                      month: PADDLE_PRICE_ID?.[tier.id]?.month ?? null,
+                      year: PADDLE_PRICE_ID?.[tier.id]?.year ?? null,
+                    },
+                  }}
+                  country={country}
+                  customerEmail={customerEmail}
+                />
+              )}
             </motion.div>
           ))}
         </div>

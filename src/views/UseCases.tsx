@@ -533,3 +533,5 @@ export function UseCases() {
     </div>
   );
 }
+
+export default UseCases;

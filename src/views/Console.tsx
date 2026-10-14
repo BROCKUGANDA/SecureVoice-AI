@@ -1425,3 +1425,5 @@ export function Console() {
     </div>
   );
 }
+
+export default Console;

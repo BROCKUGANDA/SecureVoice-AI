@@ -76,6 +76,22 @@ const HOST = process.env.VOICE_STREAM_HOST ?? "0.0.0.0";
 const SILENCE_NUDGE_MS = 8000;
 
 /**
+ * The media-stream plane's hard call cap, in ms.
+ *
+ * Defaults to the 180 seconds the ConvAI plane declares as invariant I-9
+ * (`agent/securevoice.agent.yaml:260`, `max_duration_seconds`), so the two planes
+ * promise a caller the same thing regardless of which one serves. Bounded
+ * defensively: an operator who sets this absurdly high is not allowed to make a
+ * fraud call run for an hour on a billed line, and 0/negative disables nothing —
+ * it falls back to the declared invariant.
+ */
+export function voiceCallHardCapMs(): number {
+  const raw = Number(process.env.VOICE_MAX_CALL_SECONDS ?? "");
+  const seconds = Number.isFinite(raw) && raw > 0 ? raw : 180;
+  return Math.min(Math.max(seconds, 30), 600) * 1000;
+}
+
+/**
  * How long the caller's own last syllable may go unanswered before a
  * back-channel filler covers the gap.
  *
@@ -819,6 +835,48 @@ function createServer() {
       }, SILENCE_NUDGE_MS);
     };
 
+    // HARD WALL-CLOCK CAP. The dead-air guard bounds silence; nothing here
+    // bounded a caller who simply keeps talking, so a conversation that never
+    // resolved held a billed line open indefinitely on this plane — while the
+    // plane that actually serves production refuses to.
+    // `agent/securevoice.agent.yaml:260` declares `max_duration_seconds: 180` as
+    // invariant I-9 and ElevenLabs enforces it server-side. A Twilio call routed
+    // through this worker had no equivalent, so the invariant was true of the
+    // product only while the flag pointed the other way.
+    //
+    // Time, not turns. The proposed turn counter is the weaker control on both
+    // sides of the ledger: it ends a legitimate verification that routes through
+    // the empathy and compliance roles (more than four turns BY DESIGN, because
+    // the agent hands off rather than improvising), and it still lets a
+    // fast-talking caller occupy the line for minutes inside a small turn count.
+    // The cost is per-minute and the customer's protection promise is about the
+    // call ending, so the bound that matches both is duration.
+    //
+    // Expiry terminates GRACEFULLY — the same vetted safety-exit line, then the
+    // `clear`/flush/`close` sequence — rather than dropping the socket: cutting a
+    // customer off mid-word to hit a deadline is a worse outcome than the
+    // deadline. Turns are serialised on `state.turnChain`, so the exit queues
+    // behind the utterance in flight. The cap is therefore "180s plus the tail of
+    // the sentence being spoken", stated here rather than pretended away.
+    let hardCapTimer: ReturnType<typeof setTimeout> | null = null;
+    const hardCapMs = voiceCallHardCapMs();
+    hardCapTimer = setTimeout(() => {
+      hardCapTimer = null;
+      if (state.ended) return;
+      state.ended = true;
+      logWarn("[voice-stream] hard call cap reached — ending the call aloud", {
+        callSid,
+        caseRef: (ws as WebSocket & { __caseRef?: string }).__caseRef ?? "",
+        hardCapMs,
+      });
+      void safeTtsStream(state, ws, SAFETY_EXIT[state.lang] ?? SAFETY_EXIT.en, { force: true })
+        .catch(() => {})
+        .finally(() => {
+          ws.send(JSON.stringify({ event: "clear" }));
+          setTimeout(() => ws.close(), 1000);
+        });
+    }, hardCapMs);
+
     const deepgram = new DeepgramLiveClient(env.deepgramApiKey ?? "");
     state.deepgram = deepgram;
 
@@ -979,6 +1037,9 @@ function createServer() {
 
     ws.on("close", () => {
       if (nudgeTimer) clearTimeout(nudgeTimer);
+      // The cap is per-call, not per-process. Left running, it would fire against
+      // a socket that is already closed and speak into nothing.
+      if (hardCapTimer) clearTimeout(hardCapTimer);
       deepgram.stop();
       // Cancel the vendor stream, do not just forget it. `state.tts = null`
       // alone left an in-flight synthesis running: the ElevenLabs socket kept

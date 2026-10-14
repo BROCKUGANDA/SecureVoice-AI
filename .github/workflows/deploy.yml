@@ -369,12 +369,30 @@ jobs:
             echo "diff them against the tracked versions; nothing here deletes them."
           fi
 
-          if ! git pull --ff-only origin main; then
-            echo "::error::git pull --ff-only refused to roll ~/securevoice-ai forward."
+          # `git merge --ff-only origin/main`, NOT `git pull --ff-only origin main`.
+          #
+          # The 2026-10-14 v0.2.14 deploy died right here, on a branch git had
+          # just reported as "can be fast-forwarded", with a clean tree, and said:
+          #   fatal: Cannot fast-forward to multiple branches.
+          #
+          # A bare branch name leaves git resolving the merge subject through
+          # FETCH_HEAD, and `git pull` re-fetches as part of the same step —
+          # two ref resolutions where one is needed, and the failure lands as a
+          # merge error rather than a fetch error, which is why the log looked
+          # like a git-history problem instead of a race with a concurrently
+          # pushing workflow. Naming the commit-ish gives the fast-forward
+          # exactly one subject by construction. Reproduced against this same
+          # tree on the box: the merge form fast-forwards clean.
+          if ! git merge --ff-only origin/main; then
+            echo "::error::git merge --ff-only refused to roll ~/securevoice-ai forward."
             echo "--- git status --short ---"
             git status --short || true
             echo "--- HEAD vs origin/main ---"
             git rev-parse HEAD origin/main 2>/dev/null || true
+            echo "--- HEAD..origin/main ---"
+            git log --oneline HEAD..origin/main 2>/dev/null | head -20 || true
+            echo "--- origin/main..HEAD (local commits main does not have) ---"
+            git log --oneline origin/main..HEAD 2>/dev/null | head -20 || true
             exit 1
           fi
           DEPLOY_SHA="$(git rev-parse HEAD)"
@@ -514,27 +532,76 @@ jobs:
         run: BOX_DIR="$HOME/securevoice-ai" bun scripts/drift-gates.mjs box
 
       - name: Health check the rolled origin
+        env:
+          # A wall-clock budget, not an attempt count. HARDENING, not the fix
+          # for the 2026-10-14 failure — that deploy died upstream on the git
+          # fast-forward and never reached this step, so this gate's behaviour
+          # that day says nothing either way. It is here because it is the
+          # next thing to be wrong: 6 attempts with a 10s sleep is a bare count,
+          # so its real window was however long curl happened to take, and a
+          # cold app recreate plus seven workers can outlast that.
+          HEALTH_DEADLINE_SECONDS: "300"
+          HEALTH_INTERVAL_SECONDS: "10"
         run: |
           # The public hostname Caddy serves. The 57.130.80.158.sslip.io
           # stand-in was retired 2026-10-12 — its site block is gone from the
           # box Caddyfile and its DNS record is deleted, so probing it here
           # would time out on a healthy origin.
-          for _ in 1 2 3 4 5 6; do
+          #
+          # Every attempt is logged, so a failure below names the SHAPE of the
+          # outage instead of only its end state: a run of `000` is DNS or
+          # Caddy, a run of `502` is the app not accepting yet, and a `500`
+          # that never moves is the app up and broken — three very different
+          # pages of a runbook. The old gate printed one `health:` line after
+          # its last attempt and discarded the rest.
+          deadline=$(( $(date +%s) + HEALTH_DEADLINE_SECONDS ))
+          attempt=0
+          code=""
+          while :; do
+            attempt=$(( attempt + 1 ))
             code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 https://securevoiceai.me/api/health || true)
-            [ "$code" = "200" ] && break
-            sleep 10
+            # Every attempt is logged, so a failure below names the shape of
+            # the outage instead of only its end state: a run of `000` is DNS
+            # or Caddy, a run of `502` is the app not accepting yet, and a
+            # `500` that never moves is the app up and broken — three very
+            # different pages of a runbook.
+            echo "health attempt ${attempt}: ${code:-no-response}"
+            if [ "$code" = "200" ]; then
+              echo "origin healthy after ${attempt} attempt(s)"
+              exit 0
+            fi
+            # `if`, not `[ ... ] && break`: under the runner's `bash -e` a false
+            # `&&` short-circuit as the last command in a loop body exits the whole
+            # step on the first iteration. Verified against `bash -eo pipefail`
+            # with a mocked curl across the 200 / 503-then-200 / 500 / 000 paths.
+            if [ "$(date +%s)" -ge "$deadline" ]; then
+              break
+            fi
+            sleep "$HEALTH_INTERVAL_SECONDS"
           done
-          echo "health: $code"
+
+          echo "::error::origin did not answer 200 within ${HEALTH_DEADLINE_SECONDS}s (last status: ${code:-no-response})"
           test "$code" = "200"
 
       # A deploy that reports success while the app is unhealthy is worse than a
       # loud failure: it writes a green tick next to a broken origin. If the
       # container is not running, name the reason from its own logs.
-      - name: Report if the origin is unhealthy
+      # Named for what it actually covers. This used to be "Report if the origin is
+      # unhealthy", which was a lie for every failure that was not the origin:
+      # the 2026-10-14 v0.2.14 deploy died on the git fast-forward with the
+      # origin perfectly healthy, and this step still printed "production origin
+      # did not come up" over a stack whose containers were all `Up (healthy)`.
+      # That message sent the investigation to /api/health instead of to the
+      # checkout. It dumps state; it does not diagnose, so it must not claim to.
+      - name: Dump stack and runner state after any failure
         if: failure()
         run: |
-          echo "::error::production origin did not come up — app and worker logs follow"
-          cd ~/securevoice-ai
+          echo "::error::deploy failed before the origin was confirmed healthy."
+          echo "::error::the step that failed is named above; this dump is state, not a diagnosis."
+          echo "--- HEAD vs origin/main ---"
+          cd ~/securevoice-ai && git rev-parse HEAD origin/main 2>/dev/null || true
+          echo "--- stack ---"
           docker compose ps
+          echo "--- app and worker logs ---"
           docker compose logs --no-color --tail 150 app dial-worker retention-worker email-worker
           exit 1

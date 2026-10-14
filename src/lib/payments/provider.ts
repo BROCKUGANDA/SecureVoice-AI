@@ -178,13 +178,24 @@ export type InvoiceRequest = {
    * posture `createCheckout` takes for an unknown price.
    */
   customPricing?: true;
-  /** Buyer details for the document. A VAT/GST number goes in `taxId`. */
+  /**
+   * Buyer details for the document. A VAT/GST number goes in `taxId`, and the
+   * address is the buyer's registered one — transcribed from the contract, never
+   * defaulted by us, because Paddle taxes on where the buyer is.
+   */
   customer?: { email: string; name?: string; address?: Record<string, string> };
   /**
    * Buyer's VAT/GST number. Present ⇒ reverse-charge treatment, which the
    * gateway applies; absent ⇒ standard rate. Never inferred from the address.
    */
   taxId?: string;
+  /**
+   * The buyer's own purchase-order reference, printed on the invoice so their
+   * accounts payable can match the document to the approval it came from.
+   * Paddle stores it on `billing_details.purchase_order_number`; it is the
+   * customer's paperwork, so we carry it verbatim and never synthesize one.
+   */
+  purchaseOrderNumber?: string;
   /** Operator who raised it. Written to `PaymentRecord.recordedBy`. */
   recordedBy: string;
 };

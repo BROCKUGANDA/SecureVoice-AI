@@ -90,6 +90,16 @@ export const SECRET_KEY_ENV = "PADDLE_API_KEY";
 export const WEBHOOK_SECRET_ENV = "PADDLE_WEBHOOK_SECRET";
 export const PRICES_ENV = "PADDLE_PRICES";
 
+/**
+ * The single hidden product every negotiated, non-catalog price hangs off.
+ *
+ * Name, not id, is the handle: `paddle-verify.ts` and the pricing page both work
+ * from the published tiers, and a negotiated one-off must never be reachable
+ * from either. A deployment may pin the id in `PADDLE_NEGOTIATED_PRODUCT_ID` to
+ * skip the lookup; otherwise it is found by name before it is created.
+ */
+export const NEGOTIATED_PRODUCT_NAME = "Negotiated Terms";
+
 /** Replay window. Paddle's own dashboard default is 5 minutes. */
 export const SIGNATURE_TOLERANCE_SEC = Number(process.env.PADDLE_SIGNATURE_TOLERANCE_SEC) || 300;
 
@@ -487,6 +497,46 @@ type TransactionResponse = {
   };
 };
 
+/**
+ * The buyer block, transcribed and never invented.
+ *
+ * Paddle is Merchant of Record, so it charges VAT/GST where the BUYER is: the
+ * registered address and tax number on this document are the customer's facts,
+ * not ours. Nothing here defaults a country, borrows the deployment's address,
+ * or treats a missing tax number as a zero-rate signal — guessing a buyer's
+ * jurisdiction under-charges a taxable bank, which is the precise failure a
+ * Merchant-of-Record arrangement exists to prevent.
+ *
+ * The keys are Paddle's transaction `customer` shape (`company_name`,
+ * `country_code`, `postal_code`, `tax_identifiers[]`), verified against the
+ * sandbox rather than assumed from the older `name` / flat `tax_id` spelling
+ * this file used before it had ever received a 2xx here.
+ */
+function invoiceCustomer(req: InvoiceRequest): Record<string, unknown> {
+  const email = (req.customer?.email ?? "").trim();
+  const company = (req.customer?.name ?? "").trim();
+  const addr = req.customer?.address ?? {};
+  const country = (addr["country_code"] ?? "").trim().toUpperCase();
+  const postal = (addr["postal_code"] ?? "").trim();
+  const taxId = (req.taxId ?? "").trim();
+  if (!email && !company && !country && !postal && !taxId) return {};
+  return {
+    customer: {
+      ...(email ? { email } : {}),
+      ...(company ? { company_name: company.slice(0, 160) } : {}),
+      ...(country ? { country_code: country } : {}),
+      ...(postal ? { postal_code: postal.slice(0, 16) } : {}),
+      ...(taxId
+        ? {
+            tax_identifiers: [
+              { type: process.env.PADDLE_TAX_ID_TYPE ?? "eu_vat", value: taxId.slice(0, 64) },
+            ],
+          }
+        : {}),
+    },
+  };
+}
+
 export function createPaddleProvider(cfg: PaddleConfig): PaymentProvider {
   const c = normalizeConfig(cfg);
 
@@ -555,12 +605,75 @@ export function createPaddleProvider(cfg: PaddleConfig): PaymentProvider {
   }
 
   /**
+   * Mint one hidden, non-catalog price for a negotiated amount.
+   *
+   * Paddle is Merchant of Record, so EVERY charge must resolve to a priced
+   * catalog line it can tax, invoice and report — measured against the sandbox
+   * on 2026-10-14, a transaction item carrying an amount instead of a catalogued
+   * price is refused outright:
+   *   `items.0: price_id is required` (and `Must validate one and only one
+   *    schema (oneOf)`), for BOTH `price:{amount_minor}` and `price:{amount}`.
+   * So a negotiated figure is not sent as a number; it is minted as a one-off
+   * price and then referenced. `POST /prices` itself requires `product_id` and
+   * `description`, and `unit_price.amount` is a MINOR-UNIT STRING — the catalog
+   * answers `"9900"` for $99.00, so a raw integer is a type error.
+   *
+   * The prices hang off a single hidden product, never off Starter/Growth/
+   * Enterprise: those three are the published tiers, and a negotiated one-off
+   * must not become a tier somebody can buy twice. The product is found by name
+   * before it is created, so the hundredth invoice reuses the first invoice's
+   * product rather than littering the catalog.
+   */
+  async function adHocPriceFor(
+    money: { amountMinor: number; currency: string },
+    description: string,
+  ): Promise<{ ok: true; priceId: string } | { ok: false; reason: string }> {
+    const productId = await negotiatedProductId();
+    if (!productId) return { ok: false, reason: "negotiated_product_unavailable" };
+
+    const minted = await paddleRequest<{ data?: { id?: string } }>(c, "POST", "/prices", {
+      product_id: productId,
+      description:
+        `SecureVoice negotiated one-off ${money.amountMinor} ${money.currency} — ${description}`.slice(
+          0,
+          250,
+        ),
+      unit_price: { amount: String(money.amountMinor), currency_code: money.currency },
+      quantity: { minimum: 1, maximum: 1 },
+    });
+    if (!minted.ok) return { ok: false, reason: `ad_hoc_price_failed:${minted.error}` };
+    const priceId = (minted.value.data?.id ?? "").trim();
+    if (priceId === "") return { ok: false, reason: "ad_hoc_price_returned_no_id" };
+    return { ok: true, priceId };
+  }
+
+  async function negotiatedProductId(): Promise<string> {
+    const pinned = (process.env.PADDLE_NEGOTIATED_PRODUCT_ID ?? "").trim();
+    if (pinned) return pinned;
+    const listed = await paddleRequest<{ data?: { id?: string; name?: string }[] }>(
+      c,
+      "GET",
+      "/products?per_page=100",
+    );
+    const existing = (listed.ok ? (listed.value.data ?? []) : []).find(
+      (p) => (p.name ?? "").trim().toLowerCase() === NEGOTIATED_PRODUCT_NAME.toLowerCase(),
+    );
+    if (existing?.id) return existing.id;
+    const created = await paddleRequest<{ data?: { id?: string } }>(c, "POST", "/products", {
+      name: NEGOTIATED_PRODUCT_NAME,
+      description:
+        "Non-catalog one-off amounts raised on a negotiated enterprise invoice. Never listed on the pricing page.",
+      tax_category: "saas",
+      type: "custom",
+    });
+    return created.ok ? (created.value.data?.id ?? "") : "";
+  }
+
+  /**
    * Raise a manual-collection invoice for an enterprise deal.
    *
    * Paddle's route to a VAT/GST document with bank-transfer settlement is
-   * `POST /transactions` with `collection_mode: "manual"` plus `due_date`. That
-   * is the same endpoint `createCheckout` uses with one field changed, which is
-   * why there is no second API surface to keep in sync.
+   * `POST /transactions` with `collection_mode: "manual"`.
    *
    * The important property is what this does NOT do: it credits nothing.
    * `settledUnits: 0` is returned unconditionally, and that is a design
@@ -570,58 +683,52 @@ export function createPaddleProvider(cfg: PaddleConfig): PaymentProvider {
    * `transaction.paid` or on dual-control operator confirmation.
    */
   async function createInvoice(req: InvoiceRequest): Promise<InvoiceResult> {
-    // Amounts are MINOR UNITS and must be positive integers. `assertMoney`
-    // already enforces integer-ness and non-negativity for checkout; invoice
-    // lines go through the same bound rather than a looser ad-hoc check, so a
-    // float can never reach the gateway body.
-    const items = req.items.map((item, index) => {
+    if (req.items.length === 0) {
+      return { ok: false, reference: req.reference, reason: "invoice_has_no_items" };
+    }
+
+    // Amounts are MINOR UNITS and must be positive integers — `assertMoney`
+    // bounds them here AND again inside the minted price, because this is the
+    // boundary where a negotiated figure becomes money.
+    const items: { price_id: string; quantity: number }[] = [];
+    for (const [index, item] of req.items.entries()) {
       const money = assertMoney(
         { amountMinor: item.amountMinor, currency: req.currency },
         `invoice.items[${index}]`,
       );
-      return {
-        // A non-catalog item: an amount plus a description. This is how
-        // per-customer negotiated pricing is expressed — Paddle will not
-        // accept an unknown price_id, and inventing one to carry a custom
-        // amount would be worse than describing the line.
-        description: item.description,
-        price: { amount_minor: money.amountMinor, currency_code: money.currency },
-        quantity: String(item.quantity ?? 1),
-      };
-    });
-
-    if (items.length === 0) {
-      return { ok: false, reference: req.reference, reason: "invoice_has_no_items" };
+      const minted = await adHocPriceFor(money, item.description);
+      if (!minted.ok) return { ok: false, reference: req.reference, reason: minted.reason };
+      // One unit per minted price: `quantity` on the price is pinned to 1, so a
+      // line of N is expressed as N items rather than as a multiplier the
+      // gateway might price differently.
+      const quantity = item.quantity ?? 1;
+      for (let n = 0; n < quantity; n++) items.push({ price_id: minted.priceId, quantity: 1 });
     }
 
     const res = await paddleRequest<TransactionResponse>(c, "POST", "/transactions", {
       items,
       // THE line that makes this an invoice rather than a checkout.
       collection_mode: "manual",
-      ...(req.dueInDays === undefined
-        ? {}
-        : { due_date: new Date(Date.now() + req.dueInDays * 86_400_000).toISOString() }),
+      // Measured: manual is refused with
+      // `transaction_billing_details_object_required`, and the one member
+      // Paddle demands inside it is `payment_terms`, in its FLAT form
+      // `{interval, amount_due, frequency}` — nesting under `frequency` answers
+      // `interval is required` / `frequency: Expected integer, given object`.
+      // The previous body sent `due_date` instead, which Paddle does not accept
+      // in place of payment terms.
+      billing_details: {
+        payment_terms: {
+          interval: "day",
+          amount_due: req.dueInDays ?? 30,
+          frequency: 1,
+        },
+        ...(req.purchaseOrderNumber
+          ? { purchase_order_number: req.purchaseOrderNumber.slice(0, 64) }
+          : {}),
+      },
       // OUR reference, so the paid webhook hands back something we can match.
       custom_data: { reference: req.reference },
-      ...(req.customer?.email
-        ? {
-            customer: {
-              email: req.customer.email,
-              ...(req.customer.name ? { name: req.customer.name } : {}),
-            },
-          }
-        : {}),
-      // A VAT/GST number triggers reverse-charge treatment at the gateway.
-      // Absent ⇒ standard rate. Never inferred from the address: guessing here
-      // would under-charge a taxable buyer.
-      ...(req.taxId
-        ? {
-            customer: {
-              ...(req.customer?.email ? { email: req.customer.email } : {}),
-              tax_id: req.taxId,
-            },
-          }
-        : {}),
+      ...invoiceCustomer(req),
     });
 
     if (!res.ok) {

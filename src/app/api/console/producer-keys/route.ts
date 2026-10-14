@@ -2,6 +2,8 @@ import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireOperator } from "@/lib/credits";
+import { requirePrivileged } from "@/lib/auth/guards";
+import { NO_ORG } from "@/lib/auth/identity";
 import { db } from "@/lib/db";
 import { generateProducerKey, hashProducerKey } from "@/lib/producer-keys";
 import { append as auditAppend } from "@/lib/audit-chain";
@@ -41,8 +43,22 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
-  const guard = await requireOperator();
-  if (!guard.ok) return NextResponse.json({ error: guard.error }, { status: guard.status });
+  // Capability AND step-up. Issuing a headless credential that authenticates
+  // ingest for this organisation is exactly what the privileged-action registry
+  // names `rotate_producer_key` for — and docs/SECURITY-QUESTIONNAIRE.md already
+  // tells auditors the gate exists. A stolen console session previously needed
+  // nothing more than a valid cookie to mint one.
+  const authed = await requirePrivileged(req.headers.get("cookie"), "rotate_producer_key");
+  if (!authed.ok) {
+    return NextResponse.json(
+      { error: authed.error, code: authed.code },
+      { status: authed.status, headers: { "Cache-Control": "no-store" } },
+    );
+  }
+  // The route's own bucketing is preserved: an identity without a workspace has
+  // always produced a NULL-org key that reads back through the "default"
+  // fallback. A security change is not the place to silently re-bucket keys.
+  const keyOrgId = authed.orgId === NO_ORG ? null : authed.orgId;
   let body: unknown;
   try {
     body = await req.json();
@@ -58,7 +74,7 @@ export async function POST(req: NextRequest) {
     data: {
       label: parsed.data.label,
       keyHash: hashProducerKey(plaintext),
-      orgId: guard.profile.orgId,
+      orgId: keyOrgId,
     },
     select: { id: true, label: true, createdAt: true },
   });
@@ -69,10 +85,10 @@ export async function POST(req: NextRequest) {
     callRef: `PRODKEY-${row.id.slice(0, 24)}`,
     action: "consent",
     intent: "producer_key_issued",
-    callerId: guard.profile.userId,
+    callerId: authed.identity.accountId,
     redactedText: `issued "${parsed.data.label}"`,
-    meta: { keyId: row.id, label: parsed.data.label, orgId: guard.profile.orgId ?? undefined },
-    orgId: guard.profile.orgId ?? undefined,
+    meta: { keyId: row.id, label: parsed.data.label, orgId: keyOrgId ?? undefined },
+    orgId: keyOrgId ?? undefined,
   });
   return NextResponse.json({
     ok: true,
@@ -83,15 +99,22 @@ export async function POST(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
-  const guard = await requireOperator();
-  if (!guard.ok) return NextResponse.json({ error: guard.error }, { status: guard.status });
+  // Revoking is gated too, and not for symmetry: killing a bank's producer key
+  // stops its fraud engine authenticating to ingest, which is an outage an
+  // attacker can cause with one stolen cookie today.
+  const authed = await requirePrivileged(req.headers.get("cookie"), "rotate_producer_key");
+  if (!authed.ok) {
+    return NextResponse.json(
+      { error: authed.error, code: authed.code },
+      { status: authed.status, headers: { "Cache-Control": "no-store" } },
+    );
+  }
+  const keyOrgId = authed.orgId === NO_ORG ? null : authed.orgId;
   const id = req.nextUrl.searchParams.get("id");
   if (!id) return NextResponse.json({ error: "id required" }, { status: 422 });
   // Tenant scope on the revocation itself — an operator must not revoke
   // another org's key by id, and a miss must not report success.
-  const orgScope = guard.profile.orgId
-    ? { orgId: guard.profile.orgId }
-    : { OR: [{ orgId: null }, { orgId: "default" }] };
+  const orgScope = keyOrgId ? { orgId: keyOrgId } : { OR: [{ orgId: null }, { orgId: "default" }] };
   const r = await db.producerKey.updateMany({
     where: { id, ...orgScope },
     data: { revoked: true },
@@ -103,10 +126,10 @@ export async function DELETE(req: NextRequest) {
     callRef: `PRODKEY-${id.slice(0, 24)}`,
     action: "consent",
     intent: "producer_key_revoked",
-    callerId: guard.profile.userId,
+    callerId: authed.identity.accountId,
     redactedText: "revoked",
-    meta: { keyId: id, orgId: guard.profile.orgId ?? undefined },
-    orgId: guard.profile.orgId ?? undefined,
+    meta: { keyId: id, orgId: keyOrgId ?? undefined },
+    orgId: keyOrgId ?? undefined,
   });
   return NextResponse.json({ ok: true, revoked: id });
 }

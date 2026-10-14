@@ -2468,7 +2468,7 @@ describe("WP-21 / negative control — a policy refusal is 409 and NEVER 500", (
     // gate's source and fails on any emitted code missing here — and on any declared
     // code the gate no longer emits. This number only fires when someone edits one
     // side and the unit test has not been told.
-    expect(POLICY_REFUSAL_CODES).toHaveLength(10);
+    expect(POLICY_REFUSAL_CODES).toHaveLength(13);
     expect(BILLING_REFUSAL_CODES).toEqual(["credits_exhausted"]);
 
     recordSection("negativeControl", {

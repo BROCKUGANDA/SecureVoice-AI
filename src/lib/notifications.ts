@@ -38,6 +38,15 @@ export const ESCALATION_CONTACTS = [
   { id: "head_of_risk", channel: "email" as const, label: "Head of Risk" },
 ];
 
+/**
+ * How many unacknowledged notifications one escalation tick will look at.
+ * Not an SLA and not a policy — a bound on a query whose result set is every
+ * notification nobody has clicked on since the deployment began. Sized above
+ * what one tenant could produce in an incident (a full page storm is dozens),
+ * below what a single tick can hop without delaying the next one.
+ */
+const ESCALATION_BATCH = 200;
+
 export function dedupeKeyFor(input: {
   orgId: string | null;
   alertType: string;
@@ -170,9 +179,17 @@ export type EscalationHop = {
  * signal the console must not hide.
  */
 export async function advanceEscalations(now: Date = new Date()): Promise<EscalationHop[]> {
+  // Bounded, oldest first. `acknowledgedAt: null` is a set that only grows —
+  // every notification a human never clicks is in it forever — and this runs on
+  // a tick, so the unbounded read was a slow leak of the platform's own failure
+  // to be noticed. The cap is not a truncation of duty: rows are ordered by
+  // `createdAt` and a hop advances at most one contact per SLA window, so the
+  // oldest outstanding items are always the ones served, and the rest are met on
+  // the next tick rather than dropped.
   const outstanding = await db.notification.findMany({
     where: { acknowledgedAt: null },
     orderBy: { createdAt: "asc" },
+    take: ESCALATION_BATCH,
   });
 
   const hops: EscalationHop[] = [];

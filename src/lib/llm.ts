@@ -405,8 +405,11 @@ function adapterProviderFor(name: Provider["name"]): LlmProvider {
 
 /**
  * What the tenant's own knowledge base contributed to one live turn.
+ *
+ * `sources` exists because "was this answer grounded, and in which document" is the
+ * first question an auditor asks and the second is unanswerable from a hit count.
  */
-type Grounding = { block: string; hits: number } | null;
+type Grounding = { block: string; hits: number; sources: string[] } | null;
 
 /** Extracts per turn. Three is what fits the word budget without crowding the rules. */
 const KB_TOP_K = 3;
@@ -458,7 +461,13 @@ async function groundFromKnowledgeBase(input: {
     setTimeout(() => resolve("timeout"), budgetMs);
   });
   const outcome = await Promise.race([
-    input.retrieve(orgId, safeQuery, KB_TOP_K).catch(() => "error" as const),
+    // A rejection and an unhealthy result are the same operational fact — retrieval
+    // did not answer — so both are folded into one shape that keeps the reason.
+    input.retrieve(orgId, safeQuery, KB_TOP_K).catch((e: unknown) => ({
+      ok: false as const,
+      matches: [],
+      error: e instanceof Error ? e.message : String(e),
+    })),
     timeout,
   ]);
 
@@ -469,7 +478,19 @@ async function groundFromKnowledgeBase(input: {
     });
     return null;
   }
-  if (outcome === "error" || !outcome.ok) return null;
+  if (!outcome.ok) {
+    // This path used to return silently, which made it the quietest failure in the
+    // product: a tenant whose Pinecone index is unconfigured, renamed or unreachable
+    // lands here on EVERY turn, the agent keeps answering without its policy, and
+    // nothing anywhere records that retrieval is dead. Failing open is correct for a
+    // live call. Not being able to see that it failed open every single time is not.
+    logWarn("[llm] knowledge retrieval unavailable; drafting un-grounded", {
+      orgId,
+      reason: outcome.error ?? "unknown",
+      elapsedMs: Date.now() - startedAt,
+    });
+    return null;
+  }
 
   const matches = outcome.matches.filter((m) => m.text.trim().length > 0);
   if (matches.length === 0) return null;
@@ -479,6 +500,7 @@ async function groundFromKnowledgeBase(input: {
   // rules that sit above it in the same prompt.
   const cap = env.ragContextMaxChars;
   const lines: string[] = [];
+  const sources: string[] = [];
   let used = 0;
   for (const m of matches) {
     const room = cap - used;
@@ -489,11 +511,12 @@ async function groundFromKnowledgeBase(input: {
     const line = `${m.title}: ${m.text.trim().replace(/\s+/g, " ")}`.slice(0, room);
     if (line.length === 0) break;
     lines.push(line);
+    sources.push(m.title);
     used += line.length;
   }
   if (lines.length === 0) return null;
 
-  return { block: lines.join("\n"), hits: lines.length };
+  return { block: lines.join("\n"), hits: lines.length, sources };
 }
 
 export async function draftAgentReply(args: {
@@ -697,6 +720,11 @@ export async function draftAgentReply(args: {
         // the policy" and "the agent improvised" are distinguishable after the
         // call instead of argued about.
         kbHits: grounding?.hits ?? 0,
+        // And which documents those hits came from. A count alone cannot answer the
+        // question an auditor actually asks — "on this call, did it read the freeze
+        // policy or the refund policy" — and the title is already in hand at the
+        // point the extract is built, so recording it costs nothing per turn.
+        kbSources: grounding?.sources ?? [],
         // The whole attempt list, not just the head. "Groq timed out and LiteLLM
         // answered" is the sentence an incident review needs, and it is
         // unrecoverable afterwards if only the chosen provider is recorded.

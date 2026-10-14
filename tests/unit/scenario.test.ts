@@ -276,7 +276,12 @@ describe("eventText — language selection", () => {
   });
 
   test("an unknown or unimplemented language falls back to English, never undefined", () => {
-    for (const lang of ["fr", "sw", "de", "zz"] as CallLang[]) {
+    // fr and sw are no longer in this list: they have their own transcript
+    // layers (./scenario-fr, ./scenario-sw) and tests/unit/scenario-language-
+    // coverage.test.ts fails if either ever renders English again. What stays
+    // here is a tag with no voice at all, which must degrade to en rather than
+    // to undefined.
+    for (const lang of ["de", "zz"] as unknown as CallLang[]) {
       const text = eventText(events[0]!, lang);
       expect(typeof text).toBe("string");
       expect(text.length).toBeGreaterThan(0);

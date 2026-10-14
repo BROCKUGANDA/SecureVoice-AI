@@ -50,6 +50,7 @@ import "server-only";
  */
 
 import type { AdapterMode } from "@/lib/ports/types";
+import { env } from "@/lib/config";
 
 // ── provider vocabulary ──────────────────────────────────────────────────────
 
@@ -299,7 +300,7 @@ function createGroqAdapter(config: LlmAdapterConfig = {}): LlmAdapter {
       config.baseUrl ??
       process.env.GROQ_BASE_URL ??
       "https://api.groq.com/openai/v1/chat/completions",
-    model: config.model ?? process.env.GROQ_MODEL ?? "llama-3.3-70b-versatile",
+    model: config.model ?? env.groqModel,
     timeoutMs: config.timeoutMs ?? readPositiveInt(process.env.GROQ_TIMEOUT_MS, 8_000),
     temperature: config.temperature ?? readTemperature(process.env.GROQ_TEMPERATURE, 0.3),
     maxTokens: config.maxTokens ?? readPositiveInt(process.env.GROQ_MAX_TOKENS, 512),
@@ -319,7 +320,7 @@ function createGeminiAdapter(config: LlmAdapterConfig = {}): LlmAdapter {
       config.baseUrl ??
       process.env.GEMINI_BASE_URL ??
       "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
-    model: config.model ?? process.env.GEMINI_MODEL ?? "gemini-1.5-flash",
+    model: config.model ?? env.geminiModel,
     timeoutMs: config.timeoutMs ?? readPositiveInt(process.env.GEMINI_TIMEOUT_MS, 15_000),
     temperature: config.temperature ?? readTemperature(process.env.GEMINI_TEMPERATURE, 0.3),
     maxTokens: config.maxTokens ?? readPositiveInt(process.env.GEMINI_MAX_TOKENS, 512),

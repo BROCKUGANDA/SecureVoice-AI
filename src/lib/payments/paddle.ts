@@ -65,7 +65,7 @@ import "server-only";
  * the network from.
  */
 
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import {
   assertMoney,
   entitlementsFor,
@@ -93,8 +93,35 @@ export const PRICES_ENV = "PADDLE_PRICES";
 /** Replay window. Paddle's own dashboard default is 5 minutes. */
 export const SIGNATURE_TOLERANCE_SEC = Number(process.env.PADDLE_SIGNATURE_TOLERANCE_SEC) || 300;
 
-function defaultBaseUrl(): string {
-  return process.env.PADDLE_BASE_URL ?? "https://sandbox-api.paddle.com";
+/** The two hosts, in exactly the strings Paddle uses them. */
+const SANDBOX_BASE_URL = "https://sandbox-api.paddle.com";
+const PRODUCTION_BASE_URL = "https://api.paddle.com";
+
+/**
+ * The host is derived from the KEY, not from a default — for the same reason
+ * `normalizeConfig` refuses an unrecognised prefix and `paddle-events.ts` picks
+ * the SDK environment from `pdl_sdbx_`: the key is the one fact that cannot be
+ * wrong about which account money moves in.
+ *
+ * The previous behaviour was `process.env.PADDLE_BASE_URL ??
+ * "https://sandbox-api.paddle.com"`, and `PADDLE_BASE_URL` is declared in no env
+ * file at all. A production deployment therefore sent every `POST /transactions`
+ * to the sandbox, where the ids in `PADDLE_PRICES` do not exist — and a
+ * production key answered with 401/404 rather than taking real money, which is
+ * the only reason the mistake was survivable.
+ */
+function baseUrlForApiKey(apiKey: string): string {
+  const derived = apiKey.startsWith("pdl_sdbx_") ? SANDBOX_BASE_URL : PRODUCTION_BASE_URL;
+  const override = process.env.PADDLE_BASE_URL?.trim().replace(/\/+$/, "");
+  if (!override) return derived;
+  if (override !== derived) {
+    throw new TypeError(
+      `PADDLE_BASE_URL (${override}) does not match the environment of the key in ` +
+        `${SECRET_KEY_ENV} (which requires ${derived}). One of the two is for a ` +
+        `different Paddle account; refusing to bill the one you did not mean.`,
+    );
+  }
+  return override;
 }
 
 // ── signature ─────────────────────────────────────────────────────────────────
@@ -183,8 +210,13 @@ export function ulid(now: number = Date.now()): string {
     time = ULID_ALPHABET[t % 32] + time;
     t = Math.floor(t / 32);
   }
-  const buf = new Uint8Array(16);
-  for (let i = 0; i < 16; i++) buf[i] = Math.floor(Math.random() * 256);
+  // CSPRNG, not `Math.random()`: this 80 bits is the only thing separating one
+  // payment reference from the next, and `buildReference()` hands the result to
+  // the gateway as the merchant-side id a webhook is matched on. A V8 xorshift
+  // seeded by the process start is reconstructible from two nearby references,
+  // which is why src/lib/ids.ts exists and names it. Same fix, same file, for
+  // the reference that authorises a charge.
+  const buf = randomBytes(16);
   let random = "";
   for (const byte of buf) random = ULID_ALPHABET[byte % 32] + random;
   return (time + random).slice(0, 26);
@@ -370,7 +402,7 @@ function normalizeConfig(cfg: PaddleConfig): Required<
     apiKey,
     webhookSecret,
     prices: cfg.prices ?? {},
-    baseUrl: cfg.baseUrl ?? defaultBaseUrl(),
+    baseUrl: cfg.baseUrl ?? baseUrlForApiKey(apiKey),
     http: cfg.http ?? ((url, init) => fetch(url, init)),
   };
 }
@@ -388,11 +420,23 @@ async function paddleRequest<T>(
     res = await cfg.http(`${cfg.baseUrl}${path}`, {
       method,
       headers: {
-        // Paddle authenticates with the API key as the Basic-auth USERNAME and
-        // an EMPTY password — not as a bearer token. This was the reason a
-        // hand-rolled `Authorization: Basic <key>` probe 403'd while the SDK
-        // worked: the SDK sends the same scheme, and anything else does not.
-        Authorization: `Basic ${Buffer.from(`${cfg.apiKey}:`).toString("base64")}`,
+        // Bearer, measured against the sandbox on 2026-10-14:
+        //   `Authorization: Basic base64("<key>:")` → HTTP 403
+        //       {"error":{"code":"authentication_malformed","detail":"Authentication
+        //        header included, but incorrectly formatted."}}
+        //   `Authorization: Bearer <key>`           → HTTP 200 with the catalog body.
+        //
+        // This file used to assert the opposite — that Paddle takes the key as a
+        // Basic username with an empty password, and that the Basic form was the
+        // reason a probe failed while the SDK worked. Both halves of that sentence
+        // are inverted: the SDK sends Bearer, and it was the hand-rolled Basic call
+        // that 403'd. Every REST operation behind this function was therefore dead
+        // — `createCheckout`, `createInvoice` and `refund` all returned
+        // `http_403:authentication_malformed` — while the webhook path stayed
+        // healthy because it goes through the SDK. That asymmetry is the reason the
+        // bug survived: the surface that received money worked, the surface that
+        // raised documents did not.
+        Authorization: `Bearer ${cfg.apiKey}`,
         "Content-Type": "application/json",
         Accept: "application/json",
       },

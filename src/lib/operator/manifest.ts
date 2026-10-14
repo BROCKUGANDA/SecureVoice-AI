@@ -78,6 +78,44 @@ export const KNOWLEDGE_BASE: KnowledgeDoc[] = [
     doc_type: "policy",
     scope: "Arabic counterpart of the fraud-disposition policy (Arabic copy corruption-checked).",
   },
+  // Four more copies because the agent speaks six languages, and the panel that
+  // lists them is the operator's only view of what the agent is actually given.
+  // `agent/securevoice.agent.yaml` is the declaration and
+  // tests/unit/operator-manifest-kb-agreement.test.ts fails if the two ever
+  // describe a different set — a policy quoted in Hindi is not the same promise
+  // as a policy quoted in English, and it cannot be audited as if it were.
+  {
+    id: "SV-FDP-2026-01",
+    title: "धोखाधड़ी निपटान नीति",
+    lang: "hi",
+    version: "v3.2",
+    doc_type: "policy",
+    scope: "Hindi counterpart of the fraud-disposition policy, full seven sections.",
+  },
+  {
+    id: "SV-FDP-2026-01",
+    title: "فراڈ ڈسپوزیشن پالیسی",
+    lang: "ur",
+    version: "v3.2",
+    doc_type: "policy",
+    scope: "Urdu counterpart of the fraud-disposition policy, full seven sections.",
+  },
+  {
+    id: "SV-FDP-2026-01",
+    title: "Politique de disposition des cas de fraude",
+    lang: "fr",
+    version: "v3.2",
+    doc_type: "policy",
+    scope: "French counterpart of the fraud-disposition policy, full seven sections.",
+  },
+  {
+    id: "SV-FDP-2026-01",
+    title: "Sera ya vyamo vya udanganyifu",
+    lang: "sw",
+    version: "v3.2",
+    doc_type: "policy",
+    scope: "Swahili counterpart of the fraud-disposition policy, full seven sections.",
+  },
 ];
 
 export const RAG_CONFIG = {

@@ -82,11 +82,110 @@ describe("TTS model resolution", () => {
     }
   });
 
+  test("the console and the live call speak the same model in every language", () => {
+    // Measured on the deploy box 2026-10-13: ELEVENLABS_MODEL was
+    // `eleven_multilingual_v2` while the agent the customer actually talks to runs
+    // `eleven_v4_turbo`. Same sentence, two different voices depending on whether
+    // you heard it in the console preview or on the phone — and nothing in the tree
+    // compared the two, because the agent's model lives in agent/*.yaml and the
+    // caller's lives in config.ts, and neither reads the other.
+    //
+    // This is the assertion that closes that gap: one model per language across both
+    // planes. It fails the moment either side is changed alone.
+    const yaml = readFileSync(join(ROOT, "agent", "securevoice.agent.yaml"), "utf8");
+    // `""` + a throw rather than `?.[1]` trusting an assertion downstream: with no
+    // model declared, every comparison below would be "" === "" and the gate would
+    // certify a yaml that says nothing.
+    const agentModel = yaml.match(/^tts:$(?:\n[ \t].*)*?\n[ \t]+model_id:[ \t]*(\S+)/m)?.[1] ?? "";
+    if (!agentModel) {
+      throw new Error(
+        "agent/securevoice.agent.yaml declares no tts.model_id — this gate would " +
+          "pass on an empty match, so it certifies nothing",
+      );
+    }
+    // Measured against the SHIPPED default, not the ambient environment: a repo gate
+    // cannot see a deployment's .env, and a developer machine that pins
+    // ELEVENLABS_MODEL would otherwise turn this red for a reason CI cannot observe.
+    // A deployment that overrides the model is on record (`.env.example`) to keep it
+    // equal to the agent's, which is the same rule, just enforced by reading.
+    const prev = process.env.ELEVENLABS_MODEL;
+    try {
+      delete process.env.ELEVENLABS_MODEL;
+      for (const lang of LANGS) {
+        expect({ lang, caller: resolveTtsModel(lang), agent: agentModel }).toEqual({
+          lang,
+          caller: agentModel,
+          agent: agentModel,
+        });
+      }
+    } finally {
+      if (prev === undefined) delete process.env.ELEVENLABS_MODEL;
+      else process.env.ELEVENLABS_MODEL = prev;
+    }
+  });
+
+  test("the compose default is that same model, because the worker reads no env_file", () => {
+    // `app` declares `env_file: .env`; `voice-stream-worker` does not. So for the
+    // service that carries a live customer's audio, the `${ELEVENLABS_MODEL:-…}`
+    // interpolation in docker-compose.yml IS the deployment default when `.env`
+    // omits the variable — and it carried eleven_multilingual_v2, a model that
+    // cannot voice Urdu or Swahili, after the code default moved to
+    // eleven_v4_turbo. Every English test stayed green, which is the whole problem.
+    const compose = readFileSync(join(ROOT, "docker-compose.yml"), "utf8");
+    const defaults = [
+      ...compose.matchAll(/ELEVENLABS_MODEL:\s*\$\{ELEVENLABS_MODEL:-([^\}]+)\}/g),
+    ].map((m) => m[1]);
+    if (defaults.length === 0) {
+      throw new Error(
+        "docker-compose.yml no longer interpolates ELEVENLABS_MODEL with a default — " +
+          "this gate is the only thing keeping the worker's model in sync, so update " +
+          "it rather than letting it pass on an empty list",
+      );
+    }
+    const prev = process.env.ELEVENLABS_MODEL;
+    delete process.env.ELEVENLABS_MODEL;
+    try {
+      for (const lang of LANGS) {
+        for (const d of defaults) {
+          expect({ lang, compose: d, code: resolveTtsModel(lang) }).toEqual({
+            lang,
+            compose: resolveTtsModel(lang),
+            code: resolveTtsModel(lang),
+          });
+        }
+      }
+    } finally {
+      if (prev === undefined) delete process.env.ELEVENLABS_MODEL;
+      else process.env.ELEVENLABS_MODEL = prev;
+    }
+  });
+
   test("the streaming route resolves through the shared table, not a local ternary", () => {
     const src = routeSource("tts/stream/route.ts");
     // The regression in its original form.
     expect(src).not.toMatch(/eleven_flash_v2_5/);
     expect(src).not.toMatch(/lang\s*===\s*["']sw["']\s*\?/);
     expect(src).toContain("resolveTtsModel(lang)");
+  });
+
+  test("no speech path carries a model literal that bypasses the deployment", () => {
+    // elevenlabs-stream.ts defaulted to a hardcoded model when a caller omitted
+    // `modelId`. Every caller supplies one today, so the literal was inert — which is
+    // exactly how it would have become the bug: the first caller that forgets it puts
+    // one live conversation plane on a different voice from the rest of the
+    // deployment, and nothing reports the difference.
+    const stream = readFileSync(join(ROOT, "src", "lib", "voice", "elevenlabs-stream.ts"), "utf8");
+    expect(stream).not.toMatch(/modelId\s*\?\?\s*["']eleven_/);
+    // The same file carried the voice character as literals — `stability: 0.5` —
+    // while src/lib/config.ts documents a deliberate 0.7 for this agent ("this
+    // agent reads money back to a frightened cardholder", and lower stability is
+    // more expressive variance between utterances). The knob existed, was
+    // documented in .env.example, was applied to the console preview, and never
+    // reached live call audio. A settings literal here is the deployment's
+    // `TTS_VOICE_*` being silently ignored on the plane customers actually hear.
+    expect(stream).not.toMatch(/voiceSettings:\s*\{[^}]*stability:\s*[\d.]/);
+    expect(stream).not.toMatch(/voiceSettings:\s*\{[^}]*similarityBoost:\s*[\d.]/);
+    expect(stream).toContain("env.voiceStability");
+    expect(stream).toContain("env.voiceSimilarityBoost");
   });
 });

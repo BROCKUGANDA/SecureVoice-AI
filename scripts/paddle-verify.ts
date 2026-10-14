@@ -1,8 +1,24 @@
 import { Environment, Paddle } from "@paddle/paddle-node-sdk";
 
-const paddle = new Paddle(process.env.PADDLE_SANDBOX_API_KEY!, {
-  environment: Environment.sandbox,
-});
+// `PADDLE_SANDBOX_API_KEY` is not a variable this repository defines — `.env`,
+// `.env.example` and compose all use `PADDLE_API_KEY`, and the environment is
+// carried in the key prefix. Reading a name nobody sets meant this script
+// constructed a client with `undefined` and answered 401 for every product,
+// which reads as "the catalog is broken" rather than "the script is".
+const apiKey = (process.env.PADDLE_API_KEY ?? "").trim();
+if (apiKey === "") {
+  console.error("✗ PADDLE_API_KEY is not set — cannot verify the catalog.");
+  process.exit(1);
+}
+if (!apiKey.startsWith("pdl_sdbx_")) {
+  console.error(
+    `✗ PADDLE_API_KEY is not a sandbox key (prefix ${JSON.stringify(apiKey.slice(0, 10))}). ` +
+      `This script checks the SANDBOX catalog; refuse to point it at live money.`,
+  );
+  process.exit(1);
+}
+
+const paddle = new Paddle(apiKey, { environment: Environment.sandbox });
 
 const IDS = [
   { label: "Starter", id: "pro_01m4kc8a89eb5fs4638p0trbf7" },

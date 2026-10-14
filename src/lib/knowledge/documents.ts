@@ -28,6 +28,14 @@ import "server-only";
  *     tenant boundary; nothing is added to them.
  *  3. **Idempotent.** A READY document is a no-op, because the queue retries.
  *     Without that, every QStash retry would re-embed an entire policy PDF.
+ *
+ * Two more sentences about the SECOND knowledge plane, because it is easy to miss
+ * and easy to break: when a document reaches READY it is also offered to
+ * `src/lib/knowledge/platform-kb.ts`, which publishes the same already-extracted
+ * text onto the ElevenLabs agent itself so a live call can quote the bank's own
+ * wording. That plane is OFF unless `KB_PLATFORM_SYNC=true`, it is anchored to the
+ * row via `Document.platformDocId`, and its failure changes nothing here — the
+ * document the operator uploaded and is waiting on has already succeeded.
  */
 
 import { extractText } from "unpdf";
@@ -36,6 +44,11 @@ import { db } from "@/lib/db";
 import { env } from "@/lib/config";
 import { append as auditAppend } from "@/lib/audit-chain";
 import { pineconeConfigured } from "@/lib/pinecone/transcript-index";
+import {
+  removeDocumentFromPlatformKb,
+  syncDocumentToPlatformKb,
+} from "@/lib/knowledge/platform-kb";
+import { logWarn } from "@/lib/validation/safe-log";
 
 /** Upload ceiling. Enforced at the route; repeated here so the cap is not route-only. */
 export const MAX_PDF_BYTES = 8 * 1024 * 1024;
@@ -212,9 +225,14 @@ export async function vectorizeDocument(documentId: string): Promise<VectorizeRe
     .catch(() => {});
 
   let chunks: string[];
+  // Hoisted out of the try because the platform plane publishes the SAME text the
+  // chunker was built from. Re-running `extractPdfText` for it would parse the
+  // bank's PDF twice for one upload and give the two planes two different versions
+  // of the same policy the moment extraction is nondeterministic.
+  let extracted = "";
   try {
-    const text = await extractPdfText(new Uint8Array(doc.pdfBytes));
-    chunks = chunkText(text);
+    extracted = await extractPdfText(new Uint8Array(doc.pdfBytes));
+    chunks = chunkText(extracted);
   } catch (err) {
     return fail(`pdf_extract_failed: ${err instanceof Error ? err.message : String(err)}`);
   }
@@ -269,6 +287,30 @@ export async function vectorizeDocument(documentId: string): Promise<VectorizeRe
       redactedText: `document "${doc.title}" embedded into the knowledge base`,
       meta: { model: EMBEDDING_MODEL, chunks: chunks.length, chars: chunks.join("").length },
     }).catch(() => {});
+
+    // Plane two. Deliberately AFTER the row says READY, and deliberately unable to
+    // change what this function returns: the tenant's vectors are already written,
+    // so a vendor outage on the platform copy must not report a successful
+    // embedding as a failure. The `.catch` is load-bearing for that reason — this
+    // call sits inside the try whose catch is `fail()`, and letting a platform throw
+    // escape would flip a READY document to FAILED, which is the one outcome the
+    // requirement forbids. The sync records its own result on `platformDocId` /
+    // `platformError`, in the audit chain and through `logWarn`, and returns without
+    // making a call when `KB_PLATFORM_SYNC` is not set.
+    await syncDocumentToPlatformKb({
+      documentId,
+      orgId: doc.orgId,
+      title: doc.title,
+      lang: doc.lang,
+      platformDocId: doc.platformDocId,
+      text: extracted,
+    }).catch((err: unknown) => {
+      logWarn("[knowledge] platform knowledge-base sync threw", {
+        documentId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
+
     return { ok: true, chunkCount: chunks.length };
   } catch (err) {
     return fail(err instanceof Error ? err.message : String(err));
@@ -334,13 +376,23 @@ export async function searchDocuments(
 }
 
 /**
- * Erasure hook: remove a document's vectors, then the row.
+ * Erasure hook: remove a document's vectors, then its platform copy, then the row.
  *
  * Vectors first. If the delete fails, the row survives and the operator can
  * retry; the reverse order would leave vectors with no row to ever be cleaned up,
- * which is the state a right-to-erasure request must never end in.
+ * which is the state a right-to-erasure request must never end in. The platform
+ * document goes next for the same reason, and it is deliberately NOT gated on
+ * `KB_PLATFORM_SYNC`: that flag decides whether documents are PUBLISHED, while
+ * erasure has to work after a deployment switches it off — otherwise a policy the
+ * tenant deleted stays quotable on the agent forever.
  */
 export async function forgetDocument(documentId: string): Promise<{ ok: boolean; error?: string }> {
+  // Read the platform anchor before anything is removed: the row is the only place
+  // the vendor document id lives, and after the delete nothing could find it again.
+  const doc = await db.document
+    .findUnique({ where: { id: documentId }, select: { orgId: true, platformDocId: true } })
+    .catch(() => null);
+
   if (pineconeConfigured()) {
     try {
       const pc = client();
@@ -351,6 +403,16 @@ export async function forgetDocument(documentId: string): Promise<{ ok: boolean;
       return { ok: false, error: err instanceof Error ? err.message : String(err) };
     }
   }
+
+  if (doc?.platformDocId) {
+    const removed = await removeDocumentFromPlatformKb({
+      documentId,
+      orgId: doc.orgId,
+      platformDocId: doc.platformDocId,
+    });
+    if (!removed.ok) return { ok: false, error: removed.error };
+  }
+
   await db.document.delete({ where: { id: documentId } });
   return { ok: true };
 }

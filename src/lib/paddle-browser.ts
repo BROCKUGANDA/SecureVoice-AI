@@ -45,12 +45,23 @@ export function paddleToken(): { env: PaddleEnvironment; token: string } {
   if (!token) {
     throw new Error(`NEXT_PUBLIC_PADDLE_CLIENT_TOKEN is not set for the ${env} environment.`);
   }
-  // Sandbox tokens are `test_` prefixed. Catching the mismatch here means a
-  // production deploy carrying a sandbox token fails loudly at first checkout
-  // rather than quietly running against the wrong account.
+  // Both directions, because the mismatch runs both ways and only one of them is
+  // caught today. Sandbox tokens are `test_` prefixed and production tokens are
+  // `prod_` prefixed, so the pairing is checkable from the value alone.
   if (env === "sandbox" && !token.startsWith("test_")) {
     throw new Error(
       `NEXT_PUBLIC_PADDLE_CLIENT_TOKEN does not look like a SANDBOX token (expected a "test_" prefix).`,
+    );
+  }
+  // The direction that matters most: a deployment labelled production carrying a
+  // `test_` token. Paddle.js then initialises against the live environment with a
+  // sandbox credential, the checkout iframe loads, and every card is refused —
+  // which reads to a customer as "this bank cannot take my payment".
+  if (env === "production" && token.startsWith("test_")) {
+    throw new Error(
+      `NEXT_PUBLIC_PADDLE_ENVIRONMENT is "production" but NEXT_PUBLIC_PADDLE_CLIENT_TOKEN ` +
+        `is a SANDBOX token ("test_" prefix). Mint the production client token, or set the ` +
+        `environment to "sandbox" — the two must describe the same Paddle account.`,
     );
   }
   return { env, token };

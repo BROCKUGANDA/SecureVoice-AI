@@ -252,10 +252,21 @@ services:
       # to send — it does not crash-loop, so a deployment that has not configured
       # email yet still starts cleanly.
       RESEND_API_KEY: ${RESEND_API_KEY:-}
-      RESEND_FROM_EMAIL: ${RESEND_FROM_EMAIL:-SecureVoice AI <onboarding@resend.dev>}
+      # No default. `src/lib/email/resend.ts:fromAddress()` already falls back to
+      # support@securevoiceai.me and its comment records why the shared
+      # `onboarding@resend.dev` placeholder was removed: mail from a Resend
+      # subdomain is SPF/DKIM-aligned with Resend, not with the operator's
+      # domain, so a compose deploy that inherited the placeholder here would
+      # silently re-add the thing the code decided against.
+      RESEND_FROM_EMAIL: ${RESEND_FROM_EMAIL:-}
       RESEND_REPLY_TO: ${RESEND_REPLY_TO:-}
       # Link origin used when a queued message is re-rendered at send time.
-      APP_BASE_URL: ${APP_BASE_URL:-http://localhost:3000}
+      # Deliberately no `:-http://localhost:3000`: `baseUrl()` throws when the
+      # origin is unset precisely so a password-reset or magic link is never
+      # mailed pointing at a machine the recipient cannot reach, and a default
+      # here makes that guard unreachable — the mail goes out, the link is dead,
+      # and the worker logs a clean send.
+      APP_BASE_URL: ${APP_BASE_URL:-${NEXT_PUBLIC_APP_URL:-}}
       # Poll interval for the drain loop.
       EMAIL_WORKER_POLL_MS: ${EMAIL_WORKER_POLL_MS:-10000}
       EMAIL_WORKER_BATCH: ${EMAIL_WORKER_BATCH:-25}
@@ -465,7 +476,16 @@ services:
       REQUIRE_VPS_DATABASE: ${REQUIRE_VPS_DATABASE:-false}
       DEEPGRAM_API_KEY: ${DEEPGRAM_API_KEY:-}
       ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
-      ELEVENLABS_MODEL: ${ELEVENLABS_MODEL:-eleven_multilingual_v2}
+      # The worker's ONLY source for this model: unlike `app`, this service
+      # declares no `env_file`, so the interpolation default below is what a
+      # deployment gets when `.env` omits the variable — and eleven_multilingual_v2
+      # is a model that cannot voice Urdu or Swahili at all. A stale default here
+      # makes the live call path fall silent for exactly the two languages the
+      # Governed Collections brief names, while every English test still passes.
+      # Kept equal to the shipped default in src/lib/config.ts and to
+      # tts.model_id in agent/securevoice.agent.yaml by
+      # tests/unit/tts-model-resolution.test.ts.
+      ELEVENLABS_MODEL: ${ELEVENLABS_MODEL:-eleven_v4_turbo}
       VOICE_STREAM_HOST: ${VOICE_STREAM_HOST:-0.0.0.0}
       VOICE_STREAM_PORT: ${VOICE_STREAM_PORT:-8080}
       # Optional shared secret for the internal /prewarm endpoint. Unset means

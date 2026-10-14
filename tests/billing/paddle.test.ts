@@ -459,6 +459,68 @@ describe("createCheckout", () => {
     expect(body["items"]).toEqual([{ price_id: "pri_01test", quantity: 1 }]);
   });
 
+  test("authenticates with Bearer, on the host the KEY implies", async () => {
+    // The adapter used to send `Authorization: Basic base64("<key>:")`, with a
+    // comment asserting that was Paddle's scheme and that the SDK sent the same.
+    // It does not: measured against the sandbox, Basic answers HTTP 403
+    // `authentication_malformed` and Bearer answers 200 with the catalog. The SDK
+    // path (webhook verification) kept working, so only the operations raised HERE
+    // were dead — checkout, invoice, refund. A test that asserts the header string
+    // is the cheapest thing that could have caught that, and it did not exist.
+    const seen: { url: string; auth: string | null }[] = [];
+    const capture = async (url: string, init: RequestInit) => {
+      seen.push({ url, auth: new Headers(init.headers).get("authorization") });
+      return new Response(
+        JSON.stringify({ data: { id: "txn_1", checkout: { url: "https://pay.example/x" } } }),
+        { headers: { "content-type": "application/json" } },
+      );
+    };
+
+    await createPaddleProvider(cfg({ http: capture })).createCheckout(auth());
+    expect(seen[0]!.auth).toBe("Bearer pdl_sdbx_apikey_test");
+    expect(seen[0]!.url).toBe("https://sandbox-api.paddle.com/transactions");
+
+    // A live key selects the live host — and is refused unless the operator said
+    // so deliberately, which is the existing guard, exercised from this direction.
+    const prev = process.env[PADDLE_ALLOW_LIVE_ENV];
+    process.env[PADDLE_ALLOW_LIVE_ENV] = "1";
+    try {
+      seen.length = 0;
+      await createPaddleProvider(
+        cfg({ apiKey: "pdl_live_apikey_test", http: capture }),
+      ).createCheckout(auth());
+      expect(seen[0]!.auth).toBe("Bearer pdl_live_apikey_test");
+      expect(seen[0]!.url).toBe("https://api.paddle.com/transactions");
+    } finally {
+      if (prev === undefined) delete process.env[PADDLE_ALLOW_LIVE_ENV];
+      else process.env[PADDLE_ALLOW_LIVE_ENV] = prev;
+    }
+  });
+
+  test("refuses a PADDLE_BASE_URL that contradicts the key's environment", async () => {
+    // `PADDLE_BASE_URL` was once the only way to pick the host, and its default
+    // was the sandbox — so a production deployment that never set it posted
+    // invoices to the sandbox catalog. The host now follows the key, and an
+    // override that disagrees with it is a configuration that points at a
+    // different Paddle account than the money is supposed to land in.
+    const prev = process.env.PADDLE_BASE_URL;
+    process.env.PADDLE_BASE_URL = "https://api.paddle.com";
+    try {
+      expect(() => createPaddleProvider(cfg())).toThrow(/does not match the environment/);
+    } finally {
+      if (prev === undefined) delete process.env.PADDLE_BASE_URL;
+      else process.env.PADDLE_BASE_URL = prev;
+    }
+    // Agreeing is allowed, and is what a proxy or a regional endpoint would use.
+    process.env.PADDLE_BASE_URL = "https://sandbox-api.paddle.com";
+    try {
+      expect(() => createPaddleProvider(cfg())).not.toThrow();
+    } finally {
+      if (prev === undefined) delete process.env.PADDLE_BASE_URL;
+      else process.env.PADDLE_BASE_URL = prev;
+    }
+  });
+
   test("refuses float money before it reaches the gateway", async () => {
     const p = createPaddleProvider(cfg());
     await expect(

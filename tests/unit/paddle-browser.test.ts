@@ -115,15 +115,24 @@ describe("paddleToken pairs the token prefix with the environment", () => {
     expect(() => paddleToken()).toThrow(/does not look like a SANDBOX token/);
   });
 
-  test("a sandbox token in the PRODUCTION environment is NOT rejected by the prefix rule", async () => {
-    // Asymmetric on purpose, and worth pinning: the `test_` check is the
-    // SANDBOX guard. Production's pairing is guarded by the environment check
-    // alone, so a `test_` token in production is a configuration the operator
-    // has to notice — asserting it throws here would be inventing a rule the
-    // code does not have.
+  test("a sandbox token in the PRODUCTION environment throws", async () => {
+    // This used to assert the OPPOSITE — that the asymmetry was deliberate and
+    // the code had no such rule. The rule was the missing thing, not the test:
+    // this repository's own `.env` pairs `NEXT_PUBLIC_PADDLE_ENVIRONMENT=
+    // "production"` with a `test_…` client token and a `pdl_sdbx_` API key, which
+    // is exactly the configuration that produces a checkout iframe that loads and
+    // then refuses every card. Paddle.js initialised against the live environment
+    // with a sandbox credential fails in the way a customer notices, and nothing
+    // in the deployment said so.
     withEnv("production", "test_8055a2ad0d57cc58f2aabf06680");
     const { paddleToken } = await load();
-    expect(paddleToken().token).toBe("test_8055a2ad0d57cc58f2aabf06680");
+    expect(() => paddleToken()).toThrow(/is a SANDBOX token/);
+  });
+
+  test("a production token in the production environment is accepted", async () => {
+    withEnv("production", "prod_8055a2ad0d57cc58f2aabf06680");
+    const { paddleToken } = await load();
+    expect(paddleToken()).toEqual({ env: "production", token: "prod_8055a2ad0d57cc58f2aabf06680" });
   });
 
   test("whitespace around the token is stripped, not treated as part of it", async () => {

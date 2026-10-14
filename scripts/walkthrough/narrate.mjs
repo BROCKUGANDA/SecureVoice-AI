@@ -19,7 +19,9 @@ import { createCharLedger, fetchWithBackoff, synthWithGuard } from "../lib/eleve
 
 const env = readEnv();
 const KEY = env.ELEVENLABS_API_KEY;
-const MODEL = env.ELEVENLABS_MODEL || "eleven_multilingual_v2";
+// Same model the live agent speaks, so the narration in the film is the voice a
+// customer would actually hear on a call.
+const MODEL = process.env.ELEVENLABS_MODEL || "eleven_v4_turbo";
 /** "Daniel — Steady Broadcaster": a voice the agent's Sarah won't blur into. */
 const NARRATOR = process.env.NARRATOR_VOICE || "onwK4e9ZLuTAKqWW03F9";
 const dry = process.argv.includes("--dry-run");

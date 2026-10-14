@@ -35,7 +35,7 @@ import "server-only";
  * explicitly. The adapter therefore cannot reach a live gateway by accident.
  */
 
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import {
   assertMoney,
   entitlementsFor,
@@ -145,8 +145,11 @@ export function ulid(now: number = Date.now()): string {
     t = Math.floor(t / 32);
   }
   let random = "";
-  const buf = new Uint8Array(16);
-  for (let i = 0; i < 16; i++) buf[i] = Math.floor(Math.random() * 256);
+  // CSPRNG, not `Math.random()` — see the same line in
+  // src/lib/payments/paddle.ts. The reference this entropy produces is what an
+  // inbound webhook is matched against, so it is a security-relevant identifier
+  // rather than a display handle, and `src/lib/ids.ts` exists for this reason.
+  const buf = randomBytes(16);
   // `buf` is a fixed 16-byte Uint8Array, so iterating it yields every byte
   // exactly once, in index order — the same sequence `buf[i]` produced, without
   // an index access TypeScript cannot prove in bounds.

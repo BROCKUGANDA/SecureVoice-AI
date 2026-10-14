@@ -82,12 +82,45 @@ test("no language resolves to a model that cannot voice it", () => {
   }
 });
 
-test("a language with no dedicated voice falls back to the deployment default model", () => {
-  // English has no entry in the override table, so it takes the deployment
-  // default. Asserted so the Urdu/Swahili pinning cannot accidentally become
-  // "everything is v3", which would change English's voice character.
-  expect(resolveTtsModel("en")).not.toBe("eleven_v3");
-  expect(resolveTtsModel("en")).not.toBe("eleven_v4_turbo");
+test("a language with no dedicated voice takes the deployment default", () => {
+  // Hermetic deliberately: an untracked local `.env` can pin ELEVENLABS_MODEL to
+  // anything, and an assertion about "the default" that inherits it would pass or
+  // fail depending on whose machine ran it. The deployment default is set here.
+  const prev = process.env.ELEVENLABS_MODEL;
+  try {
+    process.env.ELEVENLABS_MODEL = "eleven_multilingual_v2";
+    expect(resolveTtsModel("en")).toBe("eleven_multilingual_v2");
+    // The Urdu/Swahili pin must survive a default that cannot voice them — that is
+    // the entire reason the table exists.
+    expect(resolveTtsModel("ur")).toBe("eleven_v4_turbo");
+    expect(resolveTtsModel("sw")).toBe("eleven_v4_turbo");
+  } finally {
+    if (prev === undefined) delete process.env.ELEVENLABS_MODEL;
+    else process.env.ELEVENLABS_MODEL = prev;
+  }
+});
+
+test("the shipped default is a model both planes accept", () => {
+  // This used to assert that English must NOT be eleven_v4_turbo — that it keep its
+  // own generation while Urdu/Swahili were pinned. That contract WAS the bug: it
+  // left the console synthesising on eleven_multilingual_v2 while the live agent ran
+  // eleven_v4_turbo, so the same sentence sounded like two different products
+  // depending on which surface played it. Both planes default to v4_turbo now, and
+  // tests/unit/tts-model-resolution.test.ts pins console and agent together per
+  // language, so changing one side alone goes red.
+  const prev = process.env.ELEVENLABS_MODEL;
+  try {
+    delete process.env.ELEVENLABS_MODEL;
+    const model = resolveTtsModel("en");
+    expect(model).toBe("eleven_v4_turbo");
+    // eleven_v3 is not a candidate: the Conversational-AI agent plane rejects it
+    // (400 expressive_tts_not_allowed on every key tested 2026-10-09), so a default
+    // that synthesises in the console and cannot place a call is the worst kind.
+    expect(model).not.toBe("eleven_v3");
+  } finally {
+    if (prev === undefined) delete process.env.ELEVENLABS_MODEL;
+    else process.env.ELEVENLABS_MODEL = prev;
+  }
 });
 
 test("Deepgram never pins a language nova-2 cannot serve", () => {

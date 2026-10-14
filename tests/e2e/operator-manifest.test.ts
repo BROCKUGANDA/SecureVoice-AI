@@ -18,6 +18,7 @@
  */
 import { expect, test } from "bun:test";
 import { NextRequest } from "next/server";
+import { SUPPORTED_LANGS } from "@/lib/languages";
 
 test("operator manifest lists KB/RAG + tools and leaks no secret values", async () => {
   const { GET } = await import("@/app/api/operator/manifest/route");
@@ -39,7 +40,11 @@ test("operator manifest lists KB/RAG + tools and leaks no secret values", async 
 
   // Knowledge base + RAG + source attribution
   expect(body.knowledge_base.length).toBe(body.counts.documents);
-  expect(body.knowledge_base.map((d) => d.lang).sort()).toEqual(["ar", "en"]);
+  // One policy copy per language the platform supports, enumerated from
+  // SUPPORTED_LANGS rather than written out: `["ar","en"]` here was a second
+  // statement of the language list, and it failed the moment a third language
+  // was added — red for a test whose subject had just gotten BETTER.
+  expect(body.knowledge_base.map((d) => d.lang).sort()).toEqual([...SUPPORTED_LANGS].sort());
   expect(body.rag.enabled).toBe(true);
   expect(body.rag.source_attribution).toBe(true);
   expect(body.rag.include_source_urls).toBe(true);

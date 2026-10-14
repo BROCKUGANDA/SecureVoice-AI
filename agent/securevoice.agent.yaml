@@ -315,6 +315,14 @@ voicemail:
 
 # Knowledge base — the fraud disposition policy the agent cites for
 # disposition, escalation and disclosure decisions.
+#
+# Six copies, one per spoken language, because the agent answers in six and a
+# retrieval model that is "multilingual" still has to READ the obligation in the
+# language the disclosure is demanded in. The text of every one of these is in
+# the repo at agent/policy/SV-FDP-2026-01.<lang>.md — the vendor console is not
+# the source of truth for the policy the platform cites on a fraud call, and
+# tests/unit/knowledge-language-coverage.test.ts fails if a language loses its
+# file or its entry here.
 knowledge_base:
   - type: text
     name: "SV-FDP-2026-01 Fraud Disposition Policy (EN) v3.2"
@@ -322,6 +330,18 @@ knowledge_base:
   - type: text
     name: "SV-FDP-2026-01 Fraud Disposition Policy (AR) v3.2"
     id_env: ELEVENLABS_KB_AR
+  - type: text
+    name: "SV-FDP-2026-01 Fraud Disposition Policy (HI) v3.2"
+    id_env: ELEVENLABS_KB_HI
+  - type: text
+    name: "SV-FDP-2026-01 Fraud Disposition Policy (UR) v3.2"
+    id_env: ELEVENLABS_KB_UR
+  - type: text
+    name: "SV-FDP-2026-01 Fraud Disposition Policy (FR) v3.2"
+    id_env: ELEVENLABS_KB_FR
+  - type: text
+    name: "SV-FDP-2026-01 Fraud Disposition Policy (SW) v3.2"
+    id_env: ELEVENLABS_KB_SW
 
 rag:
   enabled: true

@@ -18,7 +18,12 @@ import { getEmergencyAudio, EMERGENCY_AUDIO_CONTENT_TYPE } from "@/lib/elevenlab
 import { consume as consumeRateLimit, rateLimitId } from "@/lib/ratelimit";
 import { append as auditAppend } from "@/lib/audit-chain";
 import { transcript as redactText } from "@/lib/redact";
-import { resolveTtsKey, consumeCharQuota, quotaExceededResponse } from "@/lib/tts-quota";
+import {
+  resolveTtsKey,
+  consumeCharQuota,
+  quotaExceededResponse,
+  allowAnonTurn,
+} from "@/lib/tts-quota";
 import { SUPPORTED_LANGS, maxTtsChars } from "@/lib/config";
 import {
   badRequest,
@@ -280,6 +285,21 @@ export async function POST(req: NextRequest) {
     const charged = await consumeCharQuota(keyRes, text);
     if (!charged.ok) {
       return tooManyRequests(quotaExceededResponse().error, 3600);
+    }
+  }
+  if (keyRes.mode === "anon") {
+    // The public demo, under the deployment's anonymous ceiling. Refused here
+    // rather than quietly downgraded: the caller is told the demo budget is spent,
+    // and the browser fallback says what it is (see src/lib/voice-client.ts).
+    // The limiter result is handed to `tooManyRequests` whole so the refusal carries
+    // the canonical trio; rebuilding Retry-After here is what the header contract
+    // in tests/unit/rate-limit-headers.test.ts exists to prevent.
+    const rl = await allowAnonTurn(keyRes, callerId, text.length);
+    if (!rl.ok) {
+      return tooManyRequests(
+        "Demo voice budget spent — sign in, or supply your own ElevenLabs key.",
+        rl,
+      );
     }
   }
   const keyOverride = keyRes.mode === "byok" ? keyRes.keyOverride : undefined;

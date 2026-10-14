@@ -183,7 +183,10 @@ const probes = {
    */
   async pineconeIndexes() {
     const key = process.env.PINECONE_API_KEY || "";
-    const host = (process.env.PINECONE_HOST || "").replace(/^https?:\/\//, "");
+    const host = (process.env.PINECONE_HOST || "")
+      .trim()
+      .replace(/^https?:\/\//, "")
+      .replace(/\/+$/, "");
     const want = process.env.PINECONE_INDEX || "";
     if (!key) return fail("PINECONE_API_KEY unset — tenant document retrieval cannot run");
     // documents.ts/transcript-index.ts both gate on a NON-EMPTY index name
@@ -201,8 +204,20 @@ const probes = {
       });
       const body = await dp.json().catch(() => ({}));
       if (dp.status === 200) {
-        const total = body.total_vector_count ?? body.namespaces?.reduce((a, n) => a + (n?.vector_count ?? 0), 0);
-        return pass(`data-plane ok host=${host} vectors=${total} namespaces=${Object.keys(body.namespaces || {}).length}`);
+        // `namespaces` is an OBJECT keyed by namespace, not an array — `.reduce`
+        // on it throws, which is what happened the first time this probe met a
+        // VALID key (every earlier run was a 401 and returned before here). And
+        // this deployment's host answers the counts in camelCase, so read both
+        // spellings rather than the one the docs happened to show.
+        const ns = body.namespaces || {};
+        const vectors = Object.values(ns).reduce(
+          (a, n) => a + Number(n?.vector_count ?? n?.vectorCount ?? 0),
+          0,
+        );
+        const total = body.total_vector_count ?? body.totalVectorCount ?? vectors;
+        return pass(
+          `data-plane ok index=${want} vectors=${total} namespaces=${Object.keys(ns).length} dimension=${body.dimension ?? "?"}`,
+        );
       }
       parts.push(`data-plane HTTP ${dp.status} (${String(body?.error?.message ?? "").slice(0, 40)})`);
     } else parts.push("no PINECONE_HOST");

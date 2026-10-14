@@ -679,3 +679,5 @@ function Metrics() {
     </div>
   );
 }
+
+export default Product;

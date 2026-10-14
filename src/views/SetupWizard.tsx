@@ -846,3 +846,5 @@ export function SetupWizard() {
     </div>
   );
 }
+
+export default SetupWizard;

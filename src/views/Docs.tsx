@@ -1177,3 +1177,5 @@ function LanguagesSection() {
     </div>
   );
 }
+
+export default Docs;

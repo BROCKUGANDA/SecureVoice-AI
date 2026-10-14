@@ -22,10 +22,12 @@ import "server-only";
  *
  *   The two compose rather than conflict: run this before or after policy-gate
  *   — the controls are independent and the ordering only decides which typed
- *   reason an operator sees first. Migrating the routes to this gate and
- *   dropping the duplicated steps from policy-gate.ts is the intended end
- *   state, but policy-gate.ts is outside this work package's write scope, so
- *   for now both layers run and neither has been removed.
+ *   reason an operator sees first. The migration has now happened for cooldown
+ *   and both concurrency caps: policy-gate carried a SECOND copy of them behind
+ *   `recordCallPlacement()`, a writer no route ever called, so its copies could
+ *   never fire and have been deleted — this gate is now the only place either
+ *   refusal is decided, and it is the only one that also WRITES the state. The
+ *   country check is still duplicated in policy-gate (step 2) and stays there.
  *
  * ─────────────────────────────────────────────────────────────────────────────
  * NEVER THROWS. This runs inside request handlers on the hot path; a guard that

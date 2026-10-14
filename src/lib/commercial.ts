@@ -101,6 +101,21 @@ export type Plan = {
   includes: string[];
   includesAr: string[];
   featured: boolean;
+  /**
+   * Whether the PRICE is published on the public pricing page.
+   *
+   * Deliberately NOT the same thing as `monthlyUsd`. `monthlyUsd` is the
+   * commercial truth — it is the amount the Paddle catalog charges, and it is
+   * what `tests/billing/catalog-parity.test.ts` holds the site to. Setting
+   * `publiclyPriced: false` hides the number and renders "Contact sales" in its
+   * place, because a Tier-1 bank buys through procurement rather than a card and
+   * a published figure becomes an anchor we did not intend to set.
+   *
+   * Kept separate from `monthlyUsd: null` on purpose. Nulling the price would
+   * erase the number the catalog charges and break the parity guarantee that
+   * stops the site quoting a buyer one figure and the gateway charging another.
+   */
+  publiclyPriced: boolean;
   /** schema.org Offer. A missing `price` means "contact sales", which is valid
    *  and is what an answer engine needs in order to say "custom" rather than
    *  invent a number. */
@@ -179,6 +194,7 @@ export const PLANS: Plan[] = [
       "دعم عبر البريد الإلكتروني",
     ],
     featured: false,
+    publiclyPriced: true,
     offer: {
       description:
         "500 outbound interventions per month for one organization, Arabic and English voice agents, sealed audit chain and email support.",
@@ -219,6 +235,7 @@ export const PLANS: Plan[] = [
       "دعم ذو أولوية",
     ],
     featured: true,
+    publiclyPriced: true,
     offer: {
       description:
         "2,500 outbound interventions per month, multi-tenant organizations, signed webhooks, BYOK, per-institution guardrail policy and priority support.",
@@ -259,10 +276,12 @@ export const PLANS: Plan[] = [
       "جهة اتصال فنية مسمّاة",
     ],
     featured: false,
+    // The price is real and billed — the catalog still carries it and parity
+    // still holds. It is simply not printed. See `publiclyPriced`.
+    publiclyPriced: false,
     offer: {
       description:
         "10,000 outbound interventions per month with custom volume pricing beyond, deployed inside your own VPC or data centre, with a Shariah-compliant terminology engine and takaful voice policies.",
-      price: "2000",
       priceCurrency: PRICE_CURRENCY,
       availability: "https://schema.org/InStock",
     },
@@ -271,7 +290,11 @@ export const PLANS: Plan[] = [
 
 /** Currency-formatting helper so no renderer re-implements `Intl` by hand. */
 export function formatMonthly(plan: Plan, lang: "en" | "ar" = "en"): string {
-  if (plan.monthlyUsd === null) return lang === "ar" ? "حسب الطلب" : "Custom";
+  // Two different reasons to withhold the figure, and they render identically on
+  // purpose: the tier is negotiated, or the tier is priced but not published.
+  if (plan.monthlyUsd === null || !plan.publiclyPriced) {
+    return lang === "ar" ? "حسب الطلب" : "Custom";
+  }
   return new Intl.NumberFormat(lang === "ar" ? "ar-AE" : "en-US", {
     style: "currency",
     currency: PRICE_CURRENCY,
@@ -282,7 +305,9 @@ export function formatMonthly(plan: Plan, lang: "en" | "ar" = "en"): string {
 /** Included interventions, or "" where the plan is negotiable rather than tiered. */
 /** Annual price, or "" where none is published. */
 export function formatYearly(plan: Plan, lang: "en" | "ar" = "en"): string {
-  if (plan.yearlyUsd === null) return "";
+  // Must move with `formatMonthly`: printing "Custom" for the month and the
+  // real annual number beneath it would publish the very figure the month hid.
+  if (plan.yearlyUsd === null || !plan.publiclyPriced) return "";
   return new Intl.NumberFormat(lang === "ar" ? "ar-AE" : "en-US", {
     style: "currency",
     currency: PRICE_CURRENCY,
@@ -341,8 +366,8 @@ export const FAQ: { q: string; qAr: string; a: string; aAr: string }[] = [
   {
     q: "How much does SecureVoice AI cost?",
     qAr: "كم تكلفة منصة SecureVoice AI؟",
-    a: "Starter is $99 per month and includes 500 intervention signals, with $0.15 per intervention beyond that. Growth is $499 per month and includes 2,500, at $0.12 each beyond. Enterprise is $2,000 per month and includes 10,000, with volume beyond that quoted to your deployment. Each tier is one organization's deployed footprint; the Enterprise tier deploys inside your own VPC or data centre, and for Tier-1 banks we negotiate an annual rate that reduces the per-intervention overage.",
-    aAr: "الطبقة «البداية» ٩٩ دولاراً شهرياً وتشمل ٥٠٠ إشارة تدخّل، مقابل ٠٫١٥ دولار لكل تدخّل إضافي. و«النمو» ٤٩٩ دولاراً شهرياً وتشمل ٢٬٥٠٠، مقابل ٠٫١٢ دولار لكل إضافي. و«المؤسسات» ٢٬٠٠٠ دولار شهرياً وتشمل ١٠٬٠٠٠، ويُسعَّر ما يزيد حسب نشركم. وكل طبقة تمثّل نطاق مؤسسة واحدة منشورة؛ وتُنشر طبقة «المؤسسات» داخل شبكتكم الخاصة أو مركز بياناتكم، ولبنوك الفئة الأولى نتفاوض على سعر سنوي يخفض رسوم التدخّل الإضافي.",
+    a: "Starter is $99 per month and includes 500 intervention signals, with $0.15 per intervention beyond that. Growth is $499 per month and includes 2,500, at $0.12 each beyond. Enterprise is priced to your deployment and includes 10,000, with volume beyond that quoted to you. Each tier is one organization's deployed footprint; the Enterprise tier deploys inside your own VPC or data centre, and for Tier-1 banks we negotiate an annual rate that reduces the per-intervention overage.",
+    aAr: "الطبقة «البداية» ٩٩ دولاراً شهرياً وتشمل ٥٠٠ إشارة تدخّل، مقابل ٠٫١٥ دولار لكل تدخّل إضافي. و«النمو» ٤٩٩ دولاراً شهرياً وتشمل ٢٬٥٠٠، مقابل ٠٫١٢ دولار لكل إضافي. و«المؤسسات» تُسعَّر حسب نشركم وتشمل ١٠٬٠٠٠، ويُسعَّر ما يزيد حسب حجمكم. وكل طبقة تمثّل نطاق مؤسسة واحدة منشورة؛ وتُنشر طبقة «المؤسسات» داخل شبكتكم الخاصة أو مركز بياناتكم، ولبنوك الفئة الأولى نتفاوض على سعر سنوي يخفض رسوم التدخّل الإضافي.",
   },
   {
     q: "Is there a free trial, a monthly-only option, or a discount for paying yearly?",

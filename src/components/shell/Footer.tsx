@@ -158,7 +158,7 @@ export function Footer() {
                 </div>
               </div>
               <p className="mt-3 max-w-xs text-[11.5px] leading-relaxed text-ink-3">
-                Real-time fraud intervention for banks · CBUAE-aligned · Dubai, UAE
+                Real-time fraud intervention for banks & insurers · CBUAE-aligned · Dubai, UAE
               </p>
               <p dir="rtl" className="font-arabic mt-2 text-[11.5px] text-ink-3">
                 صوت آمن · حماية خلال ٦٠ ثانية
@@ -207,7 +207,7 @@ export function Footer() {
         </div>
 
         <div className="mt-8 flex flex-wrap items-center justify-between gap-2 border-t border-line pt-4">
-          <p className="text-[10.5px] text-ink-3">© 2026 SecureVoice AI · Built for UAE banking</p>
+          <p className="text-[10.5px] text-ink-3">© 2026 SecureVoice AI · Built for UAE banks & insurers</p>
           {/* Release version, read from package.json at build time (src/lib/version.ts)
               — not typed here, so it cannot drift from the build actually serving. */}
           <p

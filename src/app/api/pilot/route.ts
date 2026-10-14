@@ -5,6 +5,7 @@ import { env } from "@/lib/config";
 import { db } from "@/lib/db";
 import { logError } from "@/lib/validation/safe-log";
 import { enqueueAndSendEmail } from "@/lib/email/queue";
+import { SUPPORT_EMAIL as PUBLIC_SUPPORT_EMAIL } from "@/lib/public-config";
 
 export const dynamic = "force-dynamic";
 
@@ -131,10 +132,20 @@ export async function POST(req: NextRequest) {
       // retried by the drain worker rather than lost — the same discipline the
       // magic-link path uses, for the same reason.
       //
-      // The recipient is configurable because the mailbox is an operational
-      // choice, not a code constant: PILOT_NOTIFY_EMAIL. Unset means the request
-      // is still stored and still shown in the console; only the email is skipped.
-      const notifyTo = process.env.PILOT_NOTIFY_EMAIL?.trim();
+      // The recipient falls back to the public support mailbox rather than being
+      // skipped. It USED to be `if (notifyTo)`, on the reasoning that the mailbox
+      // is an operational choice — which is true, and is why PILOT_NOTIFY_EMAIL
+      // still overrides. But an unset variable then made the notification SILENT:
+      // the enquiry was stored, the response was 200, the console showed it, and
+      // no mail was ever sent. Found in production on 2026-10-14 with
+      // PILOT_NOTIFY_EMAIL absent from the box's .env — every pilot lead since was
+      // a row and a lie. A lead is the one thing on this site with no other
+      // channel, so "nobody configured it" has to mean support@, not nobody.
+      const notifyTo = (
+        process.env.PILOT_NOTIFY_EMAIL?.trim() ||
+        process.env.NEXT_PUBLIC_SUPPORT_EMAIL?.trim() ||
+        PUBLIC_SUPPORT_EMAIL
+      ).toLowerCase();
       if (notifyTo) {
         void enqueueAndSendEmail({
           kind: "pilot_request",

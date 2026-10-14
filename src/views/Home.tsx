@@ -157,8 +157,8 @@ export function Home() {
                 <LiveDot />
                 <span className="text-[12px] font-medium text-ink-2">
                   {t(
-                    "Real-time fraud intervention · Built for UAE banking",
-                    "تدخّل فوري في الاحتيال · مبني للمصارف الإماراتية",
+                    "Real-time fraud intervention · Built for UAE banks & insurers",
+                    "تدخّل فوري في الاحتيال · مبني للمصارف وشركات التأمين في الإمارات",
                     lang,
                   )}
                 </span>
@@ -204,8 +204,8 @@ export function Home() {
             <Reveal delay={0.26}>
               <p className="mt-4 max-w-xl text-[15.5px] leading-relaxed text-ink-2">
                 {t(
-                  "SecureVoice AI closes the gap between fraud detection and fraud intervention for UAE banks — turning a 38-minute wait into a one-minute call that stops the loss while it is still a phone call away.",
-                  "تُغلق SecureVoice AI الفجوة بين كشف الاحتيال والتدخّل فيه لدى المصارف الإماراتية — محوّلة انتظار ثمانٍ وثلاثين دقيقة إلى مكالمة مدتها دقيقة واحدة توقف الخسارة قبل أن تكمل طريقها.",
+                  "SecureVoice AI closes the gap between fraud detection and fraud intervention for UAE banks and insurers — turning a 38-minute wait into a one-minute call that stops the loss while it is still a phone call away. Call a cardholder about a disputed transaction, or a policyholder about a redirected claim payout: same engine, same guardrails, one human handoff.",
+                  "تُغلق SecureVoice AI الفجوة بين كشف الاحتيال والتدخّل فيه لدى المصارف وشركات التأمين في الإمارات — محوّلة انتظار ثمانٍ وثلاثين دقيقة إلى مكالمة مدتها دقيقة واحدة توقف الخسارة قبل أن تكمل طريقها. اتصل بحامل بطاقة حول معاملة متنازع عليها، أو بحامل وثيقة حول دفعة مطالبة أُعيد توجيهها: المحرك والضوابط نفسها، وتسليم واحد إلى موظف بشري.",
                   lang,
                 )}
               </p>
@@ -966,13 +966,6 @@ export function Home() {
             </div>
             <p className="mt-5 text-center text-[11.5px] text-slate-500">
               {t(SETTLEMENT.note, SETTLEMENT.note, lang)}
-            </p>
-            <p className="mt-3 text-center text-[11.5px] text-slate-500">
-              {t(
-                "Every deployment ships with the tamper-evident audit chain, consent gating, and zero PII storage.",
-                "كل نسخة تشمل سجل التدقيق المختوم وبوابة الموافقة وصفر تخزين للبيانات الشخصية.",
-                lang,
-              )}
             </p>
           </div>
         </Reveal>

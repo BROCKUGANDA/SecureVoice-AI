@@ -5,6 +5,7 @@ import {
   COMPANY,
   SETTLEMENT,
   formatMonthly,
+  formatYearly,
   formatIncluded,
   formatOverage,
 } from "../../src/lib/commercial.ts";
@@ -28,9 +29,11 @@ const read = (rel: string) =>
 describe("pricing data", () => {
   test("every plan's display price and its schema.org price are the same number", () => {
     for (const plan of PLANS) {
-      if (plan.monthlyUsd === null) {
-        // Enterprise: no number on the card, so none in the graph either.
-        expect(plan.offer.price).toBeUndefined();
+      // Two distinct reasons a number is absent, and the graph must honour both:
+      // the tier is negotiated (`monthlyUsd: null`), or it is priced and this
+      // tier is not published (`publiclyPriced: false`).
+      if (plan.monthlyUsd === null || plan.publiclyPriced === false) {
+        expect(plan.offer.price, `${plan.name} shows no price but emits one`).toBeUndefined();
         continue;
       }
       expect(plan.offer.price, `${plan.name} price drifted`).toBe(String(plan.monthlyUsd));
@@ -86,14 +89,42 @@ describe("pricing data", () => {
     expect(formatOverage(enterprise, "en")).toBe("");
   });
 
-  test("every plan is purchasable and publishes an offer price", () => {
-    // All three tiers are published and purchasable now. A plan that reverted to
-    // `monthlyUsd: null` without an offer description would render as "Custom"
-    // with no way to buy, which is the failure this catches.
+  test("every plan is purchasable, and a published price is the price charged", () => {
+    // The original intent of this gate: no tier may be a dead end — a card that
+    // says "Custom" with nothing behind it. What changed is that "purchasable"
+    // now has TWO legitimate routes: a self-serve Paddle checkout, or a Contact
+    // Sales conversation. A tier with neither is still the failure.
     for (const plan of PLANS) {
-      expect(plan.monthlyUsd, `${plan.name} has no published price`).not.toBeNull();
-      expect(plan.offer.price).toBe(String(plan.monthlyUsd));
+      expect(plan.monthlyUsd, `${plan.name} has no price at all`).not.toBeNull();
+      if (plan.publiclyPriced) {
+        expect(plan.offer.price, `${plan.name} publishes a price`).toBe(String(plan.monthlyUsd));
+      } else {
+        // The schema.org Offer must OMIT `price`, not carry the number we are
+        // declining to print. An answer engine quotes `offer.price` verbatim, so
+        // leaving it there would publish the figure through the one channel
+        // whose whole job is to withhold it.
+        expect(plan.offer.price, `${plan.name} hides its price but still emits one`).toBeUndefined();
+        expect(
+          plan.offer.description.length,
+          `${plan.name} needs a description to sell itself with no number`,
+        ).toBeGreaterThan(40);
+      }
     }
+  });
+
+  test("a plan that hides its price renders as Custom, in both languages", () => {
+    // The display flag is only worth anything if the renderer honours it. An
+    // unused flag would leave the page printing $2,000 while the JSON-LD says
+    // "contact sales" — the site contradicting itself, which is worse than
+    // either choice alone.
+    const enterprise = PLANS.find((p) => p.publiclyPriced === false);
+    expect(enterprise, "no tier exercises the contact-sales path").toBeDefined();
+    expect(formatMonthly(enterprise!, "en")).toBe("Custom");
+    expect(formatMonthly(enterprise!, "ar")).toBe("حسب الطلب");
+    // The annual figure must hide too, or "Custom" sits above the real number.
+    expect(formatYearly(enterprise!, "en")).toBe("");
+    // And the price itself is still there for the catalog to charge.
+    expect(enterprise!.monthlyUsd).not.toBeNull();
   });
 
   test("settlement is Paddle as Merchant of Record, and regional prices are declared", () => {

@@ -32,13 +32,17 @@ export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
   title: "Pricing — Plans from $99/month",
+  // Must agree with what the page actually prints. This string is the one an
+  // answer engine quotes when asked what Enterprise costs, so a figure here
+  // would outlive any decision to hide it on the page itself — the contradiction
+  // would live in search results rather than on the site.
   description:
-    "SecureVoice AI pricing: Starter $99/month or $990/year (500 interventions included), Growth $499/month or $4,990/year (2,500 included), and Enterprise $2,000/month or $20,000/year (10,000 included) with in-VPC deployment, BYOK and a CBUAE audit pack. Billed through Paddle as Merchant of Record, with regional prices in GBP, EUR and AUD.",
+    "SecureVoice AI pricing: Starter $99/month or $990/year (500 interventions included), Growth $499/month or $4,990/year (2,500 included), and Enterprise priced to your deployment (10,000 interventions included) with in-VPC deployment, BYOK and a CBUAE audit pack. Billed through Paddle as Merchant of Record, with regional prices in GBP, EUR and AUD.",
   alternates: { canonical: "/pricing" },
   openGraph: {
     title: "Pricing — SecureVoice AI",
     description:
-      "Starter $99/month · Growth $499/month · Enterprise $2,000/month. Annual billing is two months free.",
+      "Starter $99/month · Growth $499/month · Enterprise priced to your deployment. Annual billing is two months free.",
     url: "/pricing",
   },
 };

@@ -34,13 +34,88 @@ export const dynamic = "force-dynamic";
  * them, and collapsing them would be a restructure rather than a conversion.
  */
 
+/** Page size ceiling. A UI that cannot ask for more than this cannot walk the log. */
+const MAX_LIMIT = 200;
+const DEFAULT_LIMIT = 50;
+
+/**
+ * Parse and BOUND every filter.
+ *
+ * An unbounded `limit` is a denial of service dressed as a query parameter, and an
+ * unbounded `from` is a scan of the whole table. Every numeric input is clamped and
+ * every string is trimmed and capped here, once, rather than at each use.
+ */
+function readFilters(req: NextRequest) {
+  const p = req.nextUrl.searchParams;
+  const clamp = (v: string | null, max: number) => {
+    if (v === null) return null;
+    const n = Number.parseInt(v, 10);
+    if (!Number.isFinite(n) || n < 0) return null;
+    return Math.min(n, max);
+  };
+  const slice = (v: string | null, max: number) => {
+    if (v === null) return null;
+    const s = v.trim().slice(0, max);
+    return s === "" ? null : s;
+  };
+  const date = (v: string | null) => {
+    if (!v) return null;
+    const d = new Date(v);
+    return Number.isNaN(d.getTime()) ? null : d;
+  };
+
+  return {
+    callRef: slice(p.get("callRef"), 64),
+    action: slice(p.get("action"), 40),
+    intent: slice(p.get("intent"), 40),
+    actor: slice(p.get("actor"), 120),
+    // Free text over the redacted transcript and the call reference. Both are
+    // user-supplied and neither is interpolated into SQL.
+    q: slice(p.get("q"), 120),
+    from: date(p.get("from")),
+    to: date(p.get("to")),
+    limit: clamp(p.get("limit"), MAX_LIMIT) ?? DEFAULT_LIMIT,
+    offset: clamp(p.get("offset"), 100_000) ?? 0,
+  };
+}
+
+type Filters = ReturnType<typeof readFilters>;
+
+/**
+ * The tenant-scoped `where` for the row explorer.
+ *
+ * Every value is a Prisma filter object, so nothing here is string-concatenated
+ * into SQL; `q` is an ILIKE with a capped needle rather than a raw pattern.
+ */
+function rowWhere(orgScope: Record<string, unknown>, f: Filters) {
+  const where: Record<string, unknown> = { ...orgScope };
+  if (f.callRef) where.callRef = f.callRef;
+  if (f.action) where.action = f.action;
+  if (f.intent) where.intent = f.intent;
+  if (f.actor) where.callerId = f.actor;
+  if (f.q) {
+    where.OR = [
+      { redactedText: { contains: f.q, mode: "insensitive" } },
+      { callRef: { contains: f.q, mode: "insensitive" } },
+    ];
+  }
+  if (f.from || f.to) {
+    where.createdAt = {
+      ...(f.from ? { gte: f.from } : {}),
+      ...(f.to ? { lte: f.to } : {}),
+    };
+  }
+  return where;
+}
+
 export async function GET(req: NextRequest) {
   const guard = await requireSignedIn();
   if (!guard.ok) {
     return NextResponse.json({ error: guard.error }, { status: guard.status });
   }
 
-  const callRef = req.nextUrl.searchParams.get("callRef");
+  const scopeKind = req.nextUrl.searchParams.get("scope");
+  const filters = readFilters(req);
   // Tenant namespace. A session WITHOUT an active organization is the default
   // state of the reference deployment — it must still be scoped, not treated
   // as "sees everything". Org-less users share the un-namespaced rows
@@ -50,8 +125,115 @@ export async function GET(req: NextRequest) {
   const orgScope = orgId ? { orgId } : { OR: [{ orgId: null }, { orgId: "default" }] };
   // The same namespace as a scope object, because it is what selects the path.
   const scope = orgScopeFor(orgId);
+
+  // Org-wide integrity: does the tenant's log still verify?
+  //
+  // The single number an auditor asks for first, and the one the per-case walk
+  // cannot answer: `verifyChain` is per callRef, so a deployment with 40,000
+  // chains has no cheap way to say "none of them are broken".
+  //
+  // Bounded on purpose — the walk is one query per chain — so the response says
+  // plainly when the cap was hit rather than implying coverage it did not perform.
+  if (scopeKind === "integrity") {
+    const INTEGRITY_MAX_CALLREFS = 200;
+    const refs =
+      "orgId" in scope
+        ? await withTenantScope(scope.orgId, (tx) =>
+            tx.auditLog.findMany({
+              where: orgScope,
+              distinct: ["callRef"],
+              select: { callRef: true },
+              take: INTEGRITY_MAX_CALLREFS,
+            }),
+          )
+        : await scopedDb(scope).auditLog.findMany({
+            where: orgScope,
+            distinct: ["callRef"],
+            select: { callRef: true },
+            take: INTEGRITY_MAX_CALLREFS,
+          });
+
+    let verified = 0;
+    let broken: { callRef: string; brokenAt: string; expected: string; actual: string } | null =
+      null;
+    for (const { callRef } of refs) {
+      const v = await verifyChain(callRef, orgId);
+      if (v.ok) verified++;
+      else if (!broken) {
+        broken = { callRef, brokenAt: v.brokenAt, expected: v.expected, actual: v.actual };
+      }
+    }
+
+    const totalRows =
+      "orgId" in scope
+        ? await withTenantScope(scope.orgId, (tx) => tx.auditLog.count({ where: orgScope }))
+        : await scopedDb(scope).auditLog.count({ where: orgScope });
+
+    return NextResponse.json(
+      {
+        chainsChecked: refs.length,
+        verified,
+        broken,
+        totalRows,
+        // `true` means "every chain in THIS TENANT was checked" - not "every chain
+        // in the database". The cap is on the tenant's rows and `chainsChecked`
+        // says which side of it this response landed on.
+        complete: refs.length < INTEGRITY_MAX_CALLREFS,
+      },
+      { headers: { "Cache-Control": "no-store" } },
+    );
+  }
+
+  // Row explorer: filtered, paged, tenant-scoped.
+  if (scopeKind === "rows") {
+    const where = rowWhere(orgScope, filters);
+    const list = {
+      where,
+      // `id` is the tie-break: two rows can share a millisecond timestamp (the
+      // chain walk exists because of exactly that), and without a stable
+      // secondary sort a page boundary can repeat or skip a row.
+      orderBy: [{ createdAt: "desc" as const }, { id: "desc" as const }],
+      select: {
+        id: true,
+        callRef: true,
+        action: true,
+        intent: true,
+        callerId: true,
+        redactedText: true,
+        chainHash: true,
+        prevHash: true,
+        createdAt: true,
+      },
+      take: filters.limit + 1, // the extra row is the "is there a next page" probe
+      skip: filters.offset,
+    };
+    const rows =
+      "orgId" in scope
+        ? await withTenantScope(scope.orgId, (tx) => tx.auditLog.findMany(list))
+        : await scopedDb(scope).auditLog.findMany(list);
+
+    const hasMore = rows.length > filters.limit;
+    const page = hasMore ? rows.slice(0, filters.limit) : rows;
+    const total =
+      "orgId" in scope
+        ? await withTenantScope(scope.orgId, (tx) => tx.auditLog.count({ where }))
+        : await scopedDb(scope).auditLog.count({ where });
+
+    return NextResponse.json(
+      {
+        rows: page,
+        total,
+        limit: filters.limit,
+        offset: filters.offset,
+        hasMore,
+        nextOffset: hasMore ? filters.offset + filters.limit : null,
+      },
+      { headers: { "Cache-Control": "no-store" } },
+    );
+  }
+
   // Hoisted: the slice is applied to the raw query parameter at every use.
-  const ref = callRef ? callRef.slice(0, 64) : null;
+  const ref = filters.callRef;
 
   if (ref) {
     // tenant check: a probe of another org's caseRef must not confirm existence —

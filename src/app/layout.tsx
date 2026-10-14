@@ -59,7 +59,7 @@ export const metadata: Metadata = {
     template: `%s · ${COMPANY.name}`,
   },
   description:
-    "SecureVoice AI is a real-time voice fraud-intervention platform for UAE banks. An AI voice agent calls the customer in their own language within 60 seconds of a fraud signal, verifies identity, freezes the card, and hands off to a human. Plans from $99/month.",
+    "SecureVoice AI is a real-time voice fraud-intervention platform for UAE banks and insurers. An AI voice agent calls the customer in their own language within 60 seconds of a fraud signal, verifies identity, holds the card or the claim payout, and hands off to a human. Plans from $99/month.",
   applicationName: COMPANY.name,
   // `legalName`, not the brand: the Terms and Conditions are required to name the
   // company, and the machine-readable version of that obligation belongs in the
@@ -75,9 +75,14 @@ export const metadata: Metadata = {
     "fraud prevention",
     "real-time fraud detection",
     "card freeze automation",
+    "claim payout hold",
     "UAE banking",
+    "UAE insurance",
+    "takaful",
+    "policy fraud prevention",
     "CBUAE",
     "Middle East banking",
+    "Middle East insurance",
     "Arabic voice AI",
     "fraud intervention software",
     "SecureVoice AI",
@@ -123,13 +128,13 @@ export const metadata: Metadata = {
     alternateLocale: ["ar_AE"],
     title: `${COMPANY.name} — Real-Time Fraud Intervention`,
     description:
-      "38 minutes → 60 seconds. A multilingual AI voice agent for UAE banks: verifies identity, freezes the card, and hands off to a human. Plans from $99/month.",
+      "38 minutes → 60 seconds. A multilingual AI voice agent for UAE banks and insurers: verifies identity, holds the card or the claim payout, and hands off to a human. Plans from $99/month.",
     images: [
       {
         url: "/og-image.png",
         width: 1200,
         height: 630,
-        alt: `${COMPANY.name} — Real-Time Fraud Intervention for UAE banking`,
+        alt: `${COMPANY.name} — Real-Time Fraud Intervention for UAE banks and insurers`,
       },
     ],
   },
@@ -142,7 +147,7 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: `${COMPANY.name} — Real-Time Fraud Intervention`,
     description:
-      "An AI voice agent that calls the customer within 60 seconds of a fraud signal, verifies identity, and freezes the card. Built for UAE banking.",
+      "An AI voice agent that calls the customer within 60 seconds of a fraud signal, verifies identity, and holds the card or claim payout. Built for UAE banks and insurers.",
     images: ["/og-image.png"],
   },
 

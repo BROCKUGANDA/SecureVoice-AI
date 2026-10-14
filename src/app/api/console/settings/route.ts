@@ -249,16 +249,29 @@ export async function POST(req: NextRequest) {
     (d.vendorWebhookUrl !== undefined && d.vendorWebhookUrl.length > 0) ||
     (d.vendorWebhookSecret !== undefined && d.vendorWebhookSecret.length > 0);
 
+  for (const entitlement of [
+    wantsSignedWebhooks ? ("signedWebhooks" as const) : null,
+    wantsByok ? ("byok" as const) : null,
+  ]) {
+    if (!entitlement) continue;
+    const check = await checkEntitlement(guard.profile.orgId, entitlement);
+    if (!check.ok) return entitlementResponse(check);
+  }
+
   // Step-up on ATTACHING a vendor credential — and only on attaching.
   // `change_byok_credential` exists in the privileged-action registry, and
   // docs/SECURITY-QUESTIONNAIRE.md tells auditors such actions are
   // re-authenticated; this route is the one path that writes a vendor key
   // (`elevenKeyEnc` below) and it demanded nothing.
   //
-  // Deliberately BEFORE the entitlement loop: whether the tenant bought BYOK is
-  // nobody's business until the caller has proven they are present to change it,
-  // and answering "your plan does not include this" to an un-reauthenticated
-  // request leaks the plan to whoever holds the cookie.
+  // AFTER the entitlement loop, which is the order the plan contract already had.
+  // Gating first looks defensible — "don't tell an un-reauthenticated caller about
+  // their plan" — but it does not hold: `requirePrivileged` refuses only a caller
+  // who already passed the capability check, i.e. an authorised admin of THIS org,
+  // so there is no plan to leak that they are not entitled to know. What gating
+  // first does break is the documented 402 + `upgradeTo` answer that drives the
+  // console's upgrade prompt (tests/billing/entitlements.test.ts), which is a
+  // refusal the tenant can act on, replaced by one they cannot.
   //
   // CLEARING is not gated, for the same reason clearing a webhook is not: a
   // tenant leaving the feature must always be able to stop its customer data
@@ -272,15 +285,6 @@ export async function POST(req: NextRequest) {
         { status: privileged.status, headers: { "Cache-Control": "no-store" } },
       );
     }
-  }
-
-  for (const entitlement of [
-    wantsSignedWebhooks ? ("signedWebhooks" as const) : null,
-    wantsByok ? ("byok" as const) : null,
-  ]) {
-    if (!entitlement) continue;
-    const check = await checkEntitlement(guard.profile.orgId, entitlement);
-    if (!check.ok) return entitlementResponse(check);
   }
 
   const data: Record<string, unknown> = {};

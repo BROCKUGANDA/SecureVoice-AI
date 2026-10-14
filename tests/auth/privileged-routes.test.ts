@@ -83,6 +83,12 @@ async function unstepped(tag: string) {
       name: `Privileged ${tag} ${RUN}`,
       slug: `privileged-${tag}-${RUN}`,
       createdAt: new Date(),
+      // `standard`, in the CONSOLE's vocabulary, which `entitlementPlan` maps to
+      // the Growth line — so the BYOK cases reach the step-up gate instead of
+      // stopping at the plan check. `growth` here would be an unrecognised tier
+      // and fall through to a 402, proving only the order the route deliberately
+      // has (plan first, then re-auth).
+      planTier: "standard",
     },
     select: { id: true },
   });

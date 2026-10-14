@@ -121,7 +121,7 @@
     {
       "name": "erased-at-recorded",
       "ok": true,
-      "detail": "erasedAt=2026-10-12T11:40:38.067Z"
+      "detail": "erasedAt=2026-10-14T19:25:37.534Z"
     },
     {
       "name": "read-after-erasure-throws",
@@ -156,12 +156,12 @@
     {
       "name": "erasure-witness-in-chain",
       "ok": true,
-      "detail": "witness row cmv56kq4k000cj47qf085oy55 records keyDestroyed=true"
+      "detail": "witness row cmv8i2etk000c1g7qh8jpbae4 records keyDestroyed=true"
     },
     {
       "name": "negative-control-tamper-is-detected",
       "ok": true,
-      "detail": "detected at cmv56kq2f0008j47qlilczfuw"
+      "detail": "detected at cmv8i2erv00081g7qb2ttwtxk"
     },
     {
       "name": "erasure-is-idempotent",
@@ -211,7 +211,7 @@
     {
       "name": "pilot-audio-is-zero-days",
       "ok": true,
-      "detail": "org-privacy-pilot-mv56kpt4: audioDays=0 (source pilot)"
+      "detail": "org-privacy-pilot-mv8i2ejd: audioDays=0 (source pilot)"
     },
     {
       "name": "pilot-leaves-other-tiers-alone",
@@ -291,7 +291,7 @@
     {
       "name": "dry-run-reports-due-work",
       "ok": true,
-      "detail": "dry run would act on 1 audio tier case(s): SV-P-mv56kpt4-AUDIO0"
+      "detail": "dry run would act on 1 audio tier case(s): SV-P-mv8i2ejd-AUDIO0"
     },
     {
       "name": "dry-run-reports-no-transcript-work",
@@ -301,7 +301,7 @@
     {
       "name": "zero-day-audio-purged-immediately",
       "ok": true,
-      "detail": "pilot case purged on the first run (SV-P-mv56kpt4-AUDIO0)"
+      "detail": "pilot case purged on the first run (SV-P-mv8i2ejd-AUDIO0)"
     },
     {
       "name": "thirty-day-audio-not-purged",
@@ -341,7 +341,7 @@
     {
       "name": "transcript-tier-fires-at-140-days",
       "ok": true,
-      "detail": "acted on 5 case(s): SV-P-mv56kpt4-TIER, SV-P-mv56kpt4-AUDIO30, SV-P-mv56kpt4-KEYA, SV-P-mv56kpt4-KEYB, SV-P-mv56kpt4-SEAL"
+      "detail": "acted on 5 case(s): SV-P-mv8i2ejd-TIER, SV-P-mv8i2ejd-AUDIO30, SV-P-mv8i2ejd-KEYA, SV-P-mv8i2ejd-KEYB, SV-P-mv8i2ejd-SEAL"
     },
     {
       "name": "transcript-tier-scrubs-payload",
@@ -471,19 +471,19 @@
     {
       "name": "master-key-in-process",
       "ok": true,
-      "detail": "master key resolved; ops fingerprint 8f992171c1e213c2 is a hash, not the key"
+      "detail": "master key resolved; ops fingerprint 590a2e806529b9af is a hash, not the key"
     }
   ],
-  "digest": "db4cba56e4dee49e922032296674c72d088cd4b5a73c354919ac6bc88d370547",
-  "generatedAt": "2026-10-12T11:40:39.104Z",
+  "digest": "cba5453732687acd9f7866197139b1691e931c77dadc693de27ae0536d29a932",
+  "generatedAt": "2026-10-14T19:25:37.908Z",
   "run": {
-    "id": "mv56kpt4",
+    "id": "mv8i2ejd",
     "orgs": {
-      "default": "org-privacy-default-mv56kpt4",
-      "pilot": "org-privacy-pilot-mv56kpt4",
-      "override": "org-privacy-override-mv56kpt4"
+      "default": "org-privacy-default-mv8i2ejd",
+      "pilot": "org-privacy-pilot-mv8i2ejd",
+      "override": "org-privacy-override-mv8i2ejd"
     },
-    "batch": "SV-P-mv56kpt4-BATCHORG",
+    "batch": "SV-P-mv8i2ejd-BATCHORG",
     "database": "TEST_DATABASE_URL",
     "note": "identifiers above are per-run; the digest covers the deterministic core only"
   },

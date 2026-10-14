@@ -163,16 +163,33 @@
     "leakRules": 32,
     "maxMessageChars": 200,
     "policyRefusalCodes": [
-      "concurrency_cap",
       "consent_invalid",
-      "cooldown",
+      "country_denied",
       "country_not_allowed",
       "country_unparseable",
+      "country_unresolvable",
+      "demo_tier_requires_test_number",
+      "destination_cooldown",
+      "destination_prefix_denied",
       "do_not_call",
+      "geo_allowlist_misconfigured",
+      "geo_allowlist_unconfigured",
+      "global_concurrency_cap",
+      "guard_internal_error",
+      "invalid_call_category",
+      "invalid_e164",
+      "org_auto_paused",
+      "org_concurrency_cap",
       "outside_calling_hours",
+      "prayer_time",
+      "redaction_mismatch",
       "spend_ceiling",
       "subscription_paused",
-      "transaction_repeat"
+      "test_number_list_empty",
+      "transaction_repeat",
+      "velocity_after_hours",
+      "velocity_burst_rate",
+      "velocity_new_prefix_burst"
     ],
     "policyRefusalStatus": 409,
     "statusDiscipline": [
@@ -371,10 +388,27 @@
         "outside_calling_hours",
         "country_unparseable",
         "country_not_allowed",
-        "cooldown",
-        "concurrency_cap",
         "spend_ceiling",
-        "subscription_paused"
+        "subscription_paused",
+        "invalid_e164",
+        "country_unresolvable",
+        "country_denied",
+        "destination_prefix_denied",
+        "geo_allowlist_unconfigured",
+        "geo_allowlist_misconfigured",
+        "demo_tier_requires_test_number",
+        "test_number_list_empty",
+        "org_auto_paused",
+        "velocity_new_prefix_burst",
+        "velocity_burst_rate",
+        "velocity_after_hours",
+        "destination_cooldown",
+        "org_concurrency_cap",
+        "global_concurrency_cap",
+        "guard_internal_error",
+        "invalid_call_category",
+        "redaction_mismatch",
+        "prayer_time"
       ],
       "status": 409,
       "retryable": false,
@@ -383,8 +417,8 @@
         "consent_invalid",
         "country_unparseable",
         "country_not_allowed",
-        "cooldown",
-        "concurrency_cap"
+        "destination_cooldown",
+        "org_concurrency_cap"
       ],
       "drivenElsewhere": {
         "subscription_paused": "tests/e2e/paddle-pause-webhook.test.ts + tests/billing/subscription-dialling-access.test.ts"
@@ -398,12 +432,30 @@
         "drivenBy": "tests/e2e/interventions-credits-gate.test.ts"
       },
       "mappingOnly": [
-        "spend_ceiling",
-        "transaction_repeat",
+        "country_denied",
+        "country_unresolvable",
+        "demo_tier_requires_test_number",
+        "destination_prefix_denied",
         "do_not_call",
-        "outside_calling_hours"
+        "geo_allowlist_misconfigured",
+        "geo_allowlist_unconfigured",
+        "global_concurrency_cap",
+        "guard_internal_error",
+        "invalid_call_category",
+        "invalid_e164",
+        "org_auto_paused",
+        "outside_calling_hours",
+        "prayer_time",
+        "redaction_mismatch",
+        "spend_ceiling",
+        "subscription_paused",
+        "test_number_list_empty",
+        "transaction_repeat",
+        "velocity_after_hours",
+        "velocity_burst_rate",
+        "velocity_new_prefix_burst"
       ],
-      "note": "Three of the eleven codes (transaction_repeat, do_not_call, outside_calling_hours) were emitted by the gate and NOT declared until this slice — policyRefusal would have thrown a RangeError on a routine duplicate or cooldown refusal for any caller that used it. The list's completeness is now derived from the gate's source instead of asserted from its own word.",
+      "note": "Every code this file drives to a real refusal is in drivenHere; everything else is asserted only as a MAPPING (a refusal carrying it becomes a 409, never a retryable 500). The completeness of the declared list itself is derived from the three emitting sources by tests/unit/policy-refusal-codes.test.ts — that gate found three undeclared policy-gate codes when it was written, and found the abuse gate's entire vocabulary and three compliance-gate causes undeclared when it was widened to all three gates.",
       "contrast": "internal_bug is the only code that yields 500"
     }
   },
@@ -440,7 +492,7 @@
         "file": "src/lib/audit-chain.ts",
         "transactions": 1,
         "regions": [
-          "241-275"
+          "308-342"
         ],
         "findings": []
       },
@@ -476,8 +528,8 @@
         "file": "src/lib/outbox.ts",
         "transactions": 2,
         "regions": [
-          "311-329",
-          "363-369"
+          "319-337",
+          "371-377"
         ],
         "findings": []
       },
@@ -495,9 +547,10 @@
       },
       {
         "file": "src/lib/payments/provider.ts",
-        "transactions": 1,
+        "transactions": 2,
         "regions": [
-          "454-590"
+          "546-682",
+          "866-893"
         ],
         "findings": []
       },
@@ -646,8 +699,8 @@
     "result": "pass",
     "areas": 7,
     "checks": {
-      "total": 464,
-      "passed": 464,
+      "total": 481,
+      "passed": 481,
       "failed": 0
     },
     "matrixRows": {
@@ -2303,7 +2356,7 @@
       "area": "gate",
       "name": "evidence-digest-is-sha256",
       "ok": true,
-      "detail": "143634967d73b793"
+      "detail": "6331c0f06f8ae9df"
     },
     {
       "area": "gate",
@@ -2315,7 +2368,7 @@
       "area": "gate",
       "name": "evidence-is-byte-identical-across-builds",
       "ok": true,
-      "detail": "66819 chars"
+      "detail": "70625 chars"
     },
     {
       "area": "gate",
@@ -2925,21 +2978,15 @@
     },
     {
       "area": "negative-control",
-      "name": "declared-policy-code-is-409:concurrency_cap",
-      "ok": true,
-      "detail": "concurrency_cap → 409"
-    },
-    {
-      "area": "negative-control",
       "name": "declared-policy-code-is-409:consent_invalid",
       "ok": true,
       "detail": "consent_invalid → 409"
     },
     {
       "area": "negative-control",
-      "name": "declared-policy-code-is-409:cooldown",
+      "name": "declared-policy-code-is-409:country_denied",
       "ok": true,
-      "detail": "cooldown → 409"
+      "detail": "country_denied → 409"
     },
     {
       "area": "negative-control",
@@ -2955,15 +3002,99 @@
     },
     {
       "area": "negative-control",
+      "name": "declared-policy-code-is-409:country_unresolvable",
+      "ok": true,
+      "detail": "country_unresolvable → 409"
+    },
+    {
+      "area": "negative-control",
+      "name": "declared-policy-code-is-409:demo_tier_requires_test_number",
+      "ok": true,
+      "detail": "demo_tier_requires_test_number → 409"
+    },
+    {
+      "area": "negative-control",
+      "name": "declared-policy-code-is-409:destination_cooldown",
+      "ok": true,
+      "detail": "destination_cooldown → 409"
+    },
+    {
+      "area": "negative-control",
+      "name": "declared-policy-code-is-409:destination_prefix_denied",
+      "ok": true,
+      "detail": "destination_prefix_denied → 409"
+    },
+    {
+      "area": "negative-control",
       "name": "declared-policy-code-is-409:do_not_call",
       "ok": true,
       "detail": "do_not_call → 409"
     },
     {
       "area": "negative-control",
+      "name": "declared-policy-code-is-409:geo_allowlist_misconfigured",
+      "ok": true,
+      "detail": "geo_allowlist_misconfigured → 409"
+    },
+    {
+      "area": "negative-control",
+      "name": "declared-policy-code-is-409:geo_allowlist_unconfigured",
+      "ok": true,
+      "detail": "geo_allowlist_unconfigured → 409"
+    },
+    {
+      "area": "negative-control",
+      "name": "declared-policy-code-is-409:global_concurrency_cap",
+      "ok": true,
+      "detail": "global_concurrency_cap → 409"
+    },
+    {
+      "area": "negative-control",
+      "name": "declared-policy-code-is-409:guard_internal_error",
+      "ok": true,
+      "detail": "guard_internal_error → 409"
+    },
+    {
+      "area": "negative-control",
+      "name": "declared-policy-code-is-409:invalid_call_category",
+      "ok": true,
+      "detail": "invalid_call_category → 409"
+    },
+    {
+      "area": "negative-control",
+      "name": "declared-policy-code-is-409:invalid_e164",
+      "ok": true,
+      "detail": "invalid_e164 → 409"
+    },
+    {
+      "area": "negative-control",
+      "name": "declared-policy-code-is-409:org_auto_paused",
+      "ok": true,
+      "detail": "org_auto_paused → 409"
+    },
+    {
+      "area": "negative-control",
+      "name": "declared-policy-code-is-409:org_concurrency_cap",
+      "ok": true,
+      "detail": "org_concurrency_cap → 409"
+    },
+    {
+      "area": "negative-control",
       "name": "declared-policy-code-is-409:outside_calling_hours",
       "ok": true,
       "detail": "outside_calling_hours → 409"
+    },
+    {
+      "area": "negative-control",
+      "name": "declared-policy-code-is-409:prayer_time",
+      "ok": true,
+      "detail": "prayer_time → 409"
+    },
+    {
+      "area": "negative-control",
+      "name": "declared-policy-code-is-409:redaction_mismatch",
+      "ok": true,
+      "detail": "redaction_mismatch → 409"
     },
     {
       "area": "negative-control",
@@ -2979,9 +3110,33 @@
     },
     {
       "area": "negative-control",
+      "name": "declared-policy-code-is-409:test_number_list_empty",
+      "ok": true,
+      "detail": "test_number_list_empty → 409"
+    },
+    {
+      "area": "negative-control",
       "name": "declared-policy-code-is-409:transaction_repeat",
       "ok": true,
       "detail": "transaction_repeat → 409"
+    },
+    {
+      "area": "negative-control",
+      "name": "declared-policy-code-is-409:velocity_after_hours",
+      "ok": true,
+      "detail": "velocity_after_hours → 409"
+    },
+    {
+      "area": "negative-control",
+      "name": "declared-policy-code-is-409:velocity_burst_rate",
+      "ok": true,
+      "detail": "velocity_burst_rate → 409"
+    },
+    {
+      "area": "negative-control",
+      "name": "declared-policy-code-is-409:velocity_new_prefix_burst",
+      "ok": true,
+      "detail": "velocity_new_prefix_burst → 409"
     },
     {
       "area": "negative-control",
@@ -2991,21 +3146,9 @@
     },
     {
       "area": "negative-control",
-      "name": "policy-refusal-is-409:concurrency_cap",
-      "ok": true,
-      "detail": "concurrency_cap → 409"
-    },
-    {
-      "area": "negative-control",
       "name": "policy-refusal-is-409:consent_invalid",
       "ok": true,
       "detail": "consent_invalid → 409"
-    },
-    {
-      "area": "negative-control",
-      "name": "policy-refusal-is-409:cooldown",
-      "ok": true,
-      "detail": "cooldown → 409"
     },
     {
       "area": "negative-control",
@@ -3021,27 +3164,27 @@
     },
     {
       "area": "negative-control",
+      "name": "policy-refusal-is-409:destination_cooldown",
+      "ok": true,
+      "detail": "destination_cooldown → 409"
+    },
+    {
+      "area": "negative-control",
+      "name": "policy-refusal-is-409:org_concurrency_cap",
+      "ok": true,
+      "detail": "org_concurrency_cap → 409"
+    },
+    {
+      "area": "negative-control",
       "name": "policy-refusal-is-409:spend_ceiling",
       "ok": true,
       "detail": "spend_ceiling → 409 (emitted by runPolicyGate)"
     },
     {
       "area": "negative-control",
-      "name": "policy-refusal-not-500:concurrency_cap",
-      "ok": true,
-      "detail": "concurrency_cap → 409"
-    },
-    {
-      "area": "negative-control",
       "name": "policy-refusal-not-500:consent_invalid",
       "ok": true,
       "detail": "consent_invalid → 409"
-    },
-    {
-      "area": "negative-control",
-      "name": "policy-refusal-not-500:cooldown",
-      "ok": true,
-      "detail": "cooldown → 409"
     },
     {
       "area": "negative-control",
@@ -3054,6 +3197,18 @@
       "name": "policy-refusal-not-500:country_unparseable",
       "ok": true,
       "detail": "country_unparseable → 409"
+    },
+    {
+      "area": "negative-control",
+      "name": "policy-refusal-not-500:destination_cooldown",
+      "ok": true,
+      "detail": "destination_cooldown → 409"
+    },
+    {
+      "area": "negative-control",
+      "name": "policy-refusal-not-500:org_concurrency_cap",
+      "ok": true,
+      "detail": "org_concurrency_cap → 409"
     },
     {
       "area": "negative-control",
@@ -3173,7 +3328,7 @@
       "area": "static-check",
       "name": "transaction-regions-found",
       "ok": true,
-      "detail": "7 regions"
+      "detail": "8 regions"
     },
     {
       "area": "static-check",
@@ -3447,5 +3602,5 @@
     }
   ],
   "digestAlgorithm": "sha256",
-  "digest": "e7666f45bfb7e48dba398061cc1d7cff7e92489e9201aefb91066173b97c6b28"
+  "digest": "389d726986cd6abfd69f8688fe4b2a877f660addbba2e5ef8480be0552f82d57"
 }

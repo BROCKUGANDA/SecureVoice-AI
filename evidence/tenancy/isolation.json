@@ -2,19 +2,19 @@
   "schemaVersion": 1,
   "gate": "WP-12 multi-tenancy isolation",
   "digestAlgorithm": "sha256",
-  "digest": "b988205cd785bbfd2141c415609daf2e98b6aff77d48306ab76ef96f18260c9a",
-  "generatedAt": "2026-10-12T11:41:04.613Z",
+  "digest": "fcdaaffa061b97a04a51b9cb4eee6ea965ad97a35fedb88cee8464a3b500cba6",
+  "generatedAt": "2026-10-14T19:25:51.192Z",
   "run": {
-    "id": "mv56l9pt",
+    "id": "mv8i2ooc",
     "orgs": {
-      "A": "0a0a0a0a-0000-4000-8000-4a5a70773b7d",
-      "B": "0b0b0b0b-0000-4000-8000-4a5a70773b7d"
+      "A": "0a0a0a0a-0000-4000-8000-2cb5c58041b6",
+      "B": "0b0b0b0b-0000-4000-8000-2cb5c58041b6"
     },
     "database": "DATABASE_URL",
     "note": "identifiers above are per-run; the digest covers the deterministic core only"
   },
   "summary": {
-    "result": "pass",
+    "result": "fail",
     "pathsDeclared": 24,
     "pathsProbed": 22,
     "directionsProbed": 44,
@@ -24,9 +24,9 @@
       "declaredGlobal": 2
     },
     "checks": {
-      "total": 218,
-      "passed": 218,
-      "failed": 0
+      "total": 220,
+      "passed": 212,
+      "failed": 8
     },
     "http404Asserted": 5,
     "never403Asserted": 10,
@@ -1724,12 +1724,12 @@
           "http": {
             "method": "DELETE",
             "route": "/api/console/producer-keys?id=",
-            "status": 404
+            "status": 401
           },
           "control": {
             "described": "revoking the caller's own key succeeds",
-            "status": 200,
-            "ownVisible": true
+            "status": 401,
+            "ownVisible": false
           },
           "foreignVisible": false,
           "foreignMutated": false,
@@ -1741,8 +1741,8 @@
           "checks": [
             {
               "name": "foreign-probe-is-404",
-              "ok": true,
-              "detail": "expected 404, got 404"
+              "ok": false,
+              "detail": "expected 404, got 401"
             },
             {
               "name": "never-403",
@@ -1756,13 +1756,18 @@
             },
             {
               "name": "control-own-key-revoked-200",
-              "ok": true,
-              "detail": "expected 200 revoking the caller's own key, got 200"
+              "ok": false,
+              "detail": "expected 200 revoking the caller's own key, got 401"
+            },
+            {
+              "name": "control-probe-was-inconclusive",
+              "ok": false,
+              "detail": "control (revoking the caller's own key succeeds) did not return the caller's own row, so the foreign result is meaningless"
             },
             {
               "name": "recorded-foreign-probe-is-404",
-              "ok": true,
-              "detail": "recorded status 404 contradicts verdict foreign-probe-404"
+              "ok": false,
+              "detail": "recorded status 401 contradicts verdict foreign-probe-404"
             },
             {
               "name": "recorded-foreign-probe-is-not-403",
@@ -1770,7 +1775,7 @@
               "detail": "a 403 confirms existence and must never be the cross-tenant answer"
             }
           ],
-          "ok": true,
+          "ok": false,
           "error": null
         },
         {
@@ -1782,12 +1787,12 @@
           "http": {
             "method": "DELETE",
             "route": "/api/console/producer-keys?id=",
-            "status": 404
+            "status": 401
           },
           "control": {
             "described": "revoking the caller's own key succeeds",
-            "status": 200,
-            "ownVisible": true
+            "status": 401,
+            "ownVisible": false
           },
           "foreignVisible": false,
           "foreignMutated": false,
@@ -1799,8 +1804,8 @@
           "checks": [
             {
               "name": "foreign-probe-is-404",
-              "ok": true,
-              "detail": "expected 404, got 404"
+              "ok": false,
+              "detail": "expected 404, got 401"
             },
             {
               "name": "never-403",
@@ -1814,13 +1819,18 @@
             },
             {
               "name": "control-own-key-revoked-200",
-              "ok": true,
-              "detail": "expected 200 revoking the caller's own key, got 200"
+              "ok": false,
+              "detail": "expected 200 revoking the caller's own key, got 401"
+            },
+            {
+              "name": "control-probe-was-inconclusive",
+              "ok": false,
+              "detail": "control (revoking the caller's own key succeeds) did not return the caller's own row, so the foreign result is meaningless"
             },
             {
               "name": "recorded-foreign-probe-is-404",
-              "ok": true,
-              "detail": "recorded status 404 contradicts verdict foreign-probe-404"
+              "ok": false,
+              "detail": "recorded status 401 contradicts verdict foreign-probe-404"
             },
             {
               "name": "recorded-foreign-probe-is-not-403",
@@ -1828,11 +1838,11 @@
               "detail": "a 403 confirms existence and must never be the cross-tenant answer"
             }
           ],
-          "ok": true,
+          "ok": false,
           "error": null
         }
       ],
-      "ok": true
+      "ok": false
     },
     {
       "path": "console.settings.read",

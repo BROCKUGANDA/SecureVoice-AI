@@ -45,7 +45,7 @@ pipeline:
                   identifier: Install_Dependencies
                   spec:
                     image: node:20
-                    command: npm ci
+                    command: npm install
               - step:
                   type: Run
                   name: Type Check

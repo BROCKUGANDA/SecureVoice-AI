@@ -754,11 +754,11 @@ const CODE_SOURCES: Record<string, string> = {
 const REASON_SOURCES: Record<string, string> = {
   "src/lib/policy-gate.ts": POLICY_GATE,
   // `runComplianceGate` refuses into the same typed-409 path as the policy gate
-  // (`src/app/api/v1/interventions/route.ts:547-567`), so its codes are part of
-  // the published contract whether or not this list said so. Without it, three
-  // refusals a bank can actually receive — `prayer_time`,
-  // `invalid_call_category`, `redaction_mismatch` — had no catalog entry and the
-  // provenance scan below could not see them either.
+  // (`src/app/api/v1/interventions/route.ts`), so its codes are part of the
+  // published contract whether or not this list said so. Without it, three
+  // refusals a bank can actually receive — `prayer_time`, `invalid_call_category`,
+  // `redaction_mismatch` — had no catalog entry and the provenance scan below
+  // could not see them either.
   "src/lib/compliance/gate.ts": read("src/lib/compliance/gate.ts"),
   "src/lib/abuse/geo.ts": read("src/lib/abuse/geo.ts"),
   "src/lib/abuse/tiers.ts": read("src/lib/abuse/tiers.ts"),
@@ -823,18 +823,20 @@ reasonLiterals.delete("ok");
  * (customer-facing causes that reach `message`) and `ControlName` (an audit
  * trail of which checks RAN). Only the former belongs in the customer contract.
  *
- * `cooldown` is deliberately NOT in this list: it is a control name AND a real
- * refusal cause emitted by the policy gate (`code: "cooldown"`). The two
- * vocabularies overlap on that one value, and dropping it here would delete a
- * documented cause from the catalog gate. The set is therefore computed by
- * subtracting what the controls genuinely cover, and asserted against the real
- * union below so a new control cannot slip through unexamined.
+ * `cooldown` used to be the one value where the two vocabularies overlapped: it was
+ * a `ControlName` AND a refusal cause emitted by the policy gate. The gate's cooldown
+ * step was deleted (its state had no writer, so it could never fire) and the live
+ * cause is the abuse gate's `destination_cooldown`, which stays in the catalog under
+ * that literal. `cooldown` is therefore now a pure control name and belongs in this
+ * list; the set is asserted against the real `ControlName` union below so a new
+ * control cannot slip through unexamined.
  */
 const CONTROL_NAMES = new Set([
   "input_shape",
   "breaker",
   "geo",
   "plan_tier",
+  "cooldown",
   "org_concurrency",
   "global_concurrency",
   "velocity",
@@ -930,11 +932,8 @@ describe("error catalog covers every code the code actually returns", () => {
     // The ControlName exclusion above is only safe if it stays in SYNC with the real
     // union. If somebody adds a control and forgets this list, the new name is
     // silently swallowed by the filter and never reaches the catalog gate.
-    // `cooldown` is the known overlap: a control name that is also a documented
-    // refusal cause, so it is declared but intentionally NOT excluded.
     const declared = declaredControlNames();
-    expect([...CONTROL_NAMES].sort()).toEqual([...declared].filter((c) => c !== "cooldown").sort());
-    expect(declared.has("cooldown")).toBe(true);
+    expect([...CONTROL_NAMES].sort()).toEqual([...declared].sort());
 
     const catalogued = new Set(ERROR_CODES.map((e) => e.literal));
     const missing = [...reasonLiterals].filter((code) => !catalogued.has(code));
@@ -1002,7 +1001,7 @@ describe("error catalog covers every code the code actually returns", () => {
     // A cooldown is transient; `policy_precondition` is still declared
     // non-retryable because most policy refusals must not be retried. The
     // catalog says so explicitly rather than pretending the flag is per-cause.
-    const cooldown = ERROR_CODES.find((e) => e.literal === "cooldown")!;
+    const cooldown = ERROR_CODES.find((e) => e.literal === "destination_cooldown")!;
     expect(cooldown.retryable).toBe(true);
     expect(cooldown.envelopeCode).toBe("policy_precondition");
     expect(STATUS_DISCIPLINE.policy_precondition.retryable).toBe(false);

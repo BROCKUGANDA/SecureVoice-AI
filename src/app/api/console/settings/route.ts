@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import type { Prisma } from "@/generated/prisma/client";
 import { requireOperator } from "@/lib/credits";
+import { requirePrivileged } from "@/lib/auth/guards";
 import { db } from "@/lib/db";
 import { withTenantScope } from "@/lib/tenancy/db-scope";
 import { decryptSecret, encryptSecret, maskKey } from "@/lib/byok";
@@ -247,6 +248,31 @@ export async function POST(req: NextRequest) {
   const wantsSignedWebhooks =
     (d.vendorWebhookUrl !== undefined && d.vendorWebhookUrl.length > 0) ||
     (d.vendorWebhookSecret !== undefined && d.vendorWebhookSecret.length > 0);
+
+  // Step-up on ATTACHING a vendor credential — and only on attaching.
+  // `change_byok_credential` exists in the privileged-action registry, and
+  // docs/SECURITY-QUESTIONNAIRE.md tells auditors such actions are
+  // re-authenticated; this route is the one path that writes a vendor key
+  // (`elevenKeyEnc` below) and it demanded nothing.
+  //
+  // Deliberately BEFORE the entitlement loop: whether the tenant bought BYOK is
+  // nobody's business until the caller has proven they are present to change it,
+  // and answering "your plan does not include this" to an un-reauthenticated
+  // request leaks the plan to whoever holds the cookie.
+  //
+  // CLEARING is not gated, for the same reason clearing a webhook is not: a
+  // tenant leaving the feature must always be able to stop its customer data
+  // flowing under a key it no longer controls, and a re-auth it cannot complete
+  // would strand the setting.
+  if (wantsByok) {
+    const privileged = await requirePrivileged(req.headers.get("cookie"), "change_byok_credential");
+    if (!privileged.ok) {
+      return NextResponse.json(
+        { error: privileged.error, code: privileged.code },
+        { status: privileged.status, headers: { "Cache-Control": "no-store" } },
+      );
+    }
+  }
 
   for (const entitlement of [
     wantsSignedWebhooks ? ("signedWebhooks" as const) : null,

@@ -72,13 +72,12 @@ unreachable from a browser**:
   `PINNABLE_LANGS` covers `en`/`ar`/`hi`; `ur`/`sw` fall back to `"multi"`.
 - `src/lib/voice/elevenlabs-stream.ts` — `ElevenLabsStream`, async-iterates
   `audio/mpeg` chunks back.
-- `src/app/api/voice-websocket/route.ts:153` — `createVoiceWebSocketServer()`
-  wires mulaw frames → Deepgram → `routeAgentIntent` → `executeSoftFreeze` →
-  ElevenLabs. **It has no callers**: the exported `GET` at `:131` returns
-  `{ok:true, activeCalls}` rather than upgrading, because a Next.js route handler
-  cannot reach the raw socket. That is the whole gap.
-- `src/worker/voice-stream.ts:391` — the same wiring in the Bun worker, i.e. a
-  process that CAN hold the socket already exists.
+- `src/worker/voice-stream.ts:391` — mulaw frames → Deepgram → `routeAgentIntent`
+  → `executeSoftFreeze` → ElevenLabs, in a Bun process that CAN hold the socket.
+  This is now the only such wiring: the old `src/app/api/voice-websocket/route.ts`
+  was deleted because a Next.js route handler cannot upgrade a socket, so its
+  exported `GET` returned JSON and its `createVoiceWebSocketServer()` had no
+  caller — a fourth path that looked live and was not.
 
 **Building it means:**
 

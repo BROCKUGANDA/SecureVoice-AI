@@ -66,16 +66,6 @@ const CATALOGUE = [
     direction: "inbound",
   },
   {
-    id: "twilio-voice",
-    label: "Twilio voice webhook",
-    description: "Twilio calls this for TwiML instructions when a customer answers.",
-    path: "/api/twiml-stream",
-    method: "GET/POST",
-    auth: "Twilio webhook, no inbound signature",
-    secret: null,
-    direction: "inbound",
-  },
-  {
     id: "twilio-media",
     label: "Twilio Media Streams WebSocket",
     description: "Live mulaw audio bridge for Twilio Media Streams when enabled.",

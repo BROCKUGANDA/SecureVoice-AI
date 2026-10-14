@@ -363,9 +363,13 @@ async function handle(job: DialJob): Promise<DialOutcome> {
     if (flag("twilioMediaStreams")) {
       const host = mediaStreamHost();
       // Worker plane lives on a SIBLING prefix under /realtime, not under /api:
-      // an edge matcher on /api/voice-websocket would shadow the app's own
-      // Next.js route of that name out of its per-route rate limiting. Caddy
-      // routes /realtime/media-stream here (see Caddyfile + Caddyfile.platform).
+      // Caddy terminates the websocket upgrade there, and a Next.js route handler
+      // cannot upgrade a socket at all, so the stream is served by this worker and
+      // not by an app route. (The old /api/voice-websocket route was deleted for
+      // exactly that reason — its exported GET returned JSON and its server
+      // factory had no caller; `src/worker/voice-stream.ts` is the same wiring,
+      // reachable. Caddy routes /realtime/media-stream here — see Caddyfile +
+      // Caddyfile.platform.)
       const mediaStreamUrl = new URL(`wss://${host}/realtime/media-stream`);
       mediaStreamUrl.searchParams.set("callSid", job.case_ref);
       // The language travels on the stream URL. The voice worker needs it for

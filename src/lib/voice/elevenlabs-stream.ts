@@ -99,13 +99,26 @@ export class ElevenLabsStream {
     if (!text) return;
 
     const { ElevenLabsClient } = await import("@elevenlabs/elevenlabs-js");
-    const modelId = opts.modelId ?? "eleven_multilingual_v2";
+    // Never a literal: a caller that forgets `modelId` must still speak with the
+    // model this deployment chose, not with whatever generation was current when
+    // this line was written. See tests/unit/tts-model-resolution.test.ts.
+    const modelId = opts.modelId ?? env.elevenLabsModel;
     const openOn = (apiKey: string) =>
       new ElevenLabsClient({ apiKey }).textToSpeech.stream(opts.voiceId, {
         text,
         modelId,
         outputFormat: "pcm_8000",
-        voiceSettings: { stability: 0.5, similarityBoost: 0.75 },
+        // From the deployment's settings, not a literal. `config.ts` documents
+        // why stability is 0.7 rather than 0.5 — this agent reads a money
+        // decision back to a frightened cardholder, and lower stability means
+        // more variance between utterances — and that reasoning did not reach
+        // live call audio, because this file was the streaming path's only
+        // writer of voice settings and it carried 0.5. `TTS_VOICE_STABILITY`
+        // now moves the phone call as well as the console preview.
+        voiceSettings: {
+          stability: env.voiceStability,
+          similarityBoost: env.voiceSimilarityBoost,
+        },
         ...(opts.language ? { language: opts.language } : {}),
       });
 

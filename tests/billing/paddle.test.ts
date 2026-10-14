@@ -459,6 +459,68 @@ describe("createCheckout", () => {
     expect(body["items"]).toEqual([{ price_id: "pri_01test", quantity: 1 }]);
   });
 
+  test("authenticates with Bearer, on the host the KEY implies", async () => {
+    // The adapter used to send `Authorization: Basic base64("<key>:")`, with a
+    // comment asserting that was Paddle's scheme and that the SDK sent the same.
+    // It does not: measured against the sandbox, Basic answers HTTP 403
+    // `authentication_malformed` and Bearer answers 200 with the catalog. The SDK
+    // path (webhook verification) kept working, so only the operations raised HERE
+    // were dead — checkout, invoice, refund. A test that asserts the header string
+    // is the cheapest thing that could have caught that, and it did not exist.
+    const seen: { url: string; auth: string | null }[] = [];
+    const capture = async (url: string, init: RequestInit) => {
+      seen.push({ url, auth: new Headers(init.headers).get("authorization") });
+      return new Response(
+        JSON.stringify({ data: { id: "txn_1", checkout: { url: "https://pay.example/x" } } }),
+        { headers: { "content-type": "application/json" } },
+      );
+    };
+
+    await createPaddleProvider(cfg({ http: capture })).createCheckout(auth());
+    expect(seen[0]!.auth).toBe("Bearer pdl_sdbx_apikey_test");
+    expect(seen[0]!.url).toBe("https://sandbox-api.paddle.com/transactions");
+
+    // A live key selects the live host — and is refused unless the operator said
+    // so deliberately, which is the existing guard, exercised from this direction.
+    const prev = process.env[PADDLE_ALLOW_LIVE_ENV];
+    process.env[PADDLE_ALLOW_LIVE_ENV] = "1";
+    try {
+      seen.length = 0;
+      await createPaddleProvider(
+        cfg({ apiKey: "pdl_live_apikey_test", http: capture }),
+      ).createCheckout(auth());
+      expect(seen[0]!.auth).toBe("Bearer pdl_live_apikey_test");
+      expect(seen[0]!.url).toBe("https://api.paddle.com/transactions");
+    } finally {
+      if (prev === undefined) delete process.env[PADDLE_ALLOW_LIVE_ENV];
+      else process.env[PADDLE_ALLOW_LIVE_ENV] = prev;
+    }
+  });
+
+  test("refuses a PADDLE_BASE_URL that contradicts the key's environment", async () => {
+    // `PADDLE_BASE_URL` was once the only way to pick the host, and its default
+    // was the sandbox — so a production deployment that never set it posted
+    // invoices to the sandbox catalog. The host now follows the key, and an
+    // override that disagrees with it is a configuration that points at a
+    // different Paddle account than the money is supposed to land in.
+    const prev = process.env.PADDLE_BASE_URL;
+    process.env.PADDLE_BASE_URL = "https://api.paddle.com";
+    try {
+      expect(() => createPaddleProvider(cfg())).toThrow(/does not match the environment/);
+    } finally {
+      if (prev === undefined) delete process.env.PADDLE_BASE_URL;
+      else process.env.PADDLE_BASE_URL = prev;
+    }
+    // Agreeing is allowed, and is what a proxy or a regional endpoint would use.
+    process.env.PADDLE_BASE_URL = "https://sandbox-api.paddle.com";
+    try {
+      expect(() => createPaddleProvider(cfg())).not.toThrow();
+    } finally {
+      if (prev === undefined) delete process.env.PADDLE_BASE_URL;
+      else process.env.PADDLE_BASE_URL = prev;
+    }
+  });
+
   test("refuses float money before it reaches the gateway", async () => {
     const p = createPaddleProvider(cfg());
     await expect(
@@ -489,5 +551,175 @@ describe("chargeStoredAuthorization", () => {
     expect(res.ok).toBe(false);
     if (res.ok) return;
     expect(res.reason).toBe("stored_authorization_unsupported_by_paddle");
+  });
+});
+
+/**
+ * THE NEGOTIATED INVOICE — measured against the live sandbox on 2026-10-14, not
+ * written from the API's documentation prose.
+ *
+ * This route had NO test before, which is precisely how it shipped broken three
+ * ways at once: the adapter posted a raw amount where Paddle demands a
+ * catalogued `price_id` (`items.0: price_id is required`), omitted the one
+ * `billing_details` member `collection_mode:"manual"` makes mandatory
+ * (`transaction_billing_details_object_required`), and spelled the buyer's tax
+ * number as flat `tax_id` — a field Paddle does not read. A gate that never
+ * exists cannot fail, and a path that never returns 2xx cannot be believed.
+ */
+describe("createInvoice — Paddle's actual contract", () => {
+  const PRODUCT = "pro_negotiated_test";
+  const base = {
+    orgId: "org_123",
+    reference: "org_org_123_manual_01ABCDEFGHIJKLMNOPQRSTUVWX",
+    currency: "USD",
+    items: [{ description: "Negotiated annual platform fee", amountMinor: 1500000, quantity: 1 }],
+    recordedBy: "operator_1",
+  } as const;
+
+  const call = (
+    over: Record<string, unknown> = {},
+    reply: (path: string) => Response = () =>
+      new Response(JSON.stringify({ data: { id: "pri_minted_1" } }), {
+        headers: { "content-type": "application/json" },
+      }),
+  ) => {
+    const seen: { path: string; body: Record<string, unknown> }[] = [];
+    const provider = createPaddleProvider(
+      cfg({
+        http: async (url, init) => {
+          const path = url.replace(/^https:\/\/sandbox-api\.paddle\.com/, "");
+          const body = JSON.parse(String(init.body ?? "{}")) as Record<string, unknown>;
+          seen.push({ path, body });
+          if (path === "/transactions")
+            return new Response(JSON.stringify({ data: { id: "txn_inv_1", checkout: {} } }), {
+              headers: { "content-type": "application/json" },
+            });
+          return reply(path);
+        },
+      }),
+    );
+    return { seen, result: provider.createInvoice!({ ...base, ...over } as never) };
+  };
+
+  test("mints a hidden one-off price and references it — never a raw amount", async () => {
+    const prev = process.env.PADDLE_NEGOTIATED_PRODUCT_ID;
+    process.env.PADDLE_NEGOTIATED_PRODUCT_ID = PRODUCT;
+    try {
+      const { seen, result } = call();
+      expect(await result).toMatchObject({ ok: true, invoiceId: "txn_inv_1", settledUnits: 0 });
+      expect(seen.map((s) => s.path)).toEqual(["/prices", "/transactions"]);
+      // `amount` is a minor-unit STRING. The catalog answers "9900" for $99.00,
+      // and an integer here is a Paddle type error, so this is the shape of the
+      // ruling "never pass raw integers into the checkout payload".
+      const minted = seen[0]!.body.unit_price as Record<string, unknown>;
+      expect(minted.amount).toBe("1500000");
+      expect(typeof minted.amount).toBe("string");
+      expect(seen[0]!.body.product_id).toBe(PRODUCT);
+      const tx = seen[1]!.body.items as Record<string, unknown>[];
+      expect(tx).toEqual([{ price_id: "pri_minted_1", quantity: 1 }]);
+      expect(JSON.stringify(seen[1]!.body)).not.toContain("amount_minor");
+    } finally {
+      if (prev === undefined) delete process.env.PADDLE_NEGOTIATED_PRODUCT_ID;
+      else process.env.PADDLE_NEGOTIATED_PRODUCT_ID = prev;
+    }
+  });
+
+  test("manual collection carries payment_terms, and the buyer's PO verbatim", async () => {
+    const prev = process.env.PADDLE_NEGOTIATED_PRODUCT_ID;
+    process.env.PADDLE_NEGOTIATED_PRODUCT_ID = PRODUCT;
+    try {
+      const { seen, result } = call({ dueInDays: 14, purchaseOrderNumber: "BANK-PO-12345" });
+      await result;
+      const body = seen[1]!.body;
+      expect(body.collection_mode).toBe("manual");
+      // FLAT. `{frequency:{interval,amount}}` is answered `interval is required`
+      // and `frequency: Expected integer, given object`; nesting under `due_date`
+      // is not accepted at all.
+      expect(body.billing_details).toEqual({
+        payment_terms: { interval: "day", amount_due: 14, frequency: 1 },
+        purchase_order_number: "BANK-PO-12345",
+      });
+      expect(JSON.stringify(body)).not.toContain("due_date");
+    } finally {
+      if (prev === undefined) delete process.env.PADDLE_NEGOTIATED_PRODUCT_ID;
+      else process.env.PADDLE_NEGOTIATED_PRODUCT_ID = prev;
+    }
+  });
+
+  test("a missing due window is 30 days, stated — not absent", async () => {
+    const prev = process.env.PADDLE_NEGOTIATED_PRODUCT_ID;
+    process.env.PADDLE_NEGOTIATED_PRODUCT_ID = PRODUCT;
+    try {
+      const { seen, result } = call();
+      await result;
+      const pt = (seen[1]!.body.billing_details as Record<string, unknown>).payment_terms as Record<
+        string,
+        unknown
+      >;
+      expect(pt.amount_due).toBe(30);
+      // No PO supplied means no PO field, not an empty one: the document is the
+      // bank's paperwork reference and we do not invent it.
+      expect(
+        "purchase_order_number" in (seen[1]!.body.billing_details as Record<string, unknown>),
+      ).toBe(false);
+    } finally {
+      if (prev === undefined) delete process.env.PADDLE_NEGOTIATED_PRODUCT_ID;
+      else process.env.PADDLE_NEGOTIATED_PRODUCT_ID = prev;
+    }
+  });
+
+  test("the buyer's address and tax id are transcribed, never derived", async () => {
+    const prev = process.env.PADDLE_NEGOTIATED_PRODUCT_ID;
+    process.env.PADDLE_NEGOTIATED_PRODUCT_ID = PRODUCT;
+    try {
+      const withBuyer = call({
+        customer: {
+          email: "ap@bank.example",
+          name: "Acme Bank PLC",
+          address: { country_code: "gb", postal_code: "EC2A 4BX" },
+        },
+        taxId: "GB123456789",
+      });
+      await withBuyer.result;
+      const c = withBuyer.seen[1]!.body.customer as Record<string, unknown>;
+      expect(c).toEqual({
+        email: "ap@bank.example",
+        company_name: "Acme Bank PLC",
+        country_code: "GB",
+        postal_code: "EC2A 4BX",
+        tax_identifiers: [{ type: "eu_vat", value: "GB123456789" }],
+      });
+
+      // Nothing supplied -> no `customer` object at all. A defaulted country
+      // would move the VAT on a legal document, which is the one thing a
+      // Merchant of Record integration must never do on the seller's say-so.
+      const bare = call();
+      await bare.result;
+      expect("customer" in bare.seen[1]!.body).toBe(false);
+    } finally {
+      if (prev === undefined) delete process.env.PADDLE_NEGOTIATED_PRODUCT_ID;
+      else process.env.PADDLE_NEGOTIATED_PRODUCT_ID = prev;
+    }
+  });
+
+  test("refuses an empty invoice without spending a vendor call", async () => {
+    const { seen, result } = call({ items: [] });
+    expect(await result).toMatchObject({ ok: false, reason: "invoice_has_no_items" });
+    expect(seen).toHaveLength(0);
+  });
+
+  test("a failed price mint is a refusal naming the gateway error", async () => {
+    const prev = process.env.PADDLE_NEGOTIATED_PRODUCT_ID;
+    process.env.PADDLE_NEGOTIATED_PRODUCT_ID = PRODUCT;
+    try {
+      const { result } = call(
+        {},
+        () => new Response(JSON.stringify({ error: { code: "bad_request" } }), { status: 400 }),
+      );
+      expect(await result).toMatchObject({ ok: false, reason: "ad_hoc_price_failed:http_400" });
+    } finally {
+      if (prev === undefined) delete process.env.PADDLE_NEGOTIATED_PRODUCT_ID;
+      else process.env.PADDLE_NEGOTIATED_PRODUCT_ID = prev;
+    }
   });
 });

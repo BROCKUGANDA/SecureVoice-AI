@@ -71,6 +71,12 @@ export async function GET() {
         chunkCount: true,
         error: true,
         vectorizedAt: true,
+        // The second knowledge plane, surfaced for the same reason `error` is: a
+        // publish that failed silently is a document the operator believes the
+        // agent can quote. Deliberately NOT folded into `error`, which the console
+        // renders beside a Retry button that re-embeds an already-READY PDF.
+        platformDocId: true,
+        platformError: true,
         createdAt: true,
       },
     }),

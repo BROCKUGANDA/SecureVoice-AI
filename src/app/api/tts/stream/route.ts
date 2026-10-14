@@ -12,7 +12,12 @@ import {
 import { consume as consumeRateLimit, rateLimitHeaders, rateLimitId } from "@/lib/ratelimit";
 import { append as auditAppend } from "@/lib/audit-chain";
 import { transcript as redactText } from "@/lib/redact";
-import { resolveTtsKey, consumeCharQuota, quotaExceededResponse } from "@/lib/tts-quota";
+import {
+  resolveTtsKey,
+  consumeCharQuota,
+  quotaExceededResponse,
+  allowAnonTurn,
+} from "@/lib/tts-quota";
 import { fetchUpstreamBinary } from "@/lib/elevenlabs/egress";
 import { prepareSpeech } from "@/lib/compliance/speech-gate";
 import { env, maxTtsChars, SUPPORTED_LANGS } from "@/lib/config";
@@ -139,6 +144,20 @@ export async function POST(req: NextRequest) {
         status: 429,
         headers: { "Retry-After": String(env.ttsQuotaRetryAfterSec) },
       });
+    }
+  }
+  if (keyRes.mode === "anon") {
+    // The same ceiling as the buffered route. Enforcing it on one door only would
+    // leave the other unmetered, and the demo streams through this one. The
+    // limiter's own result goes into `rateLimitHeaders` rather than a hand-built
+    // Retry-After, so an anonymous refusal reports the same trio as any other
+    // bucket denial (tests/unit/rate-limit-headers.test.ts).
+    const rl = await allowAnonTurn(keyRes, rateLimitId(req), text.length);
+    if (!rl.ok) {
+      return NextResponse.json(
+        { error: "Demo voice budget spent — sign in, or supply your own ElevenLabs key." },
+        { status: 429, headers: rateLimitHeaders(rl) },
+      );
     }
   }
   const apiKey = keyRes.mode === "byok" ? keyRes.keyOverride : env.elevenLabsApiKey;

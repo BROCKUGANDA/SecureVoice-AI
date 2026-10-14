@@ -69,6 +69,26 @@ const Body = z.object({
   taxId: z.string().trim().min(3).max(64).optional(),
   customerEmail: z.string().email().max(254).optional(),
   customerName: z.string().trim().max(160).optional(),
+  /**
+   * The buyer's registered billing details, transcribed from the contract.
+   *
+   * Paddle is Merchant of Record and taxes where the BUYER is, so this is the
+   * bank's address, not ours: a UK procurement office on a UAE-headquartered
+   * bank is a UK VAT document. Nothing here is defaulted from the deployment,
+   * and a country is required whenever the block is present — a half-entered
+   * address would silently change the tax on a legal document.
+   *
+   * `purchaseOrderNumber` is the bank's own paperwork reference; it is carried
+   * verbatim so their accounts payable can match the invoice to the approval it
+   * came from.
+   */
+  billing: z
+    .object({
+      country: z.string().regex(/^[A-Za-z]{2}$/),
+      postalCode: z.string().trim().max(16).optional(),
+      purchaseOrderNumber: z.string().trim().max(64).optional(),
+    })
+    .optional(),
   note: z.string().trim().max(500).optional(),
 });
 
@@ -154,8 +174,23 @@ export async function POST(req: NextRequest) {
           customer: {
             email: body.data.customerEmail,
             ...(body.data.customerName ? { name: body.data.customerName } : {}),
+            // Transcribed, not derived: the org's own country is irrelevant to
+            // where the buyer owes VAT.
+            ...(body.data.billing
+              ? {
+                  address: {
+                    country_code: body.data.billing.country.toUpperCase(),
+                    ...(body.data.billing.postalCode
+                      ? { postal_code: body.data.billing.postalCode }
+                      : {}),
+                  },
+                }
+              : {}),
           },
         }
+      : {}),
+    ...(body.data.billing?.purchaseOrderNumber
+      ? { purchaseOrderNumber: body.data.billing.purchaseOrderNumber }
       : {}),
     // Marks the amount as negotiated rather than catalogued, so an adapter
     // refuses rather than silently matching it to a neighbouring tier.

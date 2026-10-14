@@ -365,3 +365,35 @@ jobs:
               echo "- next release: merge \`chore/release-v$next\`"
             } >> "$GITHUB_STEP_SUMMARY"
           fi
+
+      # GitHub's rejection says only that the SERVER could not find objects; it says
+      # nothing about what the CLIENT was missing, which is why "missing necessary
+      # objects" on a reused workspace has no answer in the run log. This step
+      # measures the client side of that question from the same directory, after the
+      # failure, and changes nothing — so re-running the job stays as informative as
+      # the run that broke.
+      #
+      # It exists because the plausible story was tested and did not hold (see the
+      # note on the first step): the workspace measured complete and the push was still
+      # rejected. Until this reports, the cause is a hypothesis, not a fact, and the
+      # repair above is a hedge rather than a fix.
+      - name: Report what the workspace actually contained
+        if: failure()
+        run: |
+          g() { git -c safe.directory="$PWD" "$@"; }
+          echo "git: $(git --version)"
+          echo "HEAD: $(g rev-parse HEAD 2>/dev/null || echo unreadable)"
+          echo "is-shallow: $(g rev-parse --is-shallow-repository 2>/dev/null || echo unreadable)"
+          echo "history: $(g rev-list --count HEAD 2>/dev/null || echo unreadable) commits"
+          echo "branches: $(g for-each-ref --format='%(refname:short)' refs/heads | tr '\n' ' ')"
+          echo "--- .git/shallow ---"
+          cat .git/shallow 2>/dev/null || echo "(no shallow file — the workspace is not shallow)"
+          echo "--- objects HEAD references that are absent locally (what GitHub is refusing) ---"
+          g rev-list --objects --missing=print HEAD 2>&1 | grep -m 20 '^?' \
+            || echo "(nothing missing from HEAD's reachable history)"
+          echo "--- connectivity ---"
+          g fsck --no-progress --connectivity-only 2>&1 | tail -20 || true
+          echo "--- commits that exist locally ---"
+          g log --oneline -3 --all 2>&1 | head -5 || true
+          echo "::error::the bump did not publish. The measurements above name the state;"
+          echo "::error::nothing here was tagged unless the step log says it was."

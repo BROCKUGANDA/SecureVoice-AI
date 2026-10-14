@@ -56,7 +56,7 @@ const FxReportContext = createContext<Report | null>(null);
  */
 export function useFxReport(): Report {
   const report = useContext(FxReportContext);
-  return report ?? (() => {});
+  return report ?? (() => {/* empty */});
 }
 
 type Props = { children: ReactNode; label: string };

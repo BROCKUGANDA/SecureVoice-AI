@@ -41,27 +41,53 @@ import { TwoFactorPrompt } from "@/components/security/TwoFactorPrompt";
  * because the swap already runs inside an `AnimatePresence` transition; an
  * empty frame would read as a blank page rather than a load.
  */
-const viewChunk = (loader: () => Promise<unknown>) =>
-  dynamic(loader as () => Promise<{ default: React.ComponentType }>, {
-    ssr: false,
-    loading: () => <div className="min-h-[60vh]" aria-hidden />,
-  });
+const viewChunk = (name: string, loader: () => Promise<unknown>) =>
+  dynamic(
+    async () => {
+      // `next/dynamic` normalises the module as `{ default: mod?.default || mod }`
+      // (node_modules/next/dist/shared/lib/dynamic.js:38). A module with no
+      // default export therefore hands React the MODULE NAMESPACE as the element
+      // type, and the reconciler throws "Element type is invalid. Received a
+      // promise that resolves to: [object Module]". That was the /sign-in outage:
+      // HTTP 200, healthy server, dead page — and a production error message that
+      // names neither the view nor the reason.
+      //
+      // So the subject is named HERE, where a missing export is a legible failure
+      // naming the module, instead of a `[object Module]` three layers down. The
+      // default export is still honoured, so a view that has one loads either way
+      // — this removes the whole class of bug rather than the one instance.
+      const mod = (await loader()) as Record<string, unknown>;
+      const component = mod[name] ?? mod.default;
+      if (typeof component !== "function") {
+        throw new Error(
+          `A code-split view resolved to ${JSON.stringify(component)}. It must export a ` +
+            `component named "${name}" (or a default), or next/dynamic renders the module ` +
+            `namespace as the element type.`,
+        );
+      }
+      return { default: component as React.ComponentType };
+    },
+    {
+      ssr: false,
+      loading: () => <div className="min-h-[60vh]" aria-hidden />,
+    },
+  );
 
-const Demo = viewChunk(() => import("@/views/Demo"));
-const Dashboard = viewChunk(() => import("@/views/Dashboard"));
-const Product = viewChunk(() => import("@/views/Product"));
-const UseCases = viewChunk(() => import("@/views/UseCases"));
-const Docs = viewChunk(() => import("@/views/Docs"));
-const Security = viewChunk(() => import("@/views/Security"));
-const Pricing = viewChunk(() => import("@/views/Pricing"));
-const Privacy = viewChunk(() => import("@/views/Legal").then((m) => ({ default: m.Privacy })));
-const Terms = viewChunk(() => import("@/views/Legal").then((m) => ({ default: m.Terms })));
-const Refund = viewChunk(() => import("@/views/Legal").then((m) => ({ default: m.Refund })));
-const Deck = viewChunk(() => import("@/views/Deck"));
-const Auth = viewChunk(() => import("@/views/Auth"));
-const Console = viewChunk(() => import("@/views/Console"));
-const Settings = viewChunk(() => import("@/views/Settings"));
-const SetupWizard = viewChunk(() => import("@/views/SetupWizard"));
+const Demo = viewChunk("Demo", () => import("@/views/Demo"));
+const Dashboard = viewChunk("Dashboard", () => import("@/views/Dashboard"));
+const Product = viewChunk("Product", () => import("@/views/Product"));
+const UseCases = viewChunk("UseCases", () => import("@/views/UseCases"));
+const Docs = viewChunk("Docs", () => import("@/views/Docs"));
+const Security = viewChunk("Security", () => import("@/views/Security"));
+const Pricing = viewChunk("Pricing", () => import("@/views/Pricing"));
+const Privacy = viewChunk("Privacy", () => import("@/views/Legal"));
+const Terms = viewChunk("Terms", () => import("@/views/Legal"));
+const Refund = viewChunk("Refund", () => import("@/views/Legal"));
+const Deck = viewChunk("Deck", () => import("@/views/Deck"));
+const Auth = viewChunk("Auth", () => import("@/views/Auth"));
+const Console = viewChunk("Console", () => import("@/views/Console"));
+const Settings = viewChunk("Settings", () => import("@/views/Settings"));
+const SetupWizard = viewChunk("SetupWizard", () => import("@/views/SetupWizard"));
 
 const VIEWS: Record<View, React.ComponentType> = {
   home: Home,

@@ -79,7 +79,7 @@ async function synth(voiceId, text, model) {
     let detail = buf.toString("utf8").slice(0, 200);
     try {
       detail = JSON.stringify(JSON.parse(detail).detail ?? detail).slice(0, 200);
-    } catch {}
+    } catch {/* empty */}
     return { error: `synth ${r.status}: ${detail}` };
   }
   if (buf.length < 1500) return { error: `synth returned ${buf.length} bytes — not speech` };

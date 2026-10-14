@@ -16,7 +16,8 @@
  * endpoints enforce.
  */
 
-import { WebSocketServer, WebSocket } from "ws";
+import type { WebSocket } from "ws";
+import { WebSocketServer } from "ws";
 import {
   createServer as createHttpServer,
   type IncomingMessage,
@@ -53,7 +54,8 @@ import { SAFETY_EXIT } from "@/lib/compliance/safety-exit";
 import { NEVER_ASK_LINE, callerRequestsSecret } from "@/lib/compliance/never-ask";
 import { detectInjectionAttempt } from "@/lib/llm-guard";
 import { startPrewarm } from "./prewarm";
-import { routeAgentIntent, AgentRole } from "@/lib/ai/router";
+import type { AgentRole } from "@/lib/ai/router";
+import { routeAgentIntent } from "@/lib/ai/router";
 import { executeSoftFreeze } from "@/lib/ai/ai-authz";
 import { sanitizeShariah } from "@/lib/compliance/shariah-filter";
 import { prepareSpeech } from "@/lib/compliance/speech-gate";

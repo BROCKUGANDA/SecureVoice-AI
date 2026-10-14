@@ -66,6 +66,7 @@ import "server-only";
  */
 
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { auditMoney } from "@/lib/payments/audit";
 import {
   assertMoney,
   entitlementsFor,
@@ -627,6 +628,7 @@ export function createPaddleProvider(cfg: PaddleConfig): PaymentProvider {
   async function adHocPriceFor(
     money: { amountMinor: number; currency: string },
     description: string,
+    reference: string,
   ): Promise<{ ok: true; priceId: string } | { ok: false; reason: string }> {
     const productId = await negotiatedProductId();
     if (!productId) return { ok: false, reason: "negotiated_product_unavailable" };
@@ -641,9 +643,34 @@ export function createPaddleProvider(cfg: PaddleConfig): PaymentProvider {
       unit_price: { amount: String(money.amountMinor), currency_code: money.currency },
       quantity: { minimum: 1, maximum: 1 },
     });
-    if (!minted.ok) return { ok: false, reason: `ad_hoc_price_failed:${minted.error}` };
+    if (!minted.ok) {
+      await auditMoney({
+        reference,
+        actor: "gateway:paddle",
+        intent: "price_adhoc_failed",
+        detail: `ad-hoc price of ${money.amountMinor} ${money.currency} was refused: ${minted.error}`,
+        meta: { amountMinor: money.amountMinor, currency: money.currency, description },
+      });
+      return { ok: false, reason: `ad_hoc_price_failed:${minted.error}` };
+    }
     const priceId = (minted.value.data?.id ?? "").trim();
     if (priceId === "") return { ok: false, reason: "ad_hoc_price_returned_no_id" };
+    // A successful mint leaves a sellable `price_id` for an arbitrary negotiated
+    // amount on PADDLE's side, attached to no published tier and invisible to any
+    // query we run afterwards. This row is the only durable record of it.
+    await auditMoney({
+      reference,
+      actor: "gateway:paddle",
+      intent: "price_adhoc_minted",
+      detail: `minted one-off price ${priceId} for ${money.amountMinor} ${money.currency}`,
+      meta: {
+        priceId,
+        productId,
+        amountMinor: money.amountMinor,
+        currency: money.currency,
+        description,
+      },
+    });
     return { ok: true, priceId };
   }
 
@@ -696,7 +723,7 @@ export function createPaddleProvider(cfg: PaddleConfig): PaymentProvider {
         { amountMinor: item.amountMinor, currency: req.currency },
         `invoice.items[${index}]`,
       );
-      const minted = await adHocPriceFor(money, item.description);
+      const minted = await adHocPriceFor(money, item.description, req.reference);
       if (!minted.ok) return { ok: false, reference: req.reference, reason: minted.reason };
       // One unit per minted price: `quantity` on the price is pinned to 1, so a
       // line of N is expressed as N items rather than as a multiplier the
@@ -735,13 +762,55 @@ export function createPaddleProvider(cfg: PaddleConfig): PaymentProvider {
       // Surfaced as a refusal, not a throw: an enterprise sales flow needs to
       // show the operator WHY the invoice was not raised (403 = the key lacks
       // permission, 400 = a malformed custom price), not a 500.
+      await auditMoney({
+        reference: req.reference,
+        ...(req.orgId ? { orgId: req.orgId } : {}),
+        actor: req.recordedBy,
+        intent: "invoice_issuance_failed",
+        detail: `Paddle refused the invoice: ${res.error}`,
+        meta: {
+          reason: `paddle_invoice_failed:${res.error}`,
+          currency: req.currency,
+          lines: req.items.length,
+          totalMinor: req.items.reduce((sum, i) => sum + i.amountMinor * (i.quantity ?? 1), 0),
+        },
+      });
       return { ok: false, reference: req.reference, reason: `paddle_invoice_failed:${res.error}` };
     }
 
     const invoiceId = res.value.data?.id ?? "";
     if (invoiceId === "") {
+      await auditMoney({
+        reference: req.reference,
+        ...(req.orgId ? { orgId: req.orgId } : {}),
+        actor: req.recordedBy,
+        intent: "invoice_issuance_failed",
+        detail: "Paddle returned no transaction id for the invoice",
+        meta: { reason: "paddle_returned_no_transaction_id", currency: req.currency },
+      });
       return { ok: false, reference: req.reference, reason: "paddle_returned_no_transaction_id" };
     }
+
+    // The document exists at the gateway and is not in our database — Paddle
+    // owns it from here. This row is the only place its id, amount and issuer
+    // are recorded on our side of the boundary.
+    await auditMoney({
+      reference: req.reference,
+      ...(req.orgId ? { orgId: req.orgId } : {}),
+      actor: req.recordedBy,
+      intent: "invoice_issued",
+      detail: `manual-collection invoice ${invoiceId} issued for ${req.currency}`,
+      meta: {
+        invoiceId,
+        currency: req.currency,
+        lines: req.items.length,
+        totalMinor: req.items.reduce((sum, i) => sum + i.amountMinor * (i.quantity ?? 1), 0),
+        recordedBy: req.recordedBy,
+        ...(req.dueInDays === undefined ? {} : { dueInDays: req.dueInDays }),
+        ...(req.taxId ? { taxIdPresent: true } : {}),
+        settledUnits: 0,
+      },
+    });
 
     return {
       ok: true,
@@ -849,6 +918,13 @@ export function createPaddleProvider(cfg: PaddleConfig): PaymentProvider {
 
       const transactionId = await paddleTransactionIdFor(req.reference);
       if (transactionId === "") {
+        await auditMoney({
+          reference: req.reference,
+          actor: "gateway:paddle",
+          intent: "gateway_refund_no_transaction_id",
+          detail: "refund requested for a reference with no stored Paddle transaction id",
+          meta: { amountMinor: req.money.amountMinor, currency: req.money.currency },
+        });
         return { ok: false, reference: req.reference, reason: "missing_paddle_transaction_id" };
       }
 
@@ -857,7 +933,33 @@ export function createPaddleProvider(cfg: PaddleConfig): PaymentProvider {
         transaction_id: transactionId,
         ...(req.reason === undefined ? {} : { reason: req.reason.slice(0, 200) }),
       });
-      if (!res.ok) return { ok: false, reference: req.reference, reason: res.error };
+      if (!res.ok) {
+        await auditMoney({
+          reference: req.reference,
+          actor: "gateway:paddle",
+          intent: "gateway_refund_failed",
+          detail: `Paddle refused the refund: ${res.error}`,
+          meta: { transactionId, amountMinor: req.money.amountMinor, currency: req.money.currency },
+        });
+        return { ok: false, reference: req.reference, reason: res.error };
+      }
+
+      // The instruction, not the reversal. `refundPayment` chains what our ledger
+      // did; nothing else in the system records that we ASKED the merchant of
+      // record to take money back from the customer, which is the act a dispute
+      // is argued over.
+      await auditMoney({
+        reference: req.reference,
+        actor: "gateway:paddle",
+        intent: "gateway_refund_requested",
+        detail: `refund issued against Paddle transaction ${transactionId}`,
+        meta: {
+          transactionId,
+          amountMinor: req.money.amountMinor,
+          currency: req.money.currency,
+          ...(req.reason === undefined ? {} : { reason: req.reason.slice(0, 200) }),
+        },
+      });
 
       // Deliberately does NOT call `refundPayment`. Writing PaymentRecord /
       // ledger state is the settling route's job — it owns the dual-control

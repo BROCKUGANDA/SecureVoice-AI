@@ -36,8 +36,7 @@ import "server-only";
  */
 
 import { db } from "@/lib/db";
-import { append as auditAppend } from "@/lib/audit-chain";
-import { logError } from "@/lib/validation/safe-log";
+import { auditMoney } from "@/lib/payments/audit";
 import {
   assertMoney,
   decodeEntitlements,
@@ -112,7 +111,7 @@ export async function recordPayment(input: RecordPaymentInput): Promise<RecordPa
       "")
     : inserted[0]!.id;
 
-  await auditPayment({
+  await auditMoney({
     reference,
     orgId: input.orgId,
     actor: recordedBy,
@@ -183,7 +182,7 @@ export async function verifyPayment(input: VerifyPaymentInput): Promise<VerifyPa
     return { ok: false, reason: "missing_recorder" };
   }
   if (recordedBy === verifiedBy) {
-    await auditPayment({
+    await auditMoney({
       reference,
       orgId: row.orgId ?? undefined,
       actor: verifiedBy,
@@ -227,7 +226,7 @@ export async function verifyPayment(input: VerifyPaymentInput): Promise<VerifyPa
     };
   }
 
-  await auditPayment({
+  await auditMoney({
     reference,
     orgId: row.orgId ?? undefined,
     actor: verifiedBy,
@@ -250,37 +249,6 @@ export async function verifyPayment(input: VerifyPaymentInput): Promise<VerifyPa
     unitsCredited: settle.unitsCredited,
     alreadyVerified: false,
   };
-}
-
-/**
- * The audit chain is the evidence of record for every money movement. Appends
- * are `fast` (no $transaction of their own) and fire-and-forget: an audit
- * outage must not block a bank transfer, but it must be visible.
- */
-async function auditPayment(input: {
-  reference: string;
-  orgId?: string;
-  actor: string;
-  intent: string;
-  detail: string;
-  meta: Record<string, unknown>;
-}): Promise<void> {
-  await auditAppend(
-    {
-      callRef: `PAY-${input.reference}`,
-      action: "consent",
-      intent: input.intent,
-      callerId: input.actor,
-      redactedText: input.detail.slice(0, 500),
-      meta: input.meta,
-      ...(input.orgId === undefined ? {} : { orgId: input.orgId }),
-    },
-    { fast: true },
-  ).catch((err: unknown) => {
-    logError("[manual-invoice] payment audit append failed", {
-      error: err instanceof Error ? err.message : String(err),
-    });
-  });
 }
 
 const REF_RE = /^[A-Za-z0-9._:\-/]{4,64}$/;

@@ -19,6 +19,7 @@
 import { createHash } from "node:crypto";
 import { dbAudit } from "@/lib/db";
 import { notifyRealtime } from "@/lib/realtime";
+import { logError } from "@/lib/validation/safe-log";
 
 const GENESIS_HASH = "0".repeat(64); // SHA-256 of empty; anchors the chain
 
@@ -118,9 +119,60 @@ async function withChainLock<T>(callRef: string, fn: () => Promise<T>): Promise<
   const tracked = run.finally(() => {
     settledLocks.add(tracked);
   });
+  // `tracked` rejects exactly when `run` does, and nothing awaits it — it exists
+  // only to be stored as the next caller's `prev`. Without this line every
+  // failed append is an unhandled rejection in the process, and Bun's default
+  // `--unhandled-rejections=throw` turns an audit outage into a crashed worker.
+  // The caller still sees the failure: `run`, not `tracked`, is what is returned.
+  tracked.catch(() => {});
   CHAIN_LOCKS.set(callRef, tracked);
   return run;
 }
+
+/**
+ * Append failures, counted HERE rather than at the call sites.
+ *
+ * `append()` rejects and every caller decides what to do with that, and on the
+ * money and case paths the overwhelming answer is a fire-and-forget
+ * `.catch(() => {})` — correct, because a record that arrives after a payment
+ * must not roll the payment back or 500 a gateway delivery that already
+ * committed. But a swallow that logs nothing makes a missing tamper-evident
+ * record indistinguishable from a record that was never needed, and the chain
+ * silently stops covering the actions it was built to cover.
+ *
+ * Counting at the single place that can know is what turns that into a fact:
+ * one increment per terminal failure, exported to `/api/metrics` and read by
+ * `readyz`, so a run of lost records is observable without editing thirty
+ * call sites and hoping each one got it right.
+ */
+let appendFailures = 0;
+let lastFailureLoggedAt = 0;
+
+/** Terminal append failures since process start. Monotonic; never resets. */
+export function auditAppendFailures(): number {
+  return appendFailures;
+}
+
+/**
+ * Record one terminal append failure. Rate-limited because an audit outage is
+ * a burst event: 30 call sites logging per denied write would bury the rest of
+ * the log in the one condition where the log is the diagnostic.
+ */
+function noteAppendFailure(clean: AuditEntry, err: unknown): void {
+  appendFailures++;
+  const now = Date.now();
+  if (now - lastFailureLoggedAt < AUDIT_FAILURE_LOG_INTERVAL_MS) return;
+  lastFailureLoggedAt = now;
+  logError("[audit-chain] append failed — record NOT written", {
+    callRef: clean.callRef,
+    action: clean.action,
+    intent: clean.intent ?? "",
+    error: err instanceof Error ? err.message : String(err),
+    totalFailures: appendFailures,
+  });
+}
+
+const AUDIT_FAILURE_LOG_INTERVAL_MS = 5_000;
 
 /** Append a new entry to the audit chain (serialized per callRef). */
 export async function append(
@@ -150,7 +202,12 @@ export async function append(
       try {
         return await appendInner(clean, opts?.fast ?? false);
       } catch (err) {
-        if (!isChainHashCollision(err) || attempt >= CHAIN_HASH_COLLISION_RETRIES) throw err;
+        // A retried collision is not a lost record, so the count happens on the
+        // branch that gives up — never on the branch that tries again.
+        if (!isChainHashCollision(err) || attempt >= CHAIN_HASH_COLLISION_RETRIES) {
+          noteAppendFailure(clean, err);
+          throw err;
+        }
       }
     }
   } finally {

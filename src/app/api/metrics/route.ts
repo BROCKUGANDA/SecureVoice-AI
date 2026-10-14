@@ -6,6 +6,7 @@ import { db } from "@/lib/db";
 import { admissionSnapshot } from "@/lib/admission";
 import { capacitySnapshot } from "@/lib/capacity";
 import { queueDepth } from "@/lib/scale/queue";
+import { auditAppendFailures } from "@/lib/audit-chain";
 
 export const dynamic = "force-dynamic";
 
@@ -215,6 +216,25 @@ export async function GET(req: Request) {
       -1,
     );
   }
+
+  // Append FAILURES, counted in-process by `audit-chain` itself.
+  //
+  // The age gauge above cannot see this condition: a chain that is being written
+  // for everything EXCEPT the one path whose writer lost its row still looks
+  // young and healthy. Every fire-and-forget call site in the product swallows
+  // its append error (correctly — a late record must not roll back a payment),
+  // which leaves the loss with no reporter at all. This is that reporter, and it
+  // is why `readyz` can now distinguish "the chain is quiet" from "the chain is
+  // being asked to record and is refusing".
+  //
+  // Per-process and monotonic: a rolling deploy resets it, so alert on the rate
+  // across scrapes rather than the absolute value.
+  push(
+    "sv_audit_append_failures_total",
+    "Terminal audit-chain append failures since this process started.",
+    "counter",
+    auditAppendFailures(),
+  );
 
   // ── scrape self-timing ──────────────────────────────────────────────────
   push(

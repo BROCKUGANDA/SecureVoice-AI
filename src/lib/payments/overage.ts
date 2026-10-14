@@ -71,7 +71,7 @@ import "server-only";
  */
 
 import { db } from "@/lib/db";
-import { append as auditAppend } from "@/lib/audit-chain";
+import { auditMoney } from "@/lib/payments/audit";
 import { assertMoney, type Money } from "@/lib/payments/provider";
 import { resolvePaymentProvider } from "@/lib/payments/gateway";
 import { logError } from "@/lib/validation/safe-log";
@@ -452,33 +452,26 @@ export async function raiseOverageInvoice(input: {
   `;
   const duplicate = inserted.length === 0;
 
-  await auditAppend(
-    {
-      callRef: `PAY-${reference}`,
-      action: "consent",
-      intent: duplicate ? "overage_invoice_duplicate" : "overage_invoice_raised",
-      callerId: actor,
-      redactedText: `${money.amountMinor} ${money.currency} for ${s.billableOverageUnits} unit(s)`,
-      orgId: input.orgId,
-      meta: {
-        reference,
-        amountMinor: money.amountMinor,
-        currency: money.currency,
-        rateMinorPerUnit: s.rateMinorPerUnit,
-        rateConfigured: s.rateConfigured,
-        netUsedUnits: s.netUsedUnits,
-        includedUnits: s.includedUnits,
-        billableOverageUnits: s.billableOverageUnits,
-        duplicate,
-      },
+  // Through the money path's shared writer: it owns the `PAY-<reference>`
+  // ceiling (an overage reference is long enough to be truncated by the chain's
+  // own 64-character cap) and it retries before it gives up.
+  await auditMoney({
+    reference,
+    orgId: input.orgId,
+    actor,
+    intent: duplicate ? "overage_invoice_duplicate" : "overage_invoice_raised",
+    detail: `${money.amountMinor} ${money.currency} for ${s.billableOverageUnits} unit(s)`,
+    meta: {
+      reference,
+      amountMinor: money.amountMinor,
+      currency: money.currency,
+      rateMinorPerUnit: s.rateMinorPerUnit,
+      rateConfigured: s.rateConfigured,
+      netUsedUnits: s.netUsedUnits,
+      includedUnits: s.includedUnits,
+      billableOverageUnits: s.billableOverageUnits,
+      duplicate,
     },
-    { fast: true },
-  ).catch((err: unknown) => {
-    // Fire-and-forget, as everywhere else money moves: a failing audit write
-    // must not block the invoice, but it must be visible in the logs.
-    logError("[overage] invoice audit append failed", {
-      error: err instanceof Error ? err.message : String(err),
-    });
   });
 
   if (!duplicate) {

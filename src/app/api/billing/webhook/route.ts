@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { settlePayment, type StoredEntitlement } from "@/lib/payments/provider";
+import { auditMoney } from "@/lib/payments/audit";
 import { handlePaddleEvent, paddleClient } from "@/lib/payments/paddle-events";
 import { orgIdForPaddleCustomer } from "@/lib/payments/mirror";
 import { validatePaddleWebhook } from "@/lib/validation/webhook-schema";
@@ -227,6 +228,30 @@ async function settle(data: Record<string, unknown>, orgId: string | null): Prom
     amountMinor <= 0 ||
     !/^[A-Za-z]{3}$/.test(currency)
   ) {
+    // Chained, unlike the "not our reference" ignores below. `reference` is a
+    // token WE minted at checkout, so this delivery is about our money and the
+    // decision is that we will not credit it — a 400 stops Paddle retrying, which
+    // makes this row the only surviving evidence that a completed charge exists
+    // and was refused.
+    //
+    // The two ignore paths under this one do NOT chain, and that is the boundary
+    // rather than an oversight: they fire on deliveries carrying no reference of
+    // ours, and minting a chain row per third-party event would let traffic we do
+    // not control grow the tamper-evident log that every real record shares a
+    // writer lock with.
+    await auditMoney({
+      reference,
+      ...(orgId === null ? {} : { orgId }),
+      actor: "gateway:paddle",
+      intent: "settlement_refused",
+      detail: `delivery not settleable; nothing credited`,
+      meta: {
+        amountMinor: Number.isInteger(amountMinor) ? amountMinor : String(amountMinor),
+        currency,
+        orgAttributed: orgId !== null,
+        transactionId: typeof data.id === "string" ? data.id : "",
+      },
+    });
     logWarn("[billing-webhook] transaction not settleable", { reference, amountMinor, currency });
     return NextResponse.json({ error: "unsettleable_transaction" }, { status: 400 });
   }
@@ -261,7 +286,30 @@ async function settle(data: Record<string, unknown>, orgId: string | null): Prom
       applied: result.applied,
       duplicate: result.duplicate,
       units: result.unitsCredited,
+      auditRecorded: result.auditRecorded,
     });
+
+    // Money moved, but its tamper-evident record did not. 500, deliberately.
+    //
+    // The settlement is already committed and will not roll back, so this is not
+    // a claim that nothing happened — it is a claim that we are not finished.
+    // Paddle retries a 5xx, the retry re-enters `settlePayment`, hits the
+    // duplicate guard, credits NOTHING a second time, and gets the chain row
+    // written on the way out. Answering 200 here tells the gateway to stop
+    // delivering, and the one mechanism that could still have recorded the
+    // payment is gone: the product would hold customer money whose movement
+    // appears only in a log line that rotates.
+    if (!result.auditRecorded) {
+      logWarn("[billing-webhook] settled but not chained — requesting redelivery", {
+        reference,
+        applied: result.applied,
+      });
+      return NextResponse.json(
+        { error: "audit_record_incomplete", reference },
+        { status: 500, headers: { "Cache-Control": "no-store" } },
+      );
+    }
+
     return NextResponse.json({ received: true, credited: result.applied }, { status: 200 });
   } catch (e) {
     const message = e instanceof Error ? e.message : "settle_failed";

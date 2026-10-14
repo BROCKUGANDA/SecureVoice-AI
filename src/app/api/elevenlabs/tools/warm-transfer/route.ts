@@ -8,6 +8,7 @@ import { db } from "@/lib/db";
 import { transcript as redactText } from "@/lib/redact";
 import { badRequest, parseJson, unprocessable, schemaErrorCode } from "@/lib/api-errors";
 import { getTransferNumber } from "@/lib/institution";
+import { openCaseHandoffTicket } from "@/lib/crm/case-ticket";
 import { transferCallToSpecialist } from "@/lib/twilio";
 import { logError } from "@/lib/validation/safe-log";
 
@@ -148,6 +149,17 @@ export async function POST(req: NextRequest) {
       });
       return NextResponse.json({ ok: false, error: "handoff_queue_failed" }, { status: 503 });
     }
+  }
+
+  // A handoff that ended with NOBODY on the phone becomes a ticket in the
+  // institution's own CRM. Deliberately only the degraded path: when the live
+  // bridge worked, a human already has the call, and a ticket would be a second
+  // copy of work someone is doing. When it did not — no transfer number
+  // configured, no callSid, live sending off — the queue row alone is an
+  // appointment nobody is obliged to keep, and this is the follow-up an insurer
+  // without any phone destination actually relies on.
+  if (!transferred) {
+    void openCaseHandoffTicket(guard.caseRef, "human_review", "urgent").catch(() => {});
   }
 
   return NextResponse.json({

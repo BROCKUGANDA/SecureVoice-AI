@@ -124,13 +124,25 @@ export function Navbar() {
    * `signOut()` revokes the row server-side and clears the cookie, and racing
    * the navigation against it is how you land back on the console with a session
    * that no longer exists.
+   *
+   * BOTH sign-outs, not one. There are two session systems (see the databaseHooks
+   * block in src/lib/better-auth.ts): `signOut()` covers Better Auth's session,
+   * `/api/auth/logout` covers the first-party `sv_session` store that
+   * `requireAuth` actually reads. Magic link — the primary operator sign-in —
+   * mints ONLY `sv_session`, so calling `signOut()` alone left the user
+   * authenticated to every guarded route while the UI showed them signed out.
+   * `allSettled` so one failing cannot skip the other; the `finally` below still
+   * sends them home either way.
    */
   const handleSignOut = useCallback(async () => {
     if (signingOut) return;
     setSigningOut(true);
     setMenuOpen(false);
     try {
-      await signOut();
+      await Promise.allSettled([
+        signOut(),
+        fetch("/api/auth/logout", { method: "POST", credentials: "same-origin" }),
+      ]);
     } finally {
       // Whatever the server said, the person is leaving: a failed revocation
       // must not strand them on a screen they asked to leave, and the gate will

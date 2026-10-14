@@ -18,7 +18,12 @@
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-type Write = { kind: "ok" | "collision" | "down" };
+// The fixture's sequence holds the OUTCOME name per write, and both the mock below
+// (`kind === "down"`) and every caller (`queue("ok", "collision")`) pass it as a
+// string. It used to be declared as `{ kind: … }`, an object, which made those
+// call sites type errors and the comparisons unreachable — the file could not even
+// be typechecked, let alone run under `tsc`.
+type Write = "ok" | "collision" | "down";
 
 const writer = {
   sequence: [] as Write[],

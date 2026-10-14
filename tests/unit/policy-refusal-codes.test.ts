@@ -254,10 +254,14 @@ describe("gate refusal codes", () => {
   test("each gate's declared list matches that gate, not just the union", () => {
     // The union check above cannot tell which gate a declared code came from, so a
     // code moved between lists would still pass. These three pin the provenance.
-    expect([...ABUSE_REFUSAL_CODES].sort()).toEqual(
+    // The declared tuples are literal-union typed and the scans return `string[]`,
+    // so the declared side is widened: the assertion is set equality either way, and
+    // narrowing the scanned side would mean trusting the scan to know the vocabulary
+    // — which is the thing under test.
+    expect([...(ABUSE_REFUSAL_CODES as readonly string[])].sort()).toEqual(
       [...new Set(abuseGateCodes().filter((c) => c !== "country_not_allowed"))].sort(),
     );
-    expect([...COMPLIANCE_REFUSAL_CODES].sort()).toEqual(
+    expect([...(COMPLIANCE_REFUSAL_CODES as readonly string[])].sort()).toEqual(
       [...new Set(proceduralCodes(COMPLIANCE).filter((c) => c !== "outside_calling_hours"))].sort(),
     );
     // `country_not_allowed` is emitted by the policy gate AND the abuse gate's geo

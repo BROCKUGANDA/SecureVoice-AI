@@ -12,6 +12,9 @@
 #   /realtime/*     → realtime:4000   websocket + presence fan-out
 #   /healthz        → answered here    so uptime probes cost nothing
 #   everything else → app:3000        Next.js standalone
+#   app not serving → maintenance page answered here — see (maintenance_page):
+#                     `app` cannot render its own error when `app` is the thing
+#                     that is down, so the edge has to.
 #
 # Caddy 2 gotchas this file is deliberately written around. Every one of these
 # was hit and fixed during this build — do not "simplify" them away:
@@ -102,6 +105,119 @@
 	encode zstd gzip
 }
 
+# ---- maintenance page: the edge answers when the origin cannot --------------------
+#
+# WHY THIS IS HERE AND NOT IN REACT. src/app/error.tsx is a client boundary: it
+# renders only when the origin returned a page and that page then threw. When
+# `app` itself is the thing that is down — container stopped, crash loop, a
+# deploy that never passed its healthcheck — there is no origin response to
+# render against, and the visitor reads Caddy's bare error text. The answer has
+# to come from the process that is still up, which is this one.
+#
+# WHY THE BODY IS A `respond` STRING AND NOT public/maintenance.html. Two
+# reasons, each one ruling out the obvious alternative:
+#
+#   · `respond` is the only directive here that writes a body AND a status this
+#     file picks. `file_server` is documented to preserve "the error's HTTP
+#     status code when run in handle_errors" — that is the error's own 502, not
+#     the 503 the contract below needs, and inside `handle_response` it has no
+#     documented status to take at all.
+#   · `public/` is baked into the APP image; this container mounts only
+#     `./Caddyfile` and `./sites.d` (docker-compose.yml), so a file there is
+#     unreadable during exactly the outage it exists to describe. A bind mount
+#     would fix that and add a second artifact that can drift from the edge
+#     serving it — and the edge is the thing that has to be right alone.
+#
+# The cost of `respond` is that its body is a template: Caddy scans it for `{…}`
+# tokens before writing, substituting recognised ones (an empty value collapses
+# to nothing) and leaving unrecognised ones in place. So a `<style>` block would
+# run every CSS rule through that scanner. The document below therefore holds
+# exactly one pair of braces — `{time.now.http}`, which Caddy's own global
+# replacer fills, so the page states a time the edge actually knows instead of a
+# token nobody substituted — and the rest avoids the scanner: inline `style=`
+# attributes instead of a `<style>` block, SVG `<animate>` instead of
+# `@keyframes`, no JavaScript, no font request. The trade is recorded rather
+# than hidden: with no `<style>` block there is no
+# `@media (prefers-reduced-motion)` either, so the two animations run for as
+# long as the page is served. tests/surface/edge-maintenance.test.ts holds the
+# one-brace rule, because a `<style>` block added later is an edit that
+# validates cleanly and silently changes what the page renders.
+#
+# WHAT THE PAGE CLAIMS, and why the claim is narrow. This document can only
+# appear when `app` failed to answer. Live fraud calls are carried by
+# voice-stream-worker and dial-worker, and signed deliveries to banks drain from
+# outbox-worker — three containers that keep running through an outage of the
+# web tier. Saying "the platform is down" would be a false alarm to anyone with
+# a call in progress, so the copy names what is down and what is not.
+#
+# SURFACES THAT DO NOT GET THE PAGE: see @machine_surface and @page_surface in
+# the (site) snippet. Every directive below carries @page_surface instead of
+# being written un-matched, for two reasons. `header` sits before `respond` in
+# Caddy's directive order, so an un-matched `Content-Type text/html` would be
+# stamped onto the plain answer those surfaces get; and inside handle_errors an
+# excluded request has to fall through with nothing written, because that is the
+# only way it keeps Caddy's own gateway error instead of this document.
+#
+# 503 + Retry-After, never 200. A `respond` with no status code does not inherit
+# the error: in a plain route it answers 200, which tells an uptime probe the
+# site is healthy and tells a crawler to index the maintenance page. Every
+# `respond` in this snippet and in both hooks names its code, and the gate test
+# asserts the status rather than trusting the copy.
+
+(maintenance_page) {
+	# 20 seconds, matching the page's own `<meta http-equiv='refresh'>`: the
+	# header is for clients that honour it and the meta tag is for the browser
+	# that does not. The two disagreeing is how a visitor ends up staring at a
+	# page nothing reloads.
+	header @page_surface Retry-After "20"
+
+	# Never indexable, twice over — the header for a crawler that reads the
+	# response, the meta tag for one that reads the document. A maintenance page
+	# left in the index outranks the real page it replaced, and getting
+	# re-crawled after the outage is measured in weeks.
+	header @page_surface X-Robots-Tag "noindex, nofollow"
+
+	# A cached 503 outlives the outage it described: the origin recovers, the
+	# page keeps being served from a browser or an intermediary cache, and the
+	# incident report says it never ended.
+	header @page_surface Cache-Control "no-store, max-age=0"
+
+	# respond infers text/plain for anything that is not JSON; a maintenance page
+	# rendered as source is worse than no maintenance page at all.
+	header @page_surface Content-Type "text/html; charset=utf-8"
+
+	respond @page_surface "<!doctype html>
+<html lang='en'>
+<head>
+<meta charset='utf-8'>
+<meta name='viewport' content='width=device-width, initial-scale=1'>
+<meta name='robots' content='noindex, nofollow'>
+<meta http-equiv='refresh' content='20'>
+<title>SecureVoice AI — under maintenance</title>
+</head>
+<body style='margin:0;background:#0b1120;color:#e2e8f0;font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;line-height:1.6'>
+<main style='max-width:38rem;margin:0 auto;padding:14vh 1.5rem 3rem'>
+<p style='margin:0 0 .5rem;font-size:.78rem;letter-spacing:.14em;text-transform:uppercase;color:#7dd3fc'>SecureVoice AI</p>
+<h1 style='margin:0 0 1rem;font-size:1.9rem;line-height:1.25;color:#f8fafc'>This service is under maintenance</h1>
+<p style='margin:0 0 1.25rem;color:#cbd5e1'>The web console cannot be reached right now. This page comes from the edge of the deployment and not from the application, which is why it is still here when the application is not.</p>
+<p style='margin:0 0 1.5rem;padding:.9rem 1rem;border-left:3px solid #34d399;background:#0f1a2b;color:#d1fae5'>Live fraud calls and bank integrations are unaffected. The call workers, the media stream and the outbox that signs deliveries to banks run as separate services and keep working while this screen is up.</p>
+<svg width='100%' height='34' viewBox='0 0 300 34' preserveAspectRatio='none' role='img' aria-label='Retrying automatically'>
+<rect x='0' y='4' width='300' height='8' rx='4' fill='#1e293b'/>
+<rect x='0' y='4' width='96' height='8' rx='4' fill='#38bdf8'>
+<animate attributeName='x' values='-96;300' dur='2s' repeatCount='indefinite'/>
+</rect>
+<circle cx='8' cy='26' r='4' fill='#34d399'>
+<animate attributeName='opacity' values='1;0.25;1' dur='2s' repeatCount='indefinite'/>
+</circle>
+<text x='22' y='30' fill='#94a3b8' style='font-size:9px'>retrying</text>
+</svg>
+<p style='margin:1rem 0 0;font-size:.86rem;color:#94a3b8'>This page retries on its own every 20 seconds — there is nothing to click. Edge time: {time.now.http}.</p>
+<p style='margin:1.5rem 0 0;font-size:.8rem;color:#64748b'>HTTP 503 Service Unavailable; retry after 20 seconds.</p>
+</main>
+</body>
+</html>" 503
+}
+
 # ---- site body: shared by every hostname -----------------------------------------
 #
 # This is a SNIPPET, not a site block. It used to be `{$SITE_ADDRESS:localhost} {…}`,
@@ -116,6 +232,79 @@
 
 (site) {
 	import secure_defaults
+
+	# ---- outage page: which requests the maintenance document may answer --------
+	#
+	# The outage page is served to a PERSON. @machine_surface is every path on
+	# this edge that a program reads rather than a person looks at, and
+	# @page_surface is exactly the paths outside that list:
+	#
+	#   · /api/health and /api/readyz are the two paths uptime monitors poll (and
+	#     the two src/proxy.ts gives its own rate-limit scope — see
+	#     tests/surface/probe-budget.test.ts). /api/readyz is also how ADR-008's
+	#     graceful drain signals "instance leaving rotation":
+	#     scripts/server-preload.ts answers 503 there on SIGTERM while in-flight
+	#     requests finish. Wrapping that in a maintenance page gives one signal
+	#     two meanings, which is the same class of defect that test exists for —
+	#     a 429 there made a healthy origin look unhealthy, and a page here would
+	#     make a real outage look planned.
+	#   · /realtime* is the console's websocket and the Twilio media stream. A
+	#     failure there belongs to the CALL plane — the very thing this page
+	#     promises is unaffected — so answering it with this document would be a
+	#     lie with a 503 stapled to it, and an HTML body on an upgrade handshake
+	#     is useless to the client anyway.
+	#   · /v1/* is the bank's integration surface (docs/INTEGRATION-CONTRACT.md):
+	#     a bank's client reads a status code and a signed JSON body, never
+	#     markup.
+	#   · /healthz is answered by this file and cannot reach an origin error, but
+	#     it is listed on purpose: docker-compose.yml's own healthcheck greps
+	#     `HTTP/1.[01] (200|301|302|307|308)` on that path, so a rule that ever
+	#     swallowed it would mark the caddy container unhealthy and stall every
+	#     `docker compose up --wait`.
+	#
+	# Written as two matchers because a Caddyfile matcher set has no algebra —
+	# there is no `not @machine_surface` to compose — and the two hooks need the
+	# same partition from opposite sides. KEEP THE TWO LISTS IDENTICAL:
+	# tests/surface/edge-maintenance.test.ts compares them path by path, because a
+	# probe path added to one and not the other is a monitor quietly served a
+	# maintenance page instead of the outage it is watching for.
+	@machine_surface {
+		path /api/health /api/readyz /realtime* /v1/* /healthz
+	}
+
+	@page_surface {
+		not path /api/health /api/readyz /realtime* /v1/* /healthz
+	}
+
+	# The origin produced NO response: container stopped, crash loop, connection
+	# refused on the compose network. reverse_proxy returns an ERROR for that
+	# rather than a response, which is why this hook exists next to
+	# `handle_response` in the app proxy below — the docs for handle_errors put
+	# the split plainly: a directive "for example reverse_proxy which may write a
+	# response with an HTTP status which is classified as an error, will _not_
+	# trigger the error routes". Neither hook covers the other's half.
+	#
+	# OUTAGE-ONLY by these codes: 502 and 503 are "nothing behind me can serve".
+	# A 500 is the application's own defect — it has a digest, a Sentry event and
+	# an error boundary — and relabelling it planned maintenance closes an
+	# incident nobody fixed. A 4xx or a 200 cannot reach this block at all: error
+	# routes run only when a handler returned an error.
+	#
+	# Requests @page_surface excludes fall through, and Caddy still answers them
+	# honestly: the error chain terminates in an implicit handler that writes the
+	# error's own status code (caddy's errorEmptyHandler, added for #3053 precisely
+	# so an error route that does not handle cannot leak a 200). Nothing here can
+	# turn a probe's 502 into an indexable 200.
+	#
+	# The `502 503` arguments are v2.8+ (v2.7 parsed handle_errors with no
+	# arguments); the box runs caddy:2-alpine and CI validates against alpine's
+	# package, both comfortably past that.
+	#
+	# This is collected into the server's ERROR chain rather than the site's
+	# route list, so its position cannot shadow /realtime, /v1 or /healthz below.
+	handle_errors 502 503 {
+		import maintenance_page
+	}
 
 	# Twilio Media Streams WebSocket — the voice-stream WORKER plane. A SIBLING
 	# PREFIX under /realtime, deliberately NOT a route under /api: an edge matcher
@@ -232,6 +421,43 @@
 			health_interval 10s
 			health_timeout 5s
 			health_status 2xx
+
+			# A RESPONSE matcher has to be declared inside the reverse_proxy block:
+			# the Caddyfile adapter collects `@name` subdirectives into the proxy's
+			# own response-matcher map and resolves `handle_response @name` against
+			# that map, so a site-level definition fails to adapt with "no named
+			# response matcher defined with name 'app_down'".
+			@app_down {
+				status 502 503
+			}
+
+			# The other half of the outage rule. The origin DID answer here, with a
+			# status meaning it cannot serve: an instance still booting behind a
+			# live socket, a colour mid-drain, a crash loop that gets far enough to
+			# emit a gateway error. handle_errors above cannot see any of those (an
+			# upstream status is not a Caddy error) and this hook cannot see a
+			# refused connection (there is no response to match), so the config
+			# needs both halves and neither is redundant.
+			#
+			# 502 and 503 only — deliberately not 5xx. A 500 is the application's
+			# own defect with its own error boundary, digest and Sentry event, and
+			# a 4xx is a legitimate auth or validation answer that a bank or a
+			# console needs to receive as the JSON the app actually wrote.
+			handle_response @app_down {
+				# Machine surfaces keep the origin's response verbatim: status,
+				# headers, and the app's own body. This line is not decoration —
+				# inside handle_response, a route that writes nothing lets the
+				# upstream body be CLOSED rather than copied (caddy's
+				# reverseproxy.go: `if !hrc.isFinalized { res.Body.Close() }`), so
+				# exclusion here has to be an explicit copy. handle_errors, by
+				# contrast, is allowed to fall through because that chain ends in
+				# an implicit writer of the error's own status.
+				#
+				# The consequence worth stating: /api/readyz answering 503 during a
+				# graceful drain stays exactly the signal ADR-008 says it is.
+				copy_response @machine_surface
+				import maintenance_page
+			}
 		}
 	}
 

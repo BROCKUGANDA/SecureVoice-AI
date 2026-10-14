@@ -967,13 +967,6 @@ export function Home() {
             <p className="mt-5 text-center text-[11.5px] text-slate-500">
               {t(SETTLEMENT.note, SETTLEMENT.note, lang)}
             </p>
-            <p className="mt-3 text-center text-[11.5px] text-slate-500">
-              {t(
-                "Every deployment ships with the tamper-evident audit chain, consent gating, and zero PII storage.",
-                "كل نسخة تشمل سجل التدقيق المختوم وبوابة الموافقة وصفر تخزين للبيانات الشخصية.",
-                lang,
-              )}
-            </p>
           </div>
         </Reveal>
       </section>

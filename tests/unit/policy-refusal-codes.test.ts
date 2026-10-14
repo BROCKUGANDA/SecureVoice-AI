@@ -46,12 +46,22 @@ const read = (rel: string) =>
   readFileSync(fileURLToPath(new URL(`../../${rel}`, import.meta.url)), "utf8");
 
 const GATE = read("src/lib/policy-gate.ts");
+/**
+ * `runComplianceGate` refuses with the same shape and lands in the same
+ * classifier: its result is thrown as a typed error at
+ * `src/app/api/v1/interventions/route.ts:547-567` and the `catch` decides the
+ * status by looking the code up in `POLICY_REFUSAL_CODES`. A catalogue that only
+ * covered the policy gate therefore mis-classified every compliance refusal —
+ * which is exactly what happened to `prayer_time` before this scan widened.
+ */
+const COMPLIANCE_GATE = read("src/lib/compliance/gate.ts");
+const REFUSAL_EMITTERS = [GATE, COMPLIANCE_GATE];
 
-/** The literals the gate actually returns, in source order, deduped. */
+/** The literals the gates actually return, in source order, deduped. */
 function emittedCodes(): string[] {
   return [
     ...new Set(
-      [...GATE.matchAll(/code:\s*"([a-z0-9_]+)"/g)]
+      REFUSAL_EMITTERS.flatMap((source) => [...source.matchAll(/code:\s*"([a-z0-9_]+)"/g)])
         .map((m) => m[1])
         .filter((code): code is string => code !== undefined),
     ),
@@ -63,7 +73,16 @@ describe("policy-gate refusal codes", () => {
     // A guard against the scan itself silently matching nothing (a rename of the
     // field, a reformatted object). An empty `emitted` would make every assertion
     // below vacuously true, which is worse than no test.
-    expect(emittedCodes()).toEqual([
+    // Scoped to the policy gate on purpose: this is the count that pins THAT
+    // file, and the union in `emittedCodes()` would move if either gate changed.
+    const gateOnly = [
+      ...new Set(
+        [...GATE.matchAll(/code:\s*"([a-z0-9_]+)"/g)]
+          .map((m) => m[1])
+          .filter((code): code is string => code !== undefined),
+      ),
+    ];
+    expect(gateOnly).toEqual([
       "transaction_repeat",
       "consent_invalid",
       "do_not_call",
@@ -79,8 +98,10 @@ describe("policy-gate refusal codes", () => {
   });
 
   test("no refusal returns a computed code, so the literal scan is exhaustive", () => {
-    const computed = [...GATE.matchAll(/code:\s*(?!")[A-Za-z_$][\w$.]*/g)].filter(
-      (m) => !m[0].startsWith("code: string"),
+    const computed = REFUSAL_EMITTERS.flatMap((source) =>
+      [...source.matchAll(/code:\s*(?!")[A-Za-z_$][\w$.]*/g)].filter(
+        (m) => !m[0].startsWith("code: string"),
+      ),
     );
     expect(computed.map((m) => m[0])).toEqual([]);
   });

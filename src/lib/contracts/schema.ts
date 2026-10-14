@@ -1198,6 +1198,51 @@ export const ERROR_CODES: readonly ErrorCodeEntry[] = [
       "No action needed for a queued case — the worker resumes it when the window opens. Re-send only if you need a different call category; time-critical fraud verification is not window-gated.",
   },
   {
+    id: "gate_prayer_time",
+    status: 409,
+    code: null,
+    literal: "prayer_time",
+    surface: "http_message",
+    envelope: "failure_envelope_v1",
+    reachedFrom: [INGEST],
+    envelopeCode: "policy_precondition",
+    retryable: true,
+    meaning:
+      "The call falls inside a UAE prayer window, and the category is not time-critical. Emitted by the compliance gate rather than the policy gate, but it reaches the caller through the same 409 path. The dial worker applies the same rule again at claim time and PARKS the job instead of dialling, so acceptance is not a promise that the phone will ring now.",
+    remediation:
+      "Nothing to correct. The queued case resumes after the window. A genuinely time-critical fraud verification sets `call_category: time_critical_fraud`, which is exempt from this gate.",
+  },
+  {
+    id: "gate_invalid_call_category",
+    status: 409,
+    code: null,
+    literal: "invalid_call_category",
+    surface: "http_message",
+    envelope: "failure_envelope_v1",
+    reachedFrom: [INGEST],
+    envelopeCode: "policy_precondition",
+    retryable: false,
+    meaning:
+      "The declared `call_category` is not one this product recognises, so the precondition set to apply to it — do-not-call registry, calling window, prayer window — cannot be chosen. Refusing is the only safe reading: defaulting an unknown category to the most permissive one would place registry-blocked calls.",
+    remediation:
+      "Send one of the documented categories. Omitting the field is valid and selects `time_critical_fraud`; sending a value that is not in the catalogue is not.",
+  },
+  {
+    id: "gate_redaction_mismatch",
+    status: 409,
+    code: null,
+    literal: "redaction_mismatch",
+    surface: "http_message",
+    envelope: "failure_envelope_v1",
+    reachedFrom: [INGEST],
+    envelopeCode: "policy_precondition",
+    retryable: false,
+    meaning:
+      "The compliance backstop found text about to enter the call that still carries a pattern the redaction layer should have removed. This is a defect on OUR side of the boundary, surfaced as a refusal rather than a silent pass, because the alternative is speaking a primary account number to a customer on a recorded line.",
+    remediation:
+      "Do not retry — the same payload will refuse again. Report it: the case reference identifies the field that failed the check.",
+  },
+  {
     id: "gate_idempotent_request_in_flight",
     status: 409,
     code: null,

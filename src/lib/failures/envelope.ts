@@ -710,6 +710,16 @@ export const POLICY_REFUSAL_CODES = [
   "concurrency_cap",
   "spend_ceiling",
   "subscription_paused",
+  // Declared by `runComplianceGate` (`src/lib/compliance/gate.ts:47,96,138`) and
+  // refused as typed 409s, but absent from this set — so every one of them took
+  // the `logWarn("refusal code is in neither declared set")` branch at
+  // `src/app/api/v1/interventions/route.ts:472-477`. The status was right; the
+  // classification was not, and a Salah-hour refusal is a POLICY decision a bank
+  // can see coming and retry later, which is exactly what this set exists to say.
+  // `outside_calling_hours` was already here; its sibling was not.
+  "prayer_time",
+  "invalid_call_category",
+  "redaction_mismatch",
 ] as const;
 export type PolicyRefusalCode = (typeof POLICY_REFUSAL_CODES)[number];
 

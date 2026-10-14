@@ -753,6 +753,13 @@ const CODE_SOURCES: Record<string, string> = {
 /** Sources whose literals are causes surfaced in a message or the audit chain. */
 const REASON_SOURCES: Record<string, string> = {
   "src/lib/policy-gate.ts": POLICY_GATE,
+  // `runComplianceGate` refuses into the same typed-409 path as the policy gate
+  // (`src/app/api/v1/interventions/route.ts:547-567`), so its codes are part of
+  // the published contract whether or not this list said so. Without it, three
+  // refusals a bank can actually receive — `prayer_time`,
+  // `invalid_call_category`, `redaction_mismatch` — had no catalog entry and the
+  // provenance scan below could not see them either.
+  "src/lib/compliance/gate.ts": read("src/lib/compliance/gate.ts"),
   "src/lib/abuse/geo.ts": read("src/lib/abuse/geo.ts"),
   "src/lib/abuse/tiers.ts": read("src/lib/abuse/tiers.ts"),
   "src/lib/abuse/velocity.ts": read("src/lib/abuse/velocity.ts"),

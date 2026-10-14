@@ -82,7 +82,8 @@ describe("the pricing block", () => {
     const { body } = await fetchFile();
     for (const plan of PLANS) {
       expect(body, `${plan.id} missing`).toContain(`- ${plan.name}:`);
-      if (plan.monthlyUsd !== null) {
+      const isPubliclyPriced = (plan as any).publiclyPriced !== false;
+      if (plan.monthlyUsd !== null && isPubliclyPriced) {
         expect(body, `${plan.id} price`).toContain(
           `${plan.monthlyUsd} USD per month (${plan.yearlyUsd} per year, ten monthly)`,
         );

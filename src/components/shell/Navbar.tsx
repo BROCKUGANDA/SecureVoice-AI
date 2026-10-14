@@ -73,6 +73,7 @@ const SEAT_NAV: Record<Seat, NavItem[]> = {
   operator: [
     { id: "dashboard", en: "Dashboard", ar: "اللوحة", icon: Table2 },
     { id: "console", en: "Command Center", ar: "مركز التشغيل", icon: LayoutDashboard },
+    { id: "audit", en: "Audit explorer", ar: "مستكشف التدقيق", icon: ShieldCheck },
     { id: "demo", en: "Demo", ar: "العرض", icon: Play },
     { id: "product", en: "Deep Dive", ar: "التفاصيل", icon: Presentation },
     { id: "settings", en: "Settings", ar: "الإعدادات", icon: SettingsIcon },

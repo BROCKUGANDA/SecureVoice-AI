@@ -113,7 +113,7 @@ function responds(chunk: string) {
 function pathMatcher(name: string): { negated: boolean; paths: string[] } {
   const body = blockBody(`@${name} {`);
   const m = body.match(/^[ \t]*(not[ \t]+)?path[ \t]+(\S.*?)[ \t]*$/m);
-  if (!m) throw new Error(`@${name} is not a path matcher: ${body}`);
+  if (!m || m[2] === undefined) throw new Error(`@${name} is not a path matcher: ${body}`);
   return { negated: Boolean(m[1]), paths: m[2].split(/\s+/).filter(Boolean) };
 }
 
@@ -227,7 +227,9 @@ describe("the maintenance response is 503 + Retry-After + noindex", () => {
     // the document is written with inline `style=` attributes and the only
     // braces allowed are the ones that are meant to be substituted.
     const WIRED = new Set(["time.now.http"]);
-    const tokens = [...pageRespond!.body.matchAll(/\{([^{}]*)\}/g)].map((m) => m[1]);
+    const tokens = [...pageRespond!.body.matchAll(/\{([^{}]*)\}/g)]
+      .map((m) => m[1])
+      .filter((s): s is string => s !== undefined);
     expect(tokens.length, "the page has no wired placeholder").toBeGreaterThan(0);
     for (const t of tokens) {
       expect(WIRED.has(t), `{${t}} is not a placeholder the edge fills`).toBe(true);
@@ -240,7 +242,8 @@ describe("outage-only: the rule keys on 502/503 and nothing else", () => {
   test("the upstream matcher is exactly 502 and 503", () => {
     const m = blockBody("@app_down {").match(/status\s+([\d\s]+)\s*$/m);
     expect(m, "@app_down has no status list").toBeTruthy();
-    const codes = m![1].trim().split(/\s+/);
+    expect(m![1], "@app_down has no status list").toBeTruthy();
+    const codes = (m![1] ?? "").trim().split(/\s+/);
     expect(codes).toEqual(["502", "503"]);
     // 5xx would sweep in the application's own 500 — its error boundary, digest
     // and Sentry event are the artifact an engineer needs, and a maintenance page

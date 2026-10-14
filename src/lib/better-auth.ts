@@ -27,6 +27,7 @@ import { twoFactor } from "better-auth/plugins/two-factor";
 import { db } from "@/lib/db";
 import { sendResetPassword } from "@/lib/email/deliverers";
 import { trustedOriginsFromEnv } from "@/lib/auth/origins";
+import { revokeFirstPartySessionsOnSignOut } from "@/lib/auth/signout-backstop";
 import { logError } from "@/lib/validation/safe-log";
 import {
   ABSOLUTE_LIFETIME_SECONDS,
@@ -181,6 +182,34 @@ export const auth = betterAuth({
     // stamp a constant IP onto every audit row.
     ipAddress: {
       ipAddressHeaders: ["x-securevoice-client-ip", "x-forwarded-for"],
+    },
+  },
+  /**
+   * Sign-out must kill BOTH session systems, and one hook is the only place that
+   * can guarantee it for every caller.
+   *
+   * The rationale — the two session systems, why magic link mints only one of
+   * them, and why the revocation is per-IDENTITY rather than per-session — lives
+   * in src/lib/auth/signout-backstop.ts. It is its own module rather than inline
+   * here for one concrete reason: `tests/auth/signin-lockout.test.ts` replaces
+   * this whole module with `{ auth: {} }` via `mock.module`, which bun applies
+   * process-wide, so a hook defined here is unreachable from a test that runs
+   * after it. The behaviour is tested directly instead, and the wiring below is
+   * asserted against the source text.
+   *
+   * The Navbar and the idle handler also POST /api/auth/logout, which revokes
+   * THIS session precisely. This hook is the backstop for every sign-out that is
+   * not those two.
+   */
+  databaseHooks: {
+    session: {
+      delete: {
+        // The hook receives the deleted session record DIRECTLY — not wrapped in
+        // `{ session }` — followed by the endpoint context.
+        after: async (session) => {
+          await revokeFirstPartySessionsOnSignOut(session.userId);
+        },
+      },
     },
   },
   rateLimit: {

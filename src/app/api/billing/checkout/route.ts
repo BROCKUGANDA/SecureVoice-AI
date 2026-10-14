@@ -2,6 +2,7 @@ import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireOrg } from "@/lib/route-helpers";
+import { moneyTwoFactorBlocker, twoFactorDenialBody } from "@/lib/auth/two-factor-gate";
 import { fail, ok } from "@/lib/route-helpers";
 import { unauthenticated } from "@/lib/failures/envelope";
 import { resolvePaymentProvider } from "@/lib/payments/gateway";
@@ -63,6 +64,15 @@ const Body = z.object({
 export async function POST(req: NextRequest) {
   const auth = await requireOrg(req);
   if (!auth.ok) return fail(auth.failure ?? unauthenticated());
+
+  // A working second factor is required before a payment can be started.
+  const blocker = await moneyTwoFactorBlocker(auth.identity);
+  if (blocker) {
+    return NextResponse.json(twoFactorDenialBody(blocker), {
+      status: blocker.status,
+      headers: { "Cache-Control": "no-store" },
+    });
+  }
 
   const rl = await consumeRateLimit(
     "billing-checkout",

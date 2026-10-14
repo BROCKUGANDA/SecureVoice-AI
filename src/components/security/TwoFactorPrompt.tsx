@@ -3,17 +3,21 @@
 import { useCallback, useSyncExternalStore } from "react";
 import { ShieldCheck, X } from "lucide-react";
 import { useSession } from "@/lib/auth-client";
+import { isDemoAccount } from "@/lib/demo-account";
 import { t, useApp } from "@/lib/store";
 
 /**
  * The nudge to turn on two-factor authentication.
  *
- * SHOWN when, and only when, all three hold:
+ * SHOWN when, and only when, all four hold:
  *
  *   1. an operator is signed in,
  *   2. the SERVER says their account has no second factor
- *      (`session.user.twoFactorEnabled !== true` — never a local guess), and
- *   3. they have not already said "not now" in this browser.
+ *      (`session.user.twoFactorEnabled !== true` — never a local guess),
+ *   3. the account is not the configured public demo identity (see
+ *      `src/lib/demo-account.ts` — the same predicate the money routes use to
+ *      exempt it, so the banner can never nag an account the server lets spend), and
+ *   4. they have not already said "not now" in this browser.
  *
  * Condition 1 is what ties this to the moment the user asked about: the prompt
  * reaches an operator right after they redeem an invitation (the only way an
@@ -22,7 +26,7 @@ import { t, useApp } from "@/lib/store";
  * open and the flag still off. It is deliberately not shown to a signed-out
  * visitor, who has nothing to protect yet.
  *
- * Condition 3 is a per-browser courtesy stored in localStorage. It is NOT the
+ * Condition 4 is a per-browser courtesy stored in localStorage. It is NOT the
  * control: the control is `twoFactorEnabled` on the account, which is what
  * makes the prompt disappear permanently. A dismissed nudge that reappears on
  * a new device is honest about what the account actually still lacks — there
@@ -88,9 +92,12 @@ export function TwoFactorPrompt() {
 
   const signedIn = Boolean(session?.user);
   const enabled = Boolean(session?.user?.twoFactorEnabled);
-  // `dismissed === null` means not yet read — render nothing rather than
-  // flash the prompt at an operator who already dismissed it.
-  const visible = signedIn && !enabled && dismissed === false;
+  // The public walkthrough signs in as a real, shared, credential-in-the-env
+  // account. Showing it a security banner is worse than useless: dismissing it
+  // persists to that browser's localStorage only, so every fresh judge's machine
+  // sees it again, and the banner advertises a control the demo is exempt from.
+  const demoAccount = isDemoAccount(session?.user?.email);
+  const visible = signedIn && !enabled && !demoAccount && dismissed === false;
 
   if (!visible) return null;
 

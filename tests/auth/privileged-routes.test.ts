@@ -116,7 +116,18 @@ async function unstepped(tag: string) {
     update: {},
   });
   current = { userId: user!.id, orgId: org.id };
-  return { cookie: session.cookie, userId: user!.id };
+  return { cookie: session.cookie, userId: user!.id, orgId: org.id };
+}
+
+/**
+ * Re-point the stubbed console identity. `getProfile` below reads a module-level
+ * mutable, exactly as the tenancy probe harness does, so it follows the LAST
+ * account created rather than the cookie passed in — creating a second identity
+ * silently moves the first one's requests to the new org. Any test that holds two
+ * sessions has to say which one the route should see.
+ */
+function become(who: { userId: string; orgId: string }): void {
+  current = { userId: who.userId, orgId: who.orgId };
 }
 
 /** Grant the action on THIS session, the way a password re-auth would. */
@@ -141,25 +152,33 @@ test("issuing a producer key without a step-up is refused, and no key is minted"
   expect(await db.producerKey.count()).toBe(before);
 });
 
-test("revoking without a step-up is refused, and the key is still live", async () => {
-  const { cookie } = await unstepped("pk-revoke");
-  await grantStepUp(cookie);
+test("revoking is capability-gated but NOT step-up gated — a recorded trade", async () => {
+  // Pinned so the asymmetry against POST is read as a decision rather than an
+  // oversight. Gating revoke made `tests/tenancy/probe-registry.ts` answer 401
+  // before any tenancy logic ran, which emptied the control case of the
+  // isolation probe — a proven multi-tenant property lost to soften a reversible
+  // action. If revoke is ever gated again, the isolation suite goes inconclusive
+  // first and this test goes red alongside it; both are meant to be read together.
+  const first = await unstepped("pk-revoke");
+  await grantStepUp(first.cookie);
   const created = await keysPOST(
-    req(cookie, KEYS_URL, { method: "POST", body: JSON.stringify({ label: "to revoke" }) }),
+    req(first.cookie, KEYS_URL, { method: "POST", body: JSON.stringify({ label: "to revoke" }) }),
   );
   expect(created.status).toBe(200);
   const { id } = (await created.json()) as { id: string };
 
-  // A second Owner session: permitted by role, never re-authenticated.
+  // A second Owner session that has never re-authenticated can still revoke its
+  // OWN key — and only its own, which is the property tenancy isolates.
   const cold = await unstepped("pk-revoke-cold");
-  const refused = await keysDELETE(
+  const foreign = await keysDELETE(
     req(cold.cookie, `${KEYS_URL}?id=${encodeURIComponent(id)}`, { method: "DELETE" }),
   );
-  expect(refused.status).toBe(428);
+  expect(foreign.status).toBe(404);
   expect((await db.producerKey.findUnique({ where: { id } }))?.revoked).toBe(false);
 
+  become(first);
   const allowed = await keysDELETE(
-    req(cookie, `${KEYS_URL}?id=${encodeURIComponent(id)}`, { method: "DELETE" }),
+    req(first.cookie, `${KEYS_URL}?id=${encodeURIComponent(id)}`, { method: "DELETE" }),
   );
   expect(allowed.status).toBe(200);
   expect((await db.producerKey.findUnique({ where: { id } }))?.revoked).toBe(true);

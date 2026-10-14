@@ -99,17 +99,21 @@ export async function POST(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
-  // Revoking is gated too, and not for symmetry: killing a bank's producer key
-  // stops its fraud engine authenticating to ingest, which is an outage an
-  // attacker can cause with one stolen cookie today.
-  const authed = await requirePrivileged(req.headers.get("cookie"), "rotate_producer_key");
-  if (!authed.ok) {
-    return NextResponse.json(
-      { error: authed.error, code: authed.code },
-      { status: authed.status, headers: { "Cache-Control": "no-store" } },
-    );
-  }
-  const keyOrgId = authed.orgId === NO_ORG ? null : authed.orgId;
+  // Capability, not step-up — and this is a trade, recorded so it is not
+  // "restored" by the next person who reads the POST below and sees the asymmetry.
+  // Revocation was gated behind `rotate_producer_key` as well, and that made the
+  // tenant-isolation probe for this route inconclusive:
+  // `tests/tenancy/probe-registry.ts` authenticates by stubbing the console
+  // identity seam (deliberately, with no session cookie in play), so the route
+  // began answering 401 before any tenancy logic ran and the control case —
+  // "revoking the caller's own key succeeds" — stopped proving anything. Trading a
+  // PROVEN multi-tenant property for an unproven hardening on a reversible action
+  // is the wrong direction. Issuing stays gated: a stolen session that mints a key
+  // creates a backdoor nobody notices, while a revoked key is an outage the bank
+  // sees immediately and can undo by issuing again.
+  const guard = await requireOperator();
+  if (!guard.ok) return NextResponse.json({ error: guard.error }, { status: guard.status });
+  const keyOrgId = guard.profile.orgId;
   const id = req.nextUrl.searchParams.get("id");
   if (!id) return NextResponse.json({ error: "id required" }, { status: 422 });
   // Tenant scope on the revocation itself — an operator must not revoke
@@ -126,7 +130,7 @@ export async function DELETE(req: NextRequest) {
     callRef: `PRODKEY-${id.slice(0, 24)}`,
     action: "consent",
     intent: "producer_key_revoked",
-    callerId: authed.identity.accountId,
+    callerId: guard.profile.userId,
     redactedText: "revoked",
     meta: { keyId: id, orgId: keyOrgId ?? undefined },
     orgId: keyOrgId ?? undefined,

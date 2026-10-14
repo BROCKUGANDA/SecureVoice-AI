@@ -694,12 +694,18 @@ export function assertFieldName(field: unknown): string {
 // `tests/unit/policy-refusal-codes.test.ts` rather than taken from these lists' own
 // word, because the claim was false when it was written: `transaction_repeat`,
 // `do_not_call` and `outside_calling_hours` were all emitted by the policy gate and
-// none was declared. No route happened to call `policyRefusal` at the time — ingest
-// built its own 409 — which is the only reason that was never a production incident:
-// the first caller to use the sanctioned constructor for "the gate said no" would
-// have taken a `RangeError` on a routine duplicate refusal, and a thrown error at
-// that boundary surfaces as a 500 telling the bank to retry a decision that will be
-// refused again.
+// none was declared. No route happened to call `policyRefusal` at the time either —
+// ingest built its own 409 — which is the only reason that was never a production
+// incident: the first caller to use the sanctioned constructor for "the gate said
+// no" would have taken a `RangeError` on a routine duplicate refusal, and a thrown
+// error at that boundary surfaces as a 500 telling the bank to retry a decision that
+// will be refused again.
+//
+// `src/app/api/v1/interventions/route.ts` now does call them, for exactly the two
+// branches whose membership in these sets it has already decided. The throw is then
+// a live tripwire rather than a theoretical one: if the classification above this
+// comment is ever reordered so an undeclared code reaches the constructor, ingest
+// fails in a test instead of mislabelling a refusal on the wire.
 
 /**
  * The refusal causes `src/lib/policy-gate.ts` returns.

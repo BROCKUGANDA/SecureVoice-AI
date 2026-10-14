@@ -257,6 +257,20 @@ emits `requestId`, `retryable` or `docsUrl`.
 Routes can now adopt the failures library with a single import. Wiring all 47
 routes individually is a follow-up; the infrastructure is in place.
 
+**2026-10-15, on the refusal path specifically:** `/api/v1/interventions` — the
+bank-facing ingest — now renders a classified gate refusal through the sanctioned
+constructor for its class (`policyRefusal` → 409, `billingRefusal` → 402) instead of
+hand-building the envelope. Those two constructors were documented as "the only
+sanctioned constructors for 'the gate said no'" while no route called them, which made
+their `RangeError` on an undeclared code a dead control. It is now a live tripwire: a
+gate code that has not been classified cannot reach them (the membership checks guard
+the branches), and if that classification is ever reordered the ingest fails in a test
+rather than mislabelling a refusal on the wire. An unclassified 4xx still goes out as
+409 with the warning that its class was never decided — deliberately not through the
+constructor, which refuses to render it. `tests/contracts/contracts.test.ts` counts
+both constructors as emission sites, so the catalog is proven against where the codes
+are actually produced.
+
 ### 6. No latency instrumentation at all — **20%** — PARTIAL
 
 No OpenTelemetry dependency, no span emitter, no trace propagation. Latency is

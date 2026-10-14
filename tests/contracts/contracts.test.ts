@@ -777,12 +777,36 @@ function literals(sources: Record<string, string>, ...patterns: RegExp[]): Set<s
   return out;
 }
 
-/** `failure("code"` in a route — the ONLY way the envelope builder is called. */
+/**
+ * Codes a route puts into an envelope body.
+ *
+ * Two forms count as emission. `failure("<code>"` is the direct one. The other is
+ * the pair of sanctioned refusal constructors — `policyRefusal` can only ever
+ * render `policy_precondition` and `billingRefusal` only `payment_required`, and
+ * each throws before that if the gate code is not in its declared set, so the
+ * function name IS the envelope code. Scanning only the literal form would make
+ * ingest's classified branches look like they emit nothing, and the catalog would
+ * then be proven against a surface that had moved rather than a surface that is
+ * correct.
+ */
+const CONSTRUCTOR_CODES: Record<string, string> = {
+  policyRefusal: "policy_precondition",
+  billingRefusal: "payment_required",
+};
+
 const emittedEnvelopeCodes = new Set(
   [
     ...INTERVENTIONS_ROUTE.matchAll(/\bfailure\(\s*"([a-z0-9_]+)"/g),
     ...CONFORMANCE_ROUTE.matchAll(/\bfailure\(\s*"([a-z0-9_]+)"/g),
-  ].map((m) => m[1]!),
+  ]
+    .map((m) => m[1]!)
+    .concat(
+      [INTERVENTIONS_ROUTE, CONFORMANCE_ROUTE].flatMap((source) =>
+        [...source.matchAll(/\b(policyRefusal|billingRefusal)\(/g)].map(
+          (m) => CONSTRUCTOR_CODES[m[1]!]!,
+        ),
+      ),
+    ),
 );
 
 /**
@@ -1064,12 +1088,18 @@ describe("error catalog covers every code the code actually returns", () => {
     // The route used to flatten every gate refusal into a 503. It no longer does:
     // a typed refusal is a 4xx with the cause in `message`. Both facts are asserted
     // so neither can quietly regress.
+    //
+    // A refusal whose class HAS been decided is emitted through the sanctioned
+    // constructor for that class, which refuses to render an undeclared code at all;
+    // an unclassified 4xx still goes out as the literal `failure("policy_precondition")`
+    // precisely because there is no constructor willing to claim it.
+    expect(INTERVENTIONS_ROUTE).toContain("respond(policyRefusal(");
+    expect(INTERVENTIONS_ROUTE).toContain("respond(billingRefusal(");
     expect(INTERVENTIONS_ROUTE).toContain('failure("policy_precondition"');
     expect(INTERVENTIONS_ROUTE).toContain("if (status >= 400 && status < 500) {");
-    // The wallet refusal is its own class, emitted as its own code. Pinned here as
-    // well as in the envelope's constructor tests, because this route is the only
-    // place the classification is actually applied to a live response.
-    expect(INTERVENTIONS_ROUTE).toContain('failure("payment_required"');
+    // The wallet refusal is its own class, emitted as its own constructor. Pinned
+    // here as well as in the envelope's constructor tests, because this route is the
+    // only place the classification is actually applied to a live response.
     expect(INTERVENTIONS_ROUTE).toContain("BILLING_REFUSAL_CODES");
     expect(INTERVENTIONS_ROUTE).not.toContain('upstreamError("Case recording failed');
     const causes = ERROR_CODES.filter((e) => e.surface === "http_message");

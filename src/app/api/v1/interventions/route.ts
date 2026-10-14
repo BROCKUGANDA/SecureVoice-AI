@@ -23,8 +23,11 @@ import { admitOrDegrade } from "@/lib/admission";
 import { markVoiceFailed } from "@/lib/elevenlabs/sms-fallback";
 import {
   BILLING_REFUSAL_CODES,
+  billingRefusal,
   makeFailure,
   POLICY_REFUSAL_CODES,
+  policyRefusal,
+  type Failure,
   type FailureCode,
   type FailureInit,
 } from "@/lib/failures/envelope";
@@ -51,12 +54,16 @@ import { interventionAccepted, interventionRefused, riskBand } from "@/lib/analy
  * correlation id to quote in a support ticket.
  */
 
-function failure(code: FailureCode, init: FailureInit = {}): NextResponse {
-  const f = makeFailure(code, init);
+/** Render an already-built Failure with this endpoint's cache discipline. */
+function respond(f: Failure): NextResponse {
   return NextResponse.json(f.body, {
     status: f.status,
     headers: { ...f.headers, "Cache-Control": "no-store" },
   });
+}
+
+function failure(code: FailureCode, init: FailureInit = {}): NextResponse {
+  return respond(makeFailure(code, init));
 }
 export const dynamic = "force-dynamic";
 
@@ -476,18 +483,31 @@ export async function POST(req: NextRequest) {
         // the one thing the caller branches on.
         logWarn("[v1/interventions] refusal code is in neither declared set", { code });
       }
-      // Three explicit branches rather than a nested ternary, because the
-      // published contract catalog proves itself against this source by looking for
-      // `failure("<code>")`. A code that only ever appears inside an expression is
-      // undocumented as far as that gate is concerned — which is precisely the kind
-      // of drift it exists to catch, so the expression form was the wrong trade.
+      // The published contract wants the cause inside `message`, as
+      // "<literal>: <detail>", so the prefix is built once here rather than in
+      // each branch. The detail falls back to the code itself above, so a refusal
+      // with no message still names its cause.
+      const cause = `${code}: ${detail}`;
+      // A code the catalog has classified goes through the sanctioned constructor
+      // for its class. That is not decoration: both constructors THROW on a code
+      // outside their declared set, so a refusal whose class has not been decided
+      // cannot quietly arrive at the bank as 409 "policy" or 402 "pay and we
+      // will" — it surfaces at the boundary as the bug it is. The membership
+      // checks above are what make that throw unreachable in production, which is
+      // the point of putting it here rather than trusting the checks.
       if (isBilling) {
-        return failure("payment_required", { detail: `${code}: ${detail}` });
+        return respond(billingRefusal({ ok: false, code, reason: cause }));
       }
       if (status >= 400 && status < 500) {
-        return failure("policy_precondition", { detail: `${code}: ${detail}` });
+        if (isPolicy) {
+          return respond(policyRefusal({ ok: false, code, reason: cause }));
+        }
+        // Unclassified 4xx: still a decision, still 409, and the warning above is
+        // the record that its class was never decided. It cannot go through
+        // `policyRefusal`, which refuses to render an undeclared code at all.
+        return failure("policy_precondition", { detail: cause });
       }
-      return failure("dependency_unavailable", { detail: `${code}: ${detail}` });
+      return failure("dependency_unavailable", { detail: cause });
     }
     logError("[v1/interventions] arming failed", {
       error: err instanceof Error ? err.message : String(err),

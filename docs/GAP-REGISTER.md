@@ -308,11 +308,16 @@ not sprint-critical.
 
 **Effort:** S (done), M (remaining). **Status:** PARTIAL.
 
-### 10. Notification and realtime paths built but unreachable — **10%**
+### 10. Notification and realtime paths built but unreachable — **40%**
 
-`notify()` has no caller; `advanceEscalations` is re-exported and never invoked.
-The Socket.IO Redis adapter is built and tested but no redis service ships in
-`docker-compose.yml`; the client sends no `last_event_id` and hard-codes
+`notify()` is reached from the state machine's own transition recorder and from the
+SMS verdict path, and `advanceEscalations()` now runs on the dial worker's tick
+(`src/worker/dial.ts`) beside the SMS and reversal-window sweeps — the ladder pages
+the next contact whether or not anyone has the console open. Its placeholder
+re-export from `/api/console/inbox` is gone.
+
+**Still open:** The Socket.IO Redis adapter is built and tested but no redis service
+ships in `docker-compose.yml`; the client sends no `last_event_id` and hard-codes
 websocket-only; `Console.tsx` stores the coarser `RealtimeStatus` instead of the
 tested live/reconnecting/stale reducer.
 

@@ -2,7 +2,7 @@ import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireSignedIn } from "@/lib/credits";
-import { advanceEscalations, acknowledge, inbox } from "@/lib/notifications";
+import { acknowledge, inbox } from "@/lib/notifications";
 import { badRequest, parseJson } from "@/lib/api-errors";
 
 export const dynamic = "force-dynamic";
@@ -11,9 +11,11 @@ export const dynamic = "force-dynamic";
  * GET  /api/console/inbox        the operator's outstanding alerts (org-scoped)
  * POST /api/console/inbox        `{ action: "acknowledge", id }` — a human saw it
  *
- * Escalation itself is a scheduled job (`advanceEscalations`), not something a
- * request triggers: an alert that only advances when someone refreshes the page
- * is not an escalation path, it is a UI effect.
+ * Escalation itself is a scheduled job: `advanceEscalations()` runs on the dial
+ * worker's tick (src/worker/dial.ts), not from here. An alert that only advanced
+ * when someone refreshed the page is not an escalation path, it is a UI effect —
+ * which is why this route used to re-export the function as a placeholder caller
+ * and no longer does.
  */
 const schema = z.object({
   action: z.literal("acknowledge"),
@@ -58,5 +60,3 @@ export async function POST(req: NextRequest) {
   }
   return NextResponse.json({ ok: true });
 }
-
-export { advanceEscalations };

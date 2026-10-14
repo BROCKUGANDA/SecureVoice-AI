@@ -56,7 +56,13 @@ export type SoftFreezeResult =
     };
 
 /**
- * Stage a 24-hour soft freeze for the case this call leg belongs to.
+ * Stage a soft freeze whose reversal window is `REVERSAL_WINDOW_SECS` (src/lib/config.ts,
+ * 300s by default — the older comment here said 24 hours, which was the SMS reply
+ * window, not this one).
+ *
+ * When the window closes with no commit, `src/lib/freeze-window.ts` escalates the
+ * hold on the worker's tick. Nothing is reversed: this platform never wrote a hold
+ * at the bank, so there is nothing to roll back.
  *
  * @param callSid the provider call-leg sid the media stream was opened with;
  *                `Case.callSid` is persisted at dial time for exactly this join.

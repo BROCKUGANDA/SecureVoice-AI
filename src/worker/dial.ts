@@ -40,6 +40,8 @@ import {
   prayerDeferralMs,
 } from "@/lib/compliance/prayer-times";
 import { sweepExpiredSmsCases } from "@/lib/sms-verdict";
+import { sweepExpiredFreezeWindows } from "@/lib/freeze-window";
+import { advanceEscalations } from "@/lib/notifications";
 import { resolveCasePhone } from "@/lib/compliance/pii-vault";
 import { logError, logInfo, logWarn } from "@/lib/validation/safe-log";
 import { flag } from "@/lib/flags";
@@ -591,18 +593,52 @@ async function onDead(job: DialJob): Promise<void> {
   await markVoiceFailed({ caseRef: job.case_ref, reason: "dial_exhausted" });
 }
 
-/** How often to look for SMS windows that have closed with no reply. */
+/**
+ * How often the platform's own deadlines are checked.
+ *
+ * The interval was named for the one sweep that used to live here; it now paces
+ * three. Each is a bounded pass over rows that only accumulate if nothing services
+ * them, so running them on the worker's tick — rather than a cron that would have to
+ * be installed on every deployment — is what makes "nobody answered" and "nobody
+ * decided" reach a human instead of sitting in a table.
+ */
 const SWEEP_EVERY_MS = Number(process.env.SMS_SWEEP_EVERY_MS ?? 60_000);
 let lastSweepAt = 0;
 
 async function maybeSweep(): Promise<void> {
   if (Date.now() - lastSweepAt < SWEEP_EVERY_MS) return;
   lastSweepAt = Date.now();
+  // Separate guards on purpose: an outage in the freeze sweep must not stop SMS
+  // resolution, and neither may hold up the dial drain behind them.
   try {
     const n = await sweepExpiredSmsCases();
     if (n > 0) logInfo("[dial-worker] resolved unanswered SMS cases", { count: n });
   } catch (err) {
     logError("[dial-worker] sms sweep failed", { error: err instanceof Error ? err.message : err });
+  }
+  try {
+    const lapsed = await sweepExpiredFreezeWindows();
+    if (lapsed.length > 0)
+      logInfo("[dial-worker] staged holds escalated on window expiry", {
+        count: lapsed.length,
+        caseRefs: lapsed.map((ref) => ref.slice(-6)),
+      });
+  } catch (err) {
+    logError("[dial-worker] freeze-window sweep failed", {
+      error: err instanceof Error ? err.message : err,
+    });
+  }
+  try {
+    const hops = await advanceEscalations();
+    if (hops.length > 0)
+      logInfo("[dial-worker] unacknowledged alerts advanced up the ladder", {
+        hops: hops.length,
+        exhausted: hops.filter((h) => h.terminal).length,
+      });
+  } catch (err) {
+    logError("[dial-worker] escalation sweep failed", {
+      error: err instanceof Error ? err.message : err,
+    });
   }
 }
 

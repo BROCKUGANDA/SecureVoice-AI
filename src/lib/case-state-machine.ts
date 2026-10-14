@@ -151,9 +151,20 @@ export async function transitionCase(
   if (!canTransition(from, to)) {
     throw new IllegalTransitionError(from, to);
   }
+  // The reversal window runs from a stored instant, and the only place that can
+  // supply it is the writer that performs the staging — so the clock is stamped
+  // here rather than left to each freeze route to remember. It is stamped AFTER
+  // the caller's meta is spread, so no caller can pass its own deadline into a
+  // hold; re-staging cannot buy a second window because the transition table has
+  // no FREEZE_STAGED → FREEZE_STAGED edge and `executeSoftFreeze` returns
+  // `alreadyStaged` before it reaches here.
   const updated = await db.case.update({
     where: { caseRef },
-    data: { state: to, ...(meta ?? {}) },
+    data: {
+      state: to,
+      ...(meta ?? {}),
+      ...(to === "FREEZE_STAGED" ? { freezeStagedAt: new Date() } : {}),
+    },
     select: { id: true, state: true },
   });
   await recordTransition(caseRef, from, to, meta, row.orgId);

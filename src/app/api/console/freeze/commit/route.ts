@@ -68,7 +68,33 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // 4b. The reversal window may already have closed. The expiry sweep
+    // (`src/lib/freeze-window.ts`) escalates an undecided hold and marks it lapsed,
+    // so a commit that arrives afterwards is a second actor agreeing to a hold that
+    // has already been reported as lapsed — not the same decision, and not safe to
+    // perform silently from a stale console tab. Re-staging is the path: the human
+    // asks for the hold again, on a fresh window, with their own name on the audit
+    // row.
+    if (caseRow.freezeLapsedAt) {
+      return NextResponse.json(
+        {
+          error:
+            "Cannot commit freeze: the reversal window closed and the hold was escalated as lapsed",
+          code: "state_precondition_failed",
+          caseRef,
+          currentState: caseRow.state,
+          lapsedAt: caseRow.freezeLapsedAt.toISOString(),
+        },
+        { status: 409 },
+      );
+    }
+
     // 5. Append audit row BEFORE the mutation
+    //
+    //    One instant is used in the audit row, on the Case and in the response: the
+    //    commit is the fact a bank's review reads, and three timestamps that differ
+    //    by a few milliseconds invite the question of which one is true.
+    const committedAt = new Date();
     await append({
       callRef: caseRef,
       action: "freeze",
@@ -79,7 +105,7 @@ export async function POST(req: NextRequest) {
         actorEmail: authed.identity.email,
         role: authed.role,
         reason: reason ?? null,
-        committedAt: new Date().toISOString(),
+        committedAt: committedAt.toISOString(),
       },
       orgId: caseRow.orgId ?? undefined,
     });
@@ -87,25 +113,21 @@ export async function POST(req: NextRequest) {
     // 6. Transition the case (FREEZE_STAGED → ESCALATED is the canonical next
     //    state). The freeze is committed; the case moves to escalation.
     //
-    //    No extra fields are written here. This route previously passed
-    //    `freezeCommittedBy` / `freezeCommittedAt` / `freezeReason` as
-    //    transition meta, which `transitionCase` spreads straight into the
-    //    Prisma `update` — and `Case` has no such columns, so EVERY commit
-    //    returned 500. The commit record lives in the audit row above, which
-    //    carries actorId, actorEmail, role, reason and committedAt.
-    //
-    //    KNOWN GAP: the Case row itself does not record who committed the
-    //    freeze, so a case list cannot show it without walking the chain. The
-    //    fix is three columns and a migration — deliberately not done here
-    //    because a schema migration must not land while other work is in flight.
-    await transitionCase(caseRef, "ESCALATED");
+    //    `freezeCommittedAt` is the only extra field. Without it a case in
+    //    ESCALATED means "a human decided" and is indistinguishable from the same
+    //    state reached by the reversal window closing with nobody deciding —
+    //    the difference between "this card is held" and "nothing was ever held",
+    //    which is exactly what `src/lib/freeze-window.ts` reports to a pager.
+    //    The WHO stays in the audit row above (accountId, email, role, reason): a
+    //    column would duplicate it and could not be tamper-evident.
+    await transitionCase(caseRef, "ESCALATED", { freezeCommittedAt: committedAt });
 
     // 7. Return success
     return NextResponse.json({
       committed: true,
       caseRef,
       committedBy: authed.identity.accountId,
-      committedAt: new Date().toISOString(),
+      committedAt: committedAt.toISOString(),
       nextState: "ESCALATED",
     });
   } catch (err) {

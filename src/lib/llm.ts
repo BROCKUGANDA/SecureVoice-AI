@@ -762,6 +762,35 @@ export async function draftAgentReply(args: {
             answeredBy = attempt;
             if (result.usage) {
               generation.end({ usage: result.usage });
+              // Token accounting is persisted here and only echoed to Langfuse.
+              // Until this row existed, cost-per-call was invisible everywhere
+              // except a vendor dashboard, which cannot be joined to an
+              // intervention — and cost movement during a degradation is exactly
+              // when someone needs it. Fire-and-forget, same discipline as the
+              // audit append: a lost usage row is a gap in a report; a throw here
+              // is a dead turn. `answered` is captured because `answeredBy` is the
+              // mutable ladder variable and this write must attribute to the rung
+              // that answered, not to whichever rung is current when the insert
+              // lands.
+              const answered = attempt;
+              void db.llmUsage
+                .create({
+                  data: {
+                    orgId: args.orgId ?? null,
+                    provider: answered.name,
+                    model: answered.model,
+                    promptTokens: result.usage.promptTokens ?? null,
+                    completionTokens: result.usage.completionTokens ?? null,
+                    totalTokens: result.usage.totalTokens ?? null,
+                    latencyMs: Date.now() - turnStartedAt,
+                  },
+                })
+                .catch((err) =>
+                  logWarn("[llm] usage row not persisted", {
+                    provider: answered.name,
+                    error: err instanceof Error ? err.message : String(err),
+                  }),
+                );
             }
             // Runtime zod validation of the completion (#53).
             //

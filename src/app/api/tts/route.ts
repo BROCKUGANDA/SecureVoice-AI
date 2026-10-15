@@ -27,6 +27,7 @@ import {
 import { SUPPORTED_LANGS, env, maxTtsChars } from "@/lib/config";
 import { badRequest, tooManyRequests, unprocessable, parseJson } from "@/lib/api-errors";
 import { logError } from "@/lib/validation/safe-log";
+import { db } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
@@ -119,6 +120,19 @@ function defaultDevVoice(lang: TtsLang): string {
  * buffer that happens to be empty.
  */
 const BUDGET_EXHAUSTED = Symbol("tts-budget-exhausted");
+
+/**
+ * Ladder position of each source, for the `TtsSynthesis.rung` column. `byok` is
+ * rung 1 because it IS the primary rung, reached with the tenant's own key; cache
+ * hits never enter the ladder and are absent by design.
+ */
+const RUNG_BY_SOURCE: Record<string, number> = {
+  elevenlabs: 1,
+  byok: 1,
+  "elevenlabs-pool": 2,
+  playht: 3,
+  emergency: 4,
+};
 
 /**
  * Await `work`, but stop waiting after `ms`.
@@ -380,6 +394,28 @@ export async function POST(req: NextRequest) {
       keyOverride,
       pace,
     });
+
+    // The served rung as a row, not only as text inside the audit's meta blob.
+    // Until this existed, "how often did synthesis fall back to PlayHT last week"
+    // could not be asked as a query at all. Fire-and-forget after the audio is
+    // already being returned: an observability insert must never add latency to
+    // the path whose latency it is measuring.
+    void db.ttsSynthesis
+      .create({
+        data: {
+          callRef,
+          source: result.source,
+          rung: RUNG_BY_SOURCE[result.source] ?? null,
+          degraded: result.degraded,
+          bytes: result.bytes,
+          latencyMs: Date.now() - started,
+        },
+      })
+      .catch((err) =>
+        logError("[tts] synthesis row not persisted", {
+          error: err instanceof Error ? err.message : String(err),
+        }),
+      );
 
     // 5. Audit-chain append — redacted text only
     auditAppend({

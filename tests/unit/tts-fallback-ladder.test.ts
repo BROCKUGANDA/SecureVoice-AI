@@ -28,6 +28,7 @@
  */
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { NextRequest } from "next/server";
+import { db } from "@/lib/db";
 
 type Attempt = "elevenlabs" | "pool" | "playht" | "hang" | "none";
 type KeyMode = "platform" | "byok" | "anonymous";
@@ -224,6 +225,36 @@ test("a rung that never answers is abandoned at the budget and the caller still 
     if (previousBudget === undefined) delete process.env.TTS_REQUEST_BUDGET_MS;
     else process.env.TTS_REQUEST_BUDGET_MS = previousBudget;
   }
+});
+
+test("the served rung lands in TtsSynthesis as a queryable row", async () => {
+  // The write is fire-and-forget after the audio is already being returned — the
+  // same discipline as the audit append — so the assertion polls instead of
+  // assuming the insert has committed by the time the response resolves.
+  reset({ attempt: "playht" });
+  const res = await post(REQ);
+  expect(res.source).toBe("playht");
+
+  const since = new Date(Date.now() - 15_000);
+  let row: { degraded: boolean; bytes: number; rung: number | null; latencyMs: number } | null =
+    null;
+  for (let i = 0; i < 40 && !row; i++) {
+    const found = await db.ttsSynthesis.findFirst({
+      where: { source: "playht", rung: 3, createdAt: { gte: since } },
+      orderBy: { createdAt: "desc" },
+    });
+    if (found) row = found;
+    else await new Promise((r) => setTimeout(r, 50));
+  }
+
+  expect(row).not.toBeNull();
+  if (!row) throw new Error("unreachable");
+  expect({ degraded: row.degraded, bytes: row.bytes, rung: row.rung }).toEqual({
+    degraded: true,
+    bytes: 9,
+    rung: 3,
+  });
+  expect(row.latencyMs).toBeGreaterThanOrEqual(0);
 });
 
 afterAll(() => {

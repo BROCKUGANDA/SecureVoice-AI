@@ -115,7 +115,7 @@ test("a stalled transport is reported as a failure, not left open", async () => 
   const cfg = paystackConfig({
     secretKey: SECRET,
     http,
-    sleep: async () => {},
+    sleep: async () => {/* empty */},
     rand: () => 0.5,
   });
 

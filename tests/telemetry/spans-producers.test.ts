@@ -123,8 +123,11 @@ const UNPRODUCED_WITH_REASON: Record<string, string> = {
   // the caller stops talking" was not an event this platform received. It is now.
   // Producer: `onUtteranceEnd` in src/lib/voice/deepgram-client.ts, which requests
   // `utterance_end_ms` on BOTH listen URLs (pooled and per-call — the two copies of the
-  // URL are why this span was ever invisible) and carries `last_word_end` next to the
-  // wall clock of the first audio frame of that stream; and src/worker/voice-stream.ts,
+  // URL are why this span was ever invisible) and carries `last_word_end` — which the
+  // vendor reports in SECONDS, converted at that seam, because adding it to an epoch-ms
+  // clock unconverted puts every sample seconds early and the ceiling then refuses them
+  // all — next to the wall clock of the first audio frame of that stream; and
+  // src/worker/voice-stream.ts,
   // which maps the offset onto that clock and joins the result to the same `onFirstAudio`
   // instant `answered_to_first_agent_word` already closes, at most once per turn.
   // CI drives it in tests/unit/voice-stream-caller-stop.test.ts, whose central assertion

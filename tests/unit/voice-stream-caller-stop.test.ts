@@ -116,6 +116,10 @@ class FakeDeepgramClient {
    * message is exactly the number the assertions use.
    */
   utteranceEnd(lastWordEndMs: number, receivedAtMs = Date.now()): void {
+    // `lastWordEndMs` here is MILLISECONDS on purpose: the fake stands in for the real
+    // client, which converts Deepgram's seconds-bearing `last_word_end` at its own seam.
+    // That conversion is asserted in tests/unit/deepgram-utterance-end.test.ts; this file
+    // tests the join, downstream of it.
     const event: UtteranceEndEvent = {
       channel: 0,
       lastWordEndMs,

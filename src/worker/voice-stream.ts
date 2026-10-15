@@ -527,9 +527,9 @@ function beginCallerTurn(state: CallState, openedAtMs: number): CallerTurn {
 }
 
 /**
- * Map Deepgram's audio offset (`last_word_end`, ms from the start of this stream's
- * audio) onto the wall clock, using the instant this process wrote the first frame of
- * that stream.
+ * Map Deepgram's audio offset (this client's `lastWordEndMs`: milliseconds from the start
+ * of that stream's audio, converted by `deepgram-client.ts` from the vendor's SECONDS)
+ * onto the wall clock, using the instant this process wrote the first frame of that stream.
  *
  * `stopMs: null` means "this message does not say when the caller stopped", and every
  * branch of that is a sample NOT recorded rather than a guessed one:

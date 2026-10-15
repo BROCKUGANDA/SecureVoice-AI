@@ -36,23 +36,33 @@ function listenUrl(dgLang: string): string {
 /**
  * Deepgram's end-of-utterance signal, surfaced to the call.
  *
- * `lastWordEndMs` is Deepgram's `last_word_end`: the offset, in milliseconds from the
- * start of THIS stream's audio, at which the caller's last syllable ended. It is not
- * a wall clock, and the message's ARRIVAL is not one either — an `UtteranceEnd`
- * arrives `last_word_end` + `utterance_end_ms` of deliberate silence + delivery time
- * after the syllable it reports. A span that starts at the arrival subtracts the
- * silence wait from the latency it exists to prove and publishes a faster product than
- * the caller experienced. So the event carries the offset, the wall clock that offset
- * is measured from, and the arrival, separately, and lets the consumer map them — or
- * refuse.
+ * `lastWordEndMs` is this client's conversion of Deepgram's `last_word_end` into
+ * milliseconds, and THE UNIT IS THE TRAP. The vendor reports it in SECONDS as a float —
+ * `last_word_end: 3.1` is 3.1 s from the start of the stream's audio, and it matches
+ * `alternatives[0].words[].end`, which is seconds too — while every clock in this
+ * repository is epoch ms. Added unconverted, a stop 30 s into a call lands 29.97 s too
+ * EARLY, the implied turn is ~30 s long, and the plausibility ceiling refuses every sample
+ * the producer makes: a span that is instrumented, never fabricated, and permanently
+ * empty. So the seconds are multiplied here, at the seam where the vendor's units stop
+ * being the vendor's.
  *
- * Two shapes here mean "cannot be mapped", and both are routine rather than exotic:
- * `lastWordEndMs` of -1, which Deepgram sends when the result was finalised before
- * the silence condition was met (not a timestamp), and `streamAudioStartedAtMs` of
- * null, which means no audio frame has been accepted on this socket yet so the
- * offset has nothing to be added to.
+ * The offset is not a wall clock, and neither is the message's ARRIVAL. An `UtteranceEnd`
+ * arrives `last_word_end` + `utterance_end_ms` of deliberate silence + delivery time after
+ * the syllable it reports, so a span that starts at the arrival subtracts the silence wait
+ * from the latency it exists to prove and publishes a faster product than the caller
+ * experienced. The event therefore carries the offset, the wall clock that offset is
+ * measured from, and the arrival, separately, and lets the consumer map them — or refuse.
+ *
+ * Three shapes mean "cannot be mapped", and all three are routine rather than exotic:
+ * `lastWordEndMs` of -1, which is Deepgram's own "ignore this message" sentinel (the
+ * result was finalised before the silence condition was met, so the field is a flag and
+ * not a time — forwarded verbatim rather than scaled, so the consumer still recognises
+ * it), NaN when the field is absent or non-numeric, and `streamAudioStartedAtMs` of null,
+ * which means no audio frame has been accepted on this socket yet and the offset has
+ * nothing to be added to.
  */
 export type UtteranceEndEvent = {
+  /** Deepgram's `channel` is `[index, total]`; this is the index. */
   channel: number;
   lastWordEndMs: number;
   streamAudioStartedAtMs: number | null;
@@ -352,12 +362,23 @@ export class DeepgramLiveClient {
         // that makes "the instant the caller stopped talking" an event this platform
         // actually receives.
         if (data.type === "UtteranceEnd") {
+          // `[index, total]`, not a number: a single-channel mu-law telephony stream
+          // arrives as `[0, 1]`. Read the index; default it to 0 rather than forwarding
+          // an array into a field the consumer would have to re-derive.
+          const channelPair = Array.isArray(data.channel) ? data.channel : null;
+          // SECONDS on the wire, milliseconds everywhere else in this repository.
+          const lastWordEndSec = typeof data.last_word_end === "number" ? data.last_word_end : NaN;
           this.emitUtteranceEnd({
-            channel: typeof data.channel === "number" ? data.channel : 0,
-            // Not a timestamp when Deepgram finalised the result early: it sends -1.
-            // Forwarded verbatim rather than clamped to 0, so the consumer can tell
-            // "no offset" from "silence at the very start of the stream".
-            lastWordEndMs: typeof data.last_word_end === "number" ? data.last_word_end : NaN,
+            channel: channelPair && typeof channelPair[0] === "number" ? channelPair[0] : 0,
+            // Not a timestamp when Deepgram finalised the result early: it sends -1, and
+            // its own guidance is to ignore the message. Forwarded verbatim rather than
+            // scaled or clamped to 0, so the consumer can tell "no offset" from "silence
+            // at the very start of the stream".
+            lastWordEndMs: !Number.isFinite(lastWordEndSec)
+              ? NaN
+              : lastWordEndSec < 0
+                ? lastWordEndSec
+                : Math.round(lastWordEndSec * 1000),
             streamAudioStartedAtMs: this.streamAudioStartedAtMs,
             receivedAtMs: Date.now(),
           });

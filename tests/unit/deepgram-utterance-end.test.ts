@@ -3,10 +3,10 @@
  *
  * `caller_stop_to_agent_audio` — the turn latency the caller actually hears — starts at
  * the caller's last syllable. That instant is not something this platform can observe on
- * its own: Deepgram reports it as `last_word_end`, an offset in milliseconds from the
- * start of the socket's audio stream, inside a `UtteranceEnd` message the client has to
- * ASK for with `utterance_end_ms` on the listen URL. No ask, no message, no span — which
- * is how the budget sat published with no producer.
+ * its own: Deepgram reports it as `last_word_end`, an offset in SECONDS from the start of
+ * the socket's audio stream, inside a `UtteranceEnd` message the client has to ASK for
+ * with `utterance_end_ms` on the listen URL. No ask, no message, no span — which is how
+ * the budget sat published with no producer.
  *
  * `tests/unit/voice-stream-caller-stop.test.ts` drives the worker's join through a fake
  * client that is handed the anchor it should have stamped. That fake cannot prove that
@@ -14,7 +14,13 @@
  * file is the half that does, against the production module with only the WebSocket
  * global replaced.
  *
- * The two failure modes worth more than the happy path:
+ * The three failure modes worth more than the happy path:
+ *
+ *   · The units. `last_word_end` is seconds (`3.1`), every other clock here is epoch ms.
+ *     Added unconverted, a stop 30 s into a call lands 29.97 s too early, the implied turn
+ *     is ~30 s, the plausibility ceiling refuses it, and the producer is honest, wired and
+ *     permanently empty. A test whose fixture invented a millisecond wire value — which is
+ *     what the first draft of this file did — cannot catch that.
  *
  *   · The live listen URL was built in TWO places — `preconnectDeepgram` (the pooled
  *     socket a call adopts) and `open()` (the per-call and reconnect socket). A parameter
@@ -95,9 +101,10 @@ class FakeWebSocket {
   /**
    * Explicit on purpose: no default `last_word_end`, because "Deepgram omitted the
    * field" is one of the shapes under test and a defaulting helper could not express it.
+   * `channel` is the vendor's `[index, total]` pair, not a number.
    */
-  utteranceEnd(payload: Record<string, unknown> = { last_word_end: 3_000 }): void {
-    this.frame({ type: "UtteranceEnd", channel: 0, ...payload });
+  utteranceEnd(payload: Record<string, unknown> = { last_word_end: 3 }): void {
+    this.frame({ type: "UtteranceEnd", channel: [0, 1], ...payload });
   }
 
   speak(transcript: string, isFinal = true): void {
@@ -199,12 +206,42 @@ test("an UtteranceEnd with no transcript in it is delivered, not swallowed", () 
   const ws = open();
   ws.handShake();
 
-  ws.utteranceEnd({ channel: 1, last_word_end: 2_500 });
+  // `[1, 2]` is the vendor's shape: channel index 1 of two-channel audio. Read as a
+  // number it is `undefined` at best and an array in the field at worst.
+  ws.utteranceEnd({ channel: [1, 2], last_word_end: 2.5 });
 
   expect(ends).toHaveLength(1);
   expect(ends[0]!.channel).toBe(1);
   expect(ends[0]!.lastWordEndMs).toBe(2_500);
   // No phantom transcript: the branch must return after emitting, not fall through.
+  expect(transcripts).toEqual([]);
+});
+
+test("`last_word_end` arrives in SECONDS and leaves in milliseconds", () => {
+  // The unit trap, asserted on the vendor's own documented examples. `last_word_end`
+  // matches `alternatives[0].words[].end`, which Deepgram reports in seconds; every
+  // clock in this repository is epoch ms. Summing them unconverted puts a syllable that
+  // happened 30 s into a call 29.97 s too EARLY, so the "turn" reads as ~30 s, the
+  // plausibility ceiling refuses it, and the span is instrumented, honest, and empty
+  // forever. A test that invented a millisecond wire value would have missed this; the
+  // numbers below are copied from developers.deepgram.com/docs/utterance-end.
+  const ws = open();
+  ws.handShake();
+  client!.sendMulaw(FRAME);
+
+  ws.utteranceEnd({ last_word_end: 3.1 });
+  expect(ends[0]!.lastWordEndMs).toBe(3_100);
+
+  ws.utteranceEnd({ last_word_end: 1.2 });
+  expect(ends[1]!.lastWordEndMs).toBe(1_200);
+
+  // A fractional offset finer than a millisecond is rounded, not truncated, and a whole
+  // second is exactly 1,000 — the two ways a `* 1000` regression shows up.
+  ws.utteranceEnd({ last_word_end: 0.0004 });
+  expect(ends[2]!.lastWordEndMs).toBe(0);
+  ws.utteranceEnd({ last_word_end: 1 });
+  expect(ends[3]!.lastWordEndMs).toBe(1_000);
+
   expect(transcripts).toEqual([]);
 });
 
@@ -240,13 +277,13 @@ test("the anchor is the first frame the socket ACCEPTED, not the handshake", () 
   const ws = open();
   ws.handShake();
 
-  ws.utteranceEnd({ last_word_end: 1_000 });
+  ws.utteranceEnd({ last_word_end: 1 });
   expect(ends[0]!.streamAudioStartedAtMs).toBeNull();
 
   const before = Date.now();
   client!.sendMulaw(FRAME);
 
-  ws.utteranceEnd({ last_word_end: 1_000 });
+  ws.utteranceEnd({ last_word_end: 1 });
   const stamped = ends[1]!.streamAudioStartedAtMs;
   expect(typeof stamped).toBe("number");
   expect(stamped!).toBeGreaterThanOrEqual(before);
@@ -254,7 +291,7 @@ test("the anchor is the first frame the socket ACCEPTED, not the handshake", () 
   // First frame only: a later frame must not re-baseline the anchor, or every
   // subsequent offset in the stream silently shifts by however long the call has run.
   client!.sendMulaw(FRAME);
-  ws.utteranceEnd({ last_word_end: 2_000 });
+  ws.utteranceEnd({ last_word_end: 2 });
   expect(ends[2]!.streamAudioStartedAtMs).toBe(stamped);
 });
 
@@ -265,12 +302,12 @@ test("audio refused while the socket is connecting never becomes the anchor", ()
   client!.sendMulaw(FRAME);
   expect(ws.sent.length).toBe(0);
 
-  ws.utteranceEnd({ last_word_end: 1_000 });
+  ws.utteranceEnd({ last_word_end: 1 });
   expect(ends[0]!.streamAudioStartedAtMs).toBeNull();
 
   ws.handShake();
   client!.sendMulaw(FRAME);
-  ws.utteranceEnd({ last_word_end: 1_000 });
+  ws.utteranceEnd({ last_word_end: 1 });
   expect(typeof ends[1]!.streamAudioStartedAtMs).toBe("number");
 });
 
@@ -278,7 +315,7 @@ test("a reconnect re-baselines the anchor, because the new stream starts at zero
   const ws = open();
   ws.handShake();
   client!.sendMulaw(FRAME);
-  ws.utteranceEnd({ last_word_end: 1_000 });
+  ws.utteranceEnd({ last_word_end: 1 });
   expect(typeof ends[0]!.streamAudioStartedAtMs).toBe("number");
 
   ws.drop();
@@ -288,12 +325,12 @@ test("a reconnect re-baselines the anchor, because the new stream starts at zero
   // Inherited, this would put the first UtteranceEnd after a reconnect at
   // oldAnchor + 1_000 — minutes into a call — and the consumer would only catch it
   // after the artefact had already been recorded.
-  reopened.utteranceEnd({ last_word_end: 1_000 });
+  reopened.utteranceEnd({ last_word_end: 1 });
   expect(ends[1]!.streamAudioStartedAtMs).toBeNull();
 
   const newAnchorTakenAt = Date.now();
   client!.sendMulaw(FRAME);
-  reopened.utteranceEnd({ last_word_end: 1_000 });
+  reopened.utteranceEnd({ last_word_end: 1 });
   // A stamp taken now, on this stream. `Date.now()` is millisecond-granular and a
   // reconnect in a test costs well under one, so this cannot be a strict inequality —
   // the assertion that proves the re-baseline is the null two lines up.
@@ -316,7 +353,7 @@ test("`-1` and a missing offset are forwarded as they are, never read as zero", 
   ws.utteranceEnd({});
   expect(Number.isNaN(ends[1]!.lastWordEndMs)).toBe(true);
 
-  ws.utteranceEnd({ last_word_end: "1200" });
+  ws.utteranceEnd({ last_word_end: "1.2" });
   expect(Number.isNaN(ends[2]!.lastWordEndMs)).toBe(true);
 
   expect(transcripts).toEqual([]);
@@ -337,7 +374,7 @@ test("the arrival, the vendor's offset and this stream's anchor are three separa
   await new Promise((r) => setTimeout(r, 25));
 
   const before = Date.now();
-  ws.utteranceEnd({ last_word_end: 5 });
+  ws.utteranceEnd({ last_word_end: 0.005 });
   const e = ends[0]!;
   expect(e.receivedAtMs).toBeGreaterThanOrEqual(before);
   expect(e.streamAudioStartedAtMs!).toBeGreaterThanOrEqual(anchorTakenAt);
@@ -356,7 +393,7 @@ test("a listener that throws cannot break the caller's transcription", () => {
 
   const ws = noisy.start("en") as unknown as FakeWebSocket;
   ws.handShake();
-  ws.utteranceEnd({ last_word_end: 777 });
+  ws.utteranceEnd({ last_word_end: 0.777 });
   ws.speak("still heard", true);
 
   expect(seen).toContain(777);
@@ -373,7 +410,7 @@ test("stop() unties the listener: a silence timer that fires after the call is o
   client!.sendMulaw(FRAME);
   client!.stop();
 
-  ws.utteranceEnd({ last_word_end: 4_000 });
+  ws.utteranceEnd({ last_word_end: 4 });
   ws.speak("after the call ended", true);
   expect(ends).toHaveLength(0);
   expect(transcripts).toHaveLength(0);

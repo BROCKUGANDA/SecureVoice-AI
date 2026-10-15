@@ -985,6 +985,18 @@ What landed, and the two ways it could have been faked:
   and asserts the sample is exactly that many ms LONGER than the message-arrival gap —
   mutation-proved: starting at the arrival fails it by 1,000 ms, and a replayed
   `UtteranceEnd`, a turn with no reported stop, and an unmappable offset each add nothing.
+- **The unit is seconds, and that is not obvious.** Deepgram's `last_word_end` is the same
+  quantity as `alternatives[0].words[].end`, which the vendor reports in SECONDS as a float
+  (`3.1`, `1.2` in its own examples), while every clock in this repository is epoch ms.
+  Summed unconverted, a syllable 30 s into a call lands 29.97 s too EARLY, the implied turn
+  is ~30 s long, and `VOICE_CALLER_STOP_MAX_MS` refuses it — so the producer would have been
+  correct, wired, driven by CI, and permanently empty: the same `not_measured` outcome as
+  having no producer at all, with none of the visible cause. The conversion happens at the
+  vendor seam; the sentinel `-1` is forwarded unscaled so the consumer still recognises it.
+  Caught by reading `developers.deepgram.com/docs/utterance-end`, not by inference — and a
+  test fixture cannot catch it either, because the first draft of the fixture here invented
+  millisecond wire values and passed happily against the bug. The assertions now use the
+  numbers copied out of the doc.
 - **Refusals are loud, not silent.** `-1` (finalised before the silence condition), an
   absent/non-numeric offset, a stream with no accepted audio yet, a message landing in the
   window between two turns, an offset that postdates its own turn, a replayed offset on the

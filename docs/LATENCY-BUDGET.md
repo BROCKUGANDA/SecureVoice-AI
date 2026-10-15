@@ -19,8 +19,8 @@ statement of which ones are currently measured and which are not.
 | **First audio out**     | **~1.1–1.5 s** | `answered_to_first_agent_word`, budget 1 200 ms |
 
 **Stated plainly: this table is a design target, not a measurement.** The spans
-are declared in `src/lib/telemetry/spans.ts` and four of eight had **no producer
-at all** until this pass. That is a claim about the code, not a criticism of it:
+are declared in `src/lib/telemetry/spans.ts` and four of eight had **no producer at all** until this pass; the ringing leg gained one on 2026-10-16,
+so a `not_measured` on that row is now "no live sample" rather than "cannot be measured". That is a claim about the code, not a criticism of it:
 the panel was built, wired to an endpoint, and never mounted, so nobody had
 reasoned about the producers yet.
 

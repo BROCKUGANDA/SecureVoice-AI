@@ -853,7 +853,43 @@ the "audit pack", with no regulator correspondence on file and the reference dep
 
 **Still unmeasured, and now labelled that way rather than quoted:** cost per intervention
 (no unit price is stored anywhere, and `capacity.ts:484-491` marks the carrier rate
-INPUT REQUIRED), intake-to-ringing (no producer for the span — §13.4), and database backups
+INPUT REQUIRED), intake-to-ringing (produced since — see §15), and database backups
 (`SECURITY-QUESTIONNAIRE.md` 7.3 promises nightly dumps retained 14 days while no `pg_dump`,
 cron or backup service exists in the tracked tree — confirm on the host before that answer is
 sent to a bank).
+
+### 15. The ringing span got its producer, its samples and its adapter — **live traffic still pending**
+
+§13's table listed `signal_received_to_ringing` as having **no producer at all**, and §14
+left the published copy saying "case deadline" because of it. Both halves of the join were
+missing, so this is the change that makes them exist:
+
+- **Producer** — `Case.signalReceivedAt`, written by the intake handler from the instant it
+  captured before its first await (`route.ts:198 const started` → `createCase`). Explicitly
+  not `Case.createdAt`: that column is written inside `createCase`, which runs after the
+  policy, compliance and credit gates, so a span started there would report the dial and
+  silently drop the gate time — a shorter number than the customer experienced.
+- **Adapter** — `src/lib/telemetry/ringing.ts`, called from `POST /api/twilio/status` with
+  the **raw** provider status. The fold in `telecom-outbox.ts:117-121` maps `ringing` and
+  `queued` to the same `queued` delivery status, which is correct for an outbox and
+  destroys the measurement; the adapter is wired before that fold, which is the only place
+  the distinction still exists.
+- **Samples** — `tests/e2e/signal-received-to-ringing.test.ts`, 6 pass, driving the real
+  route with a real HMAC'd form callback against real Postgres rows. It asserts the four
+  things that make the number trustworthy rather than merely present: `queued` records
+  nothing; a replayed `ringing` cannot double-count (compare-and-set on `ringingAt IS
+NULL`, so the denominator stays calls, not webhooks); a case with no known start is
+  **refused and stays null** rather than being estimated; and every sample carries
+  `origin: "harness"`, so CI output can never be read as production latency.
+  Mutation-proved: disabling the one `if` in the status route turns exactly the two
+  sample-producing cases red and leaves the three negative guards green, which is the
+  proof the suite observes the wiring and not the module's existence.
+- **Gate** — the allowance in `tests/telemetry/spans-producers.test.ts` is retired (the gate
+  fails an entry whose producer has landed, so keeping it would have been the stale-flattery
+  failure the file was written against), and its reasoning is preserved as a comment because
+  it is what identified the two missing halves.
+
+**What is still true:** `evidence/latency/slo.json` reports this leg `not_measured` for the
+live population, because every record so far came from a harness. One real call fixes that —
+the producer is no longer the missing piece, which is what the corrected copy in §14 was
+careful not to claim.

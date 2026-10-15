@@ -610,7 +610,7 @@ computed by `scripts/emit-slo.ts` from spans the running platform recorded
 | Signal accepted → provider accepted the call | p95 < 1,500 ms  | p50 1,980 / p95 3,401 ms, 1,676 samples | ❌ measured — missed the budget                                           |
 | Tool request → tool response                 | p95 < 300 ms    | p50 287 / p95 3,601 ms, 705 samples     | ❌ measured — missed the budget                                           |
 | Signal received → freeze **staged**          | p95 < 60,000 ms | p50 3,986 / p95 27,937 ms, 88 samples   | ✅ measured — met, and it ends at a staged freeze, **not** a conversation |
-| Signal received → ringing                    | p95 < 5,000 ms  | `not_measured` — no samples             | ⬜ not yet measured — the span has no producer                            |
+| Signal received → ringing                    | p95 < 5,000 ms  | `not_measured` — no samples             | ⬜ not yet measured — the producer landed, no live call has used it yet   |
 | Answered → first agent word                  | p95 < 1,200 ms  | `not_measured` — no samples             | ⬜ not yet measured — the span has no producer                            |
 | Caller stops speaking → agent audio begins   | p95 < 1,500 ms  | `not_measured` — no samples             | ⬜ not yet measured — the span has no producer                            |
 

@@ -11,6 +11,10 @@
  *   caller_stop_to_agent_audio          — the turn latency the caller HEARS (1.5s)
  *   fraud_confirmed_to_webhook_delivered — the bank's own 2s webhook promise
  *
+ * The first has since been produced (2026-10-16 — src/lib/telemetry/ringing.ts, driven
+ * in CI by tests/e2e/signal-received-to-ringing.test.ts), and the two remaining stay
+ * listed below with the reason each cannot be measured yet.
+ *
  * Two of those are the voice engine's headline promises. They were unmeasured, which
  * means "the voice engine is degraded" was an unfalsifiable claim in both directions:
  * slower would not have shown up, and neither would having stopped dialling entirely.
@@ -83,7 +87,20 @@ test("no source file reads back empty, which is an instrument fault not a missin
  * appear here with a reason or have a producer.
  */
 const UNPRODUCED_WITH_REASON: Record<string, string> = {
-  // Verified 2026-10-15, both halves of the join: the status route can reach
+  // ── RETIRED 2026-10-16: `signal_received_to_ringing` is no longer unproduced. ──
+  // The reasoning below was correct when it was written, and it is what told the fix
+  // which two halves were missing. Both now exist: the intake handler persists its own
+  // arrival instant (`Case.signalReceivedAt`, taken before the first await — NOT the
+  // gate-passed `createdAt`), and the status callback compare-and-sets `Case.ringingAt`
+  // from the RAW `ringing` status before the delivery fold collapses it into `queued`.
+  // Producer: src/lib/telemetry/ringing.ts. CI drives it in
+  // tests/e2e/signal-received-to-ringing.test.ts, which also proves a replayed callback
+  // does not double-count. Still honest: every sample today carries origin `harness`,
+  // so `evidence/latency/slo.json` keeps the leg `not_measured` for live traffic and the
+  // published copy says "case deadline", not a measured time-to-contact.
+  //
+  // Original note, for the record — Verified 2026-10-15, both halves of the join: the
+  // status route can reach
   // the case (`Case @@index([callSid])`; the turn route and the media-stream
   // worker both do `findFirst({ where: { callSid } })`), but the START instant
   // is not persisted anywhere the callback can read. `createCase` runs inside
@@ -98,11 +115,6 @@ const UNPRODUCED_WITH_REASON: Record<string, string> = {
   // ARRIVES (a Case column set at intake, or the idempotency claim carrying
   // the caseRef so its pre-gate `createdAt` becomes joinable) — until one
   // exists, recording this span means faking its start.
-  signal_received_to_ringing:
-    "needs a persisted signal-received instant joined to the provider's ringing callback; " +
-    "Case.createdAt is the gate-passed instant (createCase runs after the policy gate in " +
-    "armAndDial), and `started` exists only in request memory, so the join cannot be built " +
-    "without first persisting a received-at at intake.",
   // Verified against src/lib/voice/deepgram-client.ts: its message handler
   // parses exactly `channel.alternatives[0].transcript` + `is_final`, and its
   // listen URL does not request `utterance_end_ms` — so Deepgram's own

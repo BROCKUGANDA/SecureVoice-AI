@@ -139,9 +139,14 @@ describe("pilot → operator notification", () => {
       // The control: the notification actually exists. Asserting only the 200
       // would pass against the old skip-the-email behaviour, which is exactly
       // what this file exists to catch.
+      //
+      // Scoped by this submission's own mark rather than "the newest row to that
+      // mailbox". The test above sends to the same fallback address, and two rows
+      // written in the same millisecond make a `createdAt: "desc"` pick arbitrary
+      // — which is how this read green locally and red in CI on a fresh database.
+      // A missing notification is still a null row, so the gate keeps its teeth.
       const row = await db.emailOutbox.findFirst({
-        where: { toEmail: SUPPORT_EMAIL, kind: "pilot_request" },
-        orderBy: { createdAt: "desc" },
+        where: { toEmail: SUPPORT_EMAIL, kind: "pilot_request", subject: { contains: mark } },
       });
       expect(row).not.toBeNull();
       expect(row?.subject).toContain(mark);

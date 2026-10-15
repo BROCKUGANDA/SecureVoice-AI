@@ -5,12 +5,22 @@ import "server-only";
  * The decision is written to the audit chain either way (WP-2 step 4).
  *
  * Order (fail-fast):
+ *   0. the bank's transaction reference has not already produced a case
  *   1. a consent reference is present and well-formed (4–64 characters)
+ *   1b. a non-critical category is not dialling a do-not-call number
+ *   1c. routine calls fall inside the permitted calling window
  *   2. destination country on the org allowlist
- *   3. destination not in cooldown
- *   4. org concurrency below cap
- *   5. org spend ceiling not breached
- *   6. credits reserved
+ *   3. org spend ceiling not breached
+ *   4. the tenant's billing state permits dialling
+ *   5. credits reserved
+ *
+ * This layer does NOT do cooldown or concurrency. Those two live in the abuse
+ * gate (`src/lib/abuse/guards.ts`), which owns the destination cooldown and both
+ * concurrency caps AND writes its own state on the dial path. This file used to
+ * carry a second copy of both controls behind `recordCallPlacement()` — a writer
+ * no route ever called, so the maps stayed empty, both checks could never fire,
+ * and the two refusal codes they documented (`cooldown`, `concurrency_cap`) were
+ * causes the server physically could not return.
  *
  * Step 1 is a REFERENCE check, not a lookup, and the distinction is load-bearing
  * for anything said about consent anywhere in this product. There is no consent
@@ -153,41 +163,6 @@ function allowedCountries(orgId: string | null): Set<string> {
   );
 }
 
-/** Cooldown: minimum seconds between calls to the same destination. */
-const COOLDOWN_SECONDS = Number(process.env.DIAL_COOLDOWN_SECONDS ?? 300);
-
-/** Org concurrency cap — max simultaneous active calls. */
-const CONCURRENCY_CAP = Number(process.env.ORG_CONCURRENCY_CAP ?? 10);
-
-/** Org spend ceiling in minor units (default 100 AED = 10000 fils). */
-const SPEND_CEILING_MINOR = Number(process.env.ORG_SPEND_CEILING_MINOR ?? 10_000);
-
-// ── In-memory cooldown + concurrency state ──
-// These are per-org, per-destination guards that must be fast on the hot
-// path. A DB query per signal would add ~1.2 s of remote round-trip latency
-// — the difference between meeting the 1.5 s p95 and missing it. The state
-// is eventually consistent (a replica restart resets it) which is acceptable
-// for a demo guard; production moves these to Redis.
-const lastCallByPhone = new Map<string, number>();
-const activeCallsByOrg = new Map<string, number>();
-
-/** Record a call placement (called after the dial succeeds). */
-export function recordCallPlacement(orgId: string | null, phone: string): void {
-  lastCallByPhone.set(phone, Date.now());
-  if (orgId) {
-    activeCallsByOrg.set(orgId, (activeCallsByOrg.get(orgId) ?? 0) + 1);
-  }
-}
-
-/** Release a call slot (called when the case reaches a terminal state). */
-export function releaseCallPlacement(orgId: string | null): void {
-  if (orgId) {
-    const n = (activeCallsByOrg.get(orgId) ?? 1) - 1;
-    if (n <= 0) activeCallsByOrg.delete(orgId);
-    else activeCallsByOrg.set(orgId, n);
-  }
-}
-
 export async function runPolicyGate(input: PolicyGateInput): Promise<PolicyGateResult> {
   const { orgId, phone, consentRecordId, caseRef, callerId } = input;
   const audit = (action: string, intent: string, meta: Record<string, unknown>) =>
@@ -304,31 +279,7 @@ export async function runPolicyGate(input: PolicyGateInput): Promise<PolicyGateR
     };
   }
 
-  // 3. Destination not in cooldown (in-memory — see recordCallPlacement).
-  const lastCall = lastCallByPhone.get(phone);
-  if (lastCall && Date.now() - lastCall < COOLDOWN_SECONDS * 1000) {
-    await audit("freeze", "policy_cooldown", { phone: phone.replace(/\d(?=\d{4})/g, "*") });
-    return {
-      ok: false,
-      reason: `destination in cooldown (${COOLDOWN_SECONDS}s)`,
-      code: "cooldown",
-    };
-  }
-
-  // 4. Org concurrency below cap (in-memory — see recordCallPlacement).
-  if (orgId) {
-    const active = activeCallsByOrg.get(orgId) ?? 0;
-    if (active >= CONCURRENCY_CAP) {
-      await audit("freeze", "policy_concurrency_cap", { active, cap: CONCURRENCY_CAP });
-      return {
-        ok: false,
-        reason: `org concurrency cap reached (${CONCURRENCY_CAP})`,
-        code: "concurrency_cap",
-      };
-    }
-  }
-
-  // 5. Org spend ceiling not breached.
+  // 3. Org spend ceiling not breached.
   //
   //    Enforced against the append-only UsageLedger via the spend breaker
   //    (WP-13). One intervention attempt is the billable SKU, so the estimate
@@ -358,20 +309,20 @@ export async function runPolicyGate(input: PolicyGateInput): Promise<PolicyGateR
     });
   }
 
-  // 5b. The tenant's own billing state, after every SAFETY gate and before any
-  //     credit is reserved. Consent, do-not-call, calling hours, geography,
-  //     cooldown and concurrency are all legal-or-abuse preconditions and none of
-  //     them is a customer's preference — a pause is. So it is checked here, and
-  //     only `paused` blocks (see `diallingBlockedFor` in
-  //     src/lib/payments/access.ts, which explains why `past_due` and `canceled`
-  //     deliberately do not, and why this differs from `decideAccess`).
+  // 4. The tenant's own billing state, after every SAFETY gate and before any
+  //     credit is reserved. Consent, do-not-call, calling hours and geography are
+  //     legal-or-abuse preconditions and none of them is a customer's preference —
+  //     a pause is. So it is checked here, and only `paused` blocks (see
+  //     `diallingBlockedFor` in src/lib/payments/access.ts, which explains why
+  //     `past_due` and `canceled` deliberately do not, and why this differs from
+  //     `decideAccess`).
   const billing = await diallingBlockedFor(orgId);
   if (!billing.allowed) {
     await audit("freeze", "policy_subscription_paused", { status: billing.status });
     return { ok: false, reason: billing.reason, code: "subscription_paused" };
   }
 
-  // 6. Credits reserved.
+  // 5. Credits reserved.
   //
   //    A real reservation in the append-only ledger, not a decrement of a
   //    mutable counter: the unique idempotency key {caseRef}:1:reserve means a

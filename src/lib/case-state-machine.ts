@@ -15,6 +15,7 @@ import "server-only";
 
 import { db } from "@/lib/db";
 import { enqueueOutbox, type BankEventInput } from "@/lib/outbox";
+import { vaultCasePhone } from "@/lib/compliance/pii-vault";
 import { notify } from "@/lib/notifications";
 import { notifyRealtime } from "@/lib/realtime";
 import { logError } from "@/lib/validation/safe-log";
@@ -151,9 +152,20 @@ export async function transitionCase(
   if (!canTransition(from, to)) {
     throw new IllegalTransitionError(from, to);
   }
+  // The reversal window runs from a stored instant, and the only place that can
+  // supply it is the writer that performs the staging — so the clock is stamped
+  // here rather than left to each freeze route to remember. It is stamped AFTER
+  // the caller's meta is spread, so no caller can pass its own deadline into a
+  // hold; re-staging cannot buy a second window because the transition table has
+  // no FREEZE_STAGED → FREEZE_STAGED edge and `executeSoftFreeze` returns
+  // `alreadyStaged` before it reaches here.
   const updated = await db.case.update({
     where: { caseRef },
-    data: { state: to, ...(meta ?? {}) },
+    data: {
+      state: to,
+      ...(meta ?? {}),
+      ...(to === "FREEZE_STAGED" ? { freezeStagedAt: new Date() } : {}),
+    },
     select: { id: true, state: true },
   });
   await recordTransition(caseRef, from, to, meta, row.orgId);
@@ -296,6 +308,11 @@ export async function transitionCaseWithOutbox(
    */
   verificationToken?: { plaintext: string; hash: string } | null;
 }): Promise<{ id: string; caseRef: string; state: string }> {
+  // The destination is sealed before the row is written, so a case carries a token
+  // and a match index rather than a customer's number. `vaultCasePhone` never
+  // throws: a value it cannot seal stays on the row, because the alternative is a
+  // case with no destination and a fraud alert that never reaches its customer.
+  const destination = await vaultCasePhone({ orgId: data.orgId, phone: data.phone });
   try {
     return await db.case.create({
       data: {
@@ -305,7 +322,9 @@ export async function transitionCaseWithOutbox(
         transactionRef: data.transactionRef ?? null,
         riskScore: data.riskScore ?? null,
         language: data.language ?? "en",
-        phone: data.phone ?? null,
+        phone: destination.phone,
+        phoneIndex: destination.phoneIndex,
+        customerPhoneToken: destination.customerPhoneToken,
         merchant: data.merchant ?? null,
         amountMinor: data.amountMinor ?? null,
         currency: data.currency ?? null,

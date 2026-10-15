@@ -519,10 +519,20 @@ jobs:
       # Only the timezone-independent suites run here: anything needing Postgres would
       # fail on connection rather than on timezone, and this job exists to isolate one
       # cause of failure.
+      #
+      # Through the per-file runner, not `bun test <dir>`: `mock.module` is PROCESS-GLOBAL
+      # and rewrites the binding for every file that runs later in the same process, so a
+      # directory batch reports failures no single file has. Proof, from the same machine:
+      # `TZ=… bun test tests/billing/money-audit-repair.test.ts` passes, and adding one
+      # neighbouring file to the batch makes four of its checks fail. The runner spawns one
+      # Bun process per suite precisely for this reason — see the header of
+      # tests/billing/billing-routes.test.ts, which documents the same trap from the
+      # inside. `billing/` with the trailing slash is a path filter, so the suites that
+      # merely mention billing elsewhere are not picked up twice.
       - name: Hostile timezone suite
         env:
           TZ: Pacific/Kiritimati
-        run: bun test tests/timezone tests/billing tests/telemetry tests/contracts
+        run: bun scripts/run-tests.mjs timezone/ billing/ telemetry/ contracts/
 
       # Schema drift gate. Twice now a model has landed in schema.prisma with
       # no migration: the app deploys, every request returns 200, and the

@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import type { Prisma } from "@/generated/prisma/client";
 import { requireOperator } from "@/lib/credits";
+import { requirePrivileged } from "@/lib/auth/guards";
 import { db } from "@/lib/db";
 import { withTenantScope } from "@/lib/tenancy/db-scope";
 import { decryptSecret, encryptSecret, maskKey } from "@/lib/byok";
@@ -255,6 +256,35 @@ export async function POST(req: NextRequest) {
     if (!entitlement) continue;
     const check = await checkEntitlement(guard.profile.orgId, entitlement);
     if (!check.ok) return entitlementResponse(check);
+  }
+
+  // Step-up on ATTACHING a vendor credential — and only on attaching.
+  // `change_byok_credential` exists in the privileged-action registry, and
+  // docs/SECURITY-QUESTIONNAIRE.md tells auditors such actions are
+  // re-authenticated; this route is the one path that writes a vendor key
+  // (`elevenKeyEnc` below) and it demanded nothing.
+  //
+  // AFTER the entitlement loop, which is the order the plan contract already had.
+  // Gating first looks defensible — "don't tell an un-reauthenticated caller about
+  // their plan" — but it does not hold: `requirePrivileged` refuses only a caller
+  // who already passed the capability check, i.e. an authorised admin of THIS org,
+  // so there is no plan to leak that they are not entitled to know. What gating
+  // first does break is the documented 402 + `upgradeTo` answer that drives the
+  // console's upgrade prompt (tests/billing/entitlements.test.ts), which is a
+  // refusal the tenant can act on, replaced by one they cannot.
+  //
+  // CLEARING is not gated, for the same reason clearing a webhook is not: a
+  // tenant leaving the feature must always be able to stop its customer data
+  // flowing under a key it no longer controls, and a re-auth it cannot complete
+  // would strand the setting.
+  if (wantsByok) {
+    const privileged = await requirePrivileged(req.headers.get("cookie"), "change_byok_credential");
+    if (!privileged.ok) {
+      return NextResponse.json(
+        { error: privileged.error, code: privileged.code },
+        { status: privileged.status, headers: { "Cache-Control": "no-store" } },
+      );
+    }
   }
 
   const data: Record<string, unknown> = {};

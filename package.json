@@ -55,7 +55,8 @@
     "paddle:seed": "bun scripts/seed-paddle-catalog.ts",
     "paddle:verify": "bun scripts/paddle-verify.ts",
     "voice:check": "bun scripts/voice-language-check.mjs",
- "integrations:check": "bun scripts/integrations-check.mjs",
+    "integrations:check": "bun scripts/integrations-check.mjs",
+    "pii:backfill": "bun --preload ./scripts/worker-preload.ts scripts/backfill-case-phone-vault.ts",
     "paddle:repair-overrides": "bun scripts/paddle-repair-overrides.ts"
   },
   "dependencies": {
@@ -138,6 +139,7 @@
     "unpdf": "^1.8.1",
     "uuid": "^11.1.0",
     "vaul": "^1.1.2",
+    "ws": "^8.22.0",
     "z-ai-web-dev-sdk": "^0.0.18",
     "zod": "^4.0.2",
     "zustand": "^5.0.6"
@@ -151,6 +153,7 @@
     "@types/pg": "^8.23.1",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@types/ws": "^8.18.2",
     "bun-types": "^1.3.4",
     "cypress": "^16.1.1",
     "eslint": "^9",

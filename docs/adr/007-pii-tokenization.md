@@ -21,6 +21,58 @@ not for display, and never for the prompt. The contract states the PII list that
 `neverSent` to the model and the OpenAPI schema carries it, so the guarantee is
 machine-checkable rather than aspirational.
 
+**Tokenization needed a way to be found first (amendment, 2026-10-15).** As written,
+the decision was aspirational in one specific way: `storePii()` minted a random uuid
+and only `resolvePii()` ever read it, so nothing could ask the vault "do you already
+hold this number?" — and two live paths *must* ask exactly that. An inbound SMS reply
+matches a customer's YES or NO to the alert it answers, and an inbound voice callback
+finds the open case the caller is ringing back about. Both arrive with a phone number
+and no tenant. They therefore matched on `Case.phone`, which meant the plaintext column
+was load-bearing, meant `createCase` kept writing the number, and meant a vault that
+existed but protected nothing the platform actually stored.
+
+The fix is a blind index — HMAC-SHA256 over the normalised value under a key derived
+from `AUTH_SECRET` in its own domain (`sv-blind:`, deliberately not the sealing key:
+an index derivable from the encryption key lets a leaked database confirm guesses
+without decrypting anything) — and it is **two different indexes**, because the two
+jobs are different:
+
+| | message | purpose | on |
+|---|---|---|---|
+| `pii_vault.blindIndex` | `orgId\|type\|value` | dedupe one tenant's copies so re-sealing returns the same token | vault |
+| `Case.phoneIndex` | `type\|value` | let a tenant-less reply find its case | case row |
+
+The org is in the vault's message and *not* in the case's, and that is the whole
+trade-off: an org-scoped case index cannot be computed by the paths that have no org,
+and an org-free one lets a reader with full database access group rows by customer.
+What that reader already had, before this change, was the numbers themselves, in the
+clear, one per row — so the pseudonym is strictly less exposed than the thing it
+replaces, and it is what allows the plaintext to go. RLS still confines every
+application read to one tenant's rows.
+
+`createCase` now seals the destination before inserting: a new case carries a token and
+an index and no readable number. When sealing is impossible — a deployment with no
+`AUTH_SECRET`, or a row with no tenant to store it under — the number stays on the row
+and the row is visibly un-tokenized (`customerPhoneToken IS NULL`), because the
+alternative is a case with no destination and a fraud alert that never rings. A
+degradation that lies about itself would be the worse bug.
+
+Erasure follows the data: `phone`, `phoneIndex` and `customerPhoneToken` are in
+`CASE_PAYLOAD_COLUMNS`, and `shredVaultRow` deletes the sealed value once no case
+references it. Moving a number out of an erased column and into a table erasure never
+touches is not erasure; the shared-token case (one tenant, repeat customer) keeps the
+row until the last reference is gone, so one customer's request cannot delete another's
+data.
+
+**Historical rows are a separate, operator-run step.** `scripts/backfill-case-phone-vault.ts`
+(`bun run pii:backfill`) is dry-run by default and needs `--apply`, and it is scoped by
+`--org` so a rollout can start with one tenant. It is not in the migration: SQL cannot
+seal anything, because the key lives in the application's environment, not in the
+database. Rows it reports as `skippedNoOrg` cannot be vaulted at all, and the legacy
+`phone` arm of `casePhoneWhere` must stay until it reports `pending: 0` — a missed NO
+reply is a customer reporting a live fraud loss into a platform that answered "no open
+alert".
+
 **Redact in the speech path, both directions.** Inbound transcript text and outbound
 spoken text pass `redactPII`, and the ordering is fixed and tested: spoken-text
 conversion, verification-token refusal, numbers-as-words, vishing check, redaction,
@@ -70,10 +122,29 @@ The chain is only as trustworthy as the head: a `TRUNCATE` by the owning role is
 detectable as a missing head, not prevented by a row trigger, and this record says so
 in the same sentence as the control.
 
+Added by the amendment: every case write now costs a seal (an AES-GCM encrypt plus an
+indexed insert-or-conflict), so the vault has moved from the read path into the write
+path of ingest; `AUTH_SECRET` has become load-bearing for case creation, and a
+deployment missing it silently degrades to plaintext (logged, and visible as a NULL
+token, but degraded). The org-free `Case.phoneIndex` is a correlation surface for a
+full-database reader, argued above and not hidden. And until the backfill has run with
+an operator watching, production holds both shapes at once: new rows tokenized, the
+85 existing ones still carrying the number, which is precisely why `casePhoneWhere`
+still ORs the legacy column instead of pretending the migration happened.
+
 ## Evidence
 
-`src/lib/compliance/pii-vault.ts` · `prisma/schema.prisma` (`@@map("pii_vault")`) ·
-`src/lib/privacy/crypto-shred.ts` · `src/lib/privacy/retention.ts` ·
+`src/lib/compliance/pii-vault.ts` (`blindIndexOf`, `vaultCasePhone`, `casePhoneWhere`) ·
+`src/lib/case-state-machine.ts` (`createCase` seals before it inserts) ·
+`src/lib/sms-verdict.ts` and `src/app/api/twilio/inbound-voice/route.ts` (the two
+tenant-less lookups) · `src/lib/privacy/crypto-shred.ts` (`shredVaultRow`) ·
+`scripts/backfill-case-phone-vault.ts` ·
+`prisma/migrations/9zzzzzzzzzzzzzzzzzzzzzzzzzzzz_pii_vault_blind_index/` ·
+`tests/privacy/pii-vault-blind-index.test.ts` (18 cases; mutation-proved: writing the
+caller's plaintext back fails 2, dropping the index arm fails 4, skipping the vault
+shred fails 2) ·
+`prisma/migrations/9zzzzzzzzz_pii_vault/` ·
+`src/lib/privacy/retention.ts` ·
 `src/lib/audit-chain.ts` · `prisma/migrations/9zzzzzzzzz_immutable_audit/` ·
 `prisma/migrations/9zzzzzzzzzzzzzzzzzzzzzzzzz_audit_immutability_grants/` ·
 `src/lib/compliance/redactor.ts` · `src/lib/compliance/gate.ts` ·

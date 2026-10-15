@@ -7,6 +7,7 @@ import { db } from "@/lib/db";
 import { append as auditAppend } from "@/lib/audit-chain";
 import { snippet } from "@/lib/redact";
 import { TERMINAL_CASE_STATES } from "@/lib/case-state-machine";
+import { casePhoneWhere } from "@/lib/compliance/pii-vault";
 import { findOrgByVoiceNumber, getTransferNumber } from "@/lib/institution";
 import { escapeXml, twilioSignedUrl, verifyTwilioSignature } from "@/lib/twilio";
 import { INBOUND_CALLBACK_ACK, type OutreachLang } from "@/lib/outreach-copy";
@@ -78,8 +79,10 @@ type OpenCase = {
 
 /** The case reference the customer is calling about, or null for none. */
 async function latestLiveCase(orgId: string, phone: string): Promise<OpenCase> {
+  // `phoneIndex` is how a vaulted case is found from a caller-id; the raw column
+  // arm keeps rows the backfill has not reached answerable (see `casePhoneWhere`).
   return db.case.findFirst({
-    where: { orgId, phone, state: { notIn: [...TERMINAL_CASE_STATES] } },
+    where: { orgId, ...casePhoneWhere(phone), state: { notIn: [...TERMINAL_CASE_STATES] } },
     orderBy: { createdAt: "desc" },
     select: { id: true, caseRef: true, state: true, language: true },
   });

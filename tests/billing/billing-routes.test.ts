@@ -39,6 +39,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import * as realRouteHelpers from "@/lib/route-helpers";
 import { db } from "@/lib/db";
+import { TWO_FACTOR_REQUIRED } from "@/lib/auth/two-factor-gate";
 import { _reset as resetRateLimits } from "@/lib/ratelimit";
 
 // `paddleClient()` returns null when this is unset and a real SDK client when it
@@ -62,6 +63,25 @@ const DISABLE_PADDLE = () => {
 const ORG = "0a1a0a0a-0000-4000-8000-000000000001";
 const OTHER_ORG = "0b1b0b0b-0000-4000-8000-000000000002";
 const USER_EMAIL = "billing@securevoice.ae";
+
+/**
+ * The account behind the session, and it has to be a real one.
+ *
+ * `moneyTwoFactorBlocker()` reads `identity.accountId` out of the database
+ * (`src/lib/auth/two-factor-gate.ts`): the checkout, portal and invoice routes all
+ * call it before any money moves. The stub used to hand back
+ * `{ userId: "user_1", email }` — a field name that drifted from `Identity`, so
+ * `accountId` arrived `undefined`, Prisma rejected the effectively-empty
+ * `UserWhereUniqueInput`, and 19 tests failed on a fixture lie rather than on the
+ * gateway.
+ *
+ * The fix is NOT to bypass the gate. This user is enrolled the way a real customer
+ * is: the flag set by a verified enrolment plus a factor row that can answer the
+ * next challenge. The suite then exercises the routes the way production does, and
+ * the refusal path is asserted separately below by removing the factor row.
+ */
+const GATE_USER_ID = "0c1c0c0c-0000-4000-8000-000000000003";
+const TOTP_SECRET = "JBSWY3DPEHPK3PXP".repeat(2);
 
 let sessionState: {
   ok: boolean;
@@ -151,7 +171,7 @@ mock.module("@/lib/route-helpers", () => ({
       ? {
           ok: true as const,
           orgId: sessionState.orgId as string,
-          identity: { userId: "user_1", email: sessionState.email },
+          identity: { accountId: GATE_USER_ID, email: sessionState.email },
         }
       : { ok: false as const, failure: sessionState.failure },
 }));
@@ -199,6 +219,28 @@ beforeAll(async () => {
       productId: "pro_routes_gate",
     },
   });
+
+  // An account with a working second factor, so the three money routes pass their
+  // own gate the way a real customer does — see `GATE_USER_ID`.
+  await db.user.upsert({
+    where: { id: GATE_USER_ID },
+    create: {
+      id: GATE_USER_ID,
+      name: `Billing routes gate ${GATE_USER_ID.slice(0, 8)}`,
+      email: USER_EMAIL,
+      emailVerified: true,
+      twoFactorEnabled: true,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    },
+    update: { twoFactorEnabled: true },
+  });
+  // Recreated every run: the refusal test removes it, and a re-run must start
+  // enrolled rather than inheriting the previous run's damage.
+  await db.twoFactor.deleteMany({ where: { userId: GATE_USER_ID } });
+  await db.twoFactor.create({
+    data: { userId: GATE_USER_ID, secret: TOTP_SECRET, backupCodes: "1111,2222" },
+  });
 }, 30_000);
 
 afterAll(async () => {
@@ -210,6 +252,8 @@ afterAll(async () => {
   await db.paddleSubscription.deleteMany({ where: { orgId: { in: [ORG, OTHER_ORG] } } });
   await db.paddleCustomer.deleteMany({ where: { orgId: { in: [ORG, OTHER_ORG] } } });
   await db.organization.deleteMany({ where: { id: { in: [ORG, OTHER_ORG] } } });
+  await db.twoFactor.deleteMany({ where: { userId: GATE_USER_ID } });
+  await db.user.deleteMany({ where: { id: GATE_USER_ID } });
   // Put the one mock that another suite imports back.
   void mock.module("@/lib/route-helpers", () => realRouteHelpers);
 }, 30_000);
@@ -226,6 +270,35 @@ describe("checkout refuses before it looks at the body", () => {
       ),
     );
     expect(res.status).toBe(401);
+  });
+
+  test("a signed-in customer with no working second factor is 428, and nothing is minted", async () => {
+    // The gate is the reason this suite's session needed a real account: without a
+    // row to read, the refusal path was never reached at all. The factor is removed
+    // for one call and put back in `finally`, because the rest of the file buys
+    // things on the assumption that the session is enrolled — as every real customer
+    // on the money path must be.
+    signIn();
+    let minted = 0;
+    gatewayState = GATEWAY(async () => {
+      minted++;
+      return { url: "https://checkout.example/must-not-be-called", reference: "REF-NOPE" };
+    });
+    await db.twoFactor.deleteMany({ where: { userId: GATE_USER_ID } });
+    try {
+      const res = await checkout(
+        req("/api/billing/checkout", {
+          body: JSON.stringify({ amountMinor: 9900, currency: "USD" }),
+        }),
+      );
+      expect(res.status).toBe(428);
+      expect((await res.json()).error).toBe(TWO_FACTOR_REQUIRED);
+      expect(minted, "a refusal must not reach the payment provider").toBe(0);
+    } finally {
+      await db.twoFactor.create({
+        data: { userId: GATE_USER_ID, secret: TOTP_SECRET, backupCodes: "1111,2222" },
+      });
+    }
   });
 
   test("malformed JSON is a 400 malformed_json, not a 500", async () => {

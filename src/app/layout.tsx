@@ -8,6 +8,7 @@ import { JsonLd, ProductJsonLd } from "@/components/seo/JsonLd";
 import { COMPANY } from "@/lib/commercial";
 import { siteOrigin } from "@/lib/site-origin";
 import { TenantBrand } from "@/components/shell/TenantBrand";
+import HealthCheck from "@/components/HealthCheck";
 
 const display = Space_Grotesk({
   variable: "--font-display",
@@ -196,6 +197,7 @@ export default function RootLayout({
             default path and costs one session cookie parse. See the component
             for why this is a database read rather than a cookie. */}
         <TenantBrand />
+        <HealthCheck />
         {/* Better Auth has no provider component: sessions are read from the
             database by `auth.api.getSession({ headers })` wherever they are
             needed, and the browser reads them through `authClient.useSession()`.

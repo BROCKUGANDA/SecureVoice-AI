@@ -22,7 +22,8 @@ import "server-only";
  */
 
 import { db } from "@/lib/db";
-import { appendInTransaction, refund as ledgerRefund } from "@/lib/billing/ledger";
+import { appendInTransaction, refundInTransaction } from "@/lib/billing/ledger";
+import { auditMoney, moneyChainRef } from "@/lib/payments/audit";
 import type { AnalyticsPlan } from "@/lib/analytics";
 
 /**
@@ -351,6 +352,27 @@ export function decodeEntitlements(json: string | null | undefined): Entitlement
   }
 }
 
+/**
+ * The units a settled payment credited, read back from ITS OWN envelope.
+ *
+ * Never re-derived from live plan state: the allowance a plan carries today is
+ * not the one that was minted at checkout, and a reversal or a repaired record
+ * computed from it would describe a transaction that never happened. Explicit
+ * `units` win; otherwise the first `plan:<name>` token resolves through the same
+ * catalogued allowance settlement used at credit time.
+ */
+async function unitsFromEnvelope(json: string | null | undefined): Promise<number> {
+  const entitlements = decodeEntitlements(json).entitlements;
+  const explicit = entitlements.reduce((acc, e) => acc + (e.units ?? 0), 0);
+  if (explicit > 0) return explicit;
+  const token = entitlements
+    .map((e) => e.key)
+    .find((k): k is string => typeof k === "string" && k.startsWith("plan:"));
+  if (!token) return 0;
+  const { unitsForPlan } = await import("@/lib/payments/overage");
+  return unitsForPlan(token.slice("plan:".length));
+}
+
 export type SettleInput = {
   provider: string;
   orgId: string;
@@ -373,12 +395,48 @@ export type SettleInput = {
   recordedBy?: string;
 };
 
+/**
+ * What the transaction itself decides. Deliberately NOT the public result:
+ * the audit record is written after the commit, so the transaction cannot know
+ * whether the money fact it just produced reached the chain.
+ */
+type SettlementOutcome = {
+  applied: boolean;
+  paymentId: string;
+  unitsCredited: number;
+  duplicate: boolean;
+};
+
 export type SettleResult = {
   /** False when this (reference, eventId) had already been applied. */
   applied: boolean;
   paymentId: string;
   unitsCredited: number;
   duplicate: boolean;
+  /**
+   * False when this settlement moved money but its tamper-evident record did
+   * NOT reach the audit chain.
+   *
+   * The caller has to be able to tell these two apart, and `applied` cannot say
+   * it: a settled payment with no chain row is a payment the product cannot
+   * prove. What to DO with `false` depends on whether a retry is free, and the
+   * money paths here differ exactly on that:
+   *
+   *   - **A gateway delivery** (`/api/billing/webhook`) answers with a retryable
+   *     5xx. The retry re-enters `settlePayment`, is refused by the duplicate
+   *     guard, credits nothing, and gets the record written — it costs nothing
+   *     and is the only mechanism still capable of recording the payment. A 2xx
+   *     there tells the gateway to stop retrying, and the evidence of a real
+   *     charge is then permanently absent from the log a regulator is shown.
+   *   - **A caller that already acted at the gateway** (an adapter whose refund
+   *     or charge call has succeeded, an operator verification) must NOT turn
+   *     `false` into a failure. The external movement is committed; a "failed"
+   *     answer invites repeating an action that already happened, and a double
+   *     refund is worse than a late record. Those callers log it, and
+   *     `audit-chain`'s own counter (`sv_audit_append_failures_total`) is what
+   *     makes the loss observable rather than merely described.
+   */
+  auditRecorded: boolean;
 };
 
 /**
@@ -416,11 +474,34 @@ export async function settlePayment(input: SettleInput): Promise<SettleResult> {
       ON CONFLICT ("reference") DO NOTHING
       RETURNING "id"
     `;
+    // A failed payment is still a money-path fact. Recording only the successes
+    // would leave the chain silent on exactly the events a reconciliation asks
+    // about — "this charge was reported failed and we credited nothing" — and a
+    // refusal that is not in the log is indistinguishable from one that never
+    // arrived.
+    const recorded = await auditMoney({
+      reference: input.reference,
+      ...(input.orgId === undefined ? {} : { orgId: input.orgId }),
+      actor: input.verifiedBy ?? "gateway",
+      intent: "payment_settlement_failed",
+      detail: `${input.provider} reported a failed payment; nothing credited`,
+      meta: {
+        provider: input.provider,
+        reference: input.reference,
+        amountMinor: money.amountMinor,
+        currency: money.currency,
+        eventId: input.eventId,
+        unitsCredited: 0,
+        applied: inserted.length === 1,
+        duplicate: inserted.length === 0,
+      },
+    });
     return {
       applied: inserted.length === 1,
       paymentId: inserted[0]?.id ?? "",
       unitsCredited: 0,
       duplicate: inserted.length === 0,
+      auditRecorded: recorded,
     };
   }
 
@@ -462,7 +543,7 @@ export async function settlePayment(input: SettleInput): Promise<SettleResult> {
   // callback boundary it cannot see into.
   const pending: { revenue: RevenueFacts | null } = { revenue: null };
 
-  const settlement = await db.$transaction(
+  const settlement: SettlementOutcome = await db.$transaction(
     async (tx) => {
       const paymentId = `pay_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 12)}`;
       const inserted = await tx.$queryRaw<{ id: string }[]>`
@@ -600,6 +681,90 @@ export async function settlePayment(input: SettleInput): Promise<SettleResult> {
     { maxWait: 30_000, timeout: 30_000 },
   );
 
+  // ── The tamper-evident record ───────────────────────────────────────────────
+  //
+  // Awaited, after the commit, before the caller is told anything.
+  //
+  // After the commit because a chain row for a settlement that rolled back would
+  // be a fabricated record — the chain is the evidence, so it can only ever
+  // describe what actually happened. Awaited because a fire-and-forget append
+  // here means the function returns "settled" while the evidence of the
+  // settlement is still unproven, which is precisely the state this file was
+  // silent about before it existed.
+  //
+  // The replay branch is recorded too, and under a different intent. `duplicate`
+  // is not "nothing happened" — it is "the gateway delivered a completed payment
+  // a second time and our guards refused to credit it twice", which is the exact
+  // question an auditor asks about an at-least-once delivery.
+  const recorded = await auditMoney({
+    reference: input.reference,
+    ...(input.orgId === undefined ? {} : { orgId: input.orgId }),
+    actor: verifiedBy,
+    intent: settlement.applied ? "payment_settled" : "payment_settlement_replay",
+    detail: settlement.applied
+      ? `${input.provider} settled ${money.amountMinor} ${money.currency}; ${settlement.unitsCredited} unit(s) credited`
+      : `${input.provider} delivery for an already-settled reference; nothing credited`,
+    meta: {
+      provider: input.provider,
+      reference: input.reference,
+      amountMinor: money.amountMinor,
+      currency: money.currency,
+      eventId: input.eventId,
+      unitsCredited: settlement.unitsCredited,
+      applied: settlement.applied,
+      duplicate: settlement.duplicate,
+      verifiedBy,
+    },
+  });
+
+  // Repair the evidence when a redelivery finds none.
+  //
+  // A first delivery that committed the credit and then lost its chain row (the
+  // audit outage this branch exists for) leaves the worst state the money path
+  // can be in: `PaymentRecord.status = 'success'` with a balance that moved and
+  // nothing in the tamper-evident log saying so, because the replay that follows
+  // truthfully reports `applied: false, unitsCredited: 0`. `duplicate` cannot
+  // describe a credit it did not make.
+  //
+  // The settled facts are not gone, though — they are on the payment row the
+  // first attempt wrote. So read them back and write the record that attempt
+  // could not, marked as a reconstruction so the chain never implies it watched
+  // the money arrive. This is what makes an audit outage survivable rather than
+  // permanently blind: the retry is the repair mechanism, and the retry is the
+  // gateway's own behaviour once the route answers 5xx.
+  if (!settlement.applied && recorded) {
+    const existingEvidence = await db.auditLog.count({
+      where: { callRef: moneyChainRef(input.reference), intent: "payment_settled" },
+    });
+    if (existingEvidence === 0) {
+      const row = await db.paymentRecord.findUnique({
+        where: { reference: input.reference },
+        select: { amountMinor: true, currency: true, entitlementsJson: true, verifiedBy: true },
+      });
+      if (row) {
+        const credited = await unitsFromEnvelope(row.entitlementsJson);
+        await auditMoney({
+          reference: input.reference,
+          ...(input.orgId === undefined ? {} : { orgId: input.orgId }),
+          actor: verifiedBy,
+          intent: "payment_settled",
+          detail: `settled ${row.amountMinor} ${row.currency}; ${credited} unit(s) credited — reconstructed on redelivery`,
+          meta: {
+            provider: input.provider,
+            reference: input.reference,
+            amountMinor: row.amountMinor,
+            currency: row.currency,
+            unitsCredited: credited,
+            verifiedBy: row.verifiedBy ?? verifiedBy,
+            // Stated rather than hidden: this row was written after the fact, by
+            // the delivery that found the money already committed.
+            reconstructed: true,
+          },
+        });
+      }
+    }
+  }
+
   if (settlement.applied && pending.revenue) {
     const { revenueRecognised } = await import("@/lib/analytics");
     revenueRecognised({
@@ -609,7 +774,7 @@ export async function settlePayment(input: SettleInput): Promise<SettleResult> {
     });
   }
 
-  return settlement;
+  return { ...settlement, auditRecorded: recorded };
 }
 
 /**
@@ -617,6 +782,20 @@ export async function settlePayment(input: SettleInput): Promise<SettleResult> {
  * `refund` row, so `available` falls by exactly the credited units — and
  * decrement Organization.credits by the same amount, so the spend wallet
  * mirrors the ledger.
+ *
+ * Three writes, ONE transaction, and one chain record after the commit.
+ *
+ * The three used to run unguarded: `paymentRecord.update`, then the ledger
+ * refund, then the wallet decrement. A failure between the first and the second
+ * left a payment marked `refunded` with its credits still spendable — the state
+ * the settle path explicitly refuses by keeping its payment row and its ledger
+ * credit in one transaction ("a credit with no payment record (or the reverse) is
+ * not reachable"). The refund direction deserved the same guarantee and did not
+ * have it.
+ *
+ * `unitsForPlan` is resolved BEFORE the transaction opens. It is a catalogued
+ * read, and holding a transaction open across an extra round trip is the failure
+ * mode `tests/chaos/tx-io-scan.ts` exists to catch in this exact file.
  */
 export async function refundPayment(input: {
   provider: string;
@@ -631,51 +810,116 @@ export async function refundPayment(input: {
     select: { id: true, orgId: true, status: true, entitlementsJson: true },
   });
   if (!existing) {
-    return { applied: false, paymentId: "", unitsCredited: 0, duplicate: false };
+    // Chained, because "the gateway claims a refund for a payment we have no
+    // record of" is a reconciliation exception, not a non-event. Left unrecorded,
+    // the chain would show money arriving with no money leaving while the
+    // gateway's own ledger says the charge was reversed.
+    const recorded = await auditMoney({
+      reference: input.reference,
+      actor: input.provider,
+      intent: "payment_refund_unknown_reference",
+      detail: `refund delivery for ${input.reference} matched no payment record; nothing reversed`,
+      meta: {
+        provider: input.provider,
+        reference: input.reference,
+        amountMinor: input.money.amountMinor,
+        currency: input.money.currency,
+        eventId: input.eventId,
+      },
+    });
+    return {
+      applied: false,
+      paymentId: "",
+      unitsCredited: 0,
+      duplicate: false,
+      auditRecorded: recorded,
+    };
   }
   if (existing.status === "refunded") {
-    return { applied: false, paymentId: existing.id, unitsCredited: 0, duplicate: true };
+    const recorded = await auditMoney({
+      reference: input.reference,
+      ...(existing.orgId === null ? {} : { orgId: existing.orgId }),
+      actor: input.provider,
+      intent: "payment_refund_replay",
+      detail: "duplicate refund delivery; units already reversed, nothing further deducted",
+      meta: {
+        provider: input.provider,
+        reference: input.reference,
+        eventId: input.eventId,
+        paymentId: existing.id,
+      },
+    });
+    return {
+      applied: false,
+      paymentId: existing.id,
+      unitsCredited: 0,
+      duplicate: true,
+      auditRecorded: recorded,
+    };
   }
 
-  await db.paymentRecord.update({
-    where: { id: existing.id },
-    data: { status: "refunded" },
-  });
-  if (existing.orgId) {
-    // Refund the SAME units settlement credited — read back from the payment
-    // envelope (explicit `units`, else the `plan:` token's allowance),
-    // never money.amountMinor and never re-derived from live state.
-    const settled = decodeEntitlements(existing.entitlementsJson).entitlements;
-    const explicit = settled.reduce((acc, e) => acc + (e.units ?? 0), 0);
-    let units = explicit;
-    if (units <= 0) {
-      const token = settled
-        .map((e) => e.key)
-        .find((k): k is string => typeof k === "string" && k.startsWith("plan:"));
-      if (token) {
-        const { unitsForPlan } = await import("@/lib/payments/overage");
-        units = unitsForPlan(token.slice("plan:".length));
-      }
-    }
-    if (units > 0) {
-      await ledgerRefund({
-        orgId: existing.orgId,
-        units,
-        eventId: input.eventId,
-        reason: input.reason ?? `${input.provider}:${input.reference}:refund`,
+  // Refund the SAME units settlement credited — read back from the payment
+  // envelope, never `money.amountMinor` and never re-derived from live state.
+  const units = await unitsFromEnvelope(existing.entitlementsJson);
+
+  const reversedUnits = units > 0 && existing.orgId ? units : 0;
+  await db.$transaction(
+    async (tx) => {
+      await tx.paymentRecord.update({
+        where: { id: existing.id },
+        data: { status: "refunded" },
       });
-      // Mirror the settlement-side wallet update. Organization.id is a UUID
-      // column, so decrement only for a real UUID org id (see settlePayment).
-      if (UUID_RE.test(existing.orgId)) {
-        await db.organization.update({
-          where: { id: existing.orgId },
-          data: { credits: { decrement: units } },
-          select: { credits: true },
+      if (existing.orgId && reversedUnits > 0) {
+        // Same transaction, same idempotency key as the settle path uses, so a
+        // replayed refund event cannot reverse the balance twice.
+        await refundInTransaction(tx, {
+          orgId: existing.orgId,
+          units: reversedUnits,
+          eventId: input.eventId,
+          reason: input.reason ?? `${input.provider}:${input.reference}:refund`,
         });
+        // Mirror the settlement-side wallet update. Organization.id is a UUID
+        // column, so decrement only for a real UUID org id (see settlePayment).
+        if (UUID_RE.test(existing.orgId)) {
+          await tx.organization.update({
+            where: { id: existing.orgId },
+            data: { credits: { decrement: reversedUnits } },
+            select: { credits: true },
+          });
+        }
       }
-    }
-  }
-  return { applied: true, paymentId: existing.id, unitsCredited: 0, duplicate: false };
+    },
+    { maxWait: 30_000, timeout: 30_000 },
+  );
+
+  const recorded = await auditMoney({
+    reference: input.reference,
+    ...(existing.orgId === null ? {} : { orgId: existing.orgId }),
+    actor: input.provider,
+    intent: "payment_refunded",
+    detail: `refund recorded; ${reversedUnits} unit(s) reversed from the spend wallet`,
+    meta: {
+      provider: input.provider,
+      reference: input.reference,
+      amountMinor: input.money.amountMinor,
+      currency: input.money.currency,
+      eventId: input.eventId,
+      paymentId: existing.id,
+      unitsReversed: reversedUnits,
+      // A refund that reverses nothing is not a no-op: it is a charge that was
+      // never a unit purchase (an overage settlement). Saying so keeps the chain
+      // from reading it as a failed reversal.
+      walletTouched: reversedUnits > 0 && existing.orgId !== null && UUID_RE.test(existing.orgId),
+    },
+  });
+
+  return {
+    applied: true,
+    paymentId: existing.id,
+    unitsCredited: 0,
+    duplicate: false,
+    auditRecorded: recorded,
+  };
 }
 
 /** Entitlements granted by a settled reference. */

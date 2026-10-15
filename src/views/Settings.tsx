@@ -147,6 +147,15 @@ export function Settings() {
       .finally(() => setLoading(false));
   }, []);
 
+  // Producer-key rotation and BYOK attachment are step-up protected, so a 428 is a
+  // normal answer for a session that has merely been idle. The invite flow already
+  // says what to do about one; a gate the operator cannot see is just a dead button.
+  const stepUpHint = t(
+    "Confirm it's you first: open the Security tab, complete the password confirmation, then try again.",
+    "أكّد هويتك أولًا: افتح تبويب الأمان وأكّد كلمة المرور ثم أعد المحاولة.",
+    lang,
+  );
+
   const createProducerKey = async () => {
     setBusy(true);
     try {
@@ -162,6 +171,7 @@ export function Settings() {
         label?: string;
         error?: string;
       };
+      if (r.status === 428) throw new Error(stepUpHint);
       if (!r.ok || !d.key)
         throw new Error(d.error || t("Key creation failed", "فشل إنشاء المفتاح", lang));
       setNewKey({ key: d.key, label: d.label ?? keyLabel });
@@ -181,8 +191,44 @@ export function Settings() {
   };
 
   const revokeProducerKey = async (id: string) => {
-    await fetch(`/api/console/producer-keys?id=${id}`, { method: "DELETE" });
-    setProducerKeys((ks) => ks.map((k) => (k.id === id ? { ...k, revoked: true } : k)));
+    // This used to ignore the response and mark the row revoked no matter what the
+    // server said. With revocation gated, that would have shown a bank a key as
+    // dead while its fraud engine was still authenticating with it — a display of
+    // a security state the server had refused. The optimistic write now happens only
+    // on a response that actually revoked something.
+    try {
+      const r = await fetch(`/api/console/producer-keys?id=${id}`, { method: "DELETE" });
+      if (r.status === 428) {
+        setMsg({ ok: false, text: stepUpHint });
+        return;
+      }
+      if (!r.ok) {
+        const d = (await r.json().catch(() => ({}))) as { error?: string };
+        setMsg({
+          ok: false,
+          text: d.error ?? t("The key could not be revoked.", "تعذّر إلغاء المفتاح.", lang),
+        });
+        return;
+      }
+      setProducerKeys((ks) => ks.map((k) => (k.id === id ? { ...k, revoked: true } : k)));
+      setMsg({
+        ok: true,
+        text: t(
+          "Key revoked — it no longer authenticates to ingest.",
+          "تم إلغاء المفتاح — لم يعد يُصادق على الاستلام.",
+          lang,
+        ),
+      });
+    } catch {
+      setMsg({
+        ok: false,
+        text: t(
+          "Network error — the key was not revoked.",
+          "خطأ في الشبكة — لم يتم إلغاء المفتاح.",
+          lang,
+        ),
+      });
+    }
   };
 
   const save = async (patch: Record<string, string>) => {
@@ -200,6 +246,7 @@ export function Settings() {
         ok?: boolean;
         error?: string;
       };
+      if (r.status === 428) throw new Error(stepUpHint);
       if (!r.ok || d.error) throw new Error(d.error || t("Save failed", "فشل الحفظ", lang));
       setSettings(d);
       setMsg({ ok: true, text: t("Saved.", "تم الحفظ.", lang) });

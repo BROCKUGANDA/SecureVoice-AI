@@ -7,6 +7,7 @@ import { append as auditAppend } from "@/lib/audit-chain";
 import { db } from "@/lib/db";
 import { transcript as redactText } from "@/lib/redact";
 import { badRequest, parseJson, unprocessable, schemaErrorCode } from "@/lib/api-errors";
+import { openCaseHandoffTicket } from "@/lib/crm/case-ticket";
 import { logError } from "@/lib/validation/safe-log";
 
 export const dynamic = "force-dynamic";
@@ -125,6 +126,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: "handoff_queue_failed" }, { status: 503 });
     }
   }
+
+  // The queue row is written; now tell the institution through ITS OWN CRM.
+  // Fire-and-forget and never-fatal by design: the agent is holding a live
+  // caller, and a CRM that is down must not turn into a refused handoff.
+  // `human_review` is the reason the ticket contract already declared and no
+  // voice path ever sent.
+  void openCaseHandoffTicket(guard.caseRef, "human_review", "urgent").catch(() => {});
 
   return NextResponse.json({
     ok: true,

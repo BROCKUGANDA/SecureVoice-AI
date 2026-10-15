@@ -2,6 +2,7 @@ import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireOrgWithCapability } from "@/lib/route-helpers";
+import { moneyTwoFactorBlocker, twoFactorDenialBody } from "@/lib/auth/two-factor-gate";
 import { resolvePaymentProvider } from "@/lib/payments/gateway";
 import { consume as consumeRateLimit, rateLimitHeaders, rateLimitId } from "@/lib/ratelimit";
 import { logInfo, logWarn } from "@/lib/validation/safe-log";
@@ -100,6 +101,19 @@ export async function POST(req: NextRequest) {
       { error: "billing_write_required" },
       { status: authed.failure.status ?? 403, headers: { "Cache-Control": "no-store" } },
     );
+  }
+
+  // A working second factor, on top of the Owner capability. This is not the
+  // step-up the header above declines to require: step-up is a five-minute
+  // freshness window on a re-authentication, this is a standing property of the
+  // account. An Owner whose password leaks is stopped by capability checks not at
+  // all — the leaked cookie IS the Owner.
+  const blocker = await moneyTwoFactorBlocker(authed.identity);
+  if (blocker) {
+    return NextResponse.json(twoFactorDenialBody(blocker), {
+      status: blocker.status,
+      headers: { "Cache-Control": "no-store" },
+    });
   }
 
   const rl = await consumeRateLimit(

@@ -25,6 +25,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { createHmac } from "node:crypto";
 import { mock } from "bun:test";
 import { NextRequest } from "next/server";
+import { blindIndexOf } from "@/lib/compliance/pii-vault";
 
 const updates: Record<string, unknown>[] = [];
 const events: Record<string, unknown>[] = [];
@@ -269,10 +270,32 @@ describe("twilio inbound voice", () => {
     // Two tenants can share a number (a joint account holder, a recycled line).
     // An unscoped `where: { phone }` would pull Bank B's live alert onto Bank A's
     // call and read it out to them — the outbound isolation gate cannot see this.
-    const params = { To: LINE, From: PHONE, CallSid: "CA9" };
-    await inbound(params, sign(INBOUND_URL, params));
-    expect(caseWhere).toMatchObject({ orgId: "org-a", phone: PHONE });
-    expect(Object.keys(caseWhere ?? {})).toContain("state");
+    //
+    // The handset is now matched two ways: the vault's blind index, and the legacy
+    // raw column for rows the backfill has not reached. So the property that keeps
+    // this gate worth running is not the arm it reads but where the TENANT sits:
+    // `orgId` must stay a sibling of the OR, never one of its alternatives. An
+    // `orgId` inside an arm would let a foreign tenant's row match on the number
+    // alone, which is precisely the leak this test was written for.
+    const priorSecret = process.env.AUTH_SECRET;
+    process.env.AUTH_SECRET = "telecom-webhook-suite-key-0123456789abcdef0123456789ab";
+    try {
+      const params = { To: LINE, From: PHONE, CallSid: "CA9" };
+      await inbound(params, sign(INBOUND_URL, params));
+
+      expect(caseWhere).toMatchObject({ orgId: "org-a" });
+      expect(Object.keys(caseWhere ?? {})).toContain("state");
+      const arms = (caseWhere as { OR?: Record<string, string>[] } | null)?.OR;
+      expect(arms, "the handset lookup must be an OR of index and legacy column").toHaveLength(2);
+      expect(arms?.map((a) => Object.keys(a).sort())).toEqual([["phoneIndex"], ["phone"]]);
+      expect(arms?.[0]?.phoneIndex).toBe(blindIndexOf("phone", PHONE));
+      expect(arms?.[1]?.phone).toBe(PHONE);
+      // The tenant is never one of the alternatives.
+      expect(arms?.every((a) => !("orgId" in a))).toBe(true);
+    } finally {
+      if (priorSecret === undefined) delete process.env.AUTH_SECRET;
+      else process.env.AUTH_SECRET = priorSecret;
+    }
   });
 
   test("a number nobody owns is answered as nobody's", async () => {

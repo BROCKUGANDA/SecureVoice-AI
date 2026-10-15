@@ -37,7 +37,8 @@
  */
 import { describe, expect, spyOn, test } from "bun:test";
 import { Prisma } from "@/generated/prisma/client";
-import { z, ZodError } from "zod";
+import type { ZodError } from "zod";
+import { z } from "zod";
 import {
   crossTenantNotFound,
   dependencyUnavailable,

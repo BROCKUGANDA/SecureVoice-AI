@@ -780,7 +780,15 @@ describe("POST /api/elevenlabs/tools/card-freeze", () => {
     seedFreezableCase();
     await call(FREEZE, FREEZE.body, SECRET);
     expect(seams.caseUpdates).toEqual([
-      { state: "FREEZE_STAGED", freezeStaged: true, freezeReference: "SV-FRZ-SV-JOURNEY-FRZ" },
+      {
+        state: "FREEZE_STAGED",
+        freezeStaged: true,
+        freezeReference: "SV-FRZ-SV-JOURNEY-FRZ",
+        // The reversal window's clock, stamped by the state machine rather than by
+        // this route: a staged hold with no staging instant is a hold that can never
+        // expire, so `src/lib/freeze-window.ts` would leave it pending forever.
+        freezeStagedAt: expect.any(Date),
+      },
     ]);
   });
 

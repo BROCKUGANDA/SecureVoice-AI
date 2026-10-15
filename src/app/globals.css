@@ -490,3 +490,25 @@ html::-webkit-scrollbar-thumb:hover {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ---- fx fallback: the CSS brass ring ---------------------------------- */
+/*
+ * The degradation path for an animated surface (`src/components/fx/FxGuard.tsx`).
+ * It is pure CSS on purpose: the fallback is the component that has to work when
+ * the canvas or WebGL path has just failed, so it must not depend on a context,
+ * a script, or a requestAnimationFrame loop. Under `prefers-reduced-motion` the
+ * global rule above stops the spin and the element remains as a static arc —
+ * the affordance survives, only the motion goes.
+ */
+.sv-brass-ring {
+  width: 1.75rem;
+  height: 1.75rem;
+  animation: sv-brass-ring-spin 1.1s linear infinite;
+  will-change: transform;
+}
+
+@keyframes sv-brass-ring-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

@@ -155,8 +155,8 @@ function classify(text: string): Intent {
  * tell the caller their card is restricted; that sentence is only true after
  * `executeSoftFreeze` says so, and this platform's own compliance rule is that a
  * protective action is never announced before it exists (see
- * src/app/api/voice-websocket/route.ts and the worker plane, which both branch on
- * the freeze result). A caller who is told "your card is safe" and whose card is
+ * src/worker/voice-stream.ts, which branches on the freeze result). A caller who
+ * is told "your card is safe" and whose card is
  * not safe stays on the line instead of locking it in the app, so the false
  * confirmation is not a wording problem — it costs the customer the window in
  * which they can act.

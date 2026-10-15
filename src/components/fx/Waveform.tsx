@@ -1,29 +1,48 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { FxGuard, useFxReport } from "@/components/fx/FxGuard";
 
-/**
- * Canvas voice waveform — symmetric bars driven by layered sine noise.
- * `active` → energetic speaking bars; idle → calm low ripple.
- */
-export function Waveform({
-  active,
-  intensity = 1,
-  color = "#0b7a55",
-  barColor2,
-  className,
-  bars = 48,
-}: {
+export type WaveformProps = {
   active: boolean;
   intensity?: number;
   color?: string;
   barColor2?: string;
   className?: string;
   bars?: number;
-}) {
+};
+
+/**
+ * Canvas voice waveform — symmetric bars driven by layered sine noise.
+ * `active` → energetic speaking bars; idle → calm low ripple.
+ *
+ * The exported component is the guarded one, so protection is a property of the
+ * surface rather than of whichever page happens to remember a boundary. A future
+ * call site cannot opt out of the fallback by forgetting to wrap it, which is how
+ * an animated component ends up taking a route down again.
+ */
+export function Waveform(props: WaveformProps) {
+  return (
+    <FxGuard label="waveform">
+      <WaveformCanvas {...props} />
+    </FxGuard>
+  );
+}
+
+function WaveformCanvas({
+  active,
+  intensity = 1,
+  color = "#0b7a55",
+  barColor2,
+  className,
+  bars = 48,
+}: WaveformProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rafRef = useRef(0);
   const activeRef = useRef(active);
+  // Reports a failure the React boundary cannot see, because the draw loop runs
+  // outside React's call stack. A no-op when this component is not wrapped.
+  const reportFx = useFxReport();
 
   useEffect(() => {
     activeRef.current = active;
@@ -84,9 +103,27 @@ export function Waveform({
         ctx.roundRect(x, y0, bw, barH, r);
         ctx.fill();
       }
-      rafRef.current = requestAnimationFrame(draw);
+      schedule();
     };
-    rafRef.current = requestAnimationFrame(draw);
+    // Each frame runs through a wrapper that catches. A throw inside a
+    // `requestAnimationFrame` callback never reaches a React error boundary — it
+    // becomes an uncaught global error, the loop dies, and in development the
+    // route is replaced by an overlay. Reporting it is what lets the guard swap
+    // in the CSS ring instead of leaving a frozen rectangle.
+    const schedule = () => {
+      try {
+        rafRef.current = requestAnimationFrame((now) => {
+          try {
+            draw(now);
+          } catch (err) {
+            reportFx(err);
+          }
+        });
+      } catch (err) {
+        reportFx(err);
+      }
+    };
+    schedule();
 
     return () => {
       cancelAnimationFrame(rafRef.current);

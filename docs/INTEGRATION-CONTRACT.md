@@ -124,25 +124,25 @@ Non-negotiable rules, each of which is enforced rather than documented:
 
 ### Responses
 
-| Status                    | Meaning                                                                                                                                                           | `code`                   |
-| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------ |
-| `202`                     | Accepted and **queued**. `status: "queued"` or `status: "degraded_to_async"`.                                                                                     | —                        |
-| `202` + `duplicate: true` | An idempotent replay of a key we already stored. Not an error.                                                                                                    | —                        |
-| `400`                     | Unparseable body, or missing/short `Idempotency-Key`.                                                                                                             | `malformed_request`      |
-| `401`                     | No acceptable credential. Deliberately ONE code for a bad signature and a revoked key.                                                                            | `unauthenticated`        |
-| `402`                     | The prepaid balance cannot cover the call. The one refusal you can clear yourself: top up, then re-send. Reserved nothing, so re-sending costs one call, not two. |
-|                           | `credits_exhausted` is the cause in `message`.                                                                                                                    | `payment_required`       |
-| `409`                     | Refused by policy: opt-out, country not allowed, cooldown, cap, spend ceiling, paused subscription.                                                               | `policy_precondition`    |
-| `422`                     | Well-formed JSON that failed validation, or a `callback_url` the outbound-URL policy refused.                                                                     | `semantically_invalid`   |
-| `429`                     | Caller budget spent. Honours `Retry-After`.                                                                                                                       | `rate_limited`           |
-| `503`                     | A dependency failed while the case was being armed. Honours `Retry-After`.                                                                                        | `dependency_unavailable` |
+| Status                    | Meaning                                                                                                                                                                                                           | `code`                   |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------ |
+| `202`                     | Accepted and **queued**. `status: "queued"` or `status: "degraded_to_async"`.                                                                                                                                     | —                        |
+| `202` + `duplicate: true` | An idempotent replay of a key we already stored. Not an error.                                                                                                                                                    | —                        |
+| `400`                     | Unparseable body, or missing/short `Idempotency-Key`.                                                                                                                                                             | `malformed_request`      |
+| `401`                     | No acceptable credential. Deliberately ONE code for a bad signature and a revoked key.                                                                                                                            | `unauthenticated`        |
+| `402`                     | The prepaid balance cannot cover the call. The one refusal you can clear yourself: top up, then re-send. Reserved nothing, so re-sending costs one call, not two.                                                 |
+|                           | `credits_exhausted` is the cause in `message`.                                                                                                                                                                    | `payment_required`       |
+| `409`                     | Refused by a gate: opt-out, country not allowed or denied, destination cooldown, per-org or platform concurrency cap, velocity breaker, demo-tier restriction, spend ceiling, paused subscription, prayer window. | `policy_precondition`    |
+| `422`                     | Well-formed JSON that failed validation, or a `callback_url` the outbound-URL policy refused.                                                                                                                     | `semantically_invalid`   |
+| `429`                     | Caller budget spent. Honours `Retry-After`.                                                                                                                                                                       | `rate_limited`           |
+| `503`                     | A dependency failed while the case was being armed. Honours `Retry-After`.                                                                                                                                        | `dependency_unavailable` |
 
 Errors use one envelope, with every field always present:
 
 ```json
 {
   "code": "policy_precondition",
-  "message": "The request was refused by policy. cooldown: destination in cooldown (300s)",
+  "message": "The request was refused by policy. destination_cooldown: destination +971****0004 was dialled by this organisation 299s ago (cooldown 300s)",
   "retryable": false,
   "requestId": "req_01HQ8Z7V3M9K2R4T6Y8W0X2B4D",
   "docsUrl": "https://securevoice.ai/docs/errors/policy_precondition"
@@ -152,7 +152,8 @@ Errors use one envelope, with every field always present:
 `x-request-id` is also returned as a header, and is what you quote in a ticket.
 
 **Branch on `code`, never on `message`.** `message` may embed a specific cause
-(the policy-gate reason, an outbound-URL verdict) but it is sanitised and
+(a gate reason — from the policy, compliance or abuse gate — or an outbound-URL
+verdict) but it is sanitised and
 length-capped, so it is advisory. Two consequences worth internalising:
 
 - `retryable` in the envelope is fixed **per code**, so `policy_precondition` is

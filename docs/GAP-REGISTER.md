@@ -893,3 +893,48 @@ NULL`, so the denominator stays calls, not webhooks); a case with no known start
 live population, because every record so far came from a harness. One real call fixes that —
 the producer is no longer the missing piece, which is what the corrected copy in §14 was
 careful not to claim.
+
+### 16. The 60-second deadline got an enforcer — it had only ever been a number in a response
+
+`slaDeadline` has been computed on every accepted signal since the intake handler existed
+(`src/app/api/console/fire/route.ts:357`, from `env.slaSeconds`, default 60) and **nothing
+in the system ever read it**. A deadline nobody checks is a promise with an enforcement
+mechanism of zero: under load, behind a stalled lease, or during a provider outage a case
+can sit unanswered for minutes while every surface still reports healthy.
+
+`src/lib/sla-breach.ts` closes that, on the freeze-window precedent (candidate read, then
+an atomic `updateMany` claim that repeats the read's predicate, then one audit append per
+breach):
+
+- **A breach is the absence of contact, not a state.** A case is overdue when its own
+  persisted arrival instant is older than the window and it has no `ringingAt`, no
+  `smsSentAt` and no post-call record. Enumerating "bad states" would drift the first time
+  a state is added, and `FAILED`/`EXHAUSTED`/`RETRY_SCHEDULED` rows that never rang are
+  precisely the ones a state allowlist forgets. Reaching the customer — by voice or by the
+  SMS fallback — is the promise, so that is the predicate.
+- **Recorded, never auto-actioned.** The sweep does not send the fallback SMS: answering a
+  missed promise by contacting the customer again is duplicate contact, the harm the
+  pre-notification path is built to avoid, and the same reasoning that made an expired
+  staged freeze escalate rather than reverse. The audit row says
+  `enforcement: "recorded_for_operator"` so the evidence cannot be misread as a fix.
+- **Write-once, so the count is cases.** `Case.slaBreachedAt` is CAS-set; two sweeps, or
+  two workers, record a case once. Proved by re-running the sweep over the same case three
+  times and asserting the timestamp and the single audit append do not move.
+- **Chartable, with its denominator.** `/api/metrics` now publishes
+  `sv_sla_deadline_seconds`, `sv_sla_breach_total`, `sv_sla_breach_last_hour`,
+  `sv_sla_evaluated_cases` and `sv_sla_not_evaluable_cases`. The last two exist because
+  "0 breaches" during an hour that ingested nothing is not a good hour, and because a
+  case whose arrival instant predates the column is _unknown_, not compliant — the
+  blindness is a number on the dashboard instead of a footnote. The collector's `-1`
+  sentinel is asserted directly, by breaking the count and requiring the scrape to say
+  "could not ask" rather than a comfortable zero.
+
+`tests/e2e/sla-breach-sweep.test.ts`, 9 pass, against real rows: overdue-and-uncontacted
+is marked; a rang case is not; an SMS-only case is not (the fallback counts as contact); a
+case inside the window is not; a case with no arrival instant is excluded and reported as
+excluded; the sweep never advances a case's state; and the metric equals the database.
+Mutation-proved in both directions that matter — flipping the deadline arithmetic turns
+exactly the in-window case red, and the concurrency lesson from the first draft is in the
+assertions themselves (idempotence is claimed about _this_ case, because the sweep is
+deliberately fleet-wide and another process was legitimately creating eligible rows in
+the same database during development).

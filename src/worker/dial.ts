@@ -42,6 +42,7 @@ import {
 } from "@/lib/compliance/prayer-times";
 import { sweepExpiredSmsCases } from "@/lib/sms-verdict";
 import { sweepExpiredFreezeWindows } from "@/lib/freeze-window";
+import { sweepSlaBreaches } from "@/lib/sla-breach";
 import { advanceEscalations } from "@/lib/notifications";
 import { resolveCasePhone } from "@/lib/compliance/pii-vault";
 import { logError, logInfo, logWarn } from "@/lib/validation/safe-log";
@@ -627,6 +628,22 @@ async function maybeSweep(): Promise<void> {
   } catch (err) {
     logError("[dial-worker] freeze-window sweep failed", {
       error: err instanceof Error ? err.message : err,
+    });
+  }
+  try {
+    // The deadline the intake response quotes (`SLA_SECONDS`) had no checker: a case
+    // that never reached its customer was invisible unless someone read the queue by
+    // hand. Recorded, never auto-actioned — see src/lib/sla-breach.ts for why a missed
+    // promise must not be answered with a second contact.
+    const sla = await sweepSlaBreaches();
+    if (sla.breached > 0)
+      logInfo("[dial-worker] case deadlines breached with no contact", {
+        breached: sla.breached,
+        windowSecs: sla.windowSecs,
+      });
+  } catch (err) {
+    logError("[dial-worker] sla sweep failed", {
+      error: err instanceof Error ? err.message : String(err),
     });
   }
   try {

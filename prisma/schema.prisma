@@ -474,6 +474,12 @@ model Case {
   // measurement, and the span refuses to record rather than inventing a start.
   signalReceivedAt      DateTime?
   ringingAt             DateTime?
+  // Set once by `src/lib/sla-breach.ts` when the case's own arrival instant plus
+  // `SLA_SECONDS` elapsed with no contact of any kind. Write-once by compare-and-set,
+  // which is what makes the breach count a count of cases rather than of sweep passes —
+  // and why it is a column and not just a log line: "how many of our promises did we
+  // miss this hour" has to be answerable by a bank asking on day 40.
+  slaBreachedAt         DateTime?
   smsSentAt             DateTime? // anchors the 24h reply window
   resolutionMethod      String? // voice_call | sms_reply_yes | sms_reply_no | unreachable_no_reply | ...
   customerResponse      String? // "yes" | "no" | null (null = the customer never answered)

@@ -10,7 +10,7 @@ training/provenance, evaluation, limitations, and mitigations.
 
 ## 1. System overview
 
-SecureVoice is a fraud-intervention voice agent for banks. One call pipeline,
+SecureVoice is a fraud-intervention voice agent for banks and insurers. One call pipeline,
 three layers:
 
 | Layer  | Component                                              | Provider                                               | Deterministic?                        |

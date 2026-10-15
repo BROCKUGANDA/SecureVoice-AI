@@ -29,7 +29,7 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { NextRequest } from "next/server";
 
-type Attempt = "elevenlabs" | "pool" | "playht" | "none";
+type Attempt = "elevenlabs" | "pool" | "playht" | "hang" | "none";
 type KeyMode = "platform" | "byok" | "anonymous";
 
 const state: {
@@ -61,6 +61,18 @@ mock.module("@/lib/elevenlabs/client", () => ({
     primaryKeys.push(opts?.keyOverride);
     if (state.attempt === "elevenlabs") {
       return { audio: Buffer.from("primary-audio"), contentType: "audio/mpeg", bytes: 12 };
+    }
+    // A vendor that accepts the connection and never answers. It resolves long
+    // after the request budget so the run's timers all drain, but long after the
+    // caller has been served the emergency cue — which is the situation the
+    // per-request budget exists for.
+    if (state.attempt === "hang") {
+      return new Promise((resolve) =>
+        setTimeout(
+          () => resolve({ audio: Buffer.from("late"), contentType: "audio/mpeg", bytes: 4 }),
+          2_000,
+        ),
+      ) as unknown as { audio: Buffer; contentType: string; bytes: number };
     }
     throw new Error("elevenlabs: 503 upstream unavailable");
   },
@@ -168,6 +180,51 @@ function reset(over: Partial<typeof state> = {}) {
 const REQ = { text: "Was this your card purchase?", voice: "en", lang: "en" };
 
 beforeEach(() => reset());
+
+test("a rung that never answers is abandoned at the budget and the caller still hears the cue", async () => {
+  // The failure mode the budget exists for: the primary accepts the connection and
+  // never answers. Before the budget, the ladder waited out the full per-attempt
+  // timeout — 25 s at one point, multiplied by three attempts, eight pooled keys and
+  // PlayHT's own ladder — which on a live call is not a slow response but dead air
+  // with the line still open.
+  reset({ attempt: "hang" });
+  const previousBudget = process.env.TTS_REQUEST_BUDGET_MS;
+  process.env.TTS_REQUEST_BUDGET_MS = "120";
+  const started = Date.now();
+  try {
+    const res = await post(REQ);
+    const elapsed = Date.now() - started;
+
+    // The caller hears the emergency cue, as 200 audio — never a 5xx, which would
+    // be the same silence with a worse log.
+    expect(res.status).toBe(200);
+    expect(res.source).toBe("emergency");
+    expect(res.degraded).toBe("true");
+    // The cue is served inside the budget, not after the vendor gave up.
+    expect(elapsed).toBeLessThan(3_000);
+    // The skip is recorded, per rung, where the audit can name it. The route does
+    // not await its audit append, so the entry is matched across the log rather
+    // than assumed to be the last one written.
+    // Exactly two vendor interactions: the primary attempt, then the local cue.
+    // No pooled key and no PlayHT call was started with no time left for it.
+    expect({
+      calls: [...calls],
+      hasBudgetSkip: audits.some((a) => JSON.stringify(a).includes("budget_exhausted")),
+      skippedRungs: (
+        JSON.parse(JSON.stringify(audits.at(-1))) as {
+          meta: { failed_rungs: Array<{ rung: string }> };
+        }
+      ).meta.failed_rungs.map((f) => f.rung),
+    }).toEqual({
+      calls: ["elevenlabs", "emergency:error"],
+      hasBudgetSkip: true,
+      skippedRungs: ["elevenlabs", "elevenlabs-pool", "playht"],
+    });
+  } finally {
+    if (previousBudget === undefined) delete process.env.TTS_REQUEST_BUDGET_MS;
+    else process.env.TTS_REQUEST_BUDGET_MS = previousBudget;
+  }
+});
 
 afterAll(() => {
   if (priorPlayhtVoice === undefined) delete process.env.PLAYHT_VOICE_ID;

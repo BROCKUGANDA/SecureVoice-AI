@@ -326,6 +326,28 @@ export const env = {
     return process.env.ELEVENLABS_API_BASE_URL ?? "https://api.elevenlabs.io";
   },
   /**
+   * How long the WHOLE TTS fallback ladder may take for one request, measured from
+   * the moment synthesis starts and enforced in `synthesizeWithLadder`.
+   *
+   * This is the value the ladder cannot exceed. `ttsTimeoutMs` bounds one attempt,
+   * and the ladder multiplies it: three egress attempts on the primary, up to eight
+   * pooled keys, three PlayHT attempts. Bounding only the attempt left the sum
+   * unbounded, which on a live call is not a slow response but dead air with the
+   * line still open.
+   *
+   * 10 s is deliberately generous — long enough that a healthy first or second rung
+   * always finishes inside it, short enough that a customer is never held in silence
+   * past the point where an emergency cue is the better answer. The clock stops the
+   * WAIT, not the vendor call: an attempt already in flight is abandoned rather than
+   * cancelled, so its cost is still paid. What the budget guarantees is the caller's
+   * latency, not the invoice.
+   */
+  get ttsRequestBudgetMs(): number {
+    const raw = Number(process.env.TTS_REQUEST_BUDGET_MS);
+    return Number.isFinite(raw) && raw > 0 ? raw : 10_000;
+  },
+
+  /**
    * Per-attempt TTS timeout. Default 6 s; overridable so a deployment can tighten it
    * further for voice SLAs or loosen it for high-latency links.
    *

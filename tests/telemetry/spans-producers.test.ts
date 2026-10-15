@@ -106,7 +106,9 @@ test("every declared span has a producer, or a named reason for not having one",
   // Nothing may be unproduced without being written down.
   const undeclaredGaps = unproduced.filter((s) => !(s in UNPRODUCED_WITH_REASON));
   // …and nothing may stay written down once its producer lands.
-  const staleGaps = Object.keys(UNPRODUCED_WITH_REASON).filter((s) => !unproduced.includes(s));
+  const staleGaps = (Object.keys(UNPRODUCED_WITH_REASON) as SpanName[]).filter(
+    (s) => !unproduced.includes(s),
+  );
 
   expect({ unproduced, undeclaredGaps, staleGaps }).toEqual({
     unproduced,

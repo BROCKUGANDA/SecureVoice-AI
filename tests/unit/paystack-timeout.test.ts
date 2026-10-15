@@ -44,7 +44,9 @@ test("a server-side verify carries an AbortSignal on the outgoing request", asyn
   const cfg = paystackConfig({
     secretKey: SECRET,
     http,
-    sleep: async () => {/* empty */},
+    sleep: async () => {
+      /* empty */
+    },
     rand: () => 0.5,
   });
 
@@ -81,7 +83,9 @@ test("the timeout is set on every attempt, not only the first", async () => {
   const cfg = paystackConfig({
     secretKey: SECRET,
     http,
-    sleep: async () => {/* empty */},
+    sleep: async () => {
+      /* empty */
+    },
     rand: () => 0.5,
   });
 

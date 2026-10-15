@@ -29,7 +29,11 @@ import { db } from "@/lib/db";
 import type { TtsLang } from "@/lib/elevenlabs/client";
 import { resolveTtsModel } from "@/lib/elevenlabs/client";
 import { markVoiceFailed } from "@/lib/elevenlabs/sms-fallback";
-import { DeepgramLiveClient, preconnectDeepgram } from "@/lib/voice/deepgram-client";
+import {
+  DeepgramLiveClient,
+  preconnectDeepgram,
+  type UtteranceEndEvent,
+} from "@/lib/voice/deepgram-client";
 import { withFirstChunkDeadline } from "@/lib/voice/first-audio-deadline";
 import { installProcessCrashHandlers } from "@/lib/process-crash-handlers";
 import {
@@ -151,6 +155,21 @@ type CallState = {
    * tests that build a bare CallState stay valid.
    */
   conv?: ConversationState;
+  /**
+   * The turn the two halves of `caller_stop_to_agent_audio` meet on: the caller's
+   * derived end-of-speech instant and this turn's first audio. See `CallerTurn`.
+   * Optional so the tests that build a bare CallState stay valid.
+   */
+  callerTurn?: CallerTurn;
+  /**
+   * The last caller-stop instant accepted, and the audio anchor it was derived from.
+   *
+   * Deepgram's offsets restart at zero on a new stream, so the pair is only
+   * comparable within one: it lets a second, replayed `UtteranceEnd` for an
+   * utterance already consumed be ignored, while a reconnect mid-call starts a fresh
+   * sequence rather than having every one of its stops refused forever.
+   */
+  callerStopFloor?: { anchorMs: number; stopMs: number };
   /**
    * The turn queue. Deepgram hands every final transcript to this worker as it
    * arrives, and a caller who speaks while the agent is still answering — or
@@ -448,6 +467,228 @@ function clearTwilioBuffer(ws: WebSocket): void {
   }
 }
 
+/* ───────────────── caller_stop_to_agent_audio: the join ───────────────── */
+
+/**
+ * The turn latency the caller actually HEARS, as two halves that do not arrive
+ * together.
+ *
+ * `answered_to_first_agent_word` starts when this worker received the caller's final
+ * transcript. That is not when the caller stopped talking — the ASR had to endpoint
+ * the utterance and deliver it first — so that span measures the agent's thinking
+ * time. This one measures the silence the customer waited through, which is the
+ * 1,500 ms budget the product publishes.
+ *
+ * The start half arrives LATE. Deepgram reports the end of speech in an
+ * `UtteranceEnd` message that follows the final transcript by `utterance_end_ms` of
+ * deliberate trailing silence, while the agent's first audio can land before or
+ * after that message depending on how fast synthesis was. So the turn holds both
+ * halves and records when — and only when — both are real. That is also what makes a
+ * second `UtteranceEnd` for one utterance, or a first-audio callback reached twice,
+ * add nothing.
+ *
+ * What it never does is fall back to the message's arrival time. Starting the span at
+ * the arrival would subtract `utterance_end_ms` from a published latency and report a
+ * faster product than the one the caller experienced — the exact class of fabrication
+ * this file family exists to refuse. A turn with no derived speech-end instant
+ * produces NO sample.
+ *
+ * Pairing: a stop joins the turn that is open when the message arrives, and a newer final
+ * transcript closes that slot the instant it lands (see the `onTranscript` handler).
+ * Deepgram delivers both in stream order, so the open turn is the right one. When the
+ * chain is jammed long enough for a caller's next utterance to finalise inside an earlier
+ * turn, the earlier turn simply loses its sample — which is the outcome chosen on
+ * purpose, because a stop from a later utterance joined to an earlier turn's audio can
+ * only come out SHORT, and short is the direction that flatters the product.
+ */
+type CallerTurn = {
+  /** Wall clock of the final transcript that opened this turn. */
+  openedAtMs: number;
+  /** Derived "the caller's last syllable ended here" instant, null until it is known. */
+  stoppedAtMs: number | null;
+  /** Wall clock of this turn's first audio frame, null until the agent starts talking. */
+  firstAudioAtMs: number | null;
+  /** Whether that audio came from the warm cache — the span's explainability attribute. */
+  cached: boolean | null;
+  /** A turn yields one sample or one refusal. Never a second of either. */
+  settled: boolean;
+};
+
+function beginCallerTurn(state: CallState, openedAtMs: number): CallerTurn {
+  const turn: CallerTurn = {
+    openedAtMs,
+    stoppedAtMs: null,
+    firstAudioAtMs: null,
+    cached: null,
+    settled: false,
+  };
+  state.callerTurn = turn;
+  return turn;
+}
+
+/**
+ * Map Deepgram's audio offset (`last_word_end`, ms from the start of this stream's
+ * audio) onto the wall clock, using the instant this process wrote the first frame of
+ * that stream.
+ *
+ * `stopMs: null` means "this message does not say when the caller stopped", and every
+ * branch of that is a sample NOT recorded rather than a guessed one:
+ *   • `no_audio_offset` — the field is absent or not a number;
+ *   • `finalised_before_silence` — Deepgram's documented `-1`, sent when the result
+ *     was finalised before the silence condition was met. It is a flag, not a time;
+ *     reading it as 0 would start the span at the beginning of the stream.
+ *   • `no_stream_anchor` — no audio frame has been accepted on this socket yet (a
+ *     pooled socket's UtteranceEnd arriving before the call ever piped audio, or a
+ *     reconnect), so the offset has nothing to be added to;
+ *   • `stop_after_message_arrival` — the derived instant is in the future relative to
+ *     the message carrying it, which can only mean the anchor belongs to a different
+ *     stream than the offset does.
+ */
+function deriveCallerStopMs(event: UtteranceEndEvent): {
+  stopMs: number | null;
+  anchorMs: number | null;
+  refusal: string | null;
+} {
+  const { lastWordEndMs, streamAudioStartedAtMs, receivedAtMs } = event;
+  const bad = (refusal: string) => ({ stopMs: null, anchorMs: streamAudioStartedAtMs, refusal });
+  if (typeof lastWordEndMs !== "number" || !Number.isFinite(lastWordEndMs))
+    return bad("no_audio_offset");
+  if (lastWordEndMs < 0) return bad("finalised_before_silence");
+  if (typeof streamAudioStartedAtMs !== "number" || !Number.isFinite(streamAudioStartedAtMs))
+    return bad("no_stream_anchor");
+  const stopMs = streamAudioStartedAtMs + lastWordEndMs;
+  if (!Number.isFinite(stopMs)) return bad("unrepresentable_instant");
+  if (stopMs > receivedAtMs) return bad("stop_after_message_arrival");
+  return { stopMs, anchorMs: streamAudioStartedAtMs, refusal: null };
+}
+
+/**
+ * An `UtteranceEnd` landed. Take its instant and hand it to the turn that is open.
+ *
+ * Runs off the transcript chain, deliberately: it starts no turn, speaks nothing and
+ * persists nothing — it records one timestamp. Chaining it behind the agent's
+ * synthesis would only delay the sample.
+ */
+function onCallerStopObserved(state: CallState, callSid: string, event: UtteranceEndEvent): void {
+  const turn = state.callerTurn;
+  // The slot is closed between a final transcript's arrival and the chain starting that
+  // turn (see the `onTranscript` handler), so a message landing in that window has no
+  // honest partner: the turn it would join is the PREVIOUS utterance's, and pairing them
+  // is how a short — flattering — sample gets written. Refused, and said out loud.
+  if (!turn) {
+    logWarn("[voice-stream] UtteranceEnd landed between turns; no sample recorded", {
+      callSid,
+      receivedAtMs: event.receivedAtMs,
+    });
+    return;
+  }
+  // This turn has already produced its sample or its refusal.
+  if (turn.settled) return;
+  // One stop per turn: Deepgram can deliver the message twice for one utterance, and
+  // the second one is not a second measurement.
+  if (turn.stoppedAtMs !== null) return;
+
+  const { stopMs, anchorMs, refusal } = deriveCallerStopMs(event);
+  if (stopMs === null) {
+    logError("[voice-stream] UtteranceEnd carries no usable speech-end instant", {
+      callSid,
+      refusal,
+      lastWordEndMs: event.lastWordEndMs,
+      receivedAtMs: event.receivedAtMs,
+    });
+    return;
+  }
+
+  // The caller cannot stop talking after the transcript of what they said has already
+  // arrived. A stop ahead of this turn belongs to a later utterance than the turn, and
+  // pairing it with this turn's audio would report a longer number than the customer
+  // waited through — still a lie, and one that punishes the product's own budget.
+  //
+  // What this guard CANNOT see, stated because the join has no shared key: the offset
+  // Deepgram reports and the transcript this turn opened from are on different clocks, so
+  // an `UtteranceEnd` for utterance N that arrives after turn N+1 has been opened passes
+  // this test (N's syllable does precede N+1's transcript) and is attributed to N+1. That
+  // sample then includes the caller's own N+1 speech and so is LONGER than the turn the
+  // customer experienced, while utterance N goes unmeasured. Over-reporting against a
+  // budget the product sets for itself is the conservative direction — it can fail us, not
+  // flatter us — and it is the residual of a join with no shared key: the transcript frame
+  // that opens a turn carries no audio offset, so nothing in what this worker receives can
+  // say which utterance a given `UtteranceEnd` belongs to.
+  if (stopMs > turn.openedAtMs) {
+    logError("[voice-stream] refused a caller stop that postdates its own turn", {
+      callSid,
+      stopMs,
+      turnOpenedAtMs: turn.openedAtMs,
+    });
+    return;
+  }
+
+  const floor = state.callerStopFloor;
+  const consumed = floor && anchorMs === floor.anchorMs ? floor.stopMs : Number.NEGATIVE_INFINITY;
+  if (stopMs <= consumed) {
+    // An offset already used on this stream: a replayed message for an utterance whose
+    // turn has gone. Not a refused measurement (that utterance had its chance), so it
+    // is reported at warn level and the count stays honest.
+    logWarn("[voice-stream] ignored a replayed or stale UtteranceEnd offset", {
+      callSid,
+      stopMs,
+      consumedStopMs: consumed,
+    });
+    return;
+  }
+
+  turn.stoppedAtMs = stopMs;
+  if (anchorMs !== null) state.callerStopFloor = { anchorMs, stopMs };
+  settleCallerTurn(callSid, turn);
+}
+
+/**
+ * Record the turn's sample once both halves exist, and refuse it loudly if the
+ * duration they imply is not a turn.
+ *
+ * Called from both halves, so whichever lands second writes the sample and every
+ * later call is a no-op. A half-open turn simply produces nothing: a call whose ASR
+ * never sent a usable `UtteranceEnd` has no measurement, which `slo.json` reports as
+ * `not_measured` — the honest verdict — rather than a number assembled from the
+ * instants that did arrive.
+ */
+function settleCallerTurn(callSid: string, turn: CallerTurn): void {
+  if (turn.settled) return;
+  const stopMs = turn.stoppedAtMs;
+  const audioMs = turn.firstAudioAtMs;
+  if (stopMs === null || audioMs === null) return;
+  // Claim the turn before deciding, so a refusal is final too and one turn can never
+  // emit two samples no matter how many times either half is reached.
+  turn.settled = true;
+
+  const durationMs = audioMs - stopMs;
+  const maxMs = env.voiceCallerStopMaxMs;
+  if (!Number.isFinite(durationMs) || durationMs < 0 || durationMs > maxMs) {
+    logError("[voice-stream] refused a caller_stop_to_agent_audio sample", {
+      callSid,
+      durationMs,
+      maxMs,
+      reason: durationMs < 0 ? "end_before_start" : "beyond_plausible_turn",
+      stoppedAtMs: stopMs,
+      firstAudioAtMs: audioMs,
+    });
+    return;
+  }
+
+  recordSpan({
+    span: "caller_stop_to_agent_audio",
+    startedAtMs: stopMs,
+    endedAtMs: audioMs,
+    attributes: {
+      cached: turn.cached ?? false,
+      // The configured trailing silence Deepgram waited out AFTER the caller's last
+      // syllable. Carried on the sample so a reader can confirm the span EXCLUDES it,
+      // instead of having to re-derive it from the deployment's environment.
+      utteranceEndMs: env.deepgramUtteranceEndMs,
+    },
+  });
+}
+
 async function handleTranscript(
   callSid: string,
   text: string,
@@ -484,6 +725,12 @@ async function handleTranscript(
   // Only route on final transcripts to avoid premature actions.
   if (!isFinal) return;
 
+  // One caller utterance = one turn, and one turn is the unit `caller_stop_to_agent_audio`
+  // is measured over. Opened HERE, before any of the branches below can return early: a
+  // turn that never reaches audio simply never records, which is the honest outcome,
+  // whereas a turn that was never opened could not pair with a stop even if one arrived.
+  const turn = beginCallerTurn(state, Date.now());
+
   // RULE 1 — customer speech is UNTRUSTED DATA, never instructions.
   //
   // The audit is the enforcement story here: this worker's router is a
@@ -515,12 +762,19 @@ async function handleTranscript(
     const waitStarted = Date.now();
     await safeTtsStream(state, ws, NEVER_ASK_LINE[state.lang] ?? NEVER_ASK_LINE.en, {
       onFirstAudio: ({ cached }) => {
+        const firstAudioAtMs = Date.now();
         recordSpan({
           span: "answered_to_first_agent_word",
           startedAtMs: waitStarted,
-          endedAtMs: Date.now(),
+          endedAtMs: firstAudioAtMs,
           attributes: { cached, backchannel: false, neverAsk: true },
         });
+        // The same instant closes the caller-experienced span for this turn: the
+        // never-ask line is a real answer to a real utterance, and the caller waited
+        // for it like any other.
+        turn.firstAudioAtMs ??= firstAudioAtMs;
+        turn.cached ??= cached;
+        settleCallerTurn(callSid, turn);
       },
     });
     conv?.onSpeechEnd();
@@ -563,12 +817,22 @@ async function handleTranscript(
 
   const onFirstAudio = ({ cached }: { cached: boolean }) => {
     clearTimeout(backchannelTimer);
+    const firstAudioAtMs = Date.now();
     recordSpan({
       span: "answered_to_first_agent_word",
       startedAtMs: waitStarted,
-      endedAtMs: Date.now(),
+      endedAtMs: firstAudioAtMs,
       attributes: { cached, backchannel: backchannelPlayed },
     });
+    // This very instant is also the END of `caller_stop_to_agent_audio`: the same
+    // first media frame of the same turn, measured from the caller's last syllable
+    // instead of from the transcript's arrival. `??=` keeps the first one, and
+    // `settleCallerTurn` records at most once per turn — so a turn whose audio is
+    // announced twice, and a turn whose UtteranceEnd arrives twice, each still
+    // contribute a single sample.
+    turn.firstAudioAtMs ??= firstAudioAtMs;
+    turn.cached ??= cached;
+    settleCallerTurn(callSid, turn);
   };
 
   const role: AgentRole = await routeAgentIntent(text);
@@ -884,6 +1148,16 @@ function createServer() {
       // Any inbound speech means the caller is alive: restart the dead-air
       // clock so a nudge never fires over someone mid-answer.
       if (!state.ended) armNudge();
+      // A new FINAL utterance closes the pairing slot for
+      // `caller_stop_to_agent_audio`: an `UtteranceEnd` still in flight belongs to the
+      // utterance that is now arriving, not to the turn this worker may still be
+      // finishing. Cleared HERE, on arrival, rather than inside the chained handler —
+      // because the whole risk of a jammed chain is pairing a later utterance's stop with
+      // an earlier turn's audio, and the only error that can produce is a SHORT one. A
+      // short sample is the direction that flatters the product, so the pairing is
+      // dropped and the turn records nothing. The turn for this transcript re-opens the
+      // slot the moment the chain starts it, in `handleTranscript`.
+      if (isFinal) state.callerTurn = undefined;
       // ONE TURN AT A TIME. Chained rather than started: see CallState.turnChain.
       // The rejection handler re-arms the nudge because a turn that threw is a
       // turn the customer never heard, and a call with no voice and no nudge is
@@ -897,6 +1171,29 @@ function createServer() {
           });
           if (!state.ended) armNudge();
         });
+    });
+
+    // The caller's end of speech, for the turn latency the caller actually hears.
+    //
+    // NOT chained onto `state.turnChain` the way transcripts are: this takes one
+    // timestamp and hands it to whatever turn is open — it starts no turn, speaks
+    // nothing, awaits nothing, so chaining it behind the agent's synthesis would only
+    // delay a sample. It is tolerant by construction of the two ways it can arrive
+    // uselessly: after the call ended (Deepgram's silence timer does not know the
+    // caller hung up, and `stop()` has cleared the listener by then) and on a pooled
+    // socket whose listeners were cleared when its call went elsewhere — both find no
+    // open turn and write nothing.
+    deepgram.onUtteranceEnd((event) => {
+      try {
+        onCallerStopObserved(state, callSid, event);
+      } catch (err) {
+        // A latency probe is never the reason a call stops transcribing. The client
+        // already guards its own listener loop; this is the belt for a defect inside it.
+        logError("[voice-stream] utterance-end handling failed", {
+          callSid,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
     });
 
     // The transcription socket's own fate, reported to the call.

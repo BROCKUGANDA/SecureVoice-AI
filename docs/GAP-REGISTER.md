@@ -802,6 +802,16 @@ bounds the whole ladder at 10 s; the test drives a primary that never answers an
 customer hears the cue in ~125 ms with all three skipped rungs named in the audit.
 Items 3-7 remain as written.
 
+**Update, 2026-10-16:** the table above is the snapshot as written and is left as it was.
+Two of its three `producer: none` rows are no longer true — `signal_received_to_ringing`
+(§15) and `caller_stop_to_agent_audio` (§17) both have producers with CI-driven samples, so
+the reasons at the end of item 4 are retired. Item 4's own subject (a CI-drivable producer
+for `answered_to_first_agent_word`) was already fixed and remains so. What item 4 still
+correctly refuses to claim is a LIVE voice sample: none of the three voice spans has an
+`live`-origin record, and the worker's ring still does not reach the artifact
+`scripts/emit-slo.ts` reads. `fraud_confirmed_to_webhook_delivered` is the one span left
+with no producer.
+
 ### 14. Published copy asserted things the tree does not do — **FIXED in code; 6 items left for the owner**
 
 Triggered by a business-model document that reproduced "~$0.05 cost / 66% gross margin" as
@@ -938,3 +948,69 @@ exactly the in-window case red, and the concurrency lesson from the first draft 
 assertions themselves (idempotence is claimed about _this_ case, because the sweep is
 deliberately fleet-wide and another process was legitimately creating eligible rows in
 the same database during development).
+
+### 17. The turn latency the caller hears got its producer — the last voice-plane promise with none
+
+`caller_stop_to_agent_audio` (p95 < 1,500 ms, `src/lib/telemetry/spans.ts:54`) was the
+third span in §13's table with `producer: none`, and the one whose absence was hardest to
+notice: the platform had a span named for the instant the caller stops talking, and no way
+to observe that instant. Deepgram reports it as `UtteranceEnd` / `last_word_end`, and the
+client never asked for the message — so the only event marking end-of-speech was the
+arrival of the final transcript, which is the START of `answered_to_first_agent_word` and
+is late by however long the vendor spent endpointing. Reusing it would have produced a
+number that is not the one published.
+
+What landed, and the two ways it could have been faked:
+
+- **`utterance_end_ms` on the listen URL, in ONE builder.** The URL existed twice — in
+  `preconnectDeepgram` (the pooled socket a call adopts) and in `open()` (per-call and
+  reconnect). Adding the parameter to one of them is the defect class this file family is
+  about: the edited path looks correct, and the calls that adopt a parked socket silently
+  produce nothing. `listenUrl()` is now the only place it is written, and
+  `tests/unit/deepgram-utterance-end.test.ts` asserts the pooled URL, the per-call URL, an
+  adopted pooled socket and a reconnect all carry it.
+- **The value can never reach Deepgram as zero.** Zero is the vendor's "do not send it",
+  so a mis-set knob would switch a published budget off while every code path still looked
+  instrumented. `env.deepgramUtteranceEndMs` is floored at 1,000 ms (Deepgram's own
+  guidance, and `interim_results=true` is already on both URLs), and an out-of-range value
+  falls back rather than reaching the vendor — an invalid query parameter fails the whole
+  listen request, which is a dead ASR leg on a live fraud call, not a degraded metric.
+- **The span starts at the syllable, not at the message.** `last_word_end` is an offset
+  from the start of the stream's audio; the client pairs it with the wall clock of the
+  FIRST frame the socket accepted (not the handshake: a parked socket can idle for seconds
+  before a call adopts it) and with the message's own arrival, and forwards all three.
+  `src/worker/voice-stream.ts` maps offset→clock and joins the result to the same
+  `onFirstAudio` instant `answered_to_first_agent_word` already closes.
+  `tests/unit/voice-stream-caller-stop.test.ts` fixes the silence wait at a known constant
+  and asserts the sample is exactly that many ms LONGER than the message-arrival gap —
+  mutation-proved: starting at the arrival fails it by 1,000 ms, and a replayed
+  `UtteranceEnd`, a turn with no reported stop, and an unmappable offset each add nothing.
+- **Refusals are loud, not silent.** `-1` (finalised before the silence condition), an
+  absent/non-numeric offset, a stream with no accepted audio yet, a message landing in the
+  window between two turns, an offset that postdates its own turn, a replayed offset on the
+  same stream, and a duration outside
+  `VOICE_CALLER_STOP_MAX_MS` (a stale anchor after a reconnect can imply minutes) record
+  NOTHING and log the reason at error level. A half-open turn produces no sample, which
+  `slo.json` reports as `not_measured` — the honest verdict — rather than assembling one
+  from the instants that did arrive.
+
+Still untrue, and said plainly: **there is no live sample.** Every record this producer
+makes is `harness`-origin, and the voice worker writes into its own process ring exactly
+as the `answered_to_first_agent_word` producer beside it does, so no turn sample reaches
+the JSONL `scripts/emit-slo.ts` reads until worker durability is wired. That is the next
+gap in this family, not a caveat about this one; the published copy from §14 stays as
+written because none of it claims a measured turn-taking figure.
+
+One imprecision is structural rather than fixed, and is written at the guard in
+`onCallerStopObserved`: the transcript that opens a turn carries no audio offset, so an
+`UtteranceEnd` for utterance N that arrives after turn N+1 has been opened is attributed to
+N+1. That sample contains the caller's own N+1 speech, so it is LONGER than the turn
+experienced and utterance N goes unmeasured — conservative against a budget the product
+sets for itself. Closing it needs a key that joins a transcript to the audio clock, and
+nothing in what this worker receives is one.
+
+Of §13's three unproduced spans, two now have producers (§15, this section).
+`fraud_confirmed_to_webhook_delivered` remains the one with a written reason and no code
+path: nothing persists the confirmation instant, so the only span measurable from existing
+columns would exclude our own decision time and understate the 2 s promise it exists to
+prove.

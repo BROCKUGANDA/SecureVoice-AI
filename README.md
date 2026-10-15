@@ -65,7 +65,7 @@ Today, when a bank's fraud engine flags a transaction, the case lands in a Tier�
 
 ## Features
 
-- 🎙️ **Streaming voice agent with barge-in** — the customer can interrupt the agent mid-sentence. Turn-taking latency is **not measured** (`caller_stop_to_agent_audio` has 0 samples in `evidence/latency/slo.json`), so no figure is quoted for it.
+- 🎙️ **Streaming voice agent with barge-in** — the customer can interrupt the agent mid-sentence. Turn-taking latency is now **instrumented** — the span starts at Deepgram's reported end of the caller's speech (the `UtteranceEnd` signal, requested on every live listen URL) and ends at the agent's first audio frame — but it has 0 samples in `evidence/latency/slo.json`, because no live call has been driven through it yet, so no figure is quoted for it. A turn whose end-of-speech cannot be derived honestly is refused and logged rather than estimated.
 - 🧭 **The Dynamic Prompt Router — five call categories.** `fact_finding`, `sensitive_case`, `b2b`, `routine` and `time_critical_fraud` each carry their own system prompt, state-machine rules and backend preconditions: routine calls are refused outside the permitted calling window and for numbers on the do-not-call registry; a B2B call can only ever produce a recommendation for human sign-off; only fraud verification may stage a protective action. Absent a category, a producer gets `time_critical_fraud` — the audited baseline, so legacy integrations keep exactly today's call. See [src/lib/call-categories.ts](src/lib/call-categories.ts).
 - 🏥 **Banks and insurers are both first-class** — one platform, two institution types: "your card" becomes "your policy", the protective action becomes a hold on the claim payout or policy change, the opening line and voicemail are institution-aware in all six languages, and the demo ships an insurer scenario.
 - 🤝 **Live human handoff** — the `warm_transfer` tool bridges the customer to a human specialist's phone **inside the same call**: the customer is never asked to hang up and re-dial, and the caller ID they see stays the institution's own published number throughout. With no specialist number configured it degrades — audited — to the specialist queue rather than dropping the call. That is the **shipped default**: `HUMAN_AGENT_PHONE` is empty in `.env.example`, and a bad number or a Twilio outage takes the same path. The queue's stated handoff ETA is **120 s** (`ETA_SECS`, `human-handoff/route.ts` and `warm-transfer/route.ts`) — not 30 seconds.
@@ -604,15 +604,15 @@ performance it never observed. Primary source: [`evidence/latency/slo.json`](evi
 computed by `scripts/emit-slo.ts` from spans the running platform recorded
 (`src/lib/telemetry/spans.ts` → `evidence/latency/spans.jsonl`).
 
-| Leg                                          | Budget          | Measured (committed artifact)           | Verdict                                                                   |
-| -------------------------------------------- | --------------- | --------------------------------------- | ------------------------------------------------------------------------- |
-| Risk signal received → accepted              | p95 < 300 ms    | p50 3,179 / p95 3,817 ms, 1,676 samples | ❌ measured — missed the budget                                           |
-| Signal accepted → provider accepted the call | p95 < 1,500 ms  | p50 1,980 / p95 3,401 ms, 1,676 samples | ❌ measured — missed the budget                                           |
-| Tool request → tool response                 | p95 < 300 ms    | p50 287 / p95 3,601 ms, 705 samples     | ❌ measured — missed the budget                                           |
-| Signal received → freeze **staged**          | p95 < 60,000 ms | p50 3,986 / p95 27,937 ms, 88 samples   | ✅ measured — met, and it ends at a staged freeze, **not** a conversation |
-| Signal received → ringing                    | p95 < 5,000 ms  | `not_measured` — no samples             | ⬜ not yet measured — the producer landed, no live call has used it yet   |
-| Answered → first agent word                  | p95 < 1,200 ms  | `not_measured` — no samples             | ⬜ not yet measured — the span has no producer                            |
-| Caller stops speaking → agent audio begins   | p95 < 1,500 ms  | `not_measured` — no samples             | ⬜ not yet measured — the span has no producer                            |
+| Leg                                          | Budget          | Measured (committed artifact)           | Verdict                                                                    |
+| -------------------------------------------- | --------------- | --------------------------------------- | -------------------------------------------------------------------------- |
+| Risk signal received → accepted              | p95 < 300 ms    | p50 3,179 / p95 3,817 ms, 1,676 samples | ❌ measured — missed the budget                                            |
+| Signal accepted → provider accepted the call | p95 < 1,500 ms  | p50 1,980 / p95 3,401 ms, 1,676 samples | ❌ measured — missed the budget                                            |
+| Tool request → tool response                 | p95 < 300 ms    | p50 287 / p95 3,601 ms, 705 samples     | ❌ measured — missed the budget                                            |
+| Signal received → freeze **staged**          | p95 < 60,000 ms | p50 3,986 / p95 27,937 ms, 88 samples   | ✅ measured — met, and it ends at a staged freeze, **not** a conversation  |
+| Signal received → ringing                    | p95 < 5,000 ms  | `not_measured` — no samples             | ⬜ not yet measured — the producer landed, no live call has used it yet    |
+| Answered → first agent word                  | p95 < 1,200 ms  | `not_measured` — no samples             | ⬜ not yet measured — the producer landed and CI drives it, no live sample |
+| Caller stops speaking → agent audio begins   | p95 < 1,500 ms  | `not_measured` — no samples             | ⬜ not yet measured — the producer landed and CI drives it, no live sample |
 
 Two consequences, stated plainly. **There is no measured time-to-contact:** no artifact in this
 repository records a ring, an answer, or the first word a customer hears, so nothing here claims

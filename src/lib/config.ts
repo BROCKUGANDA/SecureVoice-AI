@@ -509,9 +509,49 @@ export const env = {
   get deepgramTimeoutMs(): number {
     return numSetting("DEEPGRAM_TIMEOUT_MS", 30_000, 1_000);
   },
+  /**
+   * The silence Deepgram waits after the caller's last syllable before it sends the
+   * `UtteranceEnd` message (`utterance_end_ms` on the live listen URL).
+   *
+   * This is the knob `caller_stop_to_agent_audio` depends on. Without it the
+   * platform never receives an end-of-utterance signal at all — the request is
+   * never made, so the span has no start instant to measure from — which is the
+   * exact gap recorded in `tests/telemetry/spans-producers.test.ts`.
+   *
+   * Never zero. Zero is Deepgram's "disable this message" value, so a mis-set knob
+   * would turn a published latency budget off while every code path still looked
+   * instrumented: the silently-empty measurement this file family exists to
+   * prevent. The floor is therefore 1,000 ms, which is also what Deepgram's own
+   * guidance asks for (with `interim_results=true`, which both listen URLs already
+   * send). Out-of-range values fall back to the default rather than reaching the
+   * vendor, because an invalid query parameter fails the entire listen request —
+   * a dead ASR leg on a live fraud call, not a degraded metric.
+   */
+  get deepgramUtteranceEndMs(): number {
+    return numSetting("DEEPGRAM_UTTERANCE_END_MS", 1_000, 1_000, 10_000);
+  },
   /** Race timeout for the dev-backend ASR path. */
   get asrTimeoutMs(): number {
     return numSetting("ASR_TIMEOUT_MS", 30_000, 1_000);
+  },
+  /**
+   * Ceiling on a plausible `caller_stop_to_agent_audio` sample, in ms.
+   *
+   * That span joins two different clocks: an audio offset Deepgram reports
+   * (`last_word_end`) mapped onto this process's wall clock by the instant this
+   * process first wrote to the stream. A stale anchor — a reconnect mid-utterance,
+   * an adopted pooled socket, a message that belongs to a stream that no longer
+   * exists — can therefore yield a gap of minutes, and a 40 s "turn latency" is not
+   * a slow turn, it is a broken derivation. Refusing it and logging the reason
+   * above error level is worth more than a sample that would move the published
+   * p95 in whichever direction the artefact happened to point.
+   *
+   * Floored at 1 s so it cannot be configured to zero (a zero would switch the
+   * budget off while pretending to measure it) and capped at 60 s, which is the
+   * whole conversation-level budget this span sits inside.
+   */
+  get voiceCallerStopMaxMs(): number {
+    return numSetting("VOICE_CALLER_STOP_MAX_MS", 15_000, 1_000, 60_000);
   },
 
   /* ── Twilio runtime tunables ── */

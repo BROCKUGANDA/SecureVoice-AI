@@ -11,9 +11,11 @@
  *   caller_stop_to_agent_audio          — the turn latency the caller HEARS (1.5s)
  *   fraud_confirmed_to_webhook_delivered — the bank's own 2s webhook promise
  *
- * The first has since been produced (2026-10-16 — src/lib/telemetry/ringing.ts, driven
- * in CI by tests/e2e/signal-received-to-ringing.test.ts), and the two remaining stay
- * listed below with the reason each cannot be measured yet.
+ * The first two have since been produced (2026-10-16: `signal_received_to_ringing` by
+ * src/lib/telemetry/ringing.ts, driven in CI by tests/e2e/signal-received-to-ringing.test.ts;
+ * `caller_stop_to_agent_audio` by the Deepgram client's new `UtteranceEnd` half and the
+ * worker's turn join, driven in CI by tests/unit/voice-stream-caller-stop.test.ts). The
+ * one that remains is listed below with the reason it cannot be measured yet.
  *
  * Two of those are the voice engine's headline promises. They were unmeasured, which
  * means "the voice engine is degraded" was an unfalsifiable claim in both directions:
@@ -115,21 +117,56 @@ const UNPRODUCED_WITH_REASON: Record<string, string> = {
   // ARRIVES (a Case column set at intake, or the idempotency claim carrying
   // the caseRef so its pre-gate `createdAt` becomes joinable) — until one
   // exists, recording this span means faking its start.
-  // Verified against src/lib/voice/deepgram-client.ts: its message handler
-  // parses exactly `channel.alternatives[0].transcript` + `is_final`, and its
-  // listen URL does not request `utterance_end_ms` — so Deepgram's own
-  // end-of-speech signal (the `UtteranceEnd` message, or the Results `speech`
-  // boundary) is never surfaced. The worker sees only `onTranscript` plus
-  // socket death/reconnect, which is why the span below stays open: measuring
-  // from the final transcript would start the clock LATE (after the ASR's
-  // endpointing silence) and duplicate `answered_to_first_agent_word`, whose
-  // producer is now driven in CI by tests/unit/voice-stream-first-agent-word.test.ts.
-  caller_stop_to_agent_audio:
-    "the instant the caller stops talking is an ASR endpointing artefact, not an event the Media " +
-    "Streams worker receives: the Deepgram client surfaces no UtteranceEnd (its listen URL does " +
-    "not even request utterance_end_ms) and handles only transcript + is_final. Adding " +
-    "onUtteranceEnd to src/lib/voice/deepgram-client.ts is the real fix; this span then starts " +
-    "there and ends on the same first-audio callback `answered_to_first_agent_word` already uses.",
+  // ── RETIRED 2026-10-16: `caller_stop_to_agent_audio` is no longer unproduced. ──
+  // The reasoning below was correct when it was written, and it named the one missing
+  // half: the client never asked for Deepgram's end-of-utterance signal, so "the instant
+  // the caller stops talking" was not an event this platform received. It is now.
+  // Producer: `onUtteranceEnd` in src/lib/voice/deepgram-client.ts, which requests
+  // `utterance_end_ms` on BOTH listen URLs (pooled and per-call — the two copies of the
+  // URL are why this span was ever invisible) and carries `last_word_end` next to the
+  // wall clock of the first audio frame of that stream; and src/worker/voice-stream.ts,
+  // which maps the offset onto that clock and joins the result to the same `onFirstAudio`
+  // instant `answered_to_first_agent_word` already closes, at most once per turn.
+  // CI drives it in tests/unit/voice-stream-caller-stop.test.ts, whose central assertion
+  // is the one the original note warned about: `utterance_end_ms` is a wait Deepgram adds
+  // AFTER speech ends, so a span started at the message's arrival subtracts that wait from
+  // a published latency and inflates the product's own numbers. The test fixes the wait at
+  // a known constant and asserts the sample is exactly that much LONGER than the
+  // arrival-gap. A replayed UtteranceEnd, a message that lands between turns (joining an
+  // in-flight stop to the turn still finishing can only come out SHORT), and a turn whose
+  // audio arrives with no reported stop each add nothing, and an offset that cannot be
+  // mapped honestly (-1, absent, no
+  // stream anchor, or stale enough to make the "turn" outlast the call) records nothing and
+  // logs the reason at error level.
+  // That file drives the worker through a FAKE client, which can be handed an anchor it
+  // never stamped. tests/unit/deepgram-utterance-end.test.ts is the half that proves the
+  // production module asks for the message at all: the configured `utterance_end_ms` on
+  // the per-call URL, the pooled URL and a reconnect; `UtteranceEnd` delivered even though
+  // it carries no transcript to survive the `if (!transcript) return` below it; the anchor
+  // taken from the first frame the socket ACCEPTED rather than the handshake, and
+  // re-baselined by a reconnect; `-1` and an absent offset forwarded rather than read as
+  // zero; and `stop()` untying the listener before Deepgram's silence timer can fire into
+  // a torn-down call.
+  //
+  // What REMAINS untrue, stated rather than smoothed over: this span has no live sample.
+  // `evidence/latency/slo.json` still reports the leg `not_measured`, README still
+  // declines to quote a turn-taking figure, and the only samples the plane can make today
+  // are `harness`-origin. Two things are still open: a real call has to happen (the
+  // calling window and vendor quota gate that, as they always did), and the voice worker
+  // records into its own process ring — exactly as the `answered_to_first_agent_word`
+  // producer beside it does — so even a live turn's sample does not reach the JSONL
+  // `scripts/emit-slo.ts` reads until worker durability is wired. That is unchanged here,
+  // and it is the next gap in this file family rather than a caveat about this one.
+  //
+  // Original note, for the record — verified 2026-10-15 against
+  // src/lib/voice/deepgram-client.ts: its message handler parsed exactly
+  // `channel.alternatives[0].transcript` + `is_final`, and its listen URL did not request
+  // `utterance_end_ms`, so Deepgram's end-of-speech signal (the `UtteranceEnd` message, or
+  // the Results `speech` boundary) was never surfaced. The worker saw only `onTranscript`
+  // plus socket death/reconnect, which is why measuring from the final transcript was
+  // refused: it would start the clock LATE (after the ASR's endpointing silence) and
+  // duplicate `answered_to_first_agent_word`, whose producer is driven in CI by
+  // tests/unit/voice-stream-first-agent-word.test.ts.
   fraud_confirmed_to_webhook_delivered:
     'nothing persists the confirmation instant today (`outcome: "fraud_confirmed"' +
     " is recorded in `src/app/api/webhooks/route.ts`, and the bank event starts from its own " +

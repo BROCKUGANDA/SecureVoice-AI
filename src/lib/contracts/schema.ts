@@ -1138,21 +1138,6 @@ export const ERROR_CODES: readonly ErrorCodeEntry[] = [
       "Ask your SecureVoice contact to add the country to your org allowlist. It is a configuration change, not a payload change.",
   },
   {
-    id: "gate_cooldown",
-    status: 409,
-    code: null,
-    literal: "cooldown",
-    surface: "http_message",
-    envelope: "failure_envelope_v1",
-    reachedFrom: [INGEST],
-    envelopeCode: "policy_precondition",
-    retryable: true,
-    meaning:
-      "That destination was dialled too recently for this org. `code` is `policy_precondition`, whose envelope-level `retryable` is false — because an IMMEDIATE retry is wrong — while this row is `retryable: true`, because a DELAYED retry past the cooldown window is exactly right. The two flags answer different questions and this is the canonical example of why they must not be conflated.",
-    remediation:
-      "Retry after the cooldown window. Do not switch `transaction_ref` to evade it — the cooldown is per destination, by design, and that is the toll-fraud control.",
-  },
-  {
     id: "gate_transaction_repeat",
     status: 409,
     code: null,
@@ -1213,17 +1198,49 @@ export const ERROR_CODES: readonly ErrorCodeEntry[] = [
       "Retry the identical request with the SAME `Idempotency-Key` after a short delay. It will then receive the stored response with `X-Idempotent-Replay: true` instead of dialling again. Do NOT retry with a new key: a fresh key is a fresh signal and will place a second call, which is the exact toll-fraud failure this claim exists to prevent.",
   },
   {
-    id: "gate_concurrency_cap",
+    id: "gate_invalid_call_category",
     status: 409,
     code: null,
-    literal: "concurrency_cap",
+    literal: "invalid_call_category",
+    surface: "http_message",
+    envelope: "failure_envelope_v1",
+    reachedFrom: [INGEST],
+    envelopeCode: "policy_precondition",
+    retryable: false,
+    meaning:
+      "`call_category` is not one of the declared categories, so the compliance gate cannot decide which regulatory preconditions apply to the call and refuses to guess. The category is what turns the do-not-call registry, the calling window and the Salah window on or off, so an unrecognised value is not a loose label — it is an unclassifiable call.",
+    remediation:
+      "Send one of the documented `call_category` values. Do not retry the identical payload: it will be refused again for the same reason.",
+  },
+  {
+    id: "gate_redaction_mismatch",
+    status: 409,
+    code: null,
+    literal: "redaction_mismatch",
+    surface: "http_message",
+    envelope: "failure_envelope_v1",
+    reachedFrom: [INGEST],
+    envelopeCode: "policy_precondition",
+    retryable: false,
+    meaning:
+      "The redaction backstop found the destination phone number still present inside the signal's `redacted_text`, so the payload would have been persisted unredacted. This is a data-protection refusal, not a capacity one: it names a producer-side redaction step that is missing or misconfigured, and nothing downstream can honour a privacy promise the inbound payload already broke.",
+    remediation:
+      "Fix the redaction in the sender before re-sending; the cause is upstream of this API. Retrying the same payload is refused again by design — the alternative is storing a customer's number in clear.",
+  },
+  {
+    id: "gate_prayer_time",
+    status: 409,
+    code: null,
+    literal: "prayer_time",
     surface: "http_message",
     envelope: "failure_envelope_v1",
     reachedFrom: [INGEST],
     envelopeCode: "policy_precondition",
     retryable: true,
-    meaning: "This org is already at its simultaneous-call cap.",
-    remediation: "Retry with jitter. This is capacity, not a rejection of the case.",
+    meaning:
+      "A non-critical intervention was paused inside the local Salah window. `time_critical_fraud` is exempt and is never refused this way, because a card verification that waits is the harm this product exists to prevent; a collections or routine call landing during prayer is an inconvenience the customer cannot politely opt out of. The envelope's `retryable` stays false because an immediate retry hits the same window; this row is `retryable: true` because a DELAYED retry after it closes is correct.",
+    remediation:
+      "Retry after the window closes, or let the dial worker park the job to the next permitted instant. Do not re-categorise the call as fraud to route around it — the exemption exists for genuine fraud, and the audit records the category.",
   },
   {
     id: "gate_spend_ceiling",
@@ -1449,8 +1466,9 @@ export const ERROR_CODES: readonly ErrorCodeEntry[] = [
     envelopeCode: "policy_precondition",
     retryable: true,
     meaning:
-      "The minimum interval between two dials to the same destination has not elapsed (abuse gate).",
-    remediation: "Retry after the cooldown.",
+      "That destination was dialled too recently for this org (abuse gate). `code` is `policy_precondition`, whose envelope-level `retryable` is false — because an IMMEDIATE retry is wrong — while this row is `retryable: true`, because a DELAYED retry past the cooldown window is exactly right. The two flags answer different questions and this is the canonical example of why they must not be conflated.",
+    remediation:
+      "Retry after the cooldown window. Do not switch `transaction_ref` to evade it — the cooldown is per destination and per org, by design, and that is the toll-fraud control.",
   },
   {
     id: "gate_org_concurrency_cap",

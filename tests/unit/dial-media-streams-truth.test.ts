@@ -18,6 +18,8 @@
  * exist.
  */
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
+import * as realCaseState from "@/lib/case-state-machine";
+import * as realFlags from "@/lib/flags";
 
 type CallResult =
   | { ok: true; sid: string; status: string; from?: string }
@@ -68,6 +70,14 @@ mock.module("@/lib/elevenlabs/outbound-call", () => ({
 }));
 
 mock.module("@/lib/flags", () => ({
+  // Spread the real module and override the one function this file cares about.
+  // `mock.module` REPLACES the whole module, and the worker's import graph grows:
+  // when `maybeSweep` gained the escalation ladder it pulled in
+  // `@/lib/notifications` → `@/lib/realtime`, which reads `realtimeConfigured` from
+  // here — and a mock listing one export turned that into a SyntaxError at import
+  // time, failing the file before a single assertion ran. Listing what the graph
+  // needs today is the fragile version of this; forwarding the real surface is not.
+  ...realFlags,
   flag: (name: string) => (name === "twilioMediaStreams" ? mediaStreamsOn : false),
 }));
 
@@ -98,6 +108,12 @@ mock.module("@/lib/institution", () => ({
 }));
 
 mock.module("@/lib/case-state-machine", () => ({
+  // Same reason as the `@/lib/flags` mock above: the worker's graph now reaches this
+  // module through `src/lib/freeze-window.ts` as well, and that path imports
+  // `IllegalTransitionError`. A single-export mock turns a new import edge into a
+  // SyntaxError before any assertion runs, so the real surface is forwarded and only
+  // the recorder is replaced.
+  ...realCaseState,
   transitionCase: async (caseRef: string, _to: string, data: Record<string, unknown>) => {
     transitions.push({ caseRef, data });
     return { caseRef, ...data };

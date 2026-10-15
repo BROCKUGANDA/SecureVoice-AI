@@ -681,36 +681,125 @@ export function assertFieldName(field: unknown): string {
 }
 
 // ── Policy refusals ───────────────────────────────────────────────────────────
+//
+// Three gates refuse a dial with a machine-readable cause, and all three causes are
+// the same CLASS of "no": a decision, not a fault, cleared by nothing the caller can
+// pay for. They therefore share one accepted vocabulary and one status.
+//
+// The vocabulary is listed exhaustively on purpose: an unmapped code is a bug, and
+// the correct response to a bug in the refusal path is a loud `RangeError` at the
+// boundary — never a 500 dressed up as a policy answer, and never a silent 200.
+//
+// "Exhaustively" is checked against the emitting sources by
+// `tests/unit/policy-refusal-codes.test.ts` rather than taken from these lists' own
+// word, because the claim was false when it was written: `transaction_repeat`,
+// `do_not_call` and `outside_calling_hours` were all emitted by the policy gate and
+// none was declared. No route happened to call `policyRefusal` at the time either —
+// ingest built its own 409 — which is the only reason that was never a production
+// incident: the first caller to use the sanctioned constructor for "the gate said
+// no" would have taken a `RangeError` on a routine duplicate refusal, and a thrown
+// error at that boundary surfaces as a 500 telling the bank to retry a decision that
+// will be refused again.
+//
+// `src/app/api/v1/interventions/route.ts` now does call them, for exactly the two
+// branches whose membership in these sets it has already decided. The throw is then
+// a live tripwire rather than a theoretical one: if the classification above this
+// comment is ever reordered so an undeclared code reaches the constructor, ingest
+// fails in a test instead of mislabelling a refusal on the wire.
 
 /**
- * The refusal codes `policy-gate.ts` emits. Listed exhaustively on purpose: an
- * unmapped code is a bug, and the correct response to a bug in the refusal path
- * is a loud `RangeError` at the boundary — never a 500 dressed up as a policy
- * answer, and never a silent 200.
+ * The refusal causes `src/lib/policy-gate.ts` returns.
  *
- * "Exhaustively" is checked against the gate's source by
- * `tests/unit/policy-refusal-codes.test.ts` rather than taken from this list's
- * own word, because the claim was false when it was written: `transaction_repeat`,
- * `do_not_call` and `outside_calling_hours` were all emitted by the gate and none
- * was declared. No route happens to call `policyRefusal` today — ingest builds its
- * own 409 — which is the only reason that was never a production incident: the
- * first caller to use the sanctioned constructor for "the gate said no" would have
- * taken a `RangeError` on a routine cooldown/duplicate refusal, and a thrown error
- * at that boundary surfaces as a 500 telling the bank to retry a decision that
- * will be refused again.
+ * `cooldown` and `concurrency_cap` used to be here. They are not anymore, because
+ * the gate steps that emitted them read two in-memory maps that no production code
+ * ever wrote — `recordCallPlacement()` had no caller — so neither check could ever
+ * fire, and the two codes were a documented refusal the server physically could not
+ * return. The live destination-cooldown and concurrency causes are the abuse gate's,
+ * declared in `ABUSE_REFUSAL_CODES` below, and documented in the catalog at their
+ * own literals.
  */
-export const POLICY_REFUSAL_CODES = [
+const POLICY_GATE_REFUSAL_CODES = [
   "consent_invalid",
   "do_not_call",
   "transaction_repeat",
   "outside_calling_hours",
   "country_unparseable",
   "country_not_allowed",
-  "cooldown",
-  "concurrency_cap",
   "spend_ceiling",
   "subscription_paused",
 ] as const;
+
+/**
+ * The refusal causes the abuse gate emits — `src/lib/abuse/guards.ts` plus the
+ * `GeoRejectReason` / `TierRejectReason` / `VelocityRejectReason` vocabularies it
+ * composes.
+ *
+ * These were never declared anywhere, and the symptom was live on the bank-facing
+ * path: ingest classifies a thrown refusal against the declared sets
+ * (`src/app/api/v1/interventions/route.ts`) and logs
+ * "refusal code is in neither declared set" when it matches none of them, so EVERY
+ * geography, tier, velocity, cooldown and cap refusal tripped that warning while the
+ * response itself was a perfectly correct 409. A warning that fires on every routine
+ * refusal is a warning nobody reads, which is exactly when a genuinely unclassified
+ * code would slip past it.
+ *
+ * The set is checked against the gate's source in both directions by
+ * `tests/unit/policy-refusal-codes.test.ts`, the same discipline that caught three
+ * undeclared codes on the policy side.
+ */
+export const ABUSE_REFUSAL_CODES = [
+  "invalid_e164",
+  "country_unresolvable",
+  "country_denied",
+  "destination_prefix_denied",
+  "geo_allowlist_unconfigured",
+  "geo_allowlist_misconfigured",
+  "demo_tier_requires_test_number",
+  "test_number_list_empty",
+  "org_auto_paused",
+  "velocity_new_prefix_burst",
+  "velocity_burst_rate",
+  "velocity_after_hours",
+  "destination_cooldown",
+  "org_concurrency_cap",
+  "global_concurrency_cap",
+  "guard_internal_error",
+] as const;
+export type AbuseRefusalCode = (typeof ABUSE_REFUSAL_CODES)[number];
+
+/**
+ * The refusal causes `src/lib/compliance/gate.ts` emits.
+ *
+ * `outside_calling_hours` is emitted by BOTH this gate and the policy gate and is
+ * declared once, in the policy list above. The other three were undocumented in the
+ * catalog entirely — a bank-facing 409 whose cause no contract row explained.
+ *
+ * Why the set matters at all is the classifier in
+ * `src/app/api/v1/interventions/route.ts`: a thrown gate code is looked up in this
+ * list, and a miss logs "refusal code is in neither declared set" on a response
+ * whose STATUS was already right. The classification was wrong even where the
+ * answer was not.
+ */
+export const COMPLIANCE_REFUSAL_CODES = [
+  "invalid_call_category",
+  "redaction_mismatch",
+  "prayer_time",
+] as const;
+export type ComplianceRefusalCode = (typeof COMPLIANCE_REFUSAL_CODES)[number];
+
+const refusalUnion = [
+  ...POLICY_GATE_REFUSAL_CODES,
+  ...ABUSE_REFUSAL_CODES,
+  ...COMPLIANCE_REFUSAL_CODES,
+];
+
+/**
+ * Every 409-class refusal cause the ingest path can surface, from all three gates.
+ * `policyRefusal` accepts exactly this set and nothing else.
+ */
+export const POLICY_REFUSAL_CODES = refusalUnion.filter(
+  (code, index) => refusalUnion.indexOf(code) === index,
+);
 export type PolicyRefusalCode = (typeof POLICY_REFUSAL_CODES)[number];
 
 /**

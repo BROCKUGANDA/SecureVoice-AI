@@ -123,6 +123,7 @@ describe("authorization coverage", () => {
       // reads inside `withTenantScope`, so the database decides which rows exist
       // rather than a `where` clause someone can forget. GET only; exercised by
       // tests/tenancy/console-analytics.test.ts.
+      "/api/console/abuse",
       "/api/console/analytics",
       "/api/console/audit",
       "/api/console/crm",

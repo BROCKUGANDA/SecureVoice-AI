@@ -552,7 +552,7 @@ export async function onCheckoutComplete(input: {
   /** What the browser *claimed*. Recorded for the audit trail, never trusted. */
   claimedStatus?: string | null;
 }): Promise<
-  | { ok: true; settled: boolean; reason?: "already_settled" }
+  | { ok: true; settled: boolean; reason?: "already_settled" | "settlement_not_recorded" }
   | {
       ok: false;
       reason:
@@ -599,6 +599,12 @@ export async function onCheckoutComplete(input: {
     purpose: parsed.purpose,
   });
   if (!settled.applied) return { ok: true, settled: false, reason: "already_settled" };
+  // Not recorded is not "finished". Reported as not-settled so the caller
+  // re-enters: the duplicate guard credits nothing on the second pass and the
+  // audit append is attempted again. `auditMoney` has already logged the loss
+  // and `sv_audit_append_failures_total` has counted it either way.
+  if (!settled.auditRecorded)
+    return { ok: true, settled: false, reason: "settlement_not_recorded" };
   return { ok: true, settled: true };
 }
 

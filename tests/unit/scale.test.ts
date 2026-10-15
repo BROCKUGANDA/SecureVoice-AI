@@ -1707,7 +1707,7 @@ describe("drainDialQueue — the accounting contract", () => {
     await seed({ caseId: "a" });
     const out = await drainDialQueue({
       workerId: "w1",
-      // eslint-disable-next-line @typescript-eslint/only-throw-error
+       
       handler: async () => {
         // eslint-disable-next-line no-throw-literal -- a non-Error throw is the case under test: the worker must treat it as a crash, not as success
         throw "a string";

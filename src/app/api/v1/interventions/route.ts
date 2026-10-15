@@ -23,8 +23,11 @@ import { admitOrDegrade } from "@/lib/admission";
 import { markVoiceFailed } from "@/lib/elevenlabs/sms-fallback";
 import {
   BILLING_REFUSAL_CODES,
+  billingRefusal,
   makeFailure,
   POLICY_REFUSAL_CODES,
+  policyRefusal,
+  type Failure,
   type FailureCode,
   type FailureInit,
 } from "@/lib/failures/envelope";
@@ -51,12 +54,16 @@ import { interventionAccepted, interventionRefused, riskBand } from "@/lib/analy
  * correlation id to quote in a support ticket.
  */
 
-function failure(code: FailureCode, init: FailureInit = {}): NextResponse {
-  const f = makeFailure(code, init);
+/** Render an already-built Failure with this endpoint's cache discipline. */
+function respond(f: Failure): NextResponse {
   return NextResponse.json(f.body, {
     status: f.status,
     headers: { ...f.headers, "Cache-Control": "no-store" },
   });
+}
+
+function failure(code: FailureCode, init: FailureInit = {}): NextResponse {
+  return respond(makeFailure(code, init));
 }
 export const dynamic = "force-dynamic";
 
@@ -277,6 +284,31 @@ export async function POST(req: NextRequest) {
   if (combined[0]?.idem_response) {
     try {
       const stored = JSON.parse(combined[0].idem_response);
+      // Recorded, not just answered. A replay is the platform declining to place
+      // a second fraud call on a signal it already acted on — the exact claim a
+      // customer complaint ("your bank called me twice") turns on. The money path
+      // records its replays (`payment_settlement_replay`); a case path that
+      // silently swallowed them would make the duplicate-dial guard the only
+      // unproven control on this surface.
+      //
+      // Fire-and-forget and bounded by the `ingest` rate limiter above, so a
+      // bank hammering one key cannot use the audit writer as its mailbox.
+      void auditAppend(
+        {
+          callRef:
+            typeof stored.envelope?.caseRef === "string" ? stored.envelope.caseRef : "IDEM-REPLAY",
+          action: "freeze",
+          intent: "signal_replay",
+          callerId: effectiveCallerId,
+          meta: {
+            transactionRef: signal.transaction_ref,
+            idempotencyKeyHash: idemHash.slice(0, 16),
+            orgId: orgId ?? undefined,
+          },
+          ...(orgId ? { orgId } : {}),
+        },
+        { fast: true },
+      ).catch(() => {});
       return NextResponse.json(
         { ...stored.envelope, duplicate: true },
         { status: 202, headers: { "Cache-Control": "no-store", "X-Idempotent-Replay": "true" } },
@@ -382,13 +414,15 @@ export async function POST(req: NextRequest) {
     // Complete the CLAIM we already own rather than inserting a second row: an
     // INSERT here would collide with our own claim. Still deferred so it never
     // competes with the next signal's combined check for a pooled connection.
-    setImmediate(() => {
-      void db.$executeRaw`
-          UPDATE "IdempotencyKey"
-          SET response = ${JSON.stringify({ envelope })}, "statusCode" = 202
-          WHERE id = ${claimId}
-        `.catch(() => {});
-    });
+    //
+    // Deferred is not the same as unreported. A claim whose completion write
+    // fails keeps `response = ''` for the full 24-hour TTL, and every later
+    // delivery on that key is then refused as "in flight" while the case it
+    // refers to has long since dialled — an author whose only evidence is a
+    // `.catch(() => {})` cannot tell that state from one that never happened.
+    // Retried on the theory that a dropped write to a remote pooler is usually
+    // transient, and named in the log when it is not.
+    void completeClaim(claimId, envelope);
     // Latency instrumentation (WP-7). Two spans, both measured on real
     // executions of this path — never synthesised:
     //   signal received -> accepted            (target 300 ms)
@@ -449,18 +483,31 @@ export async function POST(req: NextRequest) {
         // the one thing the caller branches on.
         logWarn("[v1/interventions] refusal code is in neither declared set", { code });
       }
-      // Three explicit branches rather than a nested ternary, because the
-      // published contract catalog proves itself against this source by looking for
-      // `failure("<code>")`. A code that only ever appears inside an expression is
-      // undocumented as far as that gate is concerned — which is precisely the kind
-      // of drift it exists to catch, so the expression form was the wrong trade.
+      // The published contract wants the cause inside `message`, as
+      // "<literal>: <detail>", so the prefix is built once here rather than in
+      // each branch. The detail falls back to the code itself above, so a refusal
+      // with no message still names its cause.
+      const cause = `${code}: ${detail}`;
+      // A code the catalog has classified goes through the sanctioned constructor
+      // for its class. That is not decoration: both constructors THROW on a code
+      // outside their declared set, so a refusal whose class has not been decided
+      // cannot quietly arrive at the bank as 409 "policy" or 402 "pay and we
+      // will" — it surfaces at the boundary as the bug it is. The membership
+      // checks above are what make that throw unreachable in production, which is
+      // the point of putting it here rather than trusting the checks.
       if (isBilling) {
-        return failure("payment_required", { detail: `${code}: ${detail}` });
+        return respond(billingRefusal({ ok: false, code, reason: cause }));
       }
       if (status >= 400 && status < 500) {
-        return failure("policy_precondition", { detail: `${code}: ${detail}` });
+        if (isPolicy) {
+          return respond(policyRefusal({ ok: false, code, reason: cause }));
+        }
+        // Unclassified 4xx: still a decision, still 409, and the warning above is
+        // the record that its class was never decided. It cannot go through
+        // `policyRefusal`, which refuses to render an undeclared code at all.
+        return failure("policy_precondition", { detail: cause });
       }
-      return failure("dependency_unavailable", { detail: `${code}: ${detail}` });
+      return failure("dependency_unavailable", { detail: cause });
     }
     logError("[v1/interventions] arming failed", {
       error: err instanceof Error ? err.message : String(err),
@@ -1012,6 +1059,39 @@ async function armAndDial(
   // gate boundary, and so it is never serialised into the 202 a bank receives
   // nor into the stored idempotent replay response.
   return { envelope, acceptedAt };
+}
+
+/**
+ * Write the response onto the claim this request owns.
+ *
+ * Not awaited by the handler: the bank is waiting on a 202 inside a 300 ms
+ * intake budget, and this row only decides what a *later* retry is told. Bounded
+ * retries then a named failure — the alternative is a claim silently parked in
+ * "in flight" for a day.
+ */
+const CLAIM_COMPLETION_ATTEMPTS = 3;
+
+async function completeClaim(claimId: string, envelope: Record<string, unknown>): Promise<void> {
+  for (let attempt = 1; attempt <= CLAIM_COMPLETION_ATTEMPTS; attempt++) {
+    try {
+      await db.$executeRaw`
+          UPDATE "IdempotencyKey"
+          SET response = ${JSON.stringify({ envelope })}, "statusCode" = 202
+          WHERE id = ${claimId}
+        `;
+      return;
+    } catch (err) {
+      if (attempt === CLAIM_COMPLETION_ATTEMPTS) {
+        logError("[v1/interventions] idempotency claim never completed", {
+          claimId,
+          caseRef: typeof envelope.caseRef === "string" ? envelope.caseRef : "",
+          error: err instanceof Error ? err.message : String(err),
+        });
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, attempt * 200));
+    }
+  }
 }
 
 /** Discovery: what producers need to know to integrate. */

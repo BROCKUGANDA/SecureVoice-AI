@@ -2329,8 +2329,7 @@ describe("WP-21 / timeout discipline", () => {
 // ════════════════════════════════════════════════════════════════════════════════
 describe("WP-21 / negative control — a policy refusal is 409 and NEVER 500", () => {
   test("every refusal the real runPolicyGate can emit maps to 409", async () => {
-    const { runPolicyGate, recordCallPlacement, releaseCallPlacement } =
-      await import("@/lib/policy-gate");
+    const { runPolicyGate } = await import("@/lib/policy-gate");
     const base = { orgId: "org-wp21", caseRef: "SV-WP21-NC", callerId: "operator-wp21" };
 
     /** Drive one refusal and prove the envelope refuses to make it a 500. */
@@ -2377,36 +2376,106 @@ describe("WP-21 / negative control — a policy refusal is 409 and NEVER 500", (
       "country_not_allowed",
       await runPolicyGate({ ...base, phone: "+33600000000", consentRecordId: "consent-record-1" }),
     );
-    // 4. Destination is in cooldown.
-    const coolPhone = "+971500000004";
-    recordCallPlacement("org-wp21", coolPhone);
+    // 4. Destination in cooldown, and 5. the org concurrency cap.
+    //
+    //    These two used to be manufactured: the test called `recordCallPlacement()`
+    //    to fill the policy gate's in-memory maps, then asserted the gate refused.
+    //    No route ever called that writer, so in production the maps were always
+    //    empty, neither refusal could ever fire, and the green proved only that a
+    //    private map can be filled by the test that reads it.
+    //
+    //    Both causes now come from the abuse gate, which writes its OWN state on the
+    //    real dial path: `reserveDial()` stamps the destination cooldown and takes
+    //    the slot in one synchronous step. The refusals below are therefore produced
+    //    by state the preceding ALLOWED dial legitimately created, through the same
+    //    entry point a route uses.
+    const { assertDialAllowed, releaseDialSlot, resetDialState } =
+      await import("@/lib/abuse/guards");
+    const { setOrgGeoPolicy } = await import("@/lib/abuse/geo");
+    const { setAbuseConfig, resetAbuseConfig } = await import("@/lib/abuse/config");
+    const { resetVelocityState } = await import("@/lib/abuse/velocity");
+    // A noon-Dubai instant, so the time the CI ran cannot decide these.
+    const AT = Date.UTC(2026, 0, 15, 8, 0);
+    // orgCap 2 makes the cap reachable in two dials. Velocity is armed OFF rather
+    // than merely unlikely to fire: its new-prefix breaker trips at three distinct
+    // prefixes by default, so a cap test would otherwise be refused for the wrong
+    // reason depending on how much state an earlier test left behind.
+    setAbuseConfig({
+      concurrency: { cooldownSec: 300, orgCap: 2, globalCap: 50 },
+      velocity: {
+        newPrefixBurst: 10_000,
+        burstRateMax: 10_000,
+        afterHoursWarn: 0,
+        afterHoursPause: 0,
+      },
+    });
+    const heldSlots: (number | null)[] = [];
     try {
-      prove(
-        "cooldown",
-        await runPolicyGate({ ...base, phone: coolPhone, consentRecordId: "consent-record-1" }),
-      );
+      const coolOrg = "org-wp21-abuse-cooldown";
+      const coolPhone = "+971500000004";
+      setOrgGeoPolicy(coolOrg, { allowlist: ["AE"] });
+      const opened = assertDialAllowed({
+        orgId: coolOrg,
+        e164: coolPhone,
+        planTier: "enterprise",
+        at: AT,
+      });
+      // Without a genuinely ALLOWED first dial there is no cooldown to refuse with,
+      // and the case would silently degrade back into the fixture it replaces.
+      expect(opened.allowed).toBe(true);
+      heldSlots.push(opened.slot);
+      const cooling = assertDialAllowed({
+        orgId: coolOrg,
+        e164: coolPhone,
+        planTier: "enterprise",
+        at: AT + 1_000,
+      });
+      expect(cooling.reason).toBe("destination_cooldown");
+      prove("destination_cooldown", {
+        ok: false,
+        code: cooling.reason,
+        reason: cooling.detail,
+      });
+
+      const capOrg = "org-wp21-abuse-cap";
+      setOrgGeoPolicy(capOrg, { allowlist: ["AE"] });
+      for (let i = 0; i < 2; i++) {
+        const d = assertDialAllowed({
+          orgId: capOrg,
+          e164: `+9715000001${String(i).padStart(2, "0")}`,
+          planTier: "enterprise",
+          at: AT,
+        });
+        expect(d.allowed, `slot ${i} must be granted before the cap can be reached`).toBe(true);
+        heldSlots.push(d.slot);
+      }
+      const capped = assertDialAllowed({
+        orgId: capOrg,
+        e164: "+971500000199",
+        planTier: "enterprise",
+        at: AT + 1_000,
+      });
+      expect(capped.allowed).toBe(false);
+      expect(capped.reason).toBe("org_concurrency_cap");
+      prove("org_concurrency_cap", {
+        ok: false,
+        code: capped.reason,
+        reason: capped.detail,
+      });
     } finally {
-      releaseCallPlacement("org-wp21");
-    }
-    // 5. Org concurrency cap reached (default cap 10).
-    const capPhone = (i: number): string => `+9715000001${String(i).padStart(2, "0")}`;
-    for (let i = 0; i < 10; i++) recordCallPlacement("org-wp21", capPhone(i));
-    try {
-      prove(
-        "concurrency_cap",
-        await runPolicyGate({ ...base, phone: capPhone(99), consentRecordId: "consent-record-1" }),
-      );
-    } finally {
-      for (let i = 0; i < 10; i++) releaseCallPlacement("org-wp21");
+      for (const slot of heldSlots) releaseDialSlot(slot);
+      resetDialState();
+      resetVelocityState();
+      resetAbuseConfig();
     }
 
-    // 6. `spend_ceiling` is emitted by the real gate (step 5 is implemented, not a
+    // 6. `spend_ceiling` is emitted by the real gate (step 3 is implemented, not a
     //    comment) — but reaching it via this harness needs ledger history, so it is
     //    asserted as the synthetic-code mapping: whatever the gate emits, the
     //    envelope maps to 409 and never to a retryable 500.
     for (const code of ["spend_ceiling"] as const) {
       const failure = policyRefusal(
-        { ok: false, code, reason: "mapping check: emitted by policy-gate step 5" },
+        { ok: false, code, reason: "mapping check: emitted by policy-gate step 3" },
         { requestId: REQ },
       );
       expect(failure.status).toBe(409);
@@ -2424,7 +2493,7 @@ describe("WP-21 / negative control — a policy refusal is 409 and NEVER 500", (
     //     two classes cannot be confused by accident. Driven through the real
     //     route by tests/e2e/interventions-credits-gate.test.ts.
     const billingFailure = billingRefusal(
-      { ok: false, code: "credits_exhausted", reason: "mapping check: policy-gate step 6" },
+      { ok: false, code: "credits_exhausted", reason: "mapping check: policy-gate step 5" },
       { requestId: REQ },
     );
     expect(billingFailure.status).toBe(402);
@@ -2463,13 +2532,25 @@ describe("WP-21 / negative control — a policy refusal is 409 and NEVER 500", (
         `${code} → 409`,
       );
     }
-    // Eleven codes, and the count is a tripwire rather than the check: what makes
-    // the list honest is `tests/unit/policy-refusal-codes.test.ts`, which reads the
-    // gate's source and fails on any emitted code missing here — and on any declared
-    // code the gate no longer emits. This number only fires when someone edits one
-    // side and the unit test has not been told.
-    expect(POLICY_REFUSAL_CODES).toHaveLength(10);
+    // Twenty-seven codes across the three gates, and the count is a tripwire rather
+    // than the check: what makes the list honest is
+    // `tests/unit/policy-refusal-codes.test.ts`, which reads all three emitting
+    // sources and fails on any emitted code missing here — and on any declared code
+    // no gate emits. This number only fires when someone edits one side and the unit
+    // test has not been told.
+    expect(POLICY_REFUSAL_CODES).toHaveLength(27);
     expect(BILLING_REFUSAL_CODES).toEqual(["credits_exhausted"]);
+
+    // Refusals this file drives through a REAL gate call — the first three by
+    // `runPolicyGate`, the last two by the live abuse gate. One list, used both for
+    // the snapshot below and to derive what is only ever asserted as a mapping.
+    const DRIVEN_HERE: readonly string[] = [
+      "consent_invalid",
+      "country_unparseable",
+      "country_not_allowed",
+      "destination_cooldown",
+      "org_concurrency_cap",
+    ] as const;
 
     recordSection("negativeControl", {
       policyRefusal: {
@@ -2477,14 +2558,7 @@ describe("WP-21 / negative control — a policy refusal is 409 and NEVER 500", (
         status: 409,
         retryable: false,
         retryAfterSec: null,
-        // Refusals driven through a real `runPolicyGate` call inside THIS file.
-        drivenHere: [
-          "consent_invalid",
-          "country_unparseable",
-          "country_not_allowed",
-          "cooldown",
-          "concurrency_cap",
-        ],
+        drivenHere: [...DRIVEN_HERE],
         // Emitted by the gate, proven through a real route elsewhere — named so a
         // reader can go look rather than take the snapshot's word.
         drivenElsewhere: {
@@ -2498,19 +2572,12 @@ describe("WP-21 / negative control — a policy refusal is 409 and NEVER 500", (
           envelopeCode: "payment_required",
           drivenBy: "tests/e2e/interventions-credits-gate.test.ts",
         },
-        // The remaining declared codes are emitted by the gate (`spend_ceiling`,
-        // `transaction_repeat`, `do_not_call`, `outside_calling_hours`) and are
-        // asserted here only as MAPPINGS: a refusal carrying them becomes a 409 and
-        // never a 500. No case in this file drives the gate into those four states;
-        // `spend_ceiling` needs ledger history, and the other three are covered by
-        // their own suites.
-        mappingOnly: [
-          "spend_ceiling",
-          "transaction_repeat",
-          "do_not_call",
-          "outside_calling_hours",
-        ],
-        note: "Three of the eleven codes (transaction_repeat, do_not_call, outside_calling_hours) were emitted by the gate and NOT declared until this slice — policyRefusal would have thrown a RangeError on a routine duplicate or cooldown refusal for any caller that used it. The list's completeness is now derived from the gate's source instead of asserted from its own word.",
+        // The declared codes NOT driven to refusal by a real gate call in this file.
+        // Derived rather than listed, so it cannot rot into a claim about a snapshot:
+        // the earlier hand-maintained version said "three of the eleven", which was
+        // already false the moment the abuse gate's vocabulary was declared.
+        mappingOnly: [...POLICY_REFUSAL_CODES].filter((code) => !DRIVEN_HERE.includes(code)).sort(),
+        note: "Every code this file drives to a real refusal is in drivenHere; everything else is asserted only as a MAPPING (a refusal carrying it becomes a 409, never a retryable 500). The completeness of the declared list itself is derived from the three emitting sources by tests/unit/policy-refusal-codes.test.ts — that gate found three undeclared policy-gate codes when it was written, and found the abuse gate's entire vocabulary and three compliance-gate causes undeclared when it was widened to all three gates.",
         contrast: "internal_bug is the only code that yields 500",
       },
     });
@@ -2518,7 +2585,7 @@ describe("WP-21 / negative control — a policy refusal is 409 and NEVER 500", (
 
   test("no route is asked to retry a refusal", async () => {
     const failure = policyRefusal(
-      { ok: false, code: "cooldown", reason: "destination in cooldown" },
+      { ok: false, code: "destination_cooldown", reason: "destination in cooldown" },
       { requestId: REQ },
     );
     expect(failure.body.retryable).toBe(false);

@@ -42,6 +42,7 @@ import { db } from "@/lib/db";
 import { append as auditAppend } from "@/lib/audit-chain";
 import { notify } from "@/lib/notifications";
 import { IllegalTransitionError, transitionCaseWithOutbox } from "@/lib/case-state-machine";
+import { casePhoneWhere } from "@/lib/compliance/pii-vault";
 import { SMS_REPLY, type OutreachLang } from "@/lib/outreach-copy";
 import { screenForMemory } from "@/lib/memory-guard";
 import { checkBadActor, recordStrike } from "@/lib/abuse/bad-actor";
@@ -338,7 +339,13 @@ const E164 = /^\+[1-9]\d{7,14}$/;
 /** The generic text a non-match, a block and an expiry all share: a probe learns nothing. */
 async function replyFor(kind: keyof typeof SMS_REPLY, phone: string): Promise<string> {
   const latest = await db.case
-    .findFirst({ where: { phone }, orderBy: { createdAt: "desc" }, select: { language: true } })
+    // The reply carries a number and no tenant, so the lookup is the tenant-free
+    // one: `phoneIndex` once the case is vaulted, the legacy column until it is.
+    .findFirst({
+      where: casePhoneWhere(phone),
+      orderBy: { createdAt: "desc" },
+      select: { language: true },
+    })
     .catch(() => null);
   return SMS_REPLY[kind][asLang(latest?.language)];
 }
@@ -486,9 +493,13 @@ export async function handleSmsReply(input: {
   }
 
   // — a YES or a NO. Find the alert it answers. —
+  // Matched on `phoneIndex` (the vaulted form) or the legacy raw column, because
+  // this is the one lookup in the platform that must work with a customer's number
+  // and NO tenant: the reply is cross-tenant by construction, which is also why it
+  // refuses to act when more than one org has an open alert on the same handset.
   const open = await db.case.findMany({
     where: {
-      phone: from,
+      ...casePhoneWhere(from),
       state: "UNREACHABLE",
       smsSentAt: { gte: new Date(now.getTime() - REPLY_WINDOW_MS) },
     },
@@ -502,7 +513,7 @@ export async function handleSmsReply(input: {
     // benefit; both are the same shape of answer and neither names a case.
     const lapsed = await db.case.count({
       where: {
-        phone: from,
+        ...casePhoneWhere(from),
         state: "UNREACHABLE",
         smsSentAt: { lt: new Date(now.getTime() - REPLY_WINDOW_MS) },
       },

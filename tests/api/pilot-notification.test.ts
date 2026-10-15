@@ -28,9 +28,11 @@ let POST: typeof PilotPost;
 beforeAll(async () => {
   // The route reads PILOT_NOTIFY_EMAIL at call time, not import time, so setting it
   // here is enough — but it must be set before the handler runs.
-  // The send step needs APP_BASE_URL to build the template's base link. The ROW is
-  // written before the send is attempted, so a failure here is a failed delivery,
-  // not a lost lead — but the test needs the send to succeed to assert the row.
+  //
+  // The handler now AWAITS its own queue insert and does no provider call, so
+  // nothing here depends on a send succeeding: the row this file asserts IS the
+  // notification, and delivery is the drain worker's job. APP_BASE_URL stays set
+  // because the template renders its links from it whenever anything does send.
   process.env.APP_BASE_URL = "http://localhost:3000";
   process.env.PILOT_NOTIFY_EMAIL = NOTIFY_TO;
   const mod = await import("@/app/api/pilot/route");
@@ -139,9 +141,14 @@ describe("pilot → operator notification", () => {
       // The control: the notification actually exists. Asserting only the 200
       // would pass against the old skip-the-email behaviour, which is exactly
       // what this file exists to catch.
+      //
+      // Scoped by this submission's own mark rather than "the newest row to that
+      // mailbox". The test above sends to the same fallback address, and two rows
+      // written in the same millisecond make a `createdAt: "desc"` pick arbitrary
+      // — which is how this read green locally and red in CI on a fresh database.
+      // A missing notification is still a null row, so the gate keeps its teeth.
       const row = await db.emailOutbox.findFirst({
-        where: { toEmail: SUPPORT_EMAIL, kind: "pilot_request" },
-        orderBy: { createdAt: "desc" },
+        where: { toEmail: SUPPORT_EMAIL, kind: "pilot_request", subject: { contains: mark } },
       });
       expect(row).not.toBeNull();
       expect(row?.subject).toContain(mark);

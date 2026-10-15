@@ -775,6 +775,14 @@ describe("the payload-column contract erasure relies on", () => {
       "transcriptRedacted",
       "evaluationResults",
       "dataCollectionResults",
+      // The destination. Tokenization moved the customer's number out of `phone`
+      // and into `pii_vault`, which is an improvement only while erasure reaches
+      // all three columns: a null `phone` next to a live token and a live keyed
+      // pseudonym is the same number with two more indirections, not an erasure.
+      // `shredVaultRow` deletes the sealed value itself once no case references it.
+      "phone",
+      "phoneIndex",
+      "customerPhoneToken",
     ]);
   });
 

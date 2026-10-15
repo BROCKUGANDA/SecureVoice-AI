@@ -57,13 +57,16 @@ function readPackageVersion(): string {
  *    its own flight scripts automatically. Anyone re-attempting the tightening must
  *    prove hydration in a real browser against a production build first — a text
  *    edit on a CSP is exactly the change that CI cannot judge.
- *  - connect-src includes ElevenLabs (voice) only. Authentication is Better
- *    Auth, served from THIS origin at /api/auth/*, so it needs no cross-origin
+ *  - connect-src carries ElevenLabs (voice) and Paddle (its SDK calls
+ *    api.paddle.com / sandbox-api.paddle.com). Authentication is Better Auth,
+ *    served from THIS origin at /api/auth/*, so it needs no cross-origin
  *    allowance at all.
- *  - No third-party origins remain in script-src / img-src / font-src / frame-src.
- *    Those entries existed only for the removed Clerk JS bundle and its embedded
- *    component iframes. Deleting them narrows the policy rather than swapping one
- *    vendor for another: every directive that can be reduced was reduced.
+ *  - Paddle is the ONLY third-party origin in script-src / frame-src, and it is
+ *    there because the billing SDK injects its own CDN script and renders its
+ *    card frame from Paddle's host — see PADDLE_*_ORIGINS below for the measured
+ *    failure that made this necessary. The Clerk-era allowances in img-src /
+ *    font-src are still gone: every directive that can be reduced was reduced,
+ *    and tests/surface/csp.test.ts pins the exact set so it stays that way.
  */
 // 'unsafe-eval' is a dev-server requirement (React refresh); it never ships
 // in a production CSP.
@@ -81,16 +84,41 @@ const scriptSrc = [
   ...(process.env.NODE_ENV === "development" ? ["'unsafe-eval'"] : []),
 ].join(" ");
 
-const CSP = [
+/**
+ * Paddle needs three origins, and it needed them the day billing was wired.
+ *
+ * This file's own stated policy was "no third-party origins remain in
+ * script-src / img-src / font-src / frame-src" — a deliberate hardening — and
+ * `@paddle/paddle-js` injects `https://cdn.paddle.com/paddle/v2/paddle.js` at
+ * runtime and renders its card frame from `buy.paddle.com`. So the two
+ * decisions contradicted each other and the browser settled it: the script was
+ * blocked, `initializePaddle` rejected with "Failed to load Paddle.js", and no
+ * checkout on the site could open — on `/pricing` as much as on `/checkout`.
+ * Measured 2026-10-14 in the deployed origin's console.
+ *
+ * The allowance is therefore named and minimal, not a loosening: script from the
+ * CDN, frames from the two checkout hosts, and connections only to the hosts the
+ * SDK itself calls. `tests/surface/csp.test.ts` pins the exact set so widening it
+ * later is a decision someone has to make in review, not a slip.
+ */
+const PADDLE_SCRIPT_ORIGIN = "https://cdn.paddle.com";
+const PADDLE_FRAME_ORIGINS = ["https://buy.paddle.com", "https://sandbox-buy.paddle.com"];
+const PADDLE_CONNECT_ORIGINS = [
+  "https://cdn.paddle.com",
+  "https://api.paddle.com",
+  "https://sandbox-api.paddle.com",
+];
+
+export const CSP = [
   "default-src 'self'",
-  scriptSrc,
+  `${scriptSrc} ${PADDLE_SCRIPT_ORIGIN}`,
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob: https:",
   "font-src 'self' data:",
   "media-src 'self' blob:",
-  `connect-src 'self' ${ELEVENLABS_CSP_ORIGIN}`,
+  `connect-src 'self' ${ELEVENLABS_CSP_ORIGIN} ${PADDLE_CONNECT_ORIGINS.join(" ")}`,
   "worker-src 'self' blob:",
-  "frame-src 'self'",
+  `frame-src 'self' ${PADDLE_FRAME_ORIGINS.join(" ")}`,
   "frame-ancestors 'none'",
   "base-uri 'self'",
   "form-action 'self'",

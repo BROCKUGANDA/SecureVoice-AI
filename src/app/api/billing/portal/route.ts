@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { requireOrg } from "@/lib/route-helpers";
+import { moneyTwoFactorBlocker, twoFactorDenialBody } from "@/lib/auth/two-factor-gate";
 import { fail } from "@/lib/route-helpers";
 import { unauthenticated } from "@/lib/failures/envelope";
 import { paddleClient } from "@/lib/payments/paddle-events";
@@ -33,6 +34,17 @@ export const dynamic = "force-dynamic";
 export async function POST(req: NextRequest) {
   const auth = await requireOrg(req);
   if (!auth.ok) return fail(auth.failure ?? unauthenticated());
+
+  // The portal is where a subscription is upgraded, downgraded and cancelled.
+  // It is a money surface even though it collects nothing itself, so it asks for
+  // the same second factor as checkout rather than a weaker one.
+  const blocker = await moneyTwoFactorBlocker(auth.identity);
+  if (blocker) {
+    return NextResponse.json(twoFactorDenialBody(blocker), {
+      status: blocker.status,
+      headers: { "Cache-Control": "no-store" },
+    });
+  }
 
   const client = paddleClient();
   if (!client) {

@@ -753,6 +753,13 @@ const CODE_SOURCES: Record<string, string> = {
 /** Sources whose literals are causes surfaced in a message or the audit chain. */
 const REASON_SOURCES: Record<string, string> = {
   "src/lib/policy-gate.ts": POLICY_GATE,
+  // `runComplianceGate` refuses into the same typed-409 path as the policy gate
+  // (`src/app/api/v1/interventions/route.ts`), so its codes are part of the
+  // published contract whether or not this list said so. Without it, three
+  // refusals a bank can actually receive — `prayer_time`, `invalid_call_category`,
+  // `redaction_mismatch` — had no catalog entry and the provenance scan below
+  // could not see them either.
+  "src/lib/compliance/gate.ts": read("src/lib/compliance/gate.ts"),
   "src/lib/abuse/geo.ts": read("src/lib/abuse/geo.ts"),
   "src/lib/abuse/tiers.ts": read("src/lib/abuse/tiers.ts"),
   "src/lib/abuse/velocity.ts": read("src/lib/abuse/velocity.ts"),
@@ -770,12 +777,36 @@ function literals(sources: Record<string, string>, ...patterns: RegExp[]): Set<s
   return out;
 }
 
-/** `failure("code"` in a route — the ONLY way the envelope builder is called. */
+/**
+ * Codes a route puts into an envelope body.
+ *
+ * Two forms count as emission. `failure("<code>"` is the direct one. The other is
+ * the pair of sanctioned refusal constructors — `policyRefusal` can only ever
+ * render `policy_precondition` and `billingRefusal` only `payment_required`, and
+ * each throws before that if the gate code is not in its declared set, so the
+ * function name IS the envelope code. Scanning only the literal form would make
+ * ingest's classified branches look like they emit nothing, and the catalog would
+ * then be proven against a surface that had moved rather than a surface that is
+ * correct.
+ */
+const CONSTRUCTOR_CODES: Record<string, string> = {
+  policyRefusal: "policy_precondition",
+  billingRefusal: "payment_required",
+};
+
 const emittedEnvelopeCodes = new Set(
   [
     ...INTERVENTIONS_ROUTE.matchAll(/\bfailure\(\s*"([a-z0-9_]+)"/g),
     ...CONFORMANCE_ROUTE.matchAll(/\bfailure\(\s*"([a-z0-9_]+)"/g),
-  ].map((m) => m[1]!),
+  ]
+    .map((m) => m[1]!)
+    .concat(
+      [INTERVENTIONS_ROUTE, CONFORMANCE_ROUTE].flatMap((source) =>
+        [...source.matchAll(/\b(policyRefusal|billingRefusal)\(/g)].map(
+          (m) => CONSTRUCTOR_CODES[m[1]!]!,
+        ),
+      ),
+    ),
 );
 
 /**
@@ -816,18 +847,20 @@ reasonLiterals.delete("ok");
  * (customer-facing causes that reach `message`) and `ControlName` (an audit
  * trail of which checks RAN). Only the former belongs in the customer contract.
  *
- * `cooldown` is deliberately NOT in this list: it is a control name AND a real
- * refusal cause emitted by the policy gate (`code: "cooldown"`). The two
- * vocabularies overlap on that one value, and dropping it here would delete a
- * documented cause from the catalog gate. The set is therefore computed by
- * subtracting what the controls genuinely cover, and asserted against the real
- * union below so a new control cannot slip through unexamined.
+ * `cooldown` used to be the one value where the two vocabularies overlapped: it was
+ * a `ControlName` AND a refusal cause emitted by the policy gate. The gate's cooldown
+ * step was deleted (its state had no writer, so it could never fire) and the live
+ * cause is the abuse gate's `destination_cooldown`, which stays in the catalog under
+ * that literal. `cooldown` is therefore now a pure control name and belongs in this
+ * list; the set is asserted against the real `ControlName` union below so a new
+ * control cannot slip through unexamined.
  */
 const CONTROL_NAMES = new Set([
   "input_shape",
   "breaker",
   "geo",
   "plan_tier",
+  "cooldown",
   "org_concurrency",
   "global_concurrency",
   "velocity",
@@ -923,11 +956,8 @@ describe("error catalog covers every code the code actually returns", () => {
     // The ControlName exclusion above is only safe if it stays in SYNC with the real
     // union. If somebody adds a control and forgets this list, the new name is
     // silently swallowed by the filter and never reaches the catalog gate.
-    // `cooldown` is the known overlap: a control name that is also a documented
-    // refusal cause, so it is declared but intentionally NOT excluded.
     const declared = declaredControlNames();
-    expect([...CONTROL_NAMES].sort()).toEqual([...declared].filter((c) => c !== "cooldown").sort());
-    expect(declared.has("cooldown")).toBe(true);
+    expect([...CONTROL_NAMES].sort()).toEqual([...declared].sort());
 
     const catalogued = new Set(ERROR_CODES.map((e) => e.literal));
     const missing = [...reasonLiterals].filter((code) => !catalogued.has(code));
@@ -995,7 +1025,7 @@ describe("error catalog covers every code the code actually returns", () => {
     // A cooldown is transient; `policy_precondition` is still declared
     // non-retryable because most policy refusals must not be retried. The
     // catalog says so explicitly rather than pretending the flag is per-cause.
-    const cooldown = ERROR_CODES.find((e) => e.literal === "cooldown")!;
+    const cooldown = ERROR_CODES.find((e) => e.literal === "destination_cooldown")!;
     expect(cooldown.retryable).toBe(true);
     expect(cooldown.envelopeCode).toBe("policy_precondition");
     expect(STATUS_DISCIPLINE.policy_precondition.retryable).toBe(false);
@@ -1058,12 +1088,18 @@ describe("error catalog covers every code the code actually returns", () => {
     // The route used to flatten every gate refusal into a 503. It no longer does:
     // a typed refusal is a 4xx with the cause in `message`. Both facts are asserted
     // so neither can quietly regress.
+    //
+    // A refusal whose class HAS been decided is emitted through the sanctioned
+    // constructor for that class, which refuses to render an undeclared code at all;
+    // an unclassified 4xx still goes out as the literal `failure("policy_precondition")`
+    // precisely because there is no constructor willing to claim it.
+    expect(INTERVENTIONS_ROUTE).toContain("respond(policyRefusal(");
+    expect(INTERVENTIONS_ROUTE).toContain("respond(billingRefusal(");
     expect(INTERVENTIONS_ROUTE).toContain('failure("policy_precondition"');
     expect(INTERVENTIONS_ROUTE).toContain("if (status >= 400 && status < 500) {");
-    // The wallet refusal is its own class, emitted as its own code. Pinned here as
-    // well as in the envelope's constructor tests, because this route is the only
-    // place the classification is actually applied to a live response.
-    expect(INTERVENTIONS_ROUTE).toContain('failure("payment_required"');
+    // The wallet refusal is its own class, emitted as its own constructor. Pinned
+    // here as well as in the envelope's constructor tests, because this route is the
+    // only place the classification is actually applied to a live response.
     expect(INTERVENTIONS_ROUTE).toContain("BILLING_REFUSAL_CODES");
     expect(INTERVENTIONS_ROUTE).not.toContain('upstreamError("Case recording failed');
     const causes = ERROR_CODES.filter((e) => e.surface === "http_message");

@@ -268,7 +268,7 @@ export class DeepgramLiveClient {
   sendMulaw(buffer: Buffer) {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
     const pcm = decodeMulaw(buffer);
-    this.ws.send(pcm);
+    this.ws.send(pcm as any);
   }
 
   stop() {

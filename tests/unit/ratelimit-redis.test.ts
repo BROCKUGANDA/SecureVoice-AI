@@ -45,7 +45,7 @@ class FakeRedis {
   ) {
     constructed++;
   }
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   on(_event: string, _fn: (...args: any[]) => void) {
     return this;
   }

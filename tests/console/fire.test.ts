@@ -422,7 +422,7 @@ test("console fire: no enrolled customer is refused — the policy gate does NOT
 
   // (4) This is the assertion that would catch the refusal being removed.
   //
-  // `runPolicyGate` (src/lib/policy-gate.ts:141-146) checks only the consent
+  // `runPolicyGate` (src/lib/policy-gate.ts, step 1) checks only the consent
   // record's SHAPE. The opted-out check is the v1 route's raw query, where a
   // consent id resolving to no Customer row yields NULL and PASSES. So an
   // unenrolled operator's signal is NOT refused by any gate — the console has

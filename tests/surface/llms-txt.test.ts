@@ -82,12 +82,24 @@ describe("the pricing block", () => {
     const { body } = await fetchFile();
     for (const plan of PLANS) {
       expect(body, `${plan.id} missing`).toContain(`- ${plan.name}:`);
-      if (plan.monthlyUsd !== null) {
+      // Three states, not two. A plan can be unpriced (`monthlyUsd: null`) or priced
+      // but deliberately unpublished (`publiclyPriced: false` — the negotiated
+      // Enterprise tier, whose number stays in the catalog so the checkout and the
+      // invoice agree, and is simply not printed). Both read as "contract-priced",
+      // and the second one has to be asserted ABSENT: a file that leaks the hidden
+      // figure elsewhere would still satisfy a `toContain` on the plan name.
+      const hidden = plan.monthlyUsd === null || !plan.publiclyPriced;
+      if (hidden) {
+        expect(body, `${plan.id} must read as negotiated`).toContain("contract-priced");
+        if (plan.monthlyUsd !== null) {
+          expect(body, `${plan.id} price is published but must not be`).not.toContain(
+            `${plan.monthlyUsd} USD per month`,
+          );
+        }
+      } else {
         expect(body, `${plan.id} price`).toContain(
           `${plan.monthlyUsd} USD per month (${plan.yearlyUsd} per year, ten monthly)`,
         );
-      } else {
-        expect(body, `${plan.id} must read as negotiated`).toContain("contract-priced");
       }
       if (plan.overageCents !== null) {
         expect(body, `${plan.id} overage`).toContain(

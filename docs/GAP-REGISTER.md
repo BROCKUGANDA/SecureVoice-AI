@@ -749,3 +749,12 @@ which reported a vanished producer as a code defect.
 7. **TTS rung is recorded inside `AuditLog.meta`, a text blob.** There is no
    `voiceProvider`/`rung`/`latencyMs` column, so "how often did we fall back last week"
    is unanswerable as a query.
+
+**Update, same day:** item 1 is FIXED (bbbb439) — every span records the plane that
+produced it, `spans` holds verdicts over live samples only, `spans_harness` is published
+unjudged, and the threshold counts live completions. The honest consequence: the
+committed artifact regenerates with an empty live population, so the gate is red until a
+production-shaped process records a call. Item 2 is FIXED (d8c9686) — `TTS_REQUEST_BUDGET_MS`
+bounds the whole ladder at 10 s; the test drives a primary that never answers and the
+customer hears the cue in ~125 ms with all three skipped rungs named in the audit.
+Items 3-7 remain as written.

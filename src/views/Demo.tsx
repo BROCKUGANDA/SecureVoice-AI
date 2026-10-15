@@ -56,16 +56,16 @@ const CUSTOMER_DUR = 3.2;
 /** Phase-aware guidance shown under the player */
 const HINTS: Record<Phase | "idle", { en: string; ar: string }> = {
   idle: {
-    en: "Pick a fraud case below and fire the alert yourself — the 60-second SLA clock starts the moment the webhook lands.",
-    ar: "اختر حالة احتيال أدناه وأطلق التنبيه بنفسك — تبدأ ساعة الستين ثانية لحظة وصول الويب هوك.",
+    en: "Pick a case below and fire the alert yourself — the simulated clock is the platform's own case deadline, not a measured time-to-contact.",
+    ar: "اختر حالة أدناه وأطلق التنبيه بنفسك — فالمؤقت هنا هو مهلة الحالة في النظام نفسه، لا زمن وصول مُقاس.",
   },
   alert: {
-    en: "The SLA clock starts on the webhook — watch the timer in the stage header race the 60-second promise.",
-    ar: "تبدأ ساعة الستين ثانية عند الويب هوك — راقب المؤقت في رأس المسرح قبل انتهاء المهلة.",
+    en: "The case-deadline clock starts on the webhook. It bounds how long a queued signal may sit — it is not a promise that a human answered by then.",
+    ar: "تبدأ مهلة الحالة عند الويب هوك. هي تحدّ من مدة بقاء الإشارة في الطابور — لكنها ليست وعداً بأن إنساناً قد ردّ عند نهايتها.",
   },
   dial: {
-    en: "The outbound call connects in about one second — the agent reaches the customer before the fraudster finishes their script.",
-    ar: "يتم توصيل الاتصال الصادر خلال نحو ثانية — يصل الوكيل إلى العميل قبل أن يُكمل المحتال نصّه.",
+    en: "The queue worker, not the ingest request, places the outbound call. Time-to-contact is not measured in this repository yet, so this step carries no number.",
+    ar: "عامل الطابور هو من ينفّذ الاتصال الصادر، لا طلب الاستقبال. ولم يُقَس زمن الوصول بعد في هذه المستودعة، فلا رقم لهذه الخطوة.",
   },
   intro: {
     en: "The agent announces that the call is recorded and confirms who it is speaking to — no secrets requested, ever.",
@@ -80,12 +80,12 @@ const HINTS: Record<Phase | "idle", { en: string; ar: string }> = {
     ar: "تأكيد دقيق ومقتبس — المبلغ والمتجر بالتفصيل، ونعم أو لا صريحة. لا يُتخذ إجراء على أي غموض.",
   },
   action: {
-    en: "The agent has exactly one write action: a temporary, reversible protective step — a card freeze, a transfer hold, or a claim-payout hold for an insurer — and a human confirms it. Watch the API receipt land in the rail.",
-    ar: "للوكيل إجراء كتابي واحد فقط: تجميد مؤقت قابل للإلغاء (أو حجز حوالة). راقب وصول إيصال الـ API في الشريط.",
+    en: "The agent has exactly one write action, and it STAGES rather than commits: a temporary card freeze is written as pending_specialist with committed:false. Nothing is frozen on the bank's ledger until a human commits it. Watch the API receipt land in the rail.",
+    ar: "للوكيل إجراء كتابي واحد، وهو يمهّد ولا ينفّذ: يُسجَّل تجميد البطاقة المؤقت كـ pending_specialist مع committed:false. ولا يُجمَّد شيء في دفتر البنك حتى يثبّته إنسان. راقب وصول إيصال الـ API في الشريط.",
   },
   handoff: {
-    en: "Everything travels with the warm handoff — transcript, verification method, sentiment, and the action receipt — and the audit log seals itself.",
-    ar: "كل شيء ينتقل مع التسليم المباشر — النص، طريقة التحقق، المشاعر، وإيصال الإجراء — ثم يُقفل سجل التدقيق نفسه.",
+    en: "Everything travels with the handoff — transcript, verification method, sentiment, and the action receipt. A live bridge needs a configured specialist number; with none the case becomes a queue ticket. The audit log seals itself either way.",
+    ar: "كل شيء ينتقل مع التسليم — النص، وطريقة التحقق، والمشاعر، وإيصال الإجراء. والربط الحيّ يتطلب رقم أخصائي مضبوطاً، وبدونه تصير الحالة تذكرة في الطابور. وسجل التدقيق يُقفل نفسه في الحالتين.",
   },
 };
 
@@ -272,8 +272,8 @@ export function Demo() {
           </div>
           <h1 className="font-display mt-3 text-3xl font-semibold tracking-tight sm:text-4xl">
             {t(
-              "One fraud alert. One minute. Watch the intervention.",
-              "تنبيه احتيال واحد. دقيقة واحدة. شاهد التدخل.",
+              "One fraud alert. One scripted call. Watch the intervention.",
+              "تنبيه احتيال واحد. مكالمة مكتوبة السيناريو. شاهد التدخل.",
               lang,
             )}
           </h1>
@@ -552,8 +552,8 @@ export function Demo() {
                     </span>
                     .{" "}
                     {t(
-                      "Fire the alert to push it through the risk engine — the agent will call, verify, and stop the loss in one call.",
-                      "أطلق التنبيه ليدفعه عبر محرك المخاطر — سيتصل الوكيل بالعميل، ويتحقق من الهوية، ويوقف الخسارة في مكالمة واحدة.",
+                      "Fire the alert to push it through the risk engine — the agent will call, verify, and stage a protective action that only a human on your fraud team commits.",
+                      "أطلق التنبيه ليدفعه عبر محرك المخاطر — سيتصل الوكيل بالعميل، ويتحقق من الهوية، ويمهّد إجراءً وقائياً لا يثبّته إلا إنسان في فريق الاحتيال.",
                       lang,
                     )}
                   </p>
@@ -670,7 +670,10 @@ export function Demo() {
                   k={t("Signals", "الإشارات", lang)}
                   v={t(META.signals.en, META.signals.ar, lang)}
                 />
-                <Row k={t("Rule", "القاعدة", lang)} v="P1 · SLA 60s" />
+                <Row
+                  k={t("Rule", "القاعدة", lang)}
+                  v={t("P1 · case deadline", "P1 · مهلة الحالة", lang)}
+                />
               </div>
             ) : (
               <div className="space-y-2.5">

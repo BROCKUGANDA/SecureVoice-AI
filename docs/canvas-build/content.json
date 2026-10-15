@@ -5,7 +5,7 @@
     "email": "otemaach@gmail.com",
     "based_in": "Kampala, Uganda",
     "repo": "github.com/BROCKUGANDA/SecureVoice-AI",
-    "evidence": "docs/evidence/evidence-2026-09-21.json: 20/21 pass (95.2%) against the live dev server",
+    "evidence": "docs/evidence/evidence-2026-09-21.json: 18/18 pass (100.0%) against the live dev server on 2026-09-21. Current committed gates: 17 of 19 green, load and surface fail, pass rate 0.8947 (evidence/results.json)",
     "font": "Helvetica",
     "font_bold": "Helvetica-Bold",
     "size_max": 7.5,
@@ -216,7 +216,7 @@
   },
   "J": {
     "type": "ticks_plus_why",
-    "ticks": ["Scribe v2 STT", "Eleven v3 TTS"],
+    "ticks": ["Scribe v2 STT", "Eleven v4 Turbo TTS"],
     "why_label": "Why these two:",
     "why": "STT has to hear 'not mine' in six languages (scribe_v2); TTS has to say the disclosure back in the customer's own language."
   },
@@ -289,7 +289,7 @@
             {
               "id": "tts",
               "n": "2",
-              "label": "Eleven v3 TTS (out)",
+              "label": "Eleven v4 Turbo TTS (out)",
               "sub": ["eleven_multilingual_v2 today", "eleven_flash_v2_5 for Swahili"]
             },
             {
@@ -478,7 +478,7 @@
         "Time from fraud signal to customer contact",
         "38 min",
         "< 60 sec",
-        "receivedAt to Twilio call start_time, per case"
+        "receivedAt to Twilio call start_time, per case — method defined, not yet instrumented (the signal_received_to_ringing span has no producer)"
       ],
       [
         "Languages live on fraud calls",

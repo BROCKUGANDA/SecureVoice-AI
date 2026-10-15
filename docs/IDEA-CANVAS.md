@@ -18,7 +18,7 @@
 
 ## B · The Idea in One Line
 
-**An agent that calls the customer within 60 seconds of a fraud signal, in their language, verifies the transaction through merchant-amount-date challenge, executes a pre-approved temporary card freeze, and hands off to a human fraud specialist — so that prevented loss replaces written-off loss.**
+**An agent that calls a customer on a fraud signal, stages a freeze a human commits, in their language — so prevented loss replaces write-offs.**
 
 _(24 words)_
 
@@ -34,11 +34,11 @@ _(120 words — exact limit)_
 
 ## D · Today's Baseline
 
-| What You Measured                                    | Value Today             | Where the Number Comes From                                                                                            |
-| ---------------------------------------------------- | ----------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| Average time from fraud signal to customer contact   | 38 minutes              | Industry average across UAE retail banks (McKinsey Fraud Operations Benchmark 2024); confirmed by fraud-ops interviews |
-| Share of fraud calls answered in English only        | ~85%                    | UAE contact centres: English + Arabic are standard; Hindi/Urdu/Tamil/Filipino channels are outsourced or absent        |
-| Unauthorized-transaction write-off rate (card fraud) | 0.8–1.2% of card volume | CBUAE supervisory data; bank annual reports (card fraud loss ratios)                                                   |
+| What You Measured                                    | Value Today             | Where the Number Comes From                                                                                                                                                                                                                                                                                                                                                                                                                |
+| ---------------------------------------------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Average time from fraud signal to customer contact   | 38 minutes              | **External literature — not measured by this repository.** Cited as CBUAE Consumer Protection Annual Review 2024, Annex 3 (Tier-1 retail banks) — the single source used across README.md, docs/SUBMISSION.md and docs/canvas-build/content.json. `evidence/latency/slo.json` records it as `"kind": "literature"`; the document itself is not attached in-repo (owner must attach it). Corroborated qualitatively by the box F interviews |
+| Share of fraud calls answered in English only        | ~85%                    | UAE contact centres: English + Arabic are standard; Hindi/Urdu/Tamil/Filipino channels are outsourced or absent                                                                                                                                                                                                                                                                                                                            |
+| Unauthorized-transaction write-off rate (card fraud) | 0.8–1.2% of card volume | CBUAE supervisory data; bank annual reports (card fraud loss ratios)                                                                                                                                                                                                                                                                                                                                                                       |
 
 _These exact numbers must reappear in Box M — they will be cross-checked._
 
@@ -64,7 +64,7 @@ _(59 words)_
 
 ## G · What You Got Wrong
 
-We assumed the bottleneck was the fraud detection model — it isn't. Detection is fast; the call is slow. We also assumed banks would want a fully autonomous agent that freezes cards without human involvement. They don't. Every bank we spoke to requires a human fraud specialist on the line before any irreversible action. We redesigned the agent to execute only the pre-approved temporary freeze and hand off for everything else.
+We assumed the bottleneck was the fraud detection model — it isn't. Detection is fast; the call is slow. We also assumed banks would want a fully autonomous agent that freezes cards without human involvement. They don't. Every bank we spoke to requires a human fraud specialist on the line before any irreversible action. We redesigned the agent to **stage** only a temporary freeze that a human specialist commits, and hand off for everything else.
 
 _(50 words — exact limit)_
 
@@ -89,13 +89,13 @@ _(50 words — exact limit)_
 
 ## I · The Call Flow
 
-| Step | What Happens                                                                                            |
-| ---- | ------------------------------------------------------------------------------------------------------- |
-| 1    | **Opening disclosure:** "This call is recorded to protect you. I am your bank's AI security assistant." |
-| 2    | State the suspicious transaction: merchant, amount, date — ask "Is this yours?"                         |
-| 3    | Customer answers "not mine" → agent confirms temporary card freeze executed immediately                 |
-| 4    | Customer answers "it's mine" → agent closes the review, confirms hold released                          |
-| 5    | **(H)** Warm handoff: specialist joins with full transcript, verification result, and sentiment flag    |
+| Step | What Happens                                                                                                                                                                                                                                          |
+| ---- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1    | **Opening disclosure:** "This call is recorded to protect you. I am your bank's AI security assistant."                                                                                                                                               |
+| 2    | State the suspicious transaction: merchant, amount, date — ask "Is this yours?"                                                                                                                                                                       |
+| 3    | Customer answers "not mine" → agent **stages** a temporary freeze (`committed:false`, `stage: pending_specialist`); a human specialist commits it                                                                                                     |
+| 4    | Customer answers "it's mine" → agent closes the review, confirms hold released                                                                                                                                                                        |
+| 5    | **(H)** Handoff: the specialist gets the full transcript, verification result and sentiment flag — by live warm transfer where a transfer line is configured, otherwise queued (ETA 120 s; `HUMAN_AGENT_PHONE` ships empty, so queued is the default) |
 
 ---
 
@@ -106,20 +106,22 @@ _(50 words — exact limit)_
 ☐ MCP servers ☐ **Telephony (Twilio / SIP)** ☐ Batch calling ☐ Agent Testing  
 ☐ Post-call webhooks ☐ WhatsApp ☐ **Web / mobile SDKs** ☐ Bring-your-own LLM
 
-**Why these two:** Scribe v2 transcribes the customer's spoken reply on the phone call so the intent classifier can route it — without accurate STT the agent cannot hear "not mine" in Hindi or Swahili. Server/client tools let the agent call the bank's card-freeze API and the audit-chain append endpoint as structured tool calls, so the protective action is an API call the bank can audit, not a text string the agent "intends" to execute.
+**Why these two:** Scribe v2 transcribes the customer's spoken reply on the phone call so the intent classifier can route it — without accurate STT the agent cannot hear "not mine" in Hindi or Swahili. Server/client tools let the agent call SecureVoice's guarded `card_freeze` and audit-append endpoints as structured tool calls, so the protective action is an API call the bank can audit — and it **stages** a reversible request (`committed:false`, `stage: pending_specialist`); the bank's own core freeze API is invoked by the human specialist, never by the agent.
+
+**TTS actually shipped:** `eleven_v4_turbo` (`agent/securevoice.agent.yaml` — `stability: 0.5`, `similarity_boost: 0.8`, **no `style`**). The template's "Eleven v3 TTS" box above is deliberately unticked: `PATCH /v1/convai/agents/{id}` refuses `eleven_v3` with **400 `expressive_tts_not_allowed`** on every key tested, and voice cloning is disabled on this account (`can_use_instant_voice_cloning=false`), so the agent speaks **one stock Library voice** — there are no cloned product personas.
 
 ---
 
 ## K · Guardrails
 
-| Requirement                      | How Your Design Enforces It                                                                                                                                                                                                                       |
-| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Opening disclosure**           | Compliance layer (`auditAgentReply`) scans every reply; if the disclosure sentence is missing on turn 1, it is injected server-side before the reply is spoken                                                                                    |
-| **Consent to be called**         | Enrollment endpoint requires a `consentRecordId`; outbound calls without it return 422 (PDPL Art. 5)                                                                                                                                              |
-| **Verification without secrets** | Credential-extraction deny-list in `compliance/policy.ts` refuses any reply matching PIN/password/OTP request patterns and replaces it with a safe refusal — server-enforced, no client toggle                                                    |
-| **Human approval point**         | Agent executes only pre-approved temporary freeze; irreversible actions (permanent block, fund recovery) require human fraud specialist approval — encoded in the action plan (`planFor()` returns `fraud_specialist` handoff for all risk tiers) |
-| **Opt-out path**                 | `optedOut` flag on Customer record; interventions check it and skip delivery; re-enrollment is deliberate re-consent                                                                                                                              |
-| **Escalation trigger**           | Deterministic sentiment analyzer flags distress vocabulary, third-party pressure ("someone is telling me"), and repetitive phrasing → forces `human_handoff` action regardless of intent classification                                           |
+| Requirement                      | How Your Design Enforces It                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Opening disclosure**           | Compliance layer (`auditAgentReply`) scans every reply; if the disclosure sentence is missing on turn 1, it is injected server-side before the reply is spoken                                                                                                                                                                                                                                                                                                                        |
+| **Consent to be called**         | Enrollment endpoint requires a `consentRecordId`; outbound calls without it return 422 (PDPL Art. 5)                                                                                                                                                                                                                                                                                                                                                                                  |
+| **Verification without secrets** | Credential-extraction deny-list in `compliance/policy.ts` refuses any reply matching PIN/password/OTP request patterns and replaces it with a safe refusal — server-enforced, no client toggle                                                                                                                                                                                                                                                                                        |
+| **Human approval point**         | The agent only ever **stages** a temporary freeze: `POST /api/elevenlabs/tools/card-freeze` never returns `committed:true`, it writes a `pending_specialist` row. Irreversible actions (permanent block, fund recovery) require a human fraud specialist, and the handoff always names `fraud_specialist` (`src/app/api/elevenlabs/tools/human-handoff/route.ts:24`, `ETA_SECS = 120`). **Corrected:** the `planFor()` function previously cited here does not exist in this codebase |
+| **Opt-out path**                 | `optedOut` flag on Customer record; interventions check it and skip delivery; re-enrollment is deliberate re-consent                                                                                                                                                                                                                                                                                                                                                                  |
+| **Escalation trigger**           | Deterministic sentiment analyzer flags distress vocabulary, third-party pressure ("someone is telling me"), and repetitive phrasing → forces `human_handoff` action regardless of intent classification                                                                                                                                                                                                                                                                               |
 
 ---
 
@@ -137,13 +139,14 @@ _(50 words — exact limit)_
 ┌─────────────────────────────────┐
 │  ELEVENLABS PLATFORM            │
 │  • Scribe v2 STT (transcribe)   │
-│  • Eleven Multilingual v2 TTS   │
+│  • Eleven v4 turbo TTS          │
+│    (v3 refused: entitlement)    │
 │  • Agent logic (intent router)  │
 │  • Compliance guardrails        │
 │  • Audit chain (SHA-256)        │
 │  • Groq LLM (rephrase layer)    │
 └──────────┬──────────────────────┘
-           │  Freeze API call + audit rows
+           │  Staged freeze request + audit rows
            ▼
 ┌─────────────────────────────────┐
 │  INSTITUTION SYSTEMS            │
@@ -160,35 +163,35 @@ _(50 words — exact limit)_
 ● Transcript crosses from ElevenLabs → audit chain (redacted before persistence)  
 ● Customer ref crosses from bank → intervention API (no PII in the signal)
 
-**Human approval gate:** Agent calls freeze API → specialist queue → human reviews and confirms or reverses.
+**Human approval gate:** The agent **stages** a freeze request → it lands in the specialist queue → a human reviews and **commits or reverses** it. This platform never freezes anything on the bank's ledger: `card_freeze` always returns `committed:false`, and the core card-freeze API is bank-owned and called by the specialist.
 
-**Dependency failure mode:** If ElevenLabs is down, falls back to browser SpeechSynthesis. If Twilio is down, degrades to audit-only (no call placed, case recorded). If DB is down, intervention is rejected (fail-safe — never act without audit trail).
+**Dependency failure mode:** If ElevenLabs synthesis fails, `/api/twilio/audio` walks a rung ladder — the key pool, then the PlayHT backup, then a language-neutral **emergency cue** (`src/app/api/twilio/audio/route.ts:227-251`); it does not return 503 and it never speaks silently. The browser demo separately falls back to `speechSynthesis` (`src/lib/voice-client.ts` → `browserSpeak`). If Twilio is down or unconfigured, the intervention takes the audit-only path — the case is recorded and no call is placed. If the database is down, the audit append fails and the signal is rejected (fail-safe — never act without an audit trail).
 
 ---
 
 ## M · Success Metrics
 
-| KPI                                                   | Baseline (from D)   | Target                     | How It Is Measured                                                       |
-| ----------------------------------------------------- | ------------------- | -------------------------- | ------------------------------------------------------------------------ |
-| Time from fraud signal to customer contact            | 38 minutes          | < 60 seconds               | Timestamp diff: `receivedAt` → Twilio call SID `start_time`              |
-| Multilingual coverage (languages the agent can speak) | 2 (EN, AR)          | 6 (EN, AR, HI, UR, FR, SW) | Count of languages with full script + ElevenLabs voice + intent keywords |
-| Unauthorized-transaction write-off rate               | 1.0% of card volume | 0.3% of card volume        | Monthly chargeback write-offs ÷ monthly card transaction volume          |
+| KPI                                                   | Baseline (from D)       | Target                               | How It Is Measured                                                                                                                                                                                                                                                                                                      |
+| ----------------------------------------------------- | ----------------------- | ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Time from fraud signal to customer contact            | 38 minutes (literature) | < 60 seconds — **target, no result** | **Not measured, not implemented.** `Case.receivedAt` exists, but no code reads a Twilio answer/`start_time` timestamp, and `answered_to_first_agent_word` has 0 samples in `evidence/latency/slo.json`. The old row here described a formula (`receivedAt` → call SID `start_time`) that does not exist in the codebase |
+| Multilingual coverage (languages the agent can speak) | 2 (EN, AR)              | 6 (EN, AR, HI, UR, FR, SW)           | Count of languages with full script + ElevenLabs voice + intent keywords                                                                                                                                                                                                                                                |
+| Unauthorized-transaction write-off rate               | 1.0% of card volume     | 0.3% of card volume                  | Monthly chargeback write-offs ÷ monthly card transaction volume                                                                                                                                                                                                                                                         |
 
 ---
 
 ## N · Risks
 
-| Risk                                                   | How You Handle It                                                                                                                                                                        |
-| ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Customer hangs up when an AI calls — perceived as spam | Opening disclosure names the bank and the recording purpose in the first sentence; caller ID is the bank's own number (Twilio `From`); opt-out is one word away                          |
-| Fraudster spoofs the bank's number and calls first     | Agent never asks for credentials — the fraudster's script always does; the customer is trained by the agent to hang up on credential requests; audit chain proves the real call happened |
-| CBUAE challenges the AI's authority to freeze a card   | Freeze is temporary and reversible; irreversible actions require human specialist; every action is hash-chained in the audit log with timestamps                                         |
+| Risk                                                   | How You Handle It                                                                                                                                                                                                                                                  |
+| ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Customer hangs up when an AI calls — perceived as spam | Opening disclosure names the bank and the recording purpose in the first sentence; caller ID is the bank's own number (Twilio `From`); opt-out is one word away                                                                                                    |
+| Fraudster spoofs the bank's number and calls first     | Agent never asks for credentials — the fraudster's script always does; the customer is trained by the agent to hang up on credential requests; audit chain proves the real call happened                                                                           |
+| CBUAE challenges the AI's authority to freeze a card   | The AI never freezes anything: `card_freeze` always returns `committed:false` with `stage: pending_specialist`, so what exists is a staged, reversible request that only a human specialist commits; every action is hash-chained in the audit log with timestamps |
 
 ---
 
 ## O · What Will Be Working by 14 October
 
-18 of 18 evidence-pack checks pass live against the running app: HMAC signal intake, idempotent replay, six-language intent routing (EN/AR/HI/UR/FR/SW), opening disclosure, credential deny-list, rate limiting, ElevenLabs TTS, Scribe v2 STT and the hash-chained audit read-back. Twilio runs in api-key mode. Unproven: one real outbound dial to a handset.
+18/18 evidence-pack checks passed live on 2026-09-21 (`docs/evidence/evidence-2026-09-21.json`): six-language intent routing, opening disclosure, no-credential-request check, prompt-injection detection, signature rejection, rate limiting, TTS and platform status. That run predates the retired legacy intake route, so re-verify before citing it. Current gates: 17 of 19 green, `load` and `surface` red (`evidence/results.json`). Unproven: one real outbound dial to a handset.
 
 _(60 words — exact limit)_
 
@@ -205,4 +208,4 @@ _(60 words — exact limit)_
 ## Q · Proof of Build
 
 1. **Deployed platform:** https://github.com/BROCKUGANDA/SecureVoice-AI (full repo with live API routes, Twilio integration, ElevenLabs voice, audit chain)
-2. **60-second walkthrough:** https://youtu.be/DFAHZzaAxyc — walks the Box L diagram: risk signal in, agent call, freeze executed, audit chain sealed, specialist handoff.
+2. **Architecture walkthrough:** https://youtu.be/DFAHZzaAxyc — walks the Box L diagram: risk signal in, agent call, **freeze staged (not executed)**, audit chain sealed, specialist handoff. The duration previously advertised here ("60-second") is not verifiable in-repo; the local cut described by `docs/WALKTHROUGH.md` runs 2:37 and lives under the gitignored `scripts/walkthrough/out/`.

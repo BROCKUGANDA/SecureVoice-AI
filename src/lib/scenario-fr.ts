@@ -45,7 +45,7 @@ export const FR_PACKS: Record<ScenarioKind, FrLine[]> = {
     // e12 · protect
     "Pour vous protéger, je place maintenant un blocage temporaire sur votre carte se terminant par 4417. Cela empêche toute nouvelle opération non autorisée, et il peut être levé instantanément dès que votre compte est sécurisé.",
     // e13 · api
-    "200 OK · 240ms — gel : temporaire · motif : soupçon de fraude · vérification : 2/3 réussie",
+    "200 OK · staged — gel : temporaire · motif : soupçon de fraude · vérification : 2/3 réussie",
     // e14 · done
     "C'est fait — votre carte est bloquée. Je vous passe maintenant ma collègue Sara, spécialiste anti-fraude, qui va sécuriser votre compte et organiser votre carte de remplacement. Merci de rester en ligne.",
     // e15 · handoff
@@ -55,7 +55,7 @@ export const FR_PACKS: Record<ScenarioKind, FrLine[]> = {
     "Journal d'audit scellé — enregistrement de l'appel, transcription intégrale, méthode de vérification et horodatage de l'action écrits sur un stockage infalsifiable (AES-256).",
     // e17 · outcome
     (m) =>
-      `RÉSOLU — du signal de fraude à la mesure de protection en 61 secondes. Perte estimée évitée : ${m.preventedLoss.en}. Ancienne méthode : 38 minutes. Cet appel : 61 secondes.`,
+      `RÉSOLU — du signal de fraude à une mesure de protection, staged dans la limite de cas de 60 secondes (simulation guidée, temps comprimé). Perte estimée évitée : ${m.preventedLoss.en}. Ancienne méthode : 38 minutes.`,
   ],
 
   /* ————————— ATM CASH-OUT ————————— */
@@ -79,7 +79,7 @@ export const FR_PACKS: Record<ScenarioKind, FrLine[]> = {
       `Transfert chaud vers une spécialiste humaine (Sara H.) — contexte complet transmis : statut de la vérification, événement de fraude confirmé, confirmation de l'action, indicateurs de sentiment. Dossier ${m.caseId} créé.`,
     "Journal d'audit scellé — enregistrement de l'appel, transcription intégrale, méthode de vérification et horodatage de l'action écrits sur un stockage infalsifiable (AES-256).",
     (m) =>
-      `RÉSOLU — du signal de fraude à la mesure de protection en 61 secondes. Perte estimée évitée : ${m.preventedLoss.en}. Ancienne méthode : 38 minutes. Cet appel : 61 secondes.`,
+      `RÉSOLU — du signal de fraude à une mesure de protection, staged dans la limite de cas de 60 secondes (simulation guidée, temps comprimé). Perte estimée évitée : ${m.preventedLoss.en}. Ancienne méthode : 38 minutes.`,
   ],
 
   /* ————————— IMPERSONATION WIRE SCAM ————————— */
@@ -103,7 +103,7 @@ export const FR_PACKS: Record<ScenarioKind, FrLine[]> = {
       `Transfert chaud vers une spécialiste humaine (Sara H.) — contexte complet transmis : statut de la vérification, événement de fraude confirmé, confirmation de l'action, indicateurs de sentiment. Dossier ${m.caseId} créé.`,
     "Journal d'audit scellé — enregistrement de l'appel, transcription intégrale, méthode de vérification et horodatage de l'action écrits sur un stockage infalsifiable (AES-256).",
     (m) =>
-      `RÉSOLU — du signal de fraude à la mesure de protection en 61 secondes. Perte estimée évitée : ${m.preventedLoss.en}. Ancienne méthode : 38 minutes. Cet appel : 61 secondes.`,
+      `RÉSOLU — du signal de fraude à une mesure de protection, staged dans la limite de cas de 60 secondes (simulation guidée, temps comprimé). Perte estimée évitée : ${m.preventedLoss.en}. Ancienne méthode : 38 minutes.`,
   ],
 
   /* ————————— INSURANCE · CLAIM PAYOUT REDIRECT ————————— */
@@ -144,7 +144,7 @@ export const FR_PACKS: Record<ScenarioKind, FrLine[]> = {
     "Journal d'audit scellé — enregistrement de l'appel, transcription intégrale, méthode de vérification et horodatage de l'action écrits sur un stockage infalsifiable (AES-256).",
     // e17 · outcome
     (m) =>
-      `RÉSOLU — du signal de fraude à la mesure de protection en 61 secondes. Perte estimée évitée : ${m.preventedLoss.en}. Ancienne méthode : 38 minutes. Cet appel : 61 secondes.`,
+      `RÉSOLU — du signal de fraude à une mesure de protection, staged dans la limite de cas de 60 secondes (simulation guidée, temps comprimé). Perte estimée évitée : ${m.preventedLoss.en}. Ancienne méthode : 38 minutes.`,
   ],
 
   /* ————————— FAILURE / ESCALATION · VOICEMAIL → SMS FALLBACK ————————— */

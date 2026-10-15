@@ -801,3 +801,59 @@ production-shaped process records a call. Item 2 is FIXED (d8c9686) — `TTS_REQ
 bounds the whole ladder at 10 s; the test drives a primary that never answers and the
 customer hears the cue in ~125 ms with all three skipped rungs named in the audit.
 Items 3-7 remain as written.
+
+### 14. Published copy asserted things the tree does not do — **FIXED in code; 6 items left for the owner**
+
+Triggered by a business-model document that reproduced "~$0.05 cost / 66% gross margin" as
+though it were fact. It was ours, verbatim, in two places — `src/lib/payments/overage.ts:45`
+and `docs/TODO.md:40` — both citing `docs/UNIT-ECONOMICS.md`, which models **≈$0.55** per
+intervention (`cost_per_call = 3 × (carrier_rate + 0.08) + 0.002`). Same class, same search:
+"multi-AZ · 99.99% uptime SLA" sat in a chip, a risk-table row **and the narrated speaker
+script**, against `terraform/main.tf:75` (one `ovh_cloud_instance`) and
+`docs/SECURITY-QUESTIONNAIRE.md` 7.4 ("Single-region today; multi-region is roadmap").
+
+Corrected across `src/views/*.tsx`, `src/lib/deck.ts`, `src/app/llms.txt/route.ts`,
+`src/components/seo/JsonLd.tsx`, the `/faq` answers in `src/lib/commercial.ts`, the five
+`scenario-*.ts` demo strings and the walkthrough captions: mTLS and OAuth (neither exists —
+ingest is `SV-Signature` HMAC or a producer key); "pre-warmed channels"
+(`flags.ts:141 twilioMediaStreams:false`); cloned voices and the Marcus/Fatima personas
+(cloning disabled on this account, one stock Library voice); voice watermarking (no code);
+"we store no call audio" (retained 30 days — `retention.ts:76-80`); Eleven v3 (`eleven_v4_turbo`;
+v3 returns 400 `expressive_tts_not_allowed`); stability 0.7 / style 0.3 (the committed YAML is
+0.5 / 0.8 with no style field); "language locked, never switches" (the prompt switches and a
+`switch_language` tool is attached); Filipino, Malayalam and Bengali as supported (`TtsLang`
+has none of them); a risk-score threshold of ours (there is no floor — `.min(0).max(1)`, and
+admission is capacity-based); 60 seconds as time-to-contact (it is `SLA_SECONDS`, a case
+deadline, while `signal_received_to_ringing` is `not_measured`); "about one second",
+"sub-second", "240ms", "800 ms" and "61 seconds" (script pacing, presented as measurement); a
+30-second specialist (both tools set `ETA_SECS = 120`, and with no line configured the case is
+queued); "a one-word path to a human" (`"are you human"` is in the DOUBT set and returns a
+clarification); "90%+ pass rate, complete" (`evidence/results.json` is 17 of 19, 89.5%, with
+`load` and `surface` failing); "always reversible" (staged; an uncommitted hold lapses by
+escalation); "runs against UAE banks" (no live bank receiver was ever involved); and
+Kubernetes (Docker Compose on one host).
+
+The gate is `tests/surface/published-claims.test.ts`: fifteen bans, each carrying the reason
+and the file:line that refutes it, a windowed refutation exemption so honest roadmap copy
+("Bengali — not implemented") survives while an assertion does not, comments excluded, and an
+anti-vacuity test proving every ban still fires on a fabricated sentence. It earns its place
+by what it caught while being written: four live violations in `Dashboard.tsx`, `Docs.tsx`,
+`Security.tsx` and the `/faq` answers that three careful passes of human-authored review had
+left in place.
+
+**Left for the owner — six things the repository cannot answer because they are about people,
+markets and regulators, not about code:** the "five people" team slide against
+`docs/SUBMISSION.md:21` ("Solo founder + AI engineering pipeline"); "50K+ calls a month
+deployed"; the market statistics (38 minutes, which three files attribute to three different
+sources; 22%; 43%→85%; AED 340M against `SUBMISSION.md:38`'s sourced AED 2,847 per case; CSAT
+2.8→4.2; 65%→95%; 88% expatriates; 62%→90%; 12–15 FTE per million; −40% cost); the PCI
+"SAQ A, not SAQ D" self-classification, which only an assessor can make; CBUAE alignment and
+the "audit pack", with no regulator correspondence on file and the reference deployment in
+`eu-central-1`; and "extensive native-speaker testing", which has no artifact.
+
+**Still unmeasured, and now labelled that way rather than quoted:** cost per intervention
+(no unit price is stored anywhere, and `capacity.ts:484-491` marks the carrier rate
+INPUT REQUIRED), intake-to-ringing (no producer for the span — §13.4), and database backups
+(`SECURITY-QUESTIONNAIRE.md` 7.3 promises nightly dumps retained 14 days while no `pg_dump`,
+cron or backup service exists in the tracked tree — confirm on the host before that answer is
+sent to a bank).

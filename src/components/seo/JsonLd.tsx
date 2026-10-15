@@ -162,7 +162,7 @@ export function ProductJsonLd({
     name: `${COMPANY.name} — Real-Time Fraud Intervention`,
     applicationCategory: "FinanceApplication",
     applicationSubCategory: "Fraud prevention",
-    operatingSystem: "Web, Docker, Kubernetes",
+    operatingSystem: "Web, Docker Compose on a single Linux host",
     url: `${origin}/`,
     publisher: { "@id": orgId },
     // Deliberate: this is a commercial product, and an engine asked "is
@@ -170,9 +170,9 @@ export function ProductJsonLd({
     isAccessibleForFree: false,
     inLanguage: ["en", "ar", "hi", "ur", "fr", "sw"],
     featureList: [
-      "Outbound AI voice intervention within 60 seconds of a fraud signal",
+      "Outbound AI voice intervention written as a durable dial job on a 60-second case deadline — a deadline the platform sets, not a measured time-to-contact",
       "Identity verification that never captures a PIN, OTP or full card number",
-      "Card freeze and transfer hold, staged and reversible",
+      "Card freeze and transfer hold, staged for a human to commit; the platform never reverses a hold it cannot have frozen",
       "Tamper-evident audit chain",
       "Six languages: Arabic, English, Hindi, Urdu, French, Swahili",
       "In-VPC deployment with bring-your-own-keys",

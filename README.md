@@ -7,7 +7,7 @@
 **Live at [https://securevoiceai.me](https://securevoiceai.me)** — real-time voice fraud intervention for banking & insurance.
 
 **Real-time voice fraud intervention for banking & insurance.**
-**Fraud detected. Customer called. Account frozen — in 60 seconds, not 38 minutes.**
+**Fraud detected. The customer is called. A freeze is staged — and a human commits it.**
 
 [![Next.js 16](https://img.shields.io/badge/Next.js-16-000000?logo=nextdotjs&logoColor=white)](https://nextjs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org)
@@ -29,7 +29,7 @@
 
 **A judge with ninety seconds:**
 
-1. **The claim.** When a bank's fraud engine flags a transaction, an analyst picks it up ~9 minutes later and spends ~38 minutes on the call. The fraudster moves in seconds. This platform places a guardrailed, multilingual voice call to the customer **within 60 seconds of the signal** — and can hold a card or a claim payout while it does.
+1. **The claim.** When a bank's fraud engine flags a transaction, an analyst picks it up ~9 minutes later and spends ~38 minutes on the call (a **literature** baseline — see [Measured latency](#measured-latency)). The fraudster moves in seconds. This platform places a guardrailed, multilingual voice call on the customer's registered number and, on a fraud denial, **stages a reversible card or claim-payout hold that only the institution's own human team commits**. What is measured is the dial leg, not the contact: `signal accepted → provider accepted` is p50 1,980 ms / p95 3,401 ms against a 1,500 ms budget (**missed**), and no PSTN answer or first-word sample exists in the bundle — so there is no "customer reached in N seconds" claim to make.
 2. **See it run.** [Demo walkthrough](#demo-walkthrough) · [live demo](docs/SUBMISSION.md)
 3. **Check the claim against evidence.** [`evidence/INDEX.md`](evidence/INDEX.md) states, per artifact, **whether it was measured or only targeted** — that distinction is the point of the bundle, not a caveat in it.
 4. **Read what makes it safe.** [Guardrails](#guardrails--one-in-the-ui-twelve-in-the-audit-chain) · [MODEL_CARD.md](MODEL_CARD.md)
@@ -43,28 +43,32 @@
 | The agent can never freeze anything on its own     | State machine + category rules        | Only a human in the institution's own team finalises it — in **every** environment                             |
 | Pre-production can never reach a real customer     | `APP_ENV` gate in `src/lib/twilio.ts` | `staging` returns 403 and makes **zero** Twilio calls — [evidence](docs/evidence/staging-gate-2026-10-01.json) |
 
-**Status:** live in production; CI green on every push; promoted `dev → staging → main` automatically only when those gates pass.
+**Status:** live in production. The committed gate run is **17 of 19 green** — `load` and `surface`
+fail, an overall pass rate of **0.8947**, not "all gates" (`evidence/results.json`); and the
+agent-layer tool-call criterion is **UNVERIFIED over 0 executed runs** (`evidence/tests/SUMMARY.md`).
+Promotion `dev → staging → main` is armed only on a green run, so those two red gates are what block
+it today.
 
 ---
 
 ## What it does
 
-Today, when a bank's fraud engine flags a transaction, the case lands in a Tier‑1 analyst's queue ~9 minutes later. The analyst dials the customer, the customer doesn't recognize the number, and while the phone rings the fraudster completes the second transaction. The average call-center agent takes **38 minutes** to work a single case — the fraudster moves in **seconds**.
+Today, when a bank's fraud engine flags a transaction, the case lands in a Tier‑1 analyst's queue ~9 minutes later. The analyst dials the customer, the customer doesn't recognize the number, and while the phone rings the fraudster completes the second transaction. The average call-center agent takes **38 minutes** to work a single case (an external, literature-cited baseline — labelled `"kind": "literature"` in `evidence/latency/slo.json`; it is not something this repository measured) — the fraudster moves in **seconds**.
 
 **SecureVoice AI closes that gap.** The moment a risk signal arrives (`POST /v1/interventions`), the platform:
 
-1. Places an **outbound voice call to the customer within seconds** — live over Twilio, in the customer's own language, for **banks and insurers** alike.
+1. Places an **outbound voice call** — on the ElevenLabs agent plane, from the tenant's own imported phone number (`src/lib/elevenlabs/outbound-call.ts`), in the customer's own language, for **banks and insurers** alike. No dial is pre-warmed: `realtime` and `twilioMediaStreams` both default to `false` in `src/lib/flags.ts`.
 2. Runs a **guardrailed voice agent** (ElevenLabs Agents Platform) whose system prompt is selected by a **Dynamic Prompt Router** — the producer declares _why_ the institution is calling (`call_category`), and the agent's powers, prohibitions and backend preconditions follow that category.
-3. On confirmation, **stages the protective action (always reversible), escalates to a human — live via warm transfer or the specialist queue — and streams every phase transition back to the institution** via signed webhooks — with a tamper-evident **audit chain** recording the entire interaction.
+3. On confirmation, **stages the protective action (staged for a human to commit), escalates to a human — live via warm transfer or the specialist queue — and streams every phase transition back to the institution** via signed webhooks — with a tamper-evident **audit chain** recording the entire interaction.
 
 > **Compliance by construction:** every call opens with a disclosure, the agent _never_ requests PINs/OTPs/passwords (server-enforced, not prompt-enforced), all PII is redacted before persistence, and **irreversible account actions are decided by the institution's human team in every category and every environment**.
 
 ## Features
 
-- 🎙️ **Streaming voice agent with barge-in** — sub-second turn-taking; the customer can interrupt the agent mid-sentence.
+- 🎙️ **Streaming voice agent with barge-in** — the customer can interrupt the agent mid-sentence. Turn-taking latency is **not measured** (`caller_stop_to_agent_audio` has 0 samples in `evidence/latency/slo.json`), so no figure is quoted for it.
 - 🧭 **The Dynamic Prompt Router — five call categories.** `fact_finding`, `sensitive_case`, `b2b`, `routine` and `time_critical_fraud` each carry their own system prompt, state-machine rules and backend preconditions: routine calls are refused outside the permitted calling window and for numbers on the do-not-call registry; a B2B call can only ever produce a recommendation for human sign-off; only fraud verification may stage a protective action. Absent a category, a producer gets `time_critical_fraud` — the audited baseline, so legacy integrations keep exactly today's call. See [src/lib/call-categories.ts](src/lib/call-categories.ts).
 - 🏥 **Banks and insurers are both first-class** — one platform, two institution types: "your card" becomes "your policy", the protective action becomes a hold on the claim payout or policy change, the opening line and voicemail are institution-aware in all six languages, and the demo ships an insurer scenario.
-- 🤝 **Live human handoff** — the `warm_transfer` tool bridges the customer to a human specialist's phone **inside the same call**: the customer is never asked to hang up and re-dial, and the caller ID they see stays the institution's own published number throughout. With no specialist number configured it degrades — audited — to the specialist queue rather than dropping the call.
+- 🤝 **Live human handoff** — the `warm_transfer` tool bridges the customer to a human specialist's phone **inside the same call**: the customer is never asked to hang up and re-dial, and the caller ID they see stays the institution's own published number throughout. With no specialist number configured it degrades — audited — to the specialist queue rather than dropping the call. That is the **shipped default**: `HUMAN_AGENT_PHONE` is empty in `.env.example`, and a bad number or a Twilio outage takes the same path. The queue's stated handoff ETA is **120 s** (`ETA_SECS`, `human-handoff/route.ts` and `warm-transfer/route.ts`) — not 30 seconds.
 - 🌍 **Multilingual, per path** — the ElevenLabs agent (the primary conversation plane) is configured for `en / ar / hi` ([`agent/securevoice.agent.yaml`](agent/securevoice.agent.yaml)); the built-in continuity pipeline additionally speaks `ur / fr / sw` ([`src/lib/config.ts`](src/lib/config.ts)). **Only English and Arabic have a recorded end-to-end conversation in the evidence bundle.** Voice identity per language.
 - 🖥️ **Operator Command Center** — live intervention feed (SSE), case monitoring, sentiment-based escalation to human specialists.
 - 🔗 **Tamper-evident audit chain** — every action hash-chained (sha256) with canonical serialization; exportable per case reference.
@@ -113,7 +117,7 @@ in-app view switcher). There are no separate `/docs`-style server routes.
 
 ## Run with Docker
 
-The reproducible, zero-setup path — Postgres, schema, seed data, realtime push, TLS, and server in one command:
+The reproducible, zero-setup path — Postgres, schema, seed data, TLS, and server in one command. The realtime service and the Twilio media-stream worker are **built and routed but switched off** at default config (`FEATURE_REALTIME` and `FEATURE_TWILIO_MEDIA_STREAMS` both default to `false`, in `src/lib/flags.ts` and in `docker-compose.yml`), so nothing is pre-warmed for a call:
 
 ```bash
 docker compose up --build
@@ -224,23 +228,23 @@ The deployed site is at [https://securevoiceai.me](https://securevoiceai.me). It
 
 ## API surface
 
-| Route                                                            | Purpose                                                                                                                                                                          |
-| ---------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `POST /v1/interventions` (`GET` = discovery doc)                 | Institution fraud engine ingests a risk signal (HMAC-signed) → case created, SLA clock starts. Optional `call_category` selects the agent's prompt and the backend preconditions |
-| `POST /api/enroll` · `/v1/enroll`                                | Enroll a customer for real Twilio delivery (requires a `consentRecordId`)                                                                                                        |
-| `POST /api/agent`                                                | Guardrailed conversation turn API used during a live call                                                                                                                        |
-| `POST /api/tts` · `POST /api/tts/stream` · `POST /api/asr`       | Neural TTS / speech-to-text, language-routed voice IDs, rate-limited                                                                                                             |
-| `POST /api/pilot`                                                | Guided pilot / lead capture                                                                                                                                                      |
-| `POST /api/webhooks`                                             | Signed outbound phase-transition events back to the institution                                                                                                                  |
-| `POST /api/elevenlabs/tools/verify-transaction`                  | Agent tool → record the verification outcome (`confirmed_fraud` / `confirmed_legitimate` / `uncertain`)                                                                          |
-| `POST /api/elevenlabs/tools/card-freeze`                         | Agent tool → **stages** a reversible freeze (always `committed:false`)                                                                                                           |
-| `POST /api/elevenlabs/tools/human-handoff`                       | Agent tool → queue a fraud specialist                                                                                                                                            |
-| `POST /api/elevenlabs/tools/warm-transfer`                       | Agent tool → bridge the live call to a human specialist's phone (degrades to the queue)                                                                                          |
-| `POST /api/elevenlabs/tools/switch-language`                     | Agent tool → switch the conversation language mid-call                                                                                                                           |
-| `POST /api/elevenlabs/signed-url`                                | Mint a 15-min browser session credential; pins `ELEVENLABS_AGENT_ID`                                                                                                             |
-| `POST /api/twilio/status`                                        | Twilio delivery callbacks → folds the telecom outbox row (`X-Twilio-Signature` required, fails closed)                                                                           |
-| `POST /api/twilio/inbound-voice`                                 | Customer rings the institution's line back: tenant by dialled number, case by caller, then agent → human → spoken acknowledgement                                                |
-| `GET /api/status` · `GET /api/health` · `GET /api/console/audit` | Status, liveness, audit chain export                                                                                                                                             |
+| Route                                                            | Purpose                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| ---------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /v1/interventions` (`GET` = discovery doc)                 | Institution fraud engine ingests a risk signal (HMAC-signed) → case created, case deadline (`SLA_SECONDS`) starts. `risk_score` is validated as a 0–1 value and drives queue **priority** only — no floor here gates the dial (`src/lib/capacity.ts` admits everything in the NORMAL band); the threshold that decides _whether to call_ is the bank's own engine. Optional `call_category` selects the agent's prompt and the backend preconditions |
+| `POST /api/enroll` · `/v1/enroll`                                | Enroll a customer for real Twilio delivery (requires a `consentRecordId`)                                                                                                                                                                                                                                                                                                                                                                            |
+| `POST /api/agent`                                                | Guardrailed conversation turn API used during a live call                                                                                                                                                                                                                                                                                                                                                                                            |
+| `POST /api/tts` · `POST /api/tts/stream` · `POST /api/asr`       | Neural TTS / speech-to-text, language-routed voice IDs, rate-limited                                                                                                                                                                                                                                                                                                                                                                                 |
+| `POST /api/pilot`                                                | Guided pilot / lead capture                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `POST /api/webhooks`                                             | Signed outbound phase-transition events back to the institution                                                                                                                                                                                                                                                                                                                                                                                      |
+| `POST /api/elevenlabs/tools/verify-transaction`                  | Agent tool → record the verification outcome (`confirmed_fraud` / `confirmed_legitimate` / `uncertain`)                                                                                                                                                                                                                                                                                                                                              |
+| `POST /api/elevenlabs/tools/card-freeze`                         | Agent tool → **stages** a reversible freeze (always `committed:false`)                                                                                                                                                                                                                                                                                                                                                                               |
+| `POST /api/elevenlabs/tools/human-handoff`                       | Agent tool → queue a fraud specialist                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `POST /api/elevenlabs/tools/warm-transfer`                       | Agent tool → bridge the live call to a human specialist's phone (degrades to the queue)                                                                                                                                                                                                                                                                                                                                                              |
+| `POST /api/elevenlabs/tools/switch-language`                     | Agent tool → switch the conversation language mid-call                                                                                                                                                                                                                                                                                                                                                                                               |
+| `POST /api/elevenlabs/signed-url`                                | Mint a 15-min browser session credential; pins `ELEVENLABS_AGENT_ID`                                                                                                                                                                                                                                                                                                                                                                                 |
+| `POST /api/twilio/status`                                        | Twilio delivery callbacks → folds the telecom outbox row (`X-Twilio-Signature` required, fails closed)                                                                                                                                                                                                                                                                                                                                               |
+| `POST /api/twilio/inbound-voice`                                 | Customer rings the institution's line back: tenant by dialled number, case by caller, then agent → human → spoken acknowledgement                                                                                                                                                                                                                                                                                                                    |
+| `GET /api/status` · `GET /api/health` · `GET /api/console/audit` | Status, liveness, audit chain export                                                                                                                                                                                                                                                                                                                                                                                                                 |
 
 Full request/response examples are on the in-app **Docs** page. For signing, enrolment,
 tool authorisation, and self-serve onboarding see **[docs/INTEGRATION.md](docs/INTEGRATION.md)**.
@@ -332,11 +336,7 @@ sha256 snapshot in `evidence/agent/` — reproducible: a second apply produces a
 hash and an empty diff. All five webhook tools are defined on the platform account and
 attached to the agent, with RAG and source attribution on.
 
-Free-tier limits to be aware of: `eleven_v3` returns **402 `paid_plan_required`**
-(enforced server-side, so no SDK or HTTP client can unlock it — the agent falls back to
-`eleven_flash_v2`), voice cloning is disabled, and the monthly character quota is small
-enough to run out mid-test-suite. See [docs/SUBMISSION.md](docs/SUBMISSION.md) for the
-exact account state.
+Account limits to be aware of: expressive **`eleven_v3` is refused in the Conversational-AI agent plane** — `PATCH /v1/convai/agents/{id}` returns **400 `expressive_tts_not_allowed`** (enforced server-side, so no SDK or HTTP client can unlock it), which is a plan entitlement distinct from raw v3 synthesis. The shipped agent therefore runs **`eleven_v4_turbo`** with `stability: 0.5` and `similarity_boost: 0.8` and **no `style`** field (`agent/securevoice.agent.yaml`); the worker's per-language synthesis resolves through the same table (`src/lib/elevenlabs/client.ts` — `ur`/`sw` pinned to `eleven_v4_turbo`). **Voice cloning is disabled on this account**, so the agent speaks **one stock Library voice**, and the monthly character quota is small enough to run out mid-test-suite. See [docs/SUBMISSION.md](docs/SUBMISSION.md) for the exact account state.
 
 ## Multi-tenant telecom: whose number is this?
 
@@ -481,7 +481,7 @@ Everything is opt-in: **no keys required to run the demo** (dry-run + audit-only
 | `AGENT_TOOL_SECRET`                                              | Shared secret the agent must present on webhook tool calls (`x-agent-tool-secret`).                                                                                                                                                                                                                                     |
 | `AGENT_TOOL_ALLOWED`                                             | Comma-separated tool allow-list, e.g. `card_freeze,human_handoff`. **One global list, not per-tool scoping — see [Tool authorisation](#tool-authorisation).**                                                                                                                                                           |
 | `ELEVENLABS_API_KEY` / `ELEVENLABS_DRY_RUN`                      | Neural voice; `DRY_RUN=true` serves the dev backend without burning quota                                                                                                                                                                                                                                               |
-| `ELEVENLABS_MODEL` / `ELEVENLABS_STT_MODEL`                      | Model overrides (`eleven_v3`, `scribe_v2`)                                                                                                                                                                                                                                                                              |
+| `ELEVENLABS_MODEL` / `ELEVENLABS_STT_MODEL`                      | Model overrides (default TTS `eleven_v4_turbo`; STT `scribe_v2`) — `eleven_v3` is refused in the agent plane                                                                                                                                                                                                            |
 | `ELEVENLABS_VOICE_EN/AR/HI/UR`                                   | Per-language voice IDs                                                                                                                                                                                                                                                                                                  |
 | `TWILIO_ACCOUNT_SID` / `TWILIO_API_KEY_*` / `TWILIO_FROM_NUMBER` | Real call + SMS delivery                                                                                                                                                                                                                                                                                                |
 | `WEBHOOK_SECRET`                                                 | Signs outbound events & verifies inbound risk signals                                                                                                                                                                                                                                                                   |
@@ -598,24 +598,35 @@ Without a key the platform runs identically on scripted replies. The default Gro
 
 ## Measured latency
 
-Two legs of the path are measured today. Everything else is a **target** and is marked as
-not yet measured — a target printed next to a measurement is how a submission ends up
-claiming performance it never observed. Sources: [docs/VERIFICATION.md](docs/VERIFICATION.md)
-and the per-suite commands below.
+Every number below comes from a **committed artifact**. Where the artifact holds no sample, the
+row says so — a target printed next to a measurement is how a submission ends up claiming
+performance it never observed. Primary source: [`evidence/latency/slo.json`](evidence/latency/slo.json),
+computed by `scripts/emit-slo.ts` from spans the running platform recorded
+(`src/lib/telemetry/spans.ts` → `evidence/latency/spans.jsonl`).
 
-| Leg                                                                | Target                      | Measured                                                             | Status                                                                                                                                                                                                                                                                                                    |
-| ------------------------------------------------------------------ | --------------------------- | -------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Risk signal accepted → provider accepted (call placement)          | p95 < 1,500 ms              | **p95 551 ms** over 20 signals, co-located Postgres                  | ✅ MEASURED — `bun test tests/e2e/dial.test.ts`. The gate is topology-aware: against a remote database it asserts p95 under the measured DB floor plus the same budget, so a shared-hosting run (p95 6,715 ms against a 296 ms floor) passes without claiming 1,500 ms on hardware that cannot deliver it |
-| Server tool round-trip (agent → `/api/elevenlabs/tools/*` → agent) | p95 < 300 ms                | **p95 9 ms** over 200 calls, co-located Postgres (db floor p95 3 ms) | ✅ MEASURED — `bun test tests/tools/guard.test.ts`                                                                                                                                                                                                                                                        |
-| Signal accepted → first audio the customer hears                   | < 60 s (the headline claim) | —                                                                    | ⬜ **not yet measured** — needs a live PSTN call, which the evidence bundle does not contain                                                                                                                                                                                                              |
-| Call end → post-call webhook ingested, case reconciled             | < 30 s                      | —                                                                    | ⬜ **not yet measured** — no end-to-end timing harness exists                                                                                                                                                                                                                                             |
-| Verdict enqueued → first delivery attempt to the bank              | < 5 s                       | —                                                                    | ⬜ **not yet measured** — the outbox gate asserts retry/dead-letter _behaviour_, not delivery latency                                                                                                                                                                                                     |
+| Leg                                          | Budget          | Measured (committed artifact)           | Verdict                                                                     |
+| -------------------------------------------- | --------------- | --------------------------------------- | --------------------------------------------------------------------------- |
+| Risk signal received → accepted              | p95 < 300 ms    | p50 3,179 / p95 3,817 ms, 1,676 samples | ❌ **missed**                                                               |
+| Signal accepted → provider accepted the call | p95 < 1,500 ms  | p50 1,980 / p95 3,401 ms, 1,676 samples | ❌ **missed**                                                               |
+| Tool request → tool response                 | p95 < 300 ms    | p50 287 / p95 3,601 ms, 705 samples     | ❌ **missed**                                                               |
+| Signal received → freeze **staged**          | p95 < 60,000 ms | p50 3,986 / p95 27,937 ms, 88 samples   | ✅ met — and it ends at a staged freeze, **not** at a customer conversation |
+| Signal received → ringing                    | p95 < 5,000 ms  | `not_measured`, 0 samples               | ⬜ no data                                                                  |
+| Answered → first agent word                  | p95 < 1,200 ms  | `not_measured`, 0 samples               | ⬜ no data                                                                  |
+| Caller stops speaking → agent audio begins   | p95 < 1,500 ms  | `not_measured`, 0 samples               | ⬜ no data                                                                  |
 
-The tool latency figure is only meaningful against a co-located database. The same suite
-pointed at a remote Postgres measured p95 592 ms with a 294 ms database floor — 97 % of that
-"regression" was network. The gate measures the database floor first and only enforces the
-absolute 300 ms budget when the database is co-located, so a green run cannot be mistaken for
-a measured one.
+Two consequences, stated plainly. **There is no measured time-to-contact:** no artifact in this
+repository records a ring, an answer, or the first word a customer hears, so nothing here claims
+"the customer was reached in N seconds" — and `SLA_SECONDS` (default 60, `src/lib/config.ts`) is a
+**case deadline** that gates when a dial job becomes claimable, not a connect time. **The three
+measured legs miss their budgets**; `slo.json`'s own gate exits non-zero on all three.
+
+The one endpoint-level capture, [`docs/evidence/latency-2026-10-01.json`](docs/evidence/latency-2026-10-01.json),
+is a before/after of the audit-chain write on a local dev server: an authorized `card_freeze` returns
+**median 2,450 ms** (range 2,200–2,900, n=12 warm) after the single-transaction fix, and the rejection
+paths (401 / 401 / 422) answer in a **median 165 ms** without touching the database. The dial gate
+([`evidence/dial/summary.json`](evidence/dial/summary.json)) is topology-aware — its recorded run is a
+_shared_ test database (`20 signals dialed, p95=5775ms`) and passes by asserting under the measured
+database floor plus the same budget, so a green dial gate is not a claim of 1,500 ms on that hardware.
 
 ## Documentation
 

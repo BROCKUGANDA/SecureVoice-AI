@@ -28,9 +28,11 @@ let POST: typeof PilotPost;
 beforeAll(async () => {
   // The route reads PILOT_NOTIFY_EMAIL at call time, not import time, so setting it
   // here is enough — but it must be set before the handler runs.
-  // The send step needs APP_BASE_URL to build the template's base link. The ROW is
-  // written before the send is attempted, so a failure here is a failed delivery,
-  // not a lost lead — but the test needs the send to succeed to assert the row.
+  //
+  // The handler now AWAITS its own queue insert and does no provider call, so
+  // nothing here depends on a send succeeding: the row this file asserts IS the
+  // notification, and delivery is the drain worker's job. APP_BASE_URL stays set
+  // because the template renders its links from it whenever anything does send.
   process.env.APP_BASE_URL = "http://localhost:3000";
   process.env.PILOT_NOTIFY_EMAIL = NOTIFY_TO;
   const mod = await import("@/app/api/pilot/route");

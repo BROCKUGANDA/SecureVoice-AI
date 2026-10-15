@@ -514,7 +514,7 @@
         "file": "src/lib/case-state-machine.ts",
         "transactions": 1,
         "regions": [
-          "259-267"
+          "271-279"
         ],
         "findings": []
       },
@@ -2356,7 +2356,7 @@
       "area": "gate",
       "name": "evidence-digest-is-sha256",
       "ok": true,
-      "detail": "6331c0f06f8ae9df"
+      "detail": "2f882d9a2a006096"
     },
     {
       "area": "gate",
@@ -3602,5 +3602,5 @@
     }
   ],
   "digestAlgorithm": "sha256",
-  "digest": "389d726986cd6abfd69f8688fe4b2a877f660addbba2e5ef8480be0552f82d57"
+  "digest": "6dc6c7b8414eb830312a5839315bd29f3801f3bcd4b57b1f228403f11e7faf82"
 }

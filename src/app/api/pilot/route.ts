@@ -4,7 +4,8 @@ import { z } from "zod";
 import { env } from "@/lib/config";
 import { db } from "@/lib/db";
 import { logError } from "@/lib/validation/safe-log";
-import { enqueueAndSendEmail } from "@/lib/email/queue";
+import { enqueueEmail } from "@/lib/email/outbox";
+import { SUPPORT_EMAIL as PUBLIC_SUPPORT_EMAIL } from "@/lib/public-config";
 
 export const dynamic = "force-dynamic";
 
@@ -124,40 +125,65 @@ export async function POST(req: NextRequest) {
 
       // Notify the sales inbox.
       //
-      // AFTER the row is committed, and deliberately not awaited: a lead is
-      // captured by the INSERT, so a mail-provider outage must not turn a
-      // successful enquiry into a 500 for the person who filled the form in. The
-      // notification goes through the durable email queue, so a failure is
-      // retried by the drain worker rather than lost — the same discipline the
-      // magic-link path uses, for the same reason.
+      // The enquiry row is committed first, so a mail failure can never lose a
+      // lead. What is NOT true — and was the bug — is that the notification can be
+      // fired off unawaited. `enqueueAndSendEmail` does the queue INSERT and the
+      // provider call in one floating promise, so the response could return 200
+      // while nothing had been queued yet: no queue row means no drain retry, and
+      // the only trace is a log line nobody reads. Found by the gate, which
+      // asserted the row immediately after the request and found it missing under a
+      // containerised database where the floating promise had not landed.
       //
-      // The recipient is configurable because the mailbox is an operational
-      // choice, not a code constant: PILOT_NOTIFY_EMAIL. Unset means the request
-      // is still stored and still shown in the console; only the email is skipped.
-      const notifyTo = process.env.PILOT_NOTIFY_EMAIL?.trim();
+      // So the awaited half is the DURABLE half and the offloaded half is the
+      // delivery: the queue entry is written before this handler answers, and the
+      // mail worker (10s drain) sends it. That keeps the property the original
+      // comment was protecting — a provider outage must not turn a successful
+      // enquiry into a 500 for the person at the form — while dropping the part
+      // that was never true: an unawaited enqueue is not "retried by the worker",
+      // because nothing was queued. A pilot lead does not compete with a magic
+      // link for seconds; it competes with silence.
+      //
+      // The recipient falls back to the public support mailbox rather than being
+      // skipped. It USED to be `if (notifyTo)`, on the reasoning that the mailbox
+      // is an operational choice — which is true, and is why PILOT_NOTIFY_EMAIL
+      // still overrides. But an unset variable then made the notification SILENT:
+      // the enquiry was stored, the response was 200, the console showed it, and
+      // no mail was ever sent. Found in production on 2026-10-14 with
+      // PILOT_NOTIFY_EMAIL absent from the box's .env — every pilot lead since was
+      // a row and a lie. A lead is the one thing on this site with no other
+      // channel, so "nobody configured it" has to mean support@, not nobody.
+      const notifyTo = (
+        process.env.PILOT_NOTIFY_EMAIL?.trim() ||
+        process.env.NEXT_PUBLIC_SUPPORT_EMAIL?.trim() ||
+        PUBLIC_SUPPORT_EMAIL
+      ).toLowerCase();
       if (notifyTo) {
-        void enqueueAndSendEmail({
-          kind: "pilot_request",
-          toEmail: notifyTo,
-          subject: `Pilot request: ${d.institution} — ${d.name}`,
-          token: "",
-          props: {
-            ref: row.ref,
-            name: d.name,
-            email: d.email,
-            institution: d.institution,
-            role: d.role || null,
-            volume: d.volume || null,
-            message: d.message || null,
-            source: d.source || "website",
-          },
-        }).catch((err: unknown) => {
-          // Visible, never fatal: the enquiry is already durable.
-          logError("[pilot] notification enqueue failed", {
+        try {
+          await enqueueEmail({
+            kind: "pilot_request",
+            toEmail: notifyTo,
+            subject: `Pilot request: ${d.institution} — ${d.name}`,
+            props: {
+              ref: row.ref,
+              name: d.name,
+              email: d.email,
+              institution: d.institution,
+              role: d.role || null,
+              volume: d.volume || null,
+              message: d.message || null,
+              source: d.source || "website",
+            },
+          });
+        } catch (err) {
+          // Visible, never fatal: the enquiry is already durable. But it is
+          // logged as what it is — a lead whose notification was never queued has
+          // no second channel and no retry, so the operator has to be able to
+          // find this line.
+          logError("[pilot] notification not queued — the lead is stored, the mail is not", {
             ref: row.ref,
             error: err instanceof Error ? err.message : String(err),
           });
-        });
+        }
       }
 
       return NextResponse.json({ ok: true, ref: row.ref, createdAt: row.createdAt });

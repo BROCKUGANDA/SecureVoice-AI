@@ -1187,3 +1187,5 @@ function Bubble({ e, callLang }: { e: ScenarioEvent; callLang: CallLang }) {
     </motion.div>
   );
 }
+
+export default Demo;

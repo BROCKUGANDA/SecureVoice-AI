@@ -1295,3 +1295,5 @@ function RenderSlide({
     </div>
   );
 }
+
+export default Deck;

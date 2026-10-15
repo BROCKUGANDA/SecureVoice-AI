@@ -95,8 +95,12 @@ function line(path: string, origin: string): string {
 
 /** A plan line, with every `null` meaning "negotiated" rather than "zero". */
 function planLine(p: (typeof PLANS)[number]): string {
+  // `llms.txt` exists to be quoted by answer engines verbatim, so a plan whose
+  // price is not published must not have one inferred here. The public pricing
+  // page says "Custom"; this file has to say the same thing, or the site
+  // contradicts itself depending on who is reading it.
   const price =
-    p.monthlyUsd === null
+    p.monthlyUsd === null || !p.publiclyPriced
       ? "contract-priced"
       : `${p.monthlyUsd} ${PRICE_CURRENCY} per month (${p.yearlyUsd} per year, ten monthly)`;
   const included =

@@ -121,7 +121,7 @@
     {
       "name": "erased-at-recorded",
       "ok": true,
-      "detail": "erasedAt=2026-10-14T19:41:24.968Z"
+      "detail": "erasedAt=2026-10-15T00:46:04.788Z"
     },
     {
       "name": "read-after-erasure-throws",
@@ -156,12 +156,12 @@
     {
       "name": "erasure-witness-in-chain",
       "ok": true,
-      "detail": "witness row cmv8impv3000ckk7qjhu85z1z records keyDestroyed=true"
+      "detail": "witness row cmv8tiio8000cfk7qifuurwyx records keyDestroyed=true"
     },
     {
       "name": "negative-control-tamper-is-detected",
       "ok": true,
-      "detail": "detected at cmv8imptx0008kk7qt969rqei"
+      "detail": "detected at cmv8tiim60008fk7q8vrrmpk5"
     },
     {
       "name": "erasure-is-idempotent",
@@ -211,7 +211,7 @@
     {
       "name": "pilot-audio-is-zero-days",
       "ok": true,
-      "detail": "org-privacy-pilot-mv8impni: audioDays=0 (source pilot)"
+      "detail": "org-privacy-pilot-mv8tiib5: audioDays=0 (source pilot)"
     },
     {
       "name": "pilot-leaves-other-tiers-alone",
@@ -291,7 +291,7 @@
     {
       "name": "dry-run-reports-due-work",
       "ok": true,
-      "detail": "dry run would act on 1 audio tier case(s): SV-P-mv8impni-AUDIO0"
+      "detail": "dry run would act on 1 audio tier case(s): SV-P-mv8tiib5-AUDIO0"
     },
     {
       "name": "dry-run-reports-no-transcript-work",
@@ -301,7 +301,7 @@
     {
       "name": "zero-day-audio-purged-immediately",
       "ok": true,
-      "detail": "pilot case purged on the first run (SV-P-mv8impni-AUDIO0)"
+      "detail": "pilot case purged on the first run (SV-P-mv8tiib5-AUDIO0)"
     },
     {
       "name": "thirty-day-audio-not-purged",
@@ -341,7 +341,7 @@
     {
       "name": "transcript-tier-fires-at-140-days",
       "ok": true,
-      "detail": "acted on 5 case(s): SV-P-mv8impni-TIER, SV-P-mv8impni-AUDIO30, SV-P-mv8impni-KEYA, SV-P-mv8impni-KEYB, SV-P-mv8impni-SEAL"
+      "detail": "acted on 5 case(s): SV-P-mv8tiib5-TIER, SV-P-mv8tiib5-AUDIO30, SV-P-mv8tiib5-KEYA, SV-P-mv8tiib5-KEYB, SV-P-mv8tiib5-SEAL"
     },
     {
       "name": "transcript-tier-scrubs-payload",
@@ -471,19 +471,19 @@
     {
       "name": "master-key-in-process",
       "ok": true,
-      "detail": "master key resolved; ops fingerprint e2ca6000396b816b is a hash, not the key"
+      "detail": "master key resolved; ops fingerprint 7b3eeeec75c8a63e is a hash, not the key"
     }
   ],
-  "digest": "6e4830a2b725f83b3cabc4cbe9ef75f0ea915d1e1c52845dec0b12c2dbb4d03b",
-  "generatedAt": "2026-10-14T19:41:25.281Z",
+  "digest": "e06ed28bbc292a6b0a3a363dd2c5809bbc488d93b338a9d7b1ed79299e4f5f64",
+  "generatedAt": "2026-10-15T00:46:05.466Z",
   "run": {
-    "id": "mv8impni",
+    "id": "mv8tiib5",
     "orgs": {
-      "default": "org-privacy-default-mv8impni",
-      "pilot": "org-privacy-pilot-mv8impni",
-      "override": "org-privacy-override-mv8impni"
+      "default": "org-privacy-default-mv8tiib5",
+      "pilot": "org-privacy-pilot-mv8tiib5",
+      "override": "org-privacy-override-mv8tiib5"
     },
-    "batch": "SV-P-mv8impni-BATCHORG",
+    "batch": "SV-P-mv8tiib5-BATCHORG",
     "database": "TEST_DATABASE_URL",
     "note": "identifiers above are per-run; the digest covers the deterministic core only"
   },

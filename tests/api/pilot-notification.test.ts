@@ -28,9 +28,11 @@ let POST: typeof PilotPost;
 beforeAll(async () => {
   // The route reads PILOT_NOTIFY_EMAIL at call time, not import time, so setting it
   // here is enough — but it must be set before the handler runs.
-  // The send step needs APP_BASE_URL to build the template's base link. The ROW is
-  // written before the send is attempted, so a failure here is a failed delivery,
-  // not a lost lead — but the test needs the send to succeed to assert the row.
+  //
+  // The handler now AWAITS its own queue insert and does no provider call, so
+  // nothing here depends on a send succeeding: the row this file asserts IS the
+  // notification, and delivery is the drain worker's job. APP_BASE_URL stays set
+  // because the template renders its links from it whenever anything does send.
   process.env.APP_BASE_URL = "http://localhost:3000";
   process.env.PILOT_NOTIFY_EMAIL = NOTIFY_TO;
   const mod = await import("@/app/api/pilot/route");
@@ -98,6 +100,61 @@ describe("pilot → operator notification", () => {
       expect(body.ok).toBe(true);
     } finally {
       process.env.PILOT_NOTIFY_EMAIL = previous;
+    }
+  });
+
+  /**
+   * The regression this pins: an unset variable used to mean NO email. The
+   * enquiry was stored, the response was 200, the console listed it, and no mail
+   * was ever sent — a lead is the one thing on this site with no second channel,
+   * so "nobody configured the mailbox" has to mean the public support mailbox
+   * rather than nobody.
+   *
+   * Found in production on 2026-10-14: PILOT_NOTIFY_EMAIL was absent from the
+   * box's .env, so every pilot lead to date was a row and a lie.
+   */
+  test("an unset PILOT_NOTIFY_EMAIL falls back to the public support mailbox", async () => {
+    // The expected address is read from the same module the route imports, so
+    // this asserts the CONTRACT (falls back to the published support mailbox)
+    // rather than hard-coding an address that a deployment may legitimately
+    // override with NEXT_PUBLIC_SUPPORT_EMAIL.
+    const { SUPPORT_EMAIL } = await import("@/lib/public-config");
+
+    const previous = process.env.PILOT_NOTIFY_EMAIL;
+    process.env.PILOT_NOTIFY_EMAIL = "";
+    try {
+      const mark = `${MARK}-fallback`;
+      const res = await POST(
+        new NextRequest("http://localhost/api/pilot", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            name: "Ada Fallback",
+            email: "ada-fallback@example.test",
+            institution: `${mark} Mutual`,
+          }),
+        }),
+      );
+      expect(res.status).toBe(200);
+
+      const { db } = await import("@/lib/db");
+      // The control: the notification actually exists. Asserting only the 200
+      // would pass against the old skip-the-email behaviour, which is exactly
+      // what this file exists to catch.
+      //
+      // Scoped by this submission's own mark rather than "the newest row to that
+      // mailbox". The test above sends to the same fallback address, and two rows
+      // written in the same millisecond make a `createdAt: "desc"` pick arbitrary
+      // — which is how this read green locally and red in CI on a fresh database.
+      // A missing notification is still a null row, so the gate keeps its teeth.
+      const row = await db.emailOutbox.findFirst({
+        where: { toEmail: SUPPORT_EMAIL, kind: "pilot_request", subject: { contains: mark } },
+      });
+      expect(row).not.toBeNull();
+      expect(row?.subject).toContain(mark);
+    } finally {
+      if (previous === undefined) delete process.env.PILOT_NOTIFY_EMAIL;
+      else process.env.PILOT_NOTIFY_EMAIL = previous;
     }
   });
 });

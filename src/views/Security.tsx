@@ -617,3 +617,5 @@ export function Security() {
     </div>
   );
 }
+
+export default Security;

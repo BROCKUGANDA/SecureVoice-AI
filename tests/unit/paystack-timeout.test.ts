@@ -44,7 +44,7 @@ test("a server-side verify carries an AbortSignal on the outgoing request", asyn
   const cfg = paystackConfig({
     secretKey: SECRET,
     http,
-    sleep: async () => {},
+    sleep: async () => {/* empty */},
     rand: () => 0.5,
   });
 

@@ -81,7 +81,7 @@ test("the timeout is set on every attempt, not only the first", async () => {
   const cfg = paystackConfig({
     secretKey: SECRET,
     http,
-    sleep: async () => {},
+    sleep: async () => {/* empty */},
     rand: () => 0.5,
   });
 

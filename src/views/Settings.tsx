@@ -22,7 +22,6 @@ import { PLANS, formatMonthly } from "@/lib/commercial";
 import { PolicyForPlan } from "@/components/legal/PolicyForPlan";
 import { SUPPORT_EMAIL } from "@/lib/public-config";
 import { brandPreview, evaluateBrandPrimary } from "@/lib/brand/color";
-import { Chip } from "@/components/fx/core";
 import { LoadingIndicator } from "@/components/fx/LoadingIndicator";
 import { CrmSection } from "@/views/settings/CrmSection";
 import { DocumentsSection } from "@/views/settings/DocumentsSection";

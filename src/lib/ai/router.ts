@@ -443,7 +443,7 @@ export const ROUTER_PHRASE_COUNTS = {
   empathy: EMPATHY_PHRASES.length,
 } as const;
 
-export function getSpecialistPrompt(role: AgentRole, context: Record<string, unknown>): string {
+export function getSpecialistPrompt(role: AgentRole, _context: Record<string, unknown>): string {
   // Scope note for callers: the Shariah terminology filter is NOT applied here.
   // It runs at the send boundary (compliance/speech-gate.ts) so that every voice
   // path passes through one implementation. Applying it to a prompt would also

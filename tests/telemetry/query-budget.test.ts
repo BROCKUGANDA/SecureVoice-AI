@@ -257,7 +257,7 @@ describe("N+1 regression: the shape a real handler must not have", () => {
       );
       const { report } = await runWithQueryCounter(async () => {
         const cases = await db.case?.();
-        for (const row of cases ?? []) await db.customer?.();
+        for (const _row of cases ?? []) await db.customer?.();
       });
       return report;
     };

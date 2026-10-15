@@ -19,7 +19,6 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const standalone = resolve(root, ".next", "standalone");
 
 /** [source, destination] pairs, relative to the project root. */
 const COPIES = [

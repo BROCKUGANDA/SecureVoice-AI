@@ -8,6 +8,9 @@ import { CurrentUserAvatar } from "@/components/current-user-avatar";
 // stubbed here: the primitive renders a plain element and passes the props
 // through, which is exactly what this spec needs to inspect.
 jest.mock("radix-ui", () => {
+  // The import() is a type argument to a runtime requireActual call; there is no
+  // top-level `import type` equivalent that keeps the type only in this position.
+  // eslint-disable-next-line @typescript-eslint/consistent-type-imports
   const React = jest.requireActual<typeof import("react")>("react");
   const passthrough =
     (tag: string) =>
@@ -108,7 +111,7 @@ describe("CurrentUserAvatar", () => {
   });
 
   it("re-labels the avatar when the language toggle switches to Arabic", async () => {
-    const user = userEvent.setup();
+    userEvent.setup();
     signIn({ name: "Fatima", email: "f@bank.ae", image: null });
     render(<CurrentUserAvatar />);
     expect(screen.getByLabelText("Profile photo of the signed-in user")).toBeTruthy();

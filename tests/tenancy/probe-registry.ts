@@ -1567,7 +1567,7 @@ export const DRIVERS: Record<string, Driver> = {
     };
   },
 
-  "pilot.leads": async (dir) => {
+  "pilot.leads": async (_dir) => {
     const { POST } = await import("@/app/api/pilot/route");
     if (!PILOT_REF) {
       const created = await POST(

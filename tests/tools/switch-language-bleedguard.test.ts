@@ -21,14 +21,17 @@ import { test, expect } from "bun:test";
 import { NextRequest } from "next/server";
 import { db } from "@/lib/db";
 import { POST as switchLang } from "@/app/api/elevenlabs/tools/switch-language/route";
-import { TOOL_TENANT_ORG_ID, issueTenantToolSecret } from "../tool-tenant";
+import { issueTenantToolSecret } from "../tool-tenant";
 
 process.env.ELEVENLABS_DRY_RUN = "true";
 process.env.AGENT_TOOL_SECRET = process.env.AGENT_TOOL_SECRET ?? "test-tool-secret";
 process.env.AGENT_TOOL_ALLOWED = "switch_language";
 
-// A credential bound to TOOL_TENANT_ORG_ID — valid, and pointed at a case that
-// belongs to somebody else.
+// A credential bound to `TOOL_TENANT_ORG_ID` (tests/tool-tenant.ts, the org
+// `issueTenantToolSecret` mints for every test) — valid, and pointed at a case that
+// belongs to somebody else. Named in prose rather than imported because nothing here
+// reads the value: the secret helper binds it internally, and importing it to satisfy
+// the comment would put an unused binding in the file.
 const SECRET = await issueTenantToolSecret("switch-language-bleedguard");
 
 test("switch_language cannot reach another tenant's case", async () => {

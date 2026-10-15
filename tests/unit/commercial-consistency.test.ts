@@ -103,7 +103,10 @@ describe("pricing data", () => {
         // declining to print. An answer engine quotes `offer.price` verbatim, so
         // leaving it there would publish the figure through the one channel
         // whose whole job is to withhold it.
-        expect(plan.offer.price, `${plan.name} hides its price but still emits one`).toBeUndefined();
+        expect(
+          plan.offer.price,
+          `${plan.name} hides its price but still emits one`,
+        ).toBeUndefined();
         expect(
           plan.offer.description.length,
           `${plan.name} needs a description to sell itself with no number`,

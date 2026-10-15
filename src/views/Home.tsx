@@ -987,7 +987,7 @@ function PilotDialog({
   onOpenChange: (o: boolean) => void;
 }) {
   const { toast } = useToast();
-  const { setView, lang } = useApp();
+  const { lang } = useApp();
   const [sent, setSent] = useState(false);
   const [busy, setBusy] = useState(false);
   const [ref, setRef] = useState<string | null>(null);

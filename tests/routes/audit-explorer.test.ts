@@ -135,7 +135,9 @@ beforeEach(() => {
 
 afterAll(async () => {
   await ensureSeeded();
-  await db.auditLog.deleteMany({ where: { callRef: { in: [REF_A, REF_B] } } }).catch(() => undefined);
+  await db.auditLog
+    .deleteMany({ where: { callRef: { in: [REF_A, REF_B] } } })
+    .catch(() => undefined);
 });
 
 type Row = { id: string; callRef: string; action: string; redactedText: string | null };
@@ -208,8 +210,11 @@ test("a negative limit falls back to the default rather than erroring or going u
 
 test("pagination neither repeats nor skips a row", async () => {
   await ensureSeeded();
-  const first = (await callAs("http://localhost/api/console/audit?scope=rows&limit=1")).body as unknown as RowsBody;
-  const second = (await callAs(`http://localhost/api/console/audit?scope=rows&limit=1&offset=${first.nextOffset}`)).body as unknown as RowsBody;
+  const first = (await callAs("http://localhost/api/console/audit?scope=rows&limit=1"))
+    .body as unknown as RowsBody;
+  const second = (
+    await callAs(`http://localhost/api/console/audit?scope=rows&limit=1&offset=${first.nextOffset}`)
+  ).body as unknown as RowsBody;
 
   expect(first.rows).toHaveLength(1);
   expect(second.rows).toHaveLength(1);

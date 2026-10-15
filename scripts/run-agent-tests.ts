@@ -636,7 +636,6 @@ async function main(): Promise<number> {
     }
   }
 
-  const agentLayer = RED_TEAM_SCENARIOS.filter((s) => s.layer === "agent");
   const executed = results.filter((r) => r.status !== "error");
   const errors = results.filter((r) => r.status === "error");
   // Only rows the conversation plane can actually demonstrate are scored.

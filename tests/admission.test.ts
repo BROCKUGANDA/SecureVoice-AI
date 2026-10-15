@@ -9,7 +9,7 @@
  * These are pure-function tests over the band logic; the gauge itself is a
  * database COUNT and is exercised in the e2e path.
  */
-import { describe, expect, test, beforeEach } from "bun:test";
+import { describe, expect, test } from "bun:test";
 
 import {
   admitsVoice,

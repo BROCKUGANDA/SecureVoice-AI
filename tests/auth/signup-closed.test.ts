@@ -258,7 +258,7 @@ test("the invite-accept route creates an account only with a real token", async 
 // ── 4. The account-creation path really is invite-only ───────────────────────
 
 test("an account with a real role can only be created by redeeming an invitation", async () => {
-  const owner = await makeAccount("Owner", "owner");
+  await makeAccount("Owner", "owner");
 
   // Direct creation is possible in-process (the library function), but it is not
   // reachable from any route — which is the property the scan above proves. What

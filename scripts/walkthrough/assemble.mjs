@@ -42,7 +42,7 @@ function ffmpeg(args, label) {
 }
 
 const list = [];
-for (const [i, sc] of scenes.entries()) {
+for (const sc of scenes) {
   const t = byId[sc.id];
   if (!t) throw new Error("no timings for scene " + sc.id);
   const out = path.join(CLIP, sc.id + ".mp4");

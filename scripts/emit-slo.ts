@@ -69,7 +69,7 @@ const outPath = resolve(
 await flushSpansNow();
 
 const source = await loadSloSource({ windowMinutes, interventions });
-const { report, ok, exitCode, reasons } = buildSloReport(source, {
+const { report, exitCode, reasons } = buildSloReport(source, {
   windowMinutes,
   interventions,
   requiredInterventions: minInterventions,

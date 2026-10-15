@@ -2,7 +2,6 @@ import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import {
-  DEV_VOICES,
   ELEVEN_VOICE_ENV,
   allowedVoices,
   isProdVoiceMode,
@@ -58,7 +57,7 @@ const DEV_SLUG_LANG: Record<string, TtsLang> = {
   xiaochen: "ur",
 };
 
-function resolveVoice(voice: string, lang: TtsLang): string {
+function resolveVoice(voice: string, _lang: TtsLang): string {
   if (LANGS.has(voice)) {
     return isProdVoiceMode() ? ELEVEN_VOICE_ENV[voice as TtsLang] : devVoice(voice as TtsLang);
   }

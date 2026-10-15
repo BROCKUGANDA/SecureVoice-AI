@@ -35,8 +35,6 @@ import {
   makeFailure,
   responseInitFor,
   type Failure,
-  type FailureCode,
-  type FailureInit,
   notFound,
   unauthenticated,
   policyPrecondition,
@@ -51,7 +49,7 @@ import {
   newRequestId,
   scanFailure,
 } from "@/lib/failures/envelope";
-import { requireAuth, type Authed, type AuthDenied } from "@/lib/auth/guards";
+import { requireAuth, type Authed } from "@/lib/auth/guards";
 import { Prisma } from "@/generated/prisma/client";
 import { ZodError, type ZodIssue } from "zod";
 import { logError } from "@/lib/validation/safe-log";

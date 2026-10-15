@@ -29,7 +29,7 @@
  *   bun scripts/drift-gates.mjs all
  */
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
-import { join, dirname, resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { execSync } from "node:child_process";
 import YAML from "yaml";
 
@@ -118,7 +118,7 @@ function checkServiceInventory() {
     );
   }
 
-  for (const [s, why] of Object.entries(INFRA)) {
+  for (const s of Object.keys(INFRA)) {
     if (!defined.includes(s))
       fail(`INFRA allowlist names a service compose no longer defines: ${s}`);
   }

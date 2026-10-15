@@ -119,7 +119,7 @@ function persistIntervention(id: string, fill = 0.1): void {
   }
 }
 
-const range = (n: number, from = 1, to = n) => Array.from({ length: n }, (_, i) => from + i);
+const range = (n: number, from = 1, _to = n) => Array.from({ length: n }, (_, i) => from + i);
 
 let tmp: string | null = null;
 

@@ -13,7 +13,7 @@ import {
 } from "@/lib/elevenlabs/client";
 import { generateAudioWithFailover } from "@/lib/elevenlabs/pool";
 import { generatePlayhtAudio, isPlayhtConfigured } from "@/lib/elevenlabs/playht";
-import { paceForTurn, type VoicePace } from "@/lib/voice/presets";
+import type { VoicePace } from "@/lib/voice/presets";
 import { getEmergencyAudio, EMERGENCY_AUDIO_CONTENT_TYPE } from "@/lib/elevenlabs/emergency-audio";
 import { consume as consumeRateLimit, rateLimitId } from "@/lib/ratelimit";
 import { append as auditAppend } from "@/lib/audit-chain";
@@ -25,13 +25,7 @@ import {
   allowAnonTurn,
 } from "@/lib/tts-quota";
 import { SUPPORTED_LANGS, maxTtsChars } from "@/lib/config";
-import {
-  badRequest,
-  tooManyRequests,
-  unprocessable,
-  upstreamError,
-  parseJson,
-} from "@/lib/api-errors";
+import { badRequest, tooManyRequests, unprocessable, parseJson } from "@/lib/api-errors";
 import { logError } from "@/lib/validation/safe-log";
 
 export const dynamic = "force-dynamic";
@@ -74,7 +68,7 @@ const DEV_SLUG_LANG: Record<string, TtsLang> = {
 };
 
 /** Resolve the requested voice to the id sent upstream. */
-function resolveVoice(voice: string, lang: TtsLang): string {
+function resolveVoice(voice: string, _lang: TtsLang): string {
   // 1. Language key ("en"…) → configured voice for the current mode
   if (LANGS.has(voice)) {
     const v = voice as TtsLang;

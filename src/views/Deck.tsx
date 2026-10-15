@@ -261,7 +261,7 @@ export function Deck() {
 /* ————————————————— SLIDE RENDERERS ————————————————— */
 
 function RenderSlide({
-  slideId,
+  slideId: _slideId,
   layout,
   title,
   sub,

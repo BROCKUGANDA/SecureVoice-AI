@@ -19,7 +19,6 @@
  * picks them up.
  */
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
-import { createHash } from "node:crypto";
 import { resolve } from "node:path";
 import yaml from "js-yaml";
 import { fetchWithBackoff } from "./lib/elevenlabs-egress.mjs";

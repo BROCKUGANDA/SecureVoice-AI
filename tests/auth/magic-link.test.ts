@@ -175,7 +175,7 @@ test("an unknown magic token is refused", async () => {
 });
 
 test("the verify route cannot sign in without a real token", async () => {
-  const account = await makeAccount("Analyst", "analyst");
+  await makeAccount("Analyst", "analyst");
   const response = await verifyPOST(
     new Request("http://t/api/auth/magic-link/verify", {
       method: "POST",

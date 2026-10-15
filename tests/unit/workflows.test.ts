@@ -13,7 +13,7 @@ import {
 } from "@/lib/workflows/schema";
 import { validateWorkflow } from "@/lib/workflows/validate";
 import { runWorkflow, reachableTools, interpolate } from "@/lib/workflows/runner";
-import { validateDocument, getWorkflow, resolveSubagent } from "@/lib/workflows";
+import { validateDocument, resolveSubagent } from "@/lib/workflows";
 
 const spy = () => {
   const calls: Array<{ tool: string; args: Record<string, string> }> = [];

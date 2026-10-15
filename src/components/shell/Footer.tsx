@@ -104,7 +104,8 @@ export function Footer() {
               <div className="mt-3 space-y-2">
                 {group(
                   CONSOLE_LINKS.filter((l) => {
-                    const required = l.id === "settings" ? "operator" : l.id === "console" ? "vendor" : null;
+                    const required =
+                      l.id === "settings" ? "operator" : l.id === "console" ? "vendor" : null;
                     return required === null || (seat !== null && atLeast(seat, required));
                   }),
                 )}
@@ -202,12 +203,16 @@ export function Footer() {
             {SUPPORT_EMAIL}
           </a>
           <p className="mt-2.5 text-[11px] leading-snug text-ink-3">
-            {ar ? "للبنوك وشركات التأمين — تجارب ميدانية متاحة" : "For banks & insurers — pilot programs open"}
+            {ar
+              ? "للبنوك وشركات التأمين — تجارب ميدانية متاحة"
+              : "For banks & insurers — pilot programs open"}
           </p>
         </div>
 
         <div className="mt-8 flex flex-wrap items-center justify-between gap-2 border-t border-line pt-4">
-          <p className="text-[10.5px] text-ink-3">© 2026 SecureVoice AI · Built for UAE banks & insurers</p>
+          <p className="text-[10.5px] text-ink-3">
+            © 2026 SecureVoice AI · Built for UAE banks & insurers
+          </p>
           {/* Release version, read from package.json at build time (src/lib/version.ts)
               — not typed here, so it cannot drift from the build actually serving. */}
           <p

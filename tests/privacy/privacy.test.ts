@@ -89,7 +89,6 @@ const RUN = Date.now().toString(36);
 const ORG_DEFAULT = `org-privacy-default-${RUN}`;
 const ORG_PILOT = `org-privacy-pilot-${RUN}`;
 const ORG_OVERRIDE = `org-privacy-override-${RUN}`;
-const MY_ORGS: (string | null)[] = [ORG_DEFAULT, ORG_PILOT, ORG_OVERRIDE];
 
 /** A run-scoped master key. Deterministic per run, never reused, never logged. */
 const TEST_MASTER_KEY = createHash("sha256").update(`wp15-test-master:${RUN}`).digest("hex");
@@ -136,8 +135,6 @@ const ANALYSIS = {
 /** A string that appears nowhere except inside the plaintext we seal. */
 const PLAINTEXT_MARKER = "4271 1381 3381 1081";
 const SEALED_MARKER = "svp1";
-
-type CaseFixture = { caseRef: string; orgId: string | null; ageDays: number };
 
 async function createCase(input: {
   caseRef: string;

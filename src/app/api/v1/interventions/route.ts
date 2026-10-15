@@ -403,14 +403,7 @@ export async function POST(req: NextRequest) {
 
   // ─── Execute: policy gate + call placement ───
   try {
-    const { envelope, acceptedAt } = await armAndDial(
-      signal,
-      orgId,
-      effectiveCallerId,
-      started,
-      idemHash,
-      idemKey.trim(),
-    );
+    const { envelope, acceptedAt } = await armAndDial(signal, orgId, effectiveCallerId, started);
     // Complete the CLAIM we already own rather than inserting a second row: an
     // INSERT here would collide with our own claim. Still deferred so it never
     // competes with the next signal's combined check for a pooled connection.
@@ -543,8 +536,6 @@ async function armAndDial(
   orgId: string | null,
   effectiveCallerId: string,
   started: number,
-  idemHash: string,
-  idemKey: string,
 ): Promise<ArmResult> {
   const caseRef = makeCaseRef();
   let dialSlot: number | null = null;
@@ -599,6 +590,10 @@ async function armAndDial(
     orgId,
     transactionRef: signal.transaction_ref,
     redactedText: redactText(`${signal.transaction_ref ?? ""} ${signal.phone}`),
+    // The RAW reference, for the rule-4 backstop: `redactedText` is produced by
+    // this route, so checking it against the phone proves only that we remembered
+    // to call the redactor. What has never been observed is what the bank sent.
+    transactionRefRaw: signal.transaction_ref ?? "",
   });
   if (!compliance.ok) {
     const err = new Error(compliance.reason) as Error & { status: number; code: string };

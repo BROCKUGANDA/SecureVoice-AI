@@ -469,7 +469,7 @@ export async function runConformance(opts: RunConformanceOptions): Promise<Confo
   const unsigned = byKind("unsigned");
   const malformed = byKind("malformed");
 
-  const missing = (kind: ProbeKind, obs: ProbeObservation | undefined): string =>
+  const missing = (kind: ProbeKind, _obs: ProbeObservation | undefined): string =>
     `no response was received for the ${kind} probe`;
   const describe = (obs: ProbeObservation | undefined): string =>
     obs ? `HTTP ${obs.status} in ${obs.latencyMs}ms` : "no response";

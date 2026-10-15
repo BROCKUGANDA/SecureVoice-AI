@@ -1,6 +1,5 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
-import { z } from "zod";
 import { append as auditAppend } from "@/lib/audit-chain";
 import { transcript as redactText } from "@/lib/redact";
 import { consume as consumeRateLimit, rateLimitId } from "@/lib/ratelimit";

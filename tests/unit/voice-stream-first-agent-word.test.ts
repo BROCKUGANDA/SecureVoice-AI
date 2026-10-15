@@ -109,7 +109,7 @@ mock.module("@/lib/db", () => ({
 
 mock.module("@/lib/audit-chain", () => ({ append: async () => "ci-hash" }));
 
-mock.module("@/lib/elevenlabs/sms-fallback", () => ({ markVoiceFailed: async () => {} }));
+mock.module("@/lib/elevenlabs/sms-fallback", () => ({ markVoiceFailed: async () => {/* empty */} }));
 
 /* ——————————————— boot the real server on a test port ——————————————— */
 

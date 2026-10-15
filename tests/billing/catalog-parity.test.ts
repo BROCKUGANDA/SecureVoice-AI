@@ -90,8 +90,20 @@ describe("the website and the Paddle catalog quote the same prices", () => {
     // `offer.price` is what an answer engine reads and quotes verbatim. If it
     // drifts from `monthlyUsd`, the site tells a model one price and a buyer
     // another, and the model's version is the one that gets repeated.
+    //
+    // The one exception is deliberate and narrow: a tier marked
+    // `publiclyPriced: false` publishes no price AT ALL, so there is nothing to
+    // drift. Its guarantee is the opposite one — the figure must be ABSENT from
+    // the Offer while remaining the number the catalog charges. A hidden price
+    // that leaks through structured data is the failure this branch now guards.
     for (const row of CATALOG) {
       const plan = PLANS.find((p) => p.id === row.id)!;
+      if (plan.publiclyPriced === false) {
+        expect(plan.offer.price, `${plan.name} must not publish a price`).toBeUndefined();
+        // Still billed at the catalog rate — hiding a price is not a discount.
+        expect(plan.monthlyUsd, `${plan.name} still charges the catalog price`).toBe(row.monthlyUsd);
+        continue;
+      }
       expect(plan.offer.price, `${plan.name} offer price`).toBe(String(row.monthlyUsd));
       expect(Number(plan.offer.price) * 100).toBe(row.monthlyUsd * 100);
     }
@@ -180,6 +192,13 @@ describe("the pricing model matches what the code can charge", () => {
 
   test("annual formats to a whole-dollar figure", () => {
     for (const plan of PLANS) {
+      // A contact-sales tier formats the annual to "" on purpose — printing it
+      // under a "Custom" headline would publish the figure the month hides. Its
+      // annual NUMBER is still asserted above; this is only about rendering.
+      if (plan.publiclyPriced === false) {
+        expect(formatYearly(plan, "en"), `${plan.name} must hide its annual`).toBe("");
+        continue;
+      }
       expect(formatYearly(plan, "en")).not.toContain(".");
       expect(formatYearly(plan, "en")).not.toBe("");
     }

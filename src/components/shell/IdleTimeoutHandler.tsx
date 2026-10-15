@@ -41,7 +41,21 @@ export function IdleTimeoutHandler({ onTimeout }: { onTimeout: () => void }) {
     if (!isSignedIn) return;
 
     const onTimeout = () => {
-      void signOut();
+      // Both session systems, for the same reason the Navbar does both: `signOut()`
+      // alone revokes only Better Auth's session, and a magic-link session never
+      // had one — the `sv_session` row and cookie survived an idle lockout. See the
+      // databaseHooks block in src/lib/better-auth.ts.
+      //
+      // NOT awaited, unlike the Navbar's sign-out, and that difference is
+      // deliberate: this is the idle LOCKOUT, so the screen must stop being usable
+      // immediately. Awaiting here means a slow network leaves a signed-in console
+      // on screen for as long as the request takes, which is the control
+      // defeating itself. The UI locks on the same tick; the server-side
+      // revocation lands a round trip later.
+      void Promise.allSettled([
+        signOut(),
+        fetch("/api/auth/logout", { method: "POST", credentials: "same-origin" }),
+      ]);
       onTimeout();
     };
 

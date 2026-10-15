@@ -2108,3 +2108,5 @@ const ok = crypto.timingSafeEqual(
     </div>
   );
 }
+
+export default Dashboard;

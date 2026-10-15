@@ -604,15 +604,15 @@ performance it never observed. Primary source: [`evidence/latency/slo.json`](evi
 computed by `scripts/emit-slo.ts` from spans the running platform recorded
 (`src/lib/telemetry/spans.ts` → `evidence/latency/spans.jsonl`).
 
-| Leg                                          | Budget          | Measured (committed artifact)           | Verdict                                                                     |
-| -------------------------------------------- | --------------- | --------------------------------------- | --------------------------------------------------------------------------- |
-| Risk signal received → accepted              | p95 < 300 ms    | p50 3,179 / p95 3,817 ms, 1,676 samples | ❌ **missed**                                                               |
-| Signal accepted → provider accepted the call | p95 < 1,500 ms  | p50 1,980 / p95 3,401 ms, 1,676 samples | ❌ **missed**                                                               |
-| Tool request → tool response                 | p95 < 300 ms    | p50 287 / p95 3,601 ms, 705 samples     | ❌ **missed**                                                               |
-| Signal received → freeze **staged**          | p95 < 60,000 ms | p50 3,986 / p95 27,937 ms, 88 samples   | ✅ met — and it ends at a staged freeze, **not** at a customer conversation |
-| Signal received → ringing                    | p95 < 5,000 ms  | `not_measured`, 0 samples               | ⬜ no data                                                                  |
-| Answered → first agent word                  | p95 < 1,200 ms  | `not_measured`, 0 samples               | ⬜ no data                                                                  |
-| Caller stops speaking → agent audio begins   | p95 < 1,500 ms  | `not_measured`, 0 samples               | ⬜ no data                                                                  |
+| Leg                                          | Budget          | Measured (committed artifact)           | Verdict                                                                   |
+| -------------------------------------------- | --------------- | --------------------------------------- | ------------------------------------------------------------------------- |
+| Risk signal received → accepted              | p95 < 300 ms    | p50 3,179 / p95 3,817 ms, 1,676 samples | ❌ measured — missed the budget                                           |
+| Signal accepted → provider accepted the call | p95 < 1,500 ms  | p50 1,980 / p95 3,401 ms, 1,676 samples | ❌ measured — missed the budget                                           |
+| Tool request → tool response                 | p95 < 300 ms    | p50 287 / p95 3,601 ms, 705 samples     | ❌ measured — missed the budget                                           |
+| Signal received → freeze **staged**          | p95 < 60,000 ms | p50 3,986 / p95 27,937 ms, 88 samples   | ✅ measured — met, and it ends at a staged freeze, **not** a conversation |
+| Signal received → ringing                    | p95 < 5,000 ms  | `not_measured` — no samples             | ⬜ not yet measured — the span has no producer                            |
+| Answered → first agent word                  | p95 < 1,200 ms  | `not_measured` — no samples             | ⬜ not yet measured — the span has no producer                            |
+| Caller stops speaking → agent audio begins   | p95 < 1,500 ms  | `not_measured` — no samples             | ⬜ not yet measured — the span has no producer                            |
 
 Two consequences, stated plainly. **There is no measured time-to-contact:** no artifact in this
 repository records a ring, an answer, or the first word a customer hears, so nothing here claims

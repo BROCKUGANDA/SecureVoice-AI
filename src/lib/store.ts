@@ -19,6 +19,7 @@ export type View =
   | "auth"
   | "console"
   | "settings"
+  | "audit"
   | "setup";
 
 /**
@@ -84,6 +85,10 @@ export const VIEW_ACCESS: Record<View, ViewAccess> = {
   // one with fewer buttons.
   console: "vendor",
   settings: "operator",
+  // The audit explorer reads across the tenant's audit log and exports rows,
+  // so it is operator-only like settings — an auditor's surface, not a working
+  // seat's. The reads behind it are tenant-scoped either way.
+  audit: "operator",
   // Institution setup configures the TENANT (telecom identity, BYOK, webhooks),
   // so it is operator-only like settings. It is NOT the product tour, which is a
   // per-user concern and lives behind /api/onboarding.
@@ -113,7 +118,14 @@ function initialContrast(): boolean {
  * Settings.tsx so the store can type `openSettings(tab)` without importing a
  * view module into the state layer.
  */
-export type SettingsTab = "org" | "keys" | "knowledge" | "team" | "security" | "billing";
+export type SettingsTab =
+  | "org"
+  | "keys"
+  | "knowledge"
+  | "team"
+  | "security"
+  | "retention"
+  | "billing";
 
 interface AppState {
   view: View;

@@ -76,6 +76,7 @@ const SEAT_NAV: Record<Seat, NavItem[]> = {
     { id: "demo", en: "Demo", ar: "العرض", icon: Play },
     { id: "product", en: "Deep Dive", ar: "التفاصيل", icon: Presentation },
     { id: "settings", en: "Settings", ar: "الإعدادات", icon: SettingsIcon },
+    { id: "audit", en: "Audit explorer", ar: "مستكشف التدقيق", icon: ShieldCheck },
     { id: "deck", en: "Appendix", ar: "ملحق", icon: NotebookPen },
   ],
 };

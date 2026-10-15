@@ -16,6 +16,7 @@ import {
   BookOpen,
   Rocket,
   ShieldCheck,
+  Timer,
 } from "lucide-react";
 import { t, useApp } from "@/lib/store";
 import { PLANS, formatMonthly } from "@/lib/commercial";
@@ -37,6 +38,8 @@ import { cn } from "@/lib/utils";
  *   API Keys      → BYOK ElevenLabs key (AES-256-GCM encrypted at rest)
  *   Knowledge     → the institution's own policy PDFs, embedded and retrievable
  *   Team          → invite flow (provisioned by invitation; enterprise flow)
+ *   Security      → 2FA, session posture
+ *   Retention     → data lifetimes per tier (read-only; enforced by the sweeper)
  *   Billing       → prepaid credits wallet + tiers
  */
 
@@ -90,8 +93,9 @@ function Field({
 
 export function Settings() {
   const { lang, setView, highContrast, setHighContrast, settingsTab } = useApp();
-  const [tab, setTab] = useState<"org" | "keys" | "knowledge" | "team" | "security" | "billing">(
-    settingsTab,
+  const [tab, setTab] = useState<
+    "org" | "keys" | "knowledge" | "team" | "security" | "retention" | "billing"
+  >(settingsTab,
   );
   const [settings, setSettings] = useState<Settings | null>(null);
   const [loading, setLoading] = useState(true);
@@ -284,6 +288,7 @@ export function Settings() {
     { id: "knowledge", label: t("Knowledge", "المعرفة", lang), icon: BookOpen },
     { id: "team", label: t("Team", "الفريق", lang), icon: Users },
     { id: "security", label: t("Security", "الأمان", lang), icon: ShieldCheck },
+    { id: "retention", label: t("Retention", "الاحتفاظ", lang), icon: Timer },
     { id: "billing", label: t("Billing", "الفوترة", lang), icon: Coins },
   ] as const;
 
@@ -951,6 +956,90 @@ export function Settings() {
                   <Coins className="h-4 w-4" />
                   {t("Top up / change plan", "شحن الرصيد / تغيير الخطة", lang)}
                 </a>
+              </div>
+            )}
+
+            {/* The lifetimes below are the platform defaults enforced by the
+                retention sweeper — `DEFAULT_RETENTION_DAYS` and
+                `AUDIT_RETENTION` in `src/lib/privacy/retention.ts`, which is
+                `server-only` and therefore cannot be imported here. They are
+                repeated as text on purpose, and this comment is the pointer
+                that keeps the two from drifting silently: change the policy,
+                change this tab. Per-organisation overrides live in env plus
+                programmatic config (no policy table — see WP-15 evidence),
+                so this tab states rather than edits. */}
+            {tab === "retention" && (
+              <div className="space-y-5">
+                <p className="text-[13px] leading-relaxed text-ink-2">
+                  {t(
+                    "How long your institution's data is kept — and what happens when the time is up. These windows are enforced automatically; nothing here needs your action unless your compliance team requires a different window.",
+                    "مدة الاحتفاظ ببيانات مؤسستك — وماذا يحدث عند انتهائها. تُطبَّق هذه المدد تلقائيًا؛ ولا يتطلب الأمر أي إجراء منك ما لم يشترط فريق الامتثال لديك مدة مختلفة.",
+                    lang,
+                  )}
+                </p>
+                <ul className="space-y-3">
+                  <li className="rounded-2xl border border-line bg-paper p-4">
+                    <p className="text-[13px] font-semibold">
+                      {t("Call recordings — 30 days", "تسجيلات المكالمات — ٣٠ يومًا", lang)}
+                    </p>
+                    <p className="mt-1 text-[12px] leading-relaxed text-ink-3">
+                      {t(
+                        "Deleted automatically after 30 days. An organisation under a no-recording agreement keeps no recording at all — deletion is immediate.",
+                        "تُحذف تلقائيًا بعد ٣٠ يومًا. والمؤسسة الخاضعة لاتفاقية عدم التسجيل لا تحتفظ بأي تسجيل إطلاقًا — يُحذف فورًا.",
+                        lang,
+                      )}
+                    </p>
+                  </li>
+                  <li className="rounded-2xl border border-line bg-paper p-4">
+                    <p className="text-[13px] font-semibold">
+                      {t("Transcripts — 90 days", "النصوص — ٩٠ يومًا", lang)}
+                    </p>
+                    <p className="mt-1 text-[12px] leading-relaxed text-ink-3">
+                      {t(
+                        "After 90 days the per-case encryption key is shredded, so the sealed transcript can no longer be read — while the audit chain stays verifiable.",
+                        "بعد ٩٠ يومًا يُدمَّر مفتاح التشفير الخاص بكل حالة، فلا تعود النصوص المختومة قابلة للقراءة — مع بقاء سلسلة التدقيق قابلة للتحقق.",
+                        lang,
+                      )}
+                    </p>
+                  </li>
+                  <li className="rounded-2xl border border-line bg-paper p-4">
+                    <p className="text-[13px] font-semibold">
+                      {t("Case records — 7 years", "سجلات الحالات — ٧ سنوات", lang)}
+                    </p>
+                    <p className="mt-1 text-[12px] leading-relaxed text-ink-3">
+                      {t(
+                        "The redacted case row is kept for 7 years for investigations and compliance, then removed.",
+                        "يُحتفظ بسجل الحالة المنقّح ٧ سنوات لأغراض التحقيقات والامتثال، ثم يُحذف.",
+                        lang,
+                      )}
+                    </p>
+                  </li>
+                  <li className="rounded-2xl border border-line bg-paper p-4">
+                    <p className="text-[13px] font-semibold">
+                      {t("Audit chain — permanent, hashes only", "سلسلة التدقيق — دائمة، وتجزئات فقط", lang)}
+                    </p>
+                    <p className="mt-1 text-[12px] leading-relaxed text-ink-3">
+                      {t(
+                        "Retained permanently and holds hashes only — no personal data. The chain is never modified: retention is refused any audit-chain mutation, so a retention run can never break verification.",
+                        "تُحفظ دائمًا ولا تحمل سوى التجزئات — دون أي بيانات شخصية. ولا تُعدَّل السلسلة أبدًا: يُرفض أي تغيير على سلسلة التدقيق لأغراض الاحتفاظ، فلا يمكن لأي عملية احتفاظ أن تكسر التحقق.",
+                        lang,
+                      )}
+                    </p>
+                  </li>
+                </ul>
+                <p className="text-[12px] leading-relaxed text-ink-3">
+                  {t(
+                    "Need a different window for your organisation? Contact",
+                    "تحتاج مدة مختلفة لمؤسستك؟ تواصل مع",
+                    lang,
+                  )}{" "}
+                  <a
+                    href={`mailto:${SUPPORT_EMAIL}?subject=SecureVoice%20retention%20window`}
+                    className="font-semibold text-primary hover:underline"
+                  >
+                    {SUPPORT_EMAIL}
+                  </a>
+                </p>
               </div>
             )}
           </div>

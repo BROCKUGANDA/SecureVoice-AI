@@ -69,17 +69,11 @@ class FakeDeepgramClient {
     return this;
   }
 
-  start(_lang: string): void {
-    /* empty */
-  }
+  start(_lang: string): void {}
 
-  sendMulaw(_buffer: Buffer): void {
-    /* empty */
-  }
+  sendMulaw(_buffer: Buffer): void {}
 
-  stop(): void {
-    /* empty */
-  }
+  stop(): void {}
 
   /** The test playing the caller: one utterance into the real handler. */
   say(text: string, isFinal = true): void {
@@ -116,9 +110,7 @@ mock.module("@/lib/db", () => ({
 mock.module("@/lib/audit-chain", () => ({ append: async () => "ci-hash" }));
 
 mock.module("@/lib/elevenlabs/sms-fallback", () => ({
-  markVoiceFailed: async () => {
-    /* empty */
-  },
+  markVoiceFailed: async () => {},
 }));
 
 /* ——————————————— boot the real server on a test port ——————————————— */

@@ -680,3 +680,72 @@ and two of those were attached wrongly:
 **Effort:** the seven fixes are S–M each and are done. The three open items are S, M, S.
 **Status:** FIXED, with the three above left named because they need a decision rather
 than a patch.
+
+### 13. The voice engine's own latency was unmeasurable, and two of its promises had no producer — **60%**
+
+Opened as "the voice engine is degraded". The first finding is that this claim could not
+have been confirmed OR refuted from any artefact the platform produces.
+
+Measured state, from `evidence/latency/spans.jsonl` (4,360 records) and
+`evidence/latency/slo.json`:
+
+| Span                                   | Budget p95 | Producer          | Samples |
+| -------------------------------------- | ---------- | ----------------- | ------- |
+| `signal_received_to_accepted`          | 300 ms     | yes               | 1,733   |
+| `signal_accepted_to_provider_accepted` | 1,500 ms   | yes               | 1,733   |
+| `tool_request_to_response`             | 300 ms     | yes               | 798     |
+| `signal_received_to_freeze_staged`     | 60,000 ms  | yes               | 96      |
+| `answered_to_first_agent_word`         | 1,200 ms   | yes (worker only) | 0       |
+| `signal_received_to_ringing`           | 5,000 ms   | **none**          | 0       |
+| `caller_stop_to_agent_audio`           | 1,500 ms   | **none**          | 0       |
+| `fraud_confirmed_to_webhook_delivered` | 2,000 ms   | **none**          | 0       |
+
+Two of the three unproduced spans are the voice product's headline promises — "the phone
+rings within 5 seconds" and "the agent answers within 1.5 seconds of you stopping
+talking". They were numbers in a table nobody could observe. The third voice span HAS a
+producer in `src/worker/voice-stream.ts` and still has zero samples, because the Media
+Streams plane is never driven by the suites that write the artifact.
+
+Fixed now, and prevented from recurring: `tests/telemetry/spans-producers.test.ts`
+asserts bidirectionally that every declared span has a producer in `src/`, and that no
+producer names a span the contract never declared (an undeclared name is _rejected at
+runtime_, so the call site looks instrumented while the metric does not exist). Mutation-
+proved: misspelling one span name in the worker turns both halves red. Three remaining
+unproduced spans are allowed only by name, each with a written reason, and the gate
+deletes an allowance the moment its producer lands. It also refuses to certify anything
+when a source file reads back empty — observed when the scan raced a `git checkout`,
+which reported a vanished producer as a code defect.
+
+**Still open, in the order I would take it:**
+
+1. **The SLO artifact is computed over CI's own load, and reports it as production
+   latency.** `signal_received_to_accepted` publishes p50 3,179 ms against a 300 ms
+   budget from 1,733 samples — and every one of those samples was written by the test
+   suites, including the chaos and load tiers, which hammer the same intake route on
+   purpose. Nothing tags a span with the plane that produced it, so the published
+   "missed" verdict measures contention in the harness, not the service. Fix: tag the
+   origin at record time and have `scripts/emit-slo.ts` report the two populations
+   separately, refusing a production verdict built from test samples.
+2. **No per-request budget on the TTS ladder.** The 25 s default is now 6 s, which cuts
+   the worst case from ~17 minutes to ~4. A per-request deadline the ladder cannot
+   exceed is the actual fix.
+3. **15–17 serially awaited round trips before the 202.** Gates, claim, ledger SUM over
+   all of an org's `UsageLedger`, advisory-locked credit reserve, vault upsert, case
+   create, transition audit, admission count, QStash publish, plus an institution lookup
+   hidden inside a `void`ed SMS call's arguments. Parallelising the independent gates is
+   mechanical; moving the vault and audit writes off the accepted window needs a decision
+   about what the bank is owed before the 202.
+4. **`answered_to_first_agent_word` needs a producer the CI can drive**, or the voice
+   plane's latency stays unmeasured forever no matter how many spans are declared.
+5. **Degradation is visible in a log line and now in `/api/readyz`, but not in any
+   scrape.** `llmBreakerState()` and `getPoolStatus()` were written for an operator
+   surface with no production caller; readyz now reads both (readiness semantics
+   unchanged — a vendor outage still never marks us unready). `/api/metrics` has 20
+   collectors and no breaker, pool, or rung metric, so a 40% slowdown trips nothing.
+   `dialTelephonyBreakerState()` remains test-only: it lives in the worker process, so
+   surfacing it needs the worker to push, not the web process to read.
+6. **Token usage is still never persisted**, so cost-per-call movement during
+   degradation is invisible. Usage is parsed and forwarded to Langfuse only.
+7. **TTS rung is recorded inside `AuditLog.meta`, a text blob.** There is no
+   `voiceProvider`/`rung`/`latencyMs` column, so "how often did we fall back last week"
+   is unanswerable as a query.

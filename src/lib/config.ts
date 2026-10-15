@@ -326,12 +326,22 @@ export const env = {
     return process.env.ELEVENLABS_API_BASE_URL ?? "https://api.elevenlabs.io";
   },
   /**
-   * TTS voice synthesis timeout in milliseconds. Default 25 s; overridable so a
-   * deployment can tighten it for voice SLAs or loosen it for high-latency links.
+   * Per-attempt TTS timeout. Default 6 s; overridable so a deployment can tighten it
+   * further for voice SLAs or loosen it for high-latency links.
+   *
+   * It was 25 s, and 25 s is not a timeout on a live call — it is a way to be late
+   * with extra steps, because this value multiplies through the fallback ladder rather
+   * than bounding it: the egress wrapper makes 3 attempts, the key pool walks up to 8
+   * keys, and PlayHT runs its own 3 attempts after that. At 25 s the worst case for one
+   * sentence was minutes of dead air while the customer waited, and every rung in
+   * between looked healthy because it was merely still trying. 6 s bounds one attempt
+   * to roughly the length of the phrase it is synthesising; the ladder's worst case is
+   * now ~4 minutes rather than ~17, and the honest next step is a per-request budget
+   * that the ladder cannot exceed, which is still open.
    */
   get ttsTimeoutMs(): number {
     const raw = Number(process.env.ELEVENLABS_TTS_TIMEOUT_MS);
-    return Number.isFinite(raw) && raw > 0 ? raw : 25_000;
+    return Number.isFinite(raw) && raw > 0 ? raw : 6_000;
   },
   /**
    * How long a live turn may wait for knowledge-base retrieval before the

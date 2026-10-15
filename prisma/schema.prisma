@@ -503,6 +503,12 @@ model Case {
   // timestamp, so it needs the state + clock pair. Without it the sweep is a
   // sequential scan of the case table on the same tick as the dial drain.
   @@index([state, freezeStagedAt])
+  // Every live turn looks its case up by the provider's channel id:
+  // `findFirst({ where: { callSid } })` in the Twilio turn route and the media-stream
+  // worker, and again in ai-authz before a freeze is staged. None of those three had
+  // an index, so each of them was a sequential scan of the case table on the path
+  // where a customer is holding the line and waiting to hear something.
+  @@index([callSid])
 }
 
 /// A phone number that replied STOP. Never texted again by this platform,

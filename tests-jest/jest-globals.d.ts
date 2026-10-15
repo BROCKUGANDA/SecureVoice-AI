@@ -1,5 +1,8 @@
-/* eslint-disable no-var -- ambient declare var global augmentation is the
-   correct form here; no-var is a module-body stylistic rule. */
+/* eslint-disable no-var, @typescript-eslint/consistent-type-imports -- ambient
+   declare var global augmentation is the correct form here; no-var is a
+   module-body stylistic rule. consistent-type-imports is off for the same reason:
+   satisfying it would need a top-level `import type`, which turns this file into
+   a module and stops describe/it/expect being ambient globals for every spec. */
 /**
  * Ambient globals for the Jest specs under tests-jest/.
  *

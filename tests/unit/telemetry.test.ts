@@ -95,7 +95,10 @@ import {
   SPAN_DEFINITIONS,
   SPAN_NAMES,
   TERMINAL_SPAN,
+  parseSpanRecord,
+  spanOrigin,
   type SpanName,
+  type SpanOrigin,
   type SpanRecord,
 } from "@/lib/telemetry/spans";
 
@@ -114,6 +117,7 @@ function span(
   startedAtMs: number,
   durationMs: number,
   interventionId: string,
+  origin: SpanOrigin = "live",
 ): SpanRecord {
   // A corrupt duration (NaN, negative) is a case some tests deliberately
   // build, so the derived end instant must survive it rather than throw.
@@ -121,6 +125,11 @@ function span(
   return {
     v: SPAN_RECORD_VERSION,
     span: name,
+    // `live` by default so this fixture keeps exercising the maths the suite was
+    // written for. The origin split itself is tested by passing the other value
+    // explicitly; a fixture that silently read as harness would have turned half
+    // this file into a test of the exclusion path by accident.
+    origin,
     startedAt: new Date(startedAtMs).toISOString(),
     startedAtMs,
     endedAt: new Date(Number.isFinite(endedAtMs) ? endedAtMs : startedAtMs).toISOString(),
@@ -859,5 +868,92 @@ describe("the clock seam", () => {
     expect(after).toBeGreaterThanOrEqual(before);
     expect(Math.abs(after - Date.now())).toBeLessThan(MINUTE_MS);
     expect(sys.now()).not.toBe(sys.now());
+  });
+});
+
+/* ═══════════════════════ origin — who is allowed to be a production number ═════════════════ */
+
+describe("span origin", () => {
+  test("the plane is read from the environment per call, not frozen at import", () => {
+    // Per call matters: a value captured at module import would be decided by
+    // whichever env happened to be set when the recorder was first touched, which
+    // in a test process is nobody's idea of production.
+    expect(spanOrigin({ NODE_ENV: "production" } as NodeJS.ProcessEnv)).toBe("live");
+    expect(spanOrigin({ NODE_ENV: "test" } as NodeJS.ProcessEnv)).toBe("harness");
+    expect(spanOrigin({} as NodeJS.ProcessEnv)).toBe("harness");
+    expect(spanOrigin({ NODE_ENV: "Production" } as unknown as NodeJS.ProcessEnv)).toBe("harness");
+  });
+
+  test("harness traffic is excluded from every verdict and from the intervention count", () => {
+    // 35 complete interventions and 3,500 ms intake p95 - enough on its own to pass
+    // the threshold and fail the budget. Both readings are the old behaviour, and
+    // both were produced entirely by `bun test`.
+    const records = Array.from({ length: 35 }, (_, i) => `H-${i}`).flatMap((id) => [
+      span(TERMINAL_SPAN, BASE, 10, id, "harness"),
+      span("signal_received_to_accepted", BASE, 3500, id, "harness"),
+    ]);
+
+    const { report, ok, reasons } = buildSloReport(source(records), { nowMs: BASE });
+
+    expect({
+      live: report.origin_accounting.live_records,
+      harness: report.origin_accounting.harness_records,
+      measured: report.interventions_measured,
+      ok,
+    }).toEqual({ live: 0, harness: 70, measured: 0, ok: false });
+
+    const judged = report.spans.find((s) => s.name === "signal_received_to_accepted");
+    expect({ samples: judged?.samples, verdict: judged?.verdict }).toEqual({
+      samples: 0,
+      verdict: "no_data",
+    });
+
+    // Published, labelled, unjudged — the number is still there for a developer to
+    // diff between runs; it is simply no longer allowed to be called production.
+    const harnessRow = report.spans_harness.find((s) => s.name === "signal_received_to_accepted");
+    expect({ samples: harnessRow?.samples, p95: harnessRow?.p95_ms }).toEqual({
+      samples: 35,
+      p95: 3500,
+    });
+
+    expect(reasons.join(" ")).toContain("Zero live samples");
+  });
+
+  test("the live population is judged on its own samples, never blended", () => {
+    const records = Array.from({ length: 30 }, (_, i) => `H-${i}`).flatMap((id) => [
+      span(TERMINAL_SPAN, BASE, 10, id, "harness"),
+      span("signal_received_to_accepted", BASE, 3500, id, "harness"),
+    ]);
+    records.push(
+      ...["L-1", "L-2", "L-3"].flatMap((id) => [
+        span(TERMINAL_SPAN, BASE, 10, id, "live"),
+        span("signal_received_to_accepted", BASE, 120, id, "live"),
+      ]),
+    );
+
+    const { report, reasons } = buildSloReport(source(records), { nowMs: BASE });
+    const judged = report.spans.find((s) => s.name === "signal_received_to_accepted");
+    expect({ samples: judged?.samples, p95: judged?.p95_ms }).toEqual({
+      samples: 3,
+      p95: 120,
+    });
+    // Three live complete interventions is not thirty, and saying so is the point:
+    // the threshold cannot be met by the harness no matter how much load it drives.
+    expect(report.interventions_measured).toBe(3);
+    expect(reasons.join(" ")).toContain("complete live intervention");
+  });
+
+  test("a line written before the field existed reads as harness, never as live", () => {
+    // Every one of the 4,360 samples already in evidence/latency/spans.jsonl is
+    // unmarked. Defaulting them to `live` would have kept the false SLO alive
+    // through the fix that was supposed to retire it.
+    const legacy = span(TERMINAL_SPAN, BASE, 5, "OLD") as Partial<SpanRecord>;
+    delete legacy.origin;
+    delete legacy.v;
+    const parsed = parseSpanRecord(legacy);
+    expect(parsed?.origin).toBe("harness");
+    expect(parseSpanRecord({ ...legacy, origin: "live" })?.origin).toBe("live");
+    // A value that is neither is not a promotion path either.
+    expect(parseSpanRecord({ ...legacy, origin: "production" })?.origin).toBe("harness");
   });
 });

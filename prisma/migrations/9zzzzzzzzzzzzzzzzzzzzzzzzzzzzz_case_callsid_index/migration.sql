@@ -1,0 +1,24 @@
+-- Index the live turn path's lookup key.
+--
+-- Three places resolve a case from the provider's channel id on the path a customer
+-- is actively waiting in:
+--
+--   src/app/api/twilio/turn/route.ts:706  .findFirst({ where: { callSid }, select: { orgId } })
+--   src/worker/voice-stream.ts:232        .findFirst({ where: { callSid }, select: { caseRef } })
+--   src/lib/ai/ai-authz.ts                the same lookup before a freeze is staged
+--
+-- `Case.callSid` had no index, and no arm of any composite index leads with it, so
+-- every one of those was a sequential scan of the case table. `conversationId` —
+-- the ElevenLabs join key, used on the same class of path — has had an index since
+-- this table was made, which is the comparison that makes the omission a gap rather
+-- than a choice.
+--
+-- Non-unique on purpose: a redialled or retried call can carry the same sid onto more
+-- than one row, and the lookups are `findFirst`, not `findUnique`. Making it unique
+-- would turn a data condition the code already tolerates into an insert failure.
+--
+-- IF NOT EXISTS because a parallel work package landed the same index under a dated
+-- name; two migrations that both intend "there is an index here" must not make the
+-- second apply fail.
+
+CREATE INDEX IF NOT EXISTS "Case_callSid_idx" ON "Case"("callSid");

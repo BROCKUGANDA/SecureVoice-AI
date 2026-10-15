@@ -32,7 +32,7 @@ const TEST_TIMEOUT_MS = 3000;
  * "test". A test delivery is not a reason to send a real transcript to an
  * endpoint the operator has only just typed.
  */
-export async function POST(req: NextRequest) {
+export async function POST(_req: NextRequest) {
   const guard = await requireOperator();
   if (!guard.ok) {
     return NextResponse.json({ error: guard.error }, { status: guard.status });

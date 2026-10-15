@@ -27,6 +27,8 @@ import "server-only";
 
 import { createHash } from "node:crypto";
 import { db } from "@/lib/db";
+import { PRISMA } from "@/lib/failures/db-failures";
+import { logError } from "@/lib/validation/safe-log";
 import {
   IDEMPOTENCY_CLAIM_TTL_MS,
   IDEMPOTENCY_MAX_POLL_MS,
@@ -216,33 +218,54 @@ export async function withIdempotencyFast<T>(opts: {
   //    before the create completes will re-execute fn() — acceptable because
   //    fn() is idempotent by construction (the signal's own transaction is
   //    the real dedup). This keeps the critical path to two round-trips.
-  try {
-    const value = await opts.fn();
-    // Fire-and-forget the store. If it loses a race to a concurrent request,
-    // the unique constraint fires and we log — the winner's row stands.
-    void db.idempotencyKey
-      .create({
-        data: {
-          scope: opts.scope,
-          key,
-          callerId: opts.callerId,
-          response: serialize(value),
-          statusCode: 200,
-          expiresAt: new Date(Date.now() + TTL_MS),
-        },
-      })
-      .catch(() => {});
-    return { value, replayed: false, key };
-  } catch (err) {
-    throw err;
-  }
+  const value = await opts.fn();
+  // Fire-and-forget the store. If it loses the race to a concurrent request
+  // carrying the same key, the unique violation is the expected outcome and the
+  // winner's row stands. It was, until now, indistinguishable from every other
+  // failure on this line, because the handler said "we log" and logged nothing.
+  void db.idempotencyKey
+    .create({
+      data: {
+        scope: opts.scope,
+        key,
+        callerId: opts.callerId,
+        response: serialize(value),
+        statusCode: 200,
+        expiresAt: new Date(Date.now() + TTL_MS),
+      },
+    })
+    .catch((err: unknown) => {
+      if (isUniqueViolation(err)) return;
+      logError("idempotency: response could not be stored", {
+        scope: opts.scope,
+        // The key is a hash of the caller's Idempotency-Key, so it is safe to
+        // print; the caller ID is a tenant identifier and already appears in the
+        // request log.
+        key,
+        callerId: opts.callerId,
+        error: String(err).slice(0, 200),
+      });
+    });
+  return { value, replayed: false, key };
 }
 
-function isUniqueViolation(err: unknown): boolean {
-  return (
-    typeof err === "object" &&
-    err !== null &&
-    "code" in err &&
-    (err as { code?: string }).code === "23505"
-  );
+/**
+ * A unique violation, as this stack actually reports one.
+ *
+ * This used to test `code === "23505"` — the PostgreSQL code — while Prisma raises
+ * `PrismaClientKnownRequestError` with `P2002`. The helper could never have fired,
+ * and because nothing called it, nothing noticed. `case-state-machine.ts` documents
+ * the same trap from the inside: a catch keyed on a code the runtime never emits
+ * "silently never fire[s] — which is the worst possible failure mode for a guard
+ * that exists to convert a 500 into a typed refusal."
+ *
+ * Both codes are accepted rather than one. Under the pg adapter the driver's own
+ * SQLSTATE reaches the caller on some paths, and the shape this function exists to
+ * distinguish is expected-race versus real-failure; a miss costs an error log, a
+ * false hit costs the log that would have reported a broken store.
+ */
+export function isUniqueViolation(err: unknown): boolean {
+  if (typeof err !== "object" || err === null) return false;
+  const code = (err as { code?: unknown }).code;
+  return code === PRISMA.UNIQUE_CONSTRAINT || code === "23505";
 }

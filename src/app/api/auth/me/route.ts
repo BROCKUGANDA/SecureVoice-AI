@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAuth, sessionStatus } from "@/lib/auth/guards";
-import { SESSION_COOKIE_ATTRS, IDLE_TIMEOUT_MS, ABSOLUTE_LIFETIME_MS } from "@/lib/auth/constants";
+import { IDLE_TIMEOUT_MS, ABSOLUTE_LIFETIME_MS } from "@/lib/auth/constants";
 
 export const dynamic = "force-dynamic";
 

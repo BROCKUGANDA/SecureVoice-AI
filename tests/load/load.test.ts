@@ -88,11 +88,12 @@ const auditChain = await import("@/lib/audit-chain");
 /**
  * Types from the dynamically-imported modules. A `const` from `await import()`
  * is a value, not a namespace, so the types it exports are named here rather
- * than as `DialJob`.
+ * than as `DialJob`. Type-only imports are erased at build, so naming them at the
+ * top adds no load-order dependency — the `await import()` above stays the only
+ * thing that brings those modules in.
  */
-type DialJob = import("@/lib/scale/queue").DialJob;
-type DialOutcome = import("@/lib/scale/queue").DialOutcome;
-type CapacityModel = import("@/lib/scale/capacity").CapacityModel;
+import type { CapacityModel } from "@/lib/scale/capacity";
+import type { DialJob, DialOutcome } from "@/lib/scale/queue";
 
 // ── 3. Run identity and scenario sizing ─────────────────────────────────────
 const RUN = `${Date.now().toString(36)}${Math.floor(Math.random() * 1296).toString(36)}`;

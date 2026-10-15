@@ -68,17 +68,45 @@ const ROOT = resolve(import.meta.dir, "..", "..");
 const EMITTER = join(ROOT, "scripts", "emit-slo.ts");
 const BASE = Date.UTC(2026, 9, 2, 12, 0, 0);
 
+/**
+ * Record inside this call as though the process were a service started the way
+ * production starts one (`NODE_ENV=production`), then put the environment back.
+ *
+ * The fixtures in this file stand for intervention traffic, and the SLO gate now
+ * judges only samples whose origin says production. Without this the whole suite
+ * would be asserting over an empty live population — green for the wrong reason —
+ * and the split being tested would never actually be exercised. This is not the
+ * test declaring itself exempt: it sets the same environment variable the
+ * Dockerfile and every compose service set, and the recorder reads that and
+ * nothing else.
+ */
+function asLiveTraffic<T>(fn: () => T): T {
+  // bun types `NODE_ENV` as a read-only union; the recorder reads the raw
+  // environment, so the assignment goes through the index signature.
+  const env = process.env as Record<string, string | undefined>;
+  const previous = env.NODE_ENV;
+  env.NODE_ENV = "production";
+  try {
+    return fn();
+  } finally {
+    if (previous === undefined) delete env.NODE_ENV;
+    else env.NODE_ENV = previous;
+  }
+}
+
 /** One record per span, with a duration inside its budget. */
 function seed(overrides: Partial<SpanInput> = {}): SpanRecord {
-  const record = recordSpan({
-    span: TERMINAL_SPAN,
-    startedAtMs: BASE,
-    durationMs: 1_000,
-    interventionId: "SV-F-TEST0001",
-    conversationId: "conv-test",
-    caseRef: "SV-F-TEST0001",
-    ...overrides,
-  });
+  const record = asLiveTraffic(() =>
+    recordSpan({
+      span: TERMINAL_SPAN,
+      startedAtMs: BASE,
+      durationMs: 1_000,
+      interventionId: "SV-F-TEST0001",
+      conversationId: "conv-test",
+      caseRef: "SV-F-TEST0001",
+      ...overrides,
+    }),
+  );
   if (record === null) throw new Error("seed span was rejected — the recorder contract is broken");
   return record;
 }
@@ -91,14 +119,16 @@ function seed(overrides: Partial<SpanInput> = {}): SpanRecord {
  */
 function completeIntervention(id: string, fill = 0.1): SpanRecord[] {
   return SPAN_DEFINITIONS.map((d) => {
-    const record = recordSpan({
-      span: d.name,
-      startedAtMs: BASE,
-      durationMs: Math.round(d.targetP95Ms * fill),
-      interventionId: id,
-      conversationId: `conv-${id}`,
-      caseRef: id,
-    });
+    const record = asLiveTraffic(() =>
+      recordSpan({
+        span: d.name,
+        startedAtMs: BASE,
+        durationMs: Math.round(d.targetP95Ms * fill),
+        interventionId: id,
+        conversationId: `conv-${id}`,
+        caseRef: id,
+      }),
+    );
     if (record === null) throw new Error(`seed span ${d.name} rejected`);
     return record;
   });
@@ -107,19 +137,21 @@ function completeIntervention(id: string, fill = 0.1): SpanRecord[] {
 /** The same, through the durable path — what a real deployment calls. */
 function persistIntervention(id: string, fill = 0.1): void {
   for (const d of SPAN_DEFINITIONS) {
-    const record = recordSpanAndPersist({
-      span: d.name,
-      startedAtMs: BASE,
-      durationMs: Math.round(d.targetP95Ms * fill),
-      interventionId: id,
-      conversationId: `conv-${id}`,
-      caseRef: id,
-    });
+    const record = asLiveTraffic(() =>
+      recordSpanAndPersist({
+        span: d.name,
+        startedAtMs: BASE,
+        durationMs: Math.round(d.targetP95Ms * fill),
+        interventionId: id,
+        conversationId: `conv-${id}`,
+        caseRef: id,
+      }),
+    );
     if (record === null) throw new Error(`persisted span ${d.name} rejected`);
   }
 }
 
-const range = (n: number, from = 1, to = n) => Array.from({ length: n }, (_, i) => from + i);
+const range = (n: number, from = 1, _to = n) => Array.from({ length: n }, (_, i) => from + i);
 
 let tmp: string | null = null;
 
@@ -617,12 +649,14 @@ describe("the SLO evidence gate", () => {
 
   test("interventions that never reached a freeze do not count", () => {
     const neverFinished = SPAN_DEFINITIONS.filter((d) => d.name !== TERMINAL_SPAN).map((d) =>
-      recordSpan({
-        span: d.name,
-        startedAtMs: BASE,
-        durationMs: 5,
-        interventionId: `SV-F-OPEN-${d.name}`,
-      }),
+      asLiveTraffic(() =>
+        recordSpan({
+          span: d.name,
+          startedAtMs: BASE,
+          durationMs: 5,
+          interventionId: `SV-F-OPEN-${d.name}`,
+        }),
+      ),
     ) as SpanRecord[];
     const { report, exitCode } = buildSloReport({
       ...emptySource,
@@ -663,12 +697,14 @@ describe("the SLO evidence gate", () => {
     const durations = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
     const records = durations.map(
       (ms, i) =>
-        recordSpan({
-          span: TERMINAL_SPAN,
-          startedAtMs: BASE + i,
-          durationMs: ms,
-          interventionId: `SV-F-${i}`,
-        }) as SpanRecord,
+        asLiveTraffic(() =>
+          recordSpan({
+            span: TERMINAL_SPAN,
+            startedAtMs: BASE + i,
+            durationMs: ms,
+            interventionId: `SV-F-${i}`,
+          }),
+        ) as SpanRecord,
     );
     const { report } = buildSloReport({ ...emptySource, missing: false, records });
     const row = report.spans.find((s) => s.name === TERMINAL_SPAN);
@@ -845,6 +881,57 @@ describe("scripts/emit-slo.ts (end to end)", () => {
     expect(run.json.meets_30_intervention_threshold).toBe(true);
     expect(run.json.all_targets_met).toBe(true);
     expect(run.stdout).toContain("PASS");
+
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("thirty harness interventions are zero live interventions, and the run fails", async () => {
+    // The regression this whole change exists for. The artifact used to publish
+    // `interventions_measured: 88` and a production p95 while every sample in the
+    // log had been written by a test suite; the same 30-intervention traffic,
+    // recorded by a process that is not production-shaped, must now be refused
+    // outright — and must still be visible, so the number is not simply lost.
+    const dir = await mkdtemp(join(tmpdir(), "sv-emit-"));
+    const logPath = join(dir, "spans.jsonl");
+    const outPath = join(dir, "slo.json");
+
+    tmp = dir;
+    process.env.TELEMETRY_SPAN_LOG = logPath;
+    const env = process.env as Record<string, string | undefined>;
+    const previous = env.NODE_ENV;
+    delete env.NODE_ENV; // a test process: harness by definition
+    try {
+      for (let i = 0; i < 30; i++) {
+        for (const d of SPAN_DEFINITIONS) {
+          const r = recordSpanAndPersist({
+            span: d.name,
+            startedAtMs: BASE,
+            durationMs: Math.round(d.targetP95Ms * 0.1),
+            interventionId: `SV-F-HARNESS${i}`,
+            conversationId: `conv-${i}`,
+            caseRef: `SV-F-HARNESS${i}`,
+          });
+          if (r === null) throw new Error("harness span rejected");
+          expect(r.origin).toBe("harness");
+        }
+      }
+    } finally {
+      if (previous !== undefined) env.NODE_ENV = previous;
+    }
+    await flushSpansNow();
+
+    const written = await readSpanRecords();
+    expect(written.records).toHaveLength(30 * SPAN_DEFINITIONS.length);
+
+    const run = await runEmitter(logPath, outPath);
+    expect(run.code).not.toBe(0);
+    expect(run.json.interventions_measured).toBe(0);
+    expect(run.json.meets_30_intervention_threshold).toBe(false);
+    expect((run.json.origin_accounting as { live_records: number }).live_records).toBe(0);
+    expect((run.json.origin_accounting as { harness_records: number }).harness_records).toBe(
+      30 * SPAN_DEFINITIONS.length,
+    );
+    expect(run.stdout).toContain("[slo] origin: 0 live");
 
     rmSync(dir, { recursive: true, force: true });
   });

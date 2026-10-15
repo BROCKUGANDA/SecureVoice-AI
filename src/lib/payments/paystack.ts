@@ -66,7 +66,16 @@ function defaultBaseUrl(): string {
 /** Paystack rate limits aggressively; three attempts is the documented ceiling. */
 const MAX_ATTEMPTS = Number(process.env.PAYSTACK_MAX_ATTEMPTS) || 3;
 const BASE_BACKOFF_MS = Number(process.env.PAYSTACK_BACKOFF_BASE_MS) || 250;
-const REQUEST_TIMEOUT_MS = Number(process.env.PAYSTACK_REQUEST_TIMEOUT_MS) || 10_000;
+
+/**
+ * How long ONE attempt may take. Read per call like `defaultBaseUrl` rather than
+ * frozen at import, so the value can be observed and shortened by whatever needs
+ * to prove the socket is bounded — a constant evaluated before the test could set
+ * the variable is a timeout nobody can exercise.
+ */
+function requestTimeoutMs(): number {
+  return Number(process.env.PAYSTACK_REQUEST_TIMEOUT_MS) || 10_000;
+}
 
 export type HttpClient = (url: string, init: RequestInit) => Promise<Response>;
 export type Sleep = (ms: number) => Promise<void>;
@@ -216,6 +225,11 @@ async function request(
           "content-type": "application/json",
           accept: "application/json",
         },
+        // Bound every attempt. Without this the retry ladder bounds how many
+        // times we call Paystack, not how long one call can take — a stalled
+        // socket would hold the request handler open indefinitely, and this is
+        // the path that charges a customer.
+        signal: AbortSignal.timeout(requestTimeoutMs()),
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       });
     } catch (err) {

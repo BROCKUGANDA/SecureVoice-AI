@@ -462,7 +462,14 @@ export async function openRealtime(opts: RealtimeOptions): Promise<RealtimeHandl
       const next: Socket = connect({
         path: SOCKET_PATH,
         auth: { token: fresh.token },
-        transports: ["websocket"],
+        // websocket first, polling as the fallback the service ships server-side
+        // (mini-services/realtime/src/server.ts lists both). A websocket that
+        // cannot even be established — a proxy that refuses the upgrade — would
+        // otherwise be a permanent outage on this path, which is why the client
+        // used to sit hard-coded on one transport. A LIVE socket never downgrades
+        // mid-session: socket.io tries the first transport and only walks the
+        // list when a handshake fails, and upgrade only ever moves UP the list.
+        transports: ["websocket", "polling"],
         // See the header: socket.io's ladder cannot jitter for us and cannot
         // replay our `join` emits, so it is off and this module reconnects.
         reconnection: false,

@@ -360,8 +360,8 @@ export const FAQ: { q: string; qAr: string; a: string; aAr: string }[] = [
   {
     q: "What does SecureVoice AI actually do?",
     qAr: "ماذا تفعل منصة SecureVoice AI بالضبط؟",
-    a: "SecureVoice AI places an outbound AI voice call within 60 seconds of a transaction crossing a bank's risk threshold. The agent verifies the customer's identity, explains what triggered the alert, freezes the card or holds the transfer, and hands off to a human specialist. It currently runs against UAE banks, in Arabic and English.",
-    aAr: "تبدأ SecureVoice AI مكالمة صادرة من وكيل صوتي ذكاء اصطناعي خلال ٦٠ ثانية من تجاوز عملية ما لعتبة الخطر في البنك. يتحقق الوكيل من هوية العميل، ويشرح سبب التنبيه، ويجمّد البطاقة أو يوقف التحويل، ثم يحيل الأمر إلى أخصائي بشري. وتعمل المنصة حالياً مع البنوك في دولة الإمارات، بالعربية والإنجليزية.",
+    a: "SecureVoice AI places an outbound AI voice call within 60 seconds of a transaction crossing a bank's risk threshold. The agent verifies the customer's identity, explains what triggered the alert, stages a card freeze or a transfer hold for the bank's own fraud team to commit, and hands off to a human specialist. It currently runs against UAE banks, in Arabic and English.",
+    aAr: "تبدأ SecureVoice AI مكالمة صادرة من وكيل صوتي ذكاء اصطناعي خلال ٦٠ ثانية من تجاوز عملية ما لعتبة الخطر في البنك. يتحقق الوكيل من هوية العميل، ويشرح سبب التنبيه، ويمهّد لتجميد البطاقة أو إيقاف التحويل بقرار من فريق البنك، ثم يحيل الأمر إلى أخصائي بشري. وتعمل المنصة حالياً مع البنوك في دولة الإمارات، بالعربية والإنجليزية.",
   },
   {
     q: "How much does SecureVoice AI cost?",

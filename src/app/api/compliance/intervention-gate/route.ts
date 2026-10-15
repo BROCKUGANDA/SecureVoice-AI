@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import "server-only";
 import { redactPII } from "@/lib/compliance/redactor";
 import { validateInterventionPolicy } from "@/lib/compliance/middleware";
-import { logError, logInfo } from "@/lib/validation/safe-log";
+import { logInfo } from "@/lib/validation/safe-log";
 
 export const dynamic = "force-dynamic";
 

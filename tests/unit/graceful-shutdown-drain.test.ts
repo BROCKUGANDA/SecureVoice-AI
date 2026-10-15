@@ -26,7 +26,7 @@ beforeEach(() => _resetShutdownForTests());
 describe("the active-call counter", () => {
   test("counts units of work and never goes below zero", () => {
     const before = getActiveCallCount();
-    const release = beginCall();
+    beginCall();
     expect(getActiveCallCount()).toBe(before + 1);
     endCall();
     endCall();

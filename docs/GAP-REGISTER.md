@@ -310,17 +310,34 @@ now provides `requireOrg(req)` which returns `Authed` with a scoped DB client
 (`auth.db`). Routes can adopt this pattern to get tenant-scoped queries with
 one import. The systemic wiring of all 47 routes is a follow-up.
 
-### 9. Public surface absent — **10%** — PARTIAL
+### 9. Public surface absent — **10%** — FIXED (and this entry was stale)
 
 **Fixed (sprint slice):** `robots.txt` now blocks AI crawlers (GPTBot, ClaudeBot,
 PerplexityBot, Google-Extended) from the authenticated console. Comment added
 noting that app and api hosts override with `X-Robots-Tag: noindex` headers.
 
-**Still open:** `X-Robots-Tag` middleware not yet implemented, no `site.webmanifest`,
-no sitemap, no `llms.txt`, no JSON-LD, no trust pages. These are marketing motion,
-not sprint-critical.
+**"Still open" items, verified against the tree on 2026-10-15 — every one was
+already built, and this section kept saying otherwise:**
 
-**Effort:** S (done), M (remaining). **Status:** PARTIAL.
+- `X-Robots-Tag`: `robotsTagFor()` in `src/proxy.ts` (Next 16's renamed middleware),
+  applied on every response, tested in `tests/surface/console-routes.test.ts` —
+  private paths noindex, `/` null. `src/proxy.ts` is also the edge layer (request
+  id, client-IP trust, pre-auth rate limit, 413 body guard), so the header rides a
+  file that was already running on every request.
+- `site.webmanifest`: `public/site.webmanifest`.
+- Sitemap: `src/app/sitemap.ts`.
+- `llms.txt`: `src/app/llms.txt/route.ts`, with its own claims gate
+  (`tests/surface/llms-txt.test.ts`).
+- JSON-LD: `src/components/seo/JsonLd.tsx`, wired into the home page.
+- Trust pages: `/security` is a route; `/use-cases` lives as home-page sections
+  rather than a standalone route, which is the one judgement call here.
+
+The lesson is about this register, not the surface: an entry that says "not yet
+implemented" without a file:line is a claim about the past. Check the tree before
+acting on it — the check took one `ls`, and acting on the stale text first produced
+a duplicate proxy file that had to be reverted.
+
+**Effort:** S. **Status:** FIXED.
 
 ### 10. Notification and realtime paths built but unreachable — **40%**
 
@@ -639,3 +656,148 @@ Against §13, the honest state after today:
   `https://securevoice.ai/docs/errors` (overridable via `FAILURE_DOCS_BASE_URL`).
 
 **Effort:** S. **Status:** FIXED.
+
+### 12. The lint sweep found seven declared-but-unattached controls — **70%** — FIXED, three open
+
+Deleting an unused binding is only a cleanup if the binding was not an intention. Four
+of the 98 warnings on `dev` were intentions that had never been attached to anything,
+and two of those were attached wrongly:
+
+| Control                                | What it claimed                                | What it did                                                                                                                               | Now                                                                                                                                           |
+| -------------------------------------- | ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `REQUEST_TIMEOUT_MS` (paystack)        | 10s per API call                               | read from env, passed to nothing — a stalled socket held the request open forever, retry ladder irrelevant                                | `AbortSignal.timeout` on every attempt; env read per call so a test can shorten it                                                            |
+| `isUniqueViolation` (idempotency)      | "the unique constraint fires and we log"       | tested SQLSTATE `23505`; Prisma raises `P2002`, so it could never match — and no one called it, and the catch logged nothing              | both codes; expected race silent, every other failure an error line naming scope/key/caller                                                   |
+| PII_REDACTION rule 4 (compliance gate) | "payload has been redacted before persistence" | compared text the caller had _just_ redacted against the phone — structurally incapable of failing; `redactPII` imported, unused          | reads the bank's RAW `transaction_ref`; records, never refuses                                                                                |
+| org country allowlist (policy gate)    | "not on the org allowlist"                     | read one global env var for every tenant, and ran BEFORE the geo layer that does honour per-org settings                                  | resolves through `geoPolicyFor`; hard deny list consulted first, unwideable                                                                   |
+| credential deny list (policy)          | "deny-list of credential-extraction patterns"  | a superseded draft sitting unused while the live regexes drifted — it refused the platform's own safety text and passed an expiry request | one shared detector, sentence-scoped, in `compliance/credential-ask.ts`, used by both outbound guards                                         |
+| `READ_DELEGATES` (rbac)                | documented the read/write split                | nothing consumed it, so an unclassified new write would have passed the read-only guard silently                                          | exported; suite now requires every delegate on every model to be named by exactly one set — found `findRaw`/`aggregateRaw` unclassified today |
+| `WILDCARD_DNS_SUFFIXES` (ssrf)         | "the resolved address is checked anyway"       | one test, hardcoded to `.nip.io`; the other three services were unverified                                                                | list swept: each resolves private→refused and public→allowed                                                                                  |
+
+**Resolved 2026-10-15 — the decision, and what it found:**
+
+- **`agent-prompts.ts` is deleted; the zero-amount rule moved into the real prompt.**
+  The register's fork was false: investigation found the role-based
+  `getSpecialistPrompt` in src/lib/ai/router.ts has no callers either — BOTH
+  implementations were dead, and the only prompt a real turn sends is the system
+  array built inside `draftAgentReply` (src/lib/llm.ts). So the second option was
+  taken: `SPOKEN_MONEY_RULES` now carries the zero-amount case ("a pre-authorization
+  hold (no monetary charge)", never "zero Dirhams"), the symbol ban, and the
+  exchange-rate refusal, and is spread into that array
+  (tests/unit/spoken-money-rules.test.ts asserts content and consumption).
+  `currency-map.ts` went with it — its only consumer was the deleted builder.
+  Per-institution prompts (Takaful/insurer/bank) are a per-tenant extension of the
+  system prompt if they are ever wanted, not a second builder.
+- **`llmBreakerState()` is operator-visible** twice over: `/api/readyz` reads it for
+  the incident view and `/api/metrics` scrapes it (`sv_llm_breaker_open`,
+  `sv_llm_breaker_consecutive_failures`).
+- **`registerLlmAdapter()` now registers the built-ins**: the four providers enter
+  `LLM_ADAPTERS` through the public function, so its validation applies to the
+  names this module ships rather than only to test registrations.
+
+**Effort:** the seven fixes are S–M each and are done; the three named items are done.
+**Status:** FIXED.
+
+### 13. The voice engine's own latency was unmeasurable, and two of its promises had no producer — **60%**
+
+Opened as "the voice engine is degraded". The first finding is that this claim could not
+have been confirmed OR refuted from any artefact the platform produces.
+
+Measured state, from `evidence/latency/spans.jsonl` (4,360 records) and
+`evidence/latency/slo.json`:
+
+| Span                                   | Budget p95 | Producer          | Samples |
+| -------------------------------------- | ---------- | ----------------- | ------- |
+| `signal_received_to_accepted`          | 300 ms     | yes               | 1,733   |
+| `signal_accepted_to_provider_accepted` | 1,500 ms   | yes               | 1,733   |
+| `tool_request_to_response`             | 300 ms     | yes               | 798     |
+| `signal_received_to_freeze_staged`     | 60,000 ms  | yes               | 96      |
+| `answered_to_first_agent_word`         | 1,200 ms   | yes (worker only) | 0       |
+| `signal_received_to_ringing`           | 5,000 ms   | **none**          | 0       |
+| `caller_stop_to_agent_audio`           | 1,500 ms   | **none**          | 0       |
+| `fraud_confirmed_to_webhook_delivered` | 2,000 ms   | **none**          | 0       |
+
+Two of the three unproduced spans are the voice product's headline promises — "the phone
+rings within 5 seconds" and "the agent answers within 1.5 seconds of you stopping
+talking". They were numbers in a table nobody could observe. The third voice span HAS a
+producer in `src/worker/voice-stream.ts` and still has zero samples, because the Media
+Streams plane is never driven by the suites that write the artifact.
+
+Fixed now, and prevented from recurring: `tests/telemetry/spans-producers.test.ts`
+asserts bidirectionally that every declared span has a producer in `src/`, and that no
+producer names a span the contract never declared (an undeclared name is _rejected at
+runtime_, so the call site looks instrumented while the metric does not exist). Mutation-
+proved: misspelling one span name in the worker turns both halves red. Three remaining
+unproduced spans are allowed only by name, each with a written reason, and the gate
+deletes an allowance the moment its producer lands. It also refuses to certify anything
+when a source file reads back empty — observed when the scan raced a `git checkout`,
+which reported a vanished producer as a code defect.
+
+**Still open, in the order I would take it:**
+
+1. **The SLO artifact is computed over CI's own load, and reports it as production
+   latency.** `signal_received_to_accepted` publishes p50 3,179 ms against a 300 ms
+   budget from 1,733 samples — and every one of those samples was written by the test
+   suites, including the chaos and load tiers, which hammer the same intake route on
+   purpose. Nothing tags a span with the plane that produced it, so the published
+   "missed" verdict measures contention in the harness, not the service. Fix: tag the
+   origin at record time and have `scripts/emit-slo.ts` report the two populations
+   separately, refusing a production verdict built from test samples.
+2. **No per-request budget on the TTS ladder.** The 25 s default is now 6 s, which cuts
+   the worst case from ~17 minutes to ~4. A per-request deadline the ladder cannot
+   exceed is the actual fix.
+3. **15–17 serially awaited round trips before the 202.** **Partially fixed
+   (2026-10-15):** the hidden await — `await getInstitutionType(orgId)` sitting in the
+   ARGUMENTS of a `void`-ed SMS call, so a lookup only the forgotten message consumes
+   ran between the enqueue and the 202 — now lives inside the fire-and-forget
+   continuation, and the SSRF verdict is raced with the combined idempotency+consent
+   read (independent: neither consumes the other, neither mutates; SSRF refusal still
+   checked first, and a DB error still surfaces only after SSRF passes, so it can
+   never mask a hostile-callback refusal). Deliberately NOT parallelised: the spend
+   checks inside the policy gate, because a reserve that races the balance is how an
+   org goes negative on two concurrent signals. The remaining cost is the ledger
+   aggregate itself — a design change (running balance or narrower window), still
+   open.
+4. **`answered_to_first_agent_word` needs a producer the CI can drive** — **FIXED
+   (2026-10-15), as a driven producer rather than a live one.**
+   `tests/unit/voice-stream-first-agent-word.test.ts` boots the REAL Media Streams
+   server (`createServer`, src/worker/voice-stream.ts) with the vendors mocked at
+   the seams the repo already uses, connects a real websocket client, waits out the
+   opener, injects one final transcript, and asserts through `recentSpans` that the
+   span is recorded with ordered timestamps, a bounded duration, and its
+   `cached`/`origin` attributes — with actual media frames observed on the socket.
+   Mutation-proved: removing the `recordSpan` call in the turn's `onFirstAudio`
+   turns the test red. These samples are `harness`-origin by construction, so they
+   populate `spans_harness` — the live population still requires a real call, which
+   remains blocked on the calling window and quota.
+   The other two voice spans stay in the gate's gap map, now with VERIFIED reasons
+   instead of guesses: `signal_received_to_ringing` needs a persisted
+   signal-received instant (the join to the case exists via the `callSid` index, but
+   `Case.createdAt` is the gate-passed instant and `started` lives only in request
+   memory — recording from there would publish a shorter number than the customer
+   experienced); `caller_stop_to_agent_audio` needs the Deepgram client to surface
+   `UtteranceEnd` — `src/lib/voice/deepgram-client.ts` parses only the final
+   transcript, so no end-of-speech event exists to start the clock from, and
+   starting it at the final transcript would duplicate
+   `answered_to_first_agent_word` while measuring late.
+   `fraud_confirmed_to_webhook_delivered` is unchanged.
+5. **Degradation is visible in a log line and now in `/api/readyz`, but not in any
+   scrape.** `llmBreakerState()` and `getPoolStatus()` were written for an operator
+   surface with no production caller; readyz now reads both (readiness semantics
+   unchanged — a vendor outage still never marks us unready). `/api/metrics` has 20
+   collectors and no breaker, pool, or rung metric, so a 40% slowdown trips nothing.
+   `dialTelephonyBreakerState()` remains test-only: it lives in the worker process, so
+   surfacing it needs the worker to push, not the web process to read.
+6. **Token usage is still never persisted**, so cost-per-call movement during
+   degradation is invisible. Usage is parsed and forwarded to Langfuse only.
+7. **TTS rung is recorded inside `AuditLog.meta`, a text blob.** There is no
+   `voiceProvider`/`rung`/`latencyMs` column, so "how often did we fall back last week"
+   is unanswerable as a query.
+
+**Update, same day:** item 1 is FIXED (bbbb439) — every span records the plane that
+produced it, `spans` holds verdicts over live samples only, `spans_harness` is published
+unjudged, and the threshold counts live completions. The honest consequence: the
+committed artifact regenerates with an empty live population, so the gate is red until a
+production-shaped process records a call. Item 2 is FIXED (d8c9686) — `TTS_REQUEST_BUDGET_MS`
+bounds the whole ladder at 10 s; the test drives a primary that never answers and the
+customer hears the cue in ~125 ms with all three skipped rungs named in the audit.
+Items 3-7 remain as written.

@@ -152,7 +152,7 @@ describe("PORT_BINDINGS — the money and identity ports", () => {
   });
 
   test("every fake adapter is named", () => {
-    for (const [port, binding] of ENTRIES) {
+    for (const [_port, binding] of ENTRIES) {
       expect(binding.fake.length).toBeGreaterThan(0);
       expect(binding.real.length).toBeGreaterThan(0);
     }

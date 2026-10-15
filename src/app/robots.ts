@@ -93,13 +93,13 @@ export const NO_INDEX = [
  * re-add a blanket deny.
  */
 const SEARCH_CRAWLERS = [
-  "OAI-SearchBot",        // OpenAI search index
-  "ChatGPT-User",         // OpenAI user-initiated fetch
-  "PerplexityBot",        // Perplexity index
-  "ClaudeBot",            // Anthropic / Claude answers
-  "CometBot",             // Perplexity Comet
-  "Meta-ExternalAgent",   // Meta AI agent
-  "Anthropic-AI",         // Anthropic agent fetcher
+  "OAI-SearchBot", // OpenAI search index
+  "ChatGPT-User", // OpenAI user-initiated fetch
+  "PerplexityBot", // Perplexity index
+  "ClaudeBot", // Anthropic / Claude answers
+  "CometBot", // Perplexity Comet
+  "Meta-ExternalAgent", // Meta AI agent
+  "Anthropic-AI", // Anthropic agent fetcher
   // Note: `Google-Extended` governs Gemini / Vertex training, not search;
   // it remains in `TRAINING_CRAWLERS` below.
 ] as const;

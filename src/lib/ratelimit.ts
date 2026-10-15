@@ -1,4 +1,5 @@
 import "server-only";
+import type { Redis } from "ioredis";
 import { env, rateLimitPerHour } from "@/lib/config";
 import { logWarn } from "@/lib/validation/safe-log";
 /**
@@ -272,11 +273,11 @@ const BUCKET_TTL_SEC = 7200;
  * turn a Redis blip into no rate limiting at all.
  */
 class RedisStore implements RateLimitStore {
-  private redis: import("ioredis").Redis;
+  private redis: Redis;
   private fallback = new InMemoryStore();
   private degradedLogged = false;
 
-  constructor(redis: import("ioredis").Redis) {
+  constructor(redis: Redis) {
     this.redis = redis;
   }
 

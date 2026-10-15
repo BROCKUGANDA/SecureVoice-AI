@@ -14,7 +14,9 @@
 #      deployment), then seeds a demo case history (SEED_DEMO=false to skip).
 #   3. realtime  — the Command Center's push path (Bun + socket.io). Holds a
 #      signing secret but NO database client: it only moves already-redacted,
-#      already-authorised events to sockets.
+#      already-authorised events to sockets. With REDIS_URL it attaches the
+#      Socket.IO Redis adapter to the bundled redis service, so events ingested
+#      into one replica reach clients connected to another.
 #   4. app serves the Next.js standalone bundle on port 3000.
 #   5. caddy is the ONLY service that publishes a port, and terminates TLS.
 #
@@ -581,8 +583,20 @@ services:
       # Comma-separated allowed browser origins. Defaults to the public site;
       # set explicitly to "" only for local dev (accept-any is a hijack surface).
       REALTIME_ALLOWED_ORIGIN: ${REALTIME_ALLOWED_ORIGIN:-https://${SITE_ADDRESS:-localhost}}
+      # Cross-instance fan-out (WP-20). When set, the Socket.IO Redis adapter
+      # attaches (mini-services/realtime/src/pubsub.ts) and broadcasts propagate
+      # across replicas; unset keeps the service single-node — loudly, on
+      # /readyz. Defaults to the compose redis service, so a `docker compose up`
+      # stack ships multi-node-capable out of the box. Same default the app and
+      # the workers use for their own REDIS_URL consumers.
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
     expose:
       - "4000"
+    depends_on:
+      # The adapter refuses to boot against an unreachable Redis (attachPubSub
+      # throws and the process exits), so wait for it to answer ping first.
+      redis:
+        condition: service_healthy
     healthcheck:
       # Liveness, not readiness: /readyz 503s until a signing secret is set, and a
       # healthcheck that fails on a fresh clone would restart-loop forever.

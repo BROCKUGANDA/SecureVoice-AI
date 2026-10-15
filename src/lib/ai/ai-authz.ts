@@ -56,9 +56,14 @@ export type SoftFreezeResult =
     };
 
 /**
- * Stage a soft freeze whose reversal window is `REVERSAL_WINDOW_SECS` (src/lib/config.ts,
- * 300s by default — the older comment here said 24 hours, which was the SMS reply
- * window, not this one).
+ * Stage a soft freeze whose reversal window is `REVERSAL_WINDOW_SECS`
+ * (src/lib/config.ts, 24 hours by default).
+ *
+ * The default used to be 300 seconds while `src/app/llms.txt/route.ts` published a
+ * 24-hour hold. The published number is now rendered from this setting, so the two
+ * cannot disagree again — and 24 hours is the window a fraud desk can actually work
+ * inside; a page five minutes after a hold is staged counts how many decisions came
+ * in late rather than alerting on one that matters.
  *
  * When the window closes with no commit, `src/lib/freeze-window.ts` escalates the
  * hold on the worker's tick. Nothing is reversed: this platform never wrote a hold

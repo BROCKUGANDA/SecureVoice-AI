@@ -45,7 +45,7 @@ class FakeRedis {
   ) {
     constructed++;
   }
-   
+
   on(_event: string, _fn: (...args: any[]) => void) {
     return this;
   }

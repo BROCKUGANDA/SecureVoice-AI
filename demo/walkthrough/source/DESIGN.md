@@ -11,30 +11,30 @@ of https://securevoiceai.me.
 
 ## Colors
 
-| Role | Hex | Source |
-| --- | --- | --- |
-| Paper / canvas | `#fbfbf8` | `--paper`, `--background` |
-| Card surface | `#ffffff` | `--card` |
-| Ink (primary text) | `#101812` | `--foreground` |
-| Ink 2 (secondary) | `#46524a` | `--ink-2` |
-| Ink 3 (tertiary / labels) | `#5c685d` | `--ink-3` |
-| Hairline | `#e7eae3` | `--line` |
-| Primary / brand green | `#0b7a55` | `--primary` |
-| Green deep | `#085c3f` | `--green-deep` |
-| Green bright (signal) | `#14a374` | `--green-bright` |
-| Green tint (fills) | `#e9f5ef` | `--green-tint` |
-| Destructive (the fraud) | `#d64550` | `--destructive` |
-| Red soft | `#b63b44` | `--red-soft` |
-| Amber (caution / unmeasured) | `#b97a11` | `--amber-soft` |
+| Role                         | Hex       | Source                    |
+| ---------------------------- | --------- | ------------------------- |
+| Paper / canvas               | `#fbfbf8` | `--paper`, `--background` |
+| Card surface                 | `#ffffff` | `--card`                  |
+| Ink (primary text)           | `#101812` | `--foreground`            |
+| Ink 2 (secondary)            | `#46524a` | `--ink-2`                 |
+| Ink 3 (tertiary / labels)    | `#5c685d` | `--ink-3`                 |
+| Hairline                     | `#e7eae3` | `--line`                  |
+| Primary / brand green        | `#0b7a55` | `--primary`               |
+| Green deep                   | `#085c3f` | `--green-deep`            |
+| Green bright (signal)        | `#14a374` | `--green-bright`          |
+| Green tint (fills)           | `#e9f5ef` | `--green-tint`            |
+| Destructive (the fraud)      | `#d64550` | `--destructive`           |
+| Red soft                     | `#b63b44` | `--red-soft`              |
+| Amber (caution / unmeasured) | `#b97a11` | `--amber-soft`            |
 
 ## Typography
 
-| Family | Use | Source |
-| --- | --- | --- |
-| Space Grotesk (400/500/600/700) | Display headlines, chapter eyebrows | `--font-display` |
-| Inter (400/500/600) | Body copy, captions, bullets | `--font-sans` |
-| JetBrains Mono (400/600) | Route paths, hashes, latency figures, state names | `--font-mono` |
-| IBM Plex Sans Arabic (300–700) | The Arabic disclosure line, verbatim | `--font-arabic` |
+| Family                          | Use                                               | Source           |
+| ------------------------------- | ------------------------------------------------- | ---------------- |
+| Space Grotesk (400/500/600/700) | Display headlines, chapter eyebrows               | `--font-display` |
+| Inter (400/500/600)             | Body copy, captions, bullets                      | `--font-sans`    |
+| JetBrains Mono (400/600)        | Route paths, hashes, latency figures, state names | `--font-mono`    |
+| IBM Plex Sans Arabic (300–700)  | The Arabic disclosure line, verbatim              | `--font-arabic`  |
 
 Corner radius `0.75rem` everywhere. Numbers always `font-variant-numeric: tabular-nums`.
 

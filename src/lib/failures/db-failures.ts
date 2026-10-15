@@ -207,29 +207,6 @@ function messageOf(err: unknown): string {
 }
 
 /**
- * Quoted identifier candidates, in the order we trust them: an explicit meta
- * field, then the driver's constraint name.
- */
-function constraintCandidates(err: unknown): string[] {
-  const meta = metaOf(err);
-  const out: string[] = [];
-  const push = (v: unknown) => {
-    if (typeof v === "string" && v.trim() !== "") out.push(v.trim());
-  };
-  push(meta.constraint);
-  push(meta.constraint_name);
-  push(meta.field_name);
-  const name = (err as { name?: unknown } | null)?.name;
-  if (typeof name === "string" && /constraint/i.test(name)) push(name);
-  const msg = messageOf(err);
-  const quoted = /constraint\s+"([^"]+)"/i.exec(msg);
-  if (quoted) push(quoted[1]);
-  const onTable = /on\s+table\s+"([^"]+)"/i.exec(msg);
-  if (onTable) push(onTable[1]);
-  return out;
-}
-
-/**
  * Suffixes a generated constraint name ends in. Prisma emits
  * `Model_field_key`, `Model_fieldA_fieldB_key` and `Model_field_fkey`; a driver
  * or a hand-written migration can emit `…_idx` and `…_pkey`.

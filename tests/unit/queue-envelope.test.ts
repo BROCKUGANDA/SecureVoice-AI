@@ -8,11 +8,11 @@
  * dispatcher captures them at import time.
  */
 import { beforeAll, afterAll, expect, test } from "bun:test";
-import { createHash, webcrypto } from "node:crypto";
+import { createHash } from "node:crypto";
 import { NextRequest } from "next/server";
 import * as jose from "jose";
 import { db } from "@/lib/db";
-import { parseEnvelope, makeEnvelope, jobEnvelopeSchema } from "@/lib/queue/envelope";
+import { parseEnvelope, makeEnvelope } from "@/lib/queue/envelope";
 import { envelopeIdempotencyKeyForDlq } from "@/lib/queue/dead-letter";
 
 process.env.QSTASH_CURRENT_SIGNING_KEY = "test_current_key_for_envelope_spec_32bytes_xx";

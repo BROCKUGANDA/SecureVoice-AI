@@ -157,17 +157,7 @@ export function readableForeground(background: string): { hex: string; ratio: nu
     : { hex: FOREGROUND_DARK, ratio: onDark };
 }
 
-/** Blend toward white in fixed 5% steps. Deterministic, so a test can assert it. */
-function lightenTowardWhite(hex: string, steps: number): string {
-  const [r, g, b] = channels(hex);
-  return toHex(
-    r + (255 - r) * (steps / 20),
-    g + (255 - g) * (steps / 20),
-    b + (255 - b) * (steps / 20),
-  );
-}
-
-/** Blend toward black in fixed 5% steps. The mirror of `lightenTowardWhite`. */
+/** Blend toward black in fixed 5% steps. */
 function darkenTowardBlack(hex: string, steps: number): string {
   const [r, g, b] = channels(hex);
   return toHex(r * (1 - steps / 20), g * (1 - steps / 20), b * (1 - steps / 20));

@@ -326,12 +326,44 @@ export const env = {
     return process.env.ELEVENLABS_API_BASE_URL ?? "https://api.elevenlabs.io";
   },
   /**
-   * TTS voice synthesis timeout in milliseconds. Default 25 s; overridable so a
-   * deployment can tighten it for voice SLAs or loosen it for high-latency links.
+   * How long the WHOLE TTS fallback ladder may take for one request, measured from
+   * the moment synthesis starts and enforced in `synthesizeWithLadder`.
+   *
+   * This is the value the ladder cannot exceed. `ttsTimeoutMs` bounds one attempt,
+   * and the ladder multiplies it: three egress attempts on the primary, up to eight
+   * pooled keys, three PlayHT attempts. Bounding only the attempt left the sum
+   * unbounded, which on a live call is not a slow response but dead air with the
+   * line still open.
+   *
+   * 10 s is deliberately generous — long enough that a healthy first or second rung
+   * always finishes inside it, short enough that a customer is never held in silence
+   * past the point where an emergency cue is the better answer. The clock stops the
+   * WAIT, not the vendor call: an attempt already in flight is abandoned rather than
+   * cancelled, so its cost is still paid. What the budget guarantees is the caller's
+   * latency, not the invoice.
+   */
+  get ttsRequestBudgetMs(): number {
+    const raw = Number(process.env.TTS_REQUEST_BUDGET_MS);
+    return Number.isFinite(raw) && raw > 0 ? raw : 10_000;
+  },
+
+  /**
+   * Per-attempt TTS timeout. Default 6 s; overridable so a deployment can tighten it
+   * further for voice SLAs or loosen it for high-latency links.
+   *
+   * It was 25 s, and 25 s is not a timeout on a live call — it is a way to be late
+   * with extra steps, because this value multiplies through the fallback ladder rather
+   * than bounding it: the egress wrapper makes 3 attempts, the key pool walks up to 8
+   * keys, and PlayHT runs its own 3 attempts after that. At 25 s the worst case for one
+   * sentence was minutes of dead air while the customer waited, and every rung in
+   * between looked healthy because it was merely still trying. 6 s bounds one attempt
+   * to roughly the length of the phrase it is synthesising; the ladder's worst case is
+   * now ~4 minutes rather than ~17, and the honest next step is a per-request budget
+   * that the ladder cannot exceed, which is still open.
    */
   get ttsTimeoutMs(): number {
     const raw = Number(process.env.ELEVENLABS_TTS_TIMEOUT_MS);
-    return Number.isFinite(raw) && raw > 0 ? raw : 25_000;
+    return Number.isFinite(raw) && raw > 0 ? raw : 6_000;
   },
   /**
    * How long a live turn may wait for knowledge-base retrieval before the
@@ -556,8 +588,24 @@ export const env = {
   get dialProbeTimeoutMs(): number {
     return numSetting("DIAL_PROBE_TIMEOUT_MS", 30_000, 1_000);
   },
+  /**
+   * How long a staged soft freeze waits for a second actor before the sweep
+   * escalates it (`src/lib/freeze-window.ts`).
+   *
+   * The default was 300s while `src/app/llms.txt/route.ts` — the file an answer
+   * engine quotes verbatim, and the one a bank's compliance reviewer can fetch
+   * without an account — published a 24-hour hold. One of the two had to be wrong.
+   * The window IS the promise, so the promise is now the default: this is a fraud
+   * desk's decision window, and five minutes is not one a specialist can honour —
+   * the escalation page would count how many holds nobody reached in time rather
+   * than alert on the one that matters.
+   *
+   * Still an operator knob: a deployment that wants a tighter window sets
+   * `REVERSAL_WINDOW_SECS`, and the published text is rendered from this value so
+   * the two cannot drift apart again.
+   */
   get reversalWindowSecs(): number {
-    return numSetting("REVERSAL_WINDOW_SECS", 300, 1);
+    return numSetting("REVERSAL_WINDOW_SECS", 86_400, 1);
   },
 
   /* ── CRM adapters ── */

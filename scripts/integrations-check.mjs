@@ -34,7 +34,13 @@ const TIMEOUT_MS = Number(process.env.INTEGRATIONS_CHECK_TIMEOUT_MS || 12_000);
 /** Systems whose absence breaks a customer-facing promise, vs nice to have. */
 const SYSTEMS = [
   { name: "elevenlabs.tts", group: "vendor", required: true, probe: "elevenlabsSubscription" },
-  { name: "elevenlabs.agent", group: "vendor", required: true, probe: "elevenlabsAgent", needs: ["ELEVENLABS_AGENT_ID"] },
+  {
+    name: "elevenlabs.agent",
+    group: "vendor",
+    required: true,
+    probe: "elevenlabsAgent",
+    needs: ["ELEVENLABS_AGENT_ID"],
+  },
   { name: "elevenlabs.voices", group: "vendor", required: true, probe: "elevenlabsVoices" },
   { name: "elevenlabs.stt", group: "vendor", required: false, probe: "elevenlabsSttModels" },
   { name: "twilio.account", group: "vendor", required: true, probe: "twilioAccount" },
@@ -70,7 +76,10 @@ const probes = {
   },
   async elevenlabsAgent() {
     const id = process.env.ELEVENLABS_AGENT_ID;
-    const r = await get(`https://api.elevenlabs.io/v1/convai/agents/${encodeURIComponent(id)}`, EL());
+    const r = await get(
+      `https://api.elevenlabs.io/v1/convai/agents/${encodeURIComponent(id)}`,
+      EL(),
+    );
     if (r.status !== 200) return fail(`HTTP ${r.status} for agent ${mask(id)}`);
     const cc = r.json?.conversation_config ?? {};
     const kb = (JSON.stringify(r.json).match(/knowledge_base/g) || []).length;
@@ -133,7 +142,8 @@ const probes = {
     const tokRes = tok ? await account(sid, tok) : null;
 
     const detail = [];
-    const dialWith = keyRes?.status === 200 ? "api-key" : tokRes?.status === 200 ? "auth-token" : null;
+    const dialWith =
+      keyRes?.status === 200 ? "api-key" : tokRes?.status === 200 ? "auth-token" : null;
     detail.push(dialWith ? `dials=${dialWith}` : "dials=NEITHER_SHAPE_AUTHENTICATES");
     // A token Twilio rejects is not a neutral absence: the verifier returns
     // `false` (reject) when a token is configured, and only `null` (caller's
@@ -150,7 +160,9 @@ const probes = {
     const acct = keyRes?.json ?? tokRes?.json ?? {};
     if (keyRes?.status === 200 || tokRes?.status === 200) {
       const live = /^(true|1)$/.test(String(process.env.TWILIO_LIVE_SEND || ""));
-      detail.push(`account="${acct.friendly_name}" type=${acct.type} live_send=${live ? "ATTESTED" : "off(guarded)"}`);
+      detail.push(
+        `account="${acct.friendly_name}" type=${acct.type} live_send=${live ? "ATTESTED" : "off(guarded)"}`,
+      );
       // A trial account only dials numbers enrolled in its own verified list, so
       // "TWILIO_LIVE_SEND=true" on one silently refuses every real customer.
       if (acct.type === "trial") detail.push("TRIAL: refuses unverified numbers");
@@ -201,10 +213,16 @@ const probes = {
       });
       const body = await dp.json().catch(() => ({}));
       if (dp.status === 200) {
-        const total = body.total_vector_count ?? body.namespaces?.reduce((a, n) => a + (n?.vector_count ?? 0), 0);
-        return pass(`data-plane ok host=${host} vectors=${total} namespaces=${Object.keys(body.namespaces || {}).length}`);
+        const total =
+          body.total_vector_count ??
+          body.namespaces?.reduce((a, n) => a + (n?.vector_count ?? 0), 0);
+        return pass(
+          `data-plane ok host=${host} vectors=${total} namespaces=${Object.keys(body.namespaces || {}).length}`,
+        );
       }
-      parts.push(`data-plane HTTP ${dp.status} (${String(body?.error?.message ?? "").slice(0, 40)})`);
+      parts.push(
+        `data-plane HTTP ${dp.status} (${String(body?.error?.message ?? "").slice(0, 40)})`,
+      );
     } else parts.push("no PINECONE_HOST");
 
     const cp = await get("https://api.pinecone.io/indexes", { "Api-Key": key });
@@ -214,59 +232,83 @@ const probes = {
         ? pass(`control-plane ok, index "${want}" present (${names.length} total)`)
         : fail(`index "${want}" not present (have: ${names.join(",") || "none"})`);
     }
-    parts.push(`control-plane HTTP ${cp.status} (${String(cp.json?.error?.message ?? "").slice(0, 40)})`);
+    parts.push(
+      `control-plane HTTP ${cp.status} (${String(cp.json?.error?.message ?? "").slice(0, 40)})`,
+    );
     // Both planes rejecting the same key is the one unambiguous verdict here.
     return fail(`key rejected on both planes: ${parts.join("; ")}`);
   },
   async deepgramProjects() {
-    const r = await get("https://api.deepgram.com/v1/projects", { Authorization: `Token ${process.env.DEEPGRAM_API_KEY}` });
+    const r = await get("https://api.deepgram.com/v1/projects", {
+      Authorization: `Token ${process.env.DEEPGRAM_API_KEY}`,
+    });
     return r.status === 200 ? pass("key accepted") : fail(`HTTP ${r.status}`);
   },
   async paddleCatalog() {
     const env = (process.env.NEXT_PUBLIC_PADDLE_ENVIRONMENT || "production").trim();
     const host = env === "sandbox" ? "https://sandbox-api.paddle.com" : "https://api.paddle.com";
-    const r = await get(`${host}/products`, { Authorization: `Bearer ${process.env.PADDLE_API_KEY}` });
+    const r = await get(`${host}/products`, {
+      Authorization: `Bearer ${process.env.PADDLE_API_KEY}`,
+    });
     return r.status === 200
       ? pass(`${env} catalog reachable, ${(r.json?.results ?? []).length} products`)
       : fail(`HTTP ${r.status} against ${host}`);
   },
   async resendDomains() {
-    const r = await get("https://api.resend.com/domains", { Authorization: `Bearer ${process.env.RESEND_API_KEY}` });
+    const r = await get("https://api.resend.com/domains", {
+      Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+    });
     return r.status === 200
       ? pass(`key accepted, ${(r.json?.data ?? []).length} sending domains`)
       : fail(`HTTP ${r.status}`);
   },
   async groqModels() {
-    const r = await get("https://api.groq.com/openai/v1/models", { Authorization: `Bearer ${process.env.GROQ_API_KEY}` });
-    return r.status === 200 ? pass(`${(r.json?.data ?? []).length} models`) : fail(`HTTP ${r.status}`);
+    const r = await get("https://api.groq.com/openai/v1/models", {
+      Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
+    });
+    return r.status === 200
+      ? pass(`${(r.json?.data ?? []).length} models`)
+      : fail(`HTTP ${r.status}`);
   },
   async geminiModels() {
     const r = await get(
       `https://generativelanguage.googleapis.com/v1beta/models?page_size=5&key=${encodeURIComponent(process.env.GEMINI_API_KEY ?? "")}`,
     );
-    return r.status === 200 ? pass(`${(r.json?.models ?? []).length} models listed`) : fail(`HTTP ${r.status}`);
+    return r.status === 200
+      ? pass(`${(r.json?.models ?? []).length} models listed`)
+      : fail(`HTTP ${r.status}`);
   },
   async litellmModels() {
     const base = (process.env.LITELLM_BASE_URL || "").replace(/\/$/, "");
     if (!base) return skip("LITELLM_BASE_URL unset");
-    const r = await get(`${base}/v1/models`, { Authorization: `Bearer ${process.env.LITELLM_API_KEY ?? ""}` });
+    const r = await get(`${base}/v1/models`, {
+      Authorization: `Bearer ${process.env.LITELLM_API_KEY ?? ""}`,
+    });
     return r.status === 200 ? pass(`${base} answers`) : fail(`HTTP ${r.status} at ${base}`);
   },
   async langfuseHealth() {
     const base = process.env.LANGFUSE_BASE_URL;
     if (!base) return skip("LANGFUSE_BASE_URL unset");
-    const auth = Buffer.from(`${process.env.LANGFUSE_PUBLIC_KEY}:${process.env.LANGFUSE_SECRET_KEY}`).toString("base64");
-    const r = await get(`${base.replace(/\/$/, "")}/api/public/health`, { Authorization: `Basic ${auth}` });
+    const auth = Buffer.from(
+      `${process.env.LANGFUSE_PUBLIC_KEY}:${process.env.LANGFUSE_SECRET_KEY}`,
+    ).toString("base64");
+    const r = await get(`${base.replace(/\/$/, "")}/api/public/health`, {
+      Authorization: `Basic ${auth}`,
+    });
     return r.status === 200 ? pass(String(r.json?.status ?? "ok")) : fail(`HTTP ${r.status}`);
   },
   async axiomDatasets() {
-    const r = await get("https://api.axiom.co/v1/datasets", { "X-API-Key": process.env.AXIOM_TOKEN ?? "" });
+    const r = await get("https://api.axiom.co/v1/datasets", {
+      "X-API-Key": process.env.AXIOM_TOKEN ?? "",
+    });
     return r.status === 200 ? pass(`${(r.json ?? []).length} datasets`) : fail(`HTTP ${r.status}`);
   },
   async sentryDsnShape() {
     const dsn = process.env.SENTRY_DSN || process.env.NEXT_PUBLIC_SENTRY_DSN || "";
     if (!dsn) return skip("no server DSN");
-    return /^(https?:\/\/[^@]+@[^/]+\/\d+$)/.test(dsn) ? pass("DSN well-formed") : fail("DSN malformed");
+    return /^(https?:\/\/[^@]+@[^/]+\/\d+$)/.test(dsn)
+      ? pass("DSN well-formed")
+      : fail("DSN malformed");
   },
   async postgres() {
     const url = process.env.DATABASE_URL || "";
@@ -293,7 +335,9 @@ const probes = {
         .then((r) => String(r.rows[0]?.n ?? 0))
         .catch(() => "unreadable");
       const pending = await c
-        .query("select count(*)::int as n from public._prisma_migrations where finished_at is null and rolled_back_at is null")
+        .query(
+          "select count(*)::int as n from public._prisma_migrations where finished_at is null and rolled_back_at is null",
+        )
         .then((r) => r.rows[0]?.n ?? 0)
         .catch(() => 0);
       await c.end();
@@ -324,7 +368,11 @@ const probes = {
       return skip("ioredis unavailable here — same fallback note as the pg driver above");
     }
     try {
-      const c = new Redis(url, { maxRetriesPerRequest: 1, connectTimeout: TIMEOUT_MS, lazyConnect: true });
+      const c = new Redis(url, {
+        maxRetriesPerRequest: 1,
+        connectTimeout: TIMEOUT_MS,
+        lazyConnect: true,
+      });
       const pong = await c.ping();
       await c.quit().catch(() => c.disconnect());
       return pong === "PONG" ? pass("PING answered") : fail(`unexpected reply ${pong}`);
@@ -342,7 +390,10 @@ const probes = {
       : fail(`HTTP ${r.status} from ${base}`);
   },
   async ownHealth() {
-    const base = (process.env.SITE_ADDRESS || process.env.NEXT_PUBLIC_SITE_URL || "").replace(/\/$/, "");
+    const base = (process.env.SITE_ADDRESS || process.env.NEXT_PUBLIC_SITE_URL || "").replace(
+      /\/$/,
+      "",
+    );
     if (!base) return fail("SITE_ADDRESS unset — nothing to self-check");
     const origin = base.startsWith("http") ? base : `https://${base}`;
     const h = await get(`${origin}/api/health`);
@@ -369,8 +420,12 @@ const probes = {
     // The operator-facing half: the agent's tool callbacks are only trustworthy if
     // the shared secret exists AND every advertised tool is explicitly allowed.
     const secret = process.env.AGENT_TOOL_SECRET || "";
-    const allowed = (process.env.AGENT_TOOL_ALLOWED || "").split(",").map((s) => s.trim()).filter(Boolean);
-    if (secret.length < 32) return fail(`AGENT_TOOL_SECRET missing or ${secret.length} chars (needs 32+)`);
+    const allowed = (process.env.AGENT_TOOL_ALLOWED || "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (secret.length < 32)
+      return fail(`AGENT_TOOL_SECRET missing or ${secret.length} chars (needs 32+)`);
     if (!allowed.length) return fail("AGENT_TOOL_ALLOWED empty — every tool call would be refused");
     const declared = Object.entries(process.env)
       .filter(([k]) => k.startsWith("ELEVENLABS_TOOL_"))
@@ -394,7 +449,9 @@ function mask(v) {
   return v.length <= 8 ? `len=${v.length}` : `${v.slice(0, 4)}…${v.slice(-4)}`;
 }
 function short(m) {
-  return String(m || "").replace(/\s+/g, " ").slice(0, 120);
+  return String(m || "")
+    .replace(/\s+/g, " ")
+    .slice(0, 120);
 }
 
 async function get(url, headers = {}) {
@@ -412,8 +469,7 @@ async function get(url, headers = {}) {
     return { status: res.status, json, text };
   } catch (e) {
     return { status: 0, json: null, text: String(e.message || e) };
-  }
-  finally {
+  } finally {
     clearTimeout(t);
   }
 }
@@ -422,7 +478,7 @@ async function get(url, headers = {}) {
 function prerequisites(s) {
   const needed =
     s.needs ??
-    ({
+    {
       "elevenlabs.tts": ["ELEVENLABS_API_KEY"],
       "elevenlabs.agent": ["ELEVENLABS_API_KEY", "ELEVENLABS_AGENT_ID"],
       "elevenlabs.voices": ["ELEVENLABS_API_KEY"],
@@ -436,7 +492,8 @@ function prerequisites(s) {
       "llm.gemini": ["GEMINI_API_KEY"],
       langfuse: ["LANGFUSE_PUBLIC_KEY", "LANGFUSE_SECRET_KEY"],
       axiom: ["AXIOM_TOKEN"],
-    }[s.name] ?? []);
+    }[s.name] ??
+    [];
   return needed.filter((k) => !(process.env[k] || "").trim());
 }
 
@@ -444,7 +501,12 @@ const results = [];
 for (const s of SYSTEMS) {
   const absent = prerequisites(s);
   if (absent.length) {
-    results.push({ ...s, ok: !s.required, skipped: s.required ? false : true, detail: `env unset: ${absent.join(", ")}` });
+    results.push({
+      ...s,
+      ok: !s.required,
+      skipped: s.required ? false : true,
+      detail: `env unset: ${absent.join(", ")}`,
+    });
     continue;
   }
   const out = await probes[s.probe]();
@@ -452,7 +514,9 @@ for (const s of SYSTEMS) {
 }
 
 const width = Math.max(...results.map((r) => r.name.length));
-console.log(`\nintegration connectivity — ${results.length} systems, ${TIMEOUT_MS / 1000}s per probe, GET/PING only\n`);
+console.log(
+  `\nintegration connectivity — ${results.length} systems, ${TIMEOUT_MS / 1000}s per probe, GET/PING only\n`,
+);
 for (const r of results) {
   const tag = r.skipped ? (r.ok ? "SKIP" : "MISS") : r.ok ? "  ok" : "FAIL";
   console.log(`${tag}  ${r.name.padEnd(width)}  ${r.group.padEnd(11)}  ${r.detail ?? ""}`);
@@ -462,7 +526,12 @@ const requiredFailed = failed.filter((r) => r.required);
 console.log(
   `\n${results.length - failed.length}/${results.length} systems answered. ` +
     `${requiredFailed.length} required failure(s)` +
-    (failed.length && !requiredFailed.length ? ` (${failed.filter((f) => !f.required).map((f) => f.name).join(", ")} optional)` : "") +
+    (failed.length && !requiredFailed.length
+      ? ` (${failed
+          .filter((f) => !f.required)
+          .map((f) => f.name)
+          .join(", ")} optional)`
+      : "") +
     ".",
 );
 console.log(

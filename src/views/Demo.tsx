@@ -45,7 +45,7 @@ import {
 } from "@/lib/voice-client";
 import { useApp, t } from "@/lib/store";
 import { seatLabel, type Seat } from "@/lib/auth/seat";
-import { Chip, LiveDot, Skeleton } from "@/components/fx/core";
+import { Chip, Skeleton } from "@/components/fx/core";
 import { Waveform, Equalizer } from "@/components/fx/Waveform";
 import { LiveVoicePanel } from "@/components/demo/LiveVoicePanel";
 import { cn } from "@/lib/utils";

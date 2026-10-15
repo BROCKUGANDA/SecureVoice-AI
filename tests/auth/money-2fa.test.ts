@@ -56,7 +56,6 @@ const PARTIAL_EMAIL = `partial-${RUN}@example.test`;
 const DEMO_EMAIL = `demo-2fa-${RUN}@example.test`;
 
 const users = [USER_ID, DEMO_USER_ID, PARTIAL_USER_ID];
-const emails = [PLAIN_EMAIL, FULL_EMAIL, PARTIAL_EMAIL, DEMO_EMAIL];
 
 function identity(email: string, accountId = USER_ID): Identity {
   return {

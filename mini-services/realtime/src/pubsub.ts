@@ -13,9 +13,13 @@
  * the service starts anyway and says so loudly — a single-node deployment is a
  * legitimate deployment, but it must never pretend to be multi-node.
  *
- * The transport is deliberately websocket-only in this configuration: the
- * polling->websocket upgrade breaks under round-robin unless Caddy pins the
- * session, and a silent downgrade mid-call is worse than a failed connect.
+ * Transport posture: the BROWSER client (src/lib/realtime-client.ts) prefers
+ * websocket and lists polling as the fallback it engages only when a websocket
+ * handshake cannot be established at all — the same pair this service serves
+ * (server.ts). A connected socket never downgrades mid-session, which is what
+ * the old websocket-only hard-coding guarded against; the round-robin concern
+ * below is answered by the websocket-first order, and a multi-replica polling
+ * deployment still needs proxy session pinning.
  */
 
 import { createAdapter } from "@socket.io/redis-adapter";

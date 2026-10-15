@@ -13,7 +13,7 @@ import {
 } from "@/lib/elevenlabs/client";
 import { generateAudioWithFailover } from "@/lib/elevenlabs/pool";
 import { generatePlayhtAudio, isPlayhtConfigured } from "@/lib/elevenlabs/playht";
-import { paceForTurn, type VoicePace } from "@/lib/voice/presets";
+import type { VoicePace } from "@/lib/voice/presets";
 import { getEmergencyAudio, EMERGENCY_AUDIO_CONTENT_TYPE } from "@/lib/elevenlabs/emergency-audio";
 import { consume as consumeRateLimit, rateLimitId } from "@/lib/ratelimit";
 import { append as auditAppend } from "@/lib/audit-chain";
@@ -24,15 +24,11 @@ import {
   quotaExceededResponse,
   allowAnonTurn,
 } from "@/lib/tts-quota";
-import { SUPPORTED_LANGS, maxTtsChars } from "@/lib/config";
-import {
-  badRequest,
-  tooManyRequests,
-  unprocessable,
-  upstreamError,
-  parseJson,
-} from "@/lib/api-errors";
+import { SUPPORTED_LANGS, env, maxTtsChars } from "@/lib/config";
+import { badRequest, tooManyRequests, unprocessable, parseJson } from "@/lib/api-errors";
 import { logError } from "@/lib/validation/safe-log";
+import { db } from "@/lib/db";
+import { countRung } from "@/lib/voice/rung-counter";
 
 export const dynamic = "force-dynamic";
 
@@ -74,7 +70,7 @@ const DEV_SLUG_LANG: Record<string, TtsLang> = {
 };
 
 /** Resolve the requested voice to the id sent upstream. */
-function resolveVoice(voice: string, lang: TtsLang): string {
+function resolveVoice(voice: string, _lang: TtsLang): string {
   // 1. Language key ("en"…) → configured voice for the current mode
   if (LANGS.has(voice)) {
     const v = voice as TtsLang;
@@ -119,6 +115,50 @@ function defaultDevVoice(lang: TtsLang): string {
  * The `failed` array is accumulated across rungs and returned to the caller so
  * the audit log can record which rungs were attempted and why they failed.
  */
+/**
+ * The one rung result that is not a result: the caller's budget ran out while this
+ * attempt was still in flight. A symbol, so it can never be confused with an audio
+ * buffer that happens to be empty.
+ */
+const BUDGET_EXHAUSTED = Symbol("tts-budget-exhausted");
+
+/**
+ * Ladder position of each source, for the `TtsSynthesis.rung` column. `byok` is
+ * rung 1 because it IS the primary rung, reached with the tenant's own key; cache
+ * hits never enter the ladder and are absent by design.
+ */
+const RUNG_BY_SOURCE: Record<string, number> = {
+  elevenlabs: 1,
+  byok: 1,
+  "elevenlabs-pool": 2,
+  playht: 3,
+  emergency: 4,
+};
+
+/**
+ * Await `work`, but stop waiting after `ms`.
+ *
+ * The abandoned call keeps running — it is a socket into a vendor, not a child
+ * process we can kill — so this bounds the CALLER'S latency, not the spend. That is
+ * the honest scope: the ladder's job on a live call is to put sound on the line
+ * within a deadline, and a rung that answers after the deadline is worth less to the
+ * customer than the emergency cue that would have played on time.
+ */
+async function withinBudget<T>(ms: number, work: Promise<T>): Promise<T | typeof BUDGET_EXHAUSTED> {
+  if (ms <= 0) return BUDGET_EXHAUSTED;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      work,
+      new Promise<typeof BUDGET_EXHAUSTED>((resolve) => {
+        timer = setTimeout(() => resolve(BUDGET_EXHAUSTED), ms);
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
 async function synthesizeWithLadder(args: {
   text: string;
   voice: string;
@@ -140,20 +180,35 @@ async function synthesizeWithLadder(args: {
   const { text, voice, lang, speed, callerId, callRef, keyOverride, model, pace } = args;
   const failed: Array<{ rung: string; error: string }> = [];
 
+  // The ladder's deadline, measured from here rather than from the HTTP request,
+  // because the part the customer waits on is this function. Every rung below is
+  // raced against what is left, and a rung with nothing left is not attempted —
+  // it is recorded as skipped, which is the difference between "we tried everything
+  // slowly" and "we stopped trying in time to say something".
+  const budgetMs = env.ttsRequestBudgetMs;
+  const startedAt = Date.now();
+  const remainingMs = () => Math.max(0, budgetMs - (Date.now() - startedAt));
+  const exhaustedLabel = (rung: string) =>
+    `budget_exhausted: no time left in the ${budgetMs} ms ladder before ${rung}`;
+
   // Rung 1: primary ElevenLabs (BYOK or platform key).
   try {
-    const result = await elevenTts(
-      { text, voice, speed, lang, callerId, callRef, pace },
-      { keyOverride },
+    const raced = await withinBudget(
+      remainingMs(),
+      elevenTts({ text, voice, speed, lang, callerId, callRef, pace }, { keyOverride }),
     );
-    return {
-      audio: result.audio,
-      contentType: result.contentType,
-      bytes: result.bytes,
-      source: keyOverride ? "byok" : "elevenlabs",
-      degraded: false,
-      failed,
-    };
+    if (raced === BUDGET_EXHAUSTED) {
+      failed.push({ rung: "elevenlabs", error: exhaustedLabel("elevenlabs") });
+    } else {
+      return {
+        audio: raced.audio,
+        contentType: raced.contentType,
+        bytes: raced.bytes,
+        source: keyOverride ? "byok" : "elevenlabs",
+        degraded: false,
+        failed,
+      };
+    }
   } catch (err) {
     failed.push({
       rung: "elevenlabs",
@@ -168,51 +223,70 @@ async function synthesizeWithLadder(args: {
   // shared monthly quota on a call the tenant is entitled to bill themselves —
   // precisely the confusion the BYOK path exists to prevent.
   if (!keyOverride) {
-    try {
-      const result = await generateAudioWithFailover(text, voice, {
-        callerId,
-        model: model ?? resolveTtsModel(lang),
-        speed,
-        pace: pace ?? "paced",
-        lang,
-      });
-      return {
-        audio: result.audio,
-        contentType: result.contentType,
-        bytes: result.bytes,
-        source: "elevenlabs-pool",
-        degraded: true,
-        failed,
-      };
-    } catch (err) {
-      failed.push({
-        rung: "elevenlabs-pool",
-        error: err instanceof Error ? err.message : String(err),
-      });
+    if (remainingMs() <= 0) {
+      failed.push({ rung: "elevenlabs-pool", error: exhaustedLabel("elevenlabs-pool") });
+    } else {
+      try {
+        const raced = await withinBudget(
+          remainingMs(),
+          generateAudioWithFailover(text, voice, {
+            callerId,
+            model: model ?? resolveTtsModel(lang),
+            speed,
+            pace: pace ?? "paced",
+            lang,
+          }),
+        );
+        if (raced === BUDGET_EXHAUSTED) {
+          failed.push({ rung: "elevenlabs-pool", error: exhaustedLabel("elevenlabs-pool") });
+        } else {
+          return {
+            audio: raced.audio,
+            contentType: raced.contentType,
+            bytes: raced.bytes,
+            source: "elevenlabs-pool",
+            degraded: true,
+            failed,
+          };
+        }
+      } catch (err) {
+        failed.push({
+          rung: "elevenlabs-pool",
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
     }
   }
 
   // Rung 3: PlayHT.
   const playhtVoiceId = process.env.PLAYHT_VOICE_ID;
   if (isPlayhtConfigured() && playhtVoiceId) {
-    try {
-      const result = await generatePlayhtAudio(text, playhtVoiceId, {
-        callerId,
-        speed,
-      });
-      return {
-        audio: result.audio,
-        contentType: result.contentType,
-        bytes: result.bytes,
-        source: "playht",
-        degraded: true,
-        failed,
-      };
-    } catch (err) {
-      failed.push({
-        rung: "playht",
-        error: err instanceof Error ? err.message : String(err),
-      });
+    if (remainingMs() <= 0) {
+      failed.push({ rung: "playht", error: exhaustedLabel("playht") });
+    } else {
+      try {
+        const raced = await withinBudget(
+          remainingMs(),
+          generatePlayhtAudio(text, playhtVoiceId, { callerId, speed }),
+        );
+        if (raced === BUDGET_EXHAUSTED) {
+          failed.push({ rung: "playht", error: exhaustedLabel("playht") });
+        } else {
+          return {
+            audio: raced.audio,
+            contentType: raced.contentType,
+            bytes: raced.bytes,
+            source: "playht",
+            degraded: true,
+            failed,
+          };
+        }
+      } catch (err) {
+        failed.push({
+          rung: "playht",
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
     }
   }
 
@@ -321,6 +395,29 @@ export async function POST(req: NextRequest) {
       keyOverride,
       pace,
     });
+
+    // The served rung as a row, not only as text inside the audit's meta blob.
+    // Until this existed, "how often did synthesis fall back to PlayHT last week"
+    // could not be asked as a query at all. Fire-and-forget after the audio is
+    // already being returned: an observability insert must never add latency to
+    // the path whose latency it is measuring.
+    countRung(result.source, result.degraded);
+    void db.ttsSynthesis
+      .create({
+        data: {
+          callRef,
+          source: result.source,
+          rung: RUNG_BY_SOURCE[result.source] ?? null,
+          degraded: result.degraded,
+          bytes: result.bytes,
+          latencyMs: Date.now() - started,
+        },
+      })
+      .catch((err) =>
+        logError("[tts] synthesis row not persisted", {
+          error: err instanceof Error ? err.message : String(err),
+        }),
+      );
 
     // 5. Audit-chain append — redacted text only
     auditAppend({

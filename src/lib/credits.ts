@@ -30,7 +30,6 @@ import { headers } from "next/headers";
 import { auth } from "@/lib/better-auth";
 import { db } from "@/lib/db";
 import { append as auditAppend } from "@/lib/audit-chain";
-import type { Lang } from "@/lib/config";
 import { logError } from "@/lib/validation/safe-log";
 
 export type Role = "operator" | "demo";

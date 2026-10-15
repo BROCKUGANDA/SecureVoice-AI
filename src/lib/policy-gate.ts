@@ -44,6 +44,7 @@ import { reserve as reserveCredits, balance as ledgerBalance } from "@/lib/billi
 import { diallingBlockedFor } from "@/lib/payments/access";
 import { asCallCategory, type CallCategory } from "@/lib/call-categories";
 import { isAfterHours } from "@/lib/abuse/velocity";
+import { geoPolicyFor } from "@/lib/abuse/geo";
 
 export type PolicyGateInput = {
   orgId: string | null;
@@ -151,17 +152,23 @@ function countryFromE164(phone: string): string | null {
   return null;
 }
 
-/** Default country allowlist — overridable per org via env. */
-function allowedCountries(orgId: string | null): Set<string> {
-  const raw =
-    process.env.ALLOWED_COUNTRIES ?? "AE,US,GB,IN,EG,SA,QA,BH,KW,OM,JO,LB,PK,PH,SG,NG,KE,GH,ZA";
-  return new Set(
-    raw
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean),
-  );
-}
+/**
+ * The countries this gate dials when the operator has configured nothing.
+ *
+ * It is a FALLBACK, not the policy. The policy is `geoPolicyFor(orgId)` — the
+ * per-tenant registry, the per-org env var and the global config, layered in that
+ * order, with deny lists that only ever grow. This function used to read
+ * `ALLOWED_COUNTRIES` itself while still accepting an `orgId` and still promising
+ * "the org allowlist" in the refusal string, which meant a tenant scoped to AE by
+ * `ABUSE_ALLOWED_COUNTRIES__ORG_ACME` was checked against a list that had never
+ * heard of it, at the gate that runs BEFORE the one that could have honoured it.
+ *
+ * Kept because the abuse layer's own default is empty-means-dial-nowhere, and this
+ * deterministic pre-DNS gate has always carried a conservative list instead.
+ */
+const FALLBACK_ALLOWED_COUNTRIES: readonly string[] = Object.freeze(
+  "AE,US,GB,IN,EG,SA,QA,BH,KW,OM,JO,LB,PK,PH,SG,NG,KE,GH,ZA".split(","),
+);
 
 export async function runPolicyGate(input: PolicyGateInput): Promise<PolicyGateResult> {
   const { orgId, phone, consentRecordId, caseRef, callerId } = input;
@@ -269,12 +276,25 @@ export async function runPolicyGate(input: PolicyGateInput): Promise<PolicyGateR
       code: "country_unparseable",
     };
   }
-  const allowlist = allowedCountries(orgId);
-  if (!allowlist.has(country)) {
-    await audit("freeze", "policy_country_not_allowed", { country });
+  // Resolved per tenant, and the deny list is consulted before the allow list
+  // because it is the one thing an org can never widen. One refusal code covers
+  // both: `country_not_allowed` is the contract a bank branches on, and whether it
+  // was not on the list or actively on the deny list is audit detail, not a
+  // different answer for the caller.
+  const geo = geoPolicyFor(orgId);
+  const denied = geo.denylist.includes(country);
+  const allowlist = geo.allowlist.length > 0 ? geo.allowlist : FALLBACK_ALLOWED_COUNTRIES;
+  if (denied || !allowlist.includes(country)) {
+    await audit("freeze", "policy_country_not_allowed", {
+      country,
+      denied,
+      orgScoped: geo.allowlist.length > 0,
+    });
     return {
       ok: false,
-      reason: `destination country ${country} is not on the org allowlist`,
+      reason: denied
+        ? `destination country ${country} is on the denied-country list`
+        : `destination country ${country} is not on the org allowlist`,
       code: "country_not_allowed",
     };
   }
@@ -293,6 +313,11 @@ export async function runPolicyGate(input: PolicyGateInput): Promise<PolicyGateR
       percent: budget.percent,
       decision: budget.decision,
       window: budget.window,
+      // The breaker's own explanation. Without it the record says a ceiling was
+      // reached and leaves the operator to reconstruct which ceiling, from a
+      // percentage and a window string, when the object that made the decision
+      // had already named it.
+      reason,
     });
     return {
       ok: false,

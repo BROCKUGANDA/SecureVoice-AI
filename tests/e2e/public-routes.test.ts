@@ -73,6 +73,7 @@ import { GET as conformanceGet, POST as conformancePost } from "@/app/v1/conform
 import { CASE_STATES } from "@/lib/case-state-machine";
 import { CONFORMANCE_CHECK_IDS, MAX_BUDGET_MS, MIN_BUDGET_MS } from "@/lib/contracts/conformance";
 import { verifySignature } from "@/lib/outbox";
+import { TTS_RUNG_LABELS } from "@/lib/voice/rung-counter";
 
 /* ──────────────────────────────────────────────────────────────────────────
  * Identity + policy seams
@@ -313,11 +314,22 @@ function parseExposition(body: string): Exposition {
  * GET /api/metrics
  * ────────────────────────────────────────────────────────────────────────── */
 
-/** The only label vocabulary the scrape may draw from — the case state machine. */
-const ALLOWED_LABEL_VALUES = new Set<string>([
-  ...CASE_STATES.map((s) => s.toLowerCase()),
-  "unknown",
-]);
+/**
+ * Every label the scrape may carry, with the closed value domain it draws from.
+ *
+ * The risk this guards is cardinality, not spelling: a label whose values come
+ * from a request (`callRef`, `orgId`, `customerRef`, a user-agent string) is
+ * unbounded, and an unbounded label is how a metrics endpoint takes down the
+ * monitoring system it exists to feed. Both domains here are fixed enums held in
+ * the source that produces them, which is what lets the assertion stay a hard
+ * allowlist instead of a heuristic. Adding a label means adding its domain here
+ * and to the producer it comes from — the test then fails on a label whose values
+ * can grow, which is the only kind of label that should fail it.
+ */
+const ALLOWED_LABELS: Record<string, Set<string>> = {
+  state: new Set<string>([...CASE_STATES.map((s) => s.toLowerCase()), "unknown"]),
+  rung: new Set<string>(TTS_RUNG_LABELS),
+};
 
 /** Secrets that must never be reachable from a scrape, by construction. */
 function configuredSecrets(): string[] {
@@ -387,11 +399,12 @@ describe("GET /api/metrics — scrapeable by anything that can reach it", () => 
 
     for (const sample of labelled) {
       for (const [key, value] of sample.labels) {
-        // `callRef`, `orgId` and `customerRef` are never labels by design. A
-        // label drawn from a request is unbounded cardinality, which is how a
-        // metrics endpoint takes down the monitoring system it exists to feed.
-        expect(key).toBe("state");
-        expect(ALLOWED_LABEL_VALUES.has(value)).toBe(true);
+        const domain = ALLOWED_LABELS[key];
+        expect(domain, `label key "${key}" is undeclared — see ALLOWED_LABELS`).toBeDefined();
+        expect(
+          domain?.has(value) ?? false,
+          `label ${key}="${value}" is outside its fixed enum`,
+        ).toBe(true);
       }
     }
 

@@ -270,7 +270,6 @@ export async function deliver(
 ): Promise<DeliveryResult> {
   const attempt = event.attempts + 1;
   let ok = false;
-  let status = 0;
   let error = "";
   try {
     // A stored endpoint is re-checked rather than trusted: it was validated when
@@ -300,7 +299,6 @@ export async function deliver(
       // webhook delivery; the retry ladder handles transient failures.
       signal: AbortSignal.timeout(Number(process.env.OUTBOX_DELIVERY_TIMEOUT_MS) || 10_000),
     });
-    status = res.status;
     ok = res.status >= 200 && res.status < 300;
     if (!ok) error = `HTTP ${res.status}`;
   } catch (err) {

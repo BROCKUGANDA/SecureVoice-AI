@@ -88,7 +88,6 @@ export async function GET(req: NextRequest) {
 
       send("open", { at: new Date().toISOString() });
 
-      const started = Date.now();
       const tick = async () => {
         if (closed) return;
         try {

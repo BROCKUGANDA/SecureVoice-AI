@@ -921,7 +921,6 @@ export type ErrorCodeEntry = {
   readonly remediation: string;
 };
 
-const INGEST_ROUTE = "src/app/api/v1/interventions/route.ts";
 const INGEST = `POST ${PUBLIC_INGEST_PATH}`;
 const CONFORMANCE_OP = `POST ${CONFORMANCE_PATH}`;
 

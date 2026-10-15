@@ -708,7 +708,7 @@ function handlePrewarm(url: URL, req: IncomingMessage, res: ServerResponse): voi
   );
 }
 
-function createServer() {
+function createServer(listenPort: number = PORT, listenHost: string = HOST) {
   const server = createHttpServer((req, res) => {
     const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
     if (req.method === "POST" && url.pathname === "/prewarm") {
@@ -1062,8 +1062,14 @@ function createServer() {
     });
   });
 
-  server.listen(PORT, HOST, () => {
-    logInfo("[voice-stream] started", { host: HOST, port: PORT });
+  // `listenPort` is a parameter (rather than always the module-level `PORT`)
+  // so a test can pass 0 and let the OS assign an ephemeral port: a fixed test
+  // port is a collision with anything else on the machine, and PID-derived
+  // ports only narrow the window (two processes can share `pid % 20000`, and a
+  // previous run can still hold its port on a shared runner). Port 0 removes
+  // the class. Production passes nothing and gets exactly today's behaviour.
+  server.listen(listenPort, listenHost, () => {
+    logInfo("[voice-stream] started", { host: listenHost, port: listenPort });
   });
   // Keep the process honest about a listen failure: an EADDRINUSE that only
   // surfaces as an unhandled 'error' event takes the worker down without a log
@@ -1073,6 +1079,7 @@ function createServer() {
       error: err instanceof Error ? err.message : String(err),
     });
   });
+  return server;
 }
 
 if (import.meta.main) {

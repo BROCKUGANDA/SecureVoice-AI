@@ -83,14 +83,41 @@ test("no source file reads back empty, which is an instrument fault not a missin
  * appear here with a reason or have a producer.
  */
 const UNPRODUCED_WITH_REASON: Record<string, string> = {
+  // Verified 2026-10-15, both halves of the join: the status route can reach
+  // the case (`Case @@index([callSid])`; the turn route and the media-stream
+  // worker both do `findFirst({ where: { callSid } })`), but the START instant
+  // is not persisted anywhere the callback can read. `createCase` runs inside
+  // `armAndDial` AFTER the deterministic policy gate has passed
+  // (`acceptedAt = Date.now()` precedes it), so `Case.createdAt` is the
+  // gate-passed instant, not the signal-received one — and the intake route's
+  // own comment puts ~1.2 s per remote DB round-trip on exactly that stretch.
+  // A span started at `createdAt` would silently exclude the whole intake the
+  // `signal_received_to_accepted` budget already measures: a shorter number
+  // than the customer experienced, which is the lie this file exists to
+  // refuse. What is missing is a durable received-at written when the signal
+  // ARRIVES (a Case column set at intake, or the idempotency claim carrying
+  // the caseRef so its pre-gate `createdAt` becomes joinable) — until one
+  // exists, recording this span means faking its start.
   signal_received_to_ringing:
-    "needs the case's received-at time joined to the provider's ringing callback; the status " +
-    "route (`src/app/api/twilio/status/route.ts`) closes the telecom event, not the case, so the " +
-    "join has to be built rather than guessed at.",
+    "needs a persisted signal-received instant joined to the provider's ringing callback; " +
+    "Case.createdAt is the gate-passed instant (createCase runs after the policy gate in " +
+    "armAndDial), and `started` exists only in request memory, so the join cannot be built " +
+    "without first persisting a received-at at intake.",
+  // Verified against src/lib/voice/deepgram-client.ts: its message handler
+  // parses exactly `channel.alternatives[0].transcript` + `is_final`, and its
+  // listen URL does not request `utterance_end_ms` — so Deepgram's own
+  // end-of-speech signal (the `UtteranceEnd` message, or the Results `speech`
+  // boundary) is never surfaced. The worker sees only `onTranscript` plus
+  // socket death/reconnect, which is why the span below stays open: measuring
+  // from the final transcript would start the clock LATE (after the ASR's
+  // endpointing silence) and duplicate `answered_to_first_agent_word`, whose
+  // producer is now driven in CI by tests/unit/voice-stream-first-agent-word.test.ts.
   caller_stop_to_agent_audio:
     "the instant the caller stops talking is an ASR endpointing artefact, not an event the Media " +
-    "Streams worker receives. Measuring it from the final transcript would duplicate " +
-    "`answered_to_first_agent_word` and report a shorter number than the customer experiences.",
+    "Streams worker receives: the Deepgram client surfaces no UtteranceEnd (its listen URL does " +
+    "not even request utterance_end_ms) and handles only transcript + is_final. Adding " +
+    "onUtteranceEnd to src/lib/voice/deepgram-client.ts is the real fix; this span then starts " +
+    "there and ends on the same first-audio callback `answered_to_first_agent_word` already uses.",
   fraud_confirmed_to_webhook_delivered:
     'nothing persists the confirmation instant today (`outcome: "fraud_confirmed"' +
     " is recorded in `src/app/api/webhooks/route.ts`, and the bank event starts from its own " +

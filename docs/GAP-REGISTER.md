@@ -757,8 +757,29 @@ which reported a vanished producer as a code defect.
    org goes negative on two concurrent signals. The remaining cost is the ledger
    aggregate itself — a design change (running balance or narrower window), still
    open.
-4. **`answered_to_first_agent_word` needs a producer the CI can drive**, or the voice
-   plane's latency stays unmeasured forever no matter how many spans are declared.
+4. **`answered_to_first_agent_word` needs a producer the CI can drive** — **FIXED
+   (2026-10-15), as a driven producer rather than a live one.**
+   `tests/unit/voice-stream-first-agent-word.test.ts` boots the REAL Media Streams
+   server (`createServer`, src/worker/voice-stream.ts) with the vendors mocked at
+   the seams the repo already uses, connects a real websocket client, waits out the
+   opener, injects one final transcript, and asserts through `recentSpans` that the
+   span is recorded with ordered timestamps, a bounded duration, and its
+   `cached`/`origin` attributes — with actual media frames observed on the socket.
+   Mutation-proved: removing the `recordSpan` call in the turn's `onFirstAudio`
+   turns the test red. These samples are `harness`-origin by construction, so they
+   populate `spans_harness` — the live population still requires a real call, which
+   remains blocked on the calling window and quota.
+   The other two voice spans stay in the gate's gap map, now with VERIFIED reasons
+   instead of guesses: `signal_received_to_ringing` needs a persisted
+   signal-received instant (the join to the case exists via the `callSid` index, but
+   `Case.createdAt` is the gate-passed instant and `started` lives only in request
+   memory — recording from there would publish a shorter number than the customer
+   experienced); `caller_stop_to_agent_audio` needs the Deepgram client to surface
+   `UtteranceEnd` — `src/lib/voice/deepgram-client.ts` parses only the final
+   transcript, so no end-of-speech event exists to start the clock from, and
+   starting it at the final transcript would duplicate
+   `answered_to_first_agent_word` while measuring late.
+   `fraud_confirmed_to_webhook_delivered` is unchanged.
 5. **Degradation is visible in a log line and now in `/api/readyz`, but not in any
    scrape.** `llmBreakerState()` and `getPoolStatus()` were written for an operator
    surface with no production caller; readyz now reads both (readiness semantics

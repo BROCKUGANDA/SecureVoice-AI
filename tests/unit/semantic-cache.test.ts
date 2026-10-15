@@ -18,7 +18,10 @@ import { join } from "node:path";
 import {
   COMMITMENT_INTENTS,
   DEFAULT_MIN_SIMILARITY,
+  DEFAULT_TTL_MS,
   EMBED_DIM,
+  MAX_MAX_ENTRIES,
+  MAX_TTL_MS,
   SemanticCache,
   assertsAccountAction,
   containsPII,
@@ -562,6 +565,26 @@ describe("the cache is bounded — an unbounded cache in a long-lived process is
     await c.store("hello", APPROVED_REPLY, FRAME);
     expect(c.size).toBe(1);
     expect((await c.lookup("hello", FRAME)).hit).toBe(true);
+
+    // The assertions above were the whole test, and they were a race: the TTL clamp was
+    // `Math.max(1, …)`, so a negative TTL meant "expires in one millisecond" and the hit
+    // depended on the embedding call being that fast. CI lost the race; the clamp was
+    // wrong, not the machine. So the bounds are asserted directly now — a cache is
+    // usable, not merely non-zero.
+    expect(c.ttlMs).toBe(DEFAULT_TTL_MS);
+    expect(c.maxEntries).toBe(1);
+
+    // And "clamped" has to mean both ends. An unbounded entry count is the leak the
+    // class exists to prevent, and a TTL longer than the erasure window is a promise the
+    // retention worker can no longer keep about data this cache is holding.
+    const huge = new SemanticCache({ maxEntries: 1_000_000, ttlMs: 1000 * 60 * 60 * 24 * 30 });
+    expect(huge.maxEntries).toBe(MAX_MAX_ENTRIES);
+    expect(huge.ttlMs).toBe(MAX_TTL_MS);
+
+    // A configured value inside the range survives untouched — the clamp is a guard,
+    // not a silently-applied policy that overrides an operator who set it deliberately.
+    const deliberate = new SemanticCache({ maxEntries: 32, ttlMs: 30_000 });
+    expect([deliberate.maxEntries, deliberate.ttlMs]).toEqual([32, 30_000]);
   });
 });
 

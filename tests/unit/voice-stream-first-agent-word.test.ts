@@ -73,7 +73,7 @@ class FakeDeepgramClient {
 
   sendMulaw(_buffer: Buffer): void {}
 
-  stop(): void {}
+  stop(): void {/* empty */}
 
   /** The test playing the caller: one utterance into the real handler. */
   say(text: string, isFinal = true): void {

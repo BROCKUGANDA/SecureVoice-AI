@@ -28,7 +28,15 @@ import { Chip, LiveDot, StatusPill } from "@/components/fx/core";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
-import { openRealtime, type RealtimeHandle, type RealtimeStatus } from "@/lib/realtime-client";
+import { openRealtime, type RealtimeHandle } from "@/lib/realtime-client";
+import {
+  describeConnection,
+  initialConnectionState,
+  reduceConnection,
+  tickConnection,
+  type ConnectionState,
+  type FeedEvent,
+} from "@/lib/connection-state";
 import { interventionsCsv } from "@/lib/csv-export";
 import { LiveOpsPanel, type TranscriptLine, type LiveCall } from "@/components/ops/LiveOpsPanel";
 import { SloPanel } from "@/components/slo/SloPanel";
@@ -406,9 +414,15 @@ export function Console() {
   const [setupDone, setSetupDone] = useState<boolean | null>(null);
   const [setupDismissed, setSetupDismissed] = useState(false);
   const [liveFeed, setLiveFeed] = useState<string[]>([]);
-  // Realtime push path state. "unavailable" is not an error — it means the console
-  // is reading the SSE feed instead, which is exactly what it did before.
-  const [rtStatus, setRtStatus] = useState<RealtimeStatus>("connecting");
+  // Honest feed state, from the tested live/reconnecting/stale reducer (WP-20 —
+  // src/lib/connection-state.ts, gated by tests/realtime/realtime.test.ts §5).
+  // "reconnecting" is the reducer's own start: a feed that has not proven
+  // itself with an event must not claim to be live.
+  const [feedConn, setFeedConn] = useState<ConnectionState>(initialConnectionState);
+  // Render clock for describeConnection's "Reconnecting (Ns)" counter. Ticked
+  // only while reconnecting (see the effect below) so the idle console does not
+  // re-render once a second just to keep a badge pretty.
+  const [now, setNow] = useState(() => Date.now());
   // Live Operations panel state — transcript lines for the active call.
   const [transcript, setTranscript] = useState<TranscriptLine[]>([]);
   const [activeCallRef, setActiveCallRef] = useState<string | null>(null);
@@ -482,6 +496,9 @@ export function Console() {
     // transports and would otherwise capture them out of scope.
     let es: EventSource | null = null;
     let rt: RealtimeHandle | null = null;
+    // Same scope rule as es/rt: a pending SSE reopen has to be cancellable by
+    // the cleanup even when the sign-in state flips while one is armed.
+    let sseRetry: ReturnType<typeof setTimeout> | null = null;
     fetch("/api/status")
       .then((r) => r.json())
       .then((d) => alive && setStatus(d))
@@ -522,26 +539,86 @@ export function Console() {
       // the always-on fallback. Both append the same rows to liveFeed, so the UI is
       // identical either way and the console never goes blind.
 
+      // Feed lifecycle → the tested reducer. One funnel for both transports: a
+      // transport event moves the state machine, and only DATA moves it back to
+      // "live" (connection-state.ts: a reconnect alone proves nothing).
+      const onFeed = (event: FeedEvent) =>
+        setFeedConn((prev) => reduceConnection(prev, event, Date.now()));
+
       const pushRow = (ref: string, action: string, intent: string | null) => {
         if (!alive) return;
         setLiveFeed((f) => [`${ref} · ${action}${intent ? ` · ${intent}` : ""}`, ...f].slice(0, 4));
+        onFeed("event");
       };
+
+      // ── Resume cursor ──────────────────────────────────────────────────────
+      // The (createdAt, id) pair of the last row the feed actually delivered —
+      // the cursor shape src/lib/activity-feed.ts gives the read model and
+      // tests/realtime/realtime.test.ts §2 proves resumable. The SSE route
+      // honours it as ?after/?afterId (src/app/api/console/events/route.ts), so
+      // a reconnect RESUMES where the stream ended instead of replaying from
+      // the top — the replay-blind reconnect this client used to have.
+      let lastEventAt: string | null = null;
+      let lastEventId: string | null = null;
+      /** Backoff before reopening after an error. Short — SSE is the cheap path. */
+      const SSE_RETRY_MS = 3_000;
+
+      const feedUrl = () =>
+        lastEventAt && lastEventId
+          ? `/api/console/events?after=${encodeURIComponent(lastEventAt)}&afterId=${encodeURIComponent(lastEventId)}`
+          : "/api/console/events";
 
       const startSse = () => {
         if (es || !alive) return;
         try {
-          es = new EventSource("/api/console/events");
-          es.addEventListener("activity", (ev) => {
+          const source = new EventSource(feedUrl());
+          es = source;
+          // The route opens with a named `open` frame and the browser fires its
+          // own on connection; both mean "transport connected, freshness
+          // unproven" — exactly the reducer's "open".
+          source.addEventListener("open", () => onFeed("open"));
+          source.addEventListener("activity", (ev) => {
             try {
               const rows = JSON.parse((ev as MessageEvent).data) as {
                 callRef: string;
                 action: string;
                 intent: string | null;
+                id?: string;
+                at?: string;
               }[];
-              for (const r of rows) pushRow(r.callRef, r.action, r.intent ?? null);
+              for (const r of rows) {
+                // Advanced per row, not once per batch, so a partial read
+                // still resumes from the right place on the next reconnect.
+                if (r.id && r.at) {
+                  lastEventAt = r.at;
+                  lastEventId = r.id;
+                }
+                pushRow(r.callRef, r.action, r.intent ?? null);
+              }
             } catch {}
           });
-          es.onerror = () => es?.close();
+          source.addEventListener("close", () => {
+            // The server ends every stream at its 90s cap and expects a
+            // reconnect. EventSource's native reconnect would reuse the
+            // ORIGINAL url — replay-blind — so the stream is torn down and
+            // reopened WITH the cursor instead.
+            if (es !== source) return;
+            es = null;
+            source.close();
+            onFeed("closed");
+            if (alive) sseRetry = setTimeout(startSse, 0);
+          });
+          source.onerror = () => {
+            if (es !== source) return;
+            es = null;
+            source.close();
+            onFeed("error");
+            // The old handler closed and never came back — an error left the
+            // feed silently dead while the board looked live. Reopen on the
+            // recorded cursor; the reducer says "reconnecting", then "stale",
+            // instead of nothing at all.
+            if (alive) sseRetry = setTimeout(startSse, SSE_RETRY_MS);
+          };
         } catch {}
       };
 
@@ -552,7 +629,11 @@ export function Console() {
             // channel is `case:<org>:<callRef>` — the ref is what the operator reads.
             pushRow(channel.split(":")[2] ?? a.id, a.action, a.intent);
           },
-          onStatus: (st) => alive && setRtStatus(st),
+          // No onStatus: the feed badge reads the reducer, whose vocabulary is
+          // the feed's honesty (live / reconnecting / stale), not the socket's.
+          // A socket drop while SSE keeps flowing is not a stale board, and a
+          // socket that connects is not freshness — data is. Realtime rows
+          // reach the reducer through pushRow above, same as SSE rows.
         })
           .then((handle) => {
             if (!alive) {
@@ -591,6 +672,9 @@ export function Console() {
       // reconnecting after the operator navigates away.
       es?.close();
       rt?.close();
+      // A pending SSE reopen is one too: the effect is gone, startSse would
+      // re-arm an EventSource nobody closes.
+      if (sseRetry) clearTimeout(sseRetry);
       // Clean up transcript polling interval
       if ((window as any).__transcriptPoll) {
         clearInterval((window as any).__transcriptPoll);
@@ -598,6 +682,22 @@ export function Console() {
       }
     };
   }, [isSignedIn, role, activeOrgId]);
+
+  // The reducer's stale promotion is time-based ("silence is the signal"), so it
+  // is driven from a timer, not from an event (connection-state.ts says so on
+  // tickConnection). The clock runs only while the feed is reconnecting — the
+  // one state whose label moves (the seconds counter) and the only transition
+  // the timer owns (reconnecting → stale after STALE_AFTER_MS). Live and stale
+  // render static strings, so a healthy console re-renders for no badge.
+  useEffect(() => {
+    if (feedConn.status !== "reconnecting") return;
+    const timer = setInterval(() => {
+      const tickAt = Date.now();
+      setNow(tickAt);
+      setFeedConn((prev) => tickConnection(prev, tickAt));
+    }, 1_000);
+    return () => clearInterval(timer);
+  }, [feedConn.status]);
 
   if (!isLoaded) {
     return (
@@ -914,27 +1014,24 @@ export function Console() {
             ))}
           </div>
         )}
-        {/* Transport badge sits OUTSIDE the liveFeed guard on purpose: with no
-            activity yet the console still needs to say which transport it is on.
-            Realtime is the push path; "unavailable" means SSE fallback, which is a
-            normal working state, not a fault. */}
+        {/* Feed badge sits OUTSIDE the liveFeed guard on purpose: with no
+            activity yet the console still needs to say how the feed is doing.
+            The wording is the tested reducer's (src/lib/connection-state.ts):
+            "Live" is proven by data, a drop is "Reconnecting", and 30s of it is
+            "Stale since …". A board that looks live while frozen is the one
+            thing this badge must never say. */}
         <div className="mt-4 flex flex-wrap items-center gap-2">
           <span
             className={cn(
               "micro rounded-full border px-2 py-1 text-[9px]",
-              rtStatus === "live"
+              feedConn.status === "live"
                 ? "border-green-tint text-primary"
-                : rtStatus === "connecting"
+                : feedConn.status === "reconnecting"
                   ? "border-line text-ink-2"
                   : "border-line text-ink-3",
             )}
           >
-            {t("feed", "التغذية", lang)}:{" "}
-            {rtStatus === "live"
-              ? "websocket"
-              : rtStatus === "connecting"
-                ? t("connecting", "جارٍ الاتصال", lang)
-                : "sse"}
+            {t("feed", "التغذية", lang)}: {describeConnection(feedConn, now)}
           </span>
         </div>
       </div>
@@ -1366,7 +1463,7 @@ export function Console() {
           activeCallRef={activeCallRef}
           transcript={transcript}
           call={liveCall}
-          rtStatus={rtStatus}
+          feedStatus={feedConn.status}
         />
       </div>
 

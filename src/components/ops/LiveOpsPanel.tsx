@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { PhoneCall, User, Bot, ShieldCheck, Radio, Volume2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { LiveDot } from "@/components/fx/core";
+import type { ConnectionState } from "@/lib/connection-state";
 
 /**
  * Live Operations Panel — real-time transcript viewer for active calls.
@@ -43,8 +44,12 @@ type LiveOpsPanelProps = {
   transcript: TranscriptLine[];
   /** Call metadata for the active call. */
   call: LiveCall | null;
-  /** Connection status for the realtime feed. */
-  rtStatus: "connecting" | "live" | "unavailable";
+  /**
+   * Honest feed status, from the tested reducer (src/lib/connection-state.ts —
+   * the same union Console.tsx stores). "live" is proven by data; a dropped
+   * transport is "reconnecting"; 30s of that is "stale".
+   */
+  feedStatus: ConnectionState["status"];
 };
 
 /* ————— typewriter hook ————— */
@@ -160,7 +165,7 @@ function formatDuration(secs: number): string {
 
 /* ————— main panel ————— */
 
-export function LiveOpsPanel({ activeCallRef, transcript, call, rtStatus }: LiveOpsPanelProps) {
+export function LiveOpsPanel({ activeCallRef, transcript, call, feedStatus }: LiveOpsPanelProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [autoScroll, setAutoScroll] = useState(true);
 
@@ -193,7 +198,15 @@ export function LiveOpsPanel({ activeCallRef, transcript, call, rtStatus }: Live
       {/* header */}
       <div className="flex items-center justify-between border-b border-line bg-card px-5 py-4">
         <div className="flex items-center gap-2.5">
-          <LiveDot className={rtStatus === "live" ? "text-green-bright" : "text-amber-400"} />
+          <LiveDot
+            className={
+              feedStatus === "live"
+                ? "text-green-bright"
+                : feedStatus === "reconnecting"
+                  ? "text-amber-400"
+                  : "text-ink-3"
+            }
+          />
           <span className="micro !text-[9.5px] text-ink-2">LIVE OPERATIONS</span>
         </div>
         <div className="flex items-center gap-2">
@@ -205,14 +218,14 @@ export function LiveOpsPanel({ activeCallRef, transcript, call, rtStatus }: Live
           <span
             className={cn(
               "rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide",
-              rtStatus === "live"
+              feedStatus === "live"
                 ? "bg-green-bright/15 text-green-bright"
-                : rtStatus === "connecting"
+                : feedStatus === "reconnecting"
                   ? "bg-amber-400/15 text-amber-400"
                   : "bg-white/10 text-white/40",
             )}
           >
-            {rtStatus === "live" ? "live" : rtStatus === "connecting" ? "connecting" : "sse"}
+            {feedStatus}
           </span>
         </div>
       </div>

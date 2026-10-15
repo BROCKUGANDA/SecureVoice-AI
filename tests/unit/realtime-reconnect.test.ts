@@ -836,7 +836,12 @@ describe("realtime reconnect — the pre-existing contract is intact", () => {
 
     expect(h.sockets[0]!.opts.reconnection).toBe(false);
     expect(h.sockets[0]!.opts.path).toBe("/realtime");
-    expect(h.sockets[0]!.opts.transports).toEqual(["websocket"]);
+    // websocket is still the PREFERENCE; polling is the fallback a handshake
+    // failure may engage, matching the transport pair the realtime service
+    // serves (mini-services/realtime/src/server.ts). Pinning the ORDER, not
+    // merely the membership, so a client that reverts to hard-coded
+    // websocket-only — or to polling-first — fails here.
+    expect(h.sockets[0]!.opts.transports).toEqual(["websocket", "polling"]);
     expect(h.sockets[0]!.opts.forceNew).toBe(true);
   });
 });

@@ -63,7 +63,7 @@ const REQUEST_CUES =
  * and a word that appears in both an ask and a warning is not a negation.
  */
 const NEGATION_CUES =
-  "\\b(?:no|not|never|nobody|nor|without|cannot|secret|lack|neither)\\b|" +
+  "\\b(?:no|not|never|nobody|nor|without|cannot|neither)\\b|" +
   "\\b(?:don'?t|won'?t|can'?t|isn'?t|aren'?t|doesn'?t)\\b|" +
   "\\bkeep\\s+(?:it|this|your)\\b";
 

@@ -639,3 +639,44 @@ Against §13, the honest state after today:
   `https://securevoice.ai/docs/errors` (overridable via `FAILURE_DOCS_BASE_URL`).
 
 **Effort:** S. **Status:** FIXED.
+
+### 12. The lint sweep found seven declared-but-unattached controls — **70%** — FIXED, three open
+
+Deleting an unused binding is only a cleanup if the binding was not an intention. Four
+of the 98 warnings on `dev` were intentions that had never been attached to anything,
+and two of those were attached wrongly:
+
+| Control | What it claimed | What it did | Now |
+| --- | --- | --- | --- |
+| `REQUEST_TIMEOUT_MS` (paystack) | 10s per API call | read from env, passed to nothing — a stalled socket held the request open forever, retry ladder irrelevant | `AbortSignal.timeout` on every attempt; env read per call so a test can shorten it |
+| `isUniqueViolation` (idempotency) | "the unique constraint fires and we log" | tested SQLSTATE `23505`; Prisma raises `P2002`, so it could never match — and no one called it, and the catch logged nothing | both codes; expected race silent, every other failure an error line naming scope/key/caller |
+| PII_REDACTION rule 4 (compliance gate) | "payload has been redacted before persistence" | compared text the caller had *just* redacted against the phone — structurally incapable of failing; `redactPII` imported, unused | reads the bank's RAW `transaction_ref`; records, never refuses |
+| org country allowlist (policy gate) | "not on the org allowlist" | read one global env var for every tenant, and ran BEFORE the geo layer that does honour per-org settings | resolves through `geoPolicyFor`; hard deny list consulted first, unwideable |
+| credential deny list (policy) | "deny-list of credential-extraction patterns" | a superseded draft sitting unused while the live regexes drifted — it refused the platform's own safety text and passed an expiry request | one shared detector, sentence-scoped, in `compliance/credential-ask.ts`, used by both outbound guards |
+| `READ_DELEGATES` (rbac) | documented the read/write split | nothing consumed it, so an unclassified new write would have passed the read-only guard silently | exported; suite now requires every delegate on every model to be named by exactly one set — found `findRaw`/`aggregateRaw` unclassified today |
+| `WILDCARD_DNS_SUFFIXES` (ssrf) | "the resolved address is checked anyway" | one test, hardcoded to `.nip.io`; the other three services were unverified | list swept: each resolves private→refused and public→allowed |
+
+**Still open, in order of consequence:**
+
+- **`src/lib/agent-prompts.ts` is a richer prompt builder nothing calls.** The live
+  `getSpecialistPrompt` (src/lib/ai/router.ts) returns a fixed string per role and
+  ignores its context argument entirely — the parameter is `_context`. The unwired one
+  builds an institution-aware prompt and handles the 0.00 authorization hold as "a
+  pre-authorization hold (no monetary charge)", never "zero Dirhams". That is a spoken
+  accuracy rule for the exact case a fraud call runs on. It has NOT been deleted,
+  because deleting it would discard the rule rather than the code, and it has NOT been
+  wired, because which prompt assembly the agent uses is a product decision, not a lint
+  fix. Needs one answer: does the specialist prompt take institution context (then
+  `getInstitutionContext` feeds it and the role strings become the fallback), or not
+  (then the zero-amount handling has to move into the live path, and this file goes)?
+- **`llmBreakerState()` is read by tests, not by the health surface** its own doc
+  promises ("for the health surface and for tests"). An operator cannot see that the
+  LLM breaker tripped.
+- **`registerLlmAdapter()` has no production caller.** The built-in provider table is
+  populated directly, so the validation the register function performs (non-empty name,
+  factory is a function) runs only in tests. Wiring the table through it makes the seam
+  real; deleting it removes an extension point four test files depend on.
+
+**Effort:** the seven fixes are S–M each and are done. The three open items are S, M, S.
+**Status:** FIXED, with the three above left named because they need a decision rather
+than a patch.

@@ -27,6 +27,7 @@ import { createBreaker, type Breaker } from "@/lib/failures/breaker";
 import { placeOutboundCall } from "@/lib/elevenlabs/outbound-call";
 import { placeInterventionCall } from "@/lib/twilio";
 import { append as auditAppend } from "@/lib/audit-chain";
+import { flushLangfuse } from "@/lib/langfuse";
 import { db } from "@/lib/db";
 import { transitionCase } from "@/lib/case-state-machine";
 import { markVoiceFailed } from "@/lib/elevenlabs/sms-fallback";
@@ -675,6 +676,7 @@ async function main(): Promise<void> {
   if (ONCE) {
     const n = await tick();
     logInfo("[dial-worker] claimed jobs and exiting", { count: n, mode: "--once" });
+    await flushLangfuse();
     return;
   }
 
@@ -698,6 +700,14 @@ async function main(): Promise<void> {
     // Only idle when there was nothing to do — a backlog drains flat out.
     if (claimed === 0) await new Promise((r) => setTimeout(r, POLL_MS));
   }
+  // The traces this worker makes are the only record of what the agent was asked
+  // and what it answered, and Langfuse batches them. A SIGTERM between two spans
+  // used to drop whatever had not been shipped yet, because `flushLangfuse` existed,
+  // documented "call this in a SIGTERM handler", and was called by nothing. It is
+  // called after the drain rather than inside the signal handler on purpose: spans
+  // created while in-flight work finishes are exactly the ones worth keeping, and
+  // the flush itself swallows every error so a dead collector cannot stall a shutdown.
+  await flushLangfuse();
   logInfo("[dial-worker] stopped cleanly");
 }
 

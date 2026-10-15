@@ -421,6 +421,11 @@ export const env = {
     // variance between utterances, and this agent reads money back to a
     // frightened cardholder. Env-overridable, so a deployment that set it keeps
     // its own value.
+    //
+    // The deck copy that motivated this comment is gone (2026-10-16, claims audit): it
+    // quoted these worker defaults as though they were the shipped agent's settings, and
+    // named a `style` parameter that exists nowhere. `agent/securevoice.agent.yaml` is
+    // still 0.5 / 0.8 — two planes, two tunings, both now stated where they are true.
     return Number.isFinite(raw) && raw >= 0 && raw <= 1 ? raw : 0.7;
   },
   get voiceSimilarityBoost(): number {

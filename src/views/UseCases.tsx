@@ -38,12 +38,12 @@ type UseCaseAr = {
 const USE_CASES_AR: Record<string, UseCaseAr> = {
   fraud: {
     pitch:
-      "عندما يكتشف البنك دخولاً مشبوهاً أو بطاقة مسروقة أو عملية دفع شاذة، يكون الاتصال الصادر غالباً أبطأ من أن يغيّر النتيجة. يتصل الوكيل بالعميل لحظة إشارة الخطر وبلغته — يعرّف عن نفسه كذكاء اصطناعي تابع للمؤسسة، ويتحقق عبر مسار التحدي المعتمد من البنك دون طلب رمز سري أو كلمة مرور، وينفّذ إجراءً وقائياً معتمداً مسبقاً مثل تجميد مؤقت للبطاقة، ثم يسلم المكالمة إلى إنسان بشري في كل ما هو غير قابل للتراجع.",
+      "عندما يكتشف البنك دخولاً مشبوهاً أو بطاقة مسروقة أو عملية دفع شاذة، يكون الاتصال الصادر غالباً أبطأ من أن يغيّر النتيجة. يتصل الوكيل بالعميل لحظة إشارة الخطر وبلغته — يعرّف عن نفسه كذكاء اصطناعي تابع للمؤسسة، ويتحقق عبر مسار التحدي المعتمد من البنك دون طلب رمز سري أو كلمة مرور، ويمهّد إجراءً وقائياً معتمداً مسبقاً مثل تجميد مؤقت للبطاقة ليُثبّته فريق الاحتيال في البنك، ثم يحيل المكالمة إلى إنسان بشري في كل ما هو غير قابل للتراجع.",
     agent: [
-      "اتصال صادر خلال ٦٠ ثانية من إشارة الخطر — ٦١ ثانية من الإشارة إلى التجميد في هذا العرض",
+      "تُدرج إشارة الخطر في طابور الاتصال لحظة قبولها — لا يوجد حتى الآن قياس مُثبت لزمن الوصول إلى العميل، فلا يُدّعى رقم",
       "تحقق من الهوية عبر تحدي العمليات — لا يمكن طلب الرموز السرية ولا كلمات المرور ولا رموز التحقق لمرة واحدة، وهو منع مبني في التصميم",
-      "إجراءات وقائية معتمدة مسبقاً فقط: تجميد مؤقت للبطاقة، وإيقاف تحويل، وحظر مستفيد",
-      "تسليم دافئ إلى مكتب مكافحة الاحتيال البشري مع سياق ثنائي اللغة كامل",
+      "الإجراءات الوقائية تُمهَّد ولا تُنفَّذ: يُسجَّل تجميد البطاقة معلَّقاً حتى يُثبّته فريق البنك البشري",
+      "تسليم إلى مكتب مكافحة الاحتيال البشري مع ملخّص للمكالمة — جسرٌ داخل المكالمة نفسها عند ضبط رقم أخصائي، وتذكرة في الطابور عند عدم ضبطه",
     ],
     inScope: [
       "مكالمات حرجة زمنياً يفجّرها إشارة خطر حيّة",
@@ -62,7 +62,7 @@ const USE_CASES_AR: Record<string, UseCaseAr> = {
       "تُفوّض عادةً أقساط القروض المتعثرة وتجديدات التأمين ووثائق الهوية المنتهية ومتابعة خطط السداد إلى جهات خارجية، وهذا يخلق مخاطر سلوكية بموجب قواعد حماية المستهلك الصادرة عن المصرف المركزي. كما أن التواصل بلغة العميل نفسه غير متاح باستمرار في قاعدة مقترضين أغلبهم من الوافدين. تتبع هذه القناة الصوتية استراتيجيات المعاملة المعتمدة دون انحراف، وتعمل بلغات قاعدة المقترضين — من العربية الإماراتية إلى الأردية — وتسجّل كل مكالمة.",
     agent: [
       "ينفّذ استراتيجية المعاملة المعتمدة بدقة — دون انحراف أو اجتهاد",
-      "أربع لغات تعمل اليوم (EN · AR-Gulf · HI · UR) في قاعدة مقترضين من الوافدين",
+      "ستّ لغات صوتية في الشيفرة — EN · AR · HI · UR · FR · SW؛ الوكيل الحيّ مهيّأ للإنجليزية والعربية والهندية، وخط الاستمرارية يضيف الأردنية والفرنسية والسواحيلية، ولا توجد محادثة كاملة مسجّلة إلا بالإنجليزية والعربية",
       "ساعات الاتصال المسموحة مفروضة بالإعدادات؛ وكل طلب إلغاء يُحترم ويُسجّل",
       "كل مكالمة مسجّلة بأثر تدقيق غير قابل للتغيير",
     ],
@@ -79,7 +79,7 @@ const USE_CASES_AR: Record<string, UseCaseAr> = {
     ],
     status: {
       label: "مسارات تجريبية",
-      sub: "أصوات عربية وهندية وأردية تُسلّم اليوم — نفس محرك الضمانات",
+      sub: "الإنجليزية والعربية والهندية على الوكيل الحيّ، والأردية على خط الاستمرارية — نفس محرك الضمانات",
     },
   },
   preauth: {
@@ -127,7 +127,7 @@ const USE_CASES_AR: Record<string, UseCaseAr> = {
     pitch:
       "تعدّ الإمارات من أكبر أسواق الحوالات الصادرة في العالم. وتعمل قنوات الهاتف للتجزئة عادةً بالإنجليزية والعربية، ما يترك شريحة كبيرة من العملاء عاجزة عن الحصول على جواب واقعي لسؤال روتيني. يجيب هذا الخطّ عن الاستفسارات اليومية بلغة المتصل: سعر الحوالة المعلن، أو حالة التحويل، أو الاستحقاقات المرتبطة ببطاقة الراتب.",
     agent: [
-      "يجيب بلغة المتصل — أربع لغات تعمل اليوم، تُختار حسب ملف العميل",
+      "يجيب بلغة المتصل — ستّ لغات في الشيفرة تُختار حسب ملف العميل؛ والوكيل الحيّ يحمل الإنجليزية والعربية والهندية",
       "أجوبة واقعية فقط، مستمدة من معلومات منشورة",
       "أسعار الحوالات المعلنة، وحالة التحويل، واستحقاقات بطاقة الراتب",
       "مكالمة واحدة وجواب واحد — بلا انتظار ولا رسم إضافي بسبب اللغة",
@@ -141,7 +141,10 @@ const USE_CASES_AR: Record<string, UseCaseAr> = {
       "كبير مسؤولي العملاء، شركة تأمين",
       "مدير الخدمات المصرفية للتجزئة",
     ],
-    status: { label: "مسارات تجريبية", sub: "الأصوات الأربعة كلها تعمل في العرض التجريبي اليوم" },
+    status: {
+      label: "مسارات تجريبية",
+      sub: "منتقي العرض يتيح اللغات الستّ؛ ولا توجد محادثات كاملة مسجّلة إلا بالعربية والإنجليزية",
+    },
   },
 };
 
@@ -163,12 +166,12 @@ const USE_CASES: {
     en: "Real-Time Fraud Intervention",
     ar: "التدخل الفوري في الاحتيال",
     pitch:
-      "When a bank detects a suspicious login, a stolen card or an anomalous payment, outbound contact is often too slow to change the outcome. The agent calls the customer the moment a risk signal is raised, in their language — identifies itself as the institution's AI, verifies through the bank's approved challenge flow without requesting a PIN or password, executes a pre-approved protective step such as a temporary card freeze, and hands to a human agent for anything irreversible.",
+      "When a bank detects a suspicious login, a stolen card or an anomalous payment, outbound contact is often too slow to change the outcome. The agent calls the customer the moment a risk signal is raised, in their language — identifies itself as the institution's AI, verifies through the bank's approved challenge flow without requesting a PIN or password, stages a pre-approved protective step such as a temporary card freeze for the bank's fraud team to commit, and hands off to a human agent for anything irreversible.",
     agent: [
-      "Outbound call within 60 seconds of the risk signal — 61s signal-to-freeze in this demo",
+      "The risk signal is queued for dialling the moment it is accepted — no measured time-to-contact is committed in this repository yet, so no figure is claimed",
       "Identity verified by transaction challenge — PINs, passwords and OTPs are structurally impossible to request",
-      "Pre-approved protective actions only: temporary card freeze, transfer hold, payee block",
-      "Warm handoff to the human fraud desk with full bilingual context",
+      "Protective actions are staged, not executed: a card freeze is written as pending_specialist and only the bank's human team commits it",
+      "Handoff to the human fraud desk with a summary of the call — bridged inside the same call when a specialist number is configured, and queued as a ticket when it is not",
     ],
     inScope: [
       "Time-critical calls triggered by a live risk signal",
@@ -191,7 +194,7 @@ const USE_CASES: {
       "Missed loan payments, insurance renewals, expiring ID documents and payment-plan check-ins are commonly outsourced to third-party agencies, which creates conduct risk under CBUAE consumer protection rules. And contact in the customer's own language is not consistently available across a largely expatriate borrower base. This voice channel follows approved treatment strategies without deviation, operates in the languages that base speaks — from Emirati Arabic to Urdu — and records every call.",
     agent: [
       "Executes the approved treatment strategy exactly — no deviation, no improvisation",
-      "Four languages live today (EN · AR-Gulf · HI · UR) across an expatriate borrower base",
+      "Six speech languages in the code — EN · AR · HI · UR · FR · SW; the live agent plane is configured for EN/AR/HI, the continuity pipeline adds UR/FR/SW, and only EN and AR have a recorded end-to-end conversation",
       "Permitted calling hours enforced by configuration; every opt-out honoured and logged",
       "Every call recorded with an immutable audit trail",
     ],
@@ -208,7 +211,7 @@ const USE_CASES: {
     ],
     status: {
       label: "Pilot pipeline",
-      sub: "Arabic, Hindi & Urdu voices shipping today — same guardrail engine",
+      sub: "English, Arabic and Hindi on the live agent; Urdu on the continuity pipeline — same guardrail engine",
     },
   },
   {
@@ -270,7 +273,7 @@ const USE_CASES: {
     pitch:
       "The UAE is one of the world's largest outbound remittance markets. Retail phone channels typically operate in English and Arabic, which leaves a substantial share of customers unable to obtain a factual answer to a routine question. This line answers everyday queries in the language the caller uses: the posted remittance rate, the status of a transfer, or the entitlements attached to a salary card.",
     agent: [
-      "Answers in the caller's language — four live today, selected per customer profile",
+      "Answers in the caller's language — six in the code, selected per customer profile; the live agent plane carries EN/AR/HI",
       "Factual answers only, sourced from published information",
       "Posted remittance rates, transfer status, salary-card entitlements",
       "One call, one answer — no queue, no language surcharge",
@@ -284,7 +287,10 @@ const USE_CASES: {
       "Chief Customer Officer, insurer",
       "Head of Retail Banking",
     ],
-    status: { label: "Pilot pipeline", sub: "All four voices live in the demo today" },
+    status: {
+      label: "Pilot pipeline",
+      sub: "The demo picker offers all six; recorded conversations exist in English and Arabic only",
+    },
   },
 ];
 
@@ -485,8 +491,8 @@ export function UseCases() {
             </div>
             <p className="mt-1 text-[13px] text-ink-2">
               {t(
-                "Four languages, three triggerable fraud cases, one guardrailed engine — 61 seconds, signal to freeze.",
-                "أربع لغات، ثلاث حالات احتيال قابلة للتفعيل، محرك واحد خاضع للضمانات — ٦١ ثانية من الإشارة إلى التجميد.",
+                "Six speech languages in the code, five triggerable cases, one guardrailed engine — the protective action is staged, and a human commits it.",
+                "ستّ لغات صوتية في الشيفرة، خمس حالات قابلة للتفعيل، محرك واحد خاضع للضمانات — الإجراء الوقائي يُمهَّد ولا يُنفَّذ، والإنسان هو من يثبّته.",
                 lang,
               )}
             </p>

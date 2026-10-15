@@ -113,10 +113,10 @@ SCENES: list[dict] = [
     {
         "id": "06-outcome",
         "chapter": "Outcome",
-        "title": "Frozen in 60 seconds",
-        "subtitle": "Fraud detected · Customer called · Account frozen",
+        "title": "Freeze staged inside the case deadline",
+        "subtitle": "Fraud detected · Customer called · Freeze staged",
         "narration": (
-            "Fraud detected, customer called, account frozen — sixty seconds instead of "
+            "Fraud detected, customer called, a freeze staged for a human to commit — sixty seconds instead of "
             "thirty-eight minutes, in the customer's own language, with an audit trail that "
             "proves itself afterwards. That is SecureVoice AI."
         ),

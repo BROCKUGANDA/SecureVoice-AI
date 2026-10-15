@@ -360,8 +360,8 @@ export const FAQ: { q: string; qAr: string; a: string; aAr: string }[] = [
   {
     q: "What does SecureVoice AI actually do?",
     qAr: "ماذا تفعل منصة SecureVoice AI بالضبط؟",
-    a: "SecureVoice AI places an outbound AI voice call within 60 seconds of a transaction crossing a bank's risk threshold. The agent verifies the customer's identity, explains what triggered the alert, stages a card freeze or a transfer hold for the bank's own fraud team to commit, and hands off to a human specialist. It currently runs against UAE banks, in Arabic and English.",
-    aAr: "تبدأ SecureVoice AI مكالمة صادرة من وكيل صوتي ذكاء اصطناعي خلال ٦٠ ثانية من تجاوز عملية ما لعتبة الخطر في البنك. يتحقق الوكيل من هوية العميل، ويشرح سبب التنبيه، ويمهّد لتجميد البطاقة أو إيقاف التحويل بقرار من فريق البنك، ثم يحيل الأمر إلى أخصائي بشري. وتعمل المنصة حالياً مع البنوك في دولة الإمارات، بالعربية والإنجليزية.",
+    a: "SecureVoice AI writes a durable outbound dial job the moment a signed signal clears its gates, counted against a 60-second case deadline. The agent verifies the customer's identity, explains what triggered the alert, stages a card freeze or a transfer hold for the bank's own fraud team to commit, and hands the case to a human specialist — staged, never executed by the AI, because nothing is frozen on the bank's ledger by this platform. We publish the deadline we control rather than a time-to-contact figure we have not instrumented end to end yet. It is built for UAE and Gulf banks, with Arabic and English proven end to end in the recorded evidence today.",
+    aAr: "تكتب SecureVoice AI مهمة اتصال صادرة دائمة لحظة اجتياز الإشارة الموقعة للبوابات، محتسبةً ضمن مهلة حالة مدتها ٦٠ ثانية. يتحقق الوكيل من هوية العميل، ويشرح سبب التنبيه، ويمهّد لتجميد البطاقة أو إيقاف التحويل ليقرّهما فريق الاحتيال في البنك، ثم يسلّم الحالة إلى أخصائي بشري — تجميد مبدئي لا منفَّذ، لأن هذا البرنامج لا يجمّد شيئًا في سجل البنك. ونحن ننشر المهلة التي نتحكم بها بدل رقم زمن وصول لم نقيسه بعد من البداية للنهاية. المنصة مبنية لبنوك الإمارات والخليج، وقد ثبتت العربية والإنجليزية من البداية للنهاية في الأدلة المسجلة اليوم.",
   },
   {
     q: "How much does SecureVoice AI cost?",

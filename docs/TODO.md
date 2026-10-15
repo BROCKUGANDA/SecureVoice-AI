@@ -36,9 +36,17 @@ Last updated: 2026-10-03.
 **The rate is $0.15 per intervention.** `OVERAGE_RATE_MINOR_PER_UNIT=15`
 (integer minor units — fils/cents, never a float).
 
-The economics: one intervention costs roughly **$0.05** blended across Twilio,
-ElevenLabs and the model, so $0.15/unit is a **66% gross margin** on overage. See
-`docs/UNIT-ECONOMICS.md`.
+The economics: **corrected 2026-10-15 — there is no margin claim to state here.**
+This section asserted one intervention costs "roughly $0.05 blended" and that
+$0.15/unit is therefore a "66% gross margin", citing `docs/UNIT-ECONOMICS.md` — the
+same document that models a 3-minute intervention at **≈$0.55**
+(`cost_per_call = 3 × (carrier_rate + 0.08) + 0.002`, §1). At its own arithmetic the
+rate is below cost per unit, so the rate stands on the commercial commitment
+published on `/pricing`, not on a cost model. Producing a real margin figure needs
+two inputs: measured mean handle time per plan (`Case.durationSeconds` is stored,
+never aggregated) and the destination carrier rate from the live Twilio invoice
+(`src/lib/scale/capacity.ts:484-491` marks it INPUT REQUIRED). See
+`src/lib/payments/overage.ts` for the same correction where the rater reads it.
 
 Behaviour, and why the two states are different:
 

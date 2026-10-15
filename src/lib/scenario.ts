@@ -104,7 +104,7 @@ export const SCENARIO_LIBRARY: ScenarioMeta[] = [
     preventedLoss: { en: "AED 2,500", ar: "٢,٥٠٠ درهم" },
     freezePath: "POST /api/v1/cards/••4417/freeze",
     freezeOk: [
-      "→ 200 OK · 240ms",
+      "→ 200 OK · staged",
       '  freeze_type:  "temporary"',
       '  reason:       "fraud_suspicion"',
       '  agent_id:     "sv-agent-01"',
@@ -259,14 +259,14 @@ export const PACKS: Record<Exclude<ScenarioKind, "voicemail">, Pack> = {
       "धोखाधड़ी का संकेत प्राप्त — कार्ड •• 4417, 2,500.00 दिरहम, Electronics World, दुबई। जोखिम स्कोर 0.94 (अत्यंत गंभीर)। डिवाइस मिसमैच और लेनदेन की असामान्य गति पाई गई।",
     ],
     dial: [
-      "Outbound call placed to registered number +971 •• ••• 4567 (Ahmed Al-Rashid). Pre-warmed channel, English voice profile: Marcus.",
+      "Outbound call placed to registered number +971 •• ••• 4567 (Ahmed Al-Rashid). Channel opened for this call, stock Library voice (English).",
       "اتصال صادر إلى الرقم المسجل +٩٧١ •• ••• ٤٥٦٧ (أحمد الرشيد). صوت عربي خليجي: فاطمة.",
       "पंजीकृत नंबर +971 •• ••• 4567 (अहमद अल-रशीद) पर आउटबाउंड कॉल। चैनल पहले से तैयार, हिंदी वॉयस प्रोफ़ाइल: कविता।",
     ],
     connected: [
       "Call connected in 1.2s. Recording enabled. Agent locked to English after first response detected.",
       "تم توصيل المكالمة خلال ١.٢ ثانية. التسجيل مُفعّل. تم تثبيت الوكيل على اللغة العربية.",
-      "कॉल 1.2 सेकंड में जुड़ी। रिकॉर्डिंग चालू। पहली प्रतिक्रिया पर एजेंट हिंदी में लॉक हो गया।",
+      "कॉल जुड़ी। रिकॉर्डिंग चालू। पहली प्रतिक्रिया पर एजेंट हिंदी में जवाब दे रहा है।",
     ],
     verify: [
       "Thank you, Ahmed. To verify your identity, please tell me which of these recent transactions you recognize: One — AED 45.50 at Carrefour, September 15. Two — AED 120.00 at Amazon, September 16. Three — AED 2,500.00 at Electronics World, today.",
@@ -300,9 +300,9 @@ export const PACKS: Record<Exclude<ScenarioKind, "voicemail">, Pack> = {
     ],
     apiTag: "POST /api/v1/cards/••4417/freeze",
     api: [
-      "200 OK · 240ms — freeze_type: temporary · reason: fraud_suspicion · agent_id: sv-agent-01 · verification: challenge_pass_2of3",
+      "200 OK · staged — freeze_type: temporary · reason: fraud_suspicion · agent_id: sv-agent-01 · verification: challenge_pass_2of3",
       "200 OK · ٢٤٠ms — تجميد مؤقت · السبب: اشتباه احتيال · التحقق: نجاح ٢ من ٣",
-      "200 OK · 240ms — अस्थायी फ्रीज़ · कारण: धोखाधड़ी का संदेह · सत्यापन: 2/3 सफल",
+      "200 OK · staged — अस्थायी फ्रीज़ · कारण: धोखाधड़ी का संदेह · सत्यापन: 2/3 सफल",
     ],
     done: [
       "Done — your card is frozen. I'm now connecting you to my colleague Sara, a fraud specialist who will secure your account and arrange your replacement card. Please stay on the line.",
@@ -319,14 +319,14 @@ export const PACKS: Record<Exclude<ScenarioKind, "voicemail">, Pack> = {
       "धोखाधड़ी का संकेत प्राप्त — कार्ड •• 9034, 8,000.00 दिरहम की नकद निकासी, ATM · कॉर्निश स्ट्रीट, अबू धाबी। जोखिम स्कोर 0.97 (अत्यंत गंभीर)। क्लोन कार्ड पैटर्न: 10 मिनट में तीसरी कोशिश।",
     ],
     dial: [
-      "Outbound call placed to registered number +971 •• ••• 7831 (Mariam Haddad). Pre-warmed channel, English voice profile: Marcus. Card still active — withdrawal in progress.",
+      "Outbound call placed to registered number +971 •• ••• 7831 (Mariam Haddad). Channel opened for this call, stock Library voice (English). Card still active — withdrawal in progress.",
       "اتصال صادر إلى الرقم المسجل +٩٧١ •• ••• ٧٨٣١ (مريم حداد). صوت عربي خليجي: فاطمة. البطاقة لا تزال نشطة — عملية السحب جارية.",
       "पंजीकृत नंबर +971 •• ••• 7831 (मरियम हदाद) पर आउटबाउंड कॉल। हिंदी वॉयस प्रोफ़ाइल: कविता। कार्ड अभी सक्रिय है — निकासी जारी है।",
     ],
     connected: [
       "Call connected in 1.1s. Recording enabled. Agent locked to English after first response detected.",
       "تم توصيل المكالمة خلال ١.١ ثانية. التسجيل مُفعّل. تم تثبيت الوكيل على اللغة العربية.",
-      "कॉल 1.1 सेकंड में जुड़ी। रिकॉर्डिंग चालू। एजेंट हिंदी में लॉक हो गया।",
+      "कॉल जुड़ी। रिकॉर्डिंग चालू। एजेंट हिंदी में जवाब दे रहा है।",
     ],
     verify: [
       "Thank you, Mariam. To verify your identity, please tell me which of these recent transactions you recognize: One — AED 34.00 at Spinneys, September 14. Two — AED 250.00 at ADNOC, September 16. Three — an AED 8,000.00 cash withdrawal on Corniche Street, happening right now.",
@@ -379,7 +379,7 @@ export const PACKS: Record<Exclude<ScenarioKind, "voicemail">, Pack> = {
       "धोखाधड़ी का संकेत प्राप्त — आउटबाउंड ट्रांसफ़र 48,000.00 दिरहम, नए लाभार्थी M. TRADING LLC को, अधिकृत होने की प्रतीक्षा में। जोखिम स्कोर 0.99 (अत्यंत गंभीर)। लाभार्थी ज्ञात म्यूल खाता; हालिया कॉल्स में सोशल-इंजीनियरिंग पैटर्न।",
     ],
     dial: [
-      "Outbound call placed to registered number +971 •• ••• 2210 (Khalid Al-Mansoori). Pre-warmed channel, English voice profile: Marcus. Customer is currently on another line — suspected scammer call.",
+      "Outbound call placed to registered number +971 •• ••• 2210 (Khalid Al-Mansoori). Channel opened for this call, stock Library voice (English). Customer is currently on another line — suspected scammer call.",
       "اتصال صادر إلى الرقم المسجل +٩٧١ •• ••• ٢٢١٠ (خالد المنصوري). صوت إنجليزي: ماركوس. العميل متصل حالياً بخط آخر — يُشتبه أنه خط المحتال.",
       "पंजीकृत नंबर +971 •• ••• 2210 (खालिद अल-मनसूरी) पर आउटबाउंड कॉल। हिंदी वॉयस प्रोफ़ाइल: कविता। ग्राहक इस समय दूसरी लाइन पर है — संदिग्ध ठगी कॉल।",
     ],
@@ -439,7 +439,7 @@ export const PACKS: Record<Exclude<ScenarioKind, "voicemail">, Pack> = {
       "धोखाधड़ी का संकेत प्राप्त — क्लेम CLM-70412 का 62,000.00 दिरहम का भुगतान पॉलिसीधारक की प्रोफ़ाइल में 4 मिनट पहले जोड़े गए बैंक खाते पर मोड़ा गया, नए डिवाइस से लॉगिन के बाद। जोखिम स्कोर 0.96 (अत्यंत गंभीर)। भुगतान 15 मिनट में जारी होना है।",
     ],
     dial: [
-      "Outbound call placed to registered number +971 •• ••• 3390 (Fatima Al-Zaabi). Pre-warmed channel, English voice profile: Marcus. Claim payout still pending — not yet released.",
+      "Outbound call placed to registered number +971 •• ••• 3390 (Fatima Al-Zaabi). Channel opened for this call, stock Library voice (English). Claim payout still pending — not yet released.",
       "اتصال صادر إلى الرقم المسجل +٩٧١ •• ••• ٣٣٩٠ (فاطمة الزعابي). صوت عربي خليجي: فاطمة. التعويض لا يزال معلقاً — لم يُصرف بعد.",
       "पंजीकृत नंबर +971 •• ••• 3390 (फातिमा अल-ज़ाबी) पर आउटबाउंड कॉल। हिंदी वॉयस प्रोफ़ाइल: कविता। क्लेम भुगतान अभी लंबित है — जारी नहीं हुआ।",
     ],
@@ -580,7 +580,7 @@ function voicemailEvents(m: ScenarioMeta): ScenarioEvent[] {
       t: 0,
       phase: "alert",
       speaker: "system",
-      tag: "webhook · POST /fraud/alerts",
+      tag: "webhook · POST /v1/interventions",
       en: `FRAUD SIGNAL RECEIVED — Card •• 2087, AED 3,900.00 at Gold Souk Online, Dubai. Risk score 0.95 (critical). Case ${m.caseId}.`,
       ar: `تم استلام إشارة احتيال — البطاقة •• ٢٠٨٧، مبلغ ٣,٩٠٠.٠٠ درهم لدى Gold Souk Online، دبي. درجة الخطورة ٠.٩٥ (حرجة). الحالة ${m.caseId}.`,
       hi: `धोखाधड़ी का संकेत प्राप्त — कार्ड •• 2087, 3,900.00 दिरहम, Gold Souk Online, दुबई। जोखिम स्कोर 0.95 (अत्यंत गंभीर)। केस ${m.caseId}।`,
@@ -603,7 +603,7 @@ function voicemailEvents(m: ScenarioMeta): ScenarioEvent[] {
       phase: "dial",
       speaker: "system",
       tag: "telephony · twilio",
-      en: `Outbound call placed to registered number ${m.phone} (${m.customer}). Pre-warmed channel, English voice profile: Marcus.`,
+      en: `Outbound call placed to registered number ${m.phone} (${m.customer}). Channel opened for this call, stock Library voice (English).`,
       ar: "اتصال صادر إلى الرقم المسجل +٩٧١ •• ••• ٥٥١٨ (عمر الصديقي). صوت إنجليزي: ماركوس.",
       hi: `पंजीकृत नंबर ${m.phone} (उमर सिद्दीकी) पर आउटबाउंड कॉल। चैनल पहले से तैयार, हिंदी वॉयस प्रोफ़ाइल: कविता।`,
     },
@@ -781,7 +781,7 @@ export function buildScenario(kind: ScenarioKind): ScenarioEvent[] {
       t: 0,
       phase: "alert",
       speaker: "system",
-      tag: "webhook · POST /fraud/alerts",
+      tag: "webhook · POST /v1/interventions",
       en: p.alert[0],
       ar: p.alert[1],
       hi: p.alert[2],
@@ -950,9 +950,9 @@ export function buildScenario(kind: ScenarioKind): ScenarioEvent[] {
       phase: "handoff",
       speaker: "system",
       tag: "outcome",
-      en: `RESOLVED — Fraud signal to protective action in 61 seconds. Estimated prevented loss: ${m.preventedLoss.en}. Old way: 38 minutes. This call: 61 seconds.`,
+      en: `RESOLVED — Fraud signal to a staged protective action inside the 60-second case deadline (guided simulation, compressed clock). Estimated prevented loss: ${m.preventedLoss.en}. Old way: 38 minutes.`,
       ar: `تم الحل — من إشارة الاحتيال إلى إجراء الحماية خلال ٦١ ثانية. الخسارة المتوقعة التي تم منعها: ${m.preventedLoss.ar}.`,
-      hi: `निराकृत — धोखाधड़ी संकेत से सुरक्षात्मक कार्रवाई तक 61 सेकंड। रोकी गई अनुमानित हानि: ${m.preventedLoss.en}।`,
+      hi: `निराकृत (गाइडेड सिमुलेशन, दबाया हुआ घड़ी) — धोखाधड़ी संकेत से सुरक्षात्मक कार्रवाई के चरण तक, 60 सेकंड की केस समय सीमा के भीतर। रोकी गई अनुमानित हानि: ${m.preventedLoss.en}।`,
     },
   ];
 

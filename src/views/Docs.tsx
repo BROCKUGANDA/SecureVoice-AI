@@ -162,8 +162,8 @@ function Header({ lang }: { lang: "en" | "ar" }) {
       <div className="mt-4 flex items-center gap-2 text-[12.5px] text-ink-3">
         <Server className="h-3.5 w-3.5" />
         {t(
-          "All examples below are live against this deployment — no sandbox keys required.",
-          "جميع الأمثلة أدناه تعمل مباشرة على هذا النشر — لا حاجة لمفاتيح تجريبية.",
+          "Every endpoint below is served by this deployment. The turn, TTS and ASR examples run as shown; the risk-signal ingest needs a producer key or the shared webhook secret — there is no anonymous dial.",
+          "كل نقطة نهاية أدناه يخدمها هذا النشر. أمثلة الردّ والنطق والتعرف تعمل كما هو موضح، أما استقبال إشارة الخطر فيحتاج مفتاح مُنتج أو السر المشترك لخطاف الأحداث — لا يوجد اتصال مجهول.",
           lang,
         )}
       </div>
@@ -356,17 +356,24 @@ function Quickstart({ lang }: { lang: "en" | "ar" }) {
   const steps = [
     {
       n: "01",
-      title: "Subscribe to intervention events",
-      titleAr: "اشترك في أحداث التدخل",
-      body: "Point your fraud-orchestration webhook at SecureVoice. When a transaction crosses your risk threshold, we place the intervention call and stream every phase transition back to you.",
+      title: "Fire a signed risk signal",
+      titleAr: "أطلق إشارة خطر موقّعة",
+      body: "POST the signal to the interventions endpoint the moment a transaction crosses your own engine's risk threshold. You get a 202 with the case reference, and the outcome is signed back to the callback URL you pass. Authenticate with an HMAC signature over the raw body or a per-organisation Bearer producer key, and send an Idempotency-Key — a replay returns the stored response rather than dialling twice.",
       bodyAr:
-        "وجّه خطاف أحداث منظومة مكافحة الاحتيال لديكم إلى SecureVoice. وعندما تتجاوز عملية ما عتبة الخطر المعتمدة، نبدأ مكالمة التدخل وبثّ كل انتقال بين المراحل إليكم.",
-      code: `curl -X POST ${origin}/v1/webhooks \\
-  -H "Authorization: Bearer sv_live_…" \\
+        "أرسل الإشارة بالـ POST إلى نقطة تدخل الحالة بمجرد أن تتجاوز عملية ما عتبة الخطر في محرّككم أنتم. تحصل على رد ٢٠٢ مع مرجع الحالة، ويُعاد توقيع النتيجة إلى عنوان الخطاف الذي تمرّره. وصادِق بتوقيع HMAC على الجسم الخام أو بمفتاح مُنتج Bearer خاص بمؤسستك، وأرسل مفتاح التكرار Idempotency-Key — فإعادة الطلب تُعيد الاستجابة المخزّنة بدل أن تتصل مرتين.",
+      code: `curl -X POST ${origin}/api/v1/interventions \\
+  -H "SV-Signature: t=<unix>,v1=<hmac_sha256(secret, \\"t.body\\")>" \\
+  -H "Idempotency-Key: <8+ chars, unique per signal>" \\
+  -H "Content-Type: application/json" \\
   -d '{
-    "url": "https://fraud.yourbank.ae/hooks/securevoice",
-    "events": ["intervention.started", "account.frozen",
-               "case.closed", "escalated.human"]
+    "transaction_ref": "TRX-99127",
+    "risk_score": 0.94,
+    "phone": "+971500000000",
+    "amount": 250000,
+    "currency": "AED",
+    "language": "ar",
+    "consent_record_id": "CN-4417",
+    "callback_url": "https://fraud.yourbank.ae/hooks/securevoice"
   }'`,
     },
     {
@@ -383,22 +390,22 @@ function Quickstart({ lang }: { lang: "en" | "ar" }) {
 
 # → { "intent": "deny_fraud",
 #     "action": "card_freeze",
-#     "reply": "I've frozen the card…" }`,
+#     "reply": "I have flagged this transaction as fraud and placed a temporary restriction on your card while a human fraud specialist reviews it." }`,
     },
     {
       n: "03",
       title: "Close the loop",
       titleAr: "أغلق الحلقة",
-      body: "When the customer confirms fraud, SecureVoice freezes the card, writes the case file, and hands off to your human agent with a full bilingual transcript and audit trail.",
+      body: "When the customer confirms fraud, SecureVoice stages the card freeze, writes the case file, and hands off to your human agent with the transcript and audit trail. The stage is pending_specialist and committed:false — a permanent action on the bank's ledger needs your specialist, never this platform.",
       bodyAr:
-        "عندما يؤكد العميل وقوع الاحتيال، يجمّد SecureVoice البطاقة، ويرفع ملف الحالة، ويسلّم المكالمة إلى موظفكم البشري مع نص محوّل ثنائي اللغة كامل وأثر تدقيق.",
+        "عندما يؤكد العميل وقوع الاحتيال، يمهّد SecureVoice تجميد البطاقة (ولا ينفّذه)، ويرفع ملف الحالة، ويسلّم المكالمة إلى موظفكم البشري مع النص المحوّل وأثر التدقيق. الحالة pending_specialist وcommitted:false — فالإجراء الدائم في دفتر البنك يحتاج أخصائيكم، لا هذه المنصة.",
       code: `{
   "event": "case.closed",
   "case_id": "FRAUD-2026-08612",
   "outcome": "fraud_confirmed",
   "action_taken": "card_freeze",
   "prevented_loss_aed": 2500,
-  "transcript_url": "s3://sv-audit/…"
+  "audit_hash": "b7f2e91c…"
 }`,
     },
   ];
@@ -452,8 +459,8 @@ function ApiReference() {
         </h2>
         <p className="mt-2 max-w-2xl text-[14px] leading-relaxed text-ink-2">
           {t(
-            "Five surfaces, all authenticated by mutual TLS inside a bank deployment. On this public site they are rate-limited and serve the live demo.",
-            "خمس واجهات، جميعها مصادَقة بتفاهم TLS متبادل داخل النشر البنكي. وعلى هذا الموقع العام تكون محدودة المعدّل وتخدم العرض الحيّ.",
+            "Six surfaces. Ingest is authenticated by an HMAC signature over the raw body or a per-organisation producer key — those two mechanisms and no others. On this public site they are rate-limited and serve the live demo.",
+            "ستّ واجهات. تُصادَق نقطة الاستقبال بتوقيع HMAC على الجسم الخام أو بمفتاح مُنتج خاص بالمؤسسة — هاتان الآليتان فقط دون غيرهما. وعلى هذا الموقع العام تكون محدودة المعدّل وتخدم العرض الحيّ.",
             lang,
           )}
         </p>
@@ -464,8 +471,8 @@ function ApiReference() {
           method="POST"
           path="/api/agent"
           desc={{
-            en: "Guardrailed conversation turn. Deterministic intent classifier (auditable, reproducible) with three-outcome routing: protective action, confirmation, or clarification.",
-            ar: "محادثة خاضعة للضمانات. مصنّف نية حتمي (قابل للتدقيق وإعادة التنفيذ) بثلاث مسارات للنتيجة: إجراء وقائي، أو تأكيد، أو طلب توضيح.",
+            en: "Guardrailed conversation turn. Deterministic intent classifier (auditable, reproducible) with protective action, confirmation, clarification or human handoff as the outcome.",
+            ar: "محادثة خاضعة للضمانات. مصنّف نية حتمي (قابل للتدقيق وإعادة التنفيذ) تكون نتيجته إجراءً وقائياً أو تأكيداً أو طلب توضيح أو تسليماً لإنسان.",
           }}
         >
           <div className="mt-3 border-t border-line/70 pt-3">
@@ -489,8 +496,8 @@ function ApiReference() {
               name="→ intent"
               type="string"
               note={{
-                en: "deny_fraud | confirm_authorized | greeting | unclear",
-                ar: "deny_fraud | confirm_authorized | greeting | unclear",
+                en: "deny_fraud | confirm_authorized | greeting | unclear | doubt | handoff",
+                ar: "deny_fraud | confirm_authorized | greeting | unclear | doubt | handoff",
               }}
             />
             <Field
@@ -518,8 +525,8 @@ function ApiReference() {
           method="POST"
           path="/api/tts"
           desc={{
-            en: "Neural speech synthesis. Server-side voice pipeline (keys never reach the browser), WAV @ 24 kHz, per-tenant voice personas with caching.",
-            ar: "توليف كلام عصبي. مسار صوتي على الخادم (لا تصل المفاتيح إلى المتصفح)، بصيغة WAV بمعدل ٢٤ كيلوهرتز، مع شخصيات صوتية لكل مستأجر وذاكرة تخزين مؤقت.",
+            en: "Neural speech synthesis. Server-side voice pipeline (keys never reach the browser), audio/mpeg from the configured provider — WAV on the dev fallback path — with per-call caching. The live agent speaks with one stock Library voice; cloning is disabled on this account.",
+            ar: "توليف كلام عصبي. مسار صوتي على الخادم (لا تصل المفاتيح إلى المتصفح)، بصيغة audio/mpeg من المزوّد المهيّأ — وWAV على مسار التراجع في بيئة التطوير، مع تخزين مؤقت لكل مكالمة. الوكيل الحيّ يتصل بصوت واحد جاهز من مكتبة المزوّد، والاستنساخ معطّل في هذا الحساب.",
           }}
         >
           <div className="mt-3 border-t border-line/70 pt-3">
@@ -547,7 +554,10 @@ function ApiReference() {
             <Field
               name="speed"
               type="float"
-              note={{ en: "0.5 – 2.0, default 1.0", ar: "من ٠٫٥ إلى ٢٫٠، والافتراضي ١٫٠" }}
+              note={{
+                en: "0.5 – 2.0; when omitted, the paced profile speaks slower than conversational (0.92 for EN, 0.88 for AR)",
+                ar: "من ٠٫٥ إلى ٢٫٠؛ وعند الحذف يطبَّق مسار «مُوَتَّر» الأبطأ من الحديث المعتاد (٠٫٩٢ للإنجليزية و٠٫٨٨ للعربية)",
+              }}
             />
             <Field
               name="→ body"
@@ -594,10 +604,10 @@ function ApiReference() {
       <Reveal delay={0.09}>
         <Endpoint
           method="POST"
-          path="/api/interventions"
+          path="/api/v1/interventions"
           desc={{
-            en: "The headless trigger — your fraud engine fires a signed risk signal and receives the intervention envelope instantly (202). Idempotent by caseId: a retried delivery never double-bills. Two auth modes: Bearer producer key (svb_…, per-org) or HMAC signature over the raw body.",
-            ar: "المشغّل بلا واجهة — يطلق محرّك مكافحة الاحتيال لديكم إشارة خطر موقّعة، فيستقبل مغلّف التدخل فوراً (٢٠٢). وهو مستقل عن التكرار بحسب معرّف الحالة: أي إعادة تسليم لا تُحتسب مرتين. وثمة وضعان للمصادقة: مفتاح مُنتج من نوع Bearer (svb_…، لكل مؤسسة) أو توقيع HMAC على الجسم الخام.",
+            en: "The headless trigger — your fraud engine fires a signed risk signal and receives the intervention envelope (202). Idempotent on the Idempotency-Key: a retried delivery replays the stored response and never double-dials or double-bills. Two auth modes: Bearer producer key (svb_…, per-org) or HMAC signature over the raw body.",
+            ar: "المشغّل بلا واجهة — يطلق محرّك مكافحة الاحتيال لديكم إشارة خطر موقّعة، فيستقبل مغلّف التدخل (٢٠٢). وهو مستقل عن التكرار بمفتاح Idempotency-Key: إعادة التسليم تُعيد الاستجابة المخزّنة، فلا اتصال مزدوج ولا احتساب مزدوج. وثمة وضعان للمصادقة: مفتاح مُنتج من نوع Bearer (svb_…، لكل مؤسسة) أو توقيع HMAC على الجسم الخام.",
           }}
         >
           <div className="mt-3 border-t border-line/70 pt-3">
@@ -634,8 +644,8 @@ function ApiReference() {
               name="risk_score"
               type="number"
               note={{
-                en: "0–1 — maps to the pre-approved action plan",
-                ar: "من ٠ إلى ١ — يُترجم إلى خطة الإجراءات المعتمدة مسبقاً",
+                en: "0–1 — a schema range bound, not a dial threshold. Admission is capacity-based; risk × expected loss only orders the dial queue",
+                ar: "من ٠ إلى ١ — حدّ لنطاق المخطط وليس عتبة اتصال. القبول يعتمد على السعة؛ ومضاعفة الخطر في الخسارة المتوقعة ترتّب طابور الاتصال فقط",
               }}
             />
             <Field
@@ -657,27 +667,27 @@ function ApiReference() {
               note={{ en: "consent record reference", ar: "مرجع سجل الموافقة" }}
             />
             <Field
-              name="signal.customer"
-              type="object"
+              name="signal_kind / call_category"
+              type="enum?"
               note={{
-                en: "ref (no PII) + lang: en | ar | hi | ur | fr | sw",
-                ar: "ref (بلا معلومات تعريف شخصية) + lang: en | ar | hi | ur | fr | sw",
+                en: "optional; absent call_category falls back to time_critical_fraud",
+                ar: "اختياري؛ وغياب call_category يسقط إلى time_critical_fraud",
               }}
             />
             <Field
-              name="signal.callbackUrl"
+              name="callback_url"
               type="string?"
               note={{
-                en: "signed outcome webhook (intervention.outcome) back to your core",
-                ar: "خطاف نتائج موقّع (intervention.outcome) يعود إلى نظامكم الأساسي",
+                en: "public https outcome webhook back to your core (SSRF-validated before it is stored)",
+                ar: "خطاف نتائج عام بصيغة https يعود إلى نظامكم الأساسي (يُتحقق من SSRF قبل تخزينه)",
               }}
             />
             <Field
-              name="→ interventionId"
+              name="→ caseRef"
               type="string"
               note={{
-                en: "SV-F-… case reference + SLA deadline + action plan",
-                ar: "مرجع الحالة SV-F-… + موعد الالتزام الزمني + خطة الإجراءات",
+                en: "SV-F-… case reference + status: queued + jobId; the dial is placed by the worker, not by this request",
+                ar: "مرجع الحالة SV-F-… + الحالة: queued + معرّف المهمة؛ والاتصال ينفّذه العامل لا هذا الطلب",
               }}
             />
             <Field
@@ -697,25 +707,39 @@ function ApiReference() {
           method="POST"
           path="/api/enroll"
           desc={{
-            en: "Customer enrollment for live delivery — phone (E.164), language, channel (call/SMS) and consent record. Opt-out honoured instantly; phones are never logged raw.",
-            ar: "تسجيل العميل للتسليم الحيّ — الهاتف (E.164)، واللغة، والقناة (مكالمة/رسالة نصية)، وسجل الموافقة. ويُحترم طلب إلغاء الاشتراك فوراً؛ ولا تُسجَّل أرقام الهواتف خاماً.",
+            en: "Customer enrollment for live delivery — customerRef, phone (E.164), language, channel (call/SMS) and consent record. Opt-out is a separate action on the same endpoint; phones are redacted before they are logged.",
+            ar: "تسجيل العميل للتسليم الحيّ — customerRef، والهاتف (E.164)، واللغة، والقناة (مكالمة/رسالة نصية)، وسجل الموافقة. وإلغاء الاشتراك إجراء مستقل على النقطة نفسها؛ وتُخفّى أرقام الهواتف قبل تسجيلها.",
           }}
         >
           <div className="mt-3 border-t border-line/70 pt-3">
             <Field
-              name="name / email / institution"
+              name="customerRef / phone"
               type="string"
               note={{ en: "required", ar: "مطلوب" }}
             />
             <Field
-              name="role / volume / message"
-              type="string"
-              note={{ en: "optional scoping fields", ar: "حقول اختيارية لتحديد النطاق" }}
+              name="lang / channel"
+              type="enum"
+              note={{
+                en: "en | ar | hi | ur | fr | sw; call | sms",
+                ar: "en | ar | hi | ur | fr | sw؛ call | sms",
+              }}
             />
             <Field
-              name="→ ref"
+              name="consentRecordId"
               type="string"
-              note={{ en: "your reference for support conversations", ar: "مرجعكم لمحادثات الدعم" }}
+              note={{
+                en: "required — enrollment itself is the consent record",
+                ar: "مطلوب — التسجيل نفسه هو سجل الموافقة",
+              }}
+            />
+            <Field
+              name="→ customerRef"
+              type="string"
+              note={{
+                en: "echoed back with channel and delivery mode; no PII returns",
+                ar: "يُعاد مع القناة ووضع التسليم؛ ولا ترجع أي معلومات تعريف شخصية",
+              }}
             />
           </div>
         </Endpoint>
@@ -757,8 +781,8 @@ const EVENTS = [
   {
     name: "intervention.started",
     desc: {
-      en: "Outbound intervention call placed. Fires within 800 ms of the risk trigger.",
-      ar: "بدأت مكالمة التدخل الصادرة. تُطلق خلال ٨٠٠ مللي ثانية من إشارة الخطر.",
+      en: "Outbound intervention call placed. No committed measurement fixes how soon after the signal this fires — the dial is placed by the queue worker, not by the ingest request.",
+      ar: "بدأت مكالمة التدخل الصادرة. ولا توجد قراءة مُثبتة تحدد كم من الزمن يفصلها عن إشارة الخطر — فالاتصال ينفّذه عامل الطابور لا طلب الاستقبال.",
     },
   },
   {
@@ -771,8 +795,8 @@ const EVENTS = [
   {
     name: "account.frozen",
     desc: {
-      en: "Protective action executed. Includes endpoint (card/transfer), reference, and authorised reason code.",
-      ar: "نُفّذ الإجراء الوقائي. ويتضمن نقطة التنفيذ (بطاقة/تحويل)، والمرجع، ورمز السبب المعتمد.",
+      en: "Protective action STAGED — the platform never commits it on the bank's ledger. Includes endpoint (card/transfer), reference, and authorised reason code.",
+      ar: "الإجراء الوقائي يُمهَّد — ولا تثبّت المنصة شيئاً في دفتر البنك. يتضمن نقطة التنفيذ (بطاقة/تحويل)، والمرجع، ورمز السبب المعتمد.",
     },
   },
   {
@@ -792,8 +816,8 @@ const EVENTS = [
   {
     name: "escalated.human",
     desc: {
-      en: "Guardrail ceiling hit or customer request. Warm transfer metadata for your contact centre.",
-      ar: "بلوغ سقف الضمانات أو طلب العميل. بيانات وصفية للتحويل الدافئ إلى مركز الاتصال لديكم.",
+      en: "Guardrail ceiling hit or a handoff the platform raised. Handoff metadata for your contact centre — a live bridge needs a specialist number configured, and with none the case is recorded as a queue ticket rather than dropped.",
+      ar: "بلوغ سقف الضمانات أو تسليم رفعه النظام. بيانات وصفية للتسليم إلى مركز الاتصال لديكم — فالربط الحيّ يتطلب ضبط رقم أخصائي، وبدونه تُسجَّل الحالة كتذكرة في الطابور بدل أن تُسقط المكالمة.",
     },
   },
 ];
@@ -808,8 +832,8 @@ function Webhooks() {
         </h2>
         <p className="mt-2 max-w-2xl text-[14px] leading-relaxed text-ink-2">
           {t(
-            "Six events cover the full intervention lifecycle. Deliveries are signed (HMAC-SHA256 over the raw body), retried with exponential backoff for 24 hours, and every payload is written to the audit log before it is delivered to your endpoint.",
-            "تغطّي ستة أحداث دورة حياة التدخل كاملة. والتسليمات موقّعة (HMAC-SHA256 على الجسم الخام)، وتُعاد المحاولة بتراجع أسّي خلال ٢٤ ساعة، وتُكتب كل حمولة في سجل التدقيق قبل تسليمها إلى نقطتكم.",
+            "Six events cover the full intervention lifecycle. Deliveries are signed (HMAC-SHA256 over the raw body), retried on a six-rung exponential backoff that spreads roughly 21 hours before the event is dead-lettered, and every payload is written to the audit log before it is delivered to your endpoint.",
+            "تغطّي ستة أحداث دورة حياة التدخل كاملة. والتسليمات موقّعة (HMAC-SHA256 على الجسم الخام)، وتُعاد المحاولة على سلّم تراجع أسّي من ستّ درجات يمتد نحو ٢١ ساعة قبل تحويل الحدث إلى الطابور الميت، وتُكتب كل حمولة في سجل التدقيق قبل تسليمها إلى نقطتكم.",
             lang,
           )}
         </p>
@@ -866,8 +890,8 @@ function Guardrails({ lang }: { lang: "en" | "ar" }) {
         </h2>
         <p className="mt-2 max-w-2xl text-[14px] leading-relaxed text-ink-2">
           {t(
-            "Guardrails are versioned JSON, not vibes. Compliance signs a diff; the runtime enforces exactly what was signed; every call records the policy hash it operated under — so a regulator can replay any intervention decision, byte for byte.",
-            "الضمانات بصيغة JSON مُصدَّرة، لا انطباعات. يوقّع الامتثال على الفرق، ويطبّق النظام ما وُقّع حرفياً، ويسجّل كل مكالمة بصمة السياسة — فيمكن للجهة التنظيمية إعادة تنفيذ أي قرار حرفياً.",
+            "The guardrail rules are code, not a document: the intent classifier in src/app/api/agent/route.ts is deterministic, the compliance checks in src/lib/compliance/policy.ts run on every turn, and the shipped agent is configured by agent/securevoice.agent.yaml. Each is versioned in git, and every turn is written to a hash-chained audit log — so a regulator can replay what the agent was told and what it did. The block below summarises what the code enforces; it is not a file the runtime loads.",
+            "قواعد الضمانات شيفرةٌ لا وثيقة: مصنّف النية في src/app/api/agent/route.ts حتمي، وفحوص الامتثال في src/lib/compliance/policy.ts تعمل في كل دور، والوكيل المُنشَر مُهيّأ بملف agent/securevoice.agent.yaml. وكل ذلك موثّق بالإصدارات في git، ويُكتب كل دور في سجل تدقيق مرتبط تجزئةً — فيستطيع الجهة التنظيمية إعادة تنفيذ ما طُلب من الوكيل وما فعله. والكتلة أدناه تلخّص ما يفرضه النظام، وهي ليست ملفاً يحمّله وقت التشغيل.",
             lang,
           )}
         </p>
@@ -876,28 +900,39 @@ function Guardrails({ lang }: { lang: "en" | "ar" }) {
       <Reveal delay={0.04}>
         <CodeBlock
           title={t(
-            "guardrails.policy.json · v2026.02",
-            "ملف السياسة guardrails.policy.json · v2026.02",
+            "what the runtime enforces · summarised from code",
+            "ما يفرضه النظام · ملخّص من الشيفرة",
             lang,
           )}
-          code={`{
-  "policy_version": "2026.02",
-  "identity": {
-    "knowledge_factors": 2,
-    "allowed_topics": ["recent_transactions", "card_status"],
-    "forbidden_topics": ["pin", "password", "otp", "full_card_number"]
-  },
+          code={`// src/app/api/agent/route.ts — deterministic classifier
+{
+  "intents": ["deny_fraud", "confirm_authorized", "greeting",
+              "unclear", "doubt", "handoff"],
   "actions": {
-    "card_freeze":        { "requires": "deny_fraud", "reversible": false },
-    "transfer_hold":      { "requires": "deny_fraud", "reversible": false },
-    "human_escalation":   { "requires": "unclear || customer_request" }
+    "deny_fraud":        "card_freeze",   // stages, never commits
+    "confirm_authorized": "none",
+    "greeting":           "none",
+    "unclear":            "clarify",
+    "doubt":              "clarify",      // "are you human" → clarify
+    "handoff":            "human_handoff"
   },
+  "escalation": {
+    "max_unclear_turns": 4,               // streak, not per-word
+    "sentiment_escalate": ["distress", "third_party_pressure"],
+    "handoff_eta_secs": 120,
+    "handoff_fallback": "queue_ticket"    // no specialist number → queued
+  },
+  "card_freeze_tool": { "committed": false, "stage": "pending_specialist" },
   "voice": {
-    "clone_consent": "written_only",
-    "disclosure": "first_15_seconds_mandatory",
-    "languages": ["en", "ar", "hi"]
+    "model_id": "eleven_v4_turbo",
+    "stability": 0.5,
+    "similarity_boost": 0.8,
+    "cloning": "disabled — one stock Library voice",
+    "disclosure": "injected into every reply; not timed",
+    "agent_plane_languages": ["en", "ar", "hi"],
+    "pipeline_languages": ["en", "ar", "hi", "ur", "fr", "sw"]
   },
-  "escalation": { "max_unclear_retries": 2, "handoff_sla_seconds": 30 }
+  "ingest": { "risk_score": "0–1 range bound, not a dial threshold" }
 }`}
         />
       </Reveal>
@@ -914,17 +949,17 @@ function Guardrails({ lang }: { lang: "en" | "ar" }) {
             },
             {
               icon: FileJson2,
-              t: "Signed policy diffs",
-              tAr: "فروق السياسة الموقّعة",
-              d: "Every change is reviewed, signed and versioned; the runtime pins the hash it runs under.",
-              dAr: "كل تغيير يُراجع ويُوقّع ويُرقّم؛ ويثبّت النظام البصمة التي يعمل تحت مظلّتها.",
+              t: "Rules live in code",
+              tAr: "القواعد في الشيفرة",
+              d: "The classifier, the compliance gate and the shipped agent config are three files in the repository. Changing a rule is a reviewed commit, and CI pins the agent record against the YAML so a drift fails the build.",
+              dAr: "المصنّف، وبوابة الامتثال، وملفتهيئة الوكيل المُنشَر ثلاثة ملفات في المستودعة. وتغيير أي قاعدة هو إيداع مُراجع، ويثبّت CI سجل الوكيل مقابل YAML فيفشل البناء عند أي انحراف.",
             },
             {
               icon: Database,
               t: "Replayable decisions",
               tAr: "قرارات قابلة لإعادة التنفيذ",
-              d: "Each turn stores policy hash + inputs + output so any decision can be replayed for a regulator.",
-              dAr: "يخزّن كل دور بصمة السياسة والمدخلات والمخرجات، فيمكن إعادة تنفيذ أي قرار لصالح جهة تنظيمية.",
+              d: "Each turn records the input, the classified intent, the action and the audit hash, chained with sha256 — so any decision can be reconstructed for a regulator from the log rather than from memory.",
+              dAr: "يُسجَّل كل دور بمدخلاته والنية المصنَّفة والإجراء وبصمة التدقيق، مترابطة بـ sha256 — فيُمكن إعادة بناء أي قرار لصالح جهة تنظيمية من السجل لا من الذاكرة.",
             },
           ].map((x) => (
             <div key={x.t} className="rounded-2xl border border-line bg-white p-5">
@@ -961,59 +996,70 @@ function LanguagesSection() {
     {
       lang: "English",
       native: "English",
-      voice: "MARCUS · EN-UK",
+      voice: "Polly.Joanna · EN-US (Say fallback)",
       status: "Live",
-      note: "Gulf-expat neutral register; detected from bank profile.",
-      noteAr: "أسلوب محايد لوافدي الخليج؛ يُكتشف من ملف البنك.",
+      statusAr: "تعمل",
+      note: "On the live agent plane. Gulf-expat neutral register; resolved from the enrolled profile.",
+      noteAr: "على الوكيل الحيّ. أسلوب محايد لوافدي الخليج؛ تُستنبط من الملف المسجّل.",
     },
     {
       lang: "Arabic",
       native: "العربية",
-      voice: "FATIMA · AR-GULF",
+      voice: "Polly.Zeina · AR (Say fallback)",
       status: "Live",
-      note: "Gulf dialect, RTL transcript, Friday/weekend-aware phrasing.",
-      noteAr: "لهجة خليجية، ونص محوّل من اليمين إلى اليسار، وصياغة تراعي الجمعة ونهاية الأسبوع.",
+      statusAr: "تعمل",
+      note: "On the live agent plane. RTL transcript, Friday/weekend-aware phrasing.",
+      noteAr:
+        "على الوكيل الحيّ. نص محوّل من اليمين إلى اليسار، وصياغة تراعي الجمعة ونهاية الأسبوع.",
     },
     {
       lang: "Hindi",
       native: "हिन्दी",
-      voice: "KAVITA · HI-IN",
+      voice: "Polly.Aditi · HI-IN (Say fallback)",
       status: "Live",
-      note: "For the UAE's largest expat segment; code-switches to EN for card terms.",
-      noteAr: "لأكبر شريحة وافدة في الإمارات؛ وتتحول إلى الإنجليزية في مصطلحات البطاقات.",
+      statusAr: "تعمل",
+      note: "On the live agent plane. For the UAE's largest expat segment; code-switches to EN for card terms.",
+      noteAr:
+        "على الوكيل الحيّ. لأكبر شريحة وافدة في الإمارات؛ وتتحول إلى الإنجليزية في مصطلحات البطاقات.",
     },
     {
       lang: "Urdu",
       native: "اردو",
-      voice: "SANA · UR-UAE",
-      status: "Live",
-      note: "Full script coverage across all three fraud cases — try it in the demo picker.",
-      noteAr: "تغطية كاملة للنصوص في حالات الاحتيال الثلاث — جرّبها في منتقي العرض.",
+      voice: "Polly.Sana · UR-PK (Say fallback)",
+      status: "Continuity pipeline",
+      statusAr: "خط الاستمرارية",
+      note: "Not an ElevenLabs agent preset. Full scripted coverage across all five demo cases — try it in the demo picker.",
+      noteAr:
+        "ليست إعداداً مسبقاً لوكيل ElevenLabs. تغطية نصية كاملة في حالات العرض الخمس — جرّبها في منتقي العرض.",
     },
     {
       lang: "French",
       native: "Français",
-      voice: "CELINE · FR-FR",
-      status: "Live",
-      note: "West-Africa corridor: remittance and beneficiary-fraud phrasing.",
-      noteAr: "ممر غرب أفريقيا: صياغة الحوالات واحتيال المستفيدين.",
+      voice: "Polly.Celine · FR-FR (Say fallback)",
+      status: "Continuity pipeline",
+      statusAr: "خط الاستمرارية",
+      note: "Not an ElevenLabs agent preset. West-Africa corridor: remittance and beneficiary-fraud phrasing.",
+      noteAr:
+        "ليست إعداداً مسبقاً لوكيل ElevenLabs. ممر غرب أفريقيا: صياغة الحوالات واحتيال المستفيدين.",
     },
     {
       lang: "Swahili",
       native: "Kiswahili",
-      voice: "AMINA · SW-KE",
-      status: "Live",
-      note: "East-Africa corridor: mobile-money fraud, which is where the loss actually is.",
-      noteAr: "ممر شرق أفريقيا: احتيال الأموال عبر الهاتف المحمول، وهو موضع الخسارة الفعلي.",
+      voice: "Google.sw-KE-Standard-A · SW-KE (Say fallback)",
+      status: "Continuity pipeline",
+      statusAr: "خط الاستمرارية",
+      note: "Not an ElevenLabs agent preset. East-Africa corridor: mobile-money fraud, which is where the loss actually is.",
+      noteAr:
+        "ليست إعداداً مسبقاً لوكيل ElevenLabs. ممر شرق أفريقيا: احتيال الأموال عبر الهاتف المحمول، وهو موضع الخسارة الفعلي.",
     },
   ];
   const roadmap = [
     {
       lang: "Bengali",
       native: "বাংলা",
-      note: "Not yet wired — no telephony voice, compliance script or persona yet, so it is not counted in the six above. Shared pipeline with Hindi.",
+      note: "Not implemented — no telephony voice, compliance script or persona yet, so it is not counted in the six above. Shared pipeline with Hindi.",
       noteAr:
-        "لم تُربط بعد — لا يوجد صوت هاتفي ولا نص امتثال ولا شخصية بعد، لذا لا تُحتسب ضمن الستّ أعلاه. وتتقاسم خط المعالجة نفسه مع الهندية.",
+        "غير مطبقة بعد — لا يوجد صوت هاتفي ولا نص امتثال ولا شخصية، لذا لا تُحتسب ضمن الستّ أعلاه. وتتقاسم خط المعالجة نفسه مع الهندية.",
     },
   ];
 
@@ -1026,28 +1072,39 @@ function LanguagesSection() {
         <p className="mt-2 max-w-2xl text-[14px] leading-relaxed text-ink-2">
           {lang === "en" ? (
             <>
-              Six languages ship live, and each is a complete voice — telephony voice, compliance
-              script and transcript — rather than a translation layer. The agent{" "}
+              Six language codes ship in the platform, and each carries a real telephony voice and a
+              compliance script rather than a translation layer — but they are not all on the same
+              plane:{" "}
               <strong className="font-semibold text-foreground">
-                knows which language to use before the call is placed
+                the live ElevenLabs agent is configured for EN, AR and HI
               </strong>
-              : it is resolved from the enrolled customer profile and the tenant&rsquo;s own routing
-              rules, then confirmed with the customer on the opening line and switched mid-call if
-              they answer in another language. Financial terms (card, IBAN, transfer) code-switch
-              into the customer&rsquo;s second language, matching how people in the UAE actually
-              talk about money.
+              , and UR, FR and SW are spoken by the built-in continuity pipeline. Only English and
+              Arabic have a recorded end-to-end conversation in the evidence bundle. The language is{" "}
+              <strong className="font-semibold text-foreground">
+                resolved from the enrolled customer profile before the call is placed
+              </strong>
+              : it is confirmed with the customer on the opening line and the agent is instructed to
+              switch with them if they answer in another language — a <code>switch_language</code>{" "}
+              tool records that change on the case. Financial terms (card, IBAN, transfer)
+              code-switch into the customer&rsquo;s second language, matching how people in the UAE
+              actually talk about money.
             </>
           ) : (
             <>
-              ست لغات تعمل فعلياً، وكل واحدة منها صوت مكتمل — صوت هاتفي، ونص امتثال، ونص محوّل — لا
-              مجرد طبقة ترجمة. والوكيل{" "}
+              ستّ لغات تعمل فعلياً في المنصة، وكل واحدة لها صوت هاتفي حقيقي ونص امتثال لا مجرد طبقة
+              ترجمة — لكنها ليست كلها على المستوى نفسه:{" "}
               <strong className="font-semibold text-foreground">
-                يعرف اللغة التي يجب استخدامها قبل إجراء المكالمة
+                الوكيل الحيّ من ElevenLabs مهيّأ للإنجليزية والعربية والهندية
               </strong>
-              : تُستنبط من ملف العميل المسجّل وقواعد التوجيه الخاصة بالمستأجر، ثم تُؤكَّد مع العميل
-              في سطر الافتتاح، وتُبدَّل في منتصف المكالمة إذا أجاب بلغة أخرى. وتتحول المصطلحات
-              المالية (بطاقة، وآيبان، وتحويل) إلى اللغة الثانية للعميل، موافقةً للكيفية التي يتحدث
-              بها الناس في الإمارات عن المال فعلاً.
+              ، أمّا الأردية والفرنسية والسواحيلية فينطقها خط الاستمرارية المدمج. ولا توجد محادثة
+              كاملة مسجّلة في حزمة الأدلة إلا بالعربية والإنجليزية. وتُستنبط اللغة{" "}
+              <strong className="font-semibold text-foreground">
+                من ملف العميل المسجّل قبل إجراء المكالمة
+              </strong>
+              : وتُؤكَّد مع العميل في سطر الافتتاح، ويُرشد الوكيل إلى التبديل إن أجاب بلغة أخرى،
+              وتُسجّل أداة switch_language هذا التبديل في الحالة. وتتحول المصطلحات المالية (بطاقة،
+              وآيبان، وتحويل) إلى اللغة الثانية للعميل، موافقةً للكيفية التي يتحدث بها الناس في
+              الإمارات عن المال فعلاً.
             </>
           )}
         </p>
@@ -1118,7 +1175,7 @@ function LanguagesSection() {
               <div className="flex items-center justify-between">
                 <span className="font-display text-[15px] font-semibold">{l.lang}</span>
                 <span className="rounded-full bg-green-tint px-2 py-0.5 font-mono text-[10px] font-bold uppercase tracking-wide text-primary">
-                  {t(l.status, "تعمل", lang)}
+                  {t(l.status, l.statusAr, lang)}
                 </span>
               </div>
               <div
@@ -1163,13 +1220,13 @@ function LanguagesSection() {
       <Reveal delay={0.1}>
         <div className="flex items-center gap-2 text-[13px] text-ink-2">
           <ArrowRight className="h-3.5 w-3.5 text-primary" />
-          {t("Hear all six languages in the", "استمع إلى اللغات الست كلها في", lang)}{" "}
+          {t("Run all six languages in the", "شغّل اللغات الستّ في", lang)}{" "}
           <span className="font-semibold text-foreground">
             &nbsp;{t("Live Demo", "العرض الحي", lang)}&nbsp;
           </span>{" "}
           {t(
-            "language picker — every language runs the full script, not a sample.",
-            "منتقي اللغة — كل لغة تشغّل النص الكامل، لا مقطعاً منه.",
+            "language picker — every language runs the full scripted scenario, not a sample. It is a simulation: the recorded end-to-end calls in the evidence bundle are English and Arabic only.",
+            "منتقي اللغة — كل لغة تشغّل السيناريو الكامل المكتوب، لا مقطعاً منه. وهي محاكاة: فالمكالمات الكاملة المسجّلة في حزمة الأدلة بالعربية والإنجليزية فقط.",
             lang,
           )}
         </div>

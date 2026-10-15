@@ -28,6 +28,7 @@ import { SUPPORTED_LANGS, env, maxTtsChars } from "@/lib/config";
 import { badRequest, tooManyRequests, unprocessable, parseJson } from "@/lib/api-errors";
 import { logError } from "@/lib/validation/safe-log";
 import { db } from "@/lib/db";
+import { countRung } from "@/lib/voice/rung-counter";
 
 export const dynamic = "force-dynamic";
 
@@ -400,6 +401,7 @@ export async function POST(req: NextRequest) {
     // could not be asked as a query at all. Fire-and-forget after the audio is
     // already being returned: an observability insert must never add latency to
     // the path whose latency it is measuring.
+    countRung(result.source, result.degraded);
     void db.ttsSynthesis
       .create({
         data: {

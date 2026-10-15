@@ -92,8 +92,13 @@ const BLOCKED_SUFFIXES = [
  * names because the resolved address is what matters — but a blocklist that
  * ignored them would be theatre, so they are named here and the resolved
  * address is checked anyway.
+ *
+ * Exported because that last sentence is a claim, and a claim about a list is
+ * only testable if the list is reachable: the SSRF suite resolves every entry
+ * here through `validateOutboundUrl`, so deleting a service from this array
+ * removes it from the test's sweep as well.
  */
-const WILDCARD_DNS_SUFFIXES = [".nip.io", ".sslip.io", ".xip.io", ".localtest.me"];
+export const WILDCARD_DNS_SUFFIXES = [".nip.io", ".sslip.io", ".xip.io", ".localtest.me"];
 
 // ── IP classification ───────────────────────────────────────────────────────
 

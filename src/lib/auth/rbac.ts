@@ -74,7 +74,15 @@ export class RawSqlDeniedError extends Error {
   }
 }
 
-const READ_DELEGATES = new Set([
+/**
+ * The delegates that read.
+ *
+ * Exported for one reason: the guard below classifies by EXCLUSION, so a Prisma
+ * upgrade that adds a write delegate silently makes it a read. The RBAC suite
+ * asserts that every function the live client exposes is named in exactly one of
+ * these two sets, which is only possible while both are reachable.
+ */
+export const READ_DELEGATES = new Set([
   "findUnique",
   "findUniqueOrThrow",
   "findFirst",
@@ -82,10 +90,13 @@ const READ_DELEGATES = new Set([
   "findMany",
   "count",
   "aggregate",
+  "aggregateRaw",
+  "findRaw",
   "groupBy",
 ]);
 
-const WRITE_DELEGATES = new Set([
+/** The delegates that write, and are therefore refused to a read-only role. */
+export const WRITE_DELEGATES = new Set([
   "create",
   "createMany",
   "createManyAndReturn",

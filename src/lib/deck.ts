@@ -170,9 +170,9 @@ export const DECK: Slide[] = [
     titleEn: "Honest about the risks",
     titleAr: "صادقون بشأن المخاطر",
     scriptEn:
-      "We are honest about the risks. Customer trust in AI calls — mitigated with transparent introduction, natural voices, and a one-word path to a human. False positives — the agent only triggers above a high-confidence risk threshold, so it never annoys customers about legitimate spending. Integration complexity — standard banking APIs and dedicated integration sprints. Regulatory compliance — built in from design, not bolted on. Multilingual accuracy — extensive native-speaker testing with a continuous feedback loop. And system availability — multi-zone deployment with a 99.99 percent uptime SLA. Every risk has an owner and a mitigation.",
+      "We are honest about the risks. Customer trust in AI calls — mitigated with transparent introduction, natural voices, and a one-word path to a human. False positives — the agent only triggers above a high-confidence risk threshold, so it never annoys customers about legitimate spending. Integration complexity — standard banking APIs and dedicated integration sprints. Regulatory compliance — built in from design, not bolted on. Multilingual accuracy — extensive native-speaker testing with a continuous feedback loop. And system availability — one region today on a single hardened host, with multi-zone deployment on the roadmap and a tested disaster-recovery plan targeted for Q1. Every risk has an owner and a mitigation.",
     scriptAr:
-      "ثقة العملاء تُبنى بالشفافية وسهولة الوصول لبشري. الإنذارات الكاذبة تُدار بعتبات ثقة عالية. التعقيد التقني عبر واجهات قياسية. الامتثال مدمج بالتصميم. الدقة اللغوية باختبار متوسط مع متحدثين أصليين. والتوفر ببنية متعددة المناطق بنسبة ٩٩.٩٩٪.",
+      "ثقة العملاء تُبنى بالشفافية وسهولة الوصول لبشري. الإنذارات الكاذبة تُدار بعتبات ثقة عالية. التعقيد التقني عبر واجهات قياسية. الامتثال مدمج بالتصميم. الدقة اللغوية باختبار متوسط مع متحدثين أصليين. والتوفر اليوم على منطقة واحدة ومضيف واحد مُقوّى، وتعدد المناطق ضمن خارطة الطريق مع خطة تعافٍ مُختبَرة مستهدفها الربع الأول.",
   },
   {
     id: 13,

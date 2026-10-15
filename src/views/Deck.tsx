@@ -783,7 +783,13 @@ function RenderSlide({
               lang,
             )}
           </Chip>
-          <Chip>{t("multi-AZ · 99.99%", "مناطق توافر متعددة · ٩٩.٩٩٪", lang)}</Chip>
+          <Chip>
+            {t(
+              "single region today · multi-zone is roadmap",
+              "منطقة واحدة اليوم · تعدد المناطق في خارطة الطريق",
+              lang,
+            )}
+          </Chip>
         </div>
       </div>
     );
@@ -1030,9 +1036,9 @@ function RenderSlide({
             ],
             [
               "System availability",
-              "Multi-AZ deployment · 99.99% uptime SLA",
+              "Single region on one host today · multi-zone deployment and a tested DR plan are roadmap (target Q1)",
               "جاهزية النظام",
-              "نشر في مناطق توافر متعددة · اتفاقية توافر ٩٩.٩٩٪",
+              "منطقة واحدة على مضيف واحد اليوم · تعدد المناطق وخطة تعافٍ مُختبَرة ضمن خارطة الطريق (مستهدف: الربع الأول)",
             ],
           ].map(([r, m, rAr, mAr]) => (
             <div

@@ -6,8 +6,21 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Loader2, RefreshCcw, Search, ShieldCheck, ShieldX, Download } from "lucide-react";
@@ -134,7 +147,9 @@ export default function AuditExplorer() {
     setChainLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/console/audit?callRef=${encodeURIComponent(ref)}`, { cache: "no-store" });
+      const res = await fetch(`/api/console/audit?callRef=${encodeURIComponent(ref)}`, {
+        cache: "no-store",
+      });
       if (res.status === 404) {
         setChain(null);
         return;
@@ -170,7 +185,9 @@ export default function AuditExplorer() {
     try {
       const res = await fetch("/api/auth/export?take=500", { cache: "no-store" });
       if (res.status === 428) {
-        throw new Error("Re-authentication required before exporting case records (step-up expired).");
+        throw new Error(
+          "Re-authentication required before exporting case records (step-up expired).",
+        );
       }
       if (res.status === 403) {
         throw new Error("Your role cannot bulk-export case records.");
@@ -192,7 +209,17 @@ export default function AuditExplorer() {
 
   const exportCsv = useCallback(() => {
     if (!rows?.rows?.length) return;
-    const headers = ["createdAt", "callRef", "action", "intent", "callerId", "redactedText", "chainHash", "prevHash", "id"];
+    const headers = [
+      "createdAt",
+      "callRef",
+      "action",
+      "intent",
+      "callerId",
+      "redactedText",
+      "chainHash",
+      "prevHash",
+      "id",
+    ];
     const esc = (v: string | null | undefined) => {
       if (v === null || v === undefined) return "";
       const s = String(v).replace(/\r?\n/g, " ").replace(/"/g, '""');
@@ -201,7 +228,17 @@ export default function AuditExplorer() {
     const lines = [headers.join(",")];
     for (const r of rows.rows) {
       lines.push(
-        [r.createdAt, r.callRef, r.action, r.intent, r.callerId, r.redactedText, r.chainHash, r.prevHash, r.id]
+        [
+          r.createdAt,
+          r.callRef,
+          r.action,
+          r.intent,
+          r.callerId,
+          r.redactedText,
+          r.chainHash,
+          r.prevHash,
+          r.id,
+        ]
           .map(esc)
           .join(","),
       );
@@ -217,7 +254,9 @@ export default function AuditExplorer() {
 
   const exportJson = useCallback(() => {
     if (!rows?.rows?.length) return;
-    const blob = new Blob([JSON.stringify(rows.rows, null, 2)], { type: "application/json;charset=utf-8" });
+    const blob = new Blob([JSON.stringify(rows.rows, null, 2)], {
+      type: "application/json;charset=utf-8",
+    });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
@@ -233,20 +272,43 @@ export default function AuditExplorer() {
           <h1 className="text-2xl font-semibold">Audit explorer</h1>
           <p className="text-sm text-muted-foreground">
             Tenant-scoped audit rows, filters, pagination and org-wide integrity. Reads use{" "}
-            <code className="text-xs">scope=rows</code> and <code className="text-xs">scope=integrity</code>.
+            <code className="text-xs">scope=rows</code> and{" "}
+            <code className="text-xs">scope=integrity</code>.
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={() => void loadIntegrity()} disabled={integrityLoading}>
-            {integrityLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCcw className="mr-2 h-4 w-4" />}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void loadIntegrity()}
+            disabled={integrityLoading}
+          >
+            {integrityLoading ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <RefreshCcw className="mr-2 h-4 w-4" />
+            )}
             Refresh integrity
           </Button>
-          <Button variant="outline" size="sm" onClick={() => void loadRows()} disabled={rowsLoading}>
-            {rowsLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCcw className="mr-2 h-4 w-4" />}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void loadRows()}
+            disabled={rowsLoading}
+          >
+            {rowsLoading ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <RefreshCcw className="mr-2 h-4 w-4" />
+            )}
             Refresh rows
           </Button>
           <Button variant="outline" size="sm" onClick={() => void exportPack()} disabled={packBusy}>
-            {packBusy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
+            {packBusy ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <Download className="mr-2 h-4 w-4" />
+            )}
             Compliance pack
           </Button>
           <Button variant="outline" size="sm" onClick={exportCsv} disabled={!rows?.rows?.length}>
@@ -275,16 +337,23 @@ export default function AuditExplorer() {
             {integrity?.broken ? (
               <ShieldX className="h-4 w-4 text-red-500" />
             ) : (
-              <ShieldCheck className={cn("h-4 w-4", integrity?.verified ? "text-green-500" : "text-muted-foreground")} />
+              <ShieldCheck
+                className={cn(
+                  "h-4 w-4",
+                  integrity?.verified ? "text-green-500" : "text-muted-foreground",
+                )}
+              />
             )}
             Org-wide integrity
           </CardTitle>
           <CardDescription>
             {integrity ? (
               <>
-                {integrity.chainsChecked} chain{integrity.chainsChecked === 1 ? "" : "s"} checked, {integrity.verified} verified
+                {integrity.chainsChecked} chain{integrity.chainsChecked === 1 ? "" : "s"} checked,{" "}
+                {integrity.verified} verified
                 {integrity.broken ? ` — BROKEN at ${integrity.broken.callRef}` : " — OK"}
-                {integrity.complete ? " (complete)" : " (capped at 200)"}, {integrity.totalRows} total rows
+                {integrity.complete ? " (complete)" : " (capped at 200)"}, {integrity.totalRows}{" "}
+                total rows
               </>
             ) : (
               "Loading…"
@@ -309,45 +378,118 @@ export default function AuditExplorer() {
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-base">Filters</CardTitle>
-          <CardDescription>Narrow by text, actor, action/intent, callRef or date range.</CardDescription>
+          <CardDescription>
+            Narrow by text, actor, action/intent, callRef or date range.
+          </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
           <div className="space-y-1">
-            <Label htmlFor="q" className="text-xs">Search (redactedText or callRef)</Label>
+            <Label htmlFor="q" className="text-xs">
+              Search (redactedText or callRef)
+            </Label>
             <div className="relative">
               <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
-              <Input id="q" value={q} onChange={(e) => setQ(e.target.value)} placeholder="contains…" className="pl-8" />
+              <Input
+                id="q"
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                placeholder="contains…"
+                className="pl-8"
+              />
             </div>
           </div>
           <div className="space-y-1">
-            <Label htmlFor="action" className="text-xs">Action</Label>
-            <Input id="action" value={action} onChange={(e) => setAction(e.target.value)} placeholder="freeze / handoff…" />
+            <Label htmlFor="action" className="text-xs">
+              Action
+            </Label>
+            <Input
+              id="action"
+              value={action}
+              onChange={(e) => setAction(e.target.value)}
+              placeholder="freeze / handoff…"
+            />
           </div>
           <div className="space-y-1">
-            <Label htmlFor="intent" className="text-xs">Intent</Label>
-            <Input id="intent" value={intent} onChange={(e) => setIntent(e.target.value)} placeholder="…" />
+            <Label htmlFor="intent" className="text-xs">
+              Intent
+            </Label>
+            <Input
+              id="intent"
+              value={intent}
+              onChange={(e) => setIntent(e.target.value)}
+              placeholder="…"
+            />
           </div>
           <div className="space-y-1">
-            <Label htmlFor="actor" className="text-xs">Actor (callerId)</Label>
-            <Input id="actor" value={actor} onChange={(e) => setActor(e.target.value)} placeholder="seed / user id…" />
+            <Label htmlFor="actor" className="text-xs">
+              Actor (callerId)
+            </Label>
+            <Input
+              id="actor"
+              value={actor}
+              onChange={(e) => setActor(e.target.value)}
+              placeholder="seed / user id…"
+            />
           </div>
           <div className="space-y-1">
-            <Label htmlFor="callRef" className="text-xs">callRef</Label>
-            <Input id="callRef" value={callRef} onChange={(e) => setCallRef(e.target.value)} placeholder="SV-…" />
+            <Label htmlFor="callRef" className="text-xs">
+              callRef
+            </Label>
+            <Input
+              id="callRef"
+              value={callRef}
+              onChange={(e) => setCallRef(e.target.value)}
+              placeholder="SV-…"
+            />
           </div>
           <div className="space-y-1">
-            <Label htmlFor="from" className="text-xs">From (ISO)</Label>
-            <Input id="from" type="datetime-local" value={from} onChange={(e) => setFrom(e.target.value)} />
+            <Label htmlFor="from" className="text-xs">
+              From (ISO)
+            </Label>
+            <Input
+              id="from"
+              type="datetime-local"
+              value={from}
+              onChange={(e) => setFrom(e.target.value)}
+            />
           </div>
           <div className="space-y-1">
-            <Label htmlFor="to" className="text-xs">To (ISO)</Label>
-            <Input id="to" type="datetime-local" value={to} onChange={(e) => setTo(e.target.value)} />
+            <Label htmlFor="to" className="text-xs">
+              To (ISO)
+            </Label>
+            <Input
+              id="to"
+              type="datetime-local"
+              value={to}
+              onChange={(e) => setTo(e.target.value)}
+            />
           </div>
           <div className="flex items-end gap-2">
-            <Button variant="outline" size="sm" onClick={() => { setOffset(0); void loadRows(); }} disabled={rowsLoading}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setOffset(0);
+                void loadRows();
+              }}
+              disabled={rowsLoading}
+            >
               Apply
             </Button>
-            <Button variant="ghost" size="sm" onClick={() => { setQ(""); setAction(""); setIntent(""); setActor(""); setCallRef(""); setFrom(""); setTo(""); setOffset(0); }}>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setQ("");
+                setAction("");
+                setIntent("");
+                setActor("");
+                setCallRef("");
+                setFrom("");
+                setTo("");
+                setOffset(0);
+              }}
+            >
               Clear
             </Button>
           </div>
@@ -360,8 +502,8 @@ export default function AuditExplorer() {
           <CardDescription>
             {rows ? (
               <>
-                Showing {rows.rows.length} of {rows.total} (limit {rows.limit}, offset {rows.offset})
-                {rows.hasMore ? " — has more" : ""}
+                Showing {rows.rows.length} of {rows.total} (limit {rows.limit}, offset {rows.offset}
+                ){rows.hasMore ? " — has more" : ""}
               </>
             ) : (
               "Loading…"
@@ -385,7 +527,10 @@ export default function AuditExplorer() {
               <TableBody>
                 {rowsLoading ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="py-8 text-center text-sm text-muted-foreground">
+                    <TableCell
+                      colSpan={7}
+                      className="py-8 text-center text-sm text-muted-foreground"
+                    >
                       <Loader2 className="mx-auto mb-2 h-4 w-4 animate-spin" />
                       Loading…
                     </TableCell>
@@ -393,7 +538,9 @@ export default function AuditExplorer() {
                 ) : rows?.rows?.length ? (
                   rows.rows.map((r) => (
                     <TableRow key={r.id}>
-                      <TableCell className="whitespace-nowrap text-xs">{fmtDate(r.createdAt)}</TableCell>
+                      <TableCell className="whitespace-nowrap text-xs">
+                        {fmtDate(r.createdAt)}
+                      </TableCell>
                       <TableCell className="whitespace-nowrap">
                         <button
                           className="text-left text-xs font-medium hover:underline"
@@ -408,24 +555,42 @@ export default function AuditExplorer() {
                       </TableCell>
                       <TableCell className="whitespace-nowrap">
                         <div className="flex flex-wrap items-center gap-1">
-                          {r.action ? <Badge variant="outline" className="text-[10px]">{r.action}</Badge> : null}
-                          {r.intent && r.intent !== r.action ? <Badge variant="outline" className="text-[10px]">{r.intent}</Badge> : null}
+                          {r.action ? (
+                            <Badge variant="outline" className="text-[10px]">
+                              {r.action}
+                            </Badge>
+                          ) : null}
+                          {r.intent && r.intent !== r.action ? (
+                            <Badge variant="outline" className="text-[10px]">
+                              {r.intent}
+                            </Badge>
+                          ) : null}
                         </div>
                       </TableCell>
-                      <TableCell className="whitespace-nowrap text-xs">{r.callerId || "—"}</TableCell>
-                      <TableCell className="max-w-[420px] truncate text-xs" title={r.redactedText || undefined}>
+                      <TableCell className="whitespace-nowrap text-xs">
+                        {r.callerId || "—"}
+                      </TableCell>
+                      <TableCell
+                        className="max-w-[420px] truncate text-xs"
+                        title={r.redactedText || undefined}
+                      >
                         {r.redactedText || "—"}
                       </TableCell>
                       <TableCell className="whitespace-nowrap text-[10px] text-muted-foreground">
                         <div>chain:{short(r.chainHash)}</div>
                         <div>prev:{short(r.prevHash)}</div>
                       </TableCell>
-                      <TableCell className="whitespace-nowrap text-[10px] text-muted-foreground">{short(r.id, 10)}</TableCell>
+                      <TableCell className="whitespace-nowrap text-[10px] text-muted-foreground">
+                        {short(r.id, 10)}
+                      </TableCell>
                     </TableRow>
                   ))
                 ) : (
                   <TableRow>
-                    <TableCell colSpan={7} className="py-8 text-center text-sm text-muted-foreground">
+                    <TableCell
+                      colSpan={7}
+                      className="py-8 text-center text-sm text-muted-foreground"
+                    >
                       No rows for these filters.
                     </TableCell>
                   </TableRow>
@@ -434,9 +599,7 @@ export default function AuditExplorer() {
             </Table>
           </div>
           <div className="flex items-center justify-between gap-2 p-3">
-            <div className="text-xs text-muted-foreground">
-              Page offset {rows?.offset ?? 0}
-            </div>
+            <div className="text-xs text-muted-foreground">Page offset {rows?.offset ?? 0}</div>
             <div className="flex items-center gap-2">
               <Button
                 variant="outline"
@@ -450,7 +613,9 @@ export default function AuditExplorer() {
                 variant="outline"
                 size="sm"
                 disabled={!rows?.hasMore || rowsLoading}
-                onClick={() => setOffset(rows?.nextOffset ?? (rows?.offset ?? 0) + (rows?.limit ?? limit))}
+                onClick={() =>
+                  setOffset(rows?.nextOffset ?? (rows?.offset ?? 0) + (rows?.limit ?? limit))
+                }
               >
                 Next
               </Button>
@@ -487,13 +652,19 @@ export default function AuditExplorer() {
                 {chain.rows.map((r, i) => (
                   <Card key={r.id}>
                     <CardHeader className="pb-2">
-                      <CardTitle className="text-sm">#{i + 1} — {r.action || r.intent || "event"}</CardTitle>
-                      <CardDescription className="text-xs">{fmtDate(r.createdAt)} · caller {r.callerId || "—"}</CardDescription>
+                      <CardTitle className="text-sm">
+                        #{i + 1} — {r.action || r.intent || "event"}
+                      </CardTitle>
+                      <CardDescription className="text-xs">
+                        {fmtDate(r.createdAt)} · caller {r.callerId || "—"}
+                      </CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-2 text-xs">
                       <div>
                         <div className="text-muted-foreground">redactedText</div>
-                        <div className="whitespace-pre-wrap break-words">{r.redactedText || "—"}</div>
+                        <div className="whitespace-pre-wrap break-words">
+                          {r.redactedText || "—"}
+                        </div>
                       </div>
                       <div className="grid gap-1 md:grid-cols-2">
                         <div>

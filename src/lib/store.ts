@@ -119,13 +119,7 @@ function initialContrast(): boolean {
  * view module into the state layer.
  */
 export type SettingsTab =
-  | "org"
-  | "keys"
-  | "knowledge"
-  | "team"
-  | "security"
-  | "retention"
-  | "billing";
+  "org" | "keys" | "knowledge" | "team" | "security" | "retention" | "billing";
 
 interface AppState {
   view: View;

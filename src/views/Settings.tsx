@@ -95,8 +95,7 @@ export function Settings() {
   const { lang, setView, highContrast, setHighContrast, settingsTab } = useApp();
   const [tab, setTab] = useState<
     "org" | "keys" | "knowledge" | "team" | "security" | "retention" | "billing"
-  >(settingsTab,
-  );
+  >(settingsTab);
   const [settings, setSettings] = useState<Settings | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -1016,7 +1015,11 @@ export function Settings() {
                   </li>
                   <li className="rounded-2xl border border-line bg-paper p-4">
                     <p className="text-[13px] font-semibold">
-                      {t("Audit chain — permanent, hashes only", "سلسلة التدقيق — دائمة، وتجزئات فقط", lang)}
+                      {t(
+                        "Audit chain — permanent, hashes only",
+                        "سلسلة التدقيق — دائمة، وتجزئات فقط",
+                        lang,
+                      )}
                     </p>
                     <p className="mt-1 text-[12px] leading-relaxed text-ink-3">
                       {t(

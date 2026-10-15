@@ -34,7 +34,12 @@ import {
 import { MAX_READ_BYTES, readSpanRecords, spanLogDisplayPath, telemetryHealth } from "./store";
 import { exporterConfigured } from "./export";
 
-export const EVIDENCE_SCHEMA_VERSION = "2.0";
+/**
+ * 3.0 because the artifact changes meaning, not just shape: `spans` now carries
+ * verdicts over production-shaped samples only, and the samples that filled this
+ * file up to 2.0 are reported separately under `spans_harness` with no verdict.
+ */
+export const EVIDENCE_SCHEMA_VERSION = "3.0";
 
 /** The brief's definition of done. */
 export const REQUIRED_INTERVENTIONS = 30;
@@ -46,7 +51,10 @@ export const PERSISTENCE_NOTE =
 
 const DISCLAIMER =
   "Every value below is computed from spans recorded by the running platform (src/lib/telemetry/spans.ts -> spans.jsonl). " +
-  "Nothing is transcribed, estimated or synthesised. `null` means NOT MEASURED and is not a pass; `value_kind` says which it is.";
+  "Nothing is transcribed, estimated or synthesised. `null` means NOT MEASURED and is not a pass; `value_kind` says which it is. " +
+  "`spans` are verdicts over LIVE samples only - a span recorded by a process that is not running the way production runs " +
+  "(NODE_ENV=production) is counted in `spans_harness` and judged there by nothing. That split exists because this file " +
+  "previously published a production p95 built entirely out of test-suite traffic.";
 
 /* ————————————————————————————————— rows ————————————————————————————————— */
 
@@ -123,7 +131,11 @@ export type SloEvidence = {
   meets_30_intervention_threshold: boolean;
   sample_floor: number;
   industry_baseline: { label: string; ms: number; kind: string; sources: readonly string[] };
+  /** Verdicts over `live` samples only. */
   spans: SloSpanRow[];
+  /** The harness population, labelled and unjudged. */
+  spans_harness: SloSpanRow[];
+  origin_accounting: { live_records: number; harness_records: number; rule: string };
   spans_not_measured: SpanName[];
   worst: {
     name: SpanName;
@@ -188,10 +200,24 @@ export function buildSloReport(
     sinceMs === undefined ? true : r.startedAtMs >= sinceMs,
   );
 
-  const summaries = summariseWindow(records, { sinceMs, nowMs });
+  // Two populations, one verdict.
+  //
+  // Everything the gate asserts — the 30-intervention threshold and every p95 —
+  // is computed over samples recorded by a service started the way production
+  // starts one. The harness population is reported beside it, labelled, because it
+  // is genuinely useful for spotting a regression; what it must never again be is
+  // a production SLO. Before this split the artifact published p50 3,179 ms against
+  // a 300 ms budget from 1,733 samples, every one written by `bun test`, including
+  // the tiers that load the intake route on purpose — and simultaneously counted 88
+  // "real interventions" that were nothing of the sort.
+  const live = records.filter((r) => r.origin === "live");
+  const harness = records.filter((r) => r.origin !== "live");
+
+  const summaries = summariseWindow(live, { sinceMs, nowMs });
+  const harnessSummaries = summariseWindow(harness, { sinceMs, nowMs });
   const rows = summaries.map(toRow);
-  const seen = countInterventions(records);
-  const complete = completeInterventionIds(records);
+  const seen = countInterventions(live);
+  const complete = completeInterventionIds(live);
   const meetsThreshold = complete.length >= required;
   const metAllMeasured = allTargetsMet(summaries.filter((s) => s.samples > 0));
   const worst = worstSpan(summaries);
@@ -208,9 +234,20 @@ export function buildSloReport(
   if (records.length === 0) {
     reasons.push("Zero spans in the window - every span below is not_measured.");
   }
+  if (records.length > 0 && live.length === 0) {
+    // The important reason of the three: samples exist, and none of them may be
+    // used. Saying "not_measured" alone would read like nothing happened, when what
+    // happened is 1,733 harness spans being refused as production evidence.
+    reasons.push(
+      `Zero live samples in the window, ${harness.length} harness sample(s) excluded. ` +
+        `The gate reports production latency, so it will stay red until a service started ` +
+        `with NODE_ENV=production records spans - promoting harness traffic to fix that is ` +
+        `the exact move this split exists to make impossible.`,
+    );
+  }
   if (!meetsThreshold) {
     reasons.push(
-      `Only ${complete.length} complete intervention(s) recorded (an intervention counts only when "${TERMINAL_SPAN}" completed); ` +
+      `Only ${complete.length} complete live intervention(s) recorded (an intervention counts only when "${TERMINAL_SPAN}" completed and the sample came from a production-shaped process); ` +
         `the brief requires ${required} real interventions.`,
     );
   }
@@ -264,6 +301,16 @@ export function buildSloReport(
       sources: INDUSTRY_BASELINE.sources,
     },
     spans: rows,
+    // The harness population, published and labelled rather than mixed in. Useful
+    // for "did this change make the intake slower" between two CI runs; useless as
+    // a number anyone outside this repository is allowed to quote, which is why it
+    // carries no verdicts.
+    spans_harness: harnessSummaries.map(toRow),
+    origin_accounting: {
+      live_records: live.length,
+      harness_records: harness.length,
+      rule: "a sample is `live` only if the process that recorded it runs with NODE_ENV=production; lines written before the field existed read as harness",
+    },
     spans_not_measured: rows.filter((r) => r.value_kind === "not_measured").map((r) => r.name),
     worst:
       worst && worstP95 !== null

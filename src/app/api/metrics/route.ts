@@ -7,6 +7,9 @@ import { admissionSnapshot } from "@/lib/admission";
 import { capacitySnapshot } from "@/lib/capacity";
 import { queueDepth } from "@/lib/scale/queue";
 import { auditAppendFailures } from "@/lib/audit-chain";
+import { llmBreakerState } from "@/lib/llm";
+import { getPoolStatus } from "@/lib/elevenlabs/pool";
+import { degradedSnapshot, rungSnapshot } from "@/lib/voice/rung-counter";
 
 export const dynamic = "force-dynamic";
 
@@ -188,6 +191,55 @@ export async function GET(req: Request) {
     );
   } catch {
     push("sv_outbox_pending", "Bank notifications waiting for delivery.", "gauge", -1);
+  }
+
+  // ── voice degradation: is this process falling back right now ───────────
+  // Twenty collectors covered capacity, queues and the outbox, and none of them
+  // moved when the voice engine degraded — a rung drop was a log line, which is
+  // how degradation stays invisible until a customer complains. These are
+  // in-memory gauges for THIS instance (see rung-counter.ts for why they are not
+  // database reads on the voice path); `sv_tts_rung_total` moving from
+  // `{rung="elevenlabs"}` toward `{rung="emergency"}` is the signal.
+  try {
+    const llm = llmBreakerState();
+    push(
+      "sv_llm_breaker_open",
+      "1 when the LLM breaker is open and turns are being answered by script.",
+      "gauge",
+      llm.state === "open" ? 1 : 0,
+    );
+    push(
+      "sv_llm_breaker_consecutive_failures",
+      "Consecutive provider failures recorded by the LLM breaker.",
+      "gauge",
+      llm.consecutiveFailures,
+    );
+    const pool = getPoolStatus();
+    push("sv_tts_keys_total", "ElevenLabs keys configured in the pool.", "gauge", pool.length);
+    push(
+      "sv_tts_keys_cooling",
+      "Pooled keys currently in cooldown after failures or quota exhaustion.",
+      "gauge",
+      pool.filter((k) => !k.available).length,
+    );
+    for (const { rung, total } of rungSnapshot()) {
+      push(
+        "sv_tts_rung_total",
+        "Syntheses served by each rung of the fallback ladder, this instance.",
+        "counter",
+        total,
+        `{rung="${rung}"}`,
+      );
+    }
+    push(
+      "sv_tts_degraded_total",
+      "Syntheses this instance served from a non-primary rung.",
+      "counter",
+      degradedSnapshot(),
+    );
+  } catch {
+    push("sv_llm_breaker_open", "1 when the LLM breaker is open.", "gauge", -1);
+    push("sv_tts_rung_total", "Syntheses served by each rung.", "counter", -1);
   }
 
   // ── audit chain freshness ───────────────────────────────────────────────

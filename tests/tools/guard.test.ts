@@ -16,7 +16,7 @@ import { test, expect } from "bun:test";
 import { NextRequest } from "next/server";
 import { db } from "@/lib/db";
 import { verifyChain } from "@/lib/audit-chain";
-import { TOOL_TENANT_ORG_ID, issueTenantToolSecret, revokeTenantToolSecrets } from "../tool-tenant";
+import { TOOL_TENANT_ORG_ID, issueTenantToolSecret } from "../tool-tenant";
 
 process.env.ELEVENLABS_DRY_RUN = "true";
 process.env.AGENT_TOOL_SECRET = process.env.AGENT_TOOL_SECRET ?? "test-tool-secret";
@@ -88,7 +88,7 @@ test("WP-3: tools enforce guardrails - 409s, tool scoping, p95, audit", async ()
   expect(d1.code).toBe("state_precondition_failed");
 
   // verify_transaction from RECEIVED → 409.
-  const earlyCase = await makeCase("RECEIVED", C_VERIFY);
+  await makeCase("RECEIVED", C_VERIFY);
   const r2 = await verify(
     toolRequest("verify-transaction", { conversation_id: C_VERIFY, outcome: "confirmed_fraud" }),
   );
@@ -173,7 +173,7 @@ test("WP-3: tools enforce guardrails - 409s, tool scoping, p95, audit", async ()
   })();
   const isCoLocated = /^(localhost|127\.0\.0\.1|::1|db|postgres|0\.0\.0\.0)$/.test(dbHost);
 
-  const latCase = await makeCase("ANSWERED", C_LATENCY);
+  await makeCase("ANSWERED", C_LATENCY);
   // Fewer samples off-box: each remote round-trip is ~300 ms, so a 200-call
   // sweep costs minutes and tells us nothing extra about our code.
   const N = isCoLocated ? 200 : 40;

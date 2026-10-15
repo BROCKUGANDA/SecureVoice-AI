@@ -122,12 +122,39 @@ describe("the pricing block", () => {
 });
 
 describe("the claims", () => {
-  test("the retention window matches the one the erasure code enforces", async () => {
+  test("the retention window is the erasure code's number, not a copy of it", async () => {
     const { body } = await fetchFile();
-    expect(body).toContain("retained for 30 days");
-    // The same number, from the module that actually deletes.
+    // The module that deletes is the source. This used to assert the text contained
+    // a literal `30` and then assert the constant equalled the same literal `30`,
+    // which says nothing about whether the two still agree after either changes.
     const { DEFAULT_RETENTION_DAYS } = await import("@/lib/privacy/retention");
-    expect(DEFAULT_RETENTION_DAYS.audio).toBe(30);
+    expect(body).toContain(`retained for ${DEFAULT_RETENTION_DAYS.audio} days`);
+    expect(body).toContain(`retained for ${DEFAULT_RETENTION_DAYS.transcripts} days`);
+  });
+
+  test("the published soft-freeze window is the window the server enforces", async () => {
+    // The bug this replaces: `llms.txt` published "a 24-hour hold" while the
+    // enforced default was 300 seconds. Both are now one value, so the gate has to
+    // prove the sentence FOLLOWS that value — asserting it equals the current
+    // default would pass against a re-hardcoded "24 hours".
+    const { env } = await import("@/lib/config");
+    expect(await (await fetchFile()).body).toContain(
+      `${env.reversalWindowSecs % 3600 === 0 ? env.reversalWindowSecs / 3600 + " hours" : env.reversalWindowSecs / 60 + " minutes"}`,
+    );
+
+    const prior = process.env.REVERSAL_WINDOW_SECS;
+    process.env.REVERSAL_WINDOW_SECS = "5400";
+    try {
+      const { body } = await fetchFile();
+      expect(body, "the text must follow the setting, not remember it").toContain("90 minutes");
+      expect(body).not.toContain("24 hours");
+    } finally {
+      if (prior === undefined) delete process.env.REVERSAL_WINDOW_SECS;
+      else process.env.REVERSAL_WINDOW_SECS = prior;
+    }
+
+    // And the ruling the sentence carries: expiry escalates, it never reverses.
+    expect((await fetchFile()).body).toContain("escalated to a human rather than reversed");
   });
 
   test("it does not promise a payment to an end user", async () => {

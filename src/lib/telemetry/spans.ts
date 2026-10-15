@@ -135,16 +135,49 @@ export const INDUSTRY_BASELINE = Object.freeze({
 
 /* ————————————————————————————————— record ————————————————————————————————— */
 
-/** Bumped only on a breaking change to the JSONL line shape. */
-export const SPAN_RECORD_VERSION = 1;
+/**
+ * Bumped because every line now carries `origin`. The change is additive and the
+ * reader tolerates v1 — a line without an origin is read as unverified, never as
+ * live — so no previously written evidence is reinterpreted upward.
+ */
+export const SPAN_RECORD_VERSION = 2;
 
 export type SpanAttributes = Record<string, string | number | boolean>;
+
+/**
+ * Which process recorded the sample.
+ *
+ * `live` is a service started the way production starts one (`NODE_ENV=production`
+ * in the Dockerfile and every compose service). `harness` is everything else —
+ * `bun test`, the load and chaos tiers, any local run.
+ *
+ * This exists because the latency evidence published itself as a production SLO
+ * while every sample in it was written by the test suites, including the tiers that
+ * hammer the intake route deliberately. The gate then reported
+ * `signal_received_to_accepted` p50 3,179 ms against a 300 ms budget — a real number
+ * measuring the wrong thing, and the kind of number that gets quoted to a bank.
+ *
+ * KNOWN LIMIT: this classifies the PROCESS, not the traffic. A synthetic request
+ * that reaches a production container records as `live`. Nothing in the ingest path
+ * marks a request as synthetic today; the load tier's `SV-LA-` org prefix and the
+ * dry-run flags are the nearest thing, and neither is honoured by the recorder.
+ * Closing that needs an explicit synthetic marker on the request, which is recorded
+ * as a gap rather than guessed at here.
+ */
+export type SpanOrigin = "live" | "harness";
+
+/** Read per record, not once at import, so a test can prove both branches. */
+export function spanOrigin(env: NodeJS.ProcessEnv = process.env): SpanOrigin {
+  return env.NODE_ENV === "production" ? "live" : "harness";
+}
 
 export type SpanRecord = {
   /** Schema version of this line. */
   v: number;
   /** Machine span name. */
   span: SpanName;
+  /** The plane that produced the sample. Verdicts are computed over `live` only. */
+  origin: SpanOrigin;
   /** Wall-clock ISO 8601, UTC. */
   startedAt: string;
   endedAt: string;
@@ -287,6 +320,7 @@ export function recordSpan(input: SpanInput): SpanRecord | null {
     const record: SpanRecord = Object.freeze({
       v: SPAN_RECORD_VERSION,
       span: input.span,
+      origin: spanOrigin(),
       startedAt,
       endedAt,
       startedAtMs,
@@ -435,8 +469,14 @@ function parseSpanRecordUnguarded(raw: unknown): SpanRecord | null {
       ? o.traceId
       : traceIdFor(String(o.interventionId ?? "unattributed"));
   return {
-    v: typeof o.v === "number" ? o.v : SPAN_RECORD_VERSION,
+    v: typeof o.v === "number" ? o.v : 1,
     span: o.span,
+    // A line with no origin was written before origins existed, and there is no
+    // honest way to promote it. Defaulting to `live` would let the 4,360 samples
+    // already in the artifact — every one of them harness traffic — keep counting
+    // toward the production SLO the moment the reader learned the field. Unverified
+    // reads as harness; the live population starts at zero and grows from here.
+    origin: o.origin === "live" ? "live" : "harness",
     startedAt:
       typeof o.startedAt === "string" ? o.startedAt : new Date(o.startedAtMs).toISOString(),
     endedAt:

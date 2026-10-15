@@ -92,6 +92,7 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { Prisma } from "@/generated/prisma/client";
 import { db, dbAudit } from "@/lib/db";
+import { env } from "@/lib/config";
 import { leakScan } from "@/lib/failures/envelope";
 import { append as auditAppend } from "@/lib/audit-chain";
 import { POST as cardFreeze } from "@/app/api/elevenlabs/tools/card-freeze/route";
@@ -769,7 +770,11 @@ describe("POST /api/elevenlabs/tools/card-freeze", () => {
       ok: true,
       staged: true,
       committed: false,
-      reversal_window_secs: 300,
+      // Derived, not `300`. The window's default moved to 24 hours (it is the
+      // number /llms.txt publishes), and a literal here would have failed for the
+      // wrong reason: the property is that the route reports the CONFIGURED window
+      // to the agent, not what that window happens to be.
+      reversal_window_secs: env.reversalWindowSecs,
       reference: "SV-FRZ-SV-JOURNEY-FRZ",
       case_ref: "SV-JOURNEY-FRZ",
       state: "FREEZE_STAGED",
@@ -807,7 +812,9 @@ describe("POST /api/elevenlabs/tools/card-freeze", () => {
       tool: "card_freeze",
       stage: "pending_specialist",
       committed: false,
-      reversal_window_secs: 300,
+      // The same window the response told the agent, in the audit row — the two
+      // must not be able to disagree about what was promised.
+      reversal_window_secs: env.reversalWindowSecs,
       from: "CONFIRMED_FRAUD",
       to: "FREEZE_STAGED",
       source: "elevenlabs_agent_tool",

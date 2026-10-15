@@ -28,6 +28,8 @@ import {
   CapabilityError,
   hasCapability,
   rbacDb,
+  READ_DELEGATES,
+  WRITE_DELEGATES,
 } from "@/lib/auth/rbac";
 import {
   CAPABILITIES,
@@ -509,4 +511,54 @@ test("a role that cannot perform the action gets 403, not 428", async () => {
   if (result.ok) throw new Error("unreachable");
   expect(result.status).toBe(403);
   expect(result.code).toBe("capability_denied");
+});
+
+test("every delegate the client exposes is classified read or write", () => {
+  // `guardDelegate` refuses the names in WRITE_DELEGATES and passes everything
+  // else through, on the stated reasoning that an unrecognised Prisma delegate is
+  // more likely a read than a write. That is a reasonable bet and an unreasonable
+  // silence: the day the ORM adds a write-shaped delegate, an Auditor's client
+  // gains it with nothing failing anywhere. So the two sets are published, and
+  // this walks the live client and requires every method on a model delegate to be
+  // named by exactly one of them.
+  //
+  // Model delegates only. The client's own `$queryRaw`/`_request`/`$extends` are
+  // deliberately out of scope — RawSqlDeniedError explains why raw access is a
+  // different control, and `rbacDb` passes `$`-prefixed keys straight through.
+  const isModelDelegate = (value: unknown): boolean => {
+    if (!value || typeof value !== "object") return false;
+    return typeof (value as Record<string, unknown>).findUnique === "function";
+  };
+
+  const methodsByModel = new Map<string, string[]>();
+  for (const key of Object.keys(db)) {
+    const delegate = (db as unknown as Record<string, unknown>)[key];
+    if (!isModelDelegate(delegate)) continue;
+    const methods = Object.entries(delegate as Record<string, unknown>)
+      .filter(([, value]) => typeof value === "function")
+      .map(([name]) => name);
+    methodsByModel.set(key, methods);
+  }
+
+  // The measurement must not be allowed to become empty, which is how a check
+  // like this goes green while proving nothing: if enumeration ever stops
+  // yielding methods, this fails rather than vacuously passing.
+  const allMethods = [...methodsByModel.values()].flat();
+  expect(methodsByModel.size).toBeGreaterThan(0);
+  for (const required of ["create", "update", "delete", "findMany"]) {
+    expect(allMethods).toContain(required);
+  }
+
+  const unclassified = [
+    ...new Set(allMethods.filter((m) => !READ_DELEGATES.has(m) && !WRITE_DELEGATES.has(m))),
+  ].sort();
+  expect({
+    models: methodsByModel.size,
+    unclassified,
+  }).toEqual({ models: methodsByModel.size, unclassified: [] });
+
+  // A name in both sets would make the guard's order decide an Auditor's
+  // permission, which is not a thing that should depend on a loop.
+  const ambiguous = [...WRITE_DELEGATES].filter((m) => READ_DELEGATES.has(m)).sort();
+  expect(ambiguous).toEqual([]);
 });

@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { INDEXABLE_PATHS } from "@/app/sitemap";
 import { COMPANY, PLANS, PRICE_CURRENCY } from "@/lib/commercial";
+import { env } from "@/lib/config";
+import { DEFAULT_RETENTION_DAYS } from "@/lib/privacy/retention";
 import { SUPPORT_EMAIL } from "@/lib/public-config";
 import { siteOrigin } from "@/lib/site-origin";
 
@@ -33,6 +35,30 @@ export const dynamic = "force-dynamic";
  * the pricing page, the checkout and the JSON-LD already read. The numbers a search
  * engine quotes are then the numbers a customer is charged.
  */
+
+/**
+ * A duration in the unit that reads naturally, from the value the code enforces.
+ *
+ * This file's own contract is that every line is "a property the code enforces".
+ * Until now the two durations were typed in: the audio/transcript days duplicated
+ * `DEFAULT_RETENTION_DAYS`, and "a 24-hour hold" sat next to a reversal window the
+ * server had defaulted to 300 seconds. An operator changing either setting would
+ * change the behaviour and leave the sentence — which is the one an answer engine
+ * quotes and a compliance reviewer cites back. The helper is the cheap half of the
+ * fix; `tests/surface/llms-txt.test.ts` asserting the numbers against the sources
+ * is the half that cannot be forgotten later.
+ */
+function durationPhrase(secs: number): string {
+  if (secs % 3600 === 0) {
+    const h = secs / 3600;
+    return `${h} hour${h === 1 ? "" : "s"}`;
+  }
+  if (secs % 60 === 0) {
+    const m = secs / 60;
+    return `${m} minute${m === 1 ? "" : "s"}`;
+  }
+  return `${secs} seconds`;
+}
 
 /** One-line description of each indexable path, for a reader with no context. */
 const PURPOSE: Record<string, string> = {
@@ -124,9 +150,9 @@ Prepaid credit packs are also available as one-time purchases, and an unused bal
 
 - Every outbound call passes a policy gate first: consent record, do-not-call registry, calling hours, country allowlist, cooldown, concurrency cap, spend ceiling, then a credit reservation. A refusal is a 409 with a machine-readable code, never a 500.
 - Regulatory calling windows are honoured for routine calls, including UAE prayer times and Friday Jumu'ah. A time-critical fraud verification is not blocked by them.
-- Call audio is retained for 30 days and then deleted. Transcripts are retained for 90 days, after which the per-case encryption key is shredded; they are redacted before storage, and a raw card number is never held. The tamper-evident audit chain is retained permanently and holds hashes only.
+- Call audio is retained for ${DEFAULT_RETENTION_DAYS.audio} days and then deleted. Transcripts are retained for ${DEFAULT_RETENTION_DAYS.transcripts} days, after which the per-case encryption key is shredded; they are redacted before storage, and a raw card number is never held. The tamper-evident audit chain is retained permanently and holds hashes only.
 - The AI cannot give financial advice, cannot unfreeze an account, and cannot ask for a PIN or password. Those are prompt-level rules AND post-processing checks on the spoken output; a request for advice transfers to a human.
-- A soft freeze is a 24-hour hold. A permanent action requires a human on the bank's side, and the audit chain — hash-linked, append-only — records who did what.
+- A soft freeze is staged, not executed: ${durationPhrase(env.reversalWindowSecs)} for a second actor on the bank's side to commit it, and if that window closes undecided the hold is escalated to a human rather than reversed — nothing is ever frozen on the bank's ledger by this platform, so there is nothing to unfreeze. A permanent action requires that human, and the audit chain — hash-linked, append-only — records who did what.
 - Tenant isolation is enforced in Postgres row-level security on tenant-owned tables, not only in the application layer.
 - Integrations are adapters: LLM, TTS, STT, telecom and the bank's own core-banking API each sit behind an interface, with per-tenant keys, so a bank that mandates a different vendor is a configuration change.
 

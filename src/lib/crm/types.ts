@@ -13,6 +13,8 @@
  * `transactionRef` / `auditRef` inside the institution's own systems.
  */
 
+import type { DnsResolver } from "@/lib/validation/ssrf";
+
 export const CRM_PROVIDERS = ["zendesk", "salesforce", "webhook"] as const;
 export type CrmProvider = (typeof CRM_PROVIDERS)[number];
 
@@ -102,7 +104,7 @@ export type AdapterDeps = {
    * DNS resolver passed through to the SSRF guard. Production leaves this
    * unset (dns.lookup); tests inject one so no network is touched.
    */
-  resolver?: import("@/lib/validation/ssrf").DnsResolver;
+  resolver?: DnsResolver;
 };
 
 export type Adapter<C> = (

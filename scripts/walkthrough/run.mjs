@@ -8,7 +8,7 @@
  * Usage: node run.mjs [--dry-run] [--skip-capture]
  */
 import path from "node:path";
-import { BASE, OUT, run, readJson, writeJson } from "./lib.mjs";
+import { BASE, OUT, run, writeJson } from "./lib.mjs";
 
 const status = await fetch(BASE + "/api/status", { signal: AbortSignal.timeout(30000) }).then((r) =>
   r.json(),

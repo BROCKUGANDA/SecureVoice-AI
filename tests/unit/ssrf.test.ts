@@ -85,6 +85,7 @@ import {
   safeFetch,
   validateOutboundUrl,
   validateRedirectChain,
+  WILDCARD_DNS_SUFFIXES,
   type DnsResolver,
   type ResolvedHost,
   type SsrfCode,
@@ -547,6 +548,36 @@ describe("scheme and host parser confusion", () => {
       resolver: benign.resolver,
     });
     expect(allowed.ok).toBe(true);
+  });
+
+  test("every named wildcard-DNS service is resolved, not just the first one", async () => {
+    // The module that lists these services says the resolved address is what
+    // gets judged. That is only true for the whole list if the guard is walked
+    // over the whole list — one hardcoded `.nip.io` proves nothing about
+    // `.sslip.io`, and the day a fifth service is added to the array is the day
+    // this test starts covering it. Each name is checked twice: once answering
+    // with a private address (must refuse) and once with a public one (must
+    // allow), so a rule that refused ALL wildcard names would fail here too.
+    for (const suffix of WILDCARD_DNS_SUFFIXES) {
+      const service = suffix.slice(1);
+      const hostile = countingResolver(PRIVATE);
+      const blocked = await refuse(`https://10-1-2-3.${service}/`, {
+        resolver: hostile.resolver,
+      });
+      expect({ suffix: service, verdict: blocked.code }).toEqual({
+        suffix: service,
+        verdict: "private_address",
+      });
+
+      const benign = countingResolver();
+      const allowed = await validateOutboundUrl(`https://93-184-216-34.${service}/`, {
+        resolver: benign.resolver,
+      });
+      expect({ suffix: service, allowed: allowed.ok }).toEqual({
+        suffix: service,
+        allowed: true,
+      });
+    }
   });
 
   test("a CRLF in the URL is normalised away, never dialled verbatim", async () => {

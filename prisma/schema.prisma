@@ -503,6 +503,12 @@ model Case {
   // timestamp, so it needs the state + clock pair. Without it the sweep is a
   // sequential scan of the case table on the same tick as the dial drain.
   @@index([state, freezeStagedAt])
+  // Every live turn looks its case up by the provider's channel id:
+  // `findFirst({ where: { callSid } })` in the Twilio turn route and the media-stream
+  // worker, and again in ai-authz before a freeze is staged. None of those three had
+  // an index, so each of them was a sequential scan of the case table on the path
+  // where a customer is holding the line and waiting to hear something.
+  @@index([callSid])
 }
 
 /// A phone number that replied STOP. Never texted again by this platform,
@@ -1176,4 +1182,63 @@ model PaddleSubscription {
 
   @@index([orgId])
   @@index([customerId])
+}
+
+/// Token accounting for one LLM completion, written from the success path.
+///
+/// Until this table existed, usage was parsed out of every provider response and
+/// forwarded to Langfuse alone — so the platform could not answer "what did
+/// inference cost this week, and did it move while the voice engine degraded".
+/// The write is fire-and-forget on the same pattern as the audit append: an
+/// observability row must never be the reason a turn fails, and must never be on
+/// the customer's critical path.
+///
+/// `provider`/`model` are the rung that actually ANSWERED, not the one that was
+/// asked first — cost attribution that names the wrong rung is how a failover
+/// becomes invisible in the invoice.
+model LlmUsage {
+  id               String   @id @default(cuid())
+  orgId            String?
+  /// The answering rung, e.g. `gemini`, `groq`, `litellm`.
+  provider         String
+  model            String
+  promptTokens     Int?
+  completionTokens Int?
+  totalTokens      Int?
+  /// Time from the turn's first provider attempt to the answered completion.
+  latencyMs        Int?
+  createdAt        DateTime @default(now())
+
+  @@index([orgId, createdAt])
+  @@index([provider, createdAt])
+  @@index([createdAt])
+}
+
+/// One voice synthesis, as data rather than text inside `AuditLog.meta`.
+///
+/// The served rung has always been recorded — but inside a `String?` meta blob,
+/// which meant "how often did the platform fall back to PlayHT last week" could
+/// not be asked as a query. This table is that query. Same fire-and-forget
+/// discipline as `LlmUsage`: written after the audio is already on its way to the
+/// caller, never blocking it.
+///
+/// `rung` is 1-4 (`elevenlabs`, `elevenlabs-pool`, `playht`, `emergency`); cache
+/// hits do not reach the ladder and are counted by the semantic cache's own
+/// metrics, so they are deliberately absent here rather than recorded as a fifth
+/// thing that is not a rung.
+model TtsSynthesis {
+  id         String   @id @default(cuid())
+  orgId      String?
+  callRef    String?
+  /// Which rung served: `elevenlabs`, `byok`, `elevenlabs-pool`, `playht`, `emergency`.
+  source     String
+  /// 1-4 where the ladder ran; null when the source is not a ladder rung.
+  rung       Int?
+  degraded   Boolean  @default(false)
+  bytes      Int
+  latencyMs  Int
+  createdAt  DateTime @default(now())
+
+  @@index([orgId, createdAt])
+  @@index([source, createdAt])
 }

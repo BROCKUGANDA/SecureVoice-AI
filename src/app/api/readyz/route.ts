@@ -8,6 +8,8 @@ import { auth } from "@/lib/better-auth";
 import { env } from "@/lib/config";
 import { abuseConfig } from "@/lib/abuse/config";
 import { isE164 } from "@/lib/twilio";
+import { llmBreakerState } from "@/lib/llm";
+import { getPoolStatus } from "@/lib/elevenlabs/pool";
 import { maskE164 } from "@/lib/abuse/geo";
 
 export const dynamic = "force-dynamic";
@@ -137,13 +139,33 @@ export async function GET() {
   // Vendor reachability is reported, never asserted: a voice-provider outage
   // must not mark us unready, because we would then refuse the very traffic
   // that is queueing while the provider recovers.
+  //
+  // What it now reports is the platform's own view of the voice plane, not the
+  // presence of an API key. The check used to return `ok: true` with a detail
+  // derived from `!!(ELEVENLABS_API_KEY || TWILIO_ACCOUNT_SID)` while describing
+  // itself as reachability — so during a real degradation it stayed green, and the
+  // two snapshots that actually knew the state (`llmBreakerState`, `getPoolStatus`)
+  // were written for an operator surface and had no production caller at all.
+  // Readiness semantics are unchanged: `ok` still never goes false on vendor trouble.
   await timed("voice_provider", false, async () => {
     const configured = !!(env.elevenLabsApiKey || env.twilioAccountSid);
+    const llm = llmBreakerState();
+    const pool = getPoolStatus();
+    const cooling = pool.filter((k) => !k.available).length;
     return {
       name: "voice_provider",
       ok: true,
       fatal: false,
-      detail: configured ? "configured" : "unconfigured (audit-only mode)",
+      // A string, not new JSON fields: `Check` is this endpoint's published shape and
+      // a compose probe is not the place to widen it. The scrape surface for these
+      // numbers is /api/metrics, and moving them there is the honest next step —
+      // what this buys today is that an operator hitting readyz mid-incident sees the
+      // reason instead of a green light and a grep.
+      detail:
+        `${configured ? "configured" : "unconfigured (audit-only mode)"} ` +
+        ` · llm=${llm.state} fails=${llm.consecutiveFailures}` +
+        ` fallback=${llm.fallback?.channel ?? "none"}` +
+        ` · tts_keys=${pool.length} cooling=${cooling}`,
     };
   });
 

@@ -24,9 +24,9 @@
  *     ladder is the regression this file exists to catch the day it lands.
  */
 import { expect, test } from "bun:test";
-import type { Provider } from "@/lib/llm";
+import type { Provider, selectProvider } from "@/lib/llm";
 
-type Cfg = Parameters<typeof import("@/lib/llm").selectProvider>[0];
+type Cfg = Parameters<typeof selectProvider>[0];
 
 /**
  * A config with every provider ABSENT. Spread this and switch on the one being

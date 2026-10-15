@@ -101,7 +101,9 @@ describe("the website and the Paddle catalog quote the same prices", () => {
       if (plan.publiclyPriced === false) {
         expect(plan.offer.price, `${plan.name} must not publish a price`).toBeUndefined();
         // Still billed at the catalog rate — hiding a price is not a discount.
-        expect(plan.monthlyUsd, `${plan.name} still charges the catalog price`).toBe(row.monthlyUsd);
+        expect(plan.monthlyUsd, `${plan.name} still charges the catalog price`).toBe(
+          row.monthlyUsd,
+        );
         continue;
       }
       expect(plan.offer.price, `${plan.name} offer price`).toBe(String(row.monthlyUsd));

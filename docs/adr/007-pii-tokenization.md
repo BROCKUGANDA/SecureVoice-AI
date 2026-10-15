@@ -24,7 +24,7 @@ machine-checkable rather than aspirational.
 **Tokenization needed a way to be found first (amendment, 2026-10-15).** As written,
 the decision was aspirational in one specific way: `storePii()` minted a random uuid
 and only `resolvePii()` ever read it, so nothing could ask the vault "do you already
-hold this number?" — and two live paths *must* ask exactly that. An inbound SMS reply
+hold this number?" — and two live paths _must_ ask exactly that. An inbound SMS reply
 matches a customer's YES or NO to the alert it answers, and an inbound voice callback
 finds the open case the caller is ringing back about. Both arrive with a phone number
 and no tenant. They therefore matched on `Case.phone`, which meant the plaintext column
@@ -37,12 +37,12 @@ an index derivable from the encryption key lets a leaked database confirm guesse
 without decrypting anything) — and it is **two different indexes**, because the two
 jobs are different:
 
-| | message | purpose | on |
-|---|---|---|---|
-| `pii_vault.blindIndex` | `orgId\|type\|value` | dedupe one tenant's copies so re-sealing returns the same token | vault |
-| `Case.phoneIndex` | `type\|value` | let a tenant-less reply find its case | case row |
+|                        | message              | purpose                                                         | on       |
+| ---------------------- | -------------------- | --------------------------------------------------------------- | -------- |
+| `pii_vault.blindIndex` | `orgId\|type\|value` | dedupe one tenant's copies so re-sealing returns the same token | vault    |
+| `Case.phoneIndex`      | `type\|value`        | let a tenant-less reply find its case                           | case row |
 
-The org is in the vault's message and *not* in the case's, and that is the whole
+The org is in the vault's message and _not_ in the case's, and that is the whole
 trade-off: an org-scoped case index cannot be computed by the paths that have no org,
 and an org-free one lets a reader with full database access group rows by customer.
 What that reader already had, before this change, was the numbers themselves, in the

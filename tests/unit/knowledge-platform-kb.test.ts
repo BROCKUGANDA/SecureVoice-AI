@@ -271,7 +271,9 @@ mock.module("@/lib/elevenlabs/egress", () => ({
   elevenLabsFetch: (opts: VendorCall) => Promise.resolve(fakeVendor({ ...opts })),
   elevenLabsStt: () => Promise.reject(new Error("not used here")),
   fetchUpstreamBinary: () => Promise.reject(new Error("not used here")),
-  _resetEgressForTest: () => {/* empty */},
+  _resetEgressForTest: () => {
+    /* empty */
+  },
 }));
 
 const { vectorizeDocument, forgetDocument } = await import("@/lib/knowledge/documents");

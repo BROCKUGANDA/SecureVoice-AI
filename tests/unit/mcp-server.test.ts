@@ -12,7 +12,7 @@
  *     derived from the incoming request URL (a caller-controlled Host must not
  *     receive the credential).
  */
-import { describe, expect, test, beforeEach, afterEach, mock } from "bun:test";
+import { describe, expect, test, beforeEach, afterEach } from "bun:test";
 import { POST } from "@/app/api/elevenlabs/mcp/route";
 
 const savedSecret = process.env.AGENT_TOOL_SECRET;

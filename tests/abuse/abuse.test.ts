@@ -71,7 +71,6 @@ const T_AFTER_HOURS = Date.UTC(2026, 0, 15, 20, 30, 0);
 const AE_50 = "+971501234567";
 const AE_52 = "+971521234567";
 const AE_55 = "+971551234567";
-const AE_56 = "+971561234567";
 
 const alerts: AbuseAlert[] = [];
 

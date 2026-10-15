@@ -116,7 +116,12 @@ const TOOL_MOCK_CONFIG: Record<
     default_return_value: JSON.stringify({
       staged: true,
       committed: false,
-      reversal_window_secs: 300,
+      // Mirrors `REVERSAL_WINDOW_SECS` (src/lib/config.ts) rather than restating it,
+      // because this mock is what the agent is TESTED against: a fixture frozen at an
+      // old default teaches the conversational model a hold length the live route no
+      // longer returns. Read from the environment the same way the route does, since
+      // `config.ts` is server-only and cannot be imported from this script.
+      reversal_window_secs: Number(process.env.REVERSAL_WINDOW_SECS ?? 86_400),
     }),
     default_is_error: false,
   },
@@ -631,7 +636,6 @@ async function main(): Promise<number> {
     }
   }
 
-  const agentLayer = RED_TEAM_SCENARIOS.filter((s) => s.layer === "agent");
   const executed = results.filter((r) => r.status !== "error");
   const errors = results.filter((r) => r.status === "error");
   // Only rows the conversation plane can actually demonstrate are scored.

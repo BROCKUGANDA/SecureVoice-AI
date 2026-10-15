@@ -31,7 +31,6 @@ const read = (rel: string) =>
 const readme = read("README.md");
 const card = read("MODEL_CARD.md");
 const agentYaml = read("agent/securevoice.agent.yaml");
-const configTs = read("src/lib/config.ts");
 const languagesTs = read("src/lib/languages.ts");
 const schema = read("prisma/schema.prisma");
 

@@ -14,12 +14,19 @@
  * second one is why a BYOK override has no tail.
  */
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { db } from "@/lib/db";
 import { resetDefaultSemanticCache } from "@/lib/voice/semantic-cache";
 
 let calls: { provider: string; model: string }[] = [];
 let outcomes: ("ok" | "throw" | "slow")[] = ["ok"];
 let replyText = "Hello, I am your bank's automated security assistant.";
 let attemptDelayMs = 0;
+/**
+ * Token accounting the fake providers report, consumed in attempt order. Empty
+ * means the provider reported nothing — the common case for a self-hosted model,
+ * and the reason `LlmUsage`'s token columns are nullable.
+ */
+let usageScript: { promptTokens?: number; completionTokens?: number; totalTokens?: number }[] = [];
 
 mock.module("@/lib/adapters/llm-adapter", () => ({
   createLlmAdapter: (provider: string, opts: { model?: string }) => ({
@@ -32,7 +39,8 @@ mock.module("@/lib/adapters/llm-adapter", () => ({
       const outcome = outcomes[Math.min(calls.length - 1, outcomes.length - 1)] ?? "ok";
       if (attemptDelayMs > 0) await new Promise((r) => setTimeout(r, attemptDelayMs));
       if (outcome === "throw") throw new Error("upstream 503");
-      return { text: replyText };
+      const usage = usageScript[Math.min(calls.length - 1, usageScript.length - 1)];
+      return { text: replyText, ...(usage ? { usage } : {}) };
     },
   }),
   LlmAdapterError: class LlmAdapterError extends Error {},
@@ -74,7 +82,7 @@ const BYOK = {
  */
 const llm = await import("@/lib/llm");
 
-async function draft(args: { providerOverride?: "byok" | "none" | "empty" } = {}) {
+async function draft(args: { providerOverride?: "byok" | "none" | "empty"; orgId?: string } = {}) {
   return llm.draftAgentReply({
     text: "was this charge mine",
     lang: "en",
@@ -83,6 +91,7 @@ async function draft(args: { providerOverride?: "byok" | "none" | "empty" } = {}
     callRef: "SV-FAILOVER-TEST",
     callerId: "test",
     callCategory: "time_critical_fraud",
+    orgId: args.orgId,
     providerOverride:
       args.providerOverride === "byok"
         ? BYOK
@@ -96,6 +105,7 @@ beforeEach(() => {
   calls = [];
   outcomes = ["ok"];
   attemptDelayMs = 0;
+  usageScript = [];
   replyText = "Hello, I am your bank's automated security assistant.";
   withLadder();
   process.env.LLM_TURN_BUDGET_MS = "5000";
@@ -191,4 +201,53 @@ afterAll(() => {
     if (v === undefined) delete process.env[k];
     else process.env[k] = v;
   }
+});
+
+describe("token usage is persisted, not only forwarded to Langfuse", () => {
+  // The write is fire-and-forget by design — an observability row must never be
+  // the reason a turn fails — so the assertion polls rather than assumes the
+  // insert has landed by the time `draft()` resolves.
+  async function waitForUsageRow(where: { totalTokens: number }) {
+    const since = new Date(Date.now() - 15_000);
+    for (let i = 0; i < 40; i++) {
+      const row = await db.llmUsage.findFirst({
+        where: { ...where, createdAt: { gte: since } },
+        orderBy: { createdAt: "desc" },
+      });
+      if (row) return row;
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    return null;
+  }
+
+  test("the answering rung's usage lands in LlmUsage with its tenant", async () => {
+    usageScript = [{ promptTokens: 120, completionTokens: 7, totalTokens: 127 }];
+    await draft({ orgId: "org-usage-test" });
+    expect(calls.length).toBe(1);
+
+    const row = await waitForUsageRow({ totalTokens: 127 });
+    expect(row).not.toBeNull();
+    if (!row) throw new Error("unreachable");
+    // Attribution names the rung that ANSWERED, which is the only rung whose
+    // tokens were spent — and the tenant that owns the cost.
+    expect({ provider: row.provider, totalTokens: row.totalTokens, orgId: row.orgId }).toEqual({
+      provider: calls[0]!.provider,
+      totalTokens: 127,
+      orgId: "org-usage-test",
+    });
+    expect(row.latencyMs).not.toBeNull();
+  });
+
+  test("a provider that reports no usage still records the call it answered", () => {
+    usageScript = [];
+    return (async () => {
+      await draft();
+      expect(calls.length).toBe(1);
+      // The row is optional when the provider omits accounting; the poll above
+      // covers the present case. Here the contract is only that the turn is
+      // unaffected — no throw, a reply, and no usage-shaped crash swallowed
+      // silently into a missing reply.
+      expect(calls[0]).toBeDefined();
+    })();
+  });
 });

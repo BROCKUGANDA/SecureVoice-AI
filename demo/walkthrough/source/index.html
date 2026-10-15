@@ -12,69 +12,69 @@
     -->
     <script src="assets/gsap.min.js"></script>
     <style>
-@font-face {
-  font-family: 'Space Grotesk';
-  font-style: normal;
-  font-weight: 400;
-  font-display: block;
-  src: url('assets/fonts/SpaceGrotesk-400.woff2') format('woff2');
-}
-@font-face {
-  font-family: 'Space Grotesk';
-  font-style: normal;
-  font-weight: 500;
-  font-display: block;
-  src: url('assets/fonts/SpaceGrotesk-500.woff2') format('woff2');
-}
-@font-face {
-  font-family: 'Space Grotesk';
-  font-style: normal;
-  font-weight: 600;
-  font-display: block;
-  src: url('assets/fonts/SpaceGrotesk-600.woff2') format('woff2');
-}
-@font-face {
-  font-family: 'Space Grotesk';
-  font-style: normal;
-  font-weight: 700;
-  font-display: block;
-  src: url('assets/fonts/SpaceGrotesk-700.woff2') format('woff2');
-}
-@font-face {
-  font-family: 'Inter';
-  font-style: normal;
-  font-weight: 400;
-  font-display: block;
-  src: url('assets/fonts/Inter-400.woff2') format('woff2');
-}
-@font-face {
-  font-family: 'Inter';
-  font-style: normal;
-  font-weight: 500;
-  font-display: block;
-  src: url('assets/fonts/Inter-500.woff2') format('woff2');
-}
-@font-face {
-  font-family: 'Inter';
-  font-style: normal;
-  font-weight: 600;
-  font-display: block;
-  src: url('assets/fonts/Inter-600.woff2') format('woff2');
-}
-@font-face {
-  font-family: 'JetBrains Mono';
-  font-style: normal;
-  font-weight: 400;
-  font-display: block;
-  src: url('assets/fonts/JetBrainsMono-400.woff2') format('woff2');
-}
-@font-face {
-  font-family: 'JetBrains Mono';
-  font-style: normal;
-  font-weight: 600;
-  font-display: block;
-  src: url('assets/fonts/JetBrainsMono-600.woff2') format('woff2');
-}
+      @font-face {
+        font-family: "Space Grotesk";
+        font-style: normal;
+        font-weight: 400;
+        font-display: block;
+        src: url("assets/fonts/SpaceGrotesk-400.woff2") format("woff2");
+      }
+      @font-face {
+        font-family: "Space Grotesk";
+        font-style: normal;
+        font-weight: 500;
+        font-display: block;
+        src: url("assets/fonts/SpaceGrotesk-500.woff2") format("woff2");
+      }
+      @font-face {
+        font-family: "Space Grotesk";
+        font-style: normal;
+        font-weight: 600;
+        font-display: block;
+        src: url("assets/fonts/SpaceGrotesk-600.woff2") format("woff2");
+      }
+      @font-face {
+        font-family: "Space Grotesk";
+        font-style: normal;
+        font-weight: 700;
+        font-display: block;
+        src: url("assets/fonts/SpaceGrotesk-700.woff2") format("woff2");
+      }
+      @font-face {
+        font-family: "Inter";
+        font-style: normal;
+        font-weight: 400;
+        font-display: block;
+        src: url("assets/fonts/Inter-400.woff2") format("woff2");
+      }
+      @font-face {
+        font-family: "Inter";
+        font-style: normal;
+        font-weight: 500;
+        font-display: block;
+        src: url("assets/fonts/Inter-500.woff2") format("woff2");
+      }
+      @font-face {
+        font-family: "Inter";
+        font-style: normal;
+        font-weight: 600;
+        font-display: block;
+        src: url("assets/fonts/Inter-600.woff2") format("woff2");
+      }
+      @font-face {
+        font-family: "JetBrains Mono";
+        font-style: normal;
+        font-weight: 400;
+        font-display: block;
+        src: url("assets/fonts/JetBrainsMono-400.woff2") format("woff2");
+      }
+      @font-face {
+        font-family: "JetBrains Mono";
+        font-style: normal;
+        font-weight: 600;
+        font-display: block;
+        src: url("assets/fonts/JetBrainsMono-600.woff2") format("woff2");
+      }
 
       :root {
         --paper: #fbfbf8;
@@ -218,14 +218,30 @@
       }
 
       /* ── z-order ───────────────────────────────────────────────── */
-      #scene-title { z-index: 1; }
-      #scene-problem { z-index: 2; }
-      #scene-signal { z-index: 3; }
-      #scene-call { z-index: 4; }
-      #scene-guard { z-index: 5; }
-      #scene-live { z-index: 6; }
-      #scene-numbers { z-index: 7; }
-      #scene-close { z-index: 8; }
+      #scene-title {
+        z-index: 1;
+      }
+      #scene-problem {
+        z-index: 2;
+      }
+      #scene-signal {
+        z-index: 3;
+      }
+      #scene-call {
+        z-index: 4;
+      }
+      #scene-guard {
+        z-index: 5;
+      }
+      #scene-live {
+        z-index: 6;
+      }
+      #scene-numbers {
+        z-index: 7;
+      }
+      #scene-close {
+        z-index: 8;
+      }
     </style>
   </head>
   <body>
@@ -251,7 +267,9 @@
         <div class="scene-inner" style="justify-content: center">
           <div id="t-mark" style="display: flex; align-items: center; gap: 20px">
             <img src="assets/logo.svg" alt="" width="62" height="62" />
-            <span class="eyebrow" style="color: var(--primary); font-size: 23px">SECUREVOICE AI</span>
+            <span class="eyebrow" style="color: var(--primary); font-size: 23px"
+              >SECUREVOICE AI</span
+            >
           </div>
           <h1 id="t-head" class="h-display" style="margin-top: 46px; max-width: 1320px">
             Fraud detected.<br />
@@ -260,12 +278,15 @@
           </h1>
           <div id="t-rule" class="rule" style="margin-top: 44px"></div>
           <p id="t-sub" class="lede" style="margin-top: 34px; max-width: 1080px">
-            Real-time voice fraud intervention for banking &amp; insurance —
-            deployed, live, and audited end to end.
+            Real-time voice fraud intervention for banking &amp; insurance — deployed, live, and
+            audited end to end.
           </p>
           <div id="t-pills" style="margin-top: 44px; display: flex; gap: 14px">
             <span class="pill pill-live">Live · securevoiceai.me</span>
-            <span class="pill" style="background: #fff; color: var(--ink3); border: 2px solid var(--line)">
+            <span
+              class="pill"
+              style="background: #fff; color: var(--ink3); border: 2px solid var(--line)"
+            >
               v0.2.7
             </span>
           </div>
@@ -289,45 +310,78 @@
             The analyst needs<br />thirty-eight minutes.
           </h2>
           <p id="p-lede" class="lede" style="margin-top: 30px; max-width: 1180px">
-            The fraudster needs seconds. This platform closes the distance between
-            the signal and the intervention.
+            The fraudster needs seconds. This platform closes the distance between the signal and
+            the intervention.
           </p>
 
           <div style="margin-top: 58px; display: flex; gap: 34px; align-items: stretch">
             <div id="p-card-today" class="card" style="flex: 1; padding: 40px 42px">
-              <span class="pill" style="background: #fdf0f1; color: var(--red-soft); border: 2px solid var(--destructive)">
+              <span
+                class="pill"
+                style="
+                  background: #fdf0f1;
+                  color: var(--red-soft);
+                  border: 2px solid var(--destructive);
+                "
+              >
                 TODAY
               </span>
-              <div class="num" style="font-size: 104px; margin-top: 30px; color: var(--destructive); line-height: 1">
+              <div
+                class="num"
+                style="
+                  font-size: 104px;
+                  margin-top: 30px;
+                  color: var(--destructive);
+                  line-height: 1;
+                "
+              >
                 38<span style="font-size: 40px; font-weight: 600"> min</span>
               </div>
               <p class="body" style="margin-top: 26px">
-                A Tier-1 analyst picks the case up ~9 minutes after the signal,
-                then works it on the phone while the second transaction clears.
+                A Tier-1 analyst picks the case up ~9 minutes after the signal, then works it on the
+                phone while the second transaction clears.
               </p>
             </div>
             <div id="p-arrow" style="display: flex; align-items: center">
               <svg width="76" height="46" viewBox="0 0 76 46" fill="none">
                 <path d="M2 23 H62" stroke="#5c685d" stroke-width="4" stroke-linecap="round" />
-                <path d="M56 11 L70 23 L56 35" stroke="#5c685d" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+                <path
+                  d="M56 11 L70 23 L56 35"
+                  stroke="#5c685d"
+                  stroke-width="4"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  fill="none"
+                />
               </svg>
             </div>
-            <div id="p-card-sv" class="card" style="flex: 1; padding: 40px 42px; border-color: var(--primary); background: var(--green-tint)">
+            <div
+              id="p-card-sv"
+              class="card"
+              style="
+                flex: 1;
+                padding: 40px 42px;
+                border-color: var(--primary);
+                background: var(--green-tint);
+              "
+            >
               <span class="pill pill-live">SECUREVOICE AI</span>
-              <div class="num" style="font-size: 104px; margin-top: 30px; color: var(--primary); line-height: 1">
+              <div
+                class="num"
+                style="font-size: 104px; margin-top: 30px; color: var(--primary); line-height: 1"
+              >
                 60<span style="font-size: 40px; font-weight: 600"> s</span>
               </div>
               <p class="body" style="margin-top: 26px">
-                The signal places the call itself. A guardrailed voice agent
-                verifies the customer and stages the protective action while the
-                case is still hot.
+                The signal places the call itself. A guardrailed voice agent verifies the customer
+                and stages the protective action while the case is still hot.
               </p>
             </div>
           </div>
 
           <p id="p-foot" class="mono" style="margin-top: 42px; color: var(--ink3)">
-            The 60-second figure is the platform's target, and is labelled as such
-            throughout — scene 7 states what is actually measured.
+            The 60-second figure is the platform's target, and is labelled as such throughout —
+            scene 7 states what is actually measured.
           </p>
         </div>
       </div>
@@ -349,16 +403,29 @@
             A signed signal in,<br />a case open.
           </h2>
           <p id="s-lede" class="lede" style="margin-top: 28px; max-width: 1160px">
-            The bank's fraud engine posts a risk signal. The platform verifies the
-            HMAC, resolves the customer, and opens the case — under a second.
+            The bank's fraud engine posts a risk signal. The platform verifies the HMAC, resolves
+            the customer, and opens the case — under a second.
           </p>
 
           <div style="margin-top: 52px; display: flex; gap: 30px">
-            <div id="s-code" class="card" style="flex: 1.15; padding: 34px 38px; background: #101812; border-color: #101812">
+            <div
+              id="s-code"
+              class="card"
+              style="flex: 1.15; padding: 34px 38px; background: #101812; border-color: #101812"
+            >
               <div class="mono" style="color: #8fa397; font-size: 16px; letter-spacing: 0.08em">
                 POST /v1/interventions
               </div>
-              <pre class="mono" style="color: #e7f0ea; font-size: 20px; line-height: 1.65; margin: 20px 0 0; white-space: pre-wrap"><span style="color:#5fd6a4">{</span>
+              <pre
+                class="mono"
+                style="
+                  color: #e7f0ea;
+                  font-size: 20px;
+                  line-height: 1.65;
+                  margin: 20px 0 0;
+                  white-space: pre-wrap;
+                "
+              ><span style="color:#5fd6a4">{</span>
   <span style="color:#7fd8b6">"producer_key"</span>:     <span style="color:#e6c98a">"pk_live_…"</span>,
   <span style="color:#7fd8b6">"customer_ref"</span>:     <span style="color:#e6c98a">"CRM-88412"</span>,
   <span style="color:#7fd8b6">"risk_score"</span>:       <span style="color:#e6c98a">0.97</span>,
@@ -370,22 +437,58 @@
               </div>
             </div>
 
-            <div id="s-chain" style="flex: 1; display: flex; flex-direction: column; gap: 16px; justify-content: center">
-              <div class="s-step card" style="padding: 22px 26px; display: flex; align-items: center; gap: 18px">
+            <div
+              id="s-chain"
+              style="
+                flex: 1;
+                display: flex;
+                flex-direction: column;
+                gap: 16px;
+                justify-content: center;
+              "
+            >
+              <div
+                class="s-step card"
+                style="padding: 22px 26px; display: flex; align-items: center; gap: 18px"
+              >
                 <span class="mono" style="color: var(--primary); font-weight: 600">01</span>
-                <span style="font-size: 21px; color: var(--ink)">Signature verified before ingest</span>
+                <span style="font-size: 21px; color: var(--ink)"
+                  >Signature verified before ingest</span
+                >
               </div>
-              <div class="s-step card" style="padding: 22px 26px; display: flex; align-items: center; gap: 18px">
+              <div
+                class="s-step card"
+                style="padding: 22px 26px; display: flex; align-items: center; gap: 18px"
+              >
                 <span class="mono" style="color: var(--primary); font-weight: 600">02</span>
-                <span style="font-size: 21px; color: var(--ink)">Producer key &amp; tenant resolved</span>
+                <span style="font-size: 21px; color: var(--ink)"
+                  >Producer key &amp; tenant resolved</span
+                >
               </div>
-              <div class="s-step card" style="padding: 22px 26px; display: flex; align-items: center; gap: 18px">
+              <div
+                class="s-step card"
+                style="padding: 22px 26px; display: flex; align-items: center; gap: 18px"
+              >
                 <span class="mono" style="color: var(--primary); font-weight: 600">03</span>
-                <span style="font-size: 21px; color: var(--ink)">Case created · SLA clock starts</span>
+                <span style="font-size: 21px; color: var(--ink)"
+                  >Case created · SLA clock starts</span
+                >
               </div>
-              <div class="s-step card" style="padding: 22px 26px; display: flex; align-items: center; gap: 18px; border-color: var(--primary); background: var(--green-tint)">
+              <div
+                class="s-step card"
+                style="
+                  padding: 22px 26px;
+                  display: flex;
+                  align-items: center;
+                  gap: 18px;
+                  border-color: var(--primary);
+                  background: var(--green-tint);
+                "
+              >
                 <span class="mono" style="color: var(--green-deep); font-weight: 600">04</span>
-                <span style="font-size: 21px; color: var(--green-deep); font-weight: 600">Dial enqueued to the durable queue</span>
+                <span style="font-size: 21px; color: var(--green-deep); font-weight: 600"
+                  >Dial enqueued to the durable queue</span
+                >
               </div>
             </div>
           </div>
@@ -399,9 +502,9 @@
             <span class="mono" style="font-size: 18px">b2b</span>,
             <span class="mono" style="font-size: 18px">routine</span>,
             <span class="mono" style="font-size: 18px">time_critical_fraud</span>. It selects the
-            agent's system prompt, its powers, and the backend preconditions
-            enforced before a single dial. A producer that declares nothing gets
-            the audited fraud baseline — never the weakest prompt.
+            agent's system prompt, its powers, and the backend preconditions enforced before a
+            single dial. A producer that declares nothing gets the audited fraud baseline — never
+            the weakest prompt.
           </p>
         </div>
       </div>
@@ -423,21 +526,39 @@
             Disclosure. Verification.<br />Then a staged freeze.
           </h2>
           <p id="c-lede" class="lede" style="margin-top: 26px; max-width: 1140px">
-            The agent opens with a legally required disclosure, verifies the
-            transaction phase by phase — and never once asks for a PIN, an OTP or
-            a password.
+            The agent opens with a legally required disclosure, verifies the transaction phase by
+            phase — and never once asks for a PIN, an OTP or a password.
           </p>
 
-          <div id="c-tx" class="card" style="margin-top: 40px; padding: 32px 38px; display: flex; flex-direction: column; gap: 18px">
+          <div
+            id="c-tx"
+            class="card"
+            style="
+              margin-top: 40px;
+              padding: 32px 38px;
+              display: flex;
+              flex-direction: column;
+              gap: 18px;
+            "
+          >
             <div class="c-turn" style="display: flex; gap: 20px; align-items: flex-start">
               <span class="pill pill-live" style="min-width: 132px; text-align: center">AGENT</span>
               <p class="body" style="font-size: 23px; color: var(--ink)">
-                “This call is recorded. I'm calling from your bank about a
-                transaction of AED 4,200 at 14:07. Was that you?”
+                “This call is recorded. I'm calling from your bank about a transaction of AED 4,200
+                at 14:07. Was that you?”
               </p>
             </div>
             <div class="c-turn" style="display: flex; gap: 20px; align-items: flex-start">
-              <span class="pill" style="min-width: 132px; text-align: center; background: #f4f6f2; color: var(--ink3); border: 2px solid var(--line)">
+              <span
+                class="pill"
+                style="
+                  min-width: 132px;
+                  text-align: center;
+                  background: #f4f6f2;
+                  color: var(--ink3);
+                  border: 2px solid var(--line);
+                "
+              >
                 CUSTOMER
               </span>
               <p class="body" style="font-size: 23px; color: var(--ink2)">
@@ -447,8 +568,8 @@
             <div class="c-turn" style="display: flex; gap: 20px; align-items: flex-start">
               <span class="pill pill-live" style="min-width: 132px; text-align: center">AGENT</span>
               <p class="body" style="font-size: 23px; color: var(--ink)">
-                “Understood. I'm holding that card now and passing you to a
-                specialist who can confirm it with you directly.”
+                “Understood. I'm holding that card now and passing you to a specialist who can
+                confirm it with you directly.”
               </p>
             </div>
           </div>
@@ -466,11 +587,33 @@
             <div class="c-phase card" style="flex: 1; padding: 20px 22px; text-align: center">
               <div class="mono" style="color: var(--ink3); font-size: 16px">DISCLOSED</div>
             </div>
-            <div class="c-phase card" style="flex: 1; padding: 20px 22px; text-align: center; border-color: var(--primary); background: var(--green-tint)">
-              <div class="mono" style="color: var(--green-deep); font-size: 16px; font-weight: 600">VERIFYING</div>
+            <div
+              class="c-phase card"
+              style="
+                flex: 1;
+                padding: 20px 22px;
+                text-align: center;
+                border-color: var(--primary);
+                background: var(--green-tint);
+              "
+            >
+              <div class="mono" style="color: var(--green-deep); font-size: 16px; font-weight: 600">
+                VERIFYING
+              </div>
             </div>
-            <div class="c-phase card" style="flex: 1; padding: 20px 22px; text-align: center; border-color: var(--primary); background: var(--green-tint)">
-              <div class="mono" style="color: var(--green-deep); font-size: 16px; font-weight: 600">FREEZE_STAGED</div>
+            <div
+              class="c-phase card"
+              style="
+                flex: 1;
+                padding: 20px 22px;
+                text-align: center;
+                border-color: var(--primary);
+                background: var(--green-tint);
+              "
+            >
+              <div class="mono" style="color: var(--green-deep); font-size: 16px; font-weight: 600">
+                FREEZE_STAGED
+              </div>
             </div>
             <div class="c-phase card" style="flex: 1; padding: 20px 22px; text-align: center">
               <div class="mono" style="color: var(--ink3); font-size: 16px">ESCALATED</div>
@@ -478,8 +621,8 @@
           </div>
 
           <p id="c-foot" class="mono" style="margin-top: 30px; color: var(--ink3)">
-            Six languages on the conversation plane — en · ar · hi, plus ur · fr ·
-            sw on the continuity path.
+            Six languages on the conversation plane — en · ar · hi, plus ur · fr · sw on the
+            continuity path.
           </p>
         </div>
       </div>
@@ -501,32 +644,47 @@
             The controls live in<br />the server, not the prompt.
           </h2>
           <p id="g-lede" class="lede" style="margin-top: 26px; max-width: 1180px">
-            The platform's Guardrails panel exposes one toggle. The real
-            enforcement is layers deep in code that runs before, during and after
-            every turn — so none of it can be prompted away.
+            The platform's Guardrails panel exposes one toggle. The real enforcement is layers deep
+            in code that runs before, during and after every turn — so none of it can be prompted
+            away.
           </p>
 
           <div style="margin-top: 48px; display: flex; gap: 28px">
             <div class="g-card card" style="flex: 1; padding: 32px 34px">
               <div class="mono" style="color: var(--primary); font-size: 16px">TOOL BOUNDARY</div>
-              <h3 class="h-mid" style="margin-top: 18px; font-size: 31px">Never asks for credentials</h3>
+              <h3 class="h-mid" style="margin-top: 18px; font-size: 31px">
+                Never asks for credentials
+              </h3>
               <p class="body" style="margin-top: 18px">
-                Any reply requesting a PIN, OTP or password is replaced with a
-                safe refusal <em>before</em> it reaches the model.
+                Any reply requesting a PIN, OTP or password is replaced with a safe refusal
+                <em>before</em> it reaches the model.
               </p>
             </div>
-            <div class="g-card card" style="flex: 1; padding: 32px 34px; border-color: var(--primary); background: var(--green-tint)">
-              <div class="mono" style="color: var(--green-deep); font-size: 16px">STATE MACHINE</div>
+            <div
+              class="g-card card"
+              style="
+                flex: 1;
+                padding: 32px 34px;
+                border-color: var(--primary);
+                background: var(--green-tint);
+              "
+            >
+              <div class="mono" style="color: var(--green-deep); font-size: 16px">
+                STATE MACHINE
+              </div>
               <h3 class="h-mid" style="margin-top: 18px; font-size: 31px">Never freezes alone</h3>
               <p class="body" style="margin-top: 18px">
                 <span class="mono" style="font-size: 18px">card_freeze</span> only ever stages a
-                reversible request — in every category and every environment. A
-                human finalises it.
+                reversible request — in every category and every environment. A human finalises it.
               </p>
             </div>
             <div class="g-card card" style="flex: 1; padding: 32px 34px">
-              <div class="mono" style="color: var(--primary); font-size: 16px">ENVIRONMENT GATE</div>
-              <h3 class="h-mid" style="margin-top: 18px; font-size: 31px">Never reaches a real customer</h3>
+              <div class="mono" style="color: var(--primary); font-size: 16px">
+                ENVIRONMENT GATE
+              </div>
+              <h3 class="h-mid" style="margin-top: 18px; font-size: 31px">
+                Never reaches a real customer
+              </h3>
               <p class="body" style="margin-top: 18px">
                 Under <span class="mono" style="font-size: 18px">APP_ENV=staging</span> outbound
                 telephony returns 403 and makes zero carrier calls.
@@ -534,13 +692,22 @@
             </div>
           </div>
 
-          <div id="g-chain" class="card" style="margin-top: 40px; padding: 30px 36px; display: flex; align-items: center; gap: 26px">
+          <div
+            id="g-chain"
+            class="card"
+            style="
+              margin-top: 40px;
+              padding: 30px 36px;
+              display: flex;
+              align-items: center;
+              gap: 26px;
+            "
+          >
             <span class="pill pill-live">AUDIT CHAIN</span>
             <p class="body" style="flex: 1">
-              Every action is sealed as a row: a SHA-256 digest over the
-              canonical serialisation, chained to the row before it. Edit any
-              field and the link breaks from that point onward — tamper-evident
-              by construction, exportable per case.
+              Every action is sealed as a row: a SHA-256 digest over the canonical serialisation,
+              chained to the row before it. Edit any field and the link breaks from that point
+              onward — tamper-evident by construction, exportable per case.
             </p>
           </div>
         </div>
@@ -563,8 +730,7 @@
             Everything you have just seen is running.
           </h2>
           <p id="l-lede" class="lede" style="margin-top: 22px; max-width: 1160px; font-size: 23px">
-            Captured live from securevoiceai.me — not mock-ups, not a staging
-            screenshot.
+            Captured live from securevoiceai.me — not mock-ups, not a staging screenshot.
           </p>
 
           <div style="margin-top: 32px; display: flex; gap: 22px; align-items: flex-start">
@@ -573,12 +739,27 @@
                 <img
                   src="assets/shot-landing.png"
                   alt="SecureVoice AI landing page"
-                  style="width: 100%; height: 392px; object-fit: cover; object-position: top; display: block"
+                  style="
+                    width: 100%;
+                    height: 392px;
+                    object-fit: cover;
+                    object-position: top;
+                    display: block;
+                  "
                 />
               </div>
-              <div style="padding: 14px 14px 4px; display: flex; justify-content: space-between; align-items: center">
+              <div
+                style="
+                  padding: 14px 14px 4px;
+                  display: flex;
+                  justify-content: space-between;
+                  align-items: center;
+                "
+              >
                 <span class="mono" style="color: var(--ink); font-size: 18px">/ — the promise</span>
-                <span class="mono" style="color: var(--primary); font-size: 16px">securevoiceai.me</span>
+                <span class="mono" style="color: var(--primary); font-size: 16px"
+                  >securevoiceai.me</span
+                >
               </div>
             </div>
 
@@ -588,11 +769,19 @@
                   <img
                     src="assets/shot-docs.png"
                     alt="SecureVoice AI documentation page"
-                    style="width: 100%; height: 174px; object-fit: cover; object-position: top; display: block"
+                    style="
+                      width: 100%;
+                      height: 174px;
+                      object-fit: cover;
+                      object-position: top;
+                      display: block;
+                    "
                   />
                 </div>
                 <div style="padding: 10px 14px 2px">
-                  <span class="mono" style="color: var(--ink); font-size: 17px">/docs — the integration surface</span>
+                  <span class="mono" style="color: var(--ink); font-size: 17px"
+                    >/docs — the integration surface</span
+                  >
                 </div>
               </div>
               <div id="l-th-b" class="card" style="padding: 12px; overflow: hidden">
@@ -600,20 +789,43 @@
                   <img
                     src="assets/shot-security.png"
                     alt="SecureVoice AI security page"
-                    style="width: 100%; height: 174px; object-fit: cover; object-position: top; display: block"
+                    style="
+                      width: 100%;
+                      height: 174px;
+                      object-fit: cover;
+                      object-position: top;
+                      display: block;
+                    "
                   />
                 </div>
                 <div style="padding: 10px 14px 2px">
-                  <span class="mono" style="color: var(--ink); font-size: 17px">/security — the control posture</span>
+                  <span class="mono" style="color: var(--ink); font-size: 17px"
+                    >/security — the control posture</span
+                  >
                 </div>
               </div>
             </div>
           </div>
 
-          <div id="l-foot" class="card" style="margin-top: 24px; padding: 20px 30px; display: flex; align-items: center; gap: 24px; background: var(--green-tint); border-color: var(--primary)">
-            <span class="mono" style="color: var(--green-deep); font-weight: 600; font-size: 18px">PROMOTION LADDER</span>
+          <div
+            id="l-foot"
+            class="card"
+            style="
+              margin-top: 24px;
+              padding: 20px 30px;
+              display: flex;
+              align-items: center;
+              gap: 24px;
+              background: var(--green-tint);
+              border-color: var(--primary);
+            "
+          >
+            <span class="mono" style="color: var(--green-deep); font-weight: 600; font-size: 18px"
+              >PROMOTION LADDER</span
+            >
             <p class="mono" style="color: var(--green-deep); font-size: 19px; margin: 0">
-              push → dev → CI green → auto-merge → staging → CI green → auto-merge → main → VPS rolls
+              push → dev → CI green → auto-merge → staging → CI green → auto-merge → main → VPS
+              rolls
             </p>
           </div>
         </div>
@@ -636,30 +848,42 @@
             Measured, or marked<br />as not yet measured.
           </h2>
           <p id="n-lede" class="lede" style="margin-top: 26px; max-width: 1160px">
-            Two legs of the path are measured today. The rest is a target — and a
-            target printed next to a measurement is how a submission ends up
-            claiming performance it never observed.
+            Two legs of the path are measured today. The rest is a target — and a target printed
+            next to a measurement is how a submission ends up claiming performance it never
+            observed.
           </p>
 
           <div style="margin-top: 44px; display: flex; gap: 26px">
-            <div class="n-card card" style="flex: 1; padding: 32px 34px; border-color: var(--primary)">
+            <div
+              class="n-card card"
+              style="flex: 1; padding: 32px 34px; border-color: var(--primary)"
+            >
               <div style="display: flex; justify-content: space-between; align-items: flex-start">
                 <span class="pill pill-meas">MEASURED</span>
                 <span class="mono" style="color: var(--ink3); font-size: 16px">20 signals</span>
               </div>
-              <div class="num" style="font-size: 84px; color: var(--primary); margin-top: 24px; line-height: 1">
+              <div
+                class="num"
+                style="font-size: 84px; color: var(--primary); margin-top: 24px; line-height: 1"
+              >
                 551<span style="font-size: 30px; font-weight: 600"> ms</span>
               </div>
               <p class="body" style="margin-top: 18px">
                 p95 from signal accepted to call placement, co-located Postgres.
               </p>
             </div>
-            <div class="n-card card" style="flex: 1; padding: 32px 34px; border-color: var(--primary)">
+            <div
+              class="n-card card"
+              style="flex: 1; padding: 32px 34px; border-color: var(--primary)"
+            >
               <div style="display: flex; justify-content: space-between; align-items: flex-start">
                 <span class="pill pill-meas">MEASURED</span>
                 <span class="mono" style="color: var(--ink3); font-size: 16px">200 calls</span>
               </div>
-              <div class="num" style="font-size: 84px; color: var(--primary); margin-top: 24px; line-height: 1">
+              <div
+                class="num"
+                style="font-size: 84px; color: var(--primary); margin-top: 24px; line-height: 1"
+              >
                 9<span style="font-size: 30px; font-weight: 600"> ms</span>
               </div>
               <p class="body" style="margin-top: 18px">
@@ -669,22 +893,26 @@
             <div class="n-card card" style="flex: 1; padding: 32px 34px">
               <div style="display: flex; justify-content: space-between; align-items: flex-start">
                 <span class="pill pill-targ">TARGET</span>
-                <span class="mono" style="color: var(--ink3); font-size: 16px">needs a live PSTN call</span>
+                <span class="mono" style="color: var(--ink3); font-size: 16px"
+                  >needs a live PSTN call</span
+                >
               </div>
-              <div class="num" style="font-size: 84px; color: var(--amber); margin-top: 24px; line-height: 1">
+              <div
+                class="num"
+                style="font-size: 84px; color: var(--amber); margin-top: 24px; line-height: 1"
+              >
                 60<span style="font-size: 30px; font-weight: 600"> s</span>
               </div>
               <p class="body" style="margin-top: 18px">
-                Signal to first audio the customer hears. Not yet measured — the
-                evidence bundle contains no live PSTN call.
+                Signal to first audio the customer hears. Not yet measured — the evidence bundle
+                contains no live PSTN call.
               </p>
             </div>
           </div>
 
           <p id="n-foot" class="body" style="margin-top: 38px; max-width: 1180px">
-            Every artifact in the evidence bundle states, per claim, whether it was
-            measured or only targeted. That distinction is the point of the bundle
-            — not a caveat inside it.
+            Every artifact in the evidence bundle states, per claim, whether it was measured or only
+            targeted. That distinction is the point of the bundle — not a caveat inside it.
           </p>
         </div>
       </div>
@@ -703,19 +931,24 @@
         <div class="scene-inner" style="justify-content: center">
           <div id="x-mark" style="display: flex; align-items: center; gap: 18px">
             <img src="assets/logo-close.svg" alt="" width="52" height="52" />
-            <span class="eyebrow" style="color: var(--primary); font-size: 22px">SECUREVOICE AI</span>
+            <span class="eyebrow" style="color: var(--primary); font-size: 22px"
+              >SECUREVOICE AI</span
+            >
           </div>
           <h2 id="x-head" class="h-display" style="margin-top: 38px; font-size: 76px">
             Sixty seconds,<br />with the proof attached.
           </h2>
           <div id="x-rule" class="rule" style="margin-top: 36px"></div>
           <p id="x-sub" class="lede" style="margin-top: 30px; max-width: 1120px">
-            Fraud detected · customer called · account frozen — in the customer's
-            own language, with an audit trail that proves itself afterwards.
+            Fraud detected · customer called · account frozen — in the customer's own language, with
+            an audit trail that proves itself afterwards.
           </p>
           <div id="x-foot" style="margin-top: 42px; display: flex; gap: 14px">
             <span class="pill pill-live">securevoiceai.me</span>
-            <span class="pill" style="background: #fff; color: var(--ink3); border: 2px solid var(--line)">
+            <span
+              class="pill"
+              style="background: #fff; color: var(--ink3); border: 2px solid var(--line)"
+            >
               Ignyte × ElevenLabs · Banking &amp; Insurance
             </span>
           </div>
@@ -723,62 +956,62 @@
       </div>
     </div>
 
-      <audio
-        id="narr-01-title"
-        src="assets/narration/01-title.wav"
-        data-start="1.8"
-        data-duration="8.26"
-        data-track-index="100"
-      ></audio>
-      <audio
-        id="narr-02-gap"
-        src="assets/narration/02-gap.wav"
-        data-start="12.3"
-        data-duration="8.28"
-        data-track-index="101"
-      ></audio>
-      <audio
-        id="narr-03-ingest"
-        src="assets/narration/03-ingest.wav"
-        data-start="23.3"
-        data-duration="15.62"
-        data-track-index="102"
-      ></audio>
-      <audio
-        id="narr-04-call"
-        src="assets/narration/04-call.wav"
-        data-start="41.3"
-        data-duration="12.69"
-        data-track-index="103"
-      ></audio>
-      <audio
-        id="narr-05-guardrails"
-        src="assets/narration/05-guardrails.wav"
-        data-start="56.3"
-        data-duration="9.73"
-        data-track-index="104"
-      ></audio>
-      <audio
-        id="narr-06-live"
-        src="assets/narration/06-live.wav"
-        data-start="68.8"
-        data-duration="4.78"
-        data-track-index="105"
-      ></audio>
-      <audio
-        id="narr-07-evidence"
-        src="assets/narration/07-evidence.wav"
-        data-start="77.3"
-        data-duration="10.62"
-        data-track-index="106"
-      ></audio>
-      <audio
-        id="narr-08-close"
-        src="assets/narration/08-close.wav"
-        data-start="90.3"
-        data-duration="3.75"
-        data-track-index="107"
-      ></audio>
+    <audio
+      id="narr-01-title"
+      src="assets/narration/01-title.wav"
+      data-start="1.8"
+      data-duration="8.26"
+      data-track-index="100"
+    ></audio>
+    <audio
+      id="narr-02-gap"
+      src="assets/narration/02-gap.wav"
+      data-start="12.3"
+      data-duration="8.28"
+      data-track-index="101"
+    ></audio>
+    <audio
+      id="narr-03-ingest"
+      src="assets/narration/03-ingest.wav"
+      data-start="23.3"
+      data-duration="15.62"
+      data-track-index="102"
+    ></audio>
+    <audio
+      id="narr-04-call"
+      src="assets/narration/04-call.wav"
+      data-start="41.3"
+      data-duration="12.69"
+      data-track-index="103"
+    ></audio>
+    <audio
+      id="narr-05-guardrails"
+      src="assets/narration/05-guardrails.wav"
+      data-start="56.3"
+      data-duration="9.73"
+      data-track-index="104"
+    ></audio>
+    <audio
+      id="narr-06-live"
+      src="assets/narration/06-live.wav"
+      data-start="68.8"
+      data-duration="4.78"
+      data-track-index="105"
+    ></audio>
+    <audio
+      id="narr-07-evidence"
+      src="assets/narration/07-evidence.wav"
+      data-start="77.3"
+      data-duration="10.62"
+      data-track-index="106"
+    ></audio>
+    <audio
+      id="narr-08-close"
+      src="assets/narration/08-close.wav"
+      data-start="90.3"
+      data-duration="3.75"
+      data-track-index="107"
+    ></audio>
 
     <script>
       window.__timelines = window.__timelines || {};
@@ -805,7 +1038,11 @@
       fadeIn(tlTitle, "#scene-title", 0, 0.4);
       tlTitle.from("#t-mark", { opacity: 0, y: -18, duration: 0.55, ease: "power2.out" }, 0.15);
       tlTitle.from("#t-head", { opacity: 0, y: 46, duration: 1.0, ease: "power3.out" }, 0.45);
-      tlTitle.from("#t-rule", { scaleX: 0, transformOrigin: "left center", duration: 0.7, ease: "expo.out" }, 1.15);
+      tlTitle.from(
+        "#t-rule",
+        { scaleX: 0, transformOrigin: "left center", duration: 0.7, ease: "expo.out" },
+        1.15,
+      );
       tlTitle.from("#t-sub", { opacity: 0, y: 24, duration: 0.7, ease: "power2.out" }, 1.45);
       tlTitle.from("#t-pills", { opacity: 0, y: 18, duration: 0.6, ease: "power2.out" }, 1.9);
       window.__timelines["scene-title"] = tlTitle;
@@ -816,8 +1053,16 @@
       tlProblem.from("#p-eye", { opacity: 0, x: -20, duration: 0.5, ease: "power2.out" }, 0.1);
       tlProblem.from("#p-head", { opacity: 0, y: 40, duration: 0.9, ease: "power3.out" }, 0.35);
       tlProblem.from("#p-lede", { opacity: 0, y: 22, duration: 0.7, ease: "power2.out" }, 0.85);
-      tlProblem.from("#p-card-today", { opacity: 0, y: 52, duration: 0.8, ease: "power3.out" }, 1.3);
-      tlProblem.from("#p-arrow", { opacity: 0, scale: 0.7, duration: 0.6, ease: "back.out(1.4)" }, 1.85);
+      tlProblem.from(
+        "#p-card-today",
+        { opacity: 0, y: 52, duration: 0.8, ease: "power3.out" },
+        1.3,
+      );
+      tlProblem.from(
+        "#p-arrow",
+        { opacity: 0, scale: 0.7, duration: 0.6, ease: "back.out(1.4)" },
+        1.85,
+      );
       tlProblem.from("#p-card-sv", { opacity: 0, y: 52, duration: 0.8, ease: "power3.out" }, 2.0);
       tlProblem.from("#p-foot", { opacity: 0, duration: 0.7, ease: "power2.out" }, 3.1);
       window.__timelines["scene-problem"] = tlProblem;
@@ -888,7 +1133,11 @@
       tlLive.from("#l-eye", { opacity: 0, x: -20, duration: 0.5, ease: "power2.out" }, 0.1);
       tlLive.from("#l-head", { opacity: 0, y: 38, duration: 0.9, ease: "power3.out" }, 0.35);
       tlLive.from("#l-lede", { opacity: 0, y: 20, duration: 0.7, ease: "power2.out" }, 0.9);
-      tlLive.from("#l-hero", { opacity: 0, y: 46, scale: 0.985, duration: 0.9, ease: "power3.out" }, 1.35);
+      tlLive.from(
+        "#l-hero",
+        { opacity: 0, y: 46, scale: 0.985, duration: 0.9, ease: "power3.out" },
+        1.35,
+      );
       tlLive.from("#l-th-a", { opacity: 0, x: 44, duration: 0.8, ease: "power2.out" }, 1.75);
       tlLive.from("#l-th-b", { opacity: 0, x: 44, duration: 0.8, ease: "power3.out" }, 2.15);
       tlLive.from("#l-foot", { opacity: 0, y: 24, duration: 0.75, ease: "power2.out" }, 2.8);
@@ -915,16 +1164,24 @@
       fadeIn(tlClose, "#scene-close", 0, 0.6);
       tlClose.from("#x-mark", { opacity: 0, y: -16, duration: 0.6, ease: "power2.out" }, 0.15);
       tlClose.from("#x-head", { opacity: 0, y: 44, duration: 1.0, ease: "power3.out" }, 0.5);
-      tlClose.from("#x-rule", { scaleX: 0, transformOrigin: "left center", duration: 0.7, ease: "expo.out" }, 1.2);
+      tlClose.from(
+        "#x-rule",
+        { scaleX: 0, transformOrigin: "left center", duration: 0.7, ease: "expo.out" },
+        1.2,
+      );
       tlClose.from("#x-sub", { opacity: 0, y: 24, duration: 0.8, ease: "power2.out" }, 1.5);
       tlClose.from("#x-foot", { opacity: 0, y: 18, duration: 0.7, ease: "power2.out" }, 1.95);
       // the only scene allowed to animate itself out
-      tlClose.to(["#x-mark", "#x-head", "#x-rule", "#x-sub", "#x-foot"], {
-        opacity: 0,
-        duration: 1.1,
-        ease: "power2.in",
-        stagger: 0.05,
-      }, 6.0);
+      tlClose.to(
+        ["#x-mark", "#x-head", "#x-rule", "#x-sub", "#x-foot"],
+        {
+          opacity: 0,
+          duration: 1.1,
+          ease: "power2.in",
+          stagger: 0.05,
+        },
+        6.0,
+      );
       window.__timelines["scene-close"] = tlClose;
     </script>
   </body>

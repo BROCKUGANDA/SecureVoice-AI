@@ -497,6 +497,15 @@ jobs:
 
       # The app gates: lint, root typecheck, production build. Kept as separate
       # steps so a failure names itself instead of arriving as one opaque blob.
+      #
+      # `format:check` is in both `release:check` and `verify` and had been failing
+      # for 27 files, because nothing in CI ran it: a gate that only the release
+      # script invokes, on a machine that only runs the release script by hand, is
+      # documentation. `lint` is `--max-warnings=0` for the same reason — 98 warnings
+      # had become the sound of a green build.
+      - name: Format
+        run: bun run format:check
+
       - name: Lint
         run: bun run lint
 

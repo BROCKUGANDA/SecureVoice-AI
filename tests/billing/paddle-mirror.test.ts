@@ -24,7 +24,6 @@ const ORG_A = "0a1a0a0a-0000-4000-8000-000000000001";
 const ORG_B = "0b1b0b0b-0000-4000-8000-000000000002";
 
 const CUSTOMER = "ctm_mirror_gate_001";
-const CUSTOMER_B = "ctm_mirror_gate_002";
 const SUBSCRIPTION = "sub_mirror_gate_001";
 
 beforeAll(async () => {

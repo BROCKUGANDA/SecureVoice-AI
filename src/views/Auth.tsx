@@ -5,7 +5,7 @@ import { motion } from "framer-motion";
 import { signIn, useSession } from "@/lib/auth-client";
 import { describeAuthError, reportAuthError } from "@/lib/auth/errors";
 import { reportClientError } from "@/lib/client-diagnostics";
-import { Copy, Check, ArrowRight, ShieldCheck, KeyRound, Loader2, LogOut } from "lucide-react";
+import { ArrowRight, ShieldCheck, KeyRound, Loader2, LogOut } from "lucide-react";
 import { useApp, t } from "@/lib/store";
 import { SUPPORT_EMAIL } from "@/lib/public-config";
 import { LogoMark } from "@/components/shell/Logo";
@@ -227,29 +227,6 @@ function UaeAccent() {
       className="h-1 w-full rounded-t-3xl bg-[linear-gradient(90deg,#ef3340_0%,#ef3340_25%,#009739_25%,#009739_50%,#f7f7f2_50%,#f7f7f2_75%,#101812_75%,#101812_100%)]"
       aria-hidden="true"
     />
-  );
-}
-
-function CopyBtn({ value }: { value: string }) {
-  const { lang } = useApp();
-  const [done, setDone] = useState(false);
-  return (
-    <button
-      type="button"
-      aria-label={t(`Copy ${value}`, `نسخ ${value}`, lang)}
-      onClick={() => {
-        navigator.clipboard?.writeText(value).catch(() => {});
-        setDone(true);
-        setTimeout(() => setDone(false), 1200);
-      }}
-      className="rounded-md p-1 text-white/40 transition hover:bg-white/10 hover:text-white"
-    >
-      {done ? (
-        <Check className="h-3.5 w-3.5 text-green-bright" />
-      ) : (
-        <Copy className="h-3.5 w-3.5" />
-      )}
-    </button>
   );
 }
 

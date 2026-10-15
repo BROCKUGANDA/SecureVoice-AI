@@ -61,6 +61,7 @@ import "server-only";
  */
 
 import { transcript as redactText } from "@/lib/redact";
+import { asksForCredential } from "@/lib/compliance/credential-ask";
 
 export const OPENING_DISCLOSURE_EN = "This call is recorded to protect you";
 export const OPENING_DISCLOSURE_AR = "هذه المكالمة مسجلة لحمايتك";
@@ -68,17 +69,6 @@ export const OPENING_DISCLOSURE_HI = "इस कॉल को आपकी स�
 export const OPENING_DISCLOSURE_UR = "یہ کال آپ کی حفاظت کے لیے ریکارڈ ہو رہی ہے";
 export const OPENING_DISCLOSURE_FR = "Cet appel est enregistré pour vous protéger";
 export const OPENING_DISCLOSURE_SW = "Simu hii inarekodiwa kwa usalama wako";
-
-const NO_CREDENTIAL_DENY_PATTERNS: { pattern: RegExp; why: string }[] = [
-  { pattern: /\b(otp|one[- ]time|passcode|verification code)\b/i, why: "OTP/passcode request" },
-  { pattern: /\b(pin|passcode|password|pwd)\b/i, why: "Credential field request" },
-  { pattern: /\b(cvv|cvc|security code)\b/i, why: "Card security code request" },
-  {
-    pattern: /\b(full card number|full pan|16[- ]digit|read me the number)\b/i,
-    why: "Full PAN readback request",
-  },
-  { pattern: /\b(expiry|expiration date).*(card|بطاقة|कार्ड)\b/i, why: "Card expiry request" },
-];
 
 /**
  * Validate an outbound agent reply against PUP/PDPL rules. Returns the redacted
@@ -97,16 +87,10 @@ export function auditAgentReply(args: {
     "audit_logged",
   ];
 
-  // 1. Credential-extraction deny check — only scan the REPLY for extraction
-  //    patterns ("please give me your X"), not for legitimate mentions of
-  //    these terms in the disclosure itself ("I will never ask for your PIN").
-  //    The regex below requires an imperative/request context.
-  const REQUEST_CTX = [
-    /\b(give me|send me|tell me|share|provide|enter|type|read (it|me)|what is|what's)\b.*\b(otp|one[- ]time|passcode|verification code|pin|password|pwd|cvv|cvc|security code|full (card|pan|number))\b/i,
-    /\b(i need|i want|i require|please (share|send|give|enter|tell|provide))\b.*\b(otp|pin|password|cvv)\b/i,
-  ];
-  const offender = REQUEST_CTX.find((re) => re.test(args.reply));
-  if (offender) {
+  // 1. Credential-extraction deny check — scan the REPLY for an act of asking
+  //    ("can you tell me your PIN"), never for a legitimate mention of the noun
+  //    ("I will never ask for your PIN"). See `asksForCredential`.
+  if (asksForCredential(args.reply)) {
     return {
       reply: SAFE_REFUSAL[args.lang],
       guardrails: [...guardrails, `refused:credential_request_pattern`],

@@ -42,7 +42,10 @@ afterAll(async () => {
 
 /** The Better Auth `userId` that owns a first-party identity's Account row. */
 async function userIdFor(accountId: string): Promise<string> {
-  const account = await db.account.findUnique({ where: { id: accountId }, select: { userId: true } });
+  const account = await db.account.findUnique({
+    where: { id: accountId },
+    select: { userId: true },
+  });
   if (!account) throw new Error(`no Account row for ${accountId}`);
   return account.userId;
 }

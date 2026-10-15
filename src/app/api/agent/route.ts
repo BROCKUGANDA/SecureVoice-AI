@@ -8,6 +8,7 @@ import { append as auditAppend } from "@/lib/audit-chain";
 import { analyzeSentiment } from "@/lib/sentiment";
 import { noteTurn } from "@/lib/voice/turn-counter";
 import { paceForTurn } from "@/lib/voice/presets";
+import type { TurnKind } from "@/lib/voice/presets";
 import { draftAgentReply, resolveSessionLlmCredentials } from "@/lib/llm";
 import { callerRequestsSecret, NEVER_ASK_LINE } from "@/lib/compliance/never-ask";
 import { SAFETY_EXIT } from "@/lib/compliance/safety-exit";
@@ -15,13 +16,7 @@ import { checkBadActor, recordStrike } from "@/lib/abuse/bad-actor";
 import { detectInjectionAttempt } from "@/lib/llm-guard";
 import { screenForMemory } from "@/lib/memory-guard";
 import { SUPPORTED_LANGS, MAX_AGENT_TEXT_CHARS } from "@/lib/config";
-import {
-  badRequest,
-  tooManyRequests,
-  unprocessable,
-  upstreamError,
-  parseJson,
-} from "@/lib/api-errors";
+import { badRequest, tooManyRequests, unprocessable, parseJson } from "@/lib/api-errors";
 import { logError } from "@/lib/validation/safe-log";
 
 export const dynamic = "force-dynamic";
@@ -539,7 +534,7 @@ export async function POST(req: NextRequest) {
     // trip an alert. (See docs/RUNBOOK.md — "Audit append failure".)
   }
 
-  const turnKind: import("@/lib/voice/presets").TurnKind =
+  const turnKind: TurnKind =
     intent === "greeting"
       ? "filler"
       : baseAction === "none"

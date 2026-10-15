@@ -30,7 +30,7 @@ const carrier = { attempts: 0, failing: true };
 
 mock.module("@/lib/elevenlabs/outbound-call", () => ({
   firstMessageForLanguage: (lang: string) => `recorded AI security call in ${lang}`,
-  placeOutboundCall: async (params: { toNumber: string }) => {
+  placeOutboundCall: async (_params: { toNumber: string }) => {
     carrier.attempts += 1;
     if (carrier.failing) {
       throw new Error("carrier refused (status 503): upstream unavailable");

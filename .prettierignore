@@ -62,3 +62,12 @@ CLAUDE.md
 # source text: prettier reflowing a clause changes what a translator and a regulator
 # read, and the section markers the coverage gate counts are prose.
 agent/policy/**/*.md
+
+# Narration sidecars for the walkthrough demo. `timings.json` is written by
+# scripts/walkthrough/narrate.mjs and the copy under source/assets/ is the frozen
+# output of the take that produced the .wav files next to it. Reformatting either
+# would make the next narrate run look like a content change when it is only a
+# whitespace change — the same reason `evidence/` is here. The .wav files and the
+# schedule that names them belong to that take, so the whole directory is excluded
+# rather than picked file by file.
+demo/walkthrough/source/assets/**

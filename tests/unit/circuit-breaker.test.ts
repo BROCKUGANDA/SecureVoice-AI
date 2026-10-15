@@ -37,7 +37,6 @@ import {
   fallbackFor,
   inProcessLimit,
   withDeclaredFallback,
-  type Dependency,
 } from "@/lib/failures/breaker";
 
 /** A clock the test drives by hand, so cooldown assertions are exact. */

@@ -21,7 +21,7 @@ import { test, expect } from "bun:test";
 import { db } from "@/lib/db";
 import { verifyChain } from "@/lib/audit-chain";
 import { RED_TEAM_SCENARIOS, type RedTeamScenario } from "@/lib/redteam/scenarios";
-import { TOOL_TENANT_ORG_ID, issueTenantToolSecret, revokeTenantToolSecrets } from "../tool-tenant";
+import { TOOL_TENANT_ORG_ID, issueTenantToolSecret } from "../tool-tenant";
 process.env.ELEVENLABS_DRY_RUN = "true";
 process.env.AGENT_TOOL_SECRET = process.env.AGENT_TOOL_SECRET ?? "test-tool-secret";
 process.env.AGENT_TOOL_ALLOWED = "card_freeze,human_handoff,verify_transaction,switch_language";
@@ -103,7 +103,7 @@ test("WP-9: server-layer red-team outcomes are refused by the control plane", as
 });
 
 test("WP-9 RT-7: the coerced freeze is refused, audited, and the chain still verifies", async () => {
-  const rt7 = RED_TEAM_SCENARIOS.find((s) => s.id === "RT-7")!;
+  const _rt7 = RED_TEAM_SCENARIOS.find((s) => s.id === "RT-7")!;
   const conversationId = `conv-rt7-${RUN}`;
   // The ambiguous state: verification started, fraud NOT confirmed.
   const caseRow = await makeCase("VERIFYING", conversationId);

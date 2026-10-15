@@ -1,4 +1,5 @@
 import "server-only";
+import { asksForCredential, warningFreeText } from "@/lib/compliance/credential-ask";
 /**
  * Guards for the live conversation turn — the highest-adversarial-input path in
  * the product.
@@ -174,7 +175,16 @@ const SECRET_SOLICITATION: RegExp[] = [
   /\b(?:we|they|you|the\s+bank|our\s+system)\s+(?:need|want|require|will\s+need|will\s+require)\b[^.?!]{0,30}\b(?:pin|otp|passcode|password|cvv|cvc|verification\s+code)\b/i,
   /\byou\s+(?:will|have\s+to|need\s+to)\b[^.?!]{0,30}\b(?:give|provide|share|enter|confirm|send)\b[^.?!]{0,30}\b(?:pin|otp|passcode|password|cvv|cvc)\b/i,
   /\b(?:need|require)\s+(?:your|the)\s+(?:pin|otp|passcode|password|cvv|cvc)\b/i,
-  // Volunteered credentials: not a request, but absorbing one is still a refusal.
+];
+
+/**
+ * A credential that was VOLUNTEERED rather than asked for. Not a request, so the
+ * negation veto above does not apply to it — and it must not, because the sentence
+ * that leaks a secret is usually also a sentence that warns about secrets:
+ * "your PIN is 1234, never share it with anyone" contains both, and a guard that
+ * reads the whole sentence as advice would speak the number.
+ */
+const VOLUNTEERED_SECRETS: RegExp[] = [
   /\b(?:your\s+)?(?:pin|passcode|password|cvv|cvc)\s+(?:is|are)\s+\d{3,}/i,
 ];
 
@@ -187,21 +197,41 @@ const FRAME_BREAKS: RegExp[] = [
 ];
 
 /**
- * The check before synthesis. Returns the text to speak, or null to refuse.
+ * The check before synthesis. `true` means the text may be spoken; `false` means
+ * the caller falls back to its scripted reply.
  *
  * Refusing means `llm.ts` uses its scripted reply, which is the correct
  * outcome: a scripted line that asks a harmless clarifying question is always
  * better than a model improvising a request for a customer's PIN.
+ *
+ * The solicitation half is scoped by `warningFreeText`: a sentence that NEGATES a
+ * request ("Never share your PIN with anyone") is advice, and this filter used to
+ * refuse it — silently discarding exactly the reassuring sentence the platform wants
+ * the model to produce. Frame breaks are NOT scoped that way, because "I am not an
+ * AI" is itself the thing being detected: a negation veto there would open a hole.
+ * Both halves of the trade-off are pinned in tests.
  */
 export function spokenOutputIsSafe(out: string): boolean {
   if (!out) return false;
   // Normalise before matching so a homoglyph or zero-width joiner cannot hide a
   // solicitation from the filter that exists to stop exactly that.
   const s = out.normalize("NFKC").replace(CONTROL_CHARS, "").replace(/\s+/g, " ");
+  const solicitations = warningFreeText(s);
   for (const p of SECRET_SOLICITATION) {
+    p.lastIndex = 0;
+    if (p.test(solicitations)) return false;
+  }
+  // Unvetoed, and deliberately so: a volunteered secret is a leak, not a request,
+  // and the sentence that carries one often contains a negation. See
+  // VOLUNTEERED_SECRETS.
+  for (const p of VOLUNTEERED_SECRETS) {
     p.lastIndex = 0;
     if (p.test(s)) return false;
   }
+  // The shared detector covers the asks these patterns never learned: reading the
+  // number back, a 16-digit readout, and the card expiry. It applies the same
+  // negation veto, so it cannot re-open the false refusal removed above.
+  if (asksForCredential(s)) return false;
   for (const p of FRAME_BREAKS) {
     p.lastIndex = 0;
     if (p.test(s)) return false;

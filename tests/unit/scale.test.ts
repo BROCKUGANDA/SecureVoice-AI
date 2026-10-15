@@ -78,7 +78,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { db } from "@/lib/db";
 import {
-  BACKOFF_BASE_MS,
   BACKOFF_MAX_MS,
   CEILING_ENV_VARS,
   HOURS_PER_MONTH,
@@ -1707,7 +1706,7 @@ describe("drainDialQueue — the accounting contract", () => {
     await seed({ caseId: "a" });
     const out = await drainDialQueue({
       workerId: "w1",
-       
+
       handler: async () => {
         // eslint-disable-next-line no-throw-literal -- a non-Error throw is the case under test: the worker must treat it as a crash, not as success
         throw "a string";

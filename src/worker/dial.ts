@@ -27,6 +27,7 @@ import { createBreaker, type Breaker } from "@/lib/failures/breaker";
 import { placeOutboundCall } from "@/lib/elevenlabs/outbound-call";
 import { placeInterventionCall } from "@/lib/twilio";
 import { append as auditAppend } from "@/lib/audit-chain";
+import { flushLangfuse } from "@/lib/langfuse";
 import { db } from "@/lib/db";
 import { transitionCase } from "@/lib/case-state-machine";
 import { markVoiceFailed } from "@/lib/elevenlabs/sms-fallback";
@@ -643,7 +644,6 @@ async function maybeSweep(): Promise<void> {
 }
 
 async function tick(): Promise<number> {
-  await maybeSweep();
   const result = await drainDialQueue({
     workerId: WORKER_ID,
     handler: handle,
@@ -651,6 +651,16 @@ async function tick(): Promise<number> {
     limit: BATCH,
     leaseMs: LEASE_MS,
   });
+  // After the claims, not before them.
+  //
+  // The sweeps were awaited first, so on a tick where one was due the worker paid up
+  // to 50 SMS resolutions, 50 freeze-window lapses and every escalation advance
+  // BEFORE taking a single job off the dial queue — and a queued signal is a customer
+  // whose card is still live. `maybeSweep` self-throttles to once every
+  // SWEEP_EVERY_MS, so ordering costs a sweep at most one tick's worth of claims.
+  // It is not gated on an idle queue: a lapsed freeze window that only escalates when
+  // nothing is dialling is the same silent stall this sweep exists to remove.
+  await maybeSweep();
   return result.claimed;
 }
 
@@ -675,6 +685,7 @@ async function main(): Promise<void> {
   if (ONCE) {
     const n = await tick();
     logInfo("[dial-worker] claimed jobs and exiting", { count: n, mode: "--once" });
+    await flushLangfuse();
     return;
   }
 
@@ -698,6 +709,14 @@ async function main(): Promise<void> {
     // Only idle when there was nothing to do — a backlog drains flat out.
     if (claimed === 0) await new Promise((r) => setTimeout(r, POLL_MS));
   }
+  // The traces this worker makes are the only record of what the agent was asked
+  // and what it answered, and Langfuse batches them. A SIGTERM between two spans
+  // used to drop whatever had not been shipped yet, because `flushLangfuse` existed,
+  // documented "call this in a SIGTERM handler", and was called by nothing. It is
+  // called after the drain rather than inside the signal handler on purpose: spans
+  // created while in-flight work finishes are exactly the ones worth keeping, and
+  // the flush itself swallows every error so a dead collector cannot stall a shutdown.
+  await flushLangfuse();
   logInfo("[dial-worker] stopped cleanly");
 }
 

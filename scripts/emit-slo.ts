@@ -69,7 +69,7 @@ const outPath = resolve(
 await flushSpansNow();
 
 const source = await loadSloSource({ windowMinutes, interventions });
-const { report, ok, exitCode, reasons } = buildSloReport(source, {
+const { report, exitCode, reasons } = buildSloReport(source, {
   windowMinutes,
   interventions,
   requiredInterventions: minInterventions,
@@ -121,6 +121,17 @@ if (report.spans_not_measured.length > 0) {
     "[slo] these are NOT passes. `all_targets_met` is null while any span is unmeasured.",
   );
 }
+
+// The population every number above was computed over, printed where a person
+// reading a red run will see it. Without this line a zero-live result is
+// indistinguishable from a quiet service, and the temptation is to widen the
+// reader — which is how harness traffic became a published production SLO the
+// first time.
+console.log(
+  `[slo] origin: ${report.origin_accounting.live_records} live sample(s) judged, ` +
+    `${report.origin_accounting.harness_records} harness sample(s) reported under ` +
+    "`spans_harness` with no verdict.",
+);
 
 if (reasons.length === 0) {
   console.log("");

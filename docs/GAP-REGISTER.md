@@ -673,30 +673,29 @@ and two of those were attached wrongly:
 | `READ_DELEGATES` (rbac)                | documented the read/write split                | nothing consumed it, so an unclassified new write would have passed the read-only guard silently                                          | exported; suite now requires every delegate on every model to be named by exactly one set — found `findRaw`/`aggregateRaw` unclassified today |
 | `WILDCARD_DNS_SUFFIXES` (ssrf)         | "the resolved address is checked anyway"       | one test, hardcoded to `.nip.io`; the other three services were unverified                                                                | list swept: each resolves private→refused and public→allowed                                                                                  |
 
-**Still open, in order of consequence:**
+**Resolved 2026-10-15 — the decision, and what it found:**
 
-- **`src/lib/agent-prompts.ts` is a richer prompt builder nothing calls.** The live
-  `getSpecialistPrompt` (src/lib/ai/router.ts) returns a fixed string per role and
-  ignores its context argument entirely — the parameter is `_context`. The unwired one
-  builds an institution-aware prompt and handles the 0.00 authorization hold as "a
-  pre-authorization hold (no monetary charge)", never "zero Dirhams". That is a spoken
-  accuracy rule for the exact case a fraud call runs on. It has NOT been deleted,
-  because deleting it would discard the rule rather than the code, and it has NOT been
-  wired, because which prompt assembly the agent uses is a product decision, not a lint
-  fix. Needs one answer: does the specialist prompt take institution context (then
-  `getInstitutionContext` feeds it and the role strings become the fallback), or not
-  (then the zero-amount handling has to move into the live path, and this file goes)?
-- **`llmBreakerState()` is read by tests, not by the health surface** its own doc
-  promises ("for the health surface and for tests"). An operator cannot see that the
-  LLM breaker tripped.
-- **`registerLlmAdapter()` has no production caller.** The built-in provider table is
-  populated directly, so the validation the register function performs (non-empty name,
-  factory is a function) runs only in tests. Wiring the table through it makes the seam
-  real; deleting it removes an extension point four test files depend on.
+- **`agent-prompts.ts` is deleted; the zero-amount rule moved into the real prompt.**
+  The register's fork was false: investigation found the role-based
+  `getSpecialistPrompt` in src/lib/ai/router.ts has no callers either — BOTH
+  implementations were dead, and the only prompt a real turn sends is the system
+  array built inside `draftAgentReply` (src/lib/llm.ts). So the second option was
+  taken: `SPOKEN_MONEY_RULES` now carries the zero-amount case ("a pre-authorization
+  hold (no monetary charge)", never "zero Dirhams"), the symbol ban, and the
+  exchange-rate refusal, and is spread into that array
+  (tests/unit/spoken-money-rules.test.ts asserts content and consumption).
+  `currency-map.ts` went with it — its only consumer was the deleted builder.
+  Per-institution prompts (Takaful/insurer/bank) are a per-tenant extension of the
+  system prompt if they are ever wanted, not a second builder.
+- **`llmBreakerState()` is operator-visible** twice over: `/api/readyz` reads it for
+  the incident view and `/api/metrics` scrapes it (`sv_llm_breaker_open`,
+  `sv_llm_breaker_consecutive_failures`).
+- **`registerLlmAdapter()` now registers the built-ins**: the four providers enter
+  `LLM_ADAPTERS` through the public function, so its validation applies to the
+  names this module ships rather than only to test registrations.
 
-**Effort:** the seven fixes are S–M each and are done. The three open items are S, M, S.
-**Status:** FIXED, with the three above left named because they need a decision rather
-than a patch.
+**Effort:** the seven fixes are S–M each and are done; the three named items are done.
+**Status:** FIXED.
 
 ### 13. The voice engine's own latency was unmeasurable, and two of its promises had no producer — **60%**
 
@@ -746,12 +745,18 @@ which reported a vanished producer as a code defect.
 2. **No per-request budget on the TTS ladder.** The 25 s default is now 6 s, which cuts
    the worst case from ~17 minutes to ~4. A per-request deadline the ladder cannot
    exceed is the actual fix.
-3. **15–17 serially awaited round trips before the 202.** Gates, claim, ledger SUM over
-   all of an org's `UsageLedger`, advisory-locked credit reserve, vault upsert, case
-   create, transition audit, admission count, QStash publish, plus an institution lookup
-   hidden inside a `void`ed SMS call's arguments. Parallelising the independent gates is
-   mechanical; moving the vault and audit writes off the accepted window needs a decision
-   about what the bank is owed before the 202.
+3. **15–17 serially awaited round trips before the 202.** **Partially fixed
+   (2026-10-15):** the hidden await — `await getInstitutionType(orgId)` sitting in the
+   ARGUMENTS of a `void`-ed SMS call, so a lookup only the forgotten message consumes
+   ran between the enqueue and the 202 — now lives inside the fire-and-forget
+   continuation, and the SSRF verdict is raced with the combined idempotency+consent
+   read (independent: neither consumes the other, neither mutates; SSRF refusal still
+   checked first, and a DB error still surfaces only after SSRF passes, so it can
+   never mask a hostile-callback refusal). Deliberately NOT parallelised: the spend
+   checks inside the policy gate, because a reserve that races the balance is how an
+   org goes negative on two concurrent signals. The remaining cost is the ledger
+   aggregate itself — a design change (running balance or narrower window), still
+   open.
 4. **`answered_to_first_agent_word` needs a producer the CI can drive**, or the voice
    plane's latency stays unmeasured forever no matter how many spans are declared.
 5. **Degradation is visible in a log line and now in `/api/readyz`, but not in any

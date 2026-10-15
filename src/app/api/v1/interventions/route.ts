@@ -252,33 +252,61 @@ export async function POST(req: NextRequest) {
   // name that resolves into the private network (a cloud metadata endpoint in
   // particular) passed every regex. Runs before the DB round-trip so a
   // hostile callback never becomes a stored value a later step would fetch.
+  const orgId = bearerAuth?.orgId ?? signal.org_id ?? null;
+  const effectiveCallerId = bearerAuth?.callerId ?? callerId;
+  const idemHash = hashKey(idemKey.trim());
+
+  // —— Combined check: idempotency + consent, raced with the SSRF verdict ——
+  // The remote DB's ~1.2 s/round-trip dominates the latency budget, so the two
+  // reads that used to be sequential are already one raw query — and they used to
+  // be strictly AFTER the DNS resolution above, which cost a second network wait
+  // before the database was even asked. The two are independent: neither consumes
+  // the other's result, neither mutates. Precedence is preserved by checking the
+  // SSRF verdict FIRST once both settle, and a database error still surfaces at
+  // exactly the point it would have in the sequential version — after SSRF passed,
+  // never masking a hostile-callback refusal as a 500.
+  let combined: { idem_response: string | null; consent_opted_out: boolean | null }[];
   if (signal.callback_url) {
-    const verdict = await validateOutboundUrl(signal.callback_url);
+    const dbRead = db.$queryRaw<
+      { idem_response: string | null; consent_opted_out: boolean | null }[]
+    >`
+      SELECT
+        (SELECT response FROM "IdempotencyKey"
+         WHERE scope = 'interventions' AND key = ${idemHash} AND "callerId" = ${effectiveCallerId}
+         AND "expiresAt" > NOW() AND response != ''
+         LIMIT 1) as idem_response,
+        (SELECT "optedOut" FROM "Customer"
+         WHERE "consentRecordId" = ${signal.consent_record_id}
+         LIMIT 1) as consent_opted_out
+    `;
+    const [verdict, stored] = await Promise.all([
+      validateOutboundUrl(signal.callback_url),
+      dbRead.then(
+        (rows) => ({ ok: true as const, rows }),
+        (err: unknown) => ({ ok: false as const, err }),
+      ),
+    ]);
     if (!verdict.ok) {
       return failure("semantically_invalid", {
         detail: `callback_url rejected: ${verdict.reason}`,
       });
     }
+    if (!stored.ok) throw stored.err;
+    combined = stored.rows;
+  } else {
+    combined = await db.$queryRaw<
+      { idem_response: string | null; consent_opted_out: boolean | null }[]
+    >`
+      SELECT
+        (SELECT response FROM "IdempotencyKey"
+         WHERE scope = 'interventions' AND key = ${idemHash} AND "callerId" = ${effectiveCallerId}
+         AND "expiresAt" > NOW() AND response != ''
+         LIMIT 1) as idem_response,
+        (SELECT "optedOut" FROM "Customer"
+         WHERE "consentRecordId" = ${signal.consent_record_id}
+         LIMIT 1) as consent_opted_out
+    `;
   }
-  const orgId = bearerAuth?.orgId ?? signal.org_id ?? null;
-  const effectiveCallerId = bearerAuth?.callerId ?? callerId;
-  const idemHash = hashKey(idemKey.trim());
-
-  // —— Combined check: idempotency + consent in ONE DB round-trip ——
-  // The remote DB's ~1.2 s/round-trip dominates the latency budget, so the
-  // two reads that used to be sequential are now a single raw query.
-  const combined = await db.$queryRaw<
-    { idem_response: string | null; consent_opted_out: boolean | null }[]
-  >`
-    SELECT
-      (SELECT response FROM "IdempotencyKey"
-       WHERE scope = 'interventions' AND key = ${idemHash} AND "callerId" = ${effectiveCallerId}
-       AND "expiresAt" > NOW() AND response != ''
-       LIMIT 1) as idem_response,
-      (SELECT "optedOut" FROM "Customer"
-       WHERE "consentRecordId" = ${signal.consent_record_id}
-       LIMIT 1) as consent_opted_out
-  `;
 
   // Replay: the idempotency key already has a stored response.
   if (combined[0]?.idem_response) {
@@ -931,24 +959,33 @@ async function armAndDial(
     // live-fire attestation is a deployment state, and logging a refusal per
     // signal would bury the failures that are worth reading.
     if (isTwilioConfigured() && liveSendAttested()) {
-      void sendInterventionSms({
-        to: signal.phone,
-        lang: deliveryLang(signal.language),
-        caseRef,
-        // No amount, no merchant: a heads-up SMS is the most easily forwarded
-        // message in the chain, and one that names a transaction is a template a
-        // smisher can copy verbatim. It says only "expect a verification call".
-        kind: "heads_up",
-        // Whose alert this is decides WHICH number it comes from and what the
-        // customer is told to expect a call from — see resolveSmsSender.
-        orgId,
-        caseId: created.id,
-        institution: await getInstitutionType(orgId),
-      }).catch((err: unknown) => {
-        logError("[v1/interventions] pre-notification SMS failed", {
-          error: err instanceof Error ? err.message : String(err),
-        });
-      });
+      // The institution lookup used to sit in this call's ARGUMENTS: `await` runs
+      // before the function is invoked, so a lookup whose result only an
+      // explicitly-forgotten message consumes was paid on the path the bank's 202
+      // is measured against. The whole SMS is fire-and-forget — the lookup
+      // belongs inside the forget.
+      void (async () => {
+        try {
+          await sendInterventionSms({
+            to: signal.phone,
+            lang: deliveryLang(signal.language),
+            caseRef,
+            // No amount, no merchant: a heads-up SMS is the most easily forwarded
+            // message in the chain, and one that names a transaction is a template a
+            // smisher can copy verbatim. It says only "expect a verification call".
+            kind: "heads_up",
+            // Whose alert this is decides WHICH number it comes from and what the
+            // customer is told to expect a call from — see resolveSmsSender.
+            orgId,
+            caseId: created.id,
+            institution: await getInstitutionType(orgId),
+          });
+        } catch (err: unknown) {
+          logError("[v1/interventions] pre-notification SMS failed", {
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      })();
     }
     delivery = {
       channel: "queued",

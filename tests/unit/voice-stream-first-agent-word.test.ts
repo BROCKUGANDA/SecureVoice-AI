@@ -69,7 +69,7 @@ class FakeDeepgramClient {
     return this;
   }
 
-  start(_lang: string): void {}
+  start(_lang: string): void {/* empty */}
 
   sendMulaw(_buffer: Buffer): void {}
 

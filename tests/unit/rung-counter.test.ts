@@ -13,6 +13,7 @@ import {
   degradedSnapshot,
   resetRungCounters,
   rungSnapshot,
+  TTS_RUNG_LABELS,
 } from "@/lib/voice/rung-counter";
 
 beforeEach(() => resetRungCounters());
@@ -47,13 +48,34 @@ describe("the rung counter", () => {
     expect(rungSnapshot().find((s) => s.rung === "emergency")?.total).toBe(2);
   });
 
-  test("an unrecognised source is counted, not dropped", () => {
+  test("an unrecognised source is counted, and never becomes a label of its own", () => {
     // The ladder can grow a rung (or a caller can pass a source this module has
-    // never heard of) and the counter must not silently discard it — a metric
-    // that loses events exactly when something new happens is worse than no
-    // metric.
+    // never heard of). The count must not be silently discarded — a metric that
+    // loses events exactly when something new happens is worse than no metric —
+    // but the label vocabulary stays closed, because `/api/metrics` is scraped by
+    // the system that has to survive unbounded cardinality. So the event is
+    // preserved in `other`, and the name that changed is a log/DB question, not a
+    // time-series-per-source question.
     countRung("twilio-native", true);
-    const extra = rungSnapshot().find((s) => s.rung === "twilio-native");
-    expect(extra?.total).toBe(1);
+    expect(rungSnapshot().map((s) => s.rung)).not.toContain("twilio-native");
+    expect(rungSnapshot().find((s) => s.rung === "other")?.total).toBe(1);
+    expect(degradedSnapshot()).toBe(1);
+  });
+
+  test("unknown sources share one series instead of multiplying it", () => {
+    countRung("twilio-native");
+    countRung("kokoro");
+    countRung("xtts");
+    const other = rungSnapshot().filter((s) => s.rung === "other");
+    expect(other.length).toBe(1);
+    expect(other[0]?.total).toBe(3);
+  });
+
+  test("the snapshot emits nothing outside the declared label vocabulary", () => {
+    // This is the precondition the scrape guard relies on: it can assert a hard
+    // allowlist only because the producer cannot leave it.
+    countRung("elevenlabs");
+    countRung("something-new");
+    for (const s of rungSnapshot()) expect(TTS_RUNG_LABELS).toContain(s.rung);
   });
 });

@@ -556,8 +556,24 @@ export const env = {
   get dialProbeTimeoutMs(): number {
     return numSetting("DIAL_PROBE_TIMEOUT_MS", 30_000, 1_000);
   },
+  /**
+   * How long a staged soft freeze waits for a second actor before the sweep
+   * escalates it (`src/lib/freeze-window.ts`).
+   *
+   * The default was 300s while `src/app/llms.txt/route.ts` — the file an answer
+   * engine quotes verbatim, and the one a bank's compliance reviewer can fetch
+   * without an account — published a 24-hour hold. One of the two had to be wrong.
+   * The window IS the promise, so the promise is now the default: this is a fraud
+   * desk's decision window, and five minutes is not one a specialist can honour —
+   * the escalation page would count how many holds nobody reached in time rather
+   * than alert on the one that matters.
+   *
+   * Still an operator knob: a deployment that wants a tighter window sets
+   * `REVERSAL_WINDOW_SECS`, and the published text is rendered from this value so
+   * the two cannot drift apart again.
+   */
   get reversalWindowSecs(): number {
-    return numSetting("REVERSAL_WINDOW_SECS", 300, 1);
+    return numSetting("REVERSAL_WINDOW_SECS", 86_400, 1);
   },
 
   /* ── CRM adapters ── */

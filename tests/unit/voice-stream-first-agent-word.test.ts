@@ -69,9 +69,9 @@ class FakeDeepgramClient {
     return this;
   }
 
-  start(_lang: string): void {/* empty */}
+  start(_lang: string): void {}
 
-  sendMulaw(_buffer: Buffer): void {/* empty */}
+  sendMulaw(_buffer: Buffer): void {}
 
   stop(): void {}
 

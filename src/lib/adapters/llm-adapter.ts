@@ -418,13 +418,19 @@ export type LlmAdapterFactory = (config?: LlmAdapterConfig) => LlmAdapter;
  * extends it, so a provider shipped outside this file is loadable through the
  * same factory as the built-ins. `Object.keys(LLM_ADAPTERS)` is the loadable
  * set — a caller can report it without constructing anything.
+ *
+ * The built-ins enter it through that same function rather than by literal, which
+ * is what makes the registry's validation real: the name normalisation and the
+ * factory type-check ran only in tests until this module's own four providers went
+ * through them too. A registry whose guarantees apply to everyone except its own
+ * defaults is not a registry, it is a suggestion.
  */
-export const LLM_ADAPTERS: Record<string, LlmAdapterFactory> = {
-  openai: createOpenAiAdapter,
-  groq: createGroqAdapter,
-  anthropic: createAnthropicAdapter,
-  gemini: createGeminiAdapter,
-};
+export const LLM_ADAPTERS: Record<string, LlmAdapterFactory> = {};
+
+registerLlmAdapter("openai", createOpenAiAdapter);
+registerLlmAdapter("groq", createGroqAdapter);
+registerLlmAdapter("anthropic", createAnthropicAdapter);
+registerLlmAdapter("gemini", createGeminiAdapter);
 
 /**
  * Add or replace a provider factory. The name is normalised (trimmed, lower

@@ -519,6 +519,26 @@ async function groundFromKnowledgeBase(input: {
   return { block: lines.join("\n"), hits: lines.length, sources };
 }
 
+/**
+ * Spoken-money rules for the system prompt.
+ *
+ * Ported from src/lib/agent-prompts.ts, an institution-aware prompt builder that
+ * no code path ever called. Its role strings are superseded by this module's own
+ * system prompt and its per-tenant branches (Takaful, insurer, bank) belong to a
+ * per-tenant extension of that prompt if anyone ever wants them — but its money
+ * rules were the reason it was worth keeping anything from, and the load-bearing
+ * one is the zero-amount case: card verification places a 0.00 authorization hold,
+ * and "zero Dirhams" tells a frightened customer their money moved.
+ */
+export const SPOKEN_MONEY_RULES = [
+  // Un-numbered on purpose: the security rules above are numbered 1-5 and the
+  // knowledge-base block conditionally continues that numbering with its own 6,
+  // so a second numbered sequence here would collide in the model's reading.
+  "MONEY IS SPOKEN: use the currency's spoken word ('dirhams', 'rupees'), never a currency symbol, and never an ISO code after a number.",
+  "MONEY IS NEVER CONVERTED: do not guess an exchange rate. If the caller asks what the amount is in their local currency, say only: I cannot provide exchange rates; please check your banking app.",
+  "A ZERO AMOUNT IS A PRE-AUTHORIZATION HOLD, not a charge. Say 'a pre-authorization hold (no monetary charge)' — never 'zero', 'nothing', or the currency word alone.",
+];
+
 export async function draftAgentReply(args: {
   text: string;
   lang: TtsLang;
@@ -646,6 +666,13 @@ export async function draftAgentReply(args: {
     "3. NEVER use urgency or threat language. No 'act now', 'final warning', 'your account will be closed', 'before it's too late'. Do not threaten to close, freeze or suspend anything. Your output is checked against a vishing-pattern blocklist and is NOT synthesised if it matches.",
     "4. ALWAYS offer the hang-up-safe exit: You may hang up now and call your bank's official number from the back of your card. This verification stays valid for thirty minutes.",
     "5. Render numbers as speech: 'forty-eight thousand dirhams', never '48,000 AED'.",
+    // ── SPOKEN MONEY (from src/lib/agent-prompts.ts, which nothing called) ──
+    // The zero-amount rule is the load-bearing one: a card verification places a
+    // 0.00 authorization hold, and a model that says "zero Dirhams" makes the
+    // customer think their money moved. These are speaking rules, not a prompt
+    // builder — the amount itself reaches the model through the turn's own
+    // context; what the model needed was the vocabulary for the edge case.
+    ...SPOKEN_MONEY_RULES,
     // ── KNOWLEDGE BASE, WHEN THERE IS ANY ──────────────────────────────────
     // Uploaded documents are the LEAST trusted text in this prompt after the
     // caller's own words: they arrive as PDFs from a third party, and a policy

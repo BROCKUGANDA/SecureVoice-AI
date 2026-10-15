@@ -310,17 +310,34 @@ now provides `requireOrg(req)` which returns `Authed` with a scoped DB client
 (`auth.db`). Routes can adopt this pattern to get tenant-scoped queries with
 one import. The systemic wiring of all 47 routes is a follow-up.
 
-### 9. Public surface absent — **10%** — PARTIAL
+### 9. Public surface absent — **10%** — FIXED (and this entry was stale)
 
 **Fixed (sprint slice):** `robots.txt` now blocks AI crawlers (GPTBot, ClaudeBot,
 PerplexityBot, Google-Extended) from the authenticated console. Comment added
 noting that app and api hosts override with `X-Robots-Tag: noindex` headers.
 
-**Still open:** `X-Robots-Tag` middleware not yet implemented, no `site.webmanifest`,
-no sitemap, no `llms.txt`, no JSON-LD, no trust pages. These are marketing motion,
-not sprint-critical.
+**"Still open" items, verified against the tree on 2026-10-15 — every one was
+already built, and this section kept saying otherwise:**
 
-**Effort:** S (done), M (remaining). **Status:** PARTIAL.
+- `X-Robots-Tag`: `robotsTagFor()` in `src/proxy.ts` (Next 16's renamed middleware),
+  applied on every response, tested in `tests/surface/console-routes.test.ts` —
+  private paths noindex, `/` null. `src/proxy.ts` is also the edge layer (request
+  id, client-IP trust, pre-auth rate limit, 413 body guard), so the header rides a
+  file that was already running on every request.
+- `site.webmanifest`: `public/site.webmanifest`.
+- Sitemap: `src/app/sitemap.ts`.
+- `llms.txt`: `src/app/llms.txt/route.ts`, with its own claims gate
+  (`tests/surface/llms-txt.test.ts`).
+- JSON-LD: `src/components/seo/JsonLd.tsx`, wired into the home page.
+- Trust pages: `/security` is a route; `/use-cases` lives as home-page sections
+  rather than a standalone route, which is the one judgement call here.
+
+The lesson is about this register, not the surface: an entry that says "not yet
+implemented" without a file:line is a claim about the past. Check the tree before
+acting on it — the check took one `ls`, and acting on the stale text first produced
+a duplicate proxy file that had to be reverted.
+
+**Effort:** S. **Status:** FIXED.
 
 ### 10. Notification and realtime paths built but unreachable — **40%**
 

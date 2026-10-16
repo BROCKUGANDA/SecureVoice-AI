@@ -8,6 +8,7 @@ import { JsonLd, ProductJsonLd } from "@/components/seo/JsonLd";
 import { COMPANY } from "@/lib/commercial";
 import { siteOrigin } from "@/lib/site-origin";
 import { TenantBrand } from "@/components/shell/TenantBrand";
+import HealthCheck from "@/components/HealthCheck";
 
 const display = Space_Grotesk({
   variable: "--font-display",

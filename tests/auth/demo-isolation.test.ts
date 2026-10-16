@@ -76,7 +76,8 @@ mock.module("@/lib/better-auth", () => ({
 type KvRow = { response: string; expiresAt: Date };
 const kv = new Map<string, KvRow>();
 const kvKey = (s: Record<string, unknown>) => {
-  const nested = s.scope_key_callerId as { scope?: unknown; key?: unknown; callerId?: unknown } | undefined;
+  const nested = s.scope_key_callerId as
+    { scope?: unknown; key?: unknown; callerId?: unknown } | undefined;
   const str = (v: unknown) => (typeof v === "string" ? v : "");
   const c = {
     scope: str(nested?.scope ?? s.scope),

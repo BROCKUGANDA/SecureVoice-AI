@@ -36,7 +36,15 @@ const TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 15_000 };
 
 export type AuditEntry = {
   callRef: string;
-  action: "tts" | "asr" | "agent" | "freeze" | "handoff" | "consent";
+  /**
+   * The audited verb. `sla` was added with `src/lib/sla-breach.ts`: a missed case
+   * deadline is an event a bank may later ask us to prove, and it belongs in the chain
+   * rather than only in a log line — but it is not a `freeze`, and filing an SLA breach
+   * under a verb that means something else would corrupt the one record both sides
+   * trust. Extend this rather than reusing a word; the DB column is a plain String, so
+   * this union is the only thing keeping the vocabulary honest.
+   */
+  action: "tts" | "asr" | "agent" | "freeze" | "handoff" | "consent" | "sla";
   intent?: string;
   callerId?: string;
   redactedText?: string;

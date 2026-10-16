@@ -6,8 +6,70 @@
  */
 
 import { decodeMulaw } from "./mulaw-codec";
+import { env } from "@/lib/config";
 
 export type TranscriptListener = (text: string, isFinal: boolean) => void;
+
+/**
+ * The live listen URL, built in ONE place.
+ *
+ * It used to be inlined twice — once for the pooled path (`preconnectDeepgram`) and
+ * once for the per-call/reconnect path (`open`) — and a parameter added to only one
+ * of them leaves the other path silently producing no data. That is the same class of
+ * defect as a declared span with no producer, so the two copies are gone.
+ *
+ * `utterance_end_ms` is the reason this function exists. It is what makes Deepgram
+ * send the `UtteranceEnd` message, and the span `caller_stop_to_agent_audio` — the
+ * turn latency the caller actually HEARS — cannot be measured without it. It is read
+ * from config rather than hard-coded, and the configured value is never zero
+ * (`env.deepgramUtteranceEndMs`), because zero is Deepgram's "do not send it".
+ * `interim_results=true` is required alongside it and both paths already sent it.
+ */
+function listenUrl(dgLang: string): string {
+  return (
+    `wss://api.deepgram.com/v1/listen?model=nova-2&encoding=mulaw&sample_rate=8000` +
+    `&language=${dgLang}&smart_format=true&interim_results=true` +
+    `&utterance_end_ms=${env.deepgramUtteranceEndMs}`
+  );
+}
+
+/**
+ * Deepgram's end-of-utterance signal, surfaced to the call.
+ *
+ * `lastWordEndMs` is this client's conversion of Deepgram's `last_word_end` into
+ * milliseconds, and THE UNIT IS THE TRAP. The vendor reports it in SECONDS as a float —
+ * `last_word_end: 3.1` is 3.1 s from the start of the stream's audio, and it matches
+ * `alternatives[0].words[].end`, which is seconds too — while every clock in this
+ * repository is epoch ms. Added unconverted, a stop 30 s into a call lands 29.97 s too
+ * EARLY, the implied turn is ~30 s long, and the plausibility ceiling refuses every sample
+ * the producer makes: a span that is instrumented, never fabricated, and permanently
+ * empty. So the seconds are multiplied here, at the seam where the vendor's units stop
+ * being the vendor's.
+ *
+ * The offset is not a wall clock, and neither is the message's ARRIVAL. An `UtteranceEnd`
+ * arrives `last_word_end` + `utterance_end_ms` of deliberate silence + delivery time after
+ * the syllable it reports, so a span that starts at the arrival subtracts the silence wait
+ * from the latency it exists to prove and publishes a faster product than the caller
+ * experienced. The event therefore carries the offset, the wall clock that offset is
+ * measured from, and the arrival, separately, and lets the consumer map them — or refuse.
+ *
+ * Three shapes mean "cannot be mapped", and all three are routine rather than exotic:
+ * `lastWordEndMs` of -1, which is Deepgram's own "ignore this message" sentinel (the
+ * result was finalised before the silence condition was met, so the field is a flag and
+ * not a time — forwarded verbatim rather than scaled, so the consumer still recognises
+ * it), NaN when the field is absent or non-numeric, and `streamAudioStartedAtMs` of null,
+ * which means no audio frame has been accepted on this socket yet and the offset has
+ * nothing to be added to.
+ */
+export type UtteranceEndEvent = {
+  /** Deepgram's `channel` is `[index, total]`; this is the index. */
+  channel: number;
+  lastWordEndMs: number;
+  streamAudioStartedAtMs: number | null;
+  receivedAtMs: number;
+};
+
+export type UtteranceEndListener = (event: UtteranceEndEvent) => void;
 
 /**
  * What happened to the live transcription socket, told to the call.
@@ -67,9 +129,7 @@ export function preconnectDeepgram(lang: string, apiKey: string): WebSocket | nu
   if (existing && existing.readyState === WebSocket.OPEN) return existing;
   if (existing) pooledSockets.delete(dgLang);
 
-  const url =
-    `wss://api.deepgram.com/v1/listen?model=nova-2&encoding=mulaw&sample_rate=8000` +
-    `&language=${dgLang}&smart_format=true&interim_results=true`;
+  const url = listenUrl(dgLang);
   let ws: WebSocket;
   try {
     ws = new WebSocket(url, ["token", apiKey]);
@@ -109,6 +169,25 @@ export class DeepgramLiveClient {
   private ws: WebSocket | null = null;
   private listeners: TranscriptListener[] = [];
   private asrListeners: AsrListener[] = [];
+  private utteranceEndListeners: UtteranceEndListener[] = [];
+  /**
+   * Wall clock of the first audio frame THIS socket accepted, or null before it.
+   *
+   * Deepgram's `last_word_end` is an offset from the start of the audio stream, and
+   * this is the only local instant that start corresponds to. It is deliberately not
+   * the socket's open time: a socket parked by `preconnectDeepgram` can sit idle for
+   * seconds before a call adopts it and starts piping audio, and offsets measured
+   * from the adoption would place the caller's speech seconds earlier than it
+   * happened. Anchoring on the first accepted frame is also conservative in the
+   * right direction — network delivery means the true stream start is at or after
+   * this stamp, so a derived speech-end instant can only be EARLY, never late, and
+   * an early start makes the published turn latency look worse rather than better.
+   *
+   * Re-baselined by `open()`: a reconnect is a new stream whose offsets start again
+   * at zero, and inheriting the dead stream's anchor is exactly the artefact that
+   * would produce a minutes-long "turn".
+   */
+  private streamAudioStartedAtMs: number | null = null;
   /** The language of the LIVE stream, kept so a reconnect re-opens the same one. */
   private lang = "en";
   /** Set by `stop()`: a close after that is the call ending, not a failure. */
@@ -134,12 +213,40 @@ export class DeepgramLiveClient {
     return this;
   }
 
+  /**
+   * Hear the end of each utterance. Registered BEFORE `start()`, like the transcript
+   * listener, so the first utterance of the call is not the one that goes unmeasured.
+   *
+   * Cleared by `stop()` along with the transcript listeners: a pooled socket that a
+   * call abandoned, or a socket still open when the call ended, must not deliver an
+   * `UtteranceEnd` to a worker that has already torn its turn state down.
+   */
+  onUtteranceEnd(fn: UtteranceEndListener) {
+    this.utteranceEndListeners.push(fn);
+    return this;
+  }
+
   private emit(event: AsrEvent) {
     for (const fn of this.asrListeners) {
       try {
         fn(event);
       } catch {
         // A reporting callback must never be the reason a call ends.
+      }
+    }
+  }
+
+  /**
+   * Same guard as `emit()`, same reason: this listener sits on the live
+   * transcription path, and a latency probe that can break the caller's turn is
+   * worse than the missing sample it was trying to record.
+   */
+  private emitUtteranceEnd(event: UtteranceEndEvent) {
+    for (const fn of this.utteranceEndListeners) {
+      try {
+        fn(event);
+      } catch {
+        // ignore a failing consumer, never the stream
       }
     }
   }
@@ -203,9 +310,14 @@ export class DeepgramLiveClient {
    */
   private open(): WebSocket {
     const dgLang = DeepgramLiveClient.PINNABLE_LANGS.has(this.lang) ? this.lang : "multi";
-    const url =
-      `wss://api.deepgram.com/v1/listen?model=nova-2&encoding=mulaw&sample_rate=8000` +
-      `&language=${dgLang}&smart_format=true&interim_results=true`;
+    const url = listenUrl(dgLang);
+    // A new stream's audio offsets start again at zero, so the anchor Deepgram's
+    // `last_word_end` is mapped onto must be re-taken here rather than inherited from
+    // the socket that just died. Left inherited, the first UtteranceEnd after a
+    // reconnect would be measured from the previous stream and produce a turn
+    // latency of however long the call had been up — an absurd sample, caught by the
+    // consumer's bounds but only after it had already polluted the diagnostics.
+    this.streamAudioStartedAtMs = null;
 
     // Adopt a pooled socket opened at the DIALING state when one is available
     // and still open. The handshake (~100–300 ms) is the only part of ASR
@@ -213,6 +325,12 @@ export class DeepgramLiveClient {
     // is exactly when to do it. A pooled socket that Deepgram has since
     // closed (idle timeout) simply falls through to a fresh connection — the
     // adoption is an optimisation, never a dependency.
+    //
+    // Adoption keeps the pooled socket's URL exactly as `preconnectDeepgram` built
+    // it — which is why that function and this one share `listenUrl()`: an adopted
+    // socket whose parked URL lacked `utterance_end_ms` would silently hand this
+    // call no end-of-utterance signal, and the missing samples would be invisible
+    // because the per-call path looked correct.
     const pooled = pooledSockets.get(dgLang);
     if (pooled) {
       pooledSockets.delete(dgLang);
@@ -238,6 +356,34 @@ export class DeepgramLiveClient {
     this.ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data as string);
+        // Handled BEFORE the transcript branch, and it matters: an `UtteranceEnd`
+        // carries no `channel.alternatives`, so the `if (!transcript) return` below
+        // would have swallowed it even once the URL asked for it. This is the branch
+        // that makes "the instant the caller stopped talking" an event this platform
+        // actually receives.
+        if (data.type === "UtteranceEnd") {
+          // `[index, total]`, not a number: a single-channel mu-law telephony stream
+          // arrives as `[0, 1]`. Read the index; default it to 0 rather than forwarding
+          // an array into a field the consumer would have to re-derive.
+          const channelPair = Array.isArray(data.channel) ? data.channel : null;
+          // SECONDS on the wire, milliseconds everywhere else in this repository.
+          const lastWordEndSec = typeof data.last_word_end === "number" ? data.last_word_end : NaN;
+          this.emitUtteranceEnd({
+            channel: channelPair && typeof channelPair[0] === "number" ? channelPair[0] : 0,
+            // Not a timestamp when Deepgram finalised the result early: it sends -1, and
+            // its own guidance is to ignore the message. Forwarded verbatim rather than
+            // scaled or clamped to 0, so the consumer can tell "no offset" from "silence
+            // at the very start of the stream".
+            lastWordEndMs: !Number.isFinite(lastWordEndSec)
+              ? NaN
+              : lastWordEndSec < 0
+                ? lastWordEndSec
+                : Math.round(lastWordEndSec * 1000),
+            streamAudioStartedAtMs: this.streamAudioStartedAtMs,
+            receivedAtMs: Date.now(),
+          });
+          return;
+        }
         const transcript = data.channel?.alternatives?.[0]?.transcript;
         if (!transcript) return;
         const isFinal = data.is_final ?? false;
@@ -269,6 +415,10 @@ export class DeepgramLiveClient {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
     const pcm = decodeMulaw(buffer);
     this.ws.send(pcm as any);
+    // AFTER the write, so a frame the socket refused never becomes the anchor: this
+    // stamp is what every `last_word_end` in this stream's UtteranceEnd messages is
+    // added to. First frame only — see the field's note.
+    if (this.streamAudioStartedAtMs === null) this.streamAudioStartedAtMs = Date.now();
   }
 
   stop() {
@@ -282,5 +432,9 @@ export class DeepgramLiveClient {
       this.ws = null;
     }
     this.listeners = [];
+    // Same lifetime as the transcript listeners: a message that arrives after the
+    // call ended — Deepgram's silence timer does not know the caller hung up — must
+    // find nothing to call rather than a turn state the worker has already torn down.
+    this.utteranceEndListeners = [];
   }
 }

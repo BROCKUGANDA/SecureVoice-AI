@@ -1,0 +1,27 @@
+-- A durable record of a missed case deadline.
+--
+-- `SLA_SECONDS` (src/lib/config.ts:104, 60 by default) has been published as the platform's
+-- promise since the intake handler computed `slaDeadline` for its response
+-- (`src/app/api/console/fire/route.ts:357`). Composing a deadline nobody ever checks is a
+-- promise with an enforcement mechanism of zero: the response said 60 seconds, the queue
+-- said whenever a worker got to it, and nothing at all said when the promise had been
+-- broken.
+--
+-- So this column is the breach record, and it exists so the fact survives the process
+-- that noticed it. An in-memory counter would report "0 breaches" after every deploy —
+-- the shape of a metric that can only ever agree with itself — while a log line is
+-- unreadable by anyone who was not watching that hour. One row per breached case,
+-- written by a compare-and-set on `sla_breached_at IS NULL`, gives the sweep idempotence
+-- for free: re-running it, or running it on two workers, counts a case once.
+--
+-- Nullable, no default, no backfill. Cases that met their deadline are marked by the
+-- absence of a breach ONLY as a statement about this check having run since the column
+-- existed; a row from before today was never evaluated, and retroactively stamping
+-- history as compliant is exactly the invented measurement this repo has spent a sweep
+-- removing. The metric therefore reports breaches per window over a known-eligible
+-- population, not a compliance rate.
+--
+-- ADD COLUMN without a default is a catalog-only change in Postgres: no table rewrite,
+-- no long-held lock on the table the dial path is reading.
+
+ALTER TABLE "Case" ADD COLUMN IF NOT EXISTS "slaBreachedAt" TIMESTAMP(3);

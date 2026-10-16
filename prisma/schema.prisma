@@ -464,6 +464,22 @@ model Case {
   // The Twilio call-leg sid, persisted at dial time. The warm_transfer tool
   // rewrites this leg's TwiML to bridge the customer to a live human.
   callSid               String?
+  // The two instants the `signal_received_to_ringing` span needs, persisted where
+  // they happen. `signalReceivedAt` is the HTTP arrival of the bank's signal —
+  // captured before any await in the intake handler, so it is not the gate-passed
+  // instant `createdAt` records, which sits one policy gate and one round-trip late.
+  // `ringingAt` is the carrier's own `ringing` callback, written by a compare-and-set
+  // so Twilio's retries land once. Both nullable and never backfilled: a case from
+  // before this column, or one whose provider never sent the callback, has no
+  // measurement, and the span refuses to record rather than inventing a start.
+  signalReceivedAt      DateTime?
+  ringingAt             DateTime?
+  // Set once by `src/lib/sla-breach.ts` when the case's own arrival instant plus
+  // `SLA_SECONDS` elapsed with no contact of any kind. Write-once by compare-and-set,
+  // which is what makes the breach count a count of cases rather than of sweep passes —
+  // and why it is a column and not just a log line: "how many of our promises did we
+  // miss this hour" has to be answerable by a bank asking on day 40.
+  slaBreachedAt         DateTime?
   smsSentAt             DateTime? // anchors the 24h reply window
   resolutionMethod      String? // voice_call | sms_reply_yes | sms_reply_no | unreachable_no_reply | ...
   customerResponse      String? // "yes" | "no" | null (null = the customer never answered)

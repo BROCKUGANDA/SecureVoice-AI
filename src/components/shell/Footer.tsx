@@ -122,7 +122,9 @@ export function Footer() {
             <nav aria-label="Platform">
               <p className="micro text-[9px] text-ink-3">PLATFORM</p>
               <div className="mt-3 space-y-2">
-                {ROUTES.filter((l) => l.href === "/docs" || l.href === "/security").map((l) => (
+                {ROUTES.filter(
+                  (l) => l.href === "/docs" || l.href === "/security" || l.href === "/usecases" || l.href === "/team",
+                ).map((l) => (
                   <a
                     key={l.href}
                     href={l.href}

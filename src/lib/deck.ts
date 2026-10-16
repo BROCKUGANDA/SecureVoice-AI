@@ -230,7 +230,7 @@ export const DECK: Slide[] = [
     scriptEn:
       "Banks defend against an adversary taking money from a transaction. Insurers defend against an adversary moving money out of a claim — and that is a structurally easier problem to attack, because the money is expected. The policyholder should receive the payout. The caller claims to be the insurer. The payee account was added four minutes ago. Every element of a fraudulent claim payout looks exactly like a legitimate one, which is why it is caught by asking the policyholder rather than by any score. We run this case in the demo today: a sixty-two thousand dirham motor claim redirected to a new payee account, caught by a two-of-three challenge that never asks for a policy number, a PIN, or a password.",
     scriptAr:
-      "تدافع المصارف ضد خصم يسحب مالاً من معاملة. وتدافع شركات التأمين ضد خصم يحوّل مالاً خارج مطالبة — وهي المشكلة البنيوية الأسهل هجوماً، لأن المال متوقَّع. من المفترض أن يتلقى حامل الوثيقة تعويضه، والمتصل يدّعي أنه جهة التأمين، وحساب المستفِد أُضيف قبل أربع دقائق. كل 요소�� في مطالبة احتيالية مطابقة تماماً للشرعية. لهذا تُكتشف بالسؤال إلى حامل الوثيقة، لا بأي درجة خطورة.",
+      "تدافع المصارف ضد خصم يسحب مالاً من معاملة. وتدافع شركات التأمين ضد خصم يحوّل مالاً خارج مطالبة — وهي المشكلة البنيوية الأسهل هجوماً، لأن المال متوقَّع. من المفترض أن يتلقى حامل الوثيقة تعويضه، والمتصل يدّعي أنه جهة التأمين، وحساب المستفِد أُضيف قبل أربع دقائق. كل عنصر في مطالبة احتيالية مطابقة تماماً للشرعية. لهذا تُكتشف بالسؤال إلى حامل الوثيقة، لا بأي درجة خطورة.",
   },
   {
     id: 18,

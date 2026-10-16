@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { motion } from "framer-motion";
+import { motion, useReducedMotion } from "framer-motion";
 import {
   ArrowRight,
   PhoneOutgoing,
@@ -128,6 +128,101 @@ const TRY_STEPS: {
   },
 ];
 
+/**
+ * The hand-drawn rule under "Freeze staged."
+ *
+ * Two requirements shaped this, and they pull against each other: it needs to be
+ * SUBTLE — this is a wordmark, not a hero flourish, and the previous 0.9s swoosh
+ * arrived late enough to read as a separate announcement — while still having
+ * VOLUME, because a 2.5px hairline under a 4.2rem headline disappears on a
+ * laptop screen and on every non-Retina panel.
+ *
+ * The way both are satisfied is to stop trading one for the other. Volume comes
+ * from the STROKE, not from the motion: a soft wide underlay carries the weight
+ * and the crisp line on top carries the edge, so the rule reads as ink rather
+ * than as a highlighter. Subtraction comes from the geometry and the timing — a
+ * flatter curve, a shorter settle, and a start that overlaps the headline's own
+ * reveal instead of trailing it.
+ *
+ * `MotionConfig reducedMotion="user"` (src/app/page.tsx) neutralises transforms
+ * and opacity, but a `pathLength` draw is neither, so the previous version ran
+ * its full sweep regardless of the preference. `useReducedMotion` here is what
+ * actually honours it: the rule is already drawn, only the drawing is skipped.
+ * The affordance survives; the motion does not — the same rule the CSS reduced-
+ * motion block in globals.css states for the other effects.
+ */
+function FreezeStagedUnderline() {
+  const reduce = useReducedMotion();
+  // Flattened from the previous `M2 6 C 30 1, 80 1, 118 5`: a shallower arc
+  // (5.6 → 4.2 control points) so the rule sits under the word instead of
+  // bowing through it.
+  const d = "M3 5.6 C 34 3.6, 84 3.4, 117 5.2";
+
+  if (reduce) {
+    return (
+      <svg
+        className="absolute -bottom-1 left-0 h-[6px] w-full"
+        viewBox="0 0 120 8"
+        fill="none"
+        preserveAspectRatio="none"
+        aria-hidden="true"
+      >
+        <path
+          d={d}
+          stroke="#14a374"
+          strokeOpacity="0.16"
+          strokeWidth="9"
+          strokeLinecap="round"
+          vectorEffect="non-scaling-stroke"
+        />
+        <path
+          d={d}
+          stroke="#14a374"
+          strokeWidth="3.5"
+          strokeLinecap="round"
+          vectorEffect="non-scaling-stroke"
+        />
+      </svg>
+    );
+  }
+
+  const settle = { duration: 0.5, delay: 0.42, ease: "easeOut" as const };
+
+  return (
+    <svg
+      className="absolute -bottom-1 left-0 h-[6px] w-full"
+      viewBox="0 0 120 8"
+      fill="none"
+      preserveAspectRatio="none"
+      aria-hidden="true"
+    >
+      {/* The underlay: wide and faint. This is the "volume" — it gives the rule
+          a soft edge and stops the crisp line above from reading as a wire. */}
+      <motion.path
+        d={d}
+        stroke="#14a374"
+        strokeOpacity="0.16"
+        strokeWidth="9"
+        strokeLinecap="round"
+        vectorEffect="non-scaling-stroke"
+        initial={{ pathLength: 0 }}
+        animate={{ pathLength: 1 }}
+        transition={settle}
+      />
+      <motion.path
+        d={d}
+        stroke="#14a374"
+        strokeWidth="3.5"
+        strokeLinecap="round"
+        vectorEffect="non-scaling-stroke"
+        initial={{ pathLength: 0 }}
+        animate={{ pathLength: 1 }}
+        transition={settle}
+      />
+    </svg>
+  );
+}
+
 export function Home() {
   const { setView, lang, launchDemo } = useApp();
   const [pilotOpen, setPilotOpen] = useState(false);
@@ -173,24 +268,7 @@ export function Home() {
                 {t("Call placed.", "تم إجراء المكالمة.", lang)}{" "}
                 <span className="relative inline-block text-primary">
                   {t("Freeze staged.", "وتجميد مُمهَّد.", lang)}
-                  <svg
-                    className="absolute -bottom-1 left-0 h-[6px] w-full"
-                    viewBox="0 0 120 8"
-                    fill="none"
-                    preserveAspectRatio="none"
-                    aria-hidden="true"
-                  >
-                    <motion.path
-                      d="M2 6 C 30 1, 80 1, 118 5"
-                      stroke="#14a374"
-                      strokeWidth="2.5"
-                      strokeLinecap="round"
-                      vectorEffect="non-scaling-stroke"
-                      initial={{ pathLength: 0 }}
-                      animate={{ pathLength: 1 }}
-                      transition={{ duration: 0.9, delay: 0.9, ease: "easeOut" }}
-                    />
-                  </svg>
+                  <FreezeStagedUnderline />
                 </span>
                 <br />
                 {t("Case deadline:", "مهلة الحالة:", lang)} <span className="num">60</span>{" "}

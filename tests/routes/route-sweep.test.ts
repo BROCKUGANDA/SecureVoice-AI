@@ -104,6 +104,13 @@ describe("authorization coverage", () => {
       "/api",
       "/api/agent",
       "/api/asr",
+      // The demo sign-in queue. Capacity, the lease and the join budget all
+      // read the DemoSeat table; tests/api/demo-queue.test.ts drives the state
+      // machine, tests/api/demo-enter.test.ts the sign-in claim, and
+      // tests/api/demo-routes.test.ts these handlers themselves.
+      "/api/demo/enter",
+      "/api/demo/lease",
+      "/api/demo/queue",
       "/api/auth/[...all]",
       "/api/auth/export",
       "/api/auth/invites",

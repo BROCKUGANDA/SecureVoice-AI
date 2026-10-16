@@ -146,6 +146,10 @@ export const PLATFORM_MODELS: Readonly<Record<string, PlatformModelDeclaration>>
     reason:
       "Operator-facing delivery inspector (the /inspector surface); shows a bank what we sent them, scoped by deployment access, not by tenant.",
   },
+  DemoSeat: {
+    reason:
+      "Demo sign-in queue: seats are keyed by (ipHash, deviceId), not by org — the queue gates entry for judges and operators alike before any tenant exists for the session. IP stored hashed only.",
+  },
 });
 
 // ── Typed failure ────────────────────────────────────────────────────────────

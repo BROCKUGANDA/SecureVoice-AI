@@ -334,6 +334,86 @@ export function buildSloReport(
   return { report, ok: exitCode === 0, exitCode, reasons };
 }
 
+/* ————————————————————————————————— record pages ————————————————————————————————— */
+
+/**
+ * The drill-down projection: what one span row costs to send.
+ *
+ * Full `SpanRecord`s carry join keys (`traceId`, `spanId`), both wall-clock
+ * forms, and versioning — everything a collector needs and nothing a table
+ * row renders. The panel already shows identity (span name), time, duration,
+ * intervention, case and the `cached` attribute; the rest is payload weight
+ * on every page turn, so it stays out of this shape. OTLP keeps the full
+ * record via its own branch — the two formats serve different readers.
+ */
+export type SpanRecordPage = {
+  span: string;
+  startedAt: string;
+  durationMs: number;
+  interventionId: string | null;
+  caseRef: string | null;
+  origin: string;
+  attributes: Record<string, string | number | boolean>;
+};
+
+export type RecordPageOptions = {
+  /** Keep only this span name. Unset means every span. */
+  span?: string | null;
+  /** Newest first (default) or slowest first. */
+  sort?: "newest" | "slowest";
+  /** 1-based. Out-of-range pages resolve to an empty `records`, not an error. */
+  page?: number | null;
+  /** Clamped 1..500. */
+  pageSize?: number | null;
+};
+
+export type RecordPage = {
+  records: SpanRecordPage[];
+  total: number;
+  page: number;
+  pageSize: number;
+  hasMore: boolean;
+};
+
+/**
+ * Pure pagination + projection over already-read records. Pure so the paging
+ * contract is unit-testable without a span log: page boundaries, clamping and
+ * the projection are exactly what a drill-down UI depends on, and a file read
+ * in the middle would make all three untestable.
+ */
+export function paginateRecords(
+  records: readonly SpanRecord[],
+  options: RecordPageOptions = {},
+): RecordPage {
+  const sort = options.sort === "slowest" ? "slowest" : "newest";
+  const pageSize = Math.min(Math.max(Math.floor(options.pageSize ?? 50), 1), 500);
+  const page = Math.max(Math.floor(options.page ?? 1), 1);
+  const wanted = options.span ?? null;
+
+  const filtered = wanted === null ? [...records] : records.filter((r) => r.span === wanted);
+  filtered.sort((a, b) =>
+    sort === "slowest" ? b.durationMs - a.durationMs : b.startedAtMs - a.startedAtMs,
+  );
+  const total = filtered.length;
+  const start = (page - 1) * pageSize;
+  const slice = start >= total ? [] : filtered.slice(start, start + pageSize);
+  return {
+    records: slice.map((r) => ({
+      span: r.span,
+      startedAt: r.startedAt,
+      durationMs: r.durationMs,
+      interventionId: r.interventionId,
+      caseRef: r.caseRef,
+      origin: r.origin,
+      attributes: { ...r.attributes },
+    })),
+    total,
+    page,
+    pageSize,
+    hasMore: start + pageSize < total,
+  };
+}
+
 /* ————————————————————————————————— reads ————————————————————————————————— */
 
 export async function loadSloSource(options: SloReportOptions = {}): Promise<SpanReadSource> {

@@ -75,12 +75,20 @@ mock.module("@/lib/better-auth", () => ({
 // (`scope`, `key`, `callerId`), with the same read-enforced TTL.
 type KvRow = { response: string; expiresAt: Date };
 const kv = new Map<string, KvRow>();
-const kvKey = (s: { scope?: string; key?: string; callerId?: string; scope_key_callerId?: { scope: string; key: string; callerId: string } }) => {
-  const c = s.scope_key_callerId ?? { scope: s.scope ?? "", key: s.key ?? "", callerId: s.callerId ?? "" };
+const kvKey = (s: Record<string, unknown>) => {
+  const nested = s.scope_key_callerId as { scope?: unknown; key?: unknown; callerId?: unknown } | undefined;
+  const str = (v: unknown) => (typeof v === "string" ? v : "");
+  const c = {
+    scope: str(nested?.scope ?? s.scope),
+    key: str(nested?.key ?? s.key),
+    callerId: str(nested?.callerId ?? s.callerId),
+  };
   return `${c.scope}\n${c.key}\n${c.callerId}`;
 };
 const p2002 = () => {
-  const err = new Error("Unique constraint failed on the constraint `IdempotencyKey_scope_key_callerId_key`") as Error & {
+  const err = new Error(
+    "Unique constraint failed on the constraint `IdempotencyKey_scope_key_callerId_key`",
+  ) as Error & {
     code: string;
     meta: unknown;
   };
@@ -89,10 +97,34 @@ const p2002 = () => {
   return err;
 };
 
+// The demo lease the queue would have bound at sign-in. `true` (the default)
+// models the normal path — admitted through `/api/demo/enter`; `false`
+// models the manual-form bypass (a session with no lease), which must resolve
+// to signed-out.
+let demoLeaseLive = true;
+
 mock.module("@/lib/db", () => ({
   db: {
+    demoSeat: {
+      findFirst: async () =>
+        demoLeaseLive
+          ? {
+              id: "seat-1",
+              status: "active",
+              userId: USER_DEMO,
+              createdAt: new Date(),
+              lastSeenAt: new Date(),
+            }
+          : null,
+    },
     userProfile: {
-      upsert: async ({ create, update }: { create: Record<string, unknown>; update: Record<string, unknown> }) => ({
+      upsert: async ({
+        create,
+        update,
+      }: {
+        create: Record<string, unknown>;
+        update: Record<string, unknown>;
+      }) => ({
         ...create,
         ...update,
       }),
@@ -101,19 +133,27 @@ mock.module("@/lib/db", () => ({
       findUnique: async () => ({ credits: 500 }),
     },
     idempotencyKey: {
-      upsert: async ({ where, create, update }: { where: Record<string, unknown>; create: KvRow & Record<string, string>; update: KvRow }) => {
-        const k = kvKey({ ...(where as never), ...(create as never) });
+      upsert: async ({
+        where,
+        create,
+        update,
+      }: {
+        where: Record<string, unknown>;
+        create: KvRow & Record<string, string>;
+        update: KvRow;
+      }) => {
+        const k = kvKey({ ...where, ...create });
         kv.set(k, { response: update.response, expiresAt: update.expiresAt });
         return { response: update.response };
       },
       findUnique: async ({ where }: { where: Record<string, unknown> }) => {
-        const row = kv.get(kvKey(where as never)) ?? null;
+        const row = kv.get(kvKey(where)) ?? null;
         if (!row) return null;
         if (row.expiresAt.getTime() <= Date.now()) return null;
         return row;
       },
       create: async ({ data }: { data: KvRow & Record<string, string> }) => {
-        const k = kvKey(data as never);
+        const k = kvKey(data);
         if (kv.has(k)) throw p2002();
         kv.set(k, { response: data.response, expiresAt: data.expiresAt });
         return { response: data.response };
@@ -136,6 +176,21 @@ test("getProfile confines a demo address holding an owner membership", async () 
   expect(profile?.role).toBe("demo");
   expect(profile?.orgId).toBeNull();
   expect(profile?.walletScope).toBe("user");
+});
+
+test("getProfile resolves a leased demo session to signed-out when the lease lapses", async () => {
+  currentEmail = DEMO;
+  currentUserId = USER_DEMO;
+  demoLeaseLive = false;
+  try {
+    const { getProfile } = await import("@/lib/credits");
+    // No live lease: the manual-form bypass (or an expired seat) yields no
+    // profile, which is what sends the shell to the sign-in view instead of
+    // rendering a console with no data.
+    expect(await getProfile()).toBeNull();
+  } finally {
+    demoLeaseLive = true;
+  }
 });
 
 test("getProfile leaves a real operator untouched (control)", async () => {

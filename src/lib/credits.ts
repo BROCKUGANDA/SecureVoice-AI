@@ -149,6 +149,32 @@ export async function getProfile(): Promise<PlatformProfile | null> {
   const effectiveRole: Role = demo ? "demo" : role;
   const effectiveOrgId: string | null = demo ? null : orgId;
 
+  // Demo sessions are admitted only with a live queue lease. This is what
+  // closes the manual-form bypass: signing in with the published password
+  // outside `/api/demo/enter` mints a session with no lease, and that session
+  // resolves to signed-out here — the holder joins the line like everyone
+  // else. Returning null (rather than a degraded profile) is what sends the
+  // shell to the sign-in view instead of rendering a console with no data.
+  //
+  // A missing DemoSeat table (migration not yet applied) fails OPEN with a
+  // loud log: bricking every demo login on a partially-migrated deploy is
+  // worse than an unenforced queue, and the condition is self-repairing on
+  // the next deploy. Any other store error propagates — a database outage
+  // must not silently unbind capacity.
+  if (demo) {
+    try {
+      const { leaseForUser } = await import("@/lib/demo-queue");
+      const lease = await leaseForUser(user.id);
+      if (!lease) return null;
+    } catch (err) {
+      if (typeof err === "object" && err !== null && (err as { code?: string }).code === "P2021") {
+        logError("[auth] DemoSeat table missing — demo queue unenforced until migrated", {});
+      } else {
+        throw err;
+      }
+    }
+  }
+
   const row = await db.userProfile.upsert({
     where: { userId: user.id },
     create: {
@@ -267,6 +293,27 @@ async function auditWallet(
  * normal operating mode); without it the caller's own profile wallet is
  * debited. An org session must never spend the operator's personal credits
  * and vice versa — that is how one tenant's usage ends up on another's bill.
+ */
+/**
+ * ── DEPRECATED: wallet primitives, no longer on any metered path ─────────────
+ * `deductCredit()` and `refundCredit()` below move a wallet balance and nothing
+ * else: they do not know whether the run being paid for is one anyone is
+ * BILLING for, they write no `UsageLedger` row, and they audit with a fixed
+ * `wallet_debited` intent that cannot record why a movement was free.
+ *
+ * The only production caller of either was `/api/console/fire`, and it no longer
+ * uses them — `src/lib/billing/charge-mode.ts`'s `claimRun()` / `refundRun()`
+ * replaced it, because a demo session must be metered WITHOUT being charged and a
+ * paid run's wallet movement and ledger reservation have to land together.
+ *
+ * They are kept, exported and tested rather than deleted, for one reason: they are
+ * the primitive whose `updateMany({ where: { credits: { gt: 0 } } })` is the
+ * atomicity argument that `claimRun`'s identical decrement relies on, and
+ * `tests/billing/spend-wallet.test.ts` asserts that behaviour against them
+ * directly. If they are being changed, that test is the specification.
+ *
+ * Do NOT reintroduce them onto a metered path. The rule they cannot express is
+ * "this run is free, and here is the record of why".
  */
 /**
  * Announce a wallet movement on the realtime org channel.

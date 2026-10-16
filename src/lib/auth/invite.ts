@@ -121,11 +121,7 @@ export async function issueInvite(input: IssueInviteInput): Promise<IssuedInvite
 }
 
 export type InviteRejection =
-  | "unknown_invite"
-  | "invite_expired"
-  | "invite_already_used"
-  | "email_mismatch"
-  | "demo_address";
+  "unknown_invite" | "invite_expired" | "invite_already_used" | "email_mismatch" | "demo_address";
 
 export type AcceptInviteInput = {
   token: string;

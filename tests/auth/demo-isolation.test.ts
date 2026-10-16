@@ -226,7 +226,7 @@ mock.module("@/lib/billing/seats", () => ({
 }));
 
 mock.module("@/lib/email/deliverers", () => ({
-  deliverInvite: async () => {},
+  deliverInvite: async () => {/* empty */},
 }));
 
 test("POST /api/auth/invites refuses a demo address with 422", async () => {

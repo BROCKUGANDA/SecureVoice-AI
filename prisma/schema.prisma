@@ -567,6 +567,11 @@ model Case {
   // `updatedAt` — a row touched by any later write would report a delivery as fast
   // or as slow as whatever happened to touch it last.
   fraudConfirmedAt      DateTime?
+  // Evidence lock: when a case is under a regulator/law-enforcement
+  // investigation it cannot be erased under PDPL, and its audio retention is
+  // extended. Set by the case-state writer on CONFIRMED_FRAUD.
+  isEvidenceLocked       Boolean  @default(false)
+  evidenceCaseId          String?
   smsSentAt             DateTime? // anchors the 24h reply window
   resolutionMethod      String? // voice_call | sms_reply_yes | sms_reply_no | unreachable_no_reply | ...
   customerResponse      String? // "yes" | "no" | null (null = the customer never answered)

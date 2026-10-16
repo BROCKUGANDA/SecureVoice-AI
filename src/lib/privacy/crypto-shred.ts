@@ -739,6 +739,11 @@ export async function eraseCase(
 ): Promise<ErasureResult> {
   const row = await db.case.findUnique({ where: { caseRef } });
   if (!row) throw new CaseNotFoundError(caseRef);
+  if (row.isEvidenceLocked) {
+    throw new Error(
+      "This data is subject to an active law-enforcement investigation and cannot be deleted under Article 23 of PDPL.",
+    );
+  }
   if (row.erasedAt) {
     return {
       caseRef,

@@ -63,7 +63,11 @@ import { POST as retiredPost } from "@/app/api/interventions/route";
 // above the mock. Same discipline as tests/tenancy/probe-registry.ts.
 
 process.env.ELEVENLABS_DRY_RUN = "true";
-process.env.WEBHOOK_SECRET = process.env.WEBHOOK_SECRET ?? "console-gate-secret";
+// `||=`, not `??=`: developer `.env` files commonly carry an EMPTY placeholder,
+// and the route treats an empty secret as unconfigured (`if (!secret)` → 503),
+// which would turn this whole file red for an environment reason rather than a
+// code one. A real value still wins; only empty/missing is replaced.
+process.env.WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || "console-gate-secret";
 
 /* â”€â”€ Session (mocked at the getProfile seam; the org claim and email are the fixture) â”€â”€ */
 

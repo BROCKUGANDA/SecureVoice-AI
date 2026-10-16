@@ -97,7 +97,7 @@ class FakeDeepgramClient {
 
   start(_lang: string): void {/* empty */}
 
-  sendMulaw(_buffer: Buffer): void {}
+  sendMulaw(_buffer: Buffer): void {/* empty */}
 
   /** The real client clears both listener sets when the call ends. */
   stop(): void {

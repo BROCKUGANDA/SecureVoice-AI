@@ -141,7 +141,7 @@ class FakeElevenLabsStream {
     yield Buffer.from("ci-mock-audio-chunk-2");
   }
 
-  cancel(): void {}
+  cancel(): void {/* empty */}
 }
 
 mock.module("@/lib/voice/deepgram-client", () => ({

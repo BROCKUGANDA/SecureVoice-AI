@@ -255,6 +255,10 @@ export const INDEXABLE_PATHS: readonly string[] = [
   "/docs",
   "/security",
   "/usecases",
+  // Public, indexable, and deliberately NOT a shell view - the same shape as
+  // /faq. "Who built this" is a due-diligence question, and a reader who cannot
+  // reach the answer in one link will assume there is not one.
+  "/team",
   "/faq",
 ];
 

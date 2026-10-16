@@ -208,8 +208,13 @@ export function Home() {
             <Reveal delay={0.26}>
               <p className="mt-4 max-w-xl text-[15.5px] leading-relaxed text-ink-2">
                 {t(
-                  "SecureVoice AI closes the gap between fraud detection and fraud intervention for UAE banks and insurers — turning a 38-minute wait into a call placed inside the platform's own 60-second case deadline, while the loss is still a phone call away. Call a cardholder about a disputed transaction, or a policyholder about a redirected claim payout: same engine, same guardrails, one human handoff.",
-                  "تُغلق SecureVoice AI الفجوة بين كشف الاحتيال والتدخّل فيه لدى المصارف وشركات التأمين في الإمارات — محوّلة انتظار ثمانٍ وثلاثين دقيقة إلى مكالمة تُجرى داخل مهلة الحالة البالغة ستّين ثانية، والخسارة ما تزال على بُعد مكالمة هاتف. اتصل بحامل بطاقة حول معاملة متنازع عليها، أو بحامل وثيقة حول دفعة مطالبة أُعيد توجيهها: المحرك والضوابط نفسها، وتسليم واحد إلى موظف بشري.",
+                  // The 60-second deadline is the line directly above this one.
+                  // Restating it here was the third of five mentions on the page,
+                  // and the sentence reads better for the loss being concrete:
+                  // "while the loss is still a phone call away" is the argument,
+                  // not the clock.
+                  "SecureVoice AI closes the gap between fraud detection and fraud intervention for UAE banks and insurers — turning a 38-minute wait into a call placed before the case deadline expires, while the loss is still a phone call away. Call a cardholder about a disputed transaction, or a policyholder about a redirected claim payout: same engine, same guardrails, one human handoff.",
+                  "تُغلق SecureVoice AI الفجوة بين كشف الاحتيال والتدخّل فيه لدى المصارف وشركات التأمين في الإمارات — محوّلة انتظار ثمانٍ وثلاثين دقيقة إلى مكالمة تُجرى قبل انتهاء مهلة الحالة، والخسارة ما تزال على بُعد مكالمة هاتف. اتصل بحامل بطاقة حول معاملة متنازع عليها، أو بحامل وثيقة حول دفعة مطالبة أُعيد توجيهها: المحرك والضوابط نفسها، وتسليم واحد إلى موظف بشري.",
                   lang,
                 )}
               </p>
@@ -254,9 +259,17 @@ export function Home() {
             </Reveal>
 
             <Reveal delay={0.42}>
+              {/*
+                The 60-second deadline is the H1's claim and the lower section's
+                subject. It was ALSO here as a stat, a second time in the hero
+                paragraph, and a third time as a chip on the voice card — five
+                mentions of one number, which is how a page's most important
+                number starts to read as a slogan rather than a specification.
+                These three carry something the deadline does not.
+              */}
               <div className="mt-9 flex flex-wrap items-center gap-x-7 gap-y-3">
                 {[
-                  { big: "38m → 60s", label: "case deadline", ar: "مهلة الحالة" },
+                  { big: "38m → 0", label: "from signal to call", ar: "من الإشارة إلى المكالمة" },
                   { big: "43% → 85%", label: "prevention rate", ar: "نسبة المنع" },
                   { big: "6 langs", label: "in the voice layer", ar: "في طبقة الصوت" },
                 ].map((s) => (
@@ -356,10 +369,18 @@ export function Home() {
                     POST /tools/card-freeze →{" "}
                     <span className="font-semibold text-green-deep">200 · staged</span>
                   </Chip>
+                  {/*
+                    The right-hand chip used to read "Case deadline 60s" — the
+                    fourth mention of a number the H1 already claims and the lower
+                    section already explains, sitting in a decorative card where it
+                    competed with the freeze confirmation instead of supporting it.
+                    Replaced with the thing this card is actually demonstrating:
+                    the protective action is STAGED, and a human confirms it.
+                  */}
                   <Chip className="!bg-white">
                     <Webhook className="h-3 w-3 text-amber-soft" />
                     <span className="font-semibold">
-                      {t("Case deadline 60s", "مهلة الحالة 60 ثانية", lang)}
+                      {t("Human confirms the freeze", "يؤكد الإنسان التجميد", lang)}
                     </span>
                   </Chip>
                 </div>

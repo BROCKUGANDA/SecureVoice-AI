@@ -58,6 +58,7 @@ export const INDEXABLE_PATHS = [
   "/docs",
   "/security",
   "/usecases",
+  "/team",
   "/faq",
 ] as const;
 
@@ -114,6 +115,10 @@ export default function sitemap(): MetadataRoute.Sitemap {
     "/docs": 0.8,
     "/security": 0.7,
     "/usecases": 0.7,
+    // Trust content, ranked with the other trust pages. A due-diligence reader
+    // arriving from a procurement thread wants the team at least as findable as
+    // the security page.
+    "/team": 0.6,
     "/terms": 0.5,
     "/privacy": 0.5,
     "/refund": 0.5,

@@ -164,19 +164,28 @@ describe("published claims — nothing shipped that the tree refutes", () => {
     expect(hits, hits.join("\n")).toEqual([]);
   });
 
+  /**
+   * The 60-second figure, and the wording that makes it honest.
+   *
+   * Named at module scope so the test below can probe them directly: the first version
+   * of this ban was written as `seconds?\|sixty`, and in a JavaScript regex literal `\|`
+   * is an escaped PIPE, not an alternation. The pattern therefore matched only the Arabic
+   * branch — every English "within 60 seconds" shipped, and the gate reported green.
+   * A ban that cannot match three quarters of its own scope is worse than no ban, because
+   * it stops anyone from looking.
+   */
+  const PROMISES_A_60_SECOND_CONTACT = /60[\s-]?seconds?|sixty seconds|60\s?s\b|٦٠ ثانية/;
+  const STATED_AS_THE_CLOCK_IT_IS =
+    /deadline|budget|target|not a measured|no.t measured|case clock|SLA_SECONDS|setTimeout|timeout|مهلة|هدف|غير مقاس|لا زمن وصول/i;
+
   test("the 60-second figure is only ever a deadline, never a reached customer", () => {
     const offenders: string[] = [];
     for (const { file, text } of ALL) {
       text.split("\n").forEach((line, i) => {
-        if (!/60[\s-]?seconds?\|sixty seconds\|60\s?s\b|٦٠ ثانية/.test(line)) return;
+        if (!PROMISES_A_60_SECOND_CONTACT.test(line)) return;
         // Qualified = stated as the clock it is (EN or AR). "مهلة" is deadline, "هدف" target,
         // and a line that says the figure is NOT measured is making the honest claim.
-        if (
-          /deadline|budget|target|not a measured|no.t measured|case clock|SLA_SECONDS|setTimeout|timeout|مهلة|هدف|غير مقاس|لا زمن وصول/i.test(
-            line,
-          )
-        )
-          return;
+        if (STATED_AS_THE_CLOCK_IT_IS.test(line)) return;
         offenders.push(`${file}:${i + 1}: ${line.trim().slice(0, 120)}`);
       });
     }
@@ -184,6 +193,32 @@ describe("published claims — nothing shipped that the tree refutes", () => {
     // evidence/latency/slo.json. Any bare "within 60 seconds" therefore promises something
     // the repository has never observed.
     expect(offenders, offenders.join("\n")).toEqual([]);
+
+    // Positive control, in BOTH languages. Without it this ban can silently regain a
+    // dead branch — which is exactly how it shipped the first time, matched only Arabic,
+    // and stayed green while English promises went out on the pricing FAQ.
+    for (const probe of [
+      "places an outbound call within 60 seconds of the signal",
+      "the agent answers in sixty seconds",
+      "dials within 60s of the alert",
+      "يتصل الوكيل بالعميل خلال ٦٠ ثانية",
+    ]) {
+      expect({ probe, matched: PROMISES_A_60_SECOND_CONTACT.test(probe) }).toEqual({
+        probe,
+        matched: true,
+      });
+      expect({ probe, exempt: STATED_AS_THE_CLOCK_IT_IS.test(probe) }).toEqual({
+        probe,
+        exempt: false,
+      });
+    }
+    // …and the honest framing is still exempt, or the ban would be a text filter.
+    for (const honest of [
+      "the case sits on a 60-second deadline the platform sets for itself",
+      "٦٠ ثانية هي مهلة الحالة وليست زمن وصول مقاس",
+    ]) {
+      expect(STATED_AS_THE_CLOCK_IT_IS.test(honest)).toBe(true);
+    }
   });
 
   test("the ban patterns are live — a fabricated line is caught, not ignored", () => {

@@ -351,8 +351,9 @@ export function Home() {
                   </Chip>
                   <Chip className="!bg-white">
                     <Webhook className="h-3 w-3 text-amber-soft" />
-                    {t("Case deadline", "مهلة الحالة", lang)}{" "}
-                    <span className="font-semibold">60s</span>
+                    <span className="font-semibold">
+                      {t("Case deadline 60s", "مهلة الحالة 60 ثانية", lang)}
+                    </span>
                   </Chip>
                 </div>
               </div>

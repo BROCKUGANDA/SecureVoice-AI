@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { INDEXABLE_PATHS } from "@/app/sitemap";
 import { COMPANY, PLANS, PRICE_CURRENCY } from "@/lib/commercial";
-import { env } from "@/lib/config";
+import { env, slaSeconds } from "@/lib/config";
 import { DEFAULT_RETENTION_DAYS } from "@/lib/privacy/retention";
 import { SUPPORT_EMAIL } from "@/lib/public-config";
 import { siteOrigin } from "@/lib/site-origin";

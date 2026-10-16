@@ -42,7 +42,7 @@ import {
   isShuttingDown,
   setupGracefulShutdown,
 } from "@/lib/graceful-shutdown";
-import { initOtel } from "@/lib/telemetry/otel";
+import { initOtel, shutdownOtel } from "@/lib/telemetry/otel";
 import { ElevenLabsStream } from "@/lib/voice/elevenlabs-stream";
 import {
   ConversationState,
@@ -1033,6 +1033,14 @@ function createServer(listenPort: number = PORT, listenHost: string = HOST) {
       // otherwise the turns a call just measured exist in a ring that dies with the
       // process and `scripts/emit-slo.ts` never sees them.
       await flushSpansNow();
+      // Same defect, different buffer. This worker is one of the two entry points
+      // that start the OTLP SDK — the module tail calls `initOtel()` — and
+      // `shutdownOtel()` was documented "call from a SIGTERM handler" while being
+      // called by nothing, so the BatchSpanProcessor's queued spans, the metric
+      // reader's pending points and the log processor's records were all dropped
+      // on every deploy. The drain has already run, so this is the last moment
+      // they can ship; with no SDK initialised the call is a no-op.
+      await shutdownOtel();
     },
   });
   server.on("upgrade", (req, socket, head) => {

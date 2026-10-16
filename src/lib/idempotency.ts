@@ -28,7 +28,6 @@ import "server-only";
 import { createHash } from "node:crypto";
 import { db } from "@/lib/db";
 import { PRISMA } from "@/lib/failures/db-failures";
-import { logError } from "@/lib/validation/safe-log";
 import {
   IDEMPOTENCY_CLAIM_TTL_MS,
   IDEMPOTENCY_MAX_POLL_MS,
@@ -172,83 +171,6 @@ export async function withIdempotency<T>(
   return { value, replayed: false, key };
 }
 
-/** Best-effort eviction of expired keys. Call from a cron or boot path. */
-export async function evictExpired(): Promise<number> {
-  const r = await db.idempotencyKey.deleteMany({
-    where: { expiresAt: { lte: new Date() } },
-  });
-  return r.count;
-}
-
-/**
- * Fast-path idempotency for mutating endpoints where the key is unique per
- * request (e.g. a bank's Idempotency-Key on a risk signal). Two round-trips
- * for a new key instead of three: findUnique → create-with-response.
- *
- * Concurrency: if two requests with the same key arrive simultaneously, both
- * may execute fn(). The unique constraint on (scope, key, callerId) means
- * only one create wins; the loser polls for the winner's response. This is
- * the same safety guarantee as withIdempotency, just without the separate
- * claim row — appropriate when fn() is idempotent by construction (the
- * signal's own transaction is the real dedup).
- */
-export async function withIdempotencyFast<T>(opts: {
-  scope: string;
-  key: string;
-  callerId: string;
-  fn: () => Promise<T>;
-  serialize?: (v: T) => string;
-  deserialize?: (s: string) => T;
-}): Promise<{ value: T; replayed: boolean; key: string }> {
-  const key = hashKey(opts.key);
-  const serialize = opts.serialize ?? ((v: T) => JSON.stringify(v));
-  const deserialize = opts.deserialize ?? ((s: string) => JSON.parse(s) as T);
-  const where = { scope_key_callerId: { scope: opts.scope, key, callerId: opts.callerId } };
-
-  // 1. Fast path: a completed row exists → replay.
-  const hit = await db.idempotencyKey.findUnique({ where });
-  if (hit && !isExpired(hit.expiresAt)) {
-    const parsed = tryDeserialize(deserialize, hit.response);
-    if (parsed.ok) return { value: parsed.value, replayed: true, key };
-    await db.idempotencyKey.delete({ where: { id: hit.id } }).catch(() => {});
-  }
-
-  // 2. Execute and store. The create is fire-and-forget: the response is
-  //    returned before the idempotency row lands. A replay that arrives
-  //    before the create completes will re-execute fn() — acceptable because
-  //    fn() is idempotent by construction (the signal's own transaction is
-  //    the real dedup). This keeps the critical path to two round-trips.
-  const value = await opts.fn();
-  // Fire-and-forget the store. If it loses the race to a concurrent request
-  // carrying the same key, the unique violation is the expected outcome and the
-  // winner's row stands. It was, until now, indistinguishable from every other
-  // failure on this line, because the handler said "we log" and logged nothing.
-  void db.idempotencyKey
-    .create({
-      data: {
-        scope: opts.scope,
-        key,
-        callerId: opts.callerId,
-        response: serialize(value),
-        statusCode: 200,
-        expiresAt: new Date(Date.now() + TTL_MS),
-      },
-    })
-    .catch((err: unknown) => {
-      if (isUniqueViolation(err)) return;
-      logError("idempotency: response could not be stored", {
-        scope: opts.scope,
-        // The key is a hash of the caller's Idempotency-Key, so it is safe to
-        // print; the caller ID is a tenant identifier and already appears in the
-        // request log.
-        key,
-        callerId: opts.callerId,
-        error: String(err).slice(0, 200),
-      });
-    });
-  return { value, replayed: false, key };
-}
-
 /**
  * A unique violation, as this stack actually reports one.
  *
@@ -263,6 +185,12 @@ export async function withIdempotencyFast<T>(opts: {
  * SQLSTATE reaches the caller on some paths, and the shape this function exists to
  * distinguish is expected-race versus real-failure; a miss costs an error log, a
  * false hit costs the log that would have reported a broken store.
+ *
+ * Its last in-tree production caller (`withIdempotencyFast`) was deleted as dead
+ * surface in the 2026-10-17 knob audit. It stays because two modules re-implement
+ * this predicate inline (`src/lib/case-state-machine.ts:367`,
+ * `src/lib/auth/store.ts:104`) and `tests/unit/idempotency-unique-violation.test.ts`
+ * pins both codes; it is the canonical answer until those duplicates fold into it.
  */
 export function isUniqueViolation(err: unknown): boolean {
   if (typeof err !== "object" || err === null) return false;

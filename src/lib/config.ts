@@ -39,6 +39,14 @@ function numSetting(
   return Number.isFinite(raw) && raw >= min && raw <= max ? raw : fallback;
 }
 
+/** The dial retry ladder that ships as the default — see `env.dialRetryLadderMs`
+ * for why a configured replacement can be refused. */
+const DIAL_RETRY_LADDER_DEFAULT_MS = [150_000, 300_000, 600_000];
+/** The last refused value. One warning PER DISTINCT VALUE: the getter runs per
+ * call, so a boolean warn-once would spam-free but also evidence-free — a second
+ * operator retuning to a different bad ladder would get silence. */
+let dialLadderRefusedRaw: string | null = null;
+
 /** Daily synthesis character ceiling per caller. Read per-call from env so it can
  * be tightened without a rebuild. */
 export function dailyCharLimit(): number {
@@ -70,18 +78,6 @@ export function anonCharPerHour(): number {
   return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 0;
 }
 
-/**
- * Is a real neural voice configured for this deployment at all?
- *
- * A deployment with no ElevenLabs key and dry-run off synthesises nothing: the
- * buffered ladder's last resort is a pre-recorded hold cue, and the streaming
- * transport has no voice to open. Telling the visitor "neural voice unavailable,
- * this is your device's speech engine" requires knowing that in advance, so the
- * answer is exposed rather than inferred at the call site.
- */
-export function neuralVoiceConfigured(): boolean {
-  return Boolean(process.env.ELEVENLABS_API_KEY) || env.elevenLabsDryRun;
-}
 export const TTS_CACHE_TTL_MS = Number(process.env.TTS_CACHE_TTL_MS) || 60 * 60 * 1_000; // 1h
 export const TTS_CACHE_MAX = Number(process.env.TTS_CACHE_MAX) || 96;
 
@@ -440,14 +436,6 @@ export const env = {
     return Number.isFinite(raw) && raw > 0 && raw <= 2 ? raw : 1.0;
   },
 
-  /* Supabase */
-  get supabaseUrl(): string | undefined {
-    return process.env.SUPABASE_URL;
-  },
-  get supabasePublishableKey(): string | undefined {
-    return process.env.SUPABASE_PUBLISHABLE_KEY;
-  },
-
   /* ------------------------------------------------------------------
    * Environment posture.
    *
@@ -632,6 +620,53 @@ export const env = {
   /* ── Dial / interventions ── */
   get dialProbeTimeoutMs(): number {
     return numSetting("DIAL_PROBE_TIMEOUT_MS", 30_000, 1_000);
+  },
+  /**
+   * The dial retry ladder in ms — how long a failed dial job waits before each
+   * successive attempt. Read from `DIAL_RETRY_LADDER_MS` (comma-separated) so a
+   * deploy can retune dial backoff without a rebuild; `src/lib/scale/queue.ts`
+   * exports the result as `DIAL_RETRY_LADDER_MS`. The default is the ladder that
+   * was previously hard-coded there ([150s, 300s, 600s]), so nothing changes
+   * until someone sets the var.
+   *
+   * This ladder is bounded from outside by a carrier rule, not by taste:
+   * carriers flag a number that re-dials inside five minutes as robocall spam
+   * and start sending every later call to voicemail — the one outcome a
+   * fraud-intervention call cannot afford. Attempts land at t0, t0+L1,
+   * t0+L1+L2 with ±20% jitter, so the first two waits must sum to more than
+   * `CALL_RATE_WINDOW_MS` even at the bottom of the jitter band:
+   *   0.8 × (L1 + L2) > CALL_RATE_WINDOW_MS.
+   * A configured ladder that violates it is REFUSED — the default is used and a
+   * console.warn names the value, the rule and the window at boot. A silent
+   * refusal would be exactly the knob-that-does-nothing this file's audit
+   * removed the others for; a loud one gives the operator the fix. Malformed
+   * input (non-numeric, zero, negative, empty rungs) is refused the same way.
+   *
+   * Fewer rungs than `MAX_DIAL_ATTEMPTS` is legal: `backoffBaseMs` clamps to
+   * the last rung, so a two-rung ladder just repeats the second wait.
+   */
+  get dialRetryLadderMs(): number[] {
+    const raw = (process.env.DIAL_RETRY_LADDER_MS ?? "").trim();
+    if (!raw) return [...DIAL_RETRY_LADDER_DEFAULT_MS];
+    const rungs = raw.split(",").map((s) => Number(s.trim()));
+    const malformed = rungs.length === 0 || rungs.some((n) => !Number.isFinite(n) || n <= 0);
+    const firstTwo = (rungs[0] ?? 0) + (rungs[1] ?? rungs[0] ?? 0);
+    const carrierUnsafe = !malformed && 0.8 * firstTwo <= this.callRateWindowMs;
+    if (malformed || carrierUnsafe) {
+      if (dialLadderRefusedRaw !== raw) {
+        dialLadderRefusedRaw = raw;
+        console.warn(
+          `config: DIAL_RETRY_LADDER_MS="${raw}" refused (${
+            malformed
+              ? "rungs must be positive finite ms, comma-separated"
+              : `first two waits must satisfy 0.8 × (L1+L2) > CALL_RATE_WINDOW_MS = ${this.callRateWindowMs}ms`
+          }) — using the default [${DIAL_RETRY_LADDER_DEFAULT_MS.join(", ")}]. ` +
+            "Retuning dial backoff into the carrier's robocall window strips every later call to voicemail.",
+        );
+      }
+      return [...DIAL_RETRY_LADDER_DEFAULT_MS];
+    }
+    return rungs;
   },
   /**
    * How long a staged soft freeze waits for a second actor before the sweep

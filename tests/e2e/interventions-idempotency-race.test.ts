@@ -19,7 +19,9 @@ import { createHmac } from "node:crypto";
 import { NextRequest } from "next/server";
 
 // The signature key is WEBHOOK_SECRET (src/lib/config.ts), not SV_WEBHOOK_SECRET.
-process.env.WEBHOOK_SECRET = process.env.WEBHOOK_SECRET ?? "test-secret";
+// `||`, not `??`: a local `.env` with `WEBHOOK_SECRET=""` must count as unset —
+// the ?? operator happily keeps an empty string, which fails every HMAC.
+process.env.WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || "test-secret";
 const SECRET = process.env.WEBHOOK_SECRET;
 process.env.TWILIO_DRY_RUN = "true";
 

@@ -40,7 +40,9 @@ import { sendWebhook } from "@/lib/crm/webhook";
 import { sendZendeskTicket } from "@/lib/crm/zendesk";
 
 beforeAll(() => {
-  process.env.AUTH_SECRET ??= "unit-test-auth-secret-for-crm-sync";
+  // `||`, not `??=`: a local `.env` with `AUTH_SECRET=""` must count as unset —
+  // the ?? operator happily keeps an empty string, which fails every HMAC.
+  process.env.AUTH_SECRET = process.env.AUTH_SECRET || "unit-test-auth-secret-for-crm-sync";
 });
 
 const T0 = 1_800_000_000_000;

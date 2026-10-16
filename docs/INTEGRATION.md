@@ -291,14 +291,21 @@ so this is load-bearing, not hygiene.
 ### Realtime push (optional, degrades cleanly)
 
 The Command Center uses a websocket when it is wired up and falls back to its SSE
-feed when it is not. Set one shared HMAC key and both sides turn on:
+feed when it is not. Two things switch it on, and both are required —
+`realtimeConfigured()` in `src/lib/flags.ts` is the AND of them:
 
 ```
-REALTIME_INGEST_SECRET=<openssl rand -base64 32>   # falls back to AGENT_TOOL_SECRET
+FEATURE_REALTIME=true
+REALTIME_INGEST_SECRET=<openssl rand -base64 32>   # no default, no fallback
 ```
 
-Leave it unset and nothing breaks: the realtime service starts but refuses every
-connection, `/api/console/realtime-token` returns 503, and the console reads SSE.
+The secret is read on its own (`src/lib/realtime-token.ts`): it does **not** fall
+back to `AGENT_TOOL_SECRET`. Reusing one key across the two purposes would make
+"rotate the agent tool key" and "rotate the realtime HMAC" the same operation on
+the box while the code says they are two.
+
+Leave either one unset and nothing breaks: the realtime service starts but refuses
+every connection, `/api/console/realtime-token` returns 503, and the console reads SSE.
 The realtime service holds no database credentials and never sees a transcript —
 only already-redacted, already-authorised events move through it.
 

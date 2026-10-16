@@ -156,36 +156,73 @@ the trust model in `src/proxy.ts` sound: it believes `X-Forwarded-For` only when
 request carries the marker Caddy sets, and a direct-to-origin caller can forge
 anything else.
 
-| Variable                   | Default                           | Purpose                                                                                                           |
-| -------------------------- | --------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `SITE_ADDRESS`             | `localhost`                       | Domain Caddy issues a certificate for. Must resolve to the host.                                                  |
-| `ACME_EMAIL`               | `admin@example.com`               | Let's Encrypt expiry notices.                                                                                     |
-| `REALTIME_INGEST_SECRET`   | falls back to `AGENT_TOOL_SECRET` | HMAC key shared by app and realtime. Unset ⇒ realtime refuses every connection and the console silently uses SSE. |
-| `REALTIME_URL`             | `http://realtime:4000`            | Internal service address. **Never `localhost`** — inside the app container that is the app container.             |
-| `REALTIME_ALLOWED_ORIGIN`  | empty (any)                       | Comma-separated browser origins the socket accepts.                                                               |
-| `EDGE_RATE_LIMIT_PER_HOUR` | `600`                             | Pre-auth edge budget per client IP. Separate from the expensive-call API limit.                                   |
+| Variable                   | Default                | Purpose                                                                                                                                               |
+| -------------------------- | ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SITE_ADDRESS`             | `localhost`            | Domain Caddy issues a certificate for. Must resolve to the host.                                                                                      |
+| `ACME_EMAIL`               | `admin@example.com`    | Let's Encrypt expiry notices.                                                                                                                         |
+| `REALTIME_INGEST_SECRET`   | none — no fallback     | HMAC key shared by app and realtime. Also needs `FEATURE_REALTIME=true`. Unset ⇒ realtime refuses every connection and the console silently uses SSE. |
+| `REALTIME_URL`             | `http://realtime:4000` | Internal service address. **Never `localhost`** — inside the app container that is the app container.                                                 |
+| `REALTIME_ALLOWED_ORIGIN`  | empty (any)            | Comma-separated browser origins the socket accepts.                                                                                                   |
+| `EDGE_RATE_LIMIT_PER_HOUR` | `600`                  | Pre-auth edge budget per client IP. Separate from the expensive-call API limit.                                                                       |
 
 ### Feature flags
 
-Every runtime switch is declared in `src/lib/flags.ts` — one file answers
-"what is switchable in this deployment?", which is not otherwise greppable.
+A **flag** picks between two behaviours that are both legitimate. Every one of
+them is declared in `src/lib/flags.ts` — one file answers "what is switchable in
+this deployment?", which is not otherwise greppable. A flag that no production
+path reads cannot be declared: `FLAG_CONSUMERS` names the file that honours each
+one, and `tests/flags.test.ts` reads that file and checks the string is in it.
 
-| Flag                                | Default | Effect                                                                                                                                                   |
-| ----------------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `FEATURE_REALTIME`                  | `false` | Signed push to the realtime service. Needs `REALTIME_INGEST_SECRET` too — both or neither, because the service rejects every handshake without a secret. |
-| `FEATURE_CONSOLE_LIVE_FEED`         | `false` | Console live feed over the websocket. Off means SSE, which is what shipped first.                                                                        |
-| `FEATURE_PII_REDACTION`             | `true`  | Redact PII in logs, audit rows, webhook payloads. Turning this off writes customer transcripts in the clear — local debugging only.                      |
-| `FEATURE_COMPLIANCE_PII_REDACTION`  | `true`  | Second (outbound-wire) redaction switch; no legacy var backs it.                                                                                         |
-| `FEATURE_ELEVEN_LABS_LIVE`          | `false` | Real neural voice. `ELEVENLABS_DRY_RUN` still wins when set, since the provider client reads it directly.                                                |
-| `FEATURE_COMPLIANCE_DISCLOSURE`     | `true`  | The "this call is recorded" opening disclosure. Required by law; defaults ON.                                                                            |
-| `FEATURE_COMPLIANCE_NO_SECRETS`     | `true`  | Never request PIN/password/OTP/CVV. Required by policy; defaults ON.                                                                                     |
-| `FEATURE_WEBHOOK_STRICT_SIGNATURES` | `true`  | Refuse unsigned inbound signals. OFF is a local-debug affordance only.                                                                                   |
-| `FEATURE_SEED_DEMO`                 | `false` | Seed demo case history on first boot. Defaults OFF for a clean production database.                                                                      |
+| Flag                           | Default | Effect                                                                                                                                                    |
+| ------------------------------ | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `FEATURE_REALTIME`             | `false` | Signed push to the realtime service. Needs `REALTIME_INGEST_SECRET` too — both or neither, because the service rejects every handshake without a secret.  |
+| `FEATURE_CONSOLE_LIVE_FEED`    | `false` | Console live feed over the websocket. Off means SSE, which is what shipped first.                                                                         |
+| `FEATURE_ELEVEN_LABS_LIVE`     | `false` | Real neural voice. `ELEVENLABS_DRY_RUN` still wins when set, since the provider client reads it directly (`src/lib/config.ts`).                           |
+| `FEATURE_SEED_DEMO`            | `false` | Seed demo case history on first boot. Defaults OFF for a clean production database. Read by the `db-setup` container command, not by any TypeScript file. |
+| `FEATURE_TWILIO_MEDIA_STREAMS` | `false` | Twilio Media Streams + Deepgram + ElevenLabs voice path instead of ElevenLabs ConvAI. Needs a reachable `VOICE_STREAM_HOST` and the stream worker.        |
 
 Values are strictly `"true"` / `"false"`. Anything else throws at read time
 rather than reading as "disabled" — a typo that silently disables realtime is
 the exact failure this prevents. Defaults put the safe path first: money, PII,
 and the audit chain are off unless you opt in.
+
+### Compliance invariants — what cannot be disabled
+
+Four controls were declared as flags above until they were checked against the
+code that enforces them. Nothing had ever read those flags: the disclosure is
+injected, the credential ask is refused, the PII redaction runs, and the
+ingestion gateway answers `401` — unconditionally, in every build. So
+`flag("complianceNoSecrets")` could report `false` to an operator who set
+`COMPLIANCE_NO_CREDENTIAL_REQUESTS=false` while the guardrail kept firing. A
+registry that answers "what cannot be disabled?" wrongly is worse than no
+registry, and a regulated product must not ship a switch for a legal
+obligation.
+
+They are now `INVARIANTS` in `src/lib/flags.ts`, with the enforcement site and
+the proving test recorded for each, and served to a reviewer by the
+operator-authenticated `GET /api/console/invariants` (`requireOperator`; nothing
+about them is on the unauthenticated `/api/console/features`).
+`tests/surface/invariants.test.ts` opens every recorded path and checks the line
+it names, `tests/flags.test.ts` fails if a compliance name is ever assignable to
+`FlagName` again, and `tests/flag-gating.test.ts` sets every retired variable to
+`false` and asserts the guardrails still fire.
+
+| Invariant                 | Guaranteed                                                                                                                                             | Enforced at                                                                              | Proven by                                                                                    |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `complianceDisclosure`    | Every dialed call opens with the recorded-call disclosure, in the language the caller hears; a language without one is not dialable.                   | `src/lib/compliance/policy.ts:115`, `src/lib/elevenlabs/outbound-call.ts:172`            | `tests/unit/compliance-credential-guard.test.ts`, `tests/unit/compliance-disclosure.test.ts` |
+| `complianceNoSecrets`     | The platform never asks for a PIN, password, OTP, CVV or card number, and a caller who asks for one gets a fixed per-language refusal.                 | `src/lib/compliance/policy.ts:93`, `src/app/api/agent/route.ts:461`                      | `tests/unit/compliance-credential-guard.test.ts`, `tests/unit/compliance-never-ask.test.ts`  |
+| `compliancePiiRedaction`  | PAN, IBAN, email, phone and context-marked OTP/PIN sequences are stripped from logs, audit rows, webhook payloads and vendor egress before they leave. | `src/lib/redact.ts:51`, `src/lib/compliance/policy.ts:125`                               | `tests/unit/redact.test.ts`, `tests/unit/compliance-credential-guard.test.ts`                |
+| `webhookStrictSignatures` | An inbound risk signal is refused `401` unless it carries a valid in-window `SV-Signature` HMAC or a live producer key.                                | `src/app/api/v1/interventions/route.ts:223`, `src/app/api/v1/interventions/route.ts:173` | `tests/failure-envelope/failure-envelope.test.ts`                                            |
+
+**Retired, and read by nothing:** `COMPLIANCE_OPENING_DISCLOSURE`,
+`COMPLIANCE_NO_CREDENTIAL_REQUESTS`, `COMPLIANCE_PII_REDACTION`,
+`FEATURE_COMPLIANCE_DISCLOSURE`, `FEATURE_COMPLIANCE_NO_SECRETS`,
+`FEATURE_COMPLIANCE_PII_REDACTION`, `FEATURE_PII_REDACTION`,
+`FEATURE_WEBHOOK_STRICT_SIGNATURES`. They were never honoured, so removing them
+changes no behaviour — but a value set on any of them now reads as
+"not configurable" rather than as a `false` the system appears to accept.
+`FEATURE_PII_REDACTION` and `FEATURE_COMPLIANCE_PII_REDACTION` were the same
+control declared twice under two names.
 
 Turn realtime on end to end (both switches, or it stays on SSE):
 

@@ -71,7 +71,10 @@ length 64.
 - Policy gate (`src/lib/policy-gate.ts`) — consent → country allowlist → cooldown → concurrency → spend → credits, fail-fast with typed reason, audited either way.
 - Call placement via `POST /v1/convai/twilio/outbound-call` with sanitised `dynamic_variables` and per-case `conversation_config_override` (language, first_message, voice_id).
 - `conversation_id` persisted against the case (join key for WP-4).
-- `case.dialing` emitted on the realtime channel.
+- `case.queued` emitted on the realtime channel (`src/app/api/v1/interventions/route.ts:1049`).
+  The state is QUEUED, not DIALING — the call has been accepted, not placed. There is
+  no `case.dialing` frame, and no consumer of `case.queued` on the console side; see
+  the registry at `src/lib/realtime-events.ts`.
 - `src/lib/sanitize-untrusted.ts` — dynamic-variable sanitiser (invariant I-4).
 
 ### Latency architecture
@@ -552,10 +555,10 @@ The remaining fix is to give the other suites isolated databases too. That is a 
 
 ---
 
-## 2026-10-02 � Tool-call latency, measured in the deployment topology
+## 2026-10-02 — Tool-call latency, measured in the deployment topology
 
 Run on the Akamai box (139.162.166.83), tool suite against the co-located
-Postgres � the topology the 300 ms budget is defined for.
+Postgres — the topology the 300 ms budget is defined for.
 
 ```
 db host: db (co-located)
@@ -568,28 +571,28 @@ PASS
 **p95 = 9 ms against a 300 ms budget.**
 
 The same suite pointed at a remote database measured p95 592 ms with a 294 ms
-database floor � i.e. 97% of the "regression" was network. The gate now
+database floor — i.e. 97% of the "regression" was network. The gate now
 measures the database floor first and enforces the absolute budget only when the
 database is co-located, so a green run can never be mistaken for a measured one.
 
-## 2026-10-02 � Schema drift, caught twice
+## 2026-10-02 — Schema drift, caught twice
 
 `Case.postCallAt` (and eight sibling columns, plus `Notification`) existed in
 `schema.prisma` with no migration. The deployment served 200 on every request
 and failed only on the post-call path.
 
-- `2_outbox` � OutboxEvent, DeadLetter, InboundBankEvent, WebhookEvent,
+- `2_outbox` — OutboxEvent, DeadLetter, InboundBankEvent, WebhookEvent,
   WebhookQuarantine. Bank notifications were 500ing on every delivery.
-- `3_postcall` � the post-call ingest columns and the Notification table.
+- `3_postcall` — the post-call ingest columns and the Notification table.
 
 Both generated with `prisma migrate diff` against the deployed database. CI now
 applies every migration to an ephemeral Postgres and fails the build on any
 difference from `schema.prisma`, printing the diff and the command to fix it.
 
 Deployment note: `db-setup` runs `prisma migrate deploy` from files baked into
-its image, so `docker compose build app db-setup` is mandatory after a pull �
+its image, so `docker compose build app db-setup` is mandatory after a pull —
 `up -d` alone reports "No pending migrations to apply" while the database is
-behind. Documented in docs/DEPLOY.md �7 with the verification query.
+behind. Documented in docs/DEPLOY.md §7 with the verification query.
 
 ## 2026-10-02 - The dial path placed no call at all
 

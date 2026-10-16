@@ -23,7 +23,8 @@
  *      sees the 503 and takes this instance OUT of rotation, so no NEW request
  *      arrives here. That is what actually prevents dropped requests; the timer
  *      below only bounds how long the process lingers.
- *   3. After the drain window, exit.
+ *   3. After the drain window, hand the batched exporters their bounded chance to
+ *      ship, then exit.
  *
  * ── The limitation, stated plainly ──────────────────────────────────────────
  * This waits a BOUNDED WINDOW, not for connection completion. The standalone
@@ -38,6 +39,23 @@
  */
 
 const DRAIN_MS = Number(process.env.SHUTDOWN_DRAIN_MS ?? 65_000);
+
+/**
+ * The last thing this process does is give the batched exporters their chance to
+ * ship. `src/instrumentation.ts` publishes the live closure at this key during
+ * `register()`; the bundle and this script cannot share a module, so the name is
+ * repeated here as a literal and `tests/telemetry/exporter-flush.test.ts` fails
+ * the build if the two ever disagree.
+ */
+const EXPORTER_FLUSH_KEY = "__securevoiceFlushExporters";
+
+/**
+ * How long to wait for that flush. `app` gets `stop_grace_period: 75s` against a
+ * 65s drain, so about 10s exist past the drain, and this claims half of it. The
+ * race is the point: a collector that is down or slow must not become the reason
+ * the container is SIGKILLed instead of exited.
+ */
+const FLUSH_BUDGET_MS = 5_000;
 
 let draining = false;
 
@@ -56,9 +74,46 @@ function beginDrain(signal: string): void {
   // running HTTP server keeps the loop busy so this does fire in practice.
   const timer = setTimeout(() => {
     console.log("[shutdown] drain window elapsed — exiting");
-    process.exit(0);
+    void exitAfterFlush();
   }, DRAIN_MS);
   timer.unref?.();
+}
+
+async function exitAfterFlush(): Promise<void> {
+  const flush = (globalThis as unknown as Record<string, (() => Promise<void>) | undefined>)[
+    EXPORTER_FLUSH_KEY
+  ];
+  if (typeof flush !== "function") {
+    // Only a deployment that never booted `register()` (so: never booted the
+    // Node runtime) gets here. Saying so out loud is the difference between an
+    // unflushed exit and an unflushed exit nobody can tell happened.
+    console.log("[shutdown] no exporter flush registered — exiting without one");
+    process.exit(0);
+    return;
+  }
+  // `shipped` is what makes the log line a fact rather than an intention: the
+  // race can be won by the budget timer, and a process that exits on a timeout
+  // must not report that it flushed.
+  let shipped = false;
+  const done = flush().then(
+    () => {
+      shipped = true;
+    },
+    (err: unknown) => {
+      console.log(`[shutdown] exporter flush failed — ${String(err).slice(0, 200)}`);
+    },
+  );
+  // unref'd so a budget timer can never be the reason the process lingers.
+  await Promise.race([
+    done,
+    new Promise<void>((resolve) => setTimeout(resolve, FLUSH_BUDGET_MS).unref?.()),
+  ]);
+  console.log(
+    shipped
+      ? "[shutdown] exporters flushed"
+      : `[shutdown] exporter flush did not finish within ${FLUSH_BUDGET_MS}ms — exiting`,
+  );
+  process.exit(0);
 }
 
 for (const signal of ["SIGTERM", "SIGINT"] as const) {

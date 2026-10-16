@@ -46,17 +46,53 @@ let procA: ChildProcess | null = null;
 let procB: ChildProcess | null = null;
 let socketB: Socket | null = null;
 
-function spawnInstance(port: number): ChildProcess {
-  return spawn(process.execPath, ["run", "src/server.ts"], {
+/**
+ * The last lines each instance printed.
+ *
+ * The pipes are READ, deliberately. `stdio: ["ignore","pipe","pipe"]` with no
+ * listener hands the child a kernel pipe nobody drains, so once ~64 KB is
+ * buffered the replica blocks on its next log write — and a fan-out test then
+ * fails as a timeout inside a process that was actually stopped by a console.log.
+ * It is also the only way a red here can be diagnosed at all: the CI log shows
+ * the parent's assertion, and the child's reason never reaches it.
+ */
+const tails = new Map<string, string>();
+
+function drain(label: string, child: ChildProcess): void {
+  for (const [stream, tag] of [
+    [child.stdout, "out"],
+    [child.stderr, "err"],
+  ] as const) {
+    if (!stream) continue;
+    stream.setEncoding("utf8");
+    stream.on("data", (chunk: string) => {
+      const key = `${label}:${tag}`;
+      tails.set(key, ((tails.get(key) ?? "") + chunk).slice(-8_000));
+    });
+  }
+}
+
+/** Every captured tail, newest first by label — for the message that fails. */
+function instanceLog(): string {
+  const parts = [...tails.entries()]
+    .filter(([, text]) => text.trim())
+    .map(([key, text]) => `--- ${key} ---\n${text.trim().split("\n").slice(-12).join("\n")}`);
+  return parts.length ? parts.join("\n") : "(no instance output captured)";
+}
+
+function spawnInstance(port: number, label: string, redisUrl = REDIS): ChildProcess {
+  const child = spawn(process.execPath, ["run", "src/server.ts"], {
     env: {
       ...process.env,
       PORT: String(port),
       REALTIME_INGEST_SECRET: SECRET,
       REALTIME_ALLOWED_ORIGIN: "",
-      REDIS_URL: REDIS,
+      REDIS_URL: redisUrl,
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
+  drain(label, child);
+  return child;
 }
 
 async function waitReady(port: number, timeoutMs = 25_000): Promise<{ pubsub: string }> {
@@ -89,8 +125,8 @@ describe("WP-20 cross-node fan-out", () => {
       await probe.quit().catch(() => {});
     }
 
-    procA = spawnInstance(PORT_A);
-    procB = spawnInstance(PORT_B);
+    procA = spawnInstance(PORT_A, "A");
+    procB = spawnInstance(PORT_B, "B");
     const [a, b] = await Promise.all([waitReady(PORT_A), waitReady(PORT_B)]);
     // Both instances must actually be on the shared bus, or this test would
     // pass for the wrong reason.
@@ -158,7 +194,13 @@ describe("WP-20 cross-node fan-out", () => {
 
     const activity = await new Promise<unknown>((resolve, reject) => {
       const timer = setTimeout(
-        () => reject(new Error("node B never received the activity event")),
+        () =>
+          reject(
+            // The tails are the difference between "fan-out timed out" and a
+            // diagnosable failure: they say whether node B's replica thought it
+            // was on the bus at all, and whether node A's ingest logged anything.
+            new Error(`node B never received the activity event\n${instanceLog()}`),
+          ),
         10_000,
       );
       socketB!.once("activity", (payload: unknown) => {
@@ -177,28 +219,16 @@ describe("WP-20 cross-node fan-out", () => {
    * mean "one process happened to handle both".
    */
   test("without the adapter, node B stays silent — the silent failure this prevents", async () => {
-    const PORT_C = 4323;
-    const PORT_D = 4324;
-    const procC = spawn(process.execPath, ["run", "src/server.ts"], {
-      env: {
-        ...process.env,
-        PORT: String(PORT_C),
-        REALTIME_INGEST_SECRET: SECRET,
-        REALTIME_ALLOWED_ORIGIN: "",
-        REDIS_URL: "",
-      },
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    const procD = spawn(process.execPath, ["run", "src/server.ts"], {
-      env: {
-        ...process.env,
-        PORT: String(PORT_D),
-        REALTIME_INGEST_SECRET: SECRET,
-        REALTIME_ALLOWED_ORIGIN: "",
-        REDIS_URL: "",
-      },
-      stdio: ["ignore", "pipe", "pipe"],
-    });
+    const PORT_C = PORT_BASE + 2;
+    const PORT_D = PORT_BASE + 3;
+    // Per-run, like A and B. These two were hard-coded 4323/4324 after the port
+    // base was introduced, so two jobs on this host would contend for them: the
+    // second run's replica never binds, `waitReady` answers from the FIRST run's
+    // process, and the "no bus" half of this test can pass or fail on which
+    // neighbour happens to own the port. Same hazard the header describes,
+    // left in the one place the header did not look.
+    const procC = spawnInstance(PORT_C, "C", "");
+    const procD = spawnInstance(PORT_D, "D", "");
 
     let client: Socket | null = null;
     try {

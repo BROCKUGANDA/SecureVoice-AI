@@ -2,8 +2,8 @@ import "server-only";
 /**
  * App-side bridge to the realtime service.
  *
- * `audit-chain.append()` calls notify() after a successful write. Two rules make
- * this safe to have inside the audit path:
+ * `audit-chain.append()` calls notify() after a successful write. Three rules
+ * make this safe to have inside the audit path:
  *
  *   1. It never throws and never rejects. An audit-chain write is a compliance
  *      record; a websocket fan-out that is down, slow or misconfigured must not
@@ -13,14 +13,21 @@ import "server-only";
  *   2. It sends only what is already redacted. Callers pass the same redacted
  *      payload the chain stores, so no raw transcript or credential can leak
  *      through a channel that has a different retention story than the database.
+ *   3. It sends only what the event registry declares. `checkRealtimePayload()`
+ *      (src/lib/realtime-events.ts) is consulted before a byte is signed, so a
+ *      producer that invents an event name is stopped and logged at the source
+ *      instead of shipping a frame the browser has to guess at. Refusing is not
+ *      throwing — rule 1 still holds.
  *
  * Transport is a plain POST to /ingest signed with the same SV-Signature scheme
  * the platform already uses for bank webhooks, replay-window included.
  */
 
 import { signIngestBody } from "@/lib/realtime-token";
+import { checkRealtimePayload } from "@/lib/realtime-events";
 import { realtimeConfigured } from "@/lib/flags";
 import { env } from "@/lib/config";
+import { logError } from "@/lib/validation/safe-log";
 
 const INGEST_PATH = "/ingest";
 
@@ -59,6 +66,24 @@ export async function notifyRealtime(input: BroadcastInput): Promise<{ delivered
   // guessable global room.
   const orgId = input.orgId;
   if (!orgId) return { delivered: false };
+
+  // The contract boundary (src/lib/realtime-events.ts). A payload that names a
+  // `type` this registry does not carry is a producer that invented an event
+  // name; publishing it would put a frame on the wire that the only client on
+  // the other end has to guess at. It is refused here and logged, never thrown:
+  // this function is called from inside the audit write, where a fan-out fault
+  // must not be able to fail a compliance record. An untyped payload passes —
+  // the audit-activity row is a declared frame too, it just has no `type`, and
+  // its shape is checked where it is read.
+  const contract = checkRealtimePayload(input.payload);
+  if (!contract.ok) {
+    logError("[realtime] refused a payload outside the event contract", {
+      orgId,
+      callRef: input.callRef,
+      reason: contract.reason,
+    });
+    return { delivered: false };
+  }
 
   const signed = signIngestBody({
     kind: "activity",

@@ -344,10 +344,10 @@ faster; it only speeds work that was never the bottleneck.
 1. **Co-locate the database.** This is the whole fix. The deployed host has
    Postgres in the same compose network and measures single-digit milliseconds;
    the hosted test database is the reason the number looks like 277 ms.
-2. **Fewer round-trips per request** � batch related reads into one query, as the
+2. **Fewer round-trips per request** — batch related reads into one query, as the
    intervention ingest already does by folding the idempotency and consent reads
    into a single statement.
-3. **Cache reference data** � `src/lib/cache.ts` adds a TTL cache with
+3. **Cache reference data** — `src/lib/cache.ts` adds a TTL cache with
    single-flight de-duplication. Authorization decisions, consent state and
    anything gating money or a call are deliberately excluded: a cached "has not
    opted out" is a compliance breach waiting for an expiry.
@@ -356,7 +356,7 @@ faster; it only speeds work that was never the bottleneck.
 
 ---
 
-## 10. Judging rubric � how the current build scores
+## 10. Judging rubric — how the current build scores
 
 Kept here so the gap list stays honest against the criteria rather than against
 our own roadmap.
@@ -365,7 +365,7 @@ our own roadmap.
 | ---------- | ------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Problem    | Narrow and high-stakes: a fraud victim's call, a 60-second window                           | Strong. Keep the caller-ID paradox framing.                                                                                                                                                         |
 | Innovation | Deterministic guardrail decision surface, tamper-evident audit chain, honest capacity model | The differentiator is _trustworthiness_, which is hard to demo in 3 minutes. Needs a scripted moment.                                                                                               |
-| Execution  | Live on a real VPS, real integrations, 455 chaos checks                                     | `tests/e2e/dial.test.ts` latency gate fails against the hosted test DB (see �5). The demo path itself works.                                                                                        |
+| Execution  | Live on a real VPS, real integrations, 455 chaos checks                                     | `tests/e2e/dial.test.ts` latency gate fails against the hosted test DB (see §5). The demo path itself works.                                                                                        |
 | Usability  | Clean console, quick nav, six live languages                                                | Responsive behaviour was reasoned from code, not tested on devices. Touch targets unaudited.                                                                                                        |
 | Impact     | Quantified prevented-loss figures, measured latency                                         | Figures come from the artifact, and the artifact is a synthetic bank. A pilot reference would be stronger.                                                                                          |
 | Pitch      | Sharp hook, live demo                                                                       | Now that the one-click **operator** login is gone, the judge path is the demo shortcut. Confirm `NEXT_PUBLIC_DEMO_LOGIN_*` is set on the deployed host before demoing, or judges see "not enabled". |
@@ -376,8 +376,8 @@ our own roadmap.
 
 ### Prompt injection and agent poisoning
 
-The system prompt already did the structurally right thing � caller words only
-ever appear in the user message, never the system prompt � but two real gaps
+The system prompt already did the structurally right thing — caller words only
+ever appear in the user message, never the system prompt — but two real gaps
 remained, both closed in `src/lib/llm-guard.ts`:
 
 1. **Caller speech bypassed the sanitiser.** `sanitizeUntrusted()` already
@@ -400,8 +400,8 @@ to someone who says "ignore previous instructions" would let a caller mute the
 agent with four words.
 
 One false positive was found and fixed rather than shipped: a bare
-`/you are now/` flagged "you are now speaking with Sara" � a fraud victim
-answering a question � which would write an accusation into the tamper-evident
+`/you are now/` flagged "you are now speaking with Sara" — a fraud victim
+answering a question — which would write an accusation into the tamper-evident
 audit chain against someone who reported a crime. Narrowed to require a role
 substitution.
 
@@ -480,12 +480,12 @@ Two design points worth knowing:
 
 - **Comments are stripped before scanning.** A naive `grep -ri` fails forever
   here, because the migration left deliberate notes in `src/proxy.ts`,
-  `next.config.ts` and `src/views/Auth.tsx` explaining what was removed � one
+  `next.config.ts` and `src/views/Auth.tsx` explaining what was removed — one
   aimed squarely at whoever comes looking later. Those comments are worth
   keeping; a comment is documentation, a call is a vulnerability.
 - **Exclusions each carry a reason**, because an unexplained exclusion is just a
   hole in a security gate. Applied migrations are excluded because they are
-  immutable history � rewriting an applied migration to hide the old `clerkUserId`
+  immutable history — rewriting an applied migration to hide the old `clerkUserId`
   column would be falsifying the record and would break every environment that
   has already run them.
 
@@ -498,7 +498,7 @@ Verified by mutation: injecting `export const leaked = clerkMiddleware` into
       schema: an `organizations` table with a `clerkId` column and a `users`
       table, neither of which matches the current Prisma models. Currently
       allowlisted with that reason. It should be deleted once its consumer is
-      identified � rewriting a script whose only consumer is unknown would be
+      identified — rewriting a script whose only consumer is unknown would be
       guessing.
 - [x] **`scripts/walkthrough/out/story.json` claimed "Clerk holds the identity".**
       Checked: the SOURCE is already correct — `scenes.mjs` says "Self-hosted
@@ -516,15 +516,15 @@ under two different `Idempotency-Key`s was dialled twice. The key only protects
 against the same REQUEST being retried; it does nothing for a retry storm with a
 fresh key per attempt, two fraud engines racing, or an integration bug that
 regenerates the header. Both signals passed the idempotency claim and both
-reached the dial path � a fraud victim receiving two "your card is frozen" calls
+reached the dial path — a fraud victim receiving two "your card is frozen" calls
 about one transaction, which is the exact failure this product exists to prevent.
 
 Closed at both levels, because one of them is not enough:
 
-1. **Fast path** � the policy gate refuses a repeated `transaction_ref` with the
+1. **Fast path** — the policy gate refuses a repeated `transaction_ref` with the
    typed code `transaction_repeat`, placed as step 0 so no credits are reserved
    for a signal that was always going to be rejected.
-2. **Atomic backstop** � a partial unique index on `Case(orgId, transactionRef)`.
+2. **Atomic backstop** — a partial unique index on `Case(orgId, transactionRef)`.
    A read cannot settle a race; only the database can. Two concurrent signals with
    different keys both read "no prior case", and the second INSERT fails at the
    index.
@@ -534,5 +534,5 @@ keeps the EARLIEST row: that is the one that was actually dialled, so it is the
 one whose audit chain and call recording exist. Zero duplicates existed across
 235 cases, so this was a no-op on the current database.
 
-Catalogued as `transaction_repeat` � the error catalog gate caught the new code,
+Catalogued as `transaction_repeat` — the error catalog gate caught the new code,
 which is it doing its job.

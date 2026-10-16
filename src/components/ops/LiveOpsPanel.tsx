@@ -8,11 +8,19 @@ import { LiveDot } from "@/components/fx/core";
 import type { ConnectionState } from "@/lib/connection-state";
 
 /**
- * Live Operations Panel — real-time transcript viewer for active calls.
+ * Live Operations Panel — transcript viewer for the active call.
  *
- * Shows the conversation between the AI agent and the customer as it happens,
- * with a typewriter effect for incoming lines. Uses the same realtime
- * infrastructure as the Console (SSE fallback + websocket push).
+ * Shows the conversation between the AI agent and the customer with a typewriter
+ * effect on each arriving line.
+ *
+ * Where the lines come from, stated exactly: `Console.tsx:448` polls
+ * `/api/console/audit` every 3 s for the case's persisted `post_call_ingest` row
+ * and splits its redacted text into lines. That is the durable source, not a push
+ * feed — there is no `transcript.interim` / `transcript.final` event anywhere on
+ * the realtime channel and no producer for one (see src/lib/realtime-events.ts),
+ * so every line this panel receives is already FINAL and already audited. The
+ * feed badge is the only realtime-derived thing here: `feedStatus` comes from the
+ * connection reducer that SSE and the websocket both write to.
  *
  * The panel is read-only: it displays what the audit chain records, never
  * writes to it. A transcript line is rendered only after the audit chain has

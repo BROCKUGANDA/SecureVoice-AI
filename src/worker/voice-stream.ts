@@ -42,7 +42,7 @@ import {
   isShuttingDown,
   setupGracefulShutdown,
 } from "@/lib/graceful-shutdown";
-import { initOtel } from "@/lib/telemetry/otel";
+import { initOtel, shutdownOtel } from "@/lib/telemetry/otel";
 import { ElevenLabsStream } from "@/lib/voice/elevenlabs-stream";
 import {
   ConversationState,
@@ -65,7 +65,7 @@ import { sanitizeShariah } from "@/lib/compliance/shariah-filter";
 import { prepareSpeech } from "@/lib/compliance/speech-gate";
 import { describeHits } from "@/lib/compliance/vishing";
 import { append as auditAppend } from "@/lib/audit-chain";
-import { recordSpan } from "@/lib/telemetry/spans";
+import { flushSpansNow, recordSpanAndPersist } from "@/lib/telemetry/store";
 import { logError, logInfo, logWarn } from "@/lib/validation/safe-log";
 
 const PORT = Number(process.env.VOICE_STREAM_PORT ?? 8080);
@@ -675,7 +675,7 @@ function settleCallerTurn(callSid: string, turn: CallerTurn): void {
     return;
   }
 
-  recordSpan({
+  recordSpanAndPersist({
     span: "caller_stop_to_agent_audio",
     startedAtMs: stopMs,
     endedAtMs: audioMs,
@@ -763,7 +763,7 @@ async function handleTranscript(
     await safeTtsStream(state, ws, NEVER_ASK_LINE[state.lang] ?? NEVER_ASK_LINE.en, {
       onFirstAudio: ({ cached }) => {
         const firstAudioAtMs = Date.now();
-        recordSpan({
+        recordSpanAndPersist({
           span: "answered_to_first_agent_word",
           startedAtMs: waitStarted,
           endedAtMs: firstAudioAtMs,
@@ -818,7 +818,7 @@ async function handleTranscript(
   const onFirstAudio = ({ cached }: { cached: boolean }) => {
     clearTimeout(backchannelTimer);
     const firstAudioAtMs = Date.now();
-    recordSpan({
+    recordSpanAndPersist({
       span: "answered_to_first_agent_word",
       startedAtMs: waitStarted,
       endedAtMs: firstAudioAtMs,
@@ -1018,7 +1018,7 @@ function createServer(listenPort: number = PORT, listenHost: string = HOST) {
   // this service, and tests/unit/shutdown-window.test.ts fails the build if the
   // two numbers ever drift apart — a drain Docker kills early is decoration.
   setupGracefulShutdown({
-    onShutdown: () => {
+    onShutdown: async () => {
       for (const client of wss.clients) {
         try {
           client.close(1001, "server shutting down");
@@ -1026,6 +1026,21 @@ function createServer(listenPort: number = PORT, listenHost: string = HOST) {
           // already gone
         }
       }
+      // The span writer debounces its flush and unrefs its timer, so a process that
+      // exits on a SIGTERM can leave its last batch in memory only. Every producer in
+      // this worker records voice-plane latency, and the drain window (65 s) is far
+      // longer than one flush, so this is the moment to hand the queue to the disk —
+      // otherwise the turns a call just measured exist in a ring that dies with the
+      // process and `scripts/emit-slo.ts` never sees them.
+      await flushSpansNow();
+      // Same defect, different buffer. This worker is one of the two entry points
+      // that start the OTLP SDK — the module tail calls `initOtel()` — and
+      // `shutdownOtel()` was documented "call from a SIGTERM handler" while being
+      // called by nothing, so the BatchSpanProcessor's queued spans, the metric
+      // reader's pending points and the log processor's records were all dropped
+      // on every deploy. The drain has already run, so this is the last moment
+      // they can ship; with no SDK initialised the call is a no-op.
+      await shutdownOtel();
     },
   });
   server.on("upgrade", (req, socket, head) => {

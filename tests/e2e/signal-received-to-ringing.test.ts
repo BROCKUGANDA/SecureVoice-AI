@@ -44,7 +44,7 @@ const realBadActor = await import("@/lib/abuse/bad-actor");
 mock.module("@/lib/abuse/bad-actor", () => ({
   ...realBadActor,
   checkBadActor: () => ({ action: "allow" }),
-  recordStrike: () => {},
+  recordStrike: () => {/* empty */},
 }));
 
 const RUN = `sr${Date.now().toString(36).slice(-7)}`;

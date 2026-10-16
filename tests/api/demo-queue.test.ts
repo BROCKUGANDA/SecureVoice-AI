@@ -38,6 +38,9 @@ let octet = 10;
 const addrOf = () => `203.0.113.${octet++}`;
 /** Distinct canonical test-net addresses per tag, stable within the run. */
 function hdrsForAddr(addr: string): Headers {
+  // The proxy marker is what makes this proxied traffic: without it the
+  // canonical resolver answers "untrusted" and every test shares one client,
+  // which would make these isolation assertions vacuously true.
   const h = new Headers();
   h.set("x-securevoice-proxy", "1");
   h.set("x-securevoice-client-ip", addr);

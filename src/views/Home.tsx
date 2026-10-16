@@ -46,7 +46,7 @@ import { useToast } from "@/hooks/use-toast";
 
 const ELEVEN = [
   { en: "Agent Workflows", ar: "مسارات الوكيل" },
-  { en: "Eleven v3 TTS", ar: "تحويل النص إلى كلام Eleven v3" },
+  { en: "Eleven v4 Turbo TTS", ar: "تحويل النص إلى كلام Eleven v4 Turbo" },
   { en: "Scribe v2 Realtime", ar: "التفريغ الفوري Scribe v2" },
   { en: "Knowledge Base + RAG", ar: "قاعدة المعرفة + RAG" },
   { en: "Webhook Tools", ar: "أدوات Webhook" },
@@ -59,7 +59,7 @@ const FEATURES = [
     icon: PhoneOutgoing,
     en: "Immediate multilingual outreach",
     ar: "اتصال فوري متعدد اللغات",
-    body: "The agent dials within 60 seconds of the fraud signal — no SMS to ignore, no queue. Streaming neural voice starts mid-render, and customers can interrupt it like a human (barge-in). Six languages out of the box: Arabic, English, Hindi, Urdu, French, Kiswahili.",
+    body: "Every signal becomes a durable dial job the moment it clears the gates; under load a call degrades to SMS or app push rather than being dropped. The 60-second figure is the case deadline the console counts down, not a measured time-to-contact. Streaming neural voice starts mid-render, and customers can interrupt it like a human (barge-in). Six languages in the voice layer: Arabic, English, Hindi, Urdu, French, Kiswahili — the live agent is configured with English, Arabic and Hindi presets.",
   },
   {
     icon: Fingerprint,
@@ -71,7 +71,7 @@ const FEATURES = [
     icon: Snowflake,
     en: "Pre-approved actions only",
     ar: "إجراءات معتمدة فقط",
-    body: "One write action exists in the agent's tool scope: the temporary card freeze. Anything irreversible — replacement, transfer, refund — goes to a human with full context.",
+    body: "One write action exists in the agent's tool scope: staging the temporary card freeze, which a human specialist then commits. Anything irreversible — replacement, transfer, refund — goes to a human with full context.",
   },
   {
     icon: FileCheck2,
@@ -82,11 +82,11 @@ const FEATURES = [
 ];
 
 const STEPS = [
-  { n: "01", en: "Alert received", ar: "إشارة", d: "Fraud engine webhook, risk ≥ threshold" },
-  { n: "02", en: "Outbound call", ar: "اتصال", d: "Connected in ~1s, language locked" },
+  { n: "01", en: "Alert received", ar: "إشارة", d: "HMAC-signed webhook from your engine" },
+  { n: "02", en: "Outbound call", ar: "اتصال", d: "Dial job queued; speaks the caller's language" },
   { n: "03", en: "Verification", ar: "تحقق", d: "Challenge flow — no PINs, ever" },
-  { n: "04", en: "Card freeze", ar: "تجميد", d: "Temporary, pre-approved, reversible" },
-  { n: "05", en: "Human handoff", ar: "تسليم", d: "Specialist receives full context" },
+  { n: "04", en: "Card freeze", ar: "تجميد", d: "Staged, pre-approved, committed by a human" },
+  { n: "05", en: "Human handoff", ar: "تسليم", d: "Queues with full context if no line bridges" },
 ];
 
 const TRY_STEPS: {
@@ -103,7 +103,7 @@ const TRY_STEPS: {
     icon: Zap,
     en: "Trigger a live intervention",
     ar: "أطلق تدخلاً حياً",
-    body: "Pick one of three fraud cases — card fraud, ATM cash-out, or a wire scam — and fire the alert yourself. The agent calls, verifies, and stops the loss in 61 seconds.",
+    body: "Pick one of three fraud cases — card fraud, ATM cash-out, or a wire scam — and fire the alert yourself. The agent calls, verifies, and stages the protective action; a specialist on your side commits it.",
     cta: "Open the live demo",
     view: "demo",
   },
@@ -112,7 +112,7 @@ const TRY_STEPS: {
     icon: LayoutDashboard,
     en: "Operate the console",
     ar: "شغّل لوحة التحكم",
-    body: "Monitor active calls, tune the risk threshold, flip guardrails on and off, and search the immutable audit log — the same console a bank fraud desk would run.",
+    body: "Monitor active calls, flip the guardrail switches where production policy allows, and search the hash-chained audit log — the same console a bank fraud desk would run. There is no risk-score dial: the score comes from your engine, and the gates that actually refuse a signal are consent, hours, geo, velocity and credit.",
     cta: "Open the dashboard",
     view: "dashboard",
   },
@@ -121,7 +121,7 @@ const TRY_STEPS: {
     icon: BookOpenText,
     en: "Inspect the architecture",
     ar: "افحص البنية",
-    body: "The full call flow with guardrail checkpoints, the five-layer voice stack, and the baseline-to-target metrics behind the 61-second promise.",
+    body: "The full call flow with guardrail checkpoints, the five-layer stack (ingestion, orchestration, integration, telephony, audit), and the baseline-to-target metrics — stated as targets, because the committed evidence measures the intake path only.",
     cta: "Open the deep dive",
     view: "product",
   },
@@ -171,7 +171,7 @@ export function Home() {
                 <br />
                 {t("Call placed.", "تم إجراء المكالمة.", lang)}{" "}
                 <span className="relative inline-block text-primary">
-                  {t("Frozen.", "وتجميدها.", lang)}
+                  {t("Freeze staged.", "وتجميد مُمهَّد.", lang)}
                   <svg
                     className="absolute -bottom-2 left-0 w-full"
                     viewBox="0 0 120 8"
@@ -190,22 +190,23 @@ export function Home() {
                   </svg>
                 </span>
                 <br />
-                {t("In", "خلال", lang)} <span className="num">60</span>{" "}
+                {t("Case deadline:", "مهلة الحالة:", lang)} <span className="num">60</span>{" "}
                 {t("seconds.", "ثانية.", lang)}
               </h1>
             </Reveal>
 
             <Reveal delay={0.2}>
               <p dir="rtl" className="font-arabic mt-5 text-[15px] leading-relaxed text-ink-2">
-                وكيل صوتي ذكي يتصل بالعميل بلغته خلال ستين ثانية من إشارة الاحتيال — يتحقق من هويته،
-                يؤكد العملية، ويجمّد البطاقة، ثم يسلم لأخصائي بشري.
+                وكيل صوتي ذكي يتصل بالعميل بلغته ضمن مهلة ستّين ثانية للحالة بعد إشارة الاحتيال —
+                يتحقق من هويته، ويؤكد العملية، ويمهّد تجميد البطاقة ليُقرّه أخصائي بشري، ثم يسلمه
+                إليه.
               </p>
             </Reveal>
             <Reveal delay={0.26}>
               <p className="mt-4 max-w-xl text-[15.5px] leading-relaxed text-ink-2">
                 {t(
-                  "SecureVoice AI closes the gap between fraud detection and fraud intervention for UAE banks and insurers — turning a 38-minute wait into a one-minute call that stops the loss while it is still a phone call away. Call a cardholder about a disputed transaction, or a policyholder about a redirected claim payout: same engine, same guardrails, one human handoff.",
-                  "تُغلق SecureVoice AI الفجوة بين كشف الاحتيال والتدخّل فيه لدى المصارف وشركات التأمين في الإمارات — محوّلة انتظار ثمانٍ وثلاثين دقيقة إلى مكالمة مدتها دقيقة واحدة توقف الخسارة قبل أن تكمل طريقها. اتصل بحامل بطاقة حول معاملة متنازع عليها، أو بحامل وثيقة حول دفعة مطالبة أُعيد توجيهها: المحرك والضوابط نفسها، وتسليم واحد إلى موظف بشري.",
+                  "SecureVoice AI closes the gap between fraud detection and fraud intervention for UAE banks and insurers — turning a 38-minute wait into a call placed inside the platform's own 60-second case deadline, while the loss is still a phone call away. Call a cardholder about a disputed transaction, or a policyholder about a redirected claim payout: same engine, same guardrails, one human handoff.",
+                  "تُغلق SecureVoice AI الفجوة بين كشف الاحتيال والتدخّل فيه لدى المصارف وشركات التأمين في الإمارات — محوّلة انتظار ثمانٍ وثلاثين دقيقة إلى مكالمة تُجرى داخل مهلة الحالة البالغة ستّين ثانية، والخسارة ما تزال على بُعد مكالمة هاتف. اتصل بحامل بطاقة حول معاملة متنازع عليها، أو بحامل وثيقة حول دفعة مطالبة أُعيد توجيهها: المحرك والضوابط نفسها، وتسليم واحد إلى موظف بشري.",
                   lang,
                 )}
               </p>
@@ -252,9 +253,9 @@ export function Home() {
             <Reveal delay={0.42}>
               <div className="mt-9 flex flex-wrap items-center gap-x-7 gap-y-3">
                 {[
-                  { big: "38m → 60s", label: "contact delay", ar: "زمن التواصل" },
+                  { big: "38m → 60s", label: "case deadline", ar: "مهلة الحالة" },
                   { big: "43% → 85%", label: "prevention rate", ar: "نسبة المنع" },
-                  { big: "6+ langs", label: "Gulf-tuned voices", ar: "أصوات معايَرة للخليج" },
+                  { big: "6 langs", label: "in the voice layer", ar: "في طبقة الصوت" },
                 ].map((s) => (
                   <div key={s.label} className="flex items-baseline gap-2">
                     <span className="num text-[15px] font-semibold text-foreground">{s.big}</span>
@@ -311,7 +312,7 @@ export function Home() {
                 <div className="space-y-3 px-5 py-4">
                   <div className="max-w-[85%] rounded-2xl rounded-tl-md bg-secondary px-3.5 py-2.5">
                     <p className="micro mb-1 text-ink-3">
-                      {t("Agent · Fatima (AR-Gulf)", "الوكيلة · فاطمة (خليجي)", lang)}
+                      {t("Agent · Arabic voice", "الوكيل · بصوت عربي", lang)}
                     </p>
                     <p
                       dir="rtl"
@@ -345,12 +346,14 @@ export function Home() {
                 <div className="flex items-center justify-between gap-3 border-t border-line bg-paper px-5 py-3.5">
                   <Chip className="!bg-white">
                     <Lock className="h-3 w-3 text-primary" />
-                    POST /cards/••4417/freeze →{" "}
-                    <span className="font-semibold text-green-deep">200 OK</span>
+                    POST /tools/card-freeze →{" "}
+                    <span className="font-semibold text-green-deep">200 · staged</span>
                   </Chip>
                   <Chip className="!bg-white">
                     <Webhook className="h-3 w-3 text-amber-soft" />
-                    {t("SLA", "زمن الاستجابة", lang)} <span className="font-semibold">61s</span>
+                    <span className="font-semibold">
+                      {t("Case deadline 60s", "مهلة الحالة 60 ثانية", lang)}
+                    </span>
                   </Chip>
                 </div>
               </div>
@@ -385,10 +388,14 @@ export function Home() {
                   <Headset className="h-4 w-4 text-amber-soft" />
                   <div className="leading-tight">
                     <p className="text-[11px] font-semibold">
-                      {t("Handoff ready", "التسليم جاهز", lang)}
+                      {t("Handoff queued", "التسليم في الطابور", lang)}
                     </p>
                     <p className="text-[10px] text-ink-3">
-                      {t("Sara H. · specialist", "سارة ح. · أخصائية", lang)}
+                      {t(
+                        "fraud_specialist · no line configured",
+                        "fraud_specialist · لا خط مُهيّأ",
+                        lang,
+                      )}
                     </p>
                   </div>
                 </div>
@@ -421,8 +428,8 @@ export function Home() {
                 </h2>
                 <p className="mt-2.5 max-w-xl text-[13.5px] leading-relaxed text-ink-2">
                   {t(
-                    "This is the same pipeline a production call uses: speech recognition, deterministic guardrail routing, and a neural voice reply. Deny a transaction and watch the agent apply exactly one pre-approved, reversible action — and never once ask for a PIN.",
-                    "هذا هو نفس خط الأنابيب الذي تستخدمه المكالمة الفعلية: التعرّف على الكلام، وتوجيه حتمي عبر الضمانات، وردّ بصوت عصبي. أنكر صلاحية العملية وشاهد الوكيل ينفّذ إجراءً واحداً معتمداً مسبقاً وقابلاً للتراجع — دون أن يطلب رمزاً سرياً ولو مرة.",
+                    "This is the same pipeline a production call uses: speech recognition, deterministic guardrail routing, and a neural voice reply. Deny a transaction and watch the agent stage exactly one pre-approved action for a human to commit — and never once ask for a PIN.",
+                    "هذا هو نفس خط الأنابيب الذي تستخدمه المكالمة الفعلية: التعرّف على الكلام، وتوجيه حتمي عبر الضمانات، وردّ بصوت عصبي. أنكر صلاحية العملية وشاهد الوكيل يُمهّد إجراءً واحداً معتمداً مسبقاً ليُقرّه موظف بشري — دون أن يطلب رمزاً سرياً ولو مرة.",
                     lang,
                   )}
                 </p>
@@ -456,8 +463,8 @@ export function Home() {
             <span className="ml-1 flex items-center gap-1 text-[11px] text-ink-3">
               <Mic className="h-3 w-3" />
               {t(
-                "your mic audio never leaves this page's transcript pipeline",
-                "لا يخرج صوت الميكروفون الخاص بك من خط تفريغ هذه الصفحة",
+                "your mic audio is sent to the platform's speech-to-text endpoint, which returns a transcript and stores no recording",
+                "يُرسل صوت الميكروفون إلى نقطة التفريغ النصي في المنصة، فتعيد نصاً ولا تحفظ أي تسجيل",
                 lang,
               )}
             </span>
@@ -471,8 +478,8 @@ export function Home() {
           <div className="mt-5 flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-line bg-paper px-5 py-4">
             <p className="max-w-xl text-[13px] leading-relaxed text-ink-2">
               {t(
-                "Ready to see the other side? Step into the operator's Command Center — a populated dashboard with live risk scores, seeded interventions, and the audit trail a regulator would ask for.",
-                "هل أنت مستعد لترى الجانب الآخر؟ ادخل إلى مركز عمليات المشغّل — لوحة تحكم عامرة بالبيانات مع درجات مخاطرة حيّة، وتدخّلات مُعدّة مسبقاً، وسجل التدقيق الذي تطلبه أي جهة رقابية.",
+                "Ready to see the other side? Step into the operator's Command Center — a dashboard that fills as you run interventions, with live risk scores, real case rows, and the audit trail a regulator would ask for.",
+                "هل أنت مستعد لترى الجانب الآخر؟ ادخل إلى مركز عمليات المشغّل — لوحة تتعبّأ أثناء تشغيلك للتدخلات: درجات مخاطرة حيّة، وصفوف حالات حقيقية، وسجل التدقيق الذي تطلبه أي جهة رقابية.",
                 lang,
               )}
             </p>
@@ -530,10 +537,10 @@ export function Home() {
                     {t(
                       s.body,
                       s.n === "01"
-                        ? "اختر أحد ثلاثة سيناريوهات احتيال — احتيال بالبطاقات، أو سحب نقدي من الصراف الآلي، أو احتيال بالتحويلات البنكية — وأطلق التنبيه بنفسك. يتصل الوكيل، ويتحقق، ويوقف الخسارة في إحدى وستين ثانية."
+                        ? "اختر أحد ثلاثة سيناريوهات احتيال — احتيال بالبطاقات، أو سحب نقدي من الصراف الآلي، أو احتيال بالتحويلات البنكية — وأطلق التنبيه بنفسك. يتصل الوكيل، ويتحقق، ويُمهّد إجراء الحماية؛ وأخصائي لديكم يُقرّه."
                         : s.n === "02"
-                          ? "راقب المكالمات الجارية، واضبط عتبة المخاطرة، وشغّل الضمانات وأوقفها، وابحث في سجل التدقيق غير القابل للتغيير — نفس لوحة التحكم التي يشغّلها مكتب مكافحة الاحتيال في المصرف."
-                          : "مسار المكالمة كاملاً مع نقاط التحقق من الضمانات، ومكدس الصوت الخماسي الطبقات، والمؤشرات من خط الأساس إلى الهدف التي تقف وراء وعد الواحد والستين ثانية.",
+                          ? "راقب المكالمات الجارية، وبدّل الضمانات حيث تسمح سياسة الإنتاج، وابحث في سجل التدقيق المرتبط ببصمات التجزئة — نفس لوحة التحكم التي يشغّلها مكتب مكافحة الاحتيال في المصرف. ولا وجود لمؤشّر ضبط درجة المخاطرة: الدرجة تأتي من محرككم، والبوابات التي ترفض الإشارة فعلاً هي الموافقة وأوقات الاتصال والدولة والسرعة والائتمان."
+                          : "مسار المكالمة كاملاً مع نقاط تحقق الضمانات، والطبقات الخمس: استيعاب الأحداث، وتنسيق الوكيل، والتكامل، والهاتفة، والتحليلات والتدقيق، والمؤشرات من خط الأساس إلى الهدف — وتُعرض كأهداف لأن حزمة الأدلة المحفوظة لا تقيس سوى مسار استقبال الإشارة.",
                       lang,
                     )}
                   </p>
@@ -625,16 +632,20 @@ export function Home() {
               />
               <div className="relative">
                 <p className="micro text-primary">
-                  {t("With SecureVoice AI", "مع SecureVoice AI", lang)}
+                  {t(
+                    "With SecureVoice AI · case deadline",
+                    "مع SecureVoice AI · مهلة الحالة",
+                    lang,
+                  )}
                 </p>
                 <div className="mt-6 flex items-baseline gap-2">
-                  <Counter to={61} className="text-7xl font-semibold tracking-tight sm:text-8xl" />
+                  <Counter to={60} className="text-7xl font-semibold tracking-tight sm:text-8xl" />
                   <span className="num text-2xl text-primary">{t("sec", "ثانية", lang)}</span>
                 </div>
                 <p className="mt-4 max-w-sm text-[14.5px] leading-relaxed text-ink-2">
                   {t(
-                    "From fraud signal to verified identity and frozen card — in the customer's own language, inside a CBUAE-aligned guardrail, with a human one word away.",
-                    "من إشارة الاحتيال إلى هوية موثّقة وبطاقة مجمّدة — بلغة العميل نفسها، وضمن ضمانة متوافقة مع أنظمة المصرف المركزي، وبشري على بعد كلمة واحدة.",
+                    "Sixty seconds is the deadline this platform sets on the case from the moment the signal arrives — a clock it counts down, not a measured time-to-contact, which no committed artifact measures. The agent works in the customer's own language, inside a CBUAE-aligned guardrail, and raises a handoff when the call needs a person.",
+                    "ستّون ثانية هي المهلة التي تضعها هذه المنصة على الحالة من لحظة وصول الإشارة — عدّاد تنازلي تُشغّله المنصة، لا زمن وصول مُقاس، فليس في الأدلة المحفوظة قياس له. ويعمل الوكيل بلغة العميل نفسها، ضمن ضمانة متوافقة مع أنظمة المصرف المركزي، ويرفع طلب تسليم حين تحتاج المكالمة إلى شخص.",
                     lang,
                   )}
                 </p>
@@ -643,10 +654,10 @@ export function Home() {
                     {t("verify · 2/3 challenge", "تحقق · تحدي ٢ من ٣", lang)}
                   </Chip>
                   <Chip className="!border-line !bg-secondary !text-ink-2">
-                    {t("freeze · 240ms", "تجميد · ٢٤٠ مللي ثانية", lang)}
+                    {t("freeze · staged", "تجميد · مُمهَّد", lang)}
                   </Chip>
                   <Chip className="!border-line !bg-secondary !text-ink-2">
-                    {t("handoff · warm", "تسليم · تحويل دافئ", lang)}
+                    {t("handoff · queued by default", "تسليم · في الطابور افتراضياً", lang)}
                   </Chip>
                 </div>
               </div>
@@ -702,11 +713,11 @@ export function Home() {
                   {t(
                     f.body,
                     f.en === "Immediate multilingual outreach"
-                      ? "يتصل الوكيل خلال ستين ثانية من إشارة الاحتيال — دون رسائل نصية يُمكن تجاهلها ودون طوابير انتظار. يبدأ الصوت العصبي المبثوث أثناء التمهيد، ويمكن للعميل مقاطعة الوكيل كما يقاطع محاوراً بشرياً. وست لغات مدعومة جاهزة: العربية والإنجليزية والهندية والأردية والفرنسية والسواحيلية."
+                      ? "تُصبح كل إشارة مهمة اتصال دائمة فور اجتيازها البوابات؛ وفي أوقات الضغط تتحوّل المكالمة إلى رسالة نصية أو إشعار في التطبيق بدلاً من إسقاطها. رقم الستّين ثانية هو مهلة الحالة التي تُعدّها اللوحة، لا زمن وصول مُقاس. يبدأ الصوت العصبي المبثوث أثناء التوليد، ويستطيع العميل مقاطعة الوكيل كما يقاطع محدِّثاً بشرياً. وستّ لغات في طبقة الصوت: العربية والإنجليزية والهندية والأردية والفرنسية والسواحيلية — والوكيل الحيّ مُهيّأ على الإنجليزية والعربية والهندية."
                       : f.en === "Verified identity, zero secrets"
                         ? "مسارات تحقق معتمدة من المصرف — التجار والمبالغ والتواريخ. لا يطلب الوكيل أبداً رموزاً سرية أو كلمات مرور، لذا يستحيل تحويله إلى أداة تصيّد واحتيال."
                         : f.en === "Pre-approved actions only"
-                          ? "لا يوجد في نطاق أدوات الوكيل سوى إجراء كتابة واحد: التجميد المؤقت للبطاقة. وأي إجراء غير قابل للتراجع — استبدال أو تحويل أو استرداد — يُحال إلى موظف بشري مع كامل السياق."
+                          ? "لا يوجد في نطاق أدوات الوكيل سوى إجراء كتابة واحد: تمهيد تجميد مؤقت للبطاقة ليُقرّه أخصائي بشري. وأي إجراء غير قابل للتراجع — استبدال أو تحويل أو استرداد — يُحال إلى موظف بشري مع كامل السياق."
                           : "كل مكالمة مسجّلة ومفروغة نصياً بلغتين، ومختومة بطريقة التحقق والإجراءات المتخذة وسبب التسليم، في تخزين غير قابل للتغيير بمعيار AES-256.",
                     lang,
                   )}
@@ -751,14 +762,14 @@ export function Home() {
                     {t(
                       s.d,
                       s.n === "01"
-                        ? "webhook من محرك كشف الاحتيال، ومخاطرة تتجاوز العتبة"
+                        ? "webhook موقّع بـ HMAC من محرك الاحتيال لديكم"
                         : s.n === "02"
-                          ? "اتصال في نحو ثانية واحدة، مع تثبيت اللغة"
+                          ? "مهمة اتصال في الطابور؛ والوكيل يتحدّث بلغة المتصل ويبدّلها إن بدّلها"
                           : s.n === "03"
                             ? "مسار تحقق — دون رموز سرية إطلاقاً"
                             : s.n === "04"
-                              ? "تجميد مؤقت ومعتمد مسبقاً وقابل للتراجع"
-                              : "يتسلم الأخصائي كامل السياق",
+                              ? "تجميد مُمهَّد ومعتمد مسبقاً، يقرّه موظف بشري"
+                              : "يُنقل إلى الطابور مع كامل السياق إن لم يُوصَل إلى خط",
                       lang,
                     )}
                   </p>
@@ -874,8 +885,8 @@ export function Home() {
                 dir="rtl"
                 className="font-arabic mx-auto mt-4 max-w-xl text-[14px] leading-relaxed text-ink-2"
               >
-                شاهد المحاكاة الحية: تنبيه احتيال، اتصال بالعميل، تحقق من الهوية، تجميد البطاقة،
-                وتسليم لأخصائي — كل ذلك في دقيقة واحدة.
+                شاهد المحاكاة الحية: تنبيه احتيال، اتصال بالعميل، تحقق من الهوية، تجميد مُمهَّد
+                لليقرّه أخصائي، وتسليم إليه — على مهلة الحالة نفسها.
               </p>
               <div className="mt-9 flex flex-wrap items-center justify-center gap-3">
                 <button

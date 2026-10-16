@@ -367,9 +367,9 @@ export function Security() {
               icon: FileCheck2,
               title: "UAE PDPL",
               titleAr: "قانون حماية البيانات الإماراتي",
-              body: "Processing designed around Federal Decree-Law No. 45 of 2021: minimal personal data, documented lawful basis, in-region storage, and DSR workflows that honour 30-day windows.",
+              body: "Processing designed around Federal Decree-Law No. 45 of 2021: minimal personal data, documented lawful basis, in-region storage, and data-subject workflows — right-to-erasure is served by shredding the per-case encryption key, which is what makes the retained audio and transcripts unreadable.",
               bodyAr:
-                "معالجة مصممة وفقاً للقانون الاتحادي بالمرسوم رقم 45 لعام 2021: أقل قدر من البيانات الشخصية، وأساس قانوني موثّق، وتخزين داخل المنطقة، وإجراءات تلبي طلبات صاحب البيانات خلال ٣٠ يوماً.",
+                "معالجة مصممة وفقاً للقانون الاتحادي بالمرسوم رقم 45 لعام 2021: أقل قدر من البيانات الشخصية، وأساس قانوني موثّق، وتخزين داخل المنطقة، وإجراءات لصاحب البيانات — إذ يُخدَّم حق الحذف بتفتيت مفتاح التشفير الخاص بكل حالة، وهو ما يجعل الصوت والنصوص المحفوظة غير قابلة للقراءة.",
               tag: "Aligned",
               tagAr: "متوافق",
             },
@@ -495,22 +495,22 @@ export function Security() {
                 icon: Database,
                 t: "Immutable audit trail",
                 tAr: "سجل تدقيق غير قابل للتغيير",
-                d: "Every turn stores the signed policy hash, inputs and outcome — any intervention decision can be replayed byte-for-byte for an auditor or the central bank.",
-                dAr: "كل دورة تخزّن هاش السياسة الموقّع والمدخلات والنتيجة — ويمكن إعادة أي قرار تدخّل بايتاً ببايت لمدقّق أو للمصرف المركزي.",
+                d: "Every turn records its input, the classified intent, the action taken and the resulting audit hash, chained with sha256 and sealed with the organisation id — so an intervention can be reconstructed for an auditor or the central bank from the log, not from anyone's memory.",
+                dAr: "يُسجَّل كل دور بمدخلاته والنية المصنَّفة والإجراء المتخذ وبصمة التدقيق الناتجة، مترابطة بـ sha256 ومختومة بمُعرّف المؤسسة — فيُمكن إعادة بناء أي تدخل لمدقّق أو للمصرف المركزي من السجل، لا من ذاكرة أحد.",
               },
               {
                 icon: Fingerprint,
-                t: "Voice-clone consent",
-                tAr: "موافقة استنساخ الصوت",
-                d: "Voice personas are created from written, revocable consent only, watermarked at synthesis, and never reused across institutions.",
-                dAr: "تُنشأ شخصيات الصوت من موافقة كتابية قابلة للسحب فقط، وبعلامة مائية عند التوليد، ولا تُعاد أبداً بين مؤسسات مختلفة.",
+                t: "One stock voice, no cloning",
+                tAr: "صوت جاهز واحد، بلا استنساخ",
+                d: "Instant and pro voice cloning are disabled on this account (can_use_instant_voice_cloning=false, professional_voice_limit=0), and the live agent speaks with a single stock Library voice. There is no cloned persona, so there is no persona to reuse across institutions — and no synthesis watermark is applied, because nothing in this codebase writes one.",
+                dAr: "استنساخ الصوت الفوري والاحترافي معطّل في هذا الحساب (can_use_instant_voice_cloning=false، professional_voice_limit=0)، والوكيل الحيّ يتصل بصوت واحد جاهز من مكتبة المزوّد. فلا يوجد شخصية مستنسخة كي تُعاد بين المؤسسات، ولا تُطبَّق أي علامة مائية عند التوليد لأن لا شيء في هذه الشيفرة يكتبها.",
               },
               {
                 icon: EyeOff,
                 t: "Data minimisation",
                 tAr: "تقليل البيانات",
-                d: "Transcripts are pseudonymised after case closure; raw audio retention is configurable down to zero once the audit hash is written.",
-                dAr: "تُسماء النصوص باسم مستعار بعد إغلاق الحالة؛ والاحتفاظ بالصوت الخام قابل للضبط حتى الصفر بعد كتابة هاش التدقيق.",
+                d: "Call audio IS stored: the platform default keeps it on a configured retention clock and then deletes it, and an organisation that must hold no recording at all is configured to zero days. Transcripts are redacted before they are written, and erasure shreds the per-case key rather than pretending the row never existed.",
+                dAr: "الصوت يُحفظ فعلاً: الوضع الافتراضي للمنصة يبقيه على مهلة احتفاظ مضبوط ثم يحذفه، والمؤسسة التي يجب ألا تحتفظ بأي تسجيل تُهيَّأ على صفر أيام. وتُنقّى النصوص المحوّلة قبل كتابتها، أما الحذف فيُفتّت مفتاح الحالة بدل أن يتظاهر بأن الصف لم يكن.",
               },
             ].map((x) => (
               <div key={x.t} className="flex gap-4 rounded-2xl border border-line bg-white p-5">
@@ -539,8 +539,8 @@ export function Security() {
             </h3>
             <p className="mt-2.5 text-[13.5px] leading-relaxed text-ink-2">
               {t(
-                "The agent never asks for PINs, passwords, OTPs or full card numbers. This is not a prompt instruction — it is structural: the classifier has no branch that can produce such a request, and the signed guardrail policy makes any deviation fail closed.",
-                "الوكيل لا يطلب أبداً رمز PIN أو كلمة مرور أو OTP أو رقم البطاقة كاملاً. ليست تعليماً نصياً — بل قيد بنيوي: لا يوجد مسار في المصنّف ينتج مثل هذا الطلب، وسياسة الضمانات الموقّعة تجعل أي انحراف يفشل بأمان.",
+                "The agent never asks for PINs, passwords, OTPs or full card numbers. This is not a prompt instruction — it is structural: the classifier is deterministic and has no branch that can produce such a request, the spoken reply comes from a fixed per-language table, and the server-side compliance gate fails the turn closed rather than trusting the model.",
+                "الوكيل لا يطلب أبداً رمز PIN أو كلمة مرور أو OTP أو رقم البطاقة كاملاً. ليست تعليماً نصياً — بل قيد بنيوي: فالمصنّف حتمي ولا يوجد فيه مسار يُنتج مثل هذا الطلب، والرد المنطوق من جدول ثابت لكل لغة، وبوابة الامتثال على الخادم تُفشل الدور بوضع الانغلاق الآمن بدل الوثوق بالنموذج.",
                 lang,
               )}
             </p>

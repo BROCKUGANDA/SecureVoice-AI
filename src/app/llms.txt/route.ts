@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { INDEXABLE_PATHS } from "@/app/sitemap";
 import { COMPANY, PLANS, PRICE_CURRENCY } from "@/lib/commercial";
-import { env } from "@/lib/config";
+import { env, slaSeconds } from "@/lib/config";
 import { DEFAULT_RETENTION_DAYS } from "@/lib/privacy/retention";
 import { SUPPORT_EMAIL } from "@/lib/public-config";
 import { siteOrigin } from "@/lib/site-origin";
@@ -70,8 +70,7 @@ const PURPOSE: Record<string, string> = {
     "Integration documentation: the ingest contract, webhook signing, verification, and the call lifecycle.",
   "/security":
     "Security posture: disclosure policy, data handling, retention, and the RFC 9116 contact.",
-  "/privacy":
-    "Privacy notice, including UAE PDPL handling and the 30-day audio and transcript retention window.",
+  "/privacy": `Privacy notice, including UAE PDPL handling and the retention window — ${DEFAULT_RETENTION_DAYS.audio} days for call audio and ${DEFAULT_RETENTION_DAYS.transcripts} days for transcripts.`,
   "/terms": "Terms of service.",
   "/refund": "Refund and cancellation policy.",
   "/usecases":
@@ -122,7 +121,7 @@ export async function GET() {
 
   const body = `# ${COMPANY.name}
 
-> ${COMPANY.industry} in ${COMPANY.region}: real-time phone intervention that confirms or denies a suspicious transaction or claim in about sixty seconds.
+> ${COMPANY.industry} in ${COMPANY.region}: real-time phone intervention that confirms or denies a suspicious transaction or claim on a ${slaSeconds()}-second case deadline.
 
 ${COMPANY.name} (${COMPANY.legalName}) places and receives real phone calls between an AI agent and a bank or insurance customer. It is B2B software sold to financial institutions: a customer never signs up, and no payment is ever taken from an end user by this platform.
 
@@ -154,7 +153,7 @@ Prepaid credit packs are also available as one-time purchases, and an unused bal
 - The AI cannot give financial advice, cannot unfreeze an account, and cannot ask for a PIN or password. Those are prompt-level rules AND post-processing checks on the spoken output; a request for advice transfers to a human.
 - A soft freeze is staged, not executed: ${durationPhrase(env.reversalWindowSecs)} for a second actor on the bank's side to commit it, and if that window closes undecided the hold is escalated to a human rather than reversed — nothing is ever frozen on the bank's ledger by this platform, so there is nothing to unfreeze. A permanent action requires that human, and the audit chain — hash-linked, append-only — records who did what.
 - Tenant isolation is enforced in Postgres row-level security on tenant-owned tables, not only in the application layer.
-- Integrations are adapters: LLM, TTS, STT, telecom and the bank's own core-banking API each sit behind an interface, with per-tenant keys, so a bank that mandates a different vendor is a configuration change.
+- Integrations are adapters, and the port list is declared in the registry at src/lib/ports/registry.ts: risk-signal source, conversation provider (LLM, TTS, STT), telephony provider, notification sink, payment provider, secret store, audit sink. Each takes per-tenant keys, so a bank that mandates a different vendor is a configuration change. Signal ingest is push-only today — the registry names poll, kafka and sftp as adapters that are declared and not implemented, rather than implying a bank can already connect by those means. This platform writes no core-banking system: the one action it takes is a staged freeze a human commits.
 
 ## Contact
 

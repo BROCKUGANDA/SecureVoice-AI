@@ -41,12 +41,12 @@ export const DECK: Slide[] = [
     titleEn: "Real-Time Fraud Intervention",
     titleAr: "التدخل الفوري في الاحتيال",
     subEn:
-      "An AI voice agent that calls customers in their language within 60 seconds of a fraud signal.",
-    subAr: "وكيل صوتي ذكي يتصل بالعملاء بلغتهم خلال ٦٠ ثانية من إشارة الاحتيال.",
+      "An AI voice agent that places the verification call in the customer's own language, on a 60-second case deadline.",
+    subAr: "وكيل صوتي ذكي يجري مكالمة التحقق بلغة العميل، ضمن مهلة حالة مدتها ٦٠ ثانية.",
     scriptEn:
-      "Good morning judges. Before I explain anything, I want you to hold one number in your mind: thirty-eight. That is how many minutes pass between the moment a UAE bank's system detects fraud and the moment a human agent finally reaches the customer on the phone. Thirty-eight minutes is enough for a fraudster to drain an account, max out a card, and disappear. We are SecureVoice AI, and we built the antidote: an AI voice agent that calls the customer in sixty seconds — in their own language — verifies who they are, confirms the fraud, freezes the card, and hands off to a human. Let me show you.",
+      "Good morning judges. Before I explain anything, I want you to hold one number in your mind: thirty-eight. That is how many minutes pass between the moment a UAE bank's system detects fraud and the moment a human agent finally reaches the customer on the phone. Thirty-eight minutes is enough for a fraudster to drain an account, max out a card, and disappear. We are SecureVoice AI, and we built the antidote: an AI voice agent that dials inside a sixty-second case deadline — in the customer's own language — verifies who they are, confirms the fraud, stages a card freeze for a human to commit, and routes the case to a specialist. The deadline is ours and it is measured; the sixty seconds is a commitment we are still instrumenting end to end. Let me show you.",
     scriptAr:
-      "رقم واحد يجب أن يبقى في أذهانكم: ثمانية وثلاثون دقيقة — وهي المدة بين اكتشاف الاحتيال ووصول الاتصال للعميل. نحن سيفور فويس، والبديل الذي بنيناه: وكيل صوتي يتصل خلال ستين ثانية، بلغة العميل، يتحقق ويؤكد ويجمّد البطاقة ويسلّم لأخصائي بشري.",
+      "رقم واحد يجب أن يبقى في أذهانكم: ثمانية وثلاثون دقيقة — وهي المدة بين اكتشاف الاحتيال ووصول الاتصال للعميل. نحن سيفور فويس، والبديل الذي بنيناه: وكيل صوتي يتصل خلال مهلة حالة مدتها ستون ثانية، بلغة العميل، يتحقق من الهوية ويؤكد الاحتيال ويجمّد البطاقة مبدئيًا بانتظار اعتماد بشري، ثم يسلّم الحالة إلى أخصائي.",
   },
   {
     id: 2,
@@ -80,33 +80,33 @@ export const DECK: Slide[] = [
     titleEn: "One line. Three pillars.",
     titleAr: "فكرة واحدة. ثلاث ركائز.",
     subEn:
-      "An AI voice agent that immediately calls customers in their language when fraud is detected, verifies identity, and executes protective actions within 60 seconds.",
+      "An AI voice agent that calls customers in their language when fraud is detected, verifies identity, and stages a protective action inside the case deadline.",
     scriptEn:
-      "So here is the idea in one line: an AI voice agent that immediately calls customers in their language when fraud is detected, verifies identity, and executes protective actions within sixty seconds. Three pillars make it work. Immediate: the call starts within a minute of the fraud signal — no queue, no SMS. Multilingual: the agent speaks the customer's language from the first syllable — Arabic, English, Hindi, Urdu, Filipino, Malayalam. And Action-capable: this is not a chatbot. It verifies, confirms, freezes the card, and hands off to humans — all inside one compliant call.",
+      "So here is the idea in one line: an AI voice agent that calls customers in their language when fraud is detected, verifies identity, and stages a protective action inside the case deadline. Three pillars make it work. Immediate: the dial job is written as the signal clears its gates, on a sixty-second case deadline — and when voice cannot be admitted, the case degrades to SMS or an app push rather than vanishing. Multilingual: six languages in the voice layer — Arabic, English, Hindi, Urdu, French, Kiswahili — with the live agent plane configured on Arabic, English and Hindi presets today. And Action-capable: this is not a chatbot. It verifies, confirms, stages a freeze that a human commits, and routes to a specialist — all inside one compliant call.",
     scriptAr:
-      "وكيل صوتي ذكي يتصل فوراً بالعميل بلغته عند اكتشاف الاحتيال، يتحقق من الهوية، وينفذ إجراءات الحماية خلال ستين ثانية. ثلاث ركائز: فورية، متعددة اللغات، وقادرة على التنفيذ.",
+      "الفكرة في سطر واحد: وكيل صوتي يتصل بالعميل بلغته عند اكتشاف الاحتيال، يتحقق من الهوية، ويجمّد البطاقة مبدئيًا ضمن مهلة الحالة. الركائز ثلاث: الفورية (تُكتب مهمة الطلب فور اجتياز الإشارة للبوابات ضمن مهلة ستين ثانية، ومع تعذر الصوت تتدهور الحالة إلى رسالة نصية أو إشعار)، وتعدد اللغات (ست لغات في طبقة الصوت، والوكيل الحيّ يعمل اليوم بإعدادات العربية والإنجليزية والهندية)، والقدرة على التنفيذ (يتحقق ويؤكد ويجمّد مبدئيًا بانتظار اعتماد بشري).",
   },
   {
     id: 5,
     layout: "flow",
     kicker: "04 · The Call Flow",
-    titleEn: "Five steps. Sixty seconds.",
-    titleAr: "خمس خطوات. ستون ثانية.",
+    titleEn: "Five steps. One staged action.",
+    titleAr: "خمس خطوات. إجراء واحد مُعلّق للاعتماد.",
     scriptEn:
-      "Let me walk you through the five-step call flow. Step one: immediate outbound call — the agent dials within sixty seconds of the fraud signal and introduces itself transparently as the bank's AI security assistant. Step two: identity verification — a challenge flow from the bank's approved question bank. Notice what's missing: no PINs, no passwords, ever. Step three: fraud confirmation — a plain-language question: did you authorize this transaction? Step four: protective action — if fraud is confirmed, the agent executes a pre-approved temporary card freeze with a clear explanation. Step five: human handoff — anything irreversible goes to a specialist with full context. Five steps. Sixty seconds.",
+      "Let me walk you through the five-step call flow. Step one: outbound dial on the case deadline — the agent places the call inside sixty seconds of the signal clearing its gates and introduces itself transparently as the bank's AI security assistant. Step two: identity verification — a challenge flow from the bank's approved question bank. Notice what's missing: no PINs, no passwords, ever. Step three: fraud confirmation — a plain-language question: did you authorize this transaction? Step four: protective action — if fraud is confirmed, the agent STAGES a pre-approved temporary card freeze with a clear explanation, and the platform never commits it itself: nothing is frozen on the bank's ledger by this software, so there is nothing for it to undo. Step five: human handoff — anything irreversible goes to a specialist with full context, and if no specialist line is configured the case lands in the queue with the same context rather than being dropped. Five steps, and the only write action in the agent's tool scope is the one that needs a human to finish it.",
     scriptAr:
-      "الخطوة الأولى: اتصال صادر فوري. الثانية: تحقق من الهوية بأسئلة معتمدة — دون أي رمز سري. الثالثة: تأكيد الاحتيال. الرابعة: تجميد مؤقت للبطاقة. الخامسة: التسليم لأخصائي بشري مع كامل السياق.",
+      "الخطوة الأولى: اتصال صادر ضمن مهلة الحالة، خلال ستين ثانية من اجتياز الإشارة للبوابات، مع تعريف واضح بنفسه كمساعد أمني للبنك. الثانية: تحقق من الهوية بأسئلة معتمدة — دون أي رمز سري. الثالثة: تأكيد الاحتيال. الرابعة: يُعلّق الوكيل تجميدًا مؤقتًا معتمدًا مسبقًا ولا يعتمده بنفسه — فلا ينفّذ هذا البرنامج أي تجميد على سجل البنك، ولا يوجد ما يمكنه التراجع عنه. الخامسة: التسليم لأخصائي بشري بكامل السياق، وعند غياب خط متاح تُضاف الحالة إلى قائمة الانتظار بنفس السياق بدل أن تُفقد.",
   },
   {
     id: 6,
     layout: "components",
     kicker: "05 · Why ElevenLabs",
-    titleEn: "Built on ElevenLabs, end to end",
-    titleAr: "مبني بالكامل على منصة ElevenLabs",
+    titleEn: "ElevenLabs for the voice plane. The rest is ours.",
+    titleAr: "ElevenLabs لطبقة الصوت. والبقية ملكنا.",
     scriptEn:
-      "Everything you just saw runs on the ElevenLabs platform. Agent Workflows gives us the branching logic between verification outcomes and fraud confirmation. Eleven v3 text-to-speech gives us voices that sound genuinely trustworthy — critical, because a robotic voice destroys customer confidence in exactly the moment they are most anxious. Scribe v2 real-time speech-to-text handles multilingual transcription with keyterm biasing for merchant names and transaction amounts. The Knowledge Base with RAG stores verification protocols and response scripts for consistent compliance. Webhook tools connect to the bank's fraud engine and execute the freeze. Twilio telephony carries the call. And Agent Testing validates every flow before deployment.",
+      "The voice plane is ElevenLabs, and it is worth being precise about what is and is not theirs. Agent Workflows gives us the branching logic between verification outcomes and fraud confirmation. Text-to-speech runs on Eleven v4 Turbo — v3 is refused on this account's plan, and we say so rather than claiming it. Speech-to-text runs on the agent plane with a Deepgram fallback for the telephony plane, so a provider outage degrades the call instead of ending it. The Knowledge Base holds verification protocols and response scripts, and retrieval sits inside the reply path. Webhook tools bring the signed signal in and stage the freeze out. Twilio telephony is ours, not ElevenLabs'. The case state machine, the policy gate, the audit chain and the ledger are ours too — which is the point: the vendor is a layer, not the product. Agent Testing exists and we run it, but the committed record says five of nine runs executed and the tool-call criterion is unverified, so we are not claiming pre-deploy validation we do not have.",
     scriptAr:
-      "منطق التفرعات عبر Agent Workflows، أصوات موثوقة عبر Eleven v3، تفريغ نصي متعدد اللغات عبر Scribe v2، قاعدة معرفة RAG لبروتوكولات التحقق، أدوات Webhook للتكامل مع بنك الاحتيال، والهاتف عبر Twilio.",
+      "طبقة الصوت على ElevenLabs، ومن الدقة بيان ما يخصّه وما لا يخصّه: منطق التفرعات عبر Agent Workflows، وتوليد الكلام على Eleven v4 Turbo لأن v3 مرفوض على خطة هذا الحساب، وتفريغ الكلام عبر طبقة الوكيل مع احتياط Deepgram لطبقة الهاتف، وقاعدة معرفة تدخل استعادتها في مسار الرد، وأدوات Webhook تستقبل الإشارة الموقعة وتُخرج التجميد المبدئي. أما الهاتف عبر Twilio وآلة حالة السجل وبوابة السياسيات وسجل التدقيق والدفتر فهي ملكنا — أي أن المزوّد طبقة وليس المنتج. اختبار الوكيل موجود ومُشغّل، لكن السجل المُودَع يقول إن خمسة من تسعة تشغيلات نُفّذت وإن معيار استدعاء الأدوات غير متحقق، فلا ندّعي تحققًا قبل النشر لا نملكه.",
   },
   {
     id: 7,
@@ -115,20 +115,20 @@ export const DECK: Slide[] = [
     titleEn: "The voice is the product",
     titleAr: "الصوت هو المنتج",
     scriptEn:
-      "We treat the voice itself as a designed product. For English, Marcus — a mature, professional voice that conveys calm authority. For Arabic, Fatima — clear and reassuring in modern standard Arabic, with dialect tuning for Gulf customers. We tuned stability at 0.7 for consistency, similarity boost at 0.75, and style at 0.3 — the voice stays steady and warm, never theatrical. The pace is deliberately slightly slower than conversational, because our listener is stressed. And the language lock: the agent detects the customer's language in the first response and never switches again mid-call — consistency is trust.",
+      "We treat the voice as a designed product, and the honest version of that is narrower than the marketing version. Voice cloning is disabled on this account, so the live agent speaks one stock Library voice; the persona names in our demos — Marcus for English, Fatima for Gulf Arabic — are operator catalogue entries in the scripted demo, not provisioned voices. What is genuinely tuned is in the committed agent config: Eleven v4 Turbo, stability 0.5, similarity boost 0.8, and no style parameter at all, with the continuity path slowed deliberately — eight percent for English, twelve for Arabic — because the listener is stressed. And the agent follows the customer's language instead of locking it: the prompt says switch when the caller switches, and a switch_language tool is attached to the agent. A voice that keeps its character while answering in your language is the consistency that actually earns trust.",
     scriptAr:
-      "ماركوس للإنجليزية وفاطمة للعربية الفصحى مع معايرة للهجة الخليجية. الصوت مصمم ليكون هادئاً وواثقاً وأبطأ قليلاً من الطبيعي — لأن المستخدم في حالة قلق. وتثبيت اللغة من أول رد يبني الثقة.",
+      "نتعامل مع الصوت كمنتج مصمم، والنسخة الصادقة من هذا الكلام أضيق من نسخة التسويق: استنساخ الصوت معطّل على هذا الحساب، فيتكلم الوكيل الحيّ بصوت مكتبي واحد جاهز؛ وأسماء الشخصيات في العرض التجريبي — ماركوس للإنجليزية وفاطمة لخليجية العربية — هي قيود كتالوج المشغّل في النص المكتوب، لا أصوات مُهيّأة. ما هو مضبوط فعلًا موجود في إعداد الوكيل المُودَع: Eleven v4 Turbo مع ثبات 0.5 وتعزيز تشابه 0.8 وبدّ أي معامل أسلوب، مع إبطاء متعمّد لمسار الاستمرارية — ثمانية بالمئة للإنجليزية واثنتا عشرة للعربية — لأن المتسمع في حالة قلق. كما أن الوكيل يتبع لغة العميل بدل تثبيتها: التعليمات تقول بدّل عندما يبدّل المتصل، وأداة switch_language ملحقة به.",
   },
   {
     id: 8,
     layout: "architecture",
     kicker: "07 · Integration Architecture",
-    titleEn: "Five layers, one SLA",
-    titleAr: "خمس طبقات، اتفاقية مستوى خدمة واحدة",
+    titleEn: "Five layers, one case deadline",
+    titleAr: "خمس طبقات، مهلة حالة واحدة",
     scriptEn:
-      "Under the hood, five layers. The Event Ingestion Layer receives fraud alerts by webhook, validates and enriches them, and queues them with priority handling. The Agent Orchestration Layer runs the ElevenLabs workflow engine with full conversation state. The Integration Layer talks to the core banking APIs — transaction history, card freeze — over HMAC-signed webhooks. The Telephony Layer manages Twilio outbound calling with fallback numbers. And the Analytics and Audit Layer records, transcribes, and seals every interaction into immutable storage. Sixty-second SLA from alert to customer contact, with pre-warmed telephony channels.",
+      "Under the hood, five layers. The Event Ingestion Layer receives signed fraud alerts by webhook, validates them against a strict contract, checks consent and idempotency, and queues a durable dial job with priority handling. The Agent Orchestration Layer runs the ElevenLabs workflow with full conversation state. The Integration Layer is deliberately modest: it takes the signed signal in, stages one freeze action out, and opens CRM case tickets — the platform reads no card history and writes nothing to a core banking system, because a permanent action requires the bank's own human. The Telephony Layer manages Twilio outbound calling with fallback numbers. And the Analytics and Audit Layer records, transcribes and hash-seals every interaction into an append-only chain. The case deadline is sixty seconds from alert — that is our clock, and the intake path is measured against it, while time-to-contact is not yet instrumented end to end. And because streamed media is off by default, a channel is opened for the call rather than pre-warmed ahead of it.",
     scriptAr:
-      "خمس طبقات: استيعاب الأحداث عبر Webhook، تنسيق الوكيل عبر محرك ElevenLabs، التكامل مع أنظمة البنك عبر Webhook موقّع بـ HMAC، الهاتف عبر Twilio، والتحليلات والتدقيق مع تخزين غير قابل للتغيير.",
+      "خمس طبقات: استيعاب الأحداث عبر Webhook موقّع مع تحقق صارم وفحص للموافقة ولمفتاح التكرار ثم كتابة مهمة اتصال دائمة، وتنسيق الوكيل عبر محرك ElevenLabs بحالة حوار كاملة، وطبقة تكامل متواضعة عن قصد — تستقبل الإشارة الموقعة وتُخرج إجراء تجميد مبدئيًا وتفتح تذاكر CRM، ولا تقرأ تاريخ البطاقات ولا تكتب في نظام البنك المركزي لأن الإجراء الدائم يتطلب بشريًا من البنك، وطبقة هاتف عبر Twilio مع أرقام احتياطية، وطبقة تحليلات وتدقيق تسجّل وتفرّغ وتربط كل تفاعل بسلسلة إضافة فقط. مهلة الحالة ستون ثانية من الإنذار — وهذا عدسنا الذي يُقاس عليه مسار الاستيعاب بينما زمن الوصول للعميل غير مُقاس بعد، ولأن البث الإعلامي متوقف افتراضيًا تُفتح القناة للاتصال ولا تُجهّز مسبقًا.",
   },
   {
     id: 9,
@@ -137,9 +137,9 @@ export const DECK: Slide[] = [
     titleEn: "Compliance you can audit",
     titleAr: "امتثال قابل للتدقيق",
     scriptEn:
-      "Now the part every risk officer cares about: guardrails. One — no PIN or password requests, ever; the system prompt prohibits it and verification draws only from the approved challenge bank. Two — pre-approved actions only: the agent's tool scope contains exactly one write action, the temporary freeze; everything irreversible requires a human. Three — language consistency, locked after the first response. Four — audit completeness: every call recorded, transcribed, and sealed with metadata into an immutable log. Five — calling-hour compliance: time-zone checks against the customer profile before dialing. Six — vulnerability handling: sentiment analysis detects distress and triggers priority human handoff. Compliance was designed in from day one — CBUAE-aligned.",
+      "Now the part every risk officer cares about: guardrails. One — no PIN or password requests, ever; the system prompt prohibits it, a shared sentence-scoped detector checks the draft, and verification draws only from the approved challenge bank. Two — staged actions only: the agent's tool scope contains exactly one write, the temporary freeze, and it returns pending-specialist rather than committed; everything permanent requires a human, and if the audit append fails the freeze is refused, not performed. Three — language following: the call opens in the profile's language and switches when the caller does, which is a capability, not a drift. Four — audit completeness: every call is recorded, transcribed and hash-linked into an append-only chain that refuses mutation. Five — calling-hour compliance: time-zone checks against the customer profile, plus prayer-window suppression for routine categories, before dialing. Six — vulnerability handling: sentiment analysis detects distress and third-party pressure and raises a human handoff, which queues with full context when no specialist line is available. One thing we do NOT claim: a risk-score threshold of our own. The threshold belongs to the bank's detection engine; our gates are consent, do-not-call, hours, geography, velocity, cooldown and credit.",
     scriptAr:
-      "ستة ضمانات: لا طلب لرموز سرية أبداً، إجراءات معتمدة فقط، تثبيت اللغة، سجلات تدقيق كاملة غير قابلة للتغيير، احترام أوقات الاتصال المسموحة، واكتشاف الضيق النفسي مع تحويل فوري لأخصائي.",
+      "الضمانات الست: لا طلب لرموز سرية أبدًا — المنع في التعليمات، وكاشف مشترك على مستوى الجملة يفحص المسودة، والتحقق من بنك أسئلة معتمد فقط. إجراءات مُعلّقة فقط — أداة كتابة واحدة هي التجميد المؤقت الذي يعود بانتظار أخصائي لا معتمدًا، وأي إجراء دائم يتطلب بشريًا، وإذا فشل إلحاق سجل التدقيق يُرفض التجميد ولا يُنفَّذ. تتبّع اللغة — يفتح الاتصال بلغة الملف الشخصي ويبدّل عندما يبدّل المتصل. اكتمال التدقيق — كل اتصال يُسجَّل ويُفرَّغ ويُربط بسلسلة إضافة فقط. أوقات الاتصال — فحص المنطقة الزمنية وقمع أوقات الصلاة للفئات الروتينية قبل الطلب. ومعالجة الضعف — تحليل المشاعر يكشف الضيق والضغط الخارجي ويرفع تسليمًا بشريًا يُوضع في قائمة الانتظار عند عدم توفر خط. وأمر لا ندّعيه: عتبة مخاطر خاصة بنا؛ العتبة لمحرك كشف البنك، وبواباتنا هي الموافقة وعدم الاتصال والأوقات والجغرافيا والسرعة والتبريد والائتمان.",
   },
   {
     id: 10,
@@ -159,9 +159,9 @@ export const DECK: Slide[] = [
     titleEn: "Security is the architecture",
     titleAr: "الأمن هو البنية",
     scriptEn:
-      "Security is not a feature list, it is the architecture. Every inbound connection terminates at TLS with HSTS and a locked Content-Security-Policy. An organisation's own voice credentials are stored AES-256-GCM encrypted at rest, and every authentication secret we hold is hashed rather than encrypted, so a database dump yields nothing usable. Personal data is redacted before it is written, not on the way out. We store no call audio at all — only the redacted transcript. Retention is tiered by data class, and the audit chain is append-only: the code that would mutate it refuses to run. Dashboard access is role-based and every interaction generates a compliance-ready audit trail. We involved compliance specialists from the design phase — not as reviewers at the end.",
+      "Security is not a feature list, it is the architecture. Every inbound connection terminates at TLS with HSTS and a locked Content-Security-Policy. An organisation's own voice credentials are stored AES-256-GCM encrypted at rest, and every authentication secret we hold is hashed rather than encrypted, so a database dump yields nothing usable. Personal data is redacted before it is written, not on the way out. Call audio IS retained — thirty days, then deleted; transcripts ninety days; case records seven years — and after each window the audit chain keeps the hash-linked metadata, so the evidence outlives the recording. The pilot runs on zero-day audio, which is a deployment choice we can make, not the default we ship. Retention is tiered by data class and enforced by the retention worker, and the audit chain is append-only: the code that would mutate it refuses to run. Dashboard access is role-based, enforced in Postgres row-level security rather than only in the application, and every interaction generates a compliance-ready audit trail. We involved compliance specialists from the design phase — not as reviewers at the end.",
     scriptAr:
-      "الأمن ليس قائمة مزايا، بل هو البنية. جميع الاتصالات مشفرة عبر TLS مع HSTS وسياسة محتوى مقيّدة. مفاتيح الصوت الخاصة بالمنظمة محفوظة بتشفير AES-256-GCM، والأسرار تُخزَّن مجزّأة لا مشفّرة. تُحذف البيانات الشخصية قبل التخزين. لا نحفظ تسجيلات الصوت إطلاقًا — فقط النص المنقّح. الاحتفاظ مصنّف حسب نوع البيانات، وسجل التدقيق للإضافة فقط. الامتثال مصمم من اليوم الأول وفق أنظمة المصرف المركزي الإماراتي.",
+      "الأمن ليس قائمة مزايا، بل هو البنية. جميع الاتصالات تنتهي عند TLS مع HSTS وسياسة محتوى مقيّدة. مفاتيح الصوت الخاصة بالمنظمة محفوظة بتشفير AES-256-GCM في السكون، والأسرار الوصفية تُخزَّن مجزّأة لا مشفّرة، فلا يُنتج تسريب قاعدة بيانات شيئًا قابلًا للاستخدام. تُحذف البيانات الشخصية قبل الكتابة لا بعدها. تسجيلات الصوت تُحتفظ فعلًا — ثلاثون يومًا ثم تُحذف، والمفرّغات تسعون يومًا، وسجلات الحالات سبع سنوات — وبعدها تحتفظ سلسلة التدقيق بالبيانات الوصفية المرتبطة بالتجزئة، فتعمُر الأدلة أطول من التسجيل. يعمل المشروع التجريبي على صفر يوم للصوت، وهذا خيار نشر نتخذه لا الافتراض المُسلَّم. الاحتفاظ مصنّف حسب نوع البيانات وينفّذه عامل الاحتفاظ، وسجل التدقيق للإضافة فقط إذ ترفض شيفرة تغييره عملها. الوصول إلى لوحة التحكم قائم على الأدوار ومُطبَّق عبر أمن الصفوف في Postgres لا في التطبيق وحده، وكل تفاعل يُنتج سجل تدقيق جاهز للامتثال. الامتثال صُمم من اليوم الأول وفق أنظمة المصرف المركزي الإماراتي.",
   },
   {
     id: 12,
@@ -170,20 +170,20 @@ export const DECK: Slide[] = [
     titleEn: "Honest about the risks",
     titleAr: "صادقون بشأن المخاطر",
     scriptEn:
-      "We are honest about the risks. Customer trust in AI calls — mitigated with transparent introduction, natural voices, and a one-word path to a human. False positives — the agent only triggers above a high-confidence risk threshold, so it never annoys customers about legitimate spending. Integration complexity — standard banking APIs and dedicated integration sprints. Regulatory compliance — built in from design, not bolted on. Multilingual accuracy — extensive native-speaker testing with a continuous feedback loop. And system availability — multi-zone deployment with a 99.99 percent uptime SLA. Every risk has an owner and a mitigation.",
+      "We are honest about the risks. Customer trust in AI calls — mitigated with a transparent introduction, one stock Library voice that does not pretend to be a person, and an escalation path to a specialist that fires on repeated ambiguity or detected distress and queues the case with full context when no line is free. False positives — the risk threshold belongs to the bank's own detection engine; our gates are consent, do-not-call, hours, geography, velocity, cooldown and credit. Integration complexity — standard signed webhooks, an adapter registry, and dedicated integration sprints. Regulatory compliance — built in from design, not bolted on. Multilingual accuracy — six languages in the voice layer, with Arabic and English the two proven end to end in the recorded evidence. And system availability — one region today on one host, with multi-zone deployment on the roadmap and a tested disaster-recovery plan targeted for Q1. Every risk has an owner and a mitigation.",
     scriptAr:
-      "ثقة العملاء تُبنى بالشفافية وسهولة الوصول لبشري. الإنذارات الكاذبة تُدار بعتبات ثقة عالية. التعقيد التقني عبر واجهات قياسية. الامتثال مدمج بالتصميم. الدقة اللغوية باختبار متوسط مع متحدثين أصليين. والتوفر ببنية متعددة المناطق بنسبة ٩٩.٩٩٪.",
+      "ثقة العملاء تُبنى بالشفافية: مقدمة واضحة، وصوت مكتبي واحد لا يدّعي أنه إنسان، ومسار تصعيد إلى أخصائي يعمل عند الغموض المتكرر أو عند كشف الضيق، ويضع الحالة في قائمة الانتظار بكامل السياق إذا لم يتوفر خط. والإنذارات الكاذبة عتبتها في محرك كشف البنك نفسه، أما بواباتنا فهي الموافقة وعدم الاتصال والأوقات والجغرافيا والسرعة والتبريد والائتمان. والتعقيد التقني عبر واجهات موقعة قياسية وسجل محوّللات ورحلات تكامل مخصصة. والامتثال مدمج بالتصميم. والدقة اللغوية بست لغات في طبقة الصوت، والعربية والإنجليزية هما المثبتتان من البداية للنهاية في الأدلة المسجلة. والتوفر اليوم على منطقة واحدة ومضيف واحد، مع تعدد المناطق ضمن خارطة الطريق وخطة تعافٍ مُختبَرة مستهدفها الربع الأول.",
   },
   {
     id: 13,
     layout: "roadmap",
-    kicker: "12 · What Will Be Working",
-    titleEn: "14 October: fully working prototype",
-    titleAr: "١٤ أكتوبر: نموذج أولي كامل",
+    kicker: "12 · What Is Working, What Is Next",
+    titleEn: "Working today — and the list we still owe",
+    titleAr: "يعمل اليوم — والقائمة المتبقية",
     scriptEn:
-      "By October fourteenth, this is what will be working: the end-to-end prototype — simulated fraud alert in, outbound call, identity verification, card freeze, human handoff. English and Arabic language support fully operational. Integration with mock banking systems. A complete test suite with over ninety percent pass rate on primary flows. And demonstrable audit trail generation with guardrail enforcement. You can see all of it live, right now — which brings us to the demo.",
+      "This is what is working, and what the committed record actually says: the end-to-end prototype — a signed simulated fraud alert in, an outbound call, identity verification, a staged card freeze, human handoff. Arabic and English are the two languages with a recorded end-to-end conversation in the evidence bundle; four more are wired in the voice layer and are not yet proven end to end. Integration with mock banking systems, and adapters for the real CRM APIs. And an audit trail with guardrail enforcement you can re-compute. On test status we quote the artifact rather than a wish: nineteen gates were run, seventeen passed — 89.5 percent — with the load and surface gates failing, and the agent layer's tool-call criterion recorded as unverified. That is the honest denominator, and you can read it in the repository.",
     scriptAr:
-      "نموذج كامل يعمل من البداية للنهاية: تنبيه احتيال محاكى، اتصال صادر، تحقق من الهوية، تجميد بطاقة، وتسليم لأخصائي. دعم كامل للعربية والإنجليزية، وتكامل مع أنظمة بنكية محاكاة، وحزمة اختبارات بنسبة نجاح تتجاوز ٩٠٪.",
+      "هذا ما يعمل، وما يقوله السجل المُودَع فعلًا: نموذج يعمل من البداية للنهاية — تنبيه احتيال موقّع ومحاكى يدخل، اتصال صادر، تحقق من الهوية، تجميد بطاقة مبدئي، وتسليم لأخصائي. العربية والإنجليزية هما اللغتان الوحيدتان بحوار مُسجّل من البداية للنهاية في حزمة الأدلة؛ وأربع لغات أخرى موصولة في طبقة الصوت ولم تُثبت من البداية للنهاية. تكامل مع أنظمة بنكية محاكاة ومحوّلات لتطبيقات CRM الحقيقية، وسجل تدقيق مع تطبيق الضمانات يمكن إعادة حسابه. أما حالة الاختبارات فننقلها كما هي لا كما نودّ: تسع عشرة بوابة أُنجِزت، وسبع عشرة نجحت — ٨٩.٥٪ — مع إخفاق بوّابتَي الحَمْل والسطح، ومعيار استدعاء الأدوات في طبقة الوكيل مُسجَّل بوصفه غير متحقق.",
   },
   {
     id: 14,
@@ -205,7 +205,7 @@ export const DECK: Slide[] = [
     subEn:
       "securevoice.ai/demo — simulated fraud scenario, full call flow, mock banking integration",
     scriptEn:
-      "Everything I have claimed, you can touch. The live demo is running right now: a simulated fraud scenario with the full call flow, integrated with mock banking systems. Trigger an alert, watch the agent call, listen to the verification, see the freeze execute, and follow the handoff — then explore the operations dashboard: live call monitor, analytics against baseline, configuration, and the compliance audit log. This is not a concept deck. It is a working system.",
+      "Everything I have claimed, you can touch. The live demo is running right now: a simulated fraud scenario with the full call flow, integrated with mock banking systems. Trigger an alert, watch the agent call, listen to the verification, see the freeze STAGED with `committed: false` and `stage: pending_specialist` — that is the invariant, not a limitation — then follow the handoff and explore the operations dashboard: live call monitor, analytics against baseline, configuration, and the compliance audit log. This is not a concept deck. It is a working system, and the guided simulation is honest about being a simulation: it replays a real case shape without dialling anyone.",
     scriptAr:
       "العرض الحي يعمل الآن: سيناريو احتيال محاكى بمسار الاتصال الكامل متكاملاً مع أنظمة بنكية محاكاة. أطلقوا التنبيه، وشاهدوا الاتصال والتحقق والتجميد والتسليم — ثم استكشفوا لوحة العمليات الكاملة.",
   },
@@ -218,8 +218,8 @@ export const DECK: Slide[] = [
     subEn: "We are the intervention. Thank you — please try the demo.",
     subAr: "نحن التدخل. شكراً لكم — جربوا العرض الحي.",
     scriptEn:
-      "Fraud teams today are using AI to detect crime, then delivering the rescue with SMS and queues. That gap — between detection speed and intervention speed — costs UAE banks three hundred forty million dirhams a year, and costs customers their trust. SecureVoice AI closes that gap from thirty-eight minutes to sixty seconds, in the customer's own language, inside a compliance guardrail. Detection is solved. Intervention is not. We are the intervention. Thank you — and please try the demo.",
+      "Fraud teams today are using AI to detect crime, then delivering the rescue with SMS and queues. That gap — between detection speed and intervention speed — costs UAE banks three hundred forty million dirhams a year, and costs customers their trust. SecureVoice AI moves that gap onto a sixty-second case deadline, in the customer's own language, inside a compliance guardrail — and stages every irreversible action for a human to commit, because an intervention that overreaches is its own kind of loss. Detection is solved. Intervention is not. We are the intervention. Thank you — and please try the demo.",
     scriptAr:
-      "الفجوة بين سرعة الكشف وسرعة التدخل تكلف بنوك الإمارات ٣٤٠ مليون درهم سنوياً. سيفور فويس تُغلق هذه الفجوة من ٣٨ دقيقة إلى ٦٠ ثانية، بلغة العميل، وضمن ضمانات الامتثال. نحن التدخل. شكراً لكم.",
+      "الفجوة بين سرعة الكشف وسرعة التدخل تكلف بنوك الإمارات ٣٤٠ مليون درهم سنوياً. سيفور فويس تنقل هذه الفجوة من ٣٨ دقيقة إلى مهلة حالة مدتها ٦٠ ثانية، بلغة العميل وضمن ضمانات الامتثال، وتُعلّق كل إجراء دائم بانتظار اعتماد بشري — لأن تدخلاً يتجاوز حدّه هو نوعٌ آخر من الخسارة. الكشف محلول، والتدخل ليس كذلك، ونحن التدخل. شكراً لكم.",
   },
 ];

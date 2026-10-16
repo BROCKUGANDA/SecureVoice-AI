@@ -307,6 +307,14 @@ export async function transitionCaseWithOutbox(
    * and be undeliverable.
    */
   verificationToken?: { plaintext: string; hash: string } | null;
+  /**
+   * When the signal arrived at the intake endpoint, captured by the handler before it
+   * awaited anything. `createdAt` is when this row was written, which is after the
+   * policy, compliance and credit gates — a span measured from it would report the
+   * dial and omit the gates, so the caller passes the real instant in and the column
+   * stays nullable for the cases where nobody knows it.
+   */
+  signalReceivedAt?: Date | null;
 }): Promise<{ id: string; caseRef: string; state: string }> {
   // The destination is sealed before the row is written, so a case carries a token
   // and a match index rather than a customer's number. `vaultCasePhone` never
@@ -337,6 +345,7 @@ export async function transitionCaseWithOutbox(
         // token that is already set.
         verificationTokenHash: data.verificationToken?.hash ?? null,
         verificationTokenAt: data.verificationToken ? new Date() : null,
+        signalReceivedAt: data.signalReceivedAt ?? null,
       },
       select: { id: true, caseRef: true, state: true },
     });

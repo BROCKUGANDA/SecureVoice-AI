@@ -38,7 +38,7 @@ PAPER = (251, 251, 248)  # --paper
 GREEN = (11, 122, 85)  # --primary
 MUTED = (92, 104, 93)  # --ink-3, darkened for contrast
 
-TITLE_CARD = ("SecureVoice AI", "Real-time fraud intervention for UAE banking",
+TITLE_CARD = ("SecureVoice AI", "Real-time fraud intervention for banks and insurers",
               "Live deployment — securevoiceai.me")
 
 # (glob fragment, heading, subheading, seconds)

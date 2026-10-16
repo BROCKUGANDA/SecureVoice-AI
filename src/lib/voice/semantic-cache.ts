@@ -102,6 +102,21 @@ export const MAX_EMBED_CHARS = 512;
 /** Default cache bounds. Bounded because a long-lived process is the leak. */
 export const DEFAULT_MAX_ENTRIES = 256;
 export const DEFAULT_TTL_MS = 15 * 60_000;
+/**
+ * Bounds the clamps below. They exist because a cache that answers "how long may a
+ * reply be reused" with a caller-supplied number is a memory leak and a staleness bug
+ * waiting for one bad env var.
+ *
+ * The TTL floor used to be `Math.max(1, …)` — one MILLISECOND. A cache that stores an
+ * entry and then refuses to serve it 1 ms later is not "clamped to something usable",
+ * it is disabled with extra steps, and the reason nobody noticed is that the test
+ * asserting a hit after a negative TTL was racing that millisecond and usually winning.
+ * A nonsense TTL now falls back to the shipped default, which is the value the rest of
+ * the system was tuned against; an absurdly long one is capped so a restart-bounded
+ * cache cannot be configured to outlive the erasure guarantees on the data inside it.
+ */
+export const MAX_TTL_MS = 60 * 60_000;
+export const MAX_MAX_ENTRIES = 4_096;
 export const DEFAULT_MIN_SIMILARITY = 0.9;
 
 /**
@@ -407,8 +422,12 @@ function admit(reply: string, ctx: CacheContext): StoreDecision {
 export class SemanticCache {
   /** Insertion-ordered, so the first key is the least recently used. */
   private readonly entries = new Map<string, CacheEntry>();
-  private readonly maxEntries: number;
-  private readonly ttlMs: number;
+  /**
+   * The effective bounds, readable so a clamp can be ASSERTED rather than inferred from
+   * whether a lookup happened to win a race against one millisecond.
+   */
+  readonly maxEntries: number;
+  readonly ttlMs: number;
   private readonly minSimilarity: number;
   private readonly embedFn: EmbedFn;
   private readonly now: () => number;
@@ -418,8 +437,15 @@ export class SemanticCache {
   private sequence = 0;
 
   constructor(opts: SemanticCacheOptions = {}) {
-    this.maxEntries = Math.max(1, opts.maxEntries ?? DEFAULT_MAX_ENTRIES);
-    this.ttlMs = Math.max(1, opts.ttlMs ?? DEFAULT_TTL_MS);
+    // Floor AND ceiling on both. `Math.max(1, n)` alone satisfies "never zero" while
+    // leaving `maxEntries: 1e9` exactly the unbounded cache this class exists to avoid,
+    // and `ttlMs: -5` a store that expires on the next line.
+    this.maxEntries = Math.min(
+      MAX_MAX_ENTRIES,
+      Math.max(1, opts.maxEntries ?? DEFAULT_MAX_ENTRIES),
+    );
+    const ttl = opts.ttlMs ?? DEFAULT_TTL_MS;
+    this.ttlMs = ttl > 0 ? Math.min(ttl, MAX_TTL_MS) : DEFAULT_TTL_MS;
     this.minSimilarity = opts.minSimilarity ?? DEFAULT_MIN_SIMILARITY;
     this.embedFn = opts.embed ?? lexicalEmbed;
     this.now = opts.now ?? Date.now;

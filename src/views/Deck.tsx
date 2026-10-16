@@ -406,22 +406,22 @@ function RenderSlide({
               icon: PhoneCall,
               en: "Immediate",
               ar: "فوري",
-              d: "Call within 60s of the signal — no SMS, no queue",
-              dAr: "اتصال خلال ٦٠ ثانية من الإشارة — بلا رسائل نصية وبلا طوابير",
+              d: "Dial job written as the signal clears the gates · 60 s is the case deadline, not a measured connect time",
+              dAr: "تُكتب مهمة الاتصال فور اجتياز الإشارة للبوابات · ٦٠ ثانية هي مهلة الحالة، لا زمن وصول مُقاس",
             },
             {
               icon: Languages,
               en: "Multilingual",
               ar: "متعدد اللغات",
-              d: "AR · EN · HI · UR · TL · ML — dialect-tuned",
-              dAr: "AR · EN · HI · UR · TL · ML — معايَرة حسب اللهجة",
+              d: "Six in the TTS layer: AR · EN · HI · UR · FR · SW — the live agent runs on EN · AR · HI presets",
+              dAr: "ستّ لغات في طبقة النطق: العربية والإنجليزية والهندية والأردية والفرنسية والسواحيلية — والوكيل الحيّ مُهيّأ على الإنجليزية والعربية والهندية",
             },
             {
               icon: Snowflake,
               en: "Action-capable",
               ar: "قادر على التنفيذ",
-              d: "Verifies, freezes the card, hands off — compliantly",
-              dAr: "يتحقق، ويجمّد البطاقة، ويسلّم لأخصائي — بما يتوافق مع الأنظمة",
+              d: "Verifies, stages a freeze a human then commits, hands off — compliantly",
+              dAr: "يتحقق، ويمهّد تجميداً يقرّه موظف بشري، ويسلّم — بما يتوافق مع الأنظمة",
             },
           ].map((p) => (
             <div key={p.en} className="rounded-2xl border border-line p-5">
@@ -456,8 +456,8 @@ function RenderSlide({
               n: "1",
               en: "Outbound call",
               ar: "اتصال",
-              d: "T+60s SLA",
-              dAr: "اتصال خلال ٦٠ ثانية",
+              d: "60 s case deadline",
+              dAr: "مهلة الحالة ٦٠ ثانية",
             },
             {
               icon: FileCheck2,
@@ -480,16 +480,16 @@ function RenderSlide({
               n: "4",
               en: "Card freeze",
               ar: "تجميد",
-              d: "temporary only",
-              dAr: "مؤقت فقط",
+              d: "staged, not executed",
+              dAr: "مُمهَّد لا مُنفَّذ",
             },
             {
               icon: Webhook,
               n: "5",
               en: "Human handoff",
               ar: "تسليم",
-              d: "full context",
-              dAr: "كامل السياق",
+              d: "queued with full context",
+              dAr: "في الطابور بكامل السياق",
             },
           ].map((s, i) => (
             <div key={s.n} className="relative">
@@ -562,10 +562,10 @@ function RenderSlide({
               core: true,
             },
             {
-              n: "Eleven v3 TTS",
-              nAr: "تحويل النص إلى كلام Eleven v3",
-              d: "Trustworthy natural voice in multiple languages — kills AI skepticism",
-              dAr: "صوت طبيعي موثوق بعدة لغات — يقضي على الشك في الذكاء الاصطناعي",
+              n: "Eleven v4 Turbo TTS",
+              nAr: "تحويل النص إلى كلام Eleven v4 Turbo",
+              d: "The one stock Library voice the live agent runs on — v3 is refused on this plan",
+              dAr: "الصوت الجاهز الوحيد من المكتبة الذي يعمل عليه الوكيل الحيّ — ونموذج v3 مرفوض على هذه الخطة",
               core: true,
             },
             {
@@ -585,8 +585,8 @@ function RenderSlide({
             {
               n: "Webhook Tools",
               nAr: "أدوات Webhook",
-              d: "Real-time fraud alerts in; card freeze execution out",
-              dAr: "تنبيهات احتيال فورية إلى الداخل؛ وتنفيذ تجميد البطاقة إلى الخارج",
+              d: "HMAC-signed fraud alerts in; a staged freeze out, committed by a human",
+              dAr: "تنبيهات احتيال موقّعة بـ HMAC إلى الداخل؛ وتجميد مُمهَّد إلى الخارج يُقرّه موظف بشري",
               core: false,
             },
             {
@@ -643,19 +643,19 @@ function RenderSlide({
         <div className="mt-7 grid gap-3 sm:grid-cols-2">
           {[
             {
-              n: "Marcus",
-              l: "English",
-              lAr: "الإنجليزية",
-              d: "Mature, professional male — calm authority under stress",
-              dAr: "صوت رجالي ناضج واحترافي — هدوء وثقة تحت الضغط",
+              n: "Marcus · Fatima",
+              l: "Operator catalogue, not provisioned",
+              lAr: "كتالوج في لوحة التحكم، لا صوت مُهيّأ",
+              d: "Names the console offers an operator to register. No voice is cloned on this account and `ELEVENLABS_VOICE_*` ships empty.",
+              dAr: "أسماء تعرضها لوحة التحكم ليُسجّلها المشغّل؛ فلا صوت منسوخ على هذا الحساب، ومتغيّرات الصوت في البيئة تأخذ قيمة فارغة.",
               tint: false,
             },
             {
-              n: "فاطمة · Fatima",
-              l: "العربية الفصحى + Gulf",
-              lAr: "العربية الفصحى + Gulf",
-              d: "Clear, reassuring female — MSA with Gulf dialect tuning",
-              dAr: "صوت نسائي واضح ومُطمئن — فصحى مع معايرة للهجة الخليجية",
+              n: "What the live agent speaks",
+              l: "One stock Library voice",
+              lAr: "صوت واحد جاهز من المكتبة",
+              d: "Instant cloning is disabled here (`can_use_instant_voice_cloning=false`), so every language preset runs on one stock ElevenLabs Library voice.",
+              dAr: "نسخ الصوت معطّل على هذا الحساب، لذا تعمل كل إعدادات اللغات على صوت واحد جاهز من مكتبة ElevenLabs.",
               tint: true,
             },
           ].map((v) => (
@@ -688,22 +688,24 @@ function RenderSlide({
           ))}
         </div>
         <pre className="num mt-5 rounded-2xl border border-line bg-card p-5 text-[11.5px] leading-[1.8] text-primary">
-          {`voice_config = {
-  "stability": 0.70,          // consistent, steady
-  "similarity_boost": 0.75,   // brand-accurate timbre
-  "style": 0.30,              // warm, never theatrical
-  "use_speaker_boost": true,  // phone-line clarity
-  "pace": "conversational −8%" // listener is stressed
+          {`// agent/securevoice.agent.yaml — the shipped agent
+tts = {
+  "model_id": "eleven_v4_turbo", // eleven_v3 on this agent → 400
+  "stability": 0.50,
+  "similarity_boost": 0.80,
+  "speed": 1.0,
+  "output_format": "ulaw_8000"
+  // no "style" field exists in the committed config
 }`}
         </pre>
         <div className="mt-4 flex flex-wrap gap-2">
           {[
-            { en: "Gulf Arabic", ar: "العربية الخليجية" },
-            { en: "MSA", ar: "العربية الفصحى" },
-            { en: "Urdu", ar: "الأردية" },
+            { en: "Arabic", ar: "العربية" },
+            { en: "English", ar: "الإنجليزية" },
             { en: "Hindi", ar: "الهندية" },
-            { en: "Filipino", ar: "الفلبينية" },
-            { en: "Malayalam", ar: "الماليالامية" },
+            { en: "Urdu", ar: "الأردية" },
+            { en: "French", ar: "الفرنسية" },
+            { en: "Kiswahili", ar: "السواحيلية" },
           ].map((d) => (
             <Chip key={d.en}>{t(d.en, d.ar, lang)}</Chip>
           ))}
@@ -742,8 +744,8 @@ function RenderSlide({
             {
               n: "Integration",
               nAr: "التكامل",
-              d: "core banking APIs · freeze · history · CRM",
-              dAr: "واجهات البنك الأساسية · التجميد · السجل · إدارة العلاقات",
+              d: "signed signal intake · staged freeze · CRM tickets",
+              dAr: "استقبال إشارات موقّعة · تجميد مُمهَّد · تذاكر CRM",
               icon: Webhook,
             },
             {
@@ -774,16 +776,22 @@ function RenderSlide({
           ))}
         </div>
         <div className="mt-5 flex flex-wrap gap-2">
-          <Chip>{t("OAuth 2.0 + mutual TLS", "OAuth 2.0 مع TLS متبادل", lang)}</Chip>
+          <Chip>{t("HMAC-signed webhooks", "ويب هوك موقّع بـ HMAC", lang)}</Chip>
           <Chip>{t("encrypted in transit & at rest", "تشفير أثناء النقل وفي التخزين", lang)}</Chip>
           <Chip>
             {t(
-              "60s SLA · pre-warmed channels",
-              "زمن استجابة ٦٠ ثانية · قنوات مُجهّزة مسبقاً",
+              "60 s case deadline · streamed media off by default",
+              "مهلة الحالة ٦٠ ثانية · بثّ الوسائط متوقف افتراضياً",
               lang,
             )}
           </Chip>
-          <Chip>{t("multi-AZ · 99.99%", "مناطق توافر متعددة · ٩٩.٩٩٪", lang)}</Chip>
+          <Chip>
+            {t(
+              "single region today · multi-zone is roadmap",
+              "منطقة واحدة اليوم · تعدد المناطق في خارطة الطريق",
+              lang,
+            )}
+          </Chip>
         </div>
       </div>
     );
@@ -813,15 +821,15 @@ function RenderSlide({
               icon: Snowflake,
               g: "Pre-approved actions only",
               gAr: "إجراءات معتمدة مسبقاً فقط",
-              m: "one write action (freeze); rest → human",
-              mAr: "إجراء كتابة واحد (التجميد)؛ والباقي → بشري",
+              m: "one write action: stages a freeze; a human commits it",
+              mAr: "إجراء كتابة واحد: يُمهّد التجميد، وموظف بشري يُقرّه",
             },
             {
               icon: Languages,
-              g: "Language consistency",
-              gAr: "ثبات اللغة",
-              m: "locked after first response, dialect per profile",
-              mAr: "تثبيت بعد أول رد، واللهجة حسب ملف العميل",
+              g: "Language following",
+              gAr: "مواكبة اللغة",
+              m: "opens in the profile's language; switches when the caller does",
+              mAr: "تبدأ بلغة ملف العميل، وتتبّدل حين يبدّل المتصل لغته",
             },
             {
               icon: FileCheck2,
@@ -841,8 +849,8 @@ function RenderSlide({
               icon: HeartPulse,
               g: "Vulnerability handling",
               gAr: "التعامل مع الحالات الهشّة",
-              m: "distress detected → priority human handoff",
-              mAr: "كشف الضيق → تسليم فوري لأخصائي بشري",
+              m: "distress detected → handoff raised; queues if no line answers",
+              mAr: "كشف الضيق → يرفع طلب تسليم، ويصطف في الطابور إن لم يجب خط",
             },
           ].map((r, i) => (
             <div
@@ -1000,15 +1008,15 @@ function RenderSlide({
           {[
             [
               "Customer trust in AI calls",
-              "Transparent intro · natural voices · one-word human escape",
+              "Transparent intro · one stock Library voice · four unclear turns escalate the call",
               "ثقة العميل في مكالمات الذكاء الاصطناعي",
-              "تعريف شفاف · أصوات طبيعية · كلمة واحدة للوصول إلى بشري",
+              "تعريف شفاف · صوت واحد من المكتبة · أربع دورات غامضة تُصعّد المكالمة",
             ],
             [
               "False positive alerts",
-              "High-confidence risk threshold only — never nags legitimate spend",
+              "The threshold is the bank's own engine's; our gates are consent, hours, geo, velocity, credit",
               "تنبيهات كاذبة",
-              "عتبة مخاطرة عالية الثقة فقط — دون إزعاج العميل عن إنفاقه المشروع",
+              "العتبة في محرك المصرف نفسه؛ وبواباتنا هي الموافقة وأوقات الاتصال والدولة والسرعة والائتمان",
             ],
             [
               "Integration complexity",
@@ -1030,9 +1038,9 @@ function RenderSlide({
             ],
             [
               "System availability",
-              "Multi-AZ deployment · 99.99% uptime SLA",
+              "Single region on one host today · multi-zone deployment and a tested DR plan are roadmap (target Q1)",
               "جاهزية النظام",
-              "نشر في مناطق توافر متعددة · اتفاقية توافر ٩٩.٩٩٪",
+              "منطقة واحدة على مضيف واحد اليوم · تعدد المناطق وخطة تعافٍ مُختبَرة ضمن خارطة الطريق (مستهدف: الربع الأول)",
             ],
           ].map(([r, m, rAr, mAr]) => (
             <div
@@ -1056,7 +1064,7 @@ function RenderSlide({
   if (layout === "roadmap")
     return (
       <div className="flex h-full flex-col justify-center">
-        <p className="num text-[12px] font-bold text-primary">BY 14 OCTOBER · ١٤ أكتوبر</p>
+        <p className="num text-[12px] font-bold text-primary">WORKING TODAY · يعمل اليوم</p>
         <h2 className={cn(h, "mt-3 text-3xl sm:text-4xl")}>
           {isAr ? (
             <span dir="rtl" className="font-arabic">
@@ -1073,13 +1081,16 @@ function RenderSlide({
               "نموذج أولي كامل: تنبيه → اتصال → تحقق → تجميد → تسليم",
             ],
             [
-              "English + Arabic fully operational, dialect-tuned",
-              "الإنجليزية والعربية تعملان بكامل طاقتهما، معايرة حسب اللهجة",
+              "English and Arabic have recorded end-to-end calls in the evidence bundle",
+              "العربية والإنجليزية لهما مكالمات موثّقة من البداية للنهاية في حزمة الأدلة",
             ],
-            ["Integration with live banking systems", "تكامل كامل مع أنظمة بنكية حية"],
             [
-              "Test suite with 90%+ pass rate on primary flows",
-              "حزمة اختبارات بنسبة نجاح تتجاوز ٩٠٪ على المسارات الرئيسية",
+              "Inbound signed signals, CRM case tickets, a staged-freeze API — no live core-banking write",
+              "إشارات واردة موقّعة، وتذاكر حالة في CRM، وواجهة تجميد مُمهَّد — بلا كتابة حيّة في أنظمة البنك الأساسية",
+            ],
+            [
+              "Test suite with 17 of 19 gates green in the committed results artifact",
+              "حزمة اختبارات بنجاح ١٧ من ١٩ بوابة في ناتج الاختبارات المحفوظ",
             ],
             [
               "Demonstrable audit trail + guardrail enforcement",
@@ -1197,8 +1208,8 @@ function RenderSlide({
             <span className="h-2.5 w-2.5 rounded-full bg-[#28c840]" />
             <span className="num ml-3 flex-1 rounded-md bg-secondary px-3 py-1 text-[11px] text-ink-2">
               {t(
-                "securevoiceai.me — live fraud scenario · full call flow · real banking integration",
-                "securevoiceai.me — سيناريو احتيال حقيقي · مسار المكالمة كاملاً · تكامل بنكي فعلي",
+                "securevoiceai.me — live fraud scenario · full call flow · mock banking integration",
+                "securevoiceai.me — سيناريو احتيال حقيقي · مسار المكالمة كاملاً · تكامل بنكي محاكى",
                 lang,
               )}
             </span>
@@ -1209,8 +1220,8 @@ function RenderSlide({
                 icon: PhoneCall,
                 t: "Trigger alert → call",
                 tAr: "إطلاق التنبيه → الاتصال",
-                d: "Watch the agent dial, greet, and lock language",
-                dAr: "شاهد الوكيل يتصل، ويحيّي، ويثبّت اللغة",
+                d: "Watch the agent dial, greet, and answer in the caller's language",
+                dAr: "شاهد الوكيل يتصل، ويحيّي، ويردّ بلغة المتصل",
               },
               {
                 icon: FileCheck2,
@@ -1223,8 +1234,8 @@ function RenderSlide({
                 icon: Snowflake,
                 t: "Freeze & handoff",
                 tAr: "تجميد وتسليم",
-                d: "API executes freeze; specialist receives context",
-                dAr: "الواجهة تنفّذ التجميد؛ والأخصائي يستلم السياق",
+                d: "API stages the freeze; a specialist commits it",
+                dAr: "الواجهة تُمهّد التجميد؛ والأخصائي هو من يُقرّه",
               },
             ].map((c) => (
               <div key={c.t} className="rounded-xl border border-line bg-white p-4">
@@ -1279,9 +1290,9 @@ function RenderSlide({
         {sub}
       </p>
       <div className="mt-9 flex flex-wrap gap-2.5">
-        <Chip>{t("38 min → 60 s", "٣٨ دقيقة → ٦٠ ثانية", lang)}</Chip>
+        <Chip>{t("38 min → 60 s target", "٣٨ دقيقة → هدف ٦٠ ثانية", lang)}</Chip>
         <Chip>{t("AED 340M / year at stake", "٣٤٠ مليون درهم سنوياً", lang)}</Chip>
-        <Chip>{t("6+ languages", "٦+ لغات", lang)}</Chip>
+        <Chip>{t("6 TTS languages", "٦ لغات للنطق", lang)}</Chip>
         <Chip>{t("CBUAE-aligned", "متوافق مع CBUAE", lang)}</Chip>
         <Chip>{FOUNDER_EMAIL}</Chip>
       </div>

@@ -10,6 +10,7 @@ import { auditAppendFailures } from "@/lib/audit-chain";
 import { llmBreakerState } from "@/lib/llm";
 import { getPoolStatus } from "@/lib/elevenlabs/pool";
 import { degradedSnapshot, rungSnapshot } from "@/lib/voice/rung-counter";
+import { slaBreachPopulation } from "@/lib/sla-breach";
 
 export const dynamic = "force-dynamic";
 
@@ -240,6 +241,51 @@ export async function GET(req: Request) {
   } catch {
     push("sv_llm_breaker_open", "1 when the LLM breaker is open.", "gauge", -1);
     push("sv_tts_rung_total", "Syntheses served by each rung.", "counter", -1);
+  }
+
+  // ── the case deadline, as an observable ─────────────────────────────────
+  // A promise nobody can chart is a promise nobody notices being broken. These four
+  // series are the SLA sweep's output (`src/lib/sla-breach.ts`), and the denominator
+  // travels with the numerator deliberately: "0 breaches" during an hour that ingested
+  // nothing is not a good hour, and publishing the count without `evaluated` invites
+  // exactly that reading. `not_evaluable` counts rows with no arrival instant, so the
+  // blind spot in the check is a number on the dashboard rather than a footnote.
+  try {
+    const sla = await slaBreachPopulation();
+    push(
+      "sv_sla_deadline_seconds",
+      "The published case deadline, from SLA_SECONDS.",
+      "gauge",
+      sla.windowSecs,
+    );
+    push(
+      "sv_sla_breach_total",
+      "Cases whose deadline passed with no contact of any kind, marked by the sweep.",
+      "gauge",
+      sla.breachedTotal,
+    );
+    push(
+      "sv_sla_breach_last_hour",
+      "Deadline breaches recorded in the last hour — the alerting signal.",
+      "gauge",
+      sla.breachedInWindow,
+    );
+    push(
+      "sv_sla_evaluated_cases",
+      "Cases the deadline check can evaluate (arrival instant known).",
+      "gauge",
+      sla.evaluated,
+    );
+    push(
+      "sv_sla_not_evaluable_cases",
+      "Cases with no persisted arrival instant, so their deadline is unknown.",
+      "gauge",
+      sla.notEvaluatable,
+    );
+  } catch {
+    // Same convention as every other collector here: -1 means "this number could not
+    // be obtained", which is distinguishable from a real zero on a dashboard.
+    push("sv_sla_breach_total", "Deadline breaches recorded (collector failed).", "gauge", -1);
   }
 
   // ── audit chain freshness ───────────────────────────────────────────────

@@ -102,8 +102,8 @@ const FLOW = [
     icon: Zap,
     en: "Immediate Outbound Call",
     ar: "اتصال صادر فوري",
-    t: "T+0 → 60s SLA",
-    body: "Agent calls within 60 seconds of the fraud signal, introducing itself transparently as the bank's AI security assistant in the customer's preferred language.",
+    t: "T+0 → queued on acceptance",
+    body: "The accepted signal is queued and dialled as soon as capacity admits it. No time-to-contact is measured in this repository yet, so no figure is claimed; the agent introduces itself transparently as the bank's AI security assistant in the customer's preferred language.",
     script:
       "“Hello, this is your bank's AI security assistant calling about recent activity on your account. Is this Ahmed?”",
     rail: "Time-zone check against customer profile before dialing",
@@ -128,7 +128,7 @@ const FLOW = [
     body: "The agent states the detected activity clearly and asks the one question that matters. Sentiment analysis runs continuously on the response.",
     script:
       "“We've flagged AED 2,500.00 at Electronics World. Did you authorize this transaction?”",
-    rail: "Distress signal → priority human handoff",
+    rail: "Distress markers → human handoff (the queue itself orders by expected loss, not by distress)",
   },
   {
     n: "4",
@@ -136,10 +136,10 @@ const FLOW = [
     en: "Protective Action",
     ar: "إجراء الحماية",
     t: "POST /freeze",
-    body: "If fraud is confirmed, the agent executes the single pre-approved action — a temporary card freeze — and explains exactly what happens next.",
+    body: "If fraud is confirmed, the agent stages the single pre-approved action — a temporary card freeze — and explains exactly what happens next. Nothing is committed on the bank's ledger until a human fraud specialist commits it.",
     script:
-      "“I'll place a temporary freeze on your card now. It's easily reversed once your account is secured.”",
-    rail: "Tool scoping: one write action, nothing irreversible",
+      "“I've staged a temporary freeze on your card now. Your bank's fraud team confirms it — nothing is final until they do.”",
+    rail: "Tool scoping: one write action, and it stages rather than commits",
   },
   {
     n: "5",
@@ -147,8 +147,9 @@ const FLOW = [
     en: "Human Handoff",
     ar: "التسليم لأخصائي",
     t: "warm transfer",
-    body: "For irreversible actions or on request, the agent transfers to a fraud specialist — passing verification status, full transcript, and sentiment flags.",
-    script: "“I'm connecting you with Sara, a fraud specialist who will help secure your account.”",
+    body: "On an irreversible action the agent hands off to a fraud specialist with verification status, transcript and sentiment flags. A live bridge needs a configured specialist number; with none — or during a carrier outage — the handoff degrades, audited, to a queue ticket rather than dropping the call.",
+    script:
+      "“I'm handing this to your bank's fraud desk. If I can't bridge you through right now, your case goes straight to their queue — you won't have to start again.”",
     rail: "Context envelope + case creation in CRM",
   },
 ];
@@ -158,8 +159,8 @@ const FLOW = [
    `t` chips that are endpoint paths (e.g. "POST /freeze") are not translated. */
 const FLOW_AR: Record<string, { chip: string; body: string; script: string; rail: string }> = {
   "1": {
-    chip: "٠ → ٦٠ ثانية",
-    body: "يتصل الوكيل خلال ٦٠ ثانية من إشارة الاحتيال، ويعرّف عن نفسه بشفافية كمساعد الأمن الذكي للبنك وبلغة العميل المفضّلة.",
+    chip: "٠ → في الطابور عند القبول",
+    body: "تُدرج الإشارة المقبولة في الطابور ويُتصل بها بمجرد أن تسمح السعة بذلك. ولم يُقَس بعد أي زمن للوصول إلى العميل في هذه المستودعة، فلا يُدّعى رقم؛ ويعرّف الوكيل عن نفسه بشفافية كمساعد الأمن الذكي للبنك وبلغة العميل المفضّلة.",
     script:
       "«مرحباً، هذا مساعد الأمن الذكي التابع لبنكك، أتصل بخصوص نشاط حديث على حسابك. هل أنت أحمد؟»",
     rail: "التحقق من المنطقة الزمنية في ملف العميل قبل الاتصال.",
@@ -175,18 +176,20 @@ const FLOW_AR: Record<string, { chip: string; body: string; script: string; rail
     chip: "لغة مبسّطة",
     body: "يعرض الوكيل النشاط المكتشف بوضوح ويطرح السؤال الوحيد المهم. وتحليل المشاعر يعمل باستمرار على ردّ العميل.",
     script: "«لقد رصدنا عملية بقيمة ٢٥٠٠٫٠٠ درهم في إلكترونيات ورلد. هل أجازت هذه العملية؟»",
-    rail: "إشارة استغاثة ← تسليم ذي أولوية لأخصائي بشري.",
+    rail: "إشارات استغاثة ← تسليم لأخصائي بشري (والطابور يرتّب حسب الخسارة المتوقعة لا حسب الضيق).",
   },
   "4": {
     chip: "",
-    body: "عند تأكيد الاحتيال، ينفّذ الوكيل الإجراء المعتمد الوحيد — تجميد مؤقت للبطاقة — ويشرح بالضبط ما سيحدث بعد ذلك.",
-    script: "«سأجمد بطاقتك مؤقتاً الآن. ويمكن إلغاء التجميد بسهولة بعد تأمين حسابك.»",
-    rail: "تحديد نطاق الأدوات: إجراء كتابة واحد، ولا شيء غير قابل للتراجع.",
+    body: "عند تأكيد الاحتيال، يمهّد الوكيل الإجراء المعتمد الوحيد — تجميداً مؤقتاً للبطاقة — ويشرح بالضبط ما سيحدث بعد ذلك. ولا يثبت شيء في دفتر البنك حتى يثبّته أخصائي احتيال بشري.",
+    script:
+      "«مهّدت تجميداً مؤقتاً لبطاقتك الآن. فريق الاحتيال في بنكك هو من يؤكده — ولا شيء نهائي قبل أن يفعلوا.»",
+    rail: "تحديد نطاق الأدوات: إجراء كتابة واحد، وهو تمهيد لا تنفيذ.",
   },
   "5": {
     chip: "تحويل دافئ",
-    body: "في الإجراءات غير القابلة للتراجع أو عند الطلب، يحوّل الوكيل المكالمة إلى أخصائي احتيال — مع تمرير حالة التحقق والنص الكامل للمكالمة ومؤشرات المشاعر.",
-    script: "«سأصلك بسارة، أخصائية احتيال ستساعد في تأمين حسابك.»",
+    body: "في الإجراءات غير القابلة للتراجع يسلّم الوكيل الحالة إلى أخصائي احتيال مع حالة التحقق والنص الكامل ومؤشرات المشاعر. ويتطلب الربط الحيّ ضبط رقم أخصائي؛ وبدونه — أو أثناء انقطاع المشغّل — يتدهور التسليم، مع سجل تدقيق، إلى تذكرة في الطابور بدل إسقاط المكالمة.",
+    script:
+      "«سأسلّم حالتك إلى مكتب مكافحة الاحتيال في بنكك. وإن لم أستطع وصلك بهم الآن، فستذهب حالتك مباشرة إلى طابورهم — لن تضطر إلى البدء من جديد.»",
     rail: "مظروف السياق + إنشاء حالة في CRM.",
   },
 };
@@ -258,8 +261,8 @@ const LAYERS = [
     icon: Webhook,
     en: "Event Ingestion Layer",
     ar: "استيعاب الأحداث",
-    body: "Real-time webhook listener for fraud alerts · event queue with priority handling · alert validation and enrichment",
-    chip: "POST /api/v1/fraud/alerts",
+    body: "Real-time webhook listener for fraud signals · dial queue with priority handling · signal validation and enrichment",
+    chip: "POST /api/v1/interventions",
   },
   {
     icon: BrainCircuit,
@@ -272,14 +275,14 @@ const LAYERS = [
     icon: Database,
     en: "Integration Layer",
     ar: "التكامل",
-    body: "Banking API gateway (authenticated, rate-limited) · transaction history · card freeze execution · case management logging",
-    chip: "OAuth 2.0 + mutual TLS",
+    body: "Banking API gateway (authenticated, rate-limited) · transaction challenge · card freeze staging · case management logging",
+    chip: "SV-Signature HMAC · producer key",
   },
   {
     icon: PhoneCall,
     en: "Telephony Layer",
     ar: "الهاتف",
-    body: "Twilio outbound calling · call quality monitoring · fallback number handling · pre-warmed channels for the 60s SLA",
+    body: "Twilio outbound calling · call quality monitoring · fallback number handling · concurrency capped from the deployment's own env, never assumed",
     chip: "twilio · SIP fallback",
   },
   {
@@ -293,42 +296,47 @@ const LAYERS = [
 
 const APIS = [
   {
-    title: "fraud_alert_endpoint",
+    title: "risk_signal_ingest",
     lines: [
-      "POST /api/v1/fraud/alerts",
-      "auth: OAuth 2.0 · client credentials",
-      "payload: account_id, customer_id,",
-      "  risk_score, transaction_details,",
-      "  contact_number, preferred_language",
+      "POST /api/v1/interventions",
+      "auth: SV-Signature HMAC-SHA256 over the raw",
+      "  body, or Bearer producer key (svb_…, per org)",
+      "payload: transaction_ref, risk_score (0–1),",
+      "  phone (E.164), amount (minor units), currency,",
+      "  consent_record_id, language, callback_url",
+      "reply: 202 · SV-F-… caseRef + admission status",
     ],
   },
   {
-    title: "card_freeze_endpoint",
+    title: "card_freeze_tool",
     lines: [
-      "POST /api/v1/cards/{card_id}/freeze",
-      "auth: OAuth 2.0 · JWT",
-      'payload: freeze_type: "temporary",',
-      '  reason: "fraud_suspicion",',
-      "  agent_id, verification_method",
+      "POST /api/elevenlabs/tools/card-freeze",
+      "auth: shared secret, allow-listed per tool name",
+      "payload: conversation_id, account_id, reason_code",
+      "reply: { committed: false,",
+      '  stage: "pending_specialist" }',
+      "the platform never commits the freeze",
     ],
   },
   {
-    title: "transaction_history_endpoint",
+    title: "verify_transaction_tool",
     lines: [
-      "GET /api/v1/accounts/{id}/transactions",
-      "auth: OAuth 2.0 · JWT",
-      'query: limit=5, type="recent"',
-      "used for: verification challenges",
+      "POST /api/elevenlabs/tools/verify-transaction",
+      "auth: shared secret, allow-listed per tool name",
+      "payload: conversation_id,",
+      "  outcome: confirmed_fraud |",
+      "           confirmed_legitimate | uncertain",
+      "used for: the challenge outcome, not the answers",
     ],
   },
 ];
 
 /* Arabic for the LAYERS plain-string fields, resolved at the render site by the
    layer's English name. `chip` values that are protocol/endpoint identifiers
-   (OAuth 2.0, mutual TLS, POST /api/v1/fraud/alerts, …) stay as written. */
+   (SV-Signature, producer key, POST /api/v1/interventions, …) stay as written. */
 const LAYERS_AR: Record<string, { body: string; chip: string }> = {
   "Event Ingestion Layer": {
-    body: "مستمع لحظي لتنبيهات الاحتيال · قائمة أحداث بمعالجة الأولويات · التحقق من التنبيهات وإثراؤها",
+    body: "مستمع لحظي لإشارات الاحتيال · طابور اتصال بمعالجة الأولويات · التحقق من الإشارة وإثراؤها",
     chip: "",
   },
   "Agent Orchestration Layer": {
@@ -336,11 +344,11 @@ const LAYERS_AR: Record<string, { body: string; chip: string }> = {
     chip: "مسار · حالة · سياق RAG",
   },
   "Integration Layer": {
-    body: "بوابة واجهات البنك (مصادقة وتحديد معدل) · سجل العمليات · تنفيذ تجميد البطاقة · تسجيل إدارة الحالات",
+    body: "بوابة واجهات البنك (مصادقة وتحديد معدل) · تحدّي العمليات · تمهيد تجميد البطاقة · تسجيل إدارة الحالات",
     chip: "",
   },
   "Telephony Layer": {
-    body: "الاتصالات الصادرة عبر Twilio · مراقبة جودة المكالمات · إدارة أرقام الاحتياط · قنوات مُهيّأة مسبقاً لتحقيق زمن ٦٠ ثانية",
+    body: "الاتصالات الصادرة عبر Twilio · مراقبة جودة المكالمات · إدارة أرقام الاحتياط · سقف تزامن يُقرأ من إعدادات النشر ولا يُفترض",
     chip: "twilio · بديل SIP",
   },
   "Analytics & Audit Layer": {
@@ -471,19 +479,19 @@ const GUARD = [
     icon: Lock,
     en: "No PIN / password requests",
     ar: "لا رموز سرية",
-    mech: "System prompt explicitly prohibits it; verification questions drawn only from the pre-approved challenge flow stored in the knowledge base. Zero requests logged across all calls.",
+    mech: "System prompt explicitly prohibits it; verification questions drawn only from the pre-approved challenge flow stored in the knowledge base. The classifier is deterministic and the spoken reply comes from a fixed per-language table, so no branch can produce such a request.",
   },
   {
     icon: ShieldCheck,
     en: "Pre-approved actions only",
     ar: "إجراءات معتمدة فقط",
-    mech: "Tool scoping restricts the agent to a single write action — the temporary freeze. Irreversible actions require human handoff, enforced by a hard flag in the workflow graph.",
+    mech: "Tool scoping restricts the agent to a single write action — the staged freeze, which returns committed:false until a human commits it. Irreversible actions require human handoff, enforced by a hard flag in the workflow graph.",
   },
   {
     icon: CheckCheck,
     en: "Language consistency",
     ar: "ثبات اللغة",
-    mech: "Agent detects the customer's language in the first response and locks to it for the entire call; dialect selection driven by customer profile (Gulf, MSA, Urdu, Hindi, Filipino, Malayalam).",
+    mech: "The agent is instructed to speak the language the customer uses and to switch with them if they switch; a switch_language tool writes the change to the case. Six codes exist in the platform (EN · AR · HI · UR · FR · SW), the live agent plane is configured for EN/AR/HI, and dialect selection is driven by the customer profile.",
   },
   {
     icon: FileCheck2,
@@ -495,30 +503,30 @@ const GUARD = [
     icon: Clock,
     en: "Calling-hour compliance",
     ar: "أوقات الاتصال",
-    mech: "Time-zone check against customer profile before initiating any call; calls outside permitted hours are queued automatically for the next permitted window.",
+    mech: "Time-zone check against customer profile before initiating any call; a routine call outside the permitted window is refused with a machine-readable code, and a time-critical fraud verification is exempt from the window.",
   },
   {
     icon: HeartPulse,
     en: "Vulnerability handling",
     ar: "حماية الفئات الهشة",
-    mech: "Sentiment analysis detects distress signals in real time; automatic priority handoff to a human specialist with the vulnerability flag set and full context attached.",
+    mech: "Sentiment analysis detects distress and live-coaching markers in real time and routes the call to a human, with the vulnerability flag set and full context attached. The specialist queue itself orders by expected loss, not by distress.",
   },
 ];
 
 /* Arabic for the GUARD `mech` prose, keyed by the guardrail's English title. */
 const GUARD_MECH_AR: Record<string, string> = {
   "No PIN / password requests":
-    "تمنع تعليمات النظام ذلك صراحةً؛ وتُستمد أسئلة التحقق فقط من مسار التحدي المعتمد والمخزّن في قاعدة المعرفة. صفر طلب مسجّل عبر جميع المكالمات.",
+    "تمنع تعليمات النظام ذلك صراحةً؛ وتُستمد أسئلة التحقق فقط من مسار التحدي المعتمد والمخزّن في قاعدة المعرفة. والمصنّف حتمي والرد المنطوق من جدول ثابت لكل لغة، فلا يمكن لأي مسار أن يُنتج مثل هذا الطلب.",
   "Pre-approved actions only":
-    "يحدّ تحديد نطاق الأدوات الوكيل بإجراء كتابة واحد — التجميد المؤقت. أما الإجراءات غير القابلة للتراجع فتشترط التسليم لأخصائي بشري، بعلامة صارمة في رسم المسار.",
+    "يحدّ تحديد نطاق الأدوات الوكيل بإجراء كتابة واحد — التجميد الممهَّد، الذي يرد بـ committed:false حتى يثبّته إنسان. أما الإجراءات غير القابلة للتراجع فتشترط التسليم لأخصائي بشري، بعلامة صارمة في رسم المسار.",
   "Language consistency":
-    "يكتشف الوكيل لغة العميل من الرد الأول ويلتزم بها طوال المكالمة؛ ويحدّد ملف العميل اللهجة (خليجية، فصحى، أردية، هندية، فلبينية، مالايالامية).",
+    "يُوجَّه الوكيل بالكلام بلغة العميل والتبديل معها إذا بدّلها، وتكتب أداة switch_language هذا التبديل في الحالة. وستة رموز موجودة في المنصة (EN · AR · HI · UR · FR · SW)، والوكيل الحيّ مهيّأ للإنجليزية والعربية والهندية، وتحدّد ملف العميل اللهجة.",
   "Audit completeness":
     "كل مكالمة تُسجّل وتُنقل نصياً؛ وتُخزّن البيانات الوصفية — طريقة التحقق والإجراءات المتخذة وسبب التسليم — في سجل غير قابل للتغيير بمدخلات مترابطة تجزئةً، بتشفير AES-256 عند التخزين.",
   "Calling-hour compliance":
-    "التحقق من المنطقة الزمنية في ملف العميل قبل بدء أي مكالمة؛ وتُدرج المكالمات خارج الساعات المسموحة تلقائياً في النافذة المسموحة التالية.",
+    "التحقق من المنطقة الزمنية في ملف العميل قبل بدء أي مكالمة؛ والمكالمة الروتينية خارج النافذة المسموحة تُرفض برمز قابل للقراءة آلياً، أما التحقق من الاحتيال الحرج زمنياً فغير مقيّد بتلك النافذة.",
   "Vulnerability handling":
-    "يكتشف تحليل المشاعر إشارات الاستغاثة لحظياً؛ مع تسليم ذي أولوية تلقائي إلى أخصائي بشري مع تعليم الحالة كفئة هشة وإرفاق السياق الكامل.",
+    "يرصد تحليل المشاعر إشارات الاستغاثة والتوجيه الحيّ لحظياً ويحوّل المكالمة إلى إنسان مع تعليم الحالة كفئة هشة وإرفاق السياق الكامل. وطابور الأخصائيين يرتّب حسب الخسارة المتوقعة لا حسب الضيق.",
 };
 
 function Guardrails() {
@@ -583,10 +591,10 @@ const METRIC_NOTES_AR: Record<string, string> = {
   prevention:
     "تُقاس كنسبة محاولات الاحتيال المؤكدة التي أُوقفت بعد الكشف. وترفع الأتمتة السقف الذي يفرضه زمن المعاودة البشرية.",
   delay:
-    "من إشارة الاحتيال إلى الاتصال الحيّ بالعميل. اختصار المدة بمعدل ٢٥ ضعفاً هو مصدر الخسائر التي تم منعها — يفقد المحتالون نافذتهم الزمنية.",
+    "من إشارة الاحتيال إلى الاتصال الحيّ بالعميل. الأتمتة هي ما يقصّر هذه المدة قياساً على معاودة بشرية — ولم يُقَس بعد زمن وصول المنصة نفسها، فهذا الهدف هدفٌ لا قراءة.",
   verify:
     "نسبة المكالمات التي أكملت التحقق من الهوية دون اللجوء إلى القنوات اليدوية. والأصوات متعددة اللغات ترفع هذه النسبة.",
-  csat: "استبيان ما بعد المكالمة. التعرّف الشفاف على كون المتحدث ذكياً اصطناعياً مع مخرج بشري فوري يحمي التقييم حتى عندما تكون الأخبار سيئة.",
+  csat: "استبيان ما بعد المكالمة. التعرّف الشفاف على كون المتحدث ذكياً اصطناعياً، مع تسليم يفعّله النظام عند تكرار الردود غير الواضحة أو عند إشارات الاستغاثة، يحمي التقييم حتى عندما تكون الأخبار سيئة.",
 };
 
 const MEASUREMENT_PLAN_AR: Record<string, { t: string; d: string }> = {
@@ -611,10 +619,10 @@ function Metrics() {
     prevention:
       "Measured as share of confirmed-fraud attempts blocked after detection. Automation lifts the ceiling that human callback speed imposes.",
     delay:
-      "From fraud signal to live customer contact. The 25× compression is where the prevented losses come from — fraudsters lose their window.",
+      "From fraud signal to live customer contact. Automation is what shortens it against a human callback — the platform's own time-to-contact is not yet measured, so this bar is a target, not a reading.",
     verify:
       "Share of calls completing identity verification without falling back to manual channels. Multilingual voices drive this up.",
-    csat: "Post-call survey. Transparent AI introduction + one-word human escape protects the score even when the news is bad.",
+    csat: "Post-call survey. Transparent AI introduction, plus a handoff the platform triggers on repeated unclear answers or distress markers, protects the score even when the news is bad.",
   };
   return (
     <div className="space-y-5">

@@ -165,10 +165,10 @@ export const scenes = [
     id: "09-close",
     kind: "card",
     chapter: "Outcome",
-    title: "Frozen in 60 seconds",
-    subtitle: "Fraud detected · Customer called · Account frozen",
+    title: "Freeze staged inside the case deadline",
+    subtitle: "Fraud detected · Customer called · Freeze staged",
     narration:
-      "Fraud detected, customer called, account frozen — sixty seconds instead of thirty-eight minutes, in the customer's own language, with an audit trail that proves itself afterwards. That is SecureVoice AI.",
+      "Fraud detected, customer called, a freeze staged for a human to commit — inside a sixty-second case deadline instead of thirty-eight minutes, in the customer's own language, with an audit trail that proves itself afterwards. That is SecureVoice AI.",
     captions: ["60 seconds, not 38 minutes", "Tamper-evident audit chain"],
     min: 1.5,
   }),

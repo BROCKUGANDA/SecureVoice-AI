@@ -42,8 +42,25 @@ import "server-only";
  *     (`DEFAULT_OVERAGE_RATE_MINOR_PER_UNIT`, 15) so a demo org or a period
  *     before billing was mirrored still produces an invoice.
  *
- * $0.15/unit against the ~$0.05 blended Twilio + ElevenLabs + model cost of one
- * intervention is a 66% gross margin on overage — see docs/UNIT-ECONOMICS.md.
+ * ## What this file deliberately does NOT claim
+ *
+ * This comment used to read "$0.15/unit against the ~$0.05 blended Twilio +
+ * ElevenLabs + model cost of one intervention is a 66% gross margin on overage —
+ * see docs/UNIT-ECONOMICS.md". The cited document says the opposite of that: it
+ * models a 3-minute intervention at **≈$0.55**, from
+ * `cost_per_call = 3 × (carrier_rate + 0.08) + 0.002` with ElevenLabs Agents at
+ * $0.08/min (docs/UNIT-ECONOMICS.md:105-116). So 15¢ and 12¢ are both BELOW the
+ * modelled cost per unit, and there is no margin figure this file may state.
+ *
+ * A defensible margin needs two numbers nobody has recorded yet: the measured mean
+ * handle time per plan (`Case.durationSeconds` is written by
+ * `src/lib/elevenlabs/inbound.ts:270,314` but aggregated nowhere) and the
+ * destination carrier rate, which the capacity model also refuses to guess
+ * ("EXCLUDED — INPUT REQUIRED", `src/lib/scale/capacity.ts:484-491`). Until both
+ * exist the rate stands on what it actually is — a commercial commitment published
+ * on `/pricing` and mirrored into `scripts/seed-paddle-catalog.ts` — not on a cost
+ * claim, because a comment is not a measurement and this one was cited as if it
+ * were.
  *
  * ## Why the plan, the allowance, and the rate all come from one read
  *

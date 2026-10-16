@@ -26,7 +26,7 @@ mixed under the screen capture.
 | 06  | Compliance                           | Security page                | Every call opens with a disclosure; PIN/OTP/password requests are refused server-side, not by asking the model nicely; PII is redacted before persistence.                        |
 | 07  | Multilingual                         | Same simulation, Arabic      | The customer's language is the agent's language — Arabic routes to a different voice identity (Fatima, Gulf Arabic), same disclosure, same guardrails, bilingual transcript.      |
 | 08  | Evidence                             | Compliance dashboard         | Every action is a row in an immutable audit log: sha256 over the canonical serialisation, chained to the row before it. Editing any field breaks the link from that point onward. |
-| 09  | Outcome                              | Title card                   | Frozen in 60 seconds — in the customer's own language, with a chain that proves itself afterwards.                                                                                |
+| 09  | Outcome                              | Title card                   | Freeze staged inside the case deadline — in the customer's own language, with a chain that proves itself afterwards.                                                              |
 
 ## The narration script
 
@@ -69,7 +69,7 @@ of truth the pipeline speaks):
 > to the row before it, so editing any field breaks the link from that point
 > onward. Filter, actor, detail, hash — the list an auditor recomputes.
 >
-> **09** — Fraud detected, customer called, account frozen — sixty seconds
+> **09** — Fraud detected, customer called, a freeze staged for a human to commit — sixty seconds
 > instead of thirty-eight minutes, in the customer's own language, with an
 > audit trail that proves itself afterwards. That is SecureVoice AI.
 

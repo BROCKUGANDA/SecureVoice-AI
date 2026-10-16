@@ -2,6 +2,7 @@ import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { consume as consumeRateLimit, rateLimitId } from "@/lib/ratelimit";
 import { checkBadActor, recordStrike } from "@/lib/abuse/bad-actor";
+import { isRingingStatus, recordRingingFromCallback } from "@/lib/telemetry/ringing";
 import { twilioSignedUrl, verifyTwilioSignature } from "@/lib/twilio";
 import {
   twilioCallStatusToOurs,
@@ -100,6 +101,17 @@ export async function POST(req: NextRequest) {
   if (!providerSid) return accepted();
 
   const raw = params.Status ?? params.CallStatus ?? params.MessageStatus ?? null;
+  // The ringing sample is taken from the RAW provider status, before the fold two lines
+  // below turns `ringing` into `queued` for the delivery record — after that fold the
+  // two instants are indistinguishable, which is precisely why `signal_received_to_ringing`
+  // went its whole life without a producer. Awaited rather than fired-and-forgotten: a
+  // dropped write would leave the callback answered and the case unmeasured, which is the
+  // silent-zero failure this plane keeps producing. Telemetry never fails the callback —
+  // `recordRingingFromCallback` logs its own refusal, and the delivery record below still
+  // gets written, because a 5xx here means Twilio re-delivers a real status forever.
+  if (channel === "voice" && isRingingStatus(raw)) {
+    await recordRingingFromCallback(providerSid);
+  }
   const status: TelecomStatus | null =
     channel === "voice" ? twilioCallStatusToOurs(raw) : twilioMessageStatusToOurs(raw);
   if (!status) {

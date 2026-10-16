@@ -204,6 +204,15 @@ describe("VIEW_ACCESS is total and consistent", () => {
     expect(atLeast("judge", ACCESS_SEAT[VIEW_ACCESS.console]!)).toBe(false);
   });
 
+  test("the audit explorer is operator-only", () => {
+    // It reads across the tenant's audit log and exports rows. A working seat
+    // has the per-case chain in the Command Center already; the cross-case
+    // view plus bulk export is an auditor's surface, and the export route
+    // behind it (`export_bulk_data`) refuses non-operator seats anyway. The nav
+    // must not promise a screen the route would refuse.
+    expect(ACCESS_SEAT[VIEW_ACCESS.audit], "audit is not operator-only").toBe("operator");
+  });
+
   test("the tour and the dashboard are open to every signed-in seat", () => {
     // A judge who cannot open the product tour is a judge who concludes there is
     // no product.

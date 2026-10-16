@@ -91,7 +91,12 @@ function checkServiceInventory() {
     litellm: "stateful-ish LLM proxy with a long-lived upstream",
     realtime: "socket server; long-lived, deployed separately",
     caddy: "the TLS edge; recreated only when its definition changes",
-    "outbox-worker": "drains a durable outbox; restart-safe, rolled rarely",
+    // `outbox-worker` used to live here as "drains a durable outbox; restart-safe,
+    // rolled rarely". That classification was the bug: nothing rolled it, so it ran
+    // the first image ever built for it, and no gate could see the staleness because
+    // the conformance check only inspected the app container. It is now in deploy.yml's
+    // roll list; the repo gate above will fail if it is ever quietly demoted again by
+    // re-adding it here without removing it there.
     "app-direct": "a debugging bypass of the proxy; not part of the roll",
   };
 
@@ -482,34 +487,81 @@ function checkBoxCurrency() {
 }
 
 function checkBoxImageConformance() {
-  // The running app container must use the image compose expects, and that image
-  // must be tagged. This is the stale-image gate from VPS-RECOVERY #3.
-  let running = "";
-  try {
-    running = sh("docker inspect securevoice-ai-app-1 --format '{{.Image}}'");
-  } catch (e) {
-    const where = e.stderr?.toString?.() || e.message || String(e);
+  // The running container for EVERY service the deploy claims to roll must use an
+  // image some tag still points at. This used to inspect `securevoice-ai-app-1`
+  // alone — which is how `outbox-worker` could run a months-old build indefinitely:
+  // the gate was named for image conformance and was looking at one container.
+  //
+  // A dangling image id means the tag has moved on (or never existed) while the
+  // container stayed put: the next `up -d` resolves that service's image to whatever
+  // the tag says now, which may be a different build from the one serving traffic.
+  const deploy = read(".github/workflows/deploy.yml");
+  const m = deploy.match(/docker compose up -d ([^\n]+)/);
+  if (!m) {
+    fail("deploy.yml: no `docker compose up -d <services>` line to verify against");
+    return;
+  }
+  const rolled = m[1].trim().split(/\s+/).filter(Boolean);
+  if (rolled.length < 2) {
     fail(
-      `docker could not inspect securevoice-ai-app-1: ${where.split("\n").filter(Boolean).slice(-1)[0] ?? where}` +
-        ` — that is the gate failing to look, not proof the app is down.`,
+      `deploy.yml roll list resolved to ${rolled.length} service(s); refusing to certify a roll of one container`,
     );
     return;
   }
-  if (!running) {
-    fail("securevoice-ai-app-1 has no image id — is the app running?");
-    return;
+
+  const tagged = new Set(
+    sh("docker images --format '{{.ID}}'")
+      .split("\n")
+      .map((s) => s.replace("sha256:", "").slice(0, 12))
+      .filter(Boolean),
+  );
+
+  const problems = [];
+  const checked = [];
+  for (const svc of rolled) {
+    let cid = "";
+    try {
+      cid = sh(`docker compose --project-directory "${BOX}" ps -q ${svc}`);
+    } catch (e) {
+      const where = e.stderr?.toString?.() || e.message || String(e);
+      problems.push(
+        `${svc}: compose could not be asked for its container — ${where.split("\n").filter(Boolean).slice(-1)[0] ?? where}`,
+      );
+      continue;
+    }
+    if (!cid) {
+      // checkBoxInventory already fails on a missing running container; this is the
+      // same fact seen from the image side, so record rather than double-fail.
+      problems.push(`${svc}: compose reports no container id`);
+      continue;
+    }
+    const image = sh(`docker inspect ${cid} --format '{{.Image}}'`)
+      .replace("sha256:", "")
+      .slice(0, 12);
+    if (!image) {
+      problems.push(`${svc}: container ${cid.slice(0, 12)} has no image id`);
+      continue;
+    }
+    if (!tagged.has(image)) {
+      problems.push(
+        `${svc}: running image ${image} is tagged by nothing — the tag has moved and this container has not`,
+      );
+      continue;
+    }
+    checked.push(`${svc}@${image}`);
   }
-  const tagged = sh("docker images --format '{{.ID}}'").split("\n").filter(Boolean);
-  const short = running.replace("sha256:", "").slice(0, 12);
-  const dangling = !tagged.some((id) => id.startsWith(short));
-  if (dangling) {
+
+  if (problems.length) {
     fail(
-      `the running app container uses image ${short}, which no tag points at (dangling).\n` +
-        `       that is the stale-image precondition: the next \`up -d\` resolves` +
-        ` app.image to whatever the tag says now, which may be a different build.`,
+      `deployed containers are not conforming to the images the deploy rolled:\n` +
+        `       ${problems.join("\n       ")}\n` +
+        `       a service can be recreated or forgotten individually, so every rolled\n` +
+        `       service is inspected — checking only the app container let a worker go stale unseen.` +
+        ` The next \`up -d\` resolves a stale service's image to whatever the tag says now,\n` +
+        `       which may be a build that has never served traffic.`,
     );
   } else {
-    info(`running app image ${short} is tagged`);
+    info(`all ${checked.length} rolled containers run a tagged image: ${checked.join(", ")}`);
   }
 }
 

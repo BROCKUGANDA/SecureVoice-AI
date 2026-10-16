@@ -1,6 +1,7 @@
 import "server-only";
 import type { Redis } from "ioredis";
 import { env, rateLimitPerHour } from "@/lib/config";
+import { isRealIp, resolveClientIp } from "@/lib/client-ip";
 import { logWarn } from "@/lib/validation/safe-log";
 /**
  * Token-bucket rate limiter with a pluggable store backend.
@@ -207,10 +208,16 @@ export function _reset(): void {
  * limit decorative; keying on the proxy-resolved IP is what makes the limit
  * real. Per-user limits on authenticated routes should still pass the
  * authenticated user id directly to consume() instead of this helper.
+ *
+ * The sentinel test uses `isRealIp` rather than comparing two literals, because
+ * the proxy now emits `untrusted` (see `src/lib/ip-normalize.ts`) and a hand-rolled
+ * literal comparison here would silently start keying every metered route on the
+ * shared `ip:untrusted` string the moment the sentinel was renamed. That is a
+ * rate limit that fails OPEN — every caller from one bucket — for no visible reason.
  */
 export function rateLimitId(req: Request, fallback = "anon"): string {
-  const ip = req.headers.get("x-securevoice-client-ip");
-  if (ip && ip !== "direct" && ip !== "unknown") return `ip:${ip}`;
+  const ip = resolveClientIp(req.headers);
+  if (isRealIp(ip)) return `ip:${ip}`;
   const caller = req.headers.get("x-caller-id");
   if (caller) return `cid:${caller}`;
   return fallback;

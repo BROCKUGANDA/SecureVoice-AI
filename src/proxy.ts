@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { consume } from "@/lib/ratelimit";
+import { IP_UNKNOWN, IP_UNTRUSTED, isRealIp, normalizeIp } from "@/lib/ip-normalize";
 import { SUPPORTED_LANGS } from "@/lib/languages";
 import { logWarn } from "@/lib/validation/safe-log";
 
@@ -118,15 +119,27 @@ function cameThroughProxy(req: NextRequest): boolean {
  * which Cloudflare sets and Caddy forwards untouched. It wins over XFF; on the
  * direct (unproxied) hostname the header is absent and the chain is used as
  * before.
+ *
+ * `normalizeIp` is imported from the SHARED `src/lib/ip-normalize.ts` rather than
+ * re-implemented. The server-side resolver in `src/lib/client-ip.ts` re-derives this
+ * same value whenever the header it injects did not survive, and if the two spelled
+ * an address differently the injected value and the re-derived one would be two
+ * identities for one person — which is the exact defect that module was written to
+ * remove. This is why `ip-normalize.ts` carries no `server-only` marker and no
+ * `node:` imports: it has to be valid on the edge AND in Node.
+ *
+ * NOTE: the edge runtime cannot import `next/headers`, so the trust marker is read
+ * straight off the request. That is the same value, from the same place.
  */
 function clientIp(req: NextRequest): string {
-  if (!cameThroughProxy(req)) return "direct";
-  const cf = req.headers.get("cf-connecting-ip");
-  const xff = req.headers.get("x-forwarded-for");
-  const first = cf || xff?.split(",")[0]?.trim();
-  const candidate = first || req.headers.get("x-real-ip");
-  if (!candidate) return "unknown";
-  return candidate.replace(/[^\w.:]/g, "").slice(0, 64) || "unknown";
+  if (!cameThroughProxy(req)) return IP_UNTRUSTED;
+  const cf = normalizeIp(req.headers.get("cf-connecting-ip"));
+  if (isRealIp(cf)) return cf;
+  const first = normalizeIp(req.headers.get("x-forwarded-for")?.split(",")[0]);
+  if (isRealIp(first)) return first;
+  const real = normalizeIp(req.headers.get("x-real-ip"));
+  if (isRealIp(real)) return real;
+  return IP_UNKNOWN;
 }
 
 /** Best-effort language from Accept-Language, narrowed to the languages we speak. */

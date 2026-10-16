@@ -112,7 +112,7 @@ io.on("connection", (socket) => {
     });
   };
 
-  socket.on("join", (payload: unknown, ack?: (res: unknown) => void) => {
+  socket.on("join", async (payload: unknown, ack?: (res: unknown) => void) => {
     const requested = typeof payload === "string" ? payload : "";
     const [kind, orgPart, callRef] = requested.split(":");
     const orgId = safeSegment(orgPart ?? "", 64);
@@ -124,16 +124,44 @@ io.on("connection", (socket) => {
       ack?.({ ok: false, error: "not_in_scope" });
       return;
     }
-    void socket.join(expected);
+    // Awaited, and only acked afterwards. With the Redis adapter `join` is the
+    // write that tells the OTHER replicas this socket is in the room; acking
+    // first tells the console "you are watching SV-…" while node A still routes
+    // events for that case to nobody — and a publish to a room with no members is
+    // not queued or retried, it is gone. `/ingest` answering 202 before the
+    // broadcast resolves is deliberate for the writer's latency, and it is exactly
+    // why nothing comes back to fix a miss. The first phase transition after
+    // opening the feed is the one at risk, which is the shape of the red
+    // crossnode.test.ts reported: not a slow delivery, a delivery that never
+    // arrived.
+    try {
+      await socket.join(expected);
+    } catch (err) {
+      // The socket IS in the room locally; the cluster just has not been told.
+      // Say so rather than letting a rejected promise inside an event handler
+      // take this replica down for every operator already connected to it.
+      console.error(`join not confirmed for ${expected}: ${String(err)}`);
+      ack?.({ ok: false, error: "join_not_confirmed" });
+      return;
+    }
     presence.add(expected, { sub: grant.sub, socketId: socket.id, joinedAt: Date.now() });
     ack?.({ ok: true, channel: expected, watchers: presence.watchers(expected) });
     announce(expected);
   });
 
-  socket.on("leave", (payload: unknown) => {
+  socket.on("leave", async (payload: unknown) => {
     const requested = typeof payload === "string" ? payload : "";
     if (!socket.data.channels.has(requested)) return;
-    void socket.leave(requested);
+    // Same reason as join, mirrored: an un-awaited leave leaves the other
+    // replicas publishing into a room this socket has already left, so an
+    // operator who switched case can still receive the case they switched away
+    // from. Announcing presence after the cluster agrees keeps the roster the
+    // one thing it claims to be.
+    try {
+      await socket.leave(requested);
+    } catch (err) {
+      console.error(`leave not confirmed for ${requested}: ${String(err)}`);
+    }
     presence.remove(requested, socket.id);
     announce(requested);
   });

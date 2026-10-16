@@ -1,4 +1,5 @@
 import { logError, logWarn, registerLogSink } from "@/lib/validation/safe-log";
+import { registerExporterFlush } from "@/lib/telemetry/exporter-flush";
 
 /**
  * Next.js instrumentation hook — runs once at server boot (Node runtime).
@@ -137,6 +138,34 @@ export async function register() {
       error: err instanceof Error ? err.message : err,
     });
   }
+
+  // Both subsystems above batch, so both need a flush on the way out. The OTLP
+  // SDK holds each signal until its scheduled delay, and Axiom buffers log
+  // records. `shutdownOtel` and `flushAxiom` each documented "call this from a
+  // SIGTERM handler" and were called by nothing — so a deploy dropped whatever
+  // had not shipped yet, which is precisely the window covering the release that
+  // is being deployed.
+  //
+  // Handed to the preload instead of registered as a signal handler here. This
+  // process's SIGTERM is owned by scripts/server-preload.ts; a second listener
+  // would either race its drain or keep the process alive past it. The preload
+  // calls this after its drain window elapses and immediately before it exits,
+  // which is the last moment anything can still be shipped.
+  //
+  // A shared global is not a convenience, it is the only seam that reaches the
+  // live SDK. Two reasons, and the first is the hard one: the runner image ships
+  // `.next/standalone` plus this one preload script (`scripts/copy-standalone.mjs`,
+  // Dockerfile `FROM … AS runner`), so there is no `src/` there to import at all.
+  // And even importing the compiled server's own file would not help — a fresh
+  // `import()` makes a *second* module instance, whose `initialized` singleton is
+  // null, so its shutdown would report a clean flush of nothing.
+  registerExporterFlush(async () => {
+    const [{ shutdownOtel }, { flushAxiom }] = await Promise.all([
+      import("@/lib/telemetry/otel"),
+      import("@/lib/telemetry/axiom"),
+    ]);
+    await Promise.all([shutdownOtel(), flushAxiom()]);
+  });
 
   // The "did we forget to flip it?" class of failure — loud at every boot,
   // plus `bun run preflight` before any demo or go-live.

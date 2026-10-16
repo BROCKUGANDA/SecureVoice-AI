@@ -170,11 +170,24 @@ const UNPRODUCED_WITH_REASON: Record<string, string> = {
   // refused: it would start the clock LATE (after the ASR's endpointing silence) and
   // duplicate `answered_to_first_agent_word`, whose producer is driven in CI by
   // tests/unit/voice-stream-first-agent-word.test.ts.
-  fraud_confirmed_to_webhook_delivered:
-    'nothing persists the confirmation instant today (`outcome: "fraud_confirmed"' +
-    " is recorded in `src/app/api/webhooks/route.ts`, and the bank event starts from its own " +
-    "`createdAt`), so the only span measurable from existing columns would exclude our own " +
-    "decision time and understate the 2s promise it exists to prove.",
+  // ── RETIRED 2026-10-16: `fraud_confirmed_to_webhook_delivered` is no longer unproduced. ──
+  // The reason above was accurate when written and named the missing half precisely:
+  // "nothing persists the confirmation instant". Two things were wrong in it and both are
+  // now fixed rather than reworded. The delivery instant already existed
+  // (`OutboxEvent.deliveredAt`, written only on a successful delivery); the start did not,
+  // so `Case.fraudConfirmedAt` was added and is stamped by the single state writer when a
+  // case enters `CONFIRMED_FRAUD` — which only the customer's own denial in
+  // `verify-transaction` can cause, so the instant is a fact about the call, not about a
+  // row being touched. Producer: `src/lib/telemetry/confirmation.ts`, called from
+  // `src/lib/outbox.ts` at the moment a delivery commits, once per event row, and only
+  // for `case.notified`. It refuses a case with no persisted start rather than borrowing
+  // `updatedAt`, and it never filters a LONG sample — a nine-second delivery is the exact
+  // failure the 2 s budget exists to surface, and a producer that drops its own bad news
+  // is how a p95 becomes a marketing number.
+  //
+  // The map is now empty, which is a shape a gate can pass for the wrong reason. The
+  // assertion below is paired with a positive control that proves an unproduced span is
+  // still detected when the map is empty.
 };
 
 test("every declared span has a producer, or a named reason for not having one", () => {

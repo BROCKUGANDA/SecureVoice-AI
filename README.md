@@ -156,14 +156,14 @@ the trust model in `src/proxy.ts` sound: it believes `X-Forwarded-For` only when
 request carries the marker Caddy sets, and a direct-to-origin caller can forge
 anything else.
 
-| Variable                   | Default                           | Purpose                                                                                                           |
-| -------------------------- | --------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `SITE_ADDRESS`             | `localhost`                       | Domain Caddy issues a certificate for. Must resolve to the host.                                                  |
-| `ACME_EMAIL`               | `admin@example.com`               | Let's Encrypt expiry notices.                                                                                     |
-| `REALTIME_INGEST_SECRET`   | falls back to `AGENT_TOOL_SECRET` | HMAC key shared by app and realtime. Unset ⇒ realtime refuses every connection and the console silently uses SSE. |
-| `REALTIME_URL`             | `http://realtime:4000`            | Internal service address. **Never `localhost`** — inside the app container that is the app container.             |
-| `REALTIME_ALLOWED_ORIGIN`  | empty (any)                       | Comma-separated browser origins the socket accepts.                                                               |
-| `EDGE_RATE_LIMIT_PER_HOUR` | `600`                             | Pre-auth edge budget per client IP. Separate from the expensive-call API limit.                                   |
+| Variable                   | Default                | Purpose                                                                                                                                               |
+| -------------------------- | ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SITE_ADDRESS`             | `localhost`            | Domain Caddy issues a certificate for. Must resolve to the host.                                                                                      |
+| `ACME_EMAIL`               | `admin@example.com`    | Let's Encrypt expiry notices.                                                                                                                         |
+| `REALTIME_INGEST_SECRET`   | none — no fallback     | HMAC key shared by app and realtime. Also needs `FEATURE_REALTIME=true`. Unset ⇒ realtime refuses every connection and the console silently uses SSE. |
+| `REALTIME_URL`             | `http://realtime:4000` | Internal service address. **Never `localhost`** — inside the app container that is the app container.                                                 |
+| `REALTIME_ALLOWED_ORIGIN`  | empty (any)            | Comma-separated browser origins the socket accepts.                                                                                                   |
+| `EDGE_RATE_LIMIT_PER_HOUR` | `600`                  | Pre-auth edge budget per client IP. Separate from the expensive-call API limit.                                                                       |
 
 ### Feature flags
 

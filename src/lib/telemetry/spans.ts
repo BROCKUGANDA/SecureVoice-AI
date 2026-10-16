@@ -244,21 +244,11 @@ export type SpanRecorderDiagnostics = {
  */
 export const RING_CAPACITY = 5_000;
 
-/** A sample this far past its budget is surfaced as an outlier in the report. */
-export const OUTLIER_FACTOR = 4;
-
 let ring: SpanRecord[] = [];
 let recordedCount = 0;
 let droppedInvalidCount = 0;
 let droppedRingOverflowCount = 0;
 let lastRejection: string | null = null;
-
-/** Monotonic elapsed time — immune to an NTP step mid-call. */
-function monotonicMs(): number {
-  return typeof performance !== "undefined" && typeof performance.now === "function"
-    ? performance.now()
-    : Date.now();
-}
 
 function reject(reason: string): null {
   droppedInvalidCount += 1;
@@ -346,66 +336,6 @@ export function recordSpan(input: SpanInput): SpanRecord | null {
     // allocator fault above should still never reach the caller.
     return reject(`unexpected:${err instanceof Error ? err.message.slice(0, 120) : typeof err}`);
   }
-}
-
-export type SpanHandle = {
-  span: SpanName;
-  spanId: string;
-  interventionId: string;
-  /** Close the span and store it. Safe to call twice; the second call is ignored. */
-  end(extra?: { durationMs?: number; attributes?: SpanAttributes }): SpanRecord | null;
-};
-
-/**
- * Start a span for a call site that does not have both timestamps yet.
- *
- * The elapsed time is measured on a monotonic clock, so a wall-clock step during
- * the call cannot produce a negative or absurd duration. `end()` still hands
- * the caller a stored record — use it to chain `signal_received` into
- * `signal_received_to_freeze_staged`.
- */
-export function startSpan(
-  span: SpanName | (string & {}),
-  ids: {
-    interventionId?: string | null;
-    conversationId?: string | null;
-    caseRef?: string | null;
-    attributes?: SpanAttributes;
-  } = {},
-): SpanHandle {
-  const startedAtMs = Date.now();
-  const startMono = monotonicMs();
-  let closed = false;
-  // An unknown name here would be recorded under the first span's name, which is
-  // a lie in the other direction (it manufactures samples for span #1). It is
-  // still recorded — the caller is mid-intervention and dropping its probe is
-  // its own loss — but the rejection counter names the bug.
-  const safeSpan: SpanName = isSpanName(span) ? span : SPAN_DEFINITIONS[0].name;
-
-  return {
-    span: safeSpan,
-    spanId: "",
-    interventionId:
-      clean(ids.interventionId) ??
-      clean(ids.caseRef) ??
-      clean(ids.conversationId) ??
-      "unattributed",
-    end(extra) {
-      if (closed) return null;
-      closed = true;
-      const measured = monotonicMs() - startMono;
-      const durationMs = extra?.durationMs ?? Math.max(0, Math.round(measured * 1_000) / 1_000);
-      return recordSpan({
-        span: safeSpan,
-        startedAtMs,
-        durationMs,
-        interventionId: ids.interventionId,
-        conversationId: ids.conversationId,
-        caseRef: ids.caseRef,
-        attributes: { ...(ids.attributes ?? {}), ...(extra?.attributes ?? {}) },
-      });
-    },
-  };
 }
 
 /** Newest-last copy of the ring, capped at `limit`. Never throws. */

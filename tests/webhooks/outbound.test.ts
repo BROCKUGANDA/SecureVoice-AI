@@ -59,6 +59,13 @@ beforeAll(async () => {
   await db.webhookEvent.deleteMany({}).catch(() => undefined);
 });
 
+// WebhookEvents are keyed by (provider, eventType, conversationId, eventTimestamp).
+// WP-4 (elevenlabs-inbound) creates events that can collide with WP-5's keys when
+// both files run in the same `bun test` invocation, so clear them first.
+beforeAll(async () => {
+  await db.webhookEvent.deleteMany({}).catch(() => undefined);
+});
+
 function spyReceiver(script: (call: number) => number) {
   const calls: { body: string; header: string | null }[] = [];
   let n = 0;

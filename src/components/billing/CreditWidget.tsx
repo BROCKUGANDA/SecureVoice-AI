@@ -150,22 +150,50 @@ export function CreditWidget({
   const handleCredit = useCallback(
     (event: CreditDeductedEvent) => {
       const remaining = event.data.remaining;
+      if (typeof remaining !== "number") return;
       applyBalance(remaining);
+      // Fetch the ledger-derived plan usage so the percentage bar and the overage
+      // badge move on the SAME tick as the balance rather than sitting at the
+      // upload-time snapshot until the next reload. This is what
+      // "users can see their bars or meters moving at the same time as the
+      // consumed credits" requires: both numbers come off the same event-loop
+      // tick as the credit movement.
+      void (async () => {
+        try {
+          const res = await fetch("/api/console/me", { cache: "no-store" });
+          if (!res.ok) return;
+          const body = (await res.json()) as {
+            plan?: {
+              plan?: unknown;
+              allowanceUnits?: unknown;
+              usage?: { usedUnits?: unknown } | null;
+            } | null;
+          };
+          const allowanceUnits =
+            typeof body.plan?.allowanceUnits === "number" ? body.plan.allowanceUnits : null;
+          const usedUnits =
+            typeof body.plan?.usage?.usedUnits === "number" ? body.plan.usage.usedUnits : null;
+          const planId = typeof body.plan?.plan === "string" ? body.plan.plan : planUsage.plan;
+          setPlanUsage({ allowance: allowanceUnits, used: usedUnits, plan: planId });
+        } catch {
+          // Non-fatal: bar/badge lag a reload instead of failing the movement.
+        }
+      })();
       if (event.data.refunded) {
         // A refund is rare and always worth a word: it is the only movement
         // that makes the balance go UP, and an unexplained increase reads as a
         // bug to the analyst watching it.
-        toast.success(t("Credit refunded", "تم ردّ الاعتماد", lang), {
+        toast.success(t("Credit refunded", "تم إرجاع الاعتماد", lang), {
           id: "credit-refund",
           description: t(
             `${remaining.toLocaleString()} credits available again.`,
-            `${remaining.toLocaleString()} اعتماداً متاحاً مرة أخرى.`,
+            `${remaining.toLocaleString()} اعتماد متوفر مرة أخرى.`,
             lang,
           ),
         });
       }
     },
-    [applyBalance, lang],
+    [applyBalance, lang, planUsage.plan, t],
   );
 
   const callbacksRef = useRef<{

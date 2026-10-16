@@ -725,6 +725,10 @@ async function armAndDial(
     signalKind: signal.signal_kind ?? null,
     callCategory: signal.call_category ?? null,
     verificationToken,
+    // The handler's own arrival instant, taken before the first await — this is what
+    // `signal_received_to_ringing` measures from. `acceptedAt` in the response and the
+    // row's `createdAt` are both later, by the gates and the round-trips between them.
+    signalReceivedAt: new Date(started),
   });
   await transitionCase(caseRef, "SCREENED");
 

@@ -968,11 +968,23 @@ function Analytics() {
 
 const GUARDRAILS = [
   { en: "Block PIN / password requests", ar: "منع طلب الرموز السرية", on: true },
-  { en: "Pre-approved actions only (freeze)", ar: "إجراءات معتمدة فقط", on: true },
-  { en: "Language lock after first response", ar: "تثبيت اللغة", on: true },
+  {
+    en: "Staged actions only — a human commits the freeze",
+    ar: "إجراءات مبدئية فقط — ويعتمد التجميد موظف بشري",
+    on: true,
+  },
+  {
+    en: "Language follows the caller when they switch",
+    ar: "اللغة تتبع المتصل عند تبديله",
+    on: true,
+  },
   { en: "Seal immutable audit log", ar: "سجل تدقيق غير قابل للتغيير", on: true },
   { en: "Calling-hour compliance check", ar: "التحقق من أوقات الاتصال", on: true },
-  { en: "Distress detection → priority handoff", ar: "اكتشاف الضيق", on: true },
+  {
+    en: "Distress detection → human handoff",
+    ar: "اكتشاف الضيق → تسليم لأخصائي بشري",
+    on: true,
+  },
 ];
 
 /**
@@ -1561,7 +1573,7 @@ function Config() {
         </div>
         <div className="mt-4 rounded-xl bg-paper px-4 py-3 text-[11.5px] leading-relaxed text-ink-2">
           {t(
-            "Dialect variants tuned for Gulf Arabic, Urdu and Hindi today — Filipino and Malayalam are one voice registration away on the same pipeline. Fallback to English when language confidence drops below threshold.",
+            "Six languages exist in the voice layer — Arabic, English, Hindi, Urdu, French and Kiswahili. The live agent runs Arabic, English and Hindi presets today; another language is a voice registration and a preset, not a new pipeline. Four unclear turns in a row escalate the call.",
             "لهجات مضبوطة اليوم للعربية الخليجية والأردية والهندية — أما الفلبينية والمالايالامية فتفصلها تسجيل صوتي واحد على نفس خط المعالجة. ويتم التحول إلى الإنجليزية عند انخفاض ثقة اللغة عن الحد.",
             lang,
           )}

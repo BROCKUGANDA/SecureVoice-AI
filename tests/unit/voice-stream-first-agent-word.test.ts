@@ -69,6 +69,15 @@ class FakeDeepgramClient {
     return this;
   }
 
+  onUtteranceEnd(_fn: (event: unknown) => void): this {
+    // Registered by the worker because the client always offers it. This test never
+    // delivers an end-of-speech message, which is the honest case for it: with no
+    // `UtteranceEnd`, `caller_stop_to_agent_audio` records nothing for the turn below —
+    // its producer, and that refusal, are driven in
+    // tests/unit/voice-stream-caller-stop.test.ts.
+    return this;
+  }
+
   start(_lang: string): void {}
 
   sendMulaw(_buffer: Buffer): void {}
@@ -110,7 +119,9 @@ mock.module("@/lib/db", () => ({
 mock.module("@/lib/audit-chain", () => ({ append: async () => "ci-hash" }));
 
 mock.module("@/lib/elevenlabs/sms-fallback", () => ({
-  markVoiceFailed: async () => {},
+  markVoiceFailed: async () => {
+    /* empty */
+  },
 }));
 
 /* ——————————————— boot the real server on an ephemeral port ——————————————— */

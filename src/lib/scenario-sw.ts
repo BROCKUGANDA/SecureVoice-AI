@@ -47,7 +47,7 @@ export const SW_PACKS: Record<ScenarioKind, SwLine[]> = {
     // e12 · protect
     "Kukulinde, ninaweka kizuizi cha muda kwenye kadi yako inayoishia kwa 4417 sasa hivi. Hii itazuia miamala yoyote ambao haujaidhinishwa, na kinaweza kuondolewa papo hapo akaunti yako itakapokuwa salama.",
     // e13 · api
-    "200 OK · 240ms — kizuizi: cha muda · sababu: washu wa udanganyifu · uthibitisho: 2/3 imefanikiwa",
+    "200 OK · staged — kizuizi: cha muda · sababu: washu wa udanganyifu · uthibitisho: 2/3 imefanikiwa",
     // e14 · done
     "Imekamilika — kadi yako imezuiwa. Nikuunganisha na mshirika wangu Sara, mtaalamu wa udanganyifu, ambaye atalinda akaunti yako na kupanga kadi yako mpya. Tafadhali endelea kwenye simu.",
     // e15 · handoff
@@ -57,7 +57,7 @@ export const SW_PACKS: Record<ScenarioKind, SwLine[]> = {
     "Kumbukumbu za ukaguzi zimefungwa — rekodi ya simu, nakala kamili ya mazungumzo, njia ya uthibitisho na wakati wa hatua zimeandikwa kwenye hifadhi isiyoweza kubadilishwa (AES-256).",
     // e17 · outcome
     (m) =>
-      `IMETATULIWA — kutoka kirudhi cha udanganyifu hadi hatua ya kinga kwa sekunde 61. Hasara iliyokadiriwa kuzuiwa: ${m.preventedLoss.en}. Njia ya zamani: dakika 38. Simu hii: sekunde 61.`,
+      `IMETATULIWA — kutoka kirudhi cha udanganyifu hadi hatua ya kinga ndani ya muda wa kesi wa sekunde 60 (simulation, muda uliogandamishwa). Hasara iliyokadiriwa kuzuiwa: ${m.preventedLoss.en}. Njia ya zamani: dakika 38..`,
   ],
 
   /* ————————— ATM CASH-OUT ————————— */
@@ -81,7 +81,7 @@ export const SW_PACKS: Record<ScenarioKind, SwLine[]> = {
       `Uhamisho wa moja kwa moja kwa mtaalamu wa binadamu (Sara H.) — muktadha wote umepitishwa: hali ya uthibitisho, tukio la udanganyifu lililothibitishwa, uhakikisho wa hatua, na alama za hisia. Kesi ${m.caseId} imefunguliwa.`,
     "Kumbukumbu za ukaguzi zimefungwa — rekodi ya simu, nakala kamili ya mazungumzo, njia ya uthibitisho na wakati wa hatua zimeandikwa kwenye hifadhi isiyoweza kubadilishwa (AES-256).",
     (m) =>
-      `IMETATULIWA — kutoka kirudhi cha udanganyifu hadi hatua ya kinga kwa sekunde 61. Hasara iliyokadiriwa kuzuiwa: ${m.preventedLoss.en}. Njia ya zamani: dakika 38. Simu hii: sekunde 61.`,
+      `IMETATULIWA — kutoka kirudhi cha udanganyifu hadi hatua ya kinga ndani ya muda wa kesi wa sekunde 60 (simulation, muda uliogandamishwa). Hasara iliyokadiriwa kuzuiwa: ${m.preventedLoss.en}. Njia ya zamani: dakika 38..`,
   ],
 
   /* ————————— IMPERSONATION WIRE SCAM ————————— */
@@ -105,7 +105,7 @@ export const SW_PACKS: Record<ScenarioKind, SwLine[]> = {
       `Uhamisho wa moja kwa moja kwa mtaalamu wa binadamu (Sara H.) — muktadha wote umepitishwa: hali ya uthibitisho, tukio la udanganyifu lililothibitishwa, uhakikisho wa hatua, na alama za hisia. Kesi ${m.caseId} imefunguliwa.`,
     "Kumbukumbu za ukaguzi zimefungwa — rekodi ya simu, nakala kamili ya mazungumzo, njia ya uthibitisho na wakati wa hatua zimeandikwa kwenye hifadhi isiyoweza kubadilishwa (AES-256).",
     (m) =>
-      `IMETATULIWA — kutoka kirudhi cha udanganyifu hadi hatua ya kinga kwa sekunde 61. Hasara iliyokadiriwa kuzuiwa: ${m.preventedLoss.en}. Njia ya zamani: dakika 38. Simu hii: sekunde 61.`,
+      `IMETATULIWA — kutoka kirudhi cha udanganyifu hadi hatua ya kinga ndani ya muda wa kesi wa sekunde 60 (simulation, muda uliogandamishwa). Hasara iliyokadiriwa kuzuiwa: ${m.preventedLoss.en}. Njia ya zamani: dakika 38..`,
   ],
 
   /* ————————— INSURANCE · CLAIM PAYOUT REDIRECT ————————— */
@@ -146,7 +146,7 @@ export const SW_PACKS: Record<ScenarioKind, SwLine[]> = {
     "Kumbukumbu za ukaguzi zimefungwa — rekodi ya simu, nakala kamili ya mazungumzo, njia ya uthibitisho na wakati wa hatua zimeandikwa kwenye hifadhi isiyoweza kubadilishwa (AES-256).",
     // e17 · outcome
     (m) =>
-      `IMETATULIWA — kutoka kirudhi cha udanganyifu hadi hatua ya kinga kwa sekunde 61. Hasara iliyokadiriwa kuzuiwa: ${m.preventedLoss.en}. Njia ya zamani: dakika 38. Simu hii: sekunde 61.`,
+      `IMETATULIWA — kutoka kirudhi cha udanganyifu hadi hatua ya kinga ndani ya muda wa kesi wa sekunde 60 (simulation, muda uliogandamishwa). Hasara iliyokadiriwa kuzuiwa: ${m.preventedLoss.en}. Njia ya zamani: dakika 38..`,
   ],
 
   /* ————————— FAILURE / ESCALATION · VOICEMAIL → SMS FALLBACK ————————— */

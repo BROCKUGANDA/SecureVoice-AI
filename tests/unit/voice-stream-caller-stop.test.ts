@@ -160,12 +160,13 @@ mock.module("@/lib/audit-chain", () => ({ append: async () => "ci-hash" }));
 
 mock.module("@/lib/elevenlabs/sms-fallback", () => ({ markVoiceFailed: async () => {} }));
 
-/* ——————————————— boot the real server on a test port ——————————————— */
+/* ——————————————— boot the real server on an ephemeral port ——————————————— */
 
-// A different base port from the sibling first-word suite: the two boot the same
-// server and CI can run files in parallel.
-const PORT = 47000 + (process.pid % 20000);
-process.env.VOICE_STREAM_PORT = String(PORT);
+// Port 0, and the bound port read back — the same mechanism
+// tests/unit/voice-stream-first-agent-word.test.ts uses. Both files boot the SAME
+// server, and a PID-derived base port only narrows the collision window: two
+// processes can derive the same `pid % 20000`, and a previous run on a shared
+// runner can still hold its socket. `VOICE_STREAM_PORT` is deliberately NOT set.
 process.env.VOICE_MAX_CALL_SECONDS = "30";
 
 const { createServer } = await import("@/worker/voice-stream");
@@ -173,7 +174,6 @@ const { recentSpans, resetSpans } = await import("@/lib/telemetry/spans");
 const { registerLogSink } = await import("@/lib/validation/safe-log");
 
 const CALL_SID = "CI-caller-stop-call";
-const BASE = `http://127.0.0.1:${PORT}`;
 
 /**
  * The silence Deepgram is configured to wait out after the caller's last syllable
@@ -187,7 +187,12 @@ const LAST_WORD_END_MS = 4_000;
  * turn whose `onFirstAudio` closes both spans. Same choice the first-word suite makes. */
 const UTTERANCES = ["yellow umbrella rainbow", "blue bicycle window", "green lantern bridge"];
 
-createServer();
+const server = createServer(0, "127.0.0.1");
+const bound = server.address();
+if (!bound || typeof bound === "string") {
+  throw new Error("voice-stream test server bound without a TCP port");
+}
+const BASE = `http://127.0.0.1:${bound.port}`;
 
 const logged: LogRecord[] = [];
 let client: WebSocket;
@@ -279,7 +284,7 @@ beforeAll(async () => {
   await waitForHealthz();
 
   client = new WebSocket(
-    `ws://127.0.0.1:${PORT}/realtime/media-stream?callSid=${CALL_SID}&lang=en`,
+    `ws://127.0.0.1:${bound.port}/realtime/media-stream?callSid=${CALL_SID}&lang=en`,
   );
   client.on("message", (data) => {
     try {

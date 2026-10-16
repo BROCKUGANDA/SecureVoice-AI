@@ -119,16 +119,20 @@ mock.module("@/lib/db", () => ({
 mock.module("@/lib/audit-chain", () => ({ append: async () => "ci-hash" }));
 
 mock.module("@/lib/elevenlabs/sms-fallback", () => ({
-  markVoiceFailed: async () => {},
+  markVoiceFailed: async () => {
+    /* empty */
+  },
 }));
 
-/* ——————————————— boot the real server on a test port ——————————————— */
+/* ——————————————— boot the real server on an ephemeral port ——————————————— */
 
-// `PORT` is read at module load of the worker, so the env must be set before
-// the import below — the same mechanism compose uses to place the service.
-// PID-derived so parallel suites on one machine cannot collide.
-const PORT = 41000 + (process.pid % 20000);
-process.env.VOICE_STREAM_PORT = String(PORT);
+// Port 0: the OS assigns a free port and the test reads it back, so no other
+// process on the machine — a parallel suite, a previous run still holding its
+// socket on a shared runner — can collide with this server. A fixed port, even
+// a PID-derived one, failed CI exactly that way (`EADDRINUSE` on a port two
+// processes both derived). `VOICE_STREAM_PORT` is therefore deliberately NOT
+// set here: the parameter below is the whole mechanism, the same one compose
+// uses in reverse when it places the service.
 // Shorten the hard wall-clock cap to its floor; the close handler clears the
 // timer anyway, but a stuck socket should not outlive the suite by minutes.
 process.env.VOICE_MAX_CALL_SECONDS = "30";
@@ -137,9 +141,12 @@ const { createServer } = await import("@/worker/voice-stream");
 const { recentSpans, resetSpans } = await import("@/lib/telemetry/spans");
 
 const CALL_SID = "CI-first-word-call";
-const BASE = `http://127.0.0.1:${PORT}`;
-
-createServer();
+const server = createServer(0, "127.0.0.1");
+const bound = server.address();
+if (!bound || typeof bound === "string") {
+  throw new Error("voice-stream test server bound without a TCP port");
+}
+const BASE = `http://127.0.0.1:${bound.port}`;
 
 async function waitForHealthz(deadlineMs = 5_000): Promise<void> {
   const deadline = Date.now() + deadlineMs;
@@ -190,7 +197,7 @@ beforeAll(async () => {
   await waitForHealthz();
 
   client = new WebSocket(
-    `ws://127.0.0.1:${PORT}/realtime/media-stream?callSid=${CALL_SID}&lang=en`,
+    `ws://127.0.0.1:${bound.port}/realtime/media-stream?callSid=${CALL_SID}&lang=en`,
   );
   client.on("message", (data) => {
     try {
@@ -214,6 +221,13 @@ afterAll(() => {
     client?.close();
   } catch {
     // already closed
+  }
+  // Release the ephemeral port. The process exiting would do it anyway, but a
+  // runner that reuses processes must not inherit a bound socket.
+  try {
+    server.close();
+  } catch {
+    // never started listening
   }
 });
 

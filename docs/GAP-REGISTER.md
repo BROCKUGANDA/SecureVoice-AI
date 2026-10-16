@@ -1026,3 +1026,58 @@ Of §13's three unproduced spans, two now have producers (§15, this section).
 path: nothing persists the confirmation instant, so the only span measurable from existing
 columns would exclude our own decision time and understate the 2 s promise it exists to
 prove.
+
+### 18. Staging's CI went red for three reasons, and the first was a gate of mine that could not fail
+
+`staging` failed immediately after `dev → staging` (#94) landed, on a commit that also merged
+`main` into `staging`. Every cause below was read out of staging's own tree, not inferred:
+
+| # | Symptom | Real cause |
+| --- | --- | --- |
+| 1 | `llms-txt`, `published-claims` and the robots/indexing case all failed together | `src/app/llms.txt/route.ts` imported `{ env }` while its body calls `slaSeconds()` — a `ReferenceError` on every request. One 500, three suites. |
+| 2 | `the SLA-breach sweep > the breach is scrapeable` and `…reports -1, never a comfortable zero` | `src/app/api/metrics/route.ts` carried **zero** `sv_sla_*` collectors: the merge took `main`'s copy of the file over `dev`'s. |
+| 3 | `every declared span has a producer, or a named reason for not having one` | `signal_received_to_ringing` and `caller_stop_to_agent_audio` were resurrected inside `UNPRODUCED_WITH_REASON` although both now have producers. The gate fired its own rule — nothing may stay written down once its producer lands — and it was right. |
+
+**Cause #3 is a gate working. Causes #1 and #2 are the ladder.** Squash-merged promotions never
+back-merge, so `main` carried #91 and #92 while `dev` did not (63 files differed between them),
+and a hand-made `Merge branch 'main' into staging` produced a union that is syntactically valid
+and semantically false: the call site from one side, the import from the other, the newer
+collector file discarded. Repaired by merging `staging` into `dev`, so `dev` now contains `main`'s
+shipped work, the ephemeral-port server boot in both voice suites, and the two slices the merge
+had dropped — then promoting again.
+
+**Finding 1: a ban that matched half its own scope.** The 60-second rule shipped in `63d4ece`,
+my own claims-sweep commit, written as:
+
+```js
+/60[\s-]?seconds?\|sixty seconds\|60\s?s\b|٦٠ ثانية/
+```
+
+In a JavaScript regex literal `\|` is an **escaped pipe**, not an alternation. The pattern
+therefore required the literal text `60 seconds|sixty seconds|60s` — which can never occur — or
+the Arabic branch. The English half matched nothing, ever, and the gate stayed green while
+English promises shipped. Fixing the alternation surfaced three live ones at once: the pricing
+FAQ (`src/lib/commercial.ts`, both languages), the console's empty-state sentence and its
+case-list chip, and the home-page demo chip. All now read _case deadline_, the vocabulary every
+other surface already uses, and the Arabic sentence lost its corrupted `ما لعتبة` in the pass.
+
+The test gained a positive control in **both** languages, because a ban with a dead branch is
+indistinguishable from a ban that passes: four fabricated lines (an English `within 60 seconds`,
+`sixty seconds`, `60s`, and the Arabic) must each match and must each not be exempted — and the
+honest deadline framing must still be exempted, or the ban is a text filter.
+
+**Finding 2: an assertion that passed by coincidence.**
+`tests/unit/agent-snapshot-no-secrets.test.ts` checked the secret redactor with
+`expect(src).toMatch(/secret\|token\|password/)` — same escaped-pipe class, inside a security
+gate. It matched the literal substring `secret|token|password` sitting inside the source's own
+alternation, so it proved only that three words are adjacent in another file: deleting
+`password` from the redacted list kept it green, reformatting the list would have turned it red.
+It now asserts the mechanism — the matcher is suffix-anchored (its alternation closes with `)$`)
+and each of `secret`, `token`, `password`, `authorization` is one of its alternatives.
+Mutation-proved both directions: removing the `$` anchor fails with "a renamed header CAN slip
+past", removing `password` fails naming the token.
+
+A repo-wide scan for the signature (every `.ts`/`.tsx`/`.mjs` outside generated code) found ten
+literal backslash-pipes. The other eight are correct uses — literal pipes in markdown-table
+parsers, ChatML `<|…|>` token stripping, a `||` source matcher — and are left alone.
+

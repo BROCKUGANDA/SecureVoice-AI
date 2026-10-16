@@ -75,6 +75,7 @@ export const MUST_NOT_LIST = [
   "/console/demo",
   "/console/deck",
   "/console/settings",
+  "/console/audit",
   "/console/setup",
   "/sign-in",
   "/dashboard",

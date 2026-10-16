@@ -87,6 +87,7 @@ const Deck = viewChunk("Deck", () => import("@/views/Deck"));
 const Auth = viewChunk("Auth", () => import("@/views/Auth"));
 const Console = viewChunk("Console", () => import("@/views/Console"));
 const Settings = viewChunk("Settings", () => import("@/views/Settings"));
+const AuditExplorer = viewChunk("AuditExplorer", () => import("@/views/AuditExplorer"));
 const SetupWizard = viewChunk("SetupWizard", () => import("@/views/SetupWizard"));
 
 const VIEWS: Record<View, React.ComponentType> = {
@@ -105,6 +106,7 @@ const VIEWS: Record<View, React.ComponentType> = {
   auth: Auth,
   console: Console,
   settings: Settings,
+  audit: AuditExplorer,
   setup: SetupWizard,
 };
 

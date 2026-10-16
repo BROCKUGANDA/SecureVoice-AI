@@ -56,5 +56,28 @@ test("the redactor is suffix-based, so a renamed header cannot slip past", () =>
   // The header name is configurable per tool, so an exact-match list would be
   // a list that goes stale the first time someone renames it.
   expect(src).toContain("isSecretKey");
-  expect(src).toMatch(/secret\|token\|password/);
+  // Assert the MECHANISM. This case used to read `expect(src).toMatch(/secret\|token\|password/)`
+  // — and in a JavaScript regex `\|` is an escaped pipe, not an alternation, so it matched the
+  // literal text `secret|token|password` and passed only because the source spells those words
+  // adjacently inside its own alternation. It proved nothing about suffix anchoring, and would
+  // have gone red on a reformat or green with `password` deleted from the list.
+  const at = src.indexOf("function isSecretKey");
+  expect(at, "isSecretKey is gone — the redactor no longer classifies keys at all").toBeGreaterThan(
+    -1,
+  );
+  const block = src.slice(at, at + 800);
+  // Suffix-anchored: the alternation closes and the pattern ends with `)$`.
+  const anchor = block.indexOf(")$/");
+  expect(
+    anchor,
+    "the secret matcher is not suffix-anchored: a renamed header CAN slip past",
+  ).toBeGreaterThan(-1);
+  const open = block.lastIndexOf("(", anchor);
+  const alts = block.slice(open + 1, anchor).split("|");
+  for (const token of ["secret", "token", "password", "authorization"]) {
+    expect(
+      alts.some((a) => a.includes(token)),
+      `${token} is not one of the redacted key suffixes`,
+    ).toBe(true);
+  }
 });

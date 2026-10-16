@@ -36,6 +36,7 @@ export const PATH_FOR_VIEW: Partial<Record<View, string>> = {
   demo: "/console/demo",
   deck: "/console/deck",
   settings: "/console/settings",
+  audit: "/console/audit",
   setup: "/console/setup",
   auth: "/sign-in",
 };

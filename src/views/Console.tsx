@@ -1277,7 +1277,7 @@ export function Console() {
                 <Siren className="h-6 w-6 text-ink-3" strokeWidth={1.6} />
                 <p className="max-w-[240px] text-[12.5px] leading-snug text-ink-3">
                   {t(
-                    "Fire a signal to see the case envelope, the 60-second SLA clock, the live delivery receipt — and exactly what to do next.",
+                    "Fire a signal to see the case envelope, the 60-second case deadline, the live delivery receipt — and exactly what to do next.",
                     "أطلق إشارة لترى مغلّف الحالة، ومؤقّت مهلة 60 ثانية، وتأكيد التسليم المباشر — وما يجب فعله بعد ذلك بالضبط.",
                     lang,
                   )}
@@ -1369,7 +1369,8 @@ export function Console() {
               </h2>
               <div className="flex items-center gap-2">
                 <Chip className="!text-[10px]">
-                  <Timer className="h-3 w-3" /> {t("SLA 60s", "SLA 60 ثانية", lang)}
+                  <Timer className="h-3 w-3" />{" "}
+                  {t("Case deadline 60s", "مهلة الحالة 60 ثانية", lang)}
                 </Chip>
                 {cases.length > 0 && (
                   <button

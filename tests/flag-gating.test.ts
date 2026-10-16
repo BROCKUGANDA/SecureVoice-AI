@@ -84,12 +84,24 @@ describe("realtime notifier honours the flags", () => {
 });
 
 describe("every declared flag is reachable from an env var", () => {
+  // The legacy vars win over FEATURE_* wherever both exist (see
+  // LEGACY_OVERRIDES in src/lib/flags.ts), so they must be scrubbed too: a
+  // developer `.env` carrying COMPLIANCE_PII_REDACTION would otherwise decide
+  // these assertions instead of the values under test. Bun auto-loads `.env`,
+  // which is why this fails locally while CI stays green.
+  const LEGACY_VARS = [
+    "COMPLIANCE_PII_REDACTION",
+    "COMPLIANCE_OPENING_DISCLOSURE",
+    "COMPLIANCE_NO_CREDENTIAL_REQUESTS",
+    "SEED_DEMO",
+  ] as const;
   beforeEach(() => {
     delete process.env.FEATURE_REALTIME;
     delete process.env.FEATURE_CONSOLE_LIVE_FEED;
     delete process.env.FEATURE_PII_REDACTION;
     delete process.env.FEATURE_ELEVEN_LABS_LIVE;
     delete process.env.ELEVENLABS_DRY_RUN;
+    for (const v of LEGACY_VARS) delete process.env[v];
   });
   afterEach(() => {
     delete process.env.FEATURE_REALTIME;
@@ -97,6 +109,7 @@ describe("every declared flag is reachable from an env var", () => {
     delete process.env.FEATURE_PII_REDACTION;
     delete process.env.FEATURE_ELEVEN_LABS_LIVE;
     delete process.env.ELEVENLABS_DRY_RUN;
+    for (const v of LEGACY_VARS) delete process.env[v];
   });
 
   test("every flag maps to an env var following the FEATURE_* convention", async () => {

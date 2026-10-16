@@ -21,7 +21,10 @@ import { test, expect } from "bun:test";
 import { createHmac } from "node:crypto";
 import { FAILURE_CODES, type FailureCode } from "@/lib/failures/envelope";
 
-process.env.WEBHOOK_SECRET = process.env.WEBHOOK_SECRET ?? "failure-envelope-test-secret";
+// `||=`, not `??=`: developer `.env` files commonly carry an EMPTY placeholder,
+// and the route treats an empty secret as unconfigured (HMAC skipped → 401),
+// which would turn this file red for an environment reason. A real value wins.
+process.env.WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || "failure-envelope-test-secret";
 
 const SECRET = process.env.WEBHOOK_SECRET;
 const ENVELOPE_KEYS = ["code", "message", "retryable", "requestId", "docsUrl"];

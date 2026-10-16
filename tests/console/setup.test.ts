@@ -45,8 +45,11 @@ function slowTest(name: string, fn: () => Promise<void> | void) {
 }
 
 process.env.ELEVENLABS_DRY_RUN = "true";
-process.env.AUTH_SECRET = process.env.AUTH_SECRET ?? "setup-gate-secret";
-process.env.WEBHOOK_SECRET = process.env.WEBHOOK_SECRET ?? "setup-gate-secret";
+// `||=`, not `??=`: developer `.env` files commonly carry EMPTY placeholders,
+// and empty secrets are falsy at every consumer (`if (!secret)`, length
+// checks), which turns this file red for an environment reason. Real values win.
+process.env.AUTH_SECRET = process.env.AUTH_SECRET || "setup-gate-secret";
+process.env.WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || "setup-gate-secret";
 
 const ORG = `0e0e0e0e-0000-4000-8000-${createHash("sha256")
   .update("setup-a")

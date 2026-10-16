@@ -24,7 +24,7 @@ import { useViewerSeat } from "@/lib/auth/use-viewer-seat";
 import { cn } from "@/lib/utils";
 import { LogoMark } from "@/components/shell/Logo";
 import { OrgSwitcher } from "@/components/shell/OrgSwitcher";
-import { CurrentUserAvatar } from "@/components/current-user-avatar";
+import { CurrentUserAvatar, presentIdentity } from "@/components/current-user-avatar";
 
 type NavItem = { id: View; en: string; ar: string; icon: typeof Home };
 
@@ -140,16 +140,42 @@ export function Navbar() {
     setSigningOut(true);
     setMenuOpen(false);
     try {
+      // BOTH session systems, as before — `allSettled` so one failing cannot skip
+      // the other (see the long comment above this handler for why magic link
+      // mints only the first-party session).
       await Promise.allSettled([
         signOut(),
-        fetch("/api/auth/logout", { method: "POST", credentials: "same-origin" }),
+        fetch("/api/auth/logout", {
+          method: "POST",
+          credentials: "same-origin",
+          cache: "no-store",
+        }),
       ]);
     } finally {
       // Whatever the server said, the person is leaving: a failed revocation
       // must not strand them on a screen they asked to leave, and the gate will
       // catch a session that is still live.
+      //
+      // Drop the one piece of client-side session state that OUTLIVES a navigation:
+      // the demo seat id. The realtime socket, the CreditWidget's balance and the
+      // RBAC gate all reset because `location.replace` is a real document load,
+      // which is also why the explicit teardown for them is unnecessary — but
+      // localStorage survives it, and a stale seat id would let the next visitor
+      // on this browser try to heartbeat a lease that was already released.
+      try {
+        window.localStorage.removeItem("sv_demo_seat");
+      } catch {
+        // storage blocked; the server-side release is the control that matters
+      }
       setView("home");
       setSigningOut(false);
+      // `replace`, not `assign` or `pushState`. `assign` adds a history entry, so
+      // Back lands on the authenticated page — served from bfcache, still
+      // rendered, with a dead session behind it. A sign-out that leaves a working
+      // Back button into the console is not a sign-out. `replace` leaves no entry
+      // to return through, and the server response now sends `Clear-Site-Data`
+      // alongside the cookie expiries.
+      window.location.replace("/");
     }
   }, [setView, signingOut]);
 
@@ -279,11 +305,28 @@ export function Navbar() {
                 {/* The signed-in person, visually as well as by name. Reads the
                     account this app actually authenticates — Better Auth's
                     `user.image` — so it falls back to initials and never to a
-                    stale picture from a system that is not in use here. */}
+                    stale picture from a system that is not in use here.
+
+                    The demo seat is presented as a LABEL rather than a name. Its
+                    stored name is the literal "demo user", which put those two
+                    words and a "DU" badge in the header of every page a judge
+                    visits — a placeholder that reads as somebody's personal
+                    login on a fraud platform's own header. `presentIdentity`
+                    gives it one "D" and "Demo session", and tints both, so it
+                    looks deliberate. */}
                 <CurrentUserAvatar />
-                <span className="max-w-[10rem] truncate text-[12.5px] font-semibold text-ink-2">
-                  {user?.name || user?.email}
-                </span>
+                {(() => {
+                  const presented = presentIdentity(user?.email, user?.name, lang);
+                  return presented.isDemo ? (
+                    <span className="flex items-center gap-1.5 whitespace-nowrap rounded-full bg-ink px-2.5 py-1 text-[11px] font-semibold tracking-wide text-white">
+                      {presented.label}
+                    </span>
+                  ) : (
+                    <span className="max-w-[10rem] truncate text-[12.5px] font-semibold text-ink-2">
+                      {presented.label}
+                    </span>
+                  );
+                })()}
                 {/* The rule for WHO may see the tenant switcher lives inside
                     OrgSwitcher, not here — this component renders it twice
                     (desktop cluster and mobile panel) and a rule written at both
@@ -392,9 +435,18 @@ export function Navbar() {
                 <>
                   <div className="flex items-center gap-2.5 px-1">
                     <CurrentUserAvatar />
-                    <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-ink-2">
-                      {user?.name || user?.email}
-                    </span>
+                    {(() => {
+                      const presented = presentIdentity(user?.email, user?.name, lang);
+                      return presented.isDemo ? (
+                        <span className="min-w-0 flex-1 truncate rounded-full bg-ink px-2.5 py-1 text-center text-[11px] font-semibold tracking-wide text-white">
+                          {presented.label}
+                        </span>
+                      ) : (
+                        <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-ink-2">
+                          {presented.label}
+                        </span>
+                      );
+                    })()}
                     <OrgSwitcher />
                   </div>
                   <button

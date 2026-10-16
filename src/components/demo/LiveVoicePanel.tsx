@@ -16,6 +16,7 @@ import { useApp, t } from "@/lib/store";
 import { VOICE_BY_LANG, type CallLang } from "@/lib/scenario";
 import { blobToWavBase64, streamSpeech } from "@/lib/voice-client";
 import { Input } from "@/components/ui/input";
+import { PanelHeader } from "@/components/ui/PanelHeader";
 import { cn } from "@/lib/utils";
 
 /**
@@ -241,39 +242,37 @@ export function LiveVoicePanel({ callLang }: { callLang: CallLang }) {
 
   return (
     <section className="overflow-hidden rounded-3xl border border-line bg-white shadow-[0_24px_60px_-40px_rgba(16,24,18,0.35)]">
-      {/* header */}
-      <div className="relative flex flex-wrap items-center justify-between gap-3 overflow-hidden border-b border-line bg-card px-5 py-4 sm:px-6">
-        <div
-          className="absolute inset-0 opacity-50"
-          style={{
-            background:
-              "radial-gradient(420px 150px at 15% 0%, rgba(20,163,116,0.3), transparent 60%)",
-          }}
-        />
-        <div className="relative flex items-center gap-3">
-          <span className="relative flex h-10 w-10 items-center justify-center rounded-full bg-green-bright/15 ring-1 ring-green-bright/30">
-            <AudioLines className="h-5 w-5 text-primary" />
+      {/* header — black band shared via PanelHeader, matching the rail cards */}
+      <PanelHeader
+        className="sm:px-6"
+        icon={
+          <span className="relative flex h-10 w-10 items-center justify-center rounded-full bg-white/10 ring-1 ring-green-bright/40">
+            <AudioLines className="h-5 w-5 text-green-bright" />
             {phase === "recording" && (
-              <span className="sv-pulse-ring absolute inset-0 rounded-full text-primary/70" />
+              <span className="sv-pulse-ring absolute inset-0 rounded-full text-green-bright/70" />
             )}
           </span>
-          <div className="leading-tight">
-            <p className="text-[14px] font-semibold text-foreground">
+        }
+        title={
+          <>
+            <p className="text-[14px] font-semibold text-white">
               {lang === "ar" ? "تحدّث مع الوكيل" : "Talk to the agent"}{" "}
-              <span dir="rtl" className="font-arabic text-[12px] font-normal text-ink-2">
+              <span dir="rtl" className="font-arabic text-[12px] font-normal text-white/60">
                 · تحدث مع الوكيل
               </span>
             </p>
-            <p className="num mt-1 text-[10.5px] text-ink-2">
+            <p className="num mt-1 text-[10.5px] text-white/60">
               REAL STT → GUARDRAILED ROUTING → NEURAL VOICE · {VOICE_BY_LANG[callLang]}
             </p>
-          </div>
-        </div>
-        <span className="relative flex items-center gap-1.5 rounded-full bg-secondary px-3 py-1.5 text-[10.5px] font-semibold text-ink-2">
-          <Fingerprint className="h-3 w-3 text-primary" />
-          {lang === "ar" ? "لا رموز سرية · أبداً" : "No PINs · No OTPs · Ever"}
-        </span>
-      </div>
+          </>
+        }
+        right={
+          <span className="flex items-center gap-1.5 rounded-full bg-white/10 px-3 py-1.5 text-[10.5px] font-semibold text-white/80">
+            <Fingerprint className="h-3 w-3 text-green-bright" />
+            {lang === "ar" ? "لا رموز سرية · أبداً" : "No PINs · No OTPs · Ever"}
+          </span>
+        }
+      />
 
       <div className="grid lg:grid-cols-[0.92fr_1.08fr]">
         {/* left — controls */}

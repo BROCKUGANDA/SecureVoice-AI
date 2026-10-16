@@ -26,6 +26,7 @@ import { DECK } from "@/lib/deck";
 import { useApp, t } from "@/lib/store";
 import { FOUNDER_EMAIL } from "@/lib/public-config";
 import { Chip } from "@/components/fx/core";
+import { PanelHeader } from "@/components/ui/PanelHeader";
 import { cn } from "@/lib/utils";
 
 /** Arabic counterpart for each slide kicker — `deck.ts` keeps the English only. */
@@ -1202,18 +1203,27 @@ tts = {
           )}
         </h2>
         <div className="mt-7 overflow-hidden rounded-2xl border border-line shadow-lg">
-          <div className="flex items-center gap-2 border-b border-line bg-card px-4 py-3">
-            <span className="h-2.5 w-2.5 rounded-full bg-[#ff5f57]" />
-            <span className="h-2.5 w-2.5 rounded-full bg-[#febc2e]" />
-            <span className="h-2.5 w-2.5 rounded-full bg-[#28c840]" />
-            <span className="num ml-3 flex-1 rounded-md bg-secondary px-3 py-1 text-[11px] text-ink-2">
-              {t(
-                "securevoiceai.me — live fraud scenario · full call flow · mock banking integration",
-                "securevoiceai.me — سيناريو احتيال حقيقي · مسار المكالمة كاملاً · تكامل بنكي محاكى",
-                lang,
-              )}
-            </span>
-          </div>
+          {/* browser-chrome bar — black band shared via PanelHeader; keeps the
+              deck's tighter chrome padding and the light URL pill */}
+          <PanelHeader
+            className="px-4 py-3"
+            icon={
+              <>
+                <span className="h-2.5 w-2.5 rounded-full bg-[#ff5f57]" />
+                <span className="h-2.5 w-2.5 rounded-full bg-[#febc2e]" />
+                <span className="h-2.5 w-2.5 rounded-full bg-[#28c840]" />
+              </>
+            }
+            title={
+              <span className="num block w-full rounded-md bg-secondary px-3 py-1 text-[11px] text-ink-2">
+                {t(
+                  "securevoiceai.me — live fraud scenario · full call flow · mock banking integration",
+                  "securevoiceai.me — سيناريو احتيال حقيقي · مسار المكالمة كاملاً · تكامل بنكي محاكى",
+                  lang,
+                )}
+              </span>
+            }
+          />
           <div className="grid gap-3 bg-paper p-5 sm:grid-cols-3">
             {[
               {

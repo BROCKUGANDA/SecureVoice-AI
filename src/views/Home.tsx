@@ -27,6 +27,7 @@ import {
 import { useApp, t } from "@/lib/store";
 import { PLANS, SETTLEMENT, formatMonthly, formatIncluded, formatOverage } from "@/lib/commercial";
 import { SUPPORT_EMAIL } from "@/lib/public-config";
+import { PanelHeader } from "@/components/ui/PanelHeader";
 import { cn } from "@/lib/utils";
 import { CALL_LANG_LABEL, type CallLang } from "@/lib/scenario";
 import { LiveVoicePanel } from "@/components/demo/LiveVoicePanel";
@@ -275,30 +276,34 @@ export function Home() {
               className="relative"
             >
               <div className="relative overflow-hidden rounded-3xl border border-line bg-white shadow-[0_30px_70px_-30px_rgba(16,24,18,0.28)]">
-                {/* header */}
-                <div className="flex items-center justify-between border-b border-line bg-card px-5 py-4">
-                  <div className="flex items-center gap-3">
-                    <span className="relative flex h-9 w-9 items-center justify-center rounded-full bg-green-bright/15">
-                      <PhoneOutgoing className="h-4 w-4 text-primary" />
-                      <span className="sv-pulse-ring absolute inset-0 rounded-full text-primary/70" />
+                {/* header — black band shared via PanelHeader */}
+                <PanelHeader
+                  icon={
+                    <span className="relative flex h-9 w-9 items-center justify-center rounded-full bg-white/10">
+                      <PhoneOutgoing className="h-4 w-4 text-white" />
+                      <span className="sv-pulse-ring absolute inset-0 rounded-full text-white/70" />
                     </span>
-                    <div className="leading-tight">
-                      <p className="num text-[11px] text-ink-2">
+                  }
+                  title={
+                    <>
+                      <p className="num text-[11px] text-white/70">
                         {t("OUTBOUND · SECUREVOICE AGENT", "صادر · وكيل SecureVoice", lang)}
                       </p>
-                      <p className="text-[13.5px] font-semibold text-foreground">
+                      <p className="text-[13.5px] font-semibold text-white">
                         {t("Ahmed Al-Rashid", "أحمد الراشد", lang)} ·{" "}
                         <span className="num">+971 •• ••• 4567</span>
                       </p>
+                    </>
+                  }
+                  right={
+                    <div className="flex items-center gap-1.5 rounded-full bg-red-tint px-2.5 py-1">
+                      <span className="h-1.5 w-1.5 rounded-full bg-red-soft sv-blink" />
+                      <span className="num text-[10.5px] font-semibold text-red-soft">
+                        {t("REC", "تسجيل", lang)}
+                      </span>
                     </div>
-                  </div>
-                  <div className="flex items-center gap-1.5 rounded-full bg-red-tint px-2.5 py-1">
-                    <span className="h-1.5 w-1.5 rounded-full bg-red-soft sv-blink" />
-                    <span className="num text-[10.5px] font-semibold text-red-soft">
-                      {t("REC", "تسجيل", lang)}
-                    </span>
-                  </div>
-                </div>
+                  }
+                />
 
                 {/* waveform */}
                 <div className="border-b border-line px-5 pb-1 pt-4">

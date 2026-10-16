@@ -71,7 +71,10 @@ length 64.
 - Policy gate (`src/lib/policy-gate.ts`) — consent → country allowlist → cooldown → concurrency → spend → credits, fail-fast with typed reason, audited either way.
 - Call placement via `POST /v1/convai/twilio/outbound-call` with sanitised `dynamic_variables` and per-case `conversation_config_override` (language, first_message, voice_id).
 - `conversation_id` persisted against the case (join key for WP-4).
-- `case.dialing` emitted on the realtime channel.
+- `case.queued` emitted on the realtime channel (`src/app/api/v1/interventions/route.ts:1049`).
+  The state is QUEUED, not DIALING — the call has been accepted, not placed. There is
+  no `case.dialing` frame, and no consumer of `case.queued` on the console side; see
+  the registry at `src/lib/realtime-events.ts`.
 - `src/lib/sanitize-untrusted.ts` — dynamic-variable sanitiser (invariant I-4).
 
 ### Latency architecture

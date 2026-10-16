@@ -355,11 +355,79 @@ function checkUnusedDependencies() {
 // This is the one check a human cannot review away: the pattern is unambiguous
 // by code point, so the gate states it rather than describing it.
 // ─────────────────────────────────────────────────────────────────────────────
+/** Extensions that are bytes rather than text; everything else tracked is scanned. */
+const BINARY_EXT =
+  /\.(png|jpe?g|gif|webp|avif|bmp|ico|icns|svgz|mp4|m4v|webm|mov|mp3|m4a|wav|ogg|flac|aac|woff2?|ttf|otf|eot|pdf|zip|gz|tgz|bz2|xz|7z|jar|class|so|dylib|dll|exe|wasm|node|pyc|onnx|pt|db|sqlite3?)$/i;
+
+function isScannable(path) {
+  return !BINARY_EXT.test(path);
+}
+
+/**
+ * Both shapes of "the bytes no longer say what the text meant:"
+ *
+ *   \u00b7 U+00E2 then U+20AC then one more character \u2014 the CP1252 rendering of a
+ *     3-byte UTF-8 sequence, which is how an em dash leaves a copy-paste round
+ *     trip through a Windows console;
+ *   \u00b7 a lone U+FFFD, the replacement character some earlier write left where an
+ *     em dash or a section sign was.
+ *
+ * Spelled by code point, in escapes, so this file cannot be its own offender.
+ */
+function mojibakeRuns(text) {
+  return [...(text.match(/\u00e2\u20ac[\s\S]/g) ?? []), ...(text.match(/\ufffd/g) ?? [])];
+}
+
+/**
+ * The gate's own positive control. Without it this check cannot tell "the repo is
+ * clean" from "the check is blind" \u2014 and the blindness is how 14 runs survived in
+ * `.env.example`, the file every operator copies when configuring a deployment,
+ * because the filter below was an extension ALLOWLIST and `.env.example` has no
+ * extension in the sense a regex like `\.(ts|md|json)$` means. The U+FFFD class
+ * was invisible for the opposite reason: the pattern looked for one shape of
+ * damage while 25 more lines carried the other.
+ */
+function selfTestMojibakeGate() {
+  const problems = [];
+  const run = "\u00e2\u20ac\u201d"; // the mojibake of an em dash, as found in the wild
+  const fffd = "\ufffd";
+  if (mojibakeRuns(`a note ${run} about the URL`).length !== 1)
+    problems.push("control 1 failed: the planted double-encoded run was not detected");
+  if (mojibakeRuns(`a note ${fffd} about the URL`).length !== 1)
+    problems.push("control 2 failed: a planted replacement character was not detected");
+  if (mojibakeRuns("a note \u2014 about the URL").length !== 0)
+    problems.push("control 3 failed: a correct em dash was reported as damage");
+  // Arabic and accents are the content this product ships, not the bug. A check
+  // that flags them gets switched off the first time it annoys someone.
+  if (
+    mojibakeRuns(
+      "\u0627\u0644\u0645\u062d\u0641\u0638 \u2014 \u0063\u0061\u0066\u00e9 \u0072\u00e9\u0073\u0075\u006d\u00e9",
+    ).length !== 0
+  )
+    problems.push("control 4 overcorrects: legitimate non-ASCII was reported");
+  if (!isScannable(".env.example"))
+    problems.push("control 5 failed: `.env.example` is out of scope again \u2014 the exact hole");
+  if (!isScannable("docker-compose.yml"))
+    problems.push("control 6 failed: compose is out of scope");
+  if (isScannable("public/mark.png")) problems.push("control 7 overcorrects: a PNG is scanned");
+  if (problems.length) {
+    fail(
+      `checkMojibake self-test is BROKEN \u2014 the scan below cannot be trusted:\n` +
+        `${problems.join("\n       ")}`,
+    );
+    return false;
+  }
+  info("checkMojibake self-test: planted run + planted replacement caught, Arabic left alone");
+  return true;
+}
+
 function checkMojibake() {
+  selfTestMojibakeGate();
+
   const files = execSync("git ls-files", { encoding: "utf8" })
     .split("\n")
     .map((s) => s.trim())
-    .filter((f) => /\.(tsx?|mjs|js|md|json|css|ya?ml|prisma)$/.test(f));
+    .filter((f) => f && isScannable(f));
 
   const offenders = [];
   for (const f of files) {
@@ -369,16 +437,17 @@ function checkMojibake() {
     } catch {
       continue;
     }
-    // `â` + `€` + one continuation byte: the CP1252 rendering of a 3-byte UTF-8
-    // sequence. Stated by code point so this file's own encoding cannot mangle it.
-    const runs = s.match(/\u00e2\u20ac[\s\S]/g);
-    if (runs) offenders.push(`${f} (${runs.length})`);
+    const runs = mojibakeRuns(s);
+    if (runs.length) offenders.push(`${f} (${runs.length})`);
   }
   if (offenders.length) {
     fail(
       `double-encoded UTF-8 renders as garbage: ${offenders.join(", ")}\n` +
-        `       repair with Buffer.from(run, "latin1").toString("utf8") per run —` +
-        ` never blanket-decode a whole file, it eats the Arabic and the accents.`,
+        `       repair each run by its code point ("\u00e2\u20ac\u201d" → "\u2014"). Do NOT round-trip it through latin1:\n` +
+        `       Buffer.from("â‚¬", "latin1") takes the low byte (0xAC), not CP1252's 0x80,\n` +
+        `       so that recipe quietly writes new garbage over the old. And never\n` +
+        `       blanket-decode a whole file — it eats the Arabic and the accents that are\n` +
+        `       meant to be there.`,
     );
   } else {
     info(`no double-encoded text in ${files.length} tracked files`);

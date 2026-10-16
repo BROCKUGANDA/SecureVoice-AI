@@ -223,7 +223,7 @@ export const DECK: Slide[] = [
      */
     id: 17,
     layout: "statement",
-    kicker: "14 · For Insurers",
+    kicker: "15 · For Insurers",
     titleEn: "The payout is the softest target in insurance",
     titleAr: "التعويض هو أضعف الأهداف في التأمين",
     subEn: "Where the money actually goes",
@@ -235,7 +235,7 @@ export const DECK: Slide[] = [
   {
     id: 18,
     layout: "table",
-    kicker: "15 · Two Claims Cases",
+    kicker: "16 · Two Claims Cases",
     titleEn: "Claims fraud and policy servicing",
     titleAr: "احتيال المطالبات وخدمة الوثيقة",
     subEn: "Same engine, same guardrails, different nouns",
@@ -247,7 +247,7 @@ export const DECK: Slide[] = [
   {
     id: 19,
     layout: "roadmap",
-    kicker: "16 · What Is Honest",
+    kicker: "17 · What Is Honest",
     titleEn: "Built, referenced, and owed",
     titleAr: "ما بُني، وما هو مرجعي، وما هو مدين",
     scriptEn:
@@ -258,7 +258,7 @@ export const DECK: Slide[] = [
   {
     id: 15,
     layout: "proof",
-    kicker: "17 · Proof of Build",
+    kicker: "14 · Proof of Build",
     titleEn: "Don't take our word for it",
     titleAr: "جرّبوه بأنفسكم",
     subEn:

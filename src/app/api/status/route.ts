@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { twilioMode, env, SUPPORTED_LANGS } from "@/lib/config";
-import { deployedVersion } from "@/lib/version";
+import { deployedVersion } from "@/lib/release-version";
+import { APP_VERSION } from "@/lib/version";
 import { requireOperator } from "@/lib/credits";
 import { admissionSnapshot } from "@/lib/admission";
 
@@ -68,7 +69,7 @@ export async function GET() {
       // production it was always undefined and this field fell through to the
       // hardcoded literal below — the status page reported one frozen version
       // across every release.
-      version: deployedVersion(),
+      version: deployedVersion(APP_VERSION),
       region: process.env.DEPLOY_REGION ?? "self-hosted",
       // Environment posture, so a deployment's blast radius is visible
       // from outside instead of being implicit in the branch name.

@@ -41,23 +41,17 @@ export function versionLabel(version: string = APP_VERSION): string {
   return version.startsWith("v") ? version : `v${version}`;
 }
 
-/** Release version, for the status page and the health probe. */
-export function deployedVersion(): string {
-  // A promoted blue/green image tag wins: `docker-compose.bluegreen.yml` sets
-  // SECUREVOICE_RELEASE to the tag being served, so a rollback can prove WHICH
-  // build is answering rather than trusting the tag written in a compose file.
-  // This variable was previously set by compose and read by nothing.
-  const release = process.env.SECUREVOICE_RELEASE?.trim();
-  if (release) {
-    const tag = release.includes(":") ? release.slice(release.lastIndexOf(":") + 1) : release;
-    const cleaned = tag.replace(/^v/, "").trim();
-    if (cleaned) return cleaned;
-  }
-  // Otherwise the build-time value from package.json. NOTE: deliberately NOT
-  // `process.env.npm_package_version` — that variable is set by NPM when it runs
-  // a script, and this deployment runs under BUN (`bun server.js` in the
-  // container), so it is always undefined in production. Reading it meant the
-  // status page fell through to a hardcoded literal and reported the same
-  // version forever, no matter how many releases shipped.
-  return APP_VERSION;
-}
+// `deployedVersion()` used to live here and read SECUREVOICE_RELEASE — a
+// server-only variable — from a module the client import graph reaches
+// (`src/components/shell/Footer.tsx` imports APP_VERSION from this file). That
+// was harmless only because no client-reachable module called it, so the bundler
+// dropped it. "It is tree-shaken" is a coincidence, not a boundary: the day
+// someone imports it from a component, a non-public variable is in the browser
+// bundle and nothing fails.
+//
+// It now lives in `src/lib/release-version.ts`, behind `import "server-only"`, and
+// takes the fallback explicitly so it no longer has to read APP_VERSION from this
+// module. Callers: `deployedVersion(APP_VERSION)`.
+//
+// This module is therefore client-safe — `NEXT_PUBLIC_APP_VERSION` is the only
+// thing it reads, and that is inlined by the compiler by design.

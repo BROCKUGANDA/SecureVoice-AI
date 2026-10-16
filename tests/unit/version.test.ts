@@ -21,12 +21,11 @@
  *   bun test tests/unit/version.test.ts
  */
 import { test, expect, describe } from "bun:test";
-import {
-  versionLabel,
-  deployedVersion,
-  APP_VERSION,
-  APP_VERSION_IS_PLACEHOLDER,
-} from "@/lib/version";
+import { versionLabel, APP_VERSION, APP_VERSION_IS_PLACEHOLDER } from "@/lib/version";
+// Imported from `release-version`, not `version`: the SECUREVOICE_RELEASE read is
+// server-only and lives in its own module so `version.ts` stays safe to pull into
+// the client bundle (Footer.tsx does). See tests/surface/server-client-boundary.
+import { deployedVersion } from "@/lib/release-version";
 
 describe("versionLabel", () => {
   test("renders a bare version with a leading v", () => {
@@ -63,8 +62,16 @@ describe("the module's own constants", () => {
 });
 
 describe("deployedVersion", () => {
+  test("falls back to the given value when SECUREVOICE_RELEASE is unset", () => {
+    // The fallback is an ARGUMENT, not a module constant, for the same reason
+    // `versionLabel` takes one: the spec must not depend on what this environment
+    // happens to have set. The repo pattern is dependency injection over mutating
+    // `process.env` between imports.
+    expect(deployedVersion("9.9.9")).toBe("9.9.9");
+  });
+
   test("is a non-empty string that is never the literal 'undefined'", () => {
-    const v = deployedVersion();
+    const v = deployedVersion(APP_VERSION);
     expect(typeof v).toBe("string");
     expect(v.length).toBeGreaterThan(0);
     expect(v).not.toBe("undefined");

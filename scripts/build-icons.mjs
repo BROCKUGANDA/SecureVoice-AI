@@ -160,7 +160,7 @@ function ogSvg() {
   <text x="292" y="188" font-family="Helvetica, Arial, sans-serif" font-size="21" fill="${GREEN_BRIGHT}" letter-spacing="3.4">FRAUD INTERVENTION</text>
 
   <text x="80" y="352" font-family="Helvetica, Arial, sans-serif" font-size="72" font-weight="700" fill="#ffffff" letter-spacing="-1.6">Real-time fraud intervention</text>
-  <text x="80" y="428" font-family="Helvetica, Arial, sans-serif" font-size="72" font-weight="700" fill="${GREEN_BRIGHT}" letter-spacing="-1.6">for UAE banking</text>
+  <text x="80" y="428" font-family="Helvetica, Arial, sans-serif" font-size="72" font-weight="700" fill="${GREEN_BRIGHT}" letter-spacing="-1.6">for banks and insurers</text>
 
   <text x="80" y="504" font-family="Helvetica, Arial, sans-serif" font-size="29" fill="#ffffff" opacity="0.66">An AI voice agent that calls the customer in their own language</text>
   <text x="80" y="548" font-family="Helvetica, Arial, sans-serif" font-size="29" fill="#ffffff" opacity="0.66">within 60 seconds of a fraud signal — and freezes the card.</text>

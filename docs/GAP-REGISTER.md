@@ -1032,11 +1032,11 @@ prove.
 `staging` failed immediately after `dev → staging` (#94) landed, on a commit that also merged
 `main` into `staging`. Every cause below was read out of staging's own tree, not inferred:
 
-| # | Symptom | Real cause |
-| --- | --- | --- |
-| 1 | `llms-txt`, `published-claims` and the robots/indexing case all failed together | `src/app/llms.txt/route.ts` imported `{ env }` while its body calls `slaSeconds()` — a `ReferenceError` on every request. One 500, three suites. |
-| 2 | `the SLA-breach sweep > the breach is scrapeable` and `…reports -1, never a comfortable zero` | `src/app/api/metrics/route.ts` carried **zero** `sv_sla_*` collectors: the merge took `main`'s copy of the file over `dev`'s. |
-| 3 | `every declared span has a producer, or a named reason for not having one` | `signal_received_to_ringing` and `caller_stop_to_agent_audio` were resurrected inside `UNPRODUCED_WITH_REASON` although both now have producers. The gate fired its own rule — nothing may stay written down once its producer lands — and it was right. |
+| #   | Symptom                                                                                       | Real cause                                                                                                                                                                                                                                               |
+| --- | --------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | `llms-txt`, `published-claims` and the robots/indexing case all failed together               | `src/app/llms.txt/route.ts` imported `{ env }` while its body calls `slaSeconds()` — a `ReferenceError` on every request. One 500, three suites.                                                                                                         |
+| 2   | `the SLA-breach sweep > the breach is scrapeable` and `…reports -1, never a comfortable zero` | `src/app/api/metrics/route.ts` carried **zero** `sv_sla_*` collectors: the merge took `main`'s copy of the file over `dev`'s.                                                                                                                            |
+| 3   | `every declared span has a producer, or a named reason for not having one`                    | `signal_received_to_ringing` and `caller_stop_to_agent_audio` were resurrected inside `UNPRODUCED_WITH_REASON` although both now have producers. The gate fired its own rule — nothing may stay written down once its producer lands — and it was right. |
 
 **Cause #3 is a gate working. Causes #1 and #2 are the ladder.** Squash-merged promotions never
 back-merge, so `main` carried #91 and #92 while `dev` did not (63 files differed between them),
@@ -1050,7 +1050,7 @@ had dropped — then promoting again.
 my own claims-sweep commit, written as:
 
 ```js
-/60[\s-]?seconds?\|sixty seconds\|60\s?s\b|٦٠ ثانية/
+/60[\s-]?seconds?\|sixty seconds\|60\s?s\b|٦٠ ثانية/;
 ```
 
 In a JavaScript regex literal `\|` is an **escaped pipe**, not an alternation. The pattern
@@ -1080,4 +1080,3 @@ past", removing `password` fails naming the token.
 A repo-wide scan for the signature (every `.ts`/`.tsx`/`.mjs` outside generated code) found ten
 literal backslash-pipes. The other eight are correct uses — literal pipes in markdown-table
 parsers, ChatML `<|…|>` token stripping, a `||` source matcher — and are left alone.
-

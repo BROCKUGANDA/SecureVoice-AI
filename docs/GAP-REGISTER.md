@@ -1150,3 +1150,18 @@ declared `consumed: false` — consuming them needs a field-set decision in
 `case-state-machine.ts` and a render path, not a renderer bolted onto a frame the console
 already gets from SSE. `.kilo/plans/1791558604803-judge-experience-plan.md` is a
 committed agent scratch file, which is an artifact class, not wiring.
+
+**Found while checking what production actually reports (2026-10-16, after #98 deployed).**
+`/api/health` returns `release: null` in production. `src/app/api/health/route.ts:22` reads
+`SECUREVOICE_RELEASE`, whose own comment says reporting the release "is load-bearing for a
+blue/green deploy", and `src/lib/version.ts:47` says a rollback can prove WHICH tag is
+served because of it. Only `docker-compose.bluegreen.yml:46` sets it
+(`${IMAGE:?set IMAGE}`); the `app` service in `docker-compose.yml` — the one
+`deploy.yml` actually rolls — does not, so in the topology production runs today the
+claim is unevidenced and the field is decorative. Not fixed here because the value that
+should identify a release on that path (image tag, git sha, or the v-tag) is a deploy
+decision, and touching the compose of a live box is not a docs change. **Correction on
+re-reading:** the cross-node fix is no longer pending proof — `Lint, typecheck, tests,
+build` passed on `b3443fd`, on the merge `0a5e862`, and on staging `8666336`, and the
+`Realtime service — tests` step cannot skip (it exits 1 when the bus is unreachable), so
+the gate ran and passed three times where it had failed.

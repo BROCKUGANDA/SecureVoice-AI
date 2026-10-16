@@ -11,6 +11,7 @@ import {
   Download,
   Snowflake,
   ShieldCheck,
+  ShieldAlert,
   Search,
   Webhook,
   XCircle,
@@ -1892,6 +1893,18 @@ function WebhooksDemo() {
   const [check, setCheck] = useState<{ valid: boolean; reason: string; tampered: boolean } | null>(
     null,
   );
+  /**
+   * Set when the endpoint answers 403 — i.e. the viewer holds a session but not
+   * the operator seat.
+   *
+   * `/api/webhooks` mints a real HMAC and echoes the secret that minted it, so it
+   * is `requireOperator`. This view is `judge`-access, which means the demo seat
+   * CAN see this panel. Without this the panel rendered buttons that 403 on
+   * click, which reads as a broken page rather than as a permission boundary; and
+   * the 403 BODY is the honest answer here, so we show it instead of hiding the
+   * panel and leaving a judge wondering where the tutorial went.
+   */
+  const [operatorOnly, setOperatorOnly] = useState<string | null>(null);
 
   const sign = async () => {
     setBusy(true);
@@ -1903,6 +1916,11 @@ function WebhooksDemo() {
         body: JSON.stringify({ action: "sign", event }),
       });
       const d = await r.json();
+      if (r.status === 403) {
+        setOperatorOnly(typeof d?.error === "string" ? d.error : "Operator access required.");
+        return;
+      }
+      setOperatorOnly(null);
       if (d.ok) setSigned(d);
     } finally {
       setBusy(false);
@@ -1957,6 +1975,29 @@ function WebhooksDemo() {
               </p>
             </div>
           </div>
+
+          {/*
+            The boundary, stated rather than hidden. This endpoint returns the
+            signing secret in its body — that is what makes it a usable receiver
+            tutorial — so it is operator-gated while this panel is judge-visible.
+            Saying so is better than a dead button, and better than hiding the
+            panel: a judge who cannot see why is left thinking the product is
+            broken.
+          */}
+          {operatorOnly && (
+            <p
+              role="status"
+              className="mt-4 rounded-2xl border border-line bg-paper px-4 py-3 text-[12.5px] leading-relaxed text-ink-2"
+            >
+              <ShieldAlert className="mr-1.5 inline h-3.5 w-3.5 align-[-2px] text-amber-500" />
+              {operatorOnly}{" "}
+              {t(
+                "This panel signs real payloads with the deployment's webhook secret and returns that secret in the response, so it is limited to institution administrators. The mechanism is described in full on the Docs page.",
+                "هذه اللوحة توقّع حمولات حقيقية بمفتاح الويب هوك وتُعيد ذلك المفتاح في الاستجابة، لذلك تقتصر على مسؤولي المؤسسة. الآلية موثّقة بالكامل في صفحة التوثيق.",
+                lang,
+              )}
+            </p>
+          )}
 
           <div className="mt-4 flex flex-wrap items-center gap-2">
             {WX_EVENTS.map((e) => (

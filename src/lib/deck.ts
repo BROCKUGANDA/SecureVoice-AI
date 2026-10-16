@@ -192,9 +192,68 @@ export const DECK: Slide[] = [
     titleEn: "Built for exactly this problem",
     titleAr: "فريق صُمم لهذه المشكلة تحديداً",
     scriptEn:
-      "Five people, built for exactly this problem. Our lead brings twelve years in fraud detection systems at tier-one banks. Our conversational AI specialist has shipped four ElevenLabs implementations. Our full-stack engineer specializes in banking API integrations. Our Arabic linguist and UX researcher makes sure the voice actually earns trust across Gulf dialects. And our compliance specialist brings CBUAE regulatory experience. Together we have previously deployed voice solutions handling over fifty thousand calls a month. We did not assemble this team last week — we built it for this.",
+      // Was: "Five people, built for exactly this problem. Our lead brings twelve
+      // years in fraud detection systems at tier-one banks. Our conversational AI
+      // specialist has shipped four ElevenLabs implementations. Our full-stack
+      // engineer specializes in banking API integrations. Our Arabic linguist and
+      // UX researcher makes sure the voice actually earns trust across Gulf
+      // dialects. And our compliance specialist brings CBUAE regulatory
+      // experience. Together we have previously deployed voice solutions handling
+      // over fifty thousand calls a month."
+      //
+      // Every clause of that was invented, and the public /team page says one
+      // founder. A due-diligence reader who opens both would find the appendix
+      // describing a bench the team page contradicts, and the credibility cost
+      // would land on everything else in the deck — including the claims that are
+      // true. There is one person. Say so, and say what that means for the
+      // engagement, which is the thing a reader actually wants to know.
+      "One person. I build this end to end — the voice pipeline, the guardrail layer, the ledger, and the console you are looking at. That is worth saying plainly rather than dressing up, because it changes what an engagement with us looks like: you talk to the person who will answer your questions and ship the fix, and there is no handoff between a demo and production. What it does not change is the engineering standard the code is held to, because that is enforced by the test suite and the audit chain, not by headcount. Every number I have quoted on the previous slides is in this repository and can be re-run.",
     scriptAr:
-      "خمسة أعضاء: خبرة ١٢ سنة في كشف الاحتيال بالبنوك من الدرجة الأولى، أربع تطبيقات سابقة على ElevenLabs، هندسة تكامل بنكي، لغويات عربية وبحث تجربة مستخدم، وخبرة تنظيمية بمصرف الإمارات المركزي.",
+      "شخص واحد، وأنا من يبني هذا من طرفه إلى طرفه: خط أنابيب الصوت، وطبقة الضوابط، والسجل، ولوحة التشغيل.说出来 ذلك صراحةً أفضل من تجميله، لأنه يغيّر شكل التعامل: تتحدثون إلى من سيردّ على أسئلتكم ويصلح المشكلة، ولا تسليم بين عرض تجريبي وإنتاج. ولا يغيّر ذلك المعيار الهندسي الذي يُحاسَب عليه الكود، لأن ذلك تفرضه اختبارات وسلسلة التدقيق لا أعداد الموظفين.",
+  },
+  {
+    /*
+     * ── INSURANCE ────────────────────────────────────────────────────────────
+     *
+     * Sixteen slides, every number bank-specific, and a cover chip reading
+     * "Banking & Insurance". An insurer opening the appendix found a card-freeze
+     * product with an insurance label on the front. These three give the second
+     * half of the platform the same treatment the bank half gets: the vector, the
+     * two cases that matter, and the honest boundary of what is built.
+     */
+    id: 17,
+    layout: "statement",
+    kicker: "15 · For Insurers",
+    titleEn: "The payout is the softest target in insurance",
+    titleAr: "التعويض هو أضعف الأهداف في التأمين",
+    subEn: "Where the money actually goes",
+    scriptEn:
+      "Banks defend against an adversary taking money from a transaction. Insurers defend against an adversary moving money out of a claim — and that is a structurally easier problem to attack, because the money is expected. The policyholder should receive the payout. The caller claims to be the insurer. The payee account was added four minutes ago. Every element of a fraudulent claim payout looks exactly like a legitimate one, which is why it is caught by asking the policyholder rather than by any score. We run this case in the demo today: a sixty-two thousand dirham motor claim redirected to a new payee account, caught by a two-of-three challenge that never asks for a policy number, a PIN, or a password.",
+    scriptAr:
+      "تدافع المصارف ضد خصم يسحب مالاً من معاملة. وتدافع شركات التأمين ضد خصم يحوّل مالاً خارج مطالبة — وهي المشكلة البنيوية الأسهل هجوماً، لأن المال متوقَّع. من المفترض أن يتلقى حامل الوثيقة تعويضه، والمتصل يدّعي أنه جهة التأمين، وحساب المستفِد أُضيف قبل أربع دقائق. كل 요소�� في مطالبة احتيالية مطابقة تماماً للشرعية. لهذا تُكتشف بالسؤال إلى حامل الوثيقة، لا بأي درجة خطورة.",
+  },
+  {
+    id: 18,
+    layout: "table",
+    kicker: "16 · Two Claims Cases",
+    titleEn: "Claims fraud and policy servicing",
+    titleAr: "احتيال المطالبات وخدمة الوثيقة",
+    subEn: "Same engine, same guardrails, different nouns",
+    scriptEn:
+      "Two insurer conversations, running on the same spine as the bank ones — the customer's own language, an institution-signed guardrail policy, and a human who commits anything irreversible. Claims fraud: a payout redirected, a claim filed against coverage the policy does not support, or duplicate claims staged on one policy; the agent confirms the claim and the destination account, stages a payout hold, and a human adjuster commits or releases it. Policy servicing: a beneficiary changed, a policy re-opened after lapse, a contact-detail change followed immediately by a servicing request — the quietest place a fraudster operates, because a benefit change looks exactly like a normal request. For a Takaful operator the terminology engine substitutes contribution and disbursement for premium and payout automatically; that switch is not a paid tier, it applies to every tenant.",
+    scriptAr:
+      "محادثتان لشركة تأمين تعملان على العمود نفسه: لغة العميل، وسياسة ضمانات يوقّعها المؤسسة، وبشري يقرّر كل ما لا يجوز للوكيل تنفيذه. احتيال المطالبات: تحويل تعويض، أو مطالبة على تغطية لا يدعمها العقد، أو مطالبات مكرّرة؛ فيؤكّد الوكيل المطالبة وحساب المستفِد، ويجهّز حجز الصرف، ويقرّر المحكّم الإفراج أو الإلغاء. وخدمة الوثيقة: تغيير مستفيد، أو إعادة فتح وثيقة بعد الانتهاء. ولمشغّل التكافل تُبدّل محرّك المصطلحات الاشتراك والصرف تلقائياً؛ وهذا التبديل ليس طبقة مدفوعة بل يسري على كل مستأجر.",
+  },
+  {
+    id: 19,
+    layout: "roadmap",
+    kicker: "17 · What Is Honest",
+    titleEn: "Built, referenced, and owed",
+    titleAr: "ما بُني، وما هو مرجعي، وما هو مدين",
+    scriptEn:
+      "So you know exactly where we are. Shipped and running end to end today: the bank card-fraud intervention, and the insurer claim-payout redirection — both staged, both auditable, neither executing an irreversible action without a human. Referenced and running on the same engine but not yet a product of its own: collections and arrears, policy servicing, and provider pre-authentication intake. And owed, stated plainly because a due-diligence reader will find it anyway: a dedicated payout-hold endpoint of its own rather than the card-freeze action reinterpreted for insurers, an insurance-specific state branch in the case machine, and an insurer tenant in the seeded demo environment. The claims-fraud call runs today; the claims backend is on this list, not behind it.",
+    scriptAr:
+      "حتى تعرفوا موقعنا بالضبط. مُشحن ويعمل من طرفه إلى طرفه اليوم: تدخّل احتيال البطاقات للمصارف، وتحويل تعويض المطالبة لشركات التأمين — كلاهما مُجهَّز وقابل للتدقيق ولا ينفّذ إجراءً لا رجعة فيه دون بشري. مُرجعي ويعمل بالمحرّك نفسه: التحصيل وال-service، وخدمة الوثيقة، واستقبال التصويقات المسبقة. ومُدَين، ونقوله صراحة: نقطة نهاية مستقلة لحجز الصرف بدل إعادة تفسير تجميد البطاقة، وفرع خاص بالتأمين في آلة الحالات، ومستأجر تأمين في بيئة العرض. مكالمة احتيال المطالبات تعمل اليوم؛ وخلفية المطالبات على هذه القائمة، لا خلفها.",
   },
   {
     id: 15,

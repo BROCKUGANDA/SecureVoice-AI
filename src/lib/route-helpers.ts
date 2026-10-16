@@ -31,6 +31,7 @@ import "server-only";
 
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
+import { createHash } from "node:crypto";
 import {
   makeFailure,
   responseInitFor,
@@ -113,6 +114,63 @@ export function fail(failure: Failure): NextResponse {
  */
 export function ok(data: unknown, init?: ResponseInit): NextResponse {
   return NextResponse.json(data, init);
+}
+
+/**
+ * Is this If-None-Match header satisfied by `etag`?
+ *
+ * RFC 7232 §2.3: the header is a comma-separated candidate list compared
+ * WEAKLY, so a `W/`-prefixed candidate matches a strong ETag, and `*` matches
+ * anything. Without this, a client that echoes back what it was sent (or a
+ * proxy that rewrites it) would miss the 304 and re-pull the body the helper
+ * exists to save.
+ */
+function ifNoneMatchSatisfied(ifNoneMatch: string, etag: string): boolean {
+  return ifNoneMatch
+    .split(",")
+    .map((candidate) => candidate.trim().replace(/^W\//i, ""))
+    .some((candidate) => candidate === "*" || candidate === etag);
+}
+
+/**
+ * Conditional JSON response: strong ETag + `If-None-Match` revalidation, for
+ * the hot authenticated GETs.
+ *
+ * The body is serialized HERE, not by `NextResponse.json` first, for two
+ * reasons that make the ETag honest rather than decorative:
+ *   1. A response body is a one-shot stream — the sha256 must be taken from
+ *      the object before anything serializes it.
+ *   2. The exact bytes hashed are the exact bytes served, so a client that
+ *      sends the ETag back is answering for the body it actually received.
+ *
+ * `Cache-Control: private, no-cache` is the point of the helper (not
+ * `no-store`): the client MAY keep the body, but must revalidate before use —
+ * an unchanged poll becomes a body-less 304. Private, because every one of
+ * these payloads is tenant-scoped and must never land in a shared cache.
+ *
+ * `req` may be omitted: tests invoke route handlers bare, and a response
+ * without a request to revalidate against is unconditional — but it still
+ * carries the ETag so the NEXT round trip can be conditional.
+ */
+export function etaggedJson(
+  req: { headers: { get(name: string): string | null } } | undefined,
+  body: unknown,
+  init?: ResponseInit,
+): NextResponse {
+  const serialized = JSON.stringify(body);
+  const etag = `"${createHash("sha256").update(serialized).digest("hex")}"`;
+  const headers = new Headers(init?.headers);
+  headers.set("ETag", etag);
+  headers.set("Cache-Control", "private, no-cache");
+  headers.set("Content-Type", "application/json");
+  const ifNoneMatch = req?.headers.get("if-none-match") ?? null;
+  if (ifNoneMatch !== null && ifNoneMatchSatisfied(ifNoneMatch, etag)) {
+    // A 304 carries no body, so a Content-Type describing it would be a lie.
+    const notModified = new Headers(headers);
+    notModified.delete("Content-Type");
+    return new NextResponse(null, { status: 304, headers: notModified });
+  }
+  return new NextResponse(serialized, { ...init, headers });
 }
 
 /**

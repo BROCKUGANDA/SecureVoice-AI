@@ -8,6 +8,7 @@ import { MAX_PDF_BYTES, orgKbQuotaBytes, vectorizeDocument } from "@/lib/knowled
 import { deferWork, scheduleVectorize } from "@/lib/knowledge/schedule";
 import { append as auditAppend } from "@/lib/audit-chain";
 import { logWarn } from "@/lib/validation/safe-log";
+import { etaggedJson } from "@/lib/route-helpers";
 
 export const dynamic = "force-dynamic";
 
@@ -35,7 +36,7 @@ export const dynamic = "force-dynamic";
 
 const ALLOWED_LANG = /^[a-z]{2}(-[A-Za-z]{2,4})?$/;
 
-export async function GET() {
+export async function GET(req?: Request) {
   const guard = await requireOperator();
   if (!guard.ok) {
     return NextResponse.json({ error: guard.error }, { status: guard.status });
@@ -82,7 +83,10 @@ export async function GET() {
     }),
   );
 
-  return NextResponse.json({ ok: true, documents }, { headers: { "Cache-Control": "no-store" } });
+  // The settings panel re-polls this list while uploads walk Pending → Ready;
+  // an unchanged org library revalidates to a body-less 304. `req` is optional
+  // because tests invoke the handler bare.
+  return etaggedJson(req, { ok: true, documents });
 }
 
 export async function POST(req: NextRequest) {

@@ -14,8 +14,9 @@ import {
 } from "lucide-react";
 import { useApp, t } from "@/lib/store";
 import { VOICE_BY_LANG, type CallLang } from "@/lib/scenario";
-import { blobToWavBase64, streamSpeech } from "@/lib/voice-client";
+import { blobToWavBase64, stopVoice, streamSpeech } from "@/lib/voice-client";
 import { Input } from "@/components/ui/input";
+import { PanelHeader } from "@/components/ui/PanelHeader";
 import { cn } from "@/lib/utils";
 
 /**
@@ -76,6 +77,16 @@ export function LiveVoicePanel({ callLang }: { callLang: CallLang }) {
    * ceiling is unreachable from the surface judges actually use.
    */
   const callRefRef = useRef<string | null>(null);
+  /**
+   * Server-issued conversation token, echoed on every turn.
+   *
+   * Reset alongside `callRefRef` whenever a new call starts, so a finished
+   * conversation's streak cannot be inherited by the next one through a stale
+   * token.
+   */
+  const convIdRef = useRef<string | null>(null);
+  /** True from the click until getUserMedia resolves. Guards double-clicks. */
+  const startingRec = useRef(false);
   const recRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
@@ -95,10 +106,25 @@ export function LiveVoicePanel({ callLang }: { callLang: CallLang }) {
       streamRef.current?.getTracks().forEach((t) => t.stop());
       if (recRef.current?.state === "recording") recRef.current.stop();
       speakSeq.current += 1;
+      // AND actually stop the audio.
+      //
+      // The cleanup bumped `speakSeq`, which `streamSpeech` has no way to observe —
+      // it exposes no cancellation API — so the bump did nothing at all, and
+      // `stopVoice()` (which pauses the current clip AND calls
+      // speechSynthesis.cancel()) was never called. On unmount the agent kept
+      // talking and the browser kept speaking: audio from a component that no
+      // longer exists. This component backs BOTH the landing-page widget and the
+      // demo panel, so two instances can be live at once and they talk over each
+      // other.
+      stopVoice();
     };
   }, []);
   useEffect(() => {
-    speakSeq.current += 1; // kill in-flight replies on language switch
+    // Same on a language switch, and for the same reason: the pending reply is in
+    // the OLD language, so leaving it playing speaks the language the user just
+    // turned off.
+    speakSeq.current += 1;
+    stopVoice();
   }, [callLang]);
 
   const speakReply = (text: string) => {
@@ -130,13 +156,24 @@ export function LiveVoicePanel({ callLang }: { callLang: CallLang }) {
           text: clean,
           lang: callLang,
           ...(callRefRef.current ? { callRef: callRefRef.current } : {}),
+          // Server-issued conversation token. Without this the server counts every
+          // turn as conversation #1, so the "four unclear turns then a human"
+          // ceiling never fires — which is the guardrail a judge is most likely to
+          // meet and least likely to notice missing.
+          ...(convIdRef.current ? { convId: convIdRef.current } : {}),
         }),
       });
       const data = await res.json().catch(() => ({ error: "Unreadable response" }));
-      // The route returns the reference it audited under — adopt it and every
+      // The route returns the reference it audited under - adopt it and every
       // later turn on this call lands on the same streak.
       if (typeof data?.callRef === "string" && !callRefRef.current) {
         callRefRef.current = data.callRef;
+      }
+      // Same for the conversation token, and UNCONDITIONALLY: the server mints a
+      // new one whenever the presented token is absent or unrecognised, so this
+      // must always take the server's value rather than keeping a stale one.
+      if (typeof data?.convId === "string") {
+        convIdRef.current = data.convId;
       }
       if (!res.ok || !data.reply) throw new Error(data.error || "Agent unavailable");
       turnId.current += 1;
@@ -166,16 +203,29 @@ export function LiveVoicePanel({ callLang }: { callLang: CallLang }) {
 
   const startRec = async () => {
     setError(null);
+    // SYNCHRONOUS in-flight guard, set BEFORE the await.
+    //
+    // The old check was `if (phase !== "idle") return`, read from React state —
+    // and state does not update until this function yields at `getUserMedia`. So
+    // two clicks during the browser's permission prompt BOTH passed the check,
+    // both awaited, and the second overwrote streamRef/recRef. The first stream's
+    // mic tracks were then orphaned: never stopped, so the browser's recording
+    // indicator stayed on, with nothing left able to reach them. A MediaRecorder
+    // was left running too.
+    //
+    // A ref is the only thing that is current within a single tick.
+    if (startingRec.current) return;
     if (phase !== "idle") return;
-    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
-      setError(
-        lang === "ar"
-          ? "الميكروفون غير مدعوم — اكتب إجابتك."
-          : "Microphone unsupported here — type your answer below.",
-      );
-      return;
-    }
+    startingRec.current = true;
     try {
+      if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+        setError(
+          lang === "ar"
+            ? "الميكروفون غير مدعوم — اكتب إجابتك."
+            : "Microphone unsupported here — type your answer below.",
+        );
+        return;
+      }
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
       const mr = new MediaRecorder(stream);
@@ -194,6 +244,13 @@ export function LiveVoicePanel({ callLang }: { callLang: CallLang }) {
           ? "تعذّر الوصول إلى الميكروفون — اسمح بالوصول أو اكتب إجابتك."
           : "Microphone blocked — allow access or type your answer below.",
       );
+      // Stop whatever DID arrive. A stream granted after a failure here would
+      // otherwise keep the mic indicator on with no recorder referencing it.
+      for (const track of streamRef.current?.getTracks() ?? []) track.stop();
+      streamRef.current = null;
+      recRef.current = null;
+    } finally {
+      startingRec.current = false;
     }
   };
 
@@ -241,39 +298,37 @@ export function LiveVoicePanel({ callLang }: { callLang: CallLang }) {
 
   return (
     <section className="overflow-hidden rounded-3xl border border-line bg-white shadow-[0_24px_60px_-40px_rgba(16,24,18,0.35)]">
-      {/* header */}
-      <div className="relative flex flex-wrap items-center justify-between gap-3 overflow-hidden border-b border-line bg-card px-5 py-4 sm:px-6">
-        <div
-          className="absolute inset-0 opacity-50"
-          style={{
-            background:
-              "radial-gradient(420px 150px at 15% 0%, rgba(20,163,116,0.3), transparent 60%)",
-          }}
-        />
-        <div className="relative flex items-center gap-3">
-          <span className="relative flex h-10 w-10 items-center justify-center rounded-full bg-green-bright/15 ring-1 ring-green-bright/30">
-            <AudioLines className="h-5 w-5 text-primary" />
+      {/* header — black band shared via PanelHeader, matching the rail cards */}
+      <PanelHeader
+        className="sm:px-6"
+        icon={
+          <span className="relative flex h-10 w-10 items-center justify-center rounded-full bg-white/10 ring-1 ring-green-bright/40">
+            <AudioLines className="h-5 w-5 text-green-bright" />
             {phase === "recording" && (
-              <span className="sv-pulse-ring absolute inset-0 rounded-full text-primary/70" />
+              <span className="sv-pulse-ring absolute inset-0 rounded-full text-green-bright/70" />
             )}
           </span>
-          <div className="leading-tight">
-            <p className="text-[14px] font-semibold text-foreground">
+        }
+        title={
+          <>
+            <p className="text-[14px] font-semibold text-white">
               {lang === "ar" ? "تحدّث مع الوكيل" : "Talk to the agent"}{" "}
-              <span dir="rtl" className="font-arabic text-[12px] font-normal text-ink-2">
+              <span dir="rtl" className="font-arabic text-[12px] font-normal text-white/60">
                 · تحدث مع الوكيل
               </span>
             </p>
-            <p className="num mt-1 text-[10.5px] text-ink-2">
+            <p className="num mt-1 text-[10.5px] text-white/60">
               REAL STT → GUARDRAILED ROUTING → NEURAL VOICE · {VOICE_BY_LANG[callLang]}
             </p>
-          </div>
-        </div>
-        <span className="relative flex items-center gap-1.5 rounded-full bg-secondary px-3 py-1.5 text-[10.5px] font-semibold text-ink-2">
-          <Fingerprint className="h-3 w-3 text-primary" />
-          {lang === "ar" ? "لا رموز سرية · أبداً" : "No PINs · No OTPs · Ever"}
-        </span>
-      </div>
+          </>
+        }
+        right={
+          <span className="flex items-center gap-1.5 rounded-full bg-white/10 px-3 py-1.5 text-[10.5px] font-semibold text-white/80">
+            <Fingerprint className="h-3 w-3 text-green-bright" />
+            {lang === "ar" ? "لا رموز سرية · أبداً" : "No PINs · No OTPs · Ever"}
+          </span>
+        }
+      />
 
       <div className="grid lg:grid-cols-[0.92fr_1.08fr]">
         {/* left — controls */}

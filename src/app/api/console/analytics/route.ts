@@ -1,8 +1,8 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
-import type { Prisma } from "@/generated/prisma/client";
+import { Prisma } from "@/generated/prisma/client";
 import { requireSignedIn } from "@/lib/credits";
-import { orgScopeFor, scopedDb } from "@/lib/tenancy/guard";
+import { orgScopeFor, scopedDb, type OrgScope } from "@/lib/tenancy/guard";
 import { withTenantScope } from "@/lib/tenancy/db-scope";
 
 export const dynamic = "force-dynamic";
@@ -62,7 +62,32 @@ const REACHED_STATES = new Set([
   "CLOSED",
 ]);
 
-async function compute(client: Client, since: Date, until: Date) {
+/**
+ * The org predicate a raw statement must carry.
+ *
+ * `$queryRaw` is invisible to the tenancy extension: `guard.ts` installs
+ * `$allModels.$allOperations`, which intercepts MODEL operations only, and the
+ * repo says so itself at `guard.ts:34-37` — "Prisma's model layer cannot see a
+ * hand-written predicate". So every hand-written statement in a tenant read has to
+ * restate the scope, and this is that restatement, as a Prisma.sql fragment so the
+ * values stay bound rather than interpolated.
+ *
+ * Mirrors `scopeWhere()` in `src/lib/tenancy/guard.ts` exactly — the shared
+ * namespace is `orgId IS NULL OR orgId = 'default'` and NEVER "all orgs". If the
+ * two ever drift, this function is the one to change.
+ *
+ * It is applied on BOTH branches, not only the shared one. On the RLS branch it is
+ * redundant (RLS already filters), and redundancy that costs one index-friendly
+ * predicate is the cheapest possible insurance against a future refactor moving
+ * this query onto the shared path.
+ */
+function orgPredicate(scope: OrgScope) {
+  return "orgId" in scope
+    ? Prisma.sql`AND "orgId" = ${scope.orgId}`
+    : Prisma.sql`AND ("orgId" IS NULL OR "orgId" = 'default')`;
+}
+
+async function compute(client: Client, since: Date, until: Date, scope: OrgScope) {
   const window = { createdAt: { gte: since, lt: until } } as const;
 
   const [casesOpened, byState, byLanguage, byOutcome, duration, credits, recent, audit, trend] =
@@ -117,6 +142,12 @@ async function compute(client: Client, since: Date, until: Date) {
       }),
       // Weekly buckets straight from Postgres. Twelve client-side queries would
       // each be a correct answer and a wrong total if the clock moved between them.
+      //
+      // This is the one statement here that is NOT protected by the model-level
+      // tenancy extension, so it carries the org predicate itself. Without it this
+      // returned weekly caseload for EVERY tenant to any caller whose session had
+      // no organisation — which includes every demo seat, since getProfile() drops
+      // the tenant pointer for the demo email.
       client.$queryRaw<{ week: Date; cases: number; confirmed: number; reached: number }[]>`
       SELECT date_trunc('week', "createdAt") AS "week",
              COUNT(*)::int                    AS "cases",
@@ -128,9 +159,10 @@ async function compute(client: Client, since: Date, until: Date) {
              )::int                          AS "reached"
         FROM "Case"
        WHERE "createdAt" >= ${since} AND "createdAt" < ${until}
+       ${orgPredicate(scope)}
        GROUP BY 1
        ORDER BY 1
-    `,
+     `,
     ]);
 
   const countOf = (state: string): number =>
@@ -256,8 +288,8 @@ export async function GET(req: NextRequest) {
   try {
     const data =
       "orgId" in scope
-        ? await withTenantScope(scope.orgId, (tx) => compute(tx, since, until))
-        : await compute(scopedDb(scope) as Client, since, until);
+        ? await withTenantScope(scope.orgId, (tx) => compute(tx, since, until, scope))
+        : await compute(scopedDb(scope) as Client, since, until, scope);
 
     return NextResponse.json(
       {

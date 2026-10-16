@@ -23,6 +23,7 @@ import {
   Mail,
 } from "lucide-react";
 import { useApp, t } from "@/lib/store";
+import { isDemoAccount } from "@/lib/demo-account";
 import { SUPPORT_EMAIL } from "@/lib/public-config";
 import { Chip, LiveDot, StatusPill } from "@/components/fx/core";
 import { Input } from "@/components/ui/input";
@@ -345,7 +346,12 @@ export function Console() {
   const isLoaded = !isPending;
   // Display-only. The capability check that actually gates every console action
   // happens server-side on each route.
-  const role = session?.session?.activeOrganizationId ? "operator" : undefined;
+  // A demo session's org pointer is the demo's own org, never capability — the
+  // server confines the demo role in getProfile() and refuses org switches.
+  const role =
+    session && !isDemoAccount(session.user.email) && session.session?.activeOrganizationId
+      ? "operator"
+      : undefined;
   // The wallet, branding, cases and audit trail are all org-scoped, so the
   // fetch effect below must re-run on an org SWITCH, not only on sign-in.
   // `role` alone cannot see that switch: it collapses both orgs into

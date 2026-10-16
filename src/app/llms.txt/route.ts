@@ -75,6 +75,8 @@ const PURPOSE: Record<string, string> = {
   "/refund": "Refund and cancellation policy.",
   "/usecases":
     "Worked scenarios: card fraud verification, claim confirmation, and appointment reminders.",
+  "/team":
+    "The people behind the platform: engineering, compliance, and the fraud operations desk.",
 };
 
 /**

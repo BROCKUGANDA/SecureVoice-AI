@@ -263,7 +263,28 @@ export const PLANS: Plan[] = [
       "Deploys inside your own VPC or data centre",
       "Dedicated deployment for the WebSocket voice plane",
       "Shariah-compliant terminology engine",
-      "Takaful and insurer-specific voice policies",
+      /**
+       * Was "Takaful and insurer-specific voice policies".
+       *
+       * That bullet claimed a paid feature the code does not gate: the entire
+       * `Entitlement` catalogue is `byok | signedWebhooks`
+       * (src/lib/billing/entitlements.ts), and
+       * `src/lib/billing/entitlements.ts` deliberately does NOT gate
+       * `institutionType` — with the stated reason that gating it "would make a
+       * Starter insurer be spoken to with banking language, which is a compliance
+       * posture the platform needs to get right for every tenant that pays
+       * anything at all."
+       *
+       * So a Starter insurer gets insurer voice anyway, and the card was false in
+       * the direction that matters commercially: a plan that lists something under
+       * Enterprise is a statement about what the cheaper plans do not include, and
+       * here the statement was untrue. The entitlements module's own docstring
+       * names this exact defect as the reason it exists.
+       *
+       * Replaced with the thing Enterprise genuinely is: bespoke terminology per
+       * tenant, which is true, and is a real reason to upgrade.
+       */
+      "Bespoke terminology per product line, configured with you",
       "Named technical contact",
     ],
     includesAr: [

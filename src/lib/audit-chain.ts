@@ -18,6 +18,8 @@
 
 import { createHash } from "node:crypto";
 import { dbAudit } from "@/lib/db";
+import { ipPseudonym, resolveClientIp } from "@/lib/client-ip";
+import { REQUEST_ID_HEADER } from "@/lib/ip-normalize";
 import { notifyRealtime } from "@/lib/realtime";
 import { logError } from "@/lib/validation/safe-log";
 
@@ -50,6 +52,19 @@ export type AuditEntry = {
   redactedText?: string;
   meta?: Record<string, unknown>;
   orgId?: string; // organization scoping — sealed into the chain like any other field
+  /**
+   * Who made the request, pseudonymised. Left undefined by nearly every call site,
+   * because `append()` fills it from the ambient request (see `requestAttribution`).
+   * Set it EXPLICITLY only where the caller knows something the ambient request
+   * cannot say — a queue worker acting on behalf of a case, or a system actor.
+   *
+   * Overriding it with a value the ambient request contradicts would attribute a
+   * row to a source that never made it, which is the one thing an audit trail must
+   * never do.
+   */
+  ipHash?: string;
+  /** `x-request-id` of the request that produced this row. Same auto-fill rules. */
+  requestId?: string;
 };
 
 /** Cap + sanitize an untrusted caller-supplied key. Prevents oversized or
@@ -57,6 +72,51 @@ export type AuditEntry = {
 function safeKey(v: string | undefined, max: number): string | undefined {
   if (!v) return undefined;
   return v.replace(/[^\w.:-]/g, "").slice(0, max) || undefined;
+}
+
+/**
+ * Attribution for an audit row that did not carry its own.
+ *
+ * Every chain row records WHO acted. `callerId` answers "which service or user",
+ * which is not the same question as "which client address", and for ~55 of the
+ * append call sites the answer is only knowable from the ambient request. So
+ * `append()` fills it here rather than making every caller thread a request object
+ * down into a worker that has no request.
+ *
+ * Reads it from `next/headers()` rather than taking a request, because the call
+ * graph bottoms out in places that legitimately have no request at all (the dial
+ * worker, the SLA sweep, a backfill script). Those return `{}` and the columns stay
+ * NULL, which is the honest answer: a row with no client must not be attributed to
+ * whoever last signed in.
+ *
+ * `next/headers` is resolved lazily and latched on first failure. Importing it at
+ * module scope would drag a Next server binding into `src/worker/*` bundles that
+ * are plain Node processes, and the failure there is a throw at import time — which
+ * takes the worker down before any of this code runs.
+ */
+let headersUnavailable = false;
+
+async function requestAttribution(): Promise<{ ipHash?: string; requestId?: string }> {
+  if (headersUnavailable) return {};
+  try {
+    const { headers } = await import("next/headers");
+    const h = await headers();
+    // An empty header store means there is no request (a worker), not that the
+    // request had no address. `headers()` returns an empty ReadonlyHeaders rather
+    // than throwing outside a request scope on some versions, so treat emptiness
+    // the same as unavailability.
+    if (!h || typeof h.get !== "function") return {};
+    return {
+      ipHash: ipPseudonym(resolveClientIp(h as unknown as Headers)) ?? undefined,
+      requestId: safeKey(h.get(REQUEST_ID_HEADER) ?? undefined, 64),
+    };
+  } catch {
+    // Latched: in a plain Node process this throws on EVERY call, and paying a
+    // failed dynamic import on each of the ~55 appends a request makes would be a
+    // measurable cost on the tool-call latency budget.
+    headersUnavailable = true;
+    return {};
+  }
 }
 
 function sanitize(entry: AuditEntry): AuditEntry {
@@ -68,6 +128,8 @@ function sanitize(entry: AuditEntry): AuditEntry {
     callerId: safeKey(entry.callerId, 64),
     redactedText: entry.redactedText?.slice(0, 500),
     orgId: safeKey(entry.orgId, 64),
+    ipHash: safeKey(entry.ipHash, 64),
+    requestId: safeKey(entry.requestId, 64),
   };
 }
 
@@ -187,7 +249,16 @@ export async function append(
   entry: AuditEntry,
   opts?: { fast?: boolean },
 ): Promise<{ id: string; chainHash: string }> {
-  const clean = sanitize(entry);
+  // Attribution is resolved BEFORE sanitize() so the auto-filled values go through
+  // the same key sanitisation as an explicitly-supplied one. A request id is
+  // header-derived, and an untrusted header does not get to write an unbounded
+  // string into a column that is indexed.
+  const attribution = await requestAttribution();
+  const clean = sanitize({
+    ipHash: attribution.ipHash,
+    requestId: attribution.requestId,
+    ...entry,
+  });
   // Concurrency limiter: fire-and-forget appends must never starve the hot
   // path (the combined idempotency+consent check) of a pool connection. At
   // most MAX_CONCURRENT_APPENDS run at once; the rest queue. This bounds the
@@ -206,9 +277,25 @@ export async function append(
     // re-computing produces a DIFFERENT hash — the retry is guaranteed to make
     // progress, bounded, and never masks a non-collision failure. Surfacing the
     // P2002 instead would 500 a tool call that actually succeeded.
+    const fast = opts?.fast ?? false;
     for (let attempt = 0; ; attempt++) {
       try {
-        return await appendInner(clean, opts?.fast ?? false);
+        // ESCALATION, and it is the point of the loop. A fast-path append has NO
+        // database lock — the only thing serialising two writers for one callRef
+        // is the in-process CHAIN_LOCKS map above, which a second replica or a
+        // worker does not share. Under N instances both writers read the same
+        // head, compute the same hash, and the loser retries. Retry usually
+        // converges, but "usually" is not a correctness argument for a TAMPER-
+        // EVIDENT log: exhausting the retries leaves a genuine FORK, which
+        // verifyChain() reports as tampering and a bank reads as "someone
+        // altered the record".
+        //
+        // So the LAST attempt drops the fast path and takes
+        // pg_advisory_xact_lock(hashtext(callRef)), which serialises across every
+        // instance. Cost: one transaction, on a collision, that is already rare.
+        // The happy path — no contention — never pays it.
+        const lastAttempt = attempt >= CHAIN_HASH_COLLISION_RETRIES;
+        return await appendInner(clean, fast && !lastAttempt);
       } catch (err) {
         // A retried collision is not a lost record, so the count happens on the
         // branch that gives up — never on the branch that tries again.
@@ -301,6 +388,8 @@ async function appendInner(
           redactedText: clean.redactedText,
           meta: canonicalMeta,
           orgId: clean.orgId,
+          ipHash: clean.ipHash,
+          requestId: clean.requestId,
           prevHash,
           chainHash: hash,
         },
@@ -342,6 +431,8 @@ async function appendInner(
           redactedText: clean.redactedText,
           meta: canonicalMeta,
           orgId: clean.orgId,
+          ipHash: clean.ipHash,
+          requestId: clean.requestId,
           prevHash,
           chainHash: hash,
         },
@@ -431,6 +522,15 @@ export async function verifyChain(
     // canonicalize it back as that same string so the hash matches. If we
     // JSON.parse(row.meta) and let the serializer re-stringify, the bytes
     // change (escaping, whitespace, key order) and every chain link breaks.
+    //
+    // `ipHash`/`requestId` are reconstructed the same way append() hashed them,
+    // and `?? undefined` is what keeps PRE-9zzzzzzzzzzzzzzzzzzzzzzzzzzz_
+    // audit_attribution rows verifiable: JSON.stringify drops an `undefined`
+    // value, so the key never reaches the serialised object and the bytes are
+    // identical to what was hashed before the columns existed. Dropping these two
+    // lines would not break old rows — but omitting them from the WRITE hash
+    // instead would make every new row unverifiable, which is the direction that
+    // matters.
     const expected = chainHash(prev, {
       callRef: row.callRef,
       action: row.action as AuditEntry["action"],
@@ -439,6 +539,8 @@ export async function verifyChain(
       redactedText: row.redactedText ?? undefined,
       meta: (row.meta ?? undefined) as unknown as Record<string, unknown> | undefined,
       orgId: (row as { orgId?: string | null }).orgId ?? undefined,
+      ipHash: (row as { ipHash?: string | null }).ipHash ?? undefined,
+      requestId: (row as { requestId?: string | null }).requestId ?? undefined,
     });
     if (row.chainHash !== expected) {
       return { ok: false, brokenAt: row.id, expected, actual: row.chainHash, rows: rows.length };

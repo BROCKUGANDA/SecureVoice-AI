@@ -4,6 +4,7 @@ import { z } from "zod";
 import { env } from "@/lib/config";
 import { db } from "@/lib/db";
 import { logError } from "@/lib/validation/safe-log";
+import { resolveClientIp } from "@/lib/client-ip";
 import { enqueueEmail } from "@/lib/email/outbox";
 import { SUPPORT_EMAIL as PUBLIC_SUPPORT_EMAIL } from "@/lib/public-config";
 
@@ -68,12 +69,13 @@ function makeRef(): string {
 }
 
 export async function POST(req: NextRequest) {
-  // Use the proxy-resolved IP (set by src/proxy.ts after the XFF trust
-  // decision) — raw x-forwarded-for here would be trivially rotatable.
-  const ip =
-    req.headers.get("x-securevoice-client-ip")?.slice(0, 64) ||
-    req.headers.get("x-forwarded-for")?.split(",")[0]?.trim().slice(0, 64) ||
-    "local";
+  // One resolver for the whole codebase (src/lib/client-ip.ts). The previous
+  // inline read trusted `x-forwarded-for` whenever the proxy header was absent,
+  // which is precisely the case an attacker creates by skipping the proxy — so
+  // the fallback defeated the comment two lines above it. `resolveClientIp`
+  // believes no header at all unless src/proxy.ts marked the request, so the
+  // budget below can no longer be rotated by choosing a header value.
+  const ip = resolveClientIp(req.headers);
 
   if (rateLimited(ip)) {
     return NextResponse.json(

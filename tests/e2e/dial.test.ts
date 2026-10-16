@@ -18,7 +18,10 @@ import { db } from "@/lib/db";
 
 process.env.ELEVENLABS_DRY_RUN = "true";
 process.env.ELEVENLABS_AGENT_ID = process.env.ELEVENLABS_AGENT_ID ?? "agent_test";
-process.env.WEBHOOK_SECRET = process.env.WEBHOOK_SECRET ?? "test-secret";
+// `||=`, not `??=`: developer `.env` files commonly carry an EMPTY placeholder,
+// and the ingest treats an empty secret as unconfigured (401), which would turn
+// this file red for an environment reason. A real value still wins.
+process.env.WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || "test-secret";
 
 const SECRET = process.env.WEBHOOK_SECRET;
 const TEST_NUMBER = "+971500000001"; // UAE test number (E.164)

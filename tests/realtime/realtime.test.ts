@@ -174,6 +174,15 @@ test("WP-20: tenancy, resume, inbox dedupe, acknowledgement escalation", async (
   expect(hop3[0]!.terminal).toBe(true);
   expect(hop3[0]!.toContact).toBeNull();
 
+  // The sweep after exhaustion must go SILENT forever. This is the churn that
+  // lived on production for weeks: the outstanding set is every
+  // `acknowledgedAt: null` row, so an exhausted notification re-advanced one
+  // terminal hop per SLA window, forever — a fresh audit-chain row and a fresh
+  // "escalation_exhausted" every five minutes, unbounded.
+  const afterTerminal = await advanceEscalations(new Date(at.getTime() + sla * 20));
+  expect(afterTerminal.find((h) => h.id === first.id)).toBeUndefined();
+  expect(afterTerminal).toHaveLength(0);
+
   // Every hop is in the tamper-evident chain.
   // `advanceEscalations` appends each hop with `orgId: n.orgId`, and this
   // notification was created with ORG_A — so ORG_A owns the SV-F-<RUN> chain.

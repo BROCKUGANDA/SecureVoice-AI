@@ -43,6 +43,14 @@ const schema = z.object({
   // here, which meant a caller that omitted it could never reach the threshold and
   // a caller that sent `turn: 1` every time could never be handed off. The server
   // counts consecutive unclear turns per call — src/lib/voice/turn-counter.ts.
+  //
+  // Same rule for the conversation identity. `convId` is SERVER-ISSUED: the server
+  // mints one when the client has none and returns it, and the client echoes it
+  // back so the streak follows the conversation. An unrecognised or absent token
+  // mints a fresh conversation rather than being trusted, and a per-SOURCE ceiling
+  // (keyed on the trust-gated caller identity, which the caller cannot choose)
+  // stops the rotation from buying unlimited unclear turns.
+  convId: z.string().min(8).max(64).optional(),
   direction: z.enum(["inbound", "outbound"]).default("inbound"),
   consentRecordId: z.string().min(4).optional(),
 });
@@ -54,8 +62,13 @@ type Action = "card_freeze" | "none" | "clarify" | "human_handoff";
  * After this many turns without a clear answer the call goes to a human rather
  * than looping ("Was this you?" / "Are you sure?" / ...). A loop is how a fraud
  * victim ends up arguing with a script at 2am; a person resolves it in one turn.
+ *
+ * The value itself now lives beside the counter that applies it, as
+ * `MAX_UNCLEAR_TURNS` in src/lib/voice/turn-counter.ts — one number, read in the
+ * one place that enforces it. Declaring it here as well was how the threshold came
+ * to be compared in a route while the module that owns the policy kept its own
+ * copy.
  */
-const MAX_UNCLEAR_TURNS = 4;
 
 /**
  * A caller who asks "are you a scammer?" is doing exactly what we tell people to
@@ -426,12 +439,21 @@ export async function POST(req: NextRequest) {
   //    coached callers are flagged for immediate human takeover)
   const classified = classify(text);
   // Four consecutive turns without a clear answer and a human takes over, rather
-  // than the loop continuing. Counted here, not by the client — see
-  // src/lib/voice/turn-counter.ts for why the previous client-supplied number
-  // made this unreachable, and defeatable.
-  const unclearStreak = noteTurn(callRef, classified === "unclear");
-  const turnCapped = classified === "unclear" && unclearStreak >= MAX_UNCLEAR_TURNS;
-  const intent: Intent = turnCapped ? "handoff" : classified;
+  // than the loop continuing.
+  //
+  // Counted here, on a SERVER-ISSUED conversation token, and additionally capped
+  // per SOURCE. It used to be keyed on the client-supplied `callRef`, which meant
+  // the guard could not fire on the plane judges actually use (the live panel
+  // omits the ref, so every turn was conversation #1) and could be defeated by
+  // any caller willing to send a fresh one per request. `callerId` is the
+  // trust-gated identity and cannot be chosen by the caller, so the per-source
+  // ceiling holds against exactly that rotation. See src/lib/voice/turn-counter.ts.
+  const turn = noteTurn({
+    presentedConvId: typeof parsed.data.convId === "string" ? parsed.data.convId : null,
+    source: callerId,
+    unclear: classified === "unclear",
+  });
+  const intent: Intent = turn.capped ? "handoff" : classified;
   const baseAction = ACTION[intent];
   const userInputAudit = auditUserInput(text);
   const sentimentResult = analyzeSentiment(text);
@@ -551,6 +573,16 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({
     ok: true,
     callRef,
+    /**
+     * Server-issued conversation token. The client must echo it on its next turn
+     * for the unclear-turn handoff ceiling to keep counting the same
+     * conversation — without it every turn starts a fresh streak and the ceiling
+     * never fires. Minted fresh whenever the presented token is absent or
+     * unrecognised; see src/lib/voice/turn-counter.ts.
+     */
+    convId: turn.convId,
+    /** Consecutive unclear turns counted so far, for the caller's own display. */
+    unclearStreak: turn.streak,
     intent,
     action: audited.refused || sentimentResult.escalate ? "human_handoff" : baseAction,
     reply: audited.reply,

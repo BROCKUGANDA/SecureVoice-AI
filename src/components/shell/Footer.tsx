@@ -35,6 +35,12 @@ const ROUTES: Link[] = [
   { href: "/docs", en: "Documentation", ar: "التوثيق" },
   { href: "/security", en: "Security", ar: "الأمن" },
   { href: "/usecases", en: "Use Cases", ar: "حالات الاستخدام" },
+  // Public and indexable, like every other link in this column. A reader who
+  // cannot find "who built this" from the footer concludes there is nobody to
+  // find, which is the opposite of what a one-person team wants a procurement
+  // thread to conclude.
+  { href: "/team", en: "Team", ar: "الفريق" },
+  { href: "/faq", en: "FAQ", ar: "الأسئلة الشائعة" },
   { href: "/terms", en: "Terms of Service", ar: "الشروط والأحكام" },
   { href: "/privacy", en: "Privacy Policy", ar: "سياسة الخصوصية" },
   { href: "/refund", en: "Refund Policy", ar: "سياسة الاسترداد" },

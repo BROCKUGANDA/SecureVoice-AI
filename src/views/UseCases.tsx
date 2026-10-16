@@ -11,8 +11,11 @@ import {
   X,
   ArrowRight,
   UserRound,
+  ShieldAlert,
 } from "lucide-react";
+import { useState } from "react";
 import { useApp, t } from "@/lib/store";
+import type { InstitutionType } from "@/lib/institution-types";
 import { useStandalone } from "@/components/shell/standalone-context";
 import { Reveal } from "@/components/fx/core";
 import { cn } from "@/lib/utils";
@@ -146,6 +149,53 @@ const USE_CASES_AR: Record<string, UseCaseAr> = {
       sub: "منتقي العرض يتيح اللغات الستّ؛ ولا توجد محادثات كاملة مسجّلة إلا بالعربية والإنجليزية",
     },
   },
+
+  "claims-fraud": {
+    pitch:
+      "لحظة صرف التعويض هي أكثر لحظة تكون فيها جهة التأمين مكشوفة وحامل الوثيقة أقلّها اشكاكاً: المال متوقَّع، والمتصل هو جهة التأمين، وحساب المستفِد جديد. وحين يُحوَّل تعويض — مستفِد غُيِّر قبل أربع دقائق، أو مطالبة على وثيقة منتهية، أو ضرر موصوف بما لا يغطيه العقد — ي-call الوكيل حامل الوثيقة قبل خروج المال، بلغته، ويؤكّد المطالبة وحساب المستفِد دون أن يطلب رقماً سرياً أو كلمة مرور أو رمزاً لمرة واحدة.",
+    agent: [
+      "تجري المكالمة فور قبول إشارة الصرف، قبل إرسال أمر الصرف إلى نظام الصرف",
+      "يُؤكَّد التعريف بتحدي المطالبة — يُسأل حامل الوثيقة عن المطالبة، لا عن بياناته",
+      "حجز الصرف مُجهَّز لا مُنفَّذ: يُحجز الصرف ويقرّر المحكّم البشري الإفراج عنه أو الإلغاء",
+      "تسليم إلى مكتب المطالبات مع ملخّص المكالمة — يُربط داخل المكالمة حين يُضبط رقم محكّم، ويُدرج تذكرةً حين لا يُضبط",
+    ],
+    inScope: [
+      "تحويل تعويض مُكتشف على مطالبة مفتوحة",
+      "مطالبة مقدَّمة على تغطية لا يدعمها العقد",
+      "مطالبات مكرّرة أو متتابعة على وثيقة واحدة",
+    ],
+    outScope: [
+      "تقدير المطالبة والمسؤولية والاحتياطي — قرار المحكّم، لا قرار الوكيل",
+      "مبالغ التسوية وأي زيادة في التغطية",
+    ],
+    personas: ["كبير مطالبات، شركة تأمين سيارات", "رئيس مكافحة الأموال، شركة تأمين"],
+    status: {
+      label: "نسخة مرجعية",
+      sub: "سيناريو المطالبة يعمل من طرفه إلى طرفه في العرض؛ أداة حجز الصرف ليست بعد نقطة نهاية مستقلة",
+    },
+  },
+
+  "policy-change": {
+    pitch:
+      "خدمة الوثيقة هي أهدأ مكان يعمل فيه المحتال، لأنها لا تبدو احتيالاً. إضافة منفعة، أو تغيير عنوان، أو إعادة كتابة مستفِد، أو إعادة فتح وثيقة بعد الإلغاء — كل طلب منها طبيعي، والطلب الطبيعي هو بالضبط ما لا يراجعه أحد. يستدعي الوكيل حامل الوثيقة عند تسجيل تغيير في الخدمة، فيؤكّد أن التغيير كان منه، ويجهّز عكساً يقرّرهUNDERWRITER أو فريق الخدمة.",
+    agent: [
+      "يستدعى الحدثُ الخدمةَ نفسُه، لا درجةَ خطورة — المراجعة هي الضابط، فيجري ذلك على كل تغيير مُعلَّم لا على الأسوأ فقط",
+      "يُؤكَّد التعريف بتحدي الوثيقة — يُسأل المتصل بما تغيَّر، لا بهُويّته",
+      "لا يُعكس التغيير إلا بشريّاً: الوكيل يُجهّز، وUNDERWRITER يقرّر",
+      "لغة مطابقة للشريعة حيث يكون المستأجر مشغّل تكافل — «اشتراك» و«صرف» بدل «قسطرة» و«تعويض»",
+    ],
+    inScope: [
+      "تغيير المستفيد أو المستفِد على وثيقة سارية",
+      "إعادة فتح وثيقة بعد الإلغاء أو الانتهاء",
+      "تغيير بيانات الاتصال يتبعه طلب خدمة",
+    ],
+    outScope: ["التسعير والاكتتاب — قرار UNDERWRITER", "رسوم التجديد والانتهاء، لأنها غير عاجلة"],
+    personas: ["رئيس الاكتتاب، شركة تأمين حياة", "كبير مسؤولي العمليات، مشغّل تكافل"],
+    status: {
+      label: "نسخة مرجعية",
+      sub: "المحرّك والضوابط نفسها المستخدمة في بطاقات المصارف؛ ولا يوجد بعد سيناريو خاص بالوثائق",
+    },
+  },
 };
 
 const USE_CASES: {
@@ -153,6 +203,17 @@ const USE_CASES: {
   icon: typeof PhoneCall;
   en: string;
   ar: string;
+  /**
+   * Which institution this brief is FOR. Not decoration: it drives the filter on
+   * the page, so an insurer reader is not shown three bank briefs first, and a
+   * bank reader is not asked to care about a claims queue.
+   *
+   * It was absent before, which is why insurers appeared only as PERSONAS on
+   * bank briefs — the only live card on the page was bank-only, and the two
+   * insurer-shaped ones were both "Reference build". Insurer coverage was a chip
+   * in the corner of somebody else's brief.
+   */
+  institution: InstitutionType;
   pitch: string;
   agent: string[];
   inScope: string[];
@@ -163,6 +224,7 @@ const USE_CASES: {
   {
     id: "fraud",
     icon: PhoneCall,
+    institution: "bank",
     en: "Real-Time Fraud Intervention",
     ar: "التدخل الفوري في الاحتيال",
     pitch:
@@ -188,6 +250,7 @@ const USE_CASES: {
   {
     id: "collections",
     icon: HandCoins,
+    institution: "bank",
     en: "Governed Collections & Early Arrears Resolution",
     ar: "التحصيل الخاضع للحوكمة",
     pitch:
@@ -217,6 +280,7 @@ const USE_CASES: {
   {
     id: "preauth",
     icon: FileCheck2,
+    institution: "insurer",
     en: "Provider Pre-Authorisation Intake & Triage",
     ar: "استقبال التراخيص الطبية وفرزها",
     pitch:
@@ -244,6 +308,7 @@ const USE_CASES: {
   {
     id: "hard-moments",
     icon: HeartHandshake,
+    institution: "insurer",
     en: "Support Through Difficult Moments",
     ar: "الدعم في اللحظات الصعبة",
     pitch:
@@ -268,6 +333,7 @@ const USE_CASES: {
   {
     id: "servicing",
     icon: Globe2,
+    institution: "bank",
     en: "Multilingual Everyday Servicing",
     ar: "خدمة يومية متعددة اللغات",
     pitch:
@@ -292,12 +358,95 @@ const USE_CASES: {
       sub: "The demo picker offers all six; recorded conversations exist in English and Arabic only",
     },
   },
+
+  // ——————————————————————————————— INSURER ———————————————————————————————
+
+  /**
+   * The two briefs `/usecases`'s own metadata has been advertising since it
+   * shipped — "claims and policy fraud for insurers", "claims fraud, policy fraud"
+   * — without a single card on the page being either.
+   *
+   * They are here now because the claim scenario in `src/lib/scenario.ts` is a
+   * finished, fully-voiced, correctly-staged insurer case: a AED 62,000 motor
+   * payout redirected to a payee account added four minutes earlier. The demo can
+   * already run it end to end in six languages. The page describing a product it
+   * could not demonstrate was the actual defect — and SEO copy for an unbuilt
+   * product is worse than no copy, because a procurement reader who follows the
+   * promise finds nothing.
+   *
+   * What is honest about the status: the CALL is live, the protective action is
+   * staged, and there is no payout-hold tool on the agent yet — `card_freeze` is
+   * the only write tool, and the insurer reading of it exists as a prompt note
+   * rather than as its own endpoint. Claiming more than that here would repeat
+   * the defect one layer up.
+   */
+  {
+    id: "claims-fraud",
+    icon: ShieldAlert,
+    institution: "insurer",
+    en: "Claims Fraud & Payout Diversion",
+    ar: "احتيال المطالبات وتحويل التعويضات",
+    pitch:
+      "A claim payout is the moment an insurer is most exposed and the policyholder least suspicious: the money is expected, the caller is the insurer, and the payee account is new. When a payout is redirected — a payee changed four minutes before release, a claim filed against a policy that lapsed, a loss described in a way the coverage does not support — the agent calls the policyholder before the money leaves, in their language, and confirms the claim and the destination account without ever asking for a PIN, a password or a one-time code.",
+    agent: [
+      "The call is placed the moment the payout signal is accepted, before the release instruction is sent to the disbursement system",
+      "Identity confirmed by claim challenge — the policyholder is asked about the claim, never about their credentials",
+      "The payout hold is STAGED, never executed: the release is withheld and a human adjuster commits or releases it",
+      "Handoff to the claims desk with the call summary — bridged in-call when an adjuster number is configured, queued as a ticket when it is not",
+    ],
+    inScope: [
+      "Payout redirection detected on an open claim",
+      "Claim-filed against coverage the policy does not support",
+      "Duplicate or staged claims on one policy",
+    ],
+    outScope: [
+      "Claim assessment, liability and reserve decisions — an adjuster's call, never the agent's",
+      "Settlement amounts and any increase to cover",
+    ],
+    personas: ["Chief Claims Officer, motor insurer", "Head of Financial Crime, insurer"],
+    status: {
+      label: "Reference build",
+      sub: "The claim scenario runs end to end in the demo; the payout-hold tool is not yet its own endpoint",
+    },
+  },
+  {
+    id: "policy-change",
+    icon: FileCheck2,
+    institution: "insurer",
+    en: "Policy Servicing & Unauthorised Change",
+    ar: "خدمة الوثيقة والتغيير غير المصرّح به",
+    pitch:
+      "Policy servicing is the quietest place a fraudster operates, because it does not look like fraud. A benefit added, an address changed, a payee rewritten, a policy re-opened after cancellation — each one is a normal request and a normal request is exactly what nobody checks. The agent calls the policyholder when a servicing change lands, confirms the change was theirs, and stages a reversal for the underwriter or the servicing team to commit.",
+    agent: [
+      "Triggered by the servicing event itself, not by a score — the review is the control, so it runs on every flagged change rather than only on the worst",
+      "Identity confirmed by policy challenge — the caller is asked what changed, not who they are",
+      "The change is REVERSED only by a human: the agent stages, the underwriter commits",
+      "Shariah-compliant language where the tenant is a Takaful operator — 'contribution' and 'disbursement' rather than 'premium' and 'payout'",
+    ],
+    inScope: [
+      "Beneficiary and payee changes on an active policy",
+      "Policy re-opened after cancellation or lapse",
+      "Contact-detail changes followed by a servicing request",
+    ],
+    outScope: [
+      "Underwriting and pricing — an underwriter's decision",
+      "Renewal and lapse communications, which are not time-critical",
+    ],
+    personas: ["Head of Underwriting, life insurer", "Chief Operating Officer, Takaful operator"],
+    status: {
+      label: "Reference build",
+      sub: "Same engine and same guardrails as the live card brief; no insurer-specific scenario ships yet",
+    },
+  },
 ];
 
 /* ————————————————— page ————————————————— */
 
 export function UseCases() {
   const { lang, launchDemo } = useApp();
+  // Which institution's briefs to show. "all" first so the page still opens on
+  // the full breadth rather than on a guess about who is reading it.
+  const [audience, setAudience] = useState<"all" | InstitutionType>("all");
   // True when rendered as its own route (`/usecases`) rather than as a panel
   // inside the SPA at `/`. On a standalone route `launchDemo` and `setView`
   // mutate a Zustand store that nothing is subscribed to, so both CTAs below
@@ -331,7 +480,7 @@ export function UseCases() {
           )}
         </div>
         <h1 className="font-display mt-3 text-3xl font-semibold tracking-tight sm:text-4xl">
-          {t("One platform, five regulated conversations", "منصة واحدة، خمس محادثات منظّمة", lang)}
+          {t("One platform, seven regulated conversations", "منصة واحدة، سبع محادثات منظّمة", lang)}
         </h1>
         <p className="mt-3 text-[15px] leading-relaxed text-ink-2">
           {t(
@@ -342,9 +491,43 @@ export function UseCases() {
         </p>
       </div>
 
+      {/* audience filter
+       *
+       * Every brief used to render as one flat list, so an insurer had to scroll
+       * past three bank briefs to reach the two that concern them — and the two
+       * insurer briefs were both "Reference build", so the bank briefs were what
+       * an insurer actually saw. The filter makes the audience the first
+       * decision on the page, and "All" stays the default so the breadth is still
+       * visible to a reader who wants it.
+       */}
+      <div className="mt-7 flex flex-wrap items-center gap-2">
+        {(
+          [
+            { id: "all", en: "All institutions", ar: "كل المؤسسات" },
+            { id: "bank", en: "Banks", ar: "المصارف" },
+            { id: "insurer", en: "Insurers & Takaful", ar: "شركات التأمين والتكافل" },
+          ] as const
+        ).map((f) => (
+          <button
+            key={f.id}
+            type="button"
+            onClick={() => setAudience(f.id)}
+            aria-pressed={audience === f.id}
+            className={cn(
+              "rounded-full border px-4 py-2 text-[12.5px] font-semibold transition",
+              audience === f.id
+                ? "border-primary bg-green-tint text-primary"
+                : "border-line bg-paper text-ink-2 hover:border-primary/40",
+            )}
+          >
+            {t(f.en, f.ar, lang)}
+          </button>
+        ))}
+      </div>
+
       {/* cards */}
-      <div className="mt-10 space-y-6">
-        {USE_CASES.map((u, i) => {
+      <div className="mt-8 space-y-6">
+        {USE_CASES.filter((u) => audience === "all" || u.institution === audience).map((u, i) => {
           const ar = USE_CASES_AR[u.id];
           return (
             <Reveal key={u.id} delay={Math.min(i * 0.04, 0.12)}>

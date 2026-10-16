@@ -50,7 +50,14 @@ const signIn = (ip: string) =>
     new Request("http://localhost:3000/api/auth/sign-in/email", {
       method: "POST",
       body: JSON.stringify({ email: "admin@bank.ae", password: "hunter2" }),
-      headers: { "content-type": "application/json", "x-forwarded-for": ip },
+      // Proxied traffic: without the marker every source resolves "untrusted"
+      // and shares one bucket, which turns per-source isolation assertions
+      // into order-dependent failures. Production always carries it (Caddy).
+      headers: {
+        "content-type": "application/json",
+        "x-securevoice-proxy": "1",
+        "x-securevoice-client-ip": ip,
+      },
     }),
   );
 

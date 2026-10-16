@@ -60,7 +60,9 @@ const TOOL_FORWARD_TIMEOUT_MS = 10_000;
  * service's name.
  */
 function toolOrigin(): string {
-  return process.env.MCP_TOOL_FORWARD_ORIGIN ?? `http://127.0.0.1:${process.env.PORT ?? 3000}`;
+  // `||`, not `??`: a local .env with `MCP_TOOL_FORWARD_ORIGIN=""` must count
+  // as unset — ?? keeps the empty string and `new URL(path, "")` throws.
+  return process.env.MCP_TOOL_FORWARD_ORIGIN || `http://127.0.0.1:${process.env.PORT ?? 3000}`;
 }
 
 /** Tool name → route directory under /api/elevenlabs/tools/. */

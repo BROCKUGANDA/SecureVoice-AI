@@ -201,11 +201,26 @@ export function AppRoot() {
       setView("auth");
       return;
     }
-    // A signed-in seat below the bar goes to the console rather than the
-    // sign-in screen: they ARE signed in, they simply may not open this one, and
-    // bouncing to `/auth` told them to log in again with a valid session.
+    // A signed-in seat below the bar is sent to the HIGHEST view they are
+    // entitled to, not to a fixed one.
+    //
+    // It used to redirect to "console", which is `vendor`-gated — so a judge who
+    // deep-linked /console/settings was bounced onto the Command Center, failed
+    // that view's own check, and was bounced again. The loop settled on the
+    // console: a read-only seat landed on the one screen it may not open. Which
+    // is worse than a cosmetic bug, because every route that screen fetches is
+    // requireSignedIn, so the client gate (strict) and the server gate (loose) had
+    // quietly disagreed about the same surface.
+    //
+    // "demo" is the honest landing: it is the surface a judge was let in to see,
+    // it needs only `judge`, and it is the view the demo seat's own queue banner
+    // and heartbeat live on.
     if (seat === null || !atLeast(seat, required)) {
-      setView(isSignedIn ? "console" : "auth");
+      if (!isSignedIn) {
+        setView("auth");
+        return;
+      }
+      setView(atLeast(seat ?? "judge", "vendor") ? "console" : "demo");
     }
   }, [view, isSignedIn, seat, seatLoading, setView]);
 

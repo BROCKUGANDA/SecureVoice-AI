@@ -35,7 +35,15 @@ function ask(
   return POST(
     new NextRequest("http://localhost/api/agent", {
       method: "POST",
-      headers: { "content-type": "application/json", "x-securevoice-client-ip": ip },
+      // The proxy marker makes this proxied traffic: without it the canonical
+      // resolver answers "untrusted" for every request and the whole file shares
+      // one rate-limit bucket, which turns per-source isolation assertions into
+      // order-dependent failures. Production always carries the marker (Caddy).
+      headers: {
+        "content-type": "application/json",
+        "x-securevoice-proxy": "1",
+        "x-securevoice-client-ip": ip,
+      },
       body: JSON.stringify({
         text,
         lang: opts.lang ?? "en",

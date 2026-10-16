@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getProfile } from "@/lib/credits";
 import { db } from "@/lib/db";
 import { orgPlanContext } from "@/lib/billing/plan-context";
+import { resolveChargeMode } from "@/lib/billing/charge-mode";
 import { netUsageUnits } from "@/lib/payments/overage";
 
 export const dynamic = "force-dynamic";
@@ -76,10 +77,24 @@ export async function GET() {
           periodTo: plan.period.to.toISOString(),
         }
       : null;
+  // Whether this session's runs are billed at all, resolved by the same function
+  // the metered paths use (`src/lib/billing/charge-mode.ts`). Sent so the UI can
+  // stop rendering a SPENDABLE BALANCE to somebody who cannot spend one — the demo
+  // seat used to show a credit count that looked like money and was not, and the
+  // fix has to be visible on the surface or it is only true in the database.
+  //
+  // Server-resolved on purpose. A client-supplied "am I in demo mode" is a value
+  // the browser asserts about what it is allowed to do.
+  const charge = await resolveChargeMode({
+    email: profile?.email,
+    orgId: profile?.orgId,
+  });
   return NextResponse.json(
     {
       profile,
       setupCompleted,
+      chargeMode: charge.mode,
+      chargeReason: charge.reason,
       plan: {
         tier: plan.tier,
         plan: plan.plan,

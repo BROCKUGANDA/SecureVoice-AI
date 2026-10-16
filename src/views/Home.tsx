@@ -27,6 +27,7 @@ import {
 import { useApp, t } from "@/lib/store";
 import { PLANS, SETTLEMENT, formatMonthly, formatIncluded, formatOverage } from "@/lib/commercial";
 import { SUPPORT_EMAIL } from "@/lib/public-config";
+import { PanelHeader } from "@/components/ui/PanelHeader";
 import { cn } from "@/lib/utils";
 import { CALL_LANG_LABEL, type CallLang } from "@/lib/scenario";
 import { LiveVoicePanel } from "@/components/demo/LiveVoicePanel";
@@ -173,16 +174,18 @@ export function Home() {
                 <span className="relative inline-block text-primary">
                   {t("Freeze staged.", "وتجميد مُمهَّد.", lang)}
                   <svg
-                    className="absolute -bottom-2 left-0 w-full"
+                    className="absolute -bottom-1 left-0 h-[6px] w-full"
                     viewBox="0 0 120 8"
                     fill="none"
+                    preserveAspectRatio="none"
                     aria-hidden="true"
                   >
                     <motion.path
                       d="M2 6 C 30 1, 80 1, 118 5"
                       stroke="#14a374"
-                      strokeWidth="2.6"
+                      strokeWidth="2.5"
                       strokeLinecap="round"
+                      vectorEffect="non-scaling-stroke"
                       initial={{ pathLength: 0 }}
                       animate={{ pathLength: 1 }}
                       transition={{ duration: 0.9, delay: 0.9, ease: "easeOut" }}
@@ -205,8 +208,13 @@ export function Home() {
             <Reveal delay={0.26}>
               <p className="mt-4 max-w-xl text-[15.5px] leading-relaxed text-ink-2">
                 {t(
-                  "SecureVoice AI closes the gap between fraud detection and fraud intervention for UAE banks and insurers — turning a 38-minute wait into a call placed inside the platform's own 60-second case deadline, while the loss is still a phone call away. Call a cardholder about a disputed transaction, or a policyholder about a redirected claim payout: same engine, same guardrails, one human handoff.",
-                  "تُغلق SecureVoice AI الفجوة بين كشف الاحتيال والتدخّل فيه لدى المصارف وشركات التأمين في الإمارات — محوّلة انتظار ثمانٍ وثلاثين دقيقة إلى مكالمة تُجرى داخل مهلة الحالة البالغة ستّين ثانية، والخسارة ما تزال على بُعد مكالمة هاتف. اتصل بحامل بطاقة حول معاملة متنازع عليها، أو بحامل وثيقة حول دفعة مطالبة أُعيد توجيهها: المحرك والضوابط نفسها، وتسليم واحد إلى موظف بشري.",
+                  // The 60-second deadline is the line directly above this one.
+                  // Restating it here was the third of five mentions on the page,
+                  // and the sentence reads better for the loss being concrete:
+                  // "while the loss is still a phone call away" is the argument,
+                  // not the clock.
+                  "SecureVoice AI closes the gap between fraud detection and fraud intervention for UAE banks and insurers — turning a 38-minute wait into a call placed before the case deadline expires, while the loss is still a phone call away. Call a cardholder about a disputed transaction, or a policyholder about a redirected claim payout: same engine, same guardrails, one human handoff.",
+                  "تُغلق SecureVoice AI الفجوة بين كشف الاحتيال والتدخّل فيه لدى المصارف وشركات التأمين في الإمارات — محوّلة انتظار ثمانٍ وثلاثين دقيقة إلى مكالمة تُجرى قبل انتهاء مهلة الحالة، والخسارة ما تزال على بُعد مكالمة هاتف. اتصل بحامل بطاقة حول معاملة متنازع عليها، أو بحامل وثيقة حول دفعة مطالبة أُعيد توجيهها: المحرك والضوابط نفسها، وتسليم واحد إلى موظف بشري.",
                   lang,
                 )}
               </p>
@@ -251,9 +259,17 @@ export function Home() {
             </Reveal>
 
             <Reveal delay={0.42}>
+              {/*
+                The 60-second deadline is the H1's claim and the lower section's
+                subject. It was ALSO here as a stat, a second time in the hero
+                paragraph, and a third time as a chip on the voice card — five
+                mentions of one number, which is how a page's most important
+                number starts to read as a slogan rather than a specification.
+                These three carry something the deadline does not.
+              */}
               <div className="mt-9 flex flex-wrap items-center gap-x-7 gap-y-3">
                 {[
-                  { big: "38m → 60s", label: "case deadline", ar: "مهلة الحالة" },
+                  { big: "38m → 0", label: "from signal to call", ar: "من الإشارة إلى المكالمة" },
                   { big: "43% → 85%", label: "prevention rate", ar: "نسبة المنع" },
                   { big: "6 langs", label: "in the voice layer", ar: "في طبقة الصوت" },
                 ].map((s) => (
@@ -275,30 +291,34 @@ export function Home() {
               className="relative"
             >
               <div className="relative overflow-hidden rounded-3xl border border-line bg-white shadow-[0_30px_70px_-30px_rgba(16,24,18,0.28)]">
-                {/* header */}
-                <div className="flex items-center justify-between border-b border-line bg-card px-5 py-4">
-                  <div className="flex items-center gap-3">
-                    <span className="relative flex h-9 w-9 items-center justify-center rounded-full bg-green-bright/15">
-                      <PhoneOutgoing className="h-4 w-4 text-primary" />
-                      <span className="sv-pulse-ring absolute inset-0 rounded-full text-primary/70" />
+                {/* header — black band shared via PanelHeader */}
+                <PanelHeader
+                  icon={
+                    <span className="relative flex h-9 w-9 items-center justify-center rounded-full bg-white/10">
+                      <PhoneOutgoing className="h-4 w-4 text-white" />
+                      <span className="sv-pulse-ring absolute inset-0 rounded-full text-white/70" />
                     </span>
-                    <div className="leading-tight">
-                      <p className="num text-[11px] text-ink-2">
+                  }
+                  title={
+                    <>
+                      <p className="num text-[11px] text-white/70">
                         {t("OUTBOUND · SECUREVOICE AGENT", "صادر · وكيل SecureVoice", lang)}
                       </p>
-                      <p className="text-[13.5px] font-semibold text-foreground">
+                      <p className="text-[13.5px] font-semibold text-white">
                         {t("Ahmed Al-Rashid", "أحمد الراشد", lang)} ·{" "}
                         <span className="num">+971 •• ••• 4567</span>
                       </p>
+                    </>
+                  }
+                  right={
+                    <div className="flex items-center gap-1.5 rounded-full bg-red-tint px-2.5 py-1">
+                      <span className="h-1.5 w-1.5 rounded-full bg-red-soft sv-blink" />
+                      <span className="num text-[10.5px] font-semibold text-red-soft">
+                        {t("REC", "تسجيل", lang)}
+                      </span>
                     </div>
-                  </div>
-                  <div className="flex items-center gap-1.5 rounded-full bg-red-tint px-2.5 py-1">
-                    <span className="h-1.5 w-1.5 rounded-full bg-red-soft sv-blink" />
-                    <span className="num text-[10.5px] font-semibold text-red-soft">
-                      {t("REC", "تسجيل", lang)}
-                    </span>
-                  </div>
-                </div>
+                  }
+                />
 
                 {/* waveform */}
                 <div className="border-b border-line px-5 pb-1 pt-4">
@@ -349,24 +369,39 @@ export function Home() {
                     POST /tools/card-freeze →{" "}
                     <span className="font-semibold text-green-deep">200 · staged</span>
                   </Chip>
+                  {/*
+                    The right-hand chip used to read "Case deadline 60s" — the
+                    fourth mention of a number the H1 already claims and the lower
+                    section already explains, sitting in a decorative card where it
+                    competed with the freeze confirmation instead of supporting it.
+                    Replaced with the thing this card is actually demonstrating:
+                    the protective action is STAGED, and a human confirms it.
+                  */}
                   <Chip className="!bg-white">
                     <Webhook className="h-3 w-3 text-amber-soft" />
                     <span className="font-semibold">
-                      {t("Case deadline 60s", "مهلة الحالة 60 ثانية", lang)}
+                      {t("Human confirms the freeze", "يؤكد الإنسان التجميد", lang)}
                     </span>
                   </Chip>
                 </div>
               </div>
 
-              {/* floating chips */}
-              <motion.div
-                className="sv-float absolute -left-5 top-24 hidden rounded-2xl border border-line bg-white px-3.5 py-2.5 shadow-lg lg:block"
-                initial={{ opacity: 0, x: -14 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: 1.1 }}
-              >
-                <div className="flex items-center gap-2">
-                  <ShieldCheck className="h-4 w-4 text-primary" />
+              {/* Annotations. These used to float over the card, which put
+                  "Guardrail 01" across the waveform and "Handoff queued" across
+                  the customer's Arabic reply — the two things the card exists to
+                  show. They sit below it now in the same treatment, so no
+                  viewport can put them on top of content, and RTL no longer
+                  mirrors a `-left-5` into the wrong gutter. Only opacity
+                  animates: `.sv-float` owns `transform`, and a CSS animation
+                  outranks an inline style, so the old x-slide never played. */}
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                <motion.div
+                  className="sv-float flex items-start gap-2 rounded-2xl border border-line bg-white px-3.5 py-2.5 shadow-sm"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ delay: 1.1 }}
+                >
+                  <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
                   <div className="leading-tight">
                     <p className="text-[11px] font-semibold">
                       {t("Guardrail 01", "الضمانة 01", lang)}
@@ -375,17 +410,15 @@ export function Home() {
                       {t("No PINs requested", "لا يُطلب أي رمز سري", lang)}
                     </p>
                   </div>
-                </div>
-              </motion.div>
-              <motion.div
-                className="sv-float absolute -right-4 bottom-16 hidden rounded-2xl border border-line bg-white px-3.5 py-2.5 shadow-lg lg:block"
-                style={{ animationDelay: "1.2s" }}
-                initial={{ opacity: 0, x: 14 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: 1.3 }}
-              >
-                <div className="flex items-center gap-2">
-                  <Headset className="h-4 w-4 text-amber-soft" />
+                </motion.div>
+                <motion.div
+                  className="sv-float flex items-start gap-2 rounded-2xl border border-line bg-white px-3.5 py-2.5 shadow-sm"
+                  style={{ animationDelay: "1.2s" }}
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ delay: 1.3 }}
+                >
+                  <Headset className="mt-0.5 h-4 w-4 shrink-0 text-amber-soft" />
                   <div className="leading-tight">
                     <p className="text-[11px] font-semibold">
                       {t("Handoff queued", "التسليم في الطابور", lang)}
@@ -398,8 +431,8 @@ export function Home() {
                       )}
                     </p>
                   </div>
-                </div>
-              </motion.div>
+                </motion.div>
+              </div>
             </motion.div>
           </Reveal>
         </div>
@@ -569,9 +602,22 @@ export function Home() {
       {/* ———————————————— ELEVENLABS TICKER ———————————————— */}
       <section className="border-y border-line bg-white py-4">
         <div className="sv-mask-fade-x overflow-hidden">
-          <div className="sv-marquee flex w-max items-center gap-10 px-4">
+          {/*
+            The separator spacing lives INSIDE each item, not on the flex track.
+
+            `gap-10` on the track puts a gap after the LAST item too, so the track
+            is 2C + (2n-1)g wide while `translateX(-50%)` shifts by C + (n-0.5)g —
+            half a gap short of where copy 2 actually begins. Every 32 seconds the
+            loop therefore lands on the seam and jumps sideways. That is the
+            visible hitch on this band, and it is arithmetic, not a rendering
+            artifact.
+
+            With the spacing as padding on each item the track is exactly 2C, so -50%
+            is exact and the loop is seamless.
+          */}
+          <div className="sv-marquee flex w-max items-center">
             {[...ELEVEN, ...ELEVEN].map((x, i) => (
-              <span key={i} className="flex items-center gap-3 whitespace-nowrap">
+              <span key={i} className="flex items-center gap-3 pr-10 whitespace-nowrap">
                 <span className="micro text-ink-3">{t(x.en, x.ar, lang)}</span>
                 <span className="h-1 w-1 rounded-full bg-primary/60" />
               </span>

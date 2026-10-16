@@ -131,7 +131,9 @@ export function WorkflowGraph({ workflow: initial }: { workflow?: Workflow }) {
   useEffect(() => {
     if (typeof fetch !== "function") return; // jest/jsdom: no fetch, built-ins only
     let cancelled = false;
-    fetch("/api/console/workflows", { cache: "no-store" })
+    // The switcher needs each graph to reopen a journey, so it opts into the
+    // heavy shape explicitly — the bare list is summary rows only.
+    fetch("/api/console/workflows?include=graph", { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : null))
       .then(
         (

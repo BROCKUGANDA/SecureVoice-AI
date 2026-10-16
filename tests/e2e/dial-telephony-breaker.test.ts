@@ -23,7 +23,9 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 
 process.env.ELEVENLABS_DRY_RUN = "true";
-process.env.WEBHOOK_SECRET ??= "test-secret";
+// `||`, not `??=`: a local `.env` with `WEBHOOK_SECRET=""` must count as unset
+// — the ?? operator happily keeps an empty string, which fails every HMAC.
+process.env.WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || "test-secret";
 
 /** Controllable carrier stub: counts attempts, fails on demand. */
 const carrier = { attempts: 0, failing: true };

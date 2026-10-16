@@ -12,7 +12,8 @@ export const dynamic = "force-dynamic";
 /**
  * Members of an organisation.
  *
- *   GET   /api/auth/members                     → list (member:read)
+ *   GET   /api/auth/members                     → list, bounded by ?limit
+ *         (default 50, max 200; meta.total is the untruncated count)
  *   PATCH /api/auth/members                     → change a role
  *         Body: { accountId, role }
  *
@@ -38,6 +39,23 @@ const patchSchema = z.object({
   role: z.string().trim(),
 });
 
+const MEMBER_LIMIT_DEFAULT = 50;
+const MEMBER_LIMIT_MAX = 200;
+
+/**
+ * Parse and BOUND `?limit`. An unbounded member list is a response-size bug
+ * dressed as a query parameter: the same envelope an Analyst's seat picker
+ * reads must not scale with org size. An absent or nonsensical value falls to
+ * the default rather than erroring — a picker that never sends `limit` must
+ * keep working.
+ */
+function memberLimit(raw: string | null): number {
+  if (raw === null) return MEMBER_LIMIT_DEFAULT;
+  const n = Number.parseInt(raw, 10);
+  if (!Number.isFinite(n) || n < 1) return MEMBER_LIMIT_DEFAULT;
+  return Math.min(n, MEMBER_LIMIT_MAX);
+}
+
 export async function GET(req: NextRequest) {
   const authed = await requireCapability(req.headers.get("cookie"), "member:read");
   if (!authed.ok) {
@@ -46,15 +64,21 @@ export async function GET(req: NextRequest) {
   // Delegated to the members listing in the invites route's module (one query
   // path, one place that knows the org predicate).
   const { listOrgMembers } = await import("@/lib/auth/identity");
+  // The identity store is a KV namespace scan (listFor has no take), so the
+  // full list is one read either way — the bound here is the response BODY,
+  // and `total` comes free from the same read instead of a second count query
+  // that would have to re-derive exactly this length.
   const members = await listOrgMembers(authed.orgId);
+  const limit = memberLimit(req.nextUrl.searchParams.get("limit"));
   return NextResponse.json(
     {
-      members: members.map((m) => ({
+      members: members.slice(0, limit).map((m) => ({
         accountId: m.accountId,
         email: m.email,
         name: m.name,
         role: m.role,
       })),
+      meta: { limit, total: members.length },
     },
     { headers: { "Cache-Control": "no-store" } },
   );

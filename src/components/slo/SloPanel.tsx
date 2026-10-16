@@ -320,9 +320,189 @@ export function SloChart({
 
       <div className="mt-2 space-y-2.5">
         {spans.map((s) => (
-          <Row key={s.span} summary={s} baselinePct={baselinePct} />
+          <ExpandableRow key={s.span} summary={s} baselinePct={baselinePct} />
         ))}
       </div>
+    </div>
+  );
+}
+
+type RecordRow = {
+  span: string;
+  startedAt: string;
+  durationMs: number;
+  interventionId: string | null;
+  caseRef: string | null;
+  origin: string;
+  attributes: Record<string, string | number | boolean>;
+};
+
+type RecordPageBody = {
+  records: RecordRow[];
+  total: number;
+  page: number;
+  pageSize: number;
+  hasMore: boolean;
+};
+
+/**
+ * One span row, expandable into its raw records.
+ *
+ * The drill-down fetches the visible page AND prefetches the next one in the
+ * same tick (`Promise.all`): page turns then render from cache instead of
+ * issuing a request the operator waits on. Both requests share one
+ * AbortController, so collapsing mid-flight cancels the pair rather than
+ * landing rows into a closed panel.
+ */
+function ExpandableRow({
+  summary,
+  baselinePct,
+}: {
+  summary: SpanWindowSummary;
+  baselinePct: number | null;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        className="flex w-full items-center gap-3 text-left"
+      >
+        <Row summary={summary} baselinePct={baselinePct} />
+      </button>
+      {open && summary.samples > 0 && <SpanDrilldown span={summary.span} />}
+    </div>
+  );
+}
+
+function SpanDrilldown({ span }: { span: string }) {
+  const { lang } = useApp();
+  const [page, setPage] = useState(1);
+  const [pages, setPages] = useState<Map<number, RecordPageBody>>(new Map());
+  const [total, setTotal] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
+  /**
+   * Which request the last settled fetch answered, and how it ended.
+   *
+   * This replaced a `loading` boolean plus an `error` string that the effect body
+   * reset synchronously (`setLoading(true); setError(null)`) on every run. That
+   * is a synchronous setState in an effect: it re-renders before the fetch starts,
+   * it is the shape React's own guidance calls out as a cascading-render cause,
+   * and it needs `loading` and `error` to mean "resetting" and "failed" at the
+   * same moment.
+   *
+   * Keying both to the request is the alternative that needs no reset at all: a
+   * value belonging to a previous `span`/`page` simply does not match `requestKey`
+   * and is ignored, so "the error from the page you just left" cannot render on
+   * the page you are on. Same behaviour, one state, no cascading render.
+   */
+  const [settled, setSettled] = useState<{ key: string; error: string | null } | null>(null);
+  const requestKey = `${span}:${page}`;
+
+  useEffect(() => {
+    const controller = new AbortController();
+    let live = true;
+
+    const fetchPage = async (p: number): Promise<RecordPageBody | null> => {
+      const res = await fetch(
+        `/api/status/spans?format=records&span=${encodeURIComponent(span)}&sort=slowest&page=${p}&pageSize=10`,
+        { signal: controller.signal, cache: "no-store" },
+      );
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return (await res.json()) as RecordPageBody;
+    };
+
+    // Visible page plus the next one, concurrently: the turn lands instantly.
+    void Promise.all([fetchPage(page), fetchPage(page + 1)]).then(
+      ([current, next]) => {
+        if (!live || !current) return;
+        setPages((prev) => {
+          const map = new Map(prev);
+          map.set(page, current);
+          if (next) map.set(page + 1, next);
+          return map;
+        });
+        setTotal(current.total);
+        setHasMore(current.hasMore);
+        setSettled({ key: requestKey, error: null });
+      },
+      (err) => {
+        if (!live || (err as Error)?.name === "AbortError") return;
+        setSettled({
+          key: requestKey,
+          error: t("Could not load records.", "تعذّر تحميل السجلات.", lang),
+        });
+      },
+    );
+    return () => {
+      live = false;
+      controller.abort();
+    };
+  }, [span, page, requestKey, lang, t]);
+
+  const current = pages.get(page);
+  // `undefined` until THIS request settles, so moving to a new page shows its
+  // spinner rather than the previous page's records or the previous page's error.
+  const outcome = settled?.key === requestKey ? settled : undefined;
+  const loading = outcome === undefined;
+  const error = outcome?.error ?? null;
+
+  return (
+    <div className="ml-[10.25rem] mt-2 rounded-xl border border-line bg-paper/60 p-3">
+      {loading && !current ? (
+        <p className="text-[11.5px] text-ink-3">
+          {t("Loading records…", "جارٍ تحميل السجلات…", lang)}
+        </p>
+      ) : error ? (
+        <p role="status" className="text-[11.5px] text-red-soft">
+          {error}
+        </p>
+      ) : !current || current.records.length === 0 ? (
+        <p className="text-[11.5px] text-ink-3">
+          {t("No records on this page.", "لا سجلات في هذه الصفحة.", lang)}
+        </p>
+      ) : (
+        <>
+          <ul className="space-y-1.5">
+            {current.records.map((r, i) => (
+              <li
+                key={`${r.startedAt}-${i}`}
+                className="num flex flex-wrap items-baseline gap-x-2 text-[11px] text-ink-2"
+              >
+                <span className="font-semibold text-foreground">{fmtMs(r.durationMs)}</span>
+                <span className="text-ink-3">{r.startedAt}</span>
+                {r.caseRef && <span className="text-ink-3">{r.caseRef}</span>}
+                <span className="text-ink-3">origin:{r.origin}</span>
+              </li>
+            ))}
+          </ul>
+          <div className="mt-2 flex items-center justify-between">
+            <span className="num text-[10.5px] text-ink-3">
+              {t("page", "صفحة", lang)} {page} · {total} {t("records", "سجل", lang)}
+            </span>
+            <div className="flex gap-1.5">
+              <button
+                type="button"
+                disabled={page <= 1}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                className="rounded-full border border-line px-2.5 py-1 text-[10.5px] font-semibold text-ink-2 transition hover:border-primary/40 hover:text-primary disabled:opacity-40"
+              >
+                {t("Prev", "السابق", lang)}
+              </button>
+              <button
+                type="button"
+                disabled={!hasMore && !pages.has(page + 1)}
+                onClick={() => setPage((p) => p + 1)}
+                className="rounded-full border border-line px-2.5 py-1 text-[10.5px] font-semibold text-ink-2 transition hover:border-primary/40 hover:text-primary disabled:opacity-40"
+              >
+                {t("Next", "التالي", lang)}
+              </button>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }

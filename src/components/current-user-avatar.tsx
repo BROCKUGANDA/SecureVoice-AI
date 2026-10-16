@@ -1,10 +1,60 @@
 "use client";
 
+/**
+ * How the signed-in identity is presented — including the demo seat, which is
+ * the one case that must NOT look like a person.
+ *
+ * The demo account's stored `name` is the literal "demo user". Rendering it put
+ * the string "demo user" next to a "DU" initials badge in the header of every
+ * page a judge visits, which reads as an unfinished placeholder rather than as a
+ * deliberate product surface — and on a fraud platform's own header it reads as
+ * though the account is somebody's personal login.
+ *
+ * So a demo session is presented as a LABEL, not as a name: a single "D", the
+ * words "Demo session", and a tint. Nothing here is a claim about who is using
+ * the product, because there is no person to name — the credential is published
+ * in the client bundle and shared by every judge who takes the queue position.
+ *
+ * For everyone else the name is the account's own, unchanged.
+ */
+
 import { useCurrentUserImage } from "@/hooks/use-current-user-image";
-import { useCurrentUserName } from "@/hooks/use-current-user-name";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useSession } from "@/lib/auth-client";
+import { isDemoAccount } from "@/lib/demo-account";
 import { t, useApp } from "@/lib/store";
+
+/** What to render for this session, in one place — so the avatar and the label agree. */
+export type IdentityPresentation = {
+  /** True when this session is the published demo seat. */
+  isDemo: boolean;
+  /** The words to show beside the avatar. */
+  label: string;
+  /** The letters inside the avatar. */
+  initials: string;
+};
+
+export function presentIdentity(
+  email: string | null | undefined,
+  name: string | null | undefined,
+  lang: "en" | "ar",
+): IdentityPresentation {
+  if (isDemoAccount(email)) {
+    return {
+      isDemo: true,
+      // ONE letter, not "DU". Two initials advertise that this is a username, and
+      // the initials badge exists to identify a person; there is no person.
+      initials: "D",
+      label: t("Demo session", "جلسة تجريبية", lang),
+    };
+  }
+  const resolved = name ?? email ?? null;
+  return {
+    isDemo: false,
+    label: resolved ?? "",
+    initials: initialsFrom(resolved),
+  };
+}
 
 /**
  * The current operator's avatar — their profile image when the account has one,
@@ -40,27 +90,32 @@ import { t, useApp } from "@/lib/store";
  */
 export const CurrentUserAvatar = () => {
   const { lang } = useApp();
-  const { isPending } = useSession();
+  const { data, isPending } = useSession();
   const profileImage = useCurrentUserImage();
-  const name = useCurrentUserName();
 
   // Still resolving the session — render nothing rather than a wrong answer.
   if (isPending) return null;
 
-  const signedIn = Boolean(name);
-  const initials = initialsFrom(name);
+  const presented = presentIdentity(data?.user?.email, data?.user?.name, lang);
+  const signedIn = Boolean(presented.label);
 
   return (
     <Avatar
       aria-label={
         signedIn
-          ? t("Profile photo of the signed-in user", "صورة المستخدم المسجّل", lang)
+          ? t("Profile photo of the signed-in user", "صورة المستخدم المسجّل الدخول", lang)
           : undefined
       }
     >
-      {profileImage && <AvatarImage src={profileImage} alt="" />}
-      <AvatarFallback className="bg-paper font-mono text-[10.5px] font-semibold text-ink-2">
-        {initials}
+      {profileImage && !presented.isDemo && <AvatarImage src={profileImage} alt="" />}
+      <AvatarFallback
+        className={
+          presented.isDemo
+            ? "bg-ink font-mono text-[10.5px] font-semibold text-white"
+            : "bg-paper font-mono text-[10.5px] font-semibold text-ink-2"
+        }
+      >
+        {presented.initials}
       </AvatarFallback>
     </Avatar>
   );
@@ -71,7 +126,7 @@ export const CurrentUserAvatar = () => {
  * then to `?` for a signed-out visitor.
  *
  * Splits on whitespace and takes the first character of each word, so
- * "Fatima Al Zaabi" → "FAZ" and "fatima@bank.ae" → "F". Empty segments (a
+ * "Fatima Al Zaabi" -> "FAZ" and "fatima@bank.ae" -> "F". Empty segments (a
  * doubled space) contribute nothing rather than an `undefined` character.
  */
 function initialsFrom(name: string | null): string {

@@ -141,19 +141,34 @@ export async function POST(req: NextRequest) {
 
   const text = await upstream.text().catch(() => "");
   let userId: string | null = null;
+  let sessionId: string | null = null;
   try {
-    const parsedBody = JSON.parse(text) as { user?: { id?: unknown } };
+    const parsedBody = JSON.parse(text) as {
+      user?: { id?: unknown };
+      session?: { id?: unknown };
+    };
     if (typeof parsedBody?.user?.id === "string") userId = parsedBody.user.id;
+    if (typeof parsedBody?.session?.id === "string") sessionId = parsedBody.session.id;
   } catch {
     // Non-JSON (should not happen): no binding, the lease stays with the pair
     // and getProfile will refuse the session until it is bound.
   }
   if (upstream.ok && userId) {
-    const bound = await claimSeat(ipHash, deviceId, userId);
+    // The seat is bound to the SESSION, not to the user. The demo credential is
+    // one published account, so a user-keyed lease admits every browser once any
+    // one of them is in — which is exactly the capacity bound this queue exists
+    // to hold. Without a session id in the response we cannot bind, and refusing
+    // here is the fail-closed direction: an unbound seat means getProfile refuses
+    // the session and the holder rejoins the line.
+    if (!sessionId) {
+      logError("[demo] sign-in returned no session id; seat not bound", { deviceId });
+    }
+    const bound = sessionId ? await claimSeat(ipHash, deviceId, userId, sessionId) : null;
     if (!bound) {
-      // The seat lapsed between the check and the sign-in (milliseconds).
-      // The session exists but has no lease, so getProfile resolves it to
-      // signed-out and the holder rejoins — fail closed, self-healing.
+      // The seat lapsed between the check and the sign-in (milliseconds), or the
+      // session id was absent. The session exists but has no lease, so getProfile
+      // resolves it to signed-out and the holder rejoins — fail closed,
+      // self-healing.
       logError("[demo] seat lapsed during sign-in; session minted without a lease", { deviceId });
     }
   }

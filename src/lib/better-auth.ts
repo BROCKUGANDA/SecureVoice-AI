@@ -215,7 +215,11 @@ export const auth = betterAuth({
           // sign-out.
           try {
             const { releaseUserSeats } = await import("@/lib/demo-queue");
-            await releaseUserSeats(session.userId);
+            // Scoped to THIS session. The demo credential is one shared account,
+            // so releasing on the user id alone would let one judge signing out
+            // evict every other judge's seat — a wave of spurious "removed from
+            // the queue" banners for a room that is all still there.
+            await releaseUserSeats(session.userId, session.id);
           } catch {
             // converged by TTL; sign-out must not fail for this.
           }

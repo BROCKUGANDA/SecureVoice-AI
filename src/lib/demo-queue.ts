@@ -393,9 +393,21 @@ export async function releaseSeat(seatId: string): Promise<void> {
 }
 
 /** Release every live seat held by a user (sign-out backstop). */
-export async function releaseUserSeats(userId: string): Promise<number> {
+/**
+ * Release every live seat held by a user (sign-out backstop).
+ *
+ * Scoped to the caller's OWN session where one is given, because `userId` is
+ * shared by every admitted browser — releasing on the user alone would let one
+ * judge signing out evict every other judge's seat and hand the whole room a
+ * wave of spurious "you were removed from the queue" banners.
+ */
+export async function releaseUserSeats(userId: string, sessionId?: string | null): Promise<number> {
   const released = await db.demoSeat.updateMany({
-    where: { userId, status: { in: ["active", "queued"] } },
+    where: {
+      userId,
+      status: { in: ["active", "queued"] },
+      ...(sessionId ? { sessionId } : {}),
+    },
     data: { status: "released" },
   });
   if (released.count > 0) await promote();
@@ -403,15 +415,18 @@ export async function releaseUserSeats(userId: string): Promise<number> {
 }
 
 /**
- * Bind an active lease to a freshly signed-in user (the claim step of
- * `/api/demo/enter`). The pair must match: a grant for one device does not
- * admit another, which is what stops a single queue position from minting
- * sessions for a room.
+ * Redeem an ACTIVE seat, binding it to the user AND the session that just signed
+ * in (the claim step of `/api/demo/enter`). The pair must match: a grant for one
+ * device does not admit another, which is what stops a single queue position from
+ * minting sessions for a room.
+ *
+ * Both ids are stamped, but the SESSION is the one `leaseForSession` checks.
  */
 export async function claimSeat(
   ipHash: string,
   deviceId: string,
   userId: string,
+  sessionId: string,
 ): Promise<DemoSeatRow | null> {
   const row = await db.demoSeat.findFirst({
     where: { ipHash, deviceId, status: "active", lastSeenAt: { gte: cutoff() } },
@@ -420,15 +435,31 @@ export async function claimSeat(
   if (!row) return null;
   const claimed = await db.demoSeat.update({
     where: { id: row.id },
-    data: { userId, lastSeenAt: new Date() },
+    data: { userId, sessionId, lastSeenAt: new Date() },
   });
   return toRow(claimed);
 }
 
-/** A demo session is admitted only while its bound lease is live. */
-export async function leaseForUser(userId: string): Promise<DemoSeatRow | null> {
+/**
+ * The seat a SESSION holds. A demo session is admitted only while it is live.
+ *
+ * Keyed on the session rather than the user, and that is load-bearing rather than
+ * tidier. The demo credential is one published account, so every admitted browser
+ * shares a single `userId`: a user-keyed lookup returned whichever seat happened
+ * to be live for that user, which meant browser A's seat ALSO admitted browser B
+ * the moment B typed the published password into the manual sign-in form. The
+ * capacity bound this queue exists to enforce was N+1 the instant anyone was
+ * admitted.
+ *
+ * Per session, N browsers hold N seats up to capacity and a session holding none
+ * is refused. The manual form never redeems a seat, so it can never mint an
+ * admitted demo session — which closes that bypass WITHOUT capping legitimate
+ * concurrency to one.
+ */
+export async function leaseForSession(sessionId: string): Promise<DemoSeatRow | null> {
+  if (!sessionId) return null;
   const row = await db.demoSeat.findFirst({
-    where: { userId, status: "active", lastSeenAt: { gte: cutoff() } },
+    where: { sessionId, status: "active", lastSeenAt: { gte: cutoff() } },
     orderBy: { lastSeenAt: "desc" },
   });
   return row ? toRow(row) : null;

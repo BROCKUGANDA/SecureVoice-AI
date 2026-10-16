@@ -149,22 +149,30 @@ export async function getProfile(): Promise<PlatformProfile | null> {
   const effectiveRole: Role = demo ? "demo" : role;
   const effectiveOrgId: string | null = demo ? null : orgId;
 
-  // Demo sessions are admitted only with a live queue lease. This is what
-  // closes the manual-form bypass: signing in with the published password
-  // outside `/api/demo/enter` mints a session with no lease, and that session
-  // resolves to signed-out here — the holder joins the line like everyone
-  // else. Returning null (rather than a degraded profile) is what sends the
-  // shell to the sign-in view instead of rendering a console with no data.
+  // Demo sessions are admitted only with a live queue lease HELD BY THIS SESSION.
+  // This is what closes the manual-form bypass: signing in with the published
+  // password outside `/api/demo/enter` mints a session that never redeemed a
+  // seat, and that session resolves to signed-out here — the holder joins the
+  // line like everyone else. Returning null (rather than a degraded profile) is
+  // what sends the shell to the sign-in view instead of rendering a console with
+  // no data.
   //
-  // A missing DemoSeat table (migration not yet applied) fails OPEN with a
-  // loud log: bricking every demo login on a partially-migrated deploy is
-  // worse than an unenforced queue, and the condition is self-repairing on
-  // the next deploy. Any other store error propagates — a database outage
-  // must not silently unbind capacity.
+  // Keyed on `session.session.id`, NOT on the user id. The demo credential is one
+  // published account, so every admitted browser shares a single user id and a
+  // user-keyed lookup returned whichever seat was live for that account — which
+  // meant one judge's seat also admitted every other judge's browser. The capacity
+  // bound is N seats, N sessions, and a session with no seat of its own is
+  // refused; legitimate concurrency is untouched.
+  //
+  // A missing DemoSeat table (migration not yet applied) fails OPEN with a loud
+  // log: bricking every demo login on a partially-migrated deploy is worse than
+  // an unenforced queue, and the condition is self-repairing on the next deploy.
+  // Any other store error propagates — a database outage must not silently
+  // unbind capacity.
   if (demo) {
     try {
-      const { leaseForUser } = await import("@/lib/demo-queue");
-      const lease = await leaseForUser(user.id);
+      const { leaseForSession } = await import("@/lib/demo-queue");
+      const lease = await leaseForSession(session.session.id);
       if (!lease) return null;
     } catch (err) {
       if (typeof err === "object" && err !== null && (err as { code?: string }).code === "P2021") {

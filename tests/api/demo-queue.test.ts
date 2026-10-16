@@ -24,7 +24,7 @@ import {
   hashIp,
   heartbeat,
   joinQueue,
-  leaseForUser,
+  leaseForSession,
   releaseSeat,
   releaseUserSeats,
   seatState,
@@ -216,7 +216,7 @@ test("heartbeat renews; a released seat reports gone", async () => {
   expect(await seatState(joined.state.seatId)).toBeNull();
 });
 
-test("claim binds the lease to the user; releaseUserSeats frees and promotes", async () => {
+test("claim binds the lease to the SESSION; releaseUserSeats frees and promotes", async () => {
   const mk = (tag: string) => joinQueue(ipOf(tag), devOf(tag), `rl:${RUN}:f${tag}`);
   const a = await mk("f1");
   await mk("f2");
@@ -224,19 +224,58 @@ test("claim binds the lease to the user; releaseUserSeats frees and promotes", a
   if (!a.ok || a.state.status !== "active" || !q.ok || q.state.status !== "queued") {
     throw new Error("unreachable");
   }
-  const claimed = await claimSeat(ipOf("f1"), devOf("f1"), "user-claim-1");
+  const claimed = await claimSeat(ipOf("f1"), devOf("f1"), "user-claim-1", "sess-claim-1");
   expect(claimed?.userId).toBe("user-claim-1");
-  expect(await leaseForUser("user-claim-1")).not.toBeNull();
-  expect(await leaseForUser("user-nobody")).toBeNull();
+  expect(await leaseForSession("sess-claim-1")).not.toBeNull();
+  expect(await leaseForSession("sess-nobody")).toBeNull();
 
-  // Sign-out path: all of the user's seats release and the head promotes.
-  expect(await releaseUserSeats("user-claim-1")).toBe(1);
-  expect(await leaseForUser("user-claim-1")).toBeNull();
+  // Sign-out path: the caller's OWN seats release and the head promotes. Scoped by
+  // session because every admitted browser shares one demo user id — releasing on
+  // the user alone would let one judge's sign-out evict the whole room.
+  expect(await releaseUserSeats("user-claim-1", "sess-claim-1")).toBe(1);
+  expect(await leaseForSession("sess-claim-1")).toBeNull();
   expect((await seatState(q.state.seatId))?.status).toBe("active");
 });
 
+test("the lease is per SESSION, so one admitted browser cannot admit another", async () => {
+  // The regression this pins. The demo credential is ONE published account, so
+  // every admitted browser shares a user id. Binding the lease to the user meant
+  // browser A's seat also satisfied browser B the moment B typed the published
+  // password into the MANUAL sign-in form — capacity became N+1 the instant
+  // anyone got in, and the manual form bypassed the queue entirely.
+  process.env.DEMO_SEAT_CAPACITY = "2";
+  const demoUserId = "user-shared-demo";
+  const first = await joinQueue(ipOf("s1"), devOf("s1"), `${RUN}:s1`);
+  await claimSeat(ipOf("s1"), devOf("s1"), demoUserId, "sess-A");
+  expect(first.ok).toBe(true);
+
+  // Browser B: same account, different browser. It redeemed nothing.
+  //
+  // There is deliberately no `leaseForUser` to call here any more: the user-keyed
+  // lookup is GONE, not merely unused. Its existence was the hole, and leaving it
+  // exported as a convenience for a future caller would leave the bypass one
+  // import away.
+  expect(await leaseForSession("sess-B")).toBeNull();
+  // A is still admitted, and only A.
+  expect(await leaseForSession("sess-A")).not.toBeNull();
+});
+
+test("sign-out by one session does not evict another browser's seat", async () => {
+  process.env.DEMO_SEAT_CAPACITY = "2";
+  const demoUserId = "user-shared-two";
+  await joinQueue(ipOf("u1"), devOf("u1"), `${RUN}:u1`);
+  await joinQueue(ipOf("u2"), devOf("u2"), `${RUN}:u2`);
+  await claimSeat(ipOf("u1"), devOf("u1"), demoUserId, "sess-U1");
+  await claimSeat(ipOf("u2"), devOf("u2"), demoUserId, "sess-U2");
+
+  expect(await releaseUserSeats(demoUserId, "sess-U1")).toBe(1);
+  expect(await leaseForSession("sess-U1")).toBeNull();
+  // The other judge in the room is untouched.
+  expect(await leaseForSession("sess-U2")).not.toBeNull();
+});
+
 test("claiming with no live seat returns null (enter must refuse)", async () => {
-  expect(await claimSeat(ipOf("g"), devOf("g"), "user-ghost")).toBeNull();
+  expect(await claimSeat(ipOf("g"), devOf("g"), "user-ghost", "sess-ghost")).toBeNull();
 });
 
 test("an exhausted pair budget refuses the rejoin after a release", async () => {

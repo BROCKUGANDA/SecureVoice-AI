@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { headers } from "next/headers";
 import { auth } from "@/lib/better-auth";
-import { leaseForUser } from "@/lib/demo-queue";
+import { leaseForSession } from "@/lib/demo-queue";
 
 export const dynamic = "force-dynamic";
 
@@ -10,10 +10,11 @@ const noStore = { "Cache-Control": "no-store" };
 /**
  * GET /api/demo/lease — does this signed-in demo session hold a live seat?
  *
- * Powers the Demo view's heartbeat loop and its "seat lost" screen. Answers
- * only for the caller's own session: the lease is looked up by the session's
- * user id, never by a client-supplied one — a caller cannot ask about anyone
- * else's seat.
+ * Powers the Demo view's heartbeat loop and its "seat lost" screen. Answers only
+ * for the caller's OWN session: the seat is looked up by the session id the
+ * session was minted with, never by anything client-supplied and never by the user
+ * id — every admitted browser shares that one, so a user-keyed lookup would report
+ * the first judge's seat to the second judge and tell them they are fine.
  */
 export async function GET() {
   const session = await auth.api.getSession({ headers: await headers() });
@@ -21,7 +22,7 @@ export async function GET() {
     return NextResponse.json({ held: false }, { status: 401, headers: noStore });
   }
   try {
-    const lease = await leaseForUser(session.user.id);
+    const lease = await leaseForSession(session.session.id);
     if (!lease) return NextResponse.json({ held: false }, { headers: noStore });
     return NextResponse.json({ held: true, seatId: lease.id }, { headers: noStore });
   } catch {

@@ -995,6 +995,24 @@ function createServer(listenPort: number = PORT, listenHost: string = HOST) {
       );
       return;
     }
+    // The browser-facing reachability probe, edge-routed at
+    // `/realtime/voice-health`. Deliberately narrower than `/healthz` above:
+    // live call counts are business data about a fraud desk's load and must not
+    // be readable by a signed-out visitor on the marketing site. What this
+    // answers is the only question the banner is allowed to assert — did the
+    // voice plane answer at all, through the same edge path a call uses.
+    //
+    // It stays 200 while draining for the same reason `/healthz` does: a
+    // planned deploy is not an outage, and a banner that flashes on every
+    // release trains visitors to ignore the one that is real.
+    if (req.method === "GET" && url.pathname === "/health") {
+      res.writeHead(200, {
+        "content-type": "application/json",
+        "cache-control": "no-store",
+      });
+      res.end(JSON.stringify({ ok: true }));
+      return;
+    }
     res.writeHead(404, { "content-type": "application/json" });
     res.end(JSON.stringify({ ok: false, error: "not found" }));
   });

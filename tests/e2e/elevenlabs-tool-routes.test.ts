@@ -973,7 +973,14 @@ describe("POST /api/elevenlabs/tools/verify-transaction", () => {
       // The three outcomes must not collapse into one another: a fraud report
       // that landed on CONFIRMED_LEGITIMATE would close the case instead of
       // staging a freeze.
-      expect(seams.caseUpdates).toEqual([{ state }]);
+      //
+      // The confirmation carries `fraudConfirmedAt`, stamped by the state writer rather
+      // than by this route — that indirection is the whole reason the span can exist. It
+      // is asserted as present here rather than accepted as an extra key, so the other
+      // two outcomes stay pinned to exactly `{ state }`.
+      expect(seams.caseUpdates).toEqual(
+        state === "CONFIRMED_FRAUD" ? [{ state, fraudConfirmedAt: expect.any(Date) }] : [{ state }],
+      );
     }
   });
 

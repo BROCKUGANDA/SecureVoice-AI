@@ -384,10 +384,22 @@ export type DueSelector = {
 
 /** Rows whose payload/audio landed before `cutoff`. `postCallAt` is when the
  *  call ended; `createdAt` is the fallback for a case that never got a
- *  post-call ingest (so an un-ingested case still ages out on the clock). */
-function agedWhere(orgId: string | null, cutoff: Date): Prisma.CaseWhereInput {
+ *  post-call ingest (so an un-ingested case still ages out on the clock).
+ *
+ *  `orgId` accepts a LIST as well as a single value, and the single-value form
+ *  is expressed as `{ in: [orgId] }` rather than kept as a second code path.
+ *  That is what lets the sweeper resolve "due" for every org that shares a
+ *  policy in ONE query instead of one per org: a deployment with 188 orgs and a
+ *  default policy everywhere was issuing 188 x 3 sequential `findMany` calls to
+ *  ask a question that has one answer. `null` still means "the org-less rows",
+ *  which is a different scope and is NOT folded into the `in` form.
+ */
+function agedWhere(orgIds: string | readonly string[] | null, cutoff: Date): Prisma.CaseWhereInput {
   return {
-    orgId,
+    // `Array.isArray` does not narrow `readonly string[]` (its guard is typed for
+    // `any[]`), so the readonly case is narrowed structurally instead of with a
+    // cast that would hide a real mismatch.
+    orgId: typeof orgIds === "string" || orgIds === null ? orgIds : { in: [...orgIds] },
     OR: [{ postCallAt: { lt: cutoff } }, { postCallAt: null, createdAt: { lt: cutoff } }],
   };
 }
@@ -414,9 +426,18 @@ function holdsPayloadWhere(): Prisma.CaseWhereInput {
  * The selector: what is due at `at`, per tier, for one org — expressed as
  * Prisma predicates so the sweeper and any operator query share ONE definition
  * of "due" instead of two that can drift.
+ *
+ * `orgIds` takes a list as well as a single id, for the same reason `agedWhere`
+ * does. The policy is still resolved from ONE representative org — callers group
+ * orgs precisely because they share a policy, and `orgId` on the result records
+ * that representative rather than the group.
  */
-export function dueForDeletion(at: Date, opts: { orgId?: string | null } = {}): DueSelector {
-  const orgId = opts.orgId ?? null;
+export function dueForDeletion(
+  at: Date,
+  opts: { orgId?: string | null; orgIds?: readonly string[] } = {},
+): DueSelector {
+  const orgId = opts.orgId ?? opts.orgIds?.[0] ?? null;
+  const orgScope = opts.orgIds ?? orgId;
   const policy = retentionPolicy(orgId);
   const cutoffFor = (days: number): Date => new Date(at.getTime() - days * DAY_MS);
 
@@ -434,7 +455,7 @@ export function dueForDeletion(at: Date, opts: { orgId?: string | null } = {}): 
         days: policy.audioDays,
         cutoff: audioCutoff,
         due: true,
-        where: agedWhere(orgId, audioCutoff),
+        where: agedWhere(orgScope, audioCutoff),
         action: "purgeAudio",
         mutation: { target: "Case", columns: [] },
         note:
@@ -447,7 +468,7 @@ export function dueForDeletion(at: Date, opts: { orgId?: string | null } = {}): 
         days: policy.transcriptDays,
         cutoff: transcriptCutoff,
         due: true,
-        where: { AND: [agedWhere(orgId, transcriptCutoff), holdsPayloadWhere()] },
+        where: { AND: [agedWhere(orgScope, transcriptCutoff), holdsPayloadWhere()] },
         action: "shredPayloadKey",
         mutation: { target: "Case", columns: ["dataKeyEnc", "erasedAt", ...PAYLOAD_COLUMNS] },
         note:
@@ -460,7 +481,11 @@ export function dueForDeletion(at: Date, opts: { orgId?: string | null } = {}): 
         days: policy.caseRecordDays,
         cutoff: recordCutoff,
         due: true,
-        where: { orgId, createdAt: { lt: recordCutoff } },
+        where: {
+          orgId:
+            typeof orgScope === "string" || orgScope === null ? orgScope : { in: [...orgScope] },
+          createdAt: { lt: recordCutoff },
+        },
         action: "deleteCaseRecord",
         mutation: { target: "Case", columns: [] },
         note: `redacted case rows older than ${policy.caseRecordDays} days; the case's audit chain is unaffected`,
@@ -623,10 +648,35 @@ export async function runRetention(
   // would silently skip every org-scoped chain and report false corruption.
   const touchedRefs = new Map<string, string | null>();
 
+  // Group orgs by the policy they resolve to, so the selection queries run once
+  // per DISTINCT policy instead of once per org.
+  //
+  // This was the sweep's N+1, and it scaled with the CUSTOMER COUNT rather than
+  // with the work: the measured production run reported `orgs=188`, so a
+  // deployment where nobody had opted into anything unusual still issued 188 x 3
+  // sequential `findMany` calls to ask a question that had one answer. Retention
+  // runs on a schedule against a connection-capped pooler, which is exactly the
+  // shape of job that turns a per-org query count into a failed sweep.
+  //
+  // The grouping key is the three retention day-counts, because those are the
+  // ONLY things that vary: `retentionPolicy` reads process-wide env for the base
+  // values, a pilot list, and an in-memory override map. Orgs that agree on all
+  // three are interchangeable to the query, so they are resolved together and
+  // selected with one `orgId IN (...)`.
+  //
+  // Policy resolution stays per-org and still per-org REPORTED: a bad override
+  // for one org is still attributed to that org, and `report.orgs` still lists
+  // every org with the policy that was actually applied to it.
+  const groups = new Map<string, { policy: RetentionPolicy; orgIds: string[] }>();
+  // The org-less namespace is its own scope and can never join an `IN (...)`:
+  // `{ in: [...] }` cannot express "orgId IS NULL". It is also a single scope by
+  // definition, so it is one group of one no matter how many orgs group below.
+  let sharedOrg: { policy: RetentionPolicy } | null = null;
+
   for (const orgId of orgs) {
-    let selector: DueSelector;
+    let policy: RetentionPolicy;
     try {
-      selector = dueForDeletion(now, { orgId });
+      policy = retentionPolicy(orgId);
     } catch (error) {
       report.errors.push({
         caseRef: "",
@@ -636,7 +686,30 @@ export async function runRetention(
       });
       continue;
     }
-    report.orgs.push({ orgId, policy: selector.policy });
+    report.orgs.push({ orgId, policy });
+    if (orgId === null) {
+      sharedOrg = { policy };
+      continue;
+    }
+    const key = `${policy.audioDays}/${policy.transcriptDays}/${policy.caseRecordDays}`;
+    const group = groups.get(key);
+    if (group) group.orgIds.push(orgId);
+    else groups.set(key, { policy, orgIds: [orgId] });
+  }
+
+  const scopes: { policy: RetentionPolicy; orgIds: string[] }[] = [
+    ...groups.values(),
+    ...(sharedOrg ? [{ policy: sharedOrg.policy, orgIds: [] as string[] }] : []),
+  ];
+
+  for (const group of scopes) {
+    // An empty `orgIds` is the shared namespace: pass `orgId: null` explicitly
+    // rather than letting an empty list become `IN ()`, which matches nothing
+    // and would silently stop enforcing retention on every org-less row.
+    const selector: DueSelector = dueForDeletion(
+      now,
+      group.orgIds.length > 0 ? { orgIds: group.orgIds } : { orgId: null },
+    );
 
     for (const tier of TIER_ORDER) {
       const due = selector.tiers[tier];

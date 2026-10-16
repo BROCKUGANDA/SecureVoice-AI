@@ -43,6 +43,7 @@ import { createDecipheriv, createHash, randomBytes } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { db } from "@/lib/db";
+import { runWithQueryCounter } from "@/lib/telemetry/query-counter";
 import { append, verifyChain } from "@/lib/audit-chain";
 import {
   AUDIT_INTENT_ERASED,
@@ -1136,6 +1137,83 @@ test("the sweeper is bounded, resumable, and applies each org's own policy", asy
     "invalid-batch-size-refused",
     batchError instanceof Error && /batchSize/.test((batchError as Error).message),
     "a zero batch size would spin forever",
+  );
+});
+
+// ── 9b. The sweeper's N+1 ─────────────────────────────────────────────────────
+
+/**
+ * The sweep used to issue one `findMany` per org per tier, so it scaled with the
+ * CUSTOMER COUNT rather than with the work. The measured production run reported
+ * `orgs=188` — 188 x 3 sequential selection queries to ask a question that, on
+ * a deployment where nobody opted into anything unusual, has exactly one answer.
+ *
+ * Retention is a scheduled job against a connection-capped pooler, which is the
+ * shape of workload where a per-org query count turns into a failed sweep rather
+ * than a slow one.
+ *
+ * ── Why the assertion is a RATIO and not a ceiling ───────────────────────────
+ * A ceiling of the form "at most N queries" is what the first version of this
+ * test did, and it PASSED against the per-org implementation it was written to
+ * catch: 4 orgs x 3 tiers is 12 selects, which sat under a budget loosened enough
+ * to allow batching slack. A gate that passes against the bug it names is worse
+ * than no gate, because it buys the confidence of a check while providing none.
+ *
+ * So the property asserted is the one that is actually claimed: doubling the
+ * number of orgs sharing a policy must not change the query count at all. The
+ * per-org form fails this outright (12 -> 24); the grouped form is flat. It is
+ * also immune to budget slack in a way a fixed number never is, because there is
+ * no threshold to loosen.
+ */
+test("the sweep's query count does not scale with the org count", async () => {
+  // Each org needs a row that is actually DUE, otherwise the sweep short-circuits
+  // on an empty result and the count measures nothing. The guard below exists
+  // because that failure is silent: a sweep that selects nothing still reports a
+  // beautifully flat, and completely meaningless, query count.
+  const aged = DEFAULT_RETENTION_DAYS.caseRecords + 10;
+  // Disjoint org ids per measurement: the second run's set is a SUPERSET-sized
+  // sample of the same default policy, and reusing ids would collide on
+  // `Case_caseRef_key` rather than measuring anything.
+  const measure = async (tag: string, count: number) => {
+    const orgs = Array.from({ length: count }, (_, i) => ref(`${tag}-${i}`));
+    for (const orgId of orgs) {
+      await createCase({
+        // `ref()` already prefixes RUN, so the org id IS a unique caseRef —
+        // nesting it again would collide on `Case_caseRef_key`.
+        caseRef: orgId,
+        orgId,
+        ageDays: aged,
+        transcript: TRANSCRIPT,
+      });
+    }
+    const { result, report: counter } = await runWithQueryCounter(() =>
+      runRetention(new Date(), { dryRun: true, orgIds: orgs }),
+    );
+    // Guard the guard: a sweep that selected NOTHING would trivially issue few
+    // queries, so the report has to show it actually walked the tiers.
+    if (result.tiers.transcripts.batches === 0 && result.tiers.caseRecords.batches === 0) {
+      throw new Error("the measured sweep selected nothing, so the count proves nothing");
+    }
+    return { queries: counter.count, orgs, due: result.tiers.caseRecords.due };
+  };
+
+  const small = await measure("SMALL", 4);
+  const large = await measure("LARGE", 12);
+
+  // Sanity in the other direction: the flat count must not be flat because the
+  // work was skipped. Twice the orgs is twice the rows due.
+  check(
+    "scale-fixture-actually-due",
+    large.due > small.due,
+    `${small.orgs.length} orgs left ${small.due} due, ${large.orgs.length} orgs left ${large.due} due — ` +
+      "the comparison is only meaningful if the second run did more work",
+  );
+
+  check(
+    "org-count-does-not-drive-query-count",
+    small.queries === large.queries,
+    `${small.orgs.length} orgs cost ${small.queries} queries, ${large.orgs.length} orgs cost ${large.queries}; ` +
+      "a per-org selector would scale with the org count",
   );
 });
 

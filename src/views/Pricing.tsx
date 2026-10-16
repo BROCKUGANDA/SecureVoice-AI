@@ -169,8 +169,15 @@ const TIERS: Tier[] = [
       },
       { en: "Shariah-compliant terminology engine", ar: "محرك مصطلحات متوافق مع الشريعة" },
       {
-        en: "Takaful and insurer-specific voice policies",
-        ar: "سياسات صوتية خاصة بالتأمين والتكافل",
+        // Was "Takaful and insurer-specific voice policies" — a bullet with no
+        // entitlement behind it. Every tenant gets insurer-appropriate terminology
+        // regardless of plan, because src/lib/billing/entitlements.ts refuses to
+        // gate institutionType on purpose: speaking to an insurer with banking
+        // language is a compliance defect, not a downgrade. Listing it as paid was
+        // false in the direction that matters — a plan's bullet list is a
+        // statement about what the cheaper plans do NOT include.
+        en: "Bespoke terminology per product line, configured with you",
+        ar: "مصطلحات مخصّصة لكل خط منتجات، تُعدّ معك",
       },
       { en: "Named technical contact", ar: "جهة اتصال فنية مخصصة" },
     ],

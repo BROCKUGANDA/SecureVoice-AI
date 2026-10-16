@@ -443,6 +443,29 @@ export function Demo() {
               )}
             >
               <div className="flex items-center justify-between gap-2">
+                {/*
+                  The institution badge.
+                  *
+                  * `institution` is absent on the bank scenarios (the original
+                  * three, whose docstring predates the field) and "insurer" on the
+                  * claim case. Nothing rendered it, so the one insurer scenario sat
+                  * in a flat five-across grid indistinguishable from four bank
+                  * ones — an insurer judge had to read all five descriptions to
+                  * work out which one was theirs, and most would not have got
+                  * that far.
+                  */}
+                {m.institution && (
+                  <span
+                    className={cn(
+                      "rounded-full px-2 py-0.5 text-[9.5px] font-bold uppercase tracking-wider",
+                      sel ? "bg-green-deep text-white" : "bg-ink/90 text-white",
+                    )}
+                  >
+                    {m.institution === "insurer"
+                      ? t("Insurer", "شركة تأمين", lang)
+                      : t("Bank", "مصرف", lang)}
+                  </span>
+                )}
                 <span
                   className={cn("micro !text-[9.5px]", sel ? "!text-green-deep" : "!text-ink-3")}
                 >

@@ -45,7 +45,15 @@ const KICKER_AR: Record<number, string> = {
   12: "11 · المخاطر ومعالجتها",
   13: "12 · ما سيكون جاهزاً",
   14: "13 · الفريق",
-  15: "14 · إثبات البناء",
+  // The three insurer slides, then proof. Ids are unique but no longer
+  // sequential in render order, because the insurance block sits BEFORE proof —
+  // the honest boundary slide earns its position immediately before the "go and
+  // touch it" slide. KICKER_AR is keyed by id, not by position, so the Arabic
+  // labels follow the slide rather than the index.
+  17: "14 · لشركات التأمين",
+  18: "15 · حالتا المطالبات",
+  19: "16 · ما هو صادق",
+  15: "17 · دليل البناء",
   16: "SecureVoice AI",
 };
 

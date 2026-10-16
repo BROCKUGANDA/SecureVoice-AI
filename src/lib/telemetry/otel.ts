@@ -83,11 +83,6 @@ function sdkDisabled(): boolean {
   return env("OTEL_SDK_DISABLED") === "true";
 }
 
-/** True when remote export is possible: a token must exist. */
-function hasToken(): boolean {
-  return !!(env("OTEL_BETTERSTACK_TOKEN") ?? env("OTEL_SOURCE_TOKEN"));
-}
-
 /** The one place the Better Stack base URL is derived. */
 export function betterStackBaseUrl(): string {
   return normalizeBaseUrl(env("OTEL_BETTERSTACK_ENDPOINT") ?? env("OTEL_BETTERSTACK_HOST"));
@@ -213,7 +208,3 @@ export async function shutdownOtel(): Promise<void> {
     });
   }
 }
-
-// Re-exported so callers can check "is remote telemetry on?" without reading
-// env themselves.
-export const otelRemoteEnabled = hasToken;

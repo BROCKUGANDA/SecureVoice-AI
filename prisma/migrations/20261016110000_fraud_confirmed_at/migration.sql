@@ -1,0 +1,22 @@
+-- The start instant of `fraud_confirmed_to_webhook_delivered`, the bank's own 2-second
+-- webhook promise. It was declared in `src/lib/telemetry/spans.ts` with no code path able
+-- to produce a sample, because nothing persisted the moment a denial became a fact.
+--
+-- Deliberately nullable and NOT backfilled. Every alternative start instant already in the
+-- row is wrong in a way that would flatter the product:
+--   · `Case.updatedAt` moves on any later write (a post-call record, an operator note), so
+--     the "duration" would measure from whatever touched the row last — fast or slow
+--     depending on luck, and never falsifiable.
+--   · `Case.createdAt` is the gate-passed intake instant, minutes before any conversation
+--     happened, which would report a delivery latency dominated by the call itself.
+--   · `OutboxEvent.createdAt` is when the notification was ENQUEUED, i.e. after the
+--     confirmation and after any dial-queue delay — it excludes precisely the decision time
+--     the 2 s promise is about, which is why this column exists instead.
+--
+-- A case confirmed before this column shipped therefore has no known start, and the span
+-- refuses to record for it. That is the honest `not_measured` verdict, counted as such in
+-- `/api/metrics` and `slo.json`, rather than a number assembled from an unrelated column.
+--
+-- Catalog-only change: a nullable column with no default writes no rows and rewrites the
+-- table not at all, so this is safe to apply while the app is serving calls.
+ALTER TABLE "Case" ADD COLUMN IF NOT EXISTS "fraudConfirmedAt" TIMESTAMP(3);

@@ -558,6 +558,15 @@ model Case {
   // and why it is a column and not just a log line: "how many of our promises did we
   // miss this hour" has to be answerable by a bank asking on day 40.
   slaBreachedAt         DateTime?
+  // The instant the customer's own denial became a fact: set when the case enters
+  // `CONFIRMED_FRAUD`, which only the `verify-transaction` agent tool can do, and
+  // therefore only after a voice turn the caller spoke. Nullable and never
+  // backfilled for the same reason as `signalReceivedAt`: a case confirmed before
+  // this column exists has no known start, and the
+  // `fraud_confirmed_to_webhook_delivered` span refuses rather than measuring from
+  // `updatedAt` — a row touched by any later write would report a delivery as fast
+  // or as slow as whatever happened to touch it last.
+  fraudConfirmedAt      DateTime?
   smsSentAt             DateTime? // anchors the 24h reply window
   resolutionMethod      String? // voice_call | sms_reply_yes | sms_reply_no | unreachable_no_reply | ...
   customerResponse      String? // "yes" | "no" | null (null = the customer never answered)

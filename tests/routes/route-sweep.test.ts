@@ -147,6 +147,15 @@ describe("authorization coverage", () => {
       "/api/console/fire",
       "/api/console/freeze/commit",
       "/api/console/inbox",
+      // The compliance-invariants registry. NOT database-backed at all: its
+      // payload is a compile-time constant, so "driven against a live database"
+      // is not the property here and is not claimed. What is claimed, and proven
+      // by tests/surface/invariants.test.ts driving the real handler, is the
+      // authorization edge — anonymous 401, non-operator 403, operator 200 — and
+      // that every `file:line` pointer it serves resolves in this tree. It sits in
+      // this bucket because the alternative was declaring it public-by-design,
+      // which would be a lie about a route that refuses strangers.
+      "/api/console/invariants",
       // Received email. Operator-gated (`requireOperator`) and NOT org-scoped:
       // the mailboxes are platform-level, so an org predicate would hide every
       // row. Reads `EmailInbound`, written by the Resend webhook below.

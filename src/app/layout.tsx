@@ -8,7 +8,6 @@ import { JsonLd, ProductJsonLd } from "@/components/seo/JsonLd";
 import { COMPANY } from "@/lib/commercial";
 import { siteOrigin } from "@/lib/site-origin";
 import { TenantBrand } from "@/components/shell/TenantBrand";
-import HealthCheck from "@/components/HealthCheck";
 
 const display = Space_Grotesk({
   variable: "--font-display",
@@ -214,7 +213,7 @@ export default function RootLayout({
             database by `auth.api.getSession({ headers })` wherever they are
             needed, and the browser reads them through `authClient.useSession()`.
             There is deliberately nothing auth-shaped wrapped around the tree here
-            — a client-side provider would be a cached session, and an
+            - a client-side provider would be a cached session, and an
             authorisation decision must never be taken from one (hazard AU-4).
             `Providers` carries the colour theme and product analytics only; it
             holds no session, and src/app/providers.tsx says the same. */}

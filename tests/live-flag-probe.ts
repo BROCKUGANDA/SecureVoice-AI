@@ -57,8 +57,13 @@ async function main() {
     `served=${JSON.stringify(served)}`,
   );
 
-  // 2. The flag value must NOT include server-only flags.
-  const noLeak = !/"(realtime|piiRedaction|elevenLabsLive)"/.test(feats.body);
+  // 2. The flag value must NOT include server-only flags, and must not include an
+  //    invariant either: the compliance guarantees are served only by the
+  //    operator-gated /api/console/invariants, never on this public route.
+  const noLeak =
+    !/"(realtime|elevenLabsLive|seedDemo|twilioMediaStreams|complianceDisclosure|complianceNoSecrets|compliancePiiRedaction|webhookStrictSignatures|piiRedaction|enforcedAt)"/.test(
+      feats.body,
+    );
   check("no server-only flags leaked to the client", noLeak, `body=${feats.body.slice(0, 120)}`);
 
   // 3. The token route must reflect the SAME flag.

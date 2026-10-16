@@ -13,6 +13,14 @@ export const dynamic = "force-dynamic";
  * loads the console. Unauthenticated on purpose: it exposes no operator data,
  * only which UI variants are compiled in, and the console needs it before the
  * session resolves to decide whether to attempt a socket.
+ *
+ * Compliance guarantees are NOT here, and never will be. They are not flags:
+ * four of them (`complianceDisclosure`, `complianceNoSecrets`,
+ * `compliancePiiRedaction`, `webhookStrictSignatures`) were declared as flags
+ * here until they were reclassified, because the code enforcing them never read
+ * the flag and the registry reported a control as OFF while it still fired. The
+ * truthful list, with the file:line of each enforcement and the test that proves
+ * it, is served by the operator-gated `/api/console/invariants`.
  */
 export function GET() {
   return NextResponse.json(clientFlags(), {

@@ -84,9 +84,22 @@ is by image tag. There is no multi-region failover; that is roadmap.
 It accepts `1`, `true`, `on`, `yes`, `stop`, `halt`.
 
 Feature flags in `src/lib/flags.ts` — `realtime`, `elevenLabsLive`,
-`piiRedaction`, `consoleLiveFeed` — are read from `process.env` on every call
-(no module-load cache), so flipping one takes effect without a rebuild but
-**does need a container restart** to take effect for already-running processes.
+`consoleLiveFeed`, `seedDemo`, `twilioMediaStreams` — are read from `process.env`
+on every call (no module-load cache), so flipping one takes effect without a
+rebuild but **does need a container restart** to take effect for
+already-running processes.
+
+There is **no flag for a compliance control, and there must not be one.** The
+opening disclosure, the credential-ask refusal, PII redaction and inbound
+`SV-Signature` enforcement are invariants: the code that performs them reads no
+flag at all, so they are on in every deployment and `FEATURE_COMPLIANCE_*`,
+`FEATURE_PII_REDACTION`, `FEATURE_WEBHOOK_STRICT_SIGNATURES`,
+`COMPLIANCE_OPENING_DISCLOSURE`, `COMPLIANCE_NO_CREDENTIAL_REQUESTS` and
+`COMPLIANCE_PII_REDACTION` are read by nothing. `GET /api/console/invariants`
+(operator session) lists each one with the path and line that enforce it and the
+test that proves it; `tests/surface/invariants.test.ts` keeps that list honest.
+If a previous runbook or ticket told you one of these could be switched off,
+that instruction was never executable.
 
 There is **no** kill switch for live dialling, the LLM phrasing layer, BYOK, or
 outbound webhooks. To stop dialling now, take the dial worker down:

@@ -10,6 +10,8 @@
  */
 import { readdirSync } from "node:fs";
 import { spawnSync } from "node:child_process";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 const dir = new URL("../tests/", import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1");
 // Optional path filters: `bun scripts/run-tests.mjs tenancy e2e` runs only the
@@ -56,6 +58,27 @@ for (const f of files) {
   if (f.startsWith("load/")) {
     ranLoadSuite = true;
     env.LOAD_DATABASE_URL = LOAD_DB;
+  }
+
+  // Every test process writes its spans to its own scratch log unless it asked
+  // otherwise, because the DEFAULT destination of `recordSpanAndPersist` is the
+  // COMMITTED artifact `evidence/latency/spans.jsonl`. Two bad things follow from
+  // leaving that to the default: a local `bun run test` appends harness traffic to
+  // an artifact that is published as measurement (so the developer either commits
+  // polluted evidence or remembers to `git checkout` it — a discipline, not a
+  // guarantee), and a suite cannot assert that a span was persisted durably without
+  // racing whatever the previous suite left in the file.
+  //
+  // `bun run evidence` is the sanctioned producer of the artifact and sets its own
+  // path; a test that genuinely wants to exercise the default path deletes this
+  // variable itself, which `tests/telemetry/telemetry.test.ts` already does.
+  if (!env.TELEMETRY_SPAN_LOG) {
+    const slug = f.replace(/[^\w.-]+/g, "-");
+    env.TELEMETRY_SPAN_LOG = join(
+      tmpdir(),
+      "securevoice-test-spans",
+      `${process.pid}-${slug}.jsonl`,
+    );
   }
 
   // Per-test timeout. Bun defaults to 5_000ms, which is unrealistically tight

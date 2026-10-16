@@ -165,6 +165,15 @@ export async function transitionCase(
       state: to,
       ...(meta ?? {}),
       ...(to === "FREEZE_STAGED" ? { freezeStagedAt: new Date() } : {}),
+      // The start of `fraud_confirmed_to_webhook_delivered`. Written by the single
+      // state writer rather than by the tool route, for the same reason the staging
+      // clock is: a caller that has to remember to stamp it is a caller that will
+      // forget, and `verify-transaction` is not the only path that could ever reach
+      // this state. First one wins — `row.fraudConfirmedAt` is read from the row this
+      // function already fetched, so a re-entry cannot slide the start later and
+      // shorten the latency it is measuring. Placed after the caller's `meta` for the
+      // same reason as `freezeStagedAt`: no caller may supply its own start instant.
+      ...(to === "CONFIRMED_FRAUD" ? { fraudConfirmedAt: row.fraudConfirmedAt ?? new Date() } : {}),
     },
     select: { id: true, state: true },
   });
@@ -271,7 +280,17 @@ export async function transitionCaseWithOutbox(
   return db.$transaction(async (tx) => {
     const updated = await tx.case.update({
       where: { caseRef },
-      data: { state: to, ...(opts.meta ?? {}) },
+      data: {
+        state: to,
+        ...(opts.meta ?? {}),
+        // Same instant, same rule, second writer. `transitionCaseWithOutbox` is the
+        // only sanctioned way to publish a verdict, and a state reached through it
+        // must carry the same start clock as one reached through `transitionCase` —
+        // otherwise the span exists for whichever path the caller happened to use.
+        ...(to === "CONFIRMED_FRAUD"
+          ? { fraudConfirmedAt: row.fraudConfirmedAt ?? new Date() }
+          : {}),
+      },
       select: { id: true, state: true },
     });
     const event = await enqueueOutbox(tx, opts.outbox);

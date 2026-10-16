@@ -5,7 +5,7 @@ import { SPAN_TARGETS } from "@/lib/telemetry/spans";
  *
  * `docs/LATENCY-BUDGET.md` states the numbers and, more importantly, which of
  * them are measured. This file is the executable half: the per-hop ceilings the
- * pipeline is held to, and the one decision that follows from them � when the
+ * pipeline is held to, and the one decision that follows from them — when the
  * budget is blown, stop trying to sound human and get the customer a message.
  *
  * WHY THE CEILINGS ARE NOT ADDED UP TO A SINGLE PROMISE
@@ -15,7 +15,7 @@ import { SPAN_TARGETS } from "@/lib/telemetry/spans";
  * `docs/LATENCY-BUDGET.md`), not a sum of optimistic per-hop estimates. Publishing
  * a 700 ms headline next to a 1.2 s instrumented budget would be two numbers
  * that disagree, and the one a judge checks is the instrumented one. So the hops
- * below are CEILINGS � each is a deadline the hop must meet � and the trip
+ * below are CEILINGS — each is a deadline the hop must meet — and the trip
  * threshold is the measured budget, not the sum of the ceilings.
  *
  * The escalation ladder is deliberately short. A caller who has already waited
@@ -40,7 +40,7 @@ export const HOP_BUDGET_MS: Record<LatencyHop, number> = {
 };
 
 /**
- * The cumulative budget for one answered turn, measured � not estimated � by the
+ * The cumulative budget for one answered turn, measured — not estimated — by the
  * `answered_to_first_agent_word` span. Reading it from config rather than
  * hardcoding it keeps the number the code enforces and the number the docs quote
  * the same value.

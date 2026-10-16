@@ -5,10 +5,10 @@
  * audio stops trying to sound human and degrades to SMS. Two properties are
  * asserted here, and both are the ones a bare number cannot have:
  *
- *   · the trip threshold is the SAME number the telemetry span is measured
- *     against, so the budget the docs quote is the budget the code enforces —
+ *   â€” the trip threshold is the SAME number the telemetry span is measured
+ *     against, so the budget the docs quote is the budget the code enforces â€”
  *     a hardcoded copy here would drift the day the span target changed;
- *   · a turn that DID answer is never cut off by the budget. Degrading the NEXT
+ *   â€” a turn that DID answer is never cut off by the budget. Degrading the NEXT
  *     turn is recovery; truncating the customer's own sentence mid-word is a
  *     failure that presents as one.
  */

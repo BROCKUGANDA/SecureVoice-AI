@@ -5,17 +5,17 @@
  * suite therefore means the control flow is right, not that the vendor happened
  * to return the wording we expected this minute:
  *
- *   · the caller cannot loop forever — both loops are bounded and both bounds are
+ *   â€” the caller cannot loop forever â€” both loops are bounded and both bounds are
  *     asserted as NUMBERS, so loosening either is a visible diff;
- *   · the streak belongs to the CALL, so switching the source of a turn cannot
+ *   â€” the streak belongs to the CALL, so switching the source of a turn cannot
  *     renumber the caller's turns back toward zero and un-cap the loop;
- *   · one clear turn clears the ledger, so a caller who recovers is not punished
+ *   â€” one clear turn clears the ledger, so a caller who recovers is not punished
  *     for the turns before they understood;
- *   · a second call starts from zero, so one confused caller cannot exhaust the
+ *   â€” a second call starts from zero, so one confused caller cannot exhaust the
  *     budget for everybody;
- *   · barge-in is inert while merely listening and actually interrupts a speaking
+ *   â€” barge-in is inert while merely listening and actually interrupts a speaking
  *     turn, rather than only recording that an interrupt was noticed;
- *   · the customer is never nudged while the AI is talking, which is the loop
+ *   â€” the customer is never nudged while the AI is talking, which is the loop
  *     that reads as a glitch to the caller.
  *
  * `mockLLM` is the seam: it returns the shape the pipeline expects with no
@@ -45,7 +45,7 @@ describe("deterministic conversational pipeline", () => {
     expect(denial.intent).toBe("deny_fraud");
   });
 
-  test("a clear turn clears the ledger — recovery is not punished", () => {
+  test("a clear turn clears the ledger â€” recovery is not punished", () => {
     const first = noteTurn({ source: "asr", unclear: true });
     const second = noteTurn({ presentedConvId: first.convId, source: "asr", unclear: true });
     expect(second.streak).toBe(2);
@@ -59,7 +59,7 @@ describe("deterministic conversational pipeline", () => {
     expect(after.streak).toBe(1);
   });
 
-  test("four unclear turns force a human — the cap is asserted, not assumed", () => {
+  test("four unclear turns force a human â€” the cap is asserted, not assumed", () => {
     const cap = 4;
     let verdict = noteTurn({ source: "asr", unclear: true });
     for (let i = 1; i < cap; i++) {
@@ -128,7 +128,7 @@ describe("deterministic conversational pipeline", () => {
     const conv = new ConversationState("en");
     conv.greeting();
     // The interrupt must actually return the instruction to stop the stream, or the
-    // AI talks over the customer — the failure this whole path exists to prevent.
+    // AI talks over the customer â€” the failure this whole path exists to prevent.
     expect(conv.onBargeIn()).toEqual({ bargeIn: true });
     expect(conv.phase).toBe("listening");
     // A second interrupt while merely listening is a normal answer, not a barge-in.

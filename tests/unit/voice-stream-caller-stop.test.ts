@@ -54,10 +54,31 @@
 import { afterAll, beforeAll, expect, mock, test } from "bun:test";
 import { once } from "node:events";
 import { readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import WebSocket from "ws";
 import type { SpanRecord } from "@/lib/telemetry/spans";
 import type { LogRecord } from "@/lib/validation/safe-log";
 import type { UtteranceEndEvent } from "@/lib/voice/deepgram-client";
+
+/**
+ * The durability assertion at the end of this file reads the span log off disk, so it
+ * needs a path. `scripts/run-tests.mjs` gives every test process its own
+ * `TELEMETRY_SPAN_LOG` — which is also why `bun run test` no longer appends harness
+ * traffic to the committed `evidence/latency/spans.jsonl` — but a bare
+ * `bun test tests/unit/voice-stream-caller-stop.test.ts` from a shell or an editor
+ * does not, and the test then failed with "expected string, received undefined".
+ *
+ * That is a missing harness input reporting as a broken producer, and it is how the
+ * assertion got deleted on `staging` rather than fixed: the file cannot know which
+ * runner started it, so it supplies its own destination. A pid-and-random name per
+ * process, because a fixed path would carry one run's spans into the next and make
+ * "the log keeps what the ring forgets" depend on what someone else ran last.
+ */
+process.env.TELEMETRY_SPAN_LOG ??= join(
+  tmpdir(),
+  `sv-caller-stop-${process.pid}-${Math.random().toString(36).slice(2)}.jsonl`,
+);
 
 /* ————————————————————————————————— mocks ————————————————————————————————— */
 
@@ -522,10 +543,8 @@ test("the span is durably written, not just held in this process's ring", async 
   // empty at this point, which is exactly the asymmetry being tested — the durable
   // log keeps what the ring forgets.
   //
-  // `scripts/run-tests.mjs` gives every test process its own `TELEMETRY_SPAN_LOG`,
-  // which is also why a local `bun run test` can no longer append harness traffic to
-  // the committed `evidence/latency/spans.jsonl` and force someone to remember to
-  // revert it.
+  // The path itself is guaranteed at the top of this file, so this runs identically
+  // under `bun run test` and a bare `bun test <file>`.
   const logPath = process.env.TELEMETRY_SPAN_LOG;
   expect(typeof logPath).toBe("string");
   expect(stopSamples().length).toBe(0);

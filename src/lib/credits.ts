@@ -30,6 +30,7 @@ import { headers } from "next/headers";
 import { auth } from "@/lib/better-auth";
 import { db } from "@/lib/db";
 import { append as auditAppend } from "@/lib/audit-chain";
+import { isDemoAccount } from "@/lib/demo-account";
 import { logError } from "@/lib/validation/safe-log";
 
 export type Role = "operator" | "demo";
@@ -135,19 +136,32 @@ export async function getProfile(): Promise<PlatformProfile | null> {
   // vocabulary is not a `Role` because the compiler was told to believe it is.
   const role: Role = roleFromMembership(membershipRole, orgId);
 
+  // Demo confinement. The one-click demo credential is PUBLIC by design (it
+  // ships in the sign-in bundle), so it must never resolve to anything but the
+  // demo seat — even if the address somehow holds an Owner/Admin membership
+  // row. The membership is ignored entirely (not downgraded: there is no
+  // "demo Owner"), and the org pointer is dropped with it, because an org
+  // pointer on a demo session is what would let tenant-scoped reads resolve.
+  // Applied BEFORE the mirror upsert so the stored row agrees with what every
+  // reader of this function enforces, and before the wallet lookup so a demo
+  // session never reads an organisation's balance.
+  const demo = isDemoAccount(email);
+  const effectiveRole: Role = demo ? "demo" : role;
+  const effectiveOrgId: string | null = demo ? null : orgId;
+
   const row = await db.userProfile.upsert({
     where: { userId: user.id },
     create: {
       userId: user.id,
       email,
       name,
-      role,
-      orgId,
-      credits: role === "operator" ? 500 : 25,
+      role: effectiveRole,
+      orgId: effectiveOrgId,
+      credits: effectiveRole === "operator" ? 500 : 25,
     },
     // Role and org follow the session (never self-granted locally); credits are
     // wallet state and are deliberately NOT touched here.
-    update: { email, name, role, orgId },
+    update: { email, name, role: effectiveRole, orgId: effectiveOrgId },
   });
 
   // The org wallet is the tenant's balance; the profile wallet is the
@@ -157,9 +171,9 @@ export async function getProfile(): Promise<PlatformProfile | null> {
   // is the request that discovers it.
   let credits = row.credits;
   let walletScope: "org" | "user" = "user";
-  if (orgId) {
+  if (effectiveOrgId) {
     const org = await db.organization.findUnique({
-      where: { id: orgId },
+      where: { id: effectiveOrgId },
       select: { credits: true },
     });
     credits = org?.credits ?? 0;

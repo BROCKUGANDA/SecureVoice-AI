@@ -43,6 +43,7 @@ import { issueSession, type IssuedSession } from "@/lib/auth/session";
 import { assertUsablePassword, hashPassword, normalizeEmail } from "@/lib/auth/password";
 import { AUTH_AUDIT_INTENTS, auditAuthEvent } from "@/lib/auth/audit";
 import { isRole, type Role } from "@/lib/auth/roles";
+import { isDemoAccount } from "@/lib/demo-account";
 
 export type InviteRecord = {
   inviteId: string;
@@ -120,7 +121,11 @@ export async function issueInvite(input: IssueInviteInput): Promise<IssuedInvite
 }
 
 export type InviteRejection =
-  "unknown_invite" | "invite_expired" | "invite_already_used" | "email_mismatch";
+  | "unknown_invite"
+  | "invite_expired"
+  | "invite_already_used"
+  | "email_mismatch"
+  | "demo_address";
 
 export type AcceptInviteInput = {
   token: string;
@@ -163,6 +168,7 @@ const REJECTION: Record<InviteRejection, string> = {
   invite_expired: "That invitation has expired.",
   invite_already_used: "That invitation has already been used.",
   email_mismatch: "That invitation was issued to a different email address.",
+  demo_address: "Demo sign-in addresses cannot join an organisation.",
 };
 
 /**
@@ -216,6 +222,22 @@ export async function acceptInvite(input: AcceptInviteInput): Promise<AcceptInvi
       meta: { inviteId: invite.inviteId, reason: "email_mismatch" },
     });
     return reject("email_mismatch");
+  }
+
+  // Demo addresses can never enter an organisation — checked BEFORE the consume
+  // marker is written, alongside the other read-only refusals, so a demo
+  // address holding a valid token cannot burn it into a membership. Audited
+  // like the other refusals: a demo redemption attempt is exactly the event an
+  // operator wants to see.
+  if (isDemoAccount(invite.email)) {
+    await auditAuthEvent({
+      intent: AUTH_AUDIT_INTENTS.inviteRejected,
+      actorId: invite.issuedBy,
+      orgId: invite.orgId,
+      note: "invite redemption refused: demo address cannot join an organisation",
+      meta: { inviteId: invite.inviteId, reason: "demo_address" },
+    });
+    return reject("demo_address");
   }
 
   // Seat cap, checked BEFORE the consume marker is written. Past `take()` the

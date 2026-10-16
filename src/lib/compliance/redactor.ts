@@ -31,7 +31,3 @@ export function redactPII(text: string): string {
 
   return redacted;
 }
-
-export function redactTranscript(transcript: string): string {
-  return redactPII(transcript);
-}

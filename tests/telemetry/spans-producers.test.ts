@@ -170,11 +170,24 @@ const UNPRODUCED_WITH_REASON: Record<string, string> = {
   // refused: it would start the clock LATE (after the ASR's endpointing silence) and
   // duplicate `answered_to_first_agent_word`, whose producer is driven in CI by
   // tests/unit/voice-stream-first-agent-word.test.ts.
-  fraud_confirmed_to_webhook_delivered:
-    'nothing persists the confirmation instant today (`outcome: "fraud_confirmed"' +
-    " is recorded in `src/app/api/webhooks/route.ts`, and the bank event starts from its own " +
-    "`createdAt`), so the only span measurable from existing columns would exclude our own " +
-    "decision time and understate the 2s promise it exists to prove.",
+  // ── RETIRED 2026-10-16: `fraud_confirmed_to_webhook_delivered` is no longer unproduced. ──
+  // The reason above was accurate when written and named the missing half precisely:
+  // "nothing persists the confirmation instant". Two things were wrong in it and both are
+  // now fixed rather than reworded. The delivery instant already existed
+  // (`OutboxEvent.deliveredAt`, written only on a successful delivery); the start did not,
+  // so `Case.fraudConfirmedAt` was added and is stamped by the single state writer when a
+  // case enters `CONFIRMED_FRAUD` — which only the customer's own denial in
+  // `verify-transaction` can cause, so the instant is a fact about the call, not about a
+  // row being touched. Producer: `src/lib/telemetry/confirmation.ts`, called from
+  // `src/lib/outbox.ts` at the moment a delivery commits, once per event row, and only
+  // for `case.notified`. It refuses a case with no persisted start rather than borrowing
+  // `updatedAt`, and it never filters a LONG sample — a nine-second delivery is the exact
+  // failure the 2 s budget exists to surface, and a producer that drops its own bad news
+  // is how a p95 becomes a marketing number.
+  //
+  // The map is now empty, which is a shape a gate can pass for the wrong reason. The
+  // assertion below is paired with a positive control that proves an unproduced span is
+  // still detected when the map is empty.
 };
 
 test("every declared span has a producer, or a named reason for not having one", () => {
@@ -238,4 +251,64 @@ test("each span's producer file is named, so the contract is navigable", () => {
     printed.push(`  ${span}\n    ${files.join("\n    ")}`);
   }
   console.log("\nspan producers:\n" + printed.join("\n"));
+});
+
+/**
+ * A span recorded into memory only is a span that was never measured.
+ *
+ * `recordSpan` fills the in-process ring that `/api/status/spans` reads; the durable
+ * artifact `scripts/emit-slo.ts` turns into a verdict is the JSONL written by
+ * `recordSpanAndPersist`. Both return the same shape and neither fails, so a producer
+ * can be completely correct and completely invisible: the voice worker did exactly that
+ * for its whole life — `answered_to_first_agent_word` and `caller_stop_to_agent_audio`
+ * were recorded on every turn and reached no artifact, so the published SLO kept saying
+ * `not_measured` while the code looked instrumented.
+ *
+ * Long-running processes matter most here: a web route's ring is read by the next
+ * request, while a worker's ring is read by nobody and dies with the container.
+ */
+test("no producer records through the ring-only recorder", () => {
+  // `store.ts` is the recorder's own implementation, and the status route only reads
+  // the ring. Everything else in src/ that calls `recordSpan(` is a producer that
+  // chose the memory-only path — the substring `recordSpan(` cannot match
+  // `recordSpanAndPersist(`, so the distinction is exact rather than a name guess.
+  const EXEMPT = [
+    DECLARATION_FILE,
+    join("src", "lib", "telemetry", "store.ts"),
+    join("src", "app", "api", "status", "spans", "route.ts"),
+  ];
+  const offenders = [...BODIES.entries()]
+    .filter(([f, body]) => !EXEMPT.includes(f) && body.includes("recordSpan("))
+    .map(([f]) => f);
+  expect(offenders, `${offenders.join(", ")} record spans into memory only`).toEqual([]);
+
+  // Positive control: the check must be able to fail, and specifically on the mistake
+  // it exists to catch. A regex-free substring test that nobody has reddened is
+  // indistinguishable from a check whose target file was renamed.
+  const RING_ONLY = 'void recordSpan({ span: "tool_request_to_response", startedAtMs: 1 });';
+  const DURABLE =
+    'void recordSpanAndPersist({ span: "tool_request_to_response", startedAtMs: 1 });';
+  expect(RING_ONLY.includes("recordSpan(")).toBe(true);
+  expect(DURABLE.includes("recordSpan(")).toBe(false);
+});
+
+test("the empty gap map is a result, not a blindfold", () => {
+  // Every entry has now been retired, so `UNPRODUCED_WITH_REASON` is empty and the main
+  // assertion passes by finding nothing to complain about. That is exactly the state in
+  // which a producer gate is worth the least, so the predicate itself is tested here:
+  // the same search the gate runs must be able to report "no producer" at all. If it
+  // cannot, an empty map means nothing and a future span can go unproduced quietly.
+  expect(Object.keys(UNPRODUCED_WITH_REASON)).toEqual([]);
+  expect(FILES.length).toBeGreaterThan(400);
+
+  const phantom = "signal_received_to_moonshine";
+  const producedByAnything = [...BODIES.values()].some((body) => body.includes(`"${phantom}"`));
+  expect(producedByAnything).toBe(false);
+
+  // And the predicate does find the real ones — per span, so a rename that leaves a
+  // declaration orphaned cannot pass by the loop having nothing to iterate.
+  for (const span of SPAN_NAMES) {
+    const found = [...BODIES.values()].some((body) => body.includes(`"${span}"`));
+    expect({ span, found }).toEqual({ span, found: true });
+  }
 });

@@ -43,7 +43,7 @@
  */
 
 import { io, type ManagerOptions, type Socket, type SocketOptions } from "socket.io-client";
-import type { CreditDeductedEvent } from "@/lib/realtime-events";
+import { parseRealtimeFrame, type CreditDeductedEvent } from "@/lib/realtime-events";
 
 /**
  * The three states every existing consumer already renders.
@@ -104,6 +104,28 @@ export type CaseActivity = {
 };
 
 export type PresenceUpdate = { channel: string; watchers: string[] };
+
+/**
+ * Typed frames the registry declares but no reader on this page consumes
+ * (`consumed: false` in src/lib/realtime-events.ts), warned once per type.
+ *
+ * The per-type memo is the whole design: dropping a frame silently is the exact
+ * failure this platform keeps having to hunt down (a declared shape nothing
+ * produces, or a produced shape nothing consumes, both look like a working
+ * screen), and spamming the console on every transition on a busy org channel
+ * would make the warning unreadable. One line per type per JS context is the
+ * honest middle.
+ */
+const warnedUnconsumed = new Set<string>();
+
+function warnUnconsumed(type: string): void {
+  if (warnedUnconsumed.has(type)) return;
+  warnedUnconsumed.add(type);
+  console.warn(
+    `[realtime] "${type}" is on the wire and read by nothing here — see its entry in ` +
+      "src/lib/realtime-events.ts (consumed: false). It is not rendered, deliberately.",
+  );
+}
 
 /** Must match SOCKET_PATH in mini-services/realtime/src/constants.ts. */
 const SOCKET_PATH = "/realtime";
@@ -496,16 +518,40 @@ export async function openRealtime(opts: RealtimeOptions): Promise<RealtimeHandl
         "activity",
         (msg: { channel: string; event?: { kind: string; payload?: unknown } }) => {
           if (msg.event?.kind !== "activity") return;
-          const payload = msg.event.payload as { type?: unknown } | null | undefined;
-          // Wallet movements ride the SAME activity envelope but not the case
-          // shape. Routed by `type`, not by channel name: a mislabelled channel
-          // must not be able to feed a credit balance into the case feed, nor a
-          // case action into a wallet chip.
-          if (payload && typeof payload === "object" && payload.type === "credit.deducted") {
-            onCredit?.(payload as CreditDeductedEvent);
+          // The receive side of the contract. `payload` is `unknown` — the service
+          // relays it verbatim (`mini-services/realtime/src/ingest.ts` holds no
+          // schema), a proxy can be in the path, and a producer can ship a frame
+          // this build has never seen. `parseRealtimeFrame` is the only thing that
+          // turns it into a shape this file is allowed to read; previously every
+          // non-credit payload was cast straight to `CaseActivity`, which is how a
+          // `case_state` frame reached the feed as "SV-1234 · undefined".
+          const frame = parseRealtimeFrame(msg.event.payload);
+          if (!frame) {
+            console.warn(
+              "[realtime] dropped a frame outside the event registry",
+              msg.channel,
+              msg.event.payload,
+            );
             return;
           }
-          onActivity?.(msg.event.payload as CaseActivity, msg.channel);
+          // No `type` at all: the audit-activity row, the frame the console's live
+          // feed is built from. Routed first because it is the only untyped shape.
+          if (!("type" in frame)) {
+            onActivity?.(frame, msg.channel);
+            return;
+          }
+          // Wallet movements share the activity envelope but not the case shape.
+          // Routed by `type`, not by channel name: a mislabelled channel must not
+          // be able to feed a credit balance into the case feed, nor a case action
+          // into a wallet chip.
+          if (frame.type === "credit.deducted") {
+            onCredit?.(frame);
+            return;
+          }
+          // Every other declared typed frame: valid, delivered, unread. Loud rather
+          // than silently cast into a renderer that has no field for it. A type
+          // added to the registry lands here too, so it cannot arrive unnoticed.
+          warnUnconsumed(frame.type);
         },
       );
 

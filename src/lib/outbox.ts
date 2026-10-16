@@ -25,6 +25,7 @@ import type { Prisma } from "@/generated/prisma/client";
 import { db } from "@/lib/db";
 import { env, replayWindowSec } from "@/lib/config";
 import { assertVendorUrlDeliverable, resolveVendorEndpoint } from "@/lib/vendor-endpoint";
+import { recordWebhookDeliverySpan } from "@/lib/telemetry/confirmation";
 
 export const WEBHOOK_SIGNATURE_HEADER = "sv-signature";
 export const SCHEMA_VERSION = "2026-10-01";
@@ -310,6 +311,23 @@ export async function deliver(
       where: { id: event.id },
       data: { state: "DELIVERED", attempts: attempt, deliveredAt: now, lastError: null },
     });
+    // The delivery instant of the row that was just committed is the END of
+    // `fraud_confirmed_to_webhook_delivered`. Recorded here rather than in the drain
+    // loop so the only place that knows a delivery succeeded is also the only place
+    // that claims one — a second call site would double-count the same event.
+    //
+    // Awaited and swallowed: the adapter catches its own failures and returns an
+    // outcome, and the outer catch is here because telemetry must never be the reason
+    // a bank's notification is reported as undelivered after it was accepted.
+    try {
+      await recordWebhookDeliverySpan({
+        caseRef: event.caseRef,
+        eventType: event.eventType,
+        deliveredAtMs: now.getTime(),
+      });
+    } catch {
+      // deliberately silent: the outcome was already DELIVERED above
+    }
     return { id: event.id, status: "DELIVERED", attempts: attempt };
   }
 

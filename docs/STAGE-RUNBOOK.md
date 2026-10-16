@@ -29,7 +29,9 @@ Teammate speaks to the AI in the widget. Show, in this order:
 
 - The **emerald flash** as the state machine advances on screen.
 - The **latency badge** — measured p50/p95, not a spinner.
-- The **typewriter transcript** with interim/final distinction visible.
+- The **transcript** appearing turn by turn. There is no interim/partial line to
+  point at: the widget transcribes each turn in one shot, so do not claim a
+  "typing" stream you cannot show.
 
 Do not narrate the UI. Point at the state transition and say nothing.
 

@@ -88,6 +88,11 @@ export const DEFAULT_LEASE_MS = env.queueLeaseMs;
 /**
  * Retry ladder for a failed attempt. Jittered by `dialJobBackoffMs`.
  *
+ * Read from `DIAL_RETRY_LADDER_MS` via `env.dialRetryLadderMs`, so a deploy can
+ * retune dial backoff without a rebuild; the default is the ladder that was
+ * previously hard-coded here ([150s, 300s, 600s]), so nothing changes until the
+ * var is set.
+ *
  * Carrier-protection rule: never place more than TWO calls to one customer in
  * any five-minute window. Carriers flag numbers that re-dial inside that window
  * as robocall spam and start sending every later call to voicemail - which is
@@ -96,10 +101,12 @@ export const DEFAULT_LEASE_MS = env.queueLeaseMs;
  * Attempts land at t0, t0 + L1, t0 + L1 + L2. The first two rungs must therefore
  * sum to MORE than 300s even at the bottom of the -20% jitter band:
  *   0.8 * (150s + 300s) = 360s > 300s.
- * The previous 30s/120s ladder put three calls inside 2.5 minutes.
+ * The previous 30s/120s ladder put three calls inside 2.5 minutes. A configured
+ * ladder that breaks the rule is REFUSED (loudly, at boot) by the config getter
+ * below — the knob retunes backoff, it does not get to disarm the carrier rule.
  * tests/unit/scale.test.ts pins this against `CALL_RATE_WINDOW_MS`.
  */
-export const DIAL_RETRY_LADDER_MS = [150_000, 300_000, 600_000] as const;
+export const DIAL_RETRY_LADDER_MS = env.dialRetryLadderMs;
 
 /** The carrier rate window the ladder above is sized against. */
 export const CALL_RATE_WINDOW_MS = env.callRateWindowMs;

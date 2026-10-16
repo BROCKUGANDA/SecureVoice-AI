@@ -466,7 +466,16 @@ jobs:
            # (rolled / one-shot / infra-with-a-reason), so a future addition cannot
            # be forgotten the same way. The box gate in the same script then
            # verifies the claim on the live host after the roll.
-           docker compose up -d app dial-worker retention-worker voice-stream-worker email-worker overage-worker
+           #
+           # 2026-10-16: `outbox-worker` was the next one. It drains the durable
+           # bank-notification outbox (`scripts/outbox-worker.ts --loop 10`) and was
+           # classified INFRA as "rolled rarely", which read plausibly and meant it
+           # was in fact never rolled at all: the compose `depends_on` is identical
+           # to every other worker's, so there was no db-setup reason to exclude it,
+           # and `checkBoxImageConformance` only ever inspected the app container, so
+           # no gate could see the drift. Bank deliveries therefore ran on whatever
+           # image was first built — including after a signing or schema change.
+           docker compose up -d app dial-worker retention-worker voice-stream-worker email-worker overage-worker outbox-worker
            docker compose ps
 
            # ── Prove the roll actually happened ─────────────────────────────────

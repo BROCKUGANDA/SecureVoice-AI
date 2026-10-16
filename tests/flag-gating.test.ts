@@ -7,7 +7,15 @@
  * not consulted by the code it claims to gate is the failure mode worth catching,
  * and it is invisible to the registry's own tests.
  *
- * Run with `bun tests/flag-gating.test.ts`.
+ * That failure mode is exactly what this suite used to be blind to. Five names in
+ * the registry — `complianceDisclosure`, `complianceNoSecrets`,
+ * `compliancePiiRedaction`, `webhookStrictSignatures`, `piiRedaction` — were
+ * consulted by nothing in `src/`, `scripts/` or `tests/`. They are invariants now
+ * (`INVARIANTS` in `src/lib/flags.ts`), and
+ * `tests/surface/invariants.test.ts` proves each one against the enforcement
+ * site. What is left here is the flag half: a read that genuinely gates a module.
+ *
+ * Run with `bun run test flag-gating`.
  */
 
 import { describe, expect, test, beforeEach, afterEach } from "bun:test";
@@ -87,16 +95,20 @@ describe("every declared flag is reachable from an env var", () => {
   beforeEach(() => {
     delete process.env.FEATURE_REALTIME;
     delete process.env.FEATURE_CONSOLE_LIVE_FEED;
-    delete process.env.FEATURE_PII_REDACTION;
+    delete process.env.FEATURE_SEED_DEMO;
+    delete process.env.FEATURE_TWILIO_MEDIA_STREAMS;
     delete process.env.FEATURE_ELEVEN_LABS_LIVE;
     delete process.env.ELEVENLABS_DRY_RUN;
+    delete process.env.SEED_DEMO;
   });
   afterEach(() => {
     delete process.env.FEATURE_REALTIME;
     delete process.env.FEATURE_CONSOLE_LIVE_FEED;
-    delete process.env.FEATURE_PII_REDACTION;
+    delete process.env.FEATURE_SEED_DEMO;
+    delete process.env.FEATURE_TWILIO_MEDIA_STREAMS;
     delete process.env.FEATURE_ELEVEN_LABS_LIVE;
     delete process.env.ELEVENLABS_DRY_RUN;
+    delete process.env.SEED_DEMO;
   });
 
   test("every flag maps to an env var following the FEATURE_* convention", async () => {
@@ -122,14 +134,131 @@ describe("every declared flag is reachable from an env var", () => {
 
   test("safeFlag swallows a bad value and takes the conservative default", async () => {
     const { flag, safeFlag } = await import("../src/lib/flags.ts");
-    process.env.FEATURE_PII_REDACTION = "nonsense";
+    // Used to be written against `piiRedaction`, which no longer exists as a
+    // flag. `consoleLiveFeed` defaults OFF, so this now also proves the fallback
+    // direction is the per-flag default rather than a blanket `false`.
+    process.env.FEATURE_CONSOLE_LIVE_FEED = "nonsense";
     // Throwing is right for config surfaces and a defect in the audit path.
-    expect(() => flag("piiRedaction")).toThrow();
-    // Note the default it falls back to is `true` for this flag — the safe
-    // direction is per-flag, not always `false`.
-    expect(safeFlag("piiRedaction")).toBe(true);
+    expect(() => flag("consoleLiveFeed")).toThrow();
+    expect(safeFlag("consoleLiveFeed")).toBe(false);
+
+    process.env.SEED_DEMO = "yes";
+    expect(safeFlag("seedDemo")).toBe(false);
+    delete process.env.SEED_DEMO;
 
     process.env.FEATURE_REALTIME = "nonsense";
     expect(safeFlag("realtime")).toBe(false);
+  });
+
+  test("a flag that resolves true really does flip the module that reads it", async () => {
+    // The one flag pair with an observable, non-network consumer in `src/`: the
+    // realtime notifier. `twilioMediaStreams` is read by `src/worker/dial.ts`,
+    // which is a process entry point rather than an importable decision, so the
+    // consumer gate in tests/flags.test.ts pins its read site by source text
+    // instead of executing it.
+    await withEnv({ FEATURE_REALTIME: "false" }, async () => {
+      const { notifyRealtime } = await import("../src/lib/realtime.ts");
+      const res = await notifyRealtime({ orgId: "org_1", callRef: "SV-2", payload: {} });
+      expect(res.delivered).toBe(false);
+    });
+  });
+});
+
+describe("the compliance invariants are not gated, and cannot be", () => {
+  /**
+   * MUTATION PROOF against the real guardrails.
+   *
+   * Every env var that the old registry claimed controlled one of these is set
+   * to `false` here — the exact instruction a reviewer would have sent to a
+   * deploy before this change, and the exact state that produced the lie:
+   * `flag("complianceNoSecrets")` answered `false` while the refusal still fired,
+   * because nothing read the flag. Now the registry refuses to answer at all, and
+   * the guardrails keep firing.
+   */
+  const ALL_OFF: Record<string, string> = {
+    COMPLIANCE_OPENING_DISCLOSURE: "false",
+    COMPLIANCE_NO_CREDENTIAL_REQUESTS: "false",
+    COMPLIANCE_PII_REDACTION: "false",
+    FEATURE_COMPLIANCE_DISCLOSURE: "false",
+    FEATURE_COMPLIANCE_NO_SECRETS: "false",
+    FEATURE_COMPLIANCE_PII_REDACTION: "false",
+    FEATURE_PII_REDACTION: "false",
+    FEATURE_WEBHOOK_STRICT_SIGNATURES: "false",
+  };
+
+  test("the credential-ask refusal still fires with every legacy switch off", async () => {
+    await withEnv(ALL_OFF, async () => {
+      const { auditAgentReply } = await import("../src/lib/compliance/policy.ts");
+      const r = auditAgentReply({
+        reply: "Can you tell me the one-time code you just received?",
+        intent: "verify",
+        isOpening: false,
+        lang: "en",
+      });
+      expect(r.refused).toBe(true);
+      expect(r.guardrails).toContain("refused:credential_request_pattern");
+    });
+  });
+
+  test("the opening disclosure is still injected with every legacy switch off", async () => {
+    await withEnv(ALL_OFF, async () => {
+      const { auditAgentReply, OPENING_DISCLOSURE_EN } =
+        await import("../src/lib/compliance/policy.ts");
+      const r = auditAgentReply({
+        reply: "Hello, this is the bank's AI assistant.",
+        intent: "greeting",
+        isOpening: true,
+        lang: "en",
+      });
+      expect(r.reply.startsWith(OPENING_DISCLOSURE_EN)).toBe(true);
+      expect(r.guardrails).toContain("disclosure_injected");
+    });
+  });
+
+  test("PII is still redacted with every legacy switch off", async () => {
+    await withEnv(ALL_OFF, async () => {
+      const { auditAgentReply } = await import("../src/lib/compliance/policy.ts");
+      const r = auditAgentReply({
+        reply: "The payment of 4111 1111 1111 1111 was declined.",
+        intent: "verify",
+        isOpening: false,
+        lang: "en",
+      });
+      expect(r.reply).not.toContain("4111 1111 1111 1111");
+      expect(r.guardrails).toContain("pii_redacted");
+
+      const { transcript } = await import("../src/lib/redact.ts");
+      expect(transcript("call +971501234567 about AED 2500")).not.toContain("971501234567");
+    });
+  });
+
+  test("and the registry itself refuses to report any of them as disabled", async () => {
+    const { allFlags, invariants } = await import("../src/lib/flags.ts");
+    await withEnv(ALL_OFF, async () => {
+      // The five names the registry used to answer for. Not one of them is
+      // resolvable any more — not as a flag, and not as a "false" default.
+      expect(Object.keys(allFlags())).toEqual([
+        "realtime",
+        "elevenLabsLive",
+        "consoleLiveFeed",
+        "seedDemo",
+        "twilioMediaStreams",
+      ]);
+      const list = invariants();
+      expect(list.map((i) => i.name).sort()).toEqual([
+        "complianceDisclosure",
+        "complianceNoSecrets",
+        "compliancePiiRedaction",
+        "webhookStrictSignatures",
+      ]);
+      for (const entry of list) {
+        // `enforcedAt`/`provedBy` are checked against the filesystem by
+        // tests/surface/invariants.test.ts; here the claim is only that the
+        // surface exists and is complete.
+        expect(entry.enforcedAt.length).toBeGreaterThan(0);
+        expect(entry.provedBy.length).toBeGreaterThan(0);
+        expect(entry.notConfigurable.length).toBeGreaterThan(40);
+      }
+    });
   });
 });

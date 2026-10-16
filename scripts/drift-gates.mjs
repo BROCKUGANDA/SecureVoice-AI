@@ -91,7 +91,12 @@ function checkServiceInventory() {
     litellm: "stateful-ish LLM proxy with a long-lived upstream",
     realtime: "socket server; long-lived, deployed separately",
     caddy: "the TLS edge; recreated only when its definition changes",
-    "outbox-worker": "drains a durable outbox; restart-safe, rolled rarely",
+    // `outbox-worker` used to live here as "drains a durable outbox; restart-safe,
+    // rolled rarely". That classification was the bug: nothing rolled it, so it ran
+    // the first image ever built for it, and no gate could see the staleness because
+    // the conformance check only inspected the app container. It is now in deploy.yml's
+    // roll list; the repo gate above will fail if it is ever quietly demoted again by
+    // re-adding it here without removing it there.
     "app-direct": "a debugging bypass of the proxy; not part of the roll",
   };
 
@@ -482,34 +487,365 @@ function checkBoxCurrency() {
 }
 
 function checkBoxImageConformance() {
-  // The running app container must use the image compose expects, and that image
-  // must be tagged. This is the stale-image gate from VPS-RECOVERY #3.
-  let running = "";
-  try {
-    running = sh("docker inspect securevoice-ai-app-1 --format '{{.Image}}'");
-  } catch (e) {
-    const where = e.stderr?.toString?.() || e.message || String(e);
+  // The running container for EVERY service the deploy claims to roll must use an
+  // image some tag still points at. This used to inspect `securevoice-ai-app-1`
+  // alone — which is how `outbox-worker` could run a months-old build indefinitely:
+  // the gate was named for image conformance and was looking at one container.
+  //
+  // A dangling image id means the tag has moved on (or never existed) while the
+  // container stayed put: the next `up -d` resolves that service's image to whatever
+  // the tag says now, which may be a different build from the one serving traffic.
+  const deploy = read(".github/workflows/deploy.yml");
+  const m = deploy.match(/docker compose up -d ([^\n]+)/);
+  if (!m) {
+    fail("deploy.yml: no `docker compose up -d <services>` line to verify against");
+    return;
+  }
+  const rolled = m[1].trim().split(/\s+/).filter(Boolean);
+  if (rolled.length < 2) {
     fail(
-      `docker could not inspect securevoice-ai-app-1: ${where.split("\n").filter(Boolean).slice(-1)[0] ?? where}` +
-        ` — that is the gate failing to look, not proof the app is down.`,
+      `deploy.yml roll list resolved to ${rolled.length} service(s); refusing to certify a roll of one container`,
     );
     return;
   }
-  if (!running) {
-    fail("securevoice-ai-app-1 has no image id — is the app running?");
-    return;
+
+  const tagged = new Set(
+    sh("docker images --format '{{.ID}}'")
+      .split("\n")
+      .map((s) => s.replace("sha256:", "").slice(0, 12))
+      .filter(Boolean),
+  );
+
+  const problems = [];
+  const checked = [];
+  for (const svc of rolled) {
+    let cid = "";
+    try {
+      cid = sh(`docker compose --project-directory "${BOX}" ps -q ${svc}`);
+    } catch (e) {
+      const where = e.stderr?.toString?.() || e.message || String(e);
+      problems.push(
+        `${svc}: compose could not be asked for its container — ${where.split("\n").filter(Boolean).slice(-1)[0] ?? where}`,
+      );
+      continue;
+    }
+    if (!cid) {
+      // checkBoxInventory already fails on a missing running container; this is the
+      // same fact seen from the image side, so record rather than double-fail.
+      problems.push(`${svc}: compose reports no container id`);
+      continue;
+    }
+    const image = sh(`docker inspect ${cid} --format '{{.Image}}'`)
+      .replace("sha256:", "")
+      .slice(0, 12);
+    if (!image) {
+      problems.push(`${svc}: container ${cid.slice(0, 12)} has no image id`);
+      continue;
+    }
+    if (!tagged.has(image)) {
+      problems.push(
+        `${svc}: running image ${image} is tagged by nothing — the tag has moved and this container has not`,
+      );
+      continue;
+    }
+    checked.push(`${svc}@${image}`);
   }
-  const tagged = sh("docker images --format '{{.ID}}'").split("\n").filter(Boolean);
-  const short = running.replace("sha256:", "").slice(0, 12);
-  const dangling = !tagged.some((id) => id.startsWith(short));
-  if (dangling) {
+
+  if (problems.length) {
     fail(
-      `the running app container uses image ${short}, which no tag points at (dangling).\n` +
-        `       that is the stale-image precondition: the next \`up -d\` resolves` +
-        ` app.image to whatever the tag says now, which may be a different build.`,
+      `deployed containers are not conforming to the images the deploy rolled:\n` +
+        `       ${problems.join("\n       ")}\n` +
+        `       a service can be recreated or forgotten individually, so every rolled\n` +
+        `       service is inspected — checking only the app container let a worker go stale unseen.` +
+        ` The next \`up -d\` resolves a stale service's image to whatever the tag says now,\n` +
+        `       which may be a build that has never served traffic.`,
     );
   } else {
-    info(`running app image ${short} is tagged`);
+    info(`all ${checked.length} rolled containers run a tagged image: ${checked.join(", ")}`);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CHECK 7 — .env.example and the code that reads env are the same set
+//
+// The recurring defect this repo keeps shipping is a knob that exists, looks
+// authoritative, and does nothing: `planTier` read by no query, latency spans
+// with no producer, an env var documented and hard-coded elsewhere. The env
+// surface is where the next one will hide, so both directions are gated:
+//
+//   1. READ → DOCUMENTED: every env name read statically in src/ or scripts/
+//      (process.env.X, process.env["X"], numSetting/numEnv("X"), the
+//      NAME_ENV = "X" indirection, and `X_${...}` template families) appears
+//      in .env.example. A live knob nobody documented is the provisioning
+//      trap in reverse: it cannot be found, so it cannot be set.
+//   2. DOCUMENTED → READ (or infra-named): every KEY documented in
+//      .env.example is either named in the src/+scripts/ code blob (comments
+//      stripped — a stale comment is not a consumer, that is how
+//      NEXT_PUBLIC_SUPABASE_URL survived: its "reader" component was adapted
+//      away years ago and only the prose remained) or named by an infra
+//      consumer: compose, Dockerfiles, Caddyfile(s), sites.d/, the workflows,
+//      mini-services/, or agent/*.yaml (the id_env contract scripts/agent-apply.ts
+//      resolves). Category (b) knobs stay legal; "named by nobody at all" fails.
+//
+// Scope honestly: dynamic dispatch the extractor cannot see (flags.ts registry
+// indirection, abuse per-org `__<ORG>` suffixes, retention's ENV_* consts are
+// caught via the const pattern) means direction 1 UNDER-reports; direction 2
+// never does — every documented name is checked. The self-test below feeds the
+// finders a synthetic orphan key and a synthetic undocumented read and fails
+// the gate if either survives, because a check with no positive control is
+// decoration (this has been bitten twice this week; see the claims-gate regex).
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Host/CI/tool variables that are legitimately absent from a deployment
+// template. Everything here is an OS/CI contract, not a product knob; adding a
+// name to this set is adding an exemption and must stay small and named.
+const ENV_FRAMEWORK_ALLOW = new Set([
+  "NODE_ENV", // config.ts fallback for APP_ENV; set by the runtime, not the operator
+  "PORT", // the process listen port; set by compose/Dockerfile CMD
+  "HOSTNAME",
+  "HOME",
+  "PATH",
+  "SHELL",
+  "LANG",
+  "LC_ALL",
+  "TERM",
+  "TZ",
+  "CI", // CI contract
+  "BOX_DIR", // drift-gates box-suite pointer (documented in this file's header)
+  "EDITOR",
+  "DISPLAY",
+  "NEXT_PHASE", // Next.js internal phase marker (read-only in auth/origins.ts)
+  "NEXT_RUNTIME", // Next.js runtime selector (instrumentation.ts)
+  "RENDER_INSTANCE_ID", // legacy Render hosting marker, set by that platform
+  "LOCALAPPDATA", // Windows OS location of the Chrome install (lighthouse.mjs)
+  "PYTHON", // interpreter override for local tooling (build-evidence.ts)
+  "CHROME_PATH", // puppeteer-family convention for locating Chrome
+]);
+const envAllowed = (name) =>
+  ENV_FRAMEWORK_ALLOW.has(name) || name.startsWith("GITHUB_") || name.startsWith("npm_");
+
+/** Extract statically-visible env reads from one source text. */
+function extractEnvReads(src) {
+  const names = new Set();
+  const prefixes = new Set(); // template families: `X_${...}` binds X_<anything>
+  const add = (m) => m && /^[A-Z][A-Z0-9_]{2,}$/.test(m) && names.add(m);
+  for (const m of src.matchAll(/\bprocess\.env\.([A-Z][A-Z0-9_]{2,})\b/g)) add(m[1]);
+  for (const m of src.matchAll(/\bprocess\.env\[\s*["']([A-Z][A-Z0-9_]{2,})["']\s*\]/g)) add(m[1]);
+  for (const m of src.matchAll(
+    /\b(?:numSetting|numEnv|envDays|envList|envMinor)\(\s*["']([A-Z][A-Z0-9_]{2,})["']/g,
+  ))
+    add(m[1]);
+  // `const SOME_ENV_NAME = "X"` — the indirection retention/breaker/session use.
+  for (const m of src.matchAll(
+    /\b[A-Z][A-Z0-9_]*ENV[A-Z0-9_]*\s*=\s*["']([A-Z][A-Z0-9_]{2,})["']/g,
+  ))
+    add(m[1]);
+  // Shell/PowerShell readers under scripts/ ($env:X, ${X}, "$envMap["X"]").
+  for (const m of src.matchAll(/\$env:([A-Z][A-Z0-9_]{2,})\b/g)) add(m[1]);
+  for (const m of src.matchAll(/\$envMap\[\s*["']([A-Z][A-Z0-9_]{2,})["']\s*\]/g)) add(m[1]);
+  // Template family: process.env[`ELEVENLABS_VOICE_${...}`] etc.
+  for (const m of src.matchAll(/\bprocess\.env\[\s*`([A-Z][A-Z0-9_]{3,})\$\{/g)) prefixes.add(m[1]);
+  return { names, prefixes };
+}
+
+/** Every KEY documented in .env.example, commented examples included. */
+function parseDocumentedKeys(envText) {
+  const keys = new Set();
+  for (const m of envText.matchAll(/(?:^|\n)\s*(?:export\s+)?#*\s*([A-Z][A-Z0-9_]{2,})\s*=/g))
+    keys.add(m[1]);
+  return keys;
+}
+
+function findUndocumentedReads(reads, documented) {
+  return [...reads.names].filter(
+    (n) =>
+      !envAllowed(n) && !documented.has(n) && ![...reads.prefixes].some((p) => n.startsWith(p)), // covered by a family it belongs to
+  );
+}
+
+function findUnreadKeys(documented, consumerBlob, templatePrefixes) {
+  return [...documented].filter(
+    (k) =>
+      !consumerBlob.includes(k) &&
+      // template families bridge `X_${...}` reads to every documented X_… member
+      ![...templatePrefixes].some((p) => k.startsWith(p)),
+  );
+}
+
+/** Remove whole-line // and # comments and /* *\/ blocks: prose is not a consumer. */
+function stripComments(text) {
+  return text
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .split("\n")
+    .filter((l) => !/^\s*(\/\/|#)/.test(l))
+    .join("\n");
+}
+
+function walkCodeFiles(dir, out, skipNodeModules = true) {
+  for (const e of readdirSync(dir)) {
+    if (skipNodeModules && (e === "node_modules" || e === ".next" || e === "dist")) continue;
+    const full = join(dir, e);
+    if (statSync(full).isDirectory()) {
+      walkCodeFiles(full, out, skipNodeModules);
+      continue;
+    }
+    if (/\.(ts|tsx|mjs|js|ps1|sh|cjs)$/.test(e)) out.push(full);
+  }
+  return out;
+}
+
+/**
+ * Self-test: the finders are fed a fixture with a planted orphan key (documented,
+ * read by nothing) and a planted undocumented read (read, documented nowhere).
+ * If either survives the diff, the regexes or the set logic are broken and the
+ * gate declares ITSELF dead rather than reporting a clean repo.
+ */
+function selfTestEnvGate() {
+  const FIX_ENV = [
+    "# fixture",
+    'GATE_SELFTEST_ORPHAN="set but read by nobody"',
+    'GATE_SELFTEST_PAIR="set and read"',
+    "# GATE_SELFTEST_COMMENTED=also orphan",
+  ].join("\n");
+  const FIX_SRC = [
+    "const a = Number(process.env.GATE_SELFTEST_READ);",
+    'const b = numSetting("GATE_SELFTEST_READ2", 5);',
+    'const READ3_ENV = "GATE_SELFTEST_READ3";',
+    'const c = process.env["GATE_SELFTEST_READ4"];',
+    "const d = process.env[`GATE_SELFTEST_FAMILY_${x}`];",
+    'const e = numEnv("GATE_SELFTEST_PAIR", 1); // numEnv, documented pair',
+    "// a commented-out read is NOT a read; a comment naming an orphan is not a consumer:",
+    "// const z = process.env.GATE_SELFTEST_PROSE_READ;",
+  ].join("\n");
+
+  const documented = parseDocumentedKeys(FIX_ENV);
+  const blob = stripComments(FIX_SRC);
+  const reads = extractEnvReads(blob);
+  const problems = [];
+
+  // Fixture wiring is itself asserted, or the controls prove nothing:
+  if (!documented.has("GATE_SELFTEST_ORPHAN") || !documented.has("GATE_SELFTEST_PAIR"))
+    problems.push("parseDocumentedKeys missed fixture keys");
+  if (
+    ![
+      "GATE_SELFTEST_READ",
+      "GATE_SELFTEST_READ2",
+      "GATE_SELFTEST_READ3",
+      "GATE_SELFTEST_READ4",
+    ].every((n) => reads.names.has(n))
+  )
+    problems.push("extractEnvReads missed fixture reads (literal/numSetting/const-bracket forms)");
+  if (!reads.prefixes.has("GATE_SELFTEST_FAMILY_"))
+    problems.push("extractEnvReads missed the template-family form");
+  if (reads.names.has("GATE_SELFTEST_PROSE_READ"))
+    problems.push("comment stripping leaked: a read named only inside a comment was extracted");
+
+  const undoc = findUndocumentedReads(reads, documented);
+  if (!undoc.includes("GATE_SELFTEST_READ"))
+    problems.push("control 1 failed: undocumented read survived the diff");
+  const unread = findUnreadKeys(documented, blob, reads.prefixes);
+  if (!unread.includes("GATE_SELFTEST_ORPHAN") || !unread.includes("GATE_SELFTEST_COMMENTED"))
+    problems.push("control 2 failed: orphan key (bare AND commented) survived the diff");
+  if (unread.includes("GATE_SELFTEST_PAIR"))
+    problems.push("positive control overcorrects: a documented+read key was reported as orphan");
+
+  if (problems.length) {
+    fail(
+      `checkEnvDocs self-test is BROKEN — the real scan below cannot be trusted:\n` +
+        `       ${problems.join("\n       ")}`,
+    );
+    return false;
+  }
+  info("checkEnvDocs self-test: planted orphan + planted undocumented read both caught");
+  return true;
+}
+
+function checkEnvDocs() {
+  const broken = selfTestEnvGate();
+
+  const readerFiles = [];
+  for (const d of ["src", "scripts"]) walkCodeFiles(join(ROOT, d), readerFiles);
+  // This file is excluded from the READ scan: its self-test fixtures are
+  // deliberate fake reads (`process.env.GATE_SELFTEST_*` in string literals),
+  // which would contaminate direction 1. Its only real read (BOX_DIR) is on
+  // the framework allowlist below, so the exclusion opens no hole the gate
+  // would otherwise see.
+  const reads = { names: new Set(), prefixes: new Set() };
+  const readerBlobParts = [];
+  for (const f of readerFiles) {
+    if (f.endsWith("drift-gates.mjs")) continue;
+    // Comments are stripped BEFORE extraction too: a prose mention of
+    // `process.env.X` is not a read (that is how `PADDLE_SANDBOX_API_KEY`
+    // survived as a comment-narrated myth in the scripts for weeks).
+    const text = stripComments(readFileSync(f, "utf8"));
+    const ex = extractEnvReads(text);
+    for (const n of ex.names) reads.names.add(n);
+    for (const p of ex.prefixes) reads.prefixes.add(p);
+    readerBlobParts.push(stripComments(text));
+  }
+
+  // Infra consumers for direction 2. Names here count as read-by-deployment.
+  const infraParts = [];
+  const infraFiles = [];
+  for (const pat of [
+    "docker-compose.yml",
+    "docker-compose.ci.yml",
+    "docker-compose.bluegreen.yml",
+  ]) {
+    if (existsSync(join(ROOT, pat))) infraFiles.push(join(ROOT, pat));
+  }
+  for (const e of readdirSync(ROOT)) {
+    if (e.startsWith("Dockerfile") || e.startsWith("Caddyfile")) infraFiles.push(join(ROOT, e));
+  }
+  // Extension-agnostic walk: these are consumers (Caddyfiles, yaml, README'd
+  // directory notes, service package.json), not code to extract reads from.
+  const walkAny = (p, out) => {
+    for (const e of readdirSync(p)) {
+      if (e === "node_modules" || e === ".next" || e === "dist") continue;
+      const full = join(p, e);
+      if (statSync(full).isDirectory()) walkAny(full, out);
+      else out.push(full);
+    }
+    return out;
+  };
+  for (const d of ["sites.d", ".github/workflows", "agent", "mini-services"]) {
+    const abs = join(ROOT, d);
+    if (existsSync(abs)) walkAny(abs, infraFiles);
+  }
+  for (const f of infraFiles) {
+    if (!statSync(f).isFile()) continue;
+    infraParts.push(readFileSync(f, "utf8"));
+  }
+
+  const consumerBlob = readerBlobParts.join("\n") + "\n" + infraParts.join("\n");
+  const documented = parseDocumentedKeys(read(".env.example"));
+
+  const undocumentedReads = findUndocumentedReads(reads, documented);
+  const unreadKeys = findUnreadKeys(documented, consumerBlob, reads.prefixes);
+
+  if (undocumentedReads.length) {
+    fail(
+      `env reads with no .env.example entry (direction 1): ${undocumentedReads.sort().join(", ")}\n` +
+        `       an undocumented live knob cannot be set by an operator who follows the docs.\n` +
+        `       document it, or the read is wrong — do NOT add it to the framework allowlist\n` +
+        `       unless it is genuinely an OS/CI contract.`,
+    );
+  }
+  if (unreadKeys.length) {
+    fail(
+      `.env.example keys read by nobody in src/, scripts/, compose, Dockerfiles, Caddyfiles,\n` +
+        `       sites.d/, the workflows, mini-services/ or agent/*.yaml (direction 2): ${unreadKeys.sort().join(", ")}\n` +
+        `       this is the knob-that-does-nothing class: an operator sets it, believes\n` +
+        `       behaviour changed, and nothing changes. Delete the entry (with any getter\n` +
+        `       that only exists for it), or wire it for real. A stale code comment does NOT\n` +
+        `       count — comments are stripped before this comparison.`,
+    );
+  }
+  if (!broken) {
+    info(
+      `env docs: ${documented.size} documented keys, ${reads.names.size} static reads, ` +
+        `${reads.prefixes.size} template families — both directions clean`,
+    );
   }
 }
 
@@ -522,6 +858,7 @@ const SUITES = {
     checkTestImports,
     checkUnusedDependencies,
     checkMojibake,
+    checkEnvDocs,
   ],
   box: [checkBoxInventory, checkBoxCurrency, checkBoxImageConformance],
 };

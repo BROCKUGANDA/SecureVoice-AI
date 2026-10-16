@@ -20,7 +20,7 @@ red, the demo does not run.
 | Landing page + live pipeline ticker                  | `src/views/Home.tsx`                                             |
 | Live browser-mic voice demo                          | `src/components/demo/LiveVoicePanel.tsx`                         |
 | Green/red state flashes on the "yes"/"no" path       | `LiveVoicePanel` state machine                                   |
-| Typewriter transcript, interim vs final              | `LiveVoicePanel` + `src/lib/realtime-events.ts`                  |
+| Typewriter transcript (final lines only)             | `LiveOpsPanel.tsx`, polled in `Console.tsx:448`                  |
 | 5 pre-seeded interventions                           | `scripts/seed-demo.mjs`                                          |
 | Fire Intervention slide-out                          | `src/views/Console.tsx`                                          |
 | One-click judge login                                | `src/views/Auth.tsx` (`NEXT_PUBLIC_DEMO_LOGIN_*`)                |
@@ -34,6 +34,19 @@ red, the demo does not run.
 | Health endpoint                                      | `src/app/api/health/route.ts`                                    |
 | Pre-seeded playable audio URLs                       | `public/demo-audio/` via `bun run db:seed:audio`                 |
 | **Vishing blocklist refusing an utterance on stage** | `src/lib/compliance/vishing.ts`                                  |
+
+**Correction (2026-10-16).** This row used to read "Typewriter transcript, interim
+vs final — `LiveVoicePanel` + `src/lib/realtime-events.ts`". Neither half held:
+`LiveVoicePanel` runs one-shot batch ASR per turn (`POST /api/asr`), so there is no
+interim result to distinguish, and the typewriter panel is `LiveOpsPanel.tsx` on the
+Console, whose lines come from a 3-second poll of the persisted `post_call_ingest`
+audit row (`Console.tsx:448`). `src/lib/realtime-events.ts` has no transcript
+producer and never had one — its `transcript.interim` / `transcript.final` /
+`audio.meter` declarations were deleted from that file rather than wired, because
+nothing emits them. Interim transcript text does exist, but on the Twilio
+media-stream worker plane (`src/lib/voice/deepgram-client.ts`, `interim_results=true`)
+where it drives barge-in, is flag-gated off by default (`FEATURE_TWILIO_MEDIA_STREAMS`),
+and is not published to the console channel.
 
 ---
 

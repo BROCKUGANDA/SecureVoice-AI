@@ -53,6 +53,7 @@
  */
 import { afterAll, beforeAll, expect, mock, test } from "bun:test";
 import { once } from "node:events";
+import { readFileSync } from "node:fs";
 import WebSocket from "ws";
 import type { SpanRecord } from "@/lib/telemetry/spans";
 import type { LogRecord } from "@/lib/validation/safe-log";
@@ -506,4 +507,52 @@ test("a stop that cannot be derived honestly records nothing, and says so at err
     );
     expect({ case: name, loggedAtError: loud }).toEqual({ case: name, loggedAtError: true });
   }
+});
+
+test("the span is durably written, not just held in this process's ring", async () => {
+  // The reason this producer exists was that the voice worker recorded its turns into
+  // memory only: `/api/status/spans` could see them and `scripts/emit-slo.ts` could
+  // not, so the published 1,500 ms turn budget stayed `not_measured` no matter how
+  // many real turns happened. A ring-only producer in a long-lived worker is a
+  // measurement that dies with the container — indistinguishable from never having
+  // measured, and precisely the failure this file family exists to catch.
+  //
+  // So the assertion is about the FILE. A fresh turn is driven here rather than
+  // reusing an earlier one because the case above calls `resetSpans()`: the ring is
+  // empty at this point, which is exactly the asymmetry being tested — the durable
+  // log keeps what the ring forgets.
+  //
+  // `scripts/run-tests.mjs` gives every test process its own `TELEMETRY_SPAN_LOG`,
+  // which is also why a local `bun run test` can no longer append harness traffic to
+  // the committed `evidence/latency/spans.jsonl` and force someone to remember to
+  // revert it.
+  const logPath = process.env.TELEMETRY_SPAN_LOG;
+  expect(typeof logPath).toBe("string");
+  expect(stopSamples().length).toBe(0);
+
+  const { speechEndedAtMs } = await sayThenUtteranceEnd("amber kettle window", 900);
+  const spans = await pollForSamples(1);
+  expect(spans.length).toBe(1);
+  const ring = spans[0]!;
+  expect(ring.startedAtMs).toBe(speechEndedAtMs);
+
+  const { flushSpansNow } = await import("@/lib/telemetry/store");
+  await flushSpansNow();
+
+  const lines = readFileSync(logPath!, "utf8")
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .map((l) => JSON.parse(l) as SpanRecord);
+  const mine = lines.filter((r) => r.span === "caller_stop_to_agent_audio");
+  expect(mine.length).toBeGreaterThanOrEqual(1);
+
+  // Durable AND intact: the persisted line must carry the same instants the ring
+  // record holds, or "it was written" is only proof that something was written.
+  const persisted = mine.find((r) => r.startedAtMs === ring.startedAtMs);
+  expect(persisted).toBeDefined();
+  expect(persisted!.durationMs).toBe(ring.durationMs);
+  expect(persisted!.endedAtMs).toBe(ring.endedAtMs);
+  // Test traffic must never read as production latency, on disk as well as in the
+  // panel: `emit-slo.ts` computes verdicts over `live`-origin samples only.
+  expect(persisted!.origin).toBe("harness");
 });

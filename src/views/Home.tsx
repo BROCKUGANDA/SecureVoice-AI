@@ -85,7 +85,7 @@ const FEATURES = [
 const STEPS = [
   { n: "01", en: "Alert received", ar: "إشارة", d: "HMAC-signed webhook from your engine" },
   { n: "02", en: "Outbound call", ar: "اتصال", d: "Dial job queued; speaks the caller's language" },
-  { n: "03", en: "Verification", ar: "تحقق", d: "Challenge flow — no PINs, ever" },
+  { n: "03", en: "Verification", ar: "التحقق", d: "Challenge flow — no PINs, ever" },
   { n: "04", en: "Card freeze", ar: "تجميد", d: "Staged, pre-approved, committed by a human" },
   { n: "05", en: "Human handoff", ar: "تسليم", d: "Queues with full context if no line bridges" },
 ];
@@ -1100,7 +1100,7 @@ export function Home() {
               ))}
             </div>
             <p className="mt-5 text-center text-[11.5px] text-slate-500">
-              {t(SETTLEMENT.note, SETTLEMENT.note, lang)}
+              {t(SETTLEMENT.note, SETTLEMENT.noteAr, lang)}
             </p>
           </div>
         </Reveal>
@@ -1307,7 +1307,7 @@ function PilotDialog({
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="pilot-email" className="text-[12px] font-semibold">
-                  {t("Work email", "البريد الإلكتروني للعمل", lang)}
+                  {t("Work email", "البريد المهني", lang)}
                 </Label>
                 <Input
                   id="pilot-email"

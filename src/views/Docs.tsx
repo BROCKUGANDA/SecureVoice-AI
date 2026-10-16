@@ -28,7 +28,7 @@ const SECTIONS = [
   { id: "quickstart", en: "Quickstart", ar: "البداية السريعة", icon: Rocket },
   { id: "api", en: "API Reference", ar: "مرجع الواجهة", icon: Code2 },
   { id: "webhooks", en: "Webhooks", ar: "خطاف الأحداث", icon: Webhook },
-  { id: "guardrails", en: "Guardrails", ar: "الضمانات", icon: ShieldCheck },
+  { id: "guardrails", en: "Guardrails", ar: "ضمانات الامتثال", icon: ShieldCheck },
   { id: "languages", en: "Languages", ar: "اللغات", icon: Languages },
 ] as const;
 
@@ -1222,7 +1222,7 @@ function LanguagesSection() {
           <ArrowRight className="h-3.5 w-3.5 text-primary" />
           {t("Run all six languages in the", "شغّل اللغات الستّ في", lang)}{" "}
           <span className="font-semibold text-foreground">
-            &nbsp;{t("Live Demo", "العرض الحي", lang)}&nbsp;
+            &nbsp;{t("Live Demo", "عرض حي", lang)}&nbsp;
           </span>{" "}
           {t(
             "language picker — every language runs the full scripted scenario, not a sample. It is a simulation: the recorded end-to-end calls in the evidence bundle are English and Arabic only.",

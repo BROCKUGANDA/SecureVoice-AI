@@ -251,7 +251,7 @@ export function Pricing({
           className="max-w-2xl"
         >
           <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-primary">
-            {t("Pricing", "التسعير", lang)}
+            {t("Pricing", "الأسعار", lang)}
           </p>
           <h1 className="mt-3 font-display text-4xl font-semibold text-foreground md:text-5xl">
             {t(

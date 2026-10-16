@@ -195,7 +195,7 @@ export function DocumentsSection({ compact = false }: { compact?: boolean }) {
       form.append("title", file.name.replace(/\.pdf$/i, ""));
       const r = await fetch("/api/console/documents", { method: "POST", body: form });
       const d = (await r.json().catch(() => ({
-        error: t("Unreadable response", "استجابة غير مقروءة", lang),
+        error: t("Unreadable response", "تعذّر قراءة الاستجابة", lang),
       }))) as {
         error?: string;
       };
@@ -229,7 +229,7 @@ export function DocumentsSection({ compact = false }: { compact?: boolean }) {
     setMsg(null);
     const r = await fetch(`/api/console/documents/${encodeURIComponent(id)}`, { method: "DELETE" });
     const d = (await r.json().catch(() => ({
-      error: t("Unreadable response", "استجابة غير مقروءة", lang),
+      error: t("Unreadable response", "تعذّر قراءة الاستجابة", lang),
     }))) as {
       error?: string;
     };
@@ -248,7 +248,7 @@ export function DocumentsSection({ compact = false }: { compact?: boolean }) {
         body: JSON.stringify({ question: question.trim() }),
       });
       const d = (await r.json().catch(() => ({
-        error: t("Unreadable response", "استجابة غير مقروءة", lang),
+        error: t("Unreadable response", "تعذّر قراءة الاستجابة", lang),
       }))) as {
         matches?: Hit[];
         error?: string;

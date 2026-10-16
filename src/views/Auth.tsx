@@ -974,7 +974,7 @@ export function Auth() {
                     <div className="flex items-center gap-2">
                       <ShieldCheck className="h-4 w-4 text-green-bright" />
                       <h2 className="font-display text-lg font-semibold text-white">
-                        {t("Sign in", "تسجيل الدخول", lang)}
+                        {t("Sign in", "دخول", lang)}
                       </h2>
                     </div>
                     <label className="flex flex-col gap-1.5 text-[12px] text-white/60">

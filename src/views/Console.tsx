@@ -46,7 +46,7 @@ import { TopUpDialog } from "@/components/console/TopUpDialog";
 import { MailInbox } from "@/components/console/MailInbox";
 import { LoadingIndicator } from "@/components/fx/LoadingIndicator";
 import { walletEmptyNotice } from "@/lib/credits-wallet";
-import { getInstitutionLabels } from "@/lib/institution-context";
+import { getInstitutionLabels, getInstitutionLabelsAr } from "@/lib/institution-context";
 import { CreditWidget } from "@/components/billing/CreditWidget";
 
 /**
@@ -447,6 +447,14 @@ export function Console() {
    * bank vocabulary when the org hasn't declared a type.
    */
   const labels = getInstitutionLabels(branding?.institutionType, branding?.shariahCompliant);
+  // The Arabic half of the same vocabulary. Without it the institution-aware
+  // labels were the only part of this screen with no translation, because the
+  // call sites passed the English string into BOTH slots of `t()` — see the note
+  // on getInstitutionLabelsAr in src/lib/institution-context.ts.
+  const labelsAr = getInstitutionLabelsAr(
+    branding?.institutionType,
+    branding?.shariahCompliant,
+  );
 
   // Live Operations: poll the audit chain for the active call's transcript.
   // The post_call_ingest row carries the redacted transcript in redactedText.
@@ -735,7 +743,7 @@ export function Console() {
             onClick={() => setView("auth")}
             className="rounded-full bg-primary px-6 py-2.5 text-[13px] font-semibold text-white transition hover:bg-green-deep"
           >
-            {t("Sign in", "تسجيل الدخول", lang)}
+            {t("Sign in", "دخول", lang)}
           </button>
           <button
             onClick={() => setView("demo")}
@@ -1226,7 +1234,7 @@ export function Console() {
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
                   <Label className="text-[11.5px] font-semibold">
-                    {t(labels.amountLabel, labels.amountLabel, lang)}
+                    {t(labels.amountLabel, labelsAr.amountLabel, lang)}
                   </Label>
                   <Input
                     value={amount}
@@ -1237,7 +1245,7 @@ export function Console() {
                 </div>
                 <div className="space-y-1.5">
                   <Label className="text-[11.5px] font-semibold">
-                    {t(labels.merchantLabel, labels.merchantLabel, lang)}
+                    {t(labels.merchantLabel, labelsAr.merchantLabel, lang)}
                   </Label>
                   <Input
                     value={merchant}
@@ -1258,7 +1266,7 @@ export function Console() {
                 )}
                 {t(
                   `Fire ${labels.productNoun.toLowerCase()} signal`,
-                  `أطلق إشارة ${labels.productNoun.toLowerCase()}`,
+                  `أطلق إشارة ${labelsAr.productNoun}`,
                   lang,
                 )}
               </button>
@@ -1369,7 +1377,7 @@ export function Console() {
               <h2 className="font-display text-[15px] font-semibold">
                 {t(
                   `Recent ${labels.productNoun.toLowerCase()}s`,
-                  `${labels.productNoun.toLowerCase()}s الأخيرة`,
+                  `${labelsAr.productNoun} الأخيرة`,
                   lang,
                 )}
               </h2>
@@ -1415,7 +1423,7 @@ export function Console() {
               <p className="mt-4 text-[12.5px] text-ink-3">
                 {t(
                   `No ${labels.productNoun.toLowerCase()}s yet — fire the first signal.`,
-                  `لا توجد ${labels.productNoun.toLowerCase()}s بعد — أطلق الإشارة الأولى.`,
+                  `لا توجد ${labelsAr.productNoun} بعد — أطلق الإشارة الأولى.`,
                   lang,
                 )}
               </p>

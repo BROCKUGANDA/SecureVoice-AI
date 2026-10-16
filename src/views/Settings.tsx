@@ -286,7 +286,7 @@ export function Settings() {
     { id: "keys", label: t("API Keys", "مفاتيح API", lang), icon: KeyRound },
     { id: "knowledge", label: t("Knowledge", "المعرفة", lang), icon: BookOpen },
     { id: "team", label: t("Team", "الفريق", lang), icon: Users },
-    { id: "security", label: t("Security", "الأمان", lang), icon: ShieldCheck },
+    { id: "security", label: t("Security", "الأمن", lang), icon: ShieldCheck },
     { id: "retention", label: t("Retention", "الاحتفاظ", lang), icon: Timer },
     { id: "billing", label: t("Billing", "الفوترة", lang), icon: Coins },
   ] as const;
@@ -309,7 +309,7 @@ export function Settings() {
         className="mt-3 inline-flex items-center gap-2 rounded-full border border-primary/40 bg-green-tint px-4 py-2 text-[12.5px] font-semibold text-primary transition hover:bg-green-tint/70"
       >
         <Rocket className="h-3.5 w-3.5" />
-        {t("Run setup wizard", "معالج الإعداد", lang)}
+        {t("Run setup wizard", "تشغيل معالج الإعداد", lang)}
       </button>
 
       {loading ? (
@@ -377,7 +377,7 @@ export function Settings() {
                   >
                     {(
                       [
-                        { id: "bank", label: t("Bank", "بنك", lang) },
+                        { id: "bank", label: t("Bank", "مصرف", lang) },
                         { id: "insurer", label: t("Insurer", "شركة تأمين", lang) },
                       ] as const
                     ).map((o) => (
@@ -838,7 +838,7 @@ export function Settings() {
                     "(الفوترة والمقاعد وجميع التدخلات)",
                     lang,
                   )}{" "}
-                  · <span className="font-semibold">{t("Analyst", "محلل", lang)}</span>{" "}
+                  · <span className="font-semibold">{t("Analyst", "محلّل", lang)}</span>{" "}
                   {t("(Command Center + firing signals)", "(مركز التشغيل وإطلاق الإشارات)", lang)}
                 </p>
               </div>

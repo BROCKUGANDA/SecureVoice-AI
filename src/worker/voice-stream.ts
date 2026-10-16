@@ -675,7 +675,7 @@ function settleCallerTurn(callSid: string, turn: CallerTurn): void {
     return;
   }
 
-  recordSpanAndPersist({
+  recordSpan({
     span: "caller_stop_to_agent_audio",
     startedAtMs: stopMs,
     endedAtMs: audioMs,
@@ -763,7 +763,7 @@ async function handleTranscript(
     await safeTtsStream(state, ws, NEVER_ASK_LINE[state.lang] ?? NEVER_ASK_LINE.en, {
       onFirstAudio: ({ cached }) => {
         const firstAudioAtMs = Date.now();
-        recordSpanAndPersist({
+        recordSpan({
           span: "answered_to_first_agent_word",
           startedAtMs: waitStarted,
           endedAtMs: firstAudioAtMs,
@@ -818,7 +818,7 @@ async function handleTranscript(
   const onFirstAudio = ({ cached }: { cached: boolean }) => {
     clearTimeout(backchannelTimer);
     const firstAudioAtMs = Date.now();
-    recordSpanAndPersist({
+    recordSpan({
       span: "answered_to_first_agent_word",
       startedAtMs: waitStarted,
       endedAtMs: firstAudioAtMs,

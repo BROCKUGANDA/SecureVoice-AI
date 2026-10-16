@@ -210,8 +210,14 @@ describe("rateLimitId — identity precedence", () => {
   const req = (headers: Record<string, string>) => new Request("https://x/y", { headers });
 
   test("prefers the proxy-resolved client IP", () => {
+    // The marker is what makes this proxied traffic: without it the address
+    // is caller-controlled and untrusted, and the bucket must not be per-IP.
     const r = rateLimitId(
-      req({ "x-securevoice-client-ip": "203.0.113.9", "x-caller-id": "+971500000" }),
+      req({
+        "x-securevoice-proxy": "1",
+        "x-securevoice-client-ip": "203.0.113.9",
+        "x-caller-id": "+971500000",
+      }),
     );
     expect(r).toBe("ip:203.0.113.9");
   });
@@ -220,9 +226,19 @@ describe("rateLimitId — identity precedence", () => {
     // This ordering is the whole point: keying on the caller-supplied header
     // made every per-caller limit decorative.
     const r = rateLimitId(
-      req({ "x-securevoice-client-ip": "198.51.100.7", "x-caller-id": "+971500000" }),
+      req({
+        "x-securevoice-proxy": "1",
+        "x-securevoice-client-ip": "198.51.100.7",
+        "x-caller-id": "+971500000",
+      }),
     );
     expect(r).toBe("ip:198.51.100.7");
+  });
+
+  test("an IP without the proxy marker is untrusted, not per-IP", () => {
+    // The mirror of the two tests above: the same header with no marker is a
+    // claim, not a resolution, so it must not mint a per-IP bucket.
+    expect(rateLimitId(req({ "x-securevoice-client-ip": "203.0.113.9" }))).toBe("anon");
   });
 
   test("falls back to the caller-id only when no usable IP exists", () => {

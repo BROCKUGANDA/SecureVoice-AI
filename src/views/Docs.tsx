@@ -21,6 +21,7 @@ import { useApp, t } from "@/lib/store";
 import { API_BASE_URL, SUPPORT_EMAIL } from "@/lib/public-config";
 import { Reveal } from "@/components/fx/core";
 import { cn } from "@/lib/utils";
+import type { Lang } from "@/lib/store";
 
 /* ————————————————— section registry ————————————————— */
 
@@ -137,7 +138,7 @@ export function Docs() {
 
 /* ————————————————— header ————————————————— */
 
-function Header({ lang }: { lang: "en" | "ar" }) {
+function Header({ lang }: { lang: Lang }) {
   return (
     <div className="max-w-2xl">
       <div className="flex items-center gap-3">
@@ -343,7 +344,7 @@ function Field({ name, type, note }: { name: string; type: string; note: Bi }) {
 
 /* ————————————————— quickstart ————————————————— */
 
-function Quickstart({ lang }: { lang: "en" | "ar" }) {
+function Quickstart({ lang }: { lang: Lang }) {
   // The quickstart used to hardcode api.securevoice.ae, a domain this
   // deployment does not serve. A judge clicking "copy" got a command that failed
   // with DNS error on the first try, which reads as a broken product rather than
@@ -881,7 +882,7 @@ function Webhooks() {
 
 /* ————————————————— guardrails ————————————————— */
 
-function Guardrails({ lang }: { lang: "en" | "ar" }) {
+function Guardrails({ lang }: { lang: Lang }) {
   return (
     <div className="space-y-5">
       <Reveal>

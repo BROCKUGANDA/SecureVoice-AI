@@ -23,6 +23,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useSession } from "@/lib/auth-client";
 import { isDemoAccount } from "@/lib/demo-account";
 import { t, useApp } from "@/lib/store";
+import type { Lang } from "@/lib/store";
 
 /** What to render for this session, in one place — so the avatar and the label agree. */
 export type IdentityPresentation = {
@@ -37,7 +38,7 @@ export type IdentityPresentation = {
 export function presentIdentity(
   email: string | null | undefined,
   name: string | null | undefined,
-  lang: "en" | "ar",
+  lang: Lang,
 ): IdentityPresentation {
   if (isDemoAccount(email)) {
     return {

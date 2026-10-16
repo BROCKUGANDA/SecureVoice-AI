@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { motion, useInView } from "framer-motion";
 import { cn } from "@/lib/utils";
+import type { Lang } from "@/lib/store";
 
 /* ————— Scroll reveal wrapper ————— */
 export function Reveal({
@@ -86,7 +87,7 @@ export function SectionHead({
   index: string;
   en: string;
   ar: string;
-  lang: "en" | "ar";
+  lang: Lang;
   desc?: string;
   light?: boolean;
 }) {

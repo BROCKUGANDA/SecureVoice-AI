@@ -7,6 +7,7 @@ import { SUPPORT_EMAIL } from "@/lib/public-config";
 import { REFUND_POLICIES } from "@/lib/legal-policies";
 import { SubscribeButtons } from "@/components/billing/SubscribeButtons";
 import { paddlePriceIds } from "@/lib/paddle-browser";
+import type { Lang } from "@/lib/store";
 
 /**
  * Paddle price ids per tier, from the environment.
@@ -204,7 +205,7 @@ function PolicySection({
   lang,
 }: {
   policy: { titleEn: string; titleAr: string; clauses: { en: string; ar: string }[] };
-  lang: "en" | "ar";
+  lang: Lang;
 }) {
   return (
     <section className="rounded-2xl border border-line bg-secondary p-6">

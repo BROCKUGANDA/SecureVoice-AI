@@ -50,6 +50,11 @@
  * be conflated.
  */
 
+// Type-only, so it is erased at compile time and cannot introduce a runtime cycle
+// back into the store. `Lang` is the UI language union; this module predates it
+// and is pure data, which is why the import is type-only rather than a value.
+import type { Lang } from "@/lib/store";
+
 /** ISO-4217, as schema.org `priceCurrency` and as the `Intl` tag both want it. */
 export const PRICE_CURRENCY = "USD";
 
@@ -331,7 +336,7 @@ export const PLANS: Plan[] = [
 ];
 
 /** Currency-formatting helper so no renderer re-implements `Intl` by hand. */
-export function formatMonthly(plan: Plan, lang: "en" | "ar" = "en"): string {
+export function formatMonthly(plan: Plan, lang: Lang = "en"): string {
   // Two different reasons to withhold the figure, and they render identically on
   // purpose: the tier is negotiated, or the tier is priced but not published.
   if (plan.monthlyUsd === null || !plan.publiclyPriced) {
@@ -346,7 +351,7 @@ export function formatMonthly(plan: Plan, lang: "en" | "ar" = "en"): string {
 
 /** Included interventions, or "" where the plan is negotiable rather than tiered. */
 /** Annual price, or "" where none is published. */
-export function formatYearly(plan: Plan, lang: "en" | "ar" = "en"): string {
+export function formatYearly(plan: Plan, lang: Lang = "en"): string {
   // Must move with `formatMonthly`: printing "Custom" for the month and the
   // real annual number beneath it would publish the very figure the month hid.
   if (plan.yearlyUsd === null || !plan.publiclyPriced) return "";
@@ -357,13 +362,13 @@ export function formatYearly(plan: Plan, lang: "en" | "ar" = "en"): string {
   }).format(plan.yearlyUsd);
 }
 
-export function formatIncluded(plan: Plan, lang: "en" | "ar" = "en"): string {
+export function formatIncluded(plan: Plan, lang: Lang = "en"): string {
   if (plan.includedPerMonth === null) return "";
   return plan.includedPerMonth.toLocaleString(lang === "ar" ? "ar-AE" : "en-US");
 }
 
 /** Per-intervention overage, or "" where it is negotiated. */
-export function formatOverage(plan: Plan, lang: "en" | "ar" = "en"): string {
+export function formatOverage(plan: Plan, lang: Lang = "en"): string {
   if (plan.overageCents === null) return "";
   return new Intl.NumberFormat(lang === "ar" ? "ar-AE" : "en-US", {
     style: "currency",
@@ -384,7 +389,7 @@ export function planById(id: string | null | undefined): Plan | null {
  * One place formats it so a card can never promise "Unlimited" while
  * `billing/seats.ts` refuses the sixth invitation.
  */
-export function formatSeats(plan: Plan, lang: "en" | "ar" = "en"): string {
+export function formatSeats(plan: Plan, lang: Lang = "en"): string {
   if (plan.seats === null) return lang === "ar" ? "مقاعد بلا حد" : "Unlimited seats";
   if (plan.seats === 1) return lang === "ar" ? "مقعد واحد" : "1 seat";
   return lang === "ar" ? `${plan.seats} مقاعد` : `${plan.seats} seats`;

@@ -75,6 +75,38 @@ const TUNING: Record<VoicePace, Record<string, PaceTuning>> = {
     // Arabic digraphs and long vowel runs read as rushed when English does not;
     // a touch slower buys the same clarity.
     ar: { speed: 0.88 },
+    // ── The four spoken-but-unpaced languages ─────────────────────────────────
+    //
+    // The agent has spoken Hindi, Urdu, French and Kiswahili since the voice
+    // tables landed, but TUNING covered only en/ar, so every one of those calls
+    // ran the legally-loaded lines — the opening disclosure, the card-freeze
+    // announcement, the handoff — at the English default. That is the exact
+    // failure the per-language override exists to prevent, applied to three
+    // quarters of the non-English fleet.
+    //
+    // Values are a starting point to be tuned against recorded calls, chosen on
+    // the two properties that actually move intelligibility rather than taste:
+    //
+    //   · HINDI/URDU are prosodically similar to each other and both are
+    //     syllable-timed with heavy consonant clustering (क/ख clusters, retroflex
+    //     ट/ठ/ड/ृ). A cluster that has to be articulated inside one syllable
+    //     needs more room than an English vowel-plus-consonant, so they sit
+    //     closest to Arabic's 0.88 rather than to English's 0.92.
+    //   · KISWAHILI is also syllable-timed with agglutination (loanwords written
+    //     in one long word, e.g. "kusimamisha" for freeze), which is the same
+    //     argument and the same value.
+    //   · FRENCH is the outlier in the other direction: it is stress-timed like
+    //     English but with far more liaison and elision ("vous avez", "au lieu",
+    //     final-schwa deletions). Running it slow enough to help the other four
+    //     flattens the prosody that makes it intelligible at all, so it stays at
+    //     the English reference.
+    //
+    // All are env-overridable via the `envNumber` lookups below, because these
+    // are guesses until a native speaker has heard a real call in each language.
+    hi: { speed: 0.88 },
+    ur: { speed: 0.88 },
+    sw: { speed: 0.88 },
+    fr: { speed: 0.92 },
   },
   instant: {},
 };

@@ -13,6 +13,7 @@ import { LogoMark } from "@/components/shell/Logo";
 import { Input } from "@/components/ui/input";
 import { Building2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import type { Lang } from "@/lib/store";
 
 /**
  * Double-sided sign-in / sign-up centerpiece — now powered by Better Auth.
@@ -401,7 +402,7 @@ function DemoQueueButton({
   getTurnstileToken,
   resetTurnstile,
 }: {
-  lang: "en" | "ar";
+  lang: Lang;
   kick: number;
   getTurnstileToken: () => string | undefined;
   resetTurnstile: () => void;

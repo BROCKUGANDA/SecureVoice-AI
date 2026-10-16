@@ -3,7 +3,8 @@ import { NextResponse } from "next/server";
 import { createHmac, randomUUID } from "crypto";
 import { z } from "zod";
 import { db } from "@/lib/db";
-import { requireSignedIn, deductCredit, refundCredit } from "@/lib/credits";
+import { requireSignedIn } from "@/lib/credits";
+import { claimRun, refundRun } from "@/lib/billing/charge-mode";
 import { consume as consumeRateLimit } from "@/lib/ratelimit";
 import { env, SUPPORTED_LANGS, slaSeconds } from "@/lib/config";
 import { paymentRequired, upstreamError, parseJson } from "@/lib/api-errors";
@@ -127,22 +128,38 @@ export async function POST(req: NextRequest) {
   }
   const profile = guard.profile;
 
-  // Prepaid wallet — CLAIM the credit BEFORE any upstream cost is incurred.
-  // A check-then-deduct-afterwards pair lets N concurrent fires all pass the
-  // guard on a 1-credit wallet; deductCredit's atomic decrement makes the
-  // claim itself the gate. It is refunded on EVERY path where the
-  // intervention was not accepted — including the refusals below and the rate
-  // limit, which are not upstream failures but are equally "nothing was
-  // armed", so the operator must not pay for them.
+  // Meter the run BEFORE any upstream cost is incurred.
   //
-  // The claim targets the ORGANIZATION wallet whenever the session carries an
-  // active tenant: the org is the tenant, so its usage is the org's bill. An
-  // org-less session falls back to the caller's own profile wallet.
-  const claimed = await deductCredit(profile.userId, profile.orgId);
-  if (claimed < 0) {
+  // A check-then-deduct-afterwards pair lets N concurrent fires all pass the
+  // guard on a 1-credit wallet; claimRun's atomic decrement makes the claim
+  // itself the gate. It is refunded on EVERY path where the intervention was
+  // not accepted — including the refusals below and the rate limit, which are not
+  // upstream failures but are equally "nothing was armed", so the operator must
+  // not pay for them.
+  //
+  // WHAT IS CLAIMED depends on who is running (src/lib/billing/charge-mode.ts):
+  //
+  //   · A DEMO session claims nothing and is not refused. There is no customer to
+  //     invoice, and the demo credential is published in the client bundle, so a
+  //     demo seat that drained a wallet made the free-tier claim on the pricing
+  //     page untrue. The run is still audited — "free, and here's why" is the
+  //     record that makes the demo budget defensible.
+  //   · A PAID session claims one unit from the tenant's wallet AND reserves it
+  //     in the UsageLedger, in one transaction. Before this, the two were
+  //     disjoint: this route moved the wallet and wrote no ledger row, while the
+  //     v1 bank ingest wrote ledger rows and never moved the wallet — so
+  //     "credits remaining" meant two different numbers depending on the door.
+  const claim = await claimRun({
+    userId: profile.userId,
+    email: profile.email,
+    orgId: profile.orgId,
+  });
+  if (!claim.ok) {
     return paymentRequired(
-      "Insufficient credits — your wallet is empty. Contact your administrator to top up.",
-      { credits: 0 },
+      claim.reason === "ledger_refused"
+        ? "Billing ledger unavailable — the intervention was not armed and no credit was taken."
+        : "Insufficient credits — your plan's allowance is used up. Contact your administrator to top up.",
+      { credits: 0, chargeReason: claim.decision.reason },
     );
   }
 
@@ -152,13 +169,25 @@ export async function POST(req: NextRequest) {
    * (src/views/Console.tsx:352), so a refusal that omitted it would leave the
    * operator staring at a balance one lower than reality. The refund goes back
    * to the SAME wallet the claim came from.
+   *
+   * On a demo run the refund is a no-op returning null, and the body carries
+   * `chargeMode: "demo"` so the client can say "free demo run" rather than
+   * rendering a balance that was never touched.
    */
   const refundAnd = async (
     payload: Record<string, unknown>,
     status: number,
   ): Promise<NextResponse> => {
-    const creditsRemaining = await refundCredit(profile.userId, profile.orgId);
-    return NextResponse.json({ ...payload, creditsRemaining }, { status });
+    const creditsRemaining = await refundRun({
+      userId: profile.userId,
+      email: profile.email,
+      orgId: profile.orgId,
+      decision: claim.decision,
+    });
+    return NextResponse.json(
+      { ...payload, creditsRemaining, chargeMode: claim.decision.mode },
+      { status },
+    );
   };
 
   const rl = await consumeRateLimit("console-fire", profile.userId);
@@ -310,7 +339,12 @@ export async function POST(req: NextRequest) {
     });
   } catch (err) {
     // Network/timeout before a verdict — the claimed credit is refunded.
-    await refundCredit(profile.userId, profile.orgId);
+    await refundRun({
+      userId: profile.userId,
+      email: profile.email,
+      orgId: profile.orgId,
+      decision: claim.decision,
+    });
     logError("[console-fire] upstream unreachable", {
       error: err instanceof Error ? err.message : String(err),
     });
@@ -326,11 +360,17 @@ export async function POST(req: NextRequest) {
   // The credit was claimed before the upstream call; a non-accepted
   // intervention costs the operator nothing — refund it atomically.
   if (upstream.status !== 202) {
-    const credits = await refundCredit(profile.userId, profile.orgId);
+    const credits = await refundRun({
+      userId: profile.userId,
+      email: profile.email,
+      orgId: profile.orgId,
+      decision: claim.decision,
+    });
     return NextResponse.json(
       {
         ...data,
         creditsRemaining: credits,
+        chargeMode: claim.decision.mode,
         signedSignal: signal,
         channel: d.channel,
         notes:
@@ -368,7 +408,8 @@ export async function POST(req: NextRequest) {
         d.riskScore >= 0.9
           ? "High-risk signal accepted: the case is SCREENED and a dial job is queued. The protective action is staged by the agent on the call, after the customer verifies the transaction."
           : "Verification-only path: the case is SCREENED and a dial job is queued; no irreversible action without human approval.",
-      creditsRemaining: claimed,
+      creditsRemaining: claim.remaining,
+      chargeMode: claim.decision.mode,
     },
     { status: 202 },
   );

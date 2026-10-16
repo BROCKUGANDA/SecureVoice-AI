@@ -95,6 +95,13 @@ export function CreditWidget({
   const [status, setStatus] = useState<RealtimeStatus>("connecting");
   const [fetchError, setFetchError] = useState(false);
   /**
+   * Whether this session's runs are billed. `null` until the read answers, and
+   * while null the widget renders NOTHING — a brief absence is honest, whereas a
+   * spendable number flashing for one frame on a demo screen is the exact false
+   * impression the branch below exists to remove.
+   */
+  const [chargeMode, setChargeMode] = useState<"demo" | "billed" | null>(null);
+  /**
    * The plan's own allowance and the period's measured usage, both read
    * server-side. `null` means "not known", which is different from 0 and is what
    * keeps the widget from presenting a guess as a quota.
@@ -190,6 +197,7 @@ export function CreditWidget({
         if (!res.ok) throw new Error(String(res.status));
         const body = (await res.json()) as {
           profile?: { credits?: unknown } | null;
+          chargeMode?: unknown;
           plan?: {
             plan?: unknown;
             allowanceUnits?: unknown;
@@ -197,6 +205,16 @@ export function CreditWidget({
           } | null;
         };
         if (!alive) return;
+        // Resolved server-side (`src/lib/billing/charge-mode.ts`), never inferred
+        // here. A demo session's balance is not money, so applying it as one would
+        // show a spendable number on the one surface that must say the opposite.
+        if (body.chargeMode === "demo") {
+          setChargeMode("demo");
+          // Deliberately does NOT apply the balance and does NOT subscribe to
+          // wallet events. There is no wallet moving.
+          return;
+        }
+        setChargeMode("billed");
         const value = body.profile?.credits;
         if (takeBalance && typeof value === "number") applyBalance(value);
         const allowanceUnits =
@@ -335,6 +353,35 @@ export function CreditWidget({
   }, [level, remaining, lang]);
 
   const live = status === "live";
+
+  // ── The free surface is not the paid surface ──────────────────────────────
+  // A demo session cannot spend credits, so it is not shown one. Rendering the
+  // wallet chip for somebody with no wallet made the demo read as "you have N
+  // left", which is both untrue and the single most likely thing for a judge to
+  // remember. It also made the low-balance and empty-wallet warnings reachable on
+  // an account that cannot hit either state.
+  if (chargeMode === "demo") {
+    return (
+      <section
+        className={cn("rounded-3xl border border-line bg-white p-6", className)}
+        aria-label={t("Demo access", "وصول العرض", lang)}
+      >
+        <header className="flex items-center gap-2">
+          <Coins className="h-4 w-4 text-primary" />
+          <h2 className="font-display text-[17px] font-semibold tracking-tight">
+            {t("Demo access", "وصول العرض", lang)}
+          </h2>
+        </header>
+        <p className="mt-2 max-w-prose text-[13px] leading-relaxed text-ink-2">
+          {t(
+            "Free — no credits are consumed. Every run in this mode is metered against our own budget and nothing is billed, so there is no balance to run down.",
+            "مجاني — لا تُستهلك أي اعتمادات. يُقاس كل تشغيل ضمن ميزانيتنا ولا يُحاسَب عليه، فلا رصيدَ ينفد.",
+            lang,
+          )}
+        </p>
+      </section>
+    );
+  }
 
   return (
     <section

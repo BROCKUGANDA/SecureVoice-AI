@@ -75,6 +75,27 @@ function statusOfElevenLabsError(err: unknown): number {
 export class ElevenLabsStream {
   private abort = false;
   /**
+   * Transport-level cancellation.
+   *
+   * `abort` ALONE was not cancellation, it was a flag checked between chunks —
+   * specifically at the top of the read loop, AFTER `await reader.read()`
+   * returned. So it could not interrupt a read already in flight, and there was no
+   * AbortController and no `reader.cancel()` behind it at all.
+   *
+   * The consequence was not a slow stream, it was a WEDGED CALL: if the vendor
+   * emitted one chunk and then stalled (TCP blackhole, or a barge-in while a read
+   * was pending with nothing behind it), `reader.read()` never settled, so this
+   * generator never returned, so `safeTtsStream` never resolved, so
+   * `state.turnChain` never advanced and NO further transcript on that call ever
+   * routed for the rest of it. The only thing that ended it was the worker's
+   * 180 s hard cap.
+   *
+   * An abort signal the vendor SDK actually watches, plus an explicit
+   * `reader.cancel()`, means a barge-in tears the socket down instead of waiting
+   * for the vendor to notice.
+   */
+  private controller: AbortController | null = null;
+  /**
    * Label of the key that served the stream (`key_3`, `primary`, `caller`), never
    * the key itself. "Which account's audio did this call speak with" is the first
    * thing an operator asks when a quota runs out mid-month.
@@ -88,6 +109,7 @@ export class ElevenLabsStream {
   async *streamText(rawText: string, opts: TtsStreamOptions): AsyncGenerator<Buffer> {
     this.abort = false;
     this.served = null;
+    this.controller = new AbortController();
 
     // The last checkpoint before a model's words become a customer's audio.
     // This transport speaks improvised turn text, so the spoken-length cap
@@ -146,17 +168,50 @@ export class ElevenLabsStream {
     const reader = opened.value.getReader();
     try {
       while (true) {
-        const { done, value } = await reader.read();
+        // Race the read against the abort signal. This is the line that makes
+        // cancel() real: without it a pending `reader.read()` can outlive the
+        // caller that wanted it gone, and every await downstream of it inherits
+        // the stall. `controller.abort()` resolves the race, the reader is
+        // cancelled in the finally, and the socket is actually closed.
+        const { done, value } = await Promise.race([reader.read(), this.aborted()]);
+        if (this.abort) break;
         if (done || this.abort) break;
         if (!value) continue;
         yield encodeMulaw(Buffer.from(value));
       }
     } finally {
+      // Cancel the underlying body, not just release the lock: releasing a lock
+      // while a stream is still open leaves the vendor socket streaming (and
+      // billing) with nobody reading it.
+      void reader.cancel().catch(() => {});
       reader.releaseLock();
     }
   }
 
+  /** Resolves as soon as this stream is cancelled; never rejects. */
+  private aborted(): Promise<{ done: true; value?: undefined }> {
+    return new Promise((resolve) => {
+      if (this.abort) {
+        resolve({ done: true });
+        return;
+      }
+      this.controller?.signal.addEventListener("abort", () => resolve({ done: true }), {
+        once: true,
+      });
+    });
+  }
+
+  /**
+   * Stop this stream NOW.
+   *
+   * Sets the flag (so a loop between chunks exits promptly), aborts the signal
+   * (so a loop blocked on a read exits immediately rather than whenever the
+   * vendor next speaks), and cancels the reader (so the vendor socket is closed
+   * rather than left streaming into nothing).
+   */
   cancel() {
     this.abort = true;
+    this.controller?.abort();
+    this.controller = null;
   }
 }

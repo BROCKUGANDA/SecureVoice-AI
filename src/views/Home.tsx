@@ -581,9 +581,22 @@ export function Home() {
       {/* ———————————————— ELEVENLABS TICKER ———————————————— */}
       <section className="border-y border-line bg-white py-4">
         <div className="sv-mask-fade-x overflow-hidden">
-          <div className="sv-marquee flex w-max items-center gap-10 px-4">
+          {/*
+            The separator spacing lives INSIDE each item, not on the flex track.
+
+            `gap-10` on the track puts a gap after the LAST item too, so the track
+            is 2C + (2n-1)g wide while `translateX(-50%)` shifts by C + (n-0.5)g —
+            half a gap short of where copy 2 actually begins. Every 32 seconds the
+            loop therefore lands on the seam and jumps sideways. That is the
+            visible hitch on this band, and it is arithmetic, not a rendering
+            artifact.
+
+            With the spacing as padding on each item the track is exactly 2C, so -50%
+            is exact and the loop is seamless.
+          */}
+          <div className="sv-marquee flex w-max items-center">
             {[...ELEVEN, ...ELEVEN].map((x, i) => (
-              <span key={i} className="flex items-center gap-3 whitespace-nowrap">
+              <span key={i} className="flex items-center gap-3 pr-10 whitespace-nowrap">
                 <span className="micro text-ink-3">{t(x.en, x.ar, lang)}</span>
                 <span className="h-1 w-1 rounded-full bg-primary/60" />
               </span>

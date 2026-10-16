@@ -150,6 +150,28 @@ type CallState = {
    */
   openingInFlight?: boolean;
   /**
+   * The pending "Mm-hm." back-channel, held HERE rather than in a local.
+   *
+   * It was a local inside the transcript handler, so nothing outside that one
+   * function could cancel it. That left three exits where it stayed armed past
+   * the point it should have fired: a vishing-blocklist refusal (which plays an
+   * emergency fallback instead), a primary-TTS error, and a caller hangup — the
+   * close handler had no handle on it at all. 250 ms after the customer started
+   * speaking, "Mm-hm." was spliced into the middle of the emergency sentence:
+   * "…we have placed a temporary hold. Mm-hm. A specialist will call you back…",
+   * which is the one thing src/lib/voice/backchannel.ts:90-94 exists to prevent.
+   */
+  backchannelTimer?: ReturnType<typeof setTimeout> | null;
+  /**
+   * Whether the back-channel has already played on this call.
+   *
+   * Previously a literal `alreadyPlayed: false` was passed at the arm site, so the
+   * repeat-suppression in shouldPlayBackchannel depended entirely on the timer
+   * being cancelled in time. With the timer on the state this is a fact rather
+   * than a hope: a call that already said "Mm-hm." cannot say it again.
+   */
+  backchannelPlayed?: boolean;
+  /**
    * The conversational state machine driving the greeting, the silence nudge,
    * and barge-in for this call (src/lib/voice/conversation.ts). Optional so the
    * tests that build a bare CallState stay valid.
@@ -791,13 +813,19 @@ async function handleTranscript(
   // lands, and `shouldPlayBackchannel` keeps it out of the opening, out of
   // repeats, and bounded so it can never hold the line hostage.
   const waitStarted = Date.now();
-  let backchannelPlayed = false;
+  // Per-CALL, on the state. It was a local, so the repeat-suppression it fed was
+  // only as good as the timer being cleared in time — and three exits did not
+  // clear it. `alreadyPlayed` was also passed as a hardcoded `false` literal,
+  // which made shouldPlayBackchannel's repeat guard permanently disabled: with a
+  // state flag the suppression is a fact about the call rather than a hope about
+  // the timer.
+  let backchannelPlayed = state.backchannelPlayed ?? false;
   const backchannelTimer = setTimeout(() => {
     if (state.ended || backchannelPlayed || state.openingInFlight) return;
     if (
       !shouldPlayBackchannel({
         gapMs: Date.now() - waitStarted,
-        alreadyPlayed: false,
+        alreadyPlayed: state.backchannelPlayed === true,
         lang: state.lang,
       })
     )
@@ -805,6 +833,7 @@ async function handleTranscript(
     const chunks = getWarmChunks(state.lang, BACKCHANNEL_TEXT[state.lang]);
     if (!chunks) return; // never synthesise mid-gap: that is slower than the gap
     backchannelPlayed = true;
+    state.backchannelPlayed = true;
     for (const chunk of chunks) {
       if (state.ended) break;
       try {
@@ -814,9 +843,17 @@ async function handleTranscript(
       }
     }
   }, BACKCHANNEL_DELAY_MS);
+  // Published on the state immediately so the socket close handler, the refusal
+  // path and the TTS-error path can all cancel it. See CallState.backchannelTimer.
+  state.backchannelTimer = backchannelTimer;
+
+  const clearBackchannel = () => {
+    clearTimeout(backchannelTimer);
+    if (state.backchannelTimer === backchannelTimer) state.backchannelTimer = null;
+  };
 
   const onFirstAudio = ({ cached }: { cached: boolean }) => {
-    clearTimeout(backchannelTimer);
+    clearBackchannel();
     const firstAudioAtMs = Date.now();
     recordSpan({
       span: "answered_to_first_agent_word",
@@ -847,6 +884,13 @@ async function handleTranscript(
     // utterances; everything the CALLER can still do (nudge, barge-in,
     // re-entry) stays blocked by the flag itself.
     state.ended = true;
+    // The filler must not land in the middle of the sentences that follow. It was
+    // armed when the caller started speaking and only cancelled by the agent's
+    // first audio, so between here and the first word of the freeze
+    // confirmation — which is a slow, uncached, just-in-time freeze plus a
+    // synthesis — there was a comfortable window for "Mm-hm." to be spliced into
+    // a legally consequential statement.
+    clearBackchannel();
 
     // Just-in-time AuthZ soft freeze.
     //
@@ -1351,10 +1395,37 @@ function createServer(listenPort: number = PORT, listenHost: string = HOST) {
     });
 
     ws.on("close", () => {
+      // `state.ended` FIRST, before anything else, because it is the flag every
+      // timer-driven path guards on and this handler used not to set it at all.
+      //
+      // Every other teardown in this file raises it (the fraud branch, the
+      // hard cap, the safety exit, the drain path). The close handler cleaned up
+      // timers but left the flag false, and the two places that RE-ARM a timer
+      // run their `.then` AFTER this handler clears it: the settled nudge at
+      // ~1111 and the settled opening chain at ~1308. So a caller hanging up
+      // mid-disclosure — the single most common outcome of an automated bank
+      // call — armed a fresh 8 s nudge on a dead socket, which spent
+      // MAX_NUDGES real ElevenLabs syntheses, then a SAFETY_EXIT, then called
+      // markVoiceFailed(reason: "no_answer") against a call the customer
+      // ANSWERED.
+      //
+      // It was silent too: `ws.send()` on a closed socket is a documented no-op
+      // that neither throws nor emits 'error', so the whole loop ran with no log
+      // line at all. The damage was bounded (sms_fallback refuses on
+      // customer_engaged states, so no wrong SMS went out) but the audit trail
+      // carried a false reason for the rest of the record's life.
+      state.ended = true;
+
       if (nudgeTimer) clearTimeout(nudgeTimer);
       // The cap is per-call, not per-process. Left running, it would fire against
       // a socket that is already closed and speak into nothing.
       if (hardCapTimer) clearTimeout(hardCapTimer);
+      // Same reasoning for the back-channel filler: it is armed on the customer
+      // starting to speak and cleared only by the agent's first audio, so a hangup
+      // mid-turn left it to fire "Mm-hm." into a closed socket. It lives on
+      // CallState now precisely so this handler can reach it.
+      if (state.backchannelTimer) clearTimeout(state.backchannelTimer);
+      state.backchannelTimer = null;
       deepgram.stop();
       // Cancel the vendor stream, do not just forget it. `state.tts = null`
       // alone left an in-flight synthesis running: the ElevenLabs socket kept

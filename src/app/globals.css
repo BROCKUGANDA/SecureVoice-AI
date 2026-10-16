@@ -169,6 +169,22 @@
 html {
   scrollbar-width: thin;
   scrollbar-color: #cdd4cb transparent;
+
+  /*
+   * Keep anchored scrolls out from under the sticky header.
+   *
+   * `src/components/shell/Navbar.tsx` is `sticky top-0 z-50`, so anything the
+   * browser scrolls to — an in-page anchor, `scrollIntoView`, a restored scroll
+   * position, a `#hash` deep link — lands with its first line hidden behind the
+   * bar. Nothing set a scroll margin, so every one of those landed the heading
+   * UNDER the navigation rather than beside it.
+   *
+   * The bar's height is fluid (it grows at small widths), so this is an offset
+   * that clears it plus breathing room, not an exact pixel match: being slightly
+   * too generous costs a few pixels of whitespace, being too tight hides the
+   * target.
+   */
+  scroll-padding-top: 6.5rem;
 }
 html::-webkit-scrollbar,
 body::-webkit-scrollbar {

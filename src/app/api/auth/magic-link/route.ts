@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { issueMagicLink } from "@/lib/auth/magic-link";
 import { isEmailConfigured } from "@/lib/email/resend";
+import { isValidEmail } from "@/lib/auth/password";
 import { deliverMagicLink } from "@/lib/email/deliverers";
 
 export const dynamic = "force-dynamic";
@@ -20,7 +21,7 @@ export const dynamic = "force-dynamic";
  * endpoint that echoes a usable token back to whoever asked is an open door.
  */
 const requestSchema = z.object({
-  email: z.string().trim().min(3).max(254),
+  email: z.string().trim().min(3).max(254).refine(isValidEmail, "not an email address"),
 });
 
 /**

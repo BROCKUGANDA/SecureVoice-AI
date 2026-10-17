@@ -182,7 +182,7 @@ slowTest("setup: an unknown field is rejected, never silently dropped", async ()
   });
   expect(res.status).toBe(422);
   const body = await readJson(res);
-  expect(body.error).toBeTruthy();
+  expect(body.message).toBeTruthy();
 });
 
 slowTest(
@@ -214,7 +214,7 @@ slowTest(
 slowTest("setup: telecom validates E.164 and the sender id, and seals the auth token", async () => {
   const bad = await save(2, { twilioVoiceNumber: "0455501234", twilioSmsSenderId: "ENB" });
   expect(bad.status).toBe(422);
-  expect((await readJson(bad)).error).toContain("E.164");
+  expect((await readJson(bad)).message).toContain("E.164");
 
   const badSid = await save(2, {
     twilioVoiceNumber: "+97145550123",
@@ -292,7 +292,7 @@ slowTest("setup: the acknowledgement gate refuses to advance on step 4", async (
 slowTest("setup: the webhook URL is SSRF-validated and the secret is sealed", async () => {
   const internal = await save(5, { vendorWebhookUrl: "http://169.254.169.254/latest/meta-data/" });
   expect(internal.status).toBe(422);
-  expect((await readJson(internal)).error).toBeTruthy();
+  expect((await readJson(internal)).message).toBeTruthy();
 
   const ok = await save(5, {
     vendorWebhookUrl: "https://example.com/securevoice",

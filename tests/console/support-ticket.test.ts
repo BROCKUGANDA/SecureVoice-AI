@@ -191,7 +191,7 @@ test(
     // Too short to be a report.
     const short = await post({ message: "no" });
     expect(short.status).toBe(422);
-    expect(((await short.json()) as { code?: string }).code).toBe("invalid_payload");
+    expect(((await short.json()) as { code?: string }).code).toBe("semantically_invalid");
 
     // Missing entirely.
     expect((await post({ interventionRef: "CASE-1" })).status).toBe(422);
@@ -218,7 +218,7 @@ test(
       const before = await db.emailOutbox.count({ where: { kind: "support_ticket" } });
       const res = await post({ message: `${MARK} this must not be queued anywhere.` });
       expect(res.status).toBe(503);
-      expect(((await res.json()) as { error?: string }).error).toContain("not configured");
+      expect(((await res.json()) as { message?: string }).message).toContain("not configured");
       const after = await db.emailOutbox.count({ where: { kind: "support_ticket" } });
       expect(after).toBe(before);
     } finally {

@@ -87,6 +87,21 @@ const SHARED_POOLER_KINDS = new Set(["managed-supabase", "managed-neon", "manage
 const SHARED_POOLER_MAIN = 1;
 const SHARED_POOLER_AUDIT = 1;
 
+/**
+ * Defaults for a process behind a TRANSACTION-mode pooler (Supavisor on 6543).
+ *
+ * Transaction mode multiplexes many logical clients over few backend connections,
+ * so the per-process `max` is no longer bounded by the pooler's client quota the way
+ * session mode is. This is the number the enterprise sizing guide asks for, and it
+ * is deliberately env-overridable: the right value is a property of the process's
+ * real concurrency, and only a load test against a real call can settle it.
+ *
+ * The audit pool stays at 1. Audit appends are fire-and-forget and must never
+ * compete with the hot path for a backend, which is the whole reason it is a
+ * separate pool.
+ */
+const TRANSACTION_MODE_MAIN = 100;
+
 export type PoolBudget = {
   /** `max` for the main client. */
   main: number;
@@ -96,6 +111,8 @@ export type PoolBudget = {
   kind: ReturnType<typeof classifyDatabaseUrl>;
   /** True when the defaults were narrowed because the target is a shared pooler. */
   sharedPooler: boolean;
+  /** True when the target is a transaction-mode pooler, which may run a larger pool. */
+  transactionMode: boolean;
 };
 
 function positiveInt(raw: string | undefined, fallback: number): number {
@@ -120,15 +137,30 @@ export function resolvePoolBudget(
 ): PoolBudget {
   const kind = classifyDatabaseUrl(databaseUrl);
   const sharedPooler = SHARED_POOLER_KINDS.has(kind);
+  // Transaction mode is detected from the URL, not from the kind: the same
+  // managed provider serves both modes on different ports, and the MODE is the
+  // property that decides how large a per-process pool may be. `pgbouncer=true`
+  // is the flag Prisma/node-postgres recognise; 6543 is Supavisor's transaction
+  // port. Either is sufficient, and both are checked because a URL can carry one
+  // without the other.
+  const transactionMode =
+    /[?&]pgbouncer=true/.test(databaseUrl) || /:6543\b/.test(databaseUrl);
 
   const urlMain = Number.parseInt(/[?&]connection_limit=(\d+)/.exec(databaseUrl)?.[1] ?? "", 10);
-  const mainFallback = sharedPooler ? SHARED_POOLER_MAIN : cpus().length * 2 + 1;
-  const auditFallback = sharedPooler ? SHARED_POOLER_AUDIT : 5;
+  const mainFallback = transactionMode
+    ? TRANSACTION_MODE_MAIN
+    : sharedPooler
+      ? SHARED_POOLER_MAIN
+      : cpus().length * 2 + 1;
+  // The audit pool stays small in every mode: it is fire-and-forget and must never
+  // compete with the hot path for a backend.
+  const auditFallback = sharedPooler || transactionMode ? SHARED_POOLER_AUDIT : 5;
 
   return {
     main: positiveInt(env.DB_POOL_MAX, positiveInt(String(urlMain || ""), mainFallback)),
     audit: positiveInt(env.DB_AUDIT_POOL_MAX, auditFallback),
     kind,
-    sharedPooler,
+    sharedPooler: sharedPooler || transactionMode,
+    transactionMode,
   };
 }

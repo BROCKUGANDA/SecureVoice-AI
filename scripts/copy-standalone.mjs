@@ -33,6 +33,16 @@ const COPIES = [
   // something to fix. Relying on it would mean the container's CMD breaks the day
   // that tracing is tightened, so the dependency is made explicit here instead.
   ["scripts/server-preload.ts", ".next/standalone/server-preload.ts"],
+  // The Supabase root CA, and the reason this line is load-bearing.
+  //
+  // Production connects to a MANAGED Postgres with
+  // `sslmode=verify-full&sslrootcert=supabase-ca.crt` (see .env.example), and the
+  // Dockerfile's runner stage copies ONLY `.next/standalone`. `COPY . .` reaches
+  // the builder stage, not the runner — so without this entry the image has no
+  // trust anchor for the connection that carries case rows, transcripts and
+  // phone numbers, and the failure is a TLS handshake error at boot, not a
+  // missing-file error anyone would connect to this list.
+  ["supabase-ca.crt", ".next/standalone/supabase-ca.crt"],
 ];
 
 const exists = async (p) => {

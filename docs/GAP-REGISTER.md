@@ -1236,8 +1236,8 @@ worth checking in the ElevenLabs console; the read-only re-capture from here ret
 for any tenantless session, writes no wallet movement and no ledger row for a demo run,
 still audits it (`intent: run_metered`, `chargeMode/chargeReason` in `meta`), and moves
 wallet and ledger in one transaction when it does charge. So the ask is implemented.
-What is missing is the proof: **no test in `tests/` references `claimRun`, `refundRun` or
-`charge-mode` at all**, and the module's own header says the previous state was "a claim
+What is missing is the proof: **no test exercises `claimRun` or `refundRun`** — the module
+is only read as text by `tests/unit/charge-mode-invariants.test.ts`, never called — and the module's own header says the previous state was "a claim
 rather than a behaviour". A behaviour with no test is one merge from being a claim again —
 recorded as the open item rather than half-built here, because the wallet and the ledger
 disagree about what "available" means and a test written from a guess about `reserve()`'s
@@ -1273,9 +1273,21 @@ exists; and 159 modules carry `import "server-only"` with no ESLint boundary rul
 `src/lib/voice-client.ts` and `src/hooks/use-mobile.ts` touch browser globals without a
 `"use client"` directive — legal today because nothing imports them server-side, unprotected tomorrow.
 
-**Open after this section, in the order I would take them.** A gate for `charge-mode`
-(demo claims nothing, paid moves wallet and ledger together, every refusal refunds) — needs
-the `reserve()` ceiling read properly first, not guessed. The three unconsumed realtime
+**Open after this section, in the order I would take them.** A **behavioural** test for
+`charge-mode` (demo claims nothing, paid moves wallet and ledger together, every refusal
+refunds). `tests/unit/charge-mode-invariants.test.ts` now guards the five ways the rule
+could silently stop being true — no direct `deductCredit()` on any metered path, the
+exemption keyed on the configured address and never on `planTierFor` in either exempting
+file, the claim taken before the dial with a refund on each nothing-armed exit, the
+allowance derived from `PLANS` rather than retyped, and published demo copy not
+advertising a credit cost — and rules 1 and 5 were mutation-proved by reintroducing each
+violation and watching it go red. What that file cannot do is prove the arithmetic, and the
+reason is recorded rather than guessed at: `available = wallet - held` is derived from the
+journal rows (`src/lib/billing/ledger.ts:20-25`), so an org seeded with only
+`Organization.credits` and no top-up answers `ledger_refused`, never `empty_wallet`. A
+behaviour test has to fund both sides deliberately, and every DB-backed billing suite is in
+the recorded local-failure set — so a failure seen here would not be attributable to the
+code. Next: the three unconsumed realtime
 frames (`case_state`, `case.queued`, `notification`), which need a field-set decision, not
 a renderer. IP, user agent and request id on the audit chain — genuinely absent, and
 blocked on a policy answer, because an IP is personal data and the erasure path today

@@ -834,6 +834,33 @@ export const env = {
   get retentionReportCap(): number {
     return numSetting("RETENTION_REPORT_CAP", 50, 1);
   },
+  /* ── pgvector transcript RAG ── */
+  /**
+   * Embedding model for case transcripts. OpenAI `text-embedding-3-small`
+   * (1536 dims) matches the `vector(1536)` column in the migration; any model
+   * with a different width breaks the stored vectors and is the operator's
+   * problem to migrate. Kept env-driven so the value can change without a
+   * rebuild, exactly like PINECONE_EMBEDDING_MODEL.
+   */
+  get ragEmbeddingModel(): string {
+    return process.env.RAG_EMBEDDING_MODEL ?? "text-embedding-3-small";
+  },
+  /** Characters fed to one embedding call. Long transcripts are chunked (see
+   *  src/lib/knowledge/transcript-embeddings.ts); this bounds one chunk. */
+  get ragEmbeddingMaxChars(): number {
+    return numSetting("RAG_EMBEDDING_MAX_CHARS", 4_000, 500);
+  },
+  /** Max chunks embedded per transcript. A bound so one long call cannot burn
+   *  the embedding budget on its own; the remaining tail is not indexed. */
+  get ragEmbeddingMaxChunks(): number {
+    return numSetting("RAG_EMBEDDING_MAX_CHUNKS", 4, 1, 64);
+  },
+  /** pgvector transcript RAG is gated behind OPENAI_API_KEY, the same way
+   *  Pinecone is gated behind PINECONE_API_KEY. Absence means nothing has
+   *  left the building; presence is the operator's explicit opt-in. */
+  get ragEmbeddingsConfigured(): boolean {
+    return (process.env.OPENAI_API_KEY ?? "").length > 8;
+  },
   get conformanceProbeTimeoutMs(): number {
     return numSetting("CONFORMANCE_PROBE_TIMEOUT_MS", 5_000, 100);
   },

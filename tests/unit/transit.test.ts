@@ -15,8 +15,10 @@
  * path, with the env saved and restored.
  */
 import { afterEach, describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 
-import { assertTransportIsEncrypted } from "@/lib/db-transport";
+import { assertTransportIsEncrypted, assertTrustAnchorPresent } from "@/lib/db-transport";
 import { assertRedisTransportIsEncrypted, sharedMeter } from "@/lib/redis";
 
 const PROD = { NODE_ENV: "production" } as Record<string, string | undefined>;
@@ -145,5 +147,58 @@ describe("wiring — the refusal is reached through the meter", () => {
     sharedMeter._reset(); // drop any cached client so connect() runs
 
     expect(sharedMeter.incrBy("transit-test", 1)).rejects.toThrow(/rediss:\/\//);
+  });
+});
+
+describe("assertTrustAnchorPresent (DATABASE_URL sslrootcert)", () => {
+  // Measured in production 2026-10-17: the `worker` image stage never copied the
+  // anchor that every worker's DATABASE_URL names, so each query failed with
+  // `ENOENT: no such file or directory, open 'supabase-ca.crt'` — the dial worker
+  // logged it 57,053 times at one per tick — while the app container, whose image
+  // did carry the file through .next/standalone, kept answering `ok: true`.
+  //
+  // This is the difference between a connection that is merely unverified and one
+  // that does not exist: `verify-full` with a missing anchor is not a weaker TLS,
+  // it is no connection at all, and a worker that retries it forever looks alive.
+  const URL_FULL =
+    "postgresql://u:p@db.example:5432/postgres?sslmode=verify-full&sslrootcert=supabase-ca.crt";
+  const present = (want: string) => (p: string) => p === want;
+
+  test("a named anchor that is not on disk is refused, naming the file", () => {
+    expect(() => assertTrustAnchorPresent(URL_FULL, present("/elsewhere"))).toThrow(
+      /sslrootcert=supabase-ca\.crt/,
+    );
+    expect(() => assertTrustAnchorPresent(URL_FULL, present("/elsewhere"))).toThrow(/ENOENT/);
+  });
+
+  test("the same URL is accepted once the anchor exists", () => {
+    expect(() => assertTrustAnchorPresent(URL_FULL, present("supabase-ca.crt"))).not.toThrow();
+  });
+
+  test("sslmode=require with no anchor is nobody's business here", () => {
+    expect(() =>
+      assertTrustAnchorPresent("postgresql://u:p@db:5432/x?sslmode=require", () => false),
+    ).not.toThrow();
+  });
+
+  test("an empty URL defers to the pool's own error", () => {
+    expect(() => assertTrustAnchorPresent("", () => false)).not.toThrow();
+  });
+
+  test("db.ts actually calls it — a guard nobody reaches guards nothing", () => {
+    // The regression that caused this was a *build* omission, so the check that
+    // catches the omission must be proven reachable, not merely correct.
+    const db = readFileSync(resolve("src/lib/db.ts"), "utf8");
+    expect(db).toContain("assertTrustAnchorPresent(databaseUrl");
+    expect(db).toContain("existsSync");
+  });
+
+  test("the worker image stage ships the anchor", () => {
+    // Read straight from the Dockerfile: the file that was missing is the one that
+    // broke 7 services at runtime, and a COPY line is cheap to keep honest.
+    const dockerfile = readFileSync(resolve("Dockerfile"), "utf8");
+    const worker = /FROM\s+\S+\s+AS\s+worker([\s\S]*?)FROM\s/.exec(dockerfile);
+    expect(worker, "no `worker` stage found").not.toBeNull();
+    expect(worker![1]).toMatch(/^COPY\b.*\bsupabase-ca\.crt\b/m);
   });
 });

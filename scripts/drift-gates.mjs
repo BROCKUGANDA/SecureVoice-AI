@@ -201,6 +201,141 @@ function checkSecretsProvenance() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// CHECK — every image that is told to verify TLS actually ships the anchor
+//
+// On 2026-10-17 the deploy failed for the first time in a way that reached the
+// roll step, and what it exposed was this: `src/lib/db.ts` demands
+// `sslmode=verify-full&sslrootcert=supabase-ca.crt`, `scripts/copy-standalone.mjs`
+// puts that certificate into the APP image, and the `worker` Dockerfile stage —
+// which 7 of the 9 built services use, migrations included — copied `src/`,
+// `prisma/`, `scripts/` and `node_modules` and never the file. Every worker query
+// failed with `ENOENT ... 'supabase-ca.crt'`. The dial worker logged it 57,053
+// times, once per tick, at error level, while `/api/health` answered `ok: true`
+// because the web tier's image was fine. One service (outbox) worked only because
+// its image was six days old and predated the stage split.
+//
+// The general shape, recorded because it recurs: a config value that names a file
+// is a build dependency, and a build that does not satisfy it fails at RUNTIME in
+// whichever process reads it — which here was every process except the one with a
+// health endpoint.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Split a Dockerfile into `{ stage, body }` per `FROM ... AS stage`. */
+function dockerStages(text) {
+  const out = [];
+  let current = null;
+  for (const line of text.split(/\r?\n/)) {
+    const m = /^FROM\s+.*\sAS\s+([A-Za-z0-9_.-]+)\s*$/i.exec(line.trim());
+    if (m) {
+      current = { stage: m[1], body: "" };
+      out.push(current);
+    } else if (current) {
+      current.body += `${line}\n`;
+    }
+  }
+  return out;
+}
+
+/**
+ * Does this stage's resulting image contain the trust anchor? True if it copies the
+ * file itself, or copies the standalone output that `copy-standalone.mjs` fills with
+ * it (the app tier's route).
+ */
+function stageCarriesAnchor(body, anchor) {
+  return (
+    new RegExp(`^COPY\\b[^\\n]*\\b${anchor}\\b`, "m").test(body) ||
+    /^COPY\s+--from=\S+\s+\S*\.next\/standalone/m.test(body)
+  );
+}
+
+function checkTlsAnchorInImages() {
+  const anchor = "supabase-ca.crt";
+  const composeText = read("docker-compose.yml");
+  const dockerfile = read("Dockerfile");
+
+  // Which anchor does the runtime actually demand? Read it from the documented
+  // production URL rather than hard-coding a second source of truth.
+  const envExample = read(".env.example");
+  const demandsAnchor = new RegExp(`sslrootcert=${anchor}`).test(envExample);
+  if (!demandsAnchor) {
+    info(`no sslrootcert documented in .env.example — anchor check has nothing to guard`);
+    return;
+  }
+  if (!existsSync(resolve(ROOT, anchor))) {
+    fail(`.env.example demands sslrootcert=${anchor} but that file is not in the repository.`);
+    return;
+  }
+
+  const targets = new Set(
+    [...composeText.matchAll(/target:\s*([A-Za-z0-9_.-]+)/g)].map((m) => m[1]),
+  );
+  const stages = dockerStages(dockerfile);
+  const byName = new Map(stages.map((s) => [s.stage, s]));
+
+  // Tripwire on the gate itself: an empty target set or an unparsed Dockerfile makes
+  // every assertion below pass over nothing.
+  if (targets.size === 0 || stages.length === 0) {
+    fail(
+      `anchor check found ${targets.size} compose build targets and ${stages.length} Dockerfile ` +
+        `stages — the parse broke, so this check is certifying nothing.`,
+    );
+    return;
+  }
+
+  const missing = [];
+  for (const t of targets) {
+    const s = byName.get(t);
+    if (!s) {
+      missing.push(`${t} (no such stage in Dockerfile)`);
+      continue;
+    }
+    if (!stageCarriesAnchor(s.body, anchor)) missing.push(`${t} (stage does not ship ${anchor})`);
+  }
+  if (missing.length) {
+    fail(
+      `DATABASE_URL verifies TLS against ${anchor}, but these image stages do not contain it: ` +
+        `${missing.join(", ")}. Every query from those containers fails ENOENT while the` +
+        ` health endpoint of any image that happens to have the file stays green.`,
+    );
+    return;
+  }
+  info(
+    `TLS anchor ships in every built image stage (${[...targets].join(", ")} → ${anchor} present)`,
+  );
+}
+
+/**
+ * Self-test, because this check exists precisely to catch a line that used to be
+ * absent: if its regex could not see an absent COPY, it would have passed for a year.
+ */
+function selfTestAnchorGate() {
+  const controls = [
+    // A stage with no anchor and no standalone copy: MUST be reported.
+    { body: "WORKDIR /app\nCOPY src ./src\n", want: false, label: "worker-like stage" },
+    // Direct copy: MUST be accepted.
+    { body: "COPY supabase-ca.crt ./\n", want: true, label: "explicit COPY" },
+    // The app tier's route, via the standalone bundle: MUST be accepted.
+    {
+      body: "COPY --from=builder /app/.next/standalone ./\n",
+      want: true,
+      label: "standalone copy",
+    },
+    // A comment that merely mentions the file is not a copy: MUST be reported.
+    { body: "# supabase-ca.crt goes here eventually\n", want: false, label: "comment only" },
+    // An unrelated COPY of another cert is not this anchor: MUST be reported.
+    { body: "COPY other-ca.crt ./\n", want: false, label: "different file" },
+  ];
+  const wrong = controls.filter((c) => stageCarriesAnchor(c.body, "supabase-ca.crt") !== c.want);
+  if (wrong.length)
+    fail(`anchor detector self-test failed on: ${wrong.map((c) => c.label).join(", ")}`);
+
+  const unparsed = dockerStages("RUN echo no stages here\n");
+  if (unparsed.length !== 0) fail("dockerStages matched a Dockerfile with no FROM ... AS");
+  const one = dockerStages("FROM x AS a\nCOPY k ./\nFROM y AS b\nCOPY src ./src\n");
+  if (one.length !== 2 || one[1].stage !== "b") fail("dockerStages did not split two stages");
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // CHECK 4 — test suites import things that exist
 //
 // ThemeMode.test.tsx imported the deleted ThemeToggle and took the whole jest
@@ -924,6 +1059,8 @@ const SUITES = {
     checkServiceInventory,
     checkImageIsolation,
     checkSecretsProvenance,
+    selfTestAnchorGate,
+    checkTlsAnchorInImages,
     checkTestImports,
     checkUnusedDependencies,
     checkMojibake,

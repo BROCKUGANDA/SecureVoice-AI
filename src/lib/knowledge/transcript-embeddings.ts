@@ -143,6 +143,11 @@ export async function embedTranscript(
     .catch(() => {});
 
   try {
+    // `embedChunks()` already refused any response that is not exactly one vector
+    // per chunk (`embedding count mismatch (asked N, got M)`), so the index reads
+    // below are in range. TypeScript cannot see that through `number[][]` under
+    // `noUncheckedIndexedAccess`, hence the assertions — naming the guarantee is
+    // the point, because a bare `!` here would be a promise nobody checked.
     for (let i = 0; i < chunks.length; i++) {
       await db.$executeRawUnsafe(
         `INSERT INTO "TranscriptEmbedding"
@@ -157,8 +162,8 @@ export async function embedTranscript(
         caseRef,
         orgId,
         i,
-        chunks[i],
-        pgVector(embedded[i]),
+        chunks[i]!,
+        pgVector(embedded[i]!),
         env.ragEmbeddingModel,
       );
     }
@@ -227,7 +232,11 @@ export async function searchTranscripts(
   if ("error" in embedded) {
     return { ok: false, matches: [], error: embedded.error.slice(0, 200) };
   }
-  const [query] = embedded;
+  // One chunk went in, and `embedChunks()` refuses anything that is not exactly one
+  // vector per chunk, so index 0 exists. The assertion names that guarantee instead
+  // of adding a second, unreachable refusal for a case the vendor call already
+  // rules out.
+  const query = embedded[0]!;
 
   let rows: Array<{
     caseRef: string;

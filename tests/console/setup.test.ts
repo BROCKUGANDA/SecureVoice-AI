@@ -105,6 +105,13 @@ function jsonPost(url: string, body: unknown) {
 async function readJson(res: Response) {
   return (await res.json().catch(() => ({}))) as Record<string, never> & {
     error?: string;
+    /**
+     * The human line of the published failure envelope (`src/lib/failures/
+     * envelope.ts:557` emits `{ code, message, retryable, requestId, docsUrl }`).
+     * These cases assert the operator-visible wording — "E.164" for a malformed
+     * sender number — so the field is read, not guessed at.
+     */
+    message?: string;
     ok?: boolean;
     step?: number;
     completed?: boolean;

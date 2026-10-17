@@ -117,6 +117,13 @@ async function readJson(res: Response) {
     error?: string;
     /** The machine-readable reason on `unprocessable` refusals (api-errors.ts). */
     code?: string;
+    /**
+     * The human line of the published failure envelope — `makeFailure()` emits
+     * `{ code, message, retryable, requestId, docsUrl }` (`src/lib/failures/
+     * envelope.ts:557`), and these cases assert against the wording a customer or
+     * operator actually sees ("PDF", "8 MB", "organization", "quota").
+     */
+    message?: string;
     matches?: unknown[];
   };
 }

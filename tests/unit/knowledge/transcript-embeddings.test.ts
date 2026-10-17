@@ -69,7 +69,12 @@ const auditCalls: Array<{ intent: string; redactedText: string }> = [];
 // Normalise a $queryRawUnsafe first argument: it may arrive as a
 // TemplateStringsArray (tagged template call) or as a plain string.
 function sqlText(sql: unknown): string {
-  if (Array.isArray(sql) && "raw" in sql) return String(sql.raw[0]);
+  if (Array.isArray(sql)) {
+    // `raw` exists only on the tagged form, and `sql` arrived as `unknown`, so
+    // the narrowing happens here rather than at every call site.
+    const raw = (sql as { raw?: readonly string[] }).raw;
+    return String(raw?.[0] ?? sql[0] ?? "");
+  }
   return String(sql);
 }
 
@@ -171,9 +176,14 @@ describe("embedTranscript", () => {
     expect(res.ok).toBe(true);
     // At least one DELETE + one INSERT
     expect(dbExecCalls.length).toBeGreaterThanOrEqual(2);
-    // First call is always the delete-before-insert
-    expect(dbExecCalls[0].sql).toContain('DELETE FROM "TranscriptEmbedding" WHERE "caseRef" = $1');
-    expect(dbExecCalls[0].params[0]).toBe(CASE_REF);
+    // First call is always the delete-before-insert. Read through a named local
+    // and refuse outright if it is missing: `dbExecCalls[0]?.sql` would let a
+    // vanished delete pass the two assertions below by comparing against
+    // `undefined`, which is the one outcome this test exists to rule out.
+    const deleteCall = dbExecCalls[0];
+    if (!deleteCall) throw new Error("no delete-before-insert call was recorded");
+    expect(deleteCall.sql).toContain('DELETE FROM "TranscriptEmbedding" WHERE "caseRef" = $1');
+    expect(deleteCall.params[0]).toBe(CASE_REF);
     // Every insert carries the orgId
     const inserts = dbExecCalls.filter((c) => c.sql.includes("INSERT INTO"));
     for (const ins of inserts) {

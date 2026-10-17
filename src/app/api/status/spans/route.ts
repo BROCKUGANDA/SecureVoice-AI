@@ -59,8 +59,8 @@ export async function GET(req: Request) {
   try {
     if (format === "otlp") {
       // OTLP/JSON, served straight to whoever wants to open a collector. No
-      // collector required for this to work — it is the same payload the
-      // optional exporter would POST.
+      // collector required for this to work: this is the pull half. The push half
+      // is `otel.ts`, which exports the SDK's own spans, not this ring buffer.
       const read = await readSpanRecords(interventions === null ? {} : { interventions });
       if (!paged) return etaggedJson(req, buildOtlpExport(read.records));
       // Paged export: slice BEFORE building, and wrap so the collector can

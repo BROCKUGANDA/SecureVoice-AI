@@ -85,11 +85,10 @@ export const VIEW_ACCESS: Record<View, ViewAccess> = {
   // than cosmetic — a judge genuinely gets a different console, not the same
   // one with fewer buttons.
   console: "vendor",
-  settings: "operator",
-  // The audit explorer reads across the tenant's audit log and exports rows,
-  // so it is operator-only like settings — an auditor's surface, not a working
-  // seat's. The reads behind it are tenant-scoped either way.
+  // The audit explorer is an operator-only compliance surface — reads across
+  // tenant audit log, chain verification at scale and exports.
   audit: "operator",
+  settings: "operator",
   // Institution setup configures the TENANT (telecom identity, BYOK, webhooks),
   // so it is operator-only like settings. It is NOT the product tour, which is a
   // per-user concern and lives behind /api/onboarding.

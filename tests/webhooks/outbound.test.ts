@@ -22,7 +22,7 @@ mock.module("@/lib/vendor-endpoint", () => ({
       // In the per-institution model the endpoint's key IS the bank's secret;
       // sign with BANK_WEBHOOK_SECRET so the cross-language signature check
       // below verifies against the same key the receiver would use.
-       secret: process.env.BANK_WEBHOOK_SECRET || "",
+      secret: process.env.BANK_WEBHOOK_SECRET || "",
 
       source: "deployment",
     },

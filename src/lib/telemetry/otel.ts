@@ -37,6 +37,7 @@ import { BatchLogRecordProcessor } from "@opentelemetry/sdk-logs";
 import { BatchSpanProcessor } from "@opentelemetry/sdk-trace-base";
 import { logError, logWarn } from "@/lib/validation/safe-log";
 import { TELEMETRY_SERVICE_NAME } from "./spans";
+import { ingestionToken, remoteTelemetryStatus } from "./otlp-config";
 
 const DEFAULT_HOST = "s2791980.us-west-2a.betterstackdata.com";
 const DEFAULT_TIMEOUT_MS = 10_000;
@@ -78,11 +79,6 @@ function authHeaders(token: string): () => Promise<Record<string, string>> {
   return async () => ({ Authorization: `Bearer ${token}` });
 }
 
-/** True when the operator has switched the whole SDK off. */
-function sdkDisabled(): boolean {
-  return env("OTEL_SDK_DISABLED") === "true";
-}
-
 /** The one place the Better Stack base URL is derived. */
 export function betterStackBaseUrl(): string {
   return normalizeBaseUrl(env("OTEL_BETTERSTACK_ENDPOINT") ?? env("OTEL_BETTERSTACK_HOST"));
@@ -97,21 +93,22 @@ export function betterStackBaseUrl(): string {
  */
 export function initOtel(): NodeSDK | null {
   if (initialized) return initialized;
-  if (sdkDisabled()) {
-    logWarn("[otel] OTEL_SDK_DISABLED=true — OpenTelemetry is off", {});
+  const status = remoteTelemetryStatus();
+  if (!status.shipping) {
+    // Same verdict `report.ts` publishes as `remoteTelemetry`, asked once, here.
+    if (status.reason === "sdk_disabled") {
+      logWarn("[otel] OTEL_SDK_DISABLED=true — OpenTelemetry is off", {});
+    } else {
+      logWarn("[otel] no token set — traces, metrics and logs stay local", {
+        detail:
+          "Set OTEL_BETTERSTACK_TOKEN (or OTEL_SOURCE_TOKEN) to ship telemetry to Better Stack.",
+      });
+    }
     initialized = null;
     return null;
   }
 
-  const token = env("OTEL_BETTERSTACK_TOKEN") ?? env("OTEL_SOURCE_TOKEN");
-  if (!token) {
-    logWarn("[otel] no token set — traces, metrics and logs stay local", {
-      detail:
-        "Set OTEL_BETTERSTACK_TOKEN (or OTEL_SOURCE_TOKEN) to ship telemetry to Better Stack.",
-    });
-    initialized = null;
-    return null;
-  }
+  const token = ingestionToken()!; // shipping:true above is derived from this same read
 
   const baseUrl = betterStackBaseUrl();
   const timeoutMillis = intFromEnv("OTEL_BETTERSTACK_TIMEOUT_MS", DEFAULT_TIMEOUT_MS);

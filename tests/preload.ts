@@ -56,7 +56,8 @@ process.env.BETTER_AUTH_SECRET ??= "test-only-better-auth-secret-not-a-credentia
 // local `.env` that carries `ELEVENLABS_WEBHOOK_SECRET=""` must count as unset
 // — `??=` keeps the empty string and every webhook returns 503 "unconfigured"
 // instead of 401/200. `||` makes an empty secret mean unset.
-process.env.ELEVENLABS_WEBHOOK_SECRET = process.env.ELEVENLABS_WEBHOOK_SECRET || "test-only-elevenlabs-webhook-secret-not-a-credential";
+process.env.ELEVENLABS_WEBHOOK_SECRET =
+  process.env.ELEVENLABS_WEBHOOK_SECRET || "test-only-elevenlabs-webhook-secret-not-a-credential";
 
 // The origin Better Auth derives its own URLs from, same reasoning as above: the
 // three tenancy suites that construct the auth layer fail to import without it,

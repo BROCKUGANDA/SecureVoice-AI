@@ -74,6 +74,19 @@ mock.module("@/lib/credits", () => ({
   roleFromMembership: () => "operator",
 }));
 
+// The settings route also re-authenticates ATTACHING a vendor credential
+// (`change_byok_credential`), before it consults the plan — so that answering
+// "your plan does not include this" cannot leak the tier to whoever holds the
+// cookie. Without this stub the BYOK tests below measured 401 from a guard that
+// never ran against a real session, rather than the 402 entitlement refusal they
+// exist to assert. Step-up itself is exercised for real in
+// tests/auth/step-up.test.ts; here it is satisfied, so the entitlement gate is
+// the thing under test.
+mock.module("@/lib/auth/guards", () => ({
+  requirePrivileged: async () => ({ ok: true, orgId: sessionOrgId }),
+  requireStepUp: async () => ({ ok: true, orgId: sessionOrgId }),
+}));
+
 async function orgWithTier(planTier: string): Promise<string> {
   const id = uuidFor(planTier);
   await db.organization.upsert({

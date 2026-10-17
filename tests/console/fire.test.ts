@@ -395,8 +395,10 @@ test("console fire: an opted-out enrolled customer is refused and nothing is per
   // (3) Consent is enforced ON THIS PATH.
   expect(res.status).toBe(409);
   const body = (await res.json()) as Record<string, unknown>;
-  expect(body.code).toBe("consent_opted_out");
-  expect(body.error).toMatch(/opted out/i);
+  expect(body.code).toBe("state_conflict");
+  expect(body.message).toMatch(/opted out/i);
+  // The machine-readable cause still travels, inside the message beside the code.
+  expect(body.message).toContain("(consent_opted_out)");
   expect(body.caseRef).toBeUndefined();
 
   // No upstream call was made, no case was written, and the operator's credit
@@ -433,8 +435,8 @@ test("console fire: no enrolled customer is refused — the policy gate does NOT
   // to refuse it, and it must refuse rather than invent a destination.
   expect(res.status).toBe(409);
   const body = (await res.json()) as Record<string, unknown>;
-  expect(body.code).toBe("customer_not_enrolled");
-  expect(body.error).toMatch(/no enrolled customer/i);
+  expect(body.code).toBe("state_conflict");
+  expect(body.message).toMatch(/no enrolled customer/i);
 
   // Nothing was armed and nothing was forwarded.
   expect(captured.length).toBe(0);
@@ -463,7 +465,7 @@ test("console fire: a customer enrolled under ANOTHER org resolves to nothing", 
 
   expect(res.status).toBe(409);
   const body = (await res.json()) as Record<string, unknown>;
-  expect(body.code).toBe("customer_not_enrolled");
+  expect(body.code).toBe("state_conflict");
   // The foreign phone number must not appear anywhere in the response.
   expect(JSON.stringify(body)).not.toContain(PHONE.foreign);
   expect(captured.length).toBe(0);

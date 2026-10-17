@@ -60,7 +60,12 @@ mock.module("@/lib/better-auth", () => ({
   auth: {
     api: {
       getSession: async () => ({
-        session: { activeOrganizationId: ORG },
+        // `id` is required, not decorative: getProfile() keys the demo lease on
+        // `session.session.id`, and a session without one makes leaseForSession
+        // return null before it ever queries — which resolved every demo profile
+        // to signed-out and failed the confinement test below. Better Auth always
+        // returns a session id; the mock had been omitting it.
+        session: { id: "sess-isolation", activeOrganizationId: ORG },
         user: { id: currentUserId, email: currentEmail, name: "Isolation" },
       }),
       getActiveMember: async () => ({ role: "owner" }),
@@ -226,7 +231,9 @@ mock.module("@/lib/billing/seats", () => ({
 }));
 
 mock.module("@/lib/email/deliverers", () => ({
-  deliverInvite: async () => {/* empty */},
+  deliverInvite: async () => {
+    /* empty */
+  },
 }));
 
 test("POST /api/auth/invites refuses a demo address with 422", async () => {

@@ -41,7 +41,7 @@ const ALL_ROUTES = discoverRoutes("src/app");
  * green while asserting nothing, which the tests below pin against.
  */
 const DB_BACKED =
-  /^(\/api\/(console|auth|demo|metrics|status|v1|tts|agent|asr|enroll|interventions|pilot|onboarding|billing|recordings|support)|\/v1\/|\/api$)/;
+  /^(\/api\/(console|auth|demo|metrics|status|v1|tts|agent|asr|enroll|interventions|pilot|onboarding|billing|recordings|support|compliance|regulatory)|\/v1\/|\/api$)/;
 
 describe("the route table is derived, not declared", () => {
   test("discovery finds routes, so a sweep over an empty table cannot pass", () => {
@@ -104,6 +104,12 @@ describe("authorization coverage", () => {
       "/api",
       "/api/agent",
       "/api/asr",
+      // Regulatory evidence export. Both derive the org from the session and
+      // read the Case/AuditLog tables through Prisma to build the case file and
+      // the FATF STR package, so they are guarded and DB-backed like the rest
+      // of the compliance surface.
+      "/api/compliance/fatf-export",
+      "/api/regulatory/export",
       // The demo sign-in queue. Capacity, the lease and the join budget all
       // read the DemoSeat table; tests/api/demo-queue.test.ts drives the state
       // machine, tests/api/demo-enter.test.ts the sign-in claim, and
@@ -164,6 +170,7 @@ describe("authorization coverage", () => {
       "/api/console/outbox/replay",
       "/api/console/producer-keys",
       "/api/console/realtime-token",
+      "/api/console/search/transcripts",
       "/api/console/settings",
       "/api/console/setup",
       "/api/console/webhooks/test",

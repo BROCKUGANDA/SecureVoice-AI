@@ -119,8 +119,8 @@ test("WP-9 RT-7: the coerced freeze is refused, audited, and the chain still ver
 
   expect(res.status).toBe(409);
   const body = await res.json();
-  expect(body.code).toBe("state_precondition_failed");
-  expect(body.error).toContain("VERIFYING");
+  expect(body.code).toBe("state_conflict");
+  expect(body.message).toContain("VERIFYING");
 
   // The refusal itself is on the record, in the chain, for this case.
   const refusals = await db.auditLog.findMany({ where: { callRef: caseRow.caseRef } });

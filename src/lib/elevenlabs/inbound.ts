@@ -27,6 +27,10 @@ import { neutraliseStrings, screenForMemory } from "@/lib/memory-guard";
 import { recordStrike } from "@/lib/abuse/bad-actor";
 import { masterKeyConfigured, sealCasePayload } from "@/lib/privacy/crypto-shred";
 import { indexTranscript, pineconeConfigured } from "@/lib/pinecone/transcript-index";
+import {
+  embedTranscript,
+  transcriptEmbeddingsConfigured,
+} from "@/lib/knowledge/transcript-embeddings";
 import { storeRecording } from "@/lib/storage/recordings";
 
 type WebhookEventRow = {
@@ -356,6 +360,14 @@ async function handleTranscription(row: WebhookEventRow, data: any): Promise<voi
       // vector cannot enter the index by accident. That refusal is recorded as
       // an audit outcome like every other indexing failure, not swallowed.
       void indexTranscript(caseRow.caseRef, redactedTranscript, caseRow.orgId ?? "");
+    }
+
+    // Native pgvector copy. Same redaction, same tenant, same fire-and-forget
+    // posture: the bank has already been told the outcome, so pgvector being
+    // unavailable must not roll the case back. embedTranscript swallows its own
+    // failures into an audit row.
+    if (transcriptEmbeddingsConfigured() && redactedTranscript.trim() && caseRow.orgId?.trim()) {
+      void embedTranscript(caseRow.caseRef, redactedTranscript, caseRow.orgId);
     }
   } else {
     // No master key, no plaintext — and the drop is on the record, not silent.

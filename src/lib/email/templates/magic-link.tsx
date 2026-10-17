@@ -61,9 +61,13 @@ export function MagicLinkEmail({
   const origin = displayOrigin(baseUrl);
   const expiryText = new Date(expiresAt).toUTCString();
 
-  // "SecureVoice AI — sign-in link at securevoice.ai" is the entire preheader.
-  // It repeats the origin because the preheader is the ONLY text an operator
-  // reads before deciding whether to open a message they did not expect.
+  // The preheader is the entire line, and it repeats the origin the link actually
+  // points at — an operator reads this before deciding whether to open a message
+  // they did not expect, and a sign-in link whose preheader names a different host
+  // than its href is indistinguishable from phishing. `displayOrigin(baseUrl)` is
+  // the reason no domain is written here: this template once carried a literal
+  // hostname that the project no longer owns, so the preheader and the link had
+  // drifted apart on the page that exists to prove the link is genuine.
   const pretext = `SecureVoice AI sign-in link for ${origin}. Valid for ${TTL_MINUTES} minutes.`;
 
   return (

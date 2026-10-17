@@ -27,9 +27,7 @@ class Boundary extends Component<{ children: ReactNode }, { error: Error | null 
   // React logs the throw itself; keeping the info out of state is deliberate —
   // the specs only ever need to know whether the render failed and with what
   // message, not which fiber.
-  componentDidCatch(_error: Error, _info: ErrorInfo): void {
-    /* empty */
-  }
+  componentDidCatch(_error: Error, _info: ErrorInfo): void {}
 
   render(): ReactNode {
     if (this.state.error) {

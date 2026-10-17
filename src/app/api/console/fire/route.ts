@@ -6,9 +6,22 @@ import { db } from "@/lib/db";
 import { requireSignedIn } from "@/lib/credits";
 import { claimRun, refundRun } from "@/lib/billing/charge-mode";
 import { consume as consumeRateLimit } from "@/lib/ratelimit";
+import {
+  billingRefusal,
+  makeFailure,
+  type FailureCode,
+  type FailureInit,
+} from "@/lib/failures/envelope";
 import { env, SUPPORTED_LANGS, slaSeconds } from "@/lib/config";
-import { paymentRequired, upstreamError, parseJson } from "@/lib/api-errors";
-import { logError } from "@/lib/validation/safe-log";
+import { logError, parseJson } from "@/lib/validation/safe-log";
+
+function failure(code: FailureCode, init: FailureInit = {}): NextResponse {
+  const f = makeFailure(code, init);
+  return NextResponse.json(f.body, {
+    status: f.status,
+    headers: { ...f.headers, "Cache-Control": "no-store" },
+  });
+}
 
 export const dynamic = "force-dynamic";
 
@@ -122,9 +135,7 @@ function selfCustomerRef(email: string): string {
 export async function POST(req: NextRequest) {
   const guard = await requireSignedIn();
   if (!guard.ok) {
-    return guard.status === 401
-      ? NextResponse.json({ error: guard.error }, { status: 401 })
-      : NextResponse.json({ error: guard.error }, { status: 403 });
+    return failure(guard.status === 401 ? "unauthenticated" : "not_found", { detail: guard.error });
   }
   const profile = guard.profile;
 
@@ -155,11 +166,17 @@ export async function POST(req: NextRequest) {
     orgId: profile.orgId,
   });
   if (!claim.ok) {
-    return paymentRequired(
-      claim.reason === "ledger_refused"
-        ? "Billing ledger unavailable — the intervention was not armed and no credit was taken."
-        : "Insufficient credits — your plan's allowance is used up. Contact your administrator to top up.",
-      { credits: 0, chargeReason: claim.decision.reason },
+    const refusal = billingRefusal({
+      ok: false,
+      code: "credits_exhausted",
+      reason:
+        claim.reason === "ledger_refused"
+          ? "Billing ledger unavailable — the intervention was not armed and no credit was taken."
+          : "Insufficient credits — your plan's allowance is used up. Contact your administrator to top up.",
+    });
+    return NextResponse.json(
+      { ...refusal.body, credits: 0, chargeReason: claim.decision.reason },
+      { status: refusal.status, headers: { ...refusal.headers, "Cache-Control": "no-store" } },
     );
   }
 
@@ -174,47 +191,42 @@ export async function POST(req: NextRequest) {
    * `chargeMode: "demo"` so the client can say "free demo run" rather than
    * rendering a balance that was never touched.
    */
-  const refundAnd = async (
-    payload: Record<string, unknown>,
-    status: number,
-  ): Promise<NextResponse> => {
+  const refundAnd = async (code: FailureCode, detail: string): Promise<NextResponse> => {
     const creditsRemaining = await refundRun({
       userId: profile.userId,
       email: profile.email,
       orgId: profile.orgId,
       decision: claim.decision,
     });
+    const f = makeFailure(code, { detail });
     return NextResponse.json(
-      { ...payload, creditsRemaining, chargeMode: claim.decision.mode },
-      { status },
+      { ...f.body, creditsRemaining, chargeMode: claim.decision.mode },
+      { status: f.status, headers: { ...f.headers, "Cache-Control": "no-store" } },
     );
   };
 
   const rl = await consumeRateLimit("console-fire", profile.userId);
   if (!rl.ok) {
-    return refundAnd({ error: "Rate limit exceeded; retry later." }, 429);
+    return refundAnd("rate_limited", "Rate limit exceeded; retry later.");
   }
 
   const body = await parseJson(req);
-  if (body === null) return refundAnd({ error: "Invalid JSON body" }, 400);
+  if (body === null) return refundAnd("malformed_request", "Invalid JSON body");
 
   const parsed = schema.safeParse(body);
   if (!parsed.success) {
     const first = parsed.error.issues[0];
     return refundAnd(
-      {
-        error: `Invalid signal: ${first?.path.join(".")} ${first?.message ?? ""}`.trim(),
-        code: "invalid_payload",
-      },
-      422,
+      "semantically_invalid",
+      `Invalid signal: ${first?.path.join(".")} ${first?.message ?? ""}`.trim(),
     );
   }
 
   const secret = env.webhookSecret;
   if (!secret) {
     return refundAnd(
-      { error: "WEBHOOK_SECRET not configured — ingest is unarmed (see /api/status)." },
-      503,
+      "dependency_unavailable",
+      "WEBHOOK_SECRET not configured — ingest is unarmed (see /api/status).",
     );
   }
 
@@ -243,12 +255,8 @@ export async function POST(req: NextRequest) {
   // to close.
   if (!enrolled) {
     return refundAnd(
-      {
-        error: `No enrolled customer for ${customerRef} in this workspace. Step 1 of the Console — "Connect your phone" — enrolls one; the platform will not invent a destination.`,
-        code: "customer_not_enrolled",
-        customerRef,
-      },
-      409,
+      "state_conflict",
+      `No enrolled customer for ${customerRef} in this workspace. Step 1 of the Console — "Connect your phone" — enrolls one; the platform will not invent a destination. (customer_not_enrolled)`,
     );
   }
 
@@ -258,13 +266,8 @@ export async function POST(req: NextRequest) {
   // operator is told why instead of receiving an opaque upstream 409.
   if (enrolled.optedOut) {
     return refundAnd(
-      {
-        error:
-          "This customer has opted out of outbound contact. No signal was armed and no credit was spent.",
-        code: "consent_opted_out",
-        customerRef,
-      },
-      409,
+      "state_conflict",
+      "This customer has opted out of outbound contact. No signal was armed and no credit was spent. (consent_opted_out)",
     );
   }
 
@@ -274,13 +277,8 @@ export async function POST(req: NextRequest) {
   const consentRecordId = enrolled.consentRecordId;
   if (!consentRecordId) {
     return refundAnd(
-      {
-        error:
-          "This enrollment carries no consent record, so the platform cannot cite one for outbound contact. Re-enroll with a consent record id.",
-        code: "consent_record_missing",
-        customerRef,
-      },
-      409,
+      "state_conflict",
+      "This enrollment carries no consent record, so the platform cannot cite one for outbound contact. Re-enroll with a consent record id. (consent_record_missing)",
     );
   }
 
@@ -288,13 +286,8 @@ export async function POST(req: NextRequest) {
   // gets the reason rather than an upstream 422 they cannot act on.
   if (!/^\+[1-9]\d{7,14}$/.test(enrolled.phone)) {
     return refundAnd(
-      {
-        error:
-          "The enrolled phone number is not E.164. Re-enroll with a number like +971501234567.",
-        code: "customer_phone_invalid",
-        customerRef,
-      },
-      422,
+      "semantically_invalid",
+      "The enrolled phone number is not E.164. Re-enroll with a number like +971501234567. (customer_phone_invalid)",
     );
   }
 
@@ -348,10 +341,10 @@ export async function POST(req: NextRequest) {
     logError("[console-fire] upstream unreachable", {
       error: err instanceof Error ? err.message : String(err),
     });
-    return upstreamError(
-      "Intervention path unreachable — credit refunded, nothing was armed.",
-      503,
-    );
+    return failure("dependency_unavailable", {
+      detail: "Intervention path unreachable — credit refunded, nothing was armed.",
+      retryAfterSec: 1,
+    });
   }
   const data = (await upstream
     .json()

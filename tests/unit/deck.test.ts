@@ -276,8 +276,12 @@ describe("DECK — subheadline convention", () => {
     // the cover, the problem statement and the closing. Every other
     // `subEn` is a supporting English caption (a data-source line, a
     // one-line definition, the demo URL).
-    expect(ids(DECK.filter((s) => s.subAr !== undefined)).sort((a, b) => a - b)).toEqual([1, 2, 16]);
-    expect(ids(DECK.filter((s) => s.subEn !== undefined)).sort((a, b) => a - b)).toEqual([1, 2, 3, 4, 15, 16, 17, 18]);
+    expect(ids(DECK.filter((s) => s.subAr !== undefined)).sort((a, b) => a - b)).toEqual([
+      1, 2, 16,
+    ]);
+    expect(ids(DECK.filter((s) => s.subEn !== undefined)).sort((a, b) => a - b)).toEqual([
+      1, 2, 3, 4, 15, 16, 17, 18,
+    ]);
   });
 });
 

@@ -9,8 +9,7 @@ export async function GET(req: NextRequest) {
   if (!guard.ok) return NextResponse.json({ error: "Not permitted" }, { status: 403 });
 
   const { searchParams } = new URL(req.url);
-  const caseId =
-    searchParams.get("case_id") ?? searchParams.get("intervention_id");
+  const caseId = searchParams.get("case_id") ?? searchParams.get("intervention_id");
   if (!caseId) return NextResponse.json({ error: "case_id is required" }, { status: 400 });
 
   const pkg = await generateCaseFile(caseId);

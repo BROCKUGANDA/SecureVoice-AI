@@ -2,19 +2,21 @@ import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireSignedIn } from "@/lib/credits";
-import { consume as consumeRateLimit } from "@/lib/ratelimit";
-import {
-  badRequest,
-  parseJson,
-  tooManyRequests,
-  unprocessable,
-  upstreamError,
-} from "@/lib/api-errors";
+import { consume as consumeRateLimit, rateLimitHeaders } from "@/lib/ratelimit";
+import { makeFailure, type FailureCode, type FailureInit } from "@/lib/failures/envelope";
 import { redactPII } from "@/lib/compliance/redactor";
 import { enqueueAndSendEmail } from "@/lib/email/queue";
 import { isEmailConfigured } from "@/lib/email/resend";
 import { SUPPORT_EMAIL } from "@/lib/public-config";
-import { logError } from "@/lib/validation/safe-log";
+import { logError, parseJson } from "@/lib/validation/safe-log";
+
+function failure(code: FailureCode, init: FailureInit = {}): NextResponse {
+  const f = makeFailure(code, init);
+  return NextResponse.json(f.body, {
+    status: f.status,
+    headers: { ...f.headers, "Cache-Control": "no-store" },
+  });
+}
 
 export const dynamic = "force-dynamic";
 
@@ -101,22 +103,27 @@ function makeRef(): string {
 export async function POST(req: NextRequest) {
   const guard = await requireSignedIn();
   if (!guard.ok) {
-    return NextResponse.json({ error: guard.error }, { status: guard.status });
+    return failure(guard.status === 401 ? "unauthenticated" : "not_found", { detail: guard.error });
   }
   const profile = guard.profile;
 
   const rl = await consumeRateLimit("support-ticket", profile.userId, 1, RATE_LIMIT_PER_HOUR);
   if (!rl.ok) {
-    return tooManyRequests("Too many reports from this account; retry later.", rl);
+    return failure("rate_limited", {
+      retryAfterSec: Math.ceil(rl.retryAfterMs / 1000),
+      headers: rateLimitHeaders(rl),
+    });
   }
 
   const raw = await parseJson(req);
-  if (raw === null) return badRequest("Invalid JSON body");
+  if (raw === null) return failure("malformed_request", { detail: "Invalid JSON body" });
 
   const parsed = ticketSchema.safeParse(raw);
   if (!parsed.success) {
     const first = parsed.error.issues[0];
-    return unprocessable(first?.message ?? "Please check the form and try again.");
+    return failure("semantically_invalid", {
+      detail: first?.message ?? "Please check the form and try again.",
+    });
   }
   const d = parsed.data;
 
@@ -125,9 +132,11 @@ export async function POST(req: NextRequest) {
   // never succeed and stops the response from promising an email nobody will
   // send. Same verdict the fire route gives its unarmed WEBHOOK_SECRET.
   if (!isEmailConfigured()) {
-    return upstreamError(
-      "Support email is not configured in this deployment (RESEND_API_KEY unset) — nothing was sent.",
-    );
+    return failure("dependency_unavailable", {
+      detail:
+        "Support email is not configured in this deployment (RESEND_API_KEY unset) — nothing was sent.",
+      retryAfterSec: 1,
+    });
   }
 
   const ref = makeRef();
@@ -168,7 +177,10 @@ export async function POST(req: NextRequest) {
 
   if (!result.ok && result.reason === "queue_failed") {
     // Nothing durable exists, so there is nothing honest to accept.
-    return upstreamError("The report could not be recorded; please try again.");
+    return failure("dependency_unavailable", {
+      detail: "The report could not be recorded; please try again.",
+      retryAfterSec: 1,
+    });
   }
 
   return accepted(ref, profile.orgId, result.ok ? "sent" : "queued");

@@ -4,7 +4,7 @@
  * Proves:
  *   1. Refusal paths return typed 409s (never 500).
  *   2. The tool-authorisation boundary: a wrong secret is refused (401), and a
- *      tool outside the allow-list is refused (403) even WITH the right secret.
+ *      tool outside the allow-list is refused (404) even WITH the right secret.
  *      Also records the fact this suite exists to keep honest — there is ONE
  *      global secret, so it authorises every allowed tool. See the note on §2.
  *   3. p95 tool latency under 300 ms over 200 calls.
@@ -85,7 +85,8 @@ test("WP-3: tools enforce guardrails - 409s, tool scoping, p95, audit", async ()
   );
   expect(r1.status).toBe(409);
   const d1 = await r1.json();
-  expect(d1.code).toBe("state_precondition_failed");
+  expect(d1.code).toBe("state_conflict");
+  expect(d1.message).toContain("cannot act on a case in state VERIFYING");
 
   // verify_transaction from RECEIVED → 409.
   await makeCase("RECEIVED", C_VERIFY);
@@ -115,9 +116,12 @@ test("WP-3: tools enforce guardrails - 409s, tool scoping, p95, audit", async ()
     toolRequest("human_handoff", { conversation_id: C_FREEZE, summary: "test" }, wrongSecret),
   );
   expect(r3.status).toBe(401);
-  expect((await r3.json()).error).toBe("unauthorized");
+  const r3Body = (await r3.json()) as { code: string; message: string };
+  expect(r3Body.code).toBe("unauthenticated");
+  // The old machine-readable marker still travels, inside the message.
+  expect(r3Body.message).toContain("unauthorized");
 
-  // (b) the CORRECT secret on a tool that is NOT in the allow-list -> 403
+  // (b) the CORRECT secret on a tool that is NOT in the allow-list -> 404
   // tool_not_in_scope. Narrowing AGENT_TOOL_ALLOWED must actually remove access,
   // and it must do so for a caller holding a valid secret, not only a bad one.
   const scopeCase = await makeCase("VERIFYING", C_SCOPE);
@@ -131,11 +135,14 @@ test("WP-3: tools enforce guardrails - 409s, tool scoping, p95, audit", async ()
         reason_code: "FRAUD_CONFIRMED",
       }),
     );
-    expect(r4.status).toBe(403);
-    expect((await r4.json()).error).toBe("tool_not_in_scope");
+    expect(r4.status).toBe(404);
+    const r4Body = (await r4.json()) as { code: string; message: string };
+    expect(r4Body.code).toBe("not_found");
+    // 404, not 403: the response must not confirm the tool exists.
+    expect(r4Body.message).toContain("tool_not_in_scope");
 
     // And the same narrowed list still admits the tool that remains on it —
-    // otherwise (b) would pass on a 403 that came from somewhere else entirely.
+    // otherwise (b) would pass on a 404 that came from somewhere else entirely.
     const r5 = await handoff(
       toolRequest("human_handoff", { conversation_id: C_SCOPE, summary: "still in scope" }),
     );
@@ -143,7 +150,7 @@ test("WP-3: tools enforce guardrails - 409s, tool scoping, p95, audit", async ()
   } finally {
     process.env.AGENT_TOOL_ALLOWED = scoped;
   }
-  // The frozen state must be untouched by the refusal: a 403 must not have
+  // The frozen state must be untouched by the refusal: a 404 must not have
   // staged anything.
   expect((await db.case.findUnique({ where: { caseRef: scopeCase.caseRef } }))!.state).toBe(
     "VERIFYING",
@@ -341,7 +348,7 @@ test("WP-3: tools enforce guardrails - 409s, tool scoping, p95, audit", async ()
   expect(["FREEZE_STAGED", "ESCALATED", "NOTIFIED", "CLOSED"]).toContain(finalCase!.state);
 
   console.log(
-    "  ✓ 409 refusals, 401 wrong secret, 403 out-of-scope tool, p95<300ms, audit entries, happy path",
+    "  ✓ 409 refusals, 401 wrong secret, 404 out-of-scope tool, p95<300ms, audit entries, happy path",
   );
   await db.$disconnect();
 }, 120_000);

@@ -15,8 +15,21 @@
  *   4. SUSTAINED PROBING COSTS SOMETHING. Instruction-shaped speech is audited
  *      and counted; an hour of it earns a block that looks like a rate limit.
  */
-import { afterAll, beforeEach, describe, expect, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { NextRequest } from "next/server";
+
+// The identity seam. `getProfile()` reads the session through `next/headers`,
+// which throws outside a Next request scope rather than returning null, so it
+// is stubbed exactly the way tests/e2e/ops-surface.test.ts stubs it. Every
+// caller in this file is the ANONYMOUS demo visitor — precisely the null case,
+// which the route maps to orgId=null (no tenant LLM, no transcript grounding).
+// Spread the real module so `requireOperator` / `requireSignedIn` survive;
+// replacing it wholesale breaks every console route that imports them.
+const REAL_CREDITS: Record<string, unknown> = { ...(await import("@/lib/credits")) };
+mock.module("@/lib/credits", () => ({
+  ...REAL_CREDITS,
+  getProfile: async () => null,
+}));
 
 const { POST } = await import("@/app/api/agent/route");
 const { _resetBadActors } = await import("@/lib/abuse/bad-actor");

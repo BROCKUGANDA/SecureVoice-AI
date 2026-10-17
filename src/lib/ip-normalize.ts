@@ -137,12 +137,33 @@ function normalizeV6(v: string): string {
   if (parts.length > 2) return IP_UNKNOWN;
   const head = parts[0] ? parts[0].split(":") : [];
   const tail = parts[1] !== undefined && parts[1] !== "" ? parts[1].split(":") : [];
-  const headEndsWithV4 = head[head.length - 1]?.includes(".") ?? false;
-  const tailStartsWithV4 = tail[0]?.includes(".") ?? false;
-  const explicitGroups =
-    head.length + tail.length - (headEndsWithV4 ? 1 : 0) - (tailStartsWithV4 ? 1 : 0);
-  const groups = [...head, ...Array(Math.max(0, 8 - explicitGroups)).fill("0"), ...tail];
-  if (groups.length !== 8) return IP_UNKNOWN;
+  // An empty group inside either half means a stray run of colons — `:::` splits
+  // to ["", ":1"] and `1::2::` is caught above. Before this check `2001:db8:::1`
+  // canonicalised to `2001:db8::1`, so a malformed value silently became a valid
+  // one, and the two spelled the same identity to every reader.
+  if (head.some((g) => g === "") || tail.some((g) => g === "")) return IP_UNKNOWN;
+
+  // A dotted quad occupies the LOW 32 bits, i.e. TWO groups, and may only appear
+  // as the final element. The old arithmetic subtracted it from the explicit count
+  // instead of adding its second group, so `64:ff9b::192.0.2.33` — the NAT64
+  // well-known prefix, which mobile carriers and Private Relay actually hand out —
+  // produced nine elements, failed the length check, and returned `unknown`. Losing
+  // the address there is not a formatting nit: `ipPseudonym()` returns null for a
+  // non-address, so those callers arrived with no `ipHash` on the audit row and no
+  // correlation key at all.
+  const last =
+    tail.length > 0 ? tail[tail.length - 1]! : head.length > 0 ? head[head.length - 1]! : "";
+  const dottedCount =
+    head.filter((g) => g.includes(".")).length + tail.filter((g) => g.includes(".")).length;
+  if (dottedCount > 0 && (dottedCount > 1 || !last.includes("."))) return IP_UNKNOWN;
+
+  const groupCount = head.length + tail.length + dottedCount;
+  if (parts.length === 1 ? groupCount !== 8 : groupCount > 8) return IP_UNKNOWN;
+  const groups = [...head, ...Array(Math.max(0, 8 - groupCount)).fill("0"), ...tail];
+  // `groups` holds ELEMENTS, and a dotted quad is one element carrying two groups,
+  // so eight groups is 8 - dottedCount elements. Checking for a literal eight here
+  // is what made every embedded-IPv4 address fail.
+  if (groups.length !== 8 - dottedCount) return IP_UNKNOWN;
 
   const nums: string[] = [];
   for (const g of groups) {

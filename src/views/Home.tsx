@@ -268,7 +268,7 @@ export function Home() {
                 {t("Call placed.", "تم إجراء المكالمة.", lang)}{" "}
                 <span className="relative inline-block text-primary">
                   {t("Freeze staged.", "وتجميد مُمهَّد.", lang)}
-<FreezeStagedUnderline />
+                  <FreezeStagedUnderline />
                 </span>
                 <br />
                 {t("Case deadline:", "مهلة الحالة:", lang)} <span className="num">60</span>{" "}

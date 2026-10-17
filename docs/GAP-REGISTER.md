@@ -1474,6 +1474,30 @@ a better-looking fiction. The docs gate went from 4 red to 10 pass, and it is th
 found this, so it stays as it is: no new check was written for a fault an existing one
 already caught. `bun run test docs` is green (14 + 24 + 10).
 
+**It is also already in production, and #107 has to choose the right side.** Measured across
+the three branch tips:
+
+    origin/dev      result=recorded cases_accounted_exactly=true  err=0  peak_own_in_flight=152
+    origin/staging  result=recorded cases_accounted_exactly=true  err=0  peak_own_in_flight=152
+    origin/main     result=recorded cases_accounted_exactly=false err=1  peak_own_in_flight=0
+
+So the degraded run reached `main` through an earlier promotion, before the restore existed, and
+the corrected artifact only lives on dev and staging. That is also the whole explanation for
+#107's conflict: with every other file, resolving in staging's favour reproduces staging's tree
+byte for byte (`git merge -X ours` produced an empty delta), so the conflict is squashed-history
+ancestry, not competing edits — but `evidence/load/results.json` genuinely differs, and it is
+the one file where the resolution decides which load test production's evidence claims it ran.
+Taking main's side, or letting the hunks stitch, re-commits a run that never happened: zero
+concurrency at the vendor ceiling and a 100% error rate, labelled `recorded`.
+
+**The resolution is therefore not mechanical.** Whoever merges #107 should take **staging's**
+copy of that one file. Recorded here so the instruction is not discovered mid-merge.
+
+**Not done, and deliberately:** making #107 mergeable by giving `staging` main's ancestry (`git
+merge -s ours`) is a two-minute command, and it was not run. `promote.yml` arms auto-merge the
+moment staging moves, so a clean #107 is not a pending decision — it is a production deploy
+without the word that only the owner may give.
+
 **The lesson is not about the artifact, it is about the commit.** An `evidence:` commit
 message describes measurements. Before making one, the suite that produces the file has to
 have run with its dependencies up; if it has not, the honest commit is the one that touches

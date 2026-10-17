@@ -252,9 +252,7 @@ describe("no endless loops", () => {
         const res = await ask("hmm", { callRef, ip, convId });
         convId = (await res.json()).convId;
       }
-      const body = await (
-        await ask("hmm", { callRef, ip: "203.0.113.204", convId })
-      ).json();
+      const body = await (await ask("hmm", { callRef, ip: "203.0.113.204", convId })).json();
       expect(body.intent).toBe("handoff");
     },
     SLOW,

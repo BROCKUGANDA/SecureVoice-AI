@@ -22,12 +22,12 @@ this repository.
 
 The arithmetic that produced it, before the fix:
 
-| | before | after (default) |
-| --- | --- | --- |
-| main pool, per process | `cpus * 2 + 1` (9 on a 4-core VPS) | `1` |
-| audit pool, per process | `5` | `1` |
-| services sharing the URL | 7 | 7 |
-| **worst-case clients** | **~98** | **14** |
+|                          | before                             | after (default) |
+| ------------------------ | ---------------------------------- | --------------- |
+| main pool, per process   | `cpus * 2 + 1` (9 on a 4-core VPS) | `1`             |
+| audit pool, per process  | `5`                                | `1`             |
+| services sharing the URL | 7                                  | 7               |
+| **worst-case clients**   | **~98**                            | **14**          |
 
 The pooler allows 15. That is the bug, and it is why the only knob that mattered
 was never the right one: `cpus * 2 + 1` measures the wrong resource. Connection
@@ -58,7 +58,7 @@ docker compose logs app | grep "pool budget"
 The boot line prints the arithmetic, so it is checkable rather than inferred:
 
 ```json
-{"kind":"managed-supabase","sharedPooler":true,"main":1,"audit":1,"perProcessTotal":2}
+{ "kind": "managed-supabase", "sharedPooler": true, "main": 1, "audit": 1, "perProcessTotal": 2 }
 ```
 
 An absent line means the running image predates the fix — roll forward before

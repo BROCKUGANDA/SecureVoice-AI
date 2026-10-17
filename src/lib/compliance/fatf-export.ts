@@ -4,7 +4,9 @@ import crypto from "node:crypto";
 import { db } from "@/lib/db";
 import { generateCaseFile } from "@/lib/regulatory-export";
 
-export async function generateSTREvidence(interventionId: string): Promise<Record<string, unknown>> {
+export async function generateSTREvidence(
+  interventionId: string,
+): Promise<Record<string, unknown>> {
   const base = await generateCaseFile(interventionId);
 
   const strPackage = {

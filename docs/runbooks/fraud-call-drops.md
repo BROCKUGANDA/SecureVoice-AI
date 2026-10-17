@@ -25,11 +25,11 @@ docker compose -f docker-compose.yml -f docker-compose.bluegreen.yml logs --tail
 Every refusal carries a machine-readable code. The three that mean "correctly
 refused, not broken":
 
-| Code | Meaning | Action |
-| --- | --- | --- |
-| `credits_exhausted` | Wallet empty (402) | Fund the org; the call was never dialled |
+| Code                  | Meaning                        | Action                                      |
+| --------------------- | ------------------------------ | ------------------------------------------- |
+| `credits_exhausted`   | Wallet empty (402)             | Fund the org; the call was never dialled    |
 | `policy_precondition` | Consent/DNC/calling-hours gate | Expected on retries; do not retry unchanged |
-| `transaction_repeat` | Duplicate transaction (409) | Expected; the first signal owns the case |
+| `transaction_repeat`  | Duplicate transaction (409)    | Expected; the first signal owns the case    |
 
 A refusal rate near 100% with no successful dials is an ingest secret or policy
 mismatch, not a carrier fault.

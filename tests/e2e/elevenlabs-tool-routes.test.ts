@@ -978,8 +978,23 @@ describe("POST /api/elevenlabs/tools/verify-transaction", () => {
       // than by this route — that indirection is the whole reason the span can exist. It
       // is asserted as present here rather than accepted as an extra key, so the other
       // two outcomes stay pinned to exactly `{ state }`.
+      //
+      // CONFIRMED_FRAUD also takes the evidence lock in the same write: a case under a
+      // regulator or law-enforcement investigation cannot be erased under PDPL and its
+      // audio retention is extended, and the moment that becomes true is the same moment
+      // the customer's own denial is recorded. Locking anywhere else would leave a
+      // window where a confirmed fraud is still deletable.
       expect(seams.caseUpdates).toEqual(
-        state === "CONFIRMED_FRAUD" ? [{ state, fraudConfirmedAt: expect.any(Date) }] : [{ state }],
+        state === "CONFIRMED_FRAUD"
+          ? [
+              {
+                state,
+                fraudConfirmedAt: expect.any(Date),
+                isEvidenceLocked: true,
+                evidenceCaseId: "CASE-SV-JOURNEY-VER",
+              },
+            ]
+          : [{ state }],
       );
     }
   });

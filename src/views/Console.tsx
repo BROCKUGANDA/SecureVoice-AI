@@ -451,10 +451,7 @@ export function Console() {
   // labels were the only part of this screen with no translation, because the
   // call sites passed the English string into BOTH slots of `t()` — see the note
   // on getInstitutionLabelsAr in src/lib/institution-context.ts.
-  const labelsAr = getInstitutionLabelsAr(
-    branding?.institutionType,
-    branding?.shariahCompliant,
-  );
+  const labelsAr = getInstitutionLabelsAr(branding?.institutionType, branding?.shariahCompliant);
 
   // Live Operations: poll the audit chain for the active call's transcript.
   // The post_call_ingest row carries the redacted transcript in redactedText.

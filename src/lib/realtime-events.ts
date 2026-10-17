@@ -204,9 +204,9 @@ export const REALTIME_EVENTS: readonly RealtimeEventSpec[] = [
     type: "case_state",
     shape: "flat",
     producer: {
-    file: "src/lib/case-state-machine.ts",
-    line: 260,
-    literal: `type: "case_state"`,
+      file: "src/lib/case-state-machine.ts",
+      line: 260,
+      literal: `type: "case_state"`,
     },
     consumer:
       "none — the console reads `id/action/intent` off every non-credit frame, and this " +

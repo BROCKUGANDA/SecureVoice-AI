@@ -75,9 +75,7 @@ describe("UI language registry", () => {
         `${lang}: registry says translated=${declared} but t() rendered ${rendered}`,
       ).toBe(rendersForeign || lang === "en");
       if (lang !== "en") {
-        expect(rendered, `${lang} rendered ${rendered}`).toBe(
-          declared ? "ARABIC" : "ENGLISH",
-        );
+        expect(rendered, `${lang} rendered ${rendered}`).toBe(declared ? "ARABIC" : "ENGLISH");
       }
     }
   });
@@ -88,9 +86,7 @@ describe("UI language registry", () => {
     expect([...TRANSLATED_UI_LANGS].sort()).toEqual(["ar", "en"]);
     // The three whose domain vocabulary is absent from their own Wikipedia.
     for (const lang of ["hi", "ur", "sw"] as UiLang[]) {
-      expect(GLOSSARY_STATUS[lang].status, `${lang} glossary source`).toBe(
-        "translator-required",
-      );
+      expect(GLOSSARY_STATUS[lang].status, `${lang} glossary source`).toBe("translator-required");
     }
     // French is the exception: its banking/AML vocabulary IS documented, so it
     // needs a translator but not a glossary written from scratch.

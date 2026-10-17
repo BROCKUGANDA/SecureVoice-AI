@@ -143,8 +143,7 @@ export function resolvePoolBudget(
   // is the flag Prisma/node-postgres recognise; 6543 is Supavisor's transaction
   // port. Either is sufficient, and both are checked because a URL can carry one
   // without the other.
-  const transactionMode =
-    /[?&]pgbouncer=true/.test(databaseUrl) || /:6543\b/.test(databaseUrl);
+  const transactionMode = /[?&]pgbouncer=true/.test(databaseUrl) || /:6543\b/.test(databaseUrl);
 
   const urlMain = Number.parseInt(/[?&]connection_limit=(\d+)/.exec(databaseUrl)?.[1] ?? "", 10);
   const mainFallback = transactionMode

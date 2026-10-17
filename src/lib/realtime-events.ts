@@ -209,10 +209,13 @@ export const REALTIME_EVENTS: readonly RealtimeEventSpec[] = [
       literal: `type: "case_state"`,
     },
     consumer:
-      "none — the console reads `id/action/intent` off every non-credit frame, and this " +
-      "payload has none of them; it is logged as unconsumed at the client boundary " +
-      "(src/lib/realtime-client.ts) instead of rendering `SV-… · undefined`. Wiring it " +
-      "needs a field-set decision in case-state-machine.ts plus a render path in Console.tsx.",
+      "none — this payload carries `caseRef/from/to/meta`, and the console's live feed is " +
+      "built from the audit row's `id/action/intent/chainHash`, which share no field with it. " +
+      "The client therefore routes it by `type`, logs it as unconsumed, and renders nothing; " +
+      "the previous behaviour was a blind cast that put `SV-… · undefined` on the operator's " +
+      "feed (see realtime-client.ts). Wiring it needs a sink the app does not have yet — " +
+      "either a case-row state cell in Console.tsx or an invalidation hook in the store — " +
+      "plus a decision on which of `from/to/meta` may be shown.",
     consumed: false,
     fields: {
       caseRef: isString,
@@ -251,8 +254,11 @@ export const REALTIME_EVENTS: readonly RealtimeEventSpec[] = [
       literal: `type: "notification"`,
     },
     consumer:
-      "none — the inbox is polled from /api/console/inbox, which is where the badge count " +
-      "actually comes from. Nothing on this channel reads alertType/severity/title/count.",
+      "none — and unlike the other two, nothing else reads it either. `/api/console/inbox` " +
+      "exists and is tenant-tested (`tests/tenancy/console-routes.test.ts:222`, the isolation " +
+      "matrix), but no component fetches it, so there is no badge for this frame to update: " +
+      "`alertType/severity/title/count` reaches the browser and is dropped at the client " +
+      "boundary. The absent thing is an alert surface in the console, not a handler.",
     consumed: false,
     fields: {
       alertType: isString,

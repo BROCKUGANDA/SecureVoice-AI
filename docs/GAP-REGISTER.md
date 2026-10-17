@@ -1637,3 +1637,64 @@ read before switching the refusal on — `ci.yml:544` (`timezone/ billing/ telem
 `package.json:38-40` (`unit`, the integration and e2e lists), and the docs — and none of them
 passes a `-` argument; the only flagged test command in CI is `bun run test:jest --coverage`,
 which goes to Jest through a different script.
+
+### 28. The IP trust gate had no test, and a second of colon arithmetic cost NAT64 callers their audit identity
+
+The staging CI went red on the coverage ratchet by **0.01 points** — `overall 64.99%
+(49762/76567 lines) need 65%`, seven covered lines short, while `unit`, `integration` and
+`e2e` all passed their own bars. The tempting repair was to move the number. The comment at
+`scripts/coverage.mjs:68` says the bar was already lowered to 65 "so the ladder can" move at
+all, so lowering it again would have been the second retreat on the same knob.
+
+Instead the fix went where the doctrine says coverage belongs: real code that no test touches
+in any environment. A structural sweep of the modules the platform trusts found one outlier —
+
+    ip-normalize     test_files=0
+    client-ip        test_files=6
+    hmac             test_files=4
+    breaker          test_files=20
+
+`src/lib/ip-normalize.ts` is the module that decides whether an address may be believed at
+all, and it feeds `ipPseudonym()` (the audit chain's `ipHash`), the failed-credential budget
+in the auth route, the demo seat ledger and rate limiting. Zero tests. So `tests/unit/ip-normalize.test.ts`
+was written to assert the two properties the design rests on — the marker gate, and one address
+one spelling — and it found two defects on its first run.
+
+**1. `normalizeV6` mis-counted an embedded IPv4 group, so NAT64 callers had no identity.**
+A dotted quad inside an IPv6 literal occupies the low 32 bits, i.e. **two** groups. The old
+arithmetic _subtracted_ it from the explicit group count and then padded to eight, producing
+nine elements, failing the length check, and returning `unknown`. Measured before the fix:
+
+    normalizeIp("64:ff9b::192.0.2.33") -> "unknown"
+
+`64:ff9b::/96` is the well-known NAT64 prefix — what a carrier's 4G/5G stack and Apple
+Private Relay actually hand out. `ipPseudonym()` returns null for a non-address, so a caller
+arriving through NAT64 produced an audit row with **no `ipHash`**, no `@@index([ipHash,
+createdAt])` entry, and no correlation key: the same source could not be grouped with itself,
+which is precisely the hole an abuse ladder is supposed to close. There was even a branch in
+the function written to handle the dotted quad, and nothing ever entered it.
+
+**2. A malformed address canonicalised into a valid one.** `"2001:db8:::1"` split to
+`["2001:db8", ":1"]`, and the empty group that `split(":")` yields was quietly treated as a
+zero group, so the answer was `2001:db8::1`. The file's own contract says the opposite: _"A
+value that does not parse as either family becomes `IP_UNKNOWN`: an address nobody can
+normalise is not an address to key anything on."_ Silent acceptance is how two different
+strings end up sharing a pseudonym.
+
+The repair tightened the arithmetic to groups rather than elements, rejected any empty group
+inside either half, required a dotted quad to be last and to appear once, and refused a short
+literal that had no `::` to justify padding (`1:2:3:4` used to expand to `1:2:3:4::`, inventing
+four zero groups out of a typo).
+
+Proven in both directions, as usual: the new suite went **2 fail** against the old module
+(`64:ff9b::192.0.2.33` expected a canonical address and got `unknown`; `2001:db8:::1` expected
+`unknown` and got a valid-looking address) and **10 pass** after the fix, without a single
+expectation softened. Dependent suites re-run against the changed resolver: `client-ip` 8
+pass, `audit` 3 + 5 + 21 pass, `demo-queue` 14 pass. Both tsconfigs clean, eslint clean,
+prettier clean, drift gates green.
+
+**The coverage lesson, stated once more because it repeated within one session:** a number
+below a bar is information about the code, and the cheapest way to satisfy it honestly is to
+test the thing nobody has ever tested. The same instinct that says "7 lines, just move the
+threshold" is the one that leaves a security-critical parser at 0% while its comment describes
+properties no test asserts.

@@ -293,7 +293,7 @@ export const INVARIANTS: readonly Invariant[] = [
       "The platform never asks a caller for a PIN, password, OTP, CVV or card number, and a caller who asks the agent for one gets a fixed per-language refusal instead of a drafted reply.",
     enforcedAt: [
       { file: "src/lib/compliance/policy.ts", line: 93, identifier: "asksForCredential" },
-      { file: "src/app/api/agent/route.ts", line: 483, identifier: "callerRequestsSecret" },
+      { file: "src/app/api/agent/route.ts", line: 495, identifier: "callerRequestsSecret" },
     ],
     provedBy: [
       {

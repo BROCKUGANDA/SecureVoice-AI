@@ -170,6 +170,7 @@ describe("authorization coverage", () => {
       "/api/console/outbox/replay",
       "/api/console/producer-keys",
       "/api/console/realtime-token",
+      "/api/console/search/transcripts",
       "/api/console/settings",
       "/api/console/setup",
       "/api/console/webhooks/test",

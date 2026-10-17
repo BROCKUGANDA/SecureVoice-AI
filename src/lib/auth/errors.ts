@@ -22,7 +22,7 @@
 
 import { reportClientError } from "@/lib/client-diagnostics";
 
-export type AuthLang = "en" | "ar";
+export type AuthLang = "en" | "ar" | "hi" | "ur" | "fr" | "sw";
 
 type Copy = { en: string; ar: string };
 

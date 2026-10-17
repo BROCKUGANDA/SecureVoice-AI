@@ -171,7 +171,7 @@ const TABS = [
   { id: "analytics", en: "Analytics", ar: "التحليلات", icon: BarChart3 },
   { id: "config", en: "Configuration", ar: "الإعدادات", icon: SlidersHorizontal },
   { id: "compliance", en: "Compliance", ar: "الامتثال", icon: ScrollText },
-  { id: "webhooks", en: "Webhooks", ar: "التوقيع", icon: Webhook },
+  { id: "webhooks", en: "Webhooks", ar: "خطاف الأحداث", icon: Webhook },
 ] as const;
 
 type TabId = (typeof TABS)[number]["id"];
@@ -886,7 +886,7 @@ function Analytics() {
           </h3>
           {languageTotal === 0 ? (
             <p className="mt-5 text-[12.5px] text-ink-2">
-              {t("No calls in this window.", "لا مكالمات في هذه النافذة.", lang)}
+              {t("No calls in this window.", "لا توجد مكالمات في هذه النافذة.", lang)}
             </p>
           ) : (
             <HBars

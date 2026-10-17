@@ -1,9 +1,9 @@
 import "server-only";
-import { cpus } from "node:os";
 import { PrismaClient } from "@/generated/prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { recordQuery, type PrismaQueryEvent } from "@/lib/telemetry/query-counter";
 import { assertDatabaseTarget } from "@/lib/db-target";
+import { resolvePoolBudget } from "@/lib/db-pool";
 import { assertTransportIsEncrypted } from "@/lib/db-transport";
 import { env } from "@/lib/config";
 import { logInfo } from "@/lib/validation/safe-log";
@@ -35,18 +35,36 @@ assertTransportIsEncrypted(databaseUrl);
 assertDatabaseTarget(databaseUrl);
 
 const CONNECT_TIMEOUT_MS = env.dbConnectTimeoutMs;
-const MAIN_POOL_MAX =
-  Number.parseInt(/[?&]connection_limit=(\d+)/.exec(databaseUrl)?.[1] ?? "", 10) ||
-  cpus().length * 2 + 1;
-const AUDIT_POOL_MAX = 5;
+// Pool sizing moved to src/lib/db-pool.ts. It used to be `cpus().length * 2 + 1`
+// plus a flat 5 for the audit client, which is one process talking to one
+// database — not this deployment, which is seven processes sharing a pooler
+// with an external client cap. `DB_POOL_MAX` / `DB_AUDIT_POOL_MAX` override it.
+const POOL_BUDGET = resolvePoolBudget(databaseUrl);
+const MAIN_POOL_MAX = POOL_BUDGET.main;
+const AUDIT_POOL_MAX = POOL_BUDGET.audit;
 const namedSchema = /[?&]schema=([^&]+)/.exec(databaseUrl)?.[1];
 const adapterSchema = namedSchema ? { schema: namedSchema } : undefined;
+
+const isProd = process.env.NODE_ENV === "production";
+
+// The connection arithmetic is the thing that failed in production and the
+// thing an operator needs in order to reason about the pooler quota, so it is
+// printed once at boot rather than inferred from a formula. Production only:
+// development gets the numbers in test output already.
+if (isProd) {
+  logInfo("[db] pool budget", {
+    kind: POOL_BUDGET.kind,
+    sharedPooler: POOL_BUDGET.sharedPooler,
+    main: MAIN_POOL_MAX,
+    audit: AUDIT_POOL_MAX,
+    perProcessTotal: MAIN_POOL_MAX + AUDIT_POOL_MAX,
+    note: "per-process; every service shares the pooler's client cap",
+  });
+}
 
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined;
 };
-
-const isProd = process.env.NODE_ENV === "production";
 
 export const db =
   globalForPrisma.prisma ??

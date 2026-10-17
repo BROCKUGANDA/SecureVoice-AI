@@ -21,19 +21,21 @@ import { db } from "@/lib/db";
 const RUN = `dr${Date.now().toString(36).slice(-7)}`;
 const previousCapacity = process.env.DEMO_SEAT_CAPACITY;
 
-let currentUser: { id: string } | null = null;
+// The signed-in identity the shared stub reports, for readability at the call
+// sites: "sign in as X" rather than "assign authState.currentUserId".
+const setUser = (id: string | null) => {
+  authState.currentUserId = id;
+};
 
 mock.module("next/headers", () => ({
   headers: async () => new Headers(),
 }));
 
-mock.module("@/lib/better-auth", () => ({
-  auth: {
-    api: {
-      getSession: async () => (currentUser ? { user: { id: currentUser.id } } : null),
-    },
-  },
-}));
+// One shared Better Auth stub for the whole group — see _demo-auth-stub.ts for
+// why this is not registered inline: a second inline `mock.module` of the same
+// module replaces the first, and these two suites need DIFFERENT methods of
+// `auth.api`.
+import { authState } from "./_demo-auth-stub";
 
 function device(n: number): string {
   return `dev${RUN}${n}`
@@ -77,7 +79,7 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
-  currentUser = null;
+  setUser(null);
   // Capacity counts are global: start every test from an empty board, or a
   // row abandoned by an earlier suite silently changes the counts below.
   await db.demoSeat.updateMany({
@@ -128,17 +130,37 @@ test("lease answers only for the caller's own session", async () => {
 
   const joined = await queuePost({ action: "join", deviceId: device(3) });
   const seat = (await joined.json()) as { seatId: string };
-  currentUser = { id: `user-${RUN}` };
-  await db.demoSeat.update({ where: { id: seat.seatId }, data: { userId: `user-${RUN}` } });
 
+  // The lease is keyed by SESSION id, because the demo credential is one shared
+  // account: a user-keyed lookup would report the first holder's seat to the
+  // second. So the stub session has to carry a session id, and the seat has to
+  // be bound to THAT id — binding `userId` alone leaves `held: false`, which is
+  // why this suite used to pass alone (an unrelated row from demo-enter happened
+  // to satisfy the lookup) and fail the moment it ran beside its siblings.
+  const mine = `sess-${RUN}-mine`;
+  const theirs = `sess-${RUN}-theirs`;
+  await db.demoSeat.update({
+    where: { id: seat.seatId },
+    data: { userId: `user-${RUN}`, sessionId: mine },
+  });
+
+  authState.currentSessionId = mine;
+  setUser(`user-${RUN}`);
   const held = await leaseGet();
   const heldBody = (await held.json()) as { held: boolean; seatId?: string };
   expect(heldBody.held).toBe(true);
   expect(heldBody.seatId).toBe(seat.seatId);
 
-  currentUser = { id: `other-${RUN}` };
-  const unheld = await leaseGet();
-  expect(((await unheld.json()) as { held: boolean }).held).toBe(false);
+  // Same user, different session: still refused. The user id is shared by every
+  // admitted browser, so only the session can decide who holds what.
+  authState.currentSessionId = theirs;
+  setUser(`user-${RUN}`);
+  expect(((await (await leaseGet()).json()) as { held: boolean }).held).toBe(false);
+
+  // And a different user with no seat at all.
+  authState.currentSessionId = theirs;
+  setUser(`other-${RUN}`);
+  expect(((await (await leaseGet()).json()) as { held: boolean }).held).toBe(false);
 });
 
 test("join validates the device id and the body before any write", async () => {

@@ -22,6 +22,7 @@ import { useApp, t } from "@/lib/store";
 import { SUPPORT_EMAIL } from "@/lib/public-config";
 import { Reveal } from "@/components/fx/core";
 import { cn } from "@/lib/utils";
+import type { Lang } from "@/lib/store";
 
 /* ————————————————— live platform probe ————————————————— */
 
@@ -97,7 +98,7 @@ function useStatus(pollMs = 20000) {
  * Human-readable process uptime. Replaces the old `fmtMem`: memory footprint is
  * one of the operator-only fields this public band no longer reads.
  */
-function fmtUptime(seconds: number, lang: "en" | "ar"): string {
+function fmtUptime(seconds: number, lang: Lang): string {
   if (seconds < 60) return t(`${seconds}s`, `${seconds} ث`, lang);
   const minutes = Math.floor(seconds / 60);
   if (minutes < 60) return t(`${minutes}m`, `${minutes} د`, lang);

@@ -102,7 +102,14 @@ services:
     environment:
       # Use the same DATABASE_URL as the rest of the stack — .env is the single
       # source of truth, all containers hit the same Postgres (Supabase).
-      DATABASE_URL: ${DATABASE_URL:-postgresql://${POSTGRES_USER:-securevoice}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-securevoice}}
+      #
+      # EXCEPT for migrations. DDL does not work through a transaction-mode pooler,
+      # so this service prefers DIRECT_URL (the unpooled connection) and falls back
+      # to DATABASE_URL for local dev, where there is no pooler to bypass. The
+      # runtime services keep using DATABASE_URL, which is the pooled URL. Splitting
+      # them is what keeps `prisma migrate deploy` from either failing against the
+      # pooler or silently losing the runtime's pooling.
+      DATABASE_URL: ${DIRECT_URL:-${DATABASE_URL:-postgresql://${POSTGRES_USER:-securevoice}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-securevoice}}}
       # The compose database is a container on a private network with no server
       # certificate; see dial-worker for why the acknowledgement lives here.
       DB_ALLOW_PLAINTEXT_PRIVATE_NETWORK: "true"

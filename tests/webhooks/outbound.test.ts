@@ -1,4 +1,4 @@
-import { mock, test, expect, beforeAll, afterAll } from "bun:test";
+import { mock, test, expect, beforeAll } from "bun:test";
 import { writeFileSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -22,7 +22,8 @@ mock.module("@/lib/vendor-endpoint", () => ({
       // In the per-institution model the endpoint's key IS the bank's secret;
       // sign with BANK_WEBHOOK_SECRET so the cross-language signature check
       // below verifies against the same key the receiver would use.
-      secret: process.env.BANK_WEBHOOK_SECRET ?? "",
+       secret: process.env.BANK_WEBHOOK_SECRET || "",
+
       source: "deployment",
     },
   }),
@@ -49,7 +50,14 @@ import { verifySvSignature } from "../../scripts/verify_sv_signature.ts";
  *   4. the transition + outbox row commit together, and retries are
  *      backoff-jittered across ~24h.
  */
-process.env.BANK_WEBHOOK_SECRET = process.env.BANK_WEBHOOK_SECRET ?? "bank-secret-".repeat(4);
+process.env.BANK_WEBHOOK_SECRET = process.env.BANK_WEBHOOK_SECRET || "bank-secret-".repeat(4);
+
+// WebhookEvents are keyed by (provider, eventType, conversationId, eventTimestamp).
+// WP-4 (elevenlabs-inbound) creates events that can collide with WP-5's keys when
+// both files run in the same `bun test` invocation, so clear them first.
+beforeAll(async () => {
+  await db.webhookEvent.deleteMany({}).catch(() => undefined);
+});
 
 // WebhookEvents are keyed by (provider, eventType, conversationId, eventTimestamp).
 // WP-4 (elevenlabs-inbound) creates events that can collide with WP-5's keys when

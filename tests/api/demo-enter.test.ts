@@ -9,7 +9,7 @@
  * the deployment holds the seeded credential.
  */
 
-import { afterAll, beforeEach, expect, mock, test } from "bun:test";
+import { afterAll, beforeEach, expect, test } from "bun:test";
 import { NextRequest } from "next/server";
 import { db } from "@/lib/db";
 import { hashIp } from "@/lib/demo-queue";
@@ -33,20 +33,12 @@ const hdrsFor = (addr: string) => {
 
 const DEV = `${RUN}-dev-enter-01`.slice(0, 32);
 
-mock.module("@/lib/better-auth", () => ({
-  auth: {
-    api: {
-      signInEmail: async () =>
-        new Response(JSON.stringify({ user: { id: "user-enter-1" } }), {
-          status: 200,
-          headers: {
-            "content-type": "application/json",
-            "set-cookie": "better-auth.session_token=stub-session; Path=/; HttpOnly",
-          },
-        }),
-    },
-  },
-}));
+// One shared Better Auth stub for the whole group — see _demo-auth-stub.ts for
+// why this is not registered inline. `authState` drives what the relay reports.
+import { authState } from "./_demo-auth-stub";
+
+authState.signInUserId = "user-enter-1";
+authState.signInSessionId = "sess-enter-1";
 
 beforeEach(async () => {
   await db.demoSeat.updateMany({
@@ -102,11 +94,12 @@ test("enter with an active seat relays the session and binds the lease", async (
   const body = (await res.json()) as { user?: { id?: string } };
   expect(body.user?.id).toBe("user-enter-1");
 
-  // The lease is bound to the freshly signed-in user: getProfile's check will
-  // find it.
+  // The lease is bound to the freshly signed-in SESSION: getProfile's check will
+  // find it. Keyed on session id rather than user id is the capacity property.
   const lease = await db.demoSeat.findFirst({
     where: { id: joined.state.seatId },
-    select: { userId: true },
+    select: { userId: true, sessionId: true },
   });
   expect(lease?.userId).toBe("user-enter-1");
+  expect(lease?.sessionId).toBe("sess-enter-1");
 });

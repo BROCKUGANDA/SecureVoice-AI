@@ -18,7 +18,8 @@ import {
   LogOut,
   X,
 } from "lucide-react";
-import { useApp, t, VIEW_ACCESS, ACCESS_SEAT, type View, type Lang } from "@/lib/store";
+import { useApp, t, VIEW_ACCESS, ACCESS_SEAT, type View } from "@/lib/store";
+import { ARABIC_SCRIPT_LANGS, UI_LANG_SHORT, UI_LANGS } from "@/lib/i18n/registry";
 import { atLeast, type Seat } from "@/lib/auth/seat";
 import { useViewerSeat } from "@/lib/auth/use-viewer-seat";
 import { cn } from "@/lib/utils";
@@ -265,7 +266,7 @@ export function Navbar() {
             role="group"
             aria-label="Language"
           >
-            {(["en", "ar"] as Lang[]).map((l) => (
+            {UI_LANGS.map((l) => (
               <button
                 key={l}
                 onClick={() => setLang(l)}
@@ -273,6 +274,11 @@ export function Navbar() {
                 className={cn(
                   "relative rounded-full px-2.5 py-1 text-[11.5px] font-semibold transition-colors",
                   l === "ar" && "font-arabic",
+                  // Urdu is Arabic-script too, so it needs the Arabic webfont
+                  // for the same reason Arabic does. Hindi and Kiswahili are
+                  // left to the system fonts: no Devanagari or Kiswahili face is
+                  // loaded, and inventing one here would be a silent degradation.
+                  ARABIC_SCRIPT_LANGS.includes(l) && "font-arabic",
                   lang === l ? "text-white" : "text-ink-3 hover:text-foreground",
                 )}
               >
@@ -283,7 +289,7 @@ export function Navbar() {
                     transition={{ type: "spring", stiffness: 420, damping: 34 }}
                   />
                 )}
-                <span className="relative">{l === "en" ? "EN" : "عربي"}</span>
+                <span className="relative">{UI_LANG_SHORT[l]}</span>
               </button>
             ))}
           </div>

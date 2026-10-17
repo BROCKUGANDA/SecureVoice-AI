@@ -472,7 +472,7 @@ function RenderSlide({
               icon: FileCheck2,
               n: "2",
               en: "Verification",
-              ar: "تحقق",
+              ar: "التحقق",
               d: "no PINs, ever",
               dAr: "دون رموز سرية إطلاقاً",
             },

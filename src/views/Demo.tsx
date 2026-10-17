@@ -777,10 +777,10 @@ export function Demo() {
           >
             {started ? (
               <div className="space-y-2.5 text-[12.5px]">
-                <Row k={t("Risk score", "درجة الخطر", lang)} v={META.risk} hot />
+                <Row k={t("Risk score", "درجة الخطورة", lang)} v={META.risk} hot />
                 <Row k={t("Amount", "المبلغ", lang)} v={t(META.amount.en, META.amount.ar, lang)} />
                 <Row
-                  k={t("Merchant", "المتجر", lang)}
+                  k={t("Merchant", "التاجر", lang)}
                   v={t(META.merchant.en, META.merchant.ar, lang)}
                 />
                 <Row

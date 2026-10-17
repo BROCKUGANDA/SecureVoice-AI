@@ -28,7 +28,7 @@ import { cn } from "@/lib/utils";
 const SUBS = [
   { id: "flow", en: "Call Flow", ar: "مسار المكالمة", icon: GitBranch },
   { id: "architecture", en: "Architecture", ar: "البنية", icon: Network },
-  { id: "guardrails", en: "Guardrails", ar: "الضمانات", icon: ShieldCheck },
+  { id: "guardrails", en: "Guardrails", ar: "ضمانات الامتثال", icon: ShieldCheck },
   { id: "metrics", en: "Metrics", ar: "المؤشرات", icon: BarChart3 },
 ] as const;
 

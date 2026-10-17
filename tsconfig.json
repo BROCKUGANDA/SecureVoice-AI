@@ -42,6 +42,7 @@
     "mini-services",
     "tests",
     "tests-jest",
+    "packages",
     "cypress"
   ]
 }

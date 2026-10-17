@@ -52,7 +52,12 @@ describe("Home", () => {
     const h1 = screen.getByRole("heading", { level: 1 });
     expect(h1.textContent).toContain("Fraud detected.");
     expect(h1.textContent).toContain("Call placed.");
-    expect(h1.textContent).toContain("Frozen.");
+    // "Freeze staged.", not "Frozen." — and the distinction is the product's
+    // central claim, not a copy preference. The agent STAGES a hold; a human
+    // specialist commits it. An assertion that accepted "Frozen." would bless the
+    // one word the whole legal position depends on NOT saying, and it had been
+    // failing against this heading since the copy was corrected.
+    expect(h1.textContent).toContain("Freeze staged.");
 
     expect(screen.getByRole("button", { name: "Run the live simulation" })).toBeTruthy();
     // The sign-in and dashboard CTAs are repeated across sections (hero, dark

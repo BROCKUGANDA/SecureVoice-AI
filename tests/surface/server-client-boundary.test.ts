@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import ts from "typescript";
 
 /**
  * The server/client boundary, enforced.
@@ -70,6 +71,72 @@ function isClientFile(file: string): boolean {
 
 function isServerOnlyFile(file: string): boolean {
   return /^\s*import\s+(["'])server-only\1/.test(source(file));
+}
+
+const DOM_GLOBALS = new Set(["window", "document", "localStorage", "sessionStorage", "navigator"]);
+
+const FUNCTIONISH = new Set([
+  ts.SyntaxKind.FunctionDeclaration,
+  ts.SyntaxKind.FunctionExpression,
+  ts.SyntaxKind.ArrowFunction,
+  ts.SyntaxKind.MethodDeclaration,
+  ts.SyntaxKind.ClassDeclaration,
+  ts.SyntaxKind.ClassExpression,
+  ts.SyntaxKind.GetAccessor,
+  ts.SyntaxKind.SetAccessor,
+  ts.SyntaxKind.Constructor,
+]);
+
+/** `typeof window !== "undefined"` and friends: the idiomatic SSR check. */
+const GUARDED = /typeof\s+(window|document|localStorage|sessionStorage|navigator)\b/;
+
+/**
+ * Every DOM-global identifier read at module scope, as `line N: <name> — <text>`.
+ *
+ * Module scope means the expression is evaluated when the module is imported, which
+ * for a module a server component or a route handler reaches is during SSR, where
+ * `document` and `window` do not exist. Excluded by construction, not by allowlist:
+ * anything inside a function/method/class/accessor (runs later), anything lexically
+ * under a `typeof <global>` guard (the check makes it safe), anything that is a
+ * property KEY (`{ window: 60 }`, `window: BudgetWindow`), and anything in a type
+ * position (`Window` as a type is not a read).
+ *
+ * Shared with the positive control so the assertion tests the predicate that ships.
+ */
+function moduleScopeDomReads(text: string): string[] {
+  const sf = ts.createSourceFile("scan.tsx", text, ts.ScriptTarget.ESNext, true);
+  const hits: string[] = [];
+  const visit = (node: ts.Node, insideFn: boolean, insideGuard: boolean, insideType: boolean) => {
+    const fn = insideFn || FUNCTIONISH.has(node.kind);
+    const ty = insideType || ts.isTypeNode(node) || ts.isTypeAliasDeclaration(node);
+    let guard = insideGuard;
+    if (
+      ts.isTypeOfExpression(node) ||
+      ts.isIfStatement(node) ||
+      ts.isConditionalExpression(node) ||
+      ts.isBinaryExpression(node)
+    ) {
+      if (GUARDED.test(node.getText().slice(0, 400))) guard = true;
+    }
+    const parent = node.parent as ts.Node | undefined;
+    const isKey =
+      parent !== undefined &&
+      ((ts.isPropertyAssignment(parent) && parent.name === node) ||
+        (ts.isShorthandPropertyAssignment(parent) && parent.name === node) ||
+        (parent.kind === ts.SyntaxKind.PropertySignature &&
+          (parent as ts.PropertySignature).name === node) ||
+        (parent.kind === ts.SyntaxKind.PropertyDeclaration &&
+          (parent as ts.PropertyDeclaration).name === node));
+    if (!fn && !guard && !ty && !isKey && ts.isIdentifier(node) && DOM_GLOBALS.has(node.text)) {
+      const { line } = sf.getLineAndCharacterOfPosition(node.getStart());
+      hits.push(
+        `line ${line + 1}: ${node.text} — ${(text.split("\n")[line] ?? "").trim().slice(0, 70)}`,
+      );
+    }
+    node.forEachChild((child) => visit(child, fn, guard, ty));
+  };
+  visit(sf, false, false, false);
+  return hits;
 }
 
 /**
@@ -202,17 +269,48 @@ describe("server/client boundary", () => {
   });
 
   test("no non-client module touches the DOM at module scope", () => {
-    // Column 0 is the signal: a top-level `document.querySelector` in a module
-    // that a server component imports runs during SSR, where `document` does not
-    // exist. DOM access inside a function, a hook body or an effect is at an
-    // indent and is not what this looks for.
-    const DOM_GLOBALS = /^(?:document|window|localStorage|sessionStorage|navigator)\b/m;
+    // WHAT THIS REPLACED. The rule used to be `/^(?:document|window|localStorage|
+    // sessionStorage|navigator)\b/m` — a name at COLUMN 0 — on the theory that
+    // module-scope means unindented. It does not. `export const w = window.innerWidth;`
+    // is module scope, is evaluated during SSR, and starts at column 13. Proven, not
+    // argued: that exact line was planted in `src/lib/` with this suite running, and
+    // the suite stayed green.
+    //
+    // The scan is `moduleScopeDomReads` below, shared with its positive control so
+    // the thing that is tested is the thing that runs. `src/generated` is Prisma's
+    // emitted client — not source anybody edits, and it declares `document?:` columns.
     const violations: string[] = [];
     for (const file of allFiles) {
       if (isClientFile(file)) continue;
-      if (DOM_GLOBALS.test(source(file))) violations.push(rel(file));
+      if (rel(file).startsWith("src/generated/")) continue;
+      for (const hit of moduleScopeDomReads(source(file))) violations.push(`${rel(file)}: ${hit}`);
     }
-    expect(violations).toEqual([]);
+    expect(violations.join("\n")).toBe("");
+  });
+
+  test("the DOM scan can see a violation at all (positive control)", () => {
+    // The gate this replaced was green over a textbook SSR crash because its pattern
+    // approximated scope instead of analysing it. A control that never parses the
+    // tree would not have caught that, so this feeds real source text to the SAME
+    // function the rule uses, and asserts both directions.
+    const read = (src: string) =>
+      moduleScopeDomReads(src).map((h) => (h.split(": ")[1] ?? "").split(" — ")[0]);
+    expect(read("export const w = window.innerWidth;\n")).toContain("window");
+    expect(read("const t = document.title;\n")).toContain("document");
+    expect(read("export const s = localStorage.getItem('k');\n")).toContain("localStorage");
+    expect(read("sessionStorage.clear();\n")).toContain("sessionStorage");
+    expect(read("navigator.sendBeacon('/x');\n")).toContain("navigator");
+    // Guarded, inside a function, or a property key: none is a module-scope read, and
+    // a rule that flagged these would be switched off within a week.
+    expect(
+      read(
+        'export const ua = typeof window !== "undefined" ? window.navigator.userAgent : null;\n',
+      ),
+    ).toEqual([]);
+    expect(read('if (typeof document !== "undefined") { document.title = "x"; }\n')).toEqual([]);
+    expect(read("export function f() { return window.innerWidth; }\n")).toEqual([]);
+    expect(read("const cfg = { window: 60, document: null };\n")).toEqual([]);
+    expect(read("type T = { window: number };\nconst x: Window = 1 as Window;\n")).toEqual([]);
   });
 
   test("no client module reads a non-public environment variable", () => {

@@ -1475,3 +1475,49 @@ message describes measurements. Before making one, the suite that produces the f
 have run with its dependencies up; if it has not, the honest commit is the one that touches
 no evidence file. Refreshing six artifacts in one commit and checking none of them asserted
 the opposite of the previous run is the same mistake as trusting a green rollup by its colour.
+
+### 25. The boundary gate could not see an indented `window`, and the tree was clean by luck
+
+The standing ask was "make sure server side and client side dont mix nothing in DOM".
+`tests/surface/server-client-boundary.test.ts` already answers that, with six rules: a
+transitive reachability walk from every `"use client"` entry to any `server-only` module, a
+second walk to the database and the secret config, the `server-only` + `"use client"`
+contradiction, a DOM rule, and a non-`NEXT_PUBLIC_` env read from client code. Running it
+before citing it: 6 pass.
+
+Then the DOM rule was mutation-proved, because that is the one that decides whether "nothing
+in the DOM" is enforced or merely intended. `src/lib/zz-boundary-probe.ts` containing exactly
+
+    export const probe = window.innerWidth;
+
+**did not fail it.** The suite stayed green over a textbook SSR crash.
+
+The rule was `/^(?:document|window|localStorage|sessionStorage|navigator)\b/m` — a DOM name
+at column 0 — resting on the idea that module scope means unindented. It does not.
+`export const x = window.innerWidth` is module scope, is evaluated when the module is
+imported, and starts at column 13. So were `export default document.title`, a top-level
+`const v = localStorage.getItem(k)`, and every other `export`-prefixed read: the shapes a
+person actually writes when they mean "compute this once at load".
+
+**What it does now.** `moduleScopeDomReads()` walks the TypeScript AST and reports a
+DOM-global identifier only when it is outside every function, method, class and accessor;
+outside any `typeof <global>` guard, which is the idiomatic and safe SSR check; not a property
+_key_ (`{ window: 60 }`, `window: BudgetWindow` — three of those are real, in `breaker.ts` and
+`better-auth.ts`); and not in a type position. `src/generated/` is skipped because it is
+Prisma's emitted client, and it declares `document?:` columns. The scan and its positive
+control call the same function, so the tested predicate is the shipped predicate.
+
+Measured before enabling, the house way: the whole tree is clean under the wider rule — 568
+non-client files, zero module-scope unguarded reads — so the change costs nothing and closes
+the hole. Widening a gate to green is only honest when the green is measured first; the
+alternative remedy was to weaken the rule, which is how these die.
+
+Proved in both directions after formatting, restored by deleting the planted file rather than
+reverting it: planted → `(fail)` with `src/lib/zz-boundary-probe.ts: line 1: window — export
+const probe = window.innerWidth;`; removed → 7 pass. The control test also asserts the
+_exclusions_, because a rule that flags `typeof window !== "undefined" ? window.navigator :
+null`, a function body, or `{ window: 60 }` is a rule someone switches off inside a week.
+
+One timing note, recorded rather than hidden: the rule went from 62 ms to ~900 ms because it
+now parses every non-client module instead of regexing them. In a suite whose whole purpose is
+a static graph walk, that is a fair price for a predicate that sees what it claims to see.

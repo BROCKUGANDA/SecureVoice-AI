@@ -17,7 +17,8 @@ export const BUMP_STEP: number;
 
 export type Floor = { overall: number; at: string; target: number };
 
-export type ParsedFloor = { floor: Floor; error?: undefined } | { floor?: undefined; error: string };
+export type ParsedFloor =
+  { floor: Floor; error?: undefined } | { floor?: undefined; error: string };
 
 export type CoverageVerdict = {
   bar: number;

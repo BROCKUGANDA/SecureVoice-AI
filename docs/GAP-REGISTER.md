@@ -1295,7 +1295,10 @@ code. Next: the three unconsumed realtime
 frames (`case_state`, `case.queued`, `notification`), which need a field-set decision, not
 a renderer. IP, user agent and request id on the audit chain — genuinely absent, and
 blocked on a policy answer, because an IP is personal data and the erasure path today
-relies on the chain holding none. `exportOtlp`'s missing caller — closed by §23, along with
+relies on the chain holding none. — **two of those three were wrong, and the block did not
+exist (§26)**: `ipPseudonym()` is the policy answer, both columns are written, hashed into the
+chain and indexed, and what is left is the promotion to production plus `userAgent` itself.
+`exportOtlp`'s missing caller — closed by §23, along with
 the `exporterConfigured` boolean that turned out to be the real find in that file. The
 ElevenLabs tool endpoints above. And the PII backfill over the live rows, which stays unrun
 until the operator is watching it.
@@ -1521,3 +1524,60 @@ null`, a function body, or `{ window: 60 }` is a rule someone switches off insid
 One timing note, recorded rather than hidden: the rule went from 62 ms to ~900 ms because it
 now parses every non-client module instead of regexing them. In a suite whose whole purpose is
 a static graph walk, that is a fair price for a predicate that sees what it claims to see.
+
+### 26. The audit chain already captures the IP and the request id, and the register said it did not
+
+A poll of the open items, run against the tree and then against production rather than
+against the register.
+
+§21 lists as still open: _"IP, user agent and request id on the audit chain — genuinely
+absent, and blocked on a policy answer, because an IP is personal data and the erasure path
+today relies on the chain holding none."_ Two of the three are not absent, and the block
+described does not exist.
+
+What the code does:
+
+- `resolveClientIp()` (`src/lib/ip-normalize.ts:60-76`, re-exported by `src/lib/client-ip.ts`)
+  returns `IP_UNTRUSTED` unless `src/proxy.ts` stamped its marker, and only then reads the one
+  header the app itself writes. The auth route used to take the first `x-forwarded-for` entry
+  directly — caller-chosen, no trust gate, no cap — and now calls the same resolver
+  (`src/app/api/auth/[...all]/route.ts:107`, with the old shape described in the comment above
+  it). The spoofing path the register was worried about is therefore closed at the canonical
+  resolver rather than left open behind it.
+- `ipPseudonym()` turns that into a domain-separated HMAC. It is neither the raw IP nor an
+  anonymised dead end: it can be re-derived for the same address under the same key, so a
+  fraud analyst can group rows by source, and it cannot be reversed to name a person. That is
+  the answer to the policy question the item was waiting on, and it was implemented.
+- `audit-chain.ts:110-111` fills `ipHash` and `requestId` on every append from
+  `requestAttribution()`, `sanitize()` length-caps both, and `verifyChain()` reconstructs them
+  into the hash (`:542-543`). The migration documents why old rows still verify: `JSON.stringify`
+  drops an `undefined` value, so a row written before the columns existed serialises to the same
+  bytes it was hashed as. Worker, webhook and script writes get NULL for both, deliberately —
+  "a row with no client must not be attributed to whoever last signed in".
+- Schema declares both (`prisma/schema.prisma:178,183`), with `@@index([ipHash, createdAt])`
+  and `@@index([requestId])`, and the index note says plainly: _every row that has an ipHash
+  wants it_.
+
+Measured on production, because "declared" is not "deployed": `information_schema.columns` for
+`AuditLog` returns `id callRef action intent callerId redactedText meta prevHash chainHash
+orgId createdAt` — no `ipHash`, no `requestId`. `_prisma_migrations` holds 31 rows and
+`9zzzzzzzzzzzzzzzzzzzzzzzzzzz_audit_attribution` is not one of them. So this is not a silent
+migration failure; it is a promotion that has not happened. Only `main` deploys, migrations run
+inside the deploy, and PR #107 (`staging → main`) is the one the owner has not given the word on.
+
+**Therefore the honest status of the ask "make sure audit log all ip captures etc." is:**
+designed, written, gated, indexed, chain-hash-covered, and **waiting on the promotion to
+production**. Nothing to build. The operator's action is #107, not a work item.
+
+**What is genuinely still absent:** `userAgent` on the chain. It exists on Better Auth's
+`Session` (`prisma/schema.prisma:1006`), which the library writes, so sign-in devices are
+recorded — but a fraud audit row carries no client-software string, so an operator can see
+"same pseudonym, four cases" and not "four cases from three different browsers". Adding it is
+the same shape as `audit_attribution` (nullable column, added to both the write and the verify
+hash, old rows byte-identical), so the path is proven; it is not done here because it is a
+chain-semantics change landing on top of a pending one, and stacking an unverified second
+migration on the same un-applied first one is how a chain becomes impossible to attribute to a
+cause when it stops verifying.
+
+Correction recorded rather than quietly rewritten: §21's bullet stands as written on the day it
+was true about the _plan_, with this section appended as the measurement.

@@ -1112,6 +1112,9 @@ of them was my own misreport to the owner, corrected in the commit that followed
   from `slo.ts:42`. Left because the sweep fenced `src/lib/telemetry/*` — owner call.
   — **the duplicate is gone (§20)**: the unread copy in `spans.ts` was deleted and the one
   in `slo.ts` is the live one the report and the tests already read. `exportOtlp` is open.
+  — **the transport is gone and the boolean was the real bug (§23)**: `exportOtlp` was
+  deleted as a duplicate of three live SDK exporters, and `exporterConfigured` turned out to
+  read a variable no exporter consults.
 - `case_state`, `case.queued` and `notification` are now honestly declared
   `consumed: false`. Giving them a consumer needs a field-set decision, not a renderer.
 - `mini-services/realtime` keeps payloads opaque by design, so the event contract can only
@@ -1144,7 +1147,8 @@ retry button found why.
 
 **Open after this slice.** `exportOtlp` still has no external caller (`buildOtlpExport`
 does — `/api/status/spans`), and that is the same owner question as the OTel collector:
-ship a push path or delete it. The realtime cross-node fix is unproven until the gate
+ship a push path or delete it. — **answered by §23: deleted**, because three real SDK
+exporters already owned the push path and the unread boolean beside it was the live defect. The realtime cross-node fix is unproven until the gate
 runs where the bus exists. `case_state`, `case.queued` and `notification` remain honestly
 declared `consumed: false` — consuming them needs a field-set decision in
 `case-state-machine.ts` and a render path, not a renderer bolted onto a frame the console
@@ -1291,9 +1295,10 @@ code. Next: the three unconsumed realtime
 frames (`case_state`, `case.queued`, `notification`), which need a field-set decision, not
 a renderer. IP, user agent and request id on the audit chain — genuinely absent, and
 blocked on a policy answer, because an IP is personal data and the erasure path today
-relies on the chain holding none. `exportOtlp`'s missing caller. The ElevenLabs tool
-endpoints above. And the PII backfill over the live rows, which stays unrun until the
-operator is watching it.
+relies on the chain holding none. `exportOtlp`'s missing caller — closed by §23, along with
+the `exporterConfigured` boolean that turned out to be the real find in that file. The
+ElevenLabs tool endpoints above. And the PII backfill over the live rows, which stays unrun
+until the operator is watching it.
 
 ### 22. The build reached across the network for its fonts, and the promotion stopped at a red check
 
@@ -1361,3 +1366,112 @@ commit. Until one happens, read the rollup by job name, never by a green tick.
 
 **Still open here:** vendor the four fonts (needs a visual pass), and consider a gate that
 fails the build if `layout.tsx` reintroduces a build-time network fetch.
+
+### 23. The SLO artifact answered "is telemetry shipping?" from a variable no exporter reads
+
+Section 19 recorded `exportOtlp` as the open item in `src/lib/telemetry/export.ts`. Reading
+the whole file, the dead transport was the smaller half of the problem.
+
+The artifact published `exporterConfigured: boolean`, computed from
+`OTEL_EXPORTER_OTLP_ENDPOINT`. The OTLP exporters were built somewhere else entirely:
+`otel.ts` derives its URL from `OTEL_BETTERSTACK_ENDPOINT` / `OTEL_BETTERSTACK_HOST` and
+refuses to construct a SDK at all unless `OTEL_BETTERSTACK_TOKEN` (alias
+`OTEL_SOURCE_TOKEN`) is set. Two files, two variables, one fact.
+
+    export.ts:38   process.env.OTEL_EXPORTER_OTLP_ENDPOINT      <- the artifact asked this
+    otel.ts:106    env("OTEL_BETTERSTACK_TOKEN") ?? …           <- the exporter obeyed this
+
+So the boolean could be wrong in either direction: set the documented token and traces,
+metrics and logs ship while the artifact reports `exporterConfigured: false`; set the other
+variable and nothing ships while it reports `true`. A reader treating `true` as evidence of
+remote telemetry was reading a claim nothing enforced — in a product whose whole promise is
+the evidence file.
+
+**Measured, not inferred, on both planes.** `docker exec … env | grep -o '^[A-Z0-9_]*OTEL[A-Z0-9_]*'`
+returns empty for `securevoice-ai-app-1` (Up, healthy — the live web container) and for the
+dial, email, outbox, overage, retention and voice-stream workers. That is the accident that
+kept the two halves agreeing on `false` and hid the divergence: the value the artifact
+published had never once been wrong, because neither variable was ever set.
+
+**What shipped.**
+
+- `src/lib/telemetry/otlp-config.ts` (new, zero imports) holds the predicate
+  `remoteTelemetryStatus()`, returning `{ shipping, reason }` with `reason` one of
+  `sdk_disabled` / `no_ingestion_token` / `null`, and `ingestionToken()` as the one reader
+  of the two token names.
+- `initOtel()` now decides from that predicate and no longer reads the token or the disable
+  switch itself. A second reader of the same config is how the first one went stale.
+- The artifact publishes `remoteTelemetry: remoteTelemetryStatus()`, and `slo.ts` types the
+  field as the predicate's own return type, so widening the claim without widening the
+  answer is a type error rather than a review comment. `EVIDENCE_SCHEMA_VERSION` 3.0 → 3.1,
+  because a field renamed and re-sourced is a shape change; nothing reads the version yet.
+- `exportOtlp` is deleted, with its `otlpEndpoint` / `otlpHeaders` / `timeoutMs` /
+  `OTLP_TRACES_PATH` / `OtlpExportVerdict`. It was a hand-rolled second OTLP/HTTP transport
+  with no caller while three real SDK exporters existed. `buildOtlpExport` stays: the pull
+  half, served by `/api/status/spans?format=otlp`, is the useful half, and `route.ts`'s
+  comment no longer points at a transport that is gone.
+- `.env.example` loses the three variables, which `checkEnvDocs` would otherwise have
+  reported as documented-but-unread — it went green on the new state, which is the check
+  confirming the deletion rather than tolerating it.
+
+**The gate.** `tests/telemetry/remote-telemetry-status.test.ts`, 6 tests: the three env
+states by behaviour; `initOtel` must consult the predicate and must not _read_ the config
+(banned by read-shaped regexes, not by variable names — a log line that tells an operator
+what to set has to spell the variable out, and a name ban would only get the log reworded);
+the artifact field is the predicate; no file under `src/` reads `OTEL_EXPORTER_OTLP_*`; and
+positive controls for each. Mutation-proved three ways, each restored by deleting the
+injected line rather than reverting the file: planting `env("OTEL_BETTERSTACK_TOKEN")` in
+`initOtel` turned rule A red naming the offending pattern; putting the old
+`exporterConfigured: Boolean(process.env.OTEL_EXPORTER_OTLP_ENDPOINT)` line back turned B and
+C red together; and a bare read of the endpoint in `export.ts` turned C red alone. B and C
+now fail with the file named instead of a 500-line body dumped as "received".
+
+**Verified at the entry point, not in a helper:** calling `latencyBlock()` — the function
+`/api/status` and `/api/status/spans` publish through — with the token set returns
+`remoteTelemetry: { shipping: true, reason: null }`, and without it
+`{ shipping: false, reason: "no_ingestion_token" }`; the old key is absent from the object.
+The same call would have returned `false` in both cases before this change, because the
+variable it consulted is not the one the runtime obeys.
+
+**Open, and it is not a code item.** No production container sets an ingestion token, so
+`initOtel()` returns null today and **no traces, metrics or logs leave the platform**. That
+is a configuration decision for the owner, not a defect to paper over: the artifact now says
+so plainly, and a deployment that wants remote telemetry sets `OTEL_BETTERSTACK_TOKEN`.
+Nothing here was done to make the red look better.
+
+### 24. An evidence refresh of mine had committed a run that never happened
+
+Running the docs suites to check §23 turned four reds in
+`tests/docs/load-artifact-consistency.test.ts`, none of them about telemetry:
+
+    load: the accounting invariants §7 leads with hold in the artifact
+      expect(artifact.summary.cases_accounted_exactly).toBe(true)
+    Expected: true   Received: false
+
+`docs/CAPACITY.md` §7 presents itself as a transcription of
+`evidence/load/results.json`, and the committed copy of that artifact had
+`steady_error_rate: 1`, `burst_error_rate: 1`, `burst_peak_own_in_flight: 0`,
+`burst_vendor_max_concurrent: 0` and `cases_accounted_exactly: false` — while
+`03c6c2a~1` carried `steady_error_rate: 0`, a burst peak of 152 own in-flight, the
+vendor ceiling of 40 actually reached, and every case accounted for exactly.
+
+So the regression was `03c6c2a` — _"test(evidence): refresh load/latency/privacy/seams/
+tenancy/transcripts artifacts"_ — my own commit. It replaced a real recorded load run with
+whatever a local run wrote while `tests/load` had no reachable database. `ci.yml:99-103`
+already documents that mode in words: _"the load run still 'succeeds' but writes a degraded
+`evidence/load/results.json` full of nulls, and the very next test then fails to parse it.
+The reported failure was in the docs gate; the cause was a missing database in the gate
+before it."_ CI is green because its load job regenerates the file before the docs gate reads
+it; the committed copy is what a human, or this machine, actually diffs against.
+
+**What was done:** `evidence/load/results.json` restored to the `03c6c2a~1` blob — a whole
+artifact, not a stitched-together summary, because mixing two runs' figures would have made
+a better-looking fiction. The docs gate went from 4 red to 10 pass, and it is the gate that
+found this, so it stays as it is: no new check was written for a fault an existing one
+already caught. `bun run test docs` is green (14 + 24 + 10).
+
+**The lesson is not about the artifact, it is about the commit.** An `evidence:` commit
+message describes measurements. Before making one, the suite that produces the file has to
+have run with its dependencies up; if it has not, the honest commit is the one that touches
+no evidence file. Refreshing six artifacts in one commit and checking none of them asserted
+the opposite of the previous run is the same mistake as trusting a green rollup by its colour.

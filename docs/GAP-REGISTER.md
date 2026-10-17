@@ -1294,3 +1294,70 @@ blocked on a policy answer, because an IP is personal data and the erasure path 
 relies on the chain holding none. `exportOtlp`'s missing caller. The ElevenLabs tool
 endpoints above. And the PII backfill over the live rows, which stays unrun until the
 operator is watching it.
+
+### 22. The build reached across the network for its fonts, and the promotion stopped at a red check
+
+`dev` at `ec72c91` produced two CI runs on the same commit, one green and one red. The red
+was not a test: the step was **Build**, and it failed with twelve copies of
+
+    Module not found: Can't resolve '@vercel/turbopack-next/internal/font/google/font'
+    Error while looking up import map: next/font/google queries have exactly one entry
+
+`src/app/layout.tsx:2` imports Space Grotesk, Inter, JetBrains Mono and IBM Plex Sans Arabic
+from `next/font/google`, which means `next build` fetches those four faces from Google's CDN
+and inlines them. The same SHA built successfully on the sibling runner minutes apart, so
+nothing in the tree changed — what changed was whether a third-party endpoint answered.
+
+Why that is a defect and not just a bad afternoon: this product self-hosts. The deploy
+builds on a runner on the VPS (`deploy.yml:90`), and a build whose success depends on
+fonts.gstatic.com being reachable is a deploy that can be blocked by an outage on someone
+else's infrastructure, at the moment a fraud platform most needs to ship a fix. The same
+repo already refuses that pattern elsewhere — CI's realtime step installs dependencies
+locally rather than pulling a vendor image (ci.yml:9-11), and the CI Postgres is started
+per run for the same reason.
+
+The fix is to serve the faces from the repository — `next/font/local` with the four files
+committed — so the build needs no third party. It is not done here because it is a visual
+change to the product's identity: the display, body, mono and Arabic faces each need a
+rendered comparison against what ships today (weight, Arabic shaping, fallback metrics),
+and no browser session is available on this machine while Docker is stopped. Choosing
+fonts by guessing at a diff is how a bilingual product ends up with Arabic text rendered by
+a Latin fallback.
+
+What was done instead, so the flake cannot be mistaken for the code: the promotion watcher
+polled PR #106's own check rollup, saw `Lint, typecheck, tests, build = FAILURE`, and
+**refused to merge** rather than retrying until something went green. The failed run was then
+re-run deliberately — one re-run of one job, no threshold touched — and it succeeded. With
+that commit's rollup read back from the API: `Lint, typecheck, tests, build`, `Drift gates`,
+`Compose stack smoke test`, `Lighthouse budgets (live origin)`, `Reclaim leaked smoke stacks`
+and `Open and arm the promotion PR` are all `completed success`, and PR #106 merged at
+18:25:09Z to give staging `6f7302e`. Nothing about the fonts was inferred to be fine; the
+build was shown to pass twice on the same SHA, which is exactly the symptom of a dependency
+on someone else's endpoint.
+
+### 22b. A check that is red for every commit because the org cannot pay for it
+
+The same rollup carries a permanent failure that is not this repository's:
+`github-advanced-security` completed `failure` on `ec72c91`, and did so on `dev`, on
+`staging`, and on the run before it, with two annotations and no output text. The job's
+own words:
+
+    The job was not started because your account is locked due to a billing issue.
+
+It never ran. Nothing in the tree could have made it pass, and no re-run will.
+
+Two reasons this is in the register rather than ignored. First, it teaches everyone who
+looks at a red tick to read red CI as noise — which is the precise habit that makes a real
+red get merged, and this repo has already paid for that habit once (§18, §20). Second, the
+ladder's safety mechanism is GitHub's required-checks gate: `promote.yml` never merges, it
+only arms auto-merge and lets GitHub pull the trigger once the required checks pass. If
+this check is ever added to the required set — enabling GHAS properly does exactly that —
+then promotion stops dead at every rung, with a red that no engineer can fix, on a workflow
+whose whole design is "nobody presses the button".
+
+**Owner-only:** the org's GitHub Advanced Security billing has to be settled, or the
+workflow needs to stop surfacing the check. Either is a dashboard action; neither is a
+commit. Until one happens, read the rollup by job name, never by a green tick.
+
+**Still open here:** vendor the four fonts (needs a visual pass), and consider a gate that
+fails the build if `layout.tsx` reintroduces a build-time network fetch.

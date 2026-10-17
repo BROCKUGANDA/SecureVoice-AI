@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useEffect, useState } from "react";
 import { AlertTriangle } from "lucide-react";
@@ -11,13 +11,13 @@ import { useApp, t } from "@/lib/store";
  * answer: is the service that places calls reachable, through the same edge
  * path a real call takes. `src/worker/voice-stream.ts` answers
  * `/realtime/voice-health` and `Caddyfile` routes it, so a green result here is
- * a live round trip through the proxy that fronts the media stream ΓÇö not a
+ * a live round trip through the proxy that fronts the media stream — not a
  * guess about a process this page cannot see.
  *
  * THE THREE STATES, AND WHY "UNKNOWN" IS NOT "DEGRADED"
  *
  * The previous version of this component polled
- * `https://voice.securevoice.ai/api/health`. That domain has never existed ΓÇö
+ * `https://voice.securevoice.ai/api/health`. That domain has never existed —
  * `nslookup` answers `Non-existent domain`, and the hostname appears nowhere in
  * the Caddyfile, the compose files, or terraform. So the fetch threw on every
  * visit, on every route, thirty seconds after load, forever: a permanent red
@@ -29,12 +29,12 @@ import { useApp, t } from "@/lib/store";
  * So a failed measurement is not a negative measurement, and the three are kept
  * apart deliberately:
  *
- *   ┬╖ 200                       ΓåÆ `healthy`. The plane answered.
- *   ┬╖ 502 / 503 / 504           ΓåÆ `degraded`. The edge is up and could not
+ *   · 200                       → `healthy`. The plane answered.
+ *   · 502 / 503 / 504           → `degraded`. The edge is up and could not
  *                                 reach the plane behind it. That IS the outage
  *                                 this banner exists to report.
- *   ┬╖ anything else, including
- *     404 and network failure   ΓåÆ `unknown`. Renders nothing.
+ *   · anything else, including
+ *     404 and network failure   → `unknown`. Renders nothing.
  *
  * 404 has to be `unknown` and not `degraded`, because it is the state of every
  * deployment before this change reaches the edge, and of every local `next dev`
@@ -44,7 +44,7 @@ import { useApp, t } from "@/lib/store";
  * engine is fine.
  *
  * The banner also no longer claims "our team has been alerted". Nothing in this
- * repository pages anyone for voice-plane health ΓÇö `canary.yml` gates and rolls
+ * repository pages anyone for voice-plane health — `canary.yml` gates and rolls
  * back a deploy, and the `fraud_oncall` pager in `src/lib/notifications.ts` is
  * for fraud cases. Until an alert actually fires, the sentence would be a
  * promise the software cannot keep.
@@ -111,8 +111,8 @@ export default function HealthCheck() {
       <span className="mx-auto flex max-w-3xl items-center justify-center gap-2">
         <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
         {t(
-          "Outbound calls may be delayed ΓÇö the voice engine is not responding.",
-          "┘é╪» ╪¬╪¬╪ú╪«╪▒ ╪º┘ä┘à┘â╪º┘ä┘à╪º╪¬ ╪º┘ä╪╡╪º╪»╪▒╪⌐ ΓÇö ┘ä╪ú┘å ┘à╪¡╪▒┘â ╪º┘ä╪╡┘ê╪¬ ┘ä╪º ┘è╪│╪¬╪¼┘è╪¿.",
+          "Outbound calls may be delayed — the voice engine is not responding.",
+          "قد تتأخر المكالمات الصادرة — لأن محرك الصوت لا يستجيب.",
           lang,
         )}
       </span>

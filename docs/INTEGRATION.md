@@ -9,7 +9,7 @@ Two separate questions, and they have different answers:
 | **Receive every phase transition** back in your systems    | [`POST /api/webhooks`](#3-outbound-events-back-to-your-bank)                      | An hour      |
 | **Run it inside your own VPC / cloud**                     | [`docker compose`](#5-run-it-yourself)                                            | A day        |
 | **Give your staff their own console + keys**               | [Multi-tenant onboarding](#6-multi-tenant--self-serve-onboarding)                 | Product work |
-| **Use it right now, no deployment**                        | [`securevoice.ai`](#7-use-the-hosted-demo)                                        | Seconds      |
+| **Use it right now, no deployment**                        | [`securevoiceai.me`](#7-use-the-hosted-demo)                                      | Seconds      |
 
 ---
 
@@ -36,7 +36,7 @@ SV-Signature: t={unix_seconds},v1={hmac_sha256(WEBHOOK_SECRET, "{t}.{rawBody}")}
 # Node — sign and send a risk signal
 import { createHmac } from "node:crypto";
 
-const url = "https://securevoice.ai/api/interventions";
+const url = "https://securevoiceai.me/api/interventions";
 const secret = process.env.WEBHOOK_SECRET;           // shared with SecureVoice
 
 const body = JSON.stringify({
@@ -401,7 +401,7 @@ bank the deployment is yours to run (§5) — the hosted demo deliberately does
 
 ## 7. Use the hosted demo
 
-<http://securevoice.ai> — landing page, live Command Center, Docs and Security pages,
+<https://securevoiceai.me> — landing page, live Command Center, Docs and Security pages,
 and the guided pilot flow. Nothing to install. Runs in dry-run/audit-only mode, so no
 Twilio numbers are dialled and no ElevenLabs quota is burned unless you supply keys.
 

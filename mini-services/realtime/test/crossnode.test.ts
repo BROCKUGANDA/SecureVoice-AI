@@ -183,15 +183,15 @@ describe("WP-20 cross-node fan-out", () => {
     );
     if (!("body" in signed)) throw new Error("signIngest returned no body");
 
-    const res = await fetch(`http://127.0.0.1:${PORT_A}/ingest`, {
-      method: "POST",
-      headers: { "content-type": "application/json", "sv-signature": signed.header },
-      body: signed.body,
-    });
-    // 202 = accepted for fan-out (the service answers before the broadcast
-    // resolves, deliberately — the writer must never block on a socket).
-    expect([200, 202]).toContain(res.status);
-
+    // Register the listener BEFORE the ingest is fired. The order here used to be
+    // fetch -> assert 202 -> `new Promise(socket.once("activity"))`, and that is a
+    // race the test loses when delivery is fast: node A publishes over Redis and
+    // node B emits to a socket on the SAME host, so the event can arrive while the
+    // fetch round-trip is still resolving. `once()` attached afterwards never sees
+    // it, and the assertion then waits the whole 10s for an event that was already
+    // delivered. That is exactly the red CI reported on a commit whose tree was
+    // byte-identical to the green one before it — a window measured in
+    // milliseconds, opened by the runner's load rather than by the product.
     const activity = await new Promise<unknown>((resolve, reject) => {
       const timer = setTimeout(
         () =>
@@ -207,6 +207,19 @@ describe("WP-20 cross-node fan-out", () => {
         clearTimeout(timer);
         resolve(payload);
       });
+
+      fetch(`http://127.0.0.1:${PORT_A}/ingest`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "sv-signature": signed.header },
+        body: signed.body,
+      })
+        // 202 = accepted for fan-out (the service answers before the broadcast
+        // resolves, deliberately — the writer must never block on a socket).
+        .then((res) => {
+          if (![200, 202].includes(res.status))
+            reject(new Error(`node A refused the ingest: HTTP ${res.status}`));
+        })
+        .catch(reject);
     });
     expect(JSON.stringify(activity)).toContain("cross-node-proof");
     console.log("  cross-node delivery verified: ingest on node A -> client on node B");

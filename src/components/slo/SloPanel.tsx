@@ -240,11 +240,7 @@ export function SloPanel({
         </span>
         <span className="flex items-center gap-1.5">
           <span className="h-4 border-l border-dashed border-ink-3" />{" "}
-          {t(
-                  `${INDUSTRY_BASELINE.label} baseline`,
-                  `${INDUSTRY_BASELINE.labelAr} خط الأساس`,
-                  lang,
-                )}
+          {t(`${INDUSTRY_BASELINE.label} baseline`, `${INDUSTRY_BASELINE.labelAr} خط الأساس`, lang)}
         </span>
       </footer>
 

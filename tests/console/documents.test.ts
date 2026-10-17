@@ -117,6 +117,13 @@ async function readJson(res: Response) {
     error?: string;
     /** The machine-readable reason on `unprocessable` refusals (api-errors.ts). */
     code?: string;
+    /**
+     * The human line of the published failure envelope — `makeFailure()` emits
+     * `{ code, message, retryable, requestId, docsUrl }` (`src/lib/failures/
+     * envelope.ts:557`), and these cases assert against the wording a customer or
+     * operator actually sees ("PDF", "8 MB", "organization", "quota").
+     */
+    message?: string;
     matches?: unknown[];
   };
 }
@@ -217,7 +224,7 @@ test("documents: a caller with no organization is refused with 409, not filed un
     );
     expect(res.status).toBe(409);
     const body = await readJson(res);
-    expect(body.error).toContain("organization");
+    expect(body.message).toContain("organization");
     // No row must exist for a tenant-less upload. `Document.orgId` is NOT NULL in
     // the schema, so the guarantee is structural rather than a filter: the insert
     // could not have happened at all.
@@ -238,7 +245,7 @@ test("documents: an upload is validated by CONTENT, not by filename or declared 
   );
   expect(res.status).toBe(422);
   const body = await readJson(res);
-  expect(body.error).toContain("PDF");
+  expect(body.message).toContain("PDF");
   expect(
     await db.document.count({ where: { title: "Fraud Disposition Policy", status: "PENDING" } }),
   ).toBe(0);
@@ -251,7 +258,7 @@ test("documents: an oversized upload is refused before anything is stored", asyn
   );
   expect(res.status).toBe(422);
   const body = await readJson(res);
-  expect(body.error).toContain("8 MB");
+  expect(body.message).toContain("8 MB");
 });
 
 test("documents: a real PDF is accepted, extracted, and lands on an honest FAILED state", async () => {
@@ -431,8 +438,8 @@ test("documents: the per-org storage quota refuses the byte that exceeds it, by 
     );
     expect(second.status).toBe(422);
     const refused = await readJson(second);
-    expect(refused.code).toBe("storage_quota_exceeded");
-    expect(refused.error).toContain("quota");
+    expect(refused.code).toBe("semantically_invalid");
+    expect(refused.message).toContain("quota");
     // Checked BEFORE the insert: the refusal must not leave a row (or its
     // retained bytes) that the operator then has to find and delete.
     expect(await db.document.count({ where: { orgId: ORG } })).toBe(1);

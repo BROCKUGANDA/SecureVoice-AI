@@ -1,0 +1,26 @@
+-- Drop the `updatedAt` default that only DemoSeat ever carried.
+--
+-- `9zzzzzzzzzzzzzzzzzzzzzzzzzzz_demo_seat_queue/migration.sql` wrote
+--     "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+-- by hand. Every other table in this schema — `0_init`, `1_case`, `2_outbox`,
+-- `3_postcall` — writes the plain
+--     "updatedAt" TIMESTAMP(3) NOT NULL
+-- because that is what Prisma emits for `@updatedAt`: the ORM stamps the column on
+-- write, so a database-side default is not part of the declared model.
+--
+-- `prisma/schema.prisma` has never declared a default for it either, so the two
+-- halves disagreed and the CI migration-drift gate was correct to say so: applying
+-- the migrations produces a table the schema does not describe. The gate's own
+-- message asked for exactly this file rather than for the default to be added to the
+-- model, and that is the right direction — making the database match the model. The
+-- alternative would have made DemoSeat the only timestamp in the schema whose value
+-- the database, not Prisma, owns.
+--
+-- Additive-safe and idempotent to run: `DROP DEFAULT` on a column that has no
+-- default is a no-op, not an error, so a deployment whose DemoSeat was created by
+-- `prisma db push` (which never had the default) takes this without incident.
+--
+-- No rows are touched and no index is affected.
+
+-- AlterTable
+ALTER TABLE "DemoSeat" ALTER COLUMN "updatedAt" DROP DEFAULT;

@@ -110,9 +110,7 @@ export async function POST(req: Request) {
   // this is the summary, not the control.
   let dncPhones: ReadonlySet<string> = new Set<string>();
   if (callCategory !== "time_critical_fraud") {
-    const candidates = [
-      ...new Set(recipients.map((r) => r.phone?.trim() ?? "").filter(isE164)),
-    ];
+    const candidates = [...new Set(recipients.map((r) => r.phone?.trim() ?? "").filter(isE164))];
     if (candidates.length > 0) {
       const rows = await db.doNotCall
         .findMany({ where: { phone: { in: candidates } }, select: { phone: true } })

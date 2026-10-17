@@ -18,7 +18,7 @@
  *      "no authentication required", which is the single most expensive way to
  *      misconfigure a payment-adjacent endpoint.
  *   2. SCOPE IS NOT "HAS THE SECRET". A correct secret on a tool missing from
- *      `AGENT_TOOL_ALLOWED` is 403 `tool_not_in_scope` and performs no action.
+ *      `AGENT_TOOL_ALLOWED` is refused with 404 `not_found` and performs no action.
  *      Privilege is bound to the caller's configured tool list, not to the URL
  *      being reachable — otherwise a captured call for `human_handoff` can be
  *      rewritten into a `card_freeze` call and replayed.
@@ -510,7 +510,7 @@ async function drainFireAndForget(): Promise<void> {
 }
 
 /** A refusal body: `ok:false` plus a machine-readable reason. */
-const RefusalBody = z.object({ ok: z.literal(false), error: z.string() });
+const RefusalBody = z.object({ code: z.string(), message: z.string() });
 
 /**
  * Fields a refusal must never contain. Each one reports an ACTION: if any of
@@ -532,13 +532,13 @@ const ACTION_FIELDS = [
 ] as const;
 
 /** Assert the response is a refusal that reports no action, then return it. */
-async function readRefusal(res: Response): Promise<{ error: string; raw: string }> {
+async function readRefusal(res: Response): Promise<{ code: string; message: string; raw: string }> {
   const raw = await res.clone().text();
   const parsed = RefusalBody.parse(JSON.parse(raw));
   for (const field of ACTION_FIELDS) {
     expect(Object.keys(parsed)).not.toContain(field);
   }
-  return { error: parsed.error, raw };
+  return { code: parsed.code, message: parsed.message, raw };
 }
 
 /* ───────────────────── the authorisation contract ───────────────────────── */
@@ -568,8 +568,9 @@ describe("authorisation — no secret configured", () => {
     seams.rawResults = [[{ caseRef: "SV-JOURNEY-A", state: "CONFIRMED_FRAUD" }]];
 
     for (const tool of TOOLS) {
-      const { raw, error } = await readRefusal(await call(tool, tool.body, SECRET));
-      expect({ tool: tool.tool, error }).toEqual({ tool: tool.tool, error: "unauthorized" });
+      const { raw, code, message } = await readRefusal(await call(tool, tool.body, SECRET));
+      expect({ tool: tool.tool, code }).toEqual({ tool: tool.tool, code: "unauthenticated" });
+      expect(message).toContain("unauthorized");
       expect(raw).not.toContain(SECRET);
     }
 
@@ -598,7 +599,7 @@ describe("authorisation — no secret configured", () => {
 });
 
 describe("authorisation — the tool is not in the allow-list", () => {
-  test("a correct secret on an out-of-scope tool is 403 on every route", async () => {
+  test("a correct secret on an out-of-scope tool is 404 on every route", async () => {
     process.env.AGENT_TOOL_SECRET = SECRET;
     const observed: { tool: string; status: number }[] = [];
     for (const tool of TOOLS) {
@@ -607,11 +608,12 @@ describe("authorisation — the tool is not in the allow-list", () => {
       process.env.AGENT_TOOL_ALLOWED = TOOL_NAMES.filter((n) => n !== tool.tool).join(",");
       const res = await call(tool, tool.body, SECRET);
       observed.push({ tool: tool.tool, status: res.status });
-      const { raw, error } = await readRefusal(res);
-      expect({ tool: tool.tool, error }).toEqual({ tool: tool.tool, error: "tool_not_in_scope" });
+      const { raw, code, message } = await readRefusal(res);
+      expect({ tool: tool.tool, code }).toEqual({ tool: tool.tool, code: "not_found" });
+      expect(message).toContain("tool_not_in_scope");
       expect(raw).not.toContain(SECRET);
     }
-    expect(observed).toEqual(TOOL_NAMES.map((tool) => ({ tool, status: 403 })));
+    expect(observed).toEqual(TOOL_NAMES.map((tool) => ({ tool, status: 404 })));
   });
 
   test("an out-of-scope refusal performs no action and names no allowed tool", async () => {
@@ -625,7 +627,7 @@ describe("authorisation — the tool is not in the allow-list", () => {
       const inScope = TOOL_NAMES.filter((n) => n !== tool.tool);
       process.env.AGENT_TOOL_ALLOWED = inScope.join(",");
       const res = await call(tool, tool.body, SECRET);
-      expect({ tool: tool.tool, status: res.status }).toEqual({ tool: tool.tool, status: 403 });
+      expect({ tool: tool.tool, status: res.status }).toEqual({ tool: tool.tool, status: 404 });
       const raw = await res.text();
       // A refusal must not hand the caller the rest of its own scope.
       for (const name of inScope) expect(raw).not.toContain(name);
@@ -641,9 +643,10 @@ describe("authorisation — the tool is not in the allow-list", () => {
       if (allowed === undefined) delete process.env.AGENT_TOOL_ALLOWED;
       else process.env.AGENT_TOOL_ALLOWED = allowed;
       const res = await call(FREEZE, FREEZE.body, SECRET);
-      expect({ allowed, status: res.status }).toEqual({ allowed, status: 403 });
-      const { error } = await readRefusal(res);
-      expect(error).toBe("tool_scope_unconfigured");
+      expect({ allowed, status: res.status }).toEqual({ allowed, status: 404 });
+      const { code, message } = await readRefusal(res);
+      expect(code).toBe("not_found");
+      expect(message).toContain("tool_scope_unconfigured");
     }
   });
 
@@ -653,7 +656,7 @@ describe("authorisation — the tool is not in the allow-list", () => {
     process.env.AGENT_TOOL_SECRET = SECRET;
     process.env.AGENT_TOOL_ALLOWED = "human_handoff";
     const rewritten = await call(FREEZE, FREEZE.body, SECRET);
-    expect(rewritten.status).toBe(403);
+    expect(rewritten.status).toBe(404);
     // And the narrowing is real: the tool that stays on the list gets past
     // authorisation, so the 403 cannot be passing for some unrelated reason.
     // 409 is the first response an authorised caller can get here.
@@ -663,9 +666,9 @@ describe("authorisation — the tool is not in the allow-list", () => {
   test("scope is matched exactly — no substring, no case folding", async () => {
     process.env.AGENT_TOOL_SECRET = SECRET;
     for (const [allowed, expected] of [
-      ["card", 403],
-      ["CARD_FREEZE", 403],
-      ["card_freeze_v2", 403],
+      ["card", 404],
+      ["CARD_FREEZE", 404],
+      ["card_freeze_v2", 404],
       [" card_freeze ", 409],
     ] as const) {
       process.env.AGENT_TOOL_ALLOWED = allowed;
@@ -682,8 +685,9 @@ describe("authorisation — the secret is checked first, and never leaks length"
     process.env.AGENT_TOOL_SECRET = SECRET;
     process.env.AGENT_TOOL_ALLOWED = "human_handoff";
     const res = await call(FREEZE, FREEZE.body, "wrong-secret");
-    const { error } = await readRefusal(res);
-    expect({ status: res.status, error }).toEqual({ status: 401, error: "unauthorized" });
+    const { code, message } = await readRefusal(res);
+    expect({ status: res.status, code }).toEqual({ status: 401, code: "unauthenticated" });
+    expect(message).toContain("unauthorized");
   });
 
   test("a bad secret is 401 even when the allow-list is unset", async () => {
@@ -724,10 +728,19 @@ describe("authorisation — the secret is checked first, and never leaks length"
     const unset = await call(FREEZE, FREEZE.body, "some-guess");
     process.env.AGENT_TOOL_SECRET = SECRET;
     const wrong = await call(FREEZE, FREEZE.body, "some-guess");
-    expect({ status: unset.status, body: await unset.text() }).toEqual({
-      status: wrong.status,
-      body: await wrong.text(),
+    // The envelope carries a per-response `requestId`, so the raw bodies can
+    // never be byte-identical — indistinguishability is about status plus the
+    // stable contract fields, with a fresh correlation id on each refusal.
+    expect(unset.status).toBe(wrong.status);
+    const unsetBody = (await unset.json()) as Record<string, unknown>;
+    const wrongBody = (await wrong.json()) as Record<string, unknown>;
+    expect({ code: unsetBody.code, message: unsetBody.message }).toEqual({
+      code: wrongBody.code,
+      message: wrongBody.message,
     });
+    expect(unsetBody.requestId).toBeTruthy();
+    expect(wrongBody.requestId).toBeTruthy();
+    expect(unsetBody.requestId).not.toBe(wrongBody.requestId);
   });
 
   test("no refusal names a case belonging to another tenant", async () => {
@@ -826,12 +839,9 @@ describe("POST /api/elevenlabs/tools/card-freeze", () => {
     seams.auditDown = true;
     const res = await call(FREEZE, FREEZE.body, SECRET);
     expect(res.status).toBe(503);
-    expect(UnavailableBody.parse(await res.json())).toEqual({
-      ok: false,
-      staged: false,
-      committed: false,
-      error: "audit_unavailable",
-    });
+    const { code, message } = await readRefusal(res);
+    expect(code).toBe("dependency_unavailable");
+    expect(message).toContain("audit_unavailable");
     // Nothing was written: the audit is the record of the freeze, and a freeze
     // that happened without one is a freeze nobody can explain afterwards.
     expect(seams.touched).not.toContain("case.update");
@@ -843,12 +853,13 @@ describe("POST /api/elevenlabs/tools/card-freeze", () => {
     for (const state of ["RECEIVED", "VERIFYING", "UNCERTAIN", "FREEZE_STAGED", "CLOSED"]) {
       seams.caseRow = caseRow(state, "SV-JOURNEY-FRZ");
       const res = await call(FREEZE, FREEZE.body, SECRET);
-      const { error } = await readRefusal(res);
-      expect({ state, status: res.status, error }).toEqual({
+      const { code, message } = await readRefusal(res);
+      expect({ state, status: res.status, code }).toEqual({
         state,
         status: 409,
-        error: `tool card_freeze cannot act on a case in state ${state}`,
+        code: "state_conflict",
       });
+      expect(message).toContain(`tool card_freeze cannot act on a case in state ${state}`);
       expect(seams.caseUpdates).toEqual([]);
     }
   });
@@ -873,13 +884,9 @@ describe("POST /api/elevenlabs/tools/card-freeze", () => {
     seams.caseByRef = caseRow("CLOSED", "SV-JOURNEY-FRZ");
     const res = await call(FREEZE, FREEZE.body, SECRET);
     expect(res.status).toBe(409);
-    expect(IllegalTransitionBody.parse(await res.json())).toEqual({
-      ok: false,
-      staged: false,
-      committed: false,
-      error: "case cannot move from CONFIRMED_FRAUD to FREEZE_STAGED",
-      code: "illegal_transition",
-    });
+    const { code, message } = await readRefusal(res);
+    expect(code).toBe("state_conflict");
+    expect(message).toContain("case cannot move from CONFIRMED_FRAUD to FREEZE_STAGED");
     expect(seams.caseUpdates).toEqual([]);
   });
 
@@ -889,30 +896,27 @@ describe("POST /api/elevenlabs/tools/card-freeze", () => {
     seams.caseByRef = caseRow("CONFIRMED_FRAUD", "SV-JOURNEY-FRZ");
     const res = await call(FREEZE, FREEZE.body, SECRET);
     expect(res.status).toBe(503);
-    expect(UnavailableBody.parse(await res.json())).toEqual({
-      ok: false,
-      staged: false,
-      committed: false,
-      error: "case_transition_failed",
-    });
+    const { code, message } = await readRefusal(res);
+    expect(code).toBe("dependency_unavailable");
+    expect(message).toContain("case_transition_failed");
     expect(seams.touched).toContain("case.update");
   });
 
   test("an unknown conversation_id is refused before any write", async () => {
     const res = await call(FREEZE, FREEZE.body, SECRET);
     expect(res.status).toBe(409);
-    const { error } = await readRefusal(res);
-    expect(error).toBe("no live case for this conversation_id");
+    const { code, message } = await readRefusal(res);
+    expect(code).toBe("state_conflict");
+    expect(message).toContain("no live case for this conversation_id");
     expect(seams.caseUpdates).toEqual([]);
   });
 
-  test("an unknown field is rejected as `unknown_field`, not passed through", async () => {
+  test("an unknown field is rejected as `semantically_invalid`, not passed through", async () => {
     const res = await call(FREEZE, { ...FREEZE.body, freeze: true }, SECRET);
     expect(res.status).toBe(422);
-    expect(SchemaError.parse(await res.json())).toEqual({
-      error: "conversation_id, account_id and reason_code are required",
-      code: "unknown_field",
-    });
+    const body = (await res.json()) as { code: string; message: string };
+    expect(body.code).toBe("semantically_invalid");
+    expect(body.message).toContain("conversation_id, account_id and reason_code are required");
   });
 
   test("a malformed body is a 400 — and this route validates before authorising", async () => {
@@ -925,10 +929,9 @@ describe("POST /api/elevenlabs/tools/card-freeze", () => {
     // tool's schema at all would want the guard moved above `parseJson`.
     const res = await call(FREEZE, "{ not json", SECRET);
     expect(res.status).toBe(400);
-    expect(SchemaError.parse(await res.json())).toEqual({
-      error: "Invalid JSON body",
-      code: undefined,
-    });
+    const body = (await res.json()) as { code: string; message: string };
+    expect(body.code).toBe("malformed_request");
+    expect(body.message).toBe("The request could not be parsed. Invalid JSON body");
     expect(seams.touched).toEqual([]);
   });
 
@@ -978,8 +981,23 @@ describe("POST /api/elevenlabs/tools/verify-transaction", () => {
       // than by this route — that indirection is the whole reason the span can exist. It
       // is asserted as present here rather than accepted as an extra key, so the other
       // two outcomes stay pinned to exactly `{ state }`.
+      //
+      // CONFIRMED_FRAUD also takes the evidence lock in the same write: a case under a
+      // regulator or law-enforcement investigation cannot be erased under PDPL and its
+      // audio retention is extended, and the moment that becomes true is the same moment
+      // the customer's own denial is recorded. Locking anywhere else would leave a
+      // window where a confirmed fraud is still deletable.
       expect(seams.caseUpdates).toEqual(
-        state === "CONFIRMED_FRAUD" ? [{ state, fraudConfirmedAt: expect.any(Date) }] : [{ state }],
+        state === "CONFIRMED_FRAUD"
+          ? [
+              {
+                state,
+                fraudConfirmedAt: expect.any(Date),
+                isEvidenceLocked: true,
+                evidenceCaseId: "CASE-SV-JOURNEY-VER",
+              },
+            ]
+          : [{ state }],
       );
     }
   });
@@ -990,7 +1008,9 @@ describe("POST /api/elevenlabs/tools/verify-transaction", () => {
     seams.caseByRef = caseRow("VERIFYING", "SV-JOURNEY-VER");
     const res = await call(VERIFY, VERIFY.body, SECRET);
     expect(res.status).toBe(503);
-    expect(await res.json()).toEqual({ ok: false, error: "audit_unavailable" });
+    const { code, message } = await readRefusal(res);
+    expect(code).toBe("dependency_unavailable");
+    expect(message).toContain("audit_unavailable");
     expect(seams.caseUpdates).toEqual([]);
 
     await absorbOrphanedAuditRejection("SV-JOURNEY-VER");
@@ -1025,8 +1045,11 @@ describe("POST /api/elevenlabs/tools/verify-transaction", () => {
     seams.caseRow = caseRow("CONFIRMED_FRAUD", "SV-JOURNEY-VER");
     const res = await call(VERIFY, VERIFY.body, SECRET);
     expect(res.status).toBe(409);
-    const { error } = await readRefusal(res);
-    expect(error).toBe("tool verify_transaction cannot act on a case in state CONFIRMED_FRAUD");
+    const { code, message } = await readRefusal(res);
+    expect(code).toBe("state_conflict");
+    expect(message).toContain(
+      "tool verify_transaction cannot act on a case in state CONFIRMED_FRAUD",
+    );
     expect(seams.caseUpdates).toEqual([]);
     await drainFireAndForget();
     expect(seams.audit[0]).toMatchObject({ intent: "tool_refused_verify_transaction" });
@@ -1044,11 +1067,11 @@ describe("POST /api/elevenlabs/tools/verify-transaction", () => {
       SECRET,
     );
     expect(res.status).toBe(422);
-    expect(SchemaError.parse(await res.json())).toEqual({
-      error:
-        "conversation_id and outcome (confirmed_fraud | confirmed_legitimate | uncertain) are required",
-      code: "invalid_payload",
-    });
+    const body = (await res.json()) as { code: string; message: string };
+    expect(body.code).toBe("semantically_invalid");
+    expect(body.message).toContain(
+      "conversation_id and outcome (confirmed_fraud | confirmed_legitimate | uncertain) are required",
+    );
     expect(seams.touched).toEqual([]);
   });
 });
@@ -1129,7 +1152,9 @@ describe("POST /api/elevenlabs/tools/human-handoff", () => {
     seams.caseRow = caseRow("FREEZE_STAGED", "SV-JOURNEY-HND");
     const res = await call(HANDOFF, HANDOFF.body, SECRET);
     expect(res.status).toBe(503);
-    expect(await res.json()).toEqual({ ok: false, error: "audit_unavailable" });
+    const { code, message } = await readRefusal(res);
+    expect(code).toBe("dependency_unavailable");
+    expect(message).toContain("audit_unavailable");
     expect(seams.caseUpdates).toEqual([]);
     await absorbOrphanedAuditRejection("SV-JOURNEY-HND");
   });
@@ -1139,7 +1164,9 @@ describe("POST /api/elevenlabs/tools/human-handoff", () => {
     // `caseUpdated` left null, so the queue write is reached and throws.
     const res = await call(HANDOFF, HANDOFF.body, SECRET);
     expect(res.status).toBe(503);
-    expect(await res.json()).toEqual({ ok: false, error: "handoff_queue_failed" });
+    const { code, message } = await readRefusal(res);
+    expect(code).toBe("dependency_unavailable");
+    expect(message).toContain("handoff_queue_failed");
   });
 
   test("an escalation lost to a concurrent transition still queues the specialist", async () => {
@@ -1206,8 +1233,9 @@ describe("POST /api/elevenlabs/tools/switch-language", () => {
     seams.rawResults = [[], []];
     const res = await call(LANGUAGE, LANGUAGE.body, SECRET);
     expect(res.status).toBe(409);
-    const { error } = await readRefusal(res);
-    expect(error).toBe("no live case for this conversation_id");
+    const { code, message } = await readRefusal(res);
+    expect(code).toBe("state_conflict");
+    expect(message).toContain("no live case for this conversation_id");
     // One for the guarded UPDATE, one to tell "no case" from "wrong state".
     expect(seams.touched.filter((s) => s === "$queryRaw")).toHaveLength(2);
   });
@@ -1216,8 +1244,9 @@ describe("POST /api/elevenlabs/tools/switch-language", () => {
     seams.rawResults = [[], [{ caseRef: "SV-JOURNEY-LANG", state: "CLOSED" }]];
     const res = await call(LANGUAGE, LANGUAGE.body, SECRET);
     expect(res.status).toBe(409);
-    const { error } = await readRefusal(res);
-    expect(error).toBe("tool switch_language cannot act on a case in state CLOSED");
+    const { code, message } = await readRefusal(res);
+    expect(code).toBe("state_conflict");
+    expect(message).toContain("tool switch_language cannot act on a case in state CLOSED");
     await drainFireAndForget();
     expect(seams.audit[0]).toMatchObject({ intent: "tool_refused_switch_language" });
     expect(auditMeta()).toMatchObject({
@@ -1233,8 +1262,9 @@ describe("POST /api/elevenlabs/tools/switch-language", () => {
     }) as unknown as typeof db.$queryRaw;
     const res = await call(LANGUAGE, LANGUAGE.body, SECRET);
     expect(res.status).toBe(503);
-    const { error } = await readRefusal(res);
-    expect(error).toBe("case_update_failed");
+    const { code, message } = await readRefusal(res);
+    expect(code).toBe("dependency_unavailable");
+    expect(message).toContain("case_update_failed");
   });
 
   test("a language that is not a BCP-47 tag is refused before the database", async () => {
@@ -1332,9 +1362,10 @@ describe("POST /api/elevenlabs/signed-url", () => {
 
   test("a client-supplied agent_id that disagrees with the pin is refused", async () => {
     const res = await call(SIGNED, { agent_id: "agent_someone_elses_9999" }, SECRET);
-    expect(res.status).toBe(403);
-    const { error } = await readRefusal(res);
-    expect(error).toBe("agent_not_allowed");
+    expect(res.status).toBe(404);
+    const { code, message } = await readRefusal(res);
+    expect(code).toBe("not_found");
+    expect(message).toContain("agent_not_allowed");
     // Nothing was minted: a refused call must not have spent a credential.
     expect(upstream.call).toBeNull();
   });
@@ -1349,7 +1380,9 @@ describe("POST /api/elevenlabs/signed-url", () => {
     delete process.env.ELEVENLABS_AGENT_ID;
     const res = await call(SIGNED, {}, SECRET);
     expect(res.status).toBe(400);
-    expect(await res.json()).toEqual({ error: "No agent configured: set ELEVENLABS_AGENT_ID" });
+    const { code, message } = await readRefusal(res);
+    expect(code).toBe("malformed_request");
+    expect(message).toContain("No agent configured: set ELEVENLABS_AGENT_ID");
     expect(upstream.call).toBeNull();
   });
 
@@ -1357,16 +1390,16 @@ describe("POST /api/elevenlabs/signed-url", () => {
     respondWith("x".repeat(5_000), 500);
     const res = await call(SIGNED, {}, SECRET);
     expect(res.status).toBe(503);
-    const detail = ((await res.json()) as { error: string }).error;
-    expect(detail.startsWith("ElevenLabs 500: ")).toBe(true);
-    // Bound TIGHTENED from 200 to 160, because the detail now goes through
-    // `leakSafeText` rather than a bare `.slice()`. The status prefix stays, so an
-    // operator still sees which vendor and which status failed.
-    expect(detail).toHaveLength("ElevenLabs 500: ".length + 160);
-    expect(detail).not.toContain("test-elevenlabs-api-key");
+    const { code, message } = await readRefusal(res);
+    expect(code).toBe("dependency_unavailable");
+    expect(message).toContain("ElevenLabs 500: ");
+    // The detail is bounded at 160 by `leakSafeText` inside the route, and the
+    // envelope caps the whole publishable message at 200 — which this fills.
+    expect(message).toHaveLength(200);
+    expect(message).not.toContain("test-elevenlabs-api-key");
     // The stronger property: whatever survived is publishable under the
     // project's own leak gate, not merely short.
-    expect(leakScan(detail)).toEqual([]);
+    expect(leakScan(message)).toEqual([]);
   });
 
   test("a leaky upstream body is redacted rather than echoed", async () => {
@@ -1377,28 +1410,30 @@ describe("POST /api/elevenlabs/signed-url", () => {
     // class this project has chosen to redact.
     respondWith("connect ECONNREFUSED db.internal:5432\n    at pool (src/x.ts:1:1)", 502);
     const res = await call(SIGNED, {}, SECRET);
-    const detail = ((await res.json()) as { error: string }).error;
-    expect(detail).toContain("ElevenLabs 502");
+    const { message } = await readRefusal(res);
+    expect(message).toContain("ElevenLabs 502");
     // The stack frame is gone, and the body is a single line.
-    expect(detail).not.toContain("src/x.ts:1:1");
-    expect(detail).not.toContain("\n");
-    expect(leakScan(detail)).toEqual([]);
+    expect(message).not.toContain("src/x.ts:1:1");
+    expect(message).not.toContain("\n");
+    expect(leakScan(message)).toEqual([]);
   });
 
   test("a credential in an upstream body is redacted", async () => {
     // The rule that let real Stripe keys through until it was fixed.
     respondWith("upstream rejected key sk-live-abc123def", 502);
     const res = await call(SIGNED, {}, SECRET);
-    const detail = ((await res.json()) as { error: string }).error;
-    expect(detail).not.toContain("sk-live-abc123def");
-    expect(leakScan(detail)).toEqual([]);
+    const { message } = await readRefusal(res);
+    expect(message).not.toContain("sk-live-abc123def");
+    expect(leakScan(message)).toEqual([]);
   });
 
   test("an upstream 200 with no credential is a 503, not a 200 with a null url", async () => {
     respondWith(JSON.stringify({ signed_url: null, token: null }));
     const res = await call(SIGNED, {}, SECRET);
     expect(res.status).toBe(503);
-    expect(await res.json()).toEqual({ error: "ElevenLabs returned no connection credential" });
+    const { code, message } = await readRefusal(res);
+    expect(code).toBe("dependency_unavailable");
+    expect(message).toContain("ElevenLabs returned no connection credential");
   });
 
   test("the webrtc token field is accepted as the credential", async () => {
@@ -1413,23 +1448,28 @@ describe("POST /api/elevenlabs/signed-url", () => {
     // about this endpoint's schema.
     process.env.AGENT_TOOL_ALLOWED = "card_freeze";
     const res = await call(SIGNED, "{ not json", SECRET);
-    expect(res.status).toBe(403);
-    const { error } = await readRefusal(res);
-    expect(error).toBe("tool_not_in_scope");
+    expect(res.status).toBe(404);
+    const { code, message } = await readRefusal(res);
+    expect(code).toBe("not_found");
+    expect(message).toContain("tool_not_in_scope");
     expect(upstream.call).toBeNull();
   });
 
   test("an authorised caller with a malformed body is a 400", async () => {
     const res = await call(SIGNED, "{ not json", SECRET);
     expect(res.status).toBe(400);
-    expect(await res.json()).toEqual({ error: "Invalid JSON body" });
+    const body = (await res.json()) as { code: string; message: string };
+    expect(body.code).toBe("malformed_request");
+    expect(body.message).toBe("The request could not be parsed. Invalid JSON body");
     expect(upstream.call).toBeNull();
   });
 
   test("an unknown connection_type is refused", async () => {
     const res = await call(SIGNED, { connection_type: "carrier-pigeon" }, SECRET);
     expect(res.status).toBe(400);
-    expect(await res.json()).toEqual({ error: "Invalid body" });
+    const body = (await res.json()) as { code: string; message: string };
+    expect(body.code).toBe("malformed_request");
+    expect(body.message).toBe("The request could not be parsed. Invalid body");
     expect(upstream.call).toBeNull();
   });
 });
@@ -1629,15 +1669,6 @@ const StagedBody = z.object({
   state: z.string(),
 });
 
-const UnavailableBody = z.object({
-  ok: z.literal(false),
-  staged: z.literal(false),
-  committed: z.literal(false),
-  error: z.string(),
-});
-
-const IllegalTransitionBody = UnavailableBody.extend({ code: z.literal("illegal_transition") });
-
 const DispositionBody = z.object({
   ok: z.literal(true),
   outcome: z.enum(["confirmed_fraud", "confirmed_legitimate", "uncertain"]),
@@ -1669,8 +1700,6 @@ const SignedUrlBody = z.object({
   credential: z.string().min(1),
   expires_in_secs: z.number(),
 });
-
-const SchemaError = z.object({ error: z.string(), code: z.string().optional() });
 
 const ErrorBody = z.object({ error: z.string() });
 

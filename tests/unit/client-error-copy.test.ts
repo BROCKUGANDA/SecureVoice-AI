@@ -23,6 +23,7 @@ import {
   authErrorDetail,
   describeAuthError,
   reportAuthError,
+  type AuthLang,
 } from "@/lib/auth/errors";
 import {
   describeAnalyticsError,
@@ -207,5 +208,36 @@ describe("client reporting", () => {
     }
     expect(seen).toHaveLength(2);
     expect((seen[0] as [string, { detail: string }])[1].detail).toBe("a bare string");
+  });
+
+  test("every sign-in language gets a sentence, not a hole", () => {
+    // Auth copy is authored in `en` + `ar`, while `AuthLang` is the product's full
+    // six. `Copy` used to be a closed `{ en; ar }`, so the lookup for a Hindi,
+    // Urdu, French or Swahili sign-in failure returned `undefined` — an empty error
+    // message served to someone who has just been locked out. The type error was
+    // the evidence that nobody had ever asked for those languages; this is the
+    // assertion that makes asking for them legal.
+    //
+    // Per language rather than per code: the failure was the missing row, not the
+    // wording.
+    const langs: AuthLang[] = ["en", "ar", "hi", "ur", "fr", "sw"];
+    for (const code of ["INVALID_EMAIL_OR_PASSWORD", "TOO_MANY_REQUESTS", "USER_NOT_FOUND"]) {
+      for (const lang of langs) {
+        const shown = describeAuthError({ code }, lang);
+        expect({ code, lang, shown }).toEqual({ code, lang, shown: expect.any(String) });
+        expect(shown.length).toBeGreaterThan(12);
+        expect(readsLikeProse(shown)).toBe(true);
+      }
+    }
+    // Arabic must keep its own wording: a fallback so broad it also swallowed the
+    // one translated non-English language would be the same bug in disguise.
+    expect(ARABIC.test(describeAuthError({ code: "USER_NOT_FOUND" }, "ar"))).toBe(true);
+    // And the four untranslated languages take the English line — stated, not
+    // accidental, so a later translation that forgets one of them shows up here.
+    for (const lang of ["hi", "ur", "fr", "sw"] as const) {
+      expect(describeAuthError({ code: "USER_NOT_FOUND" }, lang)).toBe(
+        describeAuthError({ code: "USER_NOT_FOUND" }, "en"),
+      );
+    }
   });
 });

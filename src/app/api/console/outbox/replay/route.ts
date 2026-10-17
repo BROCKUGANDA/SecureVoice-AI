@@ -4,7 +4,16 @@ import { z } from "zod";
 import { requireOperator } from "@/lib/credits";
 import { replayDeadLetter } from "@/lib/outbox";
 import { db } from "@/lib/db";
-import { badRequest, parseJson } from "@/lib/api-errors";
+import { makeFailure, type FailureCode, type FailureInit } from "@/lib/failures/envelope";
+import { parseJson } from "@/lib/validation/safe-log";
+
+function failure(code: FailureCode, init: FailureInit = {}): NextResponse {
+  const f = makeFailure(code, init);
+  return NextResponse.json(f.body, {
+    status: f.status,
+    headers: { ...f.headers, "Cache-Control": "no-store" },
+  });
+}
 
 export const dynamic = "force-dynamic";
 
@@ -22,14 +31,14 @@ const schema = z.object({
 export async function POST(req: NextRequest) {
   const guard = await requireOperator();
   if (!guard.ok) {
-    return NextResponse.json({ error: guard.error }, { status: guard.status });
+    return failure(guard.status === 401 ? "unauthenticated" : "not_found", { detail: guard.error });
   }
 
   const body = await parseJson(req);
-  if (body === null) return badRequest("Invalid JSON body");
+  if (body === null) return failure("malformed_request", { detail: "Invalid JSON body" });
   const parsed = schema.safeParse(body);
   if (!parsed.success) {
-    return NextResponse.json({ error: "deadLetterId or all=true is required" }, { status: 422 });
+    return failure("semantically_invalid", { detail: "deadLetterId or all=true is required" });
   }
 
   if (parsed.data.all) {
@@ -41,8 +50,9 @@ export async function POST(req: NextRequest) {
 
   const result = await replayDeadLetter(parsed.data.deadLetterId!);
   if (!result.ok) {
-    const status = result.error === "dead_letter_not_found" ? 404 : 409;
-    return NextResponse.json({ error: result.error }, { status });
+    return failure(result.error === "dead_letter_not_found" ? "not_found" : "state_conflict", {
+      detail: result.error,
+    });
   }
   return NextResponse.json({ ok: true });
 }
@@ -51,7 +61,7 @@ export async function POST(req: NextRequest) {
 export async function GET() {
   const guard = await requireOperator();
   if (!guard.ok) {
-    return NextResponse.json({ error: guard.error }, { status: guard.status });
+    return failure(guard.status === 401 ? "unauthenticated" : "not_found", { detail: guard.error });
   }
   const rows = await db.deadLetter.findMany({ orderBy: { failedAt: "desc" }, take: 50 });
   return NextResponse.json(

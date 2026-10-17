@@ -4,7 +4,9 @@ import crypto from "node:crypto";
 import { db } from "@/lib/db";
 import { generateCaseFile } from "@/lib/regulatory-export";
 
-export async function generateSTREvidence(interventionId: string): Promise<Record<string, unknown>> {
+export async function generateSTREvidence(
+  interventionId: string,
+): Promise<Record<string, unknown>> {
   const base = await generateCaseFile(interventionId);
 
   const strPackage = {
@@ -17,14 +19,18 @@ export async function generateSTREvidence(interventionId: string): Promise<Recor
   if (fiuEndpoint) {
     try {
       const secret = process.env.BANK_WEBHOOK_SECRET ?? "";
-      const signature = crypto.createHmac("sha256", secret).update(JSON.stringify(strPackage)).digest("hex");
+      // Serialised once; that exact string is both signed and sent. Signing a
+      // re-serialisation is the rule-4 violation — the digest would cover bytes
+      // the receiver never holds.
+      const body = JSON.stringify(strPackage);
+      const signature = crypto.createHmac("sha256", secret).update(body).digest("hex");
       await fetch(fiuEndpoint, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           "X-STR-Signature": signature,
         },
-        body: JSON.stringify(strPackage),
+        body,
       });
     } catch {
       // non-blocking

@@ -70,7 +70,7 @@ const SEEDED = [
     label: "Demo mode",
     email: process.env.NEXT_PUBLIC_DEMO_LOGIN_EMAIL ?? "",
     password: process.env.NEXT_PUBLIC_DEMO_LOGIN_PASSWORD ?? "",
-    note: "Guided live scenario — one case run end to end against the 60-second case deadline. 25 credits.",
+    note: "Guided live scenario — one case run end to end against the 60-second case deadline. Never billed: a demo run is metered and audited, and the cost is ours.",
   },
 ] as const;
 

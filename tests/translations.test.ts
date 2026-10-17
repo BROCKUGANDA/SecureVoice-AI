@@ -79,10 +79,7 @@ const IDENTICAL_BY_NATURE = new Set(["·", "#0b7a55"]);
  * other variant and break the distinction the two call sites are drawing.
  */
 const SEMANTIC_SPLITS = new Map<string, string>([
-  [
-    "Not now",
-    "Console dismisses a dialog (ليس الآن); TwoFactorPrompt defers 2FA setup (لاحقاً)",
-  ],
+  ["Not now", "Console dismisses a dialog (ليس الآن); TwoFactorPrompt defers 2FA setup (لاحقاً)"],
   ["ok", "Demo marks an action done (تم); CrmSection marks a live connection (متصلة)"],
   [
     "English",
@@ -104,8 +101,7 @@ describe("the Arabic surface", () => {
       // clever combined one.
       const LITERAL_MIXED = /\bt\(\s*(["'`])([^"'`]*?)\1\s*,\s*(["'`])([^"'`]*?)\3\s*,/g;
       const LITERAL_SAME = /\bt\(\s*(["'`])([^"'`]*?)\1\s*,\s*\1([^"'`]*?)\1\s*,/g;
-      const LITERAL_MULTILINE =
-        /\bt\(\s*\n\s*(["'`])([^"'`]*?)\1\s*,\s*\n\s*\1([^"'`]*?)\1\s*,/g;
+      const LITERAL_MULTILINE = /\bt\(\s*\n\s*(["'`])([^"'`]*?)\1\s*,\s*\n\s*\1([^"'`]*?)\1\s*,/g;
       // Bare identifiers and member expressions: t(x.y, x.y, lang)
       const EXPRESSION = /\bt\(\s*([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)+)\s*,\s*\1\s*,/g;
 

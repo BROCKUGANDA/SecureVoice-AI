@@ -35,30 +35,50 @@ const writer = {
  * `AuditLog.create` with just enough of the client to run `append()`'s fast
  * path: read the chain head, hash, insert. The failure under test is the insert,
  * so the head read resolves `null` (GENESIS) and never depends on a database.
+ *
+ * `$transaction` is here because `append()` ESCALATES on its last attempt: the
+ * final try drops the fast path and takes `pg_advisory_xact_lock` so two replicas
+ * cannot fork the chain by both reading the same head (see the retry loop in
+ * `append`). Without a `$transaction` on the mock, that escalation threw a
+ * TypeError instead of the collision the test staged, and the give-up path ended
+ * one attempt early — the retry budget looked exhausted at three writes when the
+ * production loop allows four. The callback receives a tx with the same
+ * `findFirst`/`create`, so both paths drive the same `writer.sequence`.
  */
-mock.module("@/lib/db", () => ({
-  dbAudit: {
-    auditLog: {
-      findFirst: async () => null,
-      create: async () => {
-        writer.calls += 1;
-        const kind = writer.sequence[writer.index] ?? "ok";
-        writer.index += 1;
-        if (kind === "down") throw new Error("connection terminated");
-        if (kind === "collision") {
-          const err = new Error(
-            "Unique constraint failed on the fields: (`chainHash`)",
-          ) as Error & { code: string; meta: { modelName: string } };
-          err.code = "P2002";
-          err.meta = { modelName: "AuditLog" };
-          throw err;
-        }
-        return { id: "audit-1", chainHash: "hash-1", prevHash: "0".repeat(64) };
-      },
+mock.module("@/lib/db", () => {
+  const auditLog = {
+    findFirst: async () => null,
+    create: async () => {
+      writer.calls += 1;
+      const kind = writer.sequence[writer.index] ?? "ok";
+      writer.index += 1;
+      if (kind === "down") throw new Error("connection terminated");
+      if (kind === "collision") {
+        const err = new Error("Unique constraint failed on the fields: (`chainHash`)") as Error & {
+          code: string;
+          meta: { modelName: string };
+        };
+        err.code = "P2002";
+        err.meta = { modelName: "AuditLog" };
+        throw err;
+      }
+      return { id: "audit-1", chainHash: "hash-1", prevHash: "0".repeat(64) };
     },
-  },
-  db: {},
-}));
+  };
+  return {
+    dbAudit: {
+      auditLog,
+      // The escalation path runs its callback against a tx that carries
+      // `$executeRaw` (the advisory lock) and its own `auditLog`. Both are
+      // needed for the give-up path to reach a FOURTH write: without
+      // `$executeRaw` the callback threw before it ever called `create`, and
+      // `writer.calls` stopped at three.
+      $transaction: async (fn: (tx: unknown) => Promise<unknown>) =>
+        fn({ $executeRaw: async () => 0, auditLog }),
+    },
+    db: {},
+  };
+});
 
 // Imported after the seam, so `append()` runs against it.
 const { append, auditAppendFailures } = await import("@/lib/audit-chain");

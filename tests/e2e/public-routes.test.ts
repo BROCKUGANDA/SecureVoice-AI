@@ -1395,6 +1395,9 @@ describe("/api/enroll — the PII write surface", () => {
     const res = await enrollPost(req);
 
     expect(res.status).toBe(400);
+    // NOTE: /api/enroll was never migrated to the failure() envelope — it
+    // still answers the legacy `{ error }` shape, so this asserts what the
+    // route actually returns.
     expect(ErrorBody.parse(await res.json()).error).toBe("Invalid JSON body");
   });
 
@@ -1593,7 +1596,12 @@ describe("POST /api/tts — validation happens before any provider spend", () =>
     const res = await ttsPost(req);
 
     expect(res.status).toBe(400);
-    expect(ErrorBody.parse(await res.json()).error).toBe("Invalid JSON body");
+    const body = z
+      .object({ code: z.literal("malformed_request"), message: z.string() })
+      .parse(await res.json());
+    // Envelope composes as "<base> <detail>": base is "The request could not
+    // be parsed." and the route passes detail "Invalid JSON body".
+    expect(body.message).toBe("The request could not be parsed. Invalid JSON body");
   });
 
   test.each([
@@ -1606,12 +1614,12 @@ describe("POST /api/tts — validation happens before any provider spend", () =>
     const res = await ttsPost(req);
 
     expect(res.status).toBe(422);
-    // The code travels in the body, not only in prose: WP-22 clients branch on
-    // "unknown field" versus "missing field".
+    // The code travels in the body, not only in prose: clients branch on
+    // the envelope code rather than scraping the message.
     const body = z
-      .object({ error: z.literal("Invalid TTS request"), code: z.literal("invalid_payload") })
+      .object({ code: z.literal("semantically_invalid"), message: z.string() })
       .parse(await res.json());
-    expect(body.code).toBe("invalid_payload");
+    expect(body.message).toContain("Invalid TTS request");
   });
 
   test("names the offending voice and the accepted vocabulary", async () => {
@@ -1619,10 +1627,12 @@ describe("POST /api/tts — validation happens before any provider spend", () =>
     const res = await ttsPost(req);
 
     expect(res.status).toBe(422);
-    const body = z.object({ error: z.string() }).parse(await res.json());
-    expect(body.error).toContain("Unknown voice 'not-a-real-voice'");
+    const body = z
+      .object({ code: z.literal("semantically_invalid"), message: z.string() })
+      .parse(await res.json());
+    expect(body.message).toContain("Unknown voice 'not-a-real-voice'");
     // Telling a caller only that the voice is unknown produces a support ticket;
     // the accepted forms belong in the message.
-    expect(body.error).toContain("en|ar|hi|ur|fr|sw");
+    expect(body.message).toContain("en|ar|hi|ur|fr|sw");
   });
 });

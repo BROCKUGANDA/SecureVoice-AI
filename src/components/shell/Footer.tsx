@@ -123,7 +123,11 @@ export function Footer() {
               <p className="micro text-[9px] text-ink-3">PLATFORM</p>
               <div className="mt-3 space-y-2">
                 {ROUTES.filter(
-                  (l) => l.href === "/docs" || l.href === "/security" || l.href === "/usecases" || l.href === "/team",
+                  (l) =>
+                    l.href === "/docs" ||
+                    l.href === "/security" ||
+                    l.href === "/usecases" ||
+                    l.href === "/team",
                 ).map((l) => (
                   <a
                     key={l.href}

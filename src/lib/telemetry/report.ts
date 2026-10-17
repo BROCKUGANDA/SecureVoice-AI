@@ -32,14 +32,20 @@ import {
   type SpanWindowSummary,
 } from "./slo";
 import { MAX_READ_BYTES, readSpanRecords, spanLogDisplayPath, telemetryHealth } from "./store";
-import { exporterConfigured } from "./export";
+import { remoteTelemetryStatus } from "./otlp-config";
 
 /**
  * 3.0 because the artifact changes meaning, not just shape: `spans` now carries
  * verdicts over production-shaped samples only, and the samples that filled this
  * file up to 2.0 are reported separately under `spans_harness` with no verdict.
+ *
+ * 3.1 renames `exporterConfigured: boolean` to `remoteTelemetry: { shipping,
+ * reason }`. The old field was not a version-of-the-same-fact: it answered a
+ * different question from the one the exporters ask, so it could report a
+ * capability the process did not have. A reader that treated `true` as "traces are
+ * shipping" was reading a claim nothing enforced.
  */
-export const EVIDENCE_SCHEMA_VERSION = "3.0";
+export const EVIDENCE_SCHEMA_VERSION = "3.1";
 
 /** The brief's definition of done. */
 export const REQUIRED_INTERVENTIONS = 30;
@@ -488,7 +494,10 @@ export async function latencyBlock(
     spans: summaries,
     worst: worstSpan(summaries),
     allTargetsMet: allTargetsMet(summaries),
-    exporterConfigured: exporterConfigured(),
+    // Named `remoteTelemetry`, not `exporterConfigured`, because the old name
+    // promised a boolean and delivered a guess: it read a variable no exporter
+    // consults. This is `initOtel()`'s own gate, and it carries why.
+    remoteTelemetry: remoteTelemetryStatus(),
     persistence: { kind: "file", path: spanLogDisplayPath(), note: PERSISTENCE_NOTE },
     recorder: health.recorder,
     store: health.store,

@@ -293,14 +293,13 @@ export async function transitionCaseWithOutbox(
         // only sanctioned way to publish a verdict, and a state reached through it
         // must carry the same start clock as one reached through `transitionCase` —
         // otherwise the span exists for whichever path the caller happened to use.
-         ...(to === "CONFIRMED_FRAUD"
-           ? {
-               fraudConfirmedAt: row.fraudConfirmedAt ?? new Date(),
-               isEvidenceLocked: true,
-               evidenceCaseId: row.evidenceCaseId ?? `CASE-${row.caseRef}`,
-             }
-           : {}),
-
+        ...(to === "CONFIRMED_FRAUD"
+          ? {
+              fraudConfirmedAt: row.fraudConfirmedAt ?? new Date(),
+              isEvidenceLocked: true,
+              evidenceCaseId: row.evidenceCaseId ?? `CASE-${row.caseRef}`,
+            }
+          : {}),
       },
       select: { id: true, state: true },
     });

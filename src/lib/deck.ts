@@ -261,8 +261,7 @@ export const DECK: Slide[] = [
     kicker: "14 · Proof of Build",
     titleEn: "Don't take our word for it",
     titleAr: "جرّبوه بأنفسكم",
-    subEn:
-      "securevoice.ai/demo — simulated fraud scenario, full call flow, mock banking integration",
+    subEn: "securevoiceai.me — simulated fraud scenario, full call flow, mock banking integration",
     scriptEn:
       "Everything I have claimed, you can touch. The live demo is running right now: a simulated fraud scenario with the full call flow, integrated with mock banking systems. Trigger an alert, watch the agent call, listen to the verification, see the freeze STAGED with `committed: false` and `stage: pending_specialist` — that is the invariant, not a limitation — then follow the handoff and explore the operations dashboard: live call monitor, analytics against baseline, configuration, and the compliance audit log. This is not a concept deck. It is a working system, and the guided simulation is honest about being a simulation: it replays a real case shape without dialling anyone.",
     scriptAr:

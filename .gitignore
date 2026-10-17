@@ -103,11 +103,9 @@ docs/evidence/evidence-2026-09-10.json
 # local Chromium profile for the walkthrough capture: cookies + Login Data, never push
 scripts/walkthrough/out/
 docs/walkthrough/poster.png
-# superseded canvas approach (hardcoded coords) and an unused Supabase script;
-# the live DB is Postgres via Prisma
+# superseded canvas approach (hardcoded coords); the live DB is Postgres via Prisma
 scripts/draw-canvas-diagrams.py
 scripts/probe-canvas.py
-scripts/supabase-setup.mjs
 
 # Coverage output. The pre-existing "/coverage" rule does NOT match this
 # directory: a leading slash anchors the pattern, so "/coverage" only ever

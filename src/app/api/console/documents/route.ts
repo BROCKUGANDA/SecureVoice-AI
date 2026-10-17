@@ -3,8 +3,16 @@ import { NextResponse } from "next/server";
 import { requireOperator } from "@/lib/credits";
 import { withTenantScope } from "@/lib/tenancy/db-scope";
 import { consume as consumeRateLimit, rateLimitHeaders } from "@/lib/ratelimit";
-import { badRequest, unprocessable } from "@/lib/api-errors";
+import { makeFailure, type FailureCode, type FailureInit } from "@/lib/failures/envelope";
 import { MAX_PDF_BYTES, orgKbQuotaBytes, vectorizeDocument } from "@/lib/knowledge/documents";
+
+function failure(code: FailureCode, init: FailureInit = {}): NextResponse {
+  const f = makeFailure(code, init);
+  return NextResponse.json(f.body, {
+    status: f.status,
+    headers: { ...f.headers, "Cache-Control": "no-store" },
+  });
+}
 import { deferWork, scheduleVectorize } from "@/lib/knowledge/schedule";
 import { append as auditAppend } from "@/lib/audit-chain";
 import { logWarn } from "@/lib/validation/safe-log";
@@ -39,17 +47,16 @@ const ALLOWED_LANG = /^[a-z]{2}(-[A-Za-z]{2,4})?$/;
 export async function GET(req?: Request) {
   const guard = await requireOperator();
   if (!guard.ok) {
-    return NextResponse.json({ error: guard.error }, { status: guard.status });
+    return failure(guard.status === 401 ? "unauthenticated" : "not_found", { detail: guard.error });
   }
   // Hoisted so the narrowed non-null type survives into the scoped closure:
   // `guard.profile.orgId` is `string | null` and TypeScript will not carry a
   // property narrowing across a callback boundary.
   const tenantId = guard.profile.orgId;
   if (!tenantId) {
-    return NextResponse.json(
-      { error: "No organization is linked to this account, so there is no knowledge base." },
-      { status: 409 },
-    );
+    return failure("state_conflict", {
+      detail: "No organization is linked to this account, so there is no knowledge base.",
+    });
   }
 
   // `withTenantScope` runs this as `sv_tenant` with `app.org_id` pinned, so the
@@ -92,39 +99,37 @@ export async function GET(req?: Request) {
 export async function POST(req: NextRequest) {
   const guard = await requireOperator();
   if (!guard.ok) {
-    return NextResponse.json({ error: guard.error }, { status: guard.status });
+    return failure(guard.status === 401 ? "unauthenticated" : "not_found", { detail: guard.error });
   }
   const orgId = guard.profile.orgId;
   if (!orgId) {
-    return NextResponse.json(
-      { error: "No organization is linked to this account, so there is nowhere to file this." },
-      { status: 409 },
-    );
+    return failure("state_conflict", {
+      detail: "No organization is linked to this account, so there is nowhere to file this.",
+    });
   }
 
   const rl = await consumeRateLimit("console-documents", guard.profile.userId);
   if (!rl.ok) {
-    return NextResponse.json(
-      { error: "Rate limit exceeded; retry later." },
-      { status: 429, headers: rateLimitHeaders(rl) },
-    );
+    return failure("rate_limited", {
+      retryAfterSec: Math.ceil(rl.retryAfterMs / 1000),
+      headers: rateLimitHeaders(rl),
+    });
   }
 
   let form: FormData;
   try {
     form = await req.formData();
   } catch {
-    return badRequest("Expected multipart/form-data");
+    return failure("malformed_request", { detail: "Expected multipart/form-data" });
   }
 
   const file = form.get("file");
-  if (!(file instanceof File)) return badRequest("file is required");
-  if (file.size === 0) return badRequest("file is empty");
+  if (!(file instanceof File)) return failure("malformed_request", { detail: "file is required" });
+  if (file.size === 0) return failure("malformed_request", { detail: "file is empty" });
   if (file.size > MAX_PDF_BYTES) {
-    return unprocessable(
-      `file is ${(file.size / 1024 / 1024).toFixed(1)} MB; the limit is 8 MB`,
-      "file_too_large",
-    );
+    return failure("semantically_invalid", {
+      detail: `file is ${(file.size / 1024 / 1024).toFixed(1)} MB; the limit is 8 MB`,
+    });
   }
 
   const bytes = new Uint8Array(await file.arrayBuffer());
@@ -133,17 +138,19 @@ export async function POST(req: NextRequest) {
   // to choose freely.
   const isPdf = bytes.length > 5 && new TextDecoder().decode(bytes.subarray(0, 5)) === "%PDF-";
   if (!isPdf) {
-    return unprocessable(
-      "Only PDF documents can be indexed. A scanned PDF with no text layer cannot be searched either.",
-      "not_a_pdf",
-    );
+    return failure("semantically_invalid", {
+      detail:
+        "Only PDF documents can be indexed. A scanned PDF with no text layer cannot be searched either.",
+    });
   }
 
   const rawTitle = String(form.get("title") ?? "").trim();
   const title = rawTitle || file.name.replace(/\.pdf$/i, "").slice(0, 120) || "Policy document";
   const rawLang = String(form.get("lang") ?? "").trim();
   if (rawLang && !ALLOWED_LANG.test(rawLang)) {
-    return unprocessable("lang must be a BCP-47 tag such as en or ar", "invalid_lang");
+    return failure("semantically_invalid", {
+      detail: "lang must be a BCP-47 tag such as en or ar",
+    });
   }
   const lang = rawLang || "en";
 
@@ -159,10 +166,9 @@ export async function POST(req: NextRequest) {
   const quotaBytes = orgKbQuotaBytes();
   if (usedBytes + bytes.byteLength > quotaBytes) {
     const mb = (n: number) => (n / 1024 / 1024).toFixed(1);
-    return unprocessable(
-      `the knowledge base holds ${mb(usedBytes)} MB of a ${mb(quotaBytes)} MB quota; this file needs ${mb(bytes.byteLength)} MB. Delete a document to free space.`,
-      "storage_quota_exceeded",
-    );
+    return failure("semantically_invalid", {
+      detail: `the knowledge base holds ${mb(usedBytes)} MB of a ${mb(quotaBytes)} MB quota; this file needs ${mb(bytes.byteLength)} MB. Delete a document to free space.`,
+    });
   }
 
   // Same scope on the write: the policy's WITH CHECK clause is what makes

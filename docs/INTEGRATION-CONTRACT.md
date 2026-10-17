@@ -145,7 +145,7 @@ Errors use one envelope, with every field always present:
   "message": "The request was refused by policy. destination_cooldown: destination +971****0004 was dialled by this organisation 299s ago (cooldown 300s)",
   "retryable": false,
   "requestId": "req_01HQ8Z7V3M9K2R4T6Y8W0X2B4D",
-  "docsUrl": "https://securevoice.ai/docs/errors/policy_precondition"
+  "docsUrl": "https://securevoiceai.me/docs/errors/policy_precondition"
 }
 ```
 

@@ -35,7 +35,7 @@ initiates outward from us.
 
 ```http
 POST /v1/interventions HTTP/1.1
-Host: api.securevoice.ai
+Host: securevoiceai.me
 Content-Type: application/json
 SV-Signature: t=1790920000,v1=5257a869e…
 Idempotency-Key: your-case-reference
@@ -112,7 +112,7 @@ SV-Signature: t=1790920600,v1=9a1c…
     "freeze_committed": false,
     "reversal_window_secs": 900,
     "time_to_contact_secs": 41,
-    "audit_ref": "https://api.securevoice.ai/audit/SV-F-5MZV4C"
+    "audit_ref": "SV-F-5MZV4C"
   }
 }
 ```

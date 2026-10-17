@@ -80,6 +80,10 @@ const BANNED: { readonly pattern: RegExp; readonly why: string }[] = [
     why: "audio IS retained for DEFAULT_RETENTION_DAYS.audio days and then deleted — the storage claim is false even though audio genuinely does not reach a decision model",
   },
   {
+    pattern: /securevoice\.(ai|ae)\b/i,
+    why: "neither domain belongs to this project — `securevoice.ai` 301-redirects to an unrelated third-party product and `securevoice.ae` / `api.securevoice.ae` are NXDOMAIN, so published copy that names one sends a judge or a bank's integrator to a stranger's endpoint. The origin is `securevoiceai.me`, which is what `API_BASE_URL` (`src/lib/public-config.ts`) defaults to and what `BETTER_AUTH_URL` is set to. Note the two spellings do not collide: `securevoiceai.me` contains no `securevoice.` prefix",
+  },
+  {
     pattern: /Filipino|Malayalam|Bengali|Tagalog|Bahasa/i,
     why: "outside the TtsLang union — those languages are not implemented",
   },
@@ -232,11 +236,75 @@ describe("published claims — nothing shipped that the tree refutes", () => {
       "multi-AZ 99.99% uptime, connects in about one second and sub-second turn-taking, " +
       "test suite complete with over ninety percent pass, the agent executes the freeze and the " +
       "account frozen in 61 seconds, with a one-word path to a human and a specialist joins " +
-      "the call within 30 seconds.";
+      "the call within 30 seconds, hosted at securevoice.ai with inbound on api.securevoice.ae.";
     const matched = BANNED.filter((b) => b.pattern.test(fabricated));
     expect(matched.length).toBe(BANNED.length);
     const missed = BANNED.filter((b) => !b.pattern.test(fabricated)).map((b) => b.why);
     expect(missed, `these bans matched nothing: ${missed.join(" | ")}`).toEqual([]);
+  });
+
+  /**
+   * The documents a bank's integrator copies from. The internal registers
+   * (`docs/GAP-REGISTER.md`, `docs/TODO.md`, `docs/VERIFICATION.md`) are deliberately
+   * NOT in this list: they name the dead host to record that it was fixed, and a
+   * defect you are not allowed to write down is a defect that comes back with the
+   * next merge. These files have no such excuse — the reader is not reviewing us.
+   */
+  const DOCS = [
+    "README.md",
+    "IDEA.md",
+    "MODEL_CARD.md",
+    "docs/INTEGRATION.md",
+    "docs/INTEGRATION-CONTRACT.md",
+    "docs/INTEGRATION-ONEPAGER.md",
+    "docs/DEPLOY.md",
+    "docs/RUNBOOK.md",
+  ];
+
+  /**
+   * A dead origin is legal in exactly one position: as the thing being refuted. The
+   * marker must be on the same line, because the looser alternative — "does this file
+   * contain a negation anywhere" — exempts the whole file, and every published
+   * falsehood this repo has caught was itself written as a negation.
+   */
+  const REFUTED_ON_THE_LINE =
+    /no longer serves|used to say|does not resolve|never existed|NXDOMAIN|NOT a literal|unrelated third[- ]party|redirects to|which this deployment|pointed at/i;
+
+  test("no customer-facing document points a reader at a domain we do not own", () => {
+    const offenders: string[] = [];
+    for (const rel of DOCS) {
+      let text: string;
+      try {
+        text = readFileSync(join(ROOT, rel), "utf8");
+      } catch {
+        // A listed file that cannot be read would otherwise make this a green scan
+        // over nothing — the exact shape of every rotting gate in this repository.
+        offenders.push(`${rel}: listed but unreadable — the scan is looking at nothing`);
+        continue;
+      }
+      text.split("\n").forEach((line, i) => {
+        if (!/securevoice\.(ai|ae)/i.test(line)) return;
+        if (REFUTED_ON_THE_LINE.test(line)) return;
+        offenders.push(`${rel}:${i + 1}: ${line.trim().slice(0, 120)}`);
+      });
+    }
+    expect(offenders, offenders.join("\n")).toEqual([]);
+  });
+
+  test("the document ban can fail — a host line fires, a refutation does not", () => {
+    const host = "Host: api.securevoice.ai";
+    expect(/securevoice\.(ai|ae)/i.test(host)).toBe(true);
+    expect(REFUTED_ON_THE_LINE.test(host)).toBe(false);
+
+    const refutation =
+      "> **This line used to say `https://securevoice.ai`. That domain no longer serves";
+    expect(/securevoice\.(ai|ae)/i.test(refutation)).toBe(true);
+    expect(REFUTED_ON_THE_LINE.test(refutation)).toBe(true);
+
+    // The live origin must not satisfy the pattern, or the gate gets silenced by an
+    // allowlist nobody reads. `securevoiceai.me` has no `securevoice.` prefix.
+    expect(/securevoice\.(ai|ae)/i.test("https://securevoiceai.me/api/interventions")).toBe(false);
+    expect(DOCS.length).toBeGreaterThanOrEqual(8);
   });
 
   test("llms.txt derives its numbers instead of retyping them", () => {

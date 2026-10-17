@@ -640,7 +640,8 @@ Against §13, the honest state after today:
 - [x] Freeze committed by a second actor — `POST /api/console/freeze/commit`
 - [x] `docs/RUNBOOK.md` present
 - [ ] Named institution in `docs/PILOT.md` — founder input
-- [ ] `bun run test --offline` — no offline mode exists
+- [x] `bun run test --offline` — there is still no offline mode (§27), and the flag is
+      now refused loudly instead of silently running the entire suite.
 - [ ] Carrier geo-lock active — founder console action
 
 ### 11. Two more falsifiable claims in customer-facing surfaces — **10%** — FIXED
@@ -1581,3 +1582,34 @@ cause when it stops verifying.
 
 Correction recorded rather than quietly rewritten: §21's bullet stands as written on the day it
 was true about the _plan_, with this section appended as the measurement.
+
+### 27. `bun run test --offline` did not exist, so it ran everything
+
+An item from the same list as §23: the user had been told the offline test mode "doesn't
+exist". Checking it again, it now behaved worse than not existing.
+
+`scripts/run-tests.mjs` built its filter list with
+`process.argv.slice(2).filter((a) => !a.startsWith("-"))`. Any `-`-prefixed argument was
+dropped on the floor. So `bun run test --offline` selected **no** filter, and no filter means
+the whole tree — every DB-backed suite, every seam, the load gate. Confirmed by running it:
+Prisma INSERTs against a live database went past within seconds, and the run had to be killed
+at the timeout with exit 143.
+
+That is the false-affordance shape: a missing capability fails loudly and nobody believes it
+did something, while an ignored flag reports a full-suite result under the name of a subset the
+operator asked for. Someone steering a slow machine would have believed they had run a cheap
+offline check.
+
+**Fixed by refusing, not by inventing.** A `-`-prefixed argument now exits 2 with the
+interface that actually exists — path substrings — and says outright that there is no
+`--offline`, `--watch` or `--reporter`, and that if one is wanted it belongs in this script
+rather than in a flag passed and trusted. Building an offline mode would have meant deciding
+which suites are network-free, which is a real design question, and the register does not
+record anyone asking for it; §10's line only ever said the mode does not exist.
+
+Verified: `bun run test --offline` → exit 2, message names the flag and the supported form.
+`bun run test remote-telemetry-status` → 6 pass, unaffected. Every caller of this script was
+read before switching the refusal on — `ci.yml:544` (`timezone/ billing/ telemetry/ contracts/`),
+`package.json:38-40` (`unit`, the integration and e2e lists), and the docs — and none of them
+passes a `-` argument; the only flagged test command in CI is `bun run test:jest --coverage`,
+which goes to Jest through a different script.

@@ -728,10 +728,19 @@ describe("authorisation — the secret is checked first, and never leaks length"
     const unset = await call(FREEZE, FREEZE.body, "some-guess");
     process.env.AGENT_TOOL_SECRET = SECRET;
     const wrong = await call(FREEZE, FREEZE.body, "some-guess");
-    expect({ status: unset.status, body: await unset.text() }).toEqual({
-      status: wrong.status,
-      body: await wrong.text(),
+    // The envelope carries a per-response `requestId`, so the raw bodies can
+    // never be byte-identical — indistinguishability is about status plus the
+    // stable contract fields, with a fresh correlation id on each refusal.
+    expect(unset.status).toBe(wrong.status);
+    const unsetBody = (await unset.json()) as Record<string, unknown>;
+    const wrongBody = (await wrong.json()) as Record<string, unknown>;
+    expect({ code: unsetBody.code, message: unsetBody.message }).toEqual({
+      code: wrongBody.code,
+      message: wrongBody.message,
     });
+    expect(unsetBody.requestId).toBeTruthy();
+    expect(wrongBody.requestId).toBeTruthy();
+    expect(unsetBody.requestId).not.toBe(wrongBody.requestId);
   });
 
   test("no refusal names a case belonging to another tenant", async () => {

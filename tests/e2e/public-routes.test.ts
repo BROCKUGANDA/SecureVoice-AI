@@ -1395,10 +1395,10 @@ describe("/api/enroll — the PII write surface", () => {
     const res = await enrollPost(req);
 
     expect(res.status).toBe(400);
-    const body = z
-      .object({ code: z.literal("malformed_request"), message: z.string() })
-      .parse(await res.json());
-    expect(body.message).toBe("The request could not be parsed. Invalid JSON body");
+    // NOTE: /api/enroll was never migrated to the failure() envelope — it
+    // still answers the legacy `{ error }` shape, so this asserts what the
+    // route actually returns.
+    expect(ErrorBody.parse(await res.json()).error).toBe("Invalid JSON body");
   });
 
   test.each([
@@ -1596,7 +1596,12 @@ describe("POST /api/tts — validation happens before any provider spend", () =>
     const res = await ttsPost(req);
 
     expect(res.status).toBe(400);
-    expect(ErrorBody.parse(await res.json()).error).toBe("Invalid JSON body");
+    const body = z
+      .object({ code: z.literal("malformed_request"), message: z.string() })
+      .parse(await res.json());
+    // Envelope composes as "<base> <detail>": base is "The request could not
+    // be parsed." and the route passes detail "Invalid JSON body".
+    expect(body.message).toBe("The request could not be parsed. Invalid JSON body");
   });
 
   test.each([

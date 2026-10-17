@@ -640,7 +640,8 @@ Against §13, the honest state after today:
 - [x] Freeze committed by a second actor — `POST /api/console/freeze/commit`
 - [x] `docs/RUNBOOK.md` present
 - [ ] Named institution in `docs/PILOT.md` — founder input
-- [ ] `bun run test --offline` — no offline mode exists
+- [x] `bun run test --offline` — there is still no offline mode (§27), and the flag is
+      now refused loudly instead of silently running the entire suite.
 - [ ] Carrier geo-lock active — founder console action
 
 ### 11. Two more falsifiable claims in customer-facing surfaces — **10%** — FIXED
@@ -1112,6 +1113,9 @@ of them was my own misreport to the owner, corrected in the commit that followed
   from `slo.ts:42`. Left because the sweep fenced `src/lib/telemetry/*` — owner call.
   — **the duplicate is gone (§20)**: the unread copy in `spans.ts` was deleted and the one
   in `slo.ts` is the live one the report and the tests already read. `exportOtlp` is open.
+  — **the transport is gone and the boolean was the real bug (§23)**: `exportOtlp` was
+  deleted as a duplicate of three live SDK exporters, and `exporterConfigured` turned out to
+  read a variable no exporter consults.
 - `case_state`, `case.queued` and `notification` are now honestly declared
   `consumed: false`. Giving them a consumer needs a field-set decision, not a renderer.
 - `mini-services/realtime` keeps payloads opaque by design, so the event contract can only
@@ -1144,7 +1148,8 @@ retry button found why.
 
 **Open after this slice.** `exportOtlp` still has no external caller (`buildOtlpExport`
 does — `/api/status/spans`), and that is the same owner question as the OTel collector:
-ship a push path or delete it. The realtime cross-node fix is unproven until the gate
+ship a push path or delete it. — **answered by §23: deleted**, because three real SDK
+exporters already owned the push path and the unread boolean beside it was the live defect. The realtime cross-node fix is unproven until the gate
 runs where the bus exists. `case_state`, `case.queued` and `notification` remain honestly
 declared `consumed: false` — consuming them needs a field-set decision in
 `case-state-machine.ts` and a render path, not a renderer bolted onto a frame the console
@@ -1291,9 +1296,13 @@ code. Next: the three unconsumed realtime
 frames (`case_state`, `case.queued`, `notification`), which need a field-set decision, not
 a renderer. IP, user agent and request id on the audit chain — genuinely absent, and
 blocked on a policy answer, because an IP is personal data and the erasure path today
-relies on the chain holding none. `exportOtlp`'s missing caller. The ElevenLabs tool
-endpoints above. And the PII backfill over the live rows, which stays unrun until the
-operator is watching it.
+relies on the chain holding none. — **two of those three were wrong, and the block did not
+exist (§26)**: `ipPseudonym()` is the policy answer, both columns are written, hashed into the
+chain and indexed, and what is left is the promotion to production plus `userAgent` itself.
+`exportOtlp`'s missing caller — closed by §23, along with
+the `exporterConfigured` boolean that turned out to be the real find in that file. The
+ElevenLabs tool endpoints above. And the PII backfill over the live rows, which stays unrun
+until the operator is watching it.
 
 ### 22. The build reached across the network for its fonts, and the promotion stopped at a red check
 
@@ -1361,3 +1370,246 @@ commit. Until one happens, read the rollup by job name, never by a green tick.
 
 **Still open here:** vendor the four fonts (needs a visual pass), and consider a gate that
 fails the build if `layout.tsx` reintroduces a build-time network fetch.
+
+### 23. The SLO artifact answered "is telemetry shipping?" from a variable no exporter reads
+
+Section 19 recorded `exportOtlp` as the open item in `src/lib/telemetry/export.ts`. Reading
+the whole file, the dead transport was the smaller half of the problem.
+
+The artifact published `exporterConfigured: boolean`, computed from
+`OTEL_EXPORTER_OTLP_ENDPOINT`. The OTLP exporters were built somewhere else entirely:
+`otel.ts` derives its URL from `OTEL_BETTERSTACK_ENDPOINT` / `OTEL_BETTERSTACK_HOST` and
+refuses to construct a SDK at all unless `OTEL_BETTERSTACK_TOKEN` (alias
+`OTEL_SOURCE_TOKEN`) is set. Two files, two variables, one fact.
+
+    export.ts:38   process.env.OTEL_EXPORTER_OTLP_ENDPOINT      <- the artifact asked this
+    otel.ts:106    env("OTEL_BETTERSTACK_TOKEN") ?? …           <- the exporter obeyed this
+
+So the boolean could be wrong in either direction: set the documented token and traces,
+metrics and logs ship while the artifact reports `exporterConfigured: false`; set the other
+variable and nothing ships while it reports `true`. A reader treating `true` as evidence of
+remote telemetry was reading a claim nothing enforced — in a product whose whole promise is
+the evidence file.
+
+**Measured, not inferred, on both planes.** `docker exec … env | grep -o '^[A-Z0-9_]*OTEL[A-Z0-9_]*'`
+returns empty for `securevoice-ai-app-1` (Up, healthy — the live web container) and for the
+dial, email, outbox, overage, retention and voice-stream workers. That is the accident that
+kept the two halves agreeing on `false` and hid the divergence: the value the artifact
+published had never once been wrong, because neither variable was ever set.
+
+**What shipped.**
+
+- `src/lib/telemetry/otlp-config.ts` (new, zero imports) holds the predicate
+  `remoteTelemetryStatus()`, returning `{ shipping, reason }` with `reason` one of
+  `sdk_disabled` / `no_ingestion_token` / `null`, and `ingestionToken()` as the one reader
+  of the two token names.
+- `initOtel()` now decides from that predicate and no longer reads the token or the disable
+  switch itself. A second reader of the same config is how the first one went stale.
+- The artifact publishes `remoteTelemetry: remoteTelemetryStatus()`, and `slo.ts` types the
+  field as the predicate's own return type, so widening the claim without widening the
+  answer is a type error rather than a review comment. `EVIDENCE_SCHEMA_VERSION` 3.0 → 3.1,
+  because a field renamed and re-sourced is a shape change; nothing reads the version yet.
+- `exportOtlp` is deleted, with its `otlpEndpoint` / `otlpHeaders` / `timeoutMs` /
+  `OTLP_TRACES_PATH` / `OtlpExportVerdict`. It was a hand-rolled second OTLP/HTTP transport
+  with no caller while three real SDK exporters existed. `buildOtlpExport` stays: the pull
+  half, served by `/api/status/spans?format=otlp`, is the useful half, and `route.ts`'s
+  comment no longer points at a transport that is gone.
+- `.env.example` loses the three variables, which `checkEnvDocs` would otherwise have
+  reported as documented-but-unread — it went green on the new state, which is the check
+  confirming the deletion rather than tolerating it.
+
+**The gate.** `tests/telemetry/remote-telemetry-status.test.ts`, 6 tests: the three env
+states by behaviour; `initOtel` must consult the predicate and must not _read_ the config
+(banned by read-shaped regexes, not by variable names — a log line that tells an operator
+what to set has to spell the variable out, and a name ban would only get the log reworded);
+the artifact field is the predicate; no file under `src/` reads `OTEL_EXPORTER_OTLP_*`; and
+positive controls for each. Mutation-proved three ways, each restored by deleting the
+injected line rather than reverting the file: planting `env("OTEL_BETTERSTACK_TOKEN")` in
+`initOtel` turned rule A red naming the offending pattern; putting the old
+`exporterConfigured: Boolean(process.env.OTEL_EXPORTER_OTLP_ENDPOINT)` line back turned B and
+C red together; and a bare read of the endpoint in `export.ts` turned C red alone. B and C
+now fail with the file named instead of a 500-line body dumped as "received".
+
+**Verified at the entry point, not in a helper:** calling `latencyBlock()` — the function
+`/api/status` and `/api/status/spans` publish through — with the token set returns
+`remoteTelemetry: { shipping: true, reason: null }`, and without it
+`{ shipping: false, reason: "no_ingestion_token" }`; the old key is absent from the object.
+The same call would have returned `false` in both cases before this change, because the
+variable it consulted is not the one the runtime obeys.
+
+**Open, and it is not a code item.** No production container sets an ingestion token, so
+`initOtel()` returns null today and **no traces, metrics or logs leave the platform**. That
+is a configuration decision for the owner, not a defect to paper over: the artifact now says
+so plainly, and a deployment that wants remote telemetry sets `OTEL_BETTERSTACK_TOKEN`.
+Nothing here was done to make the red look better.
+
+### 24. An evidence refresh of mine had committed a run that never happened
+
+Running the docs suites to check §23 turned four reds in
+`tests/docs/load-artifact-consistency.test.ts`, none of them about telemetry:
+
+    load: the accounting invariants §7 leads with hold in the artifact
+      expect(artifact.summary.cases_accounted_exactly).toBe(true)
+    Expected: true   Received: false
+
+`docs/CAPACITY.md` §7 presents itself as a transcription of
+`evidence/load/results.json`, and the committed copy of that artifact had
+`steady_error_rate: 1`, `burst_error_rate: 1`, `burst_peak_own_in_flight: 0`,
+`burst_vendor_max_concurrent: 0` and `cases_accounted_exactly: false` — while
+`03c6c2a~1` carried `steady_error_rate: 0`, a burst peak of 152 own in-flight, the
+vendor ceiling of 40 actually reached, and every case accounted for exactly.
+
+So the regression was `03c6c2a` — _"test(evidence): refresh load/latency/privacy/seams/
+tenancy/transcripts artifacts"_ — my own commit. It replaced a real recorded load run with
+whatever a local run wrote while `tests/load` had no reachable database. `ci.yml:99-103`
+already documents that mode in words: _"the load run still 'succeeds' but writes a degraded
+`evidence/load/results.json` full of nulls, and the very next test then fails to parse it.
+The reported failure was in the docs gate; the cause was a missing database in the gate
+before it."_ CI is green because its load job regenerates the file before the docs gate reads
+it; the committed copy is what a human, or this machine, actually diffs against.
+
+**What was done:** `evidence/load/results.json` restored to the `03c6c2a~1` blob — a whole
+artifact, not a stitched-together summary, because mixing two runs' figures would have made
+a better-looking fiction. The docs gate went from 4 red to 10 pass, and it is the gate that
+found this, so it stays as it is: no new check was written for a fault an existing one
+already caught. `bun run test docs` is green (14 + 24 + 10).
+
+**The lesson is not about the artifact, it is about the commit.** An `evidence:` commit
+message describes measurements. Before making one, the suite that produces the file has to
+have run with its dependencies up; if it has not, the honest commit is the one that touches
+no evidence file. Refreshing six artifacts in one commit and checking none of them asserted
+the opposite of the previous run is the same mistake as trusting a green rollup by its colour.
+
+### 25. The boundary gate could not see an indented `window`, and the tree was clean by luck
+
+The standing ask was "make sure server side and client side dont mix nothing in DOM".
+`tests/surface/server-client-boundary.test.ts` already answers that, with six rules: a
+transitive reachability walk from every `"use client"` entry to any `server-only` module, a
+second walk to the database and the secret config, the `server-only` + `"use client"`
+contradiction, a DOM rule, and a non-`NEXT_PUBLIC_` env read from client code. Running it
+before citing it: 6 pass.
+
+Then the DOM rule was mutation-proved, because that is the one that decides whether "nothing
+in the DOM" is enforced or merely intended. `src/lib/zz-boundary-probe.ts` containing exactly
+
+    export const probe = window.innerWidth;
+
+**did not fail it.** The suite stayed green over a textbook SSR crash.
+
+The rule was `/^(?:document|window|localStorage|sessionStorage|navigator)\b/m` — a DOM name
+at column 0 — resting on the idea that module scope means unindented. It does not.
+`export const x = window.innerWidth` is module scope, is evaluated when the module is
+imported, and starts at column 13. So were `export default document.title`, a top-level
+`const v = localStorage.getItem(k)`, and every other `export`-prefixed read: the shapes a
+person actually writes when they mean "compute this once at load".
+
+**What it does now.** `moduleScopeDomReads()` walks the TypeScript AST and reports a
+DOM-global identifier only when it is outside every function, method, class and accessor;
+outside any `typeof <global>` guard, which is the idiomatic and safe SSR check; not a property
+_key_ (`{ window: 60 }`, `window: BudgetWindow` — three of those are real, in `breaker.ts` and
+`better-auth.ts`); and not in a type position. `src/generated/` is skipped because it is
+Prisma's emitted client, and it declares `document?:` columns. The scan and its positive
+control call the same function, so the tested predicate is the shipped predicate.
+
+Measured before enabling, the house way: the whole tree is clean under the wider rule — 568
+non-client files, zero module-scope unguarded reads — so the change costs nothing and closes
+the hole. Widening a gate to green is only honest when the green is measured first; the
+alternative remedy was to weaken the rule, which is how these die.
+
+Proved in both directions after formatting, restored by deleting the planted file rather than
+reverting it: planted → `(fail)` with `src/lib/zz-boundary-probe.ts: line 1: window — export
+const probe = window.innerWidth;`; removed → 7 pass. The control test also asserts the
+_exclusions_, because a rule that flags `typeof window !== "undefined" ? window.navigator :
+null`, a function body, or `{ window: 60 }` is a rule someone switches off inside a week.
+
+One timing note, recorded rather than hidden: the rule went from 62 ms to ~900 ms because it
+now parses every non-client module instead of regexing them. In a suite whose whole purpose is
+a static graph walk, that is a fair price for a predicate that sees what it claims to see.
+
+### 26. The audit chain already captures the IP and the request id, and the register said it did not
+
+A poll of the open items, run against the tree and then against production rather than
+against the register.
+
+§21 lists as still open: _"IP, user agent and request id on the audit chain — genuinely
+absent, and blocked on a policy answer, because an IP is personal data and the erasure path
+today relies on the chain holding none."_ Two of the three are not absent, and the block
+described does not exist.
+
+What the code does:
+
+- `resolveClientIp()` (`src/lib/ip-normalize.ts:60-76`, re-exported by `src/lib/client-ip.ts`)
+  returns `IP_UNTRUSTED` unless `src/proxy.ts` stamped its marker, and only then reads the one
+  header the app itself writes. The auth route used to take the first `x-forwarded-for` entry
+  directly — caller-chosen, no trust gate, no cap — and now calls the same resolver
+  (`src/app/api/auth/[...all]/route.ts:107`, with the old shape described in the comment above
+  it). The spoofing path the register was worried about is therefore closed at the canonical
+  resolver rather than left open behind it.
+- `ipPseudonym()` turns that into a domain-separated HMAC. It is neither the raw IP nor an
+  anonymised dead end: it can be re-derived for the same address under the same key, so a
+  fraud analyst can group rows by source, and it cannot be reversed to name a person. That is
+  the answer to the policy question the item was waiting on, and it was implemented.
+- `audit-chain.ts:110-111` fills `ipHash` and `requestId` on every append from
+  `requestAttribution()`, `sanitize()` length-caps both, and `verifyChain()` reconstructs them
+  into the hash (`:542-543`). The migration documents why old rows still verify: `JSON.stringify`
+  drops an `undefined` value, so a row written before the columns existed serialises to the same
+  bytes it was hashed as. Worker, webhook and script writes get NULL for both, deliberately —
+  "a row with no client must not be attributed to whoever last signed in".
+- Schema declares both (`prisma/schema.prisma:178,183`), with `@@index([ipHash, createdAt])`
+  and `@@index([requestId])`, and the index note says plainly: _every row that has an ipHash
+  wants it_.
+
+Measured on production, because "declared" is not "deployed": `information_schema.columns` for
+`AuditLog` returns `id callRef action intent callerId redactedText meta prevHash chainHash
+orgId createdAt` — no `ipHash`, no `requestId`. `_prisma_migrations` holds 31 rows and
+`9zzzzzzzzzzzzzzzzzzzzzzzzzzz_audit_attribution` is not one of them. So this is not a silent
+migration failure; it is a promotion that has not happened. Only `main` deploys, migrations run
+inside the deploy, and PR #107 (`staging → main`) is the one the owner has not given the word on.
+
+**Therefore the honest status of the ask "make sure audit log all ip captures etc." is:**
+designed, written, gated, indexed, chain-hash-covered, and **waiting on the promotion to
+production**. Nothing to build. The operator's action is #107, not a work item.
+
+**What is genuinely still absent:** `userAgent` on the chain. It exists on Better Auth's
+`Session` (`prisma/schema.prisma:1006`), which the library writes, so sign-in devices are
+recorded — but a fraud audit row carries no client-software string, so an operator can see
+"same pseudonym, four cases" and not "four cases from three different browsers". Adding it is
+the same shape as `audit_attribution` (nullable column, added to both the write and the verify
+hash, old rows byte-identical), so the path is proven; it is not done here because it is a
+chain-semantics change landing on top of a pending one, and stacking an unverified second
+migration on the same un-applied first one is how a chain becomes impossible to attribute to a
+cause when it stops verifying.
+
+Correction recorded rather than quietly rewritten: §21's bullet stands as written on the day it
+was true about the _plan_, with this section appended as the measurement.
+
+### 27. `bun run test --offline` did not exist, so it ran everything
+
+An item from the same list as §23: the user had been told the offline test mode "doesn't
+exist". Checking it again, it now behaved worse than not existing.
+
+`scripts/run-tests.mjs` built its filter list with
+`process.argv.slice(2).filter((a) => !a.startsWith("-"))`. Any `-`-prefixed argument was
+dropped on the floor. So `bun run test --offline` selected **no** filter, and no filter means
+the whole tree — every DB-backed suite, every seam, the load gate. Confirmed by running it:
+Prisma INSERTs against a live database went past within seconds, and the run had to be killed
+at the timeout with exit 143.
+
+That is the false-affordance shape: a missing capability fails loudly and nobody believes it
+did something, while an ignored flag reports a full-suite result under the name of a subset the
+operator asked for. Someone steering a slow machine would have believed they had run a cheap
+offline check.
+
+**Fixed by refusing, not by inventing.** A `-`-prefixed argument now exits 2 with the
+interface that actually exists — path substrings — and says outright that there is no
+`--offline`, `--watch` or `--reporter`, and that if one is wanted it belongs in this script
+rather than in a flag passed and trusted. Building an offline mode would have meant deciding
+which suites are network-free, which is a real design question, and the register does not
+record anyone asking for it; §10's line only ever said the mode does not exist.
+
+Verified: `bun run test --offline` → exit 2, message names the flag and the supported form.
+`bun run test remote-telemetry-status` → 6 pass, unaffected. Every caller of this script was
+read before switching the refusal on — `ci.yml:544` (`timezone/ billing/ telemetry/ contracts/`),
+`package.json:38-40` (`unit`, the integration and e2e lists), and the docs — and none of them
+passes a `-` argument; the only flagged test command in CI is `bun run test:jest --coverage`,
+which goes to Jest through a different script.

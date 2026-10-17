@@ -30,6 +30,7 @@ import {
   type SpanRecord,
   type SpanRecorderDiagnostics,
 } from "./spans";
+import { type RemoteTelemetryStatus } from "./otlp-config";
 
 /**
  * Samples below which a p95 is reported but not trusted. 30 is the brief's
@@ -379,8 +380,12 @@ export type SloWindowSnapshot = {
   spans: SpanWindowSummary[];
   worst: SpanWindowSummary | null;
   allTargetsMet: boolean | null;
-  /** Whether an OTLP collector is configured. Export is never required. */
-  exporterConfigured: boolean;
+  /**
+   * `initOtel()`'s own gate, so the artifact and the runtime cannot disagree.
+   * `shipping: false` means no OTLP exporter exists in this process, and `reason`
+   * says which of the two conditions refused it. Export has never been required.
+   */
+  remoteTelemetry: RemoteTelemetryStatus;
   persistence: { kind: string; path: string; note: string } | null;
   recorder: SpanRecorderDiagnostics | null;
   store: StoreDiagnosticsShape | null;

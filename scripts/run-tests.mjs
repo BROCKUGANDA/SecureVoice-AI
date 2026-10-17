@@ -17,7 +17,27 @@ const dir = new URL("../tests/", import.meta.url).pathname.replace(/^\/([A-Za-z]
 // Optional path filters: `bun scripts/run-tests.mjs tenancy e2e` runs only the
 // suites whose path contains one of them. Bare `bun run test` passes none, so
 // the default gate still runs everything.
-const filters = process.argv.slice(2).filter((a) => !a.startsWith("-"));
+//
+// A `-`-prefixed argument is refused, not dropped. The line this replaces read
+// `process.argv.slice(2).filter((a) => !a.startsWith("-"))`, which meant
+// `bun run test --offline` — a mode this script has never had, and the thing the
+// gap register was told did not exist — silently ran the ENTIRE suite, DB and
+// network suites included, while looking like it had honoured a flag. A false
+// affordance is worse than a missing one: the missing one fails loudly, and the
+// false one reports the full suite's results under the name of a subset nobody
+// asked for.
+const argv = process.argv.slice(2);
+const switches = argv.filter((a) => a.startsWith("-"));
+if (switches.length > 0) {
+  console.error(
+    `run-tests: unknown flag(s): ${switches.join(", ")}\n` +
+      `  This runner takes path substrings only — e.g. \`bun run test tenancy\`, \`bun run test contracts/realtime\`.\n` +
+      `  There is no --offline, --watch or --reporter mode. If you need one, add it here rather than\n` +
+      `  passing a flag and trusting the run that follows.`,
+  );
+  process.exit(2);
+}
+const filters = argv;
 // Recursive: gate tests live in subdirectories (tests/e2e, tests/tools,
 // tests/webhooks) and every *.test.ts must run in `bun run test`.
 const files = readdirSync(dir, { recursive: true })

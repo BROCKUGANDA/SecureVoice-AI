@@ -3,7 +3,15 @@ import { NextResponse } from "next/server";
 import { requireOperator } from "@/lib/credits";
 import { canonicalJson, signPayload, WEBHOOK_SIGNATURE_HEADER, SCHEMA_VERSION } from "@/lib/outbox";
 import { resolveVendorEndpoint, assertVendorUrlDeliverable } from "@/lib/vendor-endpoint";
-import { unprocessable } from "@/lib/api-errors";
+import { makeFailure, type FailureCode, type FailureInit } from "@/lib/failures/envelope";
+
+function failure(code: FailureCode, init: FailureInit = {}): NextResponse {
+  const f = makeFailure(code, init);
+  return NextResponse.json(f.body, {
+    status: f.status,
+    headers: { ...f.headers, "Cache-Control": "no-store" },
+  });
+}
 
 export const dynamic = "force-dynamic";
 
@@ -35,14 +43,11 @@ const TEST_TIMEOUT_MS = 3000;
 export async function POST(_req: NextRequest) {
   const guard = await requireOperator();
   if (!guard.ok) {
-    return NextResponse.json({ error: guard.error }, { status: guard.status });
+    return failure(guard.status === 401 ? "unauthenticated" : "not_found", {detail: guard.error});
   }
   const orgId = guard.profile.orgId;
   if (!orgId) {
-    return NextResponse.json(
-      { error: "No organization is linked to this account, so there is no endpoint to test." },
-      { status: 409 },
-    );
+    return failure("state_conflict", {detail: "No organization is linked to this account, so there is no endpoint to test."});
   }
 
   const resolved = await resolveVendorEndpoint(orgId);
@@ -58,7 +63,7 @@ export async function POST(_req: NextRequest) {
 
   const endpoint = resolved.endpoint;
   const urlOk = await assertVendorUrlDeliverable(endpoint.url);
-  if (!urlOk.ok) return unprocessable(urlOk.reason, "endpoint_not_deliverable");
+  if (!urlOk.ok) return failure("semantically_invalid", {detail: urlOk.reason});
 
   const body = canonicalJson({
     schema_version: SCHEMA_VERSION,

@@ -3,7 +3,15 @@ import { NextResponse } from "next/server";
 import { requireOperator } from "@/lib/credits";
 import { SETUP_STEPS, completeSetup, getSetup, saveSetupStep, skipSetup } from "@/lib/setup";
 import { append as auditAppend } from "@/lib/audit-chain";
-import { badRequest, unprocessable } from "@/lib/api-errors";
+import { makeFailure, type FailureCode, type FailureInit } from "@/lib/failures/envelope";
+
+function failure(code: FailureCode, init: FailureInit = {}): NextResponse {
+  const f = makeFailure(code, init);
+  return NextResponse.json(f.body, {
+    status: f.status,
+    headers: { ...f.headers, "Cache-Control": "no-store" },
+  });
+}
 
 export const dynamic = "force-dynamic";
 
@@ -28,13 +36,10 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   const guard = await requireOperator();
   if (!guard.ok) {
-    return NextResponse.json({ error: guard.error }, { status: guard.status });
+    return failure(guard.status === 401 ? "unauthenticated" : "not_found", {detail: guard.error});
   }
   if (!guard.profile.orgId) {
-    return NextResponse.json(
-      { error: "No organization is linked to this account, so there is no institution to set up." },
-      { status: 409 },
-    );
+    return failure("state_conflict", {detail: "No organization is linked to this account, so there is no institution to set up."});
   }
 
   const setup = await getSetup(guard.profile.orgId, guard.profile.userId);
@@ -47,21 +52,18 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   const guard = await requireOperator();
   if (!guard.ok) {
-    return NextResponse.json({ error: guard.error }, { status: guard.status });
+    return failure(guard.status === 401 ? "unauthenticated" : "not_found", {detail: guard.error});
   }
   const orgId = guard.profile.orgId;
   if (!orgId) {
-    return NextResponse.json(
-      { error: "No organization is linked to this account, so there is no institution to set up." },
-      { status: 409 },
-    );
+    return failure("state_conflict", {detail: "No organization is linked to this account, so there is no institution to set up."});
   }
 
   let body: { action?: unknown; step?: unknown; data?: unknown };
   try {
     body = (await req.json()) as typeof body;
   } catch {
-    return badRequest("Invalid JSON body");
+    return failure("malformed_request", {detail: "Invalid JSON body"});
   }
 
   const action = body.action ?? "save";
@@ -91,21 +93,21 @@ export async function POST(req: NextRequest) {
   }
 
   if (action !== "save") {
-    return unprocessable(`action must be save | finish | skip, got "${String(action)}"`);
+    return failure("semantically_invalid", {detail: `action must be save | finish | skip, got "${String(action)}"`});
   }
 
   const step = Number(body.step);
   if (!Number.isInteger(step) || step < 1 || step > SETUP_STEPS.length) {
-    return unprocessable(`step must be 1–${SETUP_STEPS.length}`);
+    return failure("semantically_invalid", {detail: `step must be 1–${SETUP_STEPS.length}`});
   }
   const data =
     body.data && typeof body.data === "object" && !Array.isArray(body.data)
       ? (body.data as Record<string, unknown>)
       : null;
-  if (!data) return unprocessable("data must be an object");
+  if (!data) return failure("semantically_invalid", {detail: "data must be an object"});
 
   const res = await saveSetupStep(orgId, guard.profile.userId, step, data);
-  if (!res.ok) return unprocessable(res.error);
+  if (!res.ok) return failure("semantically_invalid", {detail: res.error});
 
   // Which FIELDS changed, never their values — this trail must never become a
   // place a signing key or a provider credential is written down.

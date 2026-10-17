@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auditAgentReply, auditUserInput, requireOutboundConsent } from "@/lib/compliance/policy";
 import { transcript as redactText } from "@/lib/redact";
-import { consume as consumeRateLimit, rateLimitId } from "@/lib/ratelimit";
+import { consume as consumeRateLimit, rateLimitId, rateLimitHeaders } from "@/lib/ratelimit";
 import { append as auditAppend } from "@/lib/audit-chain";
 import { analyzeSentiment } from "@/lib/sentiment";
 import { noteTurn } from "@/lib/voice/turn-counter";
@@ -16,8 +16,20 @@ import { checkBadActor, recordStrike } from "@/lib/abuse/bad-actor";
 import { detectInjectionAttempt } from "@/lib/llm-guard";
 import { screenForMemory } from "@/lib/memory-guard";
 import { SUPPORTED_LANGS, MAX_AGENT_TEXT_CHARS } from "@/lib/config";
-import { badRequest, tooManyRequests, unprocessable, parseJson } from "@/lib/api-errors";
-import { logError } from "@/lib/validation/safe-log";
+import {
+  makeFailure,
+  type FailureCode,
+  type FailureInit,
+} from "@/lib/failures/envelope";
+import { logError, parseJson } from "@/lib/validation/safe-log";
+
+function failure(code: FailureCode, init: FailureInit = {}): NextResponse {
+  const f = makeFailure(code, init);
+  return NextResponse.json(f.body, {
+    status: f.status,
+    headers: { ...f.headers, "Cache-Control": "no-store" },
+  });
+}
 
 export const dynamic = "force-dynamic";
 
@@ -398,7 +410,10 @@ export async function POST(req: NextRequest) {
   // 1. Rate limit BEFORE we parse the body (cheapest possible reject)
   const rl = await consumeRateLimit("agent", callerId);
   if (!rl.ok) {
-    return tooManyRequests("Rate limit exceeded; retry later.", rl);
+    return failure("rate_limited", {
+      retryAfterSec: Math.ceil(rl.retryAfterMs / 1000),
+      headers: rateLimitHeaders(rl),
+    });
   }
 
   // A source that has spent an hour probing this endpoint (hunting for an
@@ -406,17 +421,17 @@ export async function POST(req: NextRequest) {
   // rate-limited one does, so it cannot tell WHY it is being slowed down.
   // Keyed on the proxy-resolved caller identity; see src/lib/abuse/bad-actor.ts.
   if (checkBadActor(`agent:${callerId}`).action === "block") {
-    return tooManyRequests("Rate limit exceeded; retry later.", 3600);
+    return failure("rate_limited", {retryAfterSec: 3600});
   }
 
   const body = await parseJson(req);
-  if (body === null) return badRequest("Invalid JSON body");
+  if (body === null) return failure("malformed_request", {detail: "Invalid JSON body"});
 
   const parsed = schema.safeParse(body);
   if (!parsed.success) {
-    return unprocessable(
-      `text (1–${MAX_AGENT_TEXT_CHARS} chars) and lang (${SUPPORTED_LANGS.join("|")}) are required`,
-    );
+    return failure("semantically_invalid", {
+      detail: `text (1–${MAX_AGENT_TEXT_CHARS} chars) and lang (${SUPPORTED_LANGS.join("|")}) are required`,
+    });
   }
 
   // 2. Outbound consent gate (PUP compliance)
@@ -425,7 +440,7 @@ export async function POST(req: NextRequest) {
     consentRecordId: parsed.data.consentRecordId,
   });
   if (!consent.ok) {
-    return NextResponse.json({ error: consent.error }, { status: consent.status });
+    return failure(consent.status === 401 ? "unauthenticated" : "not_found", {detail: consent.error});
   }
 
   const {

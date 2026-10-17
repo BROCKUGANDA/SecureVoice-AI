@@ -30,12 +30,14 @@ import { append as auditAppend } from "@/lib/audit-chain";
 import { chunkText } from "@/lib/knowledge/documents";
 import { env } from "@/lib/config";
 import { db } from "@/lib/db";
+import { logInfo, logWarn } from "@/lib/validation/safe-log";
+import { redactPII } from "@/lib/compliance/redactor";
 
 const API_KEY = process.env.OPENAI_API_KEY ?? "";
 const BASE_URL = process.env.OPENAI_BASE_URL ?? "https://api.openai.com/v1";
 
 export function transcriptEmbeddingsConfigured(): boolean {
-  return API_KEY.length > 8;
+  return (process.env.OPENAI_API_KEY ?? "").length > 8;
 }
 
 /** One chunk, stored with the same deterministic id so a re-run overwrites in
@@ -298,4 +300,81 @@ export async function forgetTranscriptEmbeddings(
       error: err instanceof Error ? err.message : String(err),
     };
   }
+}
+
+/**
+ * Retrieve this tenant's embedded call transcripts for one live turn.
+ *
+ * Mirrors `groundFromKnowledgeBase` in llm.ts but searches pgvector transcript
+ * embeddings instead of Pinecone document chunks. Same guarantees:
+ *
+ *   · `orgId` is required — a cross-tenant transcript leak is unrepresentable.
+ *   · Caller speech is redacted before it becomes an embedding query.
+ *   · `ragRetrievalTimeoutMs` is a hard deadline, not a retry.
+ *   · Failure is fail-open: the turn is drafted un-grounded.
+ *
+ * Results are formatted as "callRef: <chunk>" extracts labelled as reference
+ * data — a transcript is evidence of what was said on a past call, not an
+ * instruction to follow on this one.
+ */
+export async function groundFromTranscripts(input: {
+  orgId?: string | null;
+  query: string;
+}): Promise<{ block: string; hits: number; sources: string[] } | null> {
+  const orgId = input.orgId;
+  if (!orgId) return null;
+  const trimmed = input.query.trim();
+  if (trimmed.length < 4) return null;
+
+  const safeQuery = redactPII(trimmed).slice(0, 300);
+  const budgetMs = env.ragRetrievalTimeoutMs;
+  const startedAt = Date.now();
+
+  const timeout = new Promise<"timeout">((resolve) => {
+    setTimeout(() => resolve("timeout"), budgetMs);
+  });
+  const outcome = await Promise.race([
+    searchTranscripts(orgId, safeQuery, 3).catch((e: unknown) => ({
+      ok: false as const,
+      matches: [],
+      error: e instanceof Error ? e.message : String(e),
+    })),
+    timeout,
+  ]);
+
+  if (outcome === "timeout") {
+    logInfo("[llm] transcript retrieval missed the budget; drafting un-grounded", {
+      budgetMs,
+      elapsedMs: Date.now() - startedAt,
+    });
+    return null;
+  }
+  if (!outcome.ok) {
+    logWarn("[llm] transcript retrieval unavailable; drafting un-grounded", {
+      orgId,
+      reason: outcome.error ?? "unknown",
+      elapsedMs: Date.now() - startedAt,
+    });
+    return null;
+  }
+
+  const matches = outcome.matches.filter((m) => m.text.trim().length > 0);
+  if (matches.length === 0) return null;
+
+  const cap = env.ragContextMaxChars;
+  const lines: string[] = [];
+  const sources: string[] = [];
+  let used = 0;
+  for (const m of matches) {
+    const room = cap - used;
+    if (room <= 0) break;
+    const line = `${m.caseRef}: ${m.text.trim().replace(/\s+/g, " ")}`.slice(0, room);
+    if (line.length === 0) break;
+    lines.push(line);
+    sources.push(m.caseRef);
+    used += line.length;
+  }
+  if (lines.length === 0) return null;
+
+  return { block: lines.join("\n"), hits: lines.length, sources };
 }

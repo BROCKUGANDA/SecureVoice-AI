@@ -4,8 +4,20 @@ import { z } from "zod";
 import { guardToolCall } from "@/lib/tool-guard";
 import { canTransition, transitionCase, IllegalTransitionError } from "@/lib/case-state-machine";
 import { append as auditAppend } from "@/lib/audit-chain";
-import { badRequest, parseJson, unprocessable, schemaErrorCode } from "@/lib/api-errors";
-import { logError } from "@/lib/validation/safe-log";
+import {
+  makeFailure,
+  type FailureCode,
+  type FailureInit,
+} from "@/lib/failures/envelope";
+import { logError, parseJson } from "@/lib/validation/safe-log";
+
+function failure(code: FailureCode, init: FailureInit = {}): NextResponse {
+  const f = makeFailure(code, init);
+  return NextResponse.json(f.body, {
+    status: f.status,
+    headers: { ...f.headers, "Cache-Control": "no-store" },
+  });
+}
 
 export const dynamic = "force-dynamic";
 
@@ -25,14 +37,11 @@ const schema = z.strictObject({
 
 export async function POST(req: NextRequest) {
   const body = await parseJson(req);
-  if (body === null) return badRequest("Invalid JSON body");
+  if (body === null) return failure("malformed_request", {detail: "Invalid JSON body"});
 
   const parsed = schema.safeParse(body);
   if (!parsed.success) {
-    return unprocessable(
-      "conversation_id and outcome (confirmed_fraud | confirmed_legitimate | uncertain) are required",
-      schemaErrorCode(parsed.error),
-    );
+    return failure("semantically_invalid", {detail: "conversation_id and outcome (confirmed_fraud | confirmed_legitimate | uncertain) are required"});
   }
 
   const { conversation_id, outcome } = parsed.data;
@@ -45,10 +54,7 @@ export async function POST(req: NextRequest) {
     ALLOWED_STATES,
   );
   if (!guard.ok) {
-    return NextResponse.json(
-      { ok: false, error: guard.error, code: guard.code },
-      { status: guard.status },
-    );
+    return failure(guard.status === 401 ? "unauthenticated" : guard.status === 403 ? "not_found" : "state_conflict", {detail: guard.error});
   }
 
   if (!canTransition(guard.state, to)) {
@@ -69,14 +75,7 @@ export async function POST(req: NextRequest) {
       },
       { fast: true },
     ).catch(() => {});
-    return NextResponse.json(
-      {
-        ok: false,
-        error: `case cannot move from ${guard.state} to ${to}`,
-        code: "illegal_transition",
-      },
-      { status: 409 },
-    );
+    return failure("state_conflict", {detail: `case cannot move from ${guard.state} to ${to}`});
   }
 
   try {
@@ -99,7 +98,7 @@ export async function POST(req: NextRequest) {
       tool: TOOL_NAME,
       error: err instanceof Error ? err.message : String(err),
     });
-    return NextResponse.json({ ok: false, error: "audit_unavailable" }, { status: 503 });
+    return failure("dependency_unavailable", {detail: "audit_unavailable", retryAfterSec: 1});
   }
 
   try {
@@ -113,19 +112,12 @@ export async function POST(req: NextRequest) {
     });
   } catch (err) {
     if (err instanceof IllegalTransitionError) {
-      return NextResponse.json(
-        {
-          ok: false,
-          error: `case cannot move from ${guard.state} to ${to}`,
-          code: "illegal_transition",
-        },
-        { status: 409 },
-      );
+      return failure("state_conflict", {detail: `case cannot move from ${guard.state} to ${to}`});
     }
     logError("[tool/verify-transaction] case transition failed", {
       tool: TOOL_NAME,
       error: err instanceof Error ? err.message : String(err),
     });
-    return NextResponse.json({ ok: false, error: "case_transition_failed" }, { status: 503 });
+    return failure("dependency_unavailable", {detail: "case_transition_failed", retryAfterSec: 1});
   }
 }

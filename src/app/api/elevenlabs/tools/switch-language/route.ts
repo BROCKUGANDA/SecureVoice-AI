@@ -6,11 +6,7 @@ import { authorizeToolCall } from "@/lib/agent-tool-auth";
 import { CASE_STATES } from "@/lib/case-state-machine";
 import { append as auditAppend } from "@/lib/audit-chain";
 import { db } from "@/lib/db";
-import {
-  makeFailure,
-  type FailureCode,
-  type FailureInit,
-} from "@/lib/failures/envelope";
+import { makeFailure, type FailureCode, type FailureInit } from "@/lib/failures/envelope";
 import { logError, parseJson } from "@/lib/validation/safe-log";
 
 function failure(code: FailureCode, init: FailureInit = {}): NextResponse {
@@ -52,11 +48,13 @@ const schema = z.strictObject({
  */
 export async function POST(req: NextRequest) {
   const body = await parseJson(req);
-  if (body === null) return failure("malformed_request", {detail: "Invalid JSON body"});
+  if (body === null) return failure("malformed_request", { detail: "Invalid JSON body" });
 
   const parsed = schema.safeParse(body);
   if (!parsed.success) {
-    return failure("semantically_invalid", {detail: "conversation_id and a valid language tag are required"});
+    return failure("semantically_invalid", {
+      detail: "conversation_id and a valid language tag are required",
+    });
   }
 
   const { conversation_id } = parsed.data;
@@ -66,7 +64,14 @@ export async function POST(req: NextRequest) {
   // comparison is constant-time over fixed-size hashes.
   const auth = await authorizeToolCall(req.headers.get("x-agent-tool-secret"), TOOL_NAME);
   if (!auth.ok) {
-    return failure(auth.status === 401 ? "unauthenticated" : auth.status === 403 ? "not_found" : "state_conflict", {detail: auth.error});
+    return failure(
+      auth.status === 401
+        ? "unauthenticated"
+        : auth.status === 403
+          ? "not_found"
+          : "state_conflict",
+      { detail: auth.error },
+    );
   }
 
   // THE BLEEDGUARD, folded in rather than delegated. The other four tools get
@@ -101,7 +106,7 @@ export async function POST(req: NextRequest) {
     logError("[tool/switch_language] guarded update failed", {
       error: err instanceof Error ? err.message : String(err),
     });
-    return failure("dependency_unavailable", {detail: "case_update_failed", retryAfterSec: 1});
+    return failure("dependency_unavailable", { detail: "case_update_failed", retryAfterSec: 1 });
   }
 
   if (rows.length === 0) {
@@ -130,9 +135,11 @@ export async function POST(req: NextRequest) {
         },
         { fast: true },
       ).catch(() => {});
-      return failure("state_conflict", {detail: `tool ${TOOL_NAME} cannot act on a case in state ${existingCase.state}`});
+      return failure("state_conflict", {
+        detail: `tool ${TOOL_NAME} cannot act on a case in state ${existingCase.state}`,
+      });
     }
-    return failure("state_conflict", {detail: "no live case for this conversation_id"});
+    return failure("state_conflict", { detail: "no live case for this conversation_id" });
   }
 
   // `rows.length === 0` above returns on every branch, so rows has >= 1 row.

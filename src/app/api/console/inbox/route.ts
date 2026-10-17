@@ -34,7 +34,7 @@ const schema = z.object({
 export async function GET() {
   const guard = await requireSignedIn();
   if (!guard.ok) {
-    return failure(guard.status === 401 ? "unauthenticated" : "not_found", {detail: guard.error});
+    return failure(guard.status === 401 ? "unauthenticated" : "not_found", { detail: guard.error });
   }
   const rows = await inbox(guard.profile.orgId ?? null);
   return NextResponse.json(
@@ -46,25 +46,27 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   const guard = await requireSignedIn();
   if (!guard.ok) {
-    return failure(guard.status === 401 ? "unauthenticated" : "not_found", {detail: guard.error});
+    return failure(guard.status === 401 ? "unauthenticated" : "not_found", { detail: guard.error });
   }
   const body = await parseJson(req);
-  if (body === null) return failure("malformed_request", {detail: "Invalid JSON body"});
+  if (body === null) return failure("malformed_request", { detail: "Invalid JSON body" });
   const parsed = schema.safeParse(body);
   if (!parsed.success) {
-    return failure("semantically_invalid", {detail: "action=acknowledge and id are required"});
+    return failure("semantically_invalid", { detail: "action=acknowledge and id are required" });
   }
 
   // Tenancy: a notification from another org must be invisible, not merely
   // unacknowledgeable. 404 rather than 403 — a 403 confirms it exists.
   const owned = await inbox(guard.profile.orgId ?? null, 200);
   if (!owned.some((n) => n.id === parsed.data.id)) {
-    return failure("not_found", {detail: "not_found"});
+    return failure("not_found", { detail: "not_found" });
   }
 
   const result = await acknowledge(parsed.data.id, guard.profile.orgId ?? null);
   if (!result.ok) {
-    return failure(result.error === "not_found" ? "not_found" : "state_conflict", {detail: result.error});
+    return failure(result.error === "not_found" ? "not_found" : "state_conflict", {
+      detail: result.error,
+    });
   }
   return NextResponse.json({ ok: true });
 }

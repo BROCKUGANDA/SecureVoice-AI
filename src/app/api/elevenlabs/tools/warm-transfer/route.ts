@@ -5,11 +5,7 @@ import { guardToolCall } from "@/lib/tool-guard";
 import { canTransition, transitionCase, IllegalTransitionError } from "@/lib/case-state-machine";
 import { append as auditAppend } from "@/lib/audit-chain";
 import { db } from "@/lib/db";
-import {
-  makeFailure,
-  type FailureCode,
-  type FailureInit,
-} from "@/lib/failures/envelope";
+import { makeFailure, type FailureCode, type FailureInit } from "@/lib/failures/envelope";
 import { transcript as redactText } from "@/lib/redact";
 import { getTransferNumber } from "@/lib/institution";
 import { openCaseHandoffTicket } from "@/lib/crm/case-ticket";
@@ -60,11 +56,11 @@ const schema = z.strictObject({
  */
 export async function POST(req: NextRequest) {
   const body = await parseJson(req);
-  if (body === null) return failure("malformed_request", {detail: "Invalid JSON body"});
+  if (body === null) return failure("malformed_request", { detail: "Invalid JSON body" });
 
   const parsed = schema.safeParse(body);
   if (!parsed.success)
-    return failure("semantically_invalid", {detail: "conversation_id and summary are required"});
+    return failure("semantically_invalid", { detail: "conversation_id and summary are required" });
 
   const { conversation_id, summary } = parsed.data;
 
@@ -75,7 +71,14 @@ export async function POST(req: NextRequest) {
     ALLOWED_STATES,
   );
   if (!guard.ok) {
-    return failure(guard.status === 401 ? "unauthenticated" : guard.status === 403 ? "not_found" : "state_conflict", {detail: guard.error});
+    return failure(
+      guard.status === 401
+        ? "unauthenticated"
+        : guard.status === 403
+          ? "not_found"
+          : "state_conflict",
+      { detail: guard.error },
+    );
   }
 
   // The transfer destination and the Twilio leg both live on the case row.
@@ -123,7 +126,7 @@ export async function POST(req: NextRequest) {
     logError("[tool/warm_transfer] audit append failed, refusing transfer", {
       error: err instanceof Error ? err.message : String(err),
     });
-    return failure("dependency_unavailable", {detail: "audit_unavailable", retryAfterSec: 1});
+    return failure("dependency_unavailable", { detail: "audit_unavailable", retryAfterSec: 1 });
   }
 
   // Escalate like human_handoff does — the specialist follow-up queue is the
@@ -156,7 +159,10 @@ export async function POST(req: NextRequest) {
       logError("[tool/warm_transfer] escalation write failed", {
         error: err instanceof Error ? err.message : String(err),
       });
-      return failure("dependency_unavailable", {detail: "handoff_queue_failed", retryAfterSec: 1});
+      return failure("dependency_unavailable", {
+        detail: "handoff_queue_failed",
+        retryAfterSec: 1,
+      });
     }
   }
 

@@ -135,7 +135,7 @@ function selfCustomerRef(email: string): string {
 export async function POST(req: NextRequest) {
   const guard = await requireSignedIn();
   if (!guard.ok) {
-    return failure(guard.status === 401 ? "unauthenticated" : "not_found", {detail: guard.error});
+    return failure(guard.status === 401 ? "unauthenticated" : "not_found", { detail: guard.error });
   }
   const profile = guard.profile;
 
@@ -191,17 +191,14 @@ export async function POST(req: NextRequest) {
    * `chargeMode: "demo"` so the client can say "free demo run" rather than
    * rendering a balance that was never touched.
    */
-  const refundAnd = async (
-    code: FailureCode,
-    detail: string,
-  ): Promise<NextResponse> => {
+  const refundAnd = async (code: FailureCode, detail: string): Promise<NextResponse> => {
     const creditsRemaining = await refundRun({
       userId: profile.userId,
       email: profile.email,
       orgId: profile.orgId,
       decision: claim.decision,
     });
-    const f = makeFailure(code, {detail});
+    const f = makeFailure(code, { detail });
     return NextResponse.json(
       { ...f.body, creditsRemaining, chargeMode: claim.decision.mode },
       { status: f.status, headers: { ...f.headers, "Cache-Control": "no-store" } },
@@ -219,12 +216,18 @@ export async function POST(req: NextRequest) {
   const parsed = schema.safeParse(body);
   if (!parsed.success) {
     const first = parsed.error.issues[0];
-    return refundAnd("semantically_invalid", `Invalid signal: ${first?.path.join(".")} ${first?.message ?? ""}`.trim());
+    return refundAnd(
+      "semantically_invalid",
+      `Invalid signal: ${first?.path.join(".")} ${first?.message ?? ""}`.trim(),
+    );
   }
 
   const secret = env.webhookSecret;
   if (!secret) {
-    return refundAnd("dependency_unavailable", "WEBHOOK_SECRET not configured — ingest is unarmed (see /api/status).");
+    return refundAnd(
+      "dependency_unavailable",
+      "WEBHOOK_SECRET not configured — ingest is unarmed (see /api/status).",
+    );
   }
 
   const d = parsed.data;

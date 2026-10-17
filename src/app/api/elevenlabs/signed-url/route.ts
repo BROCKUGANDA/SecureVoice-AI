@@ -43,22 +43,30 @@ const schema = z.object({
 export async function POST(req: NextRequest) {
   const auth = await authorizeToolCall(req.headers.get("x-agent-tool-secret"), "signed_url");
   if (!auth.ok) {
-    return failure(auth.status === 401 ? "unauthenticated" : auth.status === 403 ? "not_found" : "state_conflict", {detail: auth.error});
+    return failure(
+      auth.status === 401
+        ? "unauthenticated"
+        : auth.status === 403
+          ? "not_found"
+          : "state_conflict",
+      { detail: auth.error },
+    );
   }
 
   const body = await parseJson(req);
-  if (body === null) return failure("malformed_request", {detail: "Invalid JSON body"});
+  if (body === null) return failure("malformed_request", { detail: "Invalid JSON body" });
   const parsed = schema.safeParse(body ?? {});
-  if (!parsed.success) return failure("malformed_request", {detail: "Invalid body"});
+  if (!parsed.success) return failure("malformed_request", { detail: "Invalid body" });
 
   // A deployment may pin the agent id server-side; a client-supplied id is only
   // honoured when it matches that pin, so the browser cannot aim the signed URL
   // at a different agent in the same workspace.
   const pinned = env.elevenLabsAgentId;
   const requested = parsed.data.agent_id ?? pinned;
-  if (!requested) return failure("malformed_request", {detail: "No agent configured: set ELEVENLABS_AGENT_ID"});
+  if (!requested)
+    return failure("malformed_request", { detail: "No agent configured: set ELEVENLABS_AGENT_ID" });
   if (pinned && requested !== pinned) {
-    return failure("not_found", {detail: "agent_not_allowed"});
+    return failure("not_found", { detail: "agent_not_allowed" });
   }
 
   const isWebrtc = parsed.data.connection_type === "webrtc";
@@ -110,7 +118,11 @@ export async function POST(req: NextRequest) {
 
   const data = res.data;
   const credential = data.signed_url ?? data.token;
-  if (!credential) return failure("dependency_unavailable", {detail: "ElevenLabs returned no connection credential", retryAfterSec: 1});
+  if (!credential)
+    return failure("dependency_unavailable", {
+      detail: "ElevenLabs returned no connection credential",
+      retryAfterSec: 1,
+    });
 
   // This endpoint used to be the ONLY agent-tool route with no audit-chain
   // write — `card_freeze`, `human-handoff`, `verify-transaction` and

@@ -9,18 +9,15 @@ import { analyzeSentiment } from "@/lib/sentiment";
 import { noteTurn } from "@/lib/voice/turn-counter";
 import { paceForTurn } from "@/lib/voice/presets";
 import type { TurnKind } from "@/lib/voice/presets";
-import { draftAgentReply, resolveSessionLlmCredentials } from "@/lib/llm";
+import { draftAgentReply, resolveLlmCredentials } from "@/lib/llm";
+import { getProfile } from "@/lib/credits";
 import { callerRequestsSecret, NEVER_ASK_LINE } from "@/lib/compliance/never-ask";
 import { SAFETY_EXIT } from "@/lib/compliance/safety-exit";
 import { checkBadActor, recordStrike } from "@/lib/abuse/bad-actor";
 import { detectInjectionAttempt } from "@/lib/llm-guard";
 import { screenForMemory } from "@/lib/memory-guard";
 import { SUPPORTED_LANGS, MAX_AGENT_TEXT_CHARS } from "@/lib/config";
-import {
-  makeFailure,
-  type FailureCode,
-  type FailureInit,
-} from "@/lib/failures/envelope";
+import { makeFailure, type FailureCode, type FailureInit } from "@/lib/failures/envelope";
 import { logError, parseJson } from "@/lib/validation/safe-log";
 
 function failure(code: FailureCode, init: FailureInit = {}): NextResponse {
@@ -421,11 +418,11 @@ export async function POST(req: NextRequest) {
   // rate-limited one does, so it cannot tell WHY it is being slowed down.
   // Keyed on the proxy-resolved caller identity; see src/lib/abuse/bad-actor.ts.
   if (checkBadActor(`agent:${callerId}`).action === "block") {
-    return failure("rate_limited", {retryAfterSec: 3600});
+    return failure("rate_limited", { retryAfterSec: 3600 });
   }
 
   const body = await parseJson(req);
-  if (body === null) return failure("malformed_request", {detail: "Invalid JSON body"});
+  if (body === null) return failure("malformed_request", { detail: "Invalid JSON body" });
 
   const parsed = schema.safeParse(body);
   if (!parsed.success) {
@@ -440,7 +437,7 @@ export async function POST(req: NextRequest) {
     consentRecordId: parsed.data.consentRecordId,
   });
   if (!consent.ok) {
-    return failure(consent.status === 401 ? "unauthenticated" : "not_found", {detail: consent.error});
+    return failure("semantically_invalid", { detail: consent.error });
   }
 
   const {
@@ -513,7 +510,9 @@ export async function POST(req: NextRequest) {
       : scripted;
   // `undefined` (not null) is what lets the environment ladder take over for an
   // anonymous caller or an operator with no stored key.
-  const tenantLlm = await resolveSessionLlmCredentials();
+  const profile = await getProfile();
+  const orgId = profile?.orgId ?? null;
+  const tenantLlm = profile ? await resolveLlmCredentials(profile.userId) : null;
   const drafted = secretAsk
     ? null
     : await draftAgentReply({
@@ -522,15 +521,7 @@ export async function POST(req: NextRequest) {
         intent,
         scriptedReply: scriptedWithExit,
         providerOverride: tenantLlm ?? undefined,
-        // NO knowledge-base retrieval on this plane, deliberately. `orgId` is
-        // what scopes a document query, and the only tenant identifier this
-        // route has is `callRef` — which the CLIENT supplies (line 45: generated
-        // when absent) and nothing binds to the caller's own organization.
-        // Resolving a case from an unverified string is exactly the cross-tenant
-        // read `tests/tenancy/webhook-bleedguard.test.ts` exists to refuse, and
-        // the payload would be another bank's policy text inside a live call.
-        // Grounding therefore waits for this plane to carry a verified tenant,
-        // rather than being faked from a guess.
+        orgId,
       });
   const audited = auditAgentReply({
     reply: drafted ?? scriptedWithExit,

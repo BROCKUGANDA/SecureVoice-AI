@@ -25,11 +25,7 @@ import {
   allowAnonTurn,
 } from "@/lib/tts-quota";
 import { SUPPORTED_LANGS, env, maxTtsChars } from "@/lib/config";
-import {
-  makeFailure,
-  type FailureCode,
-  type FailureInit,
-} from "@/lib/failures/envelope";
+import { makeFailure, type FailureCode, type FailureInit } from "@/lib/failures/envelope";
 import { logError, parseJson } from "@/lib/validation/safe-log";
 import { db } from "@/lib/db";
 import { countRung } from "@/lib/voice/rung-counter";
@@ -324,10 +320,10 @@ export async function POST(req: NextRequest) {
 
   // 1. Body parse + validation
   const body = await parseJson(req);
-  if (body === null) return failure("malformed_request", {detail: "Invalid JSON body"});
+  if (body === null) return failure("malformed_request", { detail: "Invalid JSON body" });
   const parsed = schema.safeParse(body);
   if (!parsed.success) {
-    return failure("semantically_invalid", {detail: "Invalid TTS request"});
+    return failure("semantically_invalid", { detail: "Invalid TTS request" });
   }
   const {
     text,
@@ -367,7 +363,7 @@ export async function POST(req: NextRequest) {
     // Refuse BEFORE any vendor call. An unauthenticated caller must not be able
     // to spend the platform's ElevenLabs key: there is no profile row to charge,
     // so the daily quota cannot be enforced and every request is free.
-    return failure("unauthenticated", {detail: keyRes.reason});
+    return failure("unauthenticated", { detail: keyRes.reason });
   }
   if (keyRes.mode === "platform") {
     const charged = await consumeCharQuota(keyRes, text);
@@ -476,17 +472,20 @@ export async function POST(req: NextRequest) {
       // body) stays in server logs — clients get a coarse, safe message.
       logError("[tts] upstream error", { status: err.status, error: err.message });
       if (err.status === 429) {
-        return failure("rate_limited", {retryAfterSec: 60});
+        return failure("rate_limited", { retryAfterSec: 60 });
       }
       const generic =
         err.status === 401 || err.status === 403
           ? "Voice service authentication failed — contact the operator."
           : "Speech synthesis is temporarily unavailable — try again shortly.";
-      return failure("dependency_unavailable", {detail: generic, retryAfterSec: 1});
+      return failure("dependency_unavailable", { detail: generic, retryAfterSec: 1 });
     }
     logError("[tts] generation failed", {
       error: err instanceof Error ? err.message : String(err),
     });
-    return failure("dependency_unavailable", {detail: "Speech generation unavailable", retryAfterSec: 1});
+    return failure("dependency_unavailable", {
+      detail: "Speech generation unavailable",
+      retryAfterSec: 1,
+    });
   }
 }

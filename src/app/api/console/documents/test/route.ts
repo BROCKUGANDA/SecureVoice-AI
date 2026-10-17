@@ -35,10 +35,12 @@ const schema = z.object({ question: z.string().trim().min(3).max(500) });
 export async function POST(req: NextRequest) {
   const guard = await requireOperator();
   if (!guard.ok) {
-    return failure(guard.status === 401 ? "unauthenticated" : "not_found", {detail: guard.error});
+    return failure(guard.status === 401 ? "unauthenticated" : "not_found", { detail: guard.error });
   }
   if (!guard.profile.orgId) {
-    return failure("state_conflict", {detail: "No organization is linked to this account, so there is no knowledge base."});
+    return failure("state_conflict", {
+      detail: "No organization is linked to this account, so there is no knowledge base.",
+    });
   }
 
   const rl = await consumeRateLimit("console-documents-test", guard.profile.userId);
@@ -53,11 +55,13 @@ export async function POST(req: NextRequest) {
   try {
     body = await req.json();
   } catch {
-    return failure("malformed_request", {detail: "Invalid JSON body"});
+    return failure("malformed_request", { detail: "Invalid JSON body" });
   }
   const parsed = schema.safeParse(body);
   if (!parsed.success) {
-    return failure("semantically_invalid", {detail: parsed.error.issues[0]?.message ?? "invalid question"});
+    return failure("semantically_invalid", {
+      detail: parsed.error.issues[0]?.message ?? "invalid question",
+    });
   }
 
   const res = await searchDocuments(guard.profile.orgId, parsed.data.question);

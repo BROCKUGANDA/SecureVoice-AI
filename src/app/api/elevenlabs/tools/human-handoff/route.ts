@@ -5,11 +5,7 @@ import { guardToolCall } from "@/lib/tool-guard";
 import { canTransition, transitionCase, IllegalTransitionError } from "@/lib/case-state-machine";
 import { append as auditAppend } from "@/lib/audit-chain";
 import { db } from "@/lib/db";
-import {
-  makeFailure,
-  type FailureCode,
-  type FailureInit,
-} from "@/lib/failures/envelope";
+import { makeFailure, type FailureCode, type FailureInit } from "@/lib/failures/envelope";
 import { transcript as redactText } from "@/lib/redact";
 import { openCaseHandoffTicket } from "@/lib/crm/case-ticket";
 import { logError, parseJson } from "@/lib/validation/safe-log";
@@ -44,11 +40,11 @@ const schema = z.strictObject({
 
 export async function POST(req: NextRequest) {
   const body = await parseJson(req);
-  if (body === null) return failure("malformed_request", {detail: "Invalid JSON body"});
+  if (body === null) return failure("malformed_request", { detail: "Invalid JSON body" });
 
   const parsed = schema.safeParse(body);
   if (!parsed.success)
-    return failure("semantically_invalid", {detail: "conversation_id and summary are required"});
+    return failure("semantically_invalid", { detail: "conversation_id and summary are required" });
 
   const { conversation_id, summary } = parsed.data;
 
@@ -59,7 +55,14 @@ export async function POST(req: NextRequest) {
     ALLOWED_STATES,
   );
   if (!guard.ok) {
-    return failure(guard.status === 401 ? "unauthenticated" : guard.status === 403 ? "not_found" : "state_conflict", {detail: guard.error});
+    return failure(
+      guard.status === 401
+        ? "unauthenticated"
+        : guard.status === 403
+          ? "not_found"
+          : "state_conflict",
+      { detail: guard.error },
+    );
   }
 
   const escalates = canTransition(guard.state, "ESCALATED");
@@ -92,7 +95,7 @@ export async function POST(req: NextRequest) {
       from: guard.state,
       error: err,
     });
-    return failure("dependency_unavailable", {detail: "audit_unavailable", retryAfterSec: 1});
+    return failure("dependency_unavailable", { detail: "audit_unavailable", retryAfterSec: 1 });
   }
 
   let state: string = guard.state;
@@ -132,7 +135,10 @@ export async function POST(req: NextRequest) {
         from: guard.state,
         error: err,
       });
-      return failure("dependency_unavailable", {detail: "handoff_queue_failed", retryAfterSec: 1});
+      return failure("dependency_unavailable", {
+        detail: "handoff_queue_failed",
+        retryAfterSec: 1,
+      });
     }
   }
 

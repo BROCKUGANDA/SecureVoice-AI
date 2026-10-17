@@ -6,11 +6,7 @@ import { transitionCase, IllegalTransitionError } from "@/lib/case-state-machine
 import { recordSpanAndPersist } from "@/lib/telemetry/store";
 import { db } from "@/lib/db";
 import { append as auditAppend } from "@/lib/audit-chain";
-import {
-  makeFailure,
-  type FailureCode,
-  type FailureInit,
-} from "@/lib/failures/envelope";
+import { makeFailure, type FailureCode, type FailureInit } from "@/lib/failures/envelope";
 import { env } from "@/lib/config";
 import { logError, parseJson } from "@/lib/validation/safe-log";
 
@@ -36,11 +32,13 @@ const schema = z.strictObject({
 
 export async function POST(req: NextRequest) {
   const body = await parseJson(req);
-  if (body === null) return failure("malformed_request", {detail: "Invalid JSON body"});
+  if (body === null) return failure("malformed_request", { detail: "Invalid JSON body" });
 
   const parsed = schema.safeParse(body);
   if (!parsed.success) {
-    return failure("semantically_invalid", {detail: "conversation_id, account_id and reason_code are required"});
+    return failure("semantically_invalid", {
+      detail: "conversation_id, account_id and reason_code are required",
+    });
   }
 
   const { conversation_id, account_id, reason_code } = parsed.data;
@@ -52,7 +50,14 @@ export async function POST(req: NextRequest) {
     ALLOWED_STATES,
   );
   if (!guard.ok) {
-    return failure(guard.status === 401 ? "unauthenticated" : guard.status === 403 ? "not_found" : "state_conflict", {detail: guard.error});
+    return failure(
+      guard.status === 401
+        ? "unauthenticated"
+        : guard.status === 403
+          ? "not_found"
+          : "state_conflict",
+      { detail: guard.error },
+    );
   }
 
   const reference = `SV-FRZ-${guard.caseRef}`;
@@ -85,7 +90,7 @@ export async function POST(req: NextRequest) {
       from: guard.state,
       error: err,
     });
-    return failure("dependency_unavailable", {detail: "audit_unavailable", retryAfterSec: 1});
+    return failure("dependency_unavailable", { detail: "audit_unavailable", retryAfterSec: 1 });
   }
 
   try {
@@ -118,7 +123,9 @@ export async function POST(req: NextRequest) {
     });
   } catch (err) {
     if (err instanceof IllegalTransitionError) {
-      return failure("state_conflict", {detail: `case cannot move from ${guard.state} to FREEZE_STAGED`});
+      return failure("state_conflict", {
+        detail: `case cannot move from ${guard.state} to FREEZE_STAGED`,
+      });
     }
     logError("card_freeze case transition failed", {
       tool: TOOL_NAME,
@@ -126,6 +133,9 @@ export async function POST(req: NextRequest) {
       from: guard.state,
       error: err,
     });
-    return failure("dependency_unavailable", {detail: "case_transition_failed", retryAfterSec: 1});
+    return failure("dependency_unavailable", {
+      detail: "case_transition_failed",
+      retryAfterSec: 1,
+    });
   }
 }

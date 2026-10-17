@@ -43,11 +43,13 @@ const TEST_TIMEOUT_MS = 3000;
 export async function POST(_req: NextRequest) {
   const guard = await requireOperator();
   if (!guard.ok) {
-    return failure(guard.status === 401 ? "unauthenticated" : "not_found", {detail: guard.error});
+    return failure(guard.status === 401 ? "unauthenticated" : "not_found", { detail: guard.error });
   }
   const orgId = guard.profile.orgId;
   if (!orgId) {
-    return failure("state_conflict", {detail: "No organization is linked to this account, so there is no endpoint to test."});
+    return failure("state_conflict", {
+      detail: "No organization is linked to this account, so there is no endpoint to test.",
+    });
   }
 
   const resolved = await resolveVendorEndpoint(orgId);
@@ -63,7 +65,7 @@ export async function POST(_req: NextRequest) {
 
   const endpoint = resolved.endpoint;
   const urlOk = await assertVendorUrlDeliverable(endpoint.url);
-  if (!urlOk.ok) return failure("semantically_invalid", {detail: urlOk.reason});
+  if (!urlOk.ok) return failure("semantically_invalid", { detail: urlOk.reason });
 
   const body = canonicalJson({
     schema_version: SCHEMA_VERSION,

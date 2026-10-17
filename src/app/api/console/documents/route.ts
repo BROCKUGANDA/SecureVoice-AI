@@ -47,14 +47,16 @@ const ALLOWED_LANG = /^[a-z]{2}(-[A-Za-z]{2,4})?$/;
 export async function GET(req?: Request) {
   const guard = await requireOperator();
   if (!guard.ok) {
-    return failure(guard.status === 401 ? "unauthenticated" : "not_found", {detail: guard.error});
+    return failure(guard.status === 401 ? "unauthenticated" : "not_found", { detail: guard.error });
   }
   // Hoisted so the narrowed non-null type survives into the scoped closure:
   // `guard.profile.orgId` is `string | null` and TypeScript will not carry a
   // property narrowing across a callback boundary.
   const tenantId = guard.profile.orgId;
   if (!tenantId) {
-    return failure("state_conflict", {detail: "No organization is linked to this account, so there is no knowledge base."});
+    return failure("state_conflict", {
+      detail: "No organization is linked to this account, so there is no knowledge base.",
+    });
   }
 
   // `withTenantScope` runs this as `sv_tenant` with `app.org_id` pinned, so the
@@ -97,11 +99,13 @@ export async function GET(req?: Request) {
 export async function POST(req: NextRequest) {
   const guard = await requireOperator();
   if (!guard.ok) {
-    return failure(guard.status === 401 ? "unauthenticated" : "not_found", {detail: guard.error});
+    return failure(guard.status === 401 ? "unauthenticated" : "not_found", { detail: guard.error });
   }
   const orgId = guard.profile.orgId;
   if (!orgId) {
-    return failure("state_conflict", {detail: "No organization is linked to this account, so there is nowhere to file this."});
+    return failure("state_conflict", {
+      detail: "No organization is linked to this account, so there is nowhere to file this.",
+    });
   }
 
   const rl = await consumeRateLimit("console-documents", guard.profile.userId);
@@ -116,12 +120,12 @@ export async function POST(req: NextRequest) {
   try {
     form = await req.formData();
   } catch {
-    return failure("malformed_request", {detail: "Expected multipart/form-data"});
+    return failure("malformed_request", { detail: "Expected multipart/form-data" });
   }
 
   const file = form.get("file");
-  if (!(file instanceof File)) return failure("malformed_request", {detail: "file is required"});
-  if (file.size === 0) return failure("malformed_request", {detail: "file is empty"});
+  if (!(file instanceof File)) return failure("malformed_request", { detail: "file is required" });
+  if (file.size === 0) return failure("malformed_request", { detail: "file is empty" });
   if (file.size > MAX_PDF_BYTES) {
     return failure("semantically_invalid", {
       detail: `file is ${(file.size / 1024 / 1024).toFixed(1)} MB; the limit is 8 MB`,
@@ -135,7 +139,8 @@ export async function POST(req: NextRequest) {
   const isPdf = bytes.length > 5 && new TextDecoder().decode(bytes.subarray(0, 5)) === "%PDF-";
   if (!isPdf) {
     return failure("semantically_invalid", {
-      detail: "Only PDF documents can be indexed. A scanned PDF with no text layer cannot be searched either.",
+      detail:
+        "Only PDF documents can be indexed. A scanned PDF with no text layer cannot be searched either.",
     });
   }
 
@@ -143,7 +148,9 @@ export async function POST(req: NextRequest) {
   const title = rawTitle || file.name.replace(/\.pdf$/i, "").slice(0, 120) || "Policy document";
   const rawLang = String(form.get("lang") ?? "").trim();
   if (rawLang && !ALLOWED_LANG.test(rawLang)) {
-    return failure("semantically_invalid", {detail: "lang must be a BCP-47 tag such as en or ar"});
+    return failure("semantically_invalid", {
+      detail: "lang must be a BCP-47 tag such as en or ar",
+    });
   }
   const lang = rawLang || "en";
 

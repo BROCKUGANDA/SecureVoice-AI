@@ -3,11 +3,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireSignedIn } from "@/lib/credits";
 import { consume as consumeRateLimit, rateLimitHeaders } from "@/lib/ratelimit";
-import {
-  makeFailure,
-  type FailureCode,
-  type FailureInit,
-} from "@/lib/failures/envelope";
+import { makeFailure, type FailureCode, type FailureInit } from "@/lib/failures/envelope";
 import { redactPII } from "@/lib/compliance/redactor";
 import { enqueueAndSendEmail } from "@/lib/email/queue";
 import { isEmailConfigured } from "@/lib/email/resend";
@@ -107,7 +103,7 @@ function makeRef(): string {
 export async function POST(req: NextRequest) {
   const guard = await requireSignedIn();
   if (!guard.ok) {
-    return failure(guard.status === 401 ? "unauthenticated" : "not_found", {detail: guard.error});
+    return failure(guard.status === 401 ? "unauthenticated" : "not_found", { detail: guard.error });
   }
   const profile = guard.profile;
 
@@ -120,12 +116,14 @@ export async function POST(req: NextRequest) {
   }
 
   const raw = await parseJson(req);
-  if (raw === null) return failure("malformed_request", {detail: "Invalid JSON body"});
+  if (raw === null) return failure("malformed_request", { detail: "Invalid JSON body" });
 
   const parsed = ticketSchema.safeParse(raw);
   if (!parsed.success) {
     const first = parsed.error.issues[0];
-    return failure("semantically_invalid", {detail: first?.message ?? "Please check the form and try again."});
+    return failure("semantically_invalid", {
+      detail: first?.message ?? "Please check the form and try again.",
+    });
   }
   const d = parsed.data;
 
@@ -135,7 +133,8 @@ export async function POST(req: NextRequest) {
   // send. Same verdict the fire route gives its unarmed WEBHOOK_SECRET.
   if (!isEmailConfigured()) {
     return failure("dependency_unavailable", {
-      detail: "Support email is not configured in this deployment (RESEND_API_KEY unset) — nothing was sent.",
+      detail:
+        "Support email is not configured in this deployment (RESEND_API_KEY unset) — nothing was sent.",
       retryAfterSec: 1,
     });
   }

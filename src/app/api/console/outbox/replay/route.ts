@@ -31,14 +31,14 @@ const schema = z.object({
 export async function POST(req: NextRequest) {
   const guard = await requireOperator();
   if (!guard.ok) {
-    return failure(guard.status === 401 ? "unauthenticated" : "not_found", {detail: guard.error});
+    return failure(guard.status === 401 ? "unauthenticated" : "not_found", { detail: guard.error });
   }
 
   const body = await parseJson(req);
-  if (body === null) return failure("malformed_request", {detail: "Invalid JSON body"});
+  if (body === null) return failure("malformed_request", { detail: "Invalid JSON body" });
   const parsed = schema.safeParse(body);
   if (!parsed.success) {
-    return failure("semantically_invalid", {detail: "deadLetterId or all=true is required"});
+    return failure("semantically_invalid", { detail: "deadLetterId or all=true is required" });
   }
 
   if (parsed.data.all) {
@@ -50,7 +50,9 @@ export async function POST(req: NextRequest) {
 
   const result = await replayDeadLetter(parsed.data.deadLetterId!);
   if (!result.ok) {
-    return failure(result.error === "dead_letter_not_found" ? "not_found" : "state_conflict", {detail: result.error});
+    return failure(result.error === "dead_letter_not_found" ? "not_found" : "state_conflict", {
+      detail: result.error,
+    });
   }
   return NextResponse.json({ ok: true });
 }
@@ -59,7 +61,7 @@ export async function POST(req: NextRequest) {
 export async function GET() {
   const guard = await requireOperator();
   if (!guard.ok) {
-    return failure(guard.status === 401 ? "unauthenticated" : "not_found", {detail: guard.error});
+    return failure(guard.status === 401 ? "unauthenticated" : "not_found", { detail: guard.error });
   }
   const rows = await db.deadLetter.findMany({ orderBy: { failedAt: "desc" }, take: 50 });
   return NextResponse.json(

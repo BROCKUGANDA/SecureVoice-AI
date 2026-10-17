@@ -21,8 +21,19 @@ export type RegulatoryEvidencePackage = {
   ai_system_integrity_hash: string;
 };
 
-export function signHMAC(value: unknown, secret: string): string {
-  return crypto.createHmac("sha256", secret).update(JSON.stringify(value)).digest("hex");
+/**
+ * Sign the EXACT bytes that go on the wire.
+ *
+ * This takes a string, not an object, and that is the whole point. Rule 4 of the
+ * money-audit contract forbids a digest computed over re-serialised JSON, because
+ * `JSON.stringify` is not guaranteed to reproduce the bytes that were actually
+ * transmitted — a signature over a re-serialisation can verify against something
+ * the receiver never sent. Serialising once here and passing that string to both
+ * the signer and the body makes the signed bytes and the sent bytes the same
+ * value by construction, so there is no re-serialisation to drift.
+ */
+export function signHMAC(body: string, secret: string): string {
+  return crypto.createHmac("sha256", secret).update(body).digest("hex");
 }
 
 export async function generateCaseFile(caseIdOrRef: string) {
@@ -88,15 +99,19 @@ export async function generateCaseFile(caseIdOrRef: string) {
   const complianceUrl = process.env.BANK_COMPLIANCE_WEBHOOK_URL;
   if (complianceUrl) {
     const secret = process.env.BANK_WEBHOOK_SECRET ?? "";
+    // Serialised ONCE, and that exact string is both signed and sent. Signing a
+    // re-serialisation is the rule-4 violation this avoids: the digest then
+    // covers bytes the receiver never holds.
+    const body = JSON.stringify(evidencePackage);
     try {
       await fetch(complianceUrl, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${process.env.BANK_COMPLIANCE_TOKEN ?? ""}`,
-          "X-Evidence-Signature": signHMAC(evidencePackage, secret),
+          "X-Evidence-Signature": signHMAC(body, secret),
         },
-        body: JSON.stringify(evidencePackage),
+        body,
       });
     } catch {
       // non-blocking

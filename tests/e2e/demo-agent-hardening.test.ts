@@ -29,7 +29,7 @@ let ipSeq = 0;
 
 function ask(
   text: string,
-  opts: { lang?: string; turn?: number; ip?: string; callRef?: string } = {},
+  opts: { lang?: string; turn?: number; ip?: string; callRef?: string; convId?: string } = {},
 ): Promise<Response> {
   const ip = opts.ip ?? `198.51.100.${(ipSeq = (ipSeq % 250) + 1)}`;
   return POST(
@@ -48,6 +48,12 @@ function ask(
         text,
         lang: opts.lang ?? "en",
         ...(opts.callRef ? { callRef: opts.callRef } : {}),
+        // `convId` is the SERVER-ISSUED conversation token the turn counter keys
+        // on. The streak only accumulates when the client sends it back, which is
+        // why the loop tests below capture it from the first reply and replay it —
+        // sending a fresh `callRef` instead mints a new conversation every turn and
+        // the handoff can never fire.
+        ...(opts.convId ? { convId: opts.convId } : {}),
         ...(opts.turn ? { turn: opts.turn } : {}),
       }),
     }),
@@ -171,11 +177,17 @@ describe("no endless loops", () => {
     "an unclear answer is asked again early, then a human takes over",
     async () => {
       const callRef = `SV-C-${RUN_ID}-LOOP1`;
+      // The streak is keyed on the SERVER-ISSUED convId, so it has to be captured
+      // from each reply and sent back. Sending only a callRef mints a new
+      // conversation every turn, and the handoff below can never fire.
+      let convId: string | undefined;
       for (let n = 1; n <= 3; n++) {
-        const body = await (await ask("hmm", { callRef })).json();
+        const res = await ask("hmm", { callRef, convId });
+        const body = await res.json();
+        convId = body.convId;
         expect(body.action, `turn ${n}`).toBe("clarify");
       }
-      const late = await (await ask("hmm", { callRef })).json();
+      const late = await (await ask("hmm", { callRef, convId })).json();
       expect(late.intent).toBe("handoff");
       expect(late.action).toBe("human_handoff");
       expect(late.reply).toContain("human specialist");
@@ -188,8 +200,11 @@ describe("no endless loops", () => {
     async () => {
       const callRef = `SV-C-${RUN_ID}-LOOP2`;
       let handedOff = false;
+      let convId: string | undefined;
       for (let n = 0; n < 4; n++) {
-        const body = await (await ask("hmm", { callRef, turn: 1 })).json();
+        const res = await ask("hmm", { callRef, turn: 1, convId });
+        const body = await res.json();
+        convId = body.convId;
         if (body.intent === "handoff") handedOff = true;
       }
       expect(handedOff).toBe(true);
@@ -232,10 +247,14 @@ describe("no endless loops", () => {
     "a different ip on the same call still hands off — the streak is the call's, not the socket's",
     async () => {
       const callRef = `SV-C-${RUN_ID}-LOOP5`;
-      await ask("hmm", { callRef, ip: "203.0.113.201" });
-      await ask("hmm", { callRef, ip: "203.0.113.202" });
-      await ask("hmm", { callRef, ip: "203.0.113.203" });
-      const body = await (await ask("hmm", { callRef, ip: "203.0.113.204" })).json();
+      let convId: string | undefined;
+      for (const ip of ["203.0.113.201", "203.0.113.202", "203.0.113.203"]) {
+        const res = await ask("hmm", { callRef, ip, convId });
+        convId = (await res.json()).convId;
+      }
+      const body = await (
+        await ask("hmm", { callRef, ip: "203.0.113.204", convId })
+      ).json();
       expect(body.intent).toBe("handoff");
     },
     SLOW,

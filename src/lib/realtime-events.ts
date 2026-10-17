@@ -185,7 +185,7 @@ export const REALTIME_EVENTS: readonly RealtimeEventSpec[] = [
     shape: "envelope",
     producer: {
       file: "src/lib/credits.ts",
-      line: 288,
+      line: 357,
       literal: `type: "credit.deducted"`,
     },
     consumer: "src/lib/realtime-client.ts:547 → src/components/billing/CreditWidget.tsx:230",
@@ -205,7 +205,7 @@ export const REALTIME_EVENTS: readonly RealtimeEventSpec[] = [
     shape: "flat",
     producer: {
       file: "src/lib/case-state-machine.ts",
-      line: 254,
+      line: 260,
       literal: `type: "case_state"`,
     },
     consumer:
@@ -276,7 +276,7 @@ export const ACTIVITY_FRAME: {
 } = {
   producer: {
     file: "src/lib/audit-chain.ts",
-    line: 361,
+    line: 456,
     literal: "chainHash: row.chainHash",
   },
   consumer: "src/lib/realtime-client.ts:540 → src/views/Console.tsx:628",

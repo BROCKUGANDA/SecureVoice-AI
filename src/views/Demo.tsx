@@ -35,6 +35,7 @@ import {
   type CallLang,
 } from "@/lib/scenario";
 import AmountDisplay from "@/components/AmountDisplay";
+import { PanelHeader } from "@/components/ui/PanelHeader";
 import {
   TTS_VOICE,
   speakText,
@@ -45,6 +46,8 @@ import {
 } from "@/lib/voice-client";
 import { useApp, t } from "@/lib/store";
 import { seatLabel, type Seat } from "@/lib/auth/seat";
+import { useViewerSeat } from "@/lib/auth/use-viewer-seat";
+import { isDemoAccount } from "@/lib/demo-account";
 import { Chip, Skeleton } from "@/components/fx/core";
 import { Waveform, Equalizer } from "@/components/fx/Waveform";
 import { LiveVoicePanel } from "@/components/demo/LiveVoicePanel";
@@ -226,6 +229,76 @@ export function Demo() {
     endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [revealed.length]);
 
+  /* ——— demo seat heartbeat ———
+     A demo session holds its queue seat only while something heartbeats it.
+     The sign-in bound the lease to this browser; this loop renews it every
+     45s against the 180s server TTL. If the seat is gone (expired, released,
+     capacity reclaimed), the banner below says so with a way back to the
+     line — instead of the demo silently running on a dead seat. Never sends a
+     "leave": navigating between views unmounts this component, and unmount is
+     not leaving. Sign-out and the TTL are the release paths. */
+  const { user } = useViewerSeat();
+  /**
+   * "The queue seat this browser was holding is gone."
+   *
+   * Only ever set from the demo branch below, and only when the session IS a demo
+   * account — so the effect used to open with `setSeatLost(false)` for a
+   * non-demo session to clear a value it could not have set. That reset is
+   * unreachable-with-effect, and it is a synchronous setState inside an effect
+   * body, which re-renders before the heartbeat does any work.
+   *
+   * Gating the RENDER on the same predicate is exactly equivalent — a non-demo
+   * session cannot have a true value to hide — and needs no reset.
+   */
+  const [seatLost, setSeatLost] = useState(false);
+  const demoEmail = user?.email ?? null;
+  const showSeatLostBanner = isDemoAccount(demoEmail) && seatLost;
+  useEffect(() => {
+    if (!isDemoAccount(demoEmail)) return;
+    let cancelled = false;
+    const beat = async () => {
+      let seatId: string | null = null;
+      try {
+        seatId = window.localStorage.getItem("sv_demo_seat");
+      } catch {
+        seatId = null;
+      }
+      if (!seatId) {
+        // No seat id on this browser (signed in before the queue existed, or
+        // storage blocked): check the lease endpoint, which answers from the
+        // session alone.
+        try {
+          const res = await fetch("/api/demo/lease", { cache: "no-store" });
+          const data = (await res.json().catch(() => null)) as { held?: boolean } | null;
+          if (!cancelled && res.ok && data?.held !== true) setSeatLost(true);
+        } catch {
+          // Unreachable lease endpoint: say nothing, try again next tick.
+        }
+        return;
+      }
+      try {
+        const res = await fetch("/api/demo/queue", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "heartbeat",
+            deviceId: window.localStorage.getItem("sv_device_id") ?? "unknown-dev",
+            seatId,
+          }),
+        });
+        if (!cancelled && !res.ok) setSeatLost(true);
+      } catch {
+        // Transient: keep the last known state, retry next tick.
+      }
+    };
+    void beat();
+    const iv = setInterval(() => void beat(), 45_000);
+    return () => {
+      cancelled = true;
+      clearInterval(iv);
+    };
+  }, [demoEmail]);
+
   const start = () => {
     spokenRef.current.clear();
     stopVoice();
@@ -264,6 +337,21 @@ export function Demo() {
 
   return (
     <div className="mx-auto max-w-7xl scroll-mt-24 px-4 py-8 sm:px-6 lg:px-8 lg:py-12">
+      {showSeatLostBanner && (
+        <div
+          role="alert"
+          className="mb-5 rounded-2xl border border-amber-300 bg-amber-50 px-5 py-3.5 text-[13px] leading-relaxed text-amber-900"
+        >
+          {t(
+            "Your demo seat expired — someone else may be using it now. Rejoin the line to continue with live data.",
+            "انتهت صلاحية مقعد العرض الخاص بك — ربما يستخدمه شخص آخر الآن. انضم إلى الطابور مجدداً للمتابعة بالبيانات الحية.",
+            lang,
+          )}{" "}
+          <a href="/sign-in" className="font-semibold underline underline-offset-2">
+            {t("Rejoin the demo line →", "انضم إلى طابور العرض ←", lang)}
+          </a>
+        </div>
+      )}
       {/* ——— heading ——— */}
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
@@ -355,6 +443,29 @@ export function Demo() {
               )}
             >
               <div className="flex items-center justify-between gap-2">
+                {/*
+                  The institution badge.
+                  *
+                  * `institution` is absent on the bank scenarios (the original
+                  * three, whose docstring predates the field) and "insurer" on the
+                  * claim case. Nothing rendered it, so the one insurer scenario sat
+                  * in a flat five-across grid indistinguishable from four bank
+                  * ones — an insurer judge had to read all five descriptions to
+                  * work out which one was theirs, and most would not have got
+                  * that far.
+                  */}
+                {m.institution && (
+                  <span
+                    className={cn(
+                      "rounded-full px-2 py-0.5 text-[9.5px] font-bold uppercase tracking-wider",
+                      sel ? "bg-green-deep text-white" : "bg-ink/90 text-white",
+                    )}
+                  >
+                    {m.institution === "insurer"
+                      ? t("Insurer", "شركة تأمين", lang)
+                      : t("Bank", "مصرف", lang)}
+                  </span>
+                )}
                 <span
                   className={cn("micro !text-[9.5px]", sel ? "!text-green-deep" : "!text-ink-3")}
                 >
@@ -454,40 +565,46 @@ export function Demo() {
       <div className="mt-8 grid gap-5 lg:grid-cols-[1.35fr_0.65fr]">
         {/* ————— CALL STAGE ————— */}
         <div className="overflow-hidden rounded-3xl border border-line bg-white shadow-[0_24px_60px_-40px_rgba(16,24,18,0.35)]">
-          {/* stage header */}
-          <div className="relative overflow-hidden border-b border-line bg-card px-5 py-4 sm:px-6">
-            <div
-              className="absolute inset-0 opacity-60"
-              style={{
-                background:
-                  "radial-gradient(420px 160px at 20% 0%, rgba(20,163,116,0.28), transparent 60%)",
-              }}
-            />
-            <div className="relative flex flex-wrap items-center justify-between gap-3">
-              <div className="flex items-center gap-3.5">
-                <span className="relative flex h-11 w-11 items-center justify-center rounded-full bg-green-bright/15 ring-1 ring-green-bright/30">
-                  {done ? (
-                    <PhoneCall className="h-5 w-5 text-primary" />
-                  ) : (
-                    <PhoneOutgoing className="h-5 w-5 text-primary" />
-                  )}
-                  {running && (
-                    <span className="sv-pulse-ring absolute inset-0 rounded-full text-primary/70" />
-                  )}
-                </span>
-                <div className="leading-tight">
-                  <p className="text-[14px] font-semibold text-foreground">
-                    {META.customer}{" "}
-                    <span className="num ml-1 text-[11px] font-normal text-ink-2">
-                      {META.phone}
-                    </span>
-                  </p>
-                  <p className="num mt-1 text-[11px] text-ink-2">
-                    {t("VOICE", "الصوت", lang)} · {VOICE_BY_LANG[callLang]} · {META.assetId}
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2.5">
+          {/* stage header — black band shared via PanelHeader; the green radial
+              glow survives as the band's decoration layer */}
+          <PanelHeader
+            className="sm:px-6"
+            decoration={
+              <div
+                className="absolute inset-0 opacity-60"
+                style={{
+                  background:
+                    "radial-gradient(420px 160px at 20% 0%, rgba(20,163,116,0.28), transparent 60%)",
+                }}
+              />
+            }
+            icon={
+              <span className="relative flex h-11 w-11 items-center justify-center rounded-full bg-white/10 ring-1 ring-green-bright/40">
+                {done ? (
+                  <PhoneCall className="h-5 w-5 text-white" />
+                ) : (
+                  <PhoneOutgoing className="h-5 w-5 text-white" />
+                )}
+                {running && (
+                  <span className="sv-pulse-ring absolute inset-0 rounded-full text-white/70" />
+                )}
+              </span>
+            }
+            title={
+              <>
+                <p className="text-[14px] font-semibold text-white">
+                  {META.customer}{" "}
+                  <span className="num ml-1 text-[11px] font-normal text-white/70">
+                    {META.phone}
+                  </span>
+                </p>
+                <p className="num mt-1 text-[11px] text-white/70">
+                  {t("VOICE", "الصوت", lang)} · {VOICE_BY_LANG[callLang]} · {META.assetId}
+                </p>
+              </>
+            }
+            right={
+              <>
                 {started && !done && (
                   <span className="flex items-center gap-1.5 rounded-full bg-red-tint px-2.5 py-1">
                     <span className="h-1.5 w-1.5 rounded-full bg-red-soft sv-blink" />
@@ -499,9 +616,9 @@ export function Demo() {
                 <span className="num rounded-full bg-secondary px-3 py-1.5 text-[13px] font-semibold text-foreground">
                   {started ? `${mm}:${ss}` : "00:00"}
                 </span>
-              </div>
-            </div>
-          </div>
+              </>
+            }
+          />
 
           {/* waveform strip */}
           <div className="flex items-center gap-3 border-b border-line bg-paper px-5 py-3 sm:px-6">
@@ -660,10 +777,10 @@ export function Demo() {
           >
             {started ? (
               <div className="space-y-2.5 text-[12.5px]">
-                <Row k={t("Risk score", "درجة الخطر", lang)} v={META.risk} hot />
+                <Row k={t("Risk score", "درجة الخطورة", lang)} v={META.risk} hot />
                 <Row k={t("Amount", "المبلغ", lang)} v={t(META.amount.en, META.amount.ar, lang)} />
                 <Row
-                  k={t("Merchant", "المتجر", lang)}
+                  k={t("Merchant", "التاجر", lang)}
                   v={t(META.merchant.en, META.merchant.ar, lang)}
                 />
                 <Row
@@ -1064,21 +1181,35 @@ function RailCard({
   return (
     <div
       className={cn(
-        "rounded-2xl border bg-white p-5 transition-all",
+        "overflow-hidden rounded-2xl border bg-white transition-all",
         active
           ? "border-primary/30 shadow-[0_14px_34px_-24px_rgba(11,122,85,0.45)]"
           : "border-line",
       )}
     >
-      <div className="mb-3 flex items-center justify-between">
-        <div className="flex items-center gap-2.5">
-          <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-paper">
+      {/* Black banner header (shared PanelHeader): the rail reads as labelled
+          instruments, and the active card keeps its green ring on the body
+          border rather than the banner, so "live" never depends on color
+          alone. The brightness filter lifts each rail icon's own hue to AA on
+          black without the call sites having to know the banner is dark. */}
+      <PanelHeader
+        className="px-5 py-3"
+        icon={
+          <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-white/10 brightness-[1.35]">
             {icon}
           </span>
-          <span className="text-[13px] font-semibold">{title}</span>
-        </div>
-      </div>
-      {children}
+        }
+        title={<span className="text-[13px] font-semibold">{title}</span>}
+        right={
+          active && (
+            <span className="flex items-center gap-1.5 text-[10px] font-semibold text-green-bright">
+              <span className="h-1.5 w-1.5 rounded-full bg-green-bright sv-blink" />
+              LIVE
+            </span>
+          )
+        }
+      />
+      <div className="p-5">{children}</div>
     </div>
   );
 }

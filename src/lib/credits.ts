@@ -30,6 +30,7 @@ import { headers } from "next/headers";
 import { auth } from "@/lib/better-auth";
 import { db } from "@/lib/db";
 import { append as auditAppend } from "@/lib/audit-chain";
+import { isDemoAccount } from "@/lib/demo-account";
 import { logError } from "@/lib/validation/safe-log";
 
 export type Role = "operator" | "demo";
@@ -135,19 +136,66 @@ export async function getProfile(): Promise<PlatformProfile | null> {
   // vocabulary is not a `Role` because the compiler was told to believe it is.
   const role: Role = roleFromMembership(membershipRole, orgId);
 
+  // Demo confinement. The one-click demo credential is PUBLIC by design (it
+  // ships in the sign-in bundle), so it must never resolve to anything but the
+  // demo seat — even if the address somehow holds an Owner/Admin membership
+  // row. The membership is ignored entirely (not downgraded: there is no
+  // "demo Owner"), and the org pointer is dropped with it, because an org
+  // pointer on a demo session is what would let tenant-scoped reads resolve.
+  // Applied BEFORE the mirror upsert so the stored row agrees with what every
+  // reader of this function enforces, and before the wallet lookup so a demo
+  // session never reads an organisation's balance.
+  const demo = isDemoAccount(email);
+  const effectiveRole: Role = demo ? "demo" : role;
+  const effectiveOrgId: string | null = demo ? null : orgId;
+
+  // Demo sessions are admitted only with a live queue lease HELD BY THIS SESSION.
+  // This is what closes the manual-form bypass: signing in with the published
+  // password outside `/api/demo/enter` mints a session that never redeemed a
+  // seat, and that session resolves to signed-out here — the holder joins the
+  // line like everyone else. Returning null (rather than a degraded profile) is
+  // what sends the shell to the sign-in view instead of rendering a console with
+  // no data.
+  //
+  // Keyed on `session.session.id`, NOT on the user id. The demo credential is one
+  // published account, so every admitted browser shares a single user id and a
+  // user-keyed lookup returned whichever seat was live for that account — which
+  // meant one judge's seat also admitted every other judge's browser. The capacity
+  // bound is N seats, N sessions, and a session with no seat of its own is
+  // refused; legitimate concurrency is untouched.
+  //
+  // A missing DemoSeat table (migration not yet applied) fails OPEN with a loud
+  // log: bricking every demo login on a partially-migrated deploy is worse than
+  // an unenforced queue, and the condition is self-repairing on the next deploy.
+  // Any other store error propagates — a database outage must not silently
+  // unbind capacity.
+  if (demo) {
+    try {
+      const { leaseForSession } = await import("@/lib/demo-queue");
+      const lease = await leaseForSession(session.session.id);
+      if (!lease) return null;
+    } catch (err) {
+      if (typeof err === "object" && err !== null && (err as { code?: string }).code === "P2021") {
+        logError("[auth] DemoSeat table missing — demo queue unenforced until migrated", {});
+      } else {
+        throw err;
+      }
+    }
+  }
+
   const row = await db.userProfile.upsert({
     where: { userId: user.id },
     create: {
       userId: user.id,
       email,
       name,
-      role,
-      orgId,
-      credits: role === "operator" ? 500 : 25,
+      role: effectiveRole,
+      orgId: effectiveOrgId,
+      credits: effectiveRole === "operator" ? 500 : 25,
     },
     // Role and org follow the session (never self-granted locally); credits are
     // wallet state and are deliberately NOT touched here.
-    update: { email, name, role, orgId },
+    update: { email, name, role: effectiveRole, orgId: effectiveOrgId },
   });
 
   // The org wallet is the tenant's balance; the profile wallet is the
@@ -157,9 +205,9 @@ export async function getProfile(): Promise<PlatformProfile | null> {
   // is the request that discovers it.
   let credits = row.credits;
   let walletScope: "org" | "user" = "user";
-  if (orgId) {
+  if (effectiveOrgId) {
     const org = await db.organization.findUnique({
-      where: { id: orgId },
+      where: { id: effectiveOrgId },
       select: { credits: true },
     });
     credits = org?.credits ?? 0;
@@ -253,6 +301,27 @@ async function auditWallet(
  * normal operating mode); without it the caller's own profile wallet is
  * debited. An org session must never spend the operator's personal credits
  * and vice versa — that is how one tenant's usage ends up on another's bill.
+ */
+/**
+ * ── DEPRECATED: wallet primitives, no longer on any metered path ─────────────
+ * `deductCredit()` and `refundCredit()` below move a wallet balance and nothing
+ * else: they do not know whether the run being paid for is one anyone is
+ * BILLING for, they write no `UsageLedger` row, and they audit with a fixed
+ * `wallet_debited` intent that cannot record why a movement was free.
+ *
+ * The only production caller of either was `/api/console/fire`, and it no longer
+ * uses them — `src/lib/billing/charge-mode.ts`'s `claimRun()` / `refundRun()`
+ * replaced it, because a demo session must be metered WITHOUT being charged and a
+ * paid run's wallet movement and ledger reservation have to land together.
+ *
+ * They are kept, exported and tested rather than deleted, for one reason: they are
+ * the primitive whose `updateMany({ where: { credits: { gt: 0 } } })` is the
+ * atomicity argument that `claimRun`'s identical decrement relies on, and
+ * `tests/billing/spend-wallet.test.ts` asserts that behaviour against them
+ * directly. If they are being changed, that test is the specification.
+ *
+ * Do NOT reintroduce them onto a metered path. The rule they cannot express is
+ * "this run is free, and here is the record of why".
  */
 /**
  * Announce a wallet movement on the realtime org channel.

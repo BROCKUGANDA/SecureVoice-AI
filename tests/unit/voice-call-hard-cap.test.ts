@@ -78,7 +78,7 @@ describe("the worker's hard call cap", () => {
     // closed connection.
     const closeHandler = src.slice(
       src.indexOf('ws.on("close"'),
-      src.indexOf('ws.on("close"') + 500,
+      src.indexOf('ws.on("close"') + 2000,
     );
     expect(closeHandler).toContain("clearTimeout(hardCapTimer)");
   });

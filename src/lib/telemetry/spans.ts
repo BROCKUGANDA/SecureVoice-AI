@@ -124,6 +124,20 @@ export function targetP95Ms(name: SpanName): number {
  */
 export const INDUSTRY_BASELINE = Object.freeze({
   label: "38 min",
+  /**
+   * The Arabic rendering of `label`.
+   *
+   * The English label is a bare Latin abbreviation ("38 min") and it was being
+   * interpolated straight into an Arabic sentence on the SLO panel, which reads
+   * as a half-translated line. The rest of this codebase already localises
+   * durations (src/views/Security.tsx renders ث / د / س), so the unit is spelled
+   * out here rather than left Latin.
+   *
+   * Deliberately NOT used by report.ts: that emits machine-readable evidence
+   * artifacts where the label is a stable identifier, and making it locale
+   * dependent would make two runs of the same measurement incomparable.
+   */
+  labelAr: "38 دقيقة",
   labelLong: "38-minute industry baseline — fraud flag to customer contact",
   ms: 38 * 60 * 1000,
   kind: "literature" as const,

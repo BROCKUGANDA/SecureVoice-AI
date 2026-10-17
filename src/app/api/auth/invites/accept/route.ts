@@ -75,6 +75,15 @@ export async function POST(req: Request) {
   });
 
   if (!result.ok) {
+    // A demo address is a POLICY refusal, not a dead invitation: 403, and the
+    // invitation is not consumed, so a legitimate re-issue to a real address is
+    // unaffected.
+    if (result.reason === "demo_address") {
+      return NextResponse.json(
+        { error: result.error, code: result.reason },
+        { status: 403, headers: { "Cache-Control": "no-store" } },
+      );
+    }
     // A full plan is a COMMERCIAL refusal, not a dead invitation: 402 with the
     // seat facts, and — the part that matters — the invitation was not consumed,
     // so it still works the moment the organization upgrades or frees a seat.

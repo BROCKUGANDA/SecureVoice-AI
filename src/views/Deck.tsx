@@ -26,6 +26,7 @@ import { DECK } from "@/lib/deck";
 import { useApp, t } from "@/lib/store";
 import { FOUNDER_EMAIL } from "@/lib/public-config";
 import { Chip } from "@/components/fx/core";
+import { PanelHeader } from "@/components/ui/PanelHeader";
 import { cn } from "@/lib/utils";
 
 /** Arabic counterpart for each slide kicker — `deck.ts` keeps the English only. */
@@ -44,7 +45,15 @@ const KICKER_AR: Record<number, string> = {
   12: "11 · المخاطر ومعالجتها",
   13: "12 · ما سيكون جاهزاً",
   14: "13 · الفريق",
-  15: "14 · إثبات البناء",
+  // The three insurer slides, then proof. Ids are unique but no longer
+  // sequential in render order, because the insurance block sits BEFORE proof —
+  // the honest boundary slide earns its position immediately before the "go and
+  // touch it" slide. KICKER_AR is keyed by id, not by position, so the Arabic
+  // labels follow the slide rather than the index.
+  17: "14 · لشركات التأمين",
+  18: "15 · حالتا المطالبات",
+  19: "16 · ما هو صادق",
+  15: "17 · دليل البناء",
   16: "SecureVoice AI",
 };
 
@@ -463,7 +472,7 @@ function RenderSlide({
               icon: FileCheck2,
               n: "2",
               en: "Verification",
-              ar: "تحقق",
+              ar: "التحقق",
               d: "no PINs, ever",
               dAr: "دون رموز سرية إطلاقاً",
             },
@@ -1202,18 +1211,27 @@ tts = {
           )}
         </h2>
         <div className="mt-7 overflow-hidden rounded-2xl border border-line shadow-lg">
-          <div className="flex items-center gap-2 border-b border-line bg-card px-4 py-3">
-            <span className="h-2.5 w-2.5 rounded-full bg-[#ff5f57]" />
-            <span className="h-2.5 w-2.5 rounded-full bg-[#febc2e]" />
-            <span className="h-2.5 w-2.5 rounded-full bg-[#28c840]" />
-            <span className="num ml-3 flex-1 rounded-md bg-secondary px-3 py-1 text-[11px] text-ink-2">
-              {t(
-                "securevoiceai.me — live fraud scenario · full call flow · mock banking integration",
-                "securevoiceai.me — سيناريو احتيال حقيقي · مسار المكالمة كاملاً · تكامل بنكي محاكى",
-                lang,
-              )}
-            </span>
-          </div>
+          {/* browser-chrome bar — black band shared via PanelHeader; keeps the
+              deck's tighter chrome padding and the light URL pill */}
+          <PanelHeader
+            className="px-4 py-3"
+            icon={
+              <>
+                <span className="h-2.5 w-2.5 rounded-full bg-[#ff5f57]" />
+                <span className="h-2.5 w-2.5 rounded-full bg-[#febc2e]" />
+                <span className="h-2.5 w-2.5 rounded-full bg-[#28c840]" />
+              </>
+            }
+            title={
+              <span className="num block w-full rounded-md bg-secondary px-3 py-1 text-[11px] text-ink-2">
+                {t(
+                  "securevoiceai.me — live fraud scenario · full call flow · mock banking integration",
+                  "securevoiceai.me — سيناريو احتيال حقيقي · مسار المكالمة كاملاً · تكامل بنكي محاكى",
+                  lang,
+                )}
+              </span>
+            }
+          />
           <div className="grid gap-3 bg-paper p-5 sm:grid-cols-3">
             {[
               {

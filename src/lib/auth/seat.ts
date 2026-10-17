@@ -46,11 +46,14 @@
  *
  * ## Why it is safe to import from the browser
  *
- * It imports nothing. Not `server-only`, not the Prisma handle, not the matrix —
+ * It imports exactly one module — `@/lib/demo-account`, which is client-safe by
+ * design (no `server-only`, no database). Not the Prisma handle, not the matrix —
  * `ROLES`/`isRole` are duplicated as a literal below rather than imported from
  * `src/lib/auth/roles.ts`, which is `server-only` and would throw at build time in
  * a client bundle. `tests/unit/seat.test.ts` asserts the two lists cannot drift.
  */
+
+import { isDemoAccount } from "@/lib/demo-account";
 
 /** The role vocabulary this app recognises, mirrored from `src/lib/auth/roles.ts`. */
 const PLATFORM_ROLES = ["Owner", "Admin", "Analyst", "Auditor", "ServiceAccount"] as const;
@@ -113,6 +116,23 @@ export function seatFromMembershipRole(membershipRole: string | null | undefined
     default:
       return "judge";
   }
+}
+
+/**
+ * The seat for a session, given the membership role AND the sign-in email.
+ *
+ * A demo address is confined to `judge` no matter what the membership row says:
+ * the one-click credential is public by design, so a membership granting it
+ * more must not widen what the nav promises. The server enforces the same rule
+ * on the profile (`src/lib/credits.ts`); this is the client mirror, and like
+ * everything here it can only hide controls, never grant them.
+ */
+export function seatForSession(
+  membershipRole: string | null | undefined,
+  email: string | null | undefined,
+): Seat {
+  if (isDemoAccount(email)) return "judge";
+  return seatFromMembershipRole(membershipRole);
 }
 
 /** Map one of this app's own platform roles onto a seat. */

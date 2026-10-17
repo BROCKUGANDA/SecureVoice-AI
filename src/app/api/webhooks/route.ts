@@ -2,7 +2,7 @@ import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { createHmac, randomBytes, timingSafeEqual } from "crypto";
 import { z } from "zod";
-import { requireSignedIn } from "@/lib/credits";
+import { requireOperator } from "@/lib/credits";
 
 export const dynamic = "force-dynamic";
 
@@ -134,19 +134,24 @@ const SAMPLES: Record<string, (id: string, created: string) => Record<string, un
 };
 
 export async function POST(req: NextRequest) {
-  // Authenticated sessions only. This handler's purpose is to mint a valid
-  // signature and to echo the secret that minted it, so an anonymous caller gets
-  // both — an oracle with no guesswork required.
+  // OPERATOR ONLY. The route's job is to mint a valid signature and to echo the
+  // secret that minted it, so the caller has both a sample and the key to verify
+  // it with.
   //
-  // `requireSignedIn` rather than `requireOperator` deliberately: the Command
-  // Center's webhook panel is visible to demo-role users under the Demo Mode
-  // badge, and the operator gate would 403 that flow, trading a real
-  // regression for a control this route does not need. What matters is that the
-  // caller has a session at all — the secret returned is an ephemeral demo value
-  // (see the header), not production material, so an authenticated member of
-  // the platform holding it is not a disclosure. The session is resolved
-  // server-side; there is no client-supplied identity to spoof.
-  const guard = await requireSignedIn();
+  // It used to be `requireSignedIn`, on the argument that the Command Center's
+  // webhook panel is visible to demo-role users under the Demo Mode badge and
+  // the operator gate would 403 a demo judge mid-tutorial. That traded a real
+  // boundary for a cosmetic flow: every demo holder with a queue seat could read
+  // the signing secret. The demo credential is PUBLISHED — it ships in the
+  // sign-in bundle — so "authenticated" here means "has read this repository's
+  // .env", which is not a bar.
+  //
+  // The regression is acceptable, and it is the smaller one: a judge who reaches
+  // the webhook panel sees "Operator access required", which is TRUE and tells
+  // them what the panel is for. A judge who reads a signing secret learns
+  // something they were never meant to, and the response body is the only place
+  // it appears.
+  const guard = await requireOperator();
   if (!guard.ok) {
     return NextResponse.json({ error: guard.error }, { status: guard.status });
   }

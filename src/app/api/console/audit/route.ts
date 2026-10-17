@@ -4,6 +4,7 @@ import { requireSignedIn } from "@/lib/credits";
 import { orgScopeFor, scopedDb } from "@/lib/tenancy/guard";
 import { withTenantScope } from "@/lib/tenancy/db-scope";
 import { verifyChain } from "@/lib/audit-chain";
+import { etaggedJson } from "@/lib/route-helpers";
 
 export const dynamic = "force-dynamic";
 
@@ -169,19 +170,18 @@ export async function GET(req: NextRequest) {
         ? await withTenantScope(scope.orgId, (tx) => tx.auditLog.count({ where: orgScope }))
         : await scopedDb(scope).auditLog.count({ where: orgScope });
 
-    return NextResponse.json(
-      {
-        chainsChecked: refs.length,
-        verified,
-        broken,
-        totalRows,
-        // `true` means "every chain in THIS TENANT was checked" - not "every chain
-        // in the database". The cap is on the tenant's rows and `chainsChecked`
-        // says which side of it this response landed on.
-        complete: refs.length < INTEGRITY_MAX_CALLREFS,
-      },
-      { headers: { "Cache-Control": "no-store" } },
-    );
+    // Conditional (ETag) rather than no-store: these panels re-poll, and an
+    // unchanged tenant log revalidates to a body-less 304.
+    return etaggedJson(req, {
+      chainsChecked: refs.length,
+      verified,
+      broken,
+      totalRows,
+      // `true` means "every chain in THIS TENANT was checked" - not "every chain
+      // in the database". The cap is on the tenant's rows and `chainsChecked`
+      // says which side of it this response landed on.
+      complete: refs.length < INTEGRITY_MAX_CALLREFS,
+    });
   }
 
   // Row explorer: filtered, paged, tenant-scoped.
@@ -219,17 +219,14 @@ export async function GET(req: NextRequest) {
         ? await withTenantScope(scope.orgId, (tx) => tx.auditLog.count({ where }))
         : await scopedDb(scope).auditLog.count({ where });
 
-    return NextResponse.json(
-      {
-        rows: page,
-        total,
-        limit: filters.limit,
-        offset: filters.offset,
-        hasMore,
-        nextOffset: hasMore ? filters.offset + filters.limit : null,
-      },
-      { headers: { "Cache-Control": "no-store" } },
-    );
+    return etaggedJson(req, {
+      rows: page,
+      total,
+      limit: filters.limit,
+      offset: filters.offset,
+      hasMore,
+      nextOffset: hasMore ? filters.offset + filters.limit : null,
+    });
   }
 
   // Hoisted: the slice is applied to the raw query parameter at every use.
@@ -264,7 +261,7 @@ export async function GET(req: NextRequest) {
       "orgId" in scope
         ? await withTenantScope(scope.orgId, (tx) => tx.auditLog.findMany(walk))
         : await scopedDb(scope).auditLog.findMany(walk);
-    return NextResponse.json({ verification, rows }, { headers: { "Cache-Control": "no-store" } });
+    return etaggedJson(req, { verification, rows });
   }
 
   // Case list: the "freeze" action marks case creation in /api/interventions.
@@ -292,5 +289,5 @@ export async function GET(req: NextRequest) {
       at: c.createdAt,
     };
   });
-  return NextResponse.json({ cases }, { headers: { "Cache-Control": "no-store" } });
+  return etaggedJson(req, { cases });
 }

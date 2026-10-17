@@ -1,9 +1,9 @@
-# Post-call transcript and analysis — case SV-F-TMV4HZXZU
+# Post-call transcript and analysis — case SV-F-TMVB03ZMB
 
 > **MODE: DRY-RUN — NOT VENDOR EVIDENCE.** The dial was placed through the real adapter (placeOutboundCall) with ELEVENLABS_DRY_RUN=true: no speech was synthesised and no vendor call occurred (the account's character quota was exhausted at capture time, 10000/10000). The transcript content is a synthetic fixture delivered through the REAL post-call webhook. Signature verification, PII redaction, memory screening, audit chaining, payload sealing, the state transition and the bank notification are this deployment's real runtime outputs, not vendor recordings.
 
-- Captured: 2026-10-12T00:12:40.197Z
-- Conversation id: `conv_dryrun_SV-F-TMV4HZXZU`
+- Captured: 2026-10-16T13:26:18.965Z
+- Conversation id: `conv_dryrun_SV-F-TMVB03ZMB`
 - Placement: `placeOutboundCall (src/lib/elevenlabs/outbound-call.ts)` (dry_run=true)
 - Ingest: `POST /api/webhooks/elevenlabs`, event `post_call_transcription`, signature verified (ElevenLabs-Signature t/v0 HMAC)
 

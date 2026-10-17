@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { deployedVersion } from "@/lib/version";
+import { deployedVersion } from "@/lib/release-version";
+import { APP_VERSION } from "@/lib/version";
 
 export const dynamic = "force-dynamic";
 
@@ -18,7 +19,7 @@ export async function GET() {
     {
       ok: true,
       uptimeSec: Math.round(process.uptime()),
-      version: deployedVersion(),
+      version: deployedVersion(APP_VERSION),
       release: process.env.SECUREVOICE_RELEASE ?? null,
       // Public-safe region label. This is the one field the public Security page
       // needs that the operator-only /api/status also carries; the rest of that

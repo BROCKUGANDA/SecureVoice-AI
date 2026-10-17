@@ -1,7 +1,7 @@
 "use client";
 
 import { useSession, authClient } from "@/lib/auth-client";
-import { seatFromMembershipRole, type Seat } from "@/lib/auth/seat";
+import { seatForSession, type Seat } from "@/lib/auth/seat";
 
 /**
  * The signed-in seat, read from the ORGANIZATION MEMBERSHIP.
@@ -72,12 +72,17 @@ export function useViewerSeat(): ViewerSeat {
 
   // The membership carries `role`, but only once a tenant is active: with no
   // `activeOrganizationId` there is no membership row to read, and the query
-  // resolves to null. `seatFromMembershipRole` maps that null to `judge`, which is
-  // the right answer for a tenant-less session (see the doc comment there).
+  // resolves to null. `seatForSession` maps that null to `judge`, which is
+  // the right answer for a tenant-less session (see the doc comment there) —
+  // and confines a demo address to `judge` regardless of membership, so the
+  // public one-click credential can never borrow a working seat.
   const seat: Seat | null = isPending
     ? null
     : isSignedIn
-      ? seatFromMembershipRole((member as { role?: string | null } | null)?.role ?? null)
+      ? seatForSession(
+          (member as { role?: string | null } | null)?.role ?? null,
+          user?.email ?? null,
+        )
       : null;
 
   return {

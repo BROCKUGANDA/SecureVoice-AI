@@ -1,7 +1,9 @@
 /**
  * E2E — the Agent Workflows console surface.
  *
- *   GET    /api/console/workflows        list (registry + this org's saves)
+ *   GET    /api/console/workflows        summary rows (registry + this org's
+ *                                        saves; full graphs only with
+ *                                        ?include=graph)
  *   POST   /api/console/workflows        validate + persist
  *   GET    /api/console/workflows/:id    saved override, else built-in
  *   DELETE /api/console/workflows/:id    revert to the built-in
@@ -167,6 +169,9 @@ describe("Agent Workflows console", () => {
     const byId = new Map(body.workflows.map((w) => [w.id, w.source]));
     expect(byId.get("fraud_intervention")).toBe("builtin");
     expect(byId.get("specialist_review")).toBe("builtin");
+    // Summary rows by default: the graph documents only travel with the
+    // explicit ?include=graph opt-in, so the switcher poll stays cheap.
+    expect(body.workflows.every((w) => !("graph" in w))).toBe(true);
   });
 
   test("saves a valid journey and lists it as this org's saved copy", async () => {
@@ -178,7 +183,9 @@ describe("Agent Workflows console", () => {
     expect(res.status).toBe(200);
     expect(((await res.json()) as { ok: boolean }).ok).toBe(true);
 
-    const list = (await (await GET()).json()) as {
+    const list = (await (
+      await GET(new NextRequest("http://localhost/api/console/workflows?include=graph"))
+    ).json()) as {
       workflows: Array<{ id: string; source: string; graph: { nodes: unknown[] } }>;
     };
     const saved = list.workflows.find((w) => w.id === graph.id);

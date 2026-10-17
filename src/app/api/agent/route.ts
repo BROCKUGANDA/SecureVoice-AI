@@ -3,21 +3,30 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auditAgentReply, auditUserInput, requireOutboundConsent } from "@/lib/compliance/policy";
 import { transcript as redactText } from "@/lib/redact";
-import { consume as consumeRateLimit, rateLimitId } from "@/lib/ratelimit";
+import { consume as consumeRateLimit, rateLimitId, rateLimitHeaders } from "@/lib/ratelimit";
 import { append as auditAppend } from "@/lib/audit-chain";
 import { analyzeSentiment } from "@/lib/sentiment";
 import { noteTurn } from "@/lib/voice/turn-counter";
 import { paceForTurn } from "@/lib/voice/presets";
 import type { TurnKind } from "@/lib/voice/presets";
-import { draftAgentReply, resolveSessionLlmCredentials } from "@/lib/llm";
+import { draftAgentReply, resolveLlmCredentials } from "@/lib/llm";
+import { getProfile } from "@/lib/credits";
 import { callerRequestsSecret, NEVER_ASK_LINE } from "@/lib/compliance/never-ask";
 import { SAFETY_EXIT } from "@/lib/compliance/safety-exit";
 import { checkBadActor, recordStrike } from "@/lib/abuse/bad-actor";
 import { detectInjectionAttempt } from "@/lib/llm-guard";
 import { screenForMemory } from "@/lib/memory-guard";
 import { SUPPORTED_LANGS, MAX_AGENT_TEXT_CHARS } from "@/lib/config";
-import { badRequest, tooManyRequests, unprocessable, parseJson } from "@/lib/api-errors";
-import { logError } from "@/lib/validation/safe-log";
+import { makeFailure, type FailureCode, type FailureInit } from "@/lib/failures/envelope";
+import { logError, parseJson } from "@/lib/validation/safe-log";
+
+function failure(code: FailureCode, init: FailureInit = {}): NextResponse {
+  const f = makeFailure(code, init);
+  return NextResponse.json(f.body, {
+    status: f.status,
+    headers: { ...f.headers, "Cache-Control": "no-store" },
+  });
+}
 
 export const dynamic = "force-dynamic";
 
@@ -43,6 +52,14 @@ const schema = z.object({
   // here, which meant a caller that omitted it could never reach the threshold and
   // a caller that sent `turn: 1` every time could never be handed off. The server
   // counts consecutive unclear turns per call — src/lib/voice/turn-counter.ts.
+  //
+  // Same rule for the conversation identity. `convId` is SERVER-ISSUED: the server
+  // mints one when the client has none and returns it, and the client echoes it
+  // back so the streak follows the conversation. An unrecognised or absent token
+  // mints a fresh conversation rather than being trusted, and a per-SOURCE ceiling
+  // (keyed on the trust-gated caller identity, which the caller cannot choose)
+  // stops the rotation from buying unlimited unclear turns.
+  convId: z.string().min(8).max(64).optional(),
   direction: z.enum(["inbound", "outbound"]).default("inbound"),
   consentRecordId: z.string().min(4).optional(),
 });
@@ -54,8 +71,13 @@ type Action = "card_freeze" | "none" | "clarify" | "human_handoff";
  * After this many turns without a clear answer the call goes to a human rather
  * than looping ("Was this you?" / "Are you sure?" / ...). A loop is how a fraud
  * victim ends up arguing with a script at 2am; a person resolves it in one turn.
+ *
+ * The value itself now lives beside the counter that applies it, as
+ * `MAX_UNCLEAR_TURNS` in src/lib/voice/turn-counter.ts — one number, read in the
+ * one place that enforces it. Declaring it here as well was how the threshold came
+ * to be compared in a route while the module that owns the policy kept its own
+ * copy.
  */
-const MAX_UNCLEAR_TURNS = 4;
 
 /**
  * A caller who asks "are you a scammer?" is doing exactly what we tell people to
@@ -385,7 +407,10 @@ export async function POST(req: NextRequest) {
   // 1. Rate limit BEFORE we parse the body (cheapest possible reject)
   const rl = await consumeRateLimit("agent", callerId);
   if (!rl.ok) {
-    return tooManyRequests("Rate limit exceeded; retry later.", rl);
+    return failure("rate_limited", {
+      retryAfterSec: Math.ceil(rl.retryAfterMs / 1000),
+      headers: rateLimitHeaders(rl),
+    });
   }
 
   // A source that has spent an hour probing this endpoint (hunting for an
@@ -393,17 +418,17 @@ export async function POST(req: NextRequest) {
   // rate-limited one does, so it cannot tell WHY it is being slowed down.
   // Keyed on the proxy-resolved caller identity; see src/lib/abuse/bad-actor.ts.
   if (checkBadActor(`agent:${callerId}`).action === "block") {
-    return tooManyRequests("Rate limit exceeded; retry later.", 3600);
+    return failure("rate_limited", { retryAfterSec: 3600 });
   }
 
   const body = await parseJson(req);
-  if (body === null) return badRequest("Invalid JSON body");
+  if (body === null) return failure("malformed_request", { detail: "Invalid JSON body" });
 
   const parsed = schema.safeParse(body);
   if (!parsed.success) {
-    return unprocessable(
-      `text (1–${MAX_AGENT_TEXT_CHARS} chars) and lang (${SUPPORTED_LANGS.join("|")}) are required`,
-    );
+    return failure("semantically_invalid", {
+      detail: `text (1–${MAX_AGENT_TEXT_CHARS} chars) and lang (${SUPPORTED_LANGS.join("|")}) are required`,
+    });
   }
 
   // 2. Outbound consent gate (PUP compliance)
@@ -412,7 +437,7 @@ export async function POST(req: NextRequest) {
     consentRecordId: parsed.data.consentRecordId,
   });
   if (!consent.ok) {
-    return NextResponse.json({ error: consent.error }, { status: consent.status });
+    return failure("semantically_invalid", { detail: consent.error });
   }
 
   const {
@@ -426,12 +451,21 @@ export async function POST(req: NextRequest) {
   //    coached callers are flagged for immediate human takeover)
   const classified = classify(text);
   // Four consecutive turns without a clear answer and a human takes over, rather
-  // than the loop continuing. Counted here, not by the client — see
-  // src/lib/voice/turn-counter.ts for why the previous client-supplied number
-  // made this unreachable, and defeatable.
-  const unclearStreak = noteTurn(callRef, classified === "unclear");
-  const turnCapped = classified === "unclear" && unclearStreak >= MAX_UNCLEAR_TURNS;
-  const intent: Intent = turnCapped ? "handoff" : classified;
+  // than the loop continuing.
+  //
+  // Counted here, on a SERVER-ISSUED conversation token, and additionally capped
+  // per SOURCE. It used to be keyed on the client-supplied `callRef`, which meant
+  // the guard could not fire on the plane judges actually use (the live panel
+  // omits the ref, so every turn was conversation #1) and could be defeated by
+  // any caller willing to send a fresh one per request. `callerId` is the
+  // trust-gated identity and cannot be chosen by the caller, so the per-source
+  // ceiling holds against exactly that rotation. See src/lib/voice/turn-counter.ts.
+  const turn = noteTurn({
+    presentedConvId: typeof parsed.data.convId === "string" ? parsed.data.convId : null,
+    source: callerId,
+    unclear: classified === "unclear",
+  });
+  const intent: Intent = turn.capped ? "handoff" : classified;
   const baseAction = ACTION[intent];
   const userInputAudit = auditUserInput(text);
   const sentimentResult = analyzeSentiment(text);
@@ -476,7 +510,9 @@ export async function POST(req: NextRequest) {
       : scripted;
   // `undefined` (not null) is what lets the environment ladder take over for an
   // anonymous caller or an operator with no stored key.
-  const tenantLlm = await resolveSessionLlmCredentials();
+  const profile = await getProfile();
+  const orgId = profile?.orgId ?? null;
+  const tenantLlm = profile ? await resolveLlmCredentials(profile.userId) : null;
   const drafted = secretAsk
     ? null
     : await draftAgentReply({
@@ -485,15 +521,7 @@ export async function POST(req: NextRequest) {
         intent,
         scriptedReply: scriptedWithExit,
         providerOverride: tenantLlm ?? undefined,
-        // NO knowledge-base retrieval on this plane, deliberately. `orgId` is
-        // what scopes a document query, and the only tenant identifier this
-        // route has is `callRef` — which the CLIENT supplies (line 45: generated
-        // when absent) and nothing binds to the caller's own organization.
-        // Resolving a case from an unverified string is exactly the cross-tenant
-        // read `tests/tenancy/webhook-bleedguard.test.ts` exists to refuse, and
-        // the payload would be another bank's policy text inside a live call.
-        // Grounding therefore waits for this plane to carry a verified tenant,
-        // rather than being faked from a guess.
+        orgId,
       });
   const audited = auditAgentReply({
     reply: drafted ?? scriptedWithExit,
@@ -551,6 +579,16 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({
     ok: true,
     callRef,
+    /**
+     * Server-issued conversation token. The client must echo it on its next turn
+     * for the unclear-turn handoff ceiling to keep counting the same
+     * conversation — without it every turn starts a fresh streak and the ceiling
+     * never fires. Minted fresh whenever the presented token is absent or
+     * unrecognised; see src/lib/voice/turn-counter.ts.
+     */
+    convId: turn.convId,
+    /** Consecutive unclear turns counted so far, for the caller's own display. */
+    unclearStreak: turn.streak,
     intent,
     action: audited.refused || sentimentResult.escalate ? "human_handoff" : baseAction,
     reply: audited.reply,

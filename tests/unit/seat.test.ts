@@ -19,6 +19,7 @@ import {
   SEATS,
   atLeast,
   isPlatformRole,
+  seatForSession,
   seatFromMembershipRole,
   seatFromPlatformRole,
   seatLabel,
@@ -28,6 +29,37 @@ import { pathForView } from "@/lib/console-routes";
 
 const read = (rel: string) =>
   readFileSync(fileURLToPath(new URL(`../../${rel}`, import.meta.url)), "utf8");
+
+describe("session email + membership role -> seat", () => {
+  // The one-click demo credential is public, so a demo address stays `judge`
+  // no matter what the membership row says. `NEXT_PUBLIC_DEMO_LOGIN_EMAIL` is
+  // read at call time, so the suite owns the address it asserts on.
+  const DEMO = "seat-demo-confinement@example.test";
+  const BANKER = "banker-seat-confinement@example.test";
+
+  test("a demo address never leaves the read-only seat", () => {
+    process.env.NEXT_PUBLIC_DEMO_LOGIN_EMAIL = DEMO;
+    try {
+      expect(seatForSession("owner", DEMO)).toBe("judge");
+      expect(seatForSession("admin", DEMO)).toBe("judge");
+      expect(seatForSession("member", DEMO)).toBe("judge");
+      expect(seatForSession(null, DEMO)).toBe("judge");
+    } finally {
+      delete process.env.NEXT_PUBLIC_DEMO_LOGIN_EMAIL;
+    }
+  });
+
+  test("a non-demo address follows the membership (control)", () => {
+    process.env.NEXT_PUBLIC_DEMO_LOGIN_EMAIL = DEMO;
+    try {
+      expect(seatForSession("owner", BANKER)).toBe("operator");
+      expect(seatForSession("member", BANKER)).toBe("vendor");
+      expect(seatForSession(null, BANKER)).toBe("judge");
+    } finally {
+      delete process.env.NEXT_PUBLIC_DEMO_LOGIN_EMAIL;
+    }
+  });
+});
 
 describe("membership role -> seat", () => {
   test("the roles that administer an organisation are operators", () => {

@@ -9,6 +9,7 @@ import { isRole } from "@/lib/auth/roles";
 import { inviteStatus } from "@/lib/auth/invite";
 import { INVITE_TTL_MS } from "@/lib/auth/constants";
 import { seatFacts, seatGate } from "@/lib/billing/seats";
+import { isDemoAccount } from "@/lib/demo-account";
 
 export const dynamic = "force-dynamic";
 
@@ -83,6 +84,19 @@ export async function POST(req: NextRequest) {
   const parsed = issueSchema.safeParse(body);
   if (!parsed.success) {
     return NextResponse.json({ error: "email and role are required" }, { status: 422 });
+  }
+
+  // Demo addresses can never join an organisation: the one-click credential is
+  // public, so a membership row for it would hand everyone holding the published
+  // password whatever the invite granted. Refused before role, seat-cap and
+  // issuance checks — the address itself is the problem, not the role or the
+  // plan — and `acceptInvite` repeats the refusal for invitations minted before
+  // this check existed.
+  if (isDemoAccount(parsed.data.email)) {
+    return NextResponse.json(
+      { error: "Demo sign-in addresses cannot be invited into an organisation." },
+      { status: 422 },
+    );
   }
 
   // Role must be one an administrator may actually grant. `isRole` alone would

@@ -50,6 +50,11 @@
  * be conflated.
  */
 
+// Type-only, so it is erased at compile time and cannot introduce a runtime cycle
+// back into the store. `Lang` is the UI language union; this module predates it
+// and is pure data, which is why the import is type-only rather than a value.
+import type { Lang } from "@/lib/store";
+
 /** ISO-4217, as schema.org `priceCurrency` and as the `Intl` tag both want it. */
 export const PRICE_CURRENCY = "USD";
 
@@ -66,6 +71,27 @@ export const SETTLEMENT = {
   /** The peg `src/views/Pricing.tsx` uses for its AED display conversion. */
   aedPeg: 3.6725,
   note: "Plans are billed in US dollars through Paddle, our Merchant of Record, which collects any sales tax or VAT due. The AED equivalent shown alongside is at the standard 3.6725 peg; buyers in the UK, Ireland and Australia are charged a local price in GBP, EUR or AUD rather than a converted USD amount.",
+  /**
+   * The Arabic rendering of `note`.
+   *
+   * The call site was `t(SETTLEMENT.note, SETTLEMENT.note, lang)` — the same
+   * English string in both slots, so the entire tax/Merchant-of-Record
+   * disclosure silently rendered in English on the pricing page. For a store
+   * selling to UAE banks and insurers, leaving the VAT disclosure untranslated
+   * is the one string that most needed translating: it is the paragraph that
+   * says who the merchant of record is and why the price is in USD.
+   *
+   * MSA, matching the rest of this file's Arabic (`nameAr`, `taglineAr`).
+   *
+   * Passives are worth stating because they are the easy mistake here: the
+   * passive of حَسَبَ is تُحسَب, not تُحاسَب, and the first draft of this string
+   * carried that error along with a Latin "الدرهم Emirati" and missing spaces
+   * before the currency codes. This paragraph is the VAT disclosure, so it is
+   * read by a finance team rather than skimmed, which raises the cost of getting
+   * it subtly wrong.
+   */
+  noteAr:
+    "تُحسَب الخطط بالدولار الأمريكي عبر Paddle، وهو سجل التاجر المعتمد لدينا، إذ يحصّل ضريبة المبيعات أو ضريبة القيمة المضافة المستحقة. ويُعرض المبلغ المكافئ بالدرهم الإماراتي بسعر الربط القياسي 3.6725؛ أمّا المشترون في المملكة المتحدة وأيرلندا وأستراليا فتُحسَب بأسعار محلية بالجين الإسترليني أو اليورو أو الأسترالي، بدلاً من تحويل المبلغ إلى دولارات.",
 } as const;
 
 export type Plan = {
@@ -263,7 +289,28 @@ export const PLANS: Plan[] = [
       "Deploys inside your own VPC or data centre",
       "Dedicated deployment for the WebSocket voice plane",
       "Shariah-compliant terminology engine",
-      "Takaful and insurer-specific voice policies",
+      /**
+       * Was "Takaful and insurer-specific voice policies".
+       *
+       * That bullet claimed a paid feature the code does not gate: the entire
+       * `Entitlement` catalogue is `byok | signedWebhooks`
+       * (src/lib/billing/entitlements.ts), and
+       * `src/lib/billing/entitlements.ts` deliberately does NOT gate
+       * `institutionType` — with the stated reason that gating it "would make a
+       * Starter insurer be spoken to with banking language, which is a compliance
+       * posture the platform needs to get right for every tenant that pays
+       * anything at all."
+       *
+       * So a Starter insurer gets insurer voice anyway, and the card was false in
+       * the direction that matters commercially: a plan that lists something under
+       * Enterprise is a statement about what the cheaper plans do not include, and
+       * here the statement was untrue. The entitlements module's own docstring
+       * names this exact defect as the reason it exists.
+       *
+       * Replaced with the thing Enterprise genuinely is: bespoke terminology per
+       * tenant, which is true, and is a real reason to upgrade.
+       */
+      "Bespoke terminology per product line, configured with you",
       "Named technical contact",
     ],
     includesAr: [
@@ -289,7 +336,7 @@ export const PLANS: Plan[] = [
 ];
 
 /** Currency-formatting helper so no renderer re-implements `Intl` by hand. */
-export function formatMonthly(plan: Plan, lang: "en" | "ar" = "en"): string {
+export function formatMonthly(plan: Plan, lang: Lang = "en"): string {
   // Two different reasons to withhold the figure, and they render identically on
   // purpose: the tier is negotiated, or the tier is priced but not published.
   if (plan.monthlyUsd === null || !plan.publiclyPriced) {
@@ -304,7 +351,7 @@ export function formatMonthly(plan: Plan, lang: "en" | "ar" = "en"): string {
 
 /** Included interventions, or "" where the plan is negotiable rather than tiered. */
 /** Annual price, or "" where none is published. */
-export function formatYearly(plan: Plan, lang: "en" | "ar" = "en"): string {
+export function formatYearly(plan: Plan, lang: Lang = "en"): string {
   // Must move with `formatMonthly`: printing "Custom" for the month and the
   // real annual number beneath it would publish the very figure the month hid.
   if (plan.yearlyUsd === null || !plan.publiclyPriced) return "";
@@ -315,13 +362,13 @@ export function formatYearly(plan: Plan, lang: "en" | "ar" = "en"): string {
   }).format(plan.yearlyUsd);
 }
 
-export function formatIncluded(plan: Plan, lang: "en" | "ar" = "en"): string {
+export function formatIncluded(plan: Plan, lang: Lang = "en"): string {
   if (plan.includedPerMonth === null) return "";
   return plan.includedPerMonth.toLocaleString(lang === "ar" ? "ar-AE" : "en-US");
 }
 
 /** Per-intervention overage, or "" where it is negotiated. */
-export function formatOverage(plan: Plan, lang: "en" | "ar" = "en"): string {
+export function formatOverage(plan: Plan, lang: Lang = "en"): string {
   if (plan.overageCents === null) return "";
   return new Intl.NumberFormat(lang === "ar" ? "ar-AE" : "en-US", {
     style: "currency",
@@ -342,7 +389,7 @@ export function planById(id: string | null | undefined): Plan | null {
  * One place formats it so a card can never promise "Unlimited" while
  * `billing/seats.ts` refuses the sixth invitation.
  */
-export function formatSeats(plan: Plan, lang: "en" | "ar" = "en"): string {
+export function formatSeats(plan: Plan, lang: Lang = "en"): string {
   if (plan.seats === null) return lang === "ar" ? "مقاعد بلا حد" : "Unlimited seats";
   if (plan.seats === 1) return lang === "ar" ? "مقعد واحد" : "1 seat";
   return lang === "ar" ? `${plan.seats} مقاعد` : `${plan.seats} seats`;

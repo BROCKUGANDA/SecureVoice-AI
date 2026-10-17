@@ -94,6 +94,31 @@ export async function POST(req: Request) {
     failed: 0,
   };
 
+  // The do-not-call registry, resolved ONCE for the whole batch.
+  //
+  // This used to be `findUnique({ phone })` inside the loop, so a 500-recipient
+  // campaign issued 500 sequential lookups on the schema's primary key — the
+  // textbook N+1, invisible to review because every answer is still correct and
+  // because the schema caps `recipients` at 500 rather than 5. One `IN` against
+  // the same primary key is exact, not a near-miss: the column is the id, so
+  // there is no scan and no row the per-recipient form would have found.
+  //
+  // Fail-soft, matching the per-recipient version it replaces: a registry read
+  // that throws yields an empty set, and an empty set means "nothing is on the
+  // registry". That is the pre-existing behaviour, and it is deliberately NOT
+  // made stricter here — the dial worker re-checks at claim time regardless, so
+  // this is the summary, not the control.
+  let dncPhones: ReadonlySet<string> = new Set<string>();
+  if (callCategory !== "time_critical_fraud") {
+    const candidates = [...new Set(recipients.map((r) => r.phone?.trim() ?? "").filter(isE164))];
+    if (candidates.length > 0) {
+      const rows = await db.doNotCall
+        .findMany({ where: { phone: { in: candidates } }, select: { phone: true } })
+        .catch(() => []);
+      dncPhones = new Set(rows.map((row) => row.phone));
+    }
+  }
+
   for (const r of recipients) {
     const phone = r.phone?.trim() ?? "";
     if (!isE164(phone)) {
@@ -106,13 +131,10 @@ export async function POST(req: Request) {
     // dial. Time-critical fraud is consent-backed and deliberately NOT gated on
     // the registry, matching the dial worker (dial.ts). The worker re-checks at
     // claim time regardless — this is the summary, not a replacement.
-    if (callCategory !== "time_critical_fraud") {
-      const dnc = await db.doNotCall.findUnique({ where: { phone } }).catch(() => null);
-      if (dnc) {
-        counts.skipped_do_not_call++;
-        results.push({ phone, outcome: "skipped_do_not_call" });
-        continue;
-      }
+    if (callCategory !== "time_critical_fraud" && dncPhones.has(phone)) {
+      counts.skipped_do_not_call++;
+      results.push({ phone, outcome: "skipped_do_not_call" });
+      continue;
     }
 
     const afterHours = callCategory === "routine" && isAfterHours(Date.now());

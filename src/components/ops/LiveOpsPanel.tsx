@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { PhoneCall, User, Bot, ShieldCheck, Radio, Volume2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { LiveDot } from "@/components/fx/core";
+import { PanelHeader } from "@/components/ui/PanelHeader";
 import type { ConnectionState } from "@/lib/connection-state";
 
 /**
@@ -203,40 +204,43 @@ export function LiveOpsPanel({ activeCallRef, transcript, call, feedStatus }: Li
 
   return (
     <div className="overflow-hidden rounded-3xl border border-line bg-white">
-      {/* header */}
-      <div className="flex items-center justify-between border-b border-line bg-card px-5 py-4">
-        <div className="flex items-center gap-2.5">
+      {/* header — black band shared via PanelHeader; the offline LiveDot drops
+          to white/50 because ink-3 vanishes on black */}
+      <PanelHeader
+        icon={
           <LiveDot
             className={
               feedStatus === "live"
                 ? "text-green-bright"
                 : feedStatus === "reconnecting"
                   ? "text-amber-400"
-                  : "text-ink-3"
+                  : "text-white/50"
             }
           />
-          <span className="micro !text-[9.5px] text-ink-2">LIVE OPERATIONS</span>
-        </div>
-        <div className="flex items-center gap-2">
-          {call && (
-            <span className="num rounded-full bg-secondary px-2.5 py-1 text-[11px] font-semibold text-foreground">
-              {formatDuration(call.durationSecs)}
-            </span>
-          )}
-          <span
-            className={cn(
-              "rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide",
-              feedStatus === "live"
-                ? "bg-green-bright/15 text-green-bright"
-                : feedStatus === "reconnecting"
-                  ? "bg-amber-400/15 text-amber-400"
-                  : "bg-white/10 text-white/40",
+        }
+        title={<span className="micro !text-[9.5px] text-white/70">LIVE OPERATIONS</span>}
+        right={
+          <>
+            {call && (
+              <span className="num rounded-full bg-secondary px-2.5 py-1 text-[11px] font-semibold text-foreground">
+                {formatDuration(call.durationSecs)}
+              </span>
             )}
-          >
-            {feedStatus}
-          </span>
-        </div>
-      </div>
+            <span
+              className={cn(
+                "rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide",
+                feedStatus === "live"
+                  ? "bg-green-bright/15 text-green-bright"
+                  : feedStatus === "reconnecting"
+                    ? "bg-amber-400/15 text-amber-400"
+                    : "bg-white/10 text-white/40",
+              )}
+            >
+              {feedStatus}
+            </span>
+          </>
+        }
+      />
 
       {/* call metadata */}
       {call && (

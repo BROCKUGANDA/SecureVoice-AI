@@ -273,3 +273,12 @@ export const logWarn = (msg: string, fields?: Record<string, unknown>, sink?: Lo
   safeLog("warn", msg, fields, sink);
 export const logError = (msg: string, fields?: Record<string, unknown>, sink?: LogSink) =>
   safeLog("error", msg, fields, sink);
+
+/** Parse a JSON body safely. Returns null on parse failure. */
+export async function parseJson<T = unknown>(req: Request): Promise<T | null> {
+  try {
+    return (await req.json()) as T;
+  } catch {
+    return null;
+  }
+}

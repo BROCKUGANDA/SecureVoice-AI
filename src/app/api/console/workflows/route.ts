@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { requireSignedIn } from "@/lib/credits";
 import { listWorkflows } from "@/lib/workflows";
 import { validateWorkflow } from "@/lib/workflows/validate";
-import { workflowSchema } from "@/lib/workflows/schema";
+import { workflowSchema, type Workflow } from "@/lib/workflows/schema";
 import {
   listStoredWorkflows,
   orgNamespace,
@@ -15,9 +15,15 @@ export const dynamic = "force-dynamic";
 /**
  * Agent Workflows console — list and save.
  *
- *   GET  /api/console/workflows → the built-in registry MERGED with this
- *                                 org's saved graphs (a saved override wins)
- *   POST /api/console/workflows → validate + persist a graph (body: { graph })
+ *   GET  /api/console/workflows            → summary rows (id/name/version/
+ *                                            source/updatedAt/steps/bytes) for
+ *                                            the built-in registry MERGED with
+ *                                            this org's saved graphs
+ *   GET  /api/console/workflows?include=graph
+ *                                          → the same rows WITH each full
+ *                                            graph document (what the builder
+ *                                            needs to reopen a journey)
+ *   POST /api/console/workflows            → validate + persist a graph (body: { graph })
  *
  * A saved graph is re-validated server-side by the SAME schema and validator
  * the runner uses before it is stored — a journey that cannot walk is not
@@ -25,37 +31,80 @@ export const dynamic = "force-dynamic";
  * would refuse. Operator session required; every row is namespaced to the
  * session's active organization.
  */
-export async function GET() {
+
+/**
+ * One list row. A full graph is several KB of JSON and a console with dozens
+ * of saved journeys re-fetches this list on every mount, so the graph only
+ * travels when a caller asks for it — `steps`/`bytes` say how big the omitted
+ * document is without shipping it (`bytes` is the wire size of the serialized
+ * graph, i.e. what `include=graph` would actually add to the response).
+ */
+type WorkflowRow = {
+  id: string;
+  name: string;
+  version: string;
+  source: "builtin" | "saved";
+  /** Null for built-ins: they are code and have no stored row. */
+  updatedAt: string | null;
+  steps: number;
+  bytes: number;
+  graph?: Workflow;
+};
+
+function row(
+  id: string,
+  name: string,
+  version: string,
+  source: "builtin" | "saved",
+  updatedAt: Date | null,
+  graph: Workflow,
+  includeGraph: boolean,
+): WorkflowRow {
+  const summary: WorkflowRow = {
+    id,
+    name,
+    version,
+    source,
+    updatedAt: updatedAt ? updatedAt.toISOString() : null,
+    steps: graph.nodes.length,
+    bytes: Buffer.byteLength(JSON.stringify(graph)),
+  };
+  if (includeGraph) summary.graph = graph;
+  return summary;
+}
+
+export async function GET(req?: NextRequest) {
   const guard = await requireSignedIn();
   if (!guard.ok) {
     return NextResponse.json({ ok: false, error: guard.error }, { status: guard.status });
   }
+  // Optional-chained because tests invoke the handler bare; the framework
+  // always supplies the request in production.
+  const includeGraph = req?.nextUrl.searchParams.get("include") === "graph";
   const ns = orgNamespace(guard.profile.orgId);
   const stored = await listStoredWorkflows(ns);
   const overrides = new Map(stored.map((s) => [s.workflowId, s]));
 
-  const workflows = [
+  const workflows: WorkflowRow[] = [
     // Built-ins, replaced by this org's override when one exists.
     ...listWorkflows().map((w) => {
       const o = overrides.get(w.id);
-      return {
-        id: w.id,
-        name: o?.name ?? w.name,
-        version: o?.version ?? w.version,
-        source: o ? ("saved" as const) : ("builtin" as const),
-        graph: o?.graph ?? w,
-      };
+      return row(
+        w.id,
+        o?.name ?? w.name,
+        o?.version ?? w.version,
+        o ? "saved" : "builtin",
+        o?.updatedAt ?? null,
+        o?.graph ?? w,
+        includeGraph,
+      );
     }),
     // Institution-authored journeys that are not overrides of a built-in.
     ...stored
       .filter((s) => !listWorkflows().some((w) => w.id === s.workflowId))
-      .map((s) => ({
-        id: s.workflowId,
-        name: s.name,
-        version: s.version,
-        source: "saved" as const,
-        graph: s.graph,
-      })),
+      .map((s) =>
+        row(s.workflowId, s.name, s.version, "saved", s.updatedAt, s.graph, includeGraph),
+      ),
   ];
 
   return NextResponse.json(

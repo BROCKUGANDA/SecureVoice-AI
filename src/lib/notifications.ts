@@ -179,15 +179,14 @@ export type EscalationHop = {
  * signal the console must not hide.
  */
 export async function advanceEscalations(now: Date = new Date()): Promise<EscalationHop[]> {
-  // Bounded, oldest first. `acknowledgedAt: null` is a set that only grows —
-  // every notification a human never clicks is in it forever — and this runs on
-  // a tick, so the unbounded read was a slow leak of the platform's own failure
-  // to be noticed. The cap is not a truncation of duty: rows are ordered by
-  // `createdAt` and a hop advances at most one contact per SLA window, so the
-  // oldest outstanding items are always the ones served, and the rest are met on
-  // the next tick rather than dropped.
+  // Bounded, oldest first. Two bounds keep this set finite: acknowledged rows
+  // leave it, and `contactIndex < ESCALATION_CONTACTS.length` means an
+  // exhausted row leaves it too. That second bound is not cosmetic — the
+  // pre-filter version re-selected every exhausted notification once per SLA
+  // window forever, writing a fresh terminal audit-chain hop each time (four
+  // dead alerts, every five minutes, unbounded, on production).
   const outstanding = await db.notification.findMany({
-    where: { acknowledgedAt: null },
+    where: { acknowledgedAt: null, contactIndex: { lt: ESCALATION_CONTACTS.length } },
     orderBy: { createdAt: "asc" },
     take: ESCALATION_BATCH,
   });

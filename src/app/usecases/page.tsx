@@ -14,14 +14,14 @@ import { UseCases } from "@/views/UseCases";
  * from the layout and swaps both for real anchors. See src/views/UseCases.tsx.
  */
 export const metadata: Metadata = {
-  title: "Use Cases — Five regulated conversations",
+  title: "Use Cases — Seven regulated conversations",
   description:
-    "Five regulated fraud-intervention conversations on one guardrailed engine: card and transfer fraud for banks, claims and policy fraud for insurers. Per-language outreach, protective actions that require human sign-off, and an audit trail for every step.",
+    "Seven regulated fraud-intervention conversations on one guardrailed engine: card, transfer and collections fraud for banks; claims fraud, policy servicing and provider pre-authorisation for insurers. Per-language outreach, protective actions that require human sign-off, and an audit trail for every step.",
   alternates: { canonical: "/usecases" },
   openGraph: {
     title: "Use Cases — SecureVoice AI",
     description:
-      "Card fraud, transfer fraud, claims fraud, policy fraud and card-not-present — one engine, one audit trail.",
+      "Card fraud, transfer fraud and collections for banks; claims fraud, policy servicing and pre-authorisation for insurers. One engine, one audit trail.",
     url: "/usecases",
   },
 };

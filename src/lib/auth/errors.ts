@@ -22,9 +22,27 @@
 
 import { reportClientError } from "@/lib/client-diagnostics";
 
-export type AuthLang = "en" | "ar";
+export type AuthLang = "en" | "ar" | "hi" | "ur" | "fr" | "sw";
 
-type Copy = { en: string; ar: string };
+/**
+ * English is required and every other `AuthLang` is optional, resolved through
+ * `copy[lang] ?? copy.en` — the convention the voice tables already follow
+ * (`src/lib/twilio.ts:144`, `src/lib/voice/dtmf.ts:469`).
+ *
+ * Auth copy is authored in `en` + `ar` only. Before this type, `Copy` was a closed
+ * `{ en; ar }` and indexing it with an `AuthLang` was a type error that had been
+ * papered over at the call sites: at runtime a Hindi, Urdu, French or Swahili
+ * sign-in failure read `undefined` and rendered an empty message — the one moment
+ * the product is talking to someone who has just been locked out. The fallback is
+ * now explicit, and the untranslated set is a fact the type states rather than a
+ * gap the caller has to remember.
+ */
+type Copy = { en: string } & Partial<Record<AuthLang, string>>;
+
+/** The line for this language, or English when the table has not been translated. */
+function say(copy: Copy, lang: AuthLang): string {
+  return copy[lang] ?? copy.en;
+}
 
 /** Friendly text per machine code, keyed on what Better Auth and our own guards emit. */
 const BY_CODE: Record<string, Copy> = {
@@ -129,8 +147,9 @@ const GENERIC: Copy = {
  * be confused for each other.
  */
 export function describeAuthError(e: unknown, lang: AuthLang): string {
-  const code = authErrorCode(e);
-  if (code && BY_CODE[code]) return BY_CODE[code][lang];
+  const byCode = authErrorCode(e);
+  const copy = byCode ? BY_CODE[byCode] : undefined;
+  if (copy) return say(copy, lang);
 
   const message = authErrorDetail(e).toLowerCase();
   for (const entry of BY_MESSAGE) {
@@ -138,11 +157,9 @@ export function describeAuthError(e: unknown, lang: AuthLang): string {
     // `Record`), and this read has no preceding truthiness check on the entry —
     // so under `noUncheckedIndexedAccess` it is `Copy | undefined`. Name the
     // fallback rather than indexing a possibly-missing table.
-    // (The `if` above needs no such handling: TypeScript narrows the two
-    // `BY_CODE[code]` reads as one expression, const index and all.)
-    if (message.includes(entry.match)) return (BY_CODE[entry.code] ?? GENERIC)[lang];
+    if (message.includes(entry.match)) return say(BY_CODE[entry.code] ?? GENERIC, lang);
   }
-  return GENERIC[lang];
+  return say(GENERIC, lang);
 }
 
 /** The machine code, when there is one — for `console.warn`, Sentry, and triage. */

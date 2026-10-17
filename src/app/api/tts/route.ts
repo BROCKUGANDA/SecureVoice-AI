@@ -15,7 +15,7 @@ import { generateAudioWithFailover } from "@/lib/elevenlabs/pool";
 import { generatePlayhtAudio, isPlayhtConfigured } from "@/lib/elevenlabs/playht";
 import type { VoicePace } from "@/lib/voice/presets";
 import { getEmergencyAudio, EMERGENCY_AUDIO_CONTENT_TYPE } from "@/lib/elevenlabs/emergency-audio";
-import { consume as consumeRateLimit, rateLimitId } from "@/lib/ratelimit";
+import { consume as consumeRateLimit, rateLimitId, rateLimitHeaders } from "@/lib/ratelimit";
 import { append as auditAppend } from "@/lib/audit-chain";
 import { transcript as redactText } from "@/lib/redact";
 import {
@@ -25,10 +25,18 @@ import {
   allowAnonTurn,
 } from "@/lib/tts-quota";
 import { SUPPORTED_LANGS, env, maxTtsChars } from "@/lib/config";
-import { badRequest, tooManyRequests, unprocessable, parseJson } from "@/lib/api-errors";
-import { logError } from "@/lib/validation/safe-log";
+import { makeFailure, type FailureCode, type FailureInit } from "@/lib/failures/envelope";
+import { logError, parseJson } from "@/lib/validation/safe-log";
 import { db } from "@/lib/db";
 import { countRung } from "@/lib/voice/rung-counter";
+
+function failure(code: FailureCode, init: FailureInit = {}): NextResponse {
+  const f = makeFailure(code, init);
+  return NextResponse.json(f.body, {
+    status: f.status,
+    headers: { ...f.headers, "Cache-Control": "no-store" },
+  });
+}
 
 export const dynamic = "force-dynamic";
 
@@ -312,10 +320,10 @@ export async function POST(req: NextRequest) {
 
   // 1. Body parse + validation
   const body = await parseJson(req);
-  if (body === null) return badRequest("Invalid JSON body");
+  if (body === null) return failure("malformed_request", { detail: "Invalid JSON body" });
   const parsed = schema.safeParse(body);
   if (!parsed.success) {
-    return unprocessable("Invalid TTS request");
+    return failure("semantically_invalid", { detail: "Invalid TTS request" });
   }
   const {
     text,
@@ -331,17 +339,19 @@ export async function POST(req: NextRequest) {
     const hint = isProdVoiceMode()
       ? "voice must be a language key (en|ar|hi|ur|fr|sw) or a configured ElevenLabs voice_id (set ELEVENLABS_VOICE_EN/AR/HI/UR)"
       : `voice must be a language key (en|ar|hi|ur|fr|sw) or a dev voice (${[...DEV_VOICES].join(", ")})`;
-    return NextResponse.json(
-      { error: `Unknown voice '${parsed.data.voice}'. ${hint}` },
-      { status: 422 },
-    );
+    return failure("semantically_invalid", {
+      detail: `Unknown voice '${parsed.data.voice}'. ${hint}`,
+    });
   }
 
   // 3. Rate-limit BEFORE the upstream call (the wrapper has its own, but a
   //    fast reject here keeps the audit log clean of "denied" entries)
   const rl = await consumeRateLimit("tts", callerId);
   if (!rl.ok) {
-    return tooManyRequests("Rate limit exceeded; retry later.", rl);
+    return failure("rate_limited", {
+      retryAfterSec: Math.ceil(rl.retryAfterMs / 1000),
+      headers: rateLimitHeaders(rl),
+    });
   }
 
   // 4. Synthesize via the wrapper (cached + idempotent + upstream).
@@ -353,12 +363,15 @@ export async function POST(req: NextRequest) {
     // Refuse BEFORE any vendor call. An unauthenticated caller must not be able
     // to spend the platform's ElevenLabs key: there is no profile row to charge,
     // so the daily quota cannot be enforced and every request is free.
-    return NextResponse.json({ error: keyRes.reason }, { status: 401 });
+    return failure("unauthenticated", { detail: keyRes.reason });
   }
   if (keyRes.mode === "platform") {
     const charged = await consumeCharQuota(keyRes, text);
     if (!charged.ok) {
-      return tooManyRequests(quotaExceededResponse().error, 3600);
+      return failure("rate_limited", {
+        retryAfterSec: 3600,
+        detail: quotaExceededResponse().error,
+      });
     }
   }
   if (keyRes.mode === "anon") {
@@ -370,10 +383,11 @@ export async function POST(req: NextRequest) {
     // in tests/unit/rate-limit-headers.test.ts exists to prevent.
     const rl = await allowAnonTurn(keyRes, callerId, text.length);
     if (!rl.ok) {
-      return tooManyRequests(
-        "Demo voice budget spent — sign in, or supply your own ElevenLabs key.",
-        rl,
-      );
+      return failure("rate_limited", {
+        retryAfterSec: Math.ceil(rl.retryAfterMs / 1000),
+        headers: rateLimitHeaders(rl),
+        detail: "Demo voice budget spent — sign in, or supply your own ElevenLabs key.",
+      });
     }
   }
   const keyOverride = keyRes.mode === "byok" ? keyRes.keyOverride : undefined;
@@ -458,23 +472,20 @@ export async function POST(req: NextRequest) {
       // body) stays in server logs — clients get a coarse, safe message.
       logError("[tts] upstream error", { status: err.status, error: err.message });
       if (err.status === 429) {
-        return NextResponse.json(
-          { error: "Rate limit exceeded; retry later." },
-          { status: 429, headers: { "Retry-After": "60" } },
-        );
+        return failure("rate_limited", { retryAfterSec: 60 });
       }
       const generic =
         err.status === 401 || err.status === 403
           ? "Voice service authentication failed — contact the operator."
           : "Speech synthesis is temporarily unavailable — try again shortly.";
-      return NextResponse.json(
-        { error: generic },
-        { status: err.status === 401 || err.status === 403 ? 502 : 503 },
-      );
+      return failure("dependency_unavailable", { detail: generic, retryAfterSec: 1 });
     }
     logError("[tts] generation failed", {
       error: err instanceof Error ? err.message : String(err),
     });
-    return NextResponse.json({ error: "Speech generation unavailable" }, { status: 503 });
+    return failure("dependency_unavailable", {
+      detail: "Speech generation unavailable",
+      retryAfterSec: 1,
+    });
   }
 }

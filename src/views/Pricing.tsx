@@ -7,6 +7,7 @@ import { SUPPORT_EMAIL } from "@/lib/public-config";
 import { REFUND_POLICIES } from "@/lib/legal-policies";
 import { SubscribeButtons } from "@/components/billing/SubscribeButtons";
 import { paddlePriceIds } from "@/lib/paddle-browser";
+import type { Lang } from "@/lib/store";
 
 /**
  * Paddle price ids per tier, from the environment.
@@ -169,8 +170,15 @@ const TIERS: Tier[] = [
       },
       { en: "Shariah-compliant terminology engine", ar: "محرك مصطلحات متوافق مع الشريعة" },
       {
-        en: "Takaful and insurer-specific voice policies",
-        ar: "سياسات صوتية خاصة بالتأمين والتكافل",
+        // Was "Takaful and insurer-specific voice policies" — a bullet with no
+        // entitlement behind it. Every tenant gets insurer-appropriate terminology
+        // regardless of plan, because src/lib/billing/entitlements.ts refuses to
+        // gate institutionType on purpose: speaking to an insurer with banking
+        // language is a compliance defect, not a downgrade. Listing it as paid was
+        // false in the direction that matters — a plan's bullet list is a
+        // statement about what the cheaper plans do NOT include.
+        en: "Bespoke terminology per product line, configured with you",
+        ar: "مصطلحات مخصّصة لكل خط منتجات، تُعدّ معك",
       },
       { en: "Named technical contact", ar: "جهة اتصال فنية مخصصة" },
     ],
@@ -197,7 +205,7 @@ function PolicySection({
   lang,
 }: {
   policy: { titleEn: string; titleAr: string; clauses: { en: string; ar: string }[] };
-  lang: "en" | "ar";
+  lang: Lang;
 }) {
   return (
     <section className="rounded-2xl border border-line bg-secondary p-6">
@@ -244,7 +252,7 @@ export function Pricing({
           className="max-w-2xl"
         >
           <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-primary">
-            {t("Pricing", "التسعير", lang)}
+            {t("Pricing", "الأسعار", lang)}
           </p>
           <h1 className="mt-3 font-display text-4xl font-semibold text-foreground md:text-5xl">
             {t(

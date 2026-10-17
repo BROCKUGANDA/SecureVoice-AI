@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { signIn, useSession } from "@/lib/auth-client";
 import { describeAuthError, reportAuthError } from "@/lib/auth/errors";
@@ -8,10 +8,12 @@ import { reportClientError } from "@/lib/client-diagnostics";
 import { ArrowRight, ShieldCheck, KeyRound, Loader2, LogOut } from "lucide-react";
 import { useApp, t } from "@/lib/store";
 import { SUPPORT_EMAIL } from "@/lib/public-config";
+import { isDemoAccount } from "@/lib/demo-account";
 import { LogoMark } from "@/components/shell/Logo";
 import { Input } from "@/components/ui/input";
 import { Building2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import type { Lang } from "@/lib/store";
 
 /**
  * Double-sided sign-in / sign-up centerpiece — now powered by Better Auth.
@@ -68,7 +70,7 @@ const SEEDED = [
     label: "Demo mode",
     email: process.env.NEXT_PUBLIC_DEMO_LOGIN_EMAIL ?? "",
     password: process.env.NEXT_PUBLIC_DEMO_LOGIN_PASSWORD ?? "",
-    note: "Guided live scenario — one case run end to end against the 60-second case deadline. 25 credits.",
+    note: "Guided live scenario — one case run end to end against the 60-second case deadline. Never billed: a demo run is metered and audited, and the cost is ours.",
   },
 ] as const;
 
@@ -351,6 +353,328 @@ function DemoRequestForm() {
   );
 }
 
+/**
+ * Stable per-browser id for the demo queue, generated once and kept in
+ * localStorage. It is an opaque random string — not a fingerprint, not the
+ * IP (the server hashes that itself) — and it is validated server-side to a
+ * tight alphabet, so a tampered value is a 422, not a second seat.
+ */
+function getDeviceId(): string {
+  try {
+    const existing = window.localStorage.getItem("sv_device_id");
+    if (existing && /^[A-Za-z0-9_-]{8,64}$/.test(existing)) return existing;
+    const fresh = (
+      window.crypto?.randomUUID?.() ?? `d-${Date.now()}-${Math.floor(Math.random() * 1e9)}`
+    ).replace(/[^A-Za-z0-9_-]/g, "");
+    const id = (fresh + "0".repeat(8)).slice(0, 32);
+    window.localStorage.setItem("sv_device_id", id);
+    return id;
+  } catch {
+    // Storage blocked (private mode): fall back to an ephemeral id. The
+    // holder simply cannot keep a seat across reloads.
+    return `eph-${Date.now().toString(36)}-${Math.floor(Math.random() * 1e9).toString(36)}`;
+  }
+}
+
+type QueuePhase =
+  | { name: "idle" }
+  | { name: "joining" }
+  | { name: "queued"; seatId: string; position: number; capacity: number; activeCount: number }
+  | { name: "entering" }
+  | { name: "error"; message: string };
+
+/**
+ * One-click demo login, behind the demo queue.
+ *
+ * The demo credential is public, so concurrent guided-demo sessions are
+ * bounded server-side (`/api/demo/queue` + `/api/demo/enter`): this button
+ * joins the line, shows the position while waiting (heartbeat keeps the
+ * ticket alive), and only then claims the seat and signs in. Judges and
+ * operators share the same line — capacity applies to every demo session.
+ *
+ * `kick` lets the manual form delegate: typing the demo address into the
+ * password form starts this same flow instead of a direct sign-in that
+ * `getProfile()` would bounce for having no lease.
+ */
+function DemoQueueButton({
+  lang,
+  kick,
+  getTurnstileToken,
+  resetTurnstile,
+}: {
+  lang: Lang;
+  kick: number;
+  getTurnstileToken: () => string | undefined;
+  resetTurnstile: () => void;
+}) {
+  const [phase, setPhase] = useState<QueuePhase>({ name: "idle" });
+  const seatRef = useRef<string | null>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const stopPoll = () => {
+    if (pollRef.current) clearInterval(pollRef.current);
+    pollRef.current = null;
+  };
+
+  const fail = (message: string) => {
+    stopPoll();
+    setPhase({ name: "error", message });
+  };
+
+  const leave = useCallback(async () => {
+    stopPoll();
+    const seatId = seatRef.current;
+    seatRef.current = null;
+    if (seatId) {
+      try {
+        await fetch("/api/demo/queue", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "leave", deviceId: getDeviceId(), seatId }),
+        });
+      } catch {
+        // Best effort: the heartbeat TTL releases it anyway.
+      }
+    }
+    setPhase({ name: "idle" });
+  }, []);
+
+  const enter = useCallback(
+    async (seatId: string) => {
+      setPhase({ name: "entering" });
+      try {
+        const headers: Record<string, string> = { "Content-Type": "application/json" };
+        const token = getTurnstileToken();
+        if (token) headers["cf-turnstile-response"] = token;
+        const res = await fetch("/api/demo/enter", {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ deviceId: getDeviceId() }),
+        });
+        const data = (await res.json().catch(() => null)) as {
+          error?: string;
+          status?: string;
+        } | null;
+        if (!res.ok) {
+          if (res.status === 409) {
+            // Seat lapsed between poll and claim — rejoin the line, don't spin.
+            seatRef.current = null;
+            setPhase({ name: "idle" });
+            return;
+          }
+          throw new Error(data?.error || `Sign-in failed (HTTP ${res.status})`);
+        }
+        try {
+          window.localStorage.setItem("sv_demo_seat", seatId);
+        } catch {
+          // Seat binding degrades to the pair; a reload simply rejoins.
+        }
+        window.location.reload();
+      } catch (e) {
+        fail(e instanceof Error ? e.message : String(e));
+      } finally {
+        resetTurnstile();
+      }
+    },
+    [getTurnstileToken, resetTurnstile],
+  );
+
+  const pollStatus = useCallback(
+    async (seatId: string) => {
+      try {
+        // Heartbeat first: the sweep releases anything stale, and a waiter who
+        // only reads status would be swept out of line.
+        const hb = await fetch("/api/demo/queue", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "heartbeat", deviceId: getDeviceId(), seatId }),
+        });
+        if (!hb.ok) {
+          seatRef.current = null;
+          setPhase({ name: "idle" });
+          return;
+        }
+        const res = await fetch(`/api/demo/queue?seatId=${encodeURIComponent(seatId)}`, {
+          cache: "no-store",
+        });
+        if (!res.ok) {
+          seatRef.current = null;
+          setPhase({ name: "idle" });
+          return;
+        }
+        const state = (await res.json()) as
+          | { status: "active"; seatId: string; capacity: number; activeCount: number }
+          | {
+              status: "queued";
+              seatId: string;
+              position: number;
+              capacity: number;
+              activeCount: number;
+            }
+          | { status: "gone" };
+        if (state.status === "gone") {
+          seatRef.current = null;
+          setPhase({ name: "idle" });
+        } else if (state.status === "active") {
+          stopPoll();
+          await enter(seatId);
+        } else {
+          setPhase({
+            name: "queued",
+            seatId,
+            position: state.position,
+            capacity: state.capacity,
+            activeCount: state.activeCount,
+          });
+        }
+      } catch {
+        // Transient: keep the ticket, try again next tick.
+      }
+    },
+    [enter],
+  );
+
+  const join = useCallback(async () => {
+    stopPoll();
+    setPhase({ name: "joining" });
+    try {
+      const res = await fetch("/api/demo/queue", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "join", deviceId: getDeviceId() }),
+      });
+      const state = (await res.json().catch(() => null)) as
+        | { status: "active"; seatId: string; capacity: number; activeCount: number }
+        | {
+            status: "queued";
+            seatId: string;
+            position: number;
+            capacity: number;
+            activeCount: number;
+          }
+        | { status: "rate_limited"; retryAfterMs?: number }
+        | null;
+      if (res.status === 429) {
+        const waitS = Math.max(
+          1,
+          Math.ceil(((state as { retryAfterMs?: number } | null)?.retryAfterMs ?? 60_000) / 1000),
+        );
+        throw new Error(
+          lang === "ar"
+            ? `طلبات كثيرة — أعد المحاولة بعد ${waitS} ثانية.`
+            : `Too many attempts — retry in ${waitS}s.`,
+        );
+      }
+      if (!res.ok || !state || (state.status !== "active" && state.status !== "queued")) {
+        throw new Error(
+          lang === "ar"
+            ? "تعذّر الانضمام إلى الطابور — حاول مجدداً."
+            : "Could not join the line — try again.",
+        );
+      }
+      seatRef.current = state.seatId;
+      if (state.status === "active") {
+        await enter(state.seatId);
+        return;
+      }
+      setPhase({
+        name: "queued",
+        seatId: state.seatId,
+        position: state.position,
+        capacity: state.capacity,
+        activeCount: state.activeCount,
+      });
+      pollRef.current = setInterval(() => void pollStatus(state.seatId), 5_000);
+    } catch (e) {
+      fail(e instanceof Error ? e.message : String(e));
+    }
+  }, [enter, pollStatus, lang]);
+
+  // The manual form delegates here when it sees the demo address.
+  const kickRef = useRef(kick);
+  useEffect(() => {
+    if (kick !== kickRef.current) {
+      kickRef.current = kick;
+      if (kick > 0) void join();
+    }
+  }, [kick, join]);
+
+  // Leaving the page while holding a ticket releases it for the next waiter.
+  // (Only while queued/waiting — an entered session's lease is released by
+  // sign-out or heartbeat expiry, never by navigation.)
+  useEffect(() => () => void leave(), [leave]);
+
+  const busy = phase.name === "joining" || phase.name === "entering";
+  const waiting = phase.name === "queued";
+
+  return (
+    <div className="mx-auto mb-4 flex max-w-5xl flex-col items-center gap-2">
+      <div className="flex flex-wrap items-center justify-center gap-2">
+        {!waiting && phase.name !== "error" ? (
+          <button
+            onClick={() => void join()}
+            disabled={busy}
+            className="flex items-center gap-2 rounded-full border border-green-bright/30 bg-green-bright/10 px-4 py-2 text-[12px] font-semibold text-green-bright transition hover:bg-green-bright/20 disabled:opacity-50"
+          >
+            {busy ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <KeyRound className="h-3.5 w-3.5" />
+            )}
+            {phase.name === "entering"
+              ? t("Claiming your seat…", "جارٍ حجز مقعدك…", lang)
+              : t("One-click demo login", "دخول تجريبي بضغطة واحدة", lang)}
+          </button>
+        ) : null}
+        {waiting && (
+          <div className="flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.05] px-4 py-2 text-[12px] font-semibold text-white">
+            <Loader2 className="h-3.5 w-3.5 animate-spin text-green-bright" />
+            {t(
+              `You're #${phase.position} in line — ${phase.activeCount}/${phase.capacity} demo seats in use. This refreshes on its own.`,
+              `أنت رقم ${phase.position} في الطابور — ${phase.activeCount}/${phase.capacity} من المقاعد التجريبية مشغولة. تُحدَّث تلقائياً.`,
+              lang,
+            )}
+          </div>
+        )}
+        {phase.name === "error" && (
+          <button
+            onClick={() => void join()}
+            className="flex items-center gap-2 rounded-full border border-green-bright/30 bg-green-bright/10 px-4 py-2 text-[12px] font-semibold text-green-bright transition hover:bg-green-bright/20"
+          >
+            <KeyRound className="h-3.5 w-3.5" />
+            {t("Try the demo line again", "حاول الطابور التجريبي مجدداً", lang)}
+          </button>
+        )}
+        {(waiting || phase.name === "error") && (
+          <button
+            onClick={() => void leave()}
+            className="rounded-full px-3 py-2 text-[11.5px] font-medium text-white/50 transition hover:text-white"
+          >
+            {t("Leave the line", "مغادرة الطابور", lang)}
+          </button>
+        )}
+      </div>
+      {phase.name === "error" && (
+        <p
+          role="alert"
+          className="max-w-5xl rounded-xl border border-red-400/30 bg-red-500/10 px-4 py-2.5 text-center text-[12.5px] font-medium text-red-300"
+        >
+          {phase.message}
+        </p>
+      )}
+      {waiting && (
+        <p className="text-[11.5px] text-white/40">
+          {t(
+            "Your ticket is held while this page is open. When a seat frees, you sign straight in.",
+            "تذكرتك محفوظة ما دامت هذه الصفحة مفتوحة. وعندما يتحرر مقعد تدخل مباشرة.",
+            lang,
+          )}
+        </p>
+      )}
+    </div>
+  );
+}
+
 export function Auth() {
   const { lang, setView, timedOut } = useApp();
   const { data: session, isPending } = useSession();
@@ -359,13 +683,22 @@ export function Auth() {
   const isLoaded = !isPending;
   const [quickErr, setQuickErr] = useState<string | null>(null);
   const [quickBusy, setQuickBusy] = useState<string | null>(null);
+  // Bumped when the manual form sees the demo address: the password form
+  // cannot mint a leased session, so it delegates to the queue button above
+  // instead of attempting a direct sign-in that getProfile would bounce.
+  const [queueKick, setQueueKick] = useState(0);
   // Manual sign-in form state. Better Auth ships no prebuilt sign-in UI, so the
   // panel below IS the form — which is the point of T-7: the sign-in page is the
   // first thing a judge sees, and it should look like this product rather than
   // like a hosted provider's default.
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const role = session?.session?.activeOrganizationId ? "operator" : "demo";
+  // The demo account is a judge's walkthrough seat, never an operator view —
+  // an org pointer on a demo session is the demo's own org, not capability.
+  const role =
+    session && !isDemoAccount(session.user.email) && session.session?.activeOrganizationId
+      ? "operator"
+      : "demo";
 
   /* Turnstile: load the script once, then render the widget into our own node.
      Explicit rendering (render=explicit) rather than the auto-scanned class,
@@ -568,29 +901,22 @@ export function Auth() {
                 )}
               </div>
             )}
-            {/* one-click access for evaluators — demo account only */}
+            {/* one-click access for evaluators — demo account only, behind the
+                demo queue: the credential is public, so entry is by seat lease
+                (join → wait in line → claim on promotion), never by password. */}
             {DEMO_READY && (
-              <div className="mx-auto mb-4 flex max-w-5xl flex-wrap items-center justify-center gap-2">
-                {SEEDED.map((s) => (
-                  <button
-                    key={s.role}
-                    onClick={() => quickLogin(s.email, s.password, s.role)}
-                    disabled={quickBusy !== null}
-                    className={cn(
-                      "flex items-center gap-2 rounded-full border border-green-bright/30 bg-green-bright/10 px-4 py-2 text-[12px] font-semibold text-green-bright transition hover:bg-green-bright/20 disabled:opacity-50",
-                    )}
-                  >
-                    {quickBusy === s.role ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <KeyRound className="h-3.5 w-3.5" />
-                    )}
-                    {quickBusy === s.role
-                      ? t("Signing in…", "جارٍ تسجيل الدخول…", lang)
-                      : t("One-click demo login", "دخول تجريبي بضغطة واحدة", lang)}
-                  </button>
-                ))}
-              </div>
+              <DemoQueueButton
+                lang={lang}
+                kick={queueKick}
+                getTurnstileToken={() =>
+                  turnstileRef.current
+                    ? window.turnstile?.getResponse(turnstileRef.current)
+                    : undefined
+                }
+                resetTurnstile={() => {
+                  if (turnstileRef.current) window.turnstile?.reset(turnstileRef.current);
+                }}
+              />
             )}
             {!DEMO_READY && (
               <p className="mx-auto mb-4 max-w-5xl rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2.5 text-center text-[12.5px] text-ink-3">
@@ -628,13 +954,28 @@ export function Auth() {
                     className="flex flex-col gap-3"
                     onSubmit={(e) => {
                       e.preventDefault();
+                      // The demo address goes through the queue, not the
+                      // password form: a direct sign-in would mint a session
+                      // with no seat lease, which getProfile resolves to
+                      // signed-out. Delegating keeps one honest path in.
+                      if (DEMO_READY && isDemoAccount(email)) {
+                        setQuickErr(
+                          t(
+                            "Demo sign-ins join a short line first — starting that now.",
+                            "دخول العرض ينضم إلى طابور قصير أولاً — يبدأ ذلك الآن.",
+                            lang,
+                          ),
+                        );
+                        setQueueKick((k) => k + 1);
+                        return;
+                      }
                       void quickLogin(email, password, "manual");
                     }}
                   >
                     <div className="flex items-center gap-2">
                       <ShieldCheck className="h-4 w-4 text-green-bright" />
                       <h2 className="font-display text-lg font-semibold text-white">
-                        {t("Sign in", "تسجيل الدخول", lang)}
+                        {t("Sign in", "دخول", lang)}
                       </h2>
                     </div>
                     <label className="flex flex-col gap-1.5 text-[12px] text-white/60">

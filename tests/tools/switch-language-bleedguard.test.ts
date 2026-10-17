@@ -60,10 +60,11 @@ test("switch_language cannot reach another tenant's case", async () => {
       } as ConstructorParameters<typeof NextRequest>[1]),
     );
     expect(res.status).toBe(409);
-    const body = (await res.json()) as { error: string };
+    const body = (await res.json()) as { code: string; message: string };
     // The refusal does not even confirm the case exists — "no live case" is
     // the same answer another tenant's unknown id gets.
-    expect(body.error).toBe("no live case for this conversation_id");
+    expect(body.code).toBe("state_conflict");
+    expect(body.message).toContain("no live case for this conversation_id");
 
     // And nothing was written.
     const after = await db.case.findUnique({ where: { caseRef: foreign.caseRef } });

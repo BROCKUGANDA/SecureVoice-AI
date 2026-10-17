@@ -3,10 +3,22 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { authorizeToolCall } from "@/lib/agent-tool-auth";
 import { append as auditAppend } from "@/lib/audit-chain";
-import { badRequest, parseJson, upstreamError } from "@/lib/api-errors";
+import {
+  leakSafeText,
+  makeFailure,
+  type FailureCode,
+  type FailureInit,
+} from "@/lib/failures/envelope";
 import { elevenLabsFetch } from "@/lib/elevenlabs/egress";
-import { leakSafeText } from "@/lib/failures/envelope";
 import { env } from "@/lib/config";
+import { parseJson } from "@/lib/validation/safe-log";
+function failure(code: FailureCode, init: FailureInit = {}): NextResponse {
+  const f = makeFailure(code, init);
+  return NextResponse.json(f.body, {
+    status: f.status,
+    headers: { ...f.headers, "Cache-Control": "no-store" },
+  });
+}
 
 export const dynamic = "force-dynamic";
 
@@ -31,22 +43,30 @@ const schema = z.object({
 export async function POST(req: NextRequest) {
   const auth = await authorizeToolCall(req.headers.get("x-agent-tool-secret"), "signed_url");
   if (!auth.ok) {
-    return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status });
+    return failure(
+      auth.status === 401
+        ? "unauthenticated"
+        : auth.status === 403
+          ? "not_found"
+          : "state_conflict",
+      { detail: auth.error },
+    );
   }
 
   const body = await parseJson(req);
-  if (body === null) return badRequest("Invalid JSON body");
+  if (body === null) return failure("malformed_request", { detail: "Invalid JSON body" });
   const parsed = schema.safeParse(body ?? {});
-  if (!parsed.success) return badRequest("Invalid body");
+  if (!parsed.success) return failure("malformed_request", { detail: "Invalid body" });
 
   // A deployment may pin the agent id server-side; a client-supplied id is only
   // honoured when it matches that pin, so the browser cannot aim the signed URL
   // at a different agent in the same workspace.
   const pinned = env.elevenLabsAgentId;
   const requested = parsed.data.agent_id ?? pinned;
-  if (!requested) return badRequest("No agent configured: set ELEVENLABS_AGENT_ID");
+  if (!requested)
+    return failure("malformed_request", { detail: "No agent configured: set ELEVENLABS_AGENT_ID" });
   if (pinned && requested !== pinned) {
-    return NextResponse.json({ ok: false, error: "agent_not_allowed" }, { status: 403 });
+    return failure("not_found", { detail: "agent_not_allowed" });
   }
 
   const isWebrtc = parsed.data.connection_type === "webrtc";
@@ -90,12 +110,19 @@ export async function POST(req: NextRequest) {
     // sanitise, and 200 raw characters of a vendor response can carry a key, an
     // internal hostname or a stack. Keep the status (the useful part) and
     // redact the rest.
-    return upstreamError(`ElevenLabs ${err.status}: ${leakSafeText(err.body, 160) || "no detail"}`);
+    return failure("dependency_unavailable", {
+      detail: `ElevenLabs ${err.status}: ${leakSafeText(err.body, 160) || "no detail"}`,
+      retryAfterSec: 1,
+    });
   }
 
   const data = res.data;
   const credential = data.signed_url ?? data.token;
-  if (!credential) return upstreamError("ElevenLabs returned no connection credential");
+  if (!credential)
+    return failure("dependency_unavailable", {
+      detail: "ElevenLabs returned no connection credential",
+      retryAfterSec: 1,
+    });
 
   // This endpoint used to be the ONLY agent-tool route with no audit-chain
   // write — `card_freeze`, `human-handoff`, `verify-transaction` and

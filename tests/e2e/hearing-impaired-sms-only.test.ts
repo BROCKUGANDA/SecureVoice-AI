@@ -18,7 +18,9 @@ import { NextRequest } from "next/server";
 
 process.env.ELEVENLABS_DRY_RUN = "true";
 process.env.ELEVENLABS_AGENT_ID = process.env.ELEVENLABS_AGENT_ID ?? "agent_test";
-process.env.WEBHOOK_SECRET = process.env.WEBHOOK_SECRET ?? "test-secret";
+// `||`, not `??`: a local `.env` with `WEBHOOK_SECRET=""` must count as unset —
+// the ?? operator happily keeps an empty string, which fails every HMAC.
+process.env.WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || "test-secret";
 
 const SECRET = process.env.WEBHOOK_SECRET;
 

@@ -173,7 +173,13 @@ export async function transitionCase(
       // function already fetched, so a re-entry cannot slide the start later and
       // shorten the latency it is measuring. Placed after the caller's `meta` for the
       // same reason as `freezeStagedAt`: no caller may supply its own start instant.
-      ...(to === "CONFIRMED_FRAUD" ? { fraudConfirmedAt: row.fraudConfirmedAt ?? new Date() } : {}),
+      ...(to === "CONFIRMED_FRAUD"
+        ? {
+            fraudConfirmedAt: row.fraudConfirmedAt ?? new Date(),
+            isEvidenceLocked: true,
+            evidenceCaseId: row.evidenceCaseId ?? `CASE-${row.caseRef}`,
+          }
+        : {}),
     },
     select: { id: true, state: true },
   });
@@ -288,7 +294,11 @@ export async function transitionCaseWithOutbox(
         // must carry the same start clock as one reached through `transitionCase` —
         // otherwise the span exists for whichever path the caller happened to use.
         ...(to === "CONFIRMED_FRAUD"
-          ? { fraudConfirmedAt: row.fraudConfirmedAt ?? new Date() }
+          ? {
+              fraudConfirmedAt: row.fraudConfirmedAt ?? new Date(),
+              isEvidenceLocked: true,
+              evidenceCaseId: row.evidenceCaseId ?? `CASE-${row.caseRef}`,
+            }
           : {}),
       },
       select: { id: true, state: true },

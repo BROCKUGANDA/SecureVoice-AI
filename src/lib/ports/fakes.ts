@@ -573,6 +573,10 @@ type ChainRow = {
   /** Stored as a JSON STRING, exactly as the real chain stores it. */
   meta?: string | null;
   orgId?: string | null;
+  /** Pseudonymised client IP. Sealed into the chain exactly like every other field. */
+  ipHash?: string | null;
+  /** `x-request-id` of the request that produced the row. */
+  requestId?: string | null;
   prevHash: string;
   chainHash: string;
 };
@@ -592,6 +596,8 @@ function sanitizeEntry(entry: AuditEntry): AuditEntry {
     callerId: safeKey(entry.callerId, 64),
     redactedText: entry.redactedText?.slice(0, 500),
     orgId: safeKey(entry.orgId, 64),
+    ipHash: safeKey(entry.ipHash, 64),
+    requestId: safeKey(entry.requestId, 64),
   };
 }
 
@@ -675,6 +681,8 @@ export function createInMemoryAuditSink(deps: FakeDeps): InMemoryAuditSink {
         redactedText: clean.redactedText ?? null,
         meta: canonicalMeta ?? null,
         orgId: clean.orgId ?? null,
+        ipHash: clean.ipHash ?? null,
+        requestId: clean.requestId ?? null,
         prevHash,
         chainHash: hash,
       };
@@ -730,6 +738,8 @@ export function createInMemoryAuditSink(deps: FakeDeps): InMemoryAuditSink {
           redactedText: row.redactedText ?? undefined,
           meta: (row.meta ?? undefined) as unknown as Record<string, unknown> | undefined,
           orgId: row.orgId ?? undefined,
+          ipHash: row.ipHash ?? undefined,
+          requestId: row.requestId ?? undefined,
         });
         if (row.chainHash !== expected) {
           return { ok: false, brokenAt: row.id, expected, actual: row.chainHash, rows: all.length };

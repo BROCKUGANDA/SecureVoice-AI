@@ -237,7 +237,7 @@ export function SetupWizard() {
       if (!r.ok || d.error) throw new Error(d.error || "Request failed");
       return true;
     } catch (e) {
-      setError(e instanceof Error ? e.message : t("Request failed", "فشل الطلب", lang));
+      setError(e instanceof Error ? e.message : t("Request failed", "تعذّر إرسال الطلب", lang));
       return false;
     } finally {
       setBusy(false);
@@ -269,7 +269,7 @@ export function SetupWizard() {
         ok: false,
         status: 0,
         ms: 0,
-        error: e instanceof Error ? e.message : t("Request failed", "فشل الطلب", lang),
+        error: e instanceof Error ? e.message : t("Request failed", "تعذّر إرسال الطلب", lang),
       });
     } finally {
       setBusy(false);
@@ -428,7 +428,7 @@ export function SetupWizard() {
                 >
                   {(
                     [
-                      { id: "bank", label: t("Bank", "بنك", lang) },
+                      { id: "bank", label: t("Bank", "مصرف", lang) },
                       { id: "insurer", label: t("Insurer", "شركة تأمين", lang) },
                     ] as const
                   ).map((o) => (

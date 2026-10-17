@@ -80,8 +80,34 @@
 
 #
 
-# PRODUCTION: not needed. The VPS runs its own Postgres on a private network and
+# PRODUCTION: needed, and this file's earlier claim that it was not was WRONG.
 
-# compose passes DB_ALLOW_PLAINTEXT_PRIVATE_NETWORK=true, so DATABASE_URL there is
+#
 
-# built from POSTGRES_* parts with no sslmode at all.
+# Production connects to a MANAGED Postgres (Supabase), not the VPS's own
+
+# container — `GET /api/readyz` reports `database: managed-supabase`, and the
+
+# retention worker's `EMAXCONNSESSION` in the deploy logs is a pooler error, which
+
+# a self-hosted Postgres does not produce. So the production DATABASE_URL carries
+
+# `sslmode=verify-full&sslrootcert=supabase-ca.crt`, and the anchor has to be in the
+
+# image.
+
+#
+
+# It was not. The Dockerfile's runner stage copies only `.next/standalone`, and
+
+# nothing copied this file into it — `COPY . .` reaches the builder stage, not the
+
+# runner. `scripts/copy-standalone.mjs` now copies it explicitly, which is the fix.
+
+#
+
+# The VPS's own Postgres (the compose `db` service) is a different story: that one
+
+# is on a private network with DB_ALLOW_PLAINTEXT_PRIVATE_NETWORK=true and needs no
+
+# sslmode. Do not conflate the two.

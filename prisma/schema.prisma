@@ -74,6 +74,61 @@ model PilotRequest {
   @@index([status])
 }
 
+/// Demo sign-in queue. The one-click demo credential is public, so concurrent
+/// guided-demo sessions are bounded: a (ipHash, deviceId) pair holds either an
+/// ACTIVE lease (signed in, heartbeating) or a QUEUED ticket (waiting in line).
+/// Promotion is FIFO by createdAt; a lease whose heartbeat goes stale is
+/// released and the head of the line is promoted. Sign-out releases explicitly
+/// (see the session-delete hook in src/lib/better-auth.ts).
+///
+/// Privacy: the IP is stored as SHA-256 only, and rows are operational state —
+/// a periodic delete of released/stale rows keeps the table small. No orgId by
+/// design: the queue gates entry for judges and operators alike, before any
+/// tenant exists for the session.
+model DemoSeat {
+  id         String   @id @default(cuid())
+  ipHash     String // SHA-256 of the proxy-resolved client IP; never the raw IP
+  deviceId   String // client-generated stable id, validated to [A-Za-z0-9_-]{8,64}
+  status     String   @default("queued") // "active" | "queued" | "released"
+  userId     String? // Better Auth user id, bound at claim; null until sign-in
+  /// Better Auth session id that claimed this seat, stamped when the seat is
+  /// redeemed. THE BINDING IS PER SESSION, NOT PER USER, and that is the whole
+  /// point of the column.
+  ///
+  /// `userId` alone was not enough: the demo credential is one published account,
+  /// so `leaseForUser(demoUserId)` returned whichever seat happened to be live for
+  /// THAT user - and once browser A had signed in through the queue, browser B
+  /// typing the published password into the manual form passed the lease check on
+  /// A's seat. Capacity became N+1 the moment anyone was admitted, which is the
+  /// bound this queue exists to enforce.
+  ///
+  /// Keying on the session restores it without capping concurrency: N browsers each
+  /// hold their OWN session and their own seat, up to capacity, and a session with
+  /// no seat of its own is refused - so the manual form, which never redeems a
+  /// seat, can never mint an admitted demo session.
+  sessionId  String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  lastSeenAt DateTime @default(now()) // heartbeat; staleness releases the seat
+
+  @@index([status, createdAt])
+  @@index([userId])
+  @@index([sessionId])
+  // NOTE: the live-row backstop is a PARTIAL unique index, added by migration
+  // 9zzzzzzzzzzzzzzzzzzzzzzzzzzzz_demo_seat_live_unique:
+  //   CREATE UNIQUE INDEX ... ON "DemoSeat" ("ipHash","deviceId")
+  //     WHERE "status" IN ('active','queued');
+  // Prisma cannot express a partial index, and the plain
+  // @@unique([ipHash, deviceId, status]) it replaced permitted only ONE "released"
+  // row per pair. A client that abandoned two sessions in a row therefore made the
+  // NEXT sweep's `status -> 'released'` bulk update violate its own unique index,
+  // which threw out of sweep() — and because sweep() swallows its errors, the
+  // sweeper then died SILENTLY and PERMANENTLY. Capacity was never reclaimed again
+  // and the demo queue only ever shrank. The partial index keeps the property the
+  // comment above depends on (one live row per pair, so a join race becomes a P2002)
+  // while letting released rows accumulate for `pruneReleased` to collect.
+}
+
 /// Idempotency-Key store for upstream API calls (TTS, ASR, agent turns).
 /// Persists a (caller, key) → response payload for 24h so a retry is a free
 /// replay rather than a second billable call. Concurrent same-key requests
@@ -108,11 +163,34 @@ model AuditLog {
   prevHash     String? // chain link
   chainHash    String   @unique
   orgId        String? // organization scoping (multi-tenant groundwork)
+  /// Pseudonymised client IP — a domain-separated HMAC of the normalised address
+  /// under AUTH_SECRET (see src/lib/client-ip.ts). NOT the address: a raw IP is a
+  /// direct identifier with a retention obligation, while this is stable enough to
+  /// correlate "did this one source do those other four things" and cannot be
+  /// reversed without the secret. NULL for worker/webhook/script writes, which have
+  /// no client and must not be attributed to whoever last logged in.
+  ///
+  /// There is deliberately NO unique index here, and there never should be one. An
+  /// address is not an identity: NAT and CGNAT place thousands of unrelated people
+  /// behind one, one person holds many sessions from one, and `Session` has no
+  /// `orgId`, so a cross-tenant unique index would be a tenant-isolation hazard.
+  /// The uniqueness guarantee this table needs is `chainHash`, one row per record.
+  ipHash       String?
+  /// `x-request-id` for the request that produced this row. Correlates a chain row
+  /// with the proxy log line and the client-facing error envelope, which is what
+  /// makes "the user reported a failure at 14:02" answerable without retaining
+  /// anything about the user.
+  requestId    String?
   createdAt    DateTime @default(now())
 
   @@index([callRef, createdAt])
   @@index([orgId, createdAt])
   @@index([createdAt])
+  /// Serves the "everything from one source" view in the audit explorer. Partial:
+  /// an index over mostly-NULL values is pure write amplification on the hottest
+  /// table in the system, and every row that has an ipHash wants it.
+  @@index([ipHash, createdAt])
+  @@index([requestId])
 }
 
 /// Isolated PII vault. Raw sensitive values are stored here only; the main
@@ -489,6 +567,11 @@ model Case {
   // `updatedAt` — a row touched by any later write would report a delivery as fast
   // or as slow as whatever happened to touch it last.
   fraudConfirmedAt      DateTime?
+  // Evidence lock: when a case is under a regulator/law-enforcement
+  // investigation it cannot be erased under PDPL, and its audio retention is
+  // extended. Set by the case-state writer on CONFIRMED_FRAUD.
+  isEvidenceLocked       Boolean  @default(false)
+  evidenceCaseId          String?
   smsSentAt             DateTime? // anchors the 24h reply window
   resolutionMethod      String? // voice_call | sms_reply_yes | sms_reply_no | unreachable_no_reply | ...
   customerResponse      String? // "yes" | "no" | null (null = the customer never answered)

@@ -147,7 +147,7 @@ describe("POST /api/webhooks — the demo secret is not the production secret", 
     // with no call is exactly the shape this finding had.
     expect(src).toContain("requireSignedIn");
     const handlerAt = src.indexOf("export async function POST");
-    const gateAt = src.indexOf("requireSignedIn()", handlerAt);
+    const gateAt = src.indexOf("requireOperator()", handlerAt);
     expect(handlerAt).toBeGreaterThan(-1);
     expect(gateAt).toBeGreaterThan(handlerAt);
   });

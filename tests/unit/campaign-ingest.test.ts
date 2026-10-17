@@ -25,6 +25,16 @@ const createdCases: Array<{
 }> = [];
 const transitions: Array<{ caseRef: string; to: string }> = [];
 
+/**
+ * How many times the route read the do-not-call registry.
+ *
+ * Exists because the N+1 this suite now guards is invisible in the response:
+ * a campaign that reads the registry 50 times and one that reads it once return
+ * byte-identical summaries. Only the count distinguishes them, so the stub
+ * counts and the test asserts on the number rather than on behaviour.
+ */
+let dncReads = 0;
+
 // All-lightweight wholesale mocks (no importOriginal, which would load the real
 // DB/Prisma and time out a "unit" test). Each provides the named exports the
 // import graph binds.
@@ -43,8 +53,22 @@ mock.module("@/lib/abuse/velocity", () => ({
 mock.module("@/lib/db", () => ({
   db: {
     doNotCall: {
-      findUnique: async (args: { where: { phone: string } }) =>
-        args.where.phone === "+971500000903" ? { phone: args.where.phone, reason: "stop" } : null,
+      // The batched `IN` form, which is what the route issues. Stubbing only
+      // `findUnique` here would make the suite throw on an undefined method and
+      // "pass" without ever exercising the lookup, so both are modelled and the
+      // call count is asserted in the N+1 test below.
+      findMany: async (args: { where: { phone: { in: string[] } } }) => {
+        dncReads++;
+        return args.where.phone.in
+          .filter((p) => p === "+971500000903")
+          .map((phone) => ({ phone, reason: "stop" }));
+      },
+      findUnique: async (args: { where: { phone: string } }) => {
+        dncReads++;
+        return args.where.phone === "+971500000903"
+          ? { phone: args.where.phone, reason: "stop" }
+          : null;
+      },
     },
   },
   dbAudit: {
@@ -184,5 +208,53 @@ describe("POST /api/v1/campaigns", () => {
   test("an empty recipient list is a 422, not a silent no-op", async () => {
     const res = await post({ recipients: [] });
     expect(res.status).toBe(422);
+  });
+
+  test("the do-not-call registry is read ONCE for the batch, not once per recipient", async () => {
+    // THE N+1 GATE. `recipients` is capped at 500 by the schema, and the
+    // per-recipient lookup this replaced made a legal 500-recipient campaign
+    // issue 500 sequential queries against the primary key. Nothing about that
+    // is visible in review — every answer is correct — and nothing fails until
+    // the route is under real batch size, which is why the count is asserted
+    // here rather than left to the default per-route query budget (a campaign's
+    // own per-recipient writes are legitimately variable, so one flat number
+    // would hide this rather than catch it).
+    dncReads = 0;
+    // 49 ordinary numbers plus the ONE address the stub registry holds. The
+    // list has to actually contain it, or the "still skips the registered
+    // number" half below would pass by never having anything to skip.
+    const many = [
+      ...Array.from({ length: 49 }, (_, i) => ({
+        phone: `+97150001${String(1000 + i).slice(-4)}`,
+      })),
+      { phone: "+971500000903" },
+    ];
+    const res = await post({ recipients: many });
+    expect(res.status).toBe(200);
+    // One batched read for 50 recipients. The N+1 form would have been 50.
+    expect(dncReads).toBe(1);
+    // And the batched form must still skip the one number actually on the
+    // registry, or "it is faster" would have quietly become "it stopped working".
+    const body = (await res.json()) as {
+      accepted: number;
+      skipped_do_not_call: number;
+    };
+    expect(body.accepted).toBe(49);
+    expect(body.skipped_do_not_call).toBe(1);
+  });
+
+  test("time-critical fraud skips the registry read entirely, as before", async () => {
+    // The batched read must stay behind the same gate the per-recipient one was:
+    // fraud is consent-backed and deliberately not DNC-gated. Asserting the
+    // CALL COUNT is what proves the short-circuit still short-circuits — a
+    // behaviour-only assertion would also pass if the read merely became
+    // harmless.
+    dncReads = 0;
+    const res = await post({
+      callCategory: "time_critical_fraud",
+      recipients: [{ phone: "+971500000903" }],
+    });
+    expect(res.status).toBe(200);
+    expect(dncReads).toBe(0);
   });
 });

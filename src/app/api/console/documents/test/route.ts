@@ -4,7 +4,15 @@ import { z } from "zod";
 import { requireOperator } from "@/lib/credits";
 import { consume as consumeRateLimit, rateLimitHeaders } from "@/lib/ratelimit";
 import { searchDocuments } from "@/lib/knowledge/documents";
-import { badRequest, unprocessable } from "@/lib/api-errors";
+import { makeFailure, type FailureCode, type FailureInit } from "@/lib/failures/envelope";
+
+function failure(code: FailureCode, init: FailureInit = {}): NextResponse {
+  const f = makeFailure(code, init);
+  return NextResponse.json(f.body, {
+    status: f.status,
+    headers: { ...f.headers, "Cache-Control": "no-store" },
+  });
+}
 
 export const dynamic = "force-dynamic";
 
@@ -27,32 +35,33 @@ const schema = z.object({ question: z.string().trim().min(3).max(500) });
 export async function POST(req: NextRequest) {
   const guard = await requireOperator();
   if (!guard.ok) {
-    return NextResponse.json({ error: guard.error }, { status: guard.status });
+    return failure(guard.status === 401 ? "unauthenticated" : "not_found", { detail: guard.error });
   }
   if (!guard.profile.orgId) {
-    return NextResponse.json(
-      { error: "No organization is linked to this account, so there is no knowledge base." },
-      { status: 409 },
-    );
+    return failure("state_conflict", {
+      detail: "No organization is linked to this account, so there is no knowledge base.",
+    });
   }
 
   const rl = await consumeRateLimit("console-documents-test", guard.profile.userId);
   if (!rl.ok) {
-    return NextResponse.json(
-      { error: "Rate limit exceeded; retry later." },
-      { status: 429, headers: rateLimitHeaders(rl) },
-    );
+    return failure("rate_limited", {
+      retryAfterSec: Math.ceil(rl.retryAfterMs / 1000),
+      headers: rateLimitHeaders(rl),
+    });
   }
 
   let body: unknown;
   try {
     body = await req.json();
   } catch {
-    return badRequest("Invalid JSON body");
+    return failure("malformed_request", { detail: "Invalid JSON body" });
   }
   const parsed = schema.safeParse(body);
   if (!parsed.success) {
-    return unprocessable(parsed.error.issues[0]?.message ?? "invalid question");
+    return failure("semantically_invalid", {
+      detail: parsed.error.issues[0]?.message ?? "invalid question",
+    });
   }
 
   const res = await searchDocuments(guard.profile.orgId, parsed.data.question);

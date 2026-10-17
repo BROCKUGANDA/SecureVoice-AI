@@ -76,6 +76,10 @@ import type { Prisma } from "@/generated/prisma/client";
 import { db } from "@/lib/db";
 import { append } from "@/lib/audit-chain";
 import { forgetTranscript, pineconeConfigured } from "@/lib/pinecone/transcript-index";
+import {
+  forgetTranscriptEmbeddings,
+  transcriptEmbeddingsConfigured,
+} from "@/lib/knowledge/transcript-embeddings";
 import { deleteRecording } from "@/lib/storage/recordings";
 import { storageConfigured } from "@/lib/storage/s3";
 import { logError } from "@/lib/validation/safe-log";
@@ -739,6 +743,11 @@ export async function eraseCase(
 ): Promise<ErasureResult> {
   const row = await db.case.findUnique({ where: { caseRef } });
   if (!row) throw new CaseNotFoundError(caseRef);
+  if (row.isEvidenceLocked) {
+    throw new Error(
+      "This data is subject to an active law-enforcement investigation and cannot be deleted under Article 23 of PDPL.",
+    );
+  }
   if (row.erasedAt) {
     return {
       caseRef,
@@ -811,6 +820,34 @@ export async function eraseCase(
       }
     } catch (error) {
       logError("[privacy] vector erase failed", {
+        caseRef,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  // Same posture for the pgvector copy: delete the vectors for this case,
+  // best-effort, audited on failure, never allowed to block an erasure that
+  // has already committed. Gated independently of Pinecone so a deployment
+  // that uses only pgvector still erases its vectors.
+  if (transcriptEmbeddingsConfigured()) {
+    try {
+      const result = await forgetTranscriptEmbeddings(caseRef);
+      if (!result.ok) {
+        await append(
+          {
+            callRef: caseRef,
+            action: "agent",
+            intent: "vector_erase_failed",
+            redactedText: "pgvector transcript delete failed after local erasure",
+            meta: { caseRef, error: result.error?.slice(0, 200) },
+            orgId: row.orgId ?? undefined,
+          },
+          { fast: true },
+        ).catch(() => {});
+      }
+    } catch (error) {
+      logError("[privacy] pgvector erase failed", {
         caseRef,
         error: error instanceof Error ? error.message : String(error),
       });

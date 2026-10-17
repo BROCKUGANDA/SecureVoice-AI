@@ -208,6 +208,21 @@ export const auth = betterAuth({
         // `{ session }` — followed by the endpoint context.
         after: async (session) => {
           await revokeFirstPartySessionsOnSignOut(session.userId);
+          // A demo sign-out frees its queue seat, promoting the head of the
+          // line. Best-effort by design: a hook that throws would break
+          // sign-out itself, and a missed release still converges via the
+          // heartbeat TTL. Wrapped so a queue-store outage can never fail a
+          // sign-out.
+          try {
+            const { releaseUserSeats } = await import("@/lib/demo-queue");
+            // Scoped to THIS session. The demo credential is one shared account,
+            // so releasing on the user id alone would let one judge signing out
+            // evict every other judge's seat — a wave of spurious "removed from
+            // the queue" banners for a room that is all still there.
+            await releaseUserSeats(session.userId, session.id);
+          } catch {
+            // converged by TTL; sign-out must not fail for this.
+          }
         },
       },
     },

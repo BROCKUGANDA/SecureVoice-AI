@@ -1,6 +1,7 @@
 import { toNextJsHandler } from "better-auth/next-js";
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/better-auth";
+import { isDemoAccount } from "@/lib/demo-account";
 import { isTrustedOrigin, trustedOriginsFromEnv } from "@/lib/auth/origins";
 import {
   checkBadActor,
@@ -9,6 +10,7 @@ import {
   timeUntilStrikesBelow,
 } from "@/lib/abuse/bad-actor";
 import { logWarn } from "@/lib/validation/safe-log";
+import { resolveClientIp } from "@/lib/client-ip";
 import {
   TURNSTILE_TOKEN_FIELD,
   turnstileRequired,
@@ -72,8 +74,37 @@ async function gateTurnstile(
  */
 const AUTH_FAILED_MAX = Number(process.env.AUTH_FAILED_LOGIN_MAX ?? 5);
 
+/**
+ * The identity this failed-credential budget is charged to.
+ *
+ * This value is the KEY for `auth:${ip}` below and the `remoteip` sent to
+ * Turnstile, so it is the one place on the sign-in path where believing a
+ * client-supplied header is most expensive. It used to read the left-most
+ * `x-forwarded-for` entry directly, with no trust gate and no cap — so a caller
+ * who reached the origin without passing the proxy could set the header to any
+ * string and receive a fresh credential budget per request, indefinitely, while
+ * also handing Turnstile an arbitrary `remoteip`.
+ *
+ * `resolveClientIp` refuses to believe ANY header unless `src/proxy.ts` marked
+ * the request as having come through it, so a forged header now buys the attacker
+ * nothing.
+ *
+ * The refusal lands on ONE shared `untrusted` bucket, deliberately, because both
+ * obvious alternatives are worse:
+ *
+ *   · Keying per request (`x-request-id` and friends) would restore exactly the
+ *     hole this closes — an attacker rotating a fresh identity per attempt gets an
+ *     unbounded password list, which is the attack the ladder exists to stop.
+ *   · Keying per caller-controlled value is the vulnerability, not the fix.
+ *
+ * So an untrusted source is charged to a shared, DECAYING budget rather than to
+ * an unlimited one. It is self-limiting, and in exchange a direct-to-origin caller
+ * can exhaust other such callers' budget — the trade this codebase already makes
+ * for `Session.ipAddress`-less first-party sessions, and the only correct
+ * direction while every legitimate deployment path runs through the proxy.
+ */
 function clientIpOf(req: Request): string {
-  return req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+  return resolveClientIp(req.headers);
 }
 
 function refusedCredentialSource(retryAfterMs: number): NextResponse {
@@ -92,6 +123,26 @@ function refusedCredentialSource(retryAfterMs: number): NextResponse {
 async function guarded(req: Request): Promise<Response> {
   const { pathname } = new URL(req.url);
   const action = turnstileRequired(pathname);
+
+  // The demo account never leaves its own organisation. The one-click demo
+  // credential is PUBLIC, and `getProfile()` confines a demo session to the
+  // demo role everywhere it runs — but four server paths read
+  // `session.activeOrganizationId` directly, so an org switch on a demo
+  // session would hand those paths a different tenant's id. Refused here, at
+  // the only door Better Auth exposes for switching. A 403 (not a silent
+  // no-op) because the client shows an error state, not a phantom success.
+  if (req.method === "POST" && pathname === "/api/auth/organization/set-active") {
+    const session = await auth.api.getSession({ headers: req.headers }).catch(() => null);
+    if (session && isDemoAccount(session.user.email)) {
+      logWarn("[auth] demo account attempted an active-organization switch", {
+        userId: session.user.id,
+      });
+      return NextResponse.json(
+        { error: "The demo account cannot switch organizations." },
+        { status: 403, headers: { "Cache-Control": "no-store" } },
+      );
+    }
+  }
 
   // A credential POST whose `Origin` Better Auth will refuse. Logged here because
   // the refusal itself is silent: the browser gets two words — `Invalid origin` —

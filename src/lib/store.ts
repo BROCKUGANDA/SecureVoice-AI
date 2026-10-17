@@ -2,6 +2,7 @@
 
 import { create } from "zustand";
 import type { Seat } from "@/lib/auth/seat";
+import { isUiLangTranslated, type UiLang } from "@/lib/i18n/registry";
 
 export type View =
   | "home"
@@ -84,17 +85,16 @@ export const VIEW_ACCESS: Record<View, ViewAccess> = {
   // than cosmetic — a judge genuinely gets a different console, not the same
   // one with fewer buttons.
   console: "vendor",
-  settings: "operator",
-  // The audit explorer reads across the tenant's audit log and exports rows,
-  // so it is operator-only like settings — an auditor's surface, not a working
-  // seat's. The reads behind it are tenant-scoped either way.
+  // The audit explorer is an operator-only compliance surface — reads across
+  // tenant audit log, chain verification at scale and exports.
   audit: "operator",
+  settings: "operator",
   // Institution setup configures the TENANT (telecom identity, BYOK, webhooks),
   // so it is operator-only like settings. It is NOT the product tour, which is a
   // per-user concern and lives behind /api/onboarding.
   setup: "operator",
 };
-export type Lang = "en" | "ar";
+export type Lang = UiLang;
 
 const CONTRAST_KEY = "sv-high-contrast";
 
@@ -169,7 +169,19 @@ export const useApp = create<AppState>((set) => ({
   consumeDemoIntent: () => set({ demoIntent: false }),
 }));
 
-/** Small helper: pick between en/ar strings */
+/**
+ * Pick between the language strings.
+ *
+ * The `ar` branch is deliberately a REGISTRY LOOKUP rather than a comparison
+ * against the literal "ar": adding a language to the UI used to be a one-line
+ * union widening, and the picker would then offer it while every string quietly
+ * resolved to English — a foreign flag over an English page, with nothing in the
+ * build, lint, types or logs to say so.
+ *
+ * `isUiLangTranslated` is what makes the difference explicit and testable. See
+ * src/lib/i18n/registry.ts, which also records why hi/ur/sw cannot be
+ * sourced from Wikipedia.
+ */
 export function t(en: string, ar: string, lang: Lang) {
-  return lang === "ar" ? ar : en;
+  return isUiLangTranslated(lang) && lang === "ar" ? ar : en;
 }

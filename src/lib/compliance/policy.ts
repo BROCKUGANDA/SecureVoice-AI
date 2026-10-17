@@ -62,6 +62,7 @@ import "server-only";
 
 import { transcript as redactText } from "@/lib/redact";
 import { asksForCredential } from "@/lib/compliance/credential-ask";
+import type { Lang } from "@/lib/store";
 
 export const OPENING_DISCLOSURE_EN = "This call is recorded to protect you";
 export const OPENING_DISCLOSURE_AR = "هذه المكالمة مسجلة لحمايتك";
@@ -79,7 +80,7 @@ export function auditAgentReply(args: {
   reply: string;
   intent: string;
   isOpening: boolean;
-  lang: "en" | "ar" | "hi" | "ur" | "fr" | "sw";
+  lang: Lang;
 }): { reply: string; guardrails: string[]; refused?: true } {
   const guardrails: string[] = [
     "no_pin_otp", // static guard name surfaced in the audit log

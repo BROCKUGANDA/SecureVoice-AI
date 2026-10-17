@@ -275,17 +275,21 @@ test("an Analyst's read of the member list shows no member data it may not see",
   const session = await makeSession(analyst);
 
   // member:read is held by Analyst, so the route answers — but the body must be
-  // the member list only, never any operational data.
+  // the member list plus its pagination meta, never any operational data.
   const response = await membersGET(
     authRequest("http://t/api/auth/members", { headers: { cookie: session.cookie } }),
   );
   expect(response.status).toBe(200);
-  const body = (await response.json()) as { members: Array<{ email: string }> };
+  const body = (await response.json()) as {
+    members: Array<{ email: string }>;
+    meta: { limit: number; total: number };
+  };
   for (const member of body.members) {
     expect(member.email).toContain("@wp11.test");
   }
-  // Nothing else is in the payload.
-  expect(Object.keys(body)).toEqual(["members"]);
+  // Nothing else is in the payload: the list plus the {limit,total} meta only.
+  expect(Object.keys(body)).toEqual(["members", "meta"]);
+  expect(body.meta).toEqual({ limit: 50, total: body.members.length });
 });
 
 test("an Analyst cannot change a role through the members route", async () => {

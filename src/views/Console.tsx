@@ -730,8 +730,8 @@ export function Console() {
         </p>
         <p className="max-w-sm text-[13px] text-ink-2">
           {t(
-            "The Command Center is available to every provisioned seat — demo explorers and bank operators see the same surface.",
-            "مركز التشغيل متاح لكل مقعد مُخصّص — يراه المستكشفون التجريبيون ومشغّلو المصارف بنفس المستوى.",
+            "The Command Center is the same surface for every provisioned seat — what differs is billing: a demo run is never charged, a bank's tenant is.",
+            "مركز التشغيل هو الواجهة نفسها لكل مقعد مُخصّص — والفرق في الفوترة: التشغيل التجريبي لا يُحتسب له رصيد، أما حساب المصرف فيُحتسب.",
             lang,
           )}
         </p>

@@ -1165,3 +1165,120 @@ re-reading:** the cross-node fix is no longer pending proof — `Lint, typecheck
 build` passed on `b3443fd`, on the merge `0a5e862`, and on staging `8666336`, and the
 `Realtime service — tests` step cannot skip (it exits 1 when the bus is unreachable), so
 the gate ran and passed three times where it had failed.
+
+### 21. What a seven-way merge leaves behind, and a sixth outside blueprint that described this repo from memory
+
+dev went red at `Lint, typecheck, tests, build` after seven branches were merged into it
+(`sv-mainport`, `backup-kilo-driftgates`, `test/signin-shell-regression`,
+`copy/pricing-plain-voice`, `polish/hardening-cutover`, and others), and stayed red
+through `f0a6e3a`. Thirteen errors, five files — and the reason none of them were caught
+is structural: the **test** typecheck is its own CI step
+(`bunx tsc -p tests/tsconfig.json`, ci.yml:496) and the app typecheck is another, so an
+app module that only the test project pulls in can fail a build with every test still
+green. `src/lib/auth/errors.ts` and `src/lib/knowledge/transcript-embeddings.ts` are both
+exactly that.
+
+Two of the thirteen were not bookkeeping.
+
+`Copy` was `{ en; ar }` and `AuthLang` is the product's six, so the three call sites the
+compiler refused were, at runtime, an **empty sign-in error message** for a Hindi, Urdu,
+French or Swahili session — served to the person who has just been locked out, in the
+language the console asked for. Nobody had ever asked for one of those languages, which is
+what the type error was saying. Fixed by making the non-English members optional and the
+fallback explicit (`copy[lang] ?? copy.en`, the convention `src/lib/twilio.ts:144` and
+`src/lib/voice/dtmf.ts:469` already follow), with a per-language case added to
+`tests/unit/client-error-copy.test.ts`: all six get a prose sentence, Arabic keeps its own
+wording, and the four untranslated ones take the English line _as a stated behaviour_.
+Mutation-proved — deleting the fallback reddens that one test and nothing else.
+
+`tests/console/{documents,setup}.test.ts` asserted `body.message` against a `readJson()`
+whose declared-key list omitted it, and `Record<string, never>` turns an undeclared key
+into `never`. The envelope does carry `message`
+(`makeFailure()` emits `{ code, message, retryable, requestId, docsUrl }`,
+`src/lib/failures/envelope.ts:557`), so the field was declared rather than the assertions
+rewritten — and the `never` intersection is what converted a silent `undefined` into a
+compile error. A gate that makes a wrong field unreadable is earning its keep.
+
+In `transcript-embeddings.ts` the honest fix was a named assumption. My first pass added a
+count-parity refusal to `embedTranscript()`; reading `embedChunks()` showed it already
+refuses any response that is not one vector per chunk, and a test already proves that path
+(`"embedding count mismatch is reported"`). The added block came back out, and the index
+reads now carry the guarantee in a comment. A second, unreachable refusal beside a working
+one is the duplicate-system mistake this register has been recording all fortnight.
+
+**The domain, banned rather than swept.** Six shipped places still presented
+`securevoice.ai` / `api.securevoice.ai` as ours after the origin moved to
+`securevoiceai.me`: the deck's own proof slide said `securevoice.ai/demo` (a host that
+301s to a stranger and a path that has never existed — the demo is the SPA root),
+`docs/INTEGRATION.md` carried it in the "use it right now" cell, in the Node quickstart's
+`const url`, and in §7's landing-page line three lines below the note that refutes it, and
+`docs/INTEGRATION-ONEPAGER.md` printed `audit_ref` as
+`https://api.securevoice.ai/audit/SV-F-5MZV4C` when the field carries a bare case
+reference (`conformance.ts:223`, `INTEGRATION-CONTRACT.md:191` shows `"SV-F-…"`). All
+corrected, and now enforced twice in `tests/surface/published-claims.test.ts`: a ban over
+shipped copy, and a scan of the documents an integrator copies from that allows a dead
+origin only as the thing being refuted _on that same line_ — not "the file contains a
+negation somewhere", because every published falsehood caught here was itself written as a
+negation. Proved by appending one `Example host: api.securevoice.ai` line to README: the
+scan named it at `README.md:705`. Left alone with the reason written down: the registers
+quote the domain to record fixing it, the code comments are refutations, and the
+test-fixture addresses on `@securevoice.ae` are synthetic — a domain that does not resolve
+is the safe choice for a fake customer. **One reference is not fixable from the repo:**
+`evidence/agent/snapshot.json` records the live ElevenLabs agent's tool endpoints as
+`https://securevoice.ai/api/elevenlabs/tools/{card-freeze,human-handoff}`, and nothing in
+the tree writes those URLs (`agent-apply.ts` binds tool ids, not endpoints). That is
+vendor-console state, and a tool webhook on a redirecting host never reaches the API —
+worth checking in the ElevenLabs console; the read-only re-capture from here returned 401.
+
+**The demo does not consume credits — and that was already true, ungated.**
+`src/lib/billing/charge-mode.ts` resolves who pays from data a caller cannot set
+(membership, tenant, published plan), returns `demo` for the configured demo address and
+for any tenantless session, writes no wallet movement and no ledger row for a demo run,
+still audits it (`intent: run_metered`, `chargeMode/chargeReason` in `meta`), and moves
+wallet and ledger in one transaction when it does charge. So the ask is implemented.
+What is missing is the proof: **no test in `tests/` references `claimRun`, `refundRun` or
+`charge-mode` at all**, and the module's own header says the previous state was "a claim
+rather than a behaviour". A behaviour with no test is one merge from being a claim again —
+recorded as the open item rather than half-built here, because the wallet and the ledger
+disagree about what "available" means and a test written from a guess about `reserve()`'s
+ceiling would be exactly the fixture-that-agrees-with-the-bug this register keeps finding.
+Two published strings that still described the old world were fixed: the demo card said
+"25 credits." on a run that is never billed, and the Command Center's sign-in gate said
+"demo explorers and bank operators see the same surface" in both languages, which the
+billing rule now contradicts.
+
+**The sixth blueprint.** A pasted "Zero-Trust Impersonation Defense" plus an "enterprise
+QA and DevOps checklist" was audited against the tree before any of it was built, because
+implementing it as written would have added a second of everything:
+
+| Item asked for                                                    | Verdict in this tree                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| ----------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Layer 2, "state the facts, never ask for PII"                     | **Already exists, and enforced.** `compliance/never-ask.ts:107`, `compliance/credential-ask.ts:116`, the vishing blocklist at `compliance/vishing.ts:267`, and the speech gate that refuses before synthesis (`compliance/speech-gate.ts:377,487`). The scripted demo case is literally `AED 2500 · Electronics World · card ending 4242`.                                                                                                                                                            |
+| Layer 3, out-of-band verification                                 | **Partly exists.** The second channel is SMS today: `elevenlabs/sms-fallback.ts:133` sends the blind ping, `sms-verdict.ts` opens a 24 h reply window, and the audit chain records `sms_fallback_sent\|_skipped\|_failed`. A push into the _bank's_ app is their endpoint, reachable through the outbox event set — a contract decision, not a missing module.                                                                                                                                        |
+| Layer 1, branded caller ID                                        | **Genuinely absent, and not a code task.** No `branded`/`cnas`/`First Orion`/`Hiya` anywhere; the outbound path passes `from`/`to`/TwiML only. Registration is per-number and per-brand with the carrier, so the work is an enrollment plus a per-tenant identity — and the claim must not be published until it exists (`tests/surface/published-claims.test.ts` bans it by shape).                                                                                                                  |
+| Layer 4, deepfake/liveness, then "ask DOB and zip"                | **Absent as specced, and the second half is a regression.** No audio is analysed for authenticity at all (the only number derived from audio is turn latency, `worker/voice-stream.ts:547`), and `docs/JUDGE-QA.md:113` already says "not built, do not claim it". Step-up exists only on the console money path (`auth/stepup.ts:136`). Asking a caller for date of birth and zip is what `never-ask.ts` forbids — a feature request that deletes an invariant.                                      |
+| Chai state-machine test with mocked LLM/STT                       | **Already exists, three times over**, and the premise is wrong twice: intent is a deterministic keyword table (`src/lib/ai/router.ts:415`), not an LLM call, so there is nothing to mock; `handleUserSpeech()` does not exist; chai is not the runner (bun).                                                                                                                                                                                                                                          |
+| `FOR UPDATE` races, atomic debit-plus-call                        | **Already exists, better than proposed** — `scale/queue.ts:338` `FOR UPDATE SKIP LOCKED`, `billing/ledger.ts:365` `pg_advisory_xact_lock` with the no-oversell guard, and tests that 100 concurrent reservations cannot oversell (`tests/billing/billing.test.ts:265`). The blueprint's rollback model needs a cached balance column, which invariant I-8 forbids: the balance IS the sum of the ledger.                                                                                              |
+| `turnCount > 4 → human`                                           | **Already exists**, at exactly 4: `api/agent/route.ts:58 MAX_UNCLEAR_TURNS = 4`, plus `MAX_NUDGES = 3`, a 180 s hard cap, and a test that the streak cannot be dodged by renumbering turns.                                                                                                                                                                                                                                                                                                           |
+| 700 ms E2E budget, per-hop 50/150/200/300                         | **Dead on arrival.** None of those numbers appear in the tree; `SPAN_TARGETS` publishes eight measured budgets, and `evidence/latency/slo.json` is honest that three of them are currently **missed** (3817 ms against a 300 ms target). Adopting an invented budget would replace a measured miss with an unmeasured pass.                                                                                                                                                                           |
+| Strip `[...]` and injection keywords from customer speech         | **Exists, and the proposed regex is the bug.** `llm-guard.ts:94` wraps caller text, strips control/bidi/zero-width ranges by code point (`:78`) and redacts instruction patterns; `detectInjectionAttempt` deliberately only audits, because a refusal would let a caller mute the agent with four words. A bracket/character strip on a product that speaks Arabic, Urdu, Hindi, Swahili and French deletes letters.                                                                                 |
+| `AbortController` barge-in                                        | **Exists via the mechanism the platform actually offers**: `conversation.ts:91` gates on `phase === "speaking"`, `voice-stream.ts:719` calls `tts.cancel()` _and_ `clearTwilioBuffer()`. The `AbortController` was tried and removed (`voice-stream.ts:228` says so). Genuine gap found here: **no test drives `clear`/`cancel()` over a socket** — the pure state machine is all that is covered.                                                                                                    |
+| Twilio → Infobip → SMS failover                                   | **Exists, enforces nothing.** `TELECOM_PROVIDERS = ["twilio","infobip","sip"]` with a written Infobip adapter (`adapters/telecom-adapter.ts:334`), but the only importer is an opt-in fast path that returns null whenever a call has to speak (`twilio.ts:496-543`). A real carrier failover on the money path is the largest genuinely-absent item in the document.                                                                                                                                 |
+| `/docs/adr/001-custom-voice-engine.md`, playbooks, runbooks       | **Already exists** — `docs/adr/README.md` indexes 8 accepted records with a mandatory Evidence section, and `001-custom-voice-engine.md` is the file the blueprint says to create, including the note that pgvector, Nginx and Vercel were declined on evidence. `docs/RUNBOOK.md` §2-§4 covers dependency failure, kill switches and rollback; `scripts/switch-tts-provider.sh` does not exist and would be a lie: provider choice is env, and `BILLING_KILL_SWITCH` is the only deploy-free switch. |
+| Vercel logs, Nginx, PostHog flags, Supabase `interventions` table | **Refuted by the topology**: self-hosted on one VPS behind Caddy with Docker (`deploy.yml:26-28,90`), flags read from env (`flags.ts:416-448`), PostHog is analytics only (`isFeatureEnabled` has zero matches), and there is no `Intervention` model — it is `Case`.                                                                                                                                                                                                                                 |
+
+Multi-session concurrency and the server/client split came out as **already enforced**, with one exception each worth naming: sessions are genuinely uncapped and per-tab
+realtime sits inside the 64-socket channel cap, but `announceCredit` only publishes when an `orgId`
+exists; and 159 modules carry `import "server-only"` with no ESLint boundary rule behind it, while
+`src/lib/voice-client.ts` and `src/hooks/use-mobile.ts` touch browser globals without a
+`"use client"` directive — legal today because nothing imports them server-side, unprotected tomorrow.
+
+**Open after this section, in the order I would take them.** A gate for `charge-mode`
+(demo claims nothing, paid moves wallet and ledger together, every refusal refunds) — needs
+the `reserve()` ceiling read properly first, not guessed. The three unconsumed realtime
+frames (`case_state`, `case.queued`, `notification`), which need a field-set decision, not
+a renderer. IP, user agent and request id on the audit chain — genuinely absent, and
+blocked on a policy answer, because an IP is personal data and the erasure path today
+relies on the chain holding none. `exportOtlp`'s missing caller. The ElevenLabs tool
+endpoints above. And the PII backfill over the live rows, which stays unrun until the
+operator is watching it.

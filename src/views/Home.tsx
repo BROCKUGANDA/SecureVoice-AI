@@ -173,16 +173,18 @@ export function Home() {
                 <span className="relative inline-block text-primary">
                   {t("Freeze staged.", "وتجميد مُمهَّد.", lang)}
                   <svg
-                    className="absolute -bottom-2 left-0 w-full"
+                    className="absolute -bottom-1 left-0 h-[6px] w-full"
                     viewBox="0 0 120 8"
                     fill="none"
+                    preserveAspectRatio="none"
                     aria-hidden="true"
                   >
                     <motion.path
                       d="M2 6 C 30 1, 80 1, 118 5"
                       stroke="#14a374"
-                      strokeWidth="2.6"
+                      strokeWidth="2.5"
                       strokeLinecap="round"
+                      vectorEffect="non-scaling-stroke"
                       initial={{ pathLength: 0 }}
                       animate={{ pathLength: 1 }}
                       transition={{ duration: 0.9, delay: 0.9, ease: "easeOut" }}
@@ -358,15 +360,22 @@ export function Home() {
                 </div>
               </div>
 
-              {/* floating chips */}
-              <motion.div
-                className="sv-float absolute -left-5 top-24 hidden rounded-2xl border border-line bg-white px-3.5 py-2.5 shadow-lg lg:block"
-                initial={{ opacity: 0, x: -14 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: 1.1 }}
-              >
-                <div className="flex items-center gap-2">
-                  <ShieldCheck className="h-4 w-4 text-primary" />
+              {/* Annotations. These used to float over the card, which put
+                  "Guardrail 01" across the waveform and "Handoff queued" across
+                  the customer's Arabic reply — the two things the card exists to
+                  show. They sit below it now in the same treatment, so no
+                  viewport can put them on top of content, and RTL no longer
+                  mirrors a `-left-5` into the wrong gutter. Only opacity
+                  animates: `.sv-float` owns `transform`, and a CSS animation
+                  outranks an inline style, so the old x-slide never played. */}
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                <motion.div
+                  className="sv-float flex items-start gap-2 rounded-2xl border border-line bg-white px-3.5 py-2.5 shadow-sm"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ delay: 1.1 }}
+                >
+                  <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
                   <div className="leading-tight">
                     <p className="text-[11px] font-semibold">
                       {t("Guardrail 01", "الضمانة 01", lang)}
@@ -375,17 +384,15 @@ export function Home() {
                       {t("No PINs requested", "لا يُطلب أي رمز سري", lang)}
                     </p>
                   </div>
-                </div>
-              </motion.div>
-              <motion.div
-                className="sv-float absolute -right-4 bottom-16 hidden rounded-2xl border border-line bg-white px-3.5 py-2.5 shadow-lg lg:block"
-                style={{ animationDelay: "1.2s" }}
-                initial={{ opacity: 0, x: 14 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: 1.3 }}
-              >
-                <div className="flex items-center gap-2">
-                  <Headset className="h-4 w-4 text-amber-soft" />
+                </motion.div>
+                <motion.div
+                  className="sv-float flex items-start gap-2 rounded-2xl border border-line bg-white px-3.5 py-2.5 shadow-sm"
+                  style={{ animationDelay: "1.2s" }}
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ delay: 1.3 }}
+                >
+                  <Headset className="mt-0.5 h-4 w-4 shrink-0 text-amber-soft" />
                   <div className="leading-tight">
                     <p className="text-[11px] font-semibold">
                       {t("Handoff queued", "التسليم في الطابور", lang)}
@@ -398,8 +405,8 @@ export function Home() {
                       )}
                     </p>
                   </div>
-                </div>
-              </motion.div>
+                </motion.div>
+              </div>
             </motion.div>
           </Reveal>
         </div>

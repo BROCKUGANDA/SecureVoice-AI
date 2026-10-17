@@ -1,0 +1,8 @@
+{
+  "_comment": "Coverage ratchet floor. `overall` is the highest overall line coverage CI has actually measured, `at` is the commit whose run measured it — a floor without a commit is a mood, not a fact. The bar for a PR into main is max(COVERAGE_MIN_OVERALL, this number), so coverage may rise and may not come down. `target` is the pilot acceptance threshold from the 2026-10-08 requirement run; scripts/coverage.mjs prints the distance to it on every run. Bump this in the PR that raised coverage; the gate prints the exact line. Lowering it is allowed but must be justified in the diff, which is why it lives in a tracked file instead of a workflow variable.",
+  "overall": 65.08,
+  "at": "8fef2be",
+  "measured": { "hit": 49845, "total": 76591, "runId": 39068558091 },
+  "target": 85,
+  "gapToTargetLines": 15258
+}

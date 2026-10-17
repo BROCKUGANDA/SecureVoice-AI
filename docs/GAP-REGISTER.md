@@ -1698,3 +1698,69 @@ below a bar is information about the code, and the cheapest way to satisfy it ho
 test the thing nobody has ever tested. The same instinct that says "7 lines, just move the
 threshold" is the one that leaves a security-critical parser at 0% while its comment describes
 properties no test asserts.
+
+### 29. The coverage bar was a number someone had to remember; now it is a floor someone cannot go below
+
+Asked to "increase coverage to 85 so the PR can merge to main", the premise needed
+checking before the edit: raising the merge bar to 85 cannot make `#107` merge. It
+guarantees the opposite, because `ci.yml:435` applies `COVERAGE_MIN_OVERALL` **only** to a
+PR into `main`, and the measured figure is 65.08%.
+
+    origin head 8fef2be, verify job 117501519885
+      overall       65.08%  (49845/76591 lines)   <- what exists
+      85% of 76,591 = 65,103 covered lines         <- what 85 demands
+      gap = 15,258 covered lines                  <- ~20 points of test authoring
+
+So the request was honoured in the direction that is true rather than the one that is
+literal: 85 is restored as the destination, and the bar becomes self-enforcing instead of
+a constant that has already been moved once.
+
+**What the file history showed, and why it mattered.** `scripts/coverage.mjs` carried two
+contradictory comments about the same number: one said `overall` _"was raised from 80 to 85:
+85% is the bar for a merge to main"_, the NOTE below it said the bar was _"temporarily 65
+(reachable) so the ladder can promote to main and deploy while coverage below 85% is being
+closed"_, and the code said `?? 65`. All three were true at different times, and nothing
+connected them. The owner remembered 85, the CI remembered 65, and the gap between them was
+recorded only in prose that asks a reader to hold a promise on behalf of a build system.
+
+**The ratchet.**
+
+- `evidence/coverage-floor.json` (new, tracked) records the highest overall coverage a CI
+  run has actually measured, the commit whose run measured it, the hit/total pair, the run
+  id, and `target: 85`.
+- `scripts/coverage-floor.mjs` (new, pure) computes the verdict: the bar for a main-bound
+  PR is `max(COVERAGE_MIN_OVERALL, floor)`, so the floor can raise the bar and nothing can
+  quietly lower it. `coverage.mjs` consumes that verdict and no longer compares `overall`
+  against its own copy of the rule.
+- Report-only contexts keep today's topology. Dev and staging runs _warn_ that they are
+  below the floor and will block at `main`; they do not newly fail, because turning a
+  report-only job into a blocker changes what can stop a promotion, and that is not a
+  side-effect a coverage change should smuggle in.
+- Every run prints the distance to 85 in both units — points and covered lines — so the
+  destination cannot be forgotten again, and a bump is demanded only above a 0.25pt step,
+  so the floor does not churn on every rename.
+
+**Three properties the old shape lacked, each pinned by `tests/tools/coverage-floor.test.ts`
+(8 tests).** A missing or malformed floor **fails** in a blocking context rather than
+reading as `need 0%` — the silent-reset failure this register has documented for scans
+before. A floor without a commit sha is refused, and the recorded percentage must be
+recomputable from its own `hit/total`, so a hand-edited number is caught. And coverage
+_improving_ never fails, which is the property that decides whether anyone leaves the gate
+switched on.
+
+The tolerance deserves a line of its own: comparing a two-decimal floor against an
+unrounded measurement would have made the run that recorded 65.08% fail its own commit
+(65.0779 < 65.08), and a ratchet that turns red on the act of setting it is deleted within
+a day. `0.005` is the margin, named in the code.
+
+Proven: planted `const need = THRESHOLDS[name]` back into `coverage.mjs` — exactly the
+regression the wiring guard forbids — and the suite went red on the one test; restored and
+green. `85% − 49,845` arithmetic is asserted against long division (15,258), not against
+whatever the function returns. Both tsconfigs clean (`scripts/coverage-floor.d.mts` types
+the pure module by hand, because `any` there would hide a `failReason`/`warnReason` swap),
+eslint and prettier clean, `git cat-file -t 8fef2be` = commit.
+
+**Effect on the ladder right now: none, which is the point.** 65.08% clears the
+`max(65, 65.08)` bar, `#107` stays mergeable and production deploys. What changed is that
+the next drop in coverage fails a main-bound PR, and the number 85 now lives in a file that
+prints how far away it is instead of in anyone's memory.

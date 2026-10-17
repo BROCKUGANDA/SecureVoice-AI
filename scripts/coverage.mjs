@@ -47,6 +47,7 @@ import {
 } from "node:fs";
 import { relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { FLOOR_FILE, evaluateCoverage } from "./coverage-floor.mjs";
 
 const ROOT = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const TESTS = resolve(ROOT, "tests");
@@ -55,21 +56,22 @@ const OUT = resolve(ROOT, "coverage");
 // Fixed path written by jest.config.cjs (coverageDirectory: coverage/jest).
 const JEST_LCOV = resolve(OUT, "jest", "lcov.info");
 
-// Thresholds are ENFORCED, not advisory. `overall` was raised from 80 to 85:
-// 85% is the bar for a merge to `main`, and a number that is measured and then
-// ignored is worse than no gate — it is a gate everyone has learned to look
-// past. The per-tier numbers stay as they are, because they describe what each
-// tier is FOR (integration proves wiring, e2e proves the surface); only
-// `overall` is a claim about the codebase as a whole.
+// Thresholds are ENFORCED, not advisory, and a number that is measured and then
+// ignored is worse than no gate — it is a gate everyone has learned to look past.
+// The per-tier numbers describe what each tier is FOR (integration proves wiring,
+// e2e proves the surface) and stay as they are; only `overall` is a claim about the
+// codebase as a whole, and that is the one the ratchet governs.
 //
-// COVERAGE_MIN_OVERALL lets CI state the bar for the branch it is gating — 85 on
-// the way into `main`, report-only on the way into `dev`/`staging` — so this
-// value is the default rather than the only option.
-// NOTE: the main merge bar is temporarily 65 (reachable) so the ladder can
-// promote to `main` and deploy while coverage below 85% is being closed
-// (the pilot acceptance threshold from the 2026-10-08 requirement run).
-// CI sets 65 on PRs into main (report-only elsewhere); raise it back toward
-// 85 as views land.
+// COVERAGE_MIN_OVERALL lets CI state the bar for the branch it is gating — the
+// pilot target of 85 on the way into `main` once it is reachable, report-only on the
+// way into `dev`/`staging` — so this value is the default rather than the only option.
+//
+// THE BAR IS NO LONGER ONLY THIS NUMBER. `evidence/coverage-floor.json` records the
+// highest overall coverage a CI run has actually measured, and the effective bar for a
+// PR into main is max(this default, that floor). The previous arrangement was a
+// constant lowered once "so the ladder can promote" with a comment promising to raise
+// it back toward 85 — a promise nothing could enforce, which is how a gate ends up at
+// whatever value last let a build pass. See scripts/coverage-floor.mjs.
 const THRESHOLDS = {
   overall: Number(process.env.COVERAGE_MIN_OVERALL ?? 65),
   unit: 70,
@@ -391,14 +393,51 @@ function main() {
 
   let gateFailed = failed === 1;
   console.log("── coverage ──");
+
+  // The overall bar is the ratchet, not a constant: `evaluateCoverage` takes
+  // max(merge bar, committed floor) and returns the verdict as data. Report-only
+  // contexts (no COVERAGE_MIN_OVERALL) still compare against the floor and say so,
+  // without blocking a promotion that has never been blocked by coverage.
+  const floorRaw = existsSync(resolve(FLOOR_FILE))
+    ? readFileSync(resolve(FLOOR_FILE), "utf8")
+    : null;
+  const overallPct = pct(overall.hit, overall.total);
+  const verdict = evaluateCoverage({
+    measured: overallPct,
+    hit: overall.hit,
+    total: overall.total,
+    mergeBar: THRESHOLDS.overall,
+    raw: floorRaw,
+    blocking: THRESHOLDS.overall > 0,
+  });
+
+  // The floor never *lowers* the bar, and a report-only run stays report-only: the
+  // warning prints, the exit does not. Making a dev push fail on coverage would
+  // change what can stop a promotion — a bigger decision than this gate owns.
+  const overallBar = THRESHOLDS.overall > 0 ? verdict.bar : THRESHOLDS.overall;
+
   for (const [name, t] of Object.entries({ overall, ...tiers })) {
     const p = pct(t.hit, t.total);
-    const need = THRESHOLDS[name];
+    const need = name === "overall" ? overallBar : THRESHOLDS[name];
     const mark = p >= need ? "PASS" : "FAIL";
     console.log(
-      `  ${name.padEnd(12)} ${p.toFixed(2).padStart(6)}%  (${t.hit}/${t.total} lines)  need ${need}%  ${mark}`,
+      `  ${name.padEnd(12)} ${p.toFixed(2).padStart(6)}%  (${t.hit}/${t.total} lines)  need ${need.toFixed(2).replace(/\.00$/, "")}%  ${mark}`,
     );
     if (p < need) gateFailed = true;
+  }
+
+  if (verdict.floor) {
+    console.log(
+      `  floor       ${verdict.floor.overall.toFixed(2)}% committed at ${verdict.floor.at}` +
+        `  ·  target ${verdict.target}% needs ${verdict.gapToTargetLines.toLocaleString()} more covered lines` +
+        ` (${verdict.gapToTarget.toFixed(2)}pt)`,
+    );
+  }
+  if (verdict.bump) console.log(`  bump        ${verdict.bump}`);
+  if (verdict.warnReason) console.log(`  WARN        ${verdict.warnReason}`);
+  if (verdict.failReason) {
+    console.log(`  FAIL        ${verdict.failReason}`);
+    gateFailed = true;
   }
 
   // Provenance of the e2e tier, stated rather than implied. The views are only

@@ -85,6 +85,9 @@ export const VIEW_ACCESS: Record<View, ViewAccess> = {
   // than cosmetic — a judge genuinely gets a different console, not the same
   // one with fewer buttons.
   console: "vendor",
+  // The audit explorer is an operator-only compliance surface — reads across
+  // tenant audit log, chain verification at scale and exports.
+  audit: "operator",
   settings: "operator",
   // The audit explorer reads across the tenant's audit log and exports rows,
   // so it is operator-only like settings — an auditor's surface, not a working

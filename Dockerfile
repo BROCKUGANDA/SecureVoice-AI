@@ -201,6 +201,14 @@ COPY prisma ./prisma
 COPY scripts ./scripts
 COPY src ./src
 COPY mini-services ./mini-services
+# The TLS trust anchor, and the line that was missing. Every worker's DATABASE_URL
+# ends in `sslrootcert=supabase-ca.crt`, resolved against WORKDIR /app, but this
+# stage copied source trees and never the certificate — so `verify-full` could not
+# verify anything and every query failed with ENOENT. The app tier got the file
+# from .next/standalone (scripts/copy-standalone.mjs), which is exactly why the
+# breakage was invisible: /api/health stayed green while the dial worker polled
+# into a wall 57,053 times.
+COPY supabase-ca.crt ./
 
 # ---------- runner: minimal standalone server ----------
 FROM oven/bun:1-slim AS runner

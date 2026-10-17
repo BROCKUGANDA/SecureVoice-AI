@@ -30,3 +30,41 @@ export function assertTransportIsEncrypted(
     );
   }
 }
+
+/**
+ * If the URL names a trust anchor, the anchor has to be in the image.
+ *
+ * WHY THIS EXISTS SEPARATELY. `verify-full` is the strongest mode this repo
+ * allows, and it is only strongest when the named CA file is actually readable.
+ * Measured on production 2026-10-17: the `worker` Dockerfile stage copied `src/`,
+ * `prisma/`, `scripts/` and `node_modules` but never `supabase-ca.crt`, while
+ * every worker's `DATABASE_URL` ends in `sslrootcert=supabase-ca.crt`. The dial
+ * worker then failed *every query* with `ENOENT: no such file or directory, open
+ * 'supabase-ca.crt'` — 57,053 times in its container's lifetime, once per poll
+ * tick, at error level, while `/api/health` reported `ok: true` because the web
+ * tier's image did have the file. A second image, built six days earlier and
+ * therefore accidentally carrying the anchor, was the only worker that worked.
+ *
+ * The failure shape is the point: an unverified TLS mode is not a degraded
+ * connection, it is no connection at all, and a long-running process that
+ * retries it once a second is indistinguishable from a healthy one from outside.
+ * So this refuses at boot, naming the file.
+ *
+ * `exists` is injected to keep the function pure and testable — the same reason
+ * `env` is a parameter above.
+ */
+export function assertTrustAnchorPresent(url: string, exists: (path: string) => boolean): void {
+  if (!url) return;
+  const anchor = /[?&]sslrootcert=([^&]+)/.exec(url)?.[1];
+  if (!anchor) return;
+  if (!exists(anchor)) {
+    throw new Error(
+      `DATABASE_URL demands sslrootcert=${anchor} but that file is not present in this ` +
+        `image/working directory. TLS verification cannot succeed without it, so every ` +
+        `query would fail with ENOENT while the process keeps running. Build the image ` +
+        `with the certificate copied in (see scripts/copy-standalone.mjs for the app tier ` +
+        `and the Dockerfile's worker stage for the rest), or set sslmode=require only if ` +
+        `the chain is verified some other way.`,
+    );
+  }
+}

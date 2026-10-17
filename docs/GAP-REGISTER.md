@@ -1764,3 +1764,86 @@ eslint and prettier clean, `git cat-file -t 8fef2be` = commit.
 `max(65, 65.08)` bar, `#107` stays mergeable and production deploys. What changed is that
 the next drop in coverage fails a main-bound PR, and the number 85 now lives in a file that
 prints how far away it is instead of in anyone's memory.
+
+### 30. Every worker image was missing the TLS anchor its own DATABASE_URL demanded, and the health endpoint hid it
+
+The first deploy that got as far as rolling failed at `Build, migrate and roll the live
+stack`, and the log was not a build error. It was a container:
+
+    email-worker-1 | Invalid `prisma.$queryRaw()` invocation:
+    email-worker-1 | ENOENT: no such file or directory, open 'supabase-ca.crt'
+
+Measured on the host, per container, for the last 72 hours — presence of the file versus
+count of that error:
+
+    dial-worker         ca_file=NO    enoent=56,949
+    email-worker        ca_file=NO    enoent= 5,701
+    retention-worker    ca_file=NO    enoent=    3
+    overage-worker      ca_file=NO    enoent=    3
+    voice-stream-worker ca_file=NO    enoent=    1
+    outbox-worker       ca_file=yes   enoent=    0
+    app                 ca_file=yes   enoent=    0
+
+`DATABASE_URL` in production ends in `sslmode=verify-full&sslrootcert=supabase-ca.crt`.
+`scripts/copy-standalone.mjs:45` puts that certificate into `.next/standalone/`, and the
+Dockerfile's `runner` stage copies the standalone output — so the **app** image has it. The
+`worker` stage copies `node_modules`, `src/generated`, `package.json`, `tsconfig.json`,
+`prisma.config.ts`, `prisma/`, `scripts/`, `src/` and `mini-services/`, and **never the
+certificate**. Seven of the nine built services — including `db-setup`, which runs
+migrations — come from that stage.
+
+`outbox-worker` was the only worker that worked, and only by accident: its image was built
+2026-10-10 and predated the stage split, while the broken ones were built 2026-10-16 13:12.
+A stale container was the control group.
+
+**What it actually means.** `verify-full` with an unreadable anchor is not a weaker TLS
+setting, it is no connection at all. The dial worker therefore failed _every poll tick_: its container
+started at `2026-10-17T13:40:59Z`, logged its first failure one second later, and had
+produced 57,053 matching lines by the time it was measured — `level:error`, in a loop that
+never exits and never escalates — while `GET /api/health` returned
+`{"ok":true,"version":"0.2.27"}`, because the web tier's image had the file. The outage was
+invisible from every surface that reports health.
+
+**What it cost: nothing yet, and that is the only good thing here.** `select count(*)` on the
+production database: `dial_job = 0`, `"Case" = 0`, `"AuditLog" = 26`. No campaign was
+queued, so no customer missed a call. The finding still has to be fixed before the pilot,
+because the failure mode is "the fraud-dialling engine does not work and says it is fine",
+and the first real campaign is exactly when nobody is watching the container logs.
+
+**Three fixes, each proven able to fail.**
+
+1. `Dockerfile`: `COPY supabase-ca.crt ./` added to the `worker` stage, with the reason
+   written next to it.
+2. `src/lib/db-transport.ts` → `assertTrustAnchorPresent(url, exists)`, called at
+   `src/lib/db.ts:34` next to the existing encryption assertion — the one choke point every
+   Prisma process passes through. A URL that names an anchor the image does not contain now
+   **refuses to boot**, naming the file, the parameter and the two places that ship it. A
+   spin-forever-at-error-level is a worse failure than a crash: a crash stops a deploy.
+3. `scripts/drift-gates.mjs` → `checkTlsAnchorInImages`: parses the Dockerfile into stages,
+   reads every `build.target` from `docker-compose.yml`, and requires each stage's image to
+   carry the anchor — directly, or through the standalone bundle. It reads the demanded
+   filename from `.env.example` rather than hard-coding a second copy, has a tripwire that
+   fails if either parse yields nothing, and a `selfTestAnchorGate` with five controls
+   including "a comment mentioning the file is not a COPY" and "a different cert is not this
+   one".
+
+Proven, in order: removing the `COPY` line → `FAIL … worker (stage does not ship
+supabase-ca.crt)`, restored → green; mutating away the `db.ts` call → the wiring test went
+red; removing the `COPY` again → the transit suite's own Dockerfile assertion went red. Both
+restored: `bun run test transit` 21 pass, drift gates green, both tsconfigs clean, eslint and
+prettier clean.
+
+**The class, stated once.** A configuration value that names a file is a **build
+dependency**, and a build that omits it fails at runtime in whichever process reads it —
+which, here, was every process except the one with a health endpoint. Two of this session's
+findings are the same shape wearing different clothes: the SLO artifact asked "is telemetry
+shipping?" of a variable no exporter reads (§23), and this deployment asked Postgres to
+verify a certificate that only one of two image stages shipped. In both cases the thing that
+was wrong was not the value but the belief that a statement and a mechanism were the same
+object.
+
+**Also worth recording, because it is how this was missed:** the deploy had failed three
+times before it ever reached the roll step, each time at `Refuse to deploy an unproven
+commit`. That gate was right every time, and its very correctness kept the broken worker
+image from being exercised. The incident is not caused by the ladder stalling; it is caused
+by a check that had never been run end-to-end since the stage split.

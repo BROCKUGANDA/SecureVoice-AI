@@ -4,7 +4,9 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import { recordQuery, type PrismaQueryEvent } from "@/lib/telemetry/query-counter";
 import { assertDatabaseTarget } from "@/lib/db-target";
 import { resolvePoolBudget } from "@/lib/db-pool";
-import { assertTransportIsEncrypted } from "@/lib/db-transport";
+import { assertTransportIsEncrypted, assertTrustAnchorPresent } from "@/lib/db-transport";
+import { existsSync } from "node:fs";
+import { resolve } from "node:path";
 import { env } from "@/lib/config";
 import { logInfo } from "@/lib/validation/safe-log";
 
@@ -30,6 +32,10 @@ import { logInfo } from "@/lib/validation/safe-log";
 const databaseUrl = env.databaseUrl ?? "";
 
 assertTransportIsEncrypted(databaseUrl);
+// The other half of "encrypted": a URL that names a trust anchor is worthless if
+// the anchor is not in the image. This is what the worker containers were doing
+// for a day — every query ENOENTing once a second while /api/health said ok.
+assertTrustAnchorPresent(databaseUrl, (p) => existsSync(resolve(process.cwd(), p)));
 // Opt-in (REQUIRE_VPS_DATABASE=true): refuse to boot production against anything
 // but the VPS's own Postgres. See src/lib/db-target.ts for why it is opt-in.
 assertDatabaseTarget(databaseUrl);

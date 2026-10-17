@@ -1698,3 +1698,152 @@ below a bar is information about the code, and the cheapest way to satisfy it ho
 test the thing nobody has ever tested. The same instinct that says "7 lines, just move the
 threshold" is the one that leaves a security-critical parser at 0% while its comment describes
 properties no test asserts.
+
+### 29. The coverage bar was a number someone had to remember; now it is a floor someone cannot go below
+
+Asked to "increase coverage to 85 so the PR can merge to main", the premise needed
+checking before the edit: raising the merge bar to 85 cannot make `#107` merge. It
+guarantees the opposite, because `ci.yml:435` applies `COVERAGE_MIN_OVERALL` **only** to a
+PR into `main`, and the measured figure is 65.08%.
+
+    origin head 8fef2be, verify job 117501519885
+      overall       65.08%  (49845/76591 lines)   <- what exists
+      85% of 76,591 = 65,103 covered lines         <- what 85 demands
+      gap = 15,258 covered lines                  <- ~20 points of test authoring
+
+So the request was honoured in the direction that is true rather than the one that is
+literal: 85 is restored as the destination, and the bar becomes self-enforcing instead of
+a constant that has already been moved once.
+
+**What the file history showed, and why it mattered.** `scripts/coverage.mjs` carried two
+contradictory comments about the same number: one said `overall` _"was raised from 80 to 85:
+85% is the bar for a merge to main"_, the NOTE below it said the bar was _"temporarily 65
+(reachable) so the ladder can promote to main and deploy while coverage below 85% is being
+closed"_, and the code said `?? 65`. All three were true at different times, and nothing
+connected them. The owner remembered 85, the CI remembered 65, and the gap between them was
+recorded only in prose that asks a reader to hold a promise on behalf of a build system.
+
+**The ratchet.**
+
+- `evidence/coverage-floor.json` (new, tracked) records the highest overall coverage a CI
+  run has actually measured, the commit whose run measured it, the hit/total pair, the run
+  id, and `target: 85`.
+- `scripts/coverage-floor.mjs` (new, pure) computes the verdict: the bar for a main-bound
+  PR is `max(COVERAGE_MIN_OVERALL, floor)`, so the floor can raise the bar and nothing can
+  quietly lower it. `coverage.mjs` consumes that verdict and no longer compares `overall`
+  against its own copy of the rule.
+- Report-only contexts keep today's topology. Dev and staging runs _warn_ that they are
+  below the floor and will block at `main`; they do not newly fail, because turning a
+  report-only job into a blocker changes what can stop a promotion, and that is not a
+  side-effect a coverage change should smuggle in.
+- Every run prints the distance to 85 in both units — points and covered lines — so the
+  destination cannot be forgotten again, and a bump is demanded only above a 0.25pt step,
+  so the floor does not churn on every rename.
+
+**Three properties the old shape lacked, each pinned by `tests/tools/coverage-floor.test.ts`
+(8 tests).** A missing or malformed floor **fails** in a blocking context rather than
+reading as `need 0%` — the silent-reset failure this register has documented for scans
+before. A floor without a commit sha is refused, and the recorded percentage must be
+recomputable from its own `hit/total`, so a hand-edited number is caught. And coverage
+_improving_ never fails, which is the property that decides whether anyone leaves the gate
+switched on.
+
+The tolerance deserves a line of its own: comparing a two-decimal floor against an
+unrounded measurement would have made the run that recorded 65.08% fail its own commit
+(65.0779 < 65.08), and a ratchet that turns red on the act of setting it is deleted within
+a day. `0.005` is the margin, named in the code.
+
+Proven: planted `const need = THRESHOLDS[name]` back into `coverage.mjs` — exactly the
+regression the wiring guard forbids — and the suite went red on the one test; restored and
+green. `85% − 49,845` arithmetic is asserted against long division (15,258), not against
+whatever the function returns. Both tsconfigs clean (`scripts/coverage-floor.d.mts` types
+the pure module by hand, because `any` there would hide a `failReason`/`warnReason` swap),
+eslint and prettier clean, `git cat-file -t 8fef2be` = commit.
+
+**Effect on the ladder right now: none, which is the point.** 65.08% clears the
+`max(65, 65.08)` bar, `#107` stays mergeable and production deploys. What changed is that
+the next drop in coverage fails a main-bound PR, and the number 85 now lives in a file that
+prints how far away it is instead of in anyone's memory.
+
+### 30. Every worker image was missing the TLS anchor its own DATABASE_URL demanded, and the health endpoint hid it
+
+The first deploy that got as far as rolling failed at `Build, migrate and roll the live
+stack`, and the log was not a build error. It was a container:
+
+    email-worker-1 | Invalid `prisma.$queryRaw()` invocation:
+    email-worker-1 | ENOENT: no such file or directory, open 'supabase-ca.crt'
+
+Measured on the host, per container, for the last 72 hours — presence of the file versus
+count of that error:
+
+    dial-worker         ca_file=NO    enoent=56,949
+    email-worker        ca_file=NO    enoent= 5,701
+    retention-worker    ca_file=NO    enoent=    3
+    overage-worker      ca_file=NO    enoent=    3
+    voice-stream-worker ca_file=NO    enoent=    1
+    outbox-worker       ca_file=yes   enoent=    0
+    app                 ca_file=yes   enoent=    0
+
+`DATABASE_URL` in production ends in `sslmode=verify-full&sslrootcert=supabase-ca.crt`.
+`scripts/copy-standalone.mjs:45` puts that certificate into `.next/standalone/`, and the
+Dockerfile's `runner` stage copies the standalone output — so the **app** image has it. The
+`worker` stage copies `node_modules`, `src/generated`, `package.json`, `tsconfig.json`,
+`prisma.config.ts`, `prisma/`, `scripts/`, `src/` and `mini-services/`, and **never the
+certificate**. Seven of the nine built services — including `db-setup`, which runs
+migrations — come from that stage.
+
+`outbox-worker` was the only worker that worked, and only by accident: its image was built
+2026-10-10 and predated the stage split, while the broken ones were built 2026-10-16 13:12.
+A stale container was the control group.
+
+**What it actually means.** `verify-full` with an unreadable anchor is not a weaker TLS
+setting, it is no connection at all. The dial worker therefore failed _every poll tick_: its container
+started at `2026-10-17T13:40:59Z`, logged its first failure one second later, and had
+produced 57,053 matching lines by the time it was measured — `level:error`, in a loop that
+never exits and never escalates — while `GET /api/health` returned
+`{"ok":true,"version":"0.2.27"}`, because the web tier's image had the file. The outage was
+invisible from every surface that reports health.
+
+**What it cost: nothing yet, and that is the only good thing here.** `select count(*)` on the
+production database: `dial_job = 0`, `"Case" = 0`, `"AuditLog" = 26`. No campaign was
+queued, so no customer missed a call. The finding still has to be fixed before the pilot,
+because the failure mode is "the fraud-dialling engine does not work and says it is fine",
+and the first real campaign is exactly when nobody is watching the container logs.
+
+**Three fixes, each proven able to fail.**
+
+1. `Dockerfile`: `COPY supabase-ca.crt ./` added to the `worker` stage, with the reason
+   written next to it.
+2. `src/lib/db-transport.ts` → `assertTrustAnchorPresent(url, exists)`, called at
+   `src/lib/db.ts:34` next to the existing encryption assertion — the one choke point every
+   Prisma process passes through. A URL that names an anchor the image does not contain now
+   **refuses to boot**, naming the file, the parameter and the two places that ship it. A
+   spin-forever-at-error-level is a worse failure than a crash: a crash stops a deploy.
+3. `scripts/drift-gates.mjs` → `checkTlsAnchorInImages`: parses the Dockerfile into stages,
+   reads every `build.target` from `docker-compose.yml`, and requires each stage's image to
+   carry the anchor — directly, or through the standalone bundle. It reads the demanded
+   filename from `.env.example` rather than hard-coding a second copy, has a tripwire that
+   fails if either parse yields nothing, and a `selfTestAnchorGate` with five controls
+   including "a comment mentioning the file is not a COPY" and "a different cert is not this
+   one".
+
+Proven, in order: removing the `COPY` line → `FAIL … worker (stage does not ship
+supabase-ca.crt)`, restored → green; mutating away the `db.ts` call → the wiring test went
+red; removing the `COPY` again → the transit suite's own Dockerfile assertion went red. Both
+restored: `bun run test transit` 21 pass, drift gates green, both tsconfigs clean, eslint and
+prettier clean.
+
+**The class, stated once.** A configuration value that names a file is a **build
+dependency**, and a build that omits it fails at runtime in whichever process reads it —
+which, here, was every process except the one with a health endpoint. Two of this session's
+findings are the same shape wearing different clothes: the SLO artifact asked "is telemetry
+shipping?" of a variable no exporter reads (§23), and this deployment asked Postgres to
+verify a certificate that only one of two image stages shipped. In both cases the thing that
+was wrong was not the value but the belief that a statement and a mechanism were the same
+object.
+
+**Also worth recording, because it is how this was missed:** the deploy had failed three
+times before it ever reached the roll step, each time at `Refuse to deploy an unproven
+commit`. That gate was right every time, and its very correctness kept the broken worker
+image from being exercised. The incident is not caused by the ladder stalling; it is caused
+by a check that had never been run end-to-end since the stage split.

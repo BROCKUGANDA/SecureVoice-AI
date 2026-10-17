@@ -54,7 +54,10 @@ import { fileURLToPath } from "node:url";
 
 import { PROBE_PATHS } from "../../src/proxy.ts";
 
-const caddyfile = readFileSync(fileURLToPath(new URL("../../Caddyfile", import.meta.url)), "utf8");
+const caddyfile = readFileSync(
+  fileURLToPath(new URL("../../Caddyfile", import.meta.url)),
+  "utf8",
+);
 
 /**
  * Quote-aware block extractor: returns the text between the braces that follow
@@ -129,7 +132,9 @@ describe("the edge answers an outage at the edge", () => {
     // handle_errors = no upstream response at all (stopped container, refused
     // connection). handle_response = the origin answered 502/503. Neither hook
     // substitutes for the other; see the docs note quoted in the file header.
-    expect(errorHook, "handle_errors does not write the page").toContain("import maintenance_page");
+    expect(errorHook, "handle_errors does not write the page").toContain(
+      "import maintenance_page",
+    );
     expect(responseHook, "handle_response does not write the page").toContain(
       "import maintenance_page",
     );
@@ -284,7 +289,10 @@ describe("the surfaces a program reads are not answered with the page", () => {
     for (const re of PROBE_PATHS) {
       // [/^\/api\/health$/, …] -> "/api/health": strip the anchors and unescape
       // the slashes, so the comparison is against the path a request carries.
-      const path = re.source.replace(/^\^/, "").replace(/\$$/, "").replaceAll("\\/", "/");
+      const path = re.source
+        .replace(/^\^/, "")
+        .replace(/\$$/, "")
+        .replaceAll("\\/", "/");
       expect(
         matcherPaths("machine_surface").includes(path),
         `${path} is a probe path but the maintenance rule can swallow it`,

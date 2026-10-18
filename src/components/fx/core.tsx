@@ -44,15 +44,17 @@ export function Reveal({
  *
  * The rule applied is the one the rest of the fx layer already states: the
  * affordance survives, only the motion goes. Under the preference the loop is
- * never started and the final figure is written from the effect.
+ * never started and the figure is the target value.
  *
- * Written in the effect rather than returned during render, deliberately. The
- * server can only ever render `0` here — the observer that starts a count-up does
- * not fire during SSR — so a render-time `reduce ? to : val` would paint `38` on
- * the client against server HTML that said `0`, and every reduced-motion visitor
- * would get a hydration-mismatch warning in the console for a number that was
- * never animated. The effect runs after hydration: one paint at zero, then the
- * figure, with no tween between them.
+ * Two rejected shapes, recorded because both look right. Writing the value from
+ * the effect (`if (reduce) setVal(to); return;`) is the obvious one, and eslint's
+ * React Compiler rule refuses it: a synchronous `setState` in an effect body is a
+ * cascading render, not a synchronisation with an external system. The other is
+ * the plain render-time derivation below, which is correct for the client and
+ * different from the server — SSR can only ever paint `0` here, because the
+ * observer that starts a count-up cannot fire during server render. That is the
+ * narrow case `suppressHydrationWarning` exists for, so it is applied to this one
+ * element and no wider: the same device the root layout already uses for `<html>`.
  */
 export function Counter({
   to,
@@ -71,11 +73,7 @@ export function Counter({
   const [val, setVal] = useState(0);
 
   useEffect(() => {
-    if (reduce) {
-      setVal(to);
-      return;
-    }
-    if (!inView) return;
+    if (reduce || !inView) return;
     let raf = 0;
     const start = performance.now();
     const tick = (now: number) => {
@@ -89,8 +87,8 @@ export function Counter({
   }, [inView, to, duration, reduce]);
 
   return (
-    <span ref={ref} className={cn("num", className)}>
-      {val.toLocaleString("en-US", {
+    <span ref={ref} suppressHydrationWarning className={cn("num", className)}>
+      {(reduce ? to : val).toLocaleString("en-US", {
         minimumFractionDigits: decimals,
         maximumFractionDigits: decimals,
       })}

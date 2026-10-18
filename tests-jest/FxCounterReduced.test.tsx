@@ -14,11 +14,12 @@
  * one mechanism, one blind spot.
  *
  * What is asserted is the mechanism, not the appearance:
- *   1. once effects have run the figure is the target value — and note the
- *      component still renders `0` on the server, because the observer cannot fire
- *      during SSR, so writing the value at render time would have been a hydration
- *      mismatch rather than a fix (`src/components/fx/core.tsx` explains why the
- *      write happens in the effect);
+ *   1. the figure is the target value on the first client render — no zero, no
+ *      tween. The server paints `0` because the observer cannot fire during SSR,
+ *      which is why the span carries a scope-limited `suppressHydrationWarning`;
+ *      `src/components/fx/core.tsx` records why the alternative — writing the
+ *      value from the effect — is refused by eslint's React Compiler rule as a
+ *      cascading render, so the assertion has to be about render output;
  *   2. no frame callback is ever requested — the loop is not started and then
  *      stopped, it never exists.
  * Delete the `reduce` branch in `Counter` and this goes red on both: the value

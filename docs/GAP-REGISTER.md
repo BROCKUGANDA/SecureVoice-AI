@@ -2088,11 +2088,20 @@ page genuinely does honour the preference — which is exactly why the exception
 framer's config cannot reach. One mechanism, one blind spot: 57 scroll reveals obeyed, and the hero
 figure ticked from 0 to 38 anyway.
 
-The fix has a shape worth recording. The final value is written **in the effect, not returned during
-render**. The server can only ever render `0` here — the intersection observer cannot fire during SSR
-— so a render-time `reduce ? to : val` would put `38` in the client's first paint against server HTML
-that said `0`, and hand every reduced-motion visitor a hydration-mismatch warning in the console.
-That version was written first, and deleted on purpose.
+The fix went through two rejected shapes before the right one. The first wrote the final value
+**from the effect** — `if (reduce) { setVal(to); return; }` — chosen to dodge a hydration mismatch,
+since the server can only ever paint `0` here (the observer cannot fire during SSR). eslint's React
+Compiler rule refused it on CI: a synchronous `setState` in an effect body is a cascading render, not
+a synchronisation with an external system. The correct shape is the render-time derivation, with a
+`suppressHydrationWarning` scoped to that one `<span>` — the same narrow device the root layout
+already uses for `<html>`, and exactly what the tag is for: a first client paint that legitimately
+differs from server HTML for one element.
+
+**And the process fault that let it reach CI.** I wrote "eslint green" in that commit message from a
+lint run made _before_ my last edit to that same file. The gate had not been re-run after the change
+it was supposed to certify. Re-checking a diff is not the same as re-checking after the diff; run the
+command after the final edit, and treat CI as the arbiter when the two disagree — the assertion in
+§34's own "Verified" line was stale on the day it was written.
 
 **The language control did not exist on a phone.** The header's cluster is `hidden … sm:flex`, and the
 mobile panel — the only thing rendered below 640px — carried no language control at all. With the
@@ -2134,13 +2143,18 @@ gate:
   not fix it — it loaded a second React and died on `useRef` of null. One preference per file is the
   shape that is deterministic in any order, since jest already gives each file a fresh registry.
 
-**Verified:** the new jest suite green, with the mutation-red / restore-green pair above; the five
-surface assertions green; `format:check`, `eslint --max-warnings=0`, both tsconfigs green;
-`bun run test:jest` 13/14 suites, 92 tests (the `Demo.test.tsx` load failure is §33's pre-existing
-Windows ESM condition). The full-tree run was re-executed with nothing else in flight: the first
-attempt overlapped two jest runs and several file mutations and reported seven billing-concurrency
-failures, which is a mixed-state result and not evidence.
+**Verified, after the last edit this time:** `eslint . --max-warnings=0`, `format:check`, both
+tsconfigs and the repo drift gates green; the jest suite green with the mutation-red / restore-green
+pair above (the render-time derivation disabled → `Unable to find an element with the text: 38`,
+restored → green); the five Navbar surface assertions green likewise; `bun run test:jest` 13/14
+suites and 92 tests, the one failing suite being §33's pre-existing `Demo.test.tsx` Windows ESM load
+condition. Whole tree in one clean run: 308 files `0 fail`, plus the three `interventions-*` e2e
+files green once `WEBHOOK_SECRET` is genuinely exported — `.env` carries `WEBHOOK_SECRET=""`, a
+_quoted_ empty string, which is why an "is it empty?" check passes the value through and why the
+first two attempts still reported seven reds. Those seven were never a regression.
 
 **Still open after this pass:** nothing in CI exercises the phone-width layout (`ci.yml` runs no
-cypress), so the mobile control is guarded by source assertion rather than by a rendered check; and
-the negotiation header stays unwired (§33).
+cypress), so the mobile control is guarded by source assertion rather than by a rendered check; the
+browser check itself could not run here (no Chrome binary for the resize-capable bridges, and
+hydration never completes against the local dev server — no React error, no missing chunks, the HMR
+websocket failing on every attempt); and the negotiation header stays unwired (§33).

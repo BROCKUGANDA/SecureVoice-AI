@@ -274,11 +274,10 @@ export function Navbar() {
                 aria-pressed={lang === l}
                 className={cn(
                   "relative rounded-full px-2.5 py-1 text-[11.5px] font-semibold transition-colors",
-                  l === "ar" && "font-arabic",
-                  // Urdu is Arabic-script too, so it needs the Arabic webfont
-                  // for the same reason Arabic does. Hindi and Kiswahili are
-                  // left to the system fonts: no Devanagari or Kiswahili face is
-                  // loaded, and inventing one here would be a silent degradation.
+                  // `ar` needs the Arabic webfont, and so does Urdu — that set
+                  // lives in ARABIC_SCRIPT_LANGS, which already contains `ar`.
+                  // The separate `l === "ar"` test this replaced was subsumed by
+                  // it, so one condition said the same thing twice.
                   ARABIC_SCRIPT_LANGS.includes(l) && "font-arabic",
                   lang === l ? "text-white" : "text-ink-3 hover:text-foreground",
                 )}
@@ -436,6 +435,45 @@ export function Navbar() {
                 </button>
               );
             })}
+
+            {/* Language — below the `sm` breakpoint the cluster in the bar above
+                is `hidden`, so on a phone this panel was the only place a
+                language could be chosen, and it carried no control at all. The
+                interface ships in two languages, which made Arabic unreachable
+                on a handset for anyone not already in it.
+                `sm:hidden` rather than a conditional render: at 640–767px both
+                the bar cluster and this panel are on screen, and two identical
+                controls is one too many.
+                No `layoutId="lang-pill"` here, deliberately. Framer's shared
+                layout id is global, and a `display:none` element still registers
+                it — a second holder would let the pill teleport from the visible
+                cluster into the hidden row. The pressed state is a plain
+                background instead, in the same `bg-primary` the cluster uses, so
+                the control still reads as one control at every width. */}
+            <div className="mt-2 flex flex-wrap items-center gap-2 pb-1 sm:hidden">
+              <span className="micro text-ink-3">{t("Language", "اللغة", lang)}</span>
+              <div
+                className="flex items-center rounded-full border border-line bg-white p-0.5"
+                role="group"
+                aria-label={t("Language", "اللغة", lang)}
+              >
+                {UI_LANGS.map((l) => (
+                  <button
+                    key={l}
+                    type="button"
+                    onClick={() => setLang(l)}
+                    aria-pressed={lang === l}
+                    className={cn(
+                      "rounded-full px-3 py-1 text-[11.5px] font-semibold transition-colors",
+                      ARABIC_SCRIPT_LANGS.includes(l) && "font-arabic",
+                      lang === l ? "bg-primary text-white" : "text-ink-3 hover:text-foreground",
+                    )}
+                  >
+                    {UI_LANG_SHORT[l]}
+                  </button>
+                ))}
+              </div>
+            </div>
 
             <div className="mt-2 flex flex-col gap-2 border-t border-line pt-3">
               {isSignedIn ? (

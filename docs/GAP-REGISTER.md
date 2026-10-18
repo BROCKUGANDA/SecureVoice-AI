@@ -2074,3 +2074,73 @@ locally with `Must use import to load ES Module … better-auth/dist/client/reac
 the same suite with the _original_ `registry.ts` restored reproduces it identically, and the string
 appears zero times in the pre-change staging CI log — so it is a Windows jest ESM condition, not this
 change, and CI is the arbiter for that suite.
+
+### 34. The fx layer honoured reduced motion everywhere except the one animation written by hand
+
+A polish pass over the UI, the `fx` components and the interface's responsive behaviour. Four
+defects, each found by reading the layer against its own stated rule, each fixed with a guard that
+was shown to fire.
+
+**`Counter` animated for users who had asked it not to.** `src/app/page.tsx:297` wraps the app in
+`MotionConfig reducedMotion="user"` and the `globals.css` block freezes every keyframe effect, so the
+page genuinely does honour the preference — which is exactly why the exception was invisible.
+`Reveal` is covered by that config; `Counter` is a hand-written `requestAnimationFrame` loop, which
+framer's config cannot reach. One mechanism, one blind spot: 57 scroll reveals obeyed, and the hero
+figure ticked from 0 to 38 anyway.
+
+The fix has a shape worth recording. The final value is written **in the effect, not returned during
+render**. The server can only ever render `0` here — the intersection observer cannot fire during SSR
+— so a render-time `reduce ? to : val` would put `38` in the client's first paint against server HTML
+that said `0`, and hand every reduced-motion visitor a hydration-mismatch warning in the console.
+That version was written first, and deleted on purpose.
+
+**The language control did not exist on a phone.** The header's cluster is `hidden … sm:flex`, and the
+mobile panel — the only thing rendered below 640px — carried no language control at all. With the
+interface now officially two languages (§33), an Arabic-speaking operator could not reach the Arabic
+console on the device most of their staff actually use. Added to the panel with `sm:hidden`: the panel
+shows below 768px and the cluster at 640px and up, so without it 640–767px would render two identical
+toggles at once. No second `layoutId="lang-pill"` either — framer's shared layout id is global and a
+`display:none` element still registers it, so a second holder lets the animated pill teleport from the
+visible cluster into the hidden row.
+
+**Two dead things removed while they were still cheap.** `SectionHead` in `fx/core.tsx` had zero
+consumers and a latent bilingual bug: its eyebrow rendered the Arabic heading string and then the
+heading rendered it again, while its single `desc` prop could never be translated at all. And the
+desktop pill carried `l === "ar" && "font-arabic"` directly above
+`ARABIC_SCRIPT_LANGS.includes(l) && "font-arabic"`, which already contains `ar` — one condition
+restating the other.
+
+**A numerals rule documented rather than "fixed".** The temptation in an Arabic interface is to run
+every figure through `ar-AE`. The repo's convention is deliberate and twice load-bearing: authored
+Arabic _prose_ carries Arabic-Indic digits (٦٠ ثانية, ٥٠٠ تدخّل), while anything through `.num` stays
+on Latin tabular digits, because the mono face has no Arabic-Indic glyphs — they would fall back to a
+second font mid-number — and `tnum` alignment only holds when every glyph shares one advance. A
+comment now says so at `.num`, because the current state reads like an oversight and would invite
+exactly the wrong change.
+
+**Three instruments that lied while being built**, recorded because each one looked like a passing
+gate:
+
+- the first mutation deleted three lines of `Counter` and broke the syntax, so the suite reported
+  `Tests: 0 total`. A suite that cannot run is not a red. Redone as a valid one-line condition
+  change it produced the real failure — `Unable to find an element with the text: 38` — and green
+  again once the file was restored byte-identical.
+- the Navbar guard asserted `panel.toContain("sm:hidden")` and stayed green after the class was
+  deleted from the markup, because the panel's own comment contains the words `sm:hidden`. Every
+  assertion now runs against the source with `{/* … */}` blocks stripped, plus a positive control that
+  fails if the stripping ever stops working.
+- both preference cases in one file: the non-reduced case passed alone and failed after the reduced
+  one, because framer resolves the preference once per module instance. `jest.isolateModules` could
+  not fix it — it loaded a second React and died on `useRef` of null. One preference per file is the
+  shape that is deterministic in any order, since jest already gives each file a fresh registry.
+
+**Verified:** the new jest suite green, with the mutation-red / restore-green pair above; the five
+surface assertions green; `format:check`, `eslint --max-warnings=0`, both tsconfigs green;
+`bun run test:jest` 13/14 suites, 92 tests (the `Demo.test.tsx` load failure is §33's pre-existing
+Windows ESM condition). The full-tree run was re-executed with nothing else in flight: the first
+attempt overlapped two jest runs and several file mutations and reported seven billing-concurrency
+failures, which is a mixed-state result and not evidence.
+
+**Still open after this pass:** nothing in CI exercises the phone-width layout (`ci.yml` runs no
+cypress), so the mobile control is guarded by source assertion rather than by a rendered check; and
+the negotiation header stays unwired (§33).

@@ -2147,8 +2147,10 @@ gate:
 tsconfigs and the repo drift gates green; the jest suite green with the mutation-red / restore-green
 pair above (the render-time derivation disabled → `Unable to find an element with the text: 38`,
 restored → green); the five Navbar surface assertions green likewise; `bun run test:jest` 13/14
-suites and 92 tests, the one failing suite being §33's pre-existing `Demo.test.tsx` Windows ESM load
-condition. Whole tree in one clean run: 308 files `0 fail`, plus the three `interventions-*` e2e
+suites and 92 tests, the one failing suite being §35's `Demo.test.tsx`, which cannot load. (First
+written here as a "Windows ESM load condition" — wrong twice over, and §35 is the correction: the
+ESM blocker is not platform-specific, and it is only the first of two.) Whole tree in one clean run:
+308 files `0 fail`, plus the three `interventions-*` e2e
 files green once `WEBHOOK_SECRET` is genuinely exported — `.env` carries `WEBHOOK_SECRET=""`, a
 _quoted_ empty string, which is why an "is it empty?" check passes the value through and why the
 first two attempts still reported seven reds. Those seven were never a regression.
@@ -2158,3 +2160,69 @@ cypress), so the mobile control is guarded by source assertion rather than by a 
 browser check itself could not run here (no Chrome binary for the resize-capable bridges, and
 hydration never completes against the local dev server — no React error, no missing chunks, the HMR
 websocket failing on every attempt); and the negotiation header stays unwired (§33).
+
+### 35. The view tier is not a gate, and one of its suites has not run since PR #6
+
+Discovered while trying to make §34's counter guard mean something in CI. It does not, and the reason
+is one shell operator.
+
+**`ci.yml:453` discards the entire jest verdict:**
+
+```
+bun run test:jest --coverage > /dev/null 2>&1 || true
+```
+
+The step exists for a stated and legitimate reason — the coverage merge needs `coverage/jest/lcov.info`
+from jest, because `scripts/coverage.mjs` would otherwise score the views tier as "jest never ran" and
+read 0.00%, which failed the gate while suites under `tests-jest/` existed. What was NOT stated, and
+what the line silently decides, is that jest's pass/fail is therefore not an input to any verdict.
+Thirteen suites and 92 assertions run on every push and cannot fail the build — including the
+reduced-motion guard §34 was written to prove. `jest.config.cjs`'s own header claims "the behaviour is
+in the assertions, and only `bun run test:jest` runs those": true on a laptop, discarded in CI. Claim
+versus evidence again, and this time the claim was in a config file's explanatory comment.
+
+**`Demo.test.tsx` fails at load, so it contributes zero assertions while the run still prints
+"13 suites passed".** Its last real edit is `3a2a41d` / `89f23d4` — the promotions that became #18 and
+#6. Nothing noticed, because nothing could: `|| true`.
+
+**Two blockers, both measured, and neither is the "Windows thing" §34 first said it was.**
+
+1. `src/lib/auth-client.ts:24` calls `createAuthClient`, which resolves
+   `better-auth/client/react` → `dist/client/react/index.mjs`. That subpath is ESM-only — there is no
+   CJS build in the package and no `exports` entry pointing at one. Jest runs these specs as
+   CommonJS, so the require throws `ERR_REQUIRE_ESM` at `auth-client.ts:29`.
+   Appending an allow-pattern to `transformIgnorePatterns` cannot fix it: next/jest hard-codes its own
+   node_modules ignore ahead of anything the project supplies, and its source says so out loud —
+   "Custom config can append to transformIgnorePatterns but not modify it"
+   (`node_modules/next/dist/build/jest/jest.js:229`). Proven, not inferred: the appended pattern
+   changed nothing.
+   The framework-native route is `transpilePackages` in `next.config.ts`, because that is exactly what
+   feeds the allowlist (jest.js:154). Not taken here: it changes the **production** build — SWC would
+   transpile the auth client in the shipped bundle — to satisfy a test harness, and Next already
+   bundles ESM vendors fine on its own. The test-only route is to `await` the built config and REPLACE
+   the pattern list; that works, and the ESM error moved through three packages in sequence
+   (`better-auth` → `@better-auth/core` → `nanostores`), which is also the warning: the allowlist is a
+   dependency chain, so a hand-written list will rot the next time better-auth imports something
+   modern.
+2. Behind it, `ReferenceError: Request is not defined` at `better-auth/dist/client/config.mjs:24`.
+   jsdom's sandbox has no fetch primitives (the host Node does — `typeof Request === "function"`, but
+   that global never reaches the test context). The ecosystem answer is a polyfill dependency; a
+   hand-written `Request` class would fake the precise surface the auth client is being tested
+   against, which this repo has refused repeatedly. **So this task needs a dependency decision, not a
+   patch, and it is parked rather than half-fixed.** The experimental `jest.config.cjs` was reverted:
+   a harness that half-works and documents a fix it does not deliver is worse than a known-broken one.
+
+**Order of operations, when it is picked up:** make `Demo.test.tsx` load first, then flip the CI step
+to blocking while still emitting lcov — the current `|| true` exists precisely because those two are
+coupled, and a gate that reds the branch nobody can ship is not a gate.
+
+**And how close this pass came to vanishing.** The ladder's own back-merge —
+`6406032 Merge branch 'staging' into dev` — deleted §33 and §34 from this file, 136 lines, while
+leaving the rest intact. Verified before resolving, because "the other side deleted my work" and "the
+other side rewrote it" need different answers: `git diff --stat <base> origin/dev -- docs/GAP-REGISTER.md`
+returned 1 hunk, **0 additions, 136 removals**, so nothing had been rewritten and the conflict could be
+resolved toward HEAD without losing another session's text. Same merge window also carried four
+GitHub-web edits to `tests-jest/fxPrefReducedMotion.ts` that satisfied eslint's `no-empty-function`
+with `{/* empty */}` bodies — which is exactly what Prettier then reformatted, leaving `origin/dev`
+**red on `format:check`** at its own tip until this commit. A hand-edit in the web UI passes the rule
+someone was looking at and breaks the one they were not; both gates have to run on the merged tree.

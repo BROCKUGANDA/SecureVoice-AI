@@ -18,10 +18,18 @@ Object.defineProperty(window, "matchMedia", {
     matches: query.includes("prefers-reduced-motion"),
     media: query,
     onchange: null,
-    addListener: () => {/* empty */},
-    removeListener: () => {/* empty */},
-    addEventListener: () => {/* empty */},
-    removeEventListener: () => {/* empty */},
+    addListener: () => {
+      /* empty */
+    },
+    removeListener: () => {
+      /* empty */
+    },
+    addEventListener: () => {
+      /* empty */
+    },
+    removeEventListener: () => {
+      /* empty */
+    },
     dispatchEvent: () => false,
   }),
 });

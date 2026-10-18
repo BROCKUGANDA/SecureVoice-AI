@@ -437,10 +437,30 @@ jobs:
           # db-setup are still built from the checked-out tree (they run from
           # source, not from the bundle), and the tag-is-on-main gate above
           # guarantees that tree IS the released commit.
+          # ONE LIST, EXPANDED BY BOTH THE BUILD AND THE ROLL.
+          #
+          # These used to be two literal lists, and they had silently drifted:
+          # `up -d` named overage-worker and outbox-worker while `build` named
+          # neither. Compose then reused whatever each service's tag last pointed
+          # at. Measured on the box after the 2026-10-17 deploy reported success
+          # against every gate: the TLS-anchor fix lives in the Dockerfile's
+          # `worker` stage — the exact stage both of those services build from —
+          # and it never reached them.
+          #
+          #   overage-worker  anchor missing, `paddleSubscription.findMany()`
+          #                   ENOENT, "[overage-worker] run failed"
+          #   outbox-worker   running an image built before the fix
+          #
+          # `checkBoxImageConformance` could not see this: it asks whether the
+          # running image is TAGGED by something, and a stale image is still
+          # tagged. A rolled-but-never-built service is the same class of hole as
+          # the never-rolled ones above, seen from the other side, and `checkBuildRollSymmetry`
+          # in scripts/drift-gates.mjs now fails CI if the two lists ever diverge.
+          ROLLED=(dial-worker retention-worker voice-stream-worker email-worker overage-worker outbox-worker)
           if [ "$DEPLOY_SOURCE" = "release" ]; then
-            docker compose build dial-worker retention-worker voice-stream-worker email-worker db-setup
+            docker compose build "${ROLLED[@]}" db-setup
           else
-            docker compose build app dial-worker retention-worker voice-stream-worker email-worker db-setup
+            docker compose build app "${ROLLED[@]}" db-setup
           fi
 
            # Schema before code. The runner image is `oven/bun:1-slim` plus the
@@ -475,7 +495,7 @@ jobs:
            # and `checkBoxImageConformance` only ever inspected the app container, so
            # no gate could see the drift. Bank deliveries therefore ran on whatever
            # image was first built — including after a signing or schema change.
-           docker compose up -d app dial-worker retention-worker voice-stream-worker email-worker overage-worker outbox-worker
+           docker compose up -d app "${ROLLED[@]}"
            docker compose ps
 
            # ── Prove the roll actually happened ─────────────────────────────────

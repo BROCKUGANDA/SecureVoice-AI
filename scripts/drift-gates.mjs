@@ -63,18 +63,194 @@ function read(p) {
 // The BOX gate is what verifies that claim — the two close the loop, and neither
 // is sufficient alone.
 // ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// CHECK 1b — the services deploy.yml ROLLS are the services it BUILDS
+//
+// deploy.yml declares `ROLLED=(…)` once and expands it in both
+// `docker compose build "${ROLLED[@]}"` and `docker compose up -d app
+// "${ROLLED[@]}"`. Parsing that one declaration — rather than either command
+// line — is the point: the file used to carry two literal lists, they had
+// drifted apart, and each line looked authoritative on its own.
+//
+// Measured 2026-10-17, on a deploy that passed every gate and reported success:
+// `up -d` named overage-worker and outbox-worker, `build` named neither, so
+// compose reused whatever image each tag last pointed at. The TLS-anchor fix
+// sits in the Dockerfile's `worker` stage — the stage both build from — and
+// never reached them: overage-worker was still failing
+// `paddleSubscription.findMany()` with ENOENT on supabase-ca.crt.
+//
+// Pure over the workflow text, so the self-test below can hand it a fabricated
+// file. A gate that only ever sees the real deploy.yml cannot be shown to fail.
+// ─────────────────────────────────────────────────────────────────────────────
+const ROLLED_DECL = /^[ \t]*ROLLED=\(([^)]*)\)[ \t]*$/m;
+const UP_LINE = /^[ \t]*docker compose up -d ([^\n]+)$/m;
+const BUILD_LINES = /^[ \t]*docker compose build ([^\n]+)/gm;
+const ROLLED_EXPANSION = "${ROLLED[@]}";
+
+// Quote-stripped whitespace/comma tokens. The quotes only ever wrap the
+// expansion, and leaving them on would glue them to the first and last name.
+function listTokens(line) {
+  return line
+    .replace(/["']/g, "")
+    .trim()
+    .split(/[\s,]+/)
+    .filter(Boolean);
+}
+
+function parseRollLists(deploy) {
+  const problems = [];
+  const decl = deploy.match(ROLLED_DECL);
+  const workers = decl ? listTokens(decl[1]) : [];
+  if (!decl)
+    problems.push(
+      "deploy.yml has no `ROLLED=(...)` declaration — the roll list must be declared once and expanded by both build and up",
+    );
+
+  const up = deploy.match(UP_LINE);
+  if (!up) problems.push("deploy.yml has no `docker compose up -d <services>` line");
+  else if (!up[1].includes(ROLLED_EXPANSION))
+    problems.push(
+      `\`up -d\` names services literally (${up[1].trim()}) instead of expanding ROLLED`,
+    );
+
+  const builds = [...deploy.matchAll(BUILD_LINES)].map((m) => m[1]);
+  if (builds.length === 0)
+    problems.push("deploy.yml has no `docker compose build <services>` line");
+  builds.forEach((raw, i) => {
+    const label = `build #${i + 1}`;
+    if (!raw.includes(ROLLED_EXPANSION)) {
+      problems.push(
+        `${label} names services literally (${raw.trim()}) instead of expanding ROLLED`,
+      );
+      return;
+    }
+    const built = new Set(listTokens(raw.replace(ROLLED_EXPANSION, workers.join(" "))));
+    const missing = workers.filter((w) => !built.has(w));
+    if (missing.length)
+      problems.push(
+        `${label} does not build rolled service(s) ${missing.join(", ")} — a rolled service that is never built keeps whatever image its tag happened to point at`,
+      );
+    if (!built.has("db-setup"))
+      problems.push(`${label} omits db-setup, so the image that runs migrate deploy goes stale`);
+  });
+
+  // The release path must NOT build `app` (that would replace the published,
+  // provenance-stamped artifact with a fresh local compile); the branch path must.
+  // Exactly one of them naming `app` is the shape that encodes both rules.
+  const appBuilds = builds.filter((raw) => listTokens(raw).includes("app")).length;
+  if (builds.length && appBuilds !== 1)
+    problems.push(
+      `${builds.length} build command(s) and ${appBuilds} name \`app\`; exactly one must — the branch path builds it, the release path pulls it`,
+    );
+
+  return { workers, rolled: ["app", ...workers], problems };
+}
+
+function checkBuildRollSymmetry() {
+  const { rolled, problems } = parseRollLists(read(".github/workflows/deploy.yml"));
+  if (problems.length) {
+    fail(
+      `deploy.yml's build list and roll list are not one list:\n` +
+        problems.map((p) => `       ${p}`).join("\n"),
+    );
+  }
+  info(`rolled and built from one list: ${rolled.join(", ")}`);
+}
+
+function selfTestSymmetryGate() {
+  const good = [
+    "      ROLLED=(dial-worker email-worker overage-worker)",
+    '      if [ "$DEPLOY_SOURCE" = "release" ]; then',
+    '        docker compose build "${ROLLED[@]}" db-setup',
+    "      else",
+    '        docker compose build app "${ROLLED[@]}" db-setup',
+    "      fi",
+    '      docker compose up -d app "${ROLLED[@]}"',
+  ].join("\n");
+
+  // Each control changes exactly one thing about the fixture. `want: true` means
+  // the detector MUST report it — a control nobody can turn red is not a test.
+  const controls = [
+    // The shape deploy.yml has now.
+    { text: good, want: false, label: "one list, expanded by both" },
+    // The 2026-10-17 condition, restored: a build line that lists services by
+    // hand, so a service added to ROLLED is rolled and never built.
+    {
+      text: good.replace(
+        'docker compose build app "${ROLLED[@]}" db-setup',
+        "docker compose build app dial-worker email-worker db-setup",
+      ),
+      want: true,
+      label: "build line lists services by hand",
+    },
+    // A roll that names its services literally rather than expanding the list.
+    {
+      text: good.replace('up -d app "${ROLLED[@]}"', "up -d app dial-worker"),
+      want: true,
+      label: "up -d lists services literally",
+    },
+    // No declaration to expand at all.
+    {
+      text: good.replace("      ROLLED=(dial-worker email-worker overage-worker)\n", ""),
+      want: true,
+      label: "no ROLLED declaration",
+    },
+    // db-setup missing from a build line: the migration image goes stale.
+    {
+      text: good.replace(
+        'docker compose build "${ROLLED[@]}" db-setup',
+        'docker compose build "${ROLLED[@]}"',
+      ),
+      want: true,
+      label: "build omits db-setup",
+    },
+    // Both paths building app would overwrite the published release artifact.
+    {
+      text: good.replace(
+        'docker compose build "${ROLLED[@]}" db-setup',
+        'docker compose build app "${ROLLED[@]}" db-setup',
+      ),
+      want: true,
+      label: "release path also builds app",
+    },
+    // Shrinking ROLLED is consistent by construction — build and roll shrink
+    // together, so there is no asymmetry left to report. This is the case the
+    // old two-literal-list file could not express.
+    {
+      text: good.replace(
+        "ROLLED=(dial-worker email-worker overage-worker)",
+        "ROLLED=(dial-worker email-worker)",
+      ),
+      want: false,
+      label: "ROLLED shrank consistently",
+    },
+    // Prose that merely mentions the command must not parse as a build line.
+    {
+      text: `${good}\n      # and a manual \`docker compose build\` typed by an operator`,
+      want: false,
+      label: "comment mentioning docker compose build",
+    },
+  ];
+
+  const wrong = controls.filter((c) => parseRollLists(c.text).problems.length > 0 !== c.want);
+  if (wrong.length)
+    fail(`roll-list symmetry self-test failed on: ${wrong.map((c) => c.label).join(", ")}`);
+}
+
 function checkServiceInventory() {
   const compose = YAML.parse(read("docker-compose.yml"));
   const defined = Object.keys(compose.services ?? {});
   if (defined.length === 0) fail("docker-compose.yml parsed with no services");
 
   const deploy = read(".github/workflows/deploy.yml");
-  const m = deploy.match(/docker compose up -d ([^\n]+)/);
-  if (!m) {
-    fail("deploy.yml: could not find a `docker compose up -d <services>` line");
+  const lists = parseRollLists(deploy);
+  if (lists.problems.length) {
+    // checkBuildRollSymmetry already names the defect; a roll list that will not
+    // parse makes every service look unaccounted, which is noise, not evidence.
+    info("service inventory: NOT CHECKED — the roll list did not parse (see symmetry)");
     return;
   }
-  const rolled = new Set(m[1].trim().split(/\s+/).filter(Boolean));
+  const rolled = new Set(lists.rolled);
 
   // Runs and exits 0 by design — migrate + seed. No long-lived container exists,
   // and one must not.
@@ -699,13 +875,22 @@ function checkBoxImageConformance() {
   // A dangling image id means the tag has moved on (or never existed) while the
   // container stayed put: the next `up -d` resolves that service's image to whatever
   // the tag says now, which may be a different build from the one serving traffic.
+  //
+  // What this CANNOT see is a service that is rolled but never built: compose reuses
+  // the existing image, it is still tagged, and the row looks conforming. That is how
+  // overage-worker passed this gate on 2026-10-17 while failing every DB query on a
+  // missing TLS anchor. `checkBuildRollSymmetry` is the gate for that condition; this
+  // one only proves the container matches some tagged image.
   const deploy = read(".github/workflows/deploy.yml");
-  const m = deploy.match(/docker compose up -d ([^\n]+)/);
-  if (!m) {
-    fail("deploy.yml: no `docker compose up -d <services>` line to verify against");
+  const lists = parseRollLists(deploy);
+  if (lists.problems.length) {
+    fail(
+      `deploy.yml roll list will not parse on the box gate:\n` +
+        lists.problems.map((p) => `       ${p}`).join("\n"),
+    );
     return;
   }
-  const rolled = m[1].trim().split(/\s+/).filter(Boolean);
+  const rolled = lists.rolled;
   if (rolled.length < 2) {
     fail(
       `deploy.yml roll list resolved to ${rolled.length} service(s); refusing to certify a roll of one container`,
@@ -1056,6 +1241,8 @@ function checkEnvDocs() {
 // ─────────────────────────────────────────────────────────────────────────────
 const SUITES = {
   repo: [
+    selfTestSymmetryGate,
+    checkBuildRollSymmetry,
     checkServiceInventory,
     checkImageIsolation,
     checkSecretsProvenance,

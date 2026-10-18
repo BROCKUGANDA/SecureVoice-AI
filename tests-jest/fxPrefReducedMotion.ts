@@ -18,7 +18,7 @@ Object.defineProperty(window, "matchMedia", {
     matches: query.includes("prefers-reduced-motion"),
     media: query,
     onchange: null,
-    addListener: () => {},
+    addListener: () => {/* empty */},
     removeListener: () => {/* empty */},
     addEventListener: () => {/* empty */},
     removeEventListener: () => {/* empty */},

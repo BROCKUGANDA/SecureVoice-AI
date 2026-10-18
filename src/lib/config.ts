@@ -19,7 +19,7 @@ import type { Lang } from "./languages";
  * no `server-only` marker) so the edge proxy and browser code can import the
  * same list without dragging the server config surface into their bundle.
  */
-export { SUPPORTED_LANGS, LANG_LABEL } from "./languages";
+export { SUPPORTED_LANGS } from "./languages";
 export type { Lang } from "./languages";
 
 /* ── TTS ── */

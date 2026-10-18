@@ -2688,3 +2688,43 @@ repository contains `disable-auto`, and no local process on this machine is runn
 hold is coming from a human action or another agent session under the owner's credentials. That
 is the owner's to resolve; what is now unambiguous is that the pipeline itself no longer has a
 stall in it, so any future hold is a decision rather than a defect.
+
+### 45. The post-roll currency gate raced, and the race skipped the deploy's own health check
+
+Deploy run 39173983527 (`53b3554`, the hand-merged promotion) step-by-step:
+
+    success  Refuse to deploy an unproven commit
+    success  Build, migrate and roll the live stack
+    failure  Drift gates against the rolled stack
+    skipped  Health check the rolled origin
+
+So the roll worked and the gate tripped afterwards — and because the gate tripped, **the
+step that would have confirmed the origin healthy never ran**. Measured out of band instead:
+`securevoice-ai-app-1 securevoice-ai-app:53b3554cf506 Up (healthy)`, `/api/health`
+`{"ok":true,"version":"0.2.35"}`, and the retention worker's own sweep line
+`orgs=188 … chainIntact=true`. Production was fine; the pipeline's evidence for that was
+not produced.
+
+**Why the gate tripped.** `checkBoxCurrency` compares the box checkout to `origin/main`, and
+`autoversion` cut `121a860 chore(release): v0.2.36 (#135)` onto main _while the deploy was
+running_. The dump prints exactly that: `HEAD 53b3554` vs `origin/main 121a860`. The check is
+answering "is the box on the tip?" at a moment when the tip is moving underneath it, so a
+perfectly good deploy is reported as drift. It will recur on every release bump that lands
+during a rollout, which is precisely when a deploy is slow — a self-inflicted red that trains
+people to ignore the gate.
+
+**The fix, once someone agrees which property matters.** Compare the box checkout against the
+SHA the run was _dispatched_ for (race-free, and still catches a stale rollout), and report a
+moved-on `origin/main` as a warning rather than a failure. That is deliberately not done here:
+"the box must be on the tip" is a safety property somebody chose, and quietly weakening it to
+make CI green is the wrong way to settle that. Owner call.
+
+**Second finding from the same dump, older than this deploy:**
+`securevoice-ai-litellm-1 ghcr.io/berriai/litellm:main-latest Up 7 seconds`, container age
+36 hours. §41 pinned the image to a digest and moved the service behind
+`profiles: ["llm-proxy"]`, and the compose file the box now holds reflects that — but
+`compose up -d` does not remove a container for a service that a profile excluded, so the
+**pre-fix container is still there, still floating on `main-latest`, still restart-looping**.
+Rolling the stack cannot retire it; one box command can. Not run here because it is a
+mutation on production infrastructure and §42's standing rule is that the owner gives that
+word.

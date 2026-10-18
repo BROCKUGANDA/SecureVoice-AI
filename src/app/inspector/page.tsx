@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import { verifySignature, WEBHOOK_SIGNATURE_HEADER } from "@/lib/outbox";
 import { Inspector, type InspectorRow } from "@/components/inspector/Inspector";
 import { cn } from "@/lib/utils";
-import type { Lang } from "@/lib/languages";
+import type { UiLang } from "@/lib/i18n/registry";
 
 export const dynamic = "force-dynamic";
 
@@ -31,7 +31,7 @@ export default async function InspectorPage() {
   const guard = await requireOperator();
 
   const accept = (await headers()).get("accept-language") ?? "";
-  const lang: Lang = accept.toLowerCase().startsWith("ar") ? "ar" : "en";
+  const lang: UiLang = accept.toLowerCase().startsWith("ar") ? "ar" : "en";
   const ar = lang === "ar";
   const t = (en: string, arabic: string) => (ar ? arabic : en);
 

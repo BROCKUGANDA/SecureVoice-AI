@@ -1,6 +1,7 @@
 import { COMPANY, PLANS, FAQ } from "@/lib/commercial";
 import { siteOrigin } from "@/lib/site-origin";
 import { SUPPORT_EMAIL } from "@/lib/public-config";
+import { UI_LANGS } from "@/lib/i18n/registry";
 
 /**
  * schema.org structured data, for answer engines.
@@ -168,13 +169,18 @@ export function ProductJsonLd({
     // Deliberate: this is a commercial product, and an engine asked "is
     // there a free version" should hear no.
     isAccessibleForFree: false,
-    inLanguage: ["en", "ar", "hi", "ur", "fr", "sw"],
+    // `inLanguage` describes the language of the CONTENT an engine indexes —
+    // the site and the console — which is English and Arabic. The six spoken
+    // languages belong in the feature list, where they are claimed as what they
+    // are: delivery languages for the call and the SMS. Listing six here would
+    // tell a crawler the page itself exists in six.
+    inLanguage: [...UI_LANGS],
     featureList: [
       "Outbound AI voice intervention written as a durable dial job on a 60-second case deadline — a deadline the platform sets, not a measured time-to-contact",
       "Identity verification that never captures a PIN, OTP or full card number",
       "Card freeze and transfer hold, staged for a human to commit; the platform never reverses a hold it cannot have frozen",
       "Tamper-evident audit chain",
-      "Six languages: Arabic, English, Hindi, Urdu, French, Swahili",
+      "Interface in English and Arabic; fraud-intervention calls and SMS delivered in six languages — Arabic, English, Hindi, Urdu, French, Swahili",
       "In-VPC deployment with bring-your-own-keys",
       "CBUAE-aligned audit pack",
     ],

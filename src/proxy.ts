@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { consume } from "@/lib/ratelimit";
 import { IP_UNKNOWN, IP_UNTRUSTED, isRealIp, normalizeIp } from "@/lib/ip-normalize";
-import { SUPPORTED_LANGS } from "@/lib/languages";
+import { UI_LANGS } from "@/lib/i18n/registry";
 import { logWarn } from "@/lib/validation/safe-log";
 
 /**
@@ -142,8 +142,24 @@ function clientIp(req: NextRequest): string {
   return IP_UNKNOWN;
 }
 
-/** Best-effort language from Accept-Language, narrowed to the languages we speak. */
-const SUPPORTED = [...SUPPORTED_LANGS];
+/**
+ * Best-effort language from Accept-Language, narrowed to the languages the
+ * INTERFACE can render.
+ *
+ * This used to narrow against `SUPPORTED_LANGS` — the SPOKEN set — which meant a
+ * Hindi browser negotiated `hi`, and the page it was handed was English with a
+ * हिन्दी flag in the header. The two lists answer different questions and the
+ * product rule is now explicit: the interface is English and Arabic, while a call
+ * and an SMS are delivered in six. A Hindi visitor gets a Hindi CALL (the voice
+ * resolver in src/lib/languages.ts still honours `hi`) and an English interface.
+ *
+ * NOTE FOR WHOEVER WIRES THIS NEXT: nothing reads `x-securevoice-lang` today — it
+ * is set at the bottom of this file and consumed by no route. So browser
+ * negotiation is not currently what decides the UI language; the header picker in
+ * the Navbar is. Fixing the vocabulary here keeps a dead signal from becoming a
+ * wrong one the moment something does read it.
+ */
+const SUPPORTED = [...UI_LANGS];
 
 function resolveLanguage(req: NextRequest): string | null {
   const header = req.headers.get("accept-language");

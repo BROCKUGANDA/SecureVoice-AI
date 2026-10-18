@@ -1074,8 +1074,12 @@ function LanguagesSection() {
           {lang === "en" ? (
             <>
               Six language codes ship in the platform, and each carries a real telephony voice and a
-              compliance script rather than a translation layer — but they are not all on the same
-              plane:{" "}
+              compliance script rather than a translation layer. The split is deliberate:{" "}
+              <strong className="font-semibold text-foreground">
+                the interface — this site and the operator console — is English and Arabic, while a
+                phone call and an SMS are delivered in all six
+              </strong>
+              . The spoken languages are not all on the same plane:{" "}
               <strong className="font-semibold text-foreground">
                 the live ElevenLabs agent is configured for EN, AR and HI
               </strong>
@@ -1093,7 +1097,12 @@ function LanguagesSection() {
           ) : (
             <>
               ستّ لغات تعمل فعلياً في المنصة، وكل واحدة لها صوت هاتفي حقيقي ونص امتثال لا مجرد طبقة
-              ترجمة — لكنها ليست كلها على المستوى نفسه:{" "}
+              ترجمة. والفصل مقصود:{" "}
+              <strong className="font-semibold text-foreground">
+                الواجهة — هذا الموقع ووحدة تحكم المشغّل — بالإنجليزية والعربية، بينما تُجرى المكالمة
+                الهاتفية وتصل الرسالة النصية بستّ لغات
+              </strong>
+              . وليست اللغات المنطوقة كلها على المستوى نفسه:{" "}
               <strong className="font-semibold text-foreground">
                 الوكيل الحيّ من ElevenLabs مهيّأ للإنجليزية والعربية والهندية
               </strong>

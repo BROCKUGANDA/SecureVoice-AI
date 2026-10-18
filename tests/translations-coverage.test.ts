@@ -44,7 +44,6 @@ import {
   GLOSSARY_STATUS,
   TRANSLATED_UI_LANGS,
   UI_LANG_BCP47,
-  UI_LANG_LABEL,
   UI_LANG_SHORT,
   UI_LANGS,
   isUiLangTranslated,
@@ -65,11 +64,13 @@ describe("UI language registry", () => {
     // both directions, so adding a language to one list and forgetting the other
     // fails here rather than rendering an undefined pill.
     const offered = [...UI_LANGS].sort();
-    expect(Object.keys(UI_LANG_LABEL).sort()).toEqual(offered);
     expect(Object.keys(UI_LANG_SHORT).sort()).toEqual(offered);
     expect(Object.keys(UI_LANG_BCP47).sort()).toEqual(offered);
     for (const lang of UI_LANGS) {
-      expect(UI_LANG_LABEL[lang], `${lang} has no label`).toBeTruthy();
+      // The two maps the shell actually renders: the pill label and the
+      // `<html lang>` tag. A missing entry renders an undefined pill or drops
+      // the language tag, so both are asserted from both directions.
+      expect(UI_LANG_SHORT[lang], `${lang} has no pill label`).toBeTruthy();
       expect(UI_LANG_BCP47[lang], `${lang} has no BCP-47 tag`).toBeTruthy();
     }
   });

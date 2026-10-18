@@ -68,12 +68,6 @@ import { type Lang, SUPPORTED_LANGS } from "@/lib/languages";
 /** A language the interface can be switched to. English and Arabic only. */
 export type UiLang = "en" | "ar";
 
-/** Endonym — the language's name in itself, which is what a picker shows. */
-export const UI_LANG_LABEL: Record<UiLang, string> = {
-  en: "English",
-  ar: "العربية",
-};
-
 /** BCP-47, for `<html lang>` and any `Intl` call. */
 export const UI_LANG_BCP47: Record<UiLang, string> = {
   en: "en-GB",
@@ -81,13 +75,22 @@ export const UI_LANG_BCP47: Record<UiLang, string> = {
 };
 
 /**
- * Compact labels for the language pill.
+ * The labels the language control draws — header pill and mobile row alike.
  *
- * The pill is `text-[11.5px]` inside a `shrink-0` cluster, so the full endonym
- * does not fit without wrapping and breaking the header height — the exact
- * failure the Navbar comment above the nav describes. These are deliberately
- * shorter than `UI_LANG_LABEL` and are NOT a second source of truth for the
- * language's name: the picker shows these, everywhere else shows the endonym.
+ * These were shortened for a SIX-language picker, where "Kiswahili" and
+ * "Français" wrapped the `text-[11.5px]` `shrink-0` cluster and changed the
+ * header height. The palette is now two (§33), so that pressure is gone and the
+ * reason this map exists rather than the endonym is no longer the one written
+ * here first. It is kept because it is what both controls render today and both
+ * are asserted against it: switching the pill to "English" / "العربية" is a
+ * visible design change, not a cleanup, and belongs to whoever decides the
+ * header's typography.
+ *
+ * There is deliberately no endonym map here. `CALL_LANG_LABEL`
+ * (src/lib/scenario.ts) already carries the six names in their own languages and
+ * is what the hero's "CALL IN" control renders; a second copy keyed by the
+ * two-member interface set was dead the moment the palette shrank, and a dead
+ * duplicate of a live map is the kind of thing gets cited as evidence later.
  */
 export const UI_LANG_SHORT: Record<UiLang, string> = {
   en: "EN",

@@ -2008,3 +2008,315 @@ previous parser read the line literally and asked compose for a container named
 `${ROLLED[@]}` — `/bin/sh: 1: Bad substitution`. Both files change in one commit and a deploy
 always runs the pair from a single checkout, so CI cannot reach the mismatched state; but
 cherry-picking either file alone would redden the deploy's box gate.
+
+### 33. The interface claimed six languages it could only render in two
+
+Product rule, set 2026-10-18: **the interface is English and Arabic; a phone call and an SMS are
+delivered in six.** The four delivery-only languages keep every piece of hand-written phone and SMS
+copy they already had (`outreach-copy.ts`, `twilio.ts`, the scenario packs, the disclosure tables) —
+this was never a reduction of the delivery layer. What was reduced is a claim.
+
+**What was actually wrong.** `UI_LANGS` was written out as six codes and
+`TRANSLATED_UI_LANGS` as two, side by side in the same file, so nothing prevented them disagreeing
+— and the file's own header described the exact consequence it failed to prevent: `t()` returns the
+English slot for anything that is not `ar`, so four of the six Navbar buttons rendered a fully
+English page wearing a foreign endonym. No error, no log line, no test. Worse, the old contract test
+asserted the bug as the spec: `expect(resolveUiLang("HI")).toBe("hi")`, and a second test enforced
+`voiceOnly`/`uiOnly` both empty — an equality lock on two sets that the same file's docstring said
+should be allowed to differ.
+
+**The typing rot the decision exposed.** `UiLang` and the spoken `Lang` were textually identical
+six-member unions, so nothing could tell a voice path from a screen path. The moment the interface
+union shrank, four sites failed to compile — all of them voice code that had been typed by the UI
+union:
+
+- `src/lib/compliance/policy.ts:107-113` chose `OPENING_DISCLOSURE_HI/UR/FR/SW` through a parameter
+  typed by the _store's_ `Lang`, i.e. a call transcript guarded by an interface type. Now typed by
+  `@/lib/languages`, with the reason in the import.
+- `src/app/api/agent/route.ts:530` and `src/app/api/twilio/turn/route.ts:722` passed a spoken
+  language into `auditAgentReply`, which only accepted it because the unions matched.
+- `src/app/inspector/page.tsx:34` picked a _screen_ language and typed it with the spoken union.
+
+**Structural, not cosmetic.** `UI_LANGS` is now _derived_ from `TRANSLATED_UI_LANGS` rather than
+written beside it, so an untranslated picker button cannot be constructed — the rule is a type-level
+absence instead of a test that fires after someone has already shipped the button. Mutation-proved
+against the real file: declaring `fr` translated while its strings do not exist → 6 red; writing the
+picker back out as its own six-literal → 5 red; restored byte-identical → green.
+
+**Rekeyed where the key was wrong.** `GLOSSARY_STATUS` is keyed by the _spoken_ set now, because the
+question it answers ("is there a citable source for 'card freeze' in this language") is the gate that
+must be passed _before_ a language can join the interface — keying it by the palette would have
+deleted the recorded research on hi/ur/sw for wanting a screen they do not have.
+`ARABIC_SCRIPT_LANGS` stays `["ar","ur"]` for the same reason: script need is a property of the
+script, not of the surface.
+
+**Claim surfaces brought in line with the code.** `GET /api/status` no longer publishes one ambiguous
+`languages` key — it emits `interfaceLanguages` (2) and `deliveryLanguages` (6); nothing in the tree
+consumed the old key (the `.languages` reads in `Dashboard.tsx` and the analytics/operator tests are
+a different payload). `JsonLd` derives `inLanguage` from the palette instead of typing six codes —
+`inLanguage` is the language of the content an engine indexes, and it was telling answer engines the
+page exists in Hindi — and the feature list now states the split. Its gate was re-authored to assert
+the derivation rather than the old literal string, because a substring pin is how this class of claim
+drifted in the first place. README and the Docs language section (both halves) say the rule too.
+
+**Deleted.** `LANG_LABEL` in `src/lib/languages.ts` had zero importers — a third map of language
+names beside `UI_LANG_LABEL` and `CALL_LANG_LABEL`, and the kind of dead duplicate that gets cited as
+evidence later.
+
+The same rule then caught `UI_LANG_LABEL` itself, which is what the live page check turned up. Asked
+whether production rendered the four delivery-only languages as a screen choice, the answer was no —
+the six endonyms on `https://securevoiceai.me/` come from `CALL_LANG_LABEL` via the hero's "CALL IN"
+control (`src/views/Home.tsx:560`), which is correct under this rule. But the check proved
+`UI_LANG_LABEL` had **no consumer outside its own file and its own test**: after the palette shrank to
+two it was a strict subset of the live call map, and its docstring asserted "the picker shows these,
+everywhere else shows the endonym" while the header pill and the mobile row both render
+`UI_LANG_SHORT`. A comment describing a surface that does not exist is the more dangerous kind of
+dead code, because the next reader trusts it. Deleted; the gate in
+`tests/translations-coverage.test.ts` now asserts key-parity and non-emptiness against the two maps the
+shell actually draws (`UI_LANG_SHORT`, `UI_LANG_BCP47`), and is not a test of a spare. Mutation-proved
+as written: dropping `en` from `UI_LANG_SHORT` → that test `(fail)`, `8 pass 1 fail`, exit 1; restored
+→ `9 pass 0 fail`. `UI_LANG_SHORT`'s own comment was corrected in the same pass — its shortening was
+justified by a six-language header, and that pressure left with the palette, so the map now says it is
+kept because both controls render it rather than repeating a reason that no longer holds.
+
+**One thing found and NOT fixed, because it is not this decision's work.**
+`src/proxy.ts:424` sets `x-securevoice-lang` and **nothing in the tree reads it**. Browser negotiation
+therefore does not currently decide the UI language at all — the Navbar picker does. I narrowed its
+vocabulary to the palette so a dead signal cannot become a wrong one when someone wires it, and said
+so in the comment above it. Wiring it (or deleting it) is still open.
+
+**Pre-existing, and checked rather than assumed:** `bun run test:jest` fails `tests-jest/Demo.test.tsx`
+locally with `Must use import to load ES Module … better-auth/dist/client/react/index.mjs`. Running
+the same suite with the _original_ `registry.ts` restored reproduces it identically, and the string
+appears zero times in the pre-change staging CI log — so it is a Windows jest ESM condition, not this
+change, and CI is the arbiter for that suite.
+
+### 34. The fx layer honoured reduced motion everywhere except the one animation written by hand
+
+A polish pass over the UI, the `fx` components and the interface's responsive behaviour. Four
+defects, each found by reading the layer against its own stated rule, each fixed with a guard that
+was shown to fire.
+
+**`Counter` animated for users who had asked it not to.** `src/app/page.tsx:297` wraps the app in
+`MotionConfig reducedMotion="user"` and the `globals.css` block freezes every keyframe effect, so the
+page genuinely does honour the preference — which is exactly why the exception was invisible.
+`Reveal` is covered by that config; `Counter` is a hand-written `requestAnimationFrame` loop, which
+framer's config cannot reach. One mechanism, one blind spot: 57 scroll reveals obeyed, and the hero
+figure ticked from 0 to 38 anyway.
+
+The fix went through two rejected shapes before the right one. The first wrote the final value
+**from the effect** — `if (reduce) { setVal(to); return; }` — chosen to dodge a hydration mismatch,
+since the server can only ever paint `0` here (the observer cannot fire during SSR). eslint's React
+Compiler rule refused it on CI: a synchronous `setState` in an effect body is a cascading render, not
+a synchronisation with an external system. The correct shape is the render-time derivation, with a
+`suppressHydrationWarning` scoped to that one `<span>` — the same narrow device the root layout
+already uses for `<html>`, and exactly what the tag is for: a first client paint that legitimately
+differs from server HTML for one element.
+
+**And the process fault that let it reach CI.** I wrote "eslint green" in that commit message from a
+lint run made _before_ my last edit to that same file. The gate had not been re-run after the change
+it was supposed to certify. Re-checking a diff is not the same as re-checking after the diff; run the
+command after the final edit, and treat CI as the arbiter when the two disagree — the assertion in
+§34's own "Verified" line was stale on the day it was written.
+
+**The language control did not exist on a phone.** The header's cluster is `hidden … sm:flex`, and the
+mobile panel — the only thing rendered below 640px — carried no language control at all. With the
+interface now officially two languages (§33), an Arabic-speaking operator could not reach the Arabic
+console on the device most of their staff actually use. Added to the panel with `sm:hidden`: the panel
+shows below 768px and the cluster at 640px and up, so without it 640–767px would render two identical
+toggles at once. No second `layoutId="lang-pill"` either — framer's shared layout id is global and a
+`display:none` element still registers it, so a second holder lets the animated pill teleport from the
+visible cluster into the hidden row.
+
+**Two dead things removed while they were still cheap.** `SectionHead` in `fx/core.tsx` had zero
+consumers and a latent bilingual bug: its eyebrow rendered the Arabic heading string and then the
+heading rendered it again, while its single `desc` prop could never be translated at all. And the
+desktop pill carried `l === "ar" && "font-arabic"` directly above
+`ARABIC_SCRIPT_LANGS.includes(l) && "font-arabic"`, which already contains `ar` — one condition
+restating the other.
+
+**A numerals rule documented rather than "fixed".** The temptation in an Arabic interface is to run
+every figure through `ar-AE`. The repo's convention is deliberate and twice load-bearing: authored
+Arabic _prose_ carries Arabic-Indic digits (٦٠ ثانية, ٥٠٠ تدخّل), while anything through `.num` stays
+on Latin tabular digits, because the mono face has no Arabic-Indic glyphs — they would fall back to a
+second font mid-number — and `tnum` alignment only holds when every glyph shares one advance. A
+comment now says so at `.num`, because the current state reads like an oversight and would invite
+exactly the wrong change.
+
+**Three instruments that lied while being built**, recorded because each one looked like a passing
+gate:
+
+- the first mutation deleted three lines of `Counter` and broke the syntax, so the suite reported
+  `Tests: 0 total`. A suite that cannot run is not a red. Redone as a valid one-line condition
+  change it produced the real failure — `Unable to find an element with the text: 38` — and green
+  again once the file was restored byte-identical.
+- the Navbar guard asserted `panel.toContain("sm:hidden")` and stayed green after the class was
+  deleted from the markup, because the panel's own comment contains the words `sm:hidden`. Every
+  assertion now runs against the source with `{/* … */}` blocks stripped, plus a positive control that
+  fails if the stripping ever stops working.
+- both preference cases in one file: the non-reduced case passed alone and failed after the reduced
+  one, because framer resolves the preference once per module instance. `jest.isolateModules` could
+  not fix it — it loaded a second React and died on `useRef` of null. One preference per file is the
+  shape that is deterministic in any order, since jest already gives each file a fresh registry.
+
+**Verified, after the last edit this time:** `eslint . --max-warnings=0`, `format:check`, both
+tsconfigs and the repo drift gates green; the jest suite green with the mutation-red / restore-green
+pair above (the render-time derivation disabled → `Unable to find an element with the text: 38`,
+restored → green); the five Navbar surface assertions green likewise; `bun run test:jest` 13/14
+suites and 92 tests, the one failing suite being §35's `Demo.test.tsx`, which cannot load. (First
+written here as a "Windows ESM load condition" — wrong twice over, and §35 is the correction: the
+ESM blocker is not platform-specific, and it is only the first of two.) Whole tree in one clean run:
+308 files `0 fail`, plus the three `interventions-*` e2e
+files green once `WEBHOOK_SECRET` is genuinely exported — `.env` carries `WEBHOOK_SECRET=""`, a
+_quoted_ empty string, which is why an "is it empty?" check passes the value through and why the
+first two attempts still reported seven reds. Those seven were never a regression.
+
+**Still open after this pass:** nothing in CI exercises the phone-width layout (`ci.yml` runs no
+cypress), so the mobile control is guarded by source assertion rather than by a rendered check; the
+browser check itself could not run here (no Chrome binary for the resize-capable bridges, and
+hydration never completes against the local dev server — no React error, no missing chunks, the HMR
+websocket failing on every attempt); and the negotiation header stays unwired (§33).
+
+### 35. The view tier is not a gate, and one of its suites has not run since PR #6
+
+Discovered while trying to make §34's counter guard mean something in CI. It does not, and the reason
+is one shell operator.
+
+**`ci.yml:453` discards the entire jest verdict:**
+
+```
+bun run test:jest --coverage > /dev/null 2>&1 || true
+```
+
+The step exists for a stated and legitimate reason — the coverage merge needs `coverage/jest/lcov.info`
+from jest, because `scripts/coverage.mjs` would otherwise score the views tier as "jest never ran" and
+read 0.00%, which failed the gate while suites under `tests-jest/` existed. What was NOT stated, and
+what the line silently decides, is that jest's pass/fail is therefore not an input to any verdict.
+Thirteen suites and 92 assertions run on every push and cannot fail the build — including the
+reduced-motion guard §34 was written to prove. `jest.config.cjs`'s own header claims "the behaviour is
+in the assertions, and only `bun run test:jest` runs those": true on a laptop, discarded in CI. Claim
+versus evidence again, and this time the claim was in a config file's explanatory comment.
+
+**`Demo.test.tsx` fails at load, so it contributes zero assertions while the run still prints
+"13 suites passed".** Its last real edit is `3a2a41d` / `89f23d4` — the promotions that became #18 and
+#6. Nothing noticed, because nothing could: `|| true`.
+
+**Two blockers, both measured, and neither is the "Windows thing" §34 first said it was.**
+
+1. `src/lib/auth-client.ts:24` calls `createAuthClient`, which resolves
+   `better-auth/client/react` → `dist/client/react/index.mjs`. That subpath is ESM-only — there is no
+   CJS build in the package and no `exports` entry pointing at one. Jest runs these specs as
+   CommonJS, so the require throws `ERR_REQUIRE_ESM` at `auth-client.ts:29`.
+   Appending an allow-pattern to `transformIgnorePatterns` cannot fix it: next/jest hard-codes its own
+   node_modules ignore ahead of anything the project supplies, and its source says so out loud —
+   "Custom config can append to transformIgnorePatterns but not modify it"
+   (`node_modules/next/dist/build/jest/jest.js:229`). Proven, not inferred: the appended pattern
+   changed nothing.
+   The framework-native route is `transpilePackages` in `next.config.ts`, because that is exactly what
+   feeds the allowlist (jest.js:154). Not taken here: it changes the **production** build — SWC would
+   transpile the auth client in the shipped bundle — to satisfy a test harness, and Next already
+   bundles ESM vendors fine on its own. The test-only route is to `await` the built config and REPLACE
+   the pattern list; that works, and the ESM error moved through three packages in sequence
+   (`better-auth` → `@better-auth/core` → `nanostores`), which is also the warning: the allowlist is a
+   dependency chain, so a hand-written list will rot the next time better-auth imports something
+   modern.
+2. Behind it, `ReferenceError: Request is not defined` at `better-auth/dist/client/config.mjs:24`.
+   jsdom's sandbox has no fetch primitives (the host Node does — `typeof Request === "function"`, but
+   that global never reaches the test context). The ecosystem answer is a polyfill dependency; a
+   hand-written `Request` class would fake the precise surface the auth client is being tested
+   against, which this repo has refused repeatedly. **So this task needs a dependency decision, not a
+   patch, and it is parked rather than half-fixed.** The experimental `jest.config.cjs` was reverted:
+   a harness that half-works and documents a fix it does not deliver is worse than a known-broken one.
+
+**Order of operations, when it is picked up:** make `Demo.test.tsx` load first, then flip the CI step
+to blocking while still emitting lcov — the current `|| true` exists precisely because those two are
+coupled, and a gate that reds the branch nobody can ship is not a gate.
+
+**And how close this pass came to vanishing.** The ladder's own back-merge —
+`6406032 Merge branch 'staging' into dev` — deleted §33 and §34 from this file, 136 lines, while
+leaving the rest intact. Verified before resolving, because "the other side deleted my work" and "the
+other side rewrote it" need different answers: `git diff --stat <base> origin/dev -- docs/GAP-REGISTER.md`
+returned 1 hunk, **0 additions, 136 removals**, so nothing had been rewritten and the conflict could be
+resolved toward HEAD without losing another session's text. Same merge window also carried four
+GitHub-web edits to `tests-jest/fxPrefReducedMotion.ts` that satisfied eslint's `no-empty-function`
+with `{/* empty */}` bodies — which is exactly what Prettier then reformatted, leaving `origin/dev`
+**red on `format:check`** at its own tip until this commit. A hand-edit in the web UI passes the rule
+someone was looking at and breaks the one they were not; both gates have to run on the merged tree.
+
+### 36. The build needed Google to be up, so the same commit was green and red
+
+Reported as "ci is still failing". It was, and it was not: two CI runs on **the same
+SHA** `7367617` disagreed. Push run 39117764846 failed `Lint, typecheck, tests, build`;
+PR run 39117766899 passed it. The failing step was the build, and the log said why:
+
+```
+Execution of <NextFontGoogleFontFileReplacer as ImportMappingReplacement>::result failed
+[next]/internal/font/google/space_grotesk_c3db11f9.module.css:7:8  module-not-found
+```
+
+`src/app/layout.tsx` imported Space Grotesk, Inter, JetBrains Mono and IBM Plex Sans
+Arabic from `next/font/google`, and that loader makes **`next build` fetch from
+fonts.gstatic.com**. So whether a commit builds depends on a third party's CDN being
+reachable from whichever runner picked the job — which is also why this looked like a
+regression: it appeared in 1 of the last 5 red runs and 0 of the other 4. Nothing in the
+diff could have caused it, and nothing in the diff could fix it permanently. This is the
+`rolled ≠ built` class from §32 applied to a dependency nobody declared.
+
+**`subsets: ["latin"]` does not do what it says.** The declared config asked for latin
+(and arabic for Plex); the build emitted **36** slices, including Cyrillic, Greek and
+Vietnamese. Reading the output rather than the intent mattered, because it decided the
+shape of the fix.
+
+**Why not `next/font/local`.** The tempting one-line change is impossible on this
+version: its type is `src: Array<{path, weight?, style?}>`
+(`node_modules/next/dist/compiled/@next/font/dist/local/index.d.ts`) — no `unicodeRange` —
+and `declarations` is explicitly barred from setting `src`, `font-display`, `font-weight`
+or `font-style` (`validate-local-font-function-call.js:50`). Without unicode-range, one
+file per weight means choosing between IBM Plex Sans Arabic's Arabic slice and its latin
+slice, and the Arabic UI renders digits and Latin product names on the same line as
+Arabic. Picking one would have silently degraded the language this product exists for, so
+the fix is the sheet the build itself produced.
+
+**What shipped.** `scripts/vendor-fonts.mjs` harvests a real build's `@font-face` output —
+every rule, every `unicode-range`, every `* Fallback` metric block — into
+`src/app/fonts.css` plus 36 files in `public/fonts/`, names carrying the content hash and
+the `-s.p.` primary marker. `PRELOAD_FONTS` in the layout is the eight primaries read out of
+`.next/server/next-font-manifest.json`, because CSS alone does not preload and Next did.
+`public/fonts/licenses/*.OFL.txt` are the four families' own license files with their real
+copyright lines, fetched from each project's upstream. Verified on a served build, not by
+reading code: HTTP 200, 8 `<link rel=preload as=font href="/fonts/…">` and zero stale
+`/_next/static/media/*.woff2` preloads, font files returning `content-type: font/woff2`,
+and the emitted chunk still carrying **63** `unicode-range` declarations and **4**
+`size-adjust` blocks — identical to before. `tests/surface/self-hosted-fonts.test.ts` holds
+the three artifacts together (sheet ↔ files ↔ preload list) and bans `next/font` coming
+back; mutation-proved three ways: hide a referenced file → 2 fail, drop a preload entry →
+1 fail, re-add the loader → 2 fail, restore → 6 pass.
+
+**Three faults of mine in this pass, all found by measuring rather than by luck.**
+
+1. _The generator destroyed the thing it was meant to replace._ It ran `rmSync(outDir)`
+   **before** its loop, then failed mid-loop with `MISSING emitted font file` — because it
+   was reading a build that had already been vendored and so contained my own `/fonts/`
+   URLs. The wipe took the 36 fonts and the hand-authored `README.md` and `licenses/` with
+   it. Recovered from the untouched copy under `.next/standalone/public/fonts`. It is now
+   plan-then-write (nothing on disk is touched until every block validates, and each
+   failure prints "Nothing was written"), it refuses to run against a vendored build, and
+   it prunes stale `.woff2` by name instead of deleting a directory that holds files it
+   does not own. Proven on a synthetic fixture: happy path 4/4, refusal exits 1, and the
+   incomplete-build case leaves all four files plus README and manifest intact.
+2. _I "fixed" corruption that did not exist._ The ranges printed as `U+??` and I read that
+   as an encoding fault, so I wrote a `.replace(/@/g, "\\00 ")` escape. Dumping the
+   codepoints showed `63,63` — literal `?`, i.e. **valid CSS wildcard syntax** for
+   `U+0000-00FF` (`U+??` matches two hex digits). My invented fix matched nothing, and the
+   comment defending it was confidently wrong in the file. Same lesson as the "Windows ESM"
+   line in §34: measure the bytes before repairing them.
+3. _Documentation described a procedure the tool refuses._ The first README said "run a
+   build, then run the script" as the refresh path — true only for a build that still uses
+   the Google loader. Re-running it is what exposed #1, and the README now states the actual
+   five-step procedure and the refusal.
+
+A near-miss worth recording: my first preload "verification" read 46 KB of HTML containing
+ten `/_next/static/media/*.woff2` preloads and looked like proof. `curl` had returned
+`http=000` — no connection. That body was a **stale `/tmp` file from an earlier session**.
+The real check came from starting the standalone build, fetching it, and killing it
+afterwards.

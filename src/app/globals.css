@@ -221,6 +221,16 @@ html::-webkit-scrollbar-thumb:hover {
     "zero" on;
   letter-spacing: -0.02em;
 }
+
+/* Numerals, deliberately split by role, and it looks like a bug until you read
+   this. Authored Arabic PROSE carries Arabic-Indic digits (٦٠ ثانية, ٥٠٠ تدخّل,
+   ١٢ حرفاً) because that is how the sentence reads to the person writing it.
+   Anything rendered through `.num` — counters, case ids, latencies, table cells —
+   stays on Latin tabular digits in BOTH interface languages, for two reasons that
+   are both load-bearing: the mono face has no Arabic-Indic glyphs, so they fall
+   back to a second font mid-number, and `tnum` alignment only holds when every
+   glyph shares one advance. Converting `.num` to `ar-AE` locale would break both,
+   so do not "localise" it without checking the face. */
 .micro {
   font-family: var(--font-mono), monospace;
   font-size: 0.6875rem;

@@ -1,0 +1,69 @@
+{
+  "generatedFrom": "next build output in .next/, fonts fetched from fonts.gstatic.com",
+  "files": [
+    {
+      "slug": "space-grotesk",
+      "variable": "--font-display",
+      "count": 3,
+      "names": [
+        "space-grotesk-32687112bd2dd8db-s.1gepa_7fcx9fm.woff2",
+        "space-grotesk-28868e710e86be81-s.2eksvhm1z0jwa.woff2",
+        "space-grotesk-0c89a48fa5027cee-s.p.2cyn07wtgehh0.woff2"
+      ]
+    },
+    {
+      "slug": "inter",
+      "variable": "--font-sans",
+      "count": 7,
+      "names": [
+        "inter-2c55a0e60120577a-s.0-dom-5bn10r2.woff2",
+        "inter-9c72aa0f40e4eef8-s.1y4-pdgsjb-pw.woff2",
+        "inter-ad66f9afd8947f86-s.3lvt2whj97whp.woff2",
+        "inter-5476f68d60460930-s.2uwcyprjm3xu3.woff2",
+        "inter-2bbe8d2671613f1f-s.0k62hbripvv8p.woff2",
+        "inter-1bffadaabf893a1e-s.3-6t-g6q0vh0a.woff2",
+        "inter-83afe278b6a6bb3c-s.p.2bn3s6zvc0dyp.woff2"
+      ]
+    },
+    {
+      "slug": "jetbrains-mono",
+      "variable": "--font-mono",
+      "count": 6,
+      "names": [
+        "jetbrains-mono-04c5164763c40239-s.1kd-r_s9smv5m.woff2",
+        "jetbrains-mono-26f284dcc38c84c0-s.3hlisc-pwq13z.woff2",
+        "jetbrains-mono-7e7f32a39836f228-s.0-oo9_1x_xmvg.woff2",
+        "jetbrains-mono-fa39153a3fc630ba-s.36fqqi66-3tjb.woff2",
+        "jetbrains-mono-6a5386fd6038edbe-s.3_z45zcoc-xoz.woff2",
+        "jetbrains-mono-051742360c26797e-s.p.1bkzbscqrt8rl.woff2"
+      ]
+    },
+    {
+      "slug": "ibm-plex-sans-arabic",
+      "variable": "--font-arabic",
+      "count": 20,
+      "names": [
+        "ibm-plex-sans-arabic-c412b9dae757a56d-s.p.1cdo_ayqo8nkw.woff2",
+        "ibm-plex-sans-arabic-c667f24a0ff78f14-s.2uew94uao4-oz.woff2",
+        "ibm-plex-sans-arabic-eb89c7e1d2156adb-s.3h2q_oi0hwy8r.woff2",
+        "ibm-plex-sans-arabic-c24ca030dfcb5061-s.42x_n7yf15d0k.woff2",
+        "ibm-plex-sans-arabic-c9a0d344f313d307-s.p.3ik2qu-u9tgho.woff2",
+        "ibm-plex-sans-arabic-aa914dbbd9a27e94-s.0n4hkusom70ae.woff2",
+        "ibm-plex-sans-arabic-5a1ede1938590d51-s.19gzon4xl8qiz.woff2",
+        "ibm-plex-sans-arabic-5d6231e6818a3930-s.2vs72h_x6qrve.woff2",
+        "ibm-plex-sans-arabic-280fac012b00b901-s.p.3ihiqn4pviisd.woff2",
+        "ibm-plex-sans-arabic-65b08f011bd29e21-s.00vfn3_g-ftpg.woff2",
+        "ibm-plex-sans-arabic-a1b65e215f8df202-s.3w3hylgez90of.woff2",
+        "ibm-plex-sans-arabic-3347fc7792f0b5ea-s.0c7ha31nuacbu.woff2",
+        "ibm-plex-sans-arabic-ceec3e50f42c26e3-s.p.0da8nscnv1nkd.woff2",
+        "ibm-plex-sans-arabic-b140408e2d7eae5d-s.2x1j3gzzngp4x.woff2",
+        "ibm-plex-sans-arabic-d3af3242084a193c-s.1jr_z050he_qo.woff2",
+        "ibm-plex-sans-arabic-441492499fc86682-s.1fbvi_fot8u4l.woff2",
+        "ibm-plex-sans-arabic-5ad8fdb5805e9b4a-s.p.0-uv4l43gdmt7.woff2",
+        "ibm-plex-sans-arabic-bb8a9270184a3556-s.0phk7_etl12r4.woff2",
+        "ibm-plex-sans-arabic-b3f2ed44161db83e-s.3c64at4xi6rda.woff2",
+        "ibm-plex-sans-arabic-84cd8d504984ae62-s.0iritm8hg8q1a.woff2"
+      ]
+    }
+  ]
+}

@@ -3,7 +3,7 @@ import { z } from "zod";
 import { redeemPasswordReset } from "@/lib/auth/password-reset";
 import { getIdentityByEmail, setIdentityPassword } from "@/lib/auth/identity";
 import { hashPassword, assertUsablePassword } from "@/lib/auth/password";
-import { issueSession } from "@/lib/auth/session";
+import { issueSession, revokeIdentitySessions } from "@/lib/auth/session";
 import { SESSION_COOKIE_ATTRS, SESSION_COOKIE_NAME } from "@/lib/auth/constants";
 import { AUTH_AUDIT_INTENTS, auditAuthEvent } from "@/lib/auth/audit";
 
@@ -102,10 +102,35 @@ export async function POST(req: Request) {
     );
   }
 
-  const { record, token: sessionToken } = await issueSession({ identity, method: "password" });
+  // The credential changed, so every session minted under the old one dies — the
+  // audit note above has claimed this happens since the route was written, and
+  // until now nothing in the codebase did it (docs/GAP-REGISTER.md §31).
+  //
+  // `setIdentityPassword` bumps `roleEpoch` and `verifySession` honours it, but the
+  // bump lands on ONE org-keyed row while sessions are keyed by accountId alone
+  // (src/lib/auth/session.ts:357). Enumerating by account is the only way to reach
+  // sessions minted before this fix, including the `NO_ORG` ones the previous
+  // resolution path used to issue — which is also why the sweep must run BEFORE
+  // `issueSession` below, or the freshly minted session is revoked on the spot.
+  await revokeIdentitySessions(identity.accountId);
+
+  // Issued from `updated.identity`, not the `identity` read before the write. That
+  // object carries the PRE-bump `roleEpoch`, so a session minted from it fails the
+  // very epoch check `verifySession` runs and the person who just reset their
+  // password cannot sign in. Pre-existing, and invisible to the old test, which
+  // only ever checked the OLD session's survival.
+  const { record, token: sessionToken } = await issueSession({
+    identity: updated.identity,
+    method: "password",
+  });
 
   const response = NextResponse.json(
-    { ok: true, role: identity.role, orgId: identity.orgId, name: identity.name },
+    {
+      ok: true,
+      role: updated.identity.role,
+      orgId: updated.identity.orgId,
+      name: updated.identity.name,
+    },
     { headers: { "Cache-Control": "no-store" } },
   );
   response.cookies.set(SESSION_COOKIE_NAME, sessionToken, SESSION_COOKIE_ATTRS);

@@ -1850,6 +1850,11 @@ by a check that had never been run end-to-end since the stage split.
 
 ### 31. A password reset revokes nothing, because the email path and the session path do not read the same identity row
 
+**RESOLVED — see §37.** The root cause below is kept as written, because the diagnosis is
+the useful part: the fix was not "bump the epoch harder" but "make the read path and the
+key agree", plus enumeration for sessions minted before the change. The characterization
+test named here is now a requirement test.
+
 `tests/auth/password-reset.test.ts:233` is a **characterization test**: it asserts the
 behavior that exists, not the behavior that should, and it is labelled as a gap so it cannot
 be mistaken for a pass. The observable defect is one line — after a successful reset, the

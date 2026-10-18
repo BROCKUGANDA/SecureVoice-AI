@@ -75,12 +75,14 @@ describe("Demo", () => {
   it("renders the armed scenario and marks exactly one card as selected", () => {
     render(<Demo />);
 
-    expect(
-      screen.getByRole("heading", {
-        level: 1,
-        name: "One fraud alert. One minute. Watch the intervention.",
-      }),
-    ).toBeTruthy();
+    // Pin the SHAPE of the hero claim, not the sentence. The wording is owned by
+    // the copy in src/views/Demo.tsx:363, which commit 63d4ece changed on purpose:
+    // "One minute" is a time promise this repository cannot prove, so it became
+    // "One scripted call". Asserting the old sentence verbatim is exactly why this
+    // expectation stayed wrong for as long as the suite could not run at all.
+    const h1 = screen.getByRole("heading", { level: 1 });
+    expect(h1.textContent).toMatch(/^One fraud alert\..*Watch the intervention\.$/);
+    expect(h1.textContent).not.toMatch(/one minute/i);
 
     const card = screen.getByRole("button", { name: /Card-not-present fraud/ });
     const atm = screen.getByRole("button", { name: /ATM cash-out/ });

@@ -2063,6 +2063,22 @@ drifted in the first place. README and the Docs language section (both halves) s
 names beside `UI_LANG_LABEL` and `CALL_LANG_LABEL`, and the kind of dead duplicate that gets cited as
 evidence later.
 
+The same rule then caught `UI_LANG_LABEL` itself, which is what the live page check turned up. Asked
+whether production rendered the four delivery-only languages as a screen choice, the answer was no —
+the six endonyms on `https://securevoiceai.me/` come from `CALL_LANG_LABEL` via the hero's "CALL IN"
+control (`src/views/Home.tsx:560`), which is correct under this rule. But the check proved
+`UI_LANG_LABEL` had **no consumer outside its own file and its own test**: after the palette shrank to
+two it was a strict subset of the live call map, and its docstring asserted "the picker shows these,
+everywhere else shows the endonym" while the header pill and the mobile row both render
+`UI_LANG_SHORT`. A comment describing a surface that does not exist is the more dangerous kind of
+dead code, because the next reader trusts it. Deleted; the gate in
+`tests/translations-coverage.test.ts` now asserts key-parity and non-emptiness against the two maps the
+shell actually draws (`UI_LANG_SHORT`, `UI_LANG_BCP47`), and is not a test of a spare. Mutation-proved
+as written: dropping `en` from `UI_LANG_SHORT` → that test `(fail)`, `8 pass 1 fail`, exit 1; restored
+→ `9 pass 0 fail`. `UI_LANG_SHORT`'s own comment was corrected in the same pass — its shortening was
+justified by a six-language header, and that pressure left with the palette, so the map now says it is
+kept because both controls render it rather than repeating a reason that no longer holds.
+
 **One thing found and NOT fixed, because it is not this decision's work.**
 `src/proxy.ts:424` sets `x-securevoice-lang` and **nothing in the tree reads it**. Browser negotiation
 therefore does not currently decide the UI language at all — the Navbar picker does. I narrowed its

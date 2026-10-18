@@ -125,3 +125,62 @@ export function evaluateCoverage({ measured, hit, total, mergeBar, raw, blocking
     target: floor.target,
   };
 }
+
+/**
+ * Prove the ratchet from the file's own history, because a commit sha cannot be
+ * proven across this repo's promotion ladder.
+ *
+ * WHY THIS EXISTS INSTEAD OF A SHA CHECK. The floor records the commit whose CI run
+ * measured it. `dev -> staging` and `staging -> main` are SQUASH promotions, so the
+ * commit that produced a measurement is not an ancestor of staging or main — proven
+ * on 2026-10-18: `8fef2be` is an ancestor of dev and of nothing else. A test that
+ * asserted `cat-file`/`merge-base` on it was therefore either vacuous (it passed only
+ * on the one run whose HEAD *was* that sha, under `fetch-depth: 1`) or permanently
+ * red on two of three rungs. Neither is a gate.
+ *
+ * What IS verifiable everywhere is the file's own blob history on the checked-out
+ * branch: read `overall` at every commit that touched it, newest first, and require
+ * that it never went down. That is the actual claim — coverage may rise, and it may
+ * not come down — and it can fail, which the sha check could not.
+ *
+ * `entries[i]` = `{ at, overall }`, newest first; `overall` is null when the blob was
+ * absent or unparseable at that commit.
+ *
+ * BLIND SPOT, stated because a gate that overstates itself is the defect it guards:
+ * one entry passes trivially, and a branch whose floor arrived in a single squash has
+ * exactly one. This proves the ratchet did not loosen *on this branch*; the cross-rung
+ * handle is `measured.runId`, which only the Actions API can confirm.
+ */
+export function evaluateFloorHistory(entries) {
+  if (!Array.isArray(entries) || entries.length === 0)
+    return {
+      error: `no history found for ${FLOOR_FILE} — cannot prove the floor only rose`,
+      peak: null,
+    };
+
+  const unreadable = entries.find(
+    (e) => typeof e.overall !== "number" || !Number.isFinite(e.overall),
+  );
+  if (unreadable)
+    return {
+      error: `${FLOOR_FILE} has no parseable floor at ${String(unreadable.at).slice(0, 7)} — a ratchet step that cannot be read is not a step`,
+      peak: null,
+    };
+
+  const dips = [];
+  for (let i = 0; i + 1 < entries.length; i++) {
+    const newer = entries[i].overall;
+    const older = entries[i + 1].overall;
+    // 1e-9 so two commits recording the same rounded figure are not a dip.
+    if (newer + 1e-9 < older)
+      dips.push(
+        `${String(entries[i + 1].at).slice(0, 7)} recorded ${older}% and ${String(entries[i].at).slice(0, 7)} lowered it to ${newer}%`,
+      );
+  }
+
+  const peak = Math.max(...entries.map((e) => e.overall));
+  return {
+    error: dips.length ? `the floor went down: ${dips.join("; ")}` : null,
+    peak,
+  };
+}

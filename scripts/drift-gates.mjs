@@ -1239,6 +1239,154 @@ function checkEnvDocs() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// CHECK — an append-only audit file may not SHRINK across a merge
+//
+// `docs/GAP-REGISTER.md` is the audit log. It merges cleanly in the wrong
+// direction, which is why it keeps losing sections: two numbered entries are
+// just text, so git never calls it a conflict — the shorter side is simply
+// taken. Measured twice on 2026-10-18 in the same half hour:
+//
+//   • `f32083b` "Merge branch 'staging' into dev" resolved the register toward
+//     staging and dropped §42. 2618 lines became 2525, and
+//     `git diff 607b002 origin/dev -- docs/GAP-REGISTER.md` reported ZERO added
+//     lines. The merge did not disagree with dev; it deleted dev.
+//   • A fresh `git merge origin/staging` afterwards printed
+//     "Merge made by the 'ort' strategy" and removed §37–§41, which staging had
+//     already lost. Both merges exited 0.
+//
+// Nothing else in the tree can see this: the file is prose, so lint, typecheck,
+// the test suites and the citation gate all stay green while history disappears.
+// Counting section markers against each merge parent catches it, because an
+// append-only log has exactly one legal change across a merge — grow.
+// ─────────────────────────────────────────────────────────────────────────────
+const APPEND_ONLY_FILES = ["docs/GAP-REGISTER.md"];
+
+function countSections(text) {
+  return (text.match(/^### \d+\./gm) ?? []).length;
+}
+
+/**
+ * Pure so the self-test can plant history it does not have to earn.
+ *
+ * Returns one violation per (file, parent) pair where the merge result has fewer
+ * sections than a parent. A parent that lacks the file entirely is skipped: that
+ * is a branch where the log has not been born yet, not a deletion.
+ */
+function findAppendOnlyShrink(files, mergeCommit, parents, readAt) {
+  const bad = [];
+  for (const f of files) {
+    const mine = readAt(mergeCommit, f);
+    if (mine === null) continue;
+    const mineCount = countSections(mine);
+    for (const [i, parent] of parents.entries()) {
+      const theirs = readAt(parent, f);
+      if (theirs === null) continue;
+      const theirsCount = countSections(theirs);
+      if (mineCount < theirsCount) {
+        bad.push(
+          `${f}: ${mergeCommit.slice(0, 7)} has ${mineCount} numbered sections but merge ` +
+            `parent #${i + 1} (${parent.slice(0, 7)}) has ${theirsCount} — an append-only ` +
+            `audit log shrank across a merge. git resolved it toward the SHORTER side ` +
+            `without calling a conflict. Restore the missing sections (that parent's copy ` +
+            `is the superset) before this lands.`,
+        );
+      }
+    }
+  }
+  return bad;
+}
+
+function repoGit(cmd) {
+  try {
+    return sh(cmd, ROOT);
+  } catch {
+    return null;
+  }
+}
+
+/** git-backed reader for findAppendOnlyShrink; null means "ref or file absent". */
+function gitShow(ref, file) {
+  return repoGit(`git show ${ref}:${file}`);
+}
+
+function parentsOf(ref) {
+  return (repoGit(`git rev-list --parents -n 1 ${ref}`) ?? "")
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(1);
+}
+
+function selfTestAppendOnlyGate() {
+  const broken = [];
+
+  // Branch 1 — the shrink IS detected.
+  const planted = findAppendOnlyShrink(["x.md"], "HEAD", ["aaa"], (ref) =>
+    ref === "HEAD" ? "### 1.\n" : "### 1.\n### 2.\n### 3.\n",
+  );
+  if (planted.length !== 1) broken.push("planted SHRINK (3 sections -> 1) was not reported");
+
+  // Branch 2 — growth is legal.
+  const grew = findAppendOnlyShrink(["x.md"], "HEAD", ["bbb"], (ref) =>
+    ref === "HEAD" ? "### 1.\n### 2.\n### 3.\n" : "### 1.\n### 2.\n",
+  );
+  if (grew.length !== 0) broken.push("planted LEGITIMATE append was reported as drift");
+
+  // Branch 3 — a parent that never had the file is not a deletion.
+  const unborn = findAppendOnlyShrink(["x.md"], "HEAD", ["ccc"], (ref) =>
+    ref === "HEAD" ? "### 1.\n" : null,
+  );
+  if (unborn.length !== 0) broken.push("planted absent-parent case was reported as drift");
+
+  // Branch 4 — the real cases, from this repository's own history. Both are merges
+  // that LOST register sections and exited 0 while doing it:
+  //   f32083b "Merge branch 'staging' into dev"   43 sections in, 42 out (§42 lost)
+  //   851d531 "Merge origin/staging into ladder-dev" 42 sections in, 37 out (§37-§41 lost)
+  // If the checkout is deep enough to have them, the detector MUST name them; if
+  // not, the summary says it skipped. The first version of this arm printed
+  // "historical clobber detected" unconditionally while the ref probe had failed —
+  // a gate claiming a check it did not run.
+  const KNOWN_CLOBBERS = ["f32083b", "851d531"];
+  let checked = 0;
+  for (const ref of KNOWN_CLOBBERS) {
+    if (!repoGit(`git rev-parse --verify --quiet "${ref}^{commit}"`)) continue;
+    checked++;
+    const real = findAppendOnlyShrink(APPEND_ONLY_FILES, ref, parentsOf(ref), gitShow);
+    if (real.length === 0)
+      broken.push(`the historical clobber at ${ref} was NOT detected — the gate is decoration`);
+  }
+
+  if (broken.length) {
+    fail(
+      `append-only shrink self-test is BROKEN — the real check below cannot be trusted:\n` +
+        `       ${broken.join("; ")}`,
+    );
+    return;
+  }
+  info(
+    "append-only shrink self-test: planted shrink caught, planted append and unborn parent " +
+      (checked > 0
+        ? `cleared, ${checked} historical clobber(s) detected`
+        : "cleared; historical arm SKIPPED (no known clobber refs in this checkout)"),
+  );
+}
+
+function checkAppendOnlyShrink() {
+  const parents = parentsOf("HEAD");
+  if (parents.length < 2) {
+    info("append-only audit guard: HEAD is not a merge commit — nothing to compare");
+    return;
+  }
+  const head = repoGit("git rev-parse HEAD") ?? "HEAD";
+  const bad = findAppendOnlyShrink(APPEND_ONLY_FILES, head, parents, gitShow);
+  if (bad.length) fail(bad.join("\n       "));
+  else
+    info(
+      `append-only audit guard: merge ${head.slice(0, 7)} keeps every numbered section present ` +
+        `in both parents (${APPEND_ONLY_FILES.join(", ")})`,
+    );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 const SUITES = {
   repo: [
     selfTestSymmetryGate,
@@ -1252,6 +1400,8 @@ const SUITES = {
     checkUnusedDependencies,
     checkMojibake,
     checkEnvDocs,
+    selfTestAppendOnlyGate,
+    checkAppendOnlyShrink,
   ],
   box: [checkBoxInventory, checkBoxCurrency, checkBoxImageConformance],
 };

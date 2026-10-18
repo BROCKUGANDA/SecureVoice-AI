@@ -115,6 +115,7 @@ jobs:
           fi
 
       - name: Open or refresh the pull request, then arm auto-merge
+        id: arm
         if: steps.delta.outputs.count != '0'
         env:
           # NOT secrets.GITHUB_TOKEN. A pull request opened with GITHUB_TOKEN is
@@ -203,4 +204,77 @@ jobs:
             exit 1
           fi
 
+          # The number is handed to the next step as an output: `run:` blocks get
+          # their own shell, so a variable set here is otherwise invisible to the
+          # step that has to clear a stale head.
+          echo "pr=$pr" >> "$GITHUB_OUTPUT"
+
           gh pr view "$pr" --json url --jq '.url' | tee -a "$GITHUB_STEP_SUMMARY" || true
+
+      # ── Clear a stale head, or the rung silently never lands ─────────────────
+      #
+      # WHY THIS STEP EXISTS. main's branch rule requires the PR head to be up to
+      # date, and `autoversion` cuts release bumps straight onto main. Every such
+      # bump therefore leaves BOTH rungs behind: staging lacks the bump, dev lacks
+      # what staging gained. Measured 2026-10-18: PR #134 sat with every required
+      # check SUCCESS and mergeStateStatus BLOCKED for about three hours, and
+      # `promote.yml` had already reported success — it opens the PR and arms
+      # auto-merge, and neither of those things moves a stale head. "Armed but
+      # BEHIND" is indistinguishable from "waiting for CI" unless somebody looks,
+      # so the ladder looked broken when the automation was simply not finished.
+      #
+      # This is the part that was deliberately NOT automated until today. Merging
+      # base into head is the operation that quietly deleted register sections
+      # twice in one hour (f32083b lost §42; 851d531 lost §37-§41) — an append-only
+      # log has no conflict to raise, so git takes the shorter copy and exits 0.
+      # `checkAppendOnlyShrink` in scripts/drift-gates.mjs now fails the Drift gates
+      # job when a merge reduces numbered sections against either parent, and that
+      # job is a required check on this PR. Automating the update without the
+      # fitness function first would have automated the data loss instead of the
+      # promotion.
+      #
+      # Idempotent: on a head that is already current GitHub answers
+      # "✓ PR branch already up-to-date" and nothing moves.
+      - name: Update a stale head so auto-merge can actually land
+        env:
+          GH_TOKEN: ${{ secrets.PROMOTE_TOKEN }}
+          TARGET: ${{ steps.edge.outputs.target }}
+          PR_NUMBER: ${{ steps.arm.outputs.pr }}
+        run: |
+          set -euo pipefail
+
+          # No PR, nothing to do: the "stop when there is nothing to promote" step
+          # above already covered that case, and this step runs on every push.
+          pr="${PR_NUMBER:-}"
+          if [ -z "$pr" ]; then
+            echo "no promotion PR this run (nothing to promote) — nothing to update"
+            exit 0
+          fi
+
+          state=$(gh pr view "$pr" --json mergeStateStatus --jq '.mergeStateStatus')
+          echo "mergeStateStatus before: $state"
+          if [ "$state" != "BEHIND" ]; then
+            echo "head is not BEHIND ${TARGET} — no update needed" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          # FAIL LOUDLY, never quietly. Two causes, different remedies, and a
+          # generic "promotion succeeded" line would hide both:
+          #   · PROMOTE_TOKEN cannot push to the source branch (scope it contents:
+          #     write, or the rung stays BEHIND forever and looks like CI latency);
+          #   · a real conflict, which is a human decision and must not be resolved
+          #     by a bot at 400 commits of drift.
+          if ! gh pr update-branch "$pr"; then
+            echo "::error::PR #${pr} is BEHIND ${TARGET} and could not be updated."
+            echo "Either PROMOTE_TOKEN cannot push to the source branch, or base and head" \
+                 "genuinely conflict — in which case a person must resolve it." \
+              >> "$GITHUB_STEP_SUMMARY"
+            echo "Nothing is promoted by this run. The PR is open and NOT landing."
+            exit 1
+          fi
+
+          after=$(gh pr view "$pr" --json mergeStateStatus --jq '.mergeStateStatus')
+          echo "mergeStateStatus after: $after"
+          echo "head was BEHIND ${TARGET}; updated it — now ${after}. Auto-merge lands it when the" \
+               "required checks (including the append-only audit guard) pass." \
+            >> "$GITHUB_STEP_SUMMARY"

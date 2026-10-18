@@ -2657,3 +2657,34 @@ CI problem from the outside. **Left open, deliberately:** name the actor, and de
 human gate on production should live in branch protection (auditable, visible on the PR) or in
 whoever is clicking. Automation and a hidden pause button are not the same contract, and today
 the repo has both.
+
+### 44. The ladder now clears its own staleness, because arming a PR that cannot land is not automation
+
+Owner ruling 2026-10-18: run the promotion pipeline, and make it automatic. Two things followed.
+
+**`promote.yml` gained the step the stall needed.** After arming auto-merge it reads
+`mergeStateStatus`, and when the head is `BEHIND` its target it runs `gh pr update-branch`,
+then re-reads the state and records it in the step summary. If the update fails it exits 1 and
+says which of the two causes it is — `PROMOTE_TOKEN` unable to push to the source branch, or a
+genuine conflict that a person must resolve at 400 commits of drift — because the previous
+behaviour was a run that reported success while the rung could never land. The step is
+idempotent: on a current head GitHub answers "already up-to-date" and nothing moves (verified
+by hand against #136 before the YAML was written).
+
+**The ordering was the actual decision.** This step is a base-into-head merge, which is the
+operation that deleted §42 and then §37–§41 from this register twice in one hour, cleanly and
+with exit 0. Automating it before `checkAppendOnlyShrink` existed would have automated the
+data loss. Now the merge lands on a PR whose required `Drift gates` check fails if numbered
+sections shrink against either parent, so the ladder can update itself without being able to
+erase its own history silently. Fitness function first, then automation.
+
+**#131 was merged by hand at 22:30:12Z** (`53b3554 promote: staging -> main (59 commits)`), on
+the owner's explicit word, with every required check green — it is what auto-merge would have
+done, one squash-merge away. The reason it needed a hand is recorded in §43 and is not a
+mystery any more: the GitHub issue timeline for that PR shows five `auto_merge_disabled` events
+today, each about a minute after arming, **every one attributed to `BROCKUGANDA`** — the account
+that owns production and the identity the promotion token acts as. No workflow in this
+repository contains `disable-auto`, and no local process on this machine is running it, so the
+hold is coming from a human action or another agent session under the owner's credentials. That
+is the owner's to resolve; what is now unambiguous is that the pipeline itself no longer has a
+stall in it, so any future hold is a decision rather than a defect.

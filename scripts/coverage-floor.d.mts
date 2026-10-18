@@ -45,3 +45,11 @@ export function evaluateCoverage(input: {
   raw: string | null;
   blocking?: boolean;
 }): CoverageVerdict;
+
+/** One floor value as recorded at one commit, newest commit first. */
+export type FloorHistoryEntry = { at: string; overall: number | null };
+
+export type FloorHistoryVerdict = { error: string | null; peak: number | null };
+
+/** Prove from a branch's own history that the ratchet never loosened. */
+export function evaluateFloorHistory(entries: FloorHistoryEntry[]): FloorHistoryVerdict;

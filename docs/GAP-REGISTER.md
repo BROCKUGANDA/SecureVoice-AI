@@ -1974,14 +1974,33 @@ checkout contains exactly one commit — HEAD — so that assertion held on prec
 run whose HEAD _was_ `8fef2be` (the commit whose CI run measured 65.08%) and failed on every
 run after it. A test that verifies itself is not a gate.
 
-The floor data was never wrong: `8fef2bed77ac8733…` is the `head_sha` of run 39068558091 and
-is still an ancestor of dev. Fixed by giving that job `fetch-depth: 0` (837 commits,
-61.5 MiB packed — measured, not guessed) and by strengthening the claim from "the object
-exists" to "the object is an **ancestor** of HEAD", which is what "this number came from a
-measurement inside this history" actually asserts. A shallow checkout now fails with an
-explanation instead of passing vacuously. Mutation-proved: `at` set to a real non-ancestor
-(`origin/chore/release-v0.2.29`) → red; `at` set to `deadbee` → red; restored
-byte-identical → 8 pass.
+The floor data was never wrong: `8fef2bed77ac8733…` is the `head_sha` of run 39068558091.
+
+**My first fix was wrong too, and that is the part worth keeping.** I gave the job
+`fetch-depth: 0` and strengthened the claim to "`at` is an ancestor of HEAD". It passed on
+dev and reddened the next rung, staging, immediately. The reason is this repo's own promotion
+model: `dev -> staging` and `staging -> main` are **squash** promotions, so the commit that
+produced a measurement is _never_ an ancestor of staging or main. Measured directly:
+`8fef2be` is an ancestor of dev and of nothing else. No amount of fetching makes a commit
+reachable that the ladder deliberately discarded, so reachability was not a stronger claim —
+it was an impossible one on two of three rungs.
+
+What every rung _can_ prove is the file's own blob history on the branch being checked out.
+`evaluateFloorHistory` (`scripts/coverage-floor.mjs`) walks `git log --
+evidence/coverage-floor.json`, reads the recorded `overall` at each commit with `git show`,
+and refuses any sequence in which the floor went down. The test also requires that HEAD holds
+the peak and that the bytes on disk equal the bytes at HEAD, which closes the "lower the bar
+in the working tree" hole that reading disk would otherwise leave open. A shallow checkout
+fails with the reason instead of passing vacuously.
+
+Proved: pure controls for rise / equal / dip / empty / unparseable; and against the real file,
+lowering `overall` on disk to 61.00 turned five tests red, including the HEAD-blob and peak
+assertions, and restored byte-identical to green. Pre-flighted on the other two rungs before
+pushing: staging and main each see exactly one blob at 65.08, so this gate is green where the
+sha check was impossible. **Blind spot, stated in the code:** one entry passes trivially, and
+staging and main currently have exactly one — it proves the ratchet did not loosen _on this
+branch_. The handle that does survive a squash is `measured.runId`, and confirming it means
+calling the Actions API, which no working tree can do. That is the remaining gap.
 
 **(e) The gate and the workflow file have to land together.** Pre-flighting the new box gate
 against the box's _old_ `deploy.yml` produced a fresh failure mode worth recording: the

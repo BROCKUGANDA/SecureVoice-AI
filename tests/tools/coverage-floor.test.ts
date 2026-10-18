@@ -8,9 +8,10 @@
  * coverage actually measured and committed.
  *
  * Three properties, none of which the old shape had:
- *   A. It is a property of a commit. `at` must be a real sha, and the recorded
- *      number must be ≤ what a run measured. A floor copied from an editor is the
- *      failure this repo has already documented once this week.
+ *   A. It is auditable on the rung that enforces it. Squash promotions mean the commit
+ *      that measured the floor is not reachable from staging or main, so provenance is
+ *      proved from this branch's own blob history: the floor never went down, HEAD holds
+ *      the peak, and what is on disk is what is committed.
  *   B. A missing or malformed floor FAILS in a blocking context. The obvious wrong
  *      answer is to treat "no floor" as "floor is 0", which reads as a pass and
  *      silently deletes the ratchet — the same shape as a scan that matches nothing.
@@ -30,6 +31,7 @@ import {
   COVERAGE_TARGET,
   FLOOR_FILE,
   evaluateCoverage,
+  evaluateFloorHistory,
   parseFloor,
 } from "../../scripts/coverage-floor.mjs";
 
@@ -45,35 +47,28 @@ test("the committed floor is a fact about a commit, not a number in a file", () 
   expect(parsed.error ?? "").toBe("");
   const doc = JSON.parse(FLOOR_JSON);
 
-  // `at` must name a commit that is an ANCESTOR of the tree running this test.
+  // ── What a rung can actually prove ──────────────────────────────────────────
   //
-  // Existence was the original, weaker check — and it was not merely weak, it was
-  // self-validating. Under `actions/checkout`'s default `fetch-depth: 1` a working
-  // tree holds exactly one commit, HEAD, so the object resolved on precisely the one
-  // run whose HEAD *was* the recorded sha, and went red on the run after it. CI now
-  // fetches full history for this job (see `fetch-depth: 0` in ci.yml). Reachability
-  // is the claim the floor genuinely makes: this number came from a run inside the
-  // history being merged, not from a name typed into a file.
+  // `at` is provenance for a human, and its FORMAT is all a checkout can verify.
+  // dev -> staging and staging -> main are squash promotions, so the commit that
+  // measured the number is not an ancestor of staging or main — measured
+  // 2026-10-18: `8fef2be` is an ancestor of dev and of nothing else. That is also
+  // why the assertion this line replaced was not merely weak but vacuous: under
+  // `actions/checkout`'s default `fetch-depth: 1` the only commit a checkout holds
+  // is HEAD, so `cat-file` succeeded exactly once — on the run that recorded the
+  // floor — and reddened the run after it. A check that can be true on one commit
+  // is not a gate; it is a timestamp.
   expect(doc.at).toMatch(/^[0-9a-f]{7,40}$/);
 
-  const shallow = execFileSync("git", ["rev-parse", "--is-shallow-repository"], {
-    encoding: "utf8",
-  }).trim();
-  if (shallow === "true") {
-    // Fails rather than skipping: a floor nobody can trace back to a measurement is
-    // the exact thing this file exists to refuse.
-    throw new Error(
-      "checkout is shallow, so the floor's commit cannot be resolved. Run this suite " +
-        "from a full clone (CI uses actions/checkout with fetch-depth: 0).",
-    );
-  }
+  // The handle that does survive a squash is the Actions run id. Confirming it
+  // belongs to the API rather than the working tree; tracked in the gap register.
+  expect(Number.isInteger(doc.measured?.runId)).toBe(true);
 
-  const type = execFileSync("git", ["cat-file", "-t", doc.at], { encoding: "utf8" }).trim();
-  expect(type).toBe("commit");
-  const ancestor = spawnSync("git", ["merge-base", "--is-ancestor", doc.at, "HEAD"], {
-    encoding: "utf8",
-  });
-  expect(ancestor.status).toBe(0);
+  // What is on disk must be what is committed, or every assertion below describes a
+  // number nobody merged — the floor is a bar, so an uncommitted edit here is the
+  // cheapest way to make a red build look green.
+  const atHead = execFileSync("git", ["show", `HEAD:${FLOOR_FILE}`], { encoding: "utf8" });
+  expect(atHead).toBe(FLOOR_JSON);
 
   expect(typeof doc.overall).toBe("number");
   expect(doc.overall).toBeGreaterThan(0);
@@ -84,6 +79,75 @@ test("the committed floor is a fact about a commit, not a number in a file", () 
     const recomputed = (doc.measured.hit / doc.measured.total) * 100;
     expect(Math.abs(recomputed - doc.overall)).toBeLessThan(0.01);
   }
+});
+
+test("the floor only ever rose, read from this branch's own history of the file", () => {
+  // The ratchet restated in a form every rung can check: not "trust the sha I cite"
+  // but "walk the blob this branch actually carries and prove it never went down".
+  //
+  // A shallow checkout cannot answer this, and "cannot answer" must not degrade into
+  // a silent pass, so a shallow tree fails with the reason instead of asserting
+  // anything. The `verify` job checks out with `fetch-depth: 0` for exactly this.
+  const shallow = execFileSync("git", ["rev-parse", "--is-shallow-repository"], {
+    encoding: "utf8",
+  }).trim();
+  if (shallow === "true")
+    throw new Error(
+      `${FLOOR_FILE} history needs full depth and this checkout is shallow (CI: actions/checkout with fetch-depth: 0)`,
+    );
+
+  const shas = execFileSync("git", ["log", "--format=%H", "--", FLOOR_FILE], { encoding: "utf8" })
+    .split("\n")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  expect(shas.length).toBeGreaterThan(0);
+
+  const entries = shas.map((sha) => {
+    const raw = spawnSync("git", ["show", `${sha}:${FLOOR_FILE}`], { encoding: "utf8" }).stdout;
+    let overall: number | null = null;
+    try {
+      const v = JSON.parse(raw).overall;
+      if (typeof v === "number" && Number.isFinite(v)) overall = v;
+    } catch {
+      overall = null;
+    }
+    return { at: sha, overall };
+  });
+
+  const verdict = evaluateFloorHistory(entries);
+  expect(verdict.error ?? "").toBe("");
+  // HEAD holds the highest figure ever recorded on this branch — otherwise the bar
+  // in force is not the ratchet, whatever the sequence above looked like.
+  expect(verdict.peak).toBe(JSON.parse(FLOOR_JSON).overall);
+});
+
+test("B2. the history ratchet is capable of failing", () => {
+  // Pure controls. Proving a red against real history would mean committing a fake
+  // regression, which is not something to do to a shared branch.
+  expect(evaluateFloorHistory([{ at: "aaaaaaa", overall: 65.08 }]).error).toBe(null);
+  expect(
+    evaluateFloorHistory([
+      { at: "bbbbbbb", overall: 66.1 },
+      { at: "aaaaaaa", overall: 65.08 },
+    ]).error,
+  ).toBe(null);
+  expect(
+    evaluateFloorHistory([
+      { at: "bbbbbbb", overall: 65.08 },
+      { at: "aaaaaaa", overall: 66.1 },
+    ]).error,
+  ).toContain("the floor went down");
+  // Equal values across commits are rounding, not a dip.
+  expect(
+    evaluateFloorHistory([
+      { at: "bbbbbbb", overall: 65.08 },
+      { at: "aaaaaaa", overall: 65.08 },
+    ]).error,
+  ).toBe(null);
+  expect(evaluateFloorHistory([]).error).toContain("no history");
+  expect(evaluateFloorHistory([{ at: "aaaaaaa", overall: null }]).error).toContain(
+    "no parseable floor",
+  );
 });
 
 test("A. the target is the 85 the requirement set, and the gap is stated in lines", () => {

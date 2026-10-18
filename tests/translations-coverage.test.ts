@@ -30,9 +30,12 @@
  *      would come from, because "we translated it ourselves" is how domain
  *      vocabulary ends up meaning something subtly different in a regulator's
  *      hands;
- *   5. `resolveUiLang` sends a Hindi browser to English — the browser's language
- *      is not a claim the interface can honour, and the old expectation
- *      (`resolveUiLang("HI") === "hi"`) was the bug, not the spec.
+ *   5. a delivery-only language is neither offered as a screen nor rendered as
+ *      one — the browser's language is not a claim the interface can honour, and
+ *      the old expectation (`resolveUiLang("HI") === "hi"`) was the bug, not the
+ *      spec. Asserted through the palette and `t()`'s fallback rather than a
+ *      header parser, because the parser (`resolveUiLang`) had no production
+ *      caller and was removed in §39 of docs/GAP-REGISTER.md; the rule survives it.
  *
  * Point 5 is why this file is not just a copy of SUPPORTED_LANGS: the voice layer
  * speaks a language the interface cannot render, and the honest outcome is a Hindi
@@ -47,7 +50,6 @@ import {
   UI_LANG_SHORT,
   UI_LANGS,
   isUiLangTranslated,
-  resolveUiLang,
 } from "@/lib/i18n/registry";
 import { SUPPORTED_LANGS, type Lang } from "@/lib/languages";
 import { t } from "@/lib/store";
@@ -144,29 +146,33 @@ describe("UI language registry", () => {
     expect(GLOSSARY_STATUS.sw.note).toContain("sw.wikipedia");
   });
 
-  test("resolveUiLang offers a screen only when it can render one", () => {
-    expect(resolveUiLang("ar-AE")).toBe("ar");
-    expect(resolveUiLang("ar")).toBe("ar");
-    expect(resolveUiLang("en-GB")).toBe("en");
-    expect(resolveUiLang("pt-BR")).toBe("en");
-    expect(resolveUiLang("")).toBe("en");
-    expect(resolveUiLang(null)).toBe("en");
-    // A tag that resolves to a language must actually be in the registry.
-    for (const lang of UI_LANGS) {
-      expect(resolveUiLang(lang)).toBe(lang);
-    }
-    // The four delivery-only languages resolve to English. This is the customer-
-    // visible half of the rule: a Hindi browser gets an English interface, and it
-    // is asserted rather than fallen-into, because the previous version of this
-    // test demanded `resolveUiLang("HI") === "hi"` — which is precisely how a
-    // visitor ended up on an English page wearing a हिन्दी button.
+  test("a delivery-only language can never be offered as a screen, nor rendered as one", () => {
+    // The customer-visible half of the rule, asserted without a browser parser:
+    // the previous version of this test went through `resolveUiLang`, which was
+    // deleted in §39 because nothing in production ever called it (the edge set
+    // `x-securevoice-lang` and no route read it). The invariant does not need the
+    // parser — it needs the palette and the fallback to disagree in the right
+    // direction.
+    //
+    // This matters because the earlier form of the test demanded
+    // `resolveUiLang("HI") === "hi"`, which is precisely how a visitor ended up on
+    // an English page wearing a हिन्दी button.
+    // Note what is NOT asserted here: there is no `t(en, ar, "hi")` call, because
+    // `t`'s third parameter is `UiLang` and `"hi"` is not one — the compiler
+    // refuses it. That refusal IS the rule, enforced at the type rather than by a
+    // runtime fallback, so casting a delivery code through it to "test" the
+    // fallback would be testing a state the code cannot reach.
     for (const lang of DELIVERY_ONLY) {
-      expect(resolveUiLang(lang), `${lang} must not be offered as a screen`).toBe("en");
-      expect(resolveUiLang(`${lang}-XX`)).toBe("en");
+      expect(UI_LANGS, `${lang} must not be offered as a screen`).not.toContain(lang);
+      expect(SUPPORTED_LANGS, `${lang} is still spoken on the phone`).toContain(lang);
     }
-    expect(resolveUiLang("HI")).toBe("en");
-    expect(resolveUiLang("sw_KE")).toBe("en");
-    expect(resolveUiLang("ur-PK")).toBe("en");
+    // Within the palette, only Arabic is translated — and the two are the same set,
+    // which is the derivation §33 made structural.
+    for (const lang of UI_LANGS) {
+      expect(isUiLangTranslated(lang)).toBe(lang === "ar" || lang === "en");
+    }
+    // The interface palette itself stays exactly the two shipped languages.
+    expect([...UI_LANGS].sort()).toEqual(["ar", "en"]);
   });
 
   test("the spoken set and the interface set differ by exactly the four delivery languages", () => {

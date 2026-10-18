@@ -30,7 +30,7 @@
  */
 
 import { db } from "@/lib/db";
-import { AUTH_SCOPES, PERMANENT_EXPIRY, listFor, put, read } from "@/lib/auth/store";
+import { AUTH_SCOPES, PERMANENT_EXPIRY, listByKey, listFor, put, read } from "@/lib/auth/store";
 import { DEFAULT_ORG_ID } from "@/lib/tenancy/guard";
 import { isRole, type Role } from "@/lib/auth/roles";
 import { normalizeEmail } from "@/lib/auth/password";
@@ -128,6 +128,18 @@ export async function getIdentity(
   };
 }
 
+/**
+ * The identity for an email, resolved through the one path that can answer it.
+ *
+ * This used to call `getIdentity(account.id)` with no org, beside a comment
+ * asserting that email uniqueness made the row unambiguous. That sentence was the
+ * whole bug (docs/GAP-REGISTER.md §31). Email uniqueness identifies the `Account`;
+ * the identity store is keyed `(accountId, orgId)`. Reading at `NO_ORG` missed the
+ * row the invite path wrote at the member's real org — and because a store miss
+ * does not fail but *reconstructs*, the miss came back looking like a valid
+ * identity with `roleEpoch: 1`. So a password reset bumped a row nobody validates,
+ * and sessions issued before the reset went on verifying.
+ */
 export async function getIdentityByEmail(email: string): Promise<Identity | null> {
   const normalized = normalizeEmail(email);
   const account = await db.account.findUnique({
@@ -135,9 +147,49 @@ export async function getIdentityByEmail(email: string): Promise<Identity | null
     select: { id: true },
   });
   if (!account) return null;
-  // Email is globally unique on Account, so the identity row is unambiguous
-  // even though we do not know the org yet.
-  return getIdentity(account.id);
+  return resolveIdentityForAccount(account.id);
+}
+
+/**
+ * The stored identity for an account, without the caller having to know its org.
+ *
+ * One read path for "who is this account", shared with `loginWithPassword`, which
+ * made the same org-less guess. Rules in order, and why each is that way:
+ *
+ *  1. One row bound to a real org → that row. This is the normal case: an invited
+ *     member has exactly one, and its role and epochs are authoritative. Using it
+ *     is what makes `roleEpoch` revocation reach the session at all, because
+ *     `issueSession` then records the same org that `verifySession` reads back
+ *     (src/lib/auth/session.ts:275).
+ *  2. More than one real-org row → refuse, never choose. Multi-org membership is
+ *     not materialized today (`createIdentity` cannot write a second row for a
+ *     unique email), so this branch is unreachable rather than unimportant: picking
+ *     an org silently would be a privilege decision made by iteration order. Login
+ *     fails, and the log says why.
+ *  3. Only a `NO_ORG` row → that row. Such rows exist because earlier versions of
+ *     this module wrote them; honouring them keeps those sessions revocable instead
+ *     of stranding them.
+ *  4. No stored row → reconstruct from `Account` at `NO_ORG`, exactly as
+ *     `getIdentity` always did. That is the documented restored-database path, and it
+ *     still starts both epochs at 1, so sessions issued before a restore are refused.
+ */
+export async function resolveIdentityForAccount(accountId: string): Promise<Identity | null> {
+  const stored = await listByKey<Identity>(AUTH_SCOPES.identity, accountId);
+  const inRealOrg = stored.filter((i) => i.orgId !== NO_ORG);
+  if (inRealOrg.length === 1) return inRealOrg[0] ?? null;
+  if (inRealOrg.length > 1) {
+    console.error(
+      `[identity] refusing to pick an org for account ${accountId}: rows in ${inRealOrg.length} organisations`,
+    );
+    return null;
+  }
+  if (stored.length === 1) return stored[0] ?? null;
+  if (stored.length > 1) {
+    // Several rows that are all unbound cannot be told apart by org either.
+    console.error(`[identity] refusing: account ${accountId} has ${stored.length} unbound rows`);
+    return null;
+  }
+  return getIdentity(accountId);
 }
 
 /**

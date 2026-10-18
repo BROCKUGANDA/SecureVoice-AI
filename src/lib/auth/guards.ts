@@ -39,7 +39,7 @@ import {
   type SessionCheck,
   type SessionRecord,
 } from "@/lib/auth/session";
-import { getIdentity, type Identity } from "@/lib/auth/identity";
+import { resolveIdentityForAccount, type Identity } from "@/lib/auth/identity";
 import { assertCapability, authorizedDb, CapabilityError, type RbacClient } from "@/lib/auth/rbac";
 import { requireStepUp, type StepUpCheck } from "@/lib/auth/stepup";
 import { normalizeEmail, verifyPassword } from "@/lib/auth/password";
@@ -211,7 +211,12 @@ export async function loginWithPassword(email: string, password: string): Promis
     };
   }
 
-  const identity = await getIdentity(account.id);
+  // Resolved by account, not by a guessed org: a session must carry the same
+  // identity row `verifySession` will later read, or the epoch checks in that
+  // function can never fire. Passing no org here used to reconstruct a `NO_ORG`
+  // row at epoch 1, which is why a role change or password reset failed to revoke
+  // sessions issued by this very path (docs/GAP-REGISTER.md §31).
+  const identity = await resolveIdentityForAccount(account.id);
   if (!identity) {
     return {
       ok: false,

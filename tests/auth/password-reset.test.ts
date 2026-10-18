@@ -33,7 +33,8 @@ import {
   redeemPasswordReset,
 } from "@/lib/auth/password-reset";
 import { AUTH_SCOPES, read } from "@/lib/auth/store";
-import { verifySession, readSessionCookie } from "@/lib/auth/session";
+import { verifySession, readSessionCookie, issueSession } from "@/lib/auth/session";
+import { NO_ORG } from "@/lib/auth/identity";
 import { loginWithPassword } from "@/lib/auth/guards";
 import { POST as requestPOST } from "@/app/api/auth/reset/route";
 import { POST as confirmPOST } from "@/app/api/auth/reset/confirm/route";
@@ -230,24 +231,26 @@ test("confirm: a spent token cannot also be used to change the password twice", 
   expect(replay.status).toBe(401);
 });
 
-test("CHARACTERIZATION — reset changes the password but does NOT revoke live sessions (gap register §31)", async () => {
-  // This test asserts the defect, not the requirement: it goes RED the day the
-  // revocation starts working, and §31 is where the fix is tracked. It is written
-  // this way on purpose — asserting the desired behaviour would fail CI and stall
-  // the ladder, and asserting it silently *passes* today would be a test that
-  // certifies a promise the code does not keep.
-  //
-  // Measured, not inferred: identity.roleEpoch goes 1 -> 2 under setIdentityPassword
-  // (same accountId, read back through getIdentityByEmail), the session record
-  // carries roleEpoch 1, and verifySession still returns ok:true — so the epoch
-  // guard at src/lib/auth/session.ts:280 is comparing the session against an
-  // identity that is not the one the bump was written to.
+test("reset revokes every live session for the account, including one minted by this reset", async () => {
+  // This is the §31 fix, asserted as the requirement rather than as the gap. The
+  // version of this test that lived here before pinned the defect
+  // (`expect(...ok).toBe(true)` on the old session) and is now inverted on purpose:
+  // a credential change that leaves an attacker's session alive is the whole
+  // reason revocation exists.
   const known = await makeAccount("Analyst", "reset-revoke");
   const before = await makeSession(known);
   expect((await verifySession(readSessionCookie(before.cookie))).ok).toBe(true);
 
   const token = await mint(known.email);
-  const done = await post(confirmPOST, { token, password: STRONG });
+  // The Response itself, not the `post` helper's summary: this test needs the
+  // session cookie the route sets, and `post` discards headers.
+  const done = await confirmPOST(
+    new Request("http://t/api/auth/reset/confirm", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ token, password: STRONG }),
+    }),
+  );
   expect(done.status).toBe(200);
 
   const oldTry = await loginWithPassword(known.email, TEST_PASSWORD);
@@ -255,8 +258,51 @@ test("CHARACTERIZATION — reset changes the password but does NOT revoke live s
   const newTry = await loginWithPassword(known.email, STRONG);
   expect(newTry.ok).toBe(true);
 
-  // The gap: the credential is recovered, the session an attacker may hold is not.
-  expect((await verifySession(readSessionCookie(before.cookie))).ok).toBe(true);
+  // The session that existed before the reset is gone.
+  const after = await verifySession(readSessionCookie(before.cookie));
+  expect(after.ok, "a session issued before a password reset still verifies").toBe(false);
+  if (!after.ok) expect(after.reason).toBe("revoked");
+
+  // And the session the reset itself issued works. This half is not a bonus: the
+  // route used to mint from the identity read BEFORE the epoch bump, so the fresh
+  // session carried a stale `roleEpoch` and failed the same guard that revoked the
+  // old one — the owner would have been locked out by their own reset.
+  const freshCookie = done.headers.get("set-cookie") ?? "";
+  expect(freshCookie).toContain("sv_session=");
+  const fresh = await verifySession(readSessionCookie(freshCookie));
+  expect(fresh.ok, "the session minted by a successful reset does not verify").toBe(true);
+});
+
+test("reset also revokes a session minted the old way, with no org bound to it", async () => {
+  // The case the fix above cannot reach, and the reason the per-account sweep
+  // exists at all.
+  //
+  // Before §31 was fixed, password login, magic-link redemption and this reset all
+  // resolved the identity with no org, so every session they issued carried
+  // `orgId: NO_ORG` and verified against a RECONSTRUCTED epoch-1 row rather than
+  // the stored one (src/lib/auth/session.ts:275 reads by the session's own org).
+  // Those rows still exist in production after the deploy: bumping the real row's
+  // `roleEpoch` cannot revoke them, because the reconstruction they check against
+  // never changes. Enumerating sessions by accountId — sessions are keyed that way,
+  // unlike identities — is the only mechanism that can.
+  const known = await makeAccount("Analyst", "reset-legacy-session");
+  const legacy = await issueSession({
+    identity: { ...known.identity, orgId: NO_ORG },
+    method: "password",
+  });
+  const cookie = `sv_session=${legacy.token}`;
+  expect(
+    (await verifySession(readSessionCookie(cookie))).ok,
+    "the unbound session should verify before the reset",
+  ).toBe(true);
+
+  const token = await mint(known.email);
+  const done = await post(confirmPOST, { token, password: STRONG });
+  expect(done.status).toBe(200);
+
+  const after = await verifySession(readSessionCookie(cookie));
+  expect(after.ok, "a session with no org bound to it survived a password reset").toBe(false);
+  if (!after.ok) expect(after.reason).toBe("revoked");
 });
 
 test("confirm: success is Cache-Control no-store, so a reset response cannot be cached", async () => {

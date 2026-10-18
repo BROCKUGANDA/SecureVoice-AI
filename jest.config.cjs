@@ -37,7 +37,11 @@ const createJestConfig = nextJest({
 /** @type {import('jest').Config} */
 const config = {
   displayName: "views",
-  testEnvironment: "jsdom",
+  // jsdom plus the WHATWG fetch globals, so `src/lib/auth-client.ts` can build an
+  // auth client inside a test. Plain `jsdom` made every suite that renders the
+  // console die at import; see tests-jest/environment-jsdom-fetch.cjs for why this
+  // is a realm bridge and not a polyfill.
+  testEnvironment: "<rootDir>/tests-jest/environment-jsdom-fetch.cjs",
   /**
    * v8, not babel — and the reason is comparability, not speed. `bun test
    * --coverage` (the other half of scripts/coverage.mjs) is V8 block coverage, so
@@ -79,4 +83,34 @@ const config = {
   testTimeout: 20000,
 };
 
-module.exports = createJestConfig(config);
+const built = createJestConfig(config);
+
+/**
+ * Replace `transformIgnorePatterns`, which is the only way to get here at all.
+ *
+ * `better-auth/client/react` is ESM-only (`dist/client/react/index.mjs`, no CJS
+ * build and no `exports` entry to point at one), so requiring it under a CommonJS
+ * test run dies with `ERR_REQUIRE_ESM` at `src/lib/auth-client.ts:29`. The fix is
+ * to let swc compile the vendor module. Appending an allow-pattern is NOT that
+ * fix, and this was measured rather than assumed: next/jest puts its own
+ * `/node_modules/…` ignore FIRST and the list is a union — a path ignored by any
+ * entry is never transformed — and its source says the quiet part out loud:
+ * "Custom config can append to transformIgnorePatterns but not modify it"
+ * (node_modules/next/dist/build/jest/jest.js:229). So the emitted array is
+ * rewritten here, after next/jest has built it.
+ *
+ * The allowlist is a chain, not a package: `better-auth` pulled in
+ * `@better-auth/core`, which pulled in `nanostores`. That is the honest cost of
+ * this shape, and it is why the entry is anchored on `node_modules[\\/]` with
+ * `[\\/]` and not `/`: jest matches the RESOLVED path, so a forward-slash-only
+ * pattern silently never matches on Windows and un-ignores the whole tree, green
+ * locally and different in CI.
+ */
+module.exports = async () => {
+  const jestConfig = await built();
+  jestConfig.transformIgnorePatterns = [
+    String.raw`node_modules[\\/](?!(@?better-auth|nanostores)[\\/])`,
+    String.raw`^.+\.module\.(css|sass|scss)$`,
+  ];
+  return jestConfig;
+};

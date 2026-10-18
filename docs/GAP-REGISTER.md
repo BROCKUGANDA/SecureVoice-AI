@@ -2459,3 +2459,67 @@ that could not reach a third party turned the same commit green and red. A gate 
 only be satisfied by somebody else's API is not a gate. The offline checks stay where they
 are — HEAD-blob equality, integer run id, monotonic floor history — and this corroboration
 is recorded here instead of executed on every push.
+
+### 41. The LLM proxy was described as inert while it restart-looped, and wiring it would have added a fallback that fails with its own primary
+
+Reported as a crash loop (`RestartCount=7230`, exit 0, `restart: unless-stopped`).
+The container's own log says why: current litellm refuses to boot without a strong
+`LITELLM_MASTER_KEY`, and the compose file supplies only `LITELLM_API_KEY`
+interpolated from a `.env` that has no `LITELLM_*` variables at all.
+
+**The declared state and the real state were different things.** The comment above
+the service read:
+
+> No upstream provider is configured here on purpose: this service is inert until
+> `LITELLM_API_KEY` is set in `.env` AND a model is registered on the proxy.
+
+"Inert" describes a container that comes up and serves nothing. What it actually did
+was exit and restart, forever, on every `docker compose up -d` that included it. Same
+class as §32's "rolled but never built": a file asserting a property the running
+system does not have. Two more in the same block: the comment called the image
+"`main-lite`, the slim image" while the line below it pinned `main-latest` — a moving
+dev tag, the exact thing §36 just removed from the build — and `.env.example` told the
+next operator to set `LITELLM_BASE_URL` to `host:port`, "NOT a /v1 path", while
+`src/lib/adapters/llm-adapter.ts:282` POSTs to that value verbatim, so following the
+advice would 404 every call.
+
+**"Just wire it" was checked before it was done, and it does not hold.** The value of
+a second rung is failing independently of the first, and measured on the production
+host it cannot:
+
+- no GPU (`nvidia-smi` absent), so the default `llama-3.3-70b-instruct` cannot be
+  self-hosted there;
+- the only live inference key on the box is `GROQ_API_KEY`; it serves
+  `qwen/qwen3.8-27b` (HTTP 200) and 404s `llama-3.3-70b-versatile`;
+- `src/lib/llm.ts:162` adds the `lite_llm` rung only when the key is set, and
+  `providerLadder` orders it after `groq`.
+
+So a proxy fronting Groq is rung 2 sharing rung 1's vendor, key, rate limit and model:
+it fails in precisely the outage a fallback exists for, and adds an 8s hop inside a
+latency-budgeted voice turn (`src/lib/llm.ts` refuses to start an attempt the turn
+cannot finish, so the cost is dead air the customer hears). Setting the key would also
+have reached beyond the console: `voice-stream-worker` takes `LITELLM_API_KEY` and
+`LITELLM_BASE_URL` too, so the change would touch the live-call path, while the `app`
+service passes no `LITELLM_*` at all and could not see it.
+
+**What shipped instead**, all of it reversible and none of it a credential decision:
+
+- the service is behind `profiles: ["llm-proxy"]`, so a plain `up -d` cannot start a
+  proxy that has nothing to serve. `checkBoxInventory` already treats profiled
+  services as deliberately absent, so this stays visible in the inventory rather than
+  looking like the `overage-worker` failure mode it was written for;
+- the image is pinned to the digest actually running
+  (`sha256:af8050ea…`, built 2026-10-09), with the tag it came from recorded beside
+  it, so the vendor cannot move under the deployment;
+- `LITELLM_MASTER_KEY` is now a named knob with an empty default and a comment saying
+  it must be generated and stored, plus why `:?` was not used: compose interpolates
+  regardless of `--profile`, so a hard failure would break `compose config` for every
+  caller, not just an opt-in run;
+- `.env.example` and the compose block carry the measurement above, and the base-URL
+  advice is corrected to the full `/v1/chat/completions` path.
+
+**Left for the owner, deliberately not guessed.** Turning this into a working rung
+needs an upstream distinct from the one rung 1 uses — a second provider key, or a GPU
+host — and a generated master key. `secrun` reads secrets and cannot create one, so
+the value has to be stored by an operator; nothing in this repo should carry it in
+plaintext. Until then the honest configuration is the one that no longer restarts.

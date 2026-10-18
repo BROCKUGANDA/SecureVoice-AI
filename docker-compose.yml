@@ -418,15 +418,46 @@ services:
   #   Â· customer transcripts are bank-customer PII, which should stay inside
   #     this deployment's boundary rather than a third party that trains on it.
   #
-  # `main-lite` is the slim image — it carries the proxy and the model registry,
-  # not every provider SDK. Point LITELLM_MODEL at whatever the proxy serves;
-  # the default (llama-3.3-70b-instruct) is permissively licensed and covers the
-  # languages this agent speaks (ar, hi, ur, fr, sw).
+  # The proxy is OPT-IN via a compose profile, and it is pinned by digest.
   #
-  # No upstream provider is configured here on purpose: this service is inert
-  # until LITELLM_API_KEY is set in .env AND a model is registered on the proxy.
+  # Why the profile: this service was defined unconditionally while nothing could
+  # configure it, so `docker compose up -d` started a container that could not
+  # boot and `restart: unless-stopped` looped it — measured on the VPS at
+  # RestartCount=7230. Current litellm refuses to start without a strong
+  # LITELLM_MASTER_KEY, and `.env` on the box has no LITELLM_* variables at all, so
+  # the comment here used to claim ("inert until LITELLM_API_KEY is set AND a model
+  # is registered") described an idle service while the process was crash-looping.
+  # `checkBoxInventory` in scripts/drift-gates.mjs already treats profiled services
+  # as deliberately not running, so this stays visible in the inventory instead of
+  # looking like a rolled-but-absent worker.
+  #
+  # Why the digest: `main-latest` is a moving dev tag. Whatever is deployed has to
+  # be the thing that was tested, and §32 is this repo's record of what "rolled but
+  # never built" costs. Re-resolve the digest deliberately, never implicitly.
+  #
+  # WHAT FULL WIRING ACTUALLY NEEDS, measured 2026-10-18 rather than assumed: a
+  # second rung is only worth having if it fails independently of the first, and this
+  # box cannot provide that today —
+  #   · no GPU (`nvidia-smi` absent), so `llama-3.3-70b-instruct` (the default in
+  #     src/lib/config.ts) cannot be served here;
+  #   · the only live inference key on the box is GROQ_API_KEY, and it serves
+  #     `qwen/qwen3.8-27b` (HTTP 200) while `llama-3.3-70b-versatile` 404s;
+  #   · `src/lib/llm.ts:162` adds this rung only when LITELLM_API_KEY is set, and
+  #     `providerLadder` puts it AFTER groq.
+  # So fronting Groq through the proxy would build a fallback that shares rung 1's
+  # vendor, key, rate limit and model — it fails in exactly the outage it exists for,
+  # and adds an 8s hop to a customer's dead air. Wiring it properly means a DISTINCT
+  # upstream (another provider key, or a GPU host) plus a generated
+  # LITELLM_MASTER_KEY, which `secrun` can read but cannot create: the value has to
+  # be stored by an operator. See docs/GAP-REGISTER.md §41.
+  #
+  # When that exists: `docker compose --profile llm-proxy up -d litellm`, and the
+  # app needs LITELLM_BASE_URL pointing at the FULL completions path
+  # (http://litellm:4000/v1/chat/completions) — `src/lib/adapters/llm-adapter.ts:282`
+  # POSTs to `baseUrl` verbatim, so a bare host would 404 on every call.
   litellm:
-    image: ghcr.io/berriai/litellm:main-latest
+    image: ghcr.io/berriai/litellm@sha256:af8050ea45707c42a0572c5cceaa5cebaa89cee4c5cd0585cf879a529804b898 # was main-latest, built 2026-10-09
+    profiles: ["llm-proxy"]
     restart: unless-stopped
     logging: *default-logging
     mem_limit: 1g
@@ -437,6 +468,14 @@ services:
       # truth, and the same value works whether the caller is this app or a
       # developer's curl.
       LITELLM_API_KEY: ${LITELLM_API_KEY:-}
+      # Current litellm refuses to boot without a master key, which is the exit-0
+      # loop behind the 7230 restarts. Listed empty rather than defaulted, because a
+      # value here would be a plaintext credential in a tracked file: generate it,
+      # store it where this deployment keeps secrets, and set it in .env next to
+      # LITELLM_API_KEY. `:?` is deliberately not used — compose interpolates
+      # regardless of --profile, so a hard failure would break `compose config` for
+      # every caller, not just for an opt-in run.
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-}
       GENERATE_KEYS: "false"
       STORE_MODEL_IN_DB: "false"
       # No telemetry: this deployment carries bank-customer PII and the proxy

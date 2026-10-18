@@ -1310,7 +1310,10 @@ function gitShow(ref, file) {
 }
 
 function parentsOf(ref) {
-  return (repoGit(`git rev-list --parents -n 1 ${ref}`) ?? "").split(/\s+/).filter(Boolean).slice(1);
+  return (repoGit(`git rev-list --parents -n 1 ${ref}`) ?? "")
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(1);
 }
 
 function selfTestAppendOnlyGate() {

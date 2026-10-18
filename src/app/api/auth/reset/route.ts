@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { issuePasswordReset } from "@/lib/auth/password-reset";
 import { getIdentityByEmail } from "@/lib/auth/identity";
+import { isValidEmail } from "@/lib/auth/password";
 import { enqueueAndSendEmail } from "@/lib/email/queue";
 import { AUTH_AUDIT_INTENTS, auditAuthEvent } from "@/lib/auth/audit";
 
@@ -25,7 +26,12 @@ export const dynamic = "force-dynamic";
  *     enumeration oracle by producing a different status code.
  */
 const requestSchema = z.object({
-  email: z.string().trim().min(3).max(254),
+  // `isValidEmail`, not just a length: the 422 below says "a valid email is
+  // required", and until now it accepted `nope`. Malformed input is refused
+  // identically for a registered and an unregistered address, so this does not
+  // create an enumeration channel — the neutral 202 still covers every address
+  // that is shaped like an email, known or not.
+  email: z.string().trim().min(3).max(254).refine(isValidEmail, "not an email address"),
 });
 
 const NEUTRAL = "If that address belongs to an account, a password reset link is on its way.";

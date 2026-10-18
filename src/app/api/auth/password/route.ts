@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { loginWithPassword } from "@/lib/auth/guards";
+import { isValidEmail } from "@/lib/auth/password";
 import { SESSION_COOKIE_ATTRS, SESSION_COOKIE_NAME } from "@/lib/auth/constants";
 
 export const dynamic = "force-dynamic";
@@ -16,7 +17,7 @@ export const dynamic = "force-dynamic";
  * endpoint cannot be used to enumerate staff addresses.
  */
 const loginSchema = z.object({
-  email: z.string().trim().min(3).max(254),
+  email: z.string().trim().min(3).max(254).refine(isValidEmail, "not an email address"),
   password: z.string().min(1).max(200),
 });
 

@@ -1847,3 +1847,145 @@ times before it ever reached the roll step, each time at `Refuse to deploy an un
 commit`. That gate was right every time, and its very correctness kept the broken worker
 image from being exercised. The incident is not caused by the ladder stalling; it is caused
 by a check that had never been run end-to-end since the stage split.
+
+### 31. A password reset revokes nothing, because the email path and the session path do not read the same identity row
+
+`tests/auth/password-reset.test.ts:233` is a **characterization test**: it asserts the
+behavior that exists, not the behavior that should, and it is labelled as a gap so it cannot
+be mistaken for a pass. The observable defect is one line — after a successful reset, the
+session issued before the reset still verifies:
+
+```
+const before = await makeSession(known);          // live session, real orgId
+const token = await mint(known.email);            // reset link
+await post(confirmPOST, { token, password: STRONG });   // 200, password changed
+// oldTry fails, newTry succeeds — the credential is recovered.
+(await verifySession(readSessionCookie(before.cookie))).ok  // STILL true
+```
+
+The revocation machinery is real and correct in isolation. `setIdentityPassword`
+(`src/lib/auth/identity.ts:270`) bumps `roleEpoch` and `verifySession`
+(`src/lib/auth/session.ts:280`) refuses any session whose recorded epoch differs from the
+identity's current epoch. What is broken is **which row gets the bump**:
+
+1. The confirm route resolves the user with `getIdentityByEmail` (`identity.ts:131`), which
+   calls `getIdentity(account.id)` **with no org**, so `orgOrDefault` keys the read at
+   `NO_ORG` (`identity.ts:86,104`).
+2. The row the invite path actually wrote is keyed at the member's real org, so read #1
+   misses and `getIdentity` reconstructs from `Account` — with `roleEpoch: 1` and
+   `orgId: NO_ORG` (`identity.ts:118-127`).
+3. `setIdentityPassword` writes the bumped epoch back to the key derived from that
+   reconstructed identity — still `NO_ORG`. The row at the real org is untouched.
+4. `verifySession` reads `getIdentity(record.accountId, record.orgId)`. The session carries
+   the real org, so it reads the row that never changed, and the epoch matches.
+
+So `identity.ts:138-139`'s comment — "Email is globally unique on Account, so the identity
+row is unambiguous even though we do not know the org yet" — is the whole bug in one
+sentence. Email uniqueness identifies the _account_; it says nothing about which **org-keyed
+identity row** is authoritative, and for a multi-org-keyed store the two are different lookups.
+
+The reconstruction path makes this worse rather than safer: a store miss does not fail, it
+silently returns a _plausible_ identity with epoch 1, so a wrong key is indistinguishable
+from a restored database.
+
+**Fix, when taken:** one identity key and one read path. Either the identity is per-account
+and `orgId` is a claim inside it (then `AUTH_SCOPES.identity` must be keyed by account alone
+and `listOrgMembers` reads a membership table), or it is per-account-org and
+`getIdentityByEmail` must resolve memberships before it can return one identity. The second
+is the truth of this schema; the first is what the code currently assumes. Decide, then flip
+the characterization test to `expect(after.ok).toBe(false)`. Related: §30's TLS anchor and
+§23's telemetry predicate are both "a statement and a mechanism treated as the same object".
+
+### 32. Two ways a green deploy lies: the box pulled dev onto main, and a rolled service that is never built
+
+Both found on 2026-10-17 while trying to ship the §30 fix. Both let a deploy look healthy
+while production was broken, and neither was visible from the workflow's own status.
+
+**(a) Production's checkout was on dev's history.** Run `39079194714` died ~2 seconds into
+`Build, migrate and roll the live stack`, before any build, with
+`git merge --ff-only refused to roll ~/securevoice-ai forward`. The box's reflog names the
+cause exactly:
+
+```
+1f53e0a refs/heads/main@{0}: pull origin dev: Fast-forward
+6a7a2e1 refs/heads/main@{1}: pull origin dev: Fast-forward
+```
+
+Someone ran `git pull origin dev` while the production checkout was on branch `main`. Git
+fast-forwards a branch onto anything that contains its history, and dev does, so `main` on
+the box _became_ dev's tip. Consequences: production was serving dev's code while reporting
+`box HEAD == origin/main` gates, and no later promotion could fast-forward back — every
+subsequent deploy failed at the pull, including the one carrying the fix for the outage in
+§30. Realigned with `git reset --hard origin/main` after checking that all 20+ local commits
+were already ancestors of `origin/dev` and leaving a backup ref
+(`main-before-realign-20261017`). Tracked files were clean; untracked host-local state
+(`sites.d/*.caddy`, the `Caddyfile.pre-*` backups) survived untouched.
+
+The lesson is not "the deploy gate is broken" — the gate refused loudly and correctly, which
+is the third time in this incident that a check that _worked_ was the thing that made the
+outage visible. The lesson is that the production checkout is not a scratch tree. Debugging
+on the box must happen in a separate clone, not by pulling a development branch into the
+branch the deploy fast-forwards.
+
+**(b) `overage-worker` was rolled but never built, and every gate passed.** The roll list and
+the build list were two literal lists in `deploy.yml` and had drifted: `up -d` named
+`overage-worker` and `outbox-worker`, `build` named neither. Compose therefore reused
+whatever image each service's tag last pointed at — so after the §30 fix deployed and turned
+green, the anchor still was not in `overage-worker`:
+
+```
+securevoice-ai-overage-worker-1  anchor=NO  started=2026-10-17T13:40:59Z   (deploy was 23:40)
+{"msg":"[overage-worker] run failed","error":" Invalid `prisma.paddleSubscription.findMany()` invocation …
+  ENOENT: no such file or directory, open 'supabase-ca.crt'"}
+```
+
+`checkBoxImageConformance` could not see it: it asks whether the running image is _tagged by
+something_, and a stale image is still tagged. §1's inventory gate could not see it either —
+`overage-worker` is correctly classified as rolled, which is exactly what made the omission
+look intentional. Fixed by making the two lists one `ROLLED=(…)` array expanded by both
+commands, and by `checkBuildRollSymmetry` in `scripts/drift-gates.mjs`, whose self-test
+carries seven controls including the restored 2026-10-17 shape. Verified: rolled both
+services by hand at 23:43, `anchor=YES`, one full sweep
+(`enabled=false candidates=0 billed=0`) and zero `ENOENT` across every container.
+
+**(c) Correcting two numbers I reported earlier, because they were measured against the
+wrong database.** "migrations 31, attribution columns 0" came from the compose `db`
+container, not the Supabase datasource the app actually connects to (`[db] pool budget …
+"kind":"managed-supabase"`). Measured against the real datasource after the deploy:
+`_prisma_migrations` 63 rows, `9zzz…audit_attribution` `finished_at =
+2026-10-17T23:39:54.707Z` (this deploy), `AuditLog.ipHash` and `AuditLog.requestId` present,
+`bunx prisma migrate status` → "Database schema is up to date!", `/api/health` → `version
+0.2.28`, `ok:true`. Attribution is not merely a column: the one row written by a request I
+made after the roll carries a real hash and request id
+
+```
+{"action":"consent","ipHash":"4767e370…","requestId":"dc90b013…","createdAt":"2026-10-17T23:47:20.539Z"}
+```
+
+while the rows from before the migration are `NULL`, which is the documented, intended
+backward compatibility in the migration itself. A schema check that stops at "the column
+exists" would have reported this as done one deploy earlier than it actually became true.
+
+**(d) The same trap one layer down: a CI assertion that could only be true on one commit.**
+The red that #115 hit was not the worker fix. It was `tests/tools/coverage-floor.test.ts`,
+which proves the coverage floor records a real commit, and it asserted
+`git cat-file -t <at>` under `actions/checkout`'s default `fetch-depth: 1`. A depth-1
+checkout contains exactly one commit — HEAD — so that assertion held on precisely the one
+run whose HEAD _was_ `8fef2be` (the commit whose CI run measured 65.08%) and failed on every
+run after it. A test that verifies itself is not a gate.
+
+The floor data was never wrong: `8fef2bed77ac8733…` is the `head_sha` of run 39068558091 and
+is still an ancestor of dev. Fixed by giving that job `fetch-depth: 0` (837 commits,
+61.5 MiB packed — measured, not guessed) and by strengthening the claim from "the object
+exists" to "the object is an **ancestor** of HEAD", which is what "this number came from a
+measurement inside this history" actually asserts. A shallow checkout now fails with an
+explanation instead of passing vacuously. Mutation-proved: `at` set to a real non-ancestor
+(`origin/chore/release-v0.2.29`) → red; `at` set to `deadbee` → red; restored
+byte-identical → 8 pass.
+
+**(e) The gate and the workflow file have to land together.** Pre-flighting the new box gate
+against the box's _old_ `deploy.yml` produced a fresh failure mode worth recording: the
+previous parser read the line literally and asked compose for a container named
+`${ROLLED[@]}` — `/bin/sh: 1: Bad substitution`. Both files change in one commit and a deploy
+always runs the pair from a single checkout, so CI cannot reach the mismatched state; but
+cherry-picking either file alone would redden the deploy's box gate.

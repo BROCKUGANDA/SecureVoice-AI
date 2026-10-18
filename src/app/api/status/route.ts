@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { twilioMode, env, SUPPORTED_LANGS } from "@/lib/config";
+import { UI_LANGS } from "@/lib/i18n/registry";
 import { deployedVersion } from "@/lib/release-version";
 import { APP_VERSION } from "@/lib/version";
 import { requireOperator } from "@/lib/credits";
@@ -77,7 +78,11 @@ export async function GET() {
       canContactRealNumbers: env.canContactRealNumbers,
       dbLatencyMs,
       voiceProvider,
-      languages: [...SUPPORTED_LANGS],
+      // Two fields, because the two sets answer different questions and a single
+      // `languages` key read as "the product speaks six and shows six". The
+      // interface is English and Arabic; a call and an SMS are delivered in six.
+      interfaceLanguages: [...UI_LANGS],
+      deliveryLanguages: [...SUPPORTED_LANGS],
       ingest: env.webhookSecret ? "armed" : "unconfigured (set WEBHOOK_SECRET)",
       webhookIngest: {
         configured: Boolean(process.env.ELEVENLABS_WEBHOOK_SECRET),

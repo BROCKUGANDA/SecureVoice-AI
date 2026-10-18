@@ -7,53 +7,92 @@
  * picker and receives a page that is entirely English except the flag, and
  * nothing anywhere records that the two disagree.
  *
- * So the invariant is stated as a TABLE rather than left implicit:
+ * The product rule this file now enforces, decided 2026-10-18:
  *
- *   1. every language the picker offers appears in the registry (a picker entry
- *      with no registry entry cannot be resolved, and `resolveUiLang` would
- *      silently downgrade it to English at runtime);
- *   2. every registry language is offered by the picker;
- *   3. `TRANSLATED_UI_LANGS` is exactly the set `t()` will render in something
- *      other than English — i.e. a language may not be ADDED to the translated
- *      set without strings existing, and may not be translated without declaring
- *      it;
- *   4. every language with a glossary declares where its terminology came from,
- *      because "we translated it ourselves" is how banking vocabulary ends up
- *      meaning something subtly different in a regulator's hands;
- *   5. the VOICE language set and the UI language set are compared explicitly,
- *      and any difference is a deliberate, visible one. They are currently the
- *      same six, but they answer different questions and conflating them is the
- *      mistake this test exists to catch.
+ *   THE INTERFACE IS ENGLISH AND ARABIC. A CALL AND AN SMS ARE DELIVERED IN SIX.
  *
- * Point 5 is why this file is not just a copy of SUPPORTED_LANGS: the voice
- * layer can speak a language the interface cannot render, and when that happens
- * the operator-visible fix is to translate the UI, not to hide the voice option.
+ * That is not a downgrade of the delivery layer — hi/ur/fr/sw keep their
+ * hand-written phone and SMS copy (src/lib/outreach-copy.ts, src/lib/twilio.ts,
+ * the scenario packs). What they never had, and were never supposed to advertise,
+ * is a translated screen. Until this rule, `UI_LANGS` was written out as six codes
+ * next to `TRANSLATED_UI_LANGS` of two, the picker offered six buttons, and four of
+ * them silently rendered English. The invariants:
+ *
+ *   1. the picker offers exactly the languages that are translated — and it is
+ *      DERIVED from that set, so offering an untranslated language is not a
+ *      test failure but a compile-time absence: there is no other way to add a
+ *      button to the header;
+ *   2. every language the interface offers exists in the spoken set (an
+ *      untranslated screen is a bug; an unspellable one is nonsense);
+ *   3. the four spoken-but-not-interface languages are asserted by name, so a
+ *      fifth picker button is a deliberate edit here and nowhere else;
+ *   4. every SPOKEN language still declares where its banking/AML terminology
+ *      would come from, because "we translated it ourselves" is how domain
+ *      vocabulary ends up meaning something subtly different in a regulator's
+ *      hands;
+ *   5. `resolveUiLang` sends a Hindi browser to English — the browser's language
+ *      is not a claim the interface can honour, and the old expectation
+ *      (`resolveUiLang("HI") === "hi"`) was the bug, not the spec.
+ *
+ * Point 5 is why this file is not just a copy of SUPPORTED_LANGS: the voice layer
+ * speaks a language the interface cannot render, and the honest outcome is a Hindi
+ * call plus an English screen — stated in code, tested in both directions.
  */
 import { describe, expect, test } from "bun:test";
 import {
+  ARABIC_SCRIPT_LANGS,
   GLOSSARY_STATUS,
   TRANSLATED_UI_LANGS,
   UI_LANG_BCP47,
   UI_LANG_LABEL,
+  UI_LANG_SHORT,
   UI_LANGS,
   isUiLangTranslated,
   resolveUiLang,
-  type UiLang,
 } from "@/lib/i18n/registry";
-import { SUPPORTED_LANGS } from "@/lib/languages";
+import { SUPPORTED_LANGS, type Lang } from "@/lib/languages";
 import { t } from "@/lib/store";
 
+/** Spoken on the phone and written in SMS, but never offered as a screen. */
+const DELIVERY_ONLY: readonly Lang[] = ["hi", "ur", "fr", "sw"];
+
 describe("UI language registry", () => {
-  test("every offered language is registered, and every registered language is offered", () => {
+  test("the picker offers exactly the translated languages, derived not duplicated", () => {
+    // The derivation IS the rule. If `UI_LANGS` is ever written out as its own
+    // literal again, this fails and someone has to decide on purpose.
+    expect([...UI_LANGS].sort()).toEqual([...TRANSLATED_UI_LANGS].sort());
+    // Every label the header can draw exists for every offered language, from
+    // both directions, so adding a language to one list and forgetting the other
+    // fails here rather than rendering an undefined pill.
+    const offered = [...UI_LANGS].sort();
+    expect(Object.keys(UI_LANG_LABEL).sort()).toEqual(offered);
+    expect(Object.keys(UI_LANG_SHORT).sort()).toEqual(offered);
+    expect(Object.keys(UI_LANG_BCP47).sort()).toEqual(offered);
     for (const lang of UI_LANGS) {
       expect(UI_LANG_LABEL[lang], `${lang} has no label`).toBeTruthy();
       expect(UI_LANG_BCP47[lang], `${lang} has no BCP-47 tag`).toBeTruthy();
-      expect(GLOSSARY_STATUS[lang], `${lang} has no glossary provenance`).toBeTruthy();
     }
-    // The label map and the list are the same set, from both directions, so
-    // adding a language to one and forgetting the other fails here.
-    expect(Object.keys(UI_LANG_LABEL).sort()).toEqual([...UI_LANGS].sort());
-    expect(Object.keys(GLOSSARY_STATUS).sort()).toEqual([...UI_LANGS].sort());
+  });
+
+  test("the interface pair is English and Arabic, and nothing else", () => {
+    // Pinned by value, so widening the palette is a deliberate edit to this line
+    // rather than a side effect of adding a voice language.
+    expect([...UI_LANGS].sort()).toEqual(["ar", "en"]);
+  });
+
+  test("glossary provenance covers every SPOKEN language, not just the screen", () => {
+    // This is the question that has to be answered BEFORE a language can join the
+    // interface: is there a citable source for "card freeze" and "unauthorised
+    // transaction" in it. Keyed by the spoken set so the four delivery-only
+    // languages keep their recorded answer instead of going unasserted.
+    expect(Object.keys(GLOSSARY_STATUS).sort()).toEqual([...SUPPORTED_LANGS].sort());
+    for (const lang of SUPPORTED_LANGS) {
+      expect(GLOSSARY_STATUS[lang].status, `${lang} declares no glossary source`).toBeOneOf([
+        "authoritative",
+        "translator-required",
+      ]);
+      expect(GLOSSARY_STATUS[lang].note, `${lang} has an empty glossary note`).toBeTruthy();
+    }
   });
 
   test("the translated set is exactly what t() will render as non-English", () => {
@@ -81,11 +120,9 @@ describe("UI language registry", () => {
   });
 
   test("only Arabic is translated today, and that is recorded rather than implied", () => {
-    // Pinned so that adding a language is a DELIBERATE edit to this expectation,
-    // which is when the glossary decision should be revisited.
     expect([...TRANSLATED_UI_LANGS].sort()).toEqual(["ar", "en"]);
     // The three whose domain vocabulary is absent from their own Wikipedia.
-    for (const lang of ["hi", "ur", "sw"] as UiLang[]) {
+    for (const lang of ["hi", "ur", "sw"] as Lang[]) {
       expect(GLOSSARY_STATUS[lang].status, `${lang} glossary source`).toBe("translator-required");
     }
     // French is the exception: its banking/AML vocabulary IS documented, so it
@@ -106,10 +143,10 @@ describe("UI language registry", () => {
     expect(GLOSSARY_STATUS.sw.note).toContain("sw.wikipedia");
   });
 
-  test("resolveUiLang accepts tags, sub-tags and junk, and never invents a language", () => {
+  test("resolveUiLang offers a screen only when it can render one", () => {
     expect(resolveUiLang("ar-AE")).toBe("ar");
-    expect(resolveUiLang("HI")).toBe("hi");
-    expect(resolveUiLang("sw_KE")).toBe("sw");
+    expect(resolveUiLang("ar")).toBe("ar");
+    expect(resolveUiLang("en-GB")).toBe("en");
     expect(resolveUiLang("pt-BR")).toBe("en");
     expect(resolveUiLang("")).toBe("en");
     expect(resolveUiLang(null)).toBe("en");
@@ -117,23 +154,60 @@ describe("UI language registry", () => {
     for (const lang of UI_LANGS) {
       expect(resolveUiLang(lang)).toBe(lang);
     }
+    // The four delivery-only languages resolve to English. This is the customer-
+    // visible half of the rule: a Hindi browser gets an English interface, and it
+    // is asserted rather than fallen-into, because the previous version of this
+    // test demanded `resolveUiLang("HI") === "hi"` — which is precisely how a
+    // visitor ended up on an English page wearing a हिन्दी button.
+    for (const lang of DELIVERY_ONLY) {
+      expect(resolveUiLang(lang), `${lang} must not be offered as a screen`).toBe("en");
+      expect(resolveUiLang(`${lang}-XX`)).toBe("en");
+    }
+    expect(resolveUiLang("HI")).toBe("en");
+    expect(resolveUiLang("sw_KE")).toBe("en");
+    expect(resolveUiLang("ur-PK")).toBe("en");
   });
 
-  test("the voice set and the UI set are compared explicitly", () => {
-    // They answer different questions: SUPPORTED_LANGS is "what can the agent
-    // speak", UI_LANGS is "what can the interface render". They coincide today.
-    // When they stop coinciding the difference is intentional, so this records
-    // it rather than letting one quietly drift from the other.
-    const voice = new Set<string>(SUPPORTED_LANGS);
+  test("the spoken set and the interface set differ by exactly the four delivery languages", () => {
+    // THE point of this file. Two sets answer two questions: SUPPORTED_LANGS is
+    // "what can the agent speak and the SMS carry", UI_LANGS is "what can the
+    // interface render". They are NOT equal, and the difference is the product
+    // rule, so it is asserted in both directions by name rather than allowed to
+    // drift either way.
+    const spoken = new Set<string>(SUPPORTED_LANGS);
     const ui = new Set<string>(UI_LANGS);
-    const voiceOnly = [...voice].filter((l) => !ui.has(l));
-    const uiOnly = [...ui].filter((l) => !voice.has(l));
-    console.log(
-      `[i18n] voice languages: ${voice.size}, UI languages: ${ui.size}` +
-        (voiceOnly.length ? `, spoken but not offered in the UI: ${voiceOnly.join(", ")}` : "") +
-        (uiOnly.length ? `, offered but not spoken: ${uiOnly.join(", ")}` : ""),
-    );
-    expect(voiceOnly, "a spoken language vanished from the UI picker").toEqual([]);
-    expect(uiOnly, "the UI offers a language the agent cannot speak").toEqual([]);
+
+    // No screen language may be unspellable.
+    const uiOnly = [...ui].filter((l) => !spoken.has(l));
+    expect(uiOnly, "the interface offers a language the voice layer cannot speak").toEqual([]);
+
+    const spokenOnly = [...spoken].filter((l) => !ui.has(l)).sort();
+    expect(spokenOnly, "the spoken-but-not-shown set changed; that is a product decision").toEqual([
+      "fr",
+      "hi",
+      "sw",
+      "ur",
+    ]);
+    expect(spokenOnly).toEqual([...DELIVERY_ONLY].sort());
+
+    // And the four really are still delivered — shrinking the screen must not have
+    // quietly deleted the phone and SMS capability. Membership in the spoken set is
+    // what every delivery table is keyed by, so this is the guard against a cut made
+    // in the wrong file.
+    for (const lang of DELIVERY_ONLY) {
+      expect(SUPPORTED_LANGS).toContain(lang);
+    }
+  });
+
+  test("the Arabic-script set is a property of the script, not of the palette", () => {
+    // `ur` needs the Arabic webfont and is not an interface language. If this ever
+    // reads as a mistake, the thing to change is the font rule's keying, not the
+    // palette.
+    expect([...ARABIC_SCRIPT_LANGS].sort()).toEqual(["ar", "ur"]);
+    for (const lang of ARABIC_SCRIPT_LANGS) {
+      expect(SUPPORTED_LANGS).toContain(lang);
+    }
+    expect(ARABIC_SCRIPT_LANGS).toContain("ur");
+    expect([...UI_LANGS]).not.toContain("ur");
   });
 });

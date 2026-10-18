@@ -12,15 +12,6 @@ export const SUPPORTED_LANGS = ["en", "ar", "hi", "ur", "fr", "sw"] as const;
 
 export type Lang = (typeof SUPPORTED_LANGS)[number];
 
-export const LANG_LABEL: Record<Lang, string> = {
-  en: "English",
-  ar: "العربية",
-  hi: "हिन्दी",
-  ur: "اردو",
-  fr: "Français",
-  sw: "Kiswahili",
-};
-
 /**
  * Resolve whatever the bank sent (`en`, `ar-AE`, `es_MX`) to a language the
  * voice tables actually have.

@@ -31,6 +31,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
 import { slaSeconds } from "@/lib/config";
+import { UI_LANGS } from "@/lib/i18n/registry";
 import { DEFAULT_RETENTION_DAYS } from "@/lib/privacy/retention";
 
 const ROOT = process.cwd();
@@ -334,7 +335,16 @@ describe("published claims — nothing shipped that the tree refutes", () => {
     expect(jsonLd.length).toBeGreaterThan(500);
     // The union the code actually has, asserted as the shipped list — so a language can be
     // added to the marketing array without being added to `TtsLang` and still fail here.
-    expect(jsonLd).toContain('inLanguage: ["en", "ar", "hi", "ur", "fr", "sw"]');
+    //
+    // Derivation, not a pinned literal: `inLanguage` is the language of the CONTENT an
+    // engine indexes — the site and the console — so it must come from the interface
+    // palette. Typing the codes here is exactly how the surface drifted from the code
+    // once already (it claimed six languages for a two-language interface).
+    expect(jsonLd).toContain("inLanguage: [...UI_LANGS]");
+    // A hardcoded language-code array in the schema block is the regression this catches.
+    expect(jsonLd).not.toMatch(/inLanguage:\s*\[[^\]]*["'](hi|ur|fr|sw)["']/);
+    // The palette it claims is the palette the product renders in: English and Arabic.
+    expect([...UI_LANGS].sort()).toEqual(["ar", "en"]);
     expect(jsonLd).not.toMatch(/"tl"|"ml"|"bn"/);
   });
 

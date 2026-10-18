@@ -62,7 +62,11 @@ import "server-only";
 
 import { transcript as redactText } from "@/lib/redact";
 import { asksForCredential } from "@/lib/compliance/credential-ask";
-import type { Lang } from "@/lib/store";
+// The SPOKEN set, not the interface palette. This module guards what the agent
+// says on a call, and a call runs in six languages while the screen behind it
+// renders two. It used to import `Lang` from `@/lib/store`, which was safe only
+// while the two unions happened to be textually identical.
+import type { Lang } from "@/lib/languages";
 
 export const OPENING_DISCLOSURE_EN = "This call is recorded to protect you";
 export const OPENING_DISCLOSURE_AR = "هذه المكالمة مسجلة لحمايتك";

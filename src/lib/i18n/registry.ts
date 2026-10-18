@@ -1,15 +1,15 @@
 /**
- * UI language registry — which languages EXIST and which are actually TRANSLATED.
+ * UI language registry — which languages the INTERFACE can render.
  *
  * ── Why this file exists ─────────────────────────────────────────────────────
  *
  * The voice layer has spoken all six languages for a while: `SUPPORTED_LANGS`
  * in src/lib/languages.ts carries en/ar/hi/ur/fr/sw, and the agent speaks the
  * opening disclosure, the freeze confirmation and the handoff in each. The UI
- * had only two (`Lang = "en" | "ar"`), because a four-language UI is four
- * thousand translations and nobody had committed to them.
+ * has two (`UiLang = "en" | "ar"`), because a four-language UI is four thousand
+ * translations and nobody had committed to them.
  *
- * The tempting shortcut is to widen the `Lang` union and let the four new
+ * The tempting shortcut is to widen the `UiLang` union and let the four new
  * languages fall through to English. That is what this file exists to make
  * IMPOSSIBLE to do quietly:
  *
@@ -20,17 +20,26 @@
  *   · Nothing tracked the gap, so "the language picker offers six" read as
  *     "the product speaks six".
  *
- * So the registry separates the two questions. `UI_LANGS` is what the product
- * can speak on the phone. `TRANSLATED_UI_LANGS` is what the interface has
- * actually been translated into, and `t()` consults the latter. A language
- * cannot appear in the picker without also declaring whether it is translated,
- * and tests/translations-coverage.test.ts fails if the picker and the
- * translation set disagree in either direction.
+ * So the registry separates the two questions, and the split is now a product
+ * rule rather than an accident of progress: **the interface is English and
+ * Arabic; a phone call and an SMS are delivered in six.** `UI_LANGS` is derived
+ * from `TRANSLATED_UI_LANGS` instead of being written next to it, so adding a
+ * language to the picker is impossible without also shipping its translations —
+ * the invariant `tests/translations-coverage.test.ts` used to have to assert.
+ *
+ * The two sets stay distinct types on purpose. A value typed `Lang` (spoken) may
+ * legitimately be `ur` and must NOT be handed to a UI render path; a value typed
+ * `UiLang` may only ever be `en` or `ar`. Before this split the unions were
+ * textually identical, so every voice path that imported the store's `Lang`
+ * type-checked while the two concepts had already diverged in behaviour.
  *
  * ── On the four untranslated languages ───────────────────────────────────────
  *
- * The glossary work behind adding hi/ur/fr/sw surfaced something worth recording
- * here, because it changes how the translation should be sourced:
+ * They are not second-class: they are spoken on the phone and written in SMS,
+ * with hand-written copy in every delivery table (see src/lib/outreach-copy.ts).
+ * What they lack is interface translation, and the glossary work behind that
+ * surfaced something worth recording here, because it changes how the translation
+ * should be sourced:
  *
  * FRENCH has authoritative references. fr.wikipedia's `Fraude` article is a
  * properly sourced legal entry with the Code de commerce and Code criminel
@@ -49,78 +58,87 @@
  *
  * So scraping "their dictionaries and Wikipedia" cannot produce this glossary.
  * The Hindi/Urdu/Kiswahili banking and AML vocabulary has to come from
- * qualified translators, and `GLOSSARY_STATUS` records that so the next person
- * does not repeat the search.
+ * qualified translators, and `GLOSSARY_STATUS` records that — keyed by the
+ * SPOKEN set, because it describes the terminology of a language the agent can
+ * speak, not of an interface the product can render.
  */
 
-/** A language the interface can be switched to. */
-export type UiLang = "en" | "ar" | "hi" | "ur" | "fr" | "sw";
+import { type Lang, SUPPORTED_LANGS } from "@/lib/languages";
+
+/** A language the interface can be switched to. English and Arabic only. */
+export type UiLang = "en" | "ar";
 
 /** Endonym — the language's name in itself, which is what a picker shows. */
 export const UI_LANG_LABEL: Record<UiLang, string> = {
   en: "English",
   ar: "العربية",
-  hi: "हिन्दी",
-  ur: "اردو",
-  fr: "Français",
-  sw: "Kiswahili",
 };
 
 /** BCP-47, for `<html lang>` and any `Intl` call. */
 export const UI_LANG_BCP47: Record<UiLang, string> = {
   en: "en-GB",
   ar: "ar-AE",
-  hi: "hi-IN",
-  ur: "ur-PK",
-  fr: "fr-FR",
-  sw: "sw-KE",
 };
 
 /**
  * Compact labels for the language pill.
  *
  * The pill is `text-[11.5px]` inside a `shrink-0` cluster, so the full endonym
- * ("Kiswahili", "Français") does not fit without wrapping and breaking the header
- * height — the exact failure the Navbar comment above the nav describes. These
- * are deliberately shorter than `UI_LANG_LABEL` and are NOT a second source of
- * truth for the language's name: the picker shows these, everywhere else shows
- * the endonym.
+ * does not fit without wrapping and breaking the header height — the exact
+ * failure the Navbar comment above the nav describes. These are deliberately
+ * shorter than `UI_LANG_LABEL` and are NOT a second source of truth for the
+ * language's name: the picker shows these, everywhere else shows the endonym.
  */
 export const UI_LANG_SHORT: Record<UiLang, string> = {
   en: "EN",
   ar: "عربي",
-  hi: "हि",
-  ur: "ا",
-  fr: "FR",
-  sw: "SW",
 };
 
-/** Languages whose script needs the Arabic webfont, not the Latin one. */
-export const ARABIC_SCRIPT_LANGS: readonly UiLang[] = ["ar", "ur"];
-
-/** Every language the picker may offer. */
-export const UI_LANGS: readonly UiLang[] = ["en", "ar", "hi", "ur", "fr", "sw"];
+/**
+ * Languages whose script needs the Arabic webfont, not the Latin one.
+ *
+ * Keyed by the spoken set: `ur` is not an interface language, but Urdu text
+ * still reaches the screen wherever a delivered message is displayed, and the
+ * font requirement is a property of the script rather than of the surface.
+ */
+export const ARABIC_SCRIPT_LANGS: readonly Lang[] = ["ar", "ur"];
 
 /**
  * Languages whose UI strings are actually translated.
  *
  * English is the source language and therefore trivially complete; Arabic is the
- * only translated one. The other four are spoken on the phone but their UI is
- * English, and this set is what keeps that distinction honest.
+ * only translated one. The other four are spoken on the phone and written in SMS
+ * but their interface is English, and this set is what keeps that distinction
+ * honest.
  */
 export const TRANSLATED_UI_LANGS: readonly UiLang[] = ["en", "ar"];
 
 /**
- * Where the terminology for each language has to come from.
+ * Every language the picker may offer — DERIVED from the translated set.
+ *
+ * This line is the rule "the interface is English and Arabic" expressed as a
+ * type-level constraint rather than a comment: a language joins the picker by
+ * joining `TRANSLATED_UI_LANGS`, which means real reviewed strings, and there is
+ * no other way to add a button to the header.
+ */
+export const UI_LANGS: readonly UiLang[] = TRANSLATED_UI_LANGS;
+
+/**
+ * Where the terminology for each SPOKEN language has to come from.
  *
  * `authoritative` means there is a citable, sourced reference for the banking and
  * AML vocabulary. `translator-required` means the references do not exist in
  * that language's Wikipedia/Wiktionary and the glossary must be written by a
  * qualified translator — see the note at the top of this file for the searches
  * that established it.
+ *
+ * Keyed by `Lang` (six) and asserted total over `SUPPORTED_LANGS` by the test,
+ * because the question it answers is "could we translate the interface into this
+ * language, and from what source" — which is exactly the thing that has to be
+ * answered before a fifth picker button can exist.
  */
 export const GLOSSARY_STATUS: Record<
-  UiLang,
+  Lang,
   { status: "authoritative" | "translator-required"; note: string }
 > = {
   en: { status: "authoritative", note: "source language" },
@@ -146,7 +164,14 @@ export const GLOSSARY_STATUS: Record<
   },
 };
 
-/** True when the interface is fully translated into `lang`. */
+/**
+ * True when the interface is fully translated into `lang`.
+ *
+ * Every `UiLang` is translated now that the palette is derived, so this reads as
+ * a tautology — and it is kept as the single place `t()` consults, so the day a
+ * language is added to the palette before its strings land, the failure is one
+ * predicate wide rather than scattered across every bilingual call site.
+ */
 export function isUiLangTranslated(lang: UiLang): boolean {
   return TRANSLATED_UI_LANGS.includes(lang);
 }
@@ -155,10 +180,9 @@ export function isUiLangTranslated(lang: UiLang): boolean {
  * Resolve whatever the browser or a stored preference offers to a UI language.
  *
  * Unlike the VOICE resolver (src/lib/languages.ts, which answers "which language
- * can the agent speak"), this answers "which language can the INTERFACE render",
- * and those two sets differ. A visitor on a Hindi browser gets a Hindi CALL and
- * an English interface, which is the correct and honest outcome rather than a
- * half-translated page.
+ * can the agent speak"), this answers "which language can the INTERFACE render".
+ * A visitor on a Hindi browser gets a Hindi CALL and an English interface, which
+ * is the correct and honest outcome rather than a half-translated page.
  */
 export function resolveUiLang(requested?: string | null): UiLang {
   const raw = (requested ?? "").trim().toLowerCase();
@@ -168,3 +192,6 @@ export function resolveUiLang(requested?: string | null): UiLang {
   if ((UI_LANGS as readonly string[]).includes(base)) return base as UiLang;
   return "en";
 }
+
+/** The spoken set, re-exported so a consumer can state the contrast in one import. */
+export { SUPPORTED_LANGS };

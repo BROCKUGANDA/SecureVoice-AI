@@ -274,7 +274,7 @@ export const INVARIANTS: readonly Invariant[] = [
     guarantees:
       "Every dialed call opens with the recorded-call disclosure in the language the customer actually hears, and a language without one is not dialable.",
     enforcedAt: [
-      { file: "src/lib/compliance/policy.ts", line: 116, identifier: "disclosure" },
+      { file: "src/lib/compliance/policy.ts", line: 120, identifier: "disclosure" },
       { file: "src/lib/elevenlabs/outbound-call.ts", line: 172, identifier: "OPENING_DISCLOSURE" },
     ],
     provedBy: [
@@ -292,7 +292,7 @@ export const INVARIANTS: readonly Invariant[] = [
     guarantees:
       "The platform never asks a caller for a PIN, password, OTP, CVV or card number, and a caller who asks the agent for one gets a fixed per-language refusal instead of a drafted reply.",
     enforcedAt: [
-      { file: "src/lib/compliance/policy.ts", line: 93, identifier: "asksForCredential" },
+      { file: "src/lib/compliance/policy.ts", line: 98, identifier: "asksForCredential" },
       { file: "src/app/api/agent/route.ts", line: 495, identifier: "callerRequestsSecret" },
     ],
     provedBy: [
@@ -319,7 +319,7 @@ export const INVARIANTS: readonly Invariant[] = [
       "Card PANs, UAE IBANs, emails, phone numbers and context-marked OTP/PIN sequences are stripped from logs, audit rows, webhook payloads and vendor egress before those bytes leave the process.",
     enforcedAt: [
       { file: "src/lib/redact.ts", line: 51, identifier: "transcript" },
-      { file: "src/lib/compliance/policy.ts", line: 126, identifier: "redactText" },
+      { file: "src/lib/compliance/policy.ts", line: 130, identifier: "redactText" },
     ],
     provedBy: [
       { file: "tests/unit/redact.test.ts", asserts: "transcript" },

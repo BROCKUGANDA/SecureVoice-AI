@@ -262,3 +262,36 @@ export async function listFor<T>(
   }
   return out;
 }
+
+/**
+ * Every record in a scope for one KEY, across all callers.
+ *
+ * The mirror of `listFor`, added because the two axes are not interchangeable.
+ * The identity scope is keyed `(accountId, orgId)`, so `listFor(identity, org)`
+ * answers "who is in this org" while NOTHING could answer "which rows does this
+ * account have". Callers that needed the second question — password login,
+ * magic-link redemption, password reset — had to guess an org, and guessing
+ * `NO_ORG` did not fail: it produced a plausible epoch-1 identity through the
+ * reconstruction path, which is how a password reset came to bump a row that no
+ * session ever validates against. See §31 of docs/GAP-REGISTER.md.
+ */
+export async function listByKey<T>(
+  scope: string,
+  key: string,
+): Promise<Array<T & { callerId: string }>> {
+  const s = scoped(scope, key, "");
+  const rows = await db.idempotencyKey.findMany({
+    where: { scope: s.scope, key: s.key },
+    select: { callerId: true, response: true, expiresAt: true },
+  });
+  const out: Array<T & { callerId: string }> = [];
+  for (const row of rows) {
+    if (row.expiresAt.getTime() <= Date.now()) continue;
+    try {
+      out.push({ ...(JSON.parse(row.response) as T), callerId: row.callerId });
+    } catch {
+      // Corrupt row — skipped for the same reason as in `listFor`.
+    }
+  }
+  return out;
+}

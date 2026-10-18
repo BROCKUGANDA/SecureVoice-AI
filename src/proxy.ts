@@ -1,7 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { consume } from "@/lib/ratelimit";
 import { IP_UNKNOWN, IP_UNTRUSTED, isRealIp, normalizeIp } from "@/lib/ip-normalize";
-import { UI_LANGS } from "@/lib/i18n/registry";
 import { logWarn } from "@/lib/validation/safe-log";
 
 /**
@@ -143,38 +142,27 @@ function clientIp(req: NextRequest): string {
 }
 
 /**
- * Best-effort language from Accept-Language, narrowed to the languages the
- * INTERFACE can render.
+ * Language negotiation is deliberately NOT done here.
  *
- * This used to narrow against `SUPPORTED_LANGS` — the SPOKEN set — which meant a
- * Hindi browser negotiated `hi`, and the page it was handed was English with a
- * हिन्दी flag in the header. The two lists answer different questions and the
- * product rule is now explicit: the interface is English and Arabic, while a call
- * and an SMS are delivered in six. A Hindi visitor gets a Hindi CALL (the voice
- * resolver in src/lib/languages.ts still honours `hi`) and an English interface.
+ * This file used to parse `Accept-Language`, narrow it to the interface palette,
+ * and set `x-securevoice-lang` on the forwarded request — and nothing in the tree
+ * ever read that header. Its two siblings are genuinely consumed
+ * (`x-securevoice-country` in src/lib/geo.ts:30, `x-securevoice-client-ip` in
+ * src/lib/better-auth.ts:184 and src/lib/ip-normalize.ts:29), which is what made
+ * the language one worth removing rather than leaving as "the pattern": a header
+ * that looks like negotiation makes the next reader believe the product has some.
  *
- * NOTE FOR WHOEVER WIRES THIS NEXT: nothing reads `x-securevoice-lang` today — it
- * is set at the bottom of this file and consumed by no route. So browser
- * negotiation is not currently what decides the UI language; the header picker in
- * the Navbar is. Fixing the vocabulary here keeps a dead signal from becoming a
- * wrong one the moment something does read it.
+ * Why it is not simply wired up, because that is the obvious follow-on: the
+ * interface language lives in the client store (`src/lib/store.ts:151` starts at
+ * `en`, the Navbar picker sets it), and `src/app/page.tsx:159-160` writes
+ * `document.documentElement.lang`/`dir` from that store after hydration. A header
+ * narrowed at the edge would therefore set `<html lang>` to a value the rendered
+ * copy does not match until a client effect runs — a page that claims Arabic and
+ * speaks English, which is the §33 defect arriving by a different door. Real
+ * negotiation needs the preference to be readable on the server first: a cookie
+ * the picker writes and the store seeds from. That is a feature with its own
+ * hydration surface, tracked in docs/GAP-REGISTER.md, not a cleanup.
  */
-const SUPPORTED = [...UI_LANGS];
-
-function resolveLanguage(req: NextRequest): string | null {
-  const header = req.headers.get("accept-language");
-  if (!header) return null;
-  for (const part of header.split(",")) {
-    const tag = part.split(";")[0]?.trim().toLowerCase();
-    if (!tag) continue;
-    // `split` always yields at least one element, so element 0 is the primary
-    // subtag; `?? null` keeps the "not one of ours" case explicit instead of
-    // asserting an index that can be missing.
-    const base = tag.split("-")[0] ?? null;
-    if (base && SUPPORTED.includes(base as (typeof SUPPORTED)[number])) return base;
-  }
-  return null;
-}
 
 /** Sanitise the proxy-supplied country code (ISO-3166-1 alpha-2). */
 function resolveCountry(req: NextRequest): string | null {
@@ -436,8 +424,6 @@ export default async function proxy(req: NextRequest): Promise<NextResponse> {
   const headers = new Headers(req.headers);
   headers.set(REQUEST_ID, requestId);
   headers.set("x-securevoice-client-ip", clientIp(req));
-  const lang = resolveLanguage(req);
-  if (lang) headers.set("x-securevoice-lang", lang);
   const country = resolveCountry(req);
   if (country) headers.set("x-securevoice-country", country);
 

@@ -180,21 +180,22 @@ export function isUiLangTranslated(lang: UiLang): boolean {
 }
 
 /**
- * Resolve whatever the browser or a stored preference offers to a UI language.
- *
- * Unlike the VOICE resolver (src/lib/languages.ts, which answers "which language
- * can the agent speak"), this answers "which language can the INTERFACE render".
- * A visitor on a Hindi browser gets a Hindi CALL and an English interface, which
- * is the correct and honest outcome rather than a half-translated page.
+ * The spoken set, re-exported so a consumer can state the contrast in one import.
  */
-export function resolveUiLang(requested?: string | null): UiLang {
-  const raw = (requested ?? "").trim().toLowerCase();
-  if (!raw) return "en";
-  if ((UI_LANGS as readonly string[]).includes(raw)) return raw as UiLang;
-  const base = raw.split(/[-_]/)[0] ?? "";
-  if ((UI_LANGS as readonly string[]).includes(base)) return base as UiLang;
-  return "en";
-}
-
-/** The spoken set, re-exported so a consumer can state the contrast in one import. */
 export { SUPPORTED_LANGS };
+
+// There is deliberately no `resolveUiLang(acceptLanguageHeader)` helper here, and
+// it is worth saying why, because "narrow the browser's language to the palette"
+// looks like an obvious missing piece and has been added before as a dead signal
+// (the `x-securevoice-lang` header in src/proxy.ts, set by the edge and read by
+// nothing — see §39 of docs/GAP-REGISTER.md).
+//
+// The palette rule it would encode is already enforced structurally: `UI_LANGS` is
+// derived from `TRANSLATED_UI_LANGS`, so a language the interface cannot render
+// cannot be offered at all. What is missing is not a parser but a server-readable
+// preference — the language lives in the client store (src/lib/store.ts:151) and
+// reaches `<html lang>`/`dir` through a post-hydration effect
+// (src/app/page.tsx:159-160), so any edge-negotiated value would disagree with the
+// copy actually rendered until that effect ran. Wiring negotiation means moving the
+// preference into a cookie the picker writes and the store seeds from; that is a
+// feature with a hydration surface, not a helper function.

@@ -445,25 +445,32 @@ jobs:
           BASE_REF: ${{ github.event.pull_request.base.ref || '' }}
           COVERAGE_MIN_OVERALL: ${{ github.event.pull_request.base.ref == 'main' && '65' || '' }}
         run: |
-          # The e2e/views tier only exists if Jest runs and writes
-          # coverage/jest/lcov.info, which scripts/coverage.mjs merges. Without
-          # this line the merge has no Jest input, coverage.mjs reports the views
-          # tier as "jest never ran", and the e2e tier reads 0.00% (0/9043) —
-          # which failed the gate even though suites under tests-jest/ exist.
-          bun run test:jest --coverage > /dev/null 2>&1 || true
+          # The view tier IS a gate now. It used to read
+          # `bun run test:jest --coverage > /dev/null 2>&1 || true`, and the reason
+          # written beside it was legitimate: coverage/jest/lcov.info feeds the
+          # merge below, and without that input scripts/coverage.mjs reports the
+          # views tier as "jest never ran" and scores it 0.00%, which failed the
+          # build even though suites under tests-jest/ existed. What was never
+          # stated is that the same operator also discarded the VERDICT, so no jest
+          # assertion could fail CI — and `Demo.test.tsx`, dead at import since
+          # PR #6/#18, sat inside a tier that reported 13 suites passing.
+          # Output stays visible for the same reason: a thrown-away log is how that
+          # went unnoticed for months.
+          bun run test:jest --coverage
           if [ "$BASE_REF" = "main" ]; then
             bun run test:coverage
           else
             bun run test:coverage || true
           fi
 
-      # Report-only, exactly like the step that produces it. The measurement
-      # above is deliberately non-blocking, so an artifact-UPLOAD failure must
-      # not turn the same run red — this step was the last thing standing
-      # between a fully green suite and a green build. `if-no-files-found:
-      # ignore` because "no coverage files" is the expected outcome whenever the
-      # coverage step itself failed, which is the case this pipeline is built
-      # to tolerate.
+      # Report-only. The COVERAGE MEASUREMENT above is still deliberately
+      # non-blocking on dev and staging (a ratchet that bites the branch you are
+      # trying to move stops being moved) while it is blocking on `main`, and the
+      # jest run above it is now blocking everywhere — so an artifact-UPLOAD
+      # failure must not add a second, unrelated red on top of a verdict this job
+      # already reports. `if-no-files-found: ignore` because "no coverage files" is
+      # the expected outcome whenever the step that produces them failed, which is
+      # a case this pipeline is built to surface rather than hide.
       - name: Upload coverage summary
         if: always()
         continue-on-error: true

@@ -379,7 +379,7 @@ After restarting the dev server, **every** route 404'd — including `/api/healt
 
 ## Compliance & governance appendix
 
-- **Prohibited Use Policy (PUP):** every guardrail in box K is enforced in `src/lib/compliance/policy.ts`. See `docs/COMPLIANCE.md` for the full enumeration and the unit-test coverage matrix.
+- **Prohibited Use Policy (PUP):** every guardrail in box K is enforced in `src/lib/compliance/policy.ts`, which enumerates all seven controls and the clause each one answers to in its own header comment. `docs/COVERAGE.md` carries the test-coverage matrix; the data-protection record is `docs/ROPA.md` and `docs/AI-INVENTORY.md`.
 - **Tamper-evident audit:** every agent turn, TTS call, and ASR call writes a hash-chained row to `AuditLog` (Prisma → PostgreSQL via `DATABASE_URL`, hosted on the deployment's Postgres instance — `prisma/schema.prisma` datasource is `postgresql` with no SQLite mode; see [README.md](../README.md)). `verifyChain(callRef)` recomputes and reports the broken row if any link is tampered. See `src/lib/audit-chain.ts`. _(No SQLite mode exists; `prisma/schema.prisma` is `postgresql`-only; verified empirically — see [README.md](../README.md).)_
 - **Rate limiting + idempotency:** 60 calls/hour per `caller_id` (configurable via `RATE_LIMIT_PER_HOUR`). Identical TTS/ASR requests within 24h return the stored response without a second upstream call. See `src/lib/ratelimit.ts` and `src/lib/idempotency.ts`.
 - **PII redaction:** PAN, IBAN, phone, email, OTP, CVV are redacted before any audit-log write, webhook send, or structured log line. See `src/lib/redact.ts`.

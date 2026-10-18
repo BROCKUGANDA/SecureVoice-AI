@@ -2523,3 +2523,96 @@ needs an upstream distinct from the one rung 1 uses — a second provider key, o
 host — and a generated master key. `secrun` reads secrets and cannot create one, so
 the value has to be stored by an operator; nothing in this repo should carry it in
 plaintext. Until then the honest configuration is the one that no longer restarts.
+
+### 42. The DIFC compliance record did not exist, and building it found that the published notice cites the wrong regime
+
+Filed because the owner reports `securevoiceai.me` is repeatedly reported to its
+hosts, and asked for a RoPA and an AI systems inventory "informed by the published DIFC
+Commissioner guidance and ISO/IEC 29134", with each finding linked to stored evidence and
+to a provision of the Law or the Regulations.
+
+**First correction was to my own method, not to the repo.** An LLM summary of the
+Commissioner's PDF asserted paragraph numbers that do not exist in it. Both primary texts
+were therefore downloaded and `pdftotext`-extracted, and every provision quoted in the new
+documents is read from that extraction: Articles 10, 11, 15, 16, 20–22, 24, 26–27, 29–31,
+32–40 of the Law, its Schedule-1 definitions of _High Risk Processing Activities_ and
+_Special Categories_; and Regulations 2.1, 3.1.1, 3.2 and the whole of 10.1–10.3.5. The
+Commissioner's guidance pages returned HTTP 429 on 2026-10-18, so **no guidance text is
+quoted anywhere**, and both documents say so.
+
+**What shipped.** `docs/ROPA.md` (Article 15(1)(a)–(h) + the Regulations 2.1(a)–(h) link
+table) and `docs/AI-INVENTORY.md` (the Regulation 10.2.2(g) register, with 10.1.1 role
+determination, the 10.2.2(a)/(b) notice contents, the 10.3.1(a)–(e) design mapping and the
+10.3.3 High-Risk analysis). Both cite `file:line` for code, `measured` for runtime, and
+`OPEN` for anything neither can prove — the honest blank is the compliant entry, because
+Regulation 2.1 requires the record to be _accurate_, and a padded register is the failure
+mode.
+
+**The four findings that actually matter:**
+
+1. **The published privacy notice never mentions the DIFC regime.** Measured: zero `DIFC`
+   matches under `src/app` and `src/views`. `/privacy` cites UAE PDPL and EU GDPR, and
+   claims the Irish Data Protection Commission as our "lead authority"
+   (`src/views/Legal.tsx:225`) — a lead-authority claim presumes an EU establishment.
+2. **`hearing_impaired` is Special Category data with no Article 11 condition recorded.**
+   It arrives on the intake signal (`src/app/api/v1/interventions/route.ts:146`), decides
+   that voice is skipped and the case goes SMS-only (`:773-806`), survives with the case
+   for 7 years, and is counted in analytics (`src/lib/analytics.ts:104`). Health data is
+   inside the Law's Schedule-1 definition. The engineering is right — the state machine
+   refuses to re-dial that customer precisely to avoid the accessibility failure
+   (`src/lib/case-state-machine.ts:105-108`) — and the records management around it is not.
+3. **If this is High Risk Processing, Regulations 10.3.3 has a bar no code closes.**
+   Footnote 11 to 10.3.3 states the regulatory intent that _no System may be used for High
+   Risk Processing Activities until the Commissioner has promulgated the certification
+   requirements_ — and they are not promulgated. It also makes a DPO mandatory
+   (Article 16(2)(b)) despite being under 50 staff (Regulation 3.1.1's exemption is
+   expressly disapplied for High Risk processing), and requires an Autonomous Systems
+   Officer (10.3.3(d)). None is appointed. Recorded as a market-entry condition and three
+   defensible postures, not as a defect to be fixed by writing more guardrails.
+4. **The architecture answers Article 38(1) at its weakest joint, and that is now evidenced
+   rather than asserted.** The fraud verdict is the caller's own keypad press
+   (`src/lib/voice/dtmf.ts:147-154`); the LLM is handed the already-verified intent and only
+   words the reply (`src/lib/llm.ts:724`); the hold is staged, never executed
+   (`src/lib/ai/ai-authz.ts:69`); commit is a human action whose operator identity is written
+   to the audit row (`src/app/api/console/freeze/commit/route.ts:13`, `:102`); and
+   `FREEZE_STAGED` is entered only from `CONFIRMED_FRAUD`
+   (`src/lib/case-state-machine.ts:64`, invariant I-2 at `:6-7`). "Solely automated" is
+   structurally unreachable, which is the difference between an Art 38(1) objection right
+   and a defensible High-Risk characterisation.
+
+**Production facts measured on 2026-10-18, credentials read as presence and length only**
+(no value entered this repository): Groq, ElevenLabs, Deepgram, Pinecone, Resend, Twilio and
+`PRIVACY_MASTER_KEY` are SET; **Gemini, LiteLLM, OpenAI, PostHog and the entire object-storage
+block are UNSET** — so the S-5 rung cannot answer, and the reference deployment retains **no
+call audio at all**, which makes the 30-day audio tier correct but dormant. `APP_BASE_URL` and
+`BETTER_AUTH_URL` are both `https://securevoiceai.me` — the right domain, verified. Database
+host is `aws-0-eu-central-1.pooler.supabase.com` (Frankfurt). Resend reports
+`securevoiceai.me` **verified**, region `eu-west-1`.
+
+**The domain-report hypothesis, measured rather than guessed.** DNS over DoH: apex SPF
+authorises `spf.privateemail.com` (the mailbox, which is where MX also points), DKIM
+`resend._domainkey` is present, and Resend's domain is verified — so **the sending path is not
+the obvious culprit**, which is the opposite of the hypothesis I arrived with. What is live:
+DMARC is `p=none` (`_dmarc.securevoiceai.me`), which publishes "we do not ask for this domain
+to be protected", and **the outbound caller ID is `TWILIO_FROM_NUMBER=+256…`, a Ugandan
+number**. An AI voice agent claiming to call on behalf of a Gulf bank, from a +256 line, is
+the exact shape of a vishing pattern — and the most probable explanation for a domain that
+keeps attracting reports. Owner action, not code: an in-region or attributable caller ID.
+
+**The gate that came out of this, and why it is not decoration.** Both documents are built
+from `file:line` citations, and several in the first draft pointed at the wrong line — the
+cause was offset-based greps (`sed -n '440,700p' | grep -n` returns relative numbers). One of
+them asserted "`UNCERTAIN` has exactly one forward edge" against a row that lists three. So
+`tests/surface/compliance-citations.test.ts` resolves every citation against `git ls-files`
+and the file's real line count, refuses ambiguous bare filenames (`config.ts:249` matched
+several files — an ambiguous citation is a defect for the reader, not just for the checker),
+asserts its own skip list so a typo cannot hide as an exemption, and carries a mutation
+control that exercises all three failure branches. **It failed eleven times on the first
+run** and went green only after the documents were corrected.
+
+**Left open, deliberately.** The DPIA worksheet (Art 20(6) + ISO/IEC 29134) is the next
+artifact and is not written; ISO/IEC 29134 is cited by name and scope only because the
+licensed text is not held. Vendor processing locations, executed DPAs / Article 24
+sub-processor terms, the Regulation 3 notification status, and the High-Risk characterisation
+are owner-plus-counsel items. `evidence/INDEX.md` still reports `load` and `surface` as FAIL
+— stale relative to §35/§38, and regenerated by `bun run evidence` rather than hand-edited.

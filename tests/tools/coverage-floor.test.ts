@@ -23,7 +23,7 @@
  */
 import { expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { resolve } from "node:path";
 import {
   BUMP_STEP,
@@ -45,11 +45,35 @@ test("the committed floor is a fact about a commit, not a number in a file", () 
   expect(parsed.error ?? "").toBe("");
   const doc = JSON.parse(FLOOR_JSON);
 
-  // `at` must name a commit that exists in this repo's history — the difference
-  // between an auditable floor and one invented during a red build.
+  // `at` must name a commit that is an ANCESTOR of the tree running this test.
+  //
+  // Existence was the original, weaker check — and it was not merely weak, it was
+  // self-validating. Under `actions/checkout`'s default `fetch-depth: 1` a working
+  // tree holds exactly one commit, HEAD, so the object resolved on precisely the one
+  // run whose HEAD *was* the recorded sha, and went red on the run after it. CI now
+  // fetches full history for this job (see `fetch-depth: 0` in ci.yml). Reachability
+  // is the claim the floor genuinely makes: this number came from a run inside the
+  // history being merged, not from a name typed into a file.
   expect(doc.at).toMatch(/^[0-9a-f]{7,40}$/);
+
+  const shallow = execFileSync("git", ["rev-parse", "--is-shallow-repository"], {
+    encoding: "utf8",
+  }).trim();
+  if (shallow === "true") {
+    // Fails rather than skipping: a floor nobody can trace back to a measurement is
+    // the exact thing this file exists to refuse.
+    throw new Error(
+      "checkout is shallow, so the floor's commit cannot be resolved. Run this suite " +
+        "from a full clone (CI uses actions/checkout with fetch-depth: 0).",
+    );
+  }
+
   const type = execFileSync("git", ["cat-file", "-t", doc.at], { encoding: "utf8" }).trim();
   expect(type).toBe("commit");
+  const ancestor = spawnSync("git", ["merge-base", "--is-ancestor", doc.at, "HEAD"], {
+    encoding: "utf8",
+  });
+  expect(ancestor.status).toBe(0);
 
   expect(typeof doc.overall).toBe("number");
   expect(doc.overall).toBeGreaterThan(0);

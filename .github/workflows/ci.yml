@@ -156,6 +156,17 @@ jobs:
             echo "- redis: 127.0.0.1:$REDIS_PORT container $REDIS_CI"
           } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          # FULL history, and it is load-bearing rather than tidy.
+          #
+          # `tests/tools/coverage-floor.test.ts` asserts that the commit recorded
+          # in `evidence/coverage-floor.json` really exists. With the default
+          # `fetch-depth: 1` a checkout contains exactly one commit — HEAD — so
+          # that assertion could only ever be true on the single run whose HEAD
+          # *was* the recorded commit. It passed green on 8fef2be for exactly that
+          # reason and went red on the next one, which is the shape of a test that
+          # verifies itself. Cost of fixing it honestly: 837 commits, 61.5 MiB packed.
+          fetch-depth: 0
 
       - name: Install Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2

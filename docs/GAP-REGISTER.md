@@ -1965,3 +1965,27 @@ made after the roll carries a real hash and request id
 while the rows from before the migration are `NULL`, which is the documented, intended
 backward compatibility in the migration itself. A schema check that stops at "the column
 exists" would have reported this as done one deploy earlier than it actually became true.
+
+**(d) The same trap one layer down: a CI assertion that could only be true on one commit.**
+The red that #115 hit was not the worker fix. It was `tests/tools/coverage-floor.test.ts`,
+which proves the coverage floor records a real commit, and it asserted
+`git cat-file -t <at>` under `actions/checkout`'s default `fetch-depth: 1`. A depth-1
+checkout contains exactly one commit — HEAD — so that assertion held on precisely the one
+run whose HEAD _was_ `8fef2be` (the commit whose CI run measured 65.08%) and failed on every
+run after it. A test that verifies itself is not a gate.
+
+The floor data was never wrong: `8fef2bed77ac8733…` is the `head_sha` of run 39068558091 and
+is still an ancestor of dev. Fixed by giving that job `fetch-depth: 0` (837 commits,
+61.5 MiB packed — measured, not guessed) and by strengthening the claim from "the object
+exists" to "the object is an **ancestor** of HEAD", which is what "this number came from a
+measurement inside this history" actually asserts. A shallow checkout now fails with an
+explanation instead of passing vacuously. Mutation-proved: `at` set to a real non-ancestor
+(`origin/chore/release-v0.2.29`) → red; `at` set to `deadbee` → red; restored
+byte-identical → 8 pass.
+
+**(e) The gate and the workflow file have to land together.** Pre-flighting the new box gate
+against the box's _old_ `deploy.yml` produced a fresh failure mode worth recording: the
+previous parser read the line literally and asked compose for a container named
+`${ROLLED[@]}` — `/bin/sh: 1: Bad substitution`. Both files change in one commit and a deploy
+always runs the pair from a single checkout, so CI cannot reach the mismatched state; but
+cherry-picking either file alone would redden the deploy's box gate.

@@ -558,6 +558,15 @@ jobs:
         # services as never-created on a healthy stack (measured 2026-10-13: compose
         # exits 1 there on missing POSTGRES_PASSWORD / BETTER_AUTH_SECRET, because the
         # .env belongs to the box checkout).
+        env:
+          # The commit this deploy was DISPATCHED for — the upstream CI run's head —
+          # not whatever origin/main happens to read when the gate runs. `autoversion`
+          # cuts release bumps onto main mid-rollout, and the tip comparison called a
+          # correct deploy drift (run 39173983527: box on 53b3554, tip moved to
+          # 121a860), which then skipped the health check step after it. Empty on a
+          # workflow_dispatch, where there is no upstream run and the tip IS the
+          # contract — checkBoxCurrency falls back to that.
+          DEPLOY_SHA: ${{ github.event.workflow_run.head_sha }}
         run: BOX_DIR="$HOME/securevoice-ai" bun scripts/drift-gates.mjs box
 
       - name: Health check the rolled origin

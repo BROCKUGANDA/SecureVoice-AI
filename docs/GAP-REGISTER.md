@@ -2084,13 +2084,11 @@ as written: dropping `en` from `UI_LANG_SHORT` → that test `(fail)`, `8 pass 1
 justified by a six-language header, and that pressure left with the palette, so the map now says it is
 kept because both controls render it rather than repeating a reason that no longer holds.
 
-**One thing found and NOT fixed at the time, because it is not this decision's work.**
-`src/proxy.ts` set `x-securevoice-lang` and **nothing in the tree read it**. Browser
-negotiation therefore did not decide the UI language at all — the Navbar picker did. I
-narrowed its vocabulary to the palette so a dead signal could not become a wrong one when
-someone wired it, and said so in the comment above it. Wiring it (or deleting it) was still
-open then; **it was deleted in §39**, after measuring that wiring it as-is would have made
-`<html lang>` disagree with the copy on screen until a client effect ran.
+**One thing found and NOT fixed, because it is not this decision's work.**
+`src/proxy.ts:424` sets `x-securevoice-lang` and **nothing in the tree reads it**. Browser negotiation
+therefore does not currently decide the UI language at all — the Navbar picker does. I narrowed its
+vocabulary to the palette so a dead signal cannot become a wrong one when someone wires it, and said
+so in the comment above it. Wiring it (or deleting it) is still open.
 
 **Pre-existing, and checked rather than assumed:** `bun run test:jest` fails `tests-jest/Demo.test.tsx`
 locally with `Must use import to load ES Module … better-auth/dist/client/react/index.mjs`. Running
@@ -2182,15 +2180,9 @@ first two attempts still reported seven reds. Those seven were never a regressio
 cypress), so the mobile control is guarded by source assertion rather than by a rendered check; the
 browser check itself could not run here (no Chrome binary for the resize-capable bridges, and
 hydration never completes against the local dev server — no React error, no missing chunks, the HMR
-websocket failing on every attempt); and the negotiation header, then still unwired (§33),
-which was deleted in §39 rather than wired.
+websocket failing on every attempt); and the negotiation header stays unwired (§33).
 
 ### 35. The view tier is not a gate, and one of its suites has not run since PR #6
-
-**RESOLVED — see §38.** Both blockers measured here are closed without a new dependency,
-the suite now runs 14/14 with 107 assertions, and the CI step is blocking with visible
-output. The diagnosis stays because the mechanism — an `|| true` justified by one input and
-silently discarding a verdict — is the part worth recognising next time.
 
 Discovered while trying to make §34's counter guard mean something in CI. It does not, and the reason
 is one shell operator.
@@ -2333,129 +2325,3 @@ ten `/_next/static/media/*.woff2` preloads and looked like proof. `curl` had ret
 `http=000` — no connection. That body was a **stale `/tmp` file from an earlier session**.
 The real check came from starting the standalone build, fetching it, and killing it
 afterwards.
-
-### 37. A password reset revoked nothing, and the epoch fix alone was not enough
-
-§31 is fixed. Three changes, and the middle one is the one that mattered.
-
-1. **One read path.** `src/lib/auth/store.ts` could enumerate a scope by caller
-   (`listFor`) but never by key, so no code could ask "which identity rows does this
-   account have" — only "who is in this org". Added `listByKey`, and
-   `getIdentityByEmail` now resolves through `resolveIdentityForAccount`: the stored row
-   in the account's real org is used, several real-org rows are refused rather than
-   guessed, and only a genuine store miss reconstructs at `NO_ORG` as before.
-   `loginWithPassword` (src/lib/auth/guards.ts:214) made the same org-less guess and now
-   shares the same resolution.
-2. **A second defect, found only because the first one moved the test.** The reset
-   confirm route minted its session from the identity read _before_ the epoch bump, so
-   the fresh session carried a stale `roleEpoch` and failed the very guard that revoked
-   the old one: the owner could not sign in after their own reset. It was invisible
-   because the old characterization test only ever checked the OLD session. Proven, not
-   asserted — reverting that one line to `identity` reddens the suite with "the session
-   minted by a successful reset does not verify".
-3. **Revocation by enumeration.** `setIdentityPassword` bumps one org-keyed row, which
-   cannot reach a session validating against a reconstruction. `revokeIdentitySessions`
-   (src/lib/auth/session.ts:356) enumerates by accountId — sessions are keyed that way,
-   unlike identities — and is the only mechanism that revokes sessions minted before this
-   deploy.
-
-**The lesson is the mutation result, not the diff.** With the sweep removed the whole
-suite still passed 14/14: a fix that breaks no existing test is not evidence that the fix
-works. The legacy shape needed its own test — a session issued with `orgId: NO_ORG`, now
-unreachable from the code but exactly what production holds from before this change. Added,
-it failed without the sweep ("a session with no org bound to it survived a password reset")
-and passes with it.
-
-`revokeIdentitySessions`' own docstring had claimed for months that it is "used when a
-password is changed". Nothing called it from that route. Same class as §32: a statement and
-a mechanism treated as the same object.
-
-Verified: `password-reset` 15 pass 0 fail, auth tier 0 failures, whole tree clean, jest
-14/14 suites / 107 assertions, format / lint / both tsconfigs / drift all green.
-
-**Not fixed, and now the honest boundary.** Multi-org identity is still not materialized:
-`Member` (prisma/schema.prisma:1133) joins `userId -> organizationId` while the identity
-store keys on `Account.id`, and no code joins them. `revokeOrgSessions` and
-`listOrgMembers` work off identity rows, so a second membership for one account would be
-invisible to them. That is a schema decision, not a revocation bug.
-
-### 38. The view tier is a CI gate, and it failed the first time it ran
-
-§35 is fixed. `ci.yml` no longer runs jest as
-`bun run test:jest --coverage > /dev/null 2>&1 || true`; the step is blocking and its
-output is visible. Both halves mattered: the swallow was justified by the coverage merge
-needing `lcov.info`, and the redirect is what let a dead suite look like a passing tier.
-
-Two blockers, closed without a new dependency:
-
-- **ESM vendor chain.** next/jest puts its own node_modules ignore FIRST and its source
-  says a custom config "can append to transformIgnorePatterns but not modify it"
-  (jest.js:229), so appending an allow-pattern cannot un-ignore a package — measured, it
-  changed nothing. The config now awaits the built config and REPLACES the list, using a
-  `[\\/]` character class because jest matches the resolved path and a slash-only pattern
-  never matches on Windows. The allowlist turned out to be a chain
-  (`better-auth` -> `@better-auth/core` -> `nanostores`); that is the maintenance cost of
-  this shape and it is written into the config comment.
-- **jsdom has no fetch primitives.** `createAuthClient` needs `Request`. A
-  `moduleNameMapper` shim or a hand-written class would fake the precise surface the auth
-  client is tested against, and a polyfill package is a dependency decision. Neither was
-  needed: `tests-jest/environment-jsdom-fetch.cjs` subclasses jest-environment-jsdom and
-  is loaded in the NODE realm, where the host's own
-  `fetch`/`Request`/`Response`/`Headers`/`FormData`/`structuredClone` are in scope, so they
-  are moved into the sandbox rather than imitated. It throws if the host lacks one, because
-  a silently missing global reproduces the original error several frames from its cause.
-
-**What it caught immediately.** `Demo.test.tsx` had not executed since PR #6/#18, and on
-its first run it failed: it looked for the heading "One fraud alert. One minute. Watch the
-intervention." while src/views/Demo.tsx:363 says "One scripted call" — changed on purpose by
-`63d4ece fix(claims): published copy now says only what this repository can prove`. The test
-was not wrong when it was written; it was wrong _unstoppably_, because nothing ran it. The
-assertion now pins the shape of the claim (`/^One fraud alert\..*Watch the intervention\.$/`
-plus an explicit refusal of a time promise) rather than a sentence owned by copy.
-
-The tier went from 13/14 suites and 92 tests to **14/14 suites and 107 tests**.
-
-### 39. `x-securevoice-lang` deleted, because wiring it would have made the bug worse
-
-§33 left the header set at the edge and read by nothing. The obvious next move was to wire
-it; that was the wrong one, and the reason is worth keeping.
-
-The interface language lives in the client store (`src/lib/store.ts:151` starts at `en`)
-and reaches `<html lang>`/`dir` through a post-hydration effect (`src/app/page.tsx:159-160`).
-An edge-negotiated value would set the document attribute to a language the rendered copy
-does not match until that effect runs — a page claiming Arabic while speaking English,
-which is §33's defect arriving by a different door. Real negotiation first needs the
-preference to be server-readable: a cookie the picker writes and the store seeds from. That
-is a feature with a hydration surface, so the header is removed instead, with the reasoning
-left in `src/proxy.ts` where the code used to be.
-
-Checked before deleting, because "dead" is a claim: the sibling enrichment headers ARE
-consumed — `x-securevoice-country` in src/lib/geo.ts:30, `x-securevoice-client-ip` in
-src/lib/better-auth.ts:184 and src/lib/ip-normalize.ts:29 — so this was one isolated
-signal, not a broken pattern.
-
-`resolveUiLang` went with it: zero production callers, kept alive only by its own test —
-the same shape as §33's `LANG_LABEL` and §36's `UI_LANG_LABEL`. The rule it guarded moved
-to assertions that need no parser (delivery-only codes are absent from `UI_LANGS`, present
-in `SUPPORTED_LANGS`, and `t()` cannot even be called with them because its third parameter
-is `UiLang`). Proven capable of failing: widening `TRANSLATED_UI_LANGS` to include `hi`
-reddens 5 tests including the re-authored one; restoring gives 9 pass 0 fail.
-
-### 40. Coverage-floor provenance verified against the Actions API, and why that check stays out of the gate
-
-`evidence/coverage-floor.json` records `measured.runId: 39068558091`. Queried against the
-Actions API rather than trusted:
-
-- the run EXISTS: workflow `CI`, event `pull_request`, branch `dev`,
-  `completed/success`, created 2026-10-17T20:52:32Z;
-- its `headSha` is `8fef2be`, which is exactly what the file's `at` field records;
-- the arithmetic is self-consistent: `measured.hit / measured.total` = 49845/76591 =
-  65.08%, equal to the recorded `overall`.
-
-So the provenance claim is corroborated by the authoritative external record, not only by
-git. **This is deliberately not a CI assertion.** Checking it needs a network call to
-`api.github.com`, and §36 just removed a build-time network dependency because a runner
-that could not reach a third party turned the same commit green and red. A gate that can
-only be satisfied by somebody else's API is not a gate. The offline checks stay where they
-are — HEAD-blob equality, integer run id, monotonic floor history — and this corroboration
-is recorded here instead of executed on every push.

@@ -2242,3 +2242,81 @@ GitHub-web edits to `tests-jest/fxPrefReducedMotion.ts` that satisfied eslint's 
 with `{/* empty */}` bodies — which is exactly what Prettier then reformatted, leaving `origin/dev`
 **red on `format:check`** at its own tip until this commit. A hand-edit in the web UI passes the rule
 someone was looking at and breaks the one they were not; both gates have to run on the merged tree.
+
+### 36. The build needed Google to be up, so the same commit was green and red
+
+Reported as "ci is still failing". It was, and it was not: two CI runs on **the same
+SHA** `7367617` disagreed. Push run 39117764846 failed `Lint, typecheck, tests, build`;
+PR run 39117766899 passed it. The failing step was the build, and the log said why:
+
+```
+Execution of <NextFontGoogleFontFileReplacer as ImportMappingReplacement>::result failed
+[next]/internal/font/google/space_grotesk_c3db11f9.module.css:7:8  module-not-found
+```
+
+`src/app/layout.tsx` imported Space Grotesk, Inter, JetBrains Mono and IBM Plex Sans
+Arabic from `next/font/google`, and that loader makes **`next build` fetch from
+fonts.gstatic.com**. So whether a commit builds depends on a third party's CDN being
+reachable from whichever runner picked the job — which is also why this looked like a
+regression: it appeared in 1 of the last 5 red runs and 0 of the other 4. Nothing in the
+diff could have caused it, and nothing in the diff could fix it permanently. This is the
+`rolled ≠ built` class from §32 applied to a dependency nobody declared.
+
+**`subsets: ["latin"]` does not do what it says.** The declared config asked for latin
+(and arabic for Plex); the build emitted **36** slices, including Cyrillic, Greek and
+Vietnamese. Reading the output rather than the intent mattered, because it decided the
+shape of the fix.
+
+**Why not `next/font/local`.** The tempting one-line change is impossible on this
+version: its type is `src: Array<{path, weight?, style?}>`
+(`node_modules/next/dist/compiled/@next/font/dist/local/index.d.ts`) — no `unicodeRange` —
+and `declarations` is explicitly barred from setting `src`, `font-display`, `font-weight`
+or `font-style` (`validate-local-font-function-call.js:50`). Without unicode-range, one
+file per weight means choosing between IBM Plex Sans Arabic's Arabic slice and its latin
+slice, and the Arabic UI renders digits and Latin product names on the same line as
+Arabic. Picking one would have silently degraded the language this product exists for, so
+the fix is the sheet the build itself produced.
+
+**What shipped.** `scripts/vendor-fonts.mjs` harvests a real build's `@font-face` output —
+every rule, every `unicode-range`, every `* Fallback` metric block — into
+`src/app/fonts.css` plus 36 files in `public/fonts/`, names carrying the content hash and
+the `-s.p.` primary marker. `PRELOAD_FONTS` in the layout is the eight primaries read out of
+`.next/server/next-font-manifest.json`, because CSS alone does not preload and Next did.
+`public/fonts/licenses/*.OFL.txt` are the four families' own license files with their real
+copyright lines, fetched from each project's upstream. Verified on a served build, not by
+reading code: HTTP 200, 8 `<link rel=preload as=font href="/fonts/…">` and zero stale
+`/_next/static/media/*.woff2` preloads, font files returning `content-type: font/woff2`,
+and the emitted chunk still carrying **63** `unicode-range` declarations and **4**
+`size-adjust` blocks — identical to before. `tests/surface/self-hosted-fonts.test.ts` holds
+the three artifacts together (sheet ↔ files ↔ preload list) and bans `next/font` coming
+back; mutation-proved three ways: hide a referenced file → 2 fail, drop a preload entry →
+1 fail, re-add the loader → 2 fail, restore → 6 pass.
+
+**Three faults of mine in this pass, all found by measuring rather than by luck.**
+
+1. _The generator destroyed the thing it was meant to replace._ It ran `rmSync(outDir)`
+   **before** its loop, then failed mid-loop with `MISSING emitted font file` — because it
+   was reading a build that had already been vendored and so contained my own `/fonts/`
+   URLs. The wipe took the 36 fonts and the hand-authored `README.md` and `licenses/` with
+   it. Recovered from the untouched copy under `.next/standalone/public/fonts`. It is now
+   plan-then-write (nothing on disk is touched until every block validates, and each
+   failure prints "Nothing was written"), it refuses to run against a vendored build, and
+   it prunes stale `.woff2` by name instead of deleting a directory that holds files it
+   does not own. Proven on a synthetic fixture: happy path 4/4, refusal exits 1, and the
+   incomplete-build case leaves all four files plus README and manifest intact.
+2. _I "fixed" corruption that did not exist._ The ranges printed as `U+??` and I read that
+   as an encoding fault, so I wrote a `.replace(/@/g, "\\00 ")` escape. Dumping the
+   codepoints showed `63,63` — literal `?`, i.e. **valid CSS wildcard syntax** for
+   `U+0000-00FF` (`U+??` matches two hex digits). My invented fix matched nothing, and the
+   comment defending it was confidently wrong in the file. Same lesson as the "Windows ESM"
+   line in §34: measure the bytes before repairing them.
+3. _Documentation described a procedure the tool refuses._ The first README said "run a
+   build, then run the script" as the refresh path — true only for a build that still uses
+   the Google loader. Re-running it is what exposed #1, and the README now states the actual
+   five-step procedure and the refusal.
+
+A near-miss worth recording: my first preload "verification" read 46 KB of HTML containing
+ten `/_next/static/media/*.woff2` preloads and looked like proof. `curl` had returned
+`http=000` — no connection. That body was a **stale `/tmp` file from an earlier session**.
+The real check came from starting the standalone build, fetching it, and killing it
+afterwards.

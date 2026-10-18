@@ -19,7 +19,7 @@ Object.defineProperty(window, "matchMedia", {
     media: query,
     onchange: null,
     addListener: () => {},
-    removeListener: () => {},
+    removeListener: () => {/* empty */},
     addEventListener: () => {/* empty */},
     removeEventListener: () => {},
     dispatchEvent: () => false,

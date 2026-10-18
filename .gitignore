@@ -184,3 +184,8 @@ demo/walkthrough/source/.hyperframes/
 # an untracked stray, the roll moves that copy here instead of deleting it, so the
 # file survives the pull and a human can diff it against the tracked version.
 .deploy-local-collisions/
+
+# Task worktrees. Back-merges on the ladder are done in a separate working tree so
+# they cannot disturb uncommitted work in the shared checkout; without this line the
+# whole tree (a second copy of every file) shows up as untracked and gets committed.
+.worktrees/

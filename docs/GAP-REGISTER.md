@@ -2974,7 +2974,55 @@ to `dev` was offered and declined: a workflow pushing merge commits onto the bra
 sessions work in is a different trade than pushing to `staging`, even when the commits are
 content-free by construction. So §48's item 2 is now a standing policy rather than a gap.
 
-### 50. The plaintext residue was 847 rows, not 85, and 97% of it was our own test harness
+### 50. The stored Grafana credentials were probed, and neither one is an ingest credential
+
+Told to use the credentials kept in `D:\access and keys`, the first thing worth saying is
+what the directory actually holds for Grafana: two files, and neither is what §49 was
+waiting for. Both were tested rather than assumed, and the values were never printed —
+each probe read the file into a shell variable and reported only status codes and the
+token's own non-secret envelope fields.
+
+| Credential                | Shape                                          | Result                                                                                                                                                        |
+| ------------------------- | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `grafana_cloud_token.txt` | `glc_…`, 140 chars, decodes to `{o,n,k,m}`     | `o=1506249`, **`n="simitech-dont-forget"`**, `m.r=prod-ca-east-0`. 401 on `/otlp/v1/metrics`, `/v1/traces`, `/v1/logs` — indistinguishable from a bogus token |
+| `garfana account.txt`     | `glsa_…`, 46 chars (stack service-account key) | **alive on this stack**: `GET /api/datasources` and `/api/folders` → 200. As `Authorization: Basic` at the OTLP gateway → **401** on every realm              |
+
+Two conclusions, and they are different kinds of news.
+
+**The `glc_` token belongs to another tenant.** Its own name field says SimiTech, and its
+stack id is not this product's. It is in the same _region_, which is the one detail that
+would have made a silent misroute plausible had it authenticated: metrics for a DIFC
+product landing in a different company's observability tenant. It does not authenticate, so
+nothing happened — but "the Grafana token in the credentials folder" was not a safe
+assumption, and the envelope is what caught it.
+
+**A stack token cannot ingest, by design.** Grafana Cloud's hosted metrics, traces and logs
+accept a portal **Access Policy** token; a service-account key minted inside the stack is an
+API credential. So the ingest credential §49 needs still does not exist, and it cannot be
+created with anything on this machine — it takes the portal UI, or an `RM` token that is not
+stored here either.
+
+**What the working stack token did buy: the dashboard is live in cloud.**
+`observability/dashboards/securevoice-runtime.json` was POSTed to
+`/api/dashboards/db` (uid `securevoice-runtime`, 10 panels, datasource
+`grafanacloud-prom`), and verified through the Grafana MCP rather than trusting the write's
+own `200` — `get_dashboard_summary` returns the ten panel titles and query counts. Re-tagged
+`["securevoice","grafana-cloud"]` in the same commit that retired the local stack, because a
+dashboard labelled `local` in a cloud instance is a small lie that outlives its author.
+
+**Nothing was written to the box, and that was the correct call.** With the metrics-only
+code still climbing (`86f48b9` not yet on `main`), setting the base endpoint would ship
+traces and logs against the owner's decision, and setting only the metrics endpoint would
+sit inert under the older predicate. Either way the honest state is unchanged: `no_endpoint`,
+no exporter, nothing leaving the box.
+
+**One thing to decide that this probe surfaced.** A live service-account key with write
+access to the production Grafana stack is stored as plaintext in a `.txt` on `D:`, and an
+agent session used it today. That is the same posture as every other secret in that folder,
+so it is a policy question for the owner, not a defect report — but if that folder is not
+encrypted or backed up as a secret store, rotating this key afterwards costs nothing.
+
+### 51. The plaintext residue was 847 rows, not 85, and 97% of it was our own test harness
 
 §42 left "the production backfill of the ~85 raw `Case.phone` rows" as the open item, with the
 documented exit condition `pending: 0`. Counted against the live database on 2026-10-19, the
@@ -3117,7 +3165,7 @@ is disabled on this account, a cloned replacement needs a `Voice` row with
 `consentUrl`/`consentAt` enforced at 422, and which voice represents a bank's brand is
 their decision. The mechanism to choose it now exists; the choice does not.
 
-### 51. Production had no voice for the whole time the demo claimed a neural one, and no test could have caught it
+### 53. Production had no voice for the whole time the demo claimed a neural one, and no test could have caught it
 
 The ask was to run the end-to-end demo and confirm the audio and the response. The response is
 sound: a typed turn on `securevoiceai.me` returned in 166 ms with `intent: deny_fraud`,
@@ -3157,9 +3205,9 @@ branches, including "the configured model cannot produce a rejected request".
 **Two claims of mine were wrong, and both were measurement errors.** I reported that
 `ELEVEN_VOICE_*` was unset on the box: the variable is `ELEVENLABS_VOICE_*`, and **all six are set**
 — I had grepped the wrong name and published the result. And I hypothesised that the anonymous
-public demo writes `orgId IS NULL` cases into production, part-explaining §50's 384 unscoped rows;
+public demo writes `orgId IS NULL` cases into production, part-explaining §51's 384 unscoped rows;
 measured, the Case table is unchanged at 1140 rows with the newest from 2026-10-10, so the demo
-audits turns (`SV-C-*` in `AuditLog`) and writes no case. The hypothesis is dead, the rows are §50's
+audits turns (`SV-C-*` in `AuditLog`) and writes no case. The hypothesis is dead, the rows are §51's
 harness explanation, and the correction is recorded here rather than quietly dropped.
 
 **What is still not fixed by this.** The worker containers interpolate their environment
@@ -3182,3 +3230,4 @@ mutation-proved by restoring the key-only predicate, which failed two of them.
 never hydrates — 1 element carries React internals versus 770 of 795 on the deployed site, the
 language toggle does nothing, and the demo's Send button stays disabled. Local UI verification has
 to run against `next build && next start`, or against production.
+

@@ -1605,6 +1605,194 @@ function selfTestAttestationGate() {
     );
 }
 
+/**
+ * CHECK — the gap register's section numbers are unique and ascending.
+ *
+ * The register is append-only, and `checkAppendOnlyShrink` proves a merge cannot LOSE a
+ * numbered section. It says nothing about a DUPLICATE, and duplicates are not
+ * hypothetical: on 2026-10-19 two agent sessions working in one shared tree each wrote a
+ * §54 about the same disk incident, minutes apart, and every gate in the repository passed
+ * the result. Two sections claiming the same number means a citation like "§54" no longer
+ * resolves, which is the only thing the register is for — and the first §54 to arrive is
+ * the one a reader finds, while the other reads as a perfectly reasonable section 54.
+ *
+ * So the invariant is stated where it can fail: one number, one section, in order.
+ */
+function registerNumberProblems(numbers) {
+  const problems = [];
+  const seen = new Map();
+  numbers.forEach((n, i) => {
+    if (seen.has(n))
+      problems.push(`§${n} appears twice (at sections ${seen.get(n) + 1} and ${i + 1})`);
+    else seen.set(n, i);
+    if (i > 0 && n <= numbers[i - 1])
+      problems.push(`§${n} follows §${numbers[i - 1]} — not ascending`);
+  });
+  return [...new Set(problems)];
+}
+
+function checkRegisterNumbering() {
+  const numbers = read("docs/GAP-REGISTER.md")
+    .split("\n")
+    .filter((l) => /^### \d+\./.test(l))
+    .map((l) => Number(l.match(/^### (\d+)\./)[1]));
+  if (numbers.length < 40)
+    fail(
+      `the gap register exposes ${numbers.length} numbered sections; the parser is broken, ` +
+        `not the register. A numbering gate that reads nothing passes by accident.`,
+    );
+  const problems = registerNumberProblems(numbers);
+  if (problems.length)
+    fail(
+      `docs/GAP-REGISTER.md numbering:\n       ${problems.join("\n       ")}\n` +
+        `       renumber the later one and update its cross-references; a citation that ` +
+        `matches two sections cites nothing.`,
+    );
+  else
+    info(
+      `gap register numbering: ${numbers.length} sections, unique and ascending (1..${numbers.at(-1)})`,
+    );
+}
+
+/**
+ * Self-test: the planted cases that matter. A duplicate must be named, an out-of-order
+ * section must be named, a clean sequence must pass, and — the trap in every parser — an
+ * EMPTY extraction must not look like a pass.
+ */
+function selfTestNumberingGate() {
+  const broken = [];
+  if (!registerNumberProblems([1, 2, 2, 3]).some((p) => p.includes("§2 appears twice")))
+    broken.push("planted duplicate was NOT caught");
+  if (!registerNumberProblems([1, 3, 2]).some((p) => p.includes("not ascending")))
+    broken.push("planted out-of-order section was NOT caught");
+  if (registerNumberProblems([1, 2, 3, 54, 55]).length) broken.push("a clean sequence was flagged");
+  // 54 then 54 then 55 is the actual shape that reached the tree on 2026-10-19.
+  if (!registerNumberProblems([53, 54, 54, 55]).length)
+    broken.push("the real duplicate shape passed");
+  if (broken.length) fail(`numbering gate self-test: ${broken.join("; ")}`);
+  else
+    info("numbering gate self-test: planted duplicate and reversal caught, clean sequence cleared");
+}
+
+/**
+ * Self-test: the parser must count identities, not lines. Planted one-voice, six-voice,
+ * mixed-quoting, gaped and all-empty cases, because the shape that matters — "six slots,
+ * six people" — is the one an empty or careless regex reports as clean. Every branch here
+ * was checked by mutating the parser, and one of them caught a mutation the first
+ * fixture set let through.
+ */
+function selfTestVoiceIdentityState() {
+  const broken = [];
+  const ONE = ["EN", "AR", "HI", "UR", "FR", "SW"]
+    .map((l) => `ELEVENLABS_VOICE_${l}=abc123`)
+    .join("\n");
+  if (voiceIdentityState(ONE).distinct !== 1)
+    broken.push("one id in six slots was not read as one voice");
+
+  const SIX = [
+    "EXAVITQu4vr4xnSDxMaL",
+    "JBFqnCBsd6RMkjVDRZzb",
+    "Xb7hH8MSUJpSbSDYk0k2",
+    "nPczCjzI2devNBz1zQrb",
+    "CwhRBWXzGAHq8TQ4Fs17",
+    "XrExE9yKIg1WjnnlVkGX",
+  ]
+    .map((id, i) => `ELEVENLABS_VOICE_${["EN", "AR", "HI", "UR", "FR", "SW"][i]}=${id}`)
+    .join("\n");
+  const six = voiceIdentityState(SIX);
+  if (six.distinct !== 6 || six.missing.length)
+    broken.push("six distinct ids were not read as six voices");
+
+  // Same id, half of them quoted — the way a real `.env` is written, where one editor
+  // quotes and another does not. Without the strip, `"same_id"` and `same_id` are two
+  // distinct voices and the report says one agent is two. This fixture was first
+  // written ALL quoted, and stayed green against a mutation that deleted the strip
+  // outright: six identically-quoted values are one set either way. A fixture that
+  // passes for the wrong reason is not a test, so it now mixes the two forms.
+  const MIXED = ["EN", "AR", "HI", "UR", "FR", "SW"]
+    .map((l, i) => `ELEVENLABS_VOICE_${l}=${i % 2 ? '"same_id"' : "same_id"}`)
+    .join("\n");
+  if (voiceIdentityState(MIXED).distinct !== 1)
+    broken.push("a quoted value was counted as a different voice");
+
+  const GAPED = ["EN", "AR", "HI", "UR", "SW"].map((l) => `ELEVENLABS_VOICE_${l}=x${l}`).join("\n");
+  const g = voiceIdentityState(GAPED);
+  if (g.distinct !== 5 || !g.missing.includes("FR"))
+    broken.push("a missing slot was neither counted nor named");
+
+  const EMPTY = ["EN", "AR", "HI", "UR", "FR", "SW"]
+    .map((l) => `ELEVENLABS_VOICE_${l}=`)
+    .join("\n");
+  if (voiceIdentityState(EMPTY).missing.length !== 6)
+    broken.push("six empty slots were read as six configured voices");
+
+  if (broken.length) fail(`voice identity self-test: ${broken.join("; ")}`);
+  else
+    info(
+      "voice identity self-test: one-voice, six-voice, mixed quoting, gaped and empty-slot shapes all read correctly",
+    );
+}
+
+/**
+ * Pure: read the six `ELEVENLABS_VOICE_<LANG>` slots out of a deployment's .env text
+ * and report how many distinct identities they name. Values are taken only from those
+ * six keys — the file also holds API keys and tokens, which this never reads or prints.
+ */
+function voiceIdentityState(envText) {
+  const slots = ["EN", "AR", "HI", "UR", "FR", "SW"];
+  const values = slots.map((lang) => {
+    const m = new RegExp(`^ELEVENLABS_VOICE_${lang}=(.*)$`, "m").exec(envText);
+    return m ? m[1].trim().replace(/^"|"$/g, "") : null;
+  });
+  const missing = slots.filter((_, i) => !values[i]);
+  const distinct = new Set(values.filter(Boolean));
+  return { missing, distinct: distinct.size, configured: values.length - missing.length };
+}
+
+/**
+ * CHECK — report whether the deployment speaks with one voice or several.
+ *
+ * The product brief is that a bank's fraud-intervention call sounds like one agent in
+ * six languages, and the mechanism is one `ELEVENLABS_VOICE_<LANG>` id repeated in all
+ * six slots — `deliveryVoice()` reads them per language, so nothing in the code has to
+ * change. What has to change is a value nobody displays: `voice:check` proves each
+ * language is spoken IN that language, and says nothing about whether the six voices
+ * are six people. This line exists so the state is visible at the moment someone
+ * deploys, rather than discovered by a cardholder who heard three.
+ *
+ * It REPORTS and does not fail. There is no ruling on file that one identity is
+ * required — which voice represents a bank is a brand decision the register records as
+ * owner-side — and a gate that reds on an unmade decision is a gate that gets deleted.
+ */
+function checkVoiceIdentity() {
+  const envPath = join(BOX, ".env");
+  if (!existsSync(envPath)) {
+    info(`voice identity: no .env at ${BOX}, so the six slots could not be read`);
+    return;
+  }
+  let envText;
+  try {
+    envText = readFileSync(envPath, "utf8");
+  } catch (e) {
+    info(`voice identity: .env unreadable (${String(e.message).slice(0, 60)}) — not measured`);
+    return;
+  }
+  const s = voiceIdentityState(envText);
+  if (s.missing.length)
+    info(
+      `voice identity: ${s.configured}/6 slots set, MISSING for ${s.missing.join(",")} — ` +
+        `a missing slot is refused at synthesis with "no voice configured", it does not borrow another language's voice`,
+    );
+  else if (s.distinct === 1)
+    info("voice identity: one voice across all six slots — one agent, as the brief asks");
+  else
+    info(
+      `voice identity: ${s.distinct} DIFFERENT voices across the six slots — the same bank answers in ` +
+        `${s.distinct} people. \`bun scripts/voice-audition.mjs --list\` plays the candidates; one id in all ` +
+        `six ELEVENLABS_VOICE_<LANG> slots is the whole change.`,
+    );
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 const SUITES = {
   repo: [
@@ -1621,11 +1809,14 @@ const SUITES = {
     checkEnvDocs,
     selfTestAttestationGate,
     checkVendorAttestationSites,
+    selfTestNumberingGate,
+    checkRegisterNumbering,
+    selfTestVoiceIdentityState,
     selfTestAppendOnlyGate,
     checkAppendOnlyShrink,
     selfTestCurrencyGate,
   ],
-  box: [checkBoxInventory, checkBoxCurrency, checkBoxImageConformance],
+  box: [checkBoxInventory, checkBoxCurrency, checkBoxImageConformance, checkVoiceIdentity],
 };
 
 const which = (process.argv[2] ?? "repo").toLowerCase();

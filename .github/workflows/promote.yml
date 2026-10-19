@@ -18,6 +18,10 @@
 #        merge to staging ─▶ PR staging→main opened ─▶ auto-merge WHEN CI IS GREEN
 #           merge to main ─▶ Deploy workflow runs ─▶ VPS rolls forward
 #
+# Landing on main also runs realign.yml, which adopts main as an ancestor of
+# staging. Without it every squash re-diverges the two branches and the next
+# promotion opens DIRTY, waiting on a person — see docs/GAP-REGISTER.md §48.
+#
 # The review that remains is the code review that happened on the way UP, not a
 # second ceremony on the way down. What this workflow refuses to do is the part
 # that actually protects production:
@@ -101,22 +105,39 @@ jobs:
       # A promotion with nothing in it is not a no-op: it is a PR that says
       # "review this" about nothing, which is how review discipline dies. Say so
       # and stop.
+      #
+      # The test is the TREE, not the commit count, and the re-align job in
+      # realign.yml is why. That job puts a `merge -s ours` commit on staging
+      # whose diff is empty by construction — `rev-list --count` says 1, so a
+      # count-based gate would open a promotion PR carrying nothing, GitHub
+      # would squash it onto main, main would move again, the re-align would run
+      # again, and the two jobs would pump an endless loop of empty releases
+      # through the ladder. Identical trees is the question that actually
+      # matters: would merging this change what ${TARGET} ships?
       - name: Stop when there is nothing to promote
         id: delta
         env:
           SOURCE: ${{ steps.edge.outputs.source }}
           TARGET: ${{ steps.edge.outputs.target }}
         run: |
+          set -euo pipefail
           count=$(git rev-list --count "origin/${TARGET}..origin/${SOURCE}")
           echo "count=$count" >> "$GITHUB_OUTPUT"
           echo "commits ahead of ${TARGET}: $count"
-          if [ "$count" = "0" ]; then
-            echo "${SOURCE} is already contained in ${TARGET} — nothing to promote." >> "$GITHUB_STEP_SUMMARY"
+
+          if git diff --quiet "origin/${TARGET}" "origin/${SOURCE}" --; then
+            echo "changes=no" >> "$GITHUB_OUTPUT"
+            echo "${SOURCE} and ${TARGET} hold identical trees (${count} commit(s) of ancestry" \
+                 "with no content change) — nothing to promote." >> "$GITHUB_STEP_SUMMARY"
+            echo "nothing to promote: identical trees"
+          else
+            echo "changes=yes" >> "$GITHUB_OUTPUT"
+            echo "content differs from ${TARGET}: $(git diff --shortstat "origin/${TARGET}" "origin/${SOURCE}" --)"
           fi
 
       - name: Open or refresh the pull request, then arm auto-merge
         id: arm
-        if: steps.delta.outputs.count != '0'
+        if: steps.delta.outputs.changes == 'yes'
         env:
           # NOT secrets.GITHUB_TOKEN. A pull request opened with GITHUB_TOKEN is
           # treated as bot-authored, and GitHub then holds every workflow on it

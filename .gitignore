@@ -194,3 +194,8 @@ demo/walkthrough/source/.hyperframes/
 # generated provider file (it embeds an absolute path, so it cannot be committed
 # truthfully), and the servers' logs. The committed inputs live in observability/.
 .observability/
+
+# Browser screenshots taken while verifying a view. Scratch: nothing in the repo
+# references them, and leaving them untracked means a later `git add -A` sweeps
+# a few megabytes of PNG into an unrelated commit.
+.qoder-shots/

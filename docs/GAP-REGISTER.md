@@ -3047,3 +3047,72 @@ is not a second rung, and no second provider will be funded for it; the **purge 
 clear-not-delete for the harness rows. The remaining blockers on the DIFC record are counsel and
 appointment items: the High-Risk characterisation, a DPO and ASO, the Regulation 3 notification
 status, and executed Article 24 sub-processor terms naming processing locations.
+
+### 52. The demo resolved its own voices, and French/Swahili were quietly English
+
+Asked for ElevenLabs voices that sound natural and match across languages in the demos
+and quick interactions, the first finding was structural: **the client owned a voice
+table the live call never consulted.** `TTS_VOICE` in `src/lib/voice-client.ts` mapped
+language+role to an ElevenLabs _library slug_, and each TTS route carried its own
+byte-identical copy of a table aliasing those slugs back to languages. The alias was
+lossy in a way that maps directly onto a product claim:
+
+| language      | slug the demo sent | language it aliased to | voice a real caller hears                        |
+| ------------- | ------------------ | ---------------------- | ------------------------------------------------ |
+| `fr`          | `jam`              | **`en`**               | `ELEVENLABS_VOICE_FR`                            |
+| `sw`          | `jam`              | **`en`**               | `ELEVENLABS_VOICE_SW`                            |
+| `en` customer | `kazi`             | **`hi`**               | (a human — there is no customer voice on a call) |
+
+So a French or Swahili demo line played the English deployment voice, and the scripted
+demo's "customer" borrowed the Hindi slot's production voice id. A bank operator
+listening to either was hearing something the product does not do, on the page whose
+job is to show them what the product does.
+
+**Fixed structurally, not by a nicer table.** The client names a language and a role;
+`requestedVoice()`/`deliveryVoice()` in `src/lib/elevenlabs/client.ts` decide, reading
+the same six `ELEVENLABS_VOICE_<LANG>` slots the live call reads. `DEV_SLUG_LANG`
+survives as a compatibility shim for callers that still send a slug, and now exists in
+exactly one file. `/api/twilio/audio` lost its module-load `LANG_TO_VOICE` snapshot —
+a voice set after import was invisible to it — and a language with no configured voice
+now falls back to English **while logging that it did**, because a silent substitution
+is how a deployment serves English to Swahili callers for a quarter without noticing.
+
+**The console's voice preview never touched the product at all.** `Dashboard.tsx` called
+`window.speechSynthesis` directly with a hardcoded two-branch `ar-SA`/`en-US` pick, under
+a label presenting it as the agent's voice. It now asks `/api/tts` and says plainly which
+one played, keeping the browser engine only as the fallback `speakText` already reports.
+
+**"One agent across six languages" needed no new mechanism.** The six slots are
+per-language because a deployment may need them to be, not because the product must
+change speakers: one voice id in all six is already one identity, on the call and — now
+that the demo resolves through the same table — in the demo too. What was missing was a
+way to choose it, because nothing in the repo can hear an accent. `voice:check` proves a
+voice produces the right words in the right script and its own header says that is not
+the same as sounding native; the vendor returns the same 23 voices for every
+`supported_languages` query, each labelled `language: en` with an empty capability array.
+So `scripts/voice-audition.mjs` renders the real opening disclosure in all six languages
+per candidate into files, and the decision stays where it belongs — with a person
+listening. It is manual and bills, like `voice:check`, and refuses to run without a real
+key.
+
+**A new gate caught a defect I had just written.** `tests/unit/voice-resolution-single-source.test.ts`
+pins the structure (one alias table, no client-side table, the live-call paths resolve
+through the shared function, the preview asks the product) and the dev-mode invariants.
+Its first run failed on `sw`: merging the route's old `defaultDevVoice` table with the
+client's had left Swahili's agent and customer both on `kazi`, so a dry-run Swahili demo
+would sound like one person talking to themselves — the exact regression the deleted
+table test used to catch. Fixed by moving Swahili's dev agent to `jam`.
+
+**Also corrected, because the docs had drifted further than the code.**
+`MODEL_CARD.md` still claimed `eleven_multilingual_v2` plus `eleven_flash_v2_5` for
+Swahili with a "preset voice per language" — a generation that cannot voice Urdu or
+Swahili at all, which `tests/unit/tts-model-resolution.test.ts` exists to forbid in
+code. `README.md` advertised "Voice identity per language" as a feature and its env
+table listed four of the six voice slots. `README.md:73` is the kind of line
+`tests/docs/docs-accuracy.test.ts` polices, so it was reworded to name which path owns
+which language set rather than edited to a shorter claim.
+
+**Not done, deliberately.** Which voice id goes in the six slots is unanswered: cloning
+is disabled on this account, a cloned replacement needs a `Voice` row with
+`consentUrl`/`consentAt` enforced at 422, and which voice represents a bank's brand is
+their decision. The mechanism to choose it now exists; the choice does not.

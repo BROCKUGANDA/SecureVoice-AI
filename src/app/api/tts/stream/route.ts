@@ -1,13 +1,7 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import {
-  ELEVEN_VOICE_ENV,
-  allowedVoices,
-  isProdVoiceMode,
-  resolveTtsModel,
-  type TtsLang,
-} from "@/lib/elevenlabs/client";
+import { allowedVoices, requestedVoice, resolveTtsModel } from "@/lib/elevenlabs/client";
 import { consume as consumeRateLimit, rateLimitHeaders, rateLimitId } from "@/lib/ratelimit";
 import { append as auditAppend } from "@/lib/audit-chain";
 import { transcript as redactText } from "@/lib/redact";
@@ -34,12 +28,14 @@ export const dynamic = "force-dynamic";
  * response — same contract, same status codes.
  */
 
-const LANGS = new Set<string>(SUPPORTED_LANGS);
 const MAX_CHARS = maxTtsChars();
 
 const schema = z.object({
   text: z.string().min(1).max(MAX_CHARS),
-  voice: z.string().min(1).max(64),
+  /** Explicit override; omit it and `lang` + `role` decide the voice. */
+  voice: z.string().min(1).max(64).optional(),
+  /** Whose voice a line is in. On a live call the customer is a human. */
+  role: z.enum(["agent", "customer"]).default("agent"),
   lang: z.enum(SUPPORTED_LANGS).default("en"),
   callRef: z.string().min(3).max(64).optional(),
   // Tenant speech context. Absent means "conventional tenant": the
@@ -47,30 +43,12 @@ const schema = z.object({
   speech: z.object({ shariahCompliant: z.boolean().optional() }).optional(),
 });
 
-const DEV_SLUG_LANG: Record<string, TtsLang> = {
-  jam: "en",
-  kazi: "hi",
-  tongtong: "ar",
-  chuichui: "ar",
-  douji: "hi",
-  luodo: "ur",
-  xiaochen: "ur",
-};
-
-function resolveVoice(voice: string, _lang: TtsLang): string {
-  if (LANGS.has(voice)) {
-    return isProdVoiceMode() ? ELEVEN_VOICE_ENV[voice as TtsLang] : devVoice(voice as TtsLang);
-  }
-  if (allowedVoices().has(voice)) return voice;
-  if (isProdVoiceMode() && DEV_SLUG_LANG[voice]) {
-    return ELEVEN_VOICE_ENV[DEV_SLUG_LANG[voice]] || voice;
-  }
-  return voice;
-}
-
-function devVoice(lang: TtsLang): string {
-  return { en: "jam", ar: "tongtong", hi: "kazi", ur: "luodo", fr: "jam", sw: "kazi" }[lang];
-}
+// Voice resolution used to be duplicated here — its own `DEV_SLUG_LANG`, its own
+// `resolveVoice`, and a third copy of the dev slug table. That is how the streaming
+// path and the buffered path could disagree about who is speaking, and how the
+// landing widget (`/api/tts/stream`) could play a French line in the English
+// deployment voice while a real French caller heard `ELEVENLABS_VOICE_FR`. Both
+// routes now call `requestedVoice()` in `@/lib/elevenlabs/client`.
 
 export async function POST(req: NextRequest) {
   const started = Date.now();
@@ -112,10 +90,12 @@ export async function POST(req: NextRequest) {
   }
   const text = gated.text;
 
-  const voice = resolveVoice(parsed.data.voice, lang);
-
+  const voice = requestedVoice(parsed.data.voice, lang, parsed.data.role);
   if (!allowedVoices().has(voice)) {
-    return NextResponse.json({ error: `Unknown voice '${parsed.data.voice}'` }, { status: 422 });
+    const error = parsed.data.voice
+      ? `Unknown voice '${parsed.data.voice}'`
+      : `No voice is configured for language '${lang}' in the ${parsed.data.role} role. Set ELEVENLABS_VOICE_${lang.toUpperCase()}.`;
+    return NextResponse.json({ error }, { status: 422 });
   }
 
   if (!env.elevenLabsApiKey || env.elevenLabsDryRun) {

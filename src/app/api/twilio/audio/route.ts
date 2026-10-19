@@ -4,7 +4,7 @@ import { append as auditAppend } from "@/lib/audit-chain";
 import { transcript as redactText } from "@/lib/redact";
 import { consume as consumeRateLimit, rateLimitId } from "@/lib/ratelimit";
 import { env } from "@/lib/config";
-import { tts as elevenTts } from "@/lib/elevenlabs/client";
+import { tts as elevenTts, deliveryVoice, type TtsLang } from "@/lib/elevenlabs/client";
 import { generateAudioWithFailover, isPoolConfigured } from "@/lib/elevenlabs/pool";
 import { generatePlayhtAudio, isPlayhtConfigured, playhtVoice } from "@/lib/elevenlabs/playht";
 import { EMERGENCY_AUDIO_CONTENT_TYPE, getEmergencyAudio } from "@/lib/elevenlabs/emergency-audio";
@@ -28,14 +28,11 @@ export const dynamic = "force-dynamic";
  *   callRef — audit chain reference
  */
 
-const LANG_TO_VOICE: Record<string, string> = {
-  en: env.voiceFor("en") ?? "",
-  ar: env.voiceFor("ar") ?? "",
-  hi: env.voiceFor("hi") ?? "",
-  ur: env.voiceFor("ur") ?? "",
-  fr: env.voiceFor("fr") ?? "",
-  sw: env.voiceFor("sw") ?? "",
-};
+// The voice for a language is resolved per request by `deliveryVoice()` — the one
+// resolver the whole product shares. This file used to build its own table from
+// `env.voiceFor()` at module load, which meant a deployment that set the variable
+// after import (or a test that sets it per case) kept serving the snapshot, and a
+// second place had to be right for the caller's voice to be correct.
 
 // Cache: generated audio survives across requests (TTL 1h, max 48 entries)
 const audioCache = new Map<string, { buf: Buffer; at: number }>();
@@ -95,7 +92,7 @@ function audioResponse(bytes: Uint8Array, contentType: string, source: string): 
 
 export async function GET(req: NextRequest) {
   const text = req.nextUrl.searchParams.get("text") ?? "";
-  const lang = (req.nextUrl.searchParams.get("lang") ?? "en") as keyof typeof LANG_TO_VOICE;
+  const lang = (req.nextUrl.searchParams.get("lang") ?? "en") as TtsLang;
   // Raw param ("" when absent) — the signature is computed over exactly this.
   const callRefParam = req.nextUrl.searchParams.get("callRef") ?? "";
 
@@ -117,7 +114,14 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
   }
 
-  const voice = LANG_TO_VOICE[lang] || LANG_TO_VOICE.en;
+  // A language with no configured voice falls back to English rather than failing
+  // the call — but it says so out loud. A silent substitution is how a deployment
+  // ends up serving English to a Swahili caller for weeks without noticing.
+  const configured = deliveryVoice(lang, "agent");
+  const voice = configured || deliveryVoice("en", "agent");
+  if (!configured) {
+    logError(`[twilio/audio] no voice configured for '${lang}' — serving the English voice`);
+  }
   if (!voice) {
     return NextResponse.json({ error: "No voice configured for language" }, { status: 500 });
   }

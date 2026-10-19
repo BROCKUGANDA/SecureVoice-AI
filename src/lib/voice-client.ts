@@ -7,15 +7,21 @@ import type { CallLang } from "@/lib/scenario";
 
 export type VoiceRole = "agent" | "customer";
 
-/** Neural voice routing per call language. */
-export const TTS_VOICE: Record<CallLang, Record<VoiceRole, string>> = {
-  en: { agent: "jam", customer: "kazi" },
-  ar: { agent: "tongtong", customer: "chuichui" },
-  hi: { agent: "kazi", customer: "douji" },
-  ur: { agent: "luodo", customer: "xiaochen" },
-  fr: { agent: "jam", customer: "kazi" },
-  sw: { agent: "jam", customer: "kazi" },
-};
+/**
+ * There is deliberately no voice table here.
+ *
+ * This file used to own `TTS_VOICE: language -> role -> ElevenLabs library slug`,
+ * and the routes aliased those slugs back to languages. The alias was lossy: `fr`
+ * and `sw` both mapped to the slug `jam`, which resolves to `en`, so a French or
+ * Swahili demo line played the English deployment voice while a real caller heard
+ * `ELEVENLABS_VOICE_FR` — and the demo's "customer" role borrowed the production
+ * voice id of an unrelated language entirely.
+ *
+ * The client now names a language and a role and sends them. `requestedVoice()` in
+ * `src/lib/elevenlabs/client.ts` decides what speaks, using the same table the live
+ * call path uses, which is the only way a demo can be trusted to sound like the
+ * product.
+ */
 
 /* ————— audio cache (object URLs, session-scoped) ————— */
 /**
@@ -62,13 +68,23 @@ function cacheSet(key: string, speech: Speech): void {
   AUDIO_CACHE.set(key, speech);
 }
 
-export function prefetchSpeech(text: string, voice: string, lang?: CallLang): void {
-  fetchSpeech(text, voice, lang).catch(() => {});
+export function prefetchSpeech(
+  text: string,
+  voice: string,
+  lang?: CallLang,
+  role: VoiceRole = "agent",
+): void {
+  fetchSpeech(text, voice, lang, role).catch(() => {});
 }
 
 /** Fetch (or reuse) the neural-voice audio for the given text. */
-export function fetchSpeech(text: string, voice: string, lang?: CallLang): Promise<Speech> {
-  const key = `${voice}::${lang ?? ""}::${text}`;
+export function fetchSpeech(
+  text: string,
+  voice: string,
+  lang?: CallLang,
+  role: VoiceRole = "agent",
+): Promise<Speech> {
+  const key = `${voice}::${lang ?? ""}::${role}::${text}`;
   const hit = AUDIO_CACHE.get(key);
   if (hit) return Promise.resolve(hit);
 
@@ -79,7 +95,7 @@ export function fetchSpeech(text: string, voice: string, lang?: CallLang): Promi
     const res = await fetch("/api/tts", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text, voice, ...(lang ? { lang } : {}) }),
+      body: JSON.stringify({ text, voice, role, ...(lang ? { lang } : {}) }),
     });
     // Carrying the status into the message is what lets speakText tell a spent
     // demo budget (429) from a refused anonymous call (401) from a vendor outage.
@@ -100,8 +116,13 @@ export function fetchSpeech(text: string, voice: string, lang?: CallLang): Promi
 }
 
 /** Back-compat for callers that only need the playable URL. */
-export function fetchSpeechUrl(text: string, voice: string, lang?: CallLang): Promise<string> {
-  return fetchSpeech(text, voice, lang).then((s) => (s.degraded ? DEGRADED : s.url));
+export function fetchSpeechUrl(
+  text: string,
+  voice: string,
+  lang?: CallLang,
+  role: VoiceRole = "agent",
+): Promise<string> {
+  return fetchSpeech(text, voice, lang, role).then((s) => (s.degraded ? DEGRADED : s.url));
 }
 
 /* ————— single active audio channel ————— */
@@ -203,7 +224,10 @@ export async function speakText(
 ): Promise<SpeechOutcome> {
   let url: string;
   try {
-    url = await fetchSpeechUrl(text, TTS_VOICE[lang][role], lang);
+    // `voice` is the language, on purpose: the server resolves language+role to
+    // the voice the live call would use. Passing a slug here is what let the demo
+    // drift away from the product once already.
+    url = await fetchSpeechUrl(text, lang, lang, role);
   } catch (err) {
     browserSpeak(text, lang, rate);
     return { neural: false, reason: classify(err) };
@@ -234,18 +258,21 @@ export async function streamSpeech(
   lang: CallLang,
   role: VoiceRole,
   rate = 1,
-): Promise<{ streamed: boolean; bargeIn: boolean }> {
+): Promise<{ streamed: boolean; bargeIn: boolean; neural: boolean; reason?: string }> {
   if (typeof MediaSource === "undefined" || !MediaSource.isTypeSupported("audio/mpeg")) {
-    await speakText(text, lang, role, rate);
-    return { streamed: false, bargeIn: false };
+    // `neural` is reported rather than assumed because the copy beside this player
+    // claims a neural voice: when the vendor path is skipped, the visitor is hearing
+    // their own device's speech engine and is entitled to be told.
+    const outcome = await speakText(text, lang, role, rate);
+    return { streamed: false, bargeIn: false, neural: outcome.neural, reason: outcome.reason };
   }
 
   let mediaSource: MediaSource;
   try {
     mediaSource = new MediaSource();
   } catch {
-    await speakText(text, lang, role, rate);
-    return { streamed: false, bargeIn: false };
+    const outcome = await speakText(text, lang, role, rate);
+    return { streamed: false, bargeIn: false, neural: outcome.neural, reason: outcome.reason };
   }
 
   const audio = new Audio();
@@ -267,7 +294,9 @@ export async function streamSpeech(
       if (settled) return;
       settled = true;
       cleanup();
-      resolve({ streamed: true, bargeIn });
+      // Reaching this resolve means vendor chunks were appended to the MediaSource,
+      // so the voice the visitor heard is the platform's neural voice.
+      resolve({ streamed: true, bargeIn, neural: true });
     };
 
     mediaSource.addEventListener("sourceopen", async () => {
@@ -307,7 +336,7 @@ export async function streamSpeech(
         const res = await fetch("/api/tts/stream", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ text, voice: TTS_VOICE[lang][role], lang }),
+          body: JSON.stringify({ text, voice: lang, lang, role }),
         });
         if (!res.ok || !res.body) {
           stopMicMonitor();

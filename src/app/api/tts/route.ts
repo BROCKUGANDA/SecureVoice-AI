@@ -5,9 +5,9 @@ import {
   tts as elevenTts,
   UpstreamError,
   DEV_VOICES,
-  ELEVEN_VOICE_ENV,
   allowedVoices,
   isProdVoiceMode,
+  requestedVoice,
   resolveTtsModel,
   type TtsLang,
 } from "@/lib/elevenlabs/client";
@@ -51,53 +51,31 @@ export const dynamic = "force-dynamic";
  *     dry-run; configured ElevenLabs voice_ids in prod)
  */
 
-const LANGS = new Set<string>(SUPPORTED_LANGS);
 const MAX_CHARS = maxTtsChars();
 
 const schema = z.object({
   text: z.string().min(1).max(MAX_CHARS),
-  voice: z.string().min(1).max(64),
+  /**
+   * Explicit voice override: a configured voice id, a language key, or (dev mode)
+   * a library slug. Optional — omit it and the voice is resolved from `lang` +
+   * `role` through `deliveryVoice()`, which is what the demo and every quick
+   * interaction do so that what they play is what a real caller would hear.
+   */
+  voice: z.string().min(1).max(64).optional(),
+  /** Whose voice a line is in. On a live call the customer is a human. */
+  role: z.enum(["agent", "customer"]).default("agent"),
   speed: z.number().min(0.5).max(2.0).optional(),
   lang: z.enum(SUPPORTED_LANGS).default("en"),
   pace: z.enum(["instant", "paced"]).optional().default("paced"),
   callRef: z.string().min(3).max(64).optional(),
 });
 
-/** Dev-backend voice slugs → the language they represent (per voice-client.ts routing).
- *  In prod mode these arrive from the existing demo UI and alias to the
- *  language's configured ElevenLabs voice, so the same frontend works in
- *  both modes without changes. */
-const DEV_SLUG_LANG: Record<string, TtsLang> = {
-  jam: "en",
-  kazi: "hi",
-  tongtong: "ar",
-  chuichui: "ar",
-  douji: "hi",
-  luodo: "ur",
-  xiaochen: "ur",
-};
-
-/** Resolve the requested voice to the id sent upstream. */
-function resolveVoice(voice: string, _lang: TtsLang): string {
-  // 1. Language key ("en"…) → configured voice for the current mode
-  if (LANGS.has(voice)) {
-    const v = voice as TtsLang;
-    return isProdVoiceMode() ? ELEVEN_VOICE_ENV[v] : defaultDevVoice(v);
-  }
-  // 2. Explicit valid voice for this mode → pass through
-  if (allowedVoices().has(voice)) return voice;
-  // 3. Dev slug arriving while in prod mode → alias to the language's
-  //    configured voice (existing demo UI keeps working on the real API)
-  if (isProdVoiceMode() && DEV_SLUG_LANG[voice]) {
-    return ELEVEN_VOICE_ENV[DEV_SLUG_LANG[voice]] || voice;
-  }
-  return voice; // unknown — rejected below
-}
-
-/** Dev-mode default agent voice per language (matches voice-client routing). */
-function defaultDevVoice(lang: TtsLang): string {
-  return { en: "jam", ar: "tongtong", hi: "kazi", ur: "luodo", fr: "jam", sw: "kazi" }[lang];
-}
+/**
+ * Voice resolution lives in `@/lib/elevenlabs/client` (`requestedVoice`,
+ * `deliveryVoice`) so both TTS routes and the live call share one answer. The
+ * streaming route used to carry a byte-identical copy of the table below, which
+ * is how the demo could be wrong in two places at once.
+ */
 
 /**
  * Synthesize speech with a fallback ladder.
@@ -332,16 +310,26 @@ export async function POST(req: NextRequest) {
     callRef = `SV-T-${Math.random().toString(36).slice(2, 8).toUpperCase()}`,
   } = parsed.data;
 
-  // 2. Resolve + validate the voice against the current backend's registry
-  const voice = resolveVoice(parsed.data.voice, lang);
+  // 2. Resolve + validate the voice against the current backend's registry.
+  //    An omitted `voice` is the normal path for the demo and every quick
+  //    interaction: the language and role decide it through `deliveryVoice()`,
+  //    the same resolver the live call uses.
+  const role = parsed.data.role;
+  const voice = requestedVoice(parsed.data.voice, lang, role);
   const allowed = allowedVoices();
   if (!allowed.has(voice)) {
-    const hint = isProdVoiceMode()
-      ? "voice must be a language key (en|ar|hi|ur|fr|sw) or a configured ElevenLabs voice_id (set ELEVENLABS_VOICE_EN/AR/HI/UR)"
-      : `voice must be a language key (en|ar|hi|ur|fr|sw) or a dev voice (${[...DEV_VOICES].join(", ")})`;
-    return failure("semantically_invalid", {
-      detail: `Unknown voice '${parsed.data.voice}'. ${hint}`,
-    });
+    // The two ways to get here need different sentences. Nothing configured for
+    // the language is a deployment gap and must name the variable to set; a bad
+    // explicit override is the caller's mistake. Collapsing them would send an
+    // operator hunting through request bodies for a missing env var.
+    const detail = parsed.data.voice
+      ? `Unknown voice '${parsed.data.voice}'. ${
+          isProdVoiceMode()
+            ? "voice must be a language key (en|ar|hi|ur|fr|sw) or a configured ElevenLabs voice_id"
+            : `voice must be a language key (en|ar|hi|ur|fr|sw) or a dev voice (${[...DEV_VOICES].join(", ")})`
+        }`
+      : `No voice is configured for language '${lang}' in the ${role} role. Set ELEVENLABS_VOICE_${lang.toUpperCase()} — the demo will not silently borrow another language's production voice.`;
+    return failure("semantically_invalid", { detail });
   }
 
   // 3. Rate-limit BEFORE the upstream call (the wrapper has its own, but a

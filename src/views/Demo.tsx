@@ -37,7 +37,6 @@ import {
 import AmountDisplay from "@/components/AmountDisplay";
 import { PanelHeader } from "@/components/ui/PanelHeader";
 import {
-  TTS_VOICE,
   speakText,
   stopVoice,
   prefetchSpeech,
@@ -207,11 +206,10 @@ export function Demo() {
     const next = SCEN.slice(idx + 1).find((e) => e.speaker === "agent" || e.speaker === "customer");
     if (next) {
       const ntext = eventText(next, callLang);
-      prefetchSpeech(
-        ntext,
-        TTS_VOICE[callLang][next.speaker === "agent" ? "agent" : "customer"],
-        callLang,
-      );
+      // The language is the voice selector; the server maps it the way a real
+      // call would, so a pre-warmed line cannot sound different from the same
+      // line spoken live.
+      prefetchSpeech(ntext, callLang, callLang, next.speaker === "agent" ? "agent" : "customer");
     }
   }, [revealed, audioOn, started, callLang, speed, SCEN]);
 

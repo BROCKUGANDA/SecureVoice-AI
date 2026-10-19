@@ -118,21 +118,20 @@ export async function register() {
     }
   }
 
-  // OpenTelemetry → Better Stack.
+  // OpenTelemetry → Grafana Cloud, over the standard OTLP/HTTP variables.
   //
-  // Three signals (traces, metrics, logs) ship to the OTLP/HTTP endpoint when
-  // OTEL_BETTERSTACK_TOKEN is set. Without it the SDK is a no-op and the app runs
-  // without remote telemetry — the same "degrade loudly, never silently" contract
-  // as every other optional subsystem here.
+  // Three signals (traces, metrics, logs) ship when an endpoint and an
+  // Authorization header are both configured; without them the SDK is a no-op and
+  // the app runs without remote telemetry — the same "degrade loudly, never
+  // silently" contract as every other optional subsystem here.
+  //
+  // Nothing is read from `process.env` in this block on purpose. `initOtel()`
+  // logs its own verdict and the per-signal endpoints, and the day this file
+  // kept a second copy of the endpoint name is the day the published status could
+  // disagree with what the runtime actually did.
   try {
     const { initOtel } = await import("@/lib/telemetry/otel");
-    const sdk = initOtel();
-    if (sdk) {
-      logWarn("[otel] OpenTelemetry SDK initialised", {
-        endpoint: process.env.OTEL_BETTERSTACK_ENDPOINT ?? process.env.OTEL_BETTERSTACK_HOST,
-        service: process.env.OTEL_SERVICE_NAME ?? "securevoice-api",
-      });
-    }
+    initOtel();
   } catch (err) {
     logError("[otel] init failed — continuing without remote telemetry", {
       error: err instanceof Error ? err.message : err,

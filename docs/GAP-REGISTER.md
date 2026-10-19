@@ -2886,3 +2886,63 @@ one new file → `changes=yes`.
    `staging` alone.
 3. `main` is PR-only, so a hand resolution cannot be pushed — it has to travel as its own PR
    with its own CI, which is why #141 exists beside #140 rather than replacing it in place.
+
+### 49. Grafana runs on cloud, which retires §47's open question and deletes the local stack
+
+The owner's instruction was one line — don't run Grafana locally, run it on cloud — and it
+turned out to be a decision already half-made: the Grafana MCP in this session is
+authenticated to a **Grafana Cloud stack** (`brockuganda`), and that stack already has
+Mimir, **Tempo**, **Loki** and Pyroscope provisioned as datasources. §47 asked "which trace
+backend?" and the answer was sitting in the connected instance: none to install, Tempo is
+already there.
+
+Measured before writing anything down, because a hostname is a claim:
+
+| Probe                                                                              | Result                                          |
+| ---------------------------------------------------------------------------------- | ----------------------------------------------- |
+| unauthenticated `POST` to `otlp-gateway-prod-ca-east-0.grafana.net/otlp/v1/traces` | **401** — a real gateway demanding a credential |
+| same request to `otlp-gateway-ca-east-0.grafana.net`                               | **530**                                         |
+| same request to a made-up `otlp-gateway-prod-zz-99…`                               | **530**                                         |
+
+The 530 pair is the point. A 401 alone proves the host resolves; 401 **and** a negative
+control that answers differently proves the region was identified rather than guessed. The
+region came from the stack's own datasource URLs (`prometheus-prod-32-prod-ca-east-0`,
+`tempo-prod-13-prod-ca-east-0`), not from a template.
+
+**What changed in code.** The exporter's config surface is now the OpenTelemetry standard
+names — `OTEL_EXPORTER_OTLP_ENDPOINT` and `OTEL_EXPORTER_OTLP_HEADERS` — which is what the
+stack's OpenTelemetry tile hands out. `OTEL_BETTERSTACK_*` and `OTEL_SOURCE_TOKEN` are gone
+from `src/`, banned by a new rule in the telemetry suite. Grafana Cloud authenticates with
+**Basic**, not Bearer, and the tile's token is already the base64 credential, so the header
+is carried verbatim instead of re-encoded. The hardcoded Better Stack ingestion host is
+deleted: a default destination means an unconfigured deployment ships telemetry to whoever
+owns that hostname, which for this product is a defect rather than a convenience.
+
+**The predicate grew a third state.** Endpoint-without-authorization used to be
+indistinguishable from configured, and it is the state an operator reaches by copying one
+line of the tile and not the other. It now reports `no_authorization` rather than shipping
+a batch of 401s behind a healthy-looking artifact.
+
+**The gate caught its own author, and the gate was the wrong one.** Rule C was written as
+"only `otlp-config.ts` may mention `OTEL_EXPORTER_OTLP_ENDPOINT`" and immediately failed on
+`otel.ts` — for a **log string** telling the operator which variable to set. The suite's own
+comment already says the ban must be on reads, not names, and the new rule ignored it. A
+name ban is a ban on the fix: the next author reworded the message and the second reader
+stayed. The rule now matches read shapes, and the controls test pins both directions — a
+planted `env("OTEL_EXPORTER_OTLP_ENDPOINT")` fires, the honest warning does not.
+
+**Deleted.** `scripts/observability.mjs`, `observability/prometheus.yml`, the local
+`.observability/` state dir, and the three ignore entries that existed only to keep that
+directory out of lint, format and `git add`. `observability/dashboards/securevoice-runtime.json`
+survives, repointed at `grafanacloud-prom` (24 panel references), so it imports into the
+stack unchanged. §46's Windows launcher lessons are not lost — they are about this machine,
+and they stay here rather than in a script nobody runs.
+
+**Still open, and it is not mine to close.** Two things. The **access-policy token** has to
+be created in the Grafana Cloud portal — `secrun` reads secrets and cannot mint them — and
+until it exists `remoteTelemetryStatus()` answers `no_endpoint` in production and nothing
+ships, which is the correct behaviour, not a failure. And **residency**: traces and logs
+from the voice path can carry caller data, and the stack is in Canada East. Metrics are
+aggregate counters and a different risk. The mechanism to ship less already exists (set
+only the metrics endpoint), but which of the three may leave the region is a ROPA question
+for the owner, not a default to be chosen by whoever wires a token.

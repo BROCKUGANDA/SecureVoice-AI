@@ -3281,3 +3281,48 @@ mutation-proved by restoring the key-only predicate, which failed two of them.
 never hydrates — 1 element carries React internals versus 770 of 795 on the deployed site, the
 language toggle does nothing, and the demo's Send button stays disabled. Local UI verification has
 to run against `next build && next start`, or against production.
+
+### 54. The disk filled on a name no reclaimer could match
+
+CI died a third time on a full disk (2026-10-15, then 2026-10-19 twice), and each time the
+symptom misled: the "Compose stack smoke test" job failed in 13 seconds with every step's
+conclusion null, which reads as a broken tree and is a runner that cannot write its own
+diagnostic log. The real sentence was only ever in
+`check-runs/<id>/annotations` — `System.IO.IOException: No space left on device :
+'/home/ubuntu/actions-runner2/_diag/Worker_*.log'`.
+
+**Measured on the box:** `/dev/sda1` at 96G/96G with 23 MB free; 475 local volumes, of which
+**468 were anonymous 64-hex volumes holding ~30 GB**. Production's own three (`securevoice-ai_db-data`,
+`_caddy-data`, `_caddy-config`) are named and attached to running containers.
+
+**The leak had a name-shaped blind spot, and it had a cause.** `postgres:16-alpine` declares
+`VOLUME /var/lib/postgresql/data`, so the verify job's throwaway database — started with a bare
+`docker run`, no named mount — creates one anonymous volume per run, and the teardown that removes
+the container (`docker rm -f "${DB_CI}"`) keeps the volume. Every reclaimer in the repo, in both the
+pre-build step and the `cleanup` job, filtered `docker volume ls` on `^svci-`, and an anonymous
+volume has no name at all, so 468 of them were invisible to a loop whose entire purpose was to
+delete what CI leaves behind. The reclaim step even documented its own scope as the safety property
+("all scoped to `svci-` so that `securevoice-ai_*` can never be matched") — a guard that doubled as
+the blind spot, and the comment made it look deliberate.
+
+**Fixed at both ends.** The teardown is now `docker rm -f -v`, which is what actually takes the
+volume with the container. The `cleanup` job gained an anonymous sweep that removes only a volume
+that is dangling, attached to no container, and older than 24 hours — the reference check is what
+keeps production and the other product on this host untouched, the age floor what keeps a human's
+fresh volume alive. `cleanup` carries `if: always()`, so it runs on the outcome that matters, and
+it now prints disk usage as an annotation above 90% — three incidents were each diagnosed by hand
+afterwards when the box had been stating it the whole time.
+
+**Swept by hand first, because CI could not sweep what was already blocking CI.** The promotion was
+stuck: a red compose-smoke check holds PR #150 open, so nothing reached staging, so production kept
+running the build from before the streaming-route fix. `docker volume rm` on the 468 anonymous
+dangling volumes took the box from 100% to 71% (27 GB free) and volumes from 475 to 7, with
+production never interrupted — `/api/health` `ok: true`, container uptime unchanged through the
+operation. The dry run of the new predicate then found **zero** anonymous volumes eligible, because
+the one remaining hex volume (`e77e21bd…`) is referenced and was correctly skipped: the first
+evidence that the guard selects as intended came from the state after the manual sweep.
+
+**Not assumed:** the first rerun after the cache prune failed with the same IOException, and that
+death predated the volume sweep — its annotation is timestamped before it. Re-running again with
+27 GB free is what got "Lint, typecheck, tests, build" and "Lighthouse budgets" green. Cause and
+remedy were separated by a rerun, not by reasoning.

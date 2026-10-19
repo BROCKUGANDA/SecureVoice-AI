@@ -647,9 +647,18 @@ jobs:
       # removes it. Named and `-f` rather than left to a later prune, because
       # the runner is shared with production and a stray postgres holding port
       # 55432 would confuse the next run.
+      #
+      # `-v` is the part that was missing, and it is not cosmetic: `postgres:16-alpine`
+      # declares `VOLUME /var/lib/postgresql/data`, so every `docker run` without a
+      # named mount creates a 64-hex anonymous volume, and `docker rm -f` removes the
+      # container while KEEPING it. One leak per verify run, ~64 MB each — 468 of them
+      # and 30 GB, which is what filled the box to 100% on 2026-10-19 and killed the
+      # compose smoke and Lighthouse jobs mid-step, parking the promotion. The reclaim
+      # step in `compose-smoke` now also sweeps them, because a run whose runner dies
+      # never reaches this line.
       - name: Stop the test database
         if: always()
-        run: docker rm -f "${DB_CI}" 2>/dev/null || true
+        run: docker rm -f -v "${DB_CI}" 2>/dev/null || true
 
   compose-smoke:
     name: Compose stack smoke test
@@ -1148,10 +1157,18 @@ jobs:
   # run when a job in `needs` was cancelled, which makes this the only place
   # that reliably executes on every path out of a run.
   #
-  # WHAT IT CLEANS: whatever a cancelled or crashed run left behind —
-  # containers, networks, volumes and images, all scoped to `svci-` so that
-  # `securevoice-ai_*` (production, the thing this host exists for) and
-  # `crucible_*` (the other product sharing the box) can never be matched.
+  # WHAT IT CLEANS: whatever a cancelled or crashed run left behind.
+  #
+  #  * Containers, networks and images are matched by the `svci-` / `sv-ci-`
+  #    prefix, so `securevoice-ai_*` (production, the thing this host exists
+  #    for) and `crucible_*` (the other product sharing the box) can never be
+  #    named by those loops.
+  #  * Anonymous volumes have no name to match, so they are selected two other
+  #    ways and both have to pass: the volume must be dangling and attached to
+  #    no container at all, and it must be older than 24 hours. That is what
+  #    keeps this sweep off anything still in use and off anything a person
+  #    just made by hand.
+  #
   # A container still running under a DIFFERENT, live run is refused by
   # `docker stop`'s sibling guards: `docker rm` on a running container needs
   # `-f`, so the loop removes only what is not currently running, and the
@@ -1193,6 +1210,44 @@ jobs:
               docker volume rm "$v" >/dev/null 2>&1 || true
             fi
           done
+          # ANONYMOUS volumes — the half every loop above could not see, because each
+          # one filters on a name starting with `svci-`, and an anonymous volume is a
+          # 64-char hex digest with no name at all. `postgres:16-alpine` declares
+          # `VOLUME /var/lib/postgresql/data`, so the verify job's throwaway database
+          # creates one per run: `docker rm -f -v` now takes it back with the container,
+          # but a run whose runner dies never reaches that teardown. That is how the box
+          # reached 100% on 2026-10-19 holding 468 of them (30 GB), after which the
+          # compose smoke began failing in 13 seconds with `No space left on device`
+          # written only to the runner's own diagnostic log — a red job whose steps have
+          # null conclusions, which reads like a code failure and is not one.
+          #
+          # Two guards, both load-bearing. `dangling=true` plus the ps check leaves any
+          # volume attached to any container alone, so production's named
+          # `securevoice-ai_*` and the other product's `crucible_*` are untouched and a
+          # concurrent run keeps its own data. The 24 h floor leaves anything a human
+          # created minutes ago — including a volume for a service being debugged on
+          # this box — well alone.
+          for v in $(docker volume ls -q --filter dangling=true | grep -E '^[0-9a-f]{64}$' || true); do
+            if [ -n "$(docker ps -a --filter volume="$v" --format '{{.Names}}' 2>/dev/null)" ]; then
+              continue
+            fi
+            created=$(docker volume inspect "$v" --format '{{.CreatedAt}}' 2>/dev/null || echo "")
+            if [ -z "$created" ]; then continue; fi
+            born=$(date -u -d "$created" +%s 2>/dev/null || echo 0)
+            if [ "$born" -gt 0 ] && [ $(( $(date -u +%s) - born )) -gt 86400 ]; then
+              docker volume rm "$v" >/dev/null 2>&1 || true
+            fi
+          done
+          # Disk as a number, on every outcome. Three disk-full CI deaths since
+          # 2026-10-15 were each diagnosed after the fact by reading a runner exception
+          # out of `check-runs/<id>/annotations`; the box had been saying it the whole
+          # time and nothing was reporting it. This cannot free space, it makes the
+          # `100%` visible to whoever is looking at the red job.
+          avail_pct=$(df --output=pcent / | tail -1 | tr -dc '0-9')
+          if [ "${avail_pct:-0}" -ge 90 ]; then
+            echo "::warning::runner disk is ${avail_pct}% full after reclaim — the next build may die mid-step with null step conclusions. Reclaim volumes and build cache on the box."
+          fi
+          echo "disk after reclaim: ${avail_pct}% used"
           for i in $(docker images --format '{{.Repository}}:{{.Tag}}' | grep -E '^svci-|^sv-ci-' || true); do
             docker rmi "$i" >/dev/null 2>&1 || true
           done

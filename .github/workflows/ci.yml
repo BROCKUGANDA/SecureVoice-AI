@@ -690,6 +690,20 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
+      # Fail with a NAME, not an IOException. Both runners share this host's single
+      # root filesystem, and when it fills the runner dies writing its own `_diag`
+      # log — the job goes red with a stack trace from `System.IO`, the promotion PR
+      # stays `BLOCKED`, and the ladder looks like it is merely slow. That is how
+      # 2026-10-19 lost an hour of deploys. This asks the question before spending
+      # 25 minutes of build time on a disk that cannot hold it.
+      #
+      # It runs after checkout because it is a repo script, so a disk that is already
+      # at zero can still die before reaching it — the scheduled prune in
+      # scripts/runner-hygiene.sh is what prevents that, and this step is what makes
+      # the failure legible if prevention lapses.
+      - name: Runner disk preflight
+        run: bun scripts/runner-preflight.ts --min-gb 10
+
       # Per-run ports and compose project, for the same reason as the verify job:
       # with a second runner, two smoke tests (or a smoke test and a verify) can
       # be in flight at once on this one host. A fixed project name would make
@@ -815,63 +829,18 @@ jobs:
       # The host ports come from the override, not from docker-compose.yml,
       # because production already holds 80/443 on this machine.
       #
-      # Reclaim smoke networks leaked by earlier runs. The teardown below used to
-      # name a fixed project (`securevoice-ci`) while the stack ran under the
-      # per-run `$PROJECT`, so every run's `svci-*` network was never removed and
-      # they eventually exhausted Docker's default address pool — the stack then
-      # failed with "all predefined address pools have been fully subnetted",
-      # which is what broke every PR's compose smoke. Removing only `svci-`
-      # networks is safe: it never matches production's `securevoice-ai` network,
-      # and `docker network rm` refuses any network that still has connected
-      # containers, so a concurrently running smoke job is left untouched; stale
-      # ones have none and are removed.
-      #
-      # Networks were only half the leak, and the smaller half. Two more things
-      # accumulate, both measured on this box rather than assumed:
-      #
-      #   VOLUMES — each run leaves `svci-<run>_caddy-config`, `_caddy-data` and
-      #     `_db-data` behind. 75 of them had collected (3.3 GB). `down -v` is
-      #     supposed to take them but does not, so they are removed by name here.
-      #
-      #   BUILD CACHE — `docker compose build` writes cache that `down` never
-      #     touches. 79 entries, 0 active, 22.5 GB: the single largest consumer
-      #     on the disk and roughly seven times the volume leak. This is what
-      #     actually filled the disk.
-      #
-      # Together those two brought the runner from 79% full (21 GB free) to 60%
-      # (39 GB free) in one pass. Reclaiming only the networks, as this step used
-      # to, left both of them growing on every run.
+      # WHAT THIS STEP USED TO BE: one of three inline copies of "clean up", each
+      # with a slightly different scope — this one did volumes + cache + images,
+      # `cleanup` did containers + networks + volumes + images, and deploy's did
+      # images + cache. All three selected by `grep '^svci-'`, which is precisely
+      # why 468 anonymous volumes (30 GB) accumulated in front of them: an anonymous
+      # volume is a 64-char hex digest and has no name to match. The history in the
+      # deleted comments here (the exhausted address pool, the 22.5 GB of build cache,
+      # the ~30 GB of per-run images, each measured on this box and each learned the
+      # hard way) now lives in scripts/reclaim-ci.sh, which is the single
+      # implementation all four call sites use. Read that header before changing it.
       - name: Reclaim leaked CI volumes and build cache
-        run: |
-          set -uo pipefail
-          # Only `svci-` names are candidates, so `securevoice-ai_*` and
-          # `crucible_deployed` — the volumes production is actually using —
-          # cannot be matched. A volume still referenced by any container is
-          # skipped, so a concurrently running smoke job is never disturbed.
-          for v in $(docker volume ls --format '{{.Name}}' | grep '^svci-' || true); do
-            if [ -z "$(docker ps -a --filter volume="$v" --format '{{.Names}}' 2>/dev/null)" ]; then
-              docker volume rm "$v" >/dev/null 2>&1 || true
-            fi
-          done
-
-          # Build cache older than 3 days. Not `-a`: this runner also builds the
-          # production image on deploy, and wiping its whole cache would make the
-          # next deploy a full rebuild for no benefit. 3 days keeps the deploy
-          # path warm while bounding what CI can accumulate.
-          docker builder prune --force --filter 'until=72h' 2>&1 | tail -2 || true
-
-          # IMAGES — the third leak, and the one that actually filled the disk.
-          # Each smoke run leaves its whole stack tagged `svci-<run>-...` (~3.8 GB
-          # per worker image, eight of them per run) and nothing ever reclaimed
-          # them: `down` removes containers, networks and -v volumes, never
-          # images. Four runs' worth measured ~30 GB on a 96 GB disk, which is
-          # what put the box at 79% when a build then died mid-`prisma generate`
-          # with buildkit's `graceful_stop` GOAWAY. Only `svci-`/`sv-ci-` names
-          # are candidates, so `securevoice-ai-*` (production) and `crucible-*`
-          # (the other product on this host) cannot be matched.
-          for i in $(docker images --format '{{.Repository}}:{{.Tag}}' | grep -E '^svci-|^sv-ci-' || true); do
-            docker rmi "$i" >/dev/null 2>&1 || true
-          done
+        run: bash scripts/reclaim-ci.sh reclaim
 
       - name: Build and start the stack
         run: |

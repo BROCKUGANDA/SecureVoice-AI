@@ -3326,3 +3326,42 @@ evidence that the guard selects as intended came from the state after the manual
 death predated the volume sweep — its annotation is timestamped before it. Re-running again with
 27 GB free is what got "Lint, typecheck, tests, build" and "Lighthouse budgets" green. Cause and
 remedy were separated by a rerun, not by reasoning.
+
+### 54. A full runner disk blocked the deploy for an hour and reported itself as a stack trace
+
+§51's fixes could not reach production because PR #150 and #151 were both
+`mergeStateStatus: BLOCKED`, and the only red check was `Compose stack smoke test` — whose
+failure annotation was not a build error at all:
+`System.IO.IOException: No space left on device : '/home/ubuntu/actions-runner/_diag/Worker_*.log'`
+(and the same on `actions-runner2`). Both runners share this box's one 96 GB root
+filesystem. When it fills, the runner dies writing its own diagnostic log, GitHub marks the
+job failed, the promotion PR stays blocked, and CI reads as "still running" from the
+rollup. Production kept serving the whole time, which is why nothing looked broken.
+
+**Two halves, because one is not enough.** `scripts/runner-preflight.ts` asks the question
+before spending 25 minutes of build time on a disk that cannot hold it, and fails with the
+condition named — free space, the threshold, and the reclaim command — instead of an I/O
+trace. It is wired as the first step after checkout in the compose-smoke job, deliberately
+_after_ checkout because it is a repo script: a disk already at zero can still die before
+reaching it, which is why prevention is the other half. `tests/unit/runner-preflight.test.ts`
+pins a healthy disk, a wrapped device name, a full disk, the fail-closed-on-unparseable path,
+and that the threshold is the decision. The first draft read `Capacity` instead of `Available`
+(second-to-last field vs third-from-last) and failed a box with 36 GB free — a preflight that
+always fires is a preflight that gets deleted, so the column choice is now asserted against
+real `df -P` output.
+
+**`scripts/runner-hygiene.sh` is installed as a cron, not a workflow** — and that is the
+point: a cleanup scheduled as a CI job cannot run when the disk is full, because running a
+job is what needs the disk. Installed on the box at 04:15 daily beside the existing
+`sv-backup.sh` entry, threshold 20 GB, verified on both paths in front of installing it: at
+24.0 GB free it said "above threshold — nothing to do"; forced with `MIN_FREE_GB=90` it
+reclaimed 6.578 GB of build cache and ended at 30.2 GB free. It never touches a volume
+belonging to a running container, and `docker volume prune -f` can only reach anonymous
+volumes — the named `securevoice-ai_*` volumes of live services are unreachable by design.
+Costs one cold build cache, which is the trade being made.
+
+**Also true and not fixed here:** the 30 GB of leaked CI volumes that freed themselves while
+I was measuring were reclaimed by the `Reclaim leaked smoke stacks` job getting a chance to
+run, not by my `docker volume prune -f`, which reported `0B`. Attribution matters in an
+incident record: the disk was partly freed before I touched it, both by that job and by
+whatever the other session did, and my prune contributed about 9 GB of cache and images.

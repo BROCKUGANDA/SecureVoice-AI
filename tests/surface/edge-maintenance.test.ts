@@ -316,6 +316,28 @@ describe("the surfaces a program reads are not answered with the page", () => {
     expect(machine.some((p) => p.startsWith("/v1"))).toBe(true);
   });
 
+  test("the app's own API keeps its JSON when it answers 5xx", () => {
+    // The measured defect: `POST /api/tts/stream` returned the maintenance HTML with
+    // a 503, while the route had answered deliberately — `{"error":…,
+    // "fallback":true}` plus a Retry-After — and `streamSpeech` reads exactly that
+    // field to decide whether to fall back to the buffered clip. A body the client
+    // cannot parse is a fallback contract the client cannot honour, and a voice
+    // degradation dressed as a site outage tells the wrong thing to monitors, crawlers
+    // and the analyst who opened the tab.
+    const machine = matcherPaths("machine_surface");
+    expect(machine).toContain("/api/*");
+    const covered = (path: string) =>
+      machine.some((p) => (p.endsWith("*") ? path.startsWith(p.slice(0, -1)) : path === p));
+    for (const path of ["/api/tts/stream", "/api/agent", "/api/console/events"]) {
+      expect(covered(path), `${path} can be answered with the maintenance page`).toBe(true);
+    }
+    // And the complement rule still excludes them, or `copy_response` never runs:
+    // inside handle_response a route that writes nothing closes the upstream body
+    // instead of copying it.
+    expect(covered("/pricing")).toBe(false);
+    expect(covered("/console")).toBe(false);
+  });
+
   test("the edge's own /healthz probe cannot be swallowed", () => {
     // docker-compose.yml's caddy healthcheck greps for
     // `HTTP/1.[01] (200|301|302|307|308)` on this exact path. A rule that ever

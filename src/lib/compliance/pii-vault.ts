@@ -225,15 +225,14 @@ export async function vaultCasePhone(args: {
  * Match cases addressed by this number, whether they are vaulted or legacy.
  *
  * `phoneIndex` is the lookup that works once the plaintext column is cleared; the
- * `phone` arm keeps rows the backfill has not reached answerable. It is the one
- * removable half of this OR, and it can go when
- * `bun scripts/backfill-case-phone-vault.ts` reports `pending: 0` in production —
- * not before, because a missed NO reply is a customer reporting a live fraud loss
- * into a platform that answered "no open alert".
+ * `phone` arm keeps rows the backfill has not reached answerable.
  *
- * Returns no `phoneIndex` arm at all when the index cannot be derived (a
- * deployment without `AUTH_SECRET`), rather than matching on `phoneIndex: null`,
- * which would match every un-indexed row in the table.
+ * Production reached `pending: 0` on 2026-10-19 — 847 raw rows became 22 sealed
+ * rows plus 825 cleared ones — so no case holds a number the index cannot answer.
+ * The arm stays anyway, and §42's exit condition was incomplete rather than met:
+ * the `catch` below leaves this OR with a single member when `AUTH_SECRET` is
+ * absent, and deleting the arm would make a keyless deployment match nothing at
+ * all. A rotation or a keyless staging box is the case this arm still serves.
  */
 export function casePhoneWhere(plaintext: string): Record<string, unknown> {
   const arms: Record<string, unknown>[] = [];

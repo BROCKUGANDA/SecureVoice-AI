@@ -1522,6 +1522,90 @@ function checkAppendOnlyShrink() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// CHECK — every socket that SPEAKS to ElevenLabs is behind the commercial-use gate
+//
+// `egress.ts` enforced `ELEVENLABS_COMMERCIAL_USE` and its own header asserted it
+// was "the only code in the repo that opens a socket to ElevenLabs". That claim was
+// load-bearing and false: `src/lib/voice/elevenlabs-stream.ts` builds an
+// `ElevenLabsClient` directly to speak live call audio, so the licence gate covered
+// the demo and the console while the path that reaches a customer was ungated — the
+// exact breach the guard exists to prevent, on the highest-stakes path in the
+// product. `docker-compose.yml` passing the variable to the workers changes nothing
+// about a path that never reads it.
+//
+// So the rule is measured, not remembered: any file that can make the vendor talk
+// must consult the attestation. A verification-only client (`webhooks/elevenlabs`
+// constructs one to HMAC-check an inbound payload and never calls out) is not a
+// socket, which is why the predicate needs the synthesis call, not the import.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Does this file put words into ElevenLabs' mouth?
+ *
+ * Only the SDK arm is checked here: `tests/unit/elevenlabs-script-egress.test.ts`
+ * already ratchets fetch calls written with the vendor host spelled out, and it is
+ * that gate's blind spot this one fills — a client built from the package never
+ * contains a vendor URL, so a URL regex cannot see it.
+ */
+function opensVendorSpeechSocket(text) {
+  return text.includes("new ElevenLabsClient(") && /\.textToSpeech\b/.test(text);
+}
+
+function attestationOffenders(files) {
+  return files
+    .filter((f) => opensVendorSpeechSocket(f.text) && !f.text.includes("commercialUseAttested"))
+    .map((f) => f.path);
+}
+
+function checkVendorAttestationSites() {
+  const files = walkCodeFiles(join(ROOT, "src"), []).map((p) => ({
+    path: p.slice(ROOT.length + 1).replace(/\\/g, "/"),
+    text: readFileSync(p, "utf8"),
+  }));
+  const offenders = attestationOffenders(files);
+  if (offenders.length) {
+    fail(
+      `these files can make ElevenLabs speak but never check ELEVENLABS_COMMERCIAL_USE:` +
+        `\n       ${offenders.join("\n       ")}\n` +
+        `       ToS §1(c)(i) limits a free account to non-commercial use, and a bank fraud pilot is\n` +
+        `       commercial. Refuse before the socket, as src/lib/elevenlabs/egress.ts and\n` +
+        `       src/lib/voice/elevenlabs-stream.ts both do.`,
+    );
+  } else info("every ElevenLabs speech socket consults the commercial-use attestation");
+}
+
+/**
+ * Self-test: the predicate is fed a planted unattested speech file, an attested one,
+ * and a verification-only client that must NOT be flagged. If the planted offender
+ * survives, or the legitimate files are flagged, the gate is decoration and says so.
+ */
+function selfTestAttestationGate() {
+  const broken = [];
+  const PLANTED = [
+    { path: "a/unattested.ts", text: `new ElevenLabsClient({}).textToSpeech.stream("v", {});` },
+    {
+      path: "b/attested.ts",
+      text: `if (!env.commercialUseAttested) throw 1;\nnew ElevenLabsClient({}).textToSpeech.stream();`,
+    },
+    {
+      path: "c/verify-only.ts",
+      text: `const c = new ElevenLabsClient({ apiKey: "webhook-verification-only" }); c.webhooks.constructEvent();`,
+    },
+  ];
+  const found = attestationOffenders(PLANTED);
+  if (!found.includes("a/unattested.ts"))
+    broken.push("planted unattested speech socket was NOT caught");
+  if (found.includes("b/attested.ts")) broken.push("attested socket was falsely flagged");
+  if (found.includes("c/verify-only.ts"))
+    broken.push("verification-only client was falsely flagged");
+  if (broken.length) fail(`attestation gate self-test: ${broken.join("; ")}`);
+  else
+    info(
+      "attestation gate self-test: planted unattested socket caught, attested and verify-only files cleared",
+    );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 const SUITES = {
   repo: [
     selfTestSymmetryGate,
@@ -1535,6 +1619,8 @@ const SUITES = {
     checkUnusedDependencies,
     checkMojibake,
     checkEnvDocs,
+    selfTestAttestationGate,
+    checkVendorAttestationSites,
     selfTestAppendOnlyGate,
     checkAppendOnlyShrink,
     selfTestCurrencyGate,

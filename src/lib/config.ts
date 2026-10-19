@@ -176,6 +176,9 @@ export const env = {
   get elevenLabsDryRun(): boolean {
     return process.env.ELEVENLABS_DRY_RUN === "true";
   },
+  get commercialUseAttested(): boolean {
+    return process.env.ELEVENLABS_COMMERCIAL_USE === "true";
+  },
   get elevenLabsModel(): string {
     // Must equal `tts.model_id` in agent/securevoice.agent.yaml. It used to default
     // to eleven_multilingual_v2 while the agent ran eleven_v4_turbo, so the same
@@ -870,6 +873,28 @@ export const env = {
 
 export function isProdVoiceMode(): boolean {
   return !!env.elevenLabsApiKey && !env.elevenLabsDryRun;
+}
+
+/**
+ * What a surface should say the voice path IS.
+ *
+ * Reading the API key alone is the bug this exists to stop: the egress guard refuses
+ * every live vendor call until the commercial-use attestation is set, so a
+ * deployment with a key and no attestation answers the caller with the emergency cue
+ * while its own status endpoint reports `elevenlabs`. Measured on securevoiceai.me
+ * 2026-10-19 — `X-Voice-Source: emergency`, 0.48 s, byte-identical for different
+ * sentences — while the status surface still named ElevenLabs as the provider.
+ *
+ * So the label names the rung that will actually answer, not the credential that
+ * exists.
+ */
+export function voiceProviderLabel(): string {
+  if (!env.elevenLabsApiKey) return "z-ai-dev (no key configured)";
+  if (env.elevenLabsDryRun) return "z-ai-dev (dry-run)";
+  if (!env.commercialUseAttested) {
+    return "emergency-cue (ElevenLabs refused: ELEVENLABS_COMMERCIAL_USE unset)";
+  }
+  return "elevenlabs";
 }
 
 export type TwilioMode = "api-key" | "auth-token" | "unconfigured";

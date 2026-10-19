@@ -57,6 +57,7 @@
     "voice:check": "bun scripts/voice-language-check.mjs",
     "integrations:check": "bun scripts/integrations-check.mjs",
     "pii:backfill": "bun --preload ./scripts/worker-preload.ts scripts/backfill-case-phone-vault.ts",
+    "pii:clear": "bun --preload ./scripts/worker-preload.ts scripts/clear-unvaultable-case-phone.ts",
     "paddle:repair-overrides": "bun scripts/paddle-repair-overrides.ts"
   },
   "dependencies": {

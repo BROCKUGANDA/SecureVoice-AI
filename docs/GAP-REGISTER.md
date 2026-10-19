@@ -3022,6 +3022,80 @@ agent session used it today. That is the same posture as every other secret in t
 so it is a policy question for the owner, not a defect report — but if that folder is not
 encrypted or backed up as a secret store, rotating this key afterwards costs nothing.
 
+### 51. The plaintext residue was 847 rows, not 85, and 97% of it was our own test harness
+
+§42 left "the production backfill of the ~85 raw `Case.phone` rows" as the open item, with the
+documented exit condition `pending: 0`. Counted against the live database on 2026-10-19, the
+number is **847** — an order of magnitude off, carried as memory rather than as measurement — and
+the shape is more interesting than the size.
+
+**Measured, all of it read-only before anything was written:** `Case` holds 1140 rows and the
+newest was created **2026-10-10**, so no processing about a live subject has happened in nine
+days. Of the 847 plaintext numbers, 372 have no `orgId`, 445 sit under fixture ids
+(`org-load-*`, `org-i1-*`, `credits_*`, `unused-org-for-auditor`), 8 point at organizations that no
+longer exist, and **22 belong to an organization that does** — those 22 turn out to be the seeded
+demo tenants (`0b0b0b0b-*`, `0a0a0a0a-*`). No real customer number was ever in the set.
+`pii_vault` had **0** rows: the seal path had never run in production.
+
+**The dry run was not read-only.** `backfill-case-phone-vault.ts` called `storePii` — which
+`INSERT`s — on every un-tokenized row even without `--apply`, while its own header promised "counts
+and samples, and writes nothing". A vault row no case points at is personal data the platform holds
+with no case-path erasure reaching it, so a preview run in production would have manufactured
+exactly the residue the vault exists to remove. Fixed to `tokenForPii` ("does not seal, and does not
+create"), and the suite's `reads and writes nothing` test now counts `pii_vault` on both sides —
+mutation-proved by restoring the defect, which failed it. The report also gained `pending`, counted
+from the database: the number the legacy lookup arm is documented to wait for, and which did not
+exist as a field.
+
+**Delete was considered, measured, and refused.** Clearing the rows was the other option, and the
+measurement decided it: 5,764 of 14,618 `AuditLog` rows name these cases and the chain is
+hash-linked append-only (`src/lib/privacy/retention.ts:298` refuses to trim it at any price), plus
+1,229 rows in `Notification`, `OutboxEvent`, `DeadLetter` and `UsageLedger` (billing) reference them
+by `caseRef` with no foreign key to warn anyone. So `scripts/clear-unvaultable-case-phone.ts`
+removes the number and keeps the row, refuses any row whose tenant lives, and reports `pending`
+like its sibling. Production ran it under the owner watching: 825 cleared, 22 sealed, `failed: 0`,
+then `pii:backfill --apply` on one seeded tenant, a round-trip proof that the sealed value still
+resolves and the plaintext is gone, and only then the remaining 21. End state re-measured:
+`rowsStillHoldingPlaintext: 0`, `piiVaultRows: 22`, both scripts reporting an empty queue.
+
+**Production caught what the suite could not.** `organization.id` is `uuid` while `Case.orgId` is
+`text`, so the first dry run died on `invalid input syntax for type uuid: "credits_muyt41el_…"` —
+the fixture ids cannot name a tenant and must not be passed to the lookup at all. Fixed, with a
+test for the non-uuid shape that the local database had never produced.
+
+**The arm stays.** `casePhoneWhere`'s legacy `phone` arm had a documented retirement at
+`pending: 0`. That condition is now met and the arm is still correct, because the retirement rule
+was incomplete: with no `AUTH_SECRET` the `catch` leaves that `OR` with one member, and deleting it
+would make a keyless deployment match _nothing_ — the fail-open-in-reverse case. The comment says
+so instead of repeating the promise.
+
+**The DPIA is written.** `docs/DPIA.md` is Article 20(6)(a)–(e) as required content, reasoned in the
+ISO/IEC 29134 shape (contexts → data flow → offense/impact pairs → control assessment → residual
+risk → actions), and marked `file:line` / `measured` / `OPEN` like its siblings. Its honest headline
+is §2.1: the platform's privacy risk profile today is dominated by its own test harness, not by
+customer traffic. Four risks remain high and three of them are owner-side — channel impersonation
+from the `+256` caller ID, harness writes reaching production, transfers with no executed
+safeguard (`aws-0-eu-central-1` for the primary store), and the unrecorded Article 11 condition for
+`hearing_impaired`. Reg 10.3.3 footnote 11 is restated as a market-entry bar, not a defect.
+
+**The record's legal citations are now CI-resolvable, not skipped.** The two extracted primary
+texts lived in `$TMP`; `compliance-citations.test.ts` waved `difc-law.txt` and `difc-regs.txt`
+through by name, so every citation into the actual text of the law was unverifiable by
+construction — and a wrong line number in a quoted provision could not fail anything. They are
+committed at `docs/legal-source/` with a provenance note, the skip list is gone, and the same
+resolver now length-checks them. `docs/DPIA.md` joined the guarded document set, so its ~40
+citations are checked in CI.
+
+**Owner decisions taken this session, recorded because code will not remember them:** telemetry
+residency is **metrics only** (already landed as `86f48b9`, including the SDK trap where omitting
+`spanProcessors` makes the SDK build a `localhost:4318` exporter — an empty array means none);
+**buy an in-region caller ID** and move DMARC above `p=none` — decided, not executed;
+**LiteLLM is retired and the item is closed** — §41's measurement stands, a proxy in front of Groq
+is not a second rung, and no second provider will be funded for it; the **purge shape** is
+clear-not-delete for the harness rows. The remaining blockers on the DIFC record are counsel and
+appointment items: the High-Risk characterisation, a DPO and ASO, the Regulation 3 notification
+status, and executed Article 24 sub-processor terms naming processing locations.
+
 ### 52. The demo resolved its own voices, and French/Swahili were quietly English
 
 Asked for ElevenLabs voices that sound natural and match across languages in the demos
@@ -3090,3 +3164,204 @@ which language set rather than edited to a shorter claim.
 is disabled on this account, a cloned replacement needs a `Voice` row with
 `consentUrl`/`consentAt` enforced at 422, and which voice represents a bank's brand is
 their decision. The mechanism to choose it now exists; the choice does not.
+
+**What the six slots actually hold, measured against the vendor 2026-10-19.** Six
+different people. `ELEVENLABS_VOICE_*` on the deployment reads Sarah (en), George (ar),
+Alice (hi), Brian (ur), Roger (fr), Matilda (sw) — three women, three men, ages from
+young to old, one of them explicitly "Laid-Back, Casual". All six are `premade` default
+library voices, none chosen as a brand. So one bank tells a cardholder the call is
+recorded in six unrelated voices, and §52's fix — while it makes the demo resolve the
+language's voice rather than a hardcoded one, and while `voice:check` confirms 6/6 come
+back in-language — cannot make them sound like the same person. Only one id in all six
+slots does that, and that is the listening decision `scripts/voice-audition.mjs` exists
+to inform.
+
+**Two corrections to what this file and that script asserted about the vendor.** The
+capability half still holds: `?supported_languages=ar` returns all 25 voices on the
+account and `supported_languages` is absent from all six in use, so nothing about what a
+voice CAN say is attestable. But `scripts/voice-language-check.mjs` claimed the account
+had 23 voices, "all labelled `language: en`", and both numbers are now wrong: 25 voices,
+and `labels` carries gender, age, accent, use case and a native language — usable for
+ranking who the person sounds like, and inconsistent with the top-level field on at
+least one voice (`language: "en"` beside `labels.language: "fr"`). The script's header
+was rewritten to say the narrower true thing rather than leave a measured claim rotting.
+
+### 53. Production had no voice for the whole time the demo claimed a neural one, and no test could have caught it
+
+The ask was to run the end-to-end demo and confirm the audio and the response. The response is
+sound: a typed turn on `securevoiceai.me` returned in 166 ms with `intent: deny_fraud`,
+`action: card_freeze · reversible`, the full spoken reply, and an audit trail. The audio was not.
+
+**What a visitor actually got.** `/api/tts` answered `X-Voice-Source: emergency`,
+`X-Voice-Degraded: true`, 15,404 bytes / 0.48 s — and the _same md5 for four different
+sentences_, which is the shape of a pre-recorded cue, not speech. The browser fell back to
+`speechSynthesis` (one call, 3 voices available), so the visitor heard their own device voice
+beside copy that says "a neural voice reply".
+
+**Why, in order.** The egress guard at `src/lib/elevenlabs/egress.ts:356` refuses every vendor
+call that goes _through it_ until `ELEVENLABS_COMMERCIAL_USE=true` — the ElevenLabs ToS §1(c)(i)
+restricts a
+free account to non-commercial use, and a bank fraud-intervention pilot is commercial. Production
+reported `tier: "grant", status: "active"`, and the subscription payload carries no
+commercial-rights field, so the licence question is the owner's and cannot be read off the API.
+Rung 2 was dead anyway (`PLAYHT_*` unset on the box). So every utterance reached rung 4, the cue.
+Attested on 2026-10-19 with the owner watching — `.env` backed up as
+`.env.before-commercial-use.20261019T104748Z` — and the same probe then returned
+`X-Voice-Source: elevenlabs`, `Degraded: false`, **67,752 bytes / 4.16 s and 88,232 bytes /
+5.44 s for two sentences, distinct md5s**. In the browser: one `Audio` play, duration 26.08 s,
+`ended: 1`, and `speechSynthesis` used **zero** times.
+
+**The streaming route had been failing since it shipped.** `/api/tts/stream` answered 503, and
+the container log named the vendor's reason: `400 validation_error / unsupported_model —
+"Providing optimize_streaming_latency is not supported with the 'eleven_v4_turbo' model."`
+The route hardcodes that parameter (`src/app/api/tts/stream/route.ts:151`) while the default model
+is v4 turbo, and it mapped any upstream failure to a 503 — a permanent configuration rejection
+reported as "temporarily unavailable". So the browser demo always fell to the buffered route and
+played one 26-second block instead of streaming, silently inflating first-audio latency on the
+surface that measures latency hardest. Fixed with `streamQueryFor(model)` in
+`src/lib/elevenlabs/client.ts`, verified against the vendor with the deployment's own voice id:
+with the parameter **400**, without it **200 and 41,421 bytes of MP3**. No test had ever looked at
+that URL, which is why this survived; `tests/unit/tts-stream-query.test.ts` now pins all four
+branches, including "the configured model cannot produce a rejected request".
+
+**Two claims of mine were wrong, and both were measurement errors.** I reported that
+`ELEVEN_VOICE_*` was unset on the box: the variable is `ELEVENLABS_VOICE_*`, and **all six are set**
+— I had grepped the wrong name and published the result. And I hypothesised that the anonymous
+public demo writes `orgId IS NULL` cases into production, part-explaining §51's 384 unscoped rows;
+measured, the Case table is unchanged at 1140 rows with the newest from 2026-10-10, so the demo
+audits turns (`SV-C-*` in `AuditLog`) and writes no case. The hypothesis is dead, the rows are §51's
+harness explanation, and the correction is recorded here rather than quietly dropped.
+
+**The sentence above about the dial was wrong about its own mechanism.** It said a live
+outbound call "would still have been refused while the demo worked". Nothing refused it,
+because nothing checked: `src/lib/voice/elevenlabs-stream.ts` builds its own
+`ElevenLabsClient` and calls `textToSpeech.stream` through the key pool, and
+`src/lib/elevenlabs/egress.ts` — the file that enforces `ELEVENLABS_COMMERCIAL_USE` and whose
+header claimed to be "the only code in the repo that opens a socket to ElevenLabs" — is not on
+that path. So the licence gate covered the console and the demo and stood aside for the one
+transport that puts words into a cardholder's ear, which is the breach the guard exists to
+prevent, on the path with the least tolerance for it. Handing the variable to the workers in
+`docker-compose.yml` (`${ELEVENLABS_COMMERCIAL_USE:-false}`) changes nothing about code that
+never reads it: env plumbing is not enforcement.
+
+**Fixed where the socket opens.** The transport refuses before importing the SDK, and throws
+rather than yielding nothing — an empty stream is indistinguishable from a vendor timeout, so
+the worker's existing `catch` logs the reason and plays the emergency cue: the caller still
+hears something, and the operator learns which variable was unset. `realtime` reporting the
+variable UNSET is correct and always was; it fans out sockets to browsers and never opens one
+to the vendor. A verification-only client (`src/app/api/webhooks/elevenlabs/route.ts`
+constructs the SDK to HMAC-check an inbound payload) is likewise not a socket, which is why the
+new gate looks for the synthesis call rather than the import.
+
+**The rule is now measured, not remembered.** `drift-gates.mjs` gained
+`checkVendorAttestationSites`: any file under `src/` that builds an `ElevenLabsClient` and reaches
+`textToSpeech` must consult the attestation. It covers the arm the older gate cannot see —
+`tests/unit/elevenlabs-script-egress.test.ts` ratchets literal
+`fetch("https://api.elevenlabs.io…")` URLs against a guard allowlist, and an SDK client contains
+no vendor URL at all, so a `fetch` regex never saw this transport. (The first draft of the new
+check also scanned for raw fetches; its planted fixture was caught by the older gate, which is the
+proof the two are read as one rule by the next person, so the raw-fetch arm was dropped rather
+than the allowlist widened.) Its self-test plants an unattested socket (must be caught) alongside
+an attested one and the webhook-verification client (must be cleared), and both directions were
+confirmed against the real tree: disabling the guard left the `commercialUseAttested` string in
+place so the gate stayed green while 5 of 6 tests in
+`tests/unit/tts-stream-commercial-use.test.ts` went red — the gate catches a socket added without
+a check, the suite catches a check that does not fire, and neither is decoration alone.
+
+**And the honesty half, in code.** `/api/status` derived `voiceProvider` from the presence of an
+API key, so the deployment that was refusing every vendor call still named ElevenLabs.
+`voiceProviderLabel()` now names the rung that will actually answer, `src/instrumentation.ts`
+warns at boot when a key exists without the attestation, and `LiveVoicePanel` reports which voice
+spoke — the visitor sees "You are hearing your own device voice" instead of discovering it by
+listening (`streamSpeech` now returns `neural`/`reason` so the claim is checkable at the surface
+that makes it). `tests/unit/voice-provider-label.test.ts` covers all four branches and was
+mutation-proved by restoring the key-only predicate, which failed two of them.
+
+**Finally, a dev-environment fact worth recording:** `bun dev` on this machine renders HTML but
+never hydrates — 1 element carries React internals versus 770 of 795 on the deployed site, the
+language toggle does nothing, and the demo's Send button stays disabled. Local UI verification has
+to run against `next build && next start`, or against production.
+
+### 54. The disk filled on a name no reclaimer could match
+
+CI died a third time on a full disk (2026-10-15, then 2026-10-19 twice), and each time the
+symptom misled: the "Compose stack smoke test" job failed in 13 seconds with every step's
+conclusion null, which reads as a broken tree and is a runner that cannot write its own
+diagnostic log. The real sentence was only ever in
+`check-runs/<id>/annotations` — `System.IO.IOException: No space left on device :
+'/home/ubuntu/actions-runner2/_diag/Worker_*.log'`.
+
+**Measured on the box:** `/dev/sda1` at 96G/96G with 23 MB free; 475 local volumes, of which
+**468 were anonymous 64-hex volumes holding ~30 GB**. Production's own three (`securevoice-ai_db-data`,
+`_caddy-data`, `_caddy-config`) are named and attached to running containers.
+
+**The leak had a name-shaped blind spot, and it had a cause.** `postgres:16-alpine` declares
+`VOLUME /var/lib/postgresql/data`, so the verify job's throwaway database — started with a bare
+`docker run`, no named mount — creates one anonymous volume per run, and the teardown that removes
+the container (`docker rm -f "${DB_CI}"`) keeps the volume. Every reclaimer in the repo, in both the
+pre-build step and the `cleanup` job, filtered `docker volume ls` on `^svci-`, and an anonymous
+volume has no name at all, so 468 of them were invisible to a loop whose entire purpose was to
+delete what CI leaves behind. The reclaim step even documented its own scope as the safety property
+("all scoped to `svci-` so that `securevoice-ai_*` can never be matched") — a guard that doubled as
+the blind spot, and the comment made it look deliberate.
+
+**Fixed at both ends.** The teardown is now `docker rm -f -v`, which is what actually takes the
+volume with the container. The `cleanup` job gained an anonymous sweep that removes only a volume
+that is dangling, attached to no container, and older than 24 hours — the reference check is what
+keeps production and the other product on this host untouched, the age floor what keeps a human's
+fresh volume alive. `cleanup` carries `if: always()`, so it runs on the outcome that matters, and
+it now prints disk usage as an annotation above 90% — three incidents were each diagnosed by hand
+afterwards when the box had been stating it the whole time.
+
+**Swept by hand first, because CI could not sweep what was already blocking CI.** The promotion was
+stuck: a red compose-smoke check holds PR #150 open, so nothing reached staging, so production kept
+running the build from before the streaming-route fix. `docker volume rm` on the 468 anonymous
+dangling volumes took the box from 100% to 71% (27 GB free) and volumes from 475 to 7, with
+production never interrupted — `/api/health` `ok: true`, container uptime unchanged through the
+operation. The dry run of the new predicate then found **zero** anonymous volumes eligible, because
+the one remaining hex volume (`e77e21bd…`) is referenced and was correctly skipped: the first
+evidence that the guard selects as intended came from the state after the manual sweep.
+
+**Not assumed:** the first rerun after the cache prune failed with the same IOException, and that
+death predated the volume sweep — its annotation is timestamped before it. Re-running again with
+27 GB free is what got "Lint, typecheck, tests, build" and "Lighthouse budgets" green. Cause and
+remedy were separated by a rerun, not by reasoning.
+
+### 54. A full runner disk blocked the deploy for an hour and reported itself as a stack trace
+
+§51's fixes could not reach production because PR #150 and #151 were both
+`mergeStateStatus: BLOCKED`, and the only red check was `Compose stack smoke test` — whose
+failure annotation was not a build error at all:
+`System.IO.IOException: No space left on device : '/home/ubuntu/actions-runner/_diag/Worker_*.log'`
+(and the same on `actions-runner2`). Both runners share this box's one 96 GB root
+filesystem. When it fills, the runner dies writing its own diagnostic log, GitHub marks the
+job failed, the promotion PR stays blocked, and CI reads as "still running" from the
+rollup. Production kept serving the whole time, which is why nothing looked broken.
+
+**Two halves, because one is not enough.** `scripts/runner-preflight.ts` asks the question
+before spending 25 minutes of build time on a disk that cannot hold it, and fails with the
+condition named — free space, the threshold, and the reclaim command — instead of an I/O
+trace. It is wired as the first step after checkout in the compose-smoke job, deliberately
+_after_ checkout because it is a repo script: a disk already at zero can still die before
+reaching it, which is why prevention is the other half. `tests/unit/runner-preflight.test.ts`
+pins a healthy disk, a wrapped device name, a full disk, the fail-closed-on-unparseable path,
+and that the threshold is the decision. The first draft read `Capacity` instead of `Available`
+(second-to-last field vs third-from-last) and failed a box with 36 GB free — a preflight that
+always fires is a preflight that gets deleted, so the column choice is now asserted against
+real `df -P` output.
+
+**`scripts/runner-hygiene.sh` is installed as a cron, not a workflow** — and that is the
+point: a cleanup scheduled as a CI job cannot run when the disk is full, because running a
+job is what needs the disk. Installed on the box at 04:15 daily beside the existing
+`sv-backup.sh` entry, threshold 20 GB, verified on both paths in front of installing it: at
+24.0 GB free it said "above threshold — nothing to do"; forced with `MIN_FREE_GB=90` it
+reclaimed 6.578 GB of build cache and ended at 30.2 GB free. It never touches a volume
+belonging to a running container, and `docker volume prune -f` can only reach anonymous
+volumes — the named `securevoice-ai_*` volumes of live services are unreachable by design.
+Costs one cold build cache, which is the trade being made.
+
+**Also true and not fixed here:** the 30 GB of leaked CI volumes that freed themselves while
+I was measuring were reclaimed by the `Reclaim leaked smoke stacks` job getting a chance to
+run, not by my `docker volume prune -f`, which reported `0B`. Attribution matters in an
+incident record: the disk was partly freed before I touched it, both by that job and by
+whatever the other session did, and my prune contributed about 9 GB of cache and images.

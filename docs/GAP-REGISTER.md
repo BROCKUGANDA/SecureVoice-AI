@@ -3177,8 +3177,9 @@ sentences_, which is the shape of a pre-recorded cue, not speech. The browser fe
 `speechSynthesis` (one call, 3 voices available), so the visitor heard their own device voice
 beside copy that says "a neural voice reply".
 
-**Why, in order.** The egress guard at `src/lib/elevenlabs/egress.ts:356` refuses every live
-vendor call until `ELEVENLABS_COMMERCIAL_USE=true` — the ElevenLabs ToS §1(c)(i) restricts a
+**Why, in order.** The egress guard at `src/lib/elevenlabs/egress.ts:356` refuses every vendor
+call that goes _through it_ until `ELEVENLABS_COMMERCIAL_USE=true` — the ElevenLabs ToS §1(c)(i)
+restricts a
 free account to non-commercial use, and a bank fraud-intervention pilot is commercial. Production
 reported `tier: "grant", status: "active"`, and the subscription payload carries no
 commercial-rights field, so the licence question is the owner's and cannot be read off the API.
@@ -3210,12 +3211,41 @@ measured, the Case table is unchanged at 1140 rows with the newest from 2026-10-
 audits turns (`SV-C-*` in `AuditLog`) and writes no case. The hypothesis is dead, the rows are §51's
 harness explanation, and the correction is recorded here rather than quietly dropped.
 
-**What is still not fixed by this.** The worker containers interpolate their environment
-explicitly and declare no `env_file`, so the attestation reached `app` and not the call plane:
-measured on the box, `voice-stream-worker`, `dial-worker` and `realtime` all reported
-`ELEVENLABS_COMMERCIAL_USE` **UNSET**. A live outbound dial would still have been refused while the
-demo worked. `docker-compose.yml` now passes it to both services with a fail-closed default
-(`${ELEVENLABS_COMMERCIAL_USE:-false}`), and that ships only when the ladder carries it.
+**The sentence above about the dial was wrong about its own mechanism.** It said a live
+outbound call "would still have been refused while the demo worked". Nothing refused it,
+because nothing checked: `src/lib/voice/elevenlabs-stream.ts` builds its own
+`ElevenLabsClient` and calls `textToSpeech.stream` through the key pool, and
+`src/lib/elevenlabs/egress.ts` — the file that enforces `ELEVENLABS_COMMERCIAL_USE` and whose
+header claimed to be "the only code in the repo that opens a socket to ElevenLabs" — is not on
+that path. So the licence gate covered the console and the demo and stood aside for the one
+transport that puts words into a cardholder's ear, which is the breach the guard exists to
+prevent, on the path with the least tolerance for it. Handing the variable to the workers in
+`docker-compose.yml` (`${ELEVENLABS_COMMERCIAL_USE:-false}`) changes nothing about code that
+never reads it: env plumbing is not enforcement.
+
+**Fixed where the socket opens.** The transport refuses before importing the SDK, and throws
+rather than yielding nothing — an empty stream is indistinguishable from a vendor timeout, so
+the worker's existing `catch` logs the reason and plays the emergency cue: the caller still
+hears something, and the operator learns which variable was unset. `realtime` reporting the
+variable UNSET is correct and always was; it fans out sockets to browsers and never opens one
+to the vendor. A verification-only client (`src/app/api/webhooks/elevenlabs/route.ts`
+constructs the SDK to HMAC-check an inbound payload) is likewise not a socket, which is why the
+new gate looks for the synthesis call rather than the import.
+
+**The rule is now measured, not remembered.** `drift-gates.mjs` gained
+`checkVendorAttestationSites`: any file under `src/` that builds an `ElevenLabsClient` and reaches
+`textToSpeech` must consult the attestation. It covers the arm the older gate cannot see —
+`tests/unit/elevenlabs-script-egress.test.ts` ratchets literal
+`fetch("https://api.elevenlabs.io…")` URLs against a guard allowlist, and an SDK client contains
+no vendor URL at all, so a `fetch` regex never saw this transport. (The first draft of the new
+check also scanned for raw fetches; its planted fixture was caught by the older gate, which is the
+proof the two are read as one rule by the next person, so the raw-fetch arm was dropped rather
+than the allowlist widened.) Its self-test plants an unattested socket (must be caught) alongside
+an attested one and the webhook-verification client (must be cleared), and both directions were
+confirmed against the real tree: disabling the guard left the `commercialUseAttested` string in
+place so the gate stayed green while 5 of 6 tests in
+`tests/unit/tts-stream-commercial-use.test.ts` went red — the gate catches a socket added without
+a check, the suite catches a check that does not fire, and neither is decoration alone.
 
 **And the honesty half, in code.** `/api/status` derived `voiceProvider` from the presence of an
 API key, so the deployment that was refusing every vendor call still named ElevenLabs.
@@ -3230,4 +3260,3 @@ mutation-proved by restoring the key-only predicate, which failed two of them.
 never hydrates — 1 element carries React internals versus 770 of 795 on the deployed site, the
 language toggle does nothing, and the demo's Send button stays disabled. Local UI verification has
 to run against `next build && next start`, or against production.
-

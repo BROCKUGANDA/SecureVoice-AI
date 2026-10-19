@@ -330,8 +330,12 @@ function sleep(ms: number): Promise<void> {
 
 /**
  * Throttle → budget → breaker → retry, in one place, shared by the JSON and
- * binary surfaces. This is the only code in the repo that opens a socket to
- * ElevenLabs.
+ * binary surfaces.
+ *
+ * Not the repo's only ElevenLabs socket, whatever this header used to say:
+ * `src/lib/voice/elevenlabs-stream.ts` builds an `ElevenLabsClient` of its own for
+ * live call audio, and `src/lib/elevenlabs/pool.ts` rotates keys underneath it.
+ * What this file owns is the app plane's rate limit, budget and breaker.
  */
 async function guardedRequest(o: RequestOptions): Promise<GuardOutcome> {
   const callerId = o.callerId ?? "platform";
@@ -350,8 +354,11 @@ async function guardedRequest(o: RequestOptions): Promise<GuardOutcome> {
   // PUP §9(a) lists commercial use on a free account as prohibited. A bank
   // fraud-intervention pilot is commercial. Without this guard the only thing
   // standing between a demo and a terms breach is someone remembering to
-  // upgrade, so the attestation is required here, on the one path every live
-  // vendor call takes.
+  // upgrade, so the attestation is required on the way out to the vendor. It is
+  // required a second time in `src/lib/voice/elevenlabs-stream.ts`, which reaches
+  // the same API through the SDK and carries live call audio; `drift-gates.mjs`
+  // fails if a third SDK socket appears without one, and
+  // `tests/unit/elevenlabs-script-egress.test.ts` ratchets raw vendor fetches.
   if (!commercialUseAttested()) {
     return {
       kind: "refusal",

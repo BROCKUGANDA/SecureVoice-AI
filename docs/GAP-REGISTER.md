@@ -3416,3 +3416,54 @@ self-test was made honest the hard way — the first quoted-value fixture was al
 stayed green when the quote-strip was deleted from the parser, because six identically-quoted
 strings are still one set. It now mixes quoted and unquoted forms of the same id, and the same
 mutation turns it red with `a quoted value was counted as a different voice`.
+
+### 56. The deploy rolled main's tip and then refused itself, and the ladder stalled behind it
+
+"Deployment to the VPS does not work." It did not, and the roll was never the failing part.
+
+**Failure 1 — the deploy refused a commit it had just built.** Run 39291741875 (main at
+`e62869b`) failed at step 11, `Drift gates against the rolled stack`, with step 10, the roll,
+green and step 12, the health check, skipped. The gate's words: `the box is at 9c10176 but this
+deploy was dispatched for e62869b (the commit CI proved)`. Cause: `Build, migrate and roll the
+live stack` does `git fetch origin main && git merge --ff-only origin/main` — it advances the
+box to **whatever main's tip is at that second** — while the gate certifies **the commit the
+proving CI run was about** (`github.event.workflow_run.head_sha`). AutoVersion cuts a release
+bump onto main in response to main going green, so between CI finishing and the box fetching,
+main moves, nearly always. The roll then ships a commit no CI proved, the gate correctly names
+it, and the deploy is red with production serving the unproven build — which is what the
+`app:9c10176eba68` image tag on the running container said all along. §46 fixed the gate's
+semantics to prefer the dispatched SHA and to stop false-failing when main moved; this is the
+other half it left unfinished, because the roll had no idea what had been proven.
+
+Fixed by telling the roll the same thing the gate knows: `PROVEN_SHA` goes into the step's env,
+and the step checks the box out to that commit instead of merging to the tip.
+`git checkout -B main`, not a fast-forward merge, because the box is legitimately **ahead** of a
+dispatch some of the time — it is right now — and an ff to an ancestor is a silent no-op that
+would leave the unproven build running and fail the gate forever. A manual `workflow_dispatch`
+has no upstream run and still rolls the tip, which is what the gate's tip-equality branch expects.
+
+**Proven against the shipped text, not a paraphrase.** The step's shell was extracted from the
+YAML and the `if/fi` block replayed in a throwaway bare-remote sandbox, before and after:
+
+```
+OLD  behind  box=eaac485 dispatched=eaac485 tip=ad2b7da -> ad2b7da  WRONG   (the failure)
+OLD  ahead   box=eea3d56 dispatched=6f2b843 tip=eea3d56 -> eea3d56  WRONG
+NEW  behind  box=826f90a dispatched=826f90a tip=ebec6d9 -> 826f90a  EXACT=proven
+NEW  ahead   box=86c90f8 dispatched=412c4bc tip=86c90f8 -> 412c4bc  EXACT=proven
+NEW  manual  dispatched=(empty)              tip=95266cc -> 95266cc  TIP=expected
+```
+
+**Failure 2 — the ladder stalled one rung earlier.** Realign run 39292319622 died with
+`main carries content staging does not — refusing to re-align`. Its proof is right and its
+remedy was wrong: `-s ours` is lossless only when main adds nothing, and main had added
+`992ce1d` (a bump merged straight in), so the job refused — leaving staging behind main, every
+later promotion at risk of reverting main's own content, and nothing arriving to unstick it.
+When the trial merge comes out conflict-free but with a different tree, the lossless operation
+is a **real merge**: take main's content. Refusal stays for genuine conflicts, which is the only
+decision that actually needs a person.
+
+**Not claimed:** the fix reaches production through the ladder, since a `workflow_run` deploy
+reads the workflow file from main. The run already queued for `992ce1d` will probably pass under
+the old text anyway, because nothing bumped main while it was in flight — this fix removes the
+recurrence, not a live outage. Production answered `ok:true` on `0.2.38` throughout, eleven
+services up, and the app container healthy.

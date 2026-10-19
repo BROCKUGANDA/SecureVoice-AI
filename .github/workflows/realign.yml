@@ -37,12 +37,17 @@
 # UNBIASED trial merge:
 #
 #   · `git merge-tree --write-tree staging main` must report no conflict, and
-#   · the tree it writes must be byte-identical to staging's current tree.
+#   · the tree it writes is compared, unbiased, to staging's current tree.
 #
 # Both hold trivially right after a promotion, because the squash just made the
-# two trees equal. Either one fails and main has something real: the job refuses
-# loudly and leaves a person the decision it was never trusted to make. Note that
-# `-X ours` would "pass" that test by quietly preferring staging in every
+# two trees equal. If the first fails, main and staging genuinely conflict and the
+# job refuses — that is a person's decision. If only the second fails, main has
+# content staging never received (a bump PR merged straight to main, a hotfix) and
+# the job takes it with a REAL merge, which is the one operation that cannot lose
+# it; `-s ours` in that case would adopt the ancestry and silently discard the
+# content, and refusing outright stalled the whole ladder for every commit behind
+# it (run 39292319622, red on 9c10176, staging frozen behind main). Note that
+# `-X ours` would "pass" the proof by quietly preferring staging in every
 # conflicting hunk — which is precisely the blind spot being guarded against, so
 # the guard is deliberately the unbiased form.
 # ---------------------------------------------------------------------------
@@ -118,18 +123,35 @@ jobs:
             exit 1
           fi
 
-          # `--write-tree` prints the resulting tree OID on the first line.
-          if [ "$(printf '%s\n' "$merged" | head -n 1)" != "$staging_tree" ]; then
-            echo "::error::main carries content staging does not — refusing to re-align."
-            echo "trial merge tree: $(printf '%s\n' "$merged" | head -n 1)"
-            echo "staging tree:     ${staging_tree}"
-            echo "That is main having moved on its own (a hotfix, or a bump PR merged" \
-                 "straight in). Bring it down to staging as a real merge first." \
-              | tee -a "$GITHUB_STEP_SUMMARY"
-            exit 1
+          # `--write-tree` prints the resulting tree OID on the first line. When it
+          # equals staging's tree, main adds nothing and `-s ours` below is lossless.
+          # When it does not, main carries content staging has never seen — a bump PR
+          # merged straight to main, or a hotfix — and the answer is not to stop. It is
+          # to take that content as a REAL merge, which is the one operation that
+          # cannot lose it. Refusing here instead stalled the ladder for every commit
+          # downstream: run 39292319622 red on 9c10176 with staging frozen behind main,
+          # which means the next promotion either conflicts or reverts main's own bump.
+          # Reaching this branch is already proof a real merge is conflict-free, because
+          # the conflict case exited above.
+          trial_tree=$(printf '%s\n' "$merged" | head -n 1)
+          git checkout -B staging "$staging"
+
+          if [ "$trial_tree" != "$staging_tree" ]; then
+            git merge --no-edit \
+              -m "ladder: take main's ${main:0:7} as content, not just as ancestry" \
+              -m "main had moved on its own (a release bump or hotfix merged directly to it), so an unbiased trial merge of main into staging produced a tree different from staging's. '-s ours' would have silently discarded that difference — the same class of loss as the register clobbers f32083b and 851d531 left behind — so this merge takes both sides instead. Conflict-free by the proof above." \
+              "$main"
+            git push origin "staging:staging"
+            {
+              echo "Merged main's ${main:0:7} into staging for real."
+              echo
+              echo "- staging tree was \`${staging_tree:0:7}\`, is now \`${trial_tree:0:7}\` — main's content is on staging, nothing discarded."
+              echo "- main is an ancestor of staging, so the next staging -> main promotion merges clean and cannot revert this commit."
+              echo "- This is the lossless branch; the \`-s ours\` branch below still handles the ordinary case, where main adds no content."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
           fi
 
-          git checkout -B staging "$staging"
           # Two `-m` flags, not one multi-line string: a block scalar cannot hold
           # a message that starts its own lines at column 0, and indenting them
           # would bake the indentation into `git log`.

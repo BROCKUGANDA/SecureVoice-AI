@@ -1485,9 +1485,9 @@ function createServer(listenPort: number = PORT, listenHost: string = HOST) {
 
 if (import.meta.main) {
   installProcessCrashHandlers();
-  // Worker-side traces, metrics and logs. No-op and non-fatal without
-  // OTEL_BETTERSTACK_TOKEN, so an unconfigured deployment loses telemetry and not
-  // the call path.
+  // Worker-side traces, metrics and logs. No-op and non-fatal without a
+  // configured OTLP endpoint and credential, so an unconfigured deployment loses
+  // telemetry and not the call path.
   initOtel();
   createServer();
 }

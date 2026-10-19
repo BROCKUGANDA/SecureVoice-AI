@@ -1,23 +1,33 @@
 /**
- * OpenTelemetry OTLP/HTTP exporter wiring for Better Stack.
+ * OpenTelemetry OTLP/HTTP exporter wiring for Grafana Cloud.
  *
- * Three signals, three independent exporters, one ingestion host:
+ * Three signals, three independent exporters, one ingestion gateway:
  *
- *   traces  → https://<host>/v1/traces
- *   metrics → https://<host>/v1/metrics
- *   logs    → https://<host>/v1/logs
+ *   traces  → <endpoint>/v1/traces
+ *   metrics → <endpoint>/v1/metrics
+ *   logs    → <endpoint>/v1/logs
  *
- * Every request carries `Authorization: Bearer <token>` so Better Stack can
- * attribute the payload to this source. The token is read from
- * OTEL_BETTERSTACK_TOKEN (or OTEL_SOURCE_TOKEN); a deployment that has not
- * set it gets no remote telemetry — and no crash, matching the project's
- * "degrade loudly, never silently" boot convention.
+ * The endpoint and the credential arrive as the two standard OpenTelemetry
+ * variables, which is also exactly what a Grafana Cloud stack's OpenTelemetry
+ * tile hands you:
+ *
+ *   OTEL_EXPORTER_OTLP_ENDPOINT  e.g. https://otlp-gateway-prod-ca-east-0.grafana.net/otlp
+ *   OTEL_EXPORTER_OTLP_HEADERS   e.g. Authorization=Basic <access-policy token>
+ *
+ * Grafana Cloud authenticates with **Basic**, not Bearer, and the token from the
+ * tile is already the base64 credential — so the header is carried verbatim and
+ * never re-encoded here. Re-encoding a value that is already correct is how a
+ * working token becomes a 401 that looks like a broken one.
+ *
+ * Nothing ships unless both are set: see `remoteTelemetryStatus()`. A deployment
+ * without them keeps telemetry local and says so in the boot log, matching the
+ * project's "degrade loudly, never silently" convention.
  *
  * Env knobs (see .env.example):
- *   OTEL_BETTERSTACK_ENDPOINT  base URL          (default https://<OTEL_BETTERSTACK_HOST>)
- *   OTEL_BETTERSTACK_HOST      ingestion host    (default s2791980.us-west-2a.betterstackdata.com)
- *   OTEL_BETTERSTACK_TOKEN     bearer token       (no default — required to export)
- *   OTEL_BETTERSTACK_TIMEOUT_MS  per-request timeout (default 10000)
+ *   OTEL_EXPORTER_OTLP_ENDPOINT      base URL, no default — required to export
+ *   OTEL_EXPORTER_OTLP_HEADERS       auth + routing headers, no default
+ *   OTEL_EXPORTER_OTLP_{TRACES,METRICS,LOGS}_ENDPOINT   per-signal override
+ *   OTEL_EXPORTER_OTLP_TIMEOUT       per-request timeout, ms (default 10000)
  *   OTEL_SERVICE_NAME          service.name      (default securevoice-api)
  *   OTEL_TRACES_SAMPLE_RATE    0..1              (default 1)
  *   OTEL_EXPORT_INTERVAL_MS    metrics flush     (default 60000)
@@ -37,19 +47,10 @@ import { BatchLogRecordProcessor } from "@opentelemetry/sdk-logs";
 import { BatchSpanProcessor } from "@opentelemetry/sdk-trace-base";
 import { logError, logWarn } from "@/lib/validation/safe-log";
 import { TELEMETRY_SERVICE_NAME } from "./spans";
-import { ingestionToken, remoteTelemetryStatus } from "./otlp-config";
+import { otlpHeaders, remoteTelemetryStatus, signalEndpoint } from "./otlp-config";
 
-const DEFAULT_HOST = "s2791980.us-west-2a.betterstackdata.com";
 const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_EXPORT_INTERVAL_MS = 60_000;
-
-/** Normalise a user-supplied base URL: strip trailing slashes, default scheme. */
-function normalizeBaseUrl(value: string | undefined): string {
-  const raw = (value ?? "").trim();
-  if (!raw) return `https://${DEFAULT_HOST}`;
-  const withScheme = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
-  return withScheme.replace(/\/+$/, "");
-}
 
 /** Read an env var; empty/undefined becomes undefined. */
 function env(name: string): string | undefined {
@@ -72,16 +73,13 @@ function sampleRateFromEnv(): number {
 }
 
 /**
- * Build a Bearer auth headers factory. The exporter calls this per request;
- * returning a fresh object each time avoids any shared-mutation surprise.
+ * The headers every signal exports with. Read per request rather than captured
+ * once: the exporter calls this each time, so a fresh object goes out every call
+ * instead of one shared mutable record, and a deployment that sets the variable
+ * late is still honoured.
  */
-function authHeaders(token: string): () => Promise<Record<string, string>> {
-  return async () => ({ Authorization: `Bearer ${token}` });
-}
-
-/** The one place the Better Stack base URL is derived. */
-export function betterStackBaseUrl(): string {
-  return normalizeBaseUrl(env("OTEL_BETTERSTACK_ENDPOINT") ?? env("OTEL_BETTERSTACK_HOST"));
+function authHeaders(): () => Promise<Record<string, string>> {
+  return async () => otlpHeaders();
 }
 
 /**
@@ -96,24 +94,29 @@ export function initOtel(): NodeSDK | null {
   const status = remoteTelemetryStatus();
   if (!status.shipping) {
     // Same verdict `report.ts` publishes as `remoteTelemetry`, asked once, here.
-    if (status.reason === "sdk_disabled") {
-      logWarn("[otel] OTEL_SDK_DISABLED=true — OpenTelemetry is off", {});
-    } else {
-      logWarn("[otel] no token set — traces, metrics and logs stay local", {
-        detail:
-          "Set OTEL_BETTERSTACK_TOKEN (or OTEL_SOURCE_TOKEN) to ship telemetry to Better Stack.",
-      });
-    }
+    // Each reason gets its own sentence: "not configured" would hide the second
+    // one, which is the failure that looks like a broken token.
+    const why =
+      status.reason === "sdk_disabled"
+        ? "OTEL_SDK_DISABLED=true — OpenTelemetry is off"
+        : status.reason === "no_endpoint"
+          ? "no OTEL_EXPORTER_OTLP_ENDPOINT — traces, metrics and logs stay local"
+          : "endpoint set but no Authorization in OTEL_EXPORTER_OTLP_HEADERS — the gateway would reject every batch, so nothing is sent";
+    logWarn(`[otel] ${why}`, {});
     initialized = null;
     return null;
   }
 
-  const token = ingestionToken()!; // shipping:true above is derived from this same read
-
-  const baseUrl = betterStackBaseUrl();
-  const timeoutMillis = intFromEnv("OTEL_BETTERSTACK_TIMEOUT_MS", DEFAULT_TIMEOUT_MS);
+  const timeoutMillis = intFromEnv("OTEL_EXPORTER_OTLP_TIMEOUT", DEFAULT_TIMEOUT_MS);
   const serviceName = env("OTEL_SERVICE_NAME") ?? TELEMETRY_SERVICE_NAME;
-  const headers = authHeaders(token);
+  const headers = authHeaders();
+  // `shipping: true` above is derived from the same reads, so each of these is
+  // defined; a signal-specific override wins over the base + spec path.
+  const endpoints = {
+    traces: signalEndpoint("traces")!,
+    metrics: signalEndpoint("metrics")!,
+    logs: signalEndpoint("logs")!,
+  };
 
   const resource = resourceFromAttributes({
     [SEMRESATTRS_SERVICE_NAME]: serviceName,
@@ -128,7 +131,7 @@ export function initOtel(): NodeSDK | null {
     const sdk = new NodeSDK({
       resource,
       traceExporter: new OTLPTraceExporter({
-        url: `${baseUrl}/v1/traces`,
+        url: endpoints.traces,
         headers,
         timeoutMillis,
       }),
@@ -136,7 +139,7 @@ export function initOtel(): NodeSDK | null {
         // Batch: one network flush per span batch instead of one per span.
         new BatchSpanProcessor(
           new OTLPTraceExporter({
-            url: `${baseUrl}/v1/traces`,
+            url: endpoints.traces,
             headers,
             timeoutMillis,
           }),
@@ -150,7 +153,7 @@ export function initOtel(): NodeSDK | null {
       metricReaders: [
         new PeriodicExportingMetricReader({
           exporter: new OTLPMetricExporter({
-            url: `${baseUrl}/v1/metrics`,
+            url: endpoints.metrics,
             headers,
             timeoutMillis,
           }),
@@ -160,7 +163,7 @@ export function initOtel(): NodeSDK | null {
       logRecordProcessors: [
         new BatchLogRecordProcessor({
           exporter: new OTLPLogExporter({
-            url: `${baseUrl}/v1/logs`,
+            url: endpoints.logs,
             headers,
             timeoutMillis,
           }),
@@ -172,7 +175,9 @@ export function initOtel(): NodeSDK | null {
     sdk.start();
     initialized = sdk;
     logWarn("[otel] OpenTelemetry SDK started", {
-      endpoint: baseUrl,
+      // Where each signal goes. Headers are never logged: the value in them is
+      // the credential.
+      endpoints,
       service: serviceName,
       sampleRate: sampleRateFromEnv(),
     });

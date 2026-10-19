@@ -3165,6 +3165,27 @@ is disabled on this account, a cloned replacement needs a `Voice` row with
 `consentUrl`/`consentAt` enforced at 422, and which voice represents a bank's brand is
 their decision. The mechanism to choose it now exists; the choice does not.
 
+**What the six slots actually hold, measured against the vendor 2026-10-19.** Six
+different people. `ELEVENLABS_VOICE_*` on the deployment reads Sarah (en), George (ar),
+Alice (hi), Brian (ur), Roger (fr), Matilda (sw) — three women, three men, ages from
+young to old, one of them explicitly "Laid-Back, Casual". All six are `premade` default
+library voices, none chosen as a brand. So one bank tells a cardholder the call is
+recorded in six unrelated voices, and §52's fix — while it makes the demo resolve the
+language's voice rather than a hardcoded one, and while `voice:check` confirms 6/6 come
+back in-language — cannot make them sound like the same person. Only one id in all six
+slots does that, and that is the listening decision `scripts/voice-audition.mjs` exists
+to inform.
+
+**Two corrections to what this file and that script asserted about the vendor.** The
+capability half still holds: `?supported_languages=ar` returns all 25 voices on the
+account and `supported_languages` is absent from all six in use, so nothing about what a
+voice CAN say is attestable. But `scripts/voice-language-check.mjs` claimed the account
+had 23 voices, "all labelled `language: en`", and both numbers are now wrong: 25 voices,
+and `labels` carries gender, age, accent, use case and a native language — usable for
+ranking who the person sounds like, and inconsistent with the top-level field on at
+least one voice (`language: "en"` beside `labels.language: "fr"`). The script's header
+was rewritten to say the narrower true thing rather than leave a measured claim rotting.
+
 ### 53. Production had no voice for the whole time the demo claimed a neural one, and no test could have caught it
 
 The ask was to run the end-to-end demo and confirm the audio and the response. The response is

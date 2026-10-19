@@ -12,15 +12,22 @@
  * English and nobody noticed".
  *
  * WHAT IT CANNOT TELL YOU, stated rather than implied: the vendor exposes no usable
- * per-language capability metadata for the voices on this account. Measured
- * 2026-10-13: `GET /v1/voices?supported_languages=ar` returns the same 23 voices for
- * every language, each with an EMPTY `supported_languages` array, all labelled
- * `language: en`. So this check passes for the current configuration — eleven
- * multilingual voices really do produce Arabic, Hindi, Urdu, French and Swahili text
- * — while every one of those voices is an English speaker's voice model. Accent and
- * voice identity are a human listening decision, and a cloned replacement has to be
- * registered in TWO places: the `ELEVENLABS_VOICE_<LANG>` environment AND a `Voice`
- * row carrying `consentUrl`/`consentAt`, which the cloning endpoints require.
+ * per-language CAPABILITY metadata for the voices on this account. Measured again
+ * 2026-10-19: `GET /v1/voices?supported_languages=ar` returns all 25 voices on the
+ * account — the filter selects nothing — and `supported_languages` is absent from every
+ * one of the six this deployment uses. So this check passes for the current
+ * configuration — eleven multilingual voices really do produce Arabic, Hindi, Urdu,
+ * French and Swahili text — while none of it is attestable from the API.
+ *
+ * What the API DOES report, and the 2026-10-13 note here overstated, is each voice's
+ * native `labels`: gender, age, accent, use case and a `language`. Those rank candidates
+ * by who the person sounds like, not by what they can be made to say, and they can
+ * disagree with the top-level field — one voice on this account reads `language: "en"`
+ * with `labels.language: "fr"`. Accent and voice identity therefore stay a human
+ * listening decision (`scripts/voice-audition.mjs` produces the clips), and a cloned
+ * replacement has to be registered in TWO places: the `ELEVENLABS_VOICE_<LANG>`
+ * environment AND a `Voice` row carrying `consentUrl`/`consentAt`, which the cloning
+ * endpoints require.
  *
  * Spends a little vendor quota on purpose (one short sentence plus one transcription
  * per language) and is therefore NOT wired into CI: it needs the platform key and it

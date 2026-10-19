@@ -320,6 +320,14 @@ jobs:
           printf '%s\n' "${rows[@]}"
 
       - name: Build, migrate and roll the live stack
+        env:
+          # The commit the upstream CI run proved, i.e. what this deploy is allowed to
+          # ship. Empty on a `workflow_dispatch`, which has no upstream run and rolls
+          # the tip. Same expression the drift-gate step below passes as DEPLOY_SHA —
+          # feeding it to BOTH is the point: the roll lands on it and the gate checks
+          # the roll landed on it. They disagreed before, and that disagreement is the
+          # failing deployment.
+          PROVEN_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
           set -euo pipefail
           cd ~/securevoice-ai
@@ -380,21 +388,36 @@ jobs:
             echo "diff them against the tracked versions; nothing here deletes them."
           fi
 
-          # `git merge --ff-only origin/main`, NOT `git pull --ff-only origin main`.
+          # Roll to the commit CI PROVED, not to whatever origin/main's tip happens to
+          # be when this line runs.
           #
-          # The 2026-10-14 v0.2.14 deploy died right here, on a branch git had
-          # just reported as "can be fast-forwarded", with a clean tree, and said:
-          #   fatal: Cannot fast-forward to multiple branches.
+          # The bug this closes: the deploy was dispatched for `e62869b`, the box pulled,
+          # and landed on `9c10176` — because AutoVersion had cut a release bump onto main
+          # in the minutes between CI going green and this step fetching. So the roll built
+          # and shipped a commit no CI run was ever about, then the drift gate correctly
+          # refused it (`the box is at 9c10176 but this deploy was dispatched for e62869b`),
+          # the health-check step was skipped, and the deploy went red with production
+          # serving an unproven build. Run 39291741875, and it recurs on any deploy that
+          # overlaps a bump — which, because AutoVersion bumps main in response to main
+          # going green, is most of them.
           #
-          # A bare branch name leaves git resolving the merge subject through
-          # FETCH_HEAD, and `git pull` re-fetches as part of the same step —
-          # two ref resolutions where one is needed, and the failure lands as a
-          # merge error rather than a fetch error, which is why the log looked
-          # like a git-history problem instead of a race with a concurrently
-          # pushing workflow. Naming the commit-ish gives the fast-forward
-          # exactly one subject by construction. Reproduced against this same
-          # tree on the box: the merge form fast-forwards clean.
-          if ! git merge --ff-only origin/main; then
+          # `git checkout -B main "$PROVEN_SHA"` rather than a merge, because the box can
+          # legitimately be AHEAD of the dispatched commit (it is right now): a fast-forward
+          # to an ancestor is a no-op that would leave the unproven build running and fail the
+          # gate forever. Moving the branch to the proven commit restores the invariant —
+          # production runs exactly what CI proved — and the newer commit arrives by its own
+          # green run. Nothing is lost: origin still holds it.
+          #
+          # `git merge --ff-only origin/main`, NOT `git pull --ff-only origin main`, on the
+          # manual path: the 2026-10-14 v0.2.14 deploy died right there on a branch git had
+          # just reported as fast-forwardable, saying "Cannot fast-forward to multiple
+          # branches", because a bare branch name leaves git resolving the merge subject
+          # through FETCH_HEAD while pull re-fetches in the same step. A `workflow_dispatch`
+          # has no upstream run, so it still rolls the tip — and the gate holds it to tip
+          # equality for exactly that reason.
+          if [ -n "${PROVEN_SHA:-}" ]; then
+            git checkout -B main "${PROVEN_SHA}"
+          elif ! git merge --ff-only origin/main; then
             echo "::error::git merge --ff-only refused to roll ~/securevoice-ai forward."
             echo "--- git status --short ---"
             git status --short || true

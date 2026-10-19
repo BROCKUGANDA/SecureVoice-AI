@@ -38,7 +38,7 @@ mock.module("@elevenlabs/elevenlabs-js", () => ({
               i < chunks.length
                 ? { done: false, value: chunks[i++] }
                 : { done: true, value: undefined },
-            releaseLock: () => {},
+            releaseLock: () => {/* empty */},
             cancel: () => Promise.resolve(),
           }),
         };

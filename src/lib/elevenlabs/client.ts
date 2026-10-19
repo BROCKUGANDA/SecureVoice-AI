@@ -249,6 +249,21 @@ export function resolveTtsModel(lang: TtsLang): string {
 }
 
 /**
+ * The query string the streaming endpoint accepts for a given model.
+ *
+ * `optimize_streaming_latency` is a v2-era parameter: the v4 family rejects the
+ * request outright. Measured on production 2026-10-19 —
+ * `400 validation_error / unsupported_model`, "Providing optimize_streaming_latency is
+ * not supported with the 'eleven_v4_turbo' model." — and because the route mapped any
+ * upstream failure to a 503, every browser reply silently fell back to the buffered
+ * clip and arrived as one long block instead of streaming. The default model is v4
+ * turbo, so the broken combination WAS the shipping configuration, and no test looked.
+ */
+export function streamQueryFor(model: string): string {
+  return /^eleven_v4/.test(model) ? "" : "?optimize_streaming_latency=3";
+}
+
+/**
  * Which TTS model can voice which caller language. Exported so the docs and the
  * gate are checked against the same table the client uses, rather than a claim
  * restated in markdown.

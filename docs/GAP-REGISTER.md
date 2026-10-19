@@ -3116,3 +3116,69 @@ which language set rather than edited to a shorter claim.
 is disabled on this account, a cloned replacement needs a `Voice` row with
 `consentUrl`/`consentAt` enforced at 422, and which voice represents a bank's brand is
 their decision. The mechanism to choose it now exists; the choice does not.
+
+### 51. Production had no voice for the whole time the demo claimed a neural one, and no test could have caught it
+
+The ask was to run the end-to-end demo and confirm the audio and the response. The response is
+sound: a typed turn on `securevoiceai.me` returned in 166 ms with `intent: deny_fraud`,
+`action: card_freeze · reversible`, the full spoken reply, and an audit trail. The audio was not.
+
+**What a visitor actually got.** `/api/tts` answered `X-Voice-Source: emergency`,
+`X-Voice-Degraded: true`, 15,404 bytes / 0.48 s — and the _same md5 for four different
+sentences_, which is the shape of a pre-recorded cue, not speech. The browser fell back to
+`speechSynthesis` (one call, 3 voices available), so the visitor heard their own device voice
+beside copy that says "a neural voice reply".
+
+**Why, in order.** The egress guard at `src/lib/elevenlabs/egress.ts:356` refuses every live
+vendor call until `ELEVENLABS_COMMERCIAL_USE=true` — the ElevenLabs ToS §1(c)(i) restricts a
+free account to non-commercial use, and a bank fraud-intervention pilot is commercial. Production
+reported `tier: "grant", status: "active"`, and the subscription payload carries no
+commercial-rights field, so the licence question is the owner's and cannot be read off the API.
+Rung 2 was dead anyway (`PLAYHT_*` unset on the box). So every utterance reached rung 4, the cue.
+Attested on 2026-10-19 with the owner watching — `.env` backed up as
+`.env.before-commercial-use.20261019T104748Z` — and the same probe then returned
+`X-Voice-Source: elevenlabs`, `Degraded: false`, **67,752 bytes / 4.16 s and 88,232 bytes /
+5.44 s for two sentences, distinct md5s**. In the browser: one `Audio` play, duration 26.08 s,
+`ended: 1`, and `speechSynthesis` used **zero** times.
+
+**The streaming route had been failing since it shipped.** `/api/tts/stream` answered 503, and
+the container log named the vendor's reason: `400 validation_error / unsupported_model —
+"Providing optimize_streaming_latency is not supported with the 'eleven_v4_turbo' model."`
+The route hardcodes that parameter (`src/app/api/tts/stream/route.ts:151`) while the default model
+is v4 turbo, and it mapped any upstream failure to a 503 — a permanent configuration rejection
+reported as "temporarily unavailable". So the browser demo always fell to the buffered route and
+played one 26-second block instead of streaming, silently inflating first-audio latency on the
+surface that measures latency hardest. Fixed with `streamQueryFor(model)` in
+`src/lib/elevenlabs/client.ts`, verified against the vendor with the deployment's own voice id:
+with the parameter **400**, without it **200 and 41,421 bytes of MP3**. No test had ever looked at
+that URL, which is why this survived; `tests/unit/tts-stream-query.test.ts` now pins all four
+branches, including "the configured model cannot produce a rejected request".
+
+**Two claims of mine were wrong, and both were measurement errors.** I reported that
+`ELEVEN_VOICE_*` was unset on the box: the variable is `ELEVENLABS_VOICE_*`, and **all six are set**
+— I had grepped the wrong name and published the result. And I hypothesised that the anonymous
+public demo writes `orgId IS NULL` cases into production, part-explaining §50's 384 unscoped rows;
+measured, the Case table is unchanged at 1140 rows with the newest from 2026-10-10, so the demo
+audits turns (`SV-C-*` in `AuditLog`) and writes no case. The hypothesis is dead, the rows are §50's
+harness explanation, and the correction is recorded here rather than quietly dropped.
+
+**What is still not fixed by this.** The worker containers interpolate their environment
+explicitly and declare no `env_file`, so the attestation reached `app` and not the call plane:
+measured on the box, `voice-stream-worker`, `dial-worker` and `realtime` all reported
+`ELEVENLABS_COMMERCIAL_USE` **UNSET**. A live outbound dial would still have been refused while the
+demo worked. `docker-compose.yml` now passes it to both services with a fail-closed default
+(`${ELEVENLABS_COMMERCIAL_USE:-false}`), and that ships only when the ladder carries it.
+
+**And the honesty half, in code.** `/api/status` derived `voiceProvider` from the presence of an
+API key, so the deployment that was refusing every vendor call still named ElevenLabs.
+`voiceProviderLabel()` now names the rung that will actually answer, `src/instrumentation.ts`
+warns at boot when a key exists without the attestation, and `LiveVoicePanel` reports which voice
+spoke — the visitor sees "You are hearing your own device voice" instead of discovering it by
+listening (`streamSpeech` now returns `neural`/`reason` so the claim is checkable at the surface
+that makes it). `tests/unit/voice-provider-label.test.ts` covers all four branches and was
+mutation-proved by restoring the key-only predicate, which failed two of them.
+
+**Finally, a dev-environment fact worth recording:** `bun dev` on this machine renders HTML but
+never hydrates — 1 element carries React internals versus 770 of 795 on the deployed site, the
+language toggle does nothing, and the demo's Send button stays disabled. Local UI verification has
+to run against `next build && next start`, or against production.

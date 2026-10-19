@@ -1,7 +1,12 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { allowedVoices, requestedVoice, resolveTtsModel } from "@/lib/elevenlabs/client";
+import {
+  allowedVoices,
+  requestedVoice,
+  resolveTtsModel,
+  streamQueryFor,
+} from "@/lib/elevenlabs/client";
 import { consume as consumeRateLimit, rateLimitHeaders, rateLimitId } from "@/lib/ratelimit";
 import { append as auditAppend } from "@/lib/audit-chain";
 import { transcript as redactText } from "@/lib/redact";
@@ -146,9 +151,10 @@ export async function POST(req: NextRequest) {
   // every other language and picked a model that cannot speak Swahili.
   const model = resolveTtsModel(lang);
 
+  // Sent only where the model accepts it — see `streamQueryFor`.
   const upstream = await fetchUpstreamBinary(
     "POST",
-    `/v1/text-to-speech/${encodeURIComponent(voice)}/stream?optimize_streaming_latency=3`,
+    `/v1/text-to-speech/${encodeURIComponent(voice)}/stream${streamQueryFor(model)}`,
     {
       headers: { accept: "audio/mpeg" },
       body: JSON.stringify({

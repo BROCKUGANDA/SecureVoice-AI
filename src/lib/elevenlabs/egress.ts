@@ -220,8 +220,7 @@ export const egressPerHour = (): number => Number(process.env.ELEVENLABS_EGRESS_
  * Has the operator attested that this deployment is entitled to use the vendor
  * account commercially? Read per call, like the ceilings above.
  */
-export const commercialUseAttested = (): boolean =>
-  process.env.ELEVENLABS_COMMERCIAL_USE === "true";
+export const commercialUseAttested = (): boolean => env.commercialUseAttested;
 
 /* ── Retry ladder ──────────────────────────────────────────────────────────── */
 

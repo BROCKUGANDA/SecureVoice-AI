@@ -13,13 +13,26 @@ import { registerExporterFlush } from "@/lib/telemetry/exporter-flush";
  */
 export async function register() {
   if (process.env.NEXT_RUNTIME !== "nodejs") return;
-  const { assertCriticalConfig } = await import("@/lib/config");
+  const { assertCriticalConfig, env, voiceProviderLabel } = await import("@/lib/config");
   const missing = assertCriticalConfig();
   if (missing.length > 0) {
     logWarn("[config] missing critical env vars", {
       missing,
       detail:
         "the platform boots in degraded/audit-only mode; set them before enabling live voice or BYOK.",
+    });
+  }
+
+  // A vendor credential and the vendor's permission are different claims. With a key
+  // set but the commercial-use attestation absent, every agent utterance is answered
+  // by the emergency cue and the browser demo silently substitutes the visitor's own
+  // device voice — which until now surfaced only in a log line after a key had already
+  // been parked, i.e. after someone had heard the beep.
+  if (env.elevenLabsApiKey && !env.elevenLabsDryRun && !env.commercialUseAttested) {
+    logWarn("[voice] live ElevenLabs calls are refused by the commercial-use guard", {
+      serving: voiceProviderLabel(),
+      detail:
+        "callers hear the emergency cue; the demo falls back to the device voice. Set ELEVENLABS_COMMERCIAL_USE=true only on an account whose terms permit commercial use (ToS §1(c)(i), PUP §9(a)).",
     });
   }
 

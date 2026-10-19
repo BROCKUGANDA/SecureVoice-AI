@@ -1021,6 +1021,13 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          # Full history, not depth 1. `checkAppendOnlyShrink` compares a merge
+          # against BOTH parents, and the self-test proves itself against two real
+          # clobber commits in this repository's history — neither is reachable in a
+          # shallow checkout, where the gate would print "not a merge commit" against
+          # a merge and pass for the wrong reason.
+          fetch-depth: 0
       # node_modules, not just a checkout: the gates import `yaml` directly and
       # must not depend on another job having installed it first. There are two
       # runners with separate workdirs, so that dependence is a race.

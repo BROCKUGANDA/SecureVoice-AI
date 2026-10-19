@@ -843,6 +843,131 @@ function checkBoxInventory() {
   }
 }
 
+/**
+ * The whole point of this gate is "production is serving a commit that CI proved".
+ *
+ * It used to ask a different question — is the box on main's tip? — and that phrasing
+ * made it wrong twice on the same day. Deploy run 39173983527 rolled `53b3554`
+ * successfully, then tripped here because `autoversion` cut `121a860` onto main while
+ * the deploy was in flight: the box was exactly where this deploy should have put it,
+ * and the gate called that drift. Worse than a red X, because the step after it —
+ * "Health check the rolled origin" — was skipped, so a good deploy produced no health
+ * evidence at all.
+ *
+ * `judgeCurrency` is pure so the self-test can plant the real numbers, including the
+ * false failure above, without needing a box.
+ *
+ * @param head        the box checkout's HEAD
+ * @param dispatched  the SHA this deploy was triggered for (the upstream CI run's
+ *                    head_sha). Empty on a `workflow_dispatch`, where there is no
+ *                    upstream run to name and the tip comparison is the honest rule.
+ * @param tip         origin/main as it reads right now
+ */
+function judgeCurrency({ head, dispatched, tip }) {
+  if (!tip && !dispatched)
+    return { verdict: "skip", note: "no origin/main reachable from the box" };
+  if (!dispatched) {
+    return head === tip
+      ? { verdict: "ok", note: `manual deploy: box HEAD == origin/main (${head.slice(0, 7)})` }
+      : {
+          verdict: "fail",
+          note:
+            `the box is at ${head.slice(0, 7)} but origin/main is ${tip.slice(0, 7)} — ` +
+            `a manual deploy must roll main's tip, and it is not on it.`,
+        };
+  }
+  if (head !== dispatched) {
+    return {
+      verdict: "fail",
+      note:
+        `the box is at ${head.slice(0, 7)} but this deploy was dispatched for ` +
+        `${dispatched.slice(0, 7)} (the commit CI proved). ` +
+        (tip ? `origin/main now reads ${tip.slice(0, 7)}. ` : "") +
+        `Production is serving a commit that the proving run was not about — either the ` +
+        `roll pulled past it, or it pulled a tip that never went green.`,
+    };
+  }
+  if (tip && tip !== dispatched) {
+    return {
+      verdict: "ok",
+      warn:
+        `box is on the dispatched ${dispatched.slice(0, 7)} and that is correct for this ` +
+        `run; main has since moved to ${tip.slice(0, 7)}, which a later deploy will prove ` +
+        `and roll. Not drift — the race this gate used to fail on.`,
+      note: `box HEAD == dispatched (${dispatched.slice(0, 7)})`,
+    };
+  }
+  return { verdict: "ok", note: `box HEAD == dispatched == origin/main (${head.slice(0, 7)})` };
+}
+
+function selfTestCurrencyGate() {
+  const cases = [
+    // The false failure that red-dened a good deploy (run 39173983527, measured):
+    // box on the dispatched SHA, main moved on. Must NOT fail.
+    {
+      name: "measured race 53b3554 vs tip 121a860",
+      in: {
+        head: "53b3554cf506ddac283dd641e396e760f87fa302",
+        dispatched: "53b3554cf506ddac283dd641e396e760f87fa302",
+        tip: "121a86043a3e26494d02e9b7e3e370e85f323cc7",
+      },
+      want: "ok",
+      wantWarn: true,
+    },
+    // A box that pulled past the proven commit must still fail, loudly.
+    {
+      name: "box pulled the unproven tip",
+      in: {
+        head: "121a86043a3e26494d02e9b7e3e370e85f323cc7",
+        dispatched: "53b3554cf506ddac283dd641e396e760f87fa302",
+        tip: "121a86043a3e26494d02e9b7e3e370e85f323cc7",
+      },
+      want: "fail",
+    },
+    // The clean case: nothing moved during the deploy.
+    {
+      name: "all three agree",
+      in: { head: "a".repeat(40), dispatched: "a".repeat(40), tip: "a".repeat(40) },
+      want: "ok",
+    },
+    // Manual dispatch: no upstream SHA, so the tip is the contract.
+    {
+      name: "manual deploy off tip",
+      in: { head: "b".repeat(40), dispatched: "", tip: "c".repeat(40) },
+      want: "fail",
+    },
+    {
+      name: "manual deploy on tip",
+      in: { head: "b".repeat(40), dispatched: "", tip: "b".repeat(40) },
+      want: "ok",
+    },
+    // Neither reference available: skip, never pretend.
+    {
+      name: "no reference at all",
+      in: { head: "d".repeat(40), dispatched: "", tip: "" },
+      want: "skip",
+    },
+  ];
+
+  const broken = [];
+  for (const c of cases) {
+    const r = judgeCurrency(c.in);
+    if (r.verdict !== c.want) broken.push(`${c.name}: wanted ${c.want}, got ${r.verdict}`);
+    if (c.wantWarn && !r.warn) broken.push(`${c.name}: expected a warning about the moved-on tip`);
+    if (r.verdict === "fail" && !r.note.includes("box"))
+      broken.push(`${c.name}: failure text names nothing`);
+  }
+  if (broken.length) {
+    fail(
+      `currency self-test is BROKEN — the real check below cannot be trusted:\n       ${broken.join("; ")}`,
+    );
+    return;
+  }
+  info(
+    "currency self-test: measured race passes, unproven-tip pull still fails, manual path intact",
+  );
+}
+
 function checkBoxCurrency() {
   let head = "";
   try {
@@ -851,18 +976,18 @@ function checkBoxCurrency() {
     fail(`cannot read the box's git HEAD in ${BOX}`);
     return;
   }
-  const remote = sh("git ls-remote origin refs/heads/main").split(/\s+/)[0] ?? "";
-  if (!remote) {
-    info("no origin/main reachable from the box — skipping currency comparison");
-    return;
-  }
-  if (head !== remote) {
-    fail(
-      `the box is at ${head.slice(0, 7)} but origin/main is ${remote.slice(0, 7)}\n` +
-        `       production is serving a commit that is not main's tip.`,
-    );
-  } else {
-    info(`box HEAD == origin/main (${head.slice(0, 7)})`);
+  const tip = sh("git ls-remote origin refs/heads/main").split(/\s+/)[0] ?? "";
+  // The commit this deploy was dispatched for — the upstream CI run's head_sha. It is
+  // what "proven" means here; an empty value is a workflow_dispatch, which has no
+  // upstream run and falls back to the tip comparison above.
+  const dispatched = (process.env.DEPLOY_SHA ?? "").trim();
+
+  const r = judgeCurrency({ head, dispatched, tip });
+  if (r.verdict === "fail") fail(r.note);
+  else if (r.verdict === "skip") info(r.note);
+  else {
+    if (r.warn) info(`${r.note}\n       WARN ${r.warn}`);
+    else info(r.note);
   }
 }
 
@@ -1373,7 +1498,17 @@ function selfTestAppendOnlyGate() {
 function checkAppendOnlyShrink() {
   const parents = parentsOf("HEAD");
   if (parents.length < 2) {
-    info("append-only audit guard: HEAD is not a merge commit — nothing to compare");
+    // Name the reason, because the two look identical in a log and only one of them
+    // is a passing check. A depth-1 checkout cannot see a merge's parents at all, so
+    // "HEAD is not a merge commit" printed against a real merge would be this gate
+    // reporting a comparison it never made — the exact failure the self-test above
+    // exists to catch. CI's Drift gates job therefore fetches full history.
+    const shallow = repoGit("git rev-parse --is-shallow-repository") === "true";
+    info(
+      shallow
+        ? "append-only audit guard: SKIPPED — shallow checkout, the merge's parents are not present to compare"
+        : "append-only audit guard: HEAD is not a merge commit — nothing to compare",
+    );
     return;
   }
   const head = repoGit("git rev-parse HEAD") ?? "HEAD";
@@ -1402,6 +1537,7 @@ const SUITES = {
     checkEnvDocs,
     selfTestAppendOnlyGate,
     checkAppendOnlyShrink,
+    selfTestCurrencyGate,
   ],
   box: [checkBoxInventory, checkBoxCurrency, checkBoxImageConformance],
 };

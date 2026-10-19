@@ -3401,3 +3401,18 @@ PATH=/usr/bin:/bin /bin/sh -c ~/runner-hygiene.sh` exits 0 and writes the log �
 `systemctl is-active cron` answers `active`. The first scheduled fire is still ahead, but with a
 log to diff against, and the failure mode crontab entries actually have (no TTY, no inherited
 PATH) is now ruled out by measurement rather than by assumption.
+
+**One thing the brief asked for was invisible, so the deploy now says it.** "Matching
+multilingual voices" has a mechanism (one id in six `ELEVENLABS_VOICE_<LANG>` slots) and a
+measurement (`voice:check`, which proves each language is spoken in that language), but nothing
+that reported whether the six slots actually hold one voice — the state most likely to rot
+silently, because six different voices pass every test and sound wrong only to a human on a call.
+`checkVoiceIdentity` in the box suite reads those six keys and says `one voice across all six
+slots` or `N DIFFERENT voices across the six slots`. It reports and does not fail: which voice
+represents a bank is recorded above as an owner decision, and a gate that turns red on an
+unmade decision is a gate that gets deleted inside a week. The parser is exercised against a
+real `.env` (a checkout with none configured → `0/6 slots set, MISSING for EN,AR,…`) and its
+self-test was made honest the hard way — the first quoted-value fixture was all-quoted, so it
+stayed green when the quote-strip was deleted from the parser, because six identically-quoted
+strings are still one set. It now mixes quoted and unquoted forms of the same id, and the same
+mutation turns it red with `a quoted value was counted as a different voice`.

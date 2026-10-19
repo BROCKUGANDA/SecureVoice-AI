@@ -48,6 +48,9 @@ const audits: Record<string, unknown>[] = [];
 /** The `keyOverride` the primary rung actually received, per call. */
 const primaryKeys: (string | undefined)[] = [];
 
+/** The configured per-language ids the mocked client resolves language keys to. */
+const envVoices: Record<string, string> = { en: "voice_en_id", ar: "voice_ar_id" };
+
 mock.module("@/lib/elevenlabs/client", () => ({
   DEV_VOICES: new Set(["jam"]),
   UpstreamError: class UpstreamError extends Error {},
@@ -55,7 +58,14 @@ mock.module("@/lib/elevenlabs/client", () => ({
   isProdVoiceMode: () => true,
   // Prod voice mode resolves a language key through this table, so the ids below
   // are what `allowedVoices()` must contain for `voice: "en"` to be accepted.
-  ELEVEN_VOICE_ENV: { en: "voice_en_id", ar: "voice_ar_id" },
+  ELEVEN_VOICE_ENV: envVoices,
+  // The route no longer owns its voice resolution — it calls `requestedVoice()`,
+  // which is `deliveryVoice()` for the normal (no explicit override) case. A mock
+  // that omits them does not simulate prod mode, it simulates a broken import, so
+  // the ladder would fail for a reason that has nothing to do with the ladder.
+  deliveryVoice: (lang: string) => envVoices[lang] ?? "",
+  requestedVoice: (voice: string | undefined, lang: string) =>
+    !voice || voice === lang ? (envVoices[lang] ?? "") : voice,
   resolveTtsModel: () => "eleven_multilingual_v2",
   tts: async (_req: unknown, opts: { keyOverride?: string }) => {
     calls.push("elevenlabs");

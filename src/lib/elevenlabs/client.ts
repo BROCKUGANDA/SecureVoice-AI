@@ -28,7 +28,13 @@ import { consume as consumeRateLimit } from "@/lib/ratelimit";
 import { withIdempotency } from "@/lib/idempotency";
 import { transcript as redactText } from "@/lib/redact";
 import { prepareSpeech, type SpeechContext } from "@/lib/compliance/speech-gate";
-import { env, isProdVoiceMode, TTS_CACHE_TTL_MS, TTS_CACHE_MAX } from "@/lib/config";
+import {
+  env,
+  isProdVoiceMode,
+  SUPPORTED_LANGS,
+  TTS_CACHE_TTL_MS,
+  TTS_CACHE_MAX,
+} from "@/lib/config";
 import { voiceProfileFor, type VoicePace } from "@/lib/voice/presets";
 
 export type TtsLang = "en" | "ar" | "hi" | "ur" | "fr" | "sw";
@@ -99,6 +105,117 @@ export const ELEVEN_VOICE_ENV: Record<TtsLang, string> = {
 };
 
 /**
+ * Which voice a given language and role should be rendered in, for the current
+ * deployment mode. This is the ONLY answer to that question in the codebase.
+ *
+ * WHY IT LIVES HERE AND NOT IN THE FRONTEND. The scripted demo used to carry its
+ * own table (`TTS_VOICE` in `src/lib/voice-client.ts`) mapping language+role to an
+ * ElevenLabs *library slug*, which the route then aliased back to a language via
+ * `DEV_SLUG_LANG`. Two consequences, both measured in that table: `fr` and `sw`
+ * both mapped to the slug `jam`, which aliases to **`en`** — so a French or
+ * Swahili demo line spoke in the English deployment voice while a real French
+ * caller hears `ELEVENLABS_VOICE_FR`. And the demo's "customer" role borrowed the
+ * production voice id of an unrelated language (`en` customer → `kazi` → the Hindi
+ * voice), presenting a bank operator with another language's shipped voice and
+ * calling it the customer.
+ *
+ * A demo that quietly resolves a different voice from the call is a demo that
+ * misrepresents the product, so the client now names a language and a role and
+ * this function decides.
+ */
+export type VoiceRole = "agent" | "customer";
+
+/** Dev (dry-run) library voices. Never a production id. */
+const DEV_AGENT_VOICE: Record<TtsLang, string> = {
+  en: "jam",
+  ar: "tongtong",
+  hi: "kazi",
+  ur: "luodo",
+  fr: "jam",
+  sw: "jam",
+};
+const DEV_CUSTOMER_VOICE: Record<TtsLang, string> = {
+  en: "kazi",
+  ar: "chuichui",
+  hi: "douji",
+  ur: "xiaochen",
+  fr: "kazi",
+  sw: "kazi",
+};
+
+/**
+ * The optional second voice for the scripted demo's customer line.
+ *
+ * Read at call time, unlike `ELEVEN_VOICE_ENV` above: on a live call the customer
+ * is a human, so this voice exists only to make a demo listenable, and a test (or
+ * an operator changing their mind) must be able to set it without re-importing the
+ * module. Unset is a valid answer — the customer line then uses the same voice the
+ * agent would, which is honest, rather than reaching into another language's
+ * production slot.
+ */
+export function demoCustomerVoiceId(): string {
+  return process.env.ELEVENLABS_VOICE_DEMO_CUSTOMER?.trim() ?? "";
+}
+
+/**
+ * Resolve the voice id to synthesise with. `""` means nothing is configured for
+ * this language in this mode, which the route layer rejects with a 422 rather
+ * than sending a slug upstream and paying for a 4xx.
+ */
+export function deliveryVoice(lang: TtsLang, role: VoiceRole = "agent"): string {
+  if (!isProdVoiceMode()) {
+    return role === "agent" ? DEV_AGENT_VOICE[lang] : DEV_CUSTOMER_VOICE[lang];
+  }
+  if (role === "customer") return demoCustomerVoiceId() || ELEVEN_VOICE_ENV[lang];
+  return ELEVEN_VOICE_ENV[lang];
+}
+
+/**
+ * Compatibility alias ONLY: a dev library slug that arrives while the deployment
+ * is in prod mode resolves to the language it stands for, so an old caller or a
+ * stored link keeps working instead of paying for an upstream 422.
+ *
+ * This is NOT how the demo chooses a voice any more — see `requestedVoice`.
+ */
+const DEV_SLUG_LANG: Record<string, TtsLang> = {
+  jam: "en",
+  kazi: "hi",
+  tongtong: "ar",
+  chuichui: "ar",
+  douji: "hi",
+  luodo: "ur",
+  xiaochen: "ur",
+};
+
+/**
+ * The voice id a request should synthesise with, or `""` when nothing is
+ * configured — which the route layer turns into a 422 naming the variable.
+ *
+ * Both TTS routes used to carry their own copy of this function and their own
+ * copy of the dev-slug table, byte-identical. The duplication is how `fr` and
+ * `sw` came to alias to the English voice in the demo while the live call used
+ * their own configured voice: two places to be wrong in the same way.
+ *
+ * Omitting `voice` is the normal path for the demo and every quick interaction —
+ * language and role decide it, through the resolver the live call uses.
+ */
+export function requestedVoice(
+  voice: string | undefined,
+  lang: TtsLang,
+  role: VoiceRole = "agent",
+): string {
+  if (!voice) return deliveryVoice(lang, role);
+  if ((SUPPORTED_LANGS as readonly string[]).includes(voice)) {
+    return deliveryVoice(voice as TtsLang, role);
+  }
+  if (allowedVoices().has(voice)) return voice;
+  if (isProdVoiceMode() && DEV_SLUG_LANG[voice]) {
+    return ELEVEN_VOICE_ENV[DEV_SLUG_LANG[voice]] || voice;
+  }
+  return voice; // unknown — the route rejects it
+}
+
+/**
  * Languages the default model cannot voice, and the model that can.
  *
  * `eleven_multilingual_v2` carries 29 languages and does NOT include Urdu or
@@ -153,9 +270,16 @@ export { isProdVoiceMode };
 
 /** The set of voices the /api/tts route accepts in the current mode. */
 export function allowedVoices(): Set<string> {
-  if (!isProdVoiceMode()) return DEV_VOICES;
+  if (!isProdVoiceMode()) {
+    const slugs = new Set<string>();
+    for (const v of Object.values(DEV_AGENT_VOICE)) slugs.add(v);
+    for (const v of Object.values(DEV_CUSTOMER_VOICE)) slugs.add(v);
+    return slugs;
+  }
   const ids = new Set<string>();
   for (const v of Object.values(ELEVEN_VOICE_ENV)) if (v) ids.add(v);
+  const customer = demoCustomerVoiceId();
+  if (customer) ids.add(customer);
   return ids;
 }
 

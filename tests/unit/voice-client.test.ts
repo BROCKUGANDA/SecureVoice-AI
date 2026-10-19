@@ -18,7 +18,7 @@
  * independent.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { TTS_VOICE, fetchSpeech, fetchSpeechUrl } from "@/lib/voice-client";
+import { fetchSpeech, fetchSpeechUrl } from "@/lib/voice-client";
 
 const realFetch = globalThis.fetch;
 const realCreate = URL.createObjectURL;
@@ -217,36 +217,6 @@ describe("fetchSpeechUrl — failure handling", () => {
     globalThis.fetch = boom;
     const text = `e4-${Date.now()}-${Math.random()}`;
     await expect(fetchSpeechUrl(text, "jam", "en")).rejects.toThrow(/offline/);
-  });
-});
-
-describe("voice routing table", () => {
-  const LANGS = ["en", "ar", "hi", "ur", "fr", "sw"] as const;
-
-  test("every supported call language has an agent and customer voice", () => {
-    for (const lang of LANGS) {
-      expect(TTS_VOICE[lang].agent.length).toBeGreaterThan(0);
-      expect(TTS_VOICE[lang].customer.length).toBeGreaterThan(0);
-    }
-  });
-
-  test("the agent and customer never share a voice within a language", () => {
-    // The demo alternates agent and customer turns; a shared voice makes the
-    // conversation sound like one person talking to themselves.
-    for (const lang of LANGS) {
-      expect({ lang, same: TTS_VOICE[lang].agent === TTS_VOICE[lang].customer }).toEqual({
-        lang,
-        same: false,
-      });
-    }
-  });
-
-  test("Arabic, Hindi and Urdu each route to a distinct provider voice", () => {
-    // These are the languages the product exists to serve; collapsing them onto
-    // one voice is the failure the routing table prevents.
-    expect(TTS_VOICE.ar.agent).not.toBe(TTS_VOICE.hi.agent);
-    expect(TTS_VOICE.hi.agent).not.toBe(TTS_VOICE.ur.agent);
-    expect(TTS_VOICE.ar.agent).not.toBe(TTS_VOICE.ur.agent);
   });
 });
 

@@ -256,6 +256,14 @@
 	#   · /v1/* is the bank's integration surface (docs/INTEGRATION-CONTRACT.md):
 	#     a bank's client reads a status code and a signed JSON body, never
 	#     markup.
+	#   · /api/* is this application's own machine surface. Measured 2026-10-19:
+	#     POST /api/tts/stream answered 503 with the document below, while the route
+	#     had deliberately answered `{"error":…,"fallback":true}` with a Retry-After,
+	#     and the browser parses that field to decide whether to fall back to the
+	#     buffered voice clip. No person opens an /api path — its readers are this
+	#     app's client and a bank's SDK — so wrapping a structured degradation in a
+	#     site-outage page both loses the fallback signal and reports a voice problem
+	#     as if the platform were down.
 	#   · /healthz is answered by this file and cannot reach an origin error, but
 	#     it is listed on purpose: docker-compose.yml's own healthcheck greps
 	#     `HTTP/1.[01] (200|301|302|307|308)` on that path, so a rule that ever
@@ -269,11 +277,11 @@
 	# probe path added to one and not the other is a monitor quietly served a
 	# maintenance page instead of the outage it is watching for.
 	@machine_surface {
-		path /api/health /api/readyz /realtime* /v1/* /healthz
+		path /api/health /api/readyz /api/* /realtime* /v1/* /healthz
 	}
 
 	@page_surface {
-		not path /api/health /api/readyz /realtime* /v1/* /healthz
+		not path /api/health /api/readyz /api/* /realtime* /v1/* /healthz
 	}
 
 	# The origin produced NO response: container stopped, crash loop, connection

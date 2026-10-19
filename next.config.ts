@@ -72,10 +72,7 @@ function readPackageVersion(): string {
 // in a production CSP.
 
 // The connect-src allowance must follow ELEVENLABS_API_BASE_URL so a gateway/
-// region override stays reachable from the browser; default is the vendor API.
-const ELEVENLABS_CSP_ORIGIN = new URL(
-  process.env.ELEVENLABS_API_BASE_URL ?? "https://api.elevenlabs.io",
-).origin;
+// region override stays reachable from the browser; see `connectSrcDirective`.
 
 // 'unsafe-inline' is in BOTH modes on purpose. Dropping it from the production
 // list is what took the live site down; see the CSP notes above.
@@ -109,6 +106,57 @@ const PADDLE_CONNECT_ORIGINS = [
   "https://sandbox-api.paddle.com",
 ];
 
+/**
+ * The `connect-src` directive, built from the same variables the SDKs read.
+ *
+ * Error reporting was missing from this list. The DSN in this deployment points at
+ * Better Stack's Sentry-compatible host, and because that origin was never allowed,
+ * every browser-side exception was refused by our own CSP — measured 2026-10-19 in a
+ * live demo session: "Fetch API cannot load
+ * https://s2791972.us-west-2a.betterstackdata.com/api/2791978/envelope/ … Refused".
+ * The consequence is not cosmetic: what Better Stack shows for client errors
+ * undercounts what users actually hit, and the platform was reporting itself as
+ * quieter than it is.
+ *
+ * Derived from `SENTRY_DSN` rather than written out, so rotating the DSN cannot leave
+ * the policy pointing at the old host — and so a DSN change that outgrows the policy
+ * fails `tests/surface/csp.test.ts` instead of silently disabling reporting again.
+ */
+export function connectSrcDirective(
+  elevenLabsBase: string,
+  sentryDsn?: string,
+): { directive: string; rejectedDsn: boolean } {
+  const origins = [
+    new URL(elevenLabsBase).origin,
+    "https://cdn.paddle.com",
+    "https://api.paddle.com",
+    "https://sandbox-api.paddle.com",
+  ];
+  let rejectedDsn = false;
+  if (sentryDsn) {
+    try {
+      const origin = new URL(sentryDsn).origin;
+      if (origin && origin !== "null") origins.push(origin);
+      else rejectedDsn = true;
+    } catch {
+      // A malformed DSN must not inject garbage into the policy. The SDK will fail on
+      // its own terms; the CSP stays as narrow as it was.
+      rejectedDsn = true;
+    }
+  }
+  return { directive: `connect-src 'self' ${origins.join(" ")}`, rejectedDsn };
+}
+
+const CONNECT_SRC = connectSrcDirective(
+  process.env.ELEVENLABS_API_BASE_URL ?? "https://api.elevenlabs.io",
+  process.env.SENTRY_DSN,
+);
+if (CONNECT_SRC.rejectedDsn) {
+  console.warn(
+    "[csp] SENTRY_DSN is set but unparseable — client error reporting will be blocked by CSP; fix the DSN, do not widen the directive",
+  );
+}
+
 export const CSP = [
   "default-src 'self'",
   `${scriptSrc} ${PADDLE_SCRIPT_ORIGIN}`,
@@ -116,7 +164,7 @@ export const CSP = [
   "img-src 'self' data: blob: https:",
   "font-src 'self' data:",
   "media-src 'self' blob:",
-  `connect-src 'self' ${ELEVENLABS_CSP_ORIGIN} ${PADDLE_CONNECT_ORIGINS.join(" ")}`,
+  CONNECT_SRC.directive,
   "worker-src 'self' blob:",
   `frame-src 'self' ${PADDLE_FRAME_ORIGINS.join(" ")}`,
   "frame-ancestors 'none'",

@@ -23,12 +23,6 @@ src/generated/
 # byte-comparable against the run that produced it.
 evidence/
 
-# Local observability runtime state: the Grafana data dir holds third-party
-# plugin bundles and a sqlite file, Prometheus holds a TSDB. Prettier does not
-# read .gitignore, so without this it rewrites a vendored plugin's JS on the
-# next `bun run format` — churn in files nobody owns and nothing tracks.
-.observability/
-
 # Lockfiles and generated manifests.
 bun.lockb
 bun.lock

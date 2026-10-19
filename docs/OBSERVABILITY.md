@@ -1,151 +1,116 @@
-# Local observability — Grafana, Prometheus, and what the app can actually ship
+# Observability — the destination is Grafana Cloud, not a laptop
 
-Set up on 2026-10-19 with what was already installed on this machine: **Grafana
-13.2.0** (`scoop/apps/grafana/13.2.0/bin/grafana.exe`, which is the server _and_ the
-CLI) and **Prometheus 3.13.2**. No new software was installed to get here, and nothing
-in this stack holds a secret — both servers bind `127.0.0.1` only.
+SecureVoice-AI ships OpenTelemetry traces, metrics and logs over OTLP/HTTP to the
+**Grafana Cloud stack** at `brockuganda` (region `prod-ca-east-0`). Nothing runs locally:
+the loopback Grafana + Prometheus stack that stood up on 2026-10-19 has been retired, and
+its launcher is gone with it. The Windows lessons it taught are kept where they belong —
+gap register §46 and §49 — because they are facts about this machine, not about the
+product.
 
 ```
-  app (bun dev, :3000)
-     ├── OTLP metrics ──▶ Prometheus :9090/api/v1/otlp/v1/metrics   ✅ lands
-     ├── OTLP traces ───▶ Prometheus …/v1/traces                    ❌ 404, metrics-only receiver
-     └── /api/metrics ◀── Prometheus scrape job "securevoice-dev"    ✅ the product signal
-                                          ▲
-                              Grafana :3001 (datasource securevoice-prom,
-                                          dashboard uid securevoice-runtime)
+  app / worker ── OTLP/HTTP ──▶ https://otlp-gateway-prod-ca-east-0.grafana.net/otlp
+                                          │
+                          ┌───────────────┼────────────────┐
+                          ▼               ▼                ▼
+                    Mimir (metrics)  Tempo (traces)   Loki (logs)
+                          uid grafanacloud-prom  …-traces  …-logs
+                                          │
+                                     Grafana Cloud (dashboards, alerts, Application Observability)
 ```
 
-Start, stop, inspect:
+## Configuring it
+
+Two variables, both named exactly as the OpenTelemetry specification names them, and
+exactly as the stack's own **OpenTelemetry tile → Configure** hands them to you:
 
 ```bash
-bun scripts/observability.mjs up       # ~90s; Grafana registers ~30 plugins before it listens
-bun scripts/observability.mjs status   # what is really answering
-bun scripts/observability.mjs env      # the exports that point the app at it
-bun scripts/observability.mjs down
+OTEL_EXPORTER_OTLP_ENDPOINT="https://otlp-gateway-prod-ca-east-0.grafana.net/otlp"
+OTEL_EXPORTER_OTLP_HEADERS="Authorization=Basic <access-policy token>"
 ```
 
-UI: <http://127.0.0.1:3001/> → folder **SecureVoice** → **SecureVoice — runtime**.
-Anonymous admin is on _because it is loopback-bound_; do not reuse this config on a host
-that listens on a network interface.
+Three rules the code enforces, each covered by
+[`tests/telemetry/remote-telemetry-status.test.ts`](../tests/telemetry/remote-telemetry-status.test.ts):
 
-## Three things the launcher had to get right
+- **Both are required, or nothing ships.** An endpoint without an `Authorization` header
+  reports `no_authorization` rather than pretending to be configured — that state sends a
+  batch of 401s and publishes a healthy-looking artifact, which is the worst combination
+  available.
+- **There is no default host.** A hardcoded ingestion host means an unconfigured
+  deployment still ships telemetry to whoever owns that name. For a product whose
+  compliance posture is data residency that is a defect, so `otlp-config.ts` returns
+  `undefined` and `initOtel()` builds no exporters.
+- **The credential is carried verbatim.** Grafana Cloud authenticates with **Basic**, and
+  the token from the tile is already the base64 credential. Re-encoding it is how a
+  working token becomes a 401 that reads like a broken one.
 
-`up` was written, tested, and found broken twice before it worked. Each failure was a
-Windows fact, not a bug in Grafana, and all three cost real time:
+Per-signal overrides (`OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` and friends) are used
+**exactly as given** — no path appended — so one signal can be routed elsewhere or left
+unshipped without touching code.
 
-1. **A detached child dies with the shell that made it.** `spawn(..., { detached: true,
-windowsHide: true })` looked correct — the script printed `UP`, and by the next
-   command the process was gone. The child is created inside the launching shell's job
-   object, so reaping that shell kills the whole tree; Grafana's log ended mid-way
-   through registering its bundled plugins with nothing to show for it. `Start-Process`
-   creates the process outside the job, which is why `status` from a _different_ shell
-   now reports both servers up.
-2. **`spawnSync` must not capture the starter's stdout.** With the default pipes, the
-   started server inherits the handle, so `spawnSync` waits for EOF from a process that
-   never exits — `up` hung at `starting prometheus` while prometheus itself came up
-   fine. `stdio: "ignore"` is what makes the call return.
-3. **There is no `sleep.exe` on PATH.** The readiness loop called
-   `spawnSync("sleep", ["3"])`, which fails instantly on Windows, so the loop spun as
-   fast as it could, one `curl` per iteration — four minutes of noise that read as a
-   hang. `Atomics.wait` on a `SharedArrayBuffer` is the in-process pause.
+The token is an **Access Policy** token with metrics/logs/traces write, created in the
+Grafana Cloud portal. It cannot be minted from here, and it does not belong in this
+repository, in `.env` in git, or in a shell history line: put it in the deployment
+environment on the box.
 
-Grafana also takes **60–90 seconds** before it answers `/api/health`, because it
-registers ~30 bundled plugins first. A short timeout there reports a working install as
-failed, which is how this was misdiagnosed the first time.
+## What is verified, and what is not
 
----
+Verified, from this machine, without a token:
 
-## What was proven, with the numbers
+- The gateway for this stack's region is real and demands auth: an unauthenticated
+  `POST /otlp/v1/traces` to `otlp-gateway-prod-ca-east-0.grafana.net` answers **401**,
+  while a made-up region answers **530**. The pair matters — 401 against a host that
+  resolves is a different fact from a host that does not.
+- The stack already has the three backends provisioned as datasources: `grafanacloud-prom`
+  (Mimir), `grafanacloud-traces` (Tempo), `grafanacloud-logs` (Loki), plus
+  `grafanacloud-profiles`. That is what retires gap register §47: spans and logs have a
+  destination, so no local Tempo/Alloy install is needed.
+- The exporters themselves work end to end. Measured on the loopback stack before it was
+  retired: a counter emitted through the SDK's OTLP path landed as a queryable series, and
+  the live origin's scraped metrics returned real state. See §46.
 
-**1. The app's own OTLP exporter works end-to-end.** `initOtel()` is genuinely wired —
-`src/instrumentation.ts:128` calls it, and the voice-stream worker calls it at
-`src/worker/voice-stream.ts:1491`. Run with `OTEL_BETTERSTACK_ENDPOINT` pointed at
-Prometheus, it logged:
+**Not yet verified: that this deployment is actually shipping.** It is not. The token does
+not exist yet, so `remoteTelemetryStatus()` answers `no_endpoint` in production and the
+boot log says so. Setting the two variables is the whole remaining step, and the first
+span in Tempo is the proof.
 
-    [otel] OpenTelemetry SDK started  endpoint=http://127.0.0.1:9090/api/v1/otlp service=securevoice-proof sampleRate=1
+## The dashboard
 
-and one counter emitted through it landed as a queryable series:
+[`observability/dashboards/securevoice-runtime.json`](../observability/dashboards/securevoice-runtime.json)
+is written against the product's own series and now points at `grafanacloud-prom`, so it
+imports into the stack as-is (Dashboards → Import → paste JSON). Its panels read
+`sv_cases_total{state}`, `sv_tts_rung_total{rung}`, breaker and pool gauges.
 
-    {"__name__":"securevoice_proof_ticks_total","job":"securevoice-proof","proof_kind":"loopback"} → 3
+The label vocabulary is deliberately small and bounded, which is what keeps a dashboard
+safe to publish: no `callRef`, no `orgId`, no customer data as a label value — the design
+rules are stated in `src/app/api/metrics/route.ts`.
 
-So the earlier "the exporter is declared but never constructed" finding (gap register
-§32) is **outdated**: it constructs, and it exports.
+## The decision that is not mine to make
 
-**2. The scrape path carries the product signal.** Prometheus scraping the live
-origin's `/api/metrics` returned real state within one interval:
+**Traces and logs from this product can carry caller data.** A span's attributes and a log
+line from the voice path are exactly the material `docs/ROPA.md` records as crossing
+borders under named processors, and the stack lives in **Canada East**. Metrics are
+aggregate counters and are a different risk entirely.
 
-    sv_db_up = 1
-    sv_cases_total{state="confirmed_fraud"} = 279, {state="closed"} = 16, {state="answered"} = 23, {state="dialing"} = 12
-    sv_llm_breaker_open = 0
+So shipping all three signals to this stack is a residency decision, not a configuration
+detail, and it belongs beside the ROPA entry rather than being defaulted on by whoever
+wires the token. The mechanism for shipping less already exists: set only
+`OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` and leave traces and logs without a destination.
+Until that is answered, the honest state is "nothing ships", which is where the deployment
+sits today.
 
-and Grafana serves those through its own datasource proxy — verified by querying
-`sum by (state) (sv_cases_total)` at
-`/api/datasources/proxy/uid/securevoice-prom/api/v1/query`, not by assuming the panel
-renders.
+## Two things still true about the code
 
-**3. The label vocabulary is small and bounded**, which is what makes the dashboard
-safe to keep: `sv_cases_total{state}`, `sv_tts_rung_total{rung}`, and the rest unlabeled.
-That matches the endpoint's own design rules (`src/app/api/metrics/route.ts:34-48`): no
-`callRef`, no `orgId`, no customer data as labels.
-
----
-
-## What does not work, and it is the destination's fault
-
-**Traces and logs have nowhere to go.** Prometheus' OTLP receiver is metrics-only:
-`POST /api/v1/otlp/v1/traces` answers **404**. Grafana 13 ships the `tempo` and `jaeger`
-datasource _plugins_ — they are registered in the startup log — but a plugin is a query
-UI, not a store. So this stack can show you **metrics today** and **cannot show spans**
-until one of these is chosen:
-
-| Option                                                                   | What it costs                                                                                       | Notes                                                                                                                                  |
-| ------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| Install a trace store locally (Grafana Tempo, or Alloy as the collector) | a new binary via scoop, which is a machine-level change I have not made                             | cleanest offline path; Tempo writes to a local dir, Grafana queries it over HTTP                                                       |
-| Grafana Cloud (Traces + Metrics + Logs free tier)                        | a stack API key **from you** — I cannot mint one, and `secrun` reads secrets but cannot create them | zero installs; the app needs no code change, only `OTEL_BETTERSTACK_ENDPOINT` + `OTEL_BETTERSTACK_TOKEN` pointed at the Cloud OTLP URL |
-| Docker Desktop + collector + Tempo                                       | the local Docker daemon is **not running** today (`docker info` fails on the named pipe)            | works, but starts a hypervisor to do it                                                                                                |
-
-Worth naming plainly: **`OTEL_BETTERSTACK_*` is a misnomer for this use.** The variable
-names say Better Stack, the code just uses them as a generic OTLP base URL + bearer
-token. That is why pointing at Grafana/Prometheus needed no code change — and it is a
-small trap for the next reader, so it is documented rather than silently relied on.
-
----
-
-## Two operational traps found on the way, both recorded so they stop costing time
-
-**`[otel] shutdown failed` with `error: "Not Found"` names neither the signal nor the
-URL** (`src/lib/telemetry/otel.ts:196-205` logs `err.message` alone). Pointing the
-exporter at a metrics-only receiver produced exactly that line, and reading it you
-cannot tell whether traces, metrics or logs failed, or where. The fix is one field —
-log `betterStackBaseUrl()` alongside the error — and it is not done here because it
-touches the instrumentation path and nobody asked me to.
-
-**Port 3000 is contested.** Next.js dev and Grafana both default to 3000. Binding
-Grafana there made the `securevoice-dev` scrape job hit **Grafana's 404** instead of the
-app's `/api/metrics` — target health `down`, `server returned HTTP status 404 Not Found`
-— which looks like a broken app. So Grafana listens on **3001** and the script says so.
-
-**An unrelated `otel-agent` is listening on `127.0.0.1:4318`** on this machine (PID
-5980; its executable path is not readable by my process, and no `otel-agent` binary was
-found in the usual install directories). It is the standard OTLP HTTP port, so the
-temptation is to point the app at it. **Do not.** A receiver whose destination cannot be
-named is not an acceptable sink for SecureVoice telemetry: the spans of a bank-fraud
-call are the exact data `docs/ROPA.md` §3 records as crossing borders under named
-processors, and shipping them into an unaccounted pipeline would quietly add a
-sub-processor that the register does not list. Identify it first, or bind this stack to
-its own port — which is what Prometheus on 9090 already does.
-
----
-
-## Production, for contrast
-
-Measured on the box: `OTEL_BETTERSTACK_TOKEN` is **unset**, so the app logs
-`[otel] no token set — traces, metrics and logs stay local` and exports nothing. The
-`/api/metrics` endpoint is reachable and unauthenticated by default (the code's stated
-default for a same-network scraper); setting `METRICS_TOKEN` locks it down, and that is
-the switch to pull **before** production metrics are exposed to the internet — today
-they are, and the body carries no customer data by design, but it does carry operational
-shape: queue depth, breaker state, case counts.
+- **A shutdown failure names neither the signal nor the URL.**
+  `shutdownOtel()` logs `err.message` alone, so a rejected batch at teardown reads as
+  `Not Found` with no destination. The start log now prints the resolved per-signal
+  `endpoints`, which covers most of it; the shutdown path is still thin.
+- **`/api/metrics` is reachable and unauthenticated on the live origin.** That is the
+  code's stated default for a same-network scraper, and the body carries no customer data
+  by design — but it does carry operational shape: queue depth, breaker state, case
+  counts. `METRICS_TOKEN` is the switch to pull, and it should be pulled before anyone
+  points a hosted Prometheus at it. With Grafana Cloud receiving via OTLP push, there is
+  no longer a reason for the public scrape surface to stay open.
 
 Related: `docs/RUNBOOK.md` for the live stack, `docs/ROPA.md` activity A11 for the
-telemetry register entry.
+telemetry register entry, gap register §46 (what the local stack proved) and §49 (why it
+is gone).

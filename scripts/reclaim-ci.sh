@@ -29,35 +29,36 @@
 # Modes:
 #   reclaim            delete what qualifies, print what was deleted (default)
 #   dry-run            print what WOULD be deleted, delete nothing
-#
-# Measuring whether the disk is fit to build on is NOT this file's job — that is
-# `scripts/runner-preflight.ts`, which reports free space, free inodes and a real
-# 4 MiB fdatasync latency, and is wired into both the compose smoke job and the
-# deploy. An earlier draft of this script carried a `check` mode with its own copy
-# of those thresholds; two capacity thresholds in one repository is how the three
-# divergent reclaim loops happened in the first place, so it was deleted rather than
-# reconciled.
+#   check              measure only; exit 1 when disk, inodes or write/fsync
+#                      latency are outside the floors — the pre-deploy alarm
 #
 # Configuration (all optional):
-#   TARGET_DIR         the repo whose compose project is cleaned, and the
-#                      filesystem reported afterwards; default the current directory
+#   TARGET_DIR         filesystem to measure and the repo whose compose project
+#                      is cleaned; default the current directory
+#   MIN_FREE_PCT       free space floor, default 10 (% of the filesystem)
+#   MIN_INODE_FREE_PCT inode floor, default 10 (%)
+#   MAX_WRITE_MS       4 MiB fdatasync write budget, default 5000
 #   ANON_MIN_AGE_H     anonymous-volume age floor, default 24
 #   CACHE_MAX_AGE      passed to `docker builder prune --filter until=`, default 72h
 set -uo pipefail
 
 MODE="${1:-reclaim}"
-case "$MODE" in reclaim | dry-run) ;; *)
-  echo "usage: $0 [reclaim|dry-run]" >&2
+case "$MODE" in reclaim | dry-run | check) ;; *)
+  echo "usage: $0 [reclaim|dry-run|check]" >&2
   exit 2
   ;;
 esac
 
 TARGET_DIR="${TARGET_DIR:-$PWD}"
+MIN_FREE_PCT="${MIN_FREE_PCT:-10}"
+MIN_INODE_FREE_PCT="${MIN_INODE_FREE_PCT:-10}"
+MAX_WRITE_MS="${MAX_WRITE_MS:-5000}"
 ANON_MIN_AGE_H="${ANON_MIN_AGE_H:-24}"
 CACHE_MAX_AGE="${CACHE_MAX_AGE:-72h}"
 
 now_epoch=$(date -u +%s)
-# Only `reclaim` deletes; `dry-run` reports what it would take and touches nothing.
+# Only `reclaim` deletes. `dry-run` says what it would take; `check` measures and
+# touches nothing, because the pre-deploy alarm must not become the operation.
 DELETE=0
 SHOW_WOULD=0
 [ "$MODE" = "reclaim" ] && DELETE=1
@@ -158,11 +159,65 @@ elif [ "$SHOW_WOULD" = "1" ]; then
   echo "would: docker builder prune --force --filter until=${CACHE_MAX_AGE}"
 fi
 
-echo "reclaim[$MODE]: containers=$removed_containers networks=$removed_networks volumes(named)=$removed_named volumes(anonymous>=${ANON_MIN_AGE_H}h)=$removed_volumes images=$removed_images held-back(referenced)=$held_back"
-df -h "$TARGET_DIR" | tail -1
-# Explicit, because the last statement of an earlier draft was a
-# `[ "$MODE" = "check" ] && echo …` test — which evaluates false in reclaim mode,
-# and a script's exit status is its last command's. A successful reclaim therefore
-# exited 1: measured on the box, it deleted nothing, printed a healthy report, and
-# returned failure. In CI that is the cleanup step failing because it worked.
+if [ "$MODE" != "check" ]; then
+  echo "reclaim[$MODE]: containers=$removed_containers networks=$removed_networks volumes(named)=$removed_named volumes(anonymous>=${ANON_MIN_AGE_H}h)=$removed_volumes images=$removed_images held-back(referenced)=$held_back"
+  df -h "$TARGET_DIR" | tail -1
+fi
+
+# ── check: the pre-deploy alarm ───────────────────────────────────────────────
+if [ "$MODE" = "check" ] || [ "$MODE" = "reclaim" ]; then
+  problems=()
+  read -r size avail < <(df -P -k "$TARGET_DIR" | tail -1 | awk '{print $2, $4}')
+  if [ -z "${size:-}" ] || [ "$size" = "0" ]; then
+    # "could not measure" is never allowed to read as "healthy".
+    problems+=("could not measure free space for $TARGET_DIR — the gate did not run, which is not a pass")
+  else
+    free_pct=$((avail * 100 / size))
+    echo "disk: ${free_pct}% free of $((size / 1024 / 1024))G on $(df -P -k "$TARGET_DIR" | tail -1 | awk '{print $1}')"
+    [ "$free_pct" -lt "$MIN_FREE_PCT" ] &&
+      problems+=("disk has ${free_pct}% free, below the ${MIN_FREE_PCT}% floor — a build here will die mid-step with null step conclusions")
+  fi
+
+  read -r itotal iused < <(df -P -i "$TARGET_DIR" | tail -1 | awk '{print $2, $3}')
+  if [ -n "${itotal:-}" ] && [ "$itotal" != "0" ] && ! echo "$itotal" | grep -qE '^-?$'; then
+    ifree_pct=$(((itotal - iused) * 100 / itotal))
+    echo "inodes: ${ifree_pct}% free"
+    [ "$ifree_pct" -lt "$MIN_INODE_FREE_PCT" ] &&
+      problems+=("inodes have ${ifree_pct}% free, below the ${MIN_INODE_FREE_PCT}% floor")
+  fi
+
+  # Write + fsync of 4 MiB, outside the repo but on the same filesystem, so the
+  # probe measures the disk the stack actually writes to and never appears in
+  # `git status` on the live checkout.
+  probe="${TARGET_DIR%/*}/.reclaim-io-probe.$$"
+  t0=$(date -u +%s%N)
+  if dd if=/dev/zero of="$probe" bs=1M count=4 conv=fdatasync status=none 2>/dev/null; then
+    t1=$(date -u +%s%N)
+    write_ms=$(((t1 - t0) / 1000000))
+    echo "io: 4MiB fdatasync write took ${write_ms}ms"
+    [ "$write_ms" -gt "$MAX_WRITE_MS" ] &&
+      problems+=("disk took ${write_ms}ms to fsync 4MiB, over the ${MAX_WRITE_MS}ms budget — I/O saturation, not just capacity")
+  else
+    problems+=("could not write a 4MiB probe file at $(dirname "$probe") — the filesystem is full or read-only")
+  fi
+  rm -f "$probe"
+
+  # GC freshness: dangling anonymous volumes past the age floor mean this script
+  # has not been running, which is how 468 of them accumulated unnoticed.
+  stale_anon=$(docker volume ls -q --filter dangling=true 2>/dev/null | grep -cE '^[0-9a-f]{64}$' || true)
+  echo "dangling anonymous volumes now: ${stale_anon}"
+
+  if [ "${#problems[@]}" -gt 0 ]; then
+    for p in "${problems[@]}"; do echo "FAIL $p" >&2; done
+    exit 1
+  fi
+  if [ "$MODE" = "check" ]; then echo "check: disk, inodes and write latency all inside their floors"; fi
+  # Explicit, because the line above used to be `[ "$MODE" = "check" ] && echo …`,
+  # which makes a successful RECLAIM exit 1 — the test fails in that mode, and the
+  # script's exit status is the last command's. Measured on the box: `reclaim`
+  # deleted nothing, printed a healthy check, and returned 1. In CI that is a green
+  # sweep failing its own step, which is the opposite of an alarm.
+  exit 0
+fi
+
 exit 0

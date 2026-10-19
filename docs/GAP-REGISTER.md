@@ -3282,6 +3282,51 @@ never hydrates — 1 element carries React internals versus 770 of 795 on the de
 language toggle does nothing, and the demo's Send button stays disabled. Local UI verification has
 to run against `next build && next start`, or against production.
 
+### 54. The disk filled on a name no reclaimer could match
+
+CI died a third time on a full disk (2026-10-15, then 2026-10-19 twice), and each time the
+symptom misled: the "Compose stack smoke test" job failed in 13 seconds with every step's
+conclusion null, which reads as a broken tree and is a runner that cannot write its own
+diagnostic log. The real sentence was only ever in
+`check-runs/<id>/annotations` — `System.IO.IOException: No space left on device :
+'/home/ubuntu/actions-runner2/_diag/Worker_*.log'`.
+
+**Measured on the box:** `/dev/sda1` at 96G/96G with 23 MB free; 475 local volumes, of which
+**468 were anonymous 64-hex volumes holding ~30 GB**. Production's own three (`securevoice-ai_db-data`,
+`_caddy-data`, `_caddy-config`) are named and attached to running containers.
+
+**The leak had a name-shaped blind spot, and it had a cause.** `postgres:16-alpine` declares
+`VOLUME /var/lib/postgresql/data`, so the verify job's throwaway database — started with a bare
+`docker run`, no named mount — creates one anonymous volume per run, and the teardown that removes
+the container (`docker rm -f "${DB_CI}"`) keeps the volume. Every reclaimer in the repo, in both the
+pre-build step and the `cleanup` job, filtered `docker volume ls` on `^svci-`, and an anonymous
+volume has no name at all, so 468 of them were invisible to a loop whose entire purpose was to
+delete what CI leaves behind. The reclaim step even documented its own scope as the safety property
+("all scoped to `svci-` so that `securevoice-ai_*` can never be matched") — a guard that doubled as
+the blind spot, and the comment made it look deliberate.
+
+**Fixed at both ends.** The teardown is now `docker rm -f -v`, which is what actually takes the
+volume with the container. The `cleanup` job gained an anonymous sweep that removes only a volume
+that is dangling, attached to no container, and older than 24 hours — the reference check is what
+keeps production and the other product on this host untouched, the age floor what keeps a human's
+fresh volume alive. `cleanup` carries `if: always()`, so it runs on the outcome that matters, and
+it now prints disk usage as an annotation above 90% — three incidents were each diagnosed by hand
+afterwards when the box had been stating it the whole time.
+
+**Swept by hand first, because CI could not sweep what was already blocking CI.** The promotion was
+stuck: a red compose-smoke check holds PR #150 open, so nothing reached staging, so production kept
+running the build from before the streaming-route fix. `docker volume rm` on the 468 anonymous
+dangling volumes took the box from 100% to 71% (27 GB free) and volumes from 475 to 7, with
+production never interrupted — `/api/health` `ok: true`, container uptime unchanged through the
+operation. The dry run of the new predicate then found **zero** anonymous volumes eligible, because
+the one remaining hex volume (`e77e21bd…`) is referenced and was correctly skipped: the first
+evidence that the guard selects as intended came from the state after the manual sweep.
+
+**Not assumed:** the first rerun after the cache prune failed with the same IOException, and that
+death predated the volume sweep — its annotation is timestamped before it. Re-running again with
+27 GB free is what got "Lint, typecheck, tests, build" and "Lighthouse budgets" green. Cause and
+remedy were separated by a rerun, not by reasoning.
+
 ### 54. A full runner disk blocked the deploy for an hour and reported itself as a stack trace
 
 §51's fixes could not reach production because PR #150 and #151 were both
@@ -3320,99 +3365,3 @@ I was measuring were reclaimed by the `Reclaim leaked smoke stacks` job getting 
 run, not by my `docker volume prune -f`, which reported `0B`. Attribution matters in an
 incident record: the disk was partly freed before I touched it, both by that job and by
 whatever the other session did, and my prune contributed about 9 GB of cache and images.
-
-### 55. The leak had a source, the reclaimer had a blind spot, and two agents fixed it twice
-
-§54 is the account of the incident from the deploy side: a preflight that names the condition,
-and a cron that prunes outside the thing it protects. Both are still in place. This section is
-the other half — where the bytes came from, and why nothing that was supposed to delete them
-could see them.
-
-**The source is one word.** `postgres:16-alpine` declares `VOLUME /var/lib/postgresql/data`, so
-every `docker run` of the verify job's throwaway database without a named mount created an
-anonymous volume, and the teardown removed the container with `docker rm -f` — which keeps that
-volume. One leak per run, ~64 MB, for as long as the suite has existed. Observed live while this
-was being written: volume `df64456…` created 13:36:17Z, its container gone three minutes later,
-the volume still dangling. Teardown is now `docker rm -f -v`.
-
-**Every reclaimer in the repository filtered on a name.** Three inline copies — compose-smoke
-before it builds, `cleanup` after, deploy before it rolls — each deleting a slightly different
-set, all of them selecting `grep '^svci-'`. An anonymous volume is a 64-char hex digest and has
-no name, so 468 of them (30 GB) accumulated directly in front of the steps whose entire purpose
-is deleting what CI leaves behind. The deploy copy's comment even described its scope as the
-safety property ("only `svci-` names are candidates, so production can never match"), and it was
-both: the guard and the blind spot. There is now one implementation, `scripts/reclaim-ci.sh`,
-called from all three sites, with the incident that earned each guard written in its header
-instead of in three comments that had already drifted apart.
-
-**The guards were tested against the box, not against the reading.** `docker ps -a --filter
-volume=…` resolves production's `securevoice-ai_db-data` to `securevoice-ai-db-1` and
-`_caddy-data` to `securevoice-ai-caddy-1`, so the reference check holds anything live back;
-`dry-run` found zero eligible volumes right after the manual sweep, then found the one the
-running job had just created and left it alone because the 24-hour floor says a five-minute-old
-volume is somebody's in-flight work, not garbage. And a draft of the script exited 1 on a
-successful reclaim, because its last statement was a `[ "$MODE" = check ] && echo` test that
-evaluates false in the other mode — deleted nothing, printed a healthy report, returned failure.
-Found by running it; in CI that is the cleanup step failing because it worked.
-
-**I/O, added to the preflight rather than beside it.** My first cut gave `reclaim-ci.sh` its own
-`check` mode with its own thresholds and a scheduled `gc.yml`. Both are gone: a second capacity
-threshold in the same repository is how the three reclaim loops happened, and a GC scheduled as a
-CI job cannot run when the disk is full, because running a job is what needs the disk — which is
-exactly what §54's cron is for. What was missing instead was that capacity is not the only way a
-disk ruins a build. `scripts/runner-preflight.ts` now measures three conditions — free space,
-free inodes, and the latency of a real 4 MiB `fdatasync` write — because a filesystem can report
-30% free with no inodes left and fail every write with `ENOSPC`, and because a device saturated
-by something else on this box does not fail as a disk error at all: it fails as a buildkit
-`graceful_stop` GOAWAY or a postgres `timeout exceeded when trying to connect`, both of which
-read as code. Measured on the box: 30.1 GB free, 77.28% of inodes free, 4 MiB fsynced in 4 ms.
-Each failure branch was forced there — an impossible inode floor and a 1 ms write budget both
-exit 1 with the condition named, and an unwritable probe directory reports "Not measured, so not
-a pass" rather than silence.
-
-**The column bug that would have shipped.** The first `inodeFreePctFromDf` read `IUsed` where it
-meant `IFree` and returned 22.7% on a box with 77.28% free — a plausible number, above the 10%
-floor, wrong. The box measurement caught it; `tests/unit/runner-preflight.test.ts` now pins the
-value AND asserts it is not 22.7, the same shape as the `Capacity` trap the file already
-documented. Right-anchored field indexing is what makes both survive a wrapped device name.
-
-**Two agents, one incident, one shared tree.** §54 arrived in commit `d9936a1` while I was
-writing the section that became this one, and the tree already held my edit replacing compose-smoke's
-inline loop with `bash scripts/reclaim-ci.sh reclaim` — so their commit recorded a call to a file
-that was still untracked in mine. dev therefore pointed CI at a script that was not in the
-repository for exactly one commit: the next compose-smoke run would have failed in the step that
-guards the disk, with "No such file or directory", and the fix for a full disk would have
-been the reason CI could not run. Pushed as `81b7f82`. Worth recording as a fact about this
-workflow rather than an accident: the append-only guard catches a merge that LOSES a numbered
-section and was silent about one that DUPLICATES it — two §54s passed every gate the tree had.
-The register is append-only prose, but the numbering is what makes a citation resolve, so it is
-now a check: `checkRegisterNumbering` requires the numbers unique and ascending, its self-test
-plants a duplicate and a reversal and demands both be caught, and the gate was proven against
-the real file by appending a second §54 (red: "§54 appears twice (at sections 55 and 57)"),
-then removing it (green). A future collision costs the author a renumber rather than a reader a
-reference.
-
-**Installed is not fired.** §54's cron was present in `crontab -l` at 04:15 daily, logging to
-`~/runner-hygiene.log`, and that log file did not exist — which is only obvious if somebody
-looks, and installing it had been treated as verifying it. So the entry was exercised under
-cron's own conditions rather than in an interactive shell: `env -i HOME=/home/ubuntu
-PATH=/usr/bin:/bin /bin/sh -c ~/runner-hygiene.sh` exits 0 and writes the log —
-`27.4 GB free, threshold 20 GB / above threshold — nothing to do` — and
-`systemctl is-active cron` answers `active`. The first scheduled fire is still ahead, but with a
-log to diff against, and the failure mode crontab entries actually have (no TTY, no inherited
-PATH) is now ruled out by measurement rather than by assumption.
-
-**One thing the brief asked for was invisible, so the deploy now says it.** "Matching
-multilingual voices" has a mechanism (one id in six `ELEVENLABS_VOICE_<LANG>` slots) and a
-measurement (`voice:check`, which proves each language is spoken in that language), but nothing
-that reported whether the six slots actually hold one voice — the state most likely to rot
-silently, because six different voices pass every test and sound wrong only to a human on a call.
-`checkVoiceIdentity` in the box suite reads those six keys and says `one voice across all six
-slots` or `N DIFFERENT voices across the six slots`. It reports and does not fail: which voice
-represents a bank is recorded above as an owner decision, and a gate that turns red on an
-unmade decision is a gate that gets deleted inside a week. The parser is exercised against a
-real `.env` (a checkout with none configured → `0/6 slots set, MISSING for EN,AR,…`) and its
-self-test was made honest the hard way — the first quoted-value fixture was all-quoted, so it
-stayed green when the quote-strip was deleted from the parser, because six identically-quoted
-strings are still one set. It now mixes quoted and unquoted forms of the same id, and the same
-mutation turns it red with `a quoted value was counted as a different voice`.

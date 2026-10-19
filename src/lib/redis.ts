@@ -79,6 +79,13 @@ export const localMeter: Meter = {
 /* ── Redis store ───────────────────────────────────────────────────────────── */
 
 let client: Redis | null = null;
+/**
+ * The one in-flight (or completed) initial connection, shared so concurrent first
+ * requests cannot each call `connect()` — ioredis rejects every call after the first
+ * with "Connection is already connected", which would degrade the requests that lost
+ * the race even though the server is fine.
+ */
+let connecting: Promise<void> | null = null;
 
 /** True when a durable meter is configured. */
 export function sharedMeterConfigured(): boolean {
@@ -123,8 +130,11 @@ function connect(): Redis {
   assertRedisTransportIsEncrypted(url);
   if (!client) {
     client = new Redis(url, {
-      // Fail fast rather than queue: the caller has a declared degraded path,
-      // and an offline queue would hold budget decisions open through an outage.
+      // Refuse to QUEUE a command across an outage: the caller has a declared degraded
+      // path, and an offline queue would hold budget decisions open through one. This is
+      // not "fail before connecting" — see `established()`, which awaits the initial
+      // connection precisely because this option made the first command of every process
+      // fail on a healthy server.
       lazyConnect: true,
       enableOfflineQueue: false,
       maxRetriesPerRequest: 1,
@@ -138,20 +148,63 @@ function connect(): Redis {
   return client;
 }
 
+/**
+ * Await the connection before the first command, then hand back the client.
+ *
+ * Why this exists, measured rather than reasoned: the first metered request after
+ * every boot logged `shared meter unreachable, degrading to in-process limits: Stream
+ * isn't writeable and enableOfflineQueue options is false` against a Redis that answers
+ * `PONG`. That string is ioredis's own rejection (`lib/Redis.ts`), issued for any command
+ * sent while the stream is not writable when the offline queue is disabled — and with
+ * `lazyConnect: true` the first command is exactly that moment, because it is the command
+ * itself that starts the connection. So `enableOfflineQueue: false` was not failing fast
+ * during an outage, as the option's comment claims; it was failing the first request of
+ * every process, unconditionally, on a healthy server.
+ *
+ * The outage path is unchanged and still deliberate: if the connection cannot be
+ * established, this rejects and the caller degrades to the in-process meter with a
+ * tightened ceiling and a log line. Only the queueing is refused — an offline queue would
+ * hold a budget decision open through an outage — and awaiting a connection we have just
+ * asked for is not queueing.
+ */
+async function established(): Promise<Redis> {
+  const c = connect();
+  if (c.status === "ready" || c.status === "connect") return c;
+  if (!connecting) {
+    connecting = c.connect().catch((err) => {
+      const message = err instanceof Error ? err.message : String(err);
+      // ioredis refuses `connect()` when an attempt is already in flight. That is not a
+      // failure to hide: hand the client back and let the command itself decide, which is
+      // the fail-fast behaviour this module declares. `connectTimeout: 1_500` bounds it.
+      // (Verified against the installed ioredis 6.0.0 typings: `connect()` is the only
+      // readiness entry point — `whenReady()` does not exist on this version, and a
+      // version's docs are not this repo's vendor.)
+      if (/already connected/i.test(message)) return;
+      // Let the next request try again — a blip at boot must not strand the process on
+      // the local meter for its whole life.
+      connecting = null;
+      throw err;
+    });
+  }
+  await connecting;
+  return c;
+}
+
 export const sharedMeter: Meter = {
   mode: () => "shared",
   async incrBy(key, delta) {
-    return connect().incrby(key, delta);
+    return (await established()).incrby(key, delta);
   },
   async decrBy(key, delta) {
-    return connect().decrby(key, delta);
+    return (await established()).decrby(key, delta);
   },
   async expire(key, ttlSec) {
-    await connect().expire(key, ttlSec);
+    await (await established()).expire(key, ttlSec);
   },
   _reset() {
     client?.disconnect();
     client = null;
+    connecting = null;
     store.clear();
   },
 };

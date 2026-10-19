@@ -3590,3 +3590,72 @@ flight, so nothing here says the deploy succeeded — §56's fix is verified as 
 main_, and the rollback of the deployment claim waits for the roll. Production answered
 `ok:true` on `0.2.39` with eleven services up throughout, including across the builder
 removal and the runner restart.
+
+### 58. The metered budget degraded on every boot, and the proof came from a passing probe
+
+The post-roll voice check passed. `/api/tts` returned 41,838 bytes of `audio/mpeg` with
+`X-Voice-Source: elevenlabs`, `/api/tts/stream` returned 37,660 bytes chunked, six consecutive
+stream probes all 200, zero licence refusals — and because the roll had just booted a new build,
+the app log was read as part of looking. Two lines in it:
+
+```
+{"level":"error","msg":"[elevenlabs/egress] event","fields":{"args":["shared meter unreachable,
+  degrading to in-process limits:","Stream isn't writeable and enableOfflineQueue options is false"]}}
+{"level":"error","msg":"[elevenlabs/egress] event","fields":{"args":["degraded: in-process budget
+  limit active (ceiling 0.5 of 10000)"]}}
+```
+
+A green response and a red error line for the same request. The voice worked; the **fleet-wide
+budget did not**.
+
+**A healthy Redis.** `docker compose exec redis redis-cli ping` answered `PONG`, and
+`REDIS_URL=redis://redis:6379` names the right service. One occurrence per boot, on the first
+metered request, and never again — six later probes added nothing. So this is not an outage and
+not a flake; it is a property of the code.
+
+**Why, from the vendor's own text rather than from a guess.** That error string is ioredis's, in
+`lib/Redis.ts`: a command sent while the stream is not writable is rejected outright when
+`enableOfflineQueue: false`. And `lazyConnect: true` — documented as "delay the connection to the
+server until **the first command is sent** or `redis.connect()` is called explicitly" — means the
+first command IS the thing that starts the socket, so it is by definition sent while the stream
+is not yet writable. The option's own comment in `src/lib/redis.ts` claimed "fail fast rather than
+queue: the caller has a declared degraded path", which describes an outage and was implemented as
+a guarantee about boot. Every deploy therefore re-based the ElevenLabs monthly character ceiling,
+and the persisted per-call token usage that shares the counter, onto one process's local count —
+silently, correctly logged, and entirely invisible in the response, because the request still
+succeeded.
+
+**The fix waits for readiness once, not forever.** `established()` awaits `connect()` before the
+first command, behind a single shared promise, because ioredis refuses a second `connect()` with
+"Connection is already connected" — so three concurrent first requests would have degraded two of
+them on a working server. `enableOfflineQueue: false` stays: an offline queue would hold a money
+decision open through an outage, and awaiting a connection we just asked for is not queueing. A
+failed connection still rejects and the caller still degrades loudly, and a failure clears the
+cached promise so one blip at boot cannot strand the process on the local meter for its whole
+life.
+
+**`whenReady()` does not exist in the version this repo ships.** The first draft awaited it,
+because the documentation page said so; `bunx tsc --noEmit` rejected it — the installed ioredis is
+**6.0.0** and its `Redis.d.ts` exposes only `connect()` and `disconnect()`. A library's docs are
+not this repository's vendor; the type declaration in `node_modules` is. Recorded because the
+mistake was about to be invisible: `whenReady` would have failed the build, not production.
+
+**Proven by mutation, twice.** `tests/unit/redis-first-command.test.ts` reimplements the fake
+client from the vendor's quoted behaviour rather than from my own code and asserts seven things:
+no socket at import time (the laziness contract stays), the first command reaches the durable
+meter, concurrent first requests connect exactly once, later requests do not reconnect, an
+unreachable Redis still rejects, a failed attempt is retried, and an in-flight connect is reported
+as the stream condition rather than as the internal refusal. Reverting `incrBy` to the old
+`connect()` form turns five of seven red; deleting the swallow-branch line turns the seventh red.
+Both restored, all seven green.
+
+**Also this change:** `.worktrees/**` is now in `eslint.config.mjs` ignores. A scratch merge
+worktree parked inside the repo made `bun run lint` exit 1 with four "Unused eslint-disable
+directive" warnings from _its_ generated Prisma files, on a repository whose own tree is clean.
+ESLint does not read `.gitignore` — the same reason `.gitnexus/**` and `.covprobe2/**` are already
+listed, and the second time this week a local gate lied about a commit.
+
+**Not claimed.** Production verification is the next boot: after this rolls, the first metered
+request must leave no degradation line in the app log. Until that measurement exists the fix is
+proven against a fake that quotes the vendor, which is a strong argument and not the same thing
+as the observation.

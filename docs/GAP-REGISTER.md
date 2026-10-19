@@ -2728,3 +2728,42 @@ make CI green is the wrong way to settle that. Owner call.
 Rolling the stack cannot retire it; one box command can. Not run here because it is a
 mutation on production infrastructure and §42's standing rule is that the owner gives that
 word.
+
+### 46. A local Grafana stack now proves the OTLP exporter works, which retires §32's stale claim about it
+
+Set up with what was already installed — Grafana 13.2.0 (server _and_ CLI in one
+binary) and Prometheus 3.13.2 — no new packages, both bound to loopback, committed as
+`scripts/observability.mjs` plus `observability/` and written up in
+`docs/OBSERVABILITY.md`.
+
+**The finding that matters for the register: §32 is out of date.** It recorded
+"`exportOtlp` has no external caller" for the telemetry module. The exporter does
+construct and does export: `src/instrumentation.ts:128` calls `initOtel()`, the
+voice-stream worker calls it at `src/worker/voice-stream.ts:1491`, and pointed at
+Prometheus it logged `OpenTelemetry SDK started … service=securevoice-proof` and landed
+a counter as a queryable series (`securevoice_proof_ticks_total … → 3`). Verified
+through Grafana's datasource proxy too, not just through Prometheus directly, because a
+panel that cannot be queried through the UI is not a delivered dashboard.
+
+**What still does not work, and why it is not the app's fault.** Prometheus' OTLP
+receiver is metrics-only — `POST /api/v1/otlp/v1/traces` answers 404 — so traces and
+logs need a real backend (Tempo locally, or Grafana Cloud with a stack key only the
+owner can mint). Grafana 13 registers the `tempo` and `jaeger` plugins at startup, which
+is a query UI, not a store; the distinction is exactly the "rolled ≠ built" class this
+register keeps hitting.
+
+**Two sharp edges worth one line each.** `[otel] shutdown failed` logs only
+`err.message`, so the 404 surfaced as `Not Found` with no signal and no URL
+(`src/lib/telemetry/otel.ts:196-205`) — the fix is to log the endpoint alongside, not
+done because it touches instrumentation and was not asked for. And port 3000 is
+contested between Next dev and Grafana: with Grafana on 3000 the dev scrape job reported
+`down … server returned HTTP status 404 Not Found` against **Grafana**, which reads like
+a broken app. Grafana now lives on 3001 and the script says why.
+
+**One thing refused, on purpose.** An unrelated `otel-agent` process is listening on
+`127.0.0.1:4318` (PID 5980, executable path unreadable, binary not found in the usual
+install dirs). It is the standard OTLP port, so it is tempting to aim the app at it.
+Not done: a receiver whose destination cannot be named is not an acceptable sink for
+telemetry whose cross-border path is a recorded line in `docs/ROPA.md` §3. Pointing
+spans of a bank-fraud call into an unaccounted pipeline would add a sub-processor the
+register does not list. Identify it first.

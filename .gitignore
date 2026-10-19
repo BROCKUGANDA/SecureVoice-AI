@@ -189,3 +189,8 @@ demo/walkthrough/source/.hyperframes/
 # they cannot disturb uncommitted work in the shared checkout; without this line the
 # whole tree (a second copy of every file) shows up as untracked and gets committed.
 .worktrees/
+
+# Local observability runtime state: Prometheus TSDB, Grafana sqlite + plugins, the
+# generated provider file (it embeds an absolute path, so it cannot be committed
+# truthfully), and the servers' logs. The committed inputs live in observability/.
+.observability/

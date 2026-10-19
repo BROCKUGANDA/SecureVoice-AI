@@ -1,0 +1,243 @@
+{
+  "uid": "securevoice-runtime",
+  "title": "SecureVoice — runtime",
+  "tags": ["securevoice", "local"],
+  "timezone": "utc",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "1m",
+  "time": { "from": "now-6h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Scrape health (up)",
+      "gridPos": { "h": 4, "w": 24, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "securevoice-prom" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "securevoice-prom" },
+          "expr": "up",
+          "legendFormat": "{{job}}/{{instance}}"
+        }
+      ],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bool",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "green", "value": 1 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Database reachable (sv_db_up)",
+      "gridPos": { "h": 5, "w": 6, "x": 0, "y": 4 },
+      "datasource": { "type": "prometheus", "uid": "securevoice-prom" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "securevoice-prom" },
+          "expr": "sv_db_up",
+          "legendFormat": "{{instance}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bool",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "green", "value": 1 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "LLM breaker open (sv_llm_breaker_open)",
+      "gridPos": { "h": 5, "w": 6, "x": 6, "y": 4 },
+      "datasource": { "type": "prometheus", "uid": "securevoice-prom" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "securevoice-prom" },
+          "expr": "sv_llm_breaker_open",
+          "legendFormat": "{{instance}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bool",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 1 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Active conversations",
+      "gridPos": { "h": 5, "w": 6, "x": 12, "y": 4 },
+      "datasource": { "type": "prometheus", "uid": "securevoice-prom" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "securevoice-prom" },
+          "expr": "sv_conversations_active",
+          "legendFormat": "{{instance}}"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "SLA breaches (sv_sla_breach_total)",
+      "gridPos": { "h": 5, "w": 6, "x": 18, "y": 4 },
+      "datasource": { "type": "prometheus", "uid": "securevoice-prom" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "securevoice-prom" },
+          "expr": "sv_sla_breach_total",
+          "legendFormat": "{{instance}}"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Cases by state (sv_cases_total{state})",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 9 },
+      "datasource": { "type": "prometheus", "uid": "securevoice-prom" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "securevoice-prom" },
+          "expr": "sum by (state) (sv_cases_total)",
+          "legendFormat": "{{state}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "custom": { "drawStyle": "line", "fillOpacity": 10 } },
+        "overrides": []
+      }
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "TTS served by rung (sv_tts_rung_total{rung})",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 9 },
+      "datasource": { "type": "prometheus", "uid": "securevoice-prom" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "securevoice-prom" },
+          "expr": "sum by (rung) (sv_tts_rung_total)",
+          "legendFormat": "rung {{rung}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "custom": { "drawStyle": "bars", "fillOpacity": 40 } },
+        "overrides": []
+      }
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Dial queue depth (pending / claimed / done)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 17 },
+      "datasource": { "type": "prometheus", "uid": "securevoice-prom" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "securevoice-prom" },
+          "expr": "sv_dial_queue_pending",
+          "legendFormat": "pending"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "securevoice-prom" },
+          "expr": "sv_dial_queue_claimed",
+          "legendFormat": "claimed"
+        },
+        {
+          "refId": "C",
+          "datasource": { "type": "prometheus", "uid": "securevoice-prom" },
+          "expr": "sv_dial_queue_done",
+          "legendFormat": "done"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Outbox backlog and BYOK key count",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 17 },
+      "datasource": { "type": "prometheus", "uid": "securevoice-prom" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "securevoice-prom" },
+          "expr": "sv_outbox_pending",
+          "legendFormat": "outbox pending"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "securevoice-prom" },
+          "expr": "sv_tts_keys_total",
+          "legendFormat": "tts keys"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Process health of the served app (uptime resets = rolls)",
+      "gridPos": { "h": 7, "w": 24, "x": 0, "y": 25 },
+      "datasource": { "type": "prometheus", "uid": "securevoice-prom" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "securevoice-prom" },
+          "expr": "sv_process_uptime_seconds",
+          "legendFormat": "uptime {{instance}}"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "securevoice-prom" },
+          "expr": "sv_process_heap_used_bytes",
+          "legendFormat": "heap {{instance}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "s" },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "heap" },
+            "properties": [{ "id": "unit", "value": "bytes" }]
+          }
+        ]
+      }
+    }
+  ]
+}

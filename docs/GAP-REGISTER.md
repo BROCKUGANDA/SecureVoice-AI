@@ -2775,7 +2775,7 @@ failed two jobs. Both failures were correct and both were mine.
 
 **`tests/telemetry/exporter-flush.test.ts` caught prose.** Its rule is "no module starts
 a batching exporter without flushing it", and `scripts/observability.mjs` line 305 said
-*"The app's own initOtel() -> OTLP HTTP -> Prometheus returned…"* inside a `console.log`
+_"The app's own initOtel() -> OTLP HTTP -> Prometheus returned…"_ inside a `console.log`
 string. The scanner sees `initOtel(` without `shutdownOtel(` in a scanned file and
 reports it — which is the same detector that caught the real defect it was written for,
 and it does not know a comment from a call site. The fix is the wording, not the gate:
@@ -2790,7 +2790,7 @@ undocumented-read disappears instead of being documented into a lie.
 
 **The one that matters more: §46's new gate was not running in CI at all.** The log read
 `append-only audit guard: HEAD is not a merge commit — nothing to compare` — printed
-against `3cef6db`, which *is* a merge commit. CI's Drift gates job checks out with the
+against `3cef6db`, which _is_ a merge commit. CI's Drift gates job checks out with the
 default depth of 1, so `git rev-list --parents` cannot see either parent, and
 `parentsOf("HEAD")` returned one entry. The guard had been written to skip when there
 were fewer than two parents and to describe that as "not a merge", which is a true
@@ -2810,4 +2810,3 @@ the runner's cache is not a gate; `fetch-depth: 0` makes both deterministic.
 
 Lesson, restated because it repeated today: a gate added without checking that its
 inputs exist in the environment that enforces it is a decoration with a log line.
-

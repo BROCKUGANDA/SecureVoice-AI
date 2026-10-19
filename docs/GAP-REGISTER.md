@@ -2843,14 +2843,17 @@ PR has to land with `--merge`, not `--squash`: squashing it would flatten the hi
 leave staging's tip outside main's ancestry again, reproducing the DIRTY state one rung later.
 The merge commit is the fix; the content is incidental.
 
-**The automation that ends the class.** A `realign` job in `.github/workflows/promote.yml`,
-triggered by a push to `main`: it records main as an ancestor of staging with `git merge
--s ours`, which adopts parentage and takes no content, so the next promotion has main in its
-history and resolves nothing. Because `-s ours` throws away main's side of every overlapping
-hunk, the job proves containment first with an **unbiased** trial merge — conflict-free AND
-its tree equal to staging's tree — and refuses loudly otherwise. `-X ours` would pass that
-test by preferring staging in every conflict, which is precisely the loss being guarded
-against, so the guard is deliberately the biased-free version.
+**The automation that ends the class.** A new `.github/workflows/realign.yml`, triggered by
+every push to `main`: it records main as an ancestor of staging with `git merge -s ours`,
+which adopts parentage and takes no content, so the next promotion has main in its history and
+resolves nothing. It started life as a job inside `promote.yml` and was moved out for a reason
+worth keeping: `promote.yml` filters its push trigger with `paths-ignore: docs/**`, which is
+correct for a promotion and fatal here, because ancestry does not care which files changed — a
+docs-only round would move main, be filtered out, skip the adoption, and open the next
+promotion DIRTY anyway. Because `-s ours` discards main's side of every overlapping hunk,
+containment is proved first with an **unbiased** trial merge: conflict-free AND its tree equal
+to staging's tree. `-X ours` would pass that test by preferring staging in every conflict,
+which is the loss being guarded, so the guard is deliberately the unbiased one.
 
 Four states, all run against real git objects in a fixture repo, because a job that pushes to
 a branch is not exempt from the rule the rest of this file enforces:
@@ -2870,8 +2873,16 @@ and the two jobs pump empty releases through the ladder forever. The gate is now
 Proven both ways on the fixture: 6 commits of ancestry with identical trees → `changes=no`;
 one new file → `changes=yes`.
 
-**What is still manual, stated rather than glossed.** `realign` itself has to ride
-dev → staging → main before it exists on main, so #141 is the last promotion that needs a
-person for this reason only if nothing else goes wrong. The dev → staging rung keeps its own
-exposure: `update-branch` clears staleness there, but a genuine conflict on that edge still
-lands on a human, and this job deliberately touches `staging` alone.
+**What is still manual, stated rather than glossed.** Three things, and they are different.
+
+1. `realign.yml` cannot adopt the ancestry of the very push that installs it — a workflow runs
+   from the commit that triggered it, so the round that carries this file to `main` is not
+   covered by it. That round survives for an unrelated reason: #141 lands as a real merge
+   commit, which makes staging's tip an ancestor of `main` outright, so the following
+   promotion merges clean on its own. From the round after that, the squash re-divergence is
+   repaired on every push to `main` without anyone watching.
+2. The dev → staging rung keeps its own exposure. `update-branch` clears staleness there, but a
+   genuine conflict on that edge still lands on a person, and `realign.yml` deliberately moves
+   `staging` alone.
+3. `main` is PR-only, so a hand resolution cannot be pushed — it has to travel as its own PR
+   with its own CI, which is why #141 exists beside #140 rather than replacing it in place.

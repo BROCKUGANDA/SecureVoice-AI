@@ -120,6 +120,24 @@ export class ElevenLabsStream {
     }).text;
     if (!text) return;
 
+    // ElevenLabs ToS §1(c)(i) confines a Free User to non-commercial use and PUP
+    // §9(a) names commercial use on a free account as prohibited, so a deployment
+    // has to attest its plan before it spends the key on a customer. `egress.ts`
+    // has enforced that on the app plane from the start; this generator is the
+    // repo's other socket to the same vendor, and the one that speaks into a live
+    // call, so the rule is enforced here too rather than assumed.
+    //
+    // It throws instead of returning quietly: the worker catches, logs the reason,
+    // and plays the emergency cue, so an unattested deployment still answers the
+    // caller and an operator still finds out why the voice changed. A silent empty
+    // stream would look like a vendor timeout.
+    if (!env.commercialUseAttested) {
+      throw new Error(
+        "live ElevenLabs streaming requires ELEVENLABS_COMMERCIAL_USE=true; the free tier " +
+          "permits non-commercial use only (ToS §1(c)(i), PUP §9(a))",
+      );
+    }
+
     const { ElevenLabsClient } = await import("@elevenlabs/elevenlabs-js");
     // Never a literal: a caller that forgets `modelId` must still speak with the
     // model this deployment chose, not with whatever generation was current when

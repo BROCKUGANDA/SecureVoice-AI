@@ -173,6 +173,13 @@ services:
       # enable sealed transcripts. Never defaulted: see .env.example.
       PRIVACY_MASTER_KEY: ${PRIVACY_MASTER_KEY:-}
       ELEVENLABS_DRY_RUN: ${ELEVENLABS_DRY_RUN:-true}
+      # The commercial-use attestation is read per call by the egress guard, and this
+      # service declares no `env_file` — so the line below is the worker's only way to
+      # learn it. Measured 2026-10-19: after the attestation was set for `app`, all
+      # three call-plane containers still reported it UNSET, meaning a live dial would
+      # have been refused while the browser demo worked. Default false: the guard stays
+      # closed until an operator attests on purpose.
+      ELEVENLABS_COMMERCIAL_USE: ${ELEVENLABS_COMMERCIAL_USE:-false}
       ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
       ELEVENLABS_AGENT_ID: ${ELEVENLABS_AGENT_ID:-}
       ELEVENLABS_PHONE_NUMBER_ID: ${ELEVENLABS_PHONE_NUMBER_ID:-}
@@ -524,6 +531,10 @@ services:
       REQUIRE_VPS_DATABASE: ${REQUIRE_VPS_DATABASE:-false}
       DEEPGRAM_API_KEY: ${DEEPGRAM_API_KEY:-}
       ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
+      # Same rule as the dial worker: this service has no `env_file`, so the
+      # attestation must be interpolated here or the live call path is refused by the
+      # egress guard while every other surface works.
+      ELEVENLABS_COMMERCIAL_USE: ${ELEVENLABS_COMMERCIAL_USE:-false}
       # The worker's ONLY source for this model: unlike `app`, this service
       # declares no `env_file`, so the interpolation default below is what a
       # deployment gets when `.env` omits the variable — and eleven_multilingual_v2

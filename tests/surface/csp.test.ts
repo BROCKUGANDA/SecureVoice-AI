@@ -16,7 +16,7 @@
  * forbidden with a name on it.
  */
 import { expect, test } from "bun:test";
-import { CSP } from "../../next.config.ts";
+import { CSP, connectSrcDirective } from "../../next.config.ts";
 
 const directives = new Map(
   CSP.split(";").map((part) => {
@@ -65,14 +65,62 @@ test("frame-src allows exactly the two Paddle checkout hosts", () => {
   expect(hostsOf("frame-src")).toEqual(PADDLE_FRAMES);
 });
 
-test("connect-src allows Paddle's API hosts and nothing unnamed", () => {
+test("connect-src allows Paddle's API hosts, the voice host, and the DSN host", () => {
   const hosts = hostsOf("connect-src");
   for (const needed of PADDLE_CONNECT) expect(hosts).toContain(needed);
-  const elevenLabs = hosts.filter((h) => !PADDLE_CONNECT.includes(h) && h !== "blob:");
+  const dsnOrigin = (() => {
+    try {
+      return new URL(process.env.SENTRY_DSN ?? "").origin;
+    } catch {
+      return "";
+    }
+  })();
+  // Reporting must be reachable when a DSN exists: the whole reason this assertion
+  // changed shape is that a real deployment shipped with a DSN, a CSP that refused it,
+  // and no failing test to say so.
+  if (dsnOrigin && dsnOrigin !== "null") {
+    expect(hosts, `SENTRY_DSN host ${dsnOrigin} is not in connect-src`).toContain(dsnOrigin);
+  }
+  const unnamed = hosts.filter(
+    (h) => !PADDLE_CONNECT.includes(h) && h !== "blob:" && h !== dsnOrigin,
+  );
   expect(
-    elevenLabs.length,
-    `connect-src carries an unnamed origin (${elevenLabs.join(", ")}) — add it here on purpose or remove it`,
+    unnamed.length,
+    `connect-src carries an unnamed origin (${unnamed.join(", ")}) — add it here on purpose or remove it`,
   ).toBeLessThanOrEqual(2);
+});
+
+test("the DSN origin is derived, not hand-written into the policy", () => {
+  // The drift gate: the shipped directive must be exactly what the builder produces
+  // from the same inputs. Paste a host into next.config.ts instead of deriving it, or
+  // rotate the DSN and leave the policy behind, and this fails.
+  const built = connectSrcDirective(
+    process.env.ELEVENLABS_API_BASE_URL ?? "https://api.elevenlabs.io",
+    process.env.SENTRY_DSN,
+  );
+  const directives = CSP.split(";")
+    .map((s) => s.trim())
+    .filter((s) => s.startsWith("connect-src"));
+  // Exactly one, and it is the derived one. An earlier draft asserted only that the
+  // built string appeared somewhere in the policy, which a second hand-written
+  // connect-src directive satisfied happily — and a policy with two connect-srcs is a
+  // browser taking the first and silently ignoring the rest.
+  expect(directives.length, "the policy carries more than one connect-src").toBe(1);
+  expect(directives[0]).toBe(built.directive);
+  expect(built.rejectedDsn).toBe(false);
+
+  // And the builder itself, in the three states that matter.
+  const measured = connectSrcDirective(
+    "https://api.elevenlabs.io",
+    "https://s2791972.us-west-2a.betterstackdata.com/2791978?sentry_key=abc",
+  );
+  expect(measured.directive).toContain("https://s2791972.us-west-2a.betterstackdata.com");
+  expect(connectSrcDirective("https://api.elevenlabs.io").directive).not.toContain("betterstack");
+  const junk = connectSrcDirective("https://api.elevenlabs.io", "not a url");
+  expect(junk.rejectedDsn).toBe(true);
+  expect(junk.directive.split(" ").length).toBe(
+    connectSrcDirective("https://api.elevenlabs.io").directive.split(" ").length,
+  );
 });
 
 test("the parts of the policy that stay closed are still closed", () => {

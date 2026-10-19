@@ -30,7 +30,7 @@
  *   ... --apply              # do it
  */
 import { db } from "@/lib/db";
-import { blindIndexOf, normalizePiiValue, storePii } from "@/lib/compliance/pii-vault";
+import { blindIndexOf, normalizePiiValue, storePii, tokenForPii } from "@/lib/compliance/pii-vault";
 import { logError, logInfo } from "@/lib/validation/safe-log";
 
 const APPLY = process.argv.includes("--apply");
@@ -47,6 +47,12 @@ type Report = {
   skippedNoOrg: number;
   /** Rows whose number could not be sealed (missing key, or a write that failed). */
   failed: number;
+  /**
+   * Rows still holding a plaintext number after this run, in this scope. This is
+   * the number `casePhoneWhere`'s legacy `phone` arm is waiting for: it retires at
+   * `pending: 0`, and on nothing else.
+   */
+  pending: number;
   /** Distinct orgs touched — the widening unit for a staged rollout. */
   orgs: string[];
   samples: { caseRef: string; orgId: string | null; redacted: string }[];
@@ -73,6 +79,7 @@ async function main(): Promise<number> {
     alreadyVaulted: 0,
     skippedNoOrg: 0,
     failed: 0,
+    pending: 0,
     orgs: [],
     samples: [],
   };
@@ -117,7 +124,15 @@ async function main(): Promise<number> {
       let index: string;
       try {
         index = blindIndexOf("phone", phone);
-        if (!token) token = await storePii({ orgId: row.orgId, type: "phone", plaintext: phone });
+        if (!token) {
+          // `storePii` INSERTs. A dry run that seals would leave vault rows that
+          // no case points at — PII the platform holds with no case-path erasure
+          // reaching it — so the read-only half is `tokenForPii`, which does not
+          // seal and does not create.
+          token = APPLY
+            ? await storePii({ orgId: row.orgId, type: "phone", plaintext: phone })
+            : await tokenForPii({ orgId: row.orgId, type: "phone", plaintext: phone });
+        }
       } catch (err) {
         report.failed++;
         logError("[pii-backfill] could not seal — row left exactly as it was", {
@@ -151,6 +166,14 @@ async function main(): Promise<number> {
     logInfo("[pii-backfill] progress", { scanned: report.scanned, mode: report.mode });
   }
 
+  // Counted from the database, not derived from the counters above: a row that
+  // failed, a row with no tenant, and a row this run never looked at all have to
+  // land in the same number, because the question the legacy arm asks of the
+  // deployment is "can any row still answer to a raw number".
+  report.pending = await db.case.count({
+    where: { phone: { not: null }, ...(ONLY_ORG ? { orgId: ONLY_ORG } : {}) },
+  });
+
   // One machine-readable line, prefixed so a caller (including the gate that
   // asserts this script writes nothing without `--apply`) can find the report
   // without parsing the progress log around it.
@@ -162,6 +185,7 @@ async function main(): Promise<number> {
     console.log(
       `\nDRY RUN — nothing was written. ${report.scanned} row(s) still hold a plaintext number` +
         ` (${report.skippedNoOrg} of them have no tenant and cannot be vaulted).` +
+        `\npending after this run: ${report.pending}.` +
         `\nRe-run with --apply to move them. This is the irreversible step; read the counts first.`,
     );
   }

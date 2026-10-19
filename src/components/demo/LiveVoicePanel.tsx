@@ -92,6 +92,13 @@ export function LiveVoicePanel({ callLang }: { callLang: CallLang }) {
   const streamRef = useRef<MediaStream | null>(null);
   const autoStop = useRef<ReturnType<typeof setTimeout> | null>(null);
   const speakSeq = useRef(0);
+  /**
+   * Set when the reply was NOT spoken by the vendor's neural voice. The copy beside
+   * this player claims a neural reply, and the fallback is silent about which voice
+   * the visitor actually hears — so the claim is unfalsifiable to the person listening
+   * unless it is annotated here.
+   */
+  const [voiceNote, setVoiceNote] = useState<string | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
   /* scroll the conversation */
@@ -131,11 +138,22 @@ export function LiveVoicePanel({ callLang }: { callLang: CallLang }) {
     setPhase("speaking");
     speakSeq.current += 1;
     const seq = speakSeq.current;
+    setVoiceNote(null);
     // streaming first (ElevenLabs chunked pipe + barge-in), buffered fallback
     streamSpeech(text, callLang, "agent", 1)
-      .catch(() => ({ streamed: false, bargeIn: false }))
-      .then(() => {
-        if (seq === speakSeq.current) setPhase("idle");
+      .catch(() => ({ streamed: false, bargeIn: false, neural: false, reason: "threw" }))
+      .then((outcome) => {
+        if (seq !== speakSeq.current) return; // a newer line owns the turn now
+        if (!outcome.neural) {
+          setVoiceNote(
+            t(
+              "You are hearing your own device voice — the platform's neural voice is not enabled for this deployment.",
+              "تسمع صوت جهازك — صوت الوكيل العصبي غير مُفعّل لهذا النشر.",
+              lang,
+            ),
+          );
+        }
+        setPhase("idle");
       });
   };
 
@@ -390,6 +408,17 @@ export function LiveVoicePanel({ callLang }: { callLang: CallLang }) {
           >
             {lang === "ar" ? status.ar : status.en}
           </p>
+
+          {voiceNote && (
+            // Audible either way — this says in whose voice, so the copy above can be
+            // checked by the person hearing it rather than only by the audit row.
+            <p
+              role="status"
+              className="max-w-sm text-center text-[11.5px] leading-snug text-amber-soft"
+            >
+              {voiceNote}
+            </p>
+          )}
 
           <div className="flex w-full max-w-sm items-center gap-2">
             <div className="h-px flex-1 bg-line" />

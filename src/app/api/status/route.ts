@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { twilioMode, env, SUPPORTED_LANGS } from "@/lib/config";
+import { twilioMode, env, SUPPORTED_LANGS, voiceProviderLabel } from "@/lib/config";
 import { UI_LANGS } from "@/lib/i18n/registry";
 import { deployedVersion } from "@/lib/release-version";
 import { APP_VERSION } from "@/lib/version";
@@ -51,11 +51,10 @@ export async function GET() {
   const webhookFresh =
     lastWebhookAt !== null && Date.now() - Date.parse(lastWebhookAt) < 24 * 3600 * 1000;
 
-  const voiceProvider = env.elevenLabsApiKey
-    ? env.elevenLabsDryRun
-      ? "z-ai-dev (dry-run)"
-      : "elevenlabs"
-    : "z-ai-dev (no key configured)";
+  // Names the rung that will answer, not the credential that exists — see
+  // `voiceProviderLabel`. A key with no commercial-use attestation streams the
+  // emergency cue, and saying "elevenlabs" about that is the overclaim.
+  const voiceProvider = voiceProviderLabel();
 
   return NextResponse.json(
     {

@@ -45,6 +45,8 @@ process.env.ELEVENLABS_DRY_RUN = "true";
 const RUN = `bi-${randomUUID().slice(0, 8)}`;
 const madeCases: string[] = [];
 const madeOrgs: string[] = [];
+/** `organization` rows this suite created — the clear script needs a living tenant. */
+const madeOrgRows: string[] = [];
 
 function newOrg(): string {
   // A real uuid: `Organization.id` is a uuid column and two case-write paths look
@@ -68,6 +70,7 @@ afterAll(async () => {
   }
   // Rows sealed directly by this suite, which no case points at.
   await db.pIIVault.deleteMany({ where: { orgId: { in: madeOrgs } } });
+  await db.organization.deleteMany({ where: { id: { in: madeOrgRows } } }).catch(() => undefined);
 });
 
 /** A raw, queryable case row: the shape the backfill has not reached yet. */
@@ -389,6 +392,7 @@ describe("the backfill script", () => {
       tokenized: number;
       skippedNoOrg: number;
       failed: number;
+      pending: number;
     };
   };
 
@@ -396,15 +400,20 @@ describe("the backfill script", () => {
     const orgId = newOrg();
     const phone = "+971501140001";
     await legacyCase(orgId, phone);
+    // `storePii` INSERTs, so a dry run that sealed would leave vault rows no case
+    // points at — the name of this test is a property, not a description of mood.
+    expect(await db.pIIVault.count({ where: { orgId } })).toBe(0);
 
     const res = run(["--org", orgId]);
     expect(res.status).toBe(0);
     const parsed = report(res.stdout);
     expect(parsed.mode).toBe("dry-run");
     expect(parsed.scanned).toBe(1);
+    expect(parsed.pending).toBe(1);
     // The row is untouched: a dry run that clears plaintext would be the incident
     // this gate exists to keep behind a flag.
     expect((await db.case.findFirst({ where: { phone } }))?.phone).toBe(phone);
+    expect(await db.pIIVault.count({ where: { orgId } })).toBe(0);
     expect(res.stdout).toContain("DRY RUN");
   });
 
@@ -417,10 +426,12 @@ describe("the backfill script", () => {
     expect(applied.mode).toBe("apply");
     expect(applied.tokenized).toBe(1);
     expect(applied.failed).toBe(0);
+    expect(applied.pending).toBe(0);
 
     const row = await db.case.findUnique({ where: { caseRef } });
     expect(row?.phone).toBeNull();
     expect(row?.phoneIndex).toBe(blindIndexOf("phone", phone));
+    expect(await db.pIIVault.count({ where: { orgId } })).toBe(1);
     expect(await resolveCasePhone(row, orgId)).toBe(phone);
 
     // Idempotent: the queue is "rows still holding a number", and there are none.
@@ -442,5 +453,142 @@ describe("the backfill script", () => {
     // Left exactly as it was: `storePii` refuses an unscoped vault row, because a
     // token no tenant can resolve is a number that has been lost, not protected.
     expect((await db.case.findUnique({ where: { caseRef } }))?.phone).toBe(phone);
+  });
+});
+
+describe("the un-vaultable clear script", () => {
+  const runClear = (args: string[]) =>
+    spawnSync(
+      process.execPath,
+      [
+        "--preload",
+        "./scripts/worker-preload.ts",
+        "scripts/clear-unvaultable-case-phone.ts",
+        ...args,
+      ],
+      { encoding: "utf8", env: process.env, timeout: 120_000 },
+    );
+
+  const clearReport = (out: string) => {
+    const line = out.split("\n").find((l) => l.startsWith("PHONE_CLEAR_REPORT "));
+    if (!line) throw new Error(`no report line in:\n${out}`);
+    return JSON.parse(line.slice("PHONE_CLEAR_REPORT ".length)) as {
+      mode: string;
+      scanned: number;
+      clearedNoOrg: number;
+      clearedNoOrgRow: number;
+      leftForVault: number;
+      contended: number;
+      distinctNumbers: number;
+      pending: number;
+    };
+  };
+
+  /** An `organization` row that exists: the one shape this script must never clear. */
+  async function livingOrg(): Promise<string> {
+    const id = randomUUID();
+    madeOrgRows.push(id);
+    await db.organization.create({
+      data: {
+        id,
+        name: `Clear suite ${id.slice(0, 8)}`,
+        slug: `clear-${RUN}-${id.slice(0, 8)}`,
+        createdAt: new Date(),
+      },
+    });
+    return id;
+  }
+
+  async function orphanCase(phone: string): Promise<string> {
+    const caseRef = `${RUN}-clear-orphan-${randomUUID().slice(0, 8)}`;
+    madeCases.push(caseRef);
+    await db.case.create({ data: { caseRef, orgId: null, state: "UNREACHABLE", phone } });
+    return caseRef;
+  }
+
+  test("a dry run names all three reasons and writes nothing", async () => {
+    const living = await livingOrg();
+    const gone = newOrg();
+    const phones = [
+      await legacyCase(living, "+971501140011"),
+      await legacyCase(gone, "+971501140012"),
+      await orphanCase("+971501140013"),
+    ];
+
+    const parsed = clearReport(runClear(["--ref-prefix", RUN]).stdout);
+    expect(parsed.mode).toBe("dry-run");
+    expect(parsed.leftForVault).toBeGreaterThanOrEqual(1);
+    expect(parsed.clearedNoOrgRow).toBeGreaterThanOrEqual(1);
+    expect(parsed.clearedNoOrg).toBeGreaterThanOrEqual(1);
+    // All three still hold their number, so the report is a preview, not a side effect.
+    expect(await db.case.count({ where: { caseRef: { in: phones }, phone: { not: null } } })).toBe(
+      phones.length,
+    );
+  });
+
+  test("--apply drops the number, keeps the row, and refuses a living tenant", async () => {
+    const living = await livingOrg();
+    const gone = newOrg();
+    const livingRef = await legacyCase(living, "+971501140021");
+    const goneRef = await legacyCase(gone, "+971501140022");
+    const orphanRef = await orphanCase("+971501140023");
+
+    const parsed = clearReport(runClear(["--apply", "--ref-prefix", RUN]).stdout);
+    expect(parsed.mode).toBe("apply");
+    expect(parsed.contended).toBe(0);
+    expect((await db.case.findUnique({ where: { caseRef: livingRef } }))?.phone).toBe(
+      "+971501140021",
+    );
+
+    for (const caseRef of [goneRef, orphanRef]) {
+      const row = await db.case.findUnique({ where: { caseRef } });
+      // The row survives: `AuditLog` is append-only and names it, and a delete would
+      // leave that evidence pointing at nothing. Only the readable number goes.
+      expect(row).not.toBeNull();
+      expect(row?.phone).toBeNull();
+      expect(row?.phoneIndex).toBeNull();
+      expect(row?.customerPhoneToken).toBeNull();
+    }
+    // Sealing is the other script's job; this one must leave the vault empty.
+    expect(await db.pIIVault.count({ where: { orgId: gone } })).toBe(0);
+  });
+
+  test("a cleared row answers to neither arm of the case lookup", async () => {
+    const gone = newOrg();
+    const phone = "+971501140031";
+    const caseRef = await legacyCase(gone, phone);
+    clearReport(runClear(["--apply", "--ref-prefix", RUN]).stdout);
+
+    // `phoneIndex` is unwritten and `phone` is null, so an inbound reply naming this
+    // number finds no case — correct for a value that was never a customer's.
+    const hits = await db.case.findMany({
+      where: casePhoneWhere(phone),
+      select: { caseRef: true },
+    });
+    expect(hits.map((h) => h.caseRef)).not.toContain(caseRef);
+  });
+
+  test("a non-uuid orgId cannot name a uuid tenant, so it is cleared not refused", async () => {
+    // The production shape: `organization.id` is uuid while `Case.orgId` is text, and
+    // the load/isolation suites write ids like `org-load-…` and `credits_…`. Such a
+    // row belongs in the clear queue, and must not break the tenant lookup.
+    const ref = await legacyCase(`org-load-${randomUUID().slice(0, 8)}`, "+971501140051");
+    const parsed = clearReport(runClear(["--apply", "--ref-prefix", RUN]).stdout);
+    expect(parsed.contended).toBe(0);
+    const row = await db.case.findUnique({ where: { caseRef: ref } });
+    expect(row?.phone).toBeNull();
+    expect(row?.orgId).toContain("org-load-");
+  });
+
+  test("a second run clears nothing it has already cleared", async () => {
+    const gone = newOrg();
+    await legacyCase(gone, "+971501140041");
+    const first = clearReport(runClear(["--apply", "--ref-prefix", RUN]).stdout);
+    expect(first.scanned).toBeGreaterThanOrEqual(1);
+
+    const again = clearReport(runClear(["--apply", "--ref-prefix", RUN]).stdout);
+    // The queue is "rows that still hold a number for a tenant that cannot own it".
+    expect(again.clearedNoOrg + again.clearedNoOrgRow).toBe(0);
+    expect(again.contended).toBe(0);
   });
 });

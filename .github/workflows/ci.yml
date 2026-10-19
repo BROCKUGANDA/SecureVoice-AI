@@ -1151,76 +1151,17 @@ jobs:
     needs: [verify, compose-smoke]
     timeout-minutes: 10
     steps:
+      # The reclaim is a script now, so this job needs the tree it lives in. It
+      # used to be self-contained shell, and the runner workspace happening to
+      # still hold an earlier job's checkout is not a contract.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Tear down anything a cancelled run left running
-        run: |
-          set -uo pipefail
-          # Containers first: they hold the networks and volumes. Age is the
-          # discriminator, not a name — the compose-smoke job's own timeout is
-          # 25 minutes, so a smoke stack CANNOT legitimately be older than that
-          # plus the margin below. Anything past it belongs to a job that is
-          # already dead (cancelled by a superseded push, or crashed), which is
-          # exactly the leak this job exists to clean. A live concurrent run's
-          # stack is therefore never touched: it is younger than the threshold
-          # by construction.
-          now=$(date +%s)
-          for c in $(docker ps --format '{{.Names}}' | grep '^svci-' || true); do
-            started=$(docker inspect -f '{{.State.StartedAt}}' "$c" 2>/dev/null || true)
-            if [ -z "$started" ]; then continue; fi
-            age=$(( now - $(date -d "$started" +%s 2>/dev/null || echo "$now") ))
-            if [ "$age" -gt 1800 ]; then
-              docker rm -f "$c" >/dev/null 2>&1 || true
-            fi
-          done
-          for n in $(docker network ls --format '{{.Name}}' | grep '^svci-' || true); do
-            docker network rm "$n" >/dev/null 2>&1 || true
-          done
-          for v in $(docker volume ls --format '{{.Name}}' | grep '^svci-' || true); do
-            if [ -z "$(docker ps -a --filter volume="$v" --format '{{.Names}}' 2>/dev/null)" ]; then
-              docker volume rm "$v" >/dev/null 2>&1 || true
-            fi
-          done
-          # ANONYMOUS volumes — the half every loop above could not see, because each
-          # one filters on a name starting with `svci-`, and an anonymous volume is a
-          # 64-char hex digest with no name at all. `postgres:16-alpine` declares
-          # `VOLUME /var/lib/postgresql/data`, so the verify job's throwaway database
-          # creates one per run: `docker rm -f -v` now takes it back with the container,
-          # but a run whose runner dies never reaches that teardown. That is how the box
-          # reached 100% on 2026-10-19 holding 468 of them (30 GB), after which the
-          # compose smoke began failing in 13 seconds with `No space left on device`
-          # written only to the runner's own diagnostic log — a red job whose steps have
-          # null conclusions, which reads like a code failure and is not one.
-          #
-          # Two guards, both load-bearing. `dangling=true` plus the ps check leaves any
-          # volume attached to any container alone, so production's named
-          # `securevoice-ai_*` and the other product's `crucible_*` are untouched and a
-          # concurrent run keeps its own data. The 24 h floor leaves anything a human
-          # created minutes ago — including a volume for a service being debugged on
-          # this box — well alone.
-          for v in $(docker volume ls -q --filter dangling=true | grep -E '^[0-9a-f]{64}$' || true); do
-            if [ -n "$(docker ps -a --filter volume="$v" --format '{{.Names}}' 2>/dev/null)" ]; then
-              continue
-            fi
-            created=$(docker volume inspect "$v" --format '{{.CreatedAt}}' 2>/dev/null || echo "")
-            if [ -z "$created" ]; then continue; fi
-            born=$(date -u -d "$created" +%s 2>/dev/null || echo 0)
-            if [ "$born" -gt 0 ] && [ $(( $(date -u +%s) - born )) -gt 86400 ]; then
-              docker volume rm "$v" >/dev/null 2>&1 || true
-            fi
-          done
-          # Disk as a number, on every outcome. Three disk-full CI deaths since
-          # 2026-10-15 were each diagnosed after the fact by reading a runner exception
-          # out of `check-runs/<id>/annotations`; the box had been saying it the whole
-          # time and nothing was reporting it. This cannot free space, it makes the
-          # `100%` visible to whoever is looking at the red job.
-          avail_pct=$(df --output=pcent / | tail -1 | tr -dc '0-9')
-          if [ "${avail_pct:-0}" -ge 90 ]; then
-            echo "::warning::runner disk is ${avail_pct}% full after reclaim — the next build may die mid-step with null step conclusions. Reclaim volumes and build cache on the box."
-          fi
-          echo "disk after reclaim: ${avail_pct}% used"
-          for i in $(docker images --format '{{.Repository}}:{{.Tag}}' | grep -E '^svci-|^sv-ci-' || true); do
-            docker rmi "$i" >/dev/null 2>&1 || true
-          done
-          echo "reclaim done"
+        # One implementation now: scripts/reclaim-ci.sh. This step used to carry
+        # its own loops, and the copy in `compose-smoke` carried a different set,
+        # which is how a class of garbage ended up reclaimed in one place and not
+        # the other. The script's guards (name prefix, container reference, age
+        # floors) and the incidents that produced each one are documented there.
+        run: bash scripts/reclaim-ci.sh reclaim
       - name: Production is still up after the reclaim
         run: |
           set -uo pipefail

@@ -1,0 +1,223 @@
+#!/usr/bin/env bash
+#
+# scripts/reclaim-ci.sh — the one place CI garbage is defined.
+#
+# WHY A SCRIPT AND NOT FOUR COPIES IN FOUR WORKFLOWS. Until 2026-10-19 this repo
+# had three inline reclaim loops (compose-smoke pre-build, the `cleanup` job, and
+# deploy's pre-build step) and they had DRIFTED: two reclaimed images, one
+# reclaimed volumes, none reclaimed networks except at teardown, and every one of
+# them selected by `grep '^svci-'`. That last filter is what let 30 GB accumulate —
+# an anonymous Docker volume is a 64-char hex digest with no name, so a name filter
+# cannot see it, and `postgres:16-alpine` declares `VOLUME /var/lib/postgresql/data`
+# so the verify job's throwaway database minted one per run and `docker rm -f` left
+# it behind. The box hit 100% three times in four days and each failure looked like
+# a broken tree, because the only place a full disk says so is the runner's own
+# diagnostic log. Divergent copies of "clean up" is the bug class; this is the one
+# copy.
+#
+# WHAT IT WILL NEVER TOUCH, and each guard is enforced rather than promised:
+#   * volumes and images that ANY container references — including a CI job
+#     currently running on the other runner, and production's `securevoice-ai_*`
+#     volumes attached to its running containers.
+#   * named volumes outside `svci-`/`sv-ci-`, so `securevoice-ai_db-data`,
+#     `crucible_deployed` and anything a human made by hand are not candidates.
+#   * anonymous volumes younger than 24 h. A run that finished five minutes ago is
+#     not garbage, and neither is a volume someone is debugging on this box.
+#   * build cache younger than 72 h, because the same runner builds the production
+#     image and wiping that cache makes the next deploy a full rebuild.
+#
+# Modes:
+#   reclaim            delete what qualifies, print what was deleted (default)
+#   dry-run            print what WOULD be deleted, delete nothing
+#   check              measure only; exit 1 when disk, inodes or write/fsync
+#                      latency are outside the floors — the pre-deploy alarm
+#
+# Configuration (all optional):
+#   TARGET_DIR         filesystem to measure and the repo whose compose project
+#                      is cleaned; default the current directory
+#   MIN_FREE_PCT       free space floor, default 10 (% of the filesystem)
+#   MIN_INODE_FREE_PCT inode floor, default 10 (%)
+#   MAX_WRITE_MS       4 MiB fdatasync write budget, default 5000
+#   ANON_MIN_AGE_H     anonymous-volume age floor, default 24
+#   CACHE_MAX_AGE      passed to `docker builder prune --filter until=`, default 72h
+set -uo pipefail
+
+MODE="${1:-reclaim}"
+case "$MODE" in reclaim | dry-run | check) ;; *)
+  echo "usage: $0 [reclaim|dry-run|check]" >&2
+  exit 2
+  ;;
+esac
+
+TARGET_DIR="${TARGET_DIR:-$PWD}"
+MIN_FREE_PCT="${MIN_FREE_PCT:-10}"
+MIN_INODE_FREE_PCT="${MIN_INODE_FREE_PCT:-10}"
+MAX_WRITE_MS="${MAX_WRITE_MS:-5000}"
+ANON_MIN_AGE_H="${ANON_MIN_AGE_H:-24}"
+CACHE_MAX_AGE="${CACHE_MAX_AGE:-72h}"
+
+now_epoch=$(date -u +%s)
+# Only `reclaim` deletes. `dry-run` says what it would take; `check` measures and
+# touches nothing, because the pre-deploy alarm must not become the operation.
+DELETE=0
+SHOW_WOULD=0
+[ "$MODE" = "reclaim" ] && DELETE=1
+[ "$MODE" = "dry-run" ] && SHOW_WOULD=1
+do_it="$DELETE"
+removed_volumes=0
+removed_named=0
+removed_images=0
+removed_networks=0
+removed_containers=0
+held_back=0
+
+run() {
+  if [ "$do_it" = "1" ]; then
+    "$@" >/dev/null 2>&1
+  else
+    [ "$SHOW_WOULD" = "1" ] && echo "would: $*"
+    return 0
+  fi
+}
+
+# A name is only a candidate if this workflow family owns it.
+is_ci_named() {
+  case "$1" in
+    svci-* | sv-ci-*) return 0 ;;
+    *) return 1 ;;
+    esac
+}
+
+referenced_by_container() {
+  [ -n "$(docker ps -a --filter "volume=$1" --format '{{.Names}}' 2>/dev/null)" ]
+}
+
+# ── containers: a crashed run's stack outlives the job that started it ────────
+# Age is the discriminator, not the name: compose-smoke's own timeout is 25
+# minutes, so a CI stack older than 30 minutes belongs to a job that is already
+# dead (cancelled by a superseded push, or killed by the runner) and is safe to
+# remove. A live concurrent run is younger than the threshold by construction.
+for c in $(docker ps --format '{{.Names}}' 2>/dev/null | grep '^svci-' || true); do
+  started=$(docker inspect -f '{{.State.StartedAt}}' "$c" 2>/dev/null || true)
+  [ -z "$started" ] && continue
+  born=$(date -u -d "$started" +%s 2>/dev/null || echo 0)
+  [ "$born" = "0" ] && continue
+  if [ $((now_epoch - born)) -gt 1800 ]; then
+    run docker rm -f "$c" && removed_containers=$((removed_containers + 1))
+  fi
+done
+
+# ── networks: exhausted pools present as "all predefined address pools have
+#    been fully subnetted", which looks like a compose bug and is a leak ───────
+for n in $(docker network ls --format '{{.Name}}' 2>/dev/null | grep '^svci-' || true); do
+  run docker network rm "$n" && removed_networks=$((removed_networks + 1))
+done
+
+# ── named CI volumes ──────────────────────────────────────────────────────────
+for v in $(docker volume ls --format '{{.Name}}' 2>/dev/null | grep -E '^svci-|^sv-ci-' || true); do
+  if referenced_by_container "$v"; then
+    held_back=$((held_back + 1))
+    continue
+  fi
+  run docker volume rm "$v" && removed_named=$((removed_named + 1))
+done
+
+# ── anonymous volumes: the leak no name filter could see ──────────────────────
+for v in $(docker volume ls -q --filter dangling=true 2>/dev/null | grep -E '^[0-9a-f]{64}$' || true); do
+  if referenced_by_container "$v"; then
+    held_back=$((held_back + 1))
+    continue
+  fi
+  created=$(docker volume inspect "$v" --format '{{.CreatedAt}}' 2>/dev/null || echo "")
+  if [ -z "$created" ]; then
+    echo "note: anonymous volume $v reports no creation time; left alone" >&2
+    held_back=$((held_back + 1))
+    continue
+  fi
+  born=$(date -u -d "$created" +%s 2>/dev/null || echo 0)
+  if [ "$born" = "0" ] || [ $((now_epoch - born)) -lt $((ANON_MIN_AGE_H * 3600)) ]; then
+    continue
+  fi
+  run docker volume rm "$v" && removed_volumes=$((removed_volumes + 1))
+done
+
+# ── images: per-run stacks, ~2.5 GB each, and `compose down` never removes them ─
+for img in $(docker images --format '{{.Repository}}:{{.Tag}}' 2>/dev/null | grep -E '^svci-|^sv-ci-' || true); do
+  if [ -n "$(docker ps -a --filter ancestor="$img" --format '{{.Names}}' 2>/dev/null)" ]; then
+    held_back=$((held_back + 1))
+    continue
+  fi
+  run docker rmi "$img" && removed_images=$((removed_images + 1))
+done
+
+# Dangling images (untagged leftovers of rebuilt layers) and old build cache.
+if [ "$do_it" = "1" ]; then
+  docker image prune --force >/dev/null 2>&1 || true
+  docker builder prune --force --filter "until=${CACHE_MAX_AGE}" >/dev/null 2>&1 || true
+elif [ "$SHOW_WOULD" = "1" ]; then
+  echo "would: docker image prune --force"
+  echo "would: docker builder prune --force --filter until=${CACHE_MAX_AGE}"
+fi
+
+if [ "$MODE" != "check" ]; then
+  echo "reclaim[$MODE]: containers=$removed_containers networks=$removed_networks volumes(named)=$removed_named volumes(anonymous>=${ANON_MIN_AGE_H}h)=$removed_volumes images=$removed_images held-back(referenced)=$held_back"
+  df -h "$TARGET_DIR" | tail -1
+fi
+
+# ── check: the pre-deploy alarm ───────────────────────────────────────────────
+if [ "$MODE" = "check" ] || [ "$MODE" = "reclaim" ]; then
+  problems=()
+  read -r size avail < <(df -P -k "$TARGET_DIR" | tail -1 | awk '{print $2, $4}')
+  if [ -z "${size:-}" ] || [ "$size" = "0" ]; then
+    # "could not measure" is never allowed to read as "healthy".
+    problems+=("could not measure free space for $TARGET_DIR — the gate did not run, which is not a pass")
+  else
+    free_pct=$((avail * 100 / size))
+    echo "disk: ${free_pct}% free of $((size / 1024 / 1024))G on $(df -P -k "$TARGET_DIR" | tail -1 | awk '{print $1}')"
+    [ "$free_pct" -lt "$MIN_FREE_PCT" ] &&
+      problems+=("disk has ${free_pct}% free, below the ${MIN_FREE_PCT}% floor — a build here will die mid-step with null step conclusions")
+  fi
+
+  read -r itotal iused < <(df -P -i "$TARGET_DIR" | tail -1 | awk '{print $2, $3}')
+  if [ -n "${itotal:-}" ] && [ "$itotal" != "0" ] && ! echo "$itotal" | grep -qE '^-?$'; then
+    ifree_pct=$(((itotal - iused) * 100 / itotal))
+    echo "inodes: ${ifree_pct}% free"
+    [ "$ifree_pct" -lt "$MIN_INODE_FREE_PCT" ] &&
+      problems+=("inodes have ${ifree_pct}% free, below the ${MIN_INODE_FREE_PCT}% floor")
+  fi
+
+  # Write + fsync of 4 MiB, outside the repo but on the same filesystem, so the
+  # probe measures the disk the stack actually writes to and never appears in
+  # `git status` on the live checkout.
+  probe="${TARGET_DIR%/*}/.reclaim-io-probe.$$"
+  t0=$(date -u +%s%N)
+  if dd if=/dev/zero of="$probe" bs=1M count=4 conv=fdatasync status=none 2>/dev/null; then
+    t1=$(date -u +%s%N)
+    write_ms=$(((t1 - t0) / 1000000))
+    echo "io: 4MiB fdatasync write took ${write_ms}ms"
+    [ "$write_ms" -gt "$MAX_WRITE_MS" ] &&
+      problems+=("disk took ${write_ms}ms to fsync 4MiB, over the ${MAX_WRITE_MS}ms budget — I/O saturation, not just capacity")
+  else
+    problems+=("could not write a 4MiB probe file at $(dirname "$probe") — the filesystem is full or read-only")
+  fi
+  rm -f "$probe"
+
+  # GC freshness: dangling anonymous volumes past the age floor mean this script
+  # has not been running, which is how 468 of them accumulated unnoticed.
+  stale_anon=$(docker volume ls -q --filter dangling=true 2>/dev/null | grep -cE '^[0-9a-f]{64}$' || true)
+  echo "dangling anonymous volumes now: ${stale_anon}"
+
+  if [ "${#problems[@]}" -gt 0 ]; then
+    for p in "${problems[@]}"; do echo "FAIL $p" >&2; done
+    exit 1
+  fi
+  if [ "$MODE" = "check" ]; then echo "check: disk, inodes and write latency all inside their floors"; fi
+  # Explicit, because the line above used to be `[ "$MODE" = "check" ] && echo …`,
+  # which makes a successful RECLAIM exit 1 — the test fails in that mode, and the
+  # script's exit status is the last command's. Measured on the box: `reclaim`
+  # deleted nothing, printed a healthy check, and returned 1. In CI that is a green
+  # sweep failing its own step, which is the opposite of an alarm.
+  exit 0
+fi
+
+exit 0

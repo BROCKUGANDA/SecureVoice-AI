@@ -2946,3 +2946,78 @@ from the voice path can carry caller data, and the stack is in Canada East. Metr
 aggregate counters and a different risk. The mechanism to ship less already exists (set
 only the metrics endpoint), but which of the three may leave the region is a ROPA question
 for the owner, not a default to be chosen by whoever wires a token.
+
+**Resolution, same day: metrics only.** The owner answered the residency question — caller
+data does not leave the region, so traces and logs get no destination and only the counters
+ship. Answering it exposed a real bug in what I had just written. The predicate required
+`OTEL_EXPORTER_OTLP_ENDPOINT` (the base) before it would report `shipping: true`, and the
+metrics-only posture sets only `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` — so the approved
+configuration read as "nothing ships", the underclaiming mirror of the bug this module was
+extracted to fix. The predicate now accepts a destination on _any_ signal and publishes a
+`signals` map, because "telemetry ships" next to a dashboard that could only ever have had
+counters in it is the same overclaim one level down.
+
+**And the trap that made the empty list load-bearing.** `@opentelemetry/sdk-node` builds
+its own exporter from the environment when `spanProcessors` / `metricReaders` /
+`logRecordProcessors` are _absent_ from the config, and that fallback resolves to
+`http://localhost:4318`. So the obvious implementation of "traces have no destination" —
+leave the option out — would have pointed caller spans at whatever is listening on this
+box's OTLP port, which is exactly the unaccounted receiver §46 refused to use. An empty
+array is truthy to the SDK and means none. A rule in the telemetry suite now pins the
+`: []` branch on all three signals, because the consequence is invisible at runtime: the
+exporter constructs, the batches fail quietly, and nobody is watching a collector.
+
+**The dev rung stays manual, by decision.** It went DIRTY twice today (#142, #144) and both
+were resolved by hand with the same proof — staging's copy byte-identical to a prefix of
+dev's, so dev is the superset and taking dev's side loses nothing. Extending `realign.yml`
+to `dev` was offered and declined: a workflow pushing merge commits onto the branch agent
+sessions work in is a different trade than pushing to `staging`, even when the commits are
+content-free by construction. So §48's item 2 is now a standing policy rather than a gap.
+
+### 50. The stored Grafana credentials were probed, and neither one is an ingest credential
+
+Told to use the credentials kept in `D:\access and keys`, the first thing worth saying is
+what the directory actually holds for Grafana: two files, and neither is what §49 was
+waiting for. Both were tested rather than assumed, and the values were never printed —
+each probe read the file into a shell variable and reported only status codes and the
+token's own non-secret envelope fields.
+
+| Credential                | Shape                                          | Result                                                                                                                                                        |
+| ------------------------- | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `grafana_cloud_token.txt` | `glc_…`, 140 chars, decodes to `{o,n,k,m}`     | `o=1506249`, **`n="simitech-dont-forget"`**, `m.r=prod-ca-east-0`. 401 on `/otlp/v1/metrics`, `/v1/traces`, `/v1/logs` — indistinguishable from a bogus token |
+| `garfana account.txt`     | `glsa_…`, 46 chars (stack service-account key) | **alive on this stack**: `GET /api/datasources` and `/api/folders` → 200. As `Authorization: Basic` at the OTLP gateway → **401** on every realm              |
+
+Two conclusions, and they are different kinds of news.
+
+**The `glc_` token belongs to another tenant.** Its own name field says SimiTech, and its
+stack id is not this product's. It is in the same _region_, which is the one detail that
+would have made a silent misroute plausible had it authenticated: metrics for a DIFC
+product landing in a different company's observability tenant. It does not authenticate, so
+nothing happened — but "the Grafana token in the credentials folder" was not a safe
+assumption, and the envelope is what caught it.
+
+**A stack token cannot ingest, by design.** Grafana Cloud's hosted metrics, traces and logs
+accept a portal **Access Policy** token; a service-account key minted inside the stack is an
+API credential. So the ingest credential §49 needs still does not exist, and it cannot be
+created with anything on this machine — it takes the portal UI, or an `RM` token that is not
+stored here either.
+
+**What the working stack token did buy: the dashboard is live in cloud.**
+`observability/dashboards/securevoice-runtime.json` was POSTed to
+`/api/dashboards/db` (uid `securevoice-runtime`, 10 panels, datasource
+`grafanacloud-prom`), and verified through the Grafana MCP rather than trusting the write's
+own `200` — `get_dashboard_summary` returns the ten panel titles and query counts. Re-tagged
+`["securevoice","grafana-cloud"]` in the same commit that retired the local stack, because a
+dashboard labelled `local` in a cloud instance is a small lie that outlives its author.
+
+**Nothing was written to the box, and that was the correct call.** With the metrics-only
+code still climbing (`86f48b9` not yet on `main`), setting the base endpoint would ship
+traces and logs against the owner's decision, and setting only the metrics endpoint would
+sit inert under the older predicate. Either way the honest state is unchanged: `no_endpoint`,
+no exporter, nothing leaving the box.
+
+**One thing to decide that this probe surfaced.** A live service-account key with write
+access to the production Grafana stack is stored as plaintext in a `.txt` on `D:`, and an
+agent session used it today. That is the same posture as every other secret in that folder,
+so it is a policy question for the owner, not a defect report — but if that folder is not
+encrypted or backed up as a secret store, rotating this key afterwards costs nothing.

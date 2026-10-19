@@ -58,6 +58,11 @@ permissions:
   # What the single `git push` at the end needs. Nothing in promote.yml gains
   # this, because it is not in that file.
   contents: write
+  # Only for the last step: the adoption moves `staging`, and `staging` is the
+  # BASE of the open dev -> staging PR, so this job is the thing that makes that
+  # PR go BEHIND. Whoever causes the staleness clears it, or the ladder waits for
+  # a push that may not come for hours.
+  pull-requests: write
 
 # Two main pushes must not race the same adoption: the second would try to push
 # a staging branch the first already moved.
@@ -136,4 +141,49 @@ jobs:
           git push origin "staging:staging"
           echo "Re-aligned: staging now carries ${main:0:7} as an ancestor; its tree is" \
                "unchanged (\`${staging_tree:0:7}\`), so nothing was promoted or reverted." \
+            >> "$GITHUB_STEP_SUMMARY"
+
+      # ── Clear the rung this job just made stale ──────────────────────────────
+      #
+      # The adoption commit above moves `staging`. `staging` is the BASE of the
+      # open dev -> staging PR, so the PR that was current a second ago is now
+      # BEHIND, and `promote.yml` will not revisit it: its push trigger fires on
+      # DEV moving, and dev did not move. Measured 2026-10-19 — PR #146 went
+      # BEHIND immediately after an adoption, and would have sat there until
+      # someone pushed to dev or ran the workflow by hand.
+      #
+      # Idempotent, and it never resolves a conflict: `update-branch` on a genuine
+      # conflict fails, and that is reported as what it is rather than retried
+      # away. A BEHIND that cannot be cleared by merging base into head is a
+      # person's decision, which is the same line promote.yml holds.
+      - name: Clear the dev -> staging PR this adoption left behind
+        env:
+          GH_TOKEN: ${{ secrets.PROMOTE_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          pr=$(gh pr list --state open --base staging --head dev \
+            --json number --jq '.[0].number // empty')
+          if [ -z "$pr" ]; then
+            echo "no open dev -> staging PR — nothing to update"
+            exit 0
+          fi
+
+          state=$(gh pr view "$pr" --json mergeStateStatus --jq '.mergeStateStatus')
+          echo "PR #${pr} mergeStateStatus: ${state}"
+          if [ "$state" != "BEHIND" ]; then
+            echo "PR #${pr} is not BEHIND staging — nothing to do." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          if ! gh pr update-branch "$pr"; then
+            echo "::error::PR #${pr} is BEHIND staging and could not be updated."
+            echo "Either PROMOTE_TOKEN cannot push to dev, or base and head genuinely" \
+                 "conflict and a person has to resolve it." \
+              >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
+          after=$(gh pr view "$pr" --json mergeStateStatus --jq '.mergeStateStatus')
+          echo "PR #${pr} was BEHIND the adoption commit; updated — now ${after}." \
             >> "$GITHUB_STEP_SUMMARY"

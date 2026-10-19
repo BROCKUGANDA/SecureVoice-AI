@@ -37,13 +37,20 @@ import { resolve } from "node:path";
 
 const ROOT = resolve(import.meta.dir, "../..");
 
-const DOCS = ["docs/ROPA.md", "docs/AI-INVENTORY.md"];
+const DOCS = ["docs/ROPA.md", "docs/AI-INVENTORY.md", "docs/DPIA.md"];
 
 /** A path with an extension, plus a line or line-range glued to it. */
 const CITE = /^([A-Za-z0-9_./-]+\.[a-z]{1,6}):(\d+)(?:-(\d+))?$/;
 
-/** Non-repo paths a compliance document legitimately cites. Exact list, asserted. */
-const EXTERNAL = ["difc-law.txt", "difc-regs.txt"];
+/**
+ * The extracted primary legislation, committed under `docs/legal-source/` since
+ * 2026-10-19 and cited there by bare filename. It used to be a skip list, which
+ * meant the legal basis of the whole record resolved against a temporary
+ * directory: a citation into `$TMP` passes forever on the machine that wrote it
+ * and means nothing on the one reading it. Now it resolves like every other
+ * citation, against a tracked file, with its range length-checked.
+ */
+const LEGISLATION = ["difc-law.txt", "difc-regs.txt"];
 
 type Ref = { path: string; start: number; end: number; raw: string };
 
@@ -96,17 +103,16 @@ function lineCount(path: string): number {
 function findBroken(refs: Ref[]): string[] {
   const broken: string[] = [];
   for (const r of refs) {
-    if (EXTERNAL.includes(r.path)) continue;
-    if (EXTERNAL.some((e) => r.path.endsWith(e))) {
-      broken.push(`${r.raw} — legislation text must be cited by its exact name`);
-      continue;
-    }
     const res = resolveCitedFile(r.path);
     if (!res.ok) {
       broken.push(`${r.raw} — ${res.why}`);
       continue;
     }
     const target = r.path.includes("/") ? r.path : TRACKED.find((f) => f.endsWith(`/${r.path}`))!;
+    if (LEGISLATION.some((e) => r.path.endsWith(e)) && !target.startsWith("docs/legal-source/")) {
+      broken.push(`${r.raw} — resolves to ${target}, not the committed extraction`);
+      continue;
+    }
     const total = lineCount(target);
     if (r.start < 1 || r.end > total || r.end < r.start) {
       broken.push(`${r.raw} — outside 1..${total} in ${target}`);
@@ -134,15 +140,17 @@ describe("compliance record citations resolve", () => {
     expect(broken, broken.join("\n")).toEqual([]);
   });
 
-  test("nothing that looks like a source file escapes resolution", () => {
-    // The skip list is checked, not trusted. Without this, the previous test passes
-    // on any filename the resolver was told to ignore.
-    const skipped = refs.filter((r) => EXTERNAL.includes(r.path));
-    for (const s of skipped) expect(s.path).toMatch(/^difc-(law|regs)\.txt$/);
-    const unresolved = refs.filter(
-      (r) => !EXTERNAL.includes(r.path) && !resolveCitedFile(r.path).ok,
-    );
-    expect(unresolved.map((u) => u.raw)).toEqual([]);
+  test("the legislation text is committed, unique, and length-checked like code", () => {
+    // There is no skip list any more, so the legal basis of the record resolves
+    // against a tracked file. A citation into `$TMP` used to pass by definition.
+    for (const name of LEGISLATION) {
+      const homes = TRACKED.filter((f) => f.endsWith(`/${name}`));
+      expect(homes.length, `${name} must be cited unambiguously`).toBe(1);
+      expect(homes[0], `${name} must live in docs/legal-source`).toMatch(/^docs\/legal-source\//);
+    }
+    const cited = refs.filter((r) => LEGISLATION.includes(r.path));
+    expect(cited.length, "the record must actually cite the primary text").toBeGreaterThan(0);
+    for (const c of cited) expect(findBroken([c]), `${c.raw} does not resolve`).toEqual([]);
   });
 
   test("mutation control: a bad citation is reported, not tolerated", () => {
@@ -156,12 +164,22 @@ describe("compliance record citations resolve", () => {
     expect(broken.join("\n")).toContain("outside 1..");
     expect(broken.join("\n")).toContain("no tracked file");
     expect(broken.join("\n")).toContain("ambiguous");
+
+    // The branch that did not exist before: a legislation citation past the end of
+    // the committed extraction. When these files were skipped, a wrong line number
+    // in a quoted provision could not fail anything.
+    const lawRange = lineCount("docs/legal-source/difc-law.txt");
+    expect(findBroken(extractRefs("`difc-law.txt:1`"))).toEqual([]);
+    const tooFar = findBroken(extractRefs(`\`difc-law.txt:${lawRange + 1}\``));
+    expect(tooFar.length).toBe(1);
+    expect(tooFar[0]).toContain("outside 1..");
   });
 
   test("the record still cites the provisions it claims to satisfy", () => {
     const required: Record<string, string[]> = {
       "docs/ROPA.md": ["15(1)(a)", "15(1)(b)", "15(1)(g)", "15(1)(h)", "Regulation 2.1"],
       "docs/AI-INVENTORY.md": ["10.2.2(g)", "10.1.1", "10.3.3", "10.3.4", "Article 38"],
+      "docs/DPIA.md": ["20(6)", "Article 21", "Article 22", "ISO/IEC 29134", "Article 38"],
     };
     // A register that quietly stops citing its own legal basis is how a compliance
     // document becomes decoration. Looping over the loaded docs rather than indexing

@@ -2973,3 +2973,77 @@ dev's, so dev is the superset and taking dev's side loses nothing. Extending `re
 to `dev` was offered and declined: a workflow pushing merge commits onto the branch agent
 sessions work in is a different trade than pushing to `staging`, even when the commits are
 content-free by construction. So §48's item 2 is now a standing policy rather than a gap.
+
+### 50. The plaintext residue was 847 rows, not 85, and 97% of it was our own test harness
+
+§42 left "the production backfill of the ~85 raw `Case.phone` rows" as the open item, with the
+documented exit condition `pending: 0`. Counted against the live database on 2026-10-19, the
+number is **847** — an order of magnitude off, carried as memory rather than as measurement — and
+the shape is more interesting than the size.
+
+**Measured, all of it read-only before anything was written:** `Case` holds 1140 rows and the
+newest was created **2026-10-10**, so no processing about a live subject has happened in nine
+days. Of the 847 plaintext numbers, 372 have no `orgId`, 445 sit under fixture ids
+(`org-load-*`, `org-i1-*`, `credits_*`, `unused-org-for-auditor`), 8 point at organizations that no
+longer exist, and **22 belong to an organization that does** — those 22 turn out to be the seeded
+demo tenants (`0b0b0b0b-*`, `0a0a0a0a-*`). No real customer number was ever in the set.
+`pii_vault` had **0** rows: the seal path had never run in production.
+
+**The dry run was not read-only.** `backfill-case-phone-vault.ts` called `storePii` — which
+`INSERT`s — on every un-tokenized row even without `--apply`, while its own header promised "counts
+and samples, and writes nothing". A vault row no case points at is personal data the platform holds
+with no case-path erasure reaching it, so a preview run in production would have manufactured
+exactly the residue the vault exists to remove. Fixed to `tokenForPii` ("does not seal, and does not
+create"), and the suite's `reads and writes nothing` test now counts `pii_vault` on both sides —
+mutation-proved by restoring the defect, which failed it. The report also gained `pending`, counted
+from the database: the number the legacy lookup arm is documented to wait for, and which did not
+exist as a field.
+
+**Delete was considered, measured, and refused.** Clearing the rows was the other option, and the
+measurement decided it: 5,764 of 14,618 `AuditLog` rows name these cases and the chain is
+hash-linked append-only (`src/lib/privacy/retention.ts:298` refuses to trim it at any price), plus
+1,229 rows in `Notification`, `OutboxEvent`, `DeadLetter` and `UsageLedger` (billing) reference them
+by `caseRef` with no foreign key to warn anyone. So `scripts/clear-unvaultable-case-phone.ts`
+removes the number and keeps the row, refuses any row whose tenant lives, and reports `pending`
+like its sibling. Production ran it under the owner watching: 825 cleared, 22 sealed, `failed: 0`,
+then `pii:backfill --apply` on one seeded tenant, a round-trip proof that the sealed value still
+resolves and the plaintext is gone, and only then the remaining 21. End state re-measured:
+`rowsStillHoldingPlaintext: 0`, `piiVaultRows: 22`, both scripts reporting an empty queue.
+
+**Production caught what the suite could not.** `organization.id` is `uuid` while `Case.orgId` is
+`text`, so the first dry run died on `invalid input syntax for type uuid: "credits_muyt41el_…"` —
+the fixture ids cannot name a tenant and must not be passed to the lookup at all. Fixed, with a
+test for the non-uuid shape that the local database had never produced.
+
+**The arm stays.** `casePhoneWhere`'s legacy `phone` arm had a documented retirement at
+`pending: 0`. That condition is now met and the arm is still correct, because the retirement rule
+was incomplete: with no `AUTH_SECRET` the `catch` leaves that `OR` with one member, and deleting it
+would make a keyless deployment match _nothing_ — the fail-open-in-reverse case. The comment says
+so instead of repeating the promise.
+
+**The DPIA is written.** `docs/DPIA.md` is Article 20(6)(a)–(e) as required content, reasoned in the
+ISO/IEC 29134 shape (contexts → data flow → offense/impact pairs → control assessment → residual
+risk → actions), and marked `file:line` / `measured` / `OPEN` like its siblings. Its honest headline
+is §2.1: the platform's privacy risk profile today is dominated by its own test harness, not by
+customer traffic. Four risks remain high and three of them are owner-side — channel impersonation
+from the `+256` caller ID, harness writes reaching production, transfers with no executed
+safeguard (`aws-0-eu-central-1` for the primary store), and the unrecorded Article 11 condition for
+`hearing_impaired`. Reg 10.3.3 footnote 11 is restated as a market-entry bar, not a defect.
+
+**The record's legal citations are now CI-resolvable, not skipped.** The two extracted primary
+texts lived in `$TMP`; `compliance-citations.test.ts` waved `difc-law.txt` and `difc-regs.txt`
+through by name, so every citation into the actual text of the law was unverifiable by
+construction — and a wrong line number in a quoted provision could not fail anything. They are
+committed at `docs/legal-source/` with a provenance note, the skip list is gone, and the same
+resolver now length-checks them. `docs/DPIA.md` joined the guarded document set, so its ~40
+citations are checked in CI.
+
+**Owner decisions taken this session, recorded because code will not remember them:** telemetry
+residency is **metrics only** (already landed as `86f48b9`, including the SDK trap where omitting
+`spanProcessors` makes the SDK build a `localhost:4318` exporter — an empty array means none);
+**buy an in-region caller ID** and move DMARC above `p=none` — decided, not executed;
+**LiteLLM is retired and the item is closed** — §41's measurement stands, a proxy in front of Groq
+is not a second rung, and no second provider will be funded for it; the **purge shape** is
+clear-not-delete for the harness rows. The remaining blockers on the DIFC record are counsel and
+appointment items: the High-Risk characterisation, a DPO and ASO, the Regulation 3 notification
+status, and executed Article 24 sub-processor terms naming processing locations.

@@ -3467,3 +3467,18 @@ reads the workflow file from main. The run already queued for `992ce1d` will pro
 the old text anyway, because nothing bumped main while it was in flight — this fix removes the
 recurrence, not a live outage. Production answered `ok:true` on `0.2.38` throughout, eleven
 services up, and the app container healthy.
+
+**The disk, measured instead of guessed at.** With the box at 12 GB free and every reclaim loop
+reporting nothing eligible, `du` named the actual consumer: three `buildx_buildkit_*` state
+volumes holding 16.4 + 10.4 + 7.1 GB, each attached to a _running_ buildkit container, so
+`docker system df` called 0 B of the 30 GB in volumes reclaimable and every guard in the
+reclaimer was correctly, uselessly conservative. It also explains the `buildx prune` that
+"worked" earlier and freed 3.2 GB while 9.9 GB stayed: that command prunes the one builder its
+endpoint resolves to, not the three that exist. The reclaimer now prunes each builder by name —
+8.177 GB back on the first pass, box to 27 GB free, production healthy on `0.2.39` throughout,
+and idempotent to 0 B on the second. It also removes orphaned `securevoice-ai-app:<sha12>`
+deploy builds past 24 h, which no rule had ever touched because they are not `svci-` named: a
+dozen of them, ~6.3 GB. What it deliberately does NOT do is delete an idle builder container,
+the only way to reclaim a state volume's low-water mark — a runner whose `--builder` vanishes
+fails its next build instead of recreating it, and which two builders the runners hold open is
+a fact nobody has written down. Left as a task, not done quietly.

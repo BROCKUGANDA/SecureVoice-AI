@@ -2810,3 +2810,79 @@ the runner's cache is not a gate; `fetch-depth: 0` makes both deterministic.
 
 Lesson, restated because it repeated today: a gate added without checking that its
 inputs exist in the environment that enforces it is a decoration with a log line.
+
+### 48. Every squash re-diverges ancestry, so the top rung needed a person for the third time
+
+§44 automated the staleness and still the ladder stopped: PR #140 (`promote: staging -> main`,
+2026-10-19) opened **DIRTY**, not BEHIND. Conflicts in `.gitignore`, `docs/GAP-REGISTER.md`
+and `scripts/drift-gates.mjs`. `gh pr update-branch` cannot clear a conflict — it is the one
+state §44's step deliberately hands back to a human — so #131, #137 and now #140 have each
+been merged by hand for the same underlying reason.
+
+**The mechanism, not the symptom.** The ladder squashes, on purpose: one reviewable change
+per promotion instead of replaying dev's commits. A squash is a fresh commit that shares no
+history with the branch it came from, so the moment `staging -> main` lands, `main` carries a
+commit `staging` has never seen. The next promotion re-applies that identical content down a
+different ancestry, and a three-way merge with a stale base resolves it by colliding — which
+in an append-only register and one long gate module is certain, not likely. Measured at the
+time: merge base `121a860`, and main's only commit since it was `4269fbc`, itself the previous
+promotion squash. Main had no unique content to conflict _with_. Only ancestry had diverged.
+
+**What the hand resolution proved before it was pushed.** Merged `origin/staging` into
+`origin/main` taking staging's side of each conflict, then:
+
+- `git diff --stat origin/staging HEAD` → empty. The merged tree is byte-identical to
+  staging's, so nothing main carried was dropped and nothing untested was introduced.
+- staging CI on `92868e5` → `completed/success`. The exact tree shipping is the tree CI proved.
+- `git merge-tree --write-tree -X ours <staging> <main>` → rc 0 and staging's own tree, the
+  same containment test the job below now runs.
+
+**And why it must merge as a merge commit.** `main` is PR-only — a direct push was rejected
+with `Changes must be made through a pull request`, so the resolution travels as #141. That
+PR has to land with `--merge`, not `--squash`: squashing it would flatten the history and
+leave staging's tip outside main's ancestry again, reproducing the DIRTY state one rung later.
+The merge commit is the fix; the content is incidental.
+
+**The automation that ends the class.** A new `.github/workflows/realign.yml`, triggered by
+every push to `main`: it records main as an ancestor of staging with `git merge -s ours`,
+which adopts parentage and takes no content, so the next promotion has main in its history and
+resolves nothing. It started life as a job inside `promote.yml` and was moved out for a reason
+worth keeping: `promote.yml` filters its push trigger with `paths-ignore: docs/**`, which is
+correct for a promotion and fatal here, because ancestry does not care which files changed — a
+docs-only round would move main, be filtered out, skip the adoption, and open the next
+promotion DIRTY anyway. Because `-s ours` discards main's side of every overlapping hunk,
+containment is proved first with an **unbiased** trial merge: conflict-free AND its tree equal
+to staging's tree. `-X ours` would pass that test by preferring staging in every conflict,
+which is the loss being guarded, so the guard is deliberately the unbiased one.
+
+Four states, all run against real git objects in a fixture repo, because a job that pushes to
+a branch is not exempt from the rule the rest of this file enforces:
+
+| State                              | Result                                                            |
+| ---------------------------------- | ----------------------------------------------------------------- |
+| main is a content-identical squash | adopts, staging's tree unchanged, push lands                      |
+| main carries a file staging lacks  | `refusing to re-align`, trial tree ≠ staging tree, nothing pushed |
+| both edited the same line          | `genuinely conflict`, rc 1, nothing pushed                        |
+| main already an ancestor           | no-op, exits 0                                                    |
+
+**The loop this could have created, and the gate that breaks it.** The re-align commit has an
+empty diff, so the old "nothing to promote" test — `rev-list --count` — reads 1, opens a
+promotion PR carrying nothing, GitHub squashes it onto main, main moves, `realign` runs again,
+and the two jobs pump empty releases through the ladder forever. The gate is now the **tree**:
+`git diff --quiet origin/<target> origin/<source>` decides, and the count only labels the PR.
+Proven both ways on the fixture: 6 commits of ancestry with identical trees → `changes=no`;
+one new file → `changes=yes`.
+
+**What is still manual, stated rather than glossed.** Three things, and they are different.
+
+1. `realign.yml` cannot adopt the ancestry of the very push that installs it — a workflow runs
+   from the commit that triggered it, so the round that carries this file to `main` is not
+   covered by it. That round survives for an unrelated reason: #141 lands as a real merge
+   commit, which makes staging's tip an ancestor of `main` outright, so the following
+   promotion merges clean on its own. From the round after that, the squash re-divergence is
+   repaired on every push to `main` without anyone watching.
+2. The dev → staging rung keeps its own exposure. `update-branch` clears staleness there, but a
+   genuine conflict on that edge still lands on a person, and `realign.yml` deliberately moves
+   `staging` alone.
+3. `main` is PR-only, so a hand resolution cannot be pushed — it has to travel as its own PR
+   with its own CI, which is why #141 exists beside #140 rather than replacing it in place.

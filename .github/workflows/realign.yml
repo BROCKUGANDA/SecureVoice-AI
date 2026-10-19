@@ -1,0 +1,139 @@
+# ---------------------------------------------------------------------------
+# SecureVoice AI — ladder ancestry re-align (companion to promote.yml)
+#
+#   promote: staging -> main lands ─▶ main moves ─▶ THIS workflow runs
+#       ─▶ staging adopts main as an ancestor, taking none of its content
+#       ─▶ the NEXT staging -> main promotion merges clean
+#
+# WHY THIS IS ITS OWN FILE AND NOT A JOB IN promote.yml.
+#
+# promote.yml filters its push trigger with `paths-ignore: **.md, docs/**,
+# evidence/**`. That filter is right for a promotion — a README typo does not
+# need 40 minutes of CI before staging sees it — and fatal here, because the
+# thing being maintained is ANCESTRY, which does not care which files changed.
+# A promotion whose payload happens to be docs-only would move main, be ignored
+# by the filter, skip the adoption, and the next promotion would open DIRTY for
+# exactly the reason this file exists.
+#
+# So the adoption triggers on every push to main, with no path filter at all.
+# The shape is not hypothetical: `37a1327` was a docs-only commit, and a round
+# whose whole payload is the register is the normal result of a session that
+# only recorded what it found.
+#
+# WHAT `-s ours` IS DOING HERE, AND WHY IT NEEDS A PROOF.
+#
+# The ladder squashes each promotion, and a squash is a brand-new commit sharing
+# no history with the branch it came from. So main ends up carrying a commit
+# staging has never seen, and the next promotion re-applies identical content
+# down different ancestry — which in an append-only register and one long gate
+# module collides with certainty. #131, #137 and #140 were each merged by hand
+# for that one reason (see docs/GAP-REGISTER.md §48).
+#
+# `git merge -s ours` fixes the ancestry and takes NO content. That is only safe
+# if main has nothing staging lacks — and if it did, the adoption plus the next
+# promotion would silently revert main's own work. Which is the same class of
+# loss as the two register clobbers this repo has already been bitten by (f32083b
+# lost §42, 851d531 lost §37–§41). So containment is proved first, with an
+# UNBIASED trial merge:
+#
+#   · `git merge-tree --write-tree staging main` must report no conflict, and
+#   · the tree it writes must be byte-identical to staging's current tree.
+#
+# Both hold trivially right after a promotion, because the squash just made the
+# two trees equal. Either one fails and main has something real: the job refuses
+# loudly and leaves a person the decision it was never trusted to make. Note that
+# `-X ours` would "pass" that test by quietly preferring staging in every
+# conflicting hunk — which is precisely the blind spot being guarded against, so
+# the guard is deliberately the unbiased form.
+# ---------------------------------------------------------------------------
+name: Realign
+
+on:
+  push:
+    branches: [main]
+    # NO paths filter, on purpose. See the header.
+  workflow_dispatch:
+
+permissions:
+  # What the single `git push` at the end needs. Nothing in promote.yml gains
+  # this, because it is not in that file.
+  contents: write
+
+# Two main pushes must not race the same adoption: the second would try to push
+# a staging branch the first already moved.
+concurrency:
+  group: realign-staging
+  cancel-in-progress: false
+
+jobs:
+  realign:
+    name: Adopt main as an ancestor of staging
+    runs-on: [self-hosted, securevoice-vps]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          # Full history: the ancestry question below is asked of real parents,
+          # and a shallow clone invents an answer.
+          fetch-depth: 0
+
+      - name: Adopt main as an ancestor of staging, losslessly or not at all
+        env:
+          # PROMOTE_TOKEN, for the same reason autoversion.yml uses it: a push
+          # authenticated with GITHUB_TOKEN does not trigger workflows, and a
+          # staging push that triggers nothing is a ladder that stops dead right
+          # after the re-align instead of carrying on up.
+          GIT_AUTH_TOKEN: ${{ secrets.PROMOTE_TOKEN }}
+        run: |
+          set -euo pipefail
+          git remote set-url origin \
+            "https://x-access-token:${GIT_AUTH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          # The header actions/checkout persists wins over the URL above; see the
+          # long note in autoversion.yml about v0.2.2's tag landing as the bot.
+          git config --unset-all "http.https://github.com/.extraheader" || true
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git fetch origin main staging
+          main=$(git rev-parse origin/main)
+          staging=$(git rev-parse origin/staging)
+          staging_tree=$(git rev-parse "${staging}^{tree}")
+
+          if git merge-base --is-ancestor "$main" "$staging"; then
+            echo "staging already carries ${main:0:7} — nothing to re-align." | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          if ! merged=$(git merge-tree --write-tree "$staging" "$main" 2>&1); then
+            echo "::error::main and staging genuinely conflict — refusing to re-align ancestry."
+            printf '%s\n' "$merged"
+            echo "A re-align here would bury main's side of a real conflict. Resolve" \
+                 "staging -> main by hand (merge, keep both, verify the merged tree)" \
+                 "and this job will take it from there." | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
+          # `--write-tree` prints the resulting tree OID on the first line.
+          if [ "$(printf '%s\n' "$merged" | head -n 1)" != "$staging_tree" ]; then
+            echo "::error::main carries content staging does not — refusing to re-align."
+            echo "trial merge tree: $(printf '%s\n' "$merged" | head -n 1)"
+            echo "staging tree:     ${staging_tree}"
+            echo "That is main having moved on its own (a hotfix, or a bump PR merged" \
+                 "straight in). Bring it down to staging as a real merge first." \
+              | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
+          git checkout -B staging "$staging"
+          # Two `-m` flags, not one multi-line string: a block scalar cannot hold
+          # a message that starts its own lines at column 0, and indenting them
+          # would bake the indentation into `git log`.
+          git merge -s ours --no-edit \
+            -m "ladder: adopt ${main:0:7} so the next promotion merges clean" \
+            -m "main's tip was not an ancestor of staging, so the next staging -> main promotion would re-apply the same content through a different ancestry and conflict in the append-only files. Proved before this commit: an unbiased trial merge of main into staging is conflict-free and yields exactly staging's tree, so main contributes no content staging lacks. '-s ours' records the parentage and takes none of the content." \
+            "$main"
+
+          git push origin "staging:staging"
+          echo "Re-aligned: staging now carries ${main:0:7} as an ancestor; its tree is" \
+               "unchanged (\`${staging_tree:0:7}\`), so nothing was promoted or reverted." \
+            >> "$GITHUB_STEP_SUMMARY"

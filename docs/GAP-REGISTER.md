@@ -2688,3 +2688,125 @@ repository contains `disable-auto`, and no local process on this machine is runn
 hold is coming from a human action or another agent session under the owner's credentials. That
 is the owner's to resolve; what is now unambiguous is that the pipeline itself no longer has a
 stall in it, so any future hold is a decision rather than a defect.
+
+### 45. The post-roll currency gate raced, and the race skipped the deploy's own health check
+
+Deploy run 39173983527 (`53b3554`, the hand-merged promotion) step-by-step:
+
+    success  Refuse to deploy an unproven commit
+    success  Build, migrate and roll the live stack
+    failure  Drift gates against the rolled stack
+    skipped  Health check the rolled origin
+
+So the roll worked and the gate tripped afterwards — and because the gate tripped, **the
+step that would have confirmed the origin healthy never ran**. Measured out of band instead:
+`securevoice-ai-app-1 securevoice-ai-app:53b3554cf506 Up (healthy)`, `/api/health`
+`{"ok":true,"version":"0.2.35"}`, and the retention worker's own sweep line
+`orgs=188 … chainIntact=true`. Production was fine; the pipeline's evidence for that was
+not produced.
+
+**Why the gate tripped.** `checkBoxCurrency` compares the box checkout to `origin/main`, and
+`autoversion` cut `121a860 chore(release): v0.2.36 (#135)` onto main _while the deploy was
+running_. The dump prints exactly that: `HEAD 53b3554` vs `origin/main 121a860`. The check is
+answering "is the box on the tip?" at a moment when the tip is moving underneath it, so a
+perfectly good deploy is reported as drift. It will recur on every release bump that lands
+during a rollout, which is precisely when a deploy is slow — a self-inflicted red that trains
+people to ignore the gate.
+
+**The fix, once someone agrees which property matters.** Compare the box checkout against the
+SHA the run was _dispatched_ for (race-free, and still catches a stale rollout), and report a
+moved-on `origin/main` as a warning rather than a failure. That is deliberately not done here:
+"the box must be on the tip" is a safety property somebody chose, and quietly weakening it to
+make CI green is the wrong way to settle that. Owner call.
+
+**Second finding from the same dump, older than this deploy:**
+`securevoice-ai-litellm-1 ghcr.io/berriai/litellm:main-latest Up 7 seconds`, container age
+36 hours. §41 pinned the image to a digest and moved the service behind
+`profiles: ["llm-proxy"]`, and the compose file the box now holds reflects that — but
+`compose up -d` does not remove a container for a service that a profile excluded, so the
+**pre-fix container is still there, still floating on `main-latest`, still restart-looping**.
+Rolling the stack cannot retire it; one box command can. Not run here because it is a
+mutation on production infrastructure and §42's standing rule is that the owner gives that
+word.
+
+### 46. A local Grafana stack now proves the OTLP exporter works, which retires §32's stale claim about it
+
+Set up with what was already installed — Grafana 13.2.0 (server _and_ CLI in one
+binary) and Prometheus 3.13.2 — no new packages, both bound to loopback, committed as
+`scripts/observability.mjs` plus `observability/` and written up in
+`docs/OBSERVABILITY.md`.
+
+**The finding that matters for the register: §32 is out of date.** It recorded
+"`exportOtlp` has no external caller" for the telemetry module. The exporter does
+construct and does export: `src/instrumentation.ts:128` calls `initOtel()`, the
+voice-stream worker calls it at `src/worker/voice-stream.ts:1491`, and pointed at
+Prometheus it logged `OpenTelemetry SDK started … service=securevoice-proof` and landed
+a counter as a queryable series (`securevoice_proof_ticks_total … → 3`). Verified
+through Grafana's datasource proxy too, not just through Prometheus directly, because a
+panel that cannot be queried through the UI is not a delivered dashboard.
+
+**What still does not work, and why it is not the app's fault.** Prometheus' OTLP
+receiver is metrics-only — `POST /api/v1/otlp/v1/traces` answers 404 — so traces and
+logs need a real backend (Tempo locally, or Grafana Cloud with a stack key only the
+owner can mint). Grafana 13 registers the `tempo` and `jaeger` plugins at startup, which
+is a query UI, not a store; the distinction is exactly the "rolled ≠ built" class this
+register keeps hitting.
+
+**Two sharp edges worth one line each.** `[otel] shutdown failed` logs only
+`err.message`, so the 404 surfaced as `Not Found` with no signal and no URL
+(`src/lib/telemetry/otel.ts:196-205`) — the fix is to log the endpoint alongside, not
+done because it touches instrumentation and was not asked for. And port 3000 is
+contested between Next dev and Grafana: with Grafana on 3000 the dev scrape job reported
+`down … server returned HTTP status 404 Not Found` against **Grafana**, which reads like
+a broken app. Grafana now lives on 3001 and the script says why.
+
+**One thing refused, on purpose.** An unrelated `otel-agent` process is listening on
+`127.0.0.1:4318` (PID 5980, executable path unreadable, binary not found in the usual
+install dirs). It is the standard OTLP port, so it is tempting to aim the app at it.
+Not done: a receiver whose destination cannot be named is not an acceptable sink for
+telemetry whose cross-border path is a recorded line in `docs/ROPA.md` §3. Pointing
+spans of a bank-fraud call into an unaccounted pipeline would add a sub-processor the
+register does not list. Identify it first.
+
+### 47. The observability commit broke two gates that were right, and a third that was silently not running
+
+`af390d4` went out with green local format, lint, tsc and surface tests, and CI still
+failed two jobs. Both failures were correct and both were mine.
+
+**`tests/telemetry/exporter-flush.test.ts` caught prose.** Its rule is "no module starts
+a batching exporter without flushing it", and `scripts/observability.mjs` line 305 said
+_"The app's own initOtel() -> OTLP HTTP -> Prometheus returned…"_ inside a `console.log`
+string. The scanner sees `initOtel(` without `shutdownOtel(` in a scanned file and
+reports it — which is the same detector that caught the real defect it was written for,
+and it does not know a comment from a call site. The fix is the wording, not the gate:
+"the app's own OTLP exporter". Weakening the scan to skip strings would have removed the
+one property that makes it trustworthy.
+
+**`checkEnvDocs` caught an OS variable treated as a knob.** `resolve(process.env.HOME ??
+process.env.USERPROFILE ?? …)` — direction 1 fired on `USERPROFILE`, and the message was
+right to say so: an operator reading `.env.example` cannot set it, because it is not a
+setting. `homedir()` from `node:os` asks the OS the question the OS answers, and the
+undocumented-read disappears instead of being documented into a lie.
+
+**The one that matters more: §46's new gate was not running in CI at all.** The log read
+`append-only audit guard: HEAD is not a merge commit — nothing to compare` — printed
+against `3cef6db`, which _is_ a merge commit. CI's Drift gates job checks out with the
+default depth of 1, so `git rev-list --parents` cannot see either parent, and
+`parentsOf("HEAD")` returned one entry. The guard had been written to skip when there
+were fewer than two parents and to describe that as "not a merge", which is a true
+statement about the input and a false one about the repository — exactly the shape this
+file keeps recording. Two changes: the Drift gates job now fetches full history so the
+comparison actually happens where it matters, and the message distinguishes
+`SKIPPED — shallow checkout` from `not a merge commit`, so the two cases can never be
+confused again by whoever reads the log.
+
+The asymmetry is worth recording precisely, because it is the part that would have been
+easy to get wrong in a sentence: the same CI run's self-test line read
+`2 historical clobber(s) detected`, so `f32083b` and `851d531` **were** reachable there —
+these are self-hosted runners with a persistent workspace, and objects left by an earlier
+full fetch survive a shallow checkout of the current commit. So the historical arm ran
+while the live comparison did not. A gate whose inputs depend on what happens to be in
+the runner's cache is not a gate; `fetch-depth: 0` makes both deterministic.
+
+Lesson, restated because it repeated today: a gate added without checking that its
+inputs exist in the environment that enforces it is a decoration with a log line.

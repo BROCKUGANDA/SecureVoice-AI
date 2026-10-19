@@ -52,9 +52,24 @@ type Member = {
   owns: { en: string[]; ar: string[] };
 };
 
+/**
+ * First and last initial — not one letter per word.
+ *
+ * The old inline derivation took every word's first character, which was fine for
+ * a two-word name and is "OAAAO" for a five-word one. Five glyphs at 20px do not
+ * fit the 64px badge, and the fallback is the thing a reader sees when there is no
+ * headshot yet. Bounded for any name length, and `?` for an empty one.
+ */
+function initialsOf(name: string): string {
+  const words = name.split(/\s+/).filter(Boolean);
+  const first = words[0]?.charAt(0) ?? "";
+  const last = words.length > 1 ? (words.at(-1)?.charAt(0) ?? "") : "";
+  return (first + last).toUpperCase() || "?";
+}
+
 const TEAM: Member[] = [
   {
-    name: "Yngdom Aad",
+    name: "Okot Araa Andrew Aaron Otema",
     role: { en: "Founder & CEO — engineering", ar: "المؤسس والرئيس التنفيذي — الهندسة" },
     bio: {
       en: "Builds the product end to end: the voice pipeline, the guardrail layer, the billing and the console. Prior work across real-time audio, payments infrastructure and regulated production systems.",
@@ -161,11 +176,7 @@ export function Team() {
                     <img src={m.image} alt={m.name} className="h-full w-full object-cover" />
                   ) : (
                     <span className="font-display text-[20px] font-semibold text-ink-3">
-                      {m.name
-                        .split(/\s+/)
-                        .map((w) => w.charAt(0))
-                        .join("")
-                        .toUpperCase()}
+                      {initialsOf(m.name)}
                     </span>
                   )}
                 </span>

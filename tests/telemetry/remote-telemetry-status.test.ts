@@ -184,9 +184,13 @@ test("A. the predicate answers every state, and only endpoint+auth ships", () =>
     expect(remoteTelemetryStatus()).toEqual({ shipping: false, reason: "no_authorization" });
     expect(hasAuthorization()).toBe(false);
 
-    // Both halves: shipping.
+    // Both halves: shipping, and the verdict says which signals have a home.
     process.env.OTEL_EXPORTER_OTLP_HEADERS = "Authorization=Basic dGVzdDp0ZXN0";
-    expect(remoteTelemetryStatus()).toEqual({ shipping: true, reason: null });
+    expect(remoteTelemetryStatus()).toEqual({
+      shipping: true,
+      reason: null,
+      signals: { traces: true, metrics: true, logs: true },
+    });
 
     // Header names are case-insensitive on the wire, so the predicate must be too.
     process.env.OTEL_EXPORTER_OTLP_HEADERS = "authorization=Basic dGVzdDp0ZXN0";
@@ -341,6 +345,61 @@ test("E. headers parse on the first equals only", () => {
   });
 });
 
+test("F. the production posture is metrics-only, and it reads as shipping", () => {
+  // Decided 2026-10-19: caller data does not leave the region, so traces and logs
+  // get no destination and only metrics are pointed at the stack. A predicate that
+  // required the base variable would call this configuration "nothing ships" —
+  // underclaiming past a deployment whose counters really are arriving.
+  withCleanEnv(() => {
+    process.env.OTEL_EXPORTER_OTLP_HEADERS = "Authorization=Basic dGVzdDp0ZXN0";
+    process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT =
+      "https://otlp-gateway-prod-ca-east-0.grafana.net/otlp/v1/metrics";
+
+    expect(otlpBaseEndpoint()).toBeUndefined();
+    expect(remoteTelemetryStatus()).toEqual({
+      shipping: true,
+      reason: null,
+      signals: { traces: false, metrics: true, logs: false },
+    });
+
+    // Remove the one endpoint and it is no longer configured at all. The
+    // credential alone must never read as a destination.
+    delete process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT;
+    expect(remoteTelemetryStatus()).toEqual({ shipping: false, reason: "no_endpoint" });
+  });
+});
+
+test("F. a signal with no destination is suppressed, not left to the SDK default", () => {
+  // @opentelemetry/sdk-node builds its own exporter from the environment when the
+  // option is ABSENT, and that default resolves to http://localhost:4318. So
+  // omitting `spanProcessors` for an unconfigured trace signal does not turn
+  // tracing off — it points caller spans at whatever is listening on the box's
+  // OTLP port. An empty array is truthy to the SDK and means none.
+  //
+  // This rule is on the shape of the code because the consequence is invisible at
+  // runtime: the exporter is constructed, the batches fail quietly, and the only
+  // witness is a diag line nobody has the collector to read.
+  const otel = code(body(join("src", "lib", "telemetry", "otel.ts")));
+  const PAIRS = [
+    ["spanProcessors", "traces"],
+    ["metricReaders", "metrics"],
+    ["logRecordProcessors", "logs"],
+  ] as const;
+  for (const [list, signal] of PAIRS) {
+    expect(
+      otel,
+      `${list} is not gated on its own endpoint, so an unconfigured signal reaches the SDK's env default`,
+    ).toMatch(new RegExp(`const ${list} = endpoints\\.${signal}\\b`));
+  }
+  // Each gated list needs the empty alternative. Counted rather than matched per
+  // list, because the ternary bodies are long and a regex across them is a rule
+  // that breaks for formatting reasons.
+  expect(otel.match(/:\s*\[\s*\];/g)?.length ?? 0).toBeGreaterThanOrEqual(PAIRS.length);
+  // `traceExporter` is the option that triggers the fallback path; it must not
+  // come back alongside an omitted processor list.
+  expect(otel).not.toContain("traceExporter:");
+});
+
 test("controls: each rule fires on a planted violation", () => {
   // Positive controls, so a rotting predicate is caught here rather than by the
   // next person who trusts a green suite. Every case is a string, never a write.
@@ -373,6 +432,12 @@ test("controls: each rule fires on a planted violation", () => {
   expect(
     /OTEL_(BETTERSTACK_[A-Z_]+|SOURCE_TOKEN)\b/.test(`const t = env("OTEL_BETTERSTACK_TOKEN");`),
   ).toBe(true);
+  // Rule F's detector, on the shape that reintroduces the SDK's env default: a
+  // signal whose "off" branch is anything other than an empty list.
+  const omittedBranch = `const spanProcessors = endpoints.traces ? [ new BatchSpanProcessor(e) ] : undefined;`;
+  expect(/:\s*\[\s*\];/.test(omittedBranch)).toBe(false);
+  expect(/const spanProcessors = endpoints\.traces\b/.test(omittedBranch)).toBe(true);
+
   // ...and neither rule fires on a comment, because `code()` removes them first.
   expect(code("// reads OTEL_EXPORTER_OTLP_ENDPOINT and OTEL_BETTERSTACK_TOKEN")).toBe("");
 });

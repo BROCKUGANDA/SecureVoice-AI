@@ -2946,3 +2946,30 @@ from the voice path can carry caller data, and the stack is in Canada East. Metr
 aggregate counters and a different risk. The mechanism to ship less already exists (set
 only the metrics endpoint), but which of the three may leave the region is a ROPA question
 for the owner, not a default to be chosen by whoever wires a token.
+
+**Resolution, same day: metrics only.** The owner answered the residency question — caller
+data does not leave the region, so traces and logs get no destination and only the counters
+ship. Answering it exposed a real bug in what I had just written. The predicate required
+`OTEL_EXPORTER_OTLP_ENDPOINT` (the base) before it would report `shipping: true`, and the
+metrics-only posture sets only `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` — so the approved
+configuration read as "nothing ships", the underclaiming mirror of the bug this module was
+extracted to fix. The predicate now accepts a destination on _any_ signal and publishes a
+`signals` map, because "telemetry ships" next to a dashboard that could only ever have had
+counters in it is the same overclaim one level down.
+
+**And the trap that made the empty list load-bearing.** `@opentelemetry/sdk-node` builds
+its own exporter from the environment when `spanProcessors` / `metricReaders` /
+`logRecordProcessors` are _absent_ from the config, and that fallback resolves to
+`http://localhost:4318`. So the obvious implementation of "traces have no destination" —
+leave the option out — would have pointed caller spans at whatever is listening on this
+box's OTLP port, which is exactly the unaccounted receiver §46 refused to use. An empty
+array is truthy to the SDK and means none. A rule in the telemetry suite now pins the
+`: []` branch on all three signals, because the consequence is invisible at runtime: the
+exporter constructs, the batches fail quietly, and nobody is watching a collector.
+
+**The dev rung stays manual, by decision.** It went DIRTY twice today (#142, #144) and both
+were resolved by hand with the same proof — staging's copy byte-identical to a prefix of
+dev's, so dev is the superset and taking dev's side loses nothing. Extending `realign.yml`
+to `dev` was offered and declined: a workflow pushing merge commits onto the branch agent
+sessions work in is a different trade than pushing to `staging`, even when the commits are
+content-free by construction. So §48's item 2 is now a standing policy rather than a gap.

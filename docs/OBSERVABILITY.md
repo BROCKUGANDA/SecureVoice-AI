@@ -8,25 +8,31 @@ gap register §46 and §49 — because they are facts about this machine, not ab
 product.
 
 ```
-  app / worker ── OTLP/HTTP ──▶ https://otlp-gateway-prod-ca-east-0.grafana.net/otlp
+  app / worker ── OTLP/HTTP ──▶ otlp-gateway-prod-ca-east-0.grafana.net/otlp/v1/metrics
                                           │
-                          ┌───────────────┼────────────────┐
-                          ▼               ▼                ▼
-                    Mimir (metrics)  Tempo (traces)   Loki (logs)
-                          uid grafanacloud-prom  …-traces  …-logs
+                                          ▼
+                                    Mimir (metrics)  uid grafanacloud-prom
                                           │
-                                     Grafana Cloud (dashboards, alerts, Application Observability)
+                                     Grafana Cloud (dashboards, alerts)
+
+   traces ──▶ no destination, no exporter built      (Tempo exists in the stack: uid grafanacloud-traces)
+   logs   ──▶ no destination, no exporter built      (Loki exists in the stack: uid grafanacloud-logs)
 ```
 
 ## Configuring it
 
-Two variables, both named exactly as the OpenTelemetry specification names them, and
-exactly as the stack's own **OpenTelemetry tile → Configure** hands them to you:
+Production posture, decided 2026-10-19: **metrics only**. Two variables, named exactly as
+the OpenTelemetry specification names them and as the stack's **OpenTelemetry tile →
+Configure** hands them out:
 
 ```bash
-OTEL_EXPORTER_OTLP_ENDPOINT="https://otlp-gateway-prod-ca-east-0.grafana.net/otlp"
 OTEL_EXPORTER_OTLP_HEADERS="Authorization=Basic <access-policy token>"
+OTEL_EXPORTER_OTLP_METRICS_ENDPOINT="https://otlp-gateway-prod-ca-east-0.grafana.net/otlp/v1/metrics"
 ```
+
+`OTEL_EXPORTER_OTLP_ENDPOINT` is deliberately **not** set. It is the base URL, and every
+signal inherits a destination from it — traces and logs would ship by accident, which is
+the decision that was declined. A signal with no endpoint builds no exporter.
 
 Three rules the code enforces, each covered by
 [`tests/telemetry/remote-telemetry-status.test.ts`](../tests/telemetry/remote-telemetry-status.test.ts):
@@ -84,19 +90,29 @@ The label vocabulary is deliberately small and bounded, which is what keeps a da
 safe to publish: no `callRef`, no `orgId`, no customer data as a label value — the design
 rules are stated in `src/app/api/metrics/route.ts`.
 
-## The decision that is not mine to make
+## Why the boundary is metrics-only, and how the code holds it
 
 **Traces and logs from this product can carry caller data.** A span's attributes and a log
 line from the voice path are exactly the material `docs/ROPA.md` records as crossing
 borders under named processors, and the stack lives in **Canada East**. Metrics are
 aggregate counters and are a different risk entirely.
 
-So shipping all three signals to this stack is a residency decision, not a configuration
-detail, and it belongs beside the ROPA entry rather than being defaulted on by whoever
-wires the token. The mechanism for shipping less already exists: set only
-`OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` and leave traces and logs without a destination.
-Until that is answered, the honest state is "nothing ships", which is where the deployment
-sits today.
+The owner chose **metrics only** on 2026-10-19, so this stops being a configuration
+preference and becomes something the code has to keep true. Two things do that:
+
+- **No default host, and no base endpoint in production.** A destination exists only
+  because someone wrote it down.
+- **An unconfigured signal is suppressed, not defaulted.** `@opentelemetry/sdk-node`
+  builds its own exporter from the environment when the processor option is _absent_, and
+  that default resolves to `http://localhost:4318`. So "traces are not configured" would
+  otherwise become "traces go to whatever is listening on this box's OTLP port" — and on
+  this machine, something is. `otel.ts` therefore passes an **empty list** for every
+  signal without a destination, and a rule in the telemetry suite fails if that branch is
+  ever replaced by an omitted option.
+
+Widening this — traces, then logs — re-opens the residency question against the ROPA. It
+is not just another environment variable, and the per-signal endpoints are the mechanism
+when that happens.
 
 ## Two things still true about the code
 

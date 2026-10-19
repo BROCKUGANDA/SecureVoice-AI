@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import { useApp, t, type Lang } from "@/lib/store";
 import { VOICES } from "@/lib/data";
+import { speakText } from "@/lib/voice-client";
 import { StatusPill, LiveDot, Skeleton, Chip } from "@/components/fx/core";
 
 import { TrendChart, HBars, Donut } from "@/components/fx/charts";
@@ -1481,31 +1482,27 @@ function Config() {
   const [selectedVoice, setSelectedVoice] = useState("fatima");
   const { toast } = useToast();
 
-  const preview = (id: string) => {
-    try {
-      const u = new SpeechSynthesisUtterance(
-        id === "fatima"
-          ? "مرحباً، أنا مساعد الأمان في مصرفك. أتصل بخصوص نشاط حديث على حسابك."
-          : "Hello, this is your bank's AI security assistant calling about recent activity on your account.",
-      );
-      u.lang = id === "fatima" ? "ar-SA" : "en-US";
-      const voices = window.speechSynthesis.getVoices();
-      const v = voices.find((x) => x.lang.startsWith(id === "fatima" ? "ar" : "en"));
-      if (v) u.voice = v;
-      window.speechSynthesis.cancel();
-      window.speechSynthesis.speak(u);
-      toast({
-        title: t("Voice preview", "معاينة الصوت", lang),
-        description: `${t("Playing", "تشغيل", lang)} ${
-          VOICES.find((v) => v.id === id)?.name
-        } ${t("via browser TTS.", "عبر نطق المتصفح.", lang)}`,
-      });
-    } catch {
-      toast({
-        title: t("Voice preview unavailable", "معاينة الصوت غير متاحة", lang),
-        description: t("Browser TTS not supported here.", "نطق المتصفح غير مدعوم هنا.", lang),
-      });
-    }
+  const preview = async (id: string) => {
+    const callLang = id === "fatima" ? "ar" : "en";
+    const sample =
+      id === "fatima"
+        ? "مرحباً، أنا مساعد الأمان في مصرفك. أتصل بخصوص نشاط حديث على حسابك."
+        : "Hello, this is your bank's AI security assistant calling about recent activity on your account.";
+    // Ask the product's own voice first. This panel used to call
+    // `window.speechSynthesis` directly, so a bank operator approving a voice here
+    // was listening to their own operating system and being told it was the agent.
+    // The browser engine stays only as the fallback `speakText` already reports.
+    const outcome = await speakText(sample, callLang, "agent");
+    toast({
+      title: t("Voice preview", "معاينة الصوت", lang),
+      description: outcome.neural
+        ? `${t("Playing", "تشغيل", lang)} ${VOICES.find((v) => v.id === id)?.name}`
+        : t(
+            "Product voice unavailable — this was your browser's voice.",
+            "الصوت غير متاح — كان هذا صوت متصفحك.",
+            lang,
+          ),
+    });
   };
 
   return (

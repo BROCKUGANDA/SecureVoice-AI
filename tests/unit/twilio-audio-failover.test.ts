@@ -58,6 +58,16 @@ mock.module("@/lib/elevenlabs/client", () => ({
   ELEVEN_VOICE_ENV: {},
   allowedVoices: () => new Set(["ladder-voice"]),
   isProdVoiceMode: () => true,
+  // The route stopped building its own language→voice table at module load, so
+  // the mock resolves the same way the real one does — from the per-language slot,
+  // read at call time so a test that sets the variable is honoured.
+  deliveryVoice: (lang: string) =>
+    (
+      ({
+        en: process.env.ELEVENLABS_VOICE_EN,
+        ar: process.env.ELEVENLABS_VOICE_AR,
+      }) as Record<string, string | undefined>
+    )[lang] ?? "",
 }));
 
 mock.module("@/lib/elevenlabs/pool", () => ({

@@ -194,3 +194,8 @@ demo/walkthrough/source/.hyperframes/
 # references them, and leaving them untracked means a later `git add -A` sweeps
 # a few megabytes of PNG into an unrelated commit.
 .qoder-shots/
+
+# Output of `bun scripts/voice-audition.mjs`: candidate voices rendered per
+# language, paid for with vendor quota and listened to once. Audio blobs do not
+# belong in git, and the same ids can be re-synthesized on demand.
+.voice-audition/

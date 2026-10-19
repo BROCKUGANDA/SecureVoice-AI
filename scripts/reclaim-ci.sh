@@ -21,8 +21,12 @@
 #     volumes attached to its running containers.
 #   * named volumes outside `svci-`/`sv-ci-`, so `securevoice-ai_db-data`,
 #     `crucible_deployed` and anything a human made by hand are not candidates.
-#   * anonymous volumes younger than 24 h. A run that finished five minutes ago is
-#     not garbage, and neither is a volume someone is debugging on this box.
+#   * every image except `svci-`/`sv-ci-` stacks and `securevoice-ai-app:<sha12>`
+#     deploy builds; worker `:latest` images, `crucible-*`, `caddy`, `postgres`,
+#     `redis` and `foundry` are not candidates at all.
+#   * anonymous volumes and app deploy builds younger than 24 h. A run that finished
+#     five minutes ago is not garbage, the rollback target is not garbage, and
+#     neither is a volume someone is debugging on this box.
 #   * build cache younger than 72 h, because the same runner builds the production
 #     image and wiping that cache makes the next deploy a full rebuild.
 #
@@ -147,6 +151,57 @@ for img in $(docker images --format '{{.Repository}}:{{.Tag}}' 2>/dev/null | gre
     continue
   fi
   run docker rmi "$img" && removed_images=$((removed_images + 1))
+done
+
+# Deploy-built app images. Every branch deploy adds one more
+# `securevoice-ai-app:<sha12>` (~571 MB) and composes the stack onto it, and nothing had
+# ever removed the previous ones: twelve orphaned tags on this box, 6.3 GB, while
+# `docker system df` reported 20.9 GB reclaimable in images and every loop above looked
+# away because none of those names starts with `svci-`.
+#
+# A tag is removable only when no container at all references it — which includes the
+# stopped one from the deploy before this, so the rollback target survives longer than
+# the arithmetic here suggests — and only when it is older than 24 h, so a rollback
+# across a bad night is always available. `:latest` tags and the worker images are not
+# candidates: the pattern is the app repo with a 12-hex tag and nothing else.
+for img in $(docker images --format '{{.Repository}}:{{.Tag}}' 2>/dev/null | grep -E '^securevoice-ai-app:[0-9a-f]{12}$' || true); do
+  if [ -n "$(docker ps -a --filter ancestor="$img" --format '{{.Names}}' 2>/dev/null)" ]; then
+    held_back=$((held_back + 1))
+    continue
+  fi
+  born=$(docker image inspect "$img" --format '{{.Created}}' 2>/dev/null | cut -c1-19)
+  [ -z "$born" ] && continue
+  epoch=$(date -u -d "$born" +%s 2>/dev/null || echo 0)
+  if [ "$epoch" -gt 0 ] && [ $((now_epoch - epoch)) -gt $((ANON_MIN_AGE_H * 3600)) ]; then
+    run docker rmi "$img" && removed_images=$((removed_images + 1))
+  fi
+done
+
+# Buildx builders — what was actually eating this box, found by measuring the disk
+# rather than by reading the reclaim rules. Three `buildx_buildkit_*` state volumes:
+# 16.4 GB, 10.4 GB and 7.1 GB of the 84 GB used, each ATTACHED TO A RUNNING buildkit
+# container, so `docker system df` reports 0 B reclaimable in volumes and every guard
+# above is correctly, uselessly conservative.
+#
+# Why `docker buildx prune` already in this script freed 3.2 GB and left 9.9 GB behind:
+# it prunes the builder its endpoint resolves to, which is ONE of the three. So cache
+# is now reclaimed from every builder by name. What is deliberately NOT done here is
+# deleting a builder container: it is the only way to free the state volume's low-water
+# mark, and a runner whose `--builder` disappears fails its next build rather than
+# recreating it — which trades a disk problem for a pipeline problem. Removing idle
+# builders is a call for someone who knows which two the runners hold open.
+# `buildx ls --format '{{.Name}}'` lists NODE rows as well as builders, and node names
+# are the builder's with a driver suffix, so each candidate is confirmed against
+# `buildx inspect` before it is named — a dry run that promises to prune something that
+# does not exist teaches the next reader to distrust it.
+for b in $(docker buildx ls --format '{{.Name}}' 2>/dev/null | grep -v '^default$' | sort -u || true); do
+  [ -n "$(docker buildx inspect "$b" 2>/dev/null | grep -m1 '^Name:')" ] || continue
+  if [ "$do_it" = "1" ]; then
+    freed=$(docker buildx prune --builder "$b" --force --filter "until=${CACHE_MAX_AGE}" 2>/dev/null | tail -1)
+    [ -n "$freed" ] && echo "buildx ${b}: ${freed}"
+  else
+    echo "would: docker buildx prune --builder $b --force --filter until=${CACHE_MAX_AGE}"
+  fi
 done
 
 # Dangling images (untagged leftovers of rebuilt layers) and old build cache.

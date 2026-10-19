@@ -211,24 +211,35 @@ jobs:
       # workspace. The runner copies the tree to a fresh directory per job, so
       # the deploy has to act on the real one.
       #
-      # Reclaim the disk BEFORE building: every smoke run leaves per-run
-      # `svci-<run>-<attempt>-*` images behind (306 of them, ~66 GB, took the
-      # box to 100% and killed CI mid-step). Only `svci-` names are candidates,
-      # so production (`securevoice-ai-*`) can never match, and an image still
-      # referenced by any container is skipped, so a concurrently running smoke
-      # job is never disturbed. Dangling layers and >72h build cache go too;
-      # the 72h bound keeps the production build warm.
-      - name: Reclaim stale CI images and build cache
-        run: |
-          set -uo pipefail
-          for img in $(docker images --filter=reference='svci-*' --format '{{.Repository}}:{{.Tag}}' || true); do
-            if [ -z "$(docker ps -a --filter ancestor="$img" --format '{{.Names}}' 2>/dev/null)" ]; then
-              docker rmi "$img" >/dev/null 2>&1 || true
-            fi
-          done
-          docker image prune --force 2>&1 | tail -1 || true
-          docker builder prune --force --filter 'until=72h' 2>&1 | tail -2 || true
-          df -h / | tail -1
+      # Ask the disk whether it can take a build, before spending twenty-five
+      # minutes of build on the assumption that it can. This is the same preflight
+      # the compose smoke job runs (`scripts/runner-preflight.ts` — free space, free
+      # inodes, and a real 4 MiB fdatasync latency, each with a floor), and the deploy
+      # needs it more than CI does: a deploy that dies mid-roll leaves production on
+      # the commit the last successful step managed to move.
+      #
+      # It runs after checkout because it is a repo script, which also means a disk at
+      # literal zero can fail before the script is ever reached. That is why the cron
+      # in `scripts/runner-hygiene.sh` is the other half, and why it is not a workflow.
+      - name: Preflight the runner disk
+        run: bun scripts/runner-preflight.ts --min-gb 10
+
+      # Reclaim the disk BEFORE pulling and rolling, for the reason the smoke job has
+      # the same step: per-run `svci-<run>-<attempt>-*` images (306 of them once,
+      # ~66 GB), the CI compose projects' networks and volumes, the containers a
+      # cancelled run left holding them, and the anonymous volumes no name filter can
+      # see — `postgres:16-alpine` declares a VOLUME, so every throwaway test database
+      # used to leave one behind. All of it is one policy now, in
+      # `scripts/reclaim-ci.sh`, called from CI's two sites and from here.
+      #
+      # An earlier draft of this comment claimed the deploy job never checks the tree
+      # out, so it could not call the script. That was wrong — `actions/checkout` is
+      # this job's first step, 110 lines above — and the mistake is worth keeping in
+      # the file rather than editing out, because "this one is different, let it keep
+      # its own copy" is how three reclaim loops with three scopes and one shared blind
+      # spot were justified in the first place.
+      - name: Reclaim CI garbage before the roll
+        run: TARGET_DIR="$HOME/securevoice-ai" bash scripts/reclaim-ci.sh reclaim
 
       # ── Feature flags: repository variable → box .env → rolling containers ──
       #

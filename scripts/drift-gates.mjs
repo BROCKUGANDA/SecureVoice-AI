@@ -1498,7 +1498,17 @@ function selfTestAppendOnlyGate() {
 function checkAppendOnlyShrink() {
   const parents = parentsOf("HEAD");
   if (parents.length < 2) {
-    info("append-only audit guard: HEAD is not a merge commit — nothing to compare");
+    // Name the reason, because the two look identical in a log and only one of them
+    // is a passing check. A depth-1 checkout cannot see a merge's parents at all, so
+    // "HEAD is not a merge commit" printed against a real merge would be this gate
+    // reporting a comparison it never made — the exact failure the self-test above
+    // exists to catch. CI's Drift gates job therefore fetches full history.
+    const shallow = repoGit("git rev-parse --is-shallow-repository") === "true";
+    info(
+      shallow
+        ? "append-only audit guard: SKIPPED — shallow checkout, the merge's parents are not present to compare"
+        : "append-only audit guard: HEAD is not a merge commit — nothing to compare",
+    );
     return;
   }
   const head = repoGit("git rev-parse HEAD") ?? "HEAD";

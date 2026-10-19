@@ -2767,3 +2767,47 @@ Not done: a receiver whose destination cannot be named is not an acceptable sink
 telemetry whose cross-border path is a recorded line in `docs/ROPA.md` §3. Pointing
 spans of a bank-fraud call into an unaccounted pipeline would add a sub-processor the
 register does not list. Identify it first.
+
+### 47. The observability commit broke two gates that were right, and a third that was silently not running
+
+`af390d4` went out with green local format, lint, tsc and surface tests, and CI still
+failed two jobs. Both failures were correct and both were mine.
+
+**`tests/telemetry/exporter-flush.test.ts` caught prose.** Its rule is "no module starts
+a batching exporter without flushing it", and `scripts/observability.mjs` line 305 said
+*"The app's own initOtel() -> OTLP HTTP -> Prometheus returned…"* inside a `console.log`
+string. The scanner sees `initOtel(` without `shutdownOtel(` in a scanned file and
+reports it — which is the same detector that caught the real defect it was written for,
+and it does not know a comment from a call site. The fix is the wording, not the gate:
+"the app's own OTLP exporter". Weakening the scan to skip strings would have removed the
+one property that makes it trustworthy.
+
+**`checkEnvDocs` caught an OS variable treated as a knob.** `resolve(process.env.HOME ??
+process.env.USERPROFILE ?? …)` — direction 1 fired on `USERPROFILE`, and the message was
+right to say so: an operator reading `.env.example` cannot set it, because it is not a
+setting. `homedir()` from `node:os` asks the OS the question the OS answers, and the
+undocumented-read disappears instead of being documented into a lie.
+
+**The one that matters more: §46's new gate was not running in CI at all.** The log read
+`append-only audit guard: HEAD is not a merge commit — nothing to compare` — printed
+against `3cef6db`, which *is* a merge commit. CI's Drift gates job checks out with the
+default depth of 1, so `git rev-list --parents` cannot see either parent, and
+`parentsOf("HEAD")` returned one entry. The guard had been written to skip when there
+were fewer than two parents and to describe that as "not a merge", which is a true
+statement about the input and a false one about the repository — exactly the shape this
+file keeps recording. Two changes: the Drift gates job now fetches full history so the
+comparison actually happens where it matters, and the message distinguishes
+`SKIPPED — shallow checkout` from `not a merge commit`, so the two cases can never be
+confused again by whoever reads the log.
+
+The asymmetry is worth recording precisely, because it is the part that would have been
+easy to get wrong in a sentence: the same CI run's self-test line read
+`2 historical clobber(s) detected`, so `f32083b` and `851d531` **were** reachable there —
+these are self-hosted runners with a persistent workspace, and objects left by an earlier
+full fetch survive a shallow checkout of the current commit. So the historical arm ran
+while the live comparison did not. A gate whose inputs depend on what happens to be in
+the runner's cache is not a gate; `fetch-depth: 0` makes both deterministic.
+
+Lesson, restated because it repeated today: a gate added without checking that its
+inputs exist in the environment that enforces it is a decoration with a log line.
+

@@ -39,6 +39,7 @@
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { homedir } from "node:os";
 import { spawnSync } from "node:child_process";
 
 const ROOT = resolve(import.meta.dir, "..");
@@ -64,7 +65,11 @@ const APP_DEV_PORT = 3000;
  */
 function findBinary(name, rel) {
   for (const r of rel) {
-    const p = resolve(process.env.HOME ?? process.env.USERPROFILE ?? "", ...r.split("/"));
+    // `homedir()`, not `process.env.HOME ?? process.env.USERPROFILE`: the env-docs
+    // drift gate reads every `process.env.X` in the tree and requires each one to be
+    // a documented knob, and `USERPROFILE` is not a knob — it is the OS. Asking the
+    // OS for the home directory is both the correct call and the honest one.
+    const p = resolve(homedir(), ...r.split("/"));
     if (existsSync(p)) return { path: p, how: "scoop app dir" };
   }
   const w = spawnSync("where.exe", [name], { encoding: "utf8" });
@@ -302,7 +307,7 @@ over loopback its value is not a secret):
   export OTEL_EXPORT_INTERVAL_MS=5000
 
 What that actually buys, measured:
-  · METRICS land. The app's own initOtel() -> OTLP HTTP -> Prometheus returned a
+  · METRICS land. The app's own OTLP exporter -> Prometheus returned a
     series with the right value, and Grafana serves it.
   · TRACES and LOGS do not: Prometheus' receiver is metrics-only, and /v1/traces
     answers 404. A trace backend is required (Tempo locally, or Grafana Cloud) —

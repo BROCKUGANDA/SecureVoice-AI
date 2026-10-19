@@ -103,6 +103,13 @@ const eslintConfig = [
       ".gitnexus/**",
       ".coverage/**",
       ".covprobe2/**",
+      // The local Grafana/Prometheus stack (scripts/observability.mjs). Same
+      // category as the two above, and the same failure mode: ESLint does not read
+      // .gitignore, so `bun run lint` walked Grafana's installed plugin bundles and
+      // reported 38,812 errors against third-party minified output. CI never sees
+      // this directory because it is gitignored — which is exactly why the local
+      // gate went red and stayed red until it was named here.
+      ".observability/**",
       // Vendored minified bundles. `demo/walkthrough/source/assets/gsap.min.js` is
       // a downloaded GSAP build committed as an asset for the walkthrough film,
       // not source anybody edits: it alone produced 206 `no-var` errors, which is

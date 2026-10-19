@@ -126,12 +126,7 @@ export function connectSrcDirective(
   elevenLabsBase: string,
   sentryDsn?: string,
 ): { directive: string; rejectedDsn: boolean } {
-  const origins = [
-    new URL(elevenLabsBase).origin,
-    "https://cdn.paddle.com",
-    "https://api.paddle.com",
-    "https://sandbox-api.paddle.com",
-  ];
+  const origins = [new URL(elevenLabsBase).origin, ...PADDLE_CONNECT_ORIGINS];
   let rejectedDsn = false;
   if (sentryDsn) {
     try {

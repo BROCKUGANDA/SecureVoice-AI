@@ -93,8 +93,19 @@ export function signalEndpoint(signal: OtlpSignal): string | undefined {
   return base ? `${base}/v1/${signal}` : undefined;
 }
 
+/** Where each signal is going. `false` means no destination, not "not tried". */
+export type SignalMap = Record<OtlpSignal, boolean>;
+
+export function shippingSignals(): SignalMap {
+  return {
+    traces: signalEndpoint("traces") !== undefined,
+    metrics: signalEndpoint("metrics") !== undefined,
+    logs: signalEndpoint("logs") !== undefined,
+  };
+}
+
 export type RemoteTelemetryStatus =
-  | { shipping: true; reason: null }
+  | { shipping: true; reason: null; signals: SignalMap }
   | {
       shipping: false;
       reason: "sdk_disabled" | "no_endpoint" | "no_authorization";
@@ -104,13 +115,30 @@ export type RemoteTelemetryStatus =
  * `otel.ts` returns this same verdict by returning `null` from `initOtel()`, so a
  * `shipping: false` here is not a warning — it is the absence of every exporter.
  *
- * Both halves are required. An endpoint with no credential is a batch of 401s
- * against someone else's gateway, and a credential with no endpoint has nowhere to
- * be sent to; neither is "configured".
+ * Both halves are required. A credential with nowhere to send is inert, and an
+ * endpoint with no credential is a batch of 401s against someone else's gateway;
+ * neither is "configured".
+ *
+ * A destination on ANY signal counts, because the production posture is
+ * deliberately per-signal: caller data may not leave the region, so only metrics
+ * are given an endpoint, and `traces`/`logs` resolve to nowhere. A predicate that
+ * demanded the base variable would report "nothing ships" for a deployment whose
+ * metrics are in fact arriving — the same overclaim/underclaim split this module
+ * was extracted to close.
+ *
+ * `signals` is part of the verdict rather than a convenience: "telemetry ships"
+ * alongside a dashboard that only ever had counters in it is the artifact
+ * overclaiming again, one level down.
  */
 export function remoteTelemetryStatus(): RemoteTelemetryStatus {
   if (read("OTEL_SDK_DISABLED") === "true") return { shipping: false, reason: "sdk_disabled" };
-  if (!otlpBaseEndpoint()) return { shipping: false, reason: "no_endpoint" };
+  if (!otlpBaseEndpoint() && !anySignalEndpoint()) {
+    return { shipping: false, reason: "no_endpoint" };
+  }
   if (!hasAuthorization()) return { shipping: false, reason: "no_authorization" };
-  return { shipping: true, reason: null };
+  return { shipping: true, reason: null, signals: shippingSignals() };
+}
+
+function anySignalEndpoint(): boolean {
+  return (Object.keys(SIGNAL_VARS) as OtlpSignal[]).some((s) => read(SIGNAL_VARS[s]));
 }

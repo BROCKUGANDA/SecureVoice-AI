@@ -110,12 +110,14 @@ export function initOtel(): NodeSDK | null {
   const timeoutMillis = intFromEnv("OTEL_EXPORTER_OTLP_TIMEOUT", DEFAULT_TIMEOUT_MS);
   const serviceName = env("OTEL_SERVICE_NAME") ?? TELEMETRY_SERVICE_NAME;
   const headers = authHeaders();
-  // `shipping: true` above is derived from the same reads, so each of these is
-  // defined; a signal-specific override wins over the base + spec path.
+  // At least one of these is defined — `shipping: true` above is derived from the
+  // same reads — but not necessarily all three. A per-signal override wins over
+  // the base plus the spec path, which is how one signal is given a destination
+  // and the others are not.
   const endpoints = {
-    traces: signalEndpoint("traces")!,
-    metrics: signalEndpoint("metrics")!,
-    logs: signalEndpoint("logs")!,
+    traces: signalEndpoint("traces"),
+    metrics: signalEndpoint("metrics"),
+    logs: signalEndpoint("logs"),
   };
 
   const resource = resourceFromAttributes({
@@ -128,55 +130,68 @@ export function initOtel(): NodeSDK | null {
   });
 
   try {
+    // A signal with no destination gets an EMPTY list, not an omitted option.
+    // NodeSDK builds its own exporter from the environment when the option is
+    // absent, and that default resolves to http://localhost:4318 — so "traces are
+    // not configured here" would quietly become "traces go to whatever happens to
+    // be listening on this box's OTLP port". An empty processor list is the only
+    // spelling that means none.
+    const spanProcessors = endpoints.traces
+      ? [
+          // Batch: one network flush per span batch instead of one per span.
+          new BatchSpanProcessor(
+            new OTLPTraceExporter({
+              url: endpoints.traces,
+              headers,
+              timeoutMillis,
+            }),
+            {
+              // Keep the defaults except the queue size, bumped for a busy API.
+              maxQueueSize: 4096,
+              scheduledDelayMillis: 5_000,
+            },
+          ),
+        ]
+      : [];
+
+    const metricReaders = endpoints.metrics
+      ? [
+          new PeriodicExportingMetricReader({
+            exporter: new OTLPMetricExporter({
+              url: endpoints.metrics,
+              headers,
+              timeoutMillis,
+            }),
+            exportIntervalMillis: intFromEnv("OTEL_EXPORT_INTERVAL_MS", DEFAULT_EXPORT_INTERVAL_MS),
+          }),
+        ]
+      : [];
+
+    const logRecordProcessors = endpoints.logs
+      ? [
+          new BatchLogRecordProcessor({
+            exporter: new OTLPLogExporter({
+              url: endpoints.logs,
+              headers,
+              timeoutMillis,
+            }),
+          }),
+        ]
+      : [];
+
     const sdk = new NodeSDK({
       resource,
-      traceExporter: new OTLPTraceExporter({
-        url: endpoints.traces,
-        headers,
-        timeoutMillis,
-      }),
-      spanProcessors: [
-        // Batch: one network flush per span batch instead of one per span.
-        new BatchSpanProcessor(
-          new OTLPTraceExporter({
-            url: endpoints.traces,
-            headers,
-            timeoutMillis,
-          }),
-          {
-            // Keep the defaults except the queue size, bumped for a busy API.
-            maxQueueSize: 4096,
-            scheduledDelayMillis: 5_000,
-          },
-        ),
-      ],
-      metricReaders: [
-        new PeriodicExportingMetricReader({
-          exporter: new OTLPMetricExporter({
-            url: endpoints.metrics,
-            headers,
-            timeoutMillis,
-          }),
-          exportIntervalMillis: intFromEnv("OTEL_EXPORT_INTERVAL_MS", DEFAULT_EXPORT_INTERVAL_MS),
-        }),
-      ],
-      logRecordProcessors: [
-        new BatchLogRecordProcessor({
-          exporter: new OTLPLogExporter({
-            url: endpoints.logs,
-            headers,
-            timeoutMillis,
-          }),
-        }),
-      ],
+      spanProcessors,
+      metricReaders,
+      logRecordProcessors,
       serviceName,
     });
 
     sdk.start();
     initialized = sdk;
+    // The three URLs, with `undefined` left visible: this is the line that proves
+    // a metrics-only deployment is metrics-only, rather than trusting the artifact.
     logWarn("[otel] OpenTelemetry SDK started", {
-      // Where each signal goes. Headers are never logged: the value in them is
-      // the credential.
       endpoints,
       service: serviceName,
       sampleRate: sampleRateFromEnv(),

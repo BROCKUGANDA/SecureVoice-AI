@@ -1,7 +1,7 @@
 {
   "uid": "securevoice-runtime",
   "title": "SecureVoice — runtime",
-  "tags": ["securevoice", "local"],
+  "tags": ["securevoice", "grafana-cloud"],
   "timezone": "utc",
   "schemaVersion": 39,
   "version": 1,

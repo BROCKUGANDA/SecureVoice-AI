@@ -264,7 +264,6 @@ function checkServiceInventory() {
   const INFRA = {
     db: "stateful; created once, never recreated by a deploy",
     redis: "stateful; created once, never recreated by a deploy",
-    litellm: "stateful-ish LLM proxy with a long-lived upstream",
     realtime: "socket server; long-lived, deployed separately",
     caddy: "the TLS edge; recreated only when its definition changes",
     // `outbox-worker` used to live here as "drains a durable outbox; restart-safe,

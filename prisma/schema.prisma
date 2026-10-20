@@ -425,7 +425,7 @@ model UserProfile {
   ttsCharsToday Int           @default(0) // chars synthesized on the platform key today
   credits       Int           @default(25)
   // BYOK OpenAI-compatible LLM key (AES-256-GCM) + its base URL. Preferred
-  // over the deployment's Groq/LiteLLM/Gemini env chain when set, so an
+  // over the deployment's Groq/Gemini env chain when set, so an
   // institution can route the rephrase step through its own account.
   llmKeyEnc     String?
   llmBaseUrl    String?
@@ -1307,7 +1307,7 @@ model PaddleSubscription {
 model LlmUsage {
   id               String   @id @default(cuid())
   orgId            String?
-  /// The answering rung, e.g. `gemini`, `groq`, `litellm`.
+  /// The answering rung, e.g. `gemini`, `groq`, `tenant_byok`.
   provider         String
   model            String
   promptTokens     Int?

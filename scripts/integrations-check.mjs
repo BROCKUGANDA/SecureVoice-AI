@@ -50,7 +50,6 @@ const SYSTEMS = [
   { name: "resend", group: "vendor", required: false, probe: "resendDomains" },
   { name: "llm.groq", group: "vendor", required: false, probe: "groqModels" },
   { name: "llm.gemini", group: "vendor", required: false, probe: "geminiModels" },
-  { name: "llm.litellm", group: "vendor", required: false, probe: "litellmModels" },
   { name: "langfuse", group: "observability", required: false, probe: "langfuseHealth" },
   { name: "axiom", group: "observability", required: false, probe: "axiomDatasets" },
   { name: "sentry.dsn", group: "observability", required: false, probe: "sentryDsnShape" },
@@ -277,14 +276,6 @@ const probes = {
     return r.status === 200
       ? pass(`${(r.json?.models ?? []).length} models listed`)
       : fail(`HTTP ${r.status}`);
-  },
-  async litellmModels() {
-    const base = (process.env.LITELLM_BASE_URL || "").replace(/\/$/, "");
-    if (!base) return skip("LITELLM_BASE_URL unset");
-    const r = await get(`${base}/v1/models`, {
-      Authorization: `Bearer ${process.env.LITELLM_API_KEY ?? ""}`,
-    });
-    return r.status === 200 ? pass(`${base} answers`) : fail(`HTTP ${r.status} at ${base}`);
   },
   async langfuseHealth() {
     const base = process.env.LANGFUSE_BASE_URL;

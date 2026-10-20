@@ -279,45 +279,6 @@ export const env = {
     );
   },
 
-  /* LiteLLM */
-  get litellmApiKey(): string | undefined {
-    return process.env.LITELLM_API_KEY;
-  },
-  /**
-   * Default LiteLLM model.
-   *
-   * Deliberately NOT an OpenAI model: this deployment routes every inference
-   * call through a Groq endpoint or a self-hosted LiteLLM proxy, so the default
-   * has to be a model a proxy can actually serve.
-   *
-   * `llama-3.3-70b-instruct` is chosen for two reasons that matter here:
-   *   - Multilingual coverage across the languages the agent actually speaks
-   *     (ar, hi, ur, fr, sw). A model strong only on en/es loses the call the
-   *     moment the customer answers in Urdu.
-   *   - It is permissively licensed and self-hostable on commodity GPUs, so a
-   *     LiteLLM proxy can serve it without an upstream vendor relationship.
-   *
-   * Overridable per deployment with LITELLM_MODEL.
-   */
-  get litellmModel(): string {
-    return process.env.LITELLM_MODEL || "llama-3.3-70b-instruct";
-  },
-  get litellmBaseUrl(): string {
-    return process.env.LITELLM_BASE_URL ?? "http://localhost:4000";
-  },
-  get litellmTimeoutMs(): number {
-    const raw = Number(process.env.LITELLM_TIMEOUT_MS);
-    return Number.isFinite(raw) && raw > 0 ? raw : 8_000;
-  },
-  get litellmTemperature(): number {
-    const raw = Number(process.env.LITELLM_TEMPERATURE);
-    return Number.isFinite(raw) && raw >= 0 && raw <= 1 ? raw : 0.3;
-  },
-  get litellmMaxTokens(): number {
-    const raw = Number(process.env.LITELLM_MAX_TOKENS);
-    return Number.isFinite(raw) && raw > 0 ? raw : 160;
-  },
-
   /* ElevenLabs base URL + voice / egress tunables */
   /** Base URL for the ElevenLabs API. Overridable so a gateway or proxy can sit
    * in front of the vendor, and a region move is a config change, not a rebuild. */
@@ -389,7 +350,7 @@ export const env = {
    *
    * This is what makes failover safe to have. Each provider carries its own
    * timeout, so a chain of them is unbounded unless something caps the TURN:
-   * without a budget, a Groq that times out at 3 s followed by a LiteLLM at 8 s
+   * without a budget, a Groq that times out at 3 s followed by a Gemini at 8 s
    * replaces a fast scripted reply with eleven seconds of dead air on the phone.
    * The drafter therefore never STARTS an attempt it cannot finish inside this.
    */

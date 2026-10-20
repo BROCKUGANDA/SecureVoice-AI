@@ -9,8 +9,8 @@ import { groundFromTranscripts } from "@/lib/knowledge/transcript-embeddings";
 import type { searchTranscripts } from "@/lib/knowledge/transcript-embeddings";
 /**
  * Optional LLM reply layer for the agent route — Groq (LPUs, ~300 tok/s, so a
- * voice turn feels instant), a self-hosted LiteLLM proxy, or Gemini (most
- * generous free tier, strong fr/sw). All three speak the same chat-completions
+ * voice turn feels instant) or Gemini (most
+ * generous free tier, strong fr/sw). Both speak the same chat-completions
  * wire format, so the selection below is a config change, not a code path.
  *
  * ## No OpenAI
@@ -22,11 +22,18 @@ import type { searchTranscripts } from "@/lib/knowledge/transcript-embeddings";
  *      has to clear that on every turn, not on a good day.
  *   2. Data residency. The caller transcript is bank-customer PII. Routing it
  *      to a third-party API that trains on it by default is not a decision this
- *      codebase is allowed to make quietly. A self-hosted LiteLLM proxy keeps
+ *      codebase is allowed to make quietly. A self-hosted model would keep
  *      the bytes inside the deployment's own boundary.
  *
- * Adding a provider therefore means: add a getter in src/lib/config.ts, return
- * it from `provider()` below. Nothing else in the file changes.
+ * A self-hosted rung was attempted and removed rather than wired: a proxy in
+ * front of Groq shares rung 1's vendor, key and rate limit, so it fails in the
+ * outage a fallback exists for and adds a hop to the customer's dead air
+ * (docs/GAP-REGISTER.md §41, §62). It comes back only with a funded upstream
+ * distinct from Groq's.
+ *
+ * Adding a provider therefore means: add a getter in src/lib/config.ts, a
+ * branch in `providerLadder` below, and a case in `adapterProviderFor`.
+ * Nothing else in the file changes.
  *
  * Division of responsibility (the security story stays intact):
  *   - INTENT classification is DETERMINISTIC (keyword router in the route) ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢šÂ¬Ã‚Â
@@ -96,7 +103,7 @@ export function llmBreakerState(): ReturnType<Breaker["snapshot"]> {
  * incident" becomes unanswerable.
  */
 export type Provider = {
-  name: "groq" | "lite_llm" | "gemini" | "tenant_byok";
+  name: "groq" | "gemini" | "tenant_byok";
   url: string;
   key: string;
   model: string;
@@ -111,9 +118,9 @@ export type Provider = {
  * `selectProvider()` below returns the head of this list, which is what it always
  * did. The list itself exists because a head with no tail is a precedence, not a
  * resilience: until now a configured-but-failing Groq produced `null` and the
- * scripted reply while a configured LiteLLM sat unused in the same environment.
- * Failover needs the ordered whole, and so does the audit row that answers
- * "which providers did we actually try".
+ * scripted reply while a configured second provider sat unused in the same
+ * environment. Failover needs the ordered whole, and so does the audit row that
+ * answers "which providers did we actually try".
  *
  * `provider()` reads process.env on every call, which makes it awkward to test
  * exhaustively: env is global mutable state, tests run concurrently, and a test
@@ -135,12 +142,6 @@ export type ProviderConfig = {
   groqTimeoutMs: number;
   groqTemperature: number;
   groqMaxTokens: number;
-  litellmApiKey?: string;
-  litellmBaseUrl: string;
-  litellmModel: string;
-  litellmTimeoutMs: number;
-  litellmTemperature: number;
-  litellmMaxTokens: number;
   geminiApiKey?: string;
   geminiBaseUrl: string;
   geminiModel: string;
@@ -157,17 +158,6 @@ export function providerLadder(cfg: ProviderConfig): Provider[] {
       timeoutMs: cfg.groqTimeoutMs,
       temperature: cfg.groqTemperature,
       maxTokens: cfg.groqMaxTokens,
-    });
-  }
-  if (cfg.litellmApiKey) {
-    out.push({
-      name: "lite_llm",
-      url: cfg.litellmBaseUrl,
-      key: cfg.litellmApiKey,
-      model: cfg.litellmModel,
-      timeoutMs: cfg.litellmTimeoutMs,
-      temperature: cfg.litellmTemperature,
-      maxTokens: cfg.litellmMaxTokens,
     });
   }
   if (cfg.geminiApiKey) {
@@ -192,9 +182,9 @@ export function providerLadder(cfg: ProviderConfig): Provider[] {
  * roughly 700ms, so the fastest provider that is configured wins and the others
  * are failover, not alternatives. Each returned record carries its OWN timeout,
  * temperature and token ceiling — reading `env.groq*` inside the request would
- * have applied Groq's tuning to a LiteLLM model with different characteristics,
- * which is the kind of bug that only shows up as "the self-hosted model feels
- * weird" and never as an error.
+ * have applied Groq's tuning to a different model with different
+ * characteristics, which is the kind of bug that only shows up as "the model
+ * feels weird" and never as an error.
  */
 export function selectProvider(cfg: ProviderConfig): Provider | null {
   return providerLadder(cfg)[0] ?? null;
@@ -205,7 +195,7 @@ export function selectProvider(cfg: ProviderConfig): Provider | null {
  *
  * This is the resilience half that `provider()` never had: the head of the ladder
  * was chosen once and any throw returned null, so an environment with both Groq
- * and a self-hosted LiteLLM had a working second provider it never used.
+ * and a second provider had a working fallback it never used.
  */
 export function providerAttempts(): Provider[] {
   return providerLadder({
@@ -215,12 +205,6 @@ export function providerAttempts(): Provider[] {
     groqTimeoutMs: env.groqTimeoutMs,
     groqTemperature: env.groqTemperature,
     groqMaxTokens: env.groqMaxTokens,
-    litellmApiKey: env.litellmApiKey,
-    litellmBaseUrl: env.litellmBaseUrl,
-    litellmModel: env.litellmModel,
-    litellmTimeoutMs: env.litellmTimeoutMs,
-    litellmTemperature: env.litellmTemperature,
-    litellmMaxTokens: env.litellmMaxTokens,
     geminiApiKey: env.geminiApiKey,
     geminiBaseUrl: env.geminiBaseUrl,
     geminiModel: env.geminiModel,
@@ -312,7 +296,7 @@ export async function resolveLlmCredentials(
           return selectTenantProvider({
             key,
             baseUrl: org.llmBaseUrl,
-            deploymentBaseUrl: env.litellmApiKey ? env.litellmBaseUrl : env.geminiBaseUrl,
+            deploymentBaseUrl: env.geminiBaseUrl,
             model: env.groqModel,
             timeoutMs: env.groqTimeoutMs,
             temperature: env.groqTemperature,
@@ -333,9 +317,9 @@ export async function resolveLlmCredentials(
     return selectTenantProvider({
       key,
       baseUrl: row.llmBaseUrl,
-      // LiteLLM first: it is the self-hosted gateway, which is the one an
-      // on-prem deployment has and the one whose shape a bank key targets.
-      deploymentBaseUrl: env.litellmApiKey ? env.litellmBaseUrl : env.geminiBaseUrl,
+      // The deployment's own provider is the fallback shape when a tenant key
+      // carries no base URL of its own.
+      deploymentBaseUrl: env.geminiBaseUrl,
       model: env.groqModel,
       timeoutMs: env.groqTimeoutMs,
       temperature: env.groqTemperature,
@@ -382,11 +366,9 @@ const LANGUAGE_RULE: Record<TtsLang, string> = {
  * Map a provider name to an LLM adapter provider.
  *
  * The `Provider` type above uses names that describe the DEPLOYMENT's
- * configuration (groq, lite_llm, gemini, tenant_byok), while the adapter uses
- * names that describe the WIRE FORMAT (openai, groq, anthropic, gemini). Most
- * map 1:1, but `lite_llm` and `tenant_byok` are both OpenAI-compatible
- * endpoints — they differ only in where the key comes from, not in how the
- * request is shaped.
+ * configuration (groq, gemini, tenant_byok), while the adapter uses names that
+ * describe the WIRE FORMAT (openai, groq, anthropic, gemini). Most map 1:1,
+ * but `tenant_byok` is an OpenAI-compatible endpoint and does not.
  *
  * This function is the single place that knows both vocabularies. Adding a
  * new provider to either side without updating this map is a compile error,
@@ -399,7 +381,6 @@ function adapterProviderFor(name: Provider["name"]): LlmProvider {
       return "groq";
     case "gemini":
       return "gemini";
-    case "lite_llm":
     case "tenant_byok":
       return "openai";
   }
@@ -776,7 +757,7 @@ export async function draftAgentReply(args: {
         // Same for embedded transcripts: which past cases were pulled as context.
         transcriptHits: transcriptGrounding?.hits ?? 0,
         transcriptSources: transcriptGrounding?.sources ?? [],
-        // The whole attempt list, not just the head. "Groq timed out and LiteLLM
+        // The whole attempt list, not just the head. "Groq timed out and Gemini
         // answered" is the sentence an incident review needs, and it is
         // unrecoverable afterwards if only the chosen provider is recorded.
         attemptedProviders: attempts.map((a) => a.name),

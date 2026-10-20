@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { t, type Lang } from "@/lib/store";
+import { PILOT_POLL_INTERVAL_MS } from "@/lib/public-config";
 
 /**
  * The PILOT panel — the console surface for the bounded operating mode.
@@ -118,7 +119,7 @@ export function PilotPanel({ lang }: Props) {
     // The counters move while a pilot runs, so the panel refreshes. A slow
     // poll: this is an operator surface, not a live feed, and the pilot's own
     // dial decisions are far more precise than a screen refresh.
-    const iv = setInterval(() => void load(), 15_000);
+    const iv = setInterval(() => void load(), PILOT_POLL_INTERVAL_MS);
     return () => clearInterval(iv);
   }, [load]);
 

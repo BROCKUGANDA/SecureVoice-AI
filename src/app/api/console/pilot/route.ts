@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireSignedIn } from "@/lib/credits";
 import { db } from "@/lib/db";
+import { env } from "@/lib/config";
 import {
   pilotStatus,
   pilotOrgIsShared,
@@ -58,12 +59,16 @@ export const dynamic = "force-dynamic";
  * the operator needs the first few, and the COUNT says how many there really
  * are.
  *
- * The bound is a PARAMETER, cast to int, because Postgres cannot infer the
- * type of a bare parameter in a LIMIT through this driver's query builder
- * ("could not determine data type of parameter $2"). The number is a
- * compile-time constant here and never anything a caller controls.
+ * The bound is a deployment decision (`PILOT_WAITING_LIST_LIMIT`), because
+ * how many cases an operator wants to see at once is a decision about the
+ * operator's screen and their shift, not about the platform. It is READ AT USE
+ * rather than captured at import, and it is passed as a PARAMETER cast to int,
+ * because Postgres cannot infer the type of a bare parameter in a LIMIT through
+ * this driver's query builder ("could not determine data type of parameter $2").
  */
-const MAX_WAITING_CASES = 25;
+function maxWaitingCases(): number {
+  return env.pilotWaitingListLimit;
+}
 
 export async function GET() {
   const guard = await requireSignedIn();
@@ -121,7 +126,7 @@ export async function GET() {
                     AND a."intent" = ${approvalPrefix} || j."attempt_no"::text
                )
              ORDER BY j."created_at" ASC
-             LIMIT ${MAX_WAITING_CASES}::int
+             LIMIT ${maxWaitingCases()}::int
           `
         : await db.$queryRaw<{ case_ref: string; attempt_no: number; n: number }[]>`
             SELECT j."case_ref" AS "case_ref",
@@ -141,7 +146,7 @@ export async function GET() {
                     AND a."intent" = ${approvalPrefix} || j."attempt_no"::text
                )
              ORDER BY j."created_at" ASC
-             LIMIT ${MAX_WAITING_CASES}::int
+             LIMIT ${maxWaitingCases()}::int
           `;
       waitingCount = rows[0]?.n ?? 0;
       for (const r of rows) waiting.push({ caseRef: r.case_ref, attemptNo: r.attempt_no });

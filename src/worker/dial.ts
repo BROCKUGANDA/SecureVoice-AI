@@ -37,6 +37,7 @@ import { placeInterventionCall } from "@/lib/twilio";
 import { append as auditAppend } from "@/lib/audit-chain";
 import { flushLangfuse } from "@/lib/langfuse";
 import { db } from "@/lib/db";
+import { env } from "@/lib/config";
 import { transitionCase } from "@/lib/case-state-machine";
 import { markVoiceFailed } from "@/lib/elevenlabs/sms-fallback";
 import { getInstitutionContext, getTelecomIdentity } from "@/lib/institution";
@@ -75,9 +76,11 @@ const LEASE_MS = Number(process.env.DIAL_WORKER_LEASE_MS ?? 60_000);
  * claim fails the renewal and the job is skipped rather than dialled twice.
  *
  * Fifteen minutes is longer than any call this platform places and short enough
- * that a worker killed mid-call does not strand the case for a shift.
+ * that a worker killed mid-call does not strand the case for a shift — and it
+ * is a deployment decision (`DIAL_WORKER_CALL_LEASE_MS`), because "how long
+ * before a dead worker's call is picked up again" is a question about the
+ * deployment's call lengths, not a constant.
  */
-const CALL_LEASE_MS = Number(process.env.DIAL_WORKER_CALL_LEASE_MS ?? 15 * 60_000);
 const ONCE = process.argv.includes("--once");
 
 /**
@@ -95,9 +98,13 @@ const ONCE = process.argv.includes("--once");
  * declared fallback, with the refusal audited rather than silent.
  */
 const telephonyBreaker: Breaker = createBreaker("telephony", {
-  failureThreshold: 5,
-  openMs: 60_000,
-  halfOpenProbes: 1,
+  // Every threshold is a deployment decision, read from the environment: how
+  // many carrier refusals count as "the carrier is down", how long it stays
+  // down, and how many probes are allowed while it recovers. A constant here
+  // is a constant every operator has to live with.
+  failureThreshold: env.breakerFailureThreshold,
+  openMs: env.breakerOpenMs,
+  halfOpenProbes: env.breakerHalfOpenProbes,
 });
 
 /** Test seam, mirroring `_resetLlmBreakerForTest` in src/lib/llm.ts. */
@@ -1016,7 +1023,7 @@ async function tick(): Promise<number> {
     // this worker still owns the row and extends the lease over the call; a
     // false answer skips the job. Without this a batch-claimed job whose 60s
     // claim lapsed, or a job reclaimed by a second worker, was dialled anyway.
-    beforeHandler: (job) => renewClaim(job.id, WORKER_ID, CALL_LEASE_MS),
+    beforeHandler: (job) => renewClaim(job.id, WORKER_ID, env.dialWorkerCallLeaseMs),
     onDead,
     limit: BATCH,
     leaseMs: LEASE_MS,

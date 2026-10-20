@@ -107,10 +107,86 @@ function readState() {
 }
 
 /**
- * Granularity of a canary split: 20 slots, so a percentage lands on a 5% step.
- * Not arbitrary — see `upstreamList` for why a split is repetition at all.
+ * Every tunable this script reads, and where it comes from.
+ *
+ * The deploy script is the one program in this repository that runs ON the
+ * production box, by hand, during an incident. A constant in it is a decision
+ * nobody can change without a code change on the box, and the box is the one
+ * place a code change is hardest. So each of them is an environment variable
+ * with a documented default, and the defaults are the values this repository
+ * has been shipping.
+ *
+ * A malformed value takes the default rather than failing: a typo in a
+ * deployment variable must not stop a rollback, and a rollback that refuses to
+ * run is worse than a rollback that runs with the shipped defaults.
  */
-const CANARY_SLOTS = 20;
+const TUNABLES = {
+  /**
+   * Granularity of a canary split: 20 slots, so a percentage lands on a 5%
+   * step. Not arbitrary — see `upstreamList` for why a split is repetition at
+   * all.
+   */
+  canarySlots: { name: "CANARY_SLOTS", fallback: 20, min: 2, max: 1_000 },
+  /** The first split a canary widens TO. */
+  canaryStartPercent: { name: "CANARY_START_PERCENT", fallback: 5, min: 0, max: 100 },
+  /** The second split, before the release goes to 100%. */
+  canaryMidPercent: { name: "CANARY_MID_PERCENT", fallback: 50, min: 0, max: 100 },
+  /** How long each split is observed before the next one. */
+  canarySoakSeconds: { name: "CANARY_SOAK_SECONDS", fallback: 300, min: 0, max: 86_400 },
+  /** How often the soak probes the edge and the colour. */
+  canaryProbeIntervalSeconds: {
+    name: "CANARY_PROBE_INTERVAL_SECONDS",
+    fallback: 30,
+    min: 1,
+    max: 3_600,
+  },
+  /** How long a colour is given to become healthy. */
+  colourHealthTimeoutMs: { name: "COLOUR_HEALTH_TIMEOUT_MS", fallback: 180_000, min: 1_000 },
+  /** How long a missing container is tolerated before the wait gives up. */
+  colourContainerGraceMs: { name: "COLOUR_CONTAINER_GRACE_MS", fallback: 20_000, min: 0 },
+  /** How often the health wait looks. */
+  colourPollIntervalMs: { name: "COLOUR_POLL_INTERVAL_MS", fallback: 3_000, min: 100 },
+  /** The port the colour slots serve on, inside the compose network. */
+  appPort: { name: "APP_PORT", fallback: 3_000, min: 1, max: 65_535 },
+  /** The origin the probes read, from the edge's point of view. */
+  probeOrigin: { name: "PROBE_ORIGIN", fallback: "http://127.0.0.1", min: 0 },
+  /** The health path the probes read. */
+  probePath: { name: "PROBE_PATH", fallback: "/api/readyz", min: 0 },
+  /** The liveness path `status` reads — a different path from readiness. */
+  healthPath: { name: "HEALTH_PATH", fallback: "/api/health", min: 0 },
+  /** How long a single probe may take. */
+  probeTimeoutSec: { name: "PROBE_TIMEOUT_SEC", fallback: 15, min: 1, max: 300 },
+};
+
+/**
+ * Read a tunable.
+ *
+ * A number that is not a number, or is out of range, takes the default. The
+ * alternative — refusing — would mean a typo in a shell variable could stop a
+ * rollback, and a rollback that will not run is the worst possible time to
+ * discover one.
+ */
+function tunable(key) {
+  const spec = TUNABLES[key];
+  if (!spec) throw new Error(`unknown tunable: ${key}`);
+  if (key === "probeOrigin" || key === "probePath") {
+    const raw = process.env[spec.name];
+    return typeof raw === "string" && raw.trim() !== "" ? raw.trim() : spec.fallback;
+  }
+  const raw = Number(process.env[spec.name]);
+  return Number.isFinite(raw) && raw >= spec.min && raw <= spec.max ? raw : spec.fallback;
+}
+
+/** The resolved tunables, read once so every use below agrees. */
+const CANARY_SLOTS = tunable("canarySlots");
+const APP_PORT = tunable("appPort");
+const PROBE_ORIGIN = tunable("probeOrigin");
+const PROBE_PATH = tunable("probePath");
+const HEALTH_PATH = tunable("healthPath");
+const PROBE_TIMEOUT_SEC = tunable("probeTimeoutSec");
+
+/** The upstream one colour serves on. */
+const upstreamFor = (colour) => `app-${colour}:${APP_PORT}`;
 
 /**
  * The `APP_UPSTREAM` value for a traffic split.
@@ -131,15 +207,15 @@ const CANARY_SLOTS = 20;
  * flip, and the state every other command expects.
  */
 function upstreamList(active, canary, percent) {
-  if (!canary || percent === undefined || percent <= 0) return `app-${active}:3000`;
+  if (!canary || percent === undefined || percent <= 0) return upstreamFor(active);
   const canarySlots = Math.min(
     CANARY_SLOTS,
     Math.max(0, Math.round((percent / 100) * CANARY_SLOTS)),
   );
   const activeSlots = CANARY_SLOTS - canarySlots;
   return [
-    ...Array.from({ length: activeSlots }, () => `app-${active}:3000`),
-    ...Array.from({ length: canarySlots }, () => `app-${canary}:3000`),
+    ...Array.from({ length: activeSlots }, () => upstreamFor(active)),
+    ...Array.from({ length: canarySlots }, () => upstreamFor(canary)),
   ].join(" ");
 }
 
@@ -155,7 +231,7 @@ function upstreamList(active, canary, percent) {
 function writeState(next) {
   mkdirSync(STATE_DIR, { recursive: true });
   writeFileSync(STATE, JSON.stringify(next, null, 2));
-  const upstream = next.upstream ?? `app-${next.active}:3000`;
+  const upstream = next.upstream ?? upstreamFor(next.active);
   writeFileSync(
     ENV_ACTIVE,
     `# Written by scripts/deploy.mjs — do not hand-edit.\n` +
@@ -241,7 +317,7 @@ export function stackMode() {
 }
 
 /** Wait for a colour's container to report healthy, or give up. */
-async function waitHealthy(colour, timeoutMs = 180_000) {
+async function waitHealthy(colour, timeoutMs = tunable("colourHealthTimeoutMs")) {
   const service = `app-${colour}`;
   const deadline = Date.now() + timeoutMs;
   process.stdout.write(`  waiting for ${service} to be healthy`);
@@ -251,7 +327,7 @@ async function waitHealthy(colour, timeoutMs = 180_000) {
       // No container: either it has not been created yet or it was removed.
       // Compose creates it within a second of `up`, so a short grace period is
       // right, and beyond that the roll has failed.
-      if (Date.now() > deadline - timeoutMs + 20_000) {
+      if (Date.now() > deadline - timeoutMs + tunable("colourContainerGraceMs")) {
         console.log(" no container");
         return false;
       }
@@ -277,7 +353,7 @@ async function waitHealthy(colour, timeoutMs = 180_000) {
       }
     }
     process.stdout.write(".");
-    await new Promise((r) => setTimeout(r, 3000));
+    await new Promise((r) => setTimeout(r, tunable("colourPollIntervalMs")));
   }
   console.log(" TIMEOUT");
   return false;
@@ -298,7 +374,7 @@ function probeDirect(colour) {
       id,
       "bun",
       "-e",
-      "fetch('http://127.0.0.1:3000/api/readyz').then(r=>{console.log(r.status);process.exit(r.ok?0:1)}).catch(()=>{console.log('ERR');process.exit(1)})",
+      `fetch('http://127.0.0.1:${APP_PORT}${PROBE_PATH}').then(r=>{console.log(r.status);process.exit(r.ok?0:1)}).catch(()=>{console.log('ERR');process.exit(1)})`,
     ],
     { encoding: "utf8" },
   );
@@ -316,7 +392,7 @@ function flipTraffic(colour, split) {
     ...state,
     active: colour,
     previous: colour === state.active ? state.previous : state.active,
-    upstream: split ?? `app-${colour}:3000`,
+    upstream: split ?? upstreamFor(colour),
   });
   // caddy is the ONLY public process, so recreating just it moves all traffic.
   // The colours are untouched and keep serving while caddy restarts.
@@ -384,7 +460,7 @@ async function deploy(image, canaryPercent) {
   if (pct >= 100) {
     console.log(`\n  flipping traffic to app-${target}`);
     flipTraffic(target, upstreamList(target, null, 0));
-    writeState({ active: target, previous: serving, image, upstream: `app-${target}:3000` });
+    writeState({ active: target, previous: serving, image, upstream: upstreamFor(target) });
   } else {
     const slots = Math.round((pct / 100) * CANARY_SLOTS);
     if (slots === 0) {
@@ -413,7 +489,16 @@ async function deploy(image, canaryPercent) {
   console.log(`  verifying through caddy`);
   const viaProxy = spawnSync(
     "curl",
-    ["-fsS", "-o", "/dev/null", "-w", "%{http_code}", "http://127.0.0.1/api/readyz"],
+    [
+      "-fsS",
+      "-o",
+      "/dev/null",
+      "--max-time",
+      String(PROBE_TIMEOUT_SEC),
+      "-w",
+      "%{http_code}",
+      `${PROBE_ORIGIN}${PROBE_PATH}`,
+    ],
     { encoding: "utf8" },
   );
   const status = viaProxy.stdout?.trim();
@@ -521,7 +606,16 @@ async function adopt() {
   // 4. Verify through the proxy.
   const viaProxy = spawnSync(
     "curl",
-    ["-fsS", "-o", "/dev/null", "-w", "%{http_code}", "http://127.0.0.1/api/readyz"],
+    [
+      "-fsS",
+      "-o",
+      "/dev/null",
+      "--max-time",
+      String(PROBE_TIMEOUT_SEC),
+      "-w",
+      "%{http_code}",
+      `${PROBE_ORIGIN}${PROBE_PATH}`,
+    ],
     { encoding: "utf8" },
   );
   const status = viaProxy.stdout?.trim();
@@ -543,7 +637,7 @@ async function adopt() {
     active: "blue",
     previous: null,
     image: imageRef,
-    upstream: "app-blue:3000",
+    upstream: upstreamFor("blue"),
     adopted: true,
   });
   console.log(`\n  ✓ adopted. Production is served by app-blue (${imageRef}).`);
@@ -562,7 +656,7 @@ async function adopt() {
  */
 function revertToPlain() {
   console.error("\n  reverting to the plain stack");
-  writeState({ ...readState(), active: null, previous: null, upstream: "app:3000" });
+  writeState({ ...readState(), active: null, previous: null, upstream: `app:${APP_PORT}` });
   compose(["up", "-d", "--no-deps", "app"], { allowFail: true });
   compose(["up", "-d", "--no-deps", "caddy"], { allowFail: true });
 }
@@ -619,12 +713,12 @@ function promote() {
     console.log(
       "  (this is the state a rollback leaves behind — the retired colour was not re-recorded.)",
     );
-    writeState({ ...state, previous: null, upstream: `app-${state.active}:3000` });
+    writeState({ ...state, previous: null, upstream: upstreamFor(state.active) });
     return;
   }
   console.log(`\n  promoting: stopping app-${state.previous}`);
   stopColour(state.previous);
-  writeState({ ...state, previous: null, upstream: `app-${state.active}:3000` });
+  writeState({ ...state, previous: null, upstream: upstreamFor(state.active) });
 }
 
 /**
@@ -720,13 +814,13 @@ function canary({ to, percent }) {
   // out that twenty identical entries are really one upstream.
   if (pct === 100) {
     console.log(`\n  canary 100% → app-${target} (full switch)`);
-    flipTraffic(target, `app-${target}:3000`);
+    flipTraffic(target, upstreamFor(target));
     console.log(`  ✓ all traffic on app-${target}`);
     return;
   }
   if (pct === 0) {
     console.log(`\n  canary 0% → reverting all traffic to app-${state.active}`);
-    flipTraffic(state.active, `app-${state.active}:3000`);
+    flipTraffic(state.active, upstreamFor(state.active));
     console.log(`  ✓ all traffic on app-${state.active}`);
     return;
   }
@@ -791,7 +885,16 @@ function probe({ colour }) {
 
   const edge = spawnSync(
     "curl",
-    ["-fsS", "-o", "/dev/null", "-w", "%{http_code}", "http://127.0.0.1/api/readyz"],
+    [
+      "-fsS",
+      "-o",
+      "/dev/null",
+      "--max-time",
+      String(PROBE_TIMEOUT_SEC),
+      "-w",
+      "%{http_code}",
+      `${PROBE_ORIGIN}${PROBE_PATH}`,
+    ],
     { encoding: "utf8" },
   );
   const status = edge.stdout?.trim();
@@ -840,7 +943,16 @@ async function status() {
   console.log(`  app        ${plain ? "running (plain stack)" : "(not running)"}`);
   const curl = spawnSync(
     "curl",
-    ["-fsS", "-o", "/dev/null", "-w", "%{http_code}", "http://127.0.0.1/api/health"],
+    [
+      "-fsS",
+      "-o",
+      "/dev/null",
+      "--max-time",
+      String(PROBE_TIMEOUT_SEC),
+      "-w",
+      "%{http_code}",
+      `${PROBE_ORIGIN}${HEALTH_PATH}`,
+    ],
     {
       encoding: "utf8",
     },
@@ -893,10 +1005,10 @@ async function status() {
  * script cannot see application errors — only transport-level readiness.
  */
 async function auto(image, opts) {
-  const startPct = opts.startPercent ?? 5;
-  const midPct = opts.midPercent ?? 50;
-  const soakSeconds = opts.soakSeconds ?? 300;
-  const probeInterval = opts.probeInterval ?? 30;
+  const startPct = opts.startPercent ?? tunable("canaryStartPercent");
+  const midPct = opts.midPercent ?? tunable("canaryMidPercent");
+  const soakSeconds = opts.soakSeconds ?? tunable("canarySoakSeconds");
+  const probeInterval = opts.probeInterval ?? tunable("canaryProbeIntervalSeconds");
 
   // The image defaults to the one the deploy workflow ALREADY STAGED.
   //
@@ -975,7 +1087,16 @@ async function auto(image, opts) {
       await new Promise((r) => setTimeout(r, probeInterval * 1000));
       const edge = spawnSync(
         "curl",
-        ["-fsS", "-o", "/dev/null", "-w", "%{http_code}", "http://127.0.0.1/api/readyz"],
+        [
+          "-fsS",
+          "-o",
+          "/dev/null",
+          "--max-time",
+          String(PROBE_TIMEOUT_SEC),
+          "-w",
+          "%{http_code}",
+          `${PROBE_ORIGIN}${PROBE_PATH}`,
+        ],
         { encoding: "utf8" },
       );
       const edgeCode = edge.stdout?.trim();
@@ -1011,7 +1132,16 @@ async function auto(image, opts) {
   // state records active=new, previous=old, so a straight promote is correct).
   const edge = spawnSync(
     "curl",
-    ["-fsS", "-o", "/dev/null", "-w", "%{http_code}", "http://127.0.0.1/api/readyz"],
+    [
+      "-fsS",
+      "-o",
+      "/dev/null",
+      "--max-time",
+      String(PROBE_TIMEOUT_SEC),
+      "-w",
+      "%{http_code}",
+      `${PROBE_ORIGIN}${PROBE_PATH}`,
+    ],
     { encoding: "utf8" },
   );
   const code = edge.stdout?.trim();

@@ -98,6 +98,7 @@ import "server-only";
  */
 
 import { db } from "@/lib/db";
+import { env } from "@/lib/config";
 import { DEFAULT_ORG_ID } from "@/lib/tenancy/guard";
 import { logError, logInfo, logWarn } from "@/lib/validation/safe-log";
 
@@ -314,12 +315,19 @@ export function dialKillSwitchEnvRecognised(): boolean {
 /**
  * How long a database-read switch state is trusted before it is re-read.
  *
- * Five seconds. Long enough that the hot path is not paying a round-trip per
- * dial, short enough that the person who flipped the switch sees the platform
- * stop before they start wondering whether it worked. The environment half has
- * NO cache at all, because reading it costs nothing.
+ * Five seconds by default, and the value is a deployment decision
+ * (`PILOT_SWITCH_CACHE_MS`): long enough that the hot path is not paying a
+ * round-trip per dial, short enough that the person who flipped the switch sees
+ * the platform stop before they start wondering whether it worked. The
+ * environment half has NO cache at all, because reading it costs nothing.
+ *
+ * It is READ AT USE, not captured at import: a value captured when the module
+ * loads is a value that only a restart can change, and a restart is not a
+ * configuration change.
  */
-const SWITCH_CACHE_MS = 5_000;
+function switchCacheMs(): number {
+  return env.pilotSwitchCacheMs;
+}
 
 type CachedSwitch = { engaged: boolean; readAt: number; available: boolean };
 let cachedDialSwitch: CachedSwitch | null = null;
@@ -359,7 +367,7 @@ export async function dialKillSwitchDbState(): Promise<{
   available: boolean;
 }> {
   const now = Date.now();
-  if (cachedDialSwitch && now - cachedDialSwitch.readAt < SWITCH_CACHE_MS) {
+  if (cachedDialSwitch && now - cachedDialSwitch.readAt < switchCacheMs()) {
     return { engaged: cachedDialSwitch.engaged, available: cachedDialSwitch.available };
   }
   try {
@@ -612,13 +620,14 @@ export async function pilotActedToday(
  * in eleven minutes" instead of guessing at a timezone.
  */
 export async function pilotSecondsUntilReset(): Promise<number> {
+  const floor = env.pilotCapResetFloorSec;
   const rows = await db.$queryRaw<{ secs: number }[]>`
     SELECT GREATEST(
-             60,
+             ${floor},
              extract(epoch FROM (date_trunc('day', now()) + interval '1 day' - now()))::int
            )::int AS "secs"
   `;
-  return rows[0]?.secs ?? 60;
+  return rows[0]?.secs ?? floor;
 }
 
 /**
@@ -800,8 +809,19 @@ export type PilotDialDecision =
       retryAfterMs: number;
     };
 
-const MIN_RETRY_MS = 60_000;
-const MAX_RETRY_MS = 24 * 60 * 60 * 1_000;
+/**
+ * The shortest and longest a blocked dial waits before it is looked at again.
+ *
+ * READ AT USE, not captured at import: a value captured when the module loads
+ * is a value only a restart can change, and a restart is not a configuration
+ * change.
+ */
+function minRetryMs(): number {
+  return env.pilotBlockRetryMinMs;
+}
+function maxRetryMs(): number {
+  return env.pilotBlockRetryMaxMs;
+}
 
 /**
  * May this call be placed right now?
@@ -848,7 +868,7 @@ export async function pilotDialDecision(input: {
         mode,
         reason: "dial_kill_switch",
         detail: `outbound dialling is stopped (${DIAL_KILL_SWITCH_ENV})`,
-        retryAfterMs: MIN_RETRY_MS,
+        retryAfterMs: minRetryMs(),
       };
     }
     const sw = await dialKillSwitchDbState();
@@ -860,7 +880,7 @@ export async function pilotDialDecision(input: {
         detail: sw.available
           ? "outbound dialling is stopped (operator kill switch)"
           : "outbound dialling is stopped (the operator switch could not be read; the platform fails closed)",
-        retryAfterMs: MIN_RETRY_MS,
+        retryAfterMs: minRetryMs(),
       };
     }
     checked.push("kill_switch");
@@ -872,7 +892,7 @@ export async function pilotDialDecision(input: {
         mode,
         reason: "pilot_shadow_mode",
         detail: "pilot is in shadow mode: cases are recorded, no customer is contacted",
-        retryAfterMs: 5 * MIN_RETRY_MS,
+        retryAfterMs: env.pilotShadowRetryMs,
       };
     }
 
@@ -907,7 +927,7 @@ export async function pilotDialDecision(input: {
             signalKind === ""
               ? `this pilot is chartered for '${kind}' signals, and this case carries no signal type; an untyped alert cannot be shown to be in scope`
               : `this pilot is chartered for '${kind}' signals; this case is '${signalKind}'`,
-          retryAfterMs: 60 * MIN_RETRY_MS,
+          retryAfterMs: env.pilotCharterRetryMs,
         };
       }
     }
@@ -928,7 +948,7 @@ export async function pilotDialDecision(input: {
         mode,
         reason: "pilot_invalid_configuration",
         detail: "a pilot cap is misconfigured; the platform refuses to dial until it is fixed",
-        retryAfterMs: 60 * MIN_RETRY_MS,
+        retryAfterMs: 60 * minRetryMs(),
       };
     }
 
@@ -947,7 +967,7 @@ export async function pilotDialDecision(input: {
           mode,
           reason: "pilot_daily_cap",
           detail: `daily pilot cap reached (${acted}/${dailyCap} interventions acted on today)`,
-          retryAfterMs: Math.min(MAX_RETRY_MS, Math.max(MIN_RETRY_MS, secondsUntilReset * 1_000)),
+          retryAfterMs: Math.min(maxRetryMs(), Math.max(minRetryMs(), secondsUntilReset * 1_000)),
         };
       }
     }
@@ -961,7 +981,7 @@ export async function pilotDialDecision(input: {
           mode,
           reason: "pilot_concurrency_cap",
           detail: `pilot concurrency cap reached (${inFlight}/${concurrencyCap} calls in flight)`,
-          retryAfterMs: MIN_RETRY_MS,
+          retryAfterMs: minRetryMs(),
         };
       }
     }
@@ -975,7 +995,7 @@ export async function pilotDialDecision(input: {
           mode,
           reason: "pilot_human_approval_required",
           detail: `a human must approve attempt ${input.attemptNo ?? 1} of this dial before it is placed`,
-          retryAfterMs: MIN_RETRY_MS,
+          retryAfterMs: minRetryMs(),
         };
       }
     }
@@ -997,7 +1017,7 @@ export async function pilotDialDecision(input: {
       reason: "pilot_invalid_configuration",
       detail:
         "the pilot controls could not be evaluated; the platform refuses to dial rather than guess",
-      retryAfterMs: MIN_RETRY_MS,
+      retryAfterMs: minRetryMs(),
     };
   }
 }

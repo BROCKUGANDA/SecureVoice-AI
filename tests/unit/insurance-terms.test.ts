@@ -36,15 +36,22 @@ describe("insurance coverage map", () => {
       expect(term.en.trim().length).toBeGreaterThan(0);
       expect(term.ar.trim().length).toBeGreaterThan(0);
       const prior = byEnglish.get(term.en);
-      if (prior !== undefined) expect(term.ar, term.en).toBe(prior);
+      // The English key IS the message: a duplicate key is a duplicate term, and
+      // the key names it.
+      //
+      // `as string` widens the literal union the vocabulary is typed with, so
+      // `toBe` is compared against a `string` rather than against the fifteen
+      // Arabic literals — the assertion is "the same rendering", not "one of
+      // these exact literals".
+      if (prior !== undefined) expect(term.ar as string).toBe(prior);
       byEnglish.set(term.en, term.ar);
     }
   });
 
   test("Arabic terms contain Arabic script and no leftover Latin words", () => {
     for (const item of [...INSURANCE_TERMS, ...INSURANCE_INSTITUTIONS, ...INSURANCE_LINES]) {
-      expect(item.ar, item.en).toMatch(/[\u0600-\u06ff]/);
-      expect(item.ar, item.en).not.toMatch(/[A-Za-z]{2,}/);
+      expect(item.ar).toMatch(/[\u0600-\u06ff]/);
+      expect(item.ar).not.toMatch(/[A-Za-z]{2,}/);
     }
   });
 

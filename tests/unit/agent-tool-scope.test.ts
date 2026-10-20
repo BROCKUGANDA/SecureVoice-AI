@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test, mock } from "bun:test";
+import { afterAll, beforeEach, describe, expect, test, mock } from "bun:test";
 
 /**
  * A tenant credential scoped to `card_freeze` must not invoke
@@ -68,7 +68,13 @@ describe("tenant agent-tool scoping", () => {
 });
 
 // Restore env so this file cannot leak configuration into a later suite.
-process.on("beforeExit", () => {
+//
+// `afterAll`, not `process.on("beforeExit")`: the runner gives every test file
+// its OWN process, so "after the file's tests" is the exact moment the restore
+// has to happen, and `beforeExit` is not in Bun's typed `process.on` surface —
+// using it here was a type error that the tests-tsconfig gate caught, and it
+// would have fired at a moment nobody chose.
+afterAll(() => {
   if (previousAllowed === undefined) delete process.env.AGENT_TOOL_ALLOWED;
   else process.env.AGENT_TOOL_ALLOWED = previousAllowed;
   if (previousSecret === undefined) delete process.env.AGENT_TOOL_SECRET;

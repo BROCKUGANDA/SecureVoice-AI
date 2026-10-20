@@ -242,10 +242,12 @@ describe("the database kill switch — fail closed, cached", () => {
       data: { engaged: false },
     });
     const cached = await dialKillSwitchDbState();
-    expect(cached.engaged).toBe(true, "inside the cache window the previous read stands");
+    // Inside the cache window the previous read stands.
+    expect(cached.engaged).toBe(true);
     _resetPilotSwitchCacheForTest();
     const fresh = await dialKillSwitchDbState();
-    expect(fresh.engaged).toBe(false, "after the reset the read is current again");
+    // After the reset the read is current again.
+    expect(fresh.engaged).toBe(false);
   });
 });
 

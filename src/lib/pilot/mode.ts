@@ -675,17 +675,64 @@ export async function pilotInFlightNow(orgId: string | null): Promise<number> {
  * survives the sanitiser because it is already in its allowlist.
  */
 export function pilotApprovalIntent(attemptNo: number): string {
-  return `${PILOT_APPROVAL_INTENT}:${Math.max(1, Math.trunc(attemptNo))}`;
+  return `${pilotApprovalPrefix()}${Math.max(1, Math.trunc(attemptNo))}`;
 }
+
+/**
+ * The PREFIX every per-attempt approval intent shares.
+ *
+ * It exists so that the writer and the READER cannot drift apart, which is
+ * exactly what happened once: the intent is `pilot_dial_approved:<attempt>`,
+ * and a reader that looked for `pilot_dial_approved#<attempt>` matched
+ * nothing — so the console reported every parked job as "waiting for a
+ * decision" and the panel could never clear. The console's status query needs
+ * the prefix on its own (it concatenates the attempt number in SQL), and
+ * deriving it from the same place the writer uses is what makes the two
+ * impossible to separate.
+ */
+export function pilotApprovalPrefix(): string {
+  return `${PILOT_APPROVAL_INTENT}:`;
+}
+
+/**
+ * The `last_error` a job carries while it is PARKED, waiting for a decision.
+ *
+ * The console's "waiting for a human" list matches on this string, so it is
+ * defined next to the block reasons rather than written into the worker's
+ * template — the two used to be able to disagree, and a disagreement here
+ * means a console that lists the whole backlog as if every case were waiting
+ * on a person.
+ */
+export function pilotBlockMarker(reason: string): string {
+  return `pilot_blocked:${reason}`;
+}
+
+/**
+ * The marker of the ONE park reason that is a human's to answer.
+ *
+ * Every other park reason — the kill switch, the cap, the concurrency limit,
+ * the charter, the shadow mode — is a SYSTEM's to answer, and a job parked by
+ * one of those is not on the operator's desk.
+ */
+export const PILOT_WAITING_APPROVAL_MARKER = pilotBlockMarker("pilot_human_approval_required");
 
 /**
  * Has a human approved THIS attempt of this dial?
  *
- * Reads the append-only audit chain. An approval authorises the attempt it
- * names and no other: a case that is dialled, comes back unanswered and is
- * retried as attempt 2 needs a SECOND approval, because a second call to a
- * customer is a second call to a customer and Phase 1 says a human approves
- * every dial.
+ * Reads the append-only audit chain. An approval authorises the DELIVERY of
+ * the attempt it names, and no other.
+ *
+ * A NEW attempt needs a new approval: the dispatch engine's `retry.callback`
+ * opens a fresh `dial_job` row for the same case, and that is a new
+ * intervention — a customer who was rung once and did not pick up is being
+ * rung again, and Phase 1 says a human approves every dial.
+ *
+ * The RETRIES INSIDE one attempt are the ladder's business, not the
+ * operator's: they are retries of a call the carrier never delivered (a 4xx,
+ * a timeout before the carrier accepted it), so no customer hears a second
+ * ring. A delivery whose outcome is UNKNOWN ends the attempt instead — it
+ * dead-letters to the SMS fallback rather than being repeated under the same
+ * approval, because the customer may already be on the phone with us.
  *
  * The old behaviour — "any approval row for this caseRef, ever" — authorised
  * a fresh dial a month later, from an approval recorded before the case was

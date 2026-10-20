@@ -7,6 +7,7 @@ import { SUPPORT_EMAIL } from "@/lib/public-config";
 import { REFUND_POLICIES } from "@/lib/legal-policies";
 import { SubscribeButtons } from "@/components/billing/SubscribeButtons";
 import { paddlePriceIds } from "@/lib/paddle-browser";
+import { PLANS, formatIncluded, formatMonthly, formatOveragePhrase } from "@/lib/commercial";
 import type { Lang } from "@/lib/store";
 
 /**
@@ -68,176 +69,39 @@ const PADDLE_PRICE_ID: ReturnType<typeof paddlePriceIds> | null = (() => {
 
 /** One intervention signal fired = one credit. Mirrors src/lib/credits.ts. */
 const USD_TO_AED = 3.6725;
-const aed = (usd: number): string => `AED ${Math.round(usd * USD_TO_AED).toLocaleString("en-US")}`;
+/**
+ * The AED reference figure, formatted for the reader's language.
+ *
+ * The locale is the reader's, not a hardcoded one: `ar-AE` is what the
+ * catalog's own formatters use, and a figure that disagrees with the price
+ * above it is a figure nobody trusts.
+ */
+const aed = (usd: number, lang: Lang): string =>
+  `AED ${Math.round(usd * USD_TO_AED).toLocaleString(lang === "ar" ? "ar-AE" : "en-US")}`;
 
-type Tier = {
-  id: "pilot" | "starter" | "growth" | "enterprise";
-  name: { en: string; ar: string };
-  blurb: { en: string; ar: string };
-  usd: number;
-  /**
-   * Whether the figure is PRINTED. Mirrors `Plan.publiclyPriced` in
-   * src/lib/commercial.ts — see that field for why a tier can carry a real,
-   * billed price that this page chooses not to show. Absent means shown.
-   *
-   * This file keeps its own `TIERS` rather than rendering `PLANS`, which is a
-   * second source of truth for the same numbers; tests/unit/tier-parity.test.ts
-   * exists to keep the two from drifting.
-   */
-  publiclyPriced?: boolean;
-  /**
-   * A ONE-OFF engagement rather than a subscription.
-   *
-   * The Pilot is ninety days, bought once, invoiced — not a monthly plan that
-   * renews. Rendering it with "/mo" would tell a bank it is a subscription, and
-   * a bank that discovers that in month two does not renew.
-   */
-  oneOff?: boolean;
-  included: number;
-  overage: { en: string; ar: string } | null;
-  features: { en: string; ar: string }[];
-  featured?: boolean;
-};
-
-const TIERS: Tier[] = [
-  {
-    id: "pilot",
-    name: { en: "Pilot", ar: "التجربة" },
-    blurb: {
-      en: "Ninety days, one alert type, written success criteria.",
-      ar: "تسعون يوماً، ونوع تنبيه واحد، ومعايير نجاح مكتوبة.",
-    },
-    usd: 12000,
-    oneOff: true,
-    included: 2000,
-    overage: {
-      en: "$5.00 per additional intervention",
-      ar: "٥٫٠٠ دولار لكل تدخل إضافي",
-    },
-    features: [
-      {
-        en: "2,000 intervention signals over 90 days",
-        ar: "٢٬٠٠٠ إشارة تدخّل خلال ٩٠ يوماً",
-      },
-      {
-        en: "Shadow run first: cases recorded, no customer contacted",
-        ar: "يبدأ بوضع الظل: تُسجَّل الحالات دون الاتصال بأي عميل",
-      },
-      {
-        en: "One named pilot owner and a written success criteria sheet",
-        ar: "مالك تجربة واحد مسمّى وورقة معايير نجاح مكتوبة",
-      },
-      {
-        en: "Daily review of contact rate, containment and complaints",
-        ar: "مراجعة يومية لمعدل الاتصال ونسبة الاحتواء والشكاوى",
-      },
-      {
-        en: "50% of the pilot fee credited toward your first annual contract",
-        ar: "يُضاف نصف رسوم التجربة إلى عقدك السنوي الأول",
-      },
-    ],
-  },
-  {
-    id: "starter",
-    name: { en: "Starter", ar: "الانطلاق" },
-    blurb: {
-      en: "For evaluation teams proving the voice loop end to end.",
-      ar: "للفرق التقييمية التي تُثبت الحلقة الصوتية من طرف إلى طرف.",
-    },
-    usd: 2500,
-    included: 500,
-    overage: {
-      en: "$4.50 per additional intervention",
-      ar: "٤٫٥٠ دولار لكل تدخل إضافي",
-    },
-    features: [
-      { en: "500 interventions included per month", ar: "500 تدخل مشمول شهرياً" },
-      {
-        en: "One organisation, browser-based Command Center",
-        ar: "منظمة واحدة، مركز تشغيل عبر المتصفح",
-      },
-      {
-        en: "Sealed audit chain with hash-linked evidence",
-        ar: "سلسلة تدقيق مختومة بدليل مترابط بالتجزئة",
-      },
-      { en: "Arabic and English voice agents", ar: "وكلاء صوتيون بالعربية والإنجليزية" },
-      { en: "Email support", ar: "دعم عبر البريد الإلكتروني" },
-    ],
-  },
-  {
-    id: "growth",
-    name: { en: "Growth", ar: "النمو" },
-    blurb: {
-      en: "For mid-market banks and insurers running live fraud desks.",
-      ar: "للبنوك وشركات التأمين متوسطة الحجم التي تدير مكاتب احتيال حية.",
-    },
-    usd: 9000,
-    included: 2500,
-    overage: {
-      en: "$3.50 per additional intervention",
-      ar: "٣٫٥٠ دولار لكل تدخل إضافي",
-    },
-    featured: true,
-    features: [
-      { en: "2,500 interventions included per month", ar: "2,500 تدخل مشمول شهرياً" },
-      { en: "Multi-tenant organisation support", ar: "دعم تعدد المنظمات" },
-      {
-        en: "Signed webhooks with replay protection",
-        ar: "ويب هوoks موقّعة مع حماية من إعادة الإرسال",
-      },
-      { en: "Bring your own ElevenLabs key (BYOK)", ar: "استخدام مفتاح ElevenLabs الخاص بك" },
-      {
-        en: "Guardrail policy configurable per institution",
-        ar: "سياسة الضوابط قابلة للتهيئة لكل مؤسسة",
-      },
-      { en: "Priority support", ar: "دعم ذو أولوية" },
-    ],
-  },
-  {
-    id: "enterprise",
-    name: { en: "Enterprise", ar: "المؤسسات" },
-    blurb: {
-      en: "For Tier-1 UAE banks deploying inside their own perimeter.",
-      ar: "للبنوك من الفئة الأولى في الإمارات التي تنشر داخل محيطها الخاص.",
-    },
-    usd: 25000,
-    // The price is real — Paddle still charges it and the catalog parity test
-    // still holds. It is simply not printed. See `publiclyPriced`.
-    publiclyPriced: false,
-    included: 10000,
-    overage: {
-      en: "$2.25 per additional intervention, plus telephony at cost + 10%",
-      ar: "٢٫٢٥ دولار لكل تدخل إضافي، إضافة إلى قيمة الاتصال بتكلفة زائد ١٠٪",
-    },
-    features: [
-      {
-        en: "10,000 interventions included, custom volume pricing beyond",
-        ar: "10,000 تدخل مشمول، وتسعير حجم مخصص لما يزيد",
-      },
-      {
-        en: "Deploys inside your own VPC or data centre",
-        ar: "النشر داخل شبكتك الخاصة أو مركز بياناتك",
-      },
-      {
-        en: "Dedicated deployment for the WebSocket voice plane",
-        ar: "نشر مخصص لمستوى الصوت عبر WebSocket",
-      },
-      { en: "Shariah-compliant terminology engine", ar: "محرك مصطلحات متوافق مع الشريعة" },
-      {
-        // Was "Takaful and insurer-specific voice policies" — a bullet with no
-        // entitlement behind it. Every tenant gets insurer-appropriate terminology
-        // regardless of plan, because src/lib/billing/entitlements.ts refuses to
-        // gate institutionType on purpose: speaking to an insurer with banking
-        // language is a compliance defect, not a downgrade. Listing it as paid was
-        // false in the direction that matters — a plan's bullet list is a
-        // statement about what the cheaper plans do NOT include.
-        en: "Bespoke terminology per product line, configured with you",
-        ar: "مصطلحات مخصّصة لكل خط منتجات، تُعدّ معك",
-      },
-      { en: "Named technical contact", ar: "جهة اتصال فنية مخصصة" },
-    ],
-  },
-];
+/**
+ * The rate card, rendered FROM `src/lib/commercial.ts`.
+ *
+ * ── Why there is no second copy any more ────────────────────────────────────
+ *
+ * This file used to keep its own `TIERS` array — a hand-written second copy of
+ * the prices, the volumes and the overage — and `tests/unit/tier-parity.test.ts`
+ * existed to keep the two from drifting. That test caught things, but it could
+ * only catch them AFTER the drift: the page and the catalog were two documents
+ * that had to agree, and the moment the rate card moved ($99 / $499 / $2,000
+ * became $2,500 / $9,000 / from $25,000) the page's copy and the page's
+ * METADATA disagreed with each other, and the parity test — which compared the
+ * card's literals with the catalog — passed, because the card's literals had
+ * been updated.
+ *
+ * There is now ONE rate card. The catalog, the browser price map, the Paddle
+ * seeder, the overage rater and this page all read `PLANS`, so there is
+ * nothing left to drift and no parity test to keep in step. What replaced the
+ * parity test is `tests/unit/pricing-prose.test.ts`, which checks the copy
+ * that is NOT in the catalog — the page title, the meta description, the
+ * OpenGraph copy and the FAQ — against the same `PLANS`.
+ */
+const TIERS = PLANS;
 
 /**
  * Renders one of the two refund policies from `src/lib/legal-policies.ts`.
@@ -332,7 +196,7 @@ export function Pricing({
         </motion.div>
 
         {/* tiers */}
-        <div className="mt-12 grid gap-5 md:grid-cols-3">
+        <div className="mt-12 grid gap-5 md:grid-cols-2 xl:grid-cols-4">
           {TIERS.map((tier, i) => (
             <motion.div
               key={tier.id}
@@ -348,21 +212,25 @@ export function Pricing({
             >
               {tier.featured && (
                 <span className="absolute -top-3 left-6 inline-flex items-center gap-1.5 rounded-full border border-primary/30 bg-green-tint px-3 py-1 text-[10.5px] font-semibold text-primary">
-                  <Sparkles className="h-3 w-3" />
+                  <Sparkles className="h-3 w-3" aria-hidden="true" />
                   {t("Most deployed", "الأكثر استخداماً", lang)}
                 </span>
               )}
 
               <h2 className="font-display text-xl font-semibold text-foreground">
-                {tier.name[lang]}
+                {lang === "ar" ? tier.nameAr : tier.name}
               </h2>
-              <p className="mt-1.5 text-[12.5px] leading-relaxed text-ink-3">{tier.blurb[lang]}</p>
+              <p className="mt-1.5 text-[12.5px] leading-relaxed text-ink-3">
+                {lang === "ar" ? tier.taglineAr : tier.tagline}
+              </p>
 
               <div className="mt-6 flex items-baseline gap-2">
                 <span className="font-display text-4xl font-semibold text-foreground">
-                  {tier.publiclyPriced === false
-                    ? t("Custom", "حسب الطلب", lang)
-                    : `$${tier.usd.toLocaleString("en-US")}`}
+                  {/* The catalog's OWN formatter, so the card, the home page and
+                      the meta description all render the same figure the same
+                      way. It also answers "Custom" for a tier that withholds its
+                      price, which is what the card used to spell out by hand. */}
+                  {formatMonthly(tier, lang)}
                 </span>
                 {tier.publiclyPriced !== false && (
                   <span className="text-[13px] text-ink-3">
@@ -376,7 +244,7 @@ export function Pricing({
                 )}
               </div>
               {tier.publiclyPriced !== false ? (
-                <p className="mt-1 text-[12px] text-ink-3/70">{aed(tier.usd)}</p>
+                <p className="mt-1 text-[12px] text-ink-3/70">{aed(tier.monthlyUsd ?? 0, lang)}</p>
               ) : (
                 // Saying WHY there is no number is the difference between "Custom"
                 // reading as a negotiating position and reading as a missing value.
@@ -391,21 +259,23 @@ export function Pricing({
 
               <div className="mt-5 border-t border-line pt-4">
                 <p className="text-[13px] font-semibold text-primary">
-                  {tier.included.toLocaleString("en-US")}{" "}
-                  {t("interventions included", "تدخل مشمول", lang)}
+                  {formatIncluded(tier, lang)} {t("interventions included", "تدخل مشمول", lang)}
                 </p>
                 <p className="mt-1 text-[12px] text-ink-3">
-                  {tier.overage
-                    ? tier.overage[lang]
-                    : t("Volume pricing beyond that", "تسعير كميات لما يزيد", lang)}
+                  {tier.overageCents === null
+                    ? t("Volume pricing beyond that", "تسعير كميات لما يزيد", lang)
+                    : formatOveragePhrase(tier, lang)}
                 </p>
               </div>
 
               <ul className="mt-5 flex-1 space-y-2.5">
-                {tier.features.map((f, j) => (
+                {(lang === "ar" ? tier.includesAr : tier.includes).map((f, j) => (
                   <li key={j} className="flex gap-2.5 text-[12.5px] leading-relaxed text-ink-3">
-                    <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
-                    <span>{f[lang]}</span>
+                    <Check
+                      className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary"
+                      aria-hidden="true"
+                    />
+                    <span>{f}</span>
                   </li>
                 ))}
               </ul>
@@ -433,7 +303,7 @@ export function Pricing({
               {tier.publiclyPriced === false || tier.oneOff ? (
                 <a
                   href={`mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(
-                    `SecureVoice ${tier.name.en} — ${tier.included.toLocaleString("en-US")} interventions${
+                    `SecureVoice ${tier.name} — ${(tier.includedPerMonth ?? 0).toLocaleString("en-US")} interventions${
                       tier.oneOff ? " over 90 days" : "/mo"
                     }`,
                   )}`}
@@ -445,9 +315,9 @@ export function Pricing({
                 <SubscribeButtons
                   tier={{
                     id: tier.id,
-                    name: tier.name[lang],
-                    description: tier.blurb[lang],
-                    features: tier.features.map((f) => f[lang]),
+                    name: lang === "ar" ? tier.nameAr : tier.name,
+                    description: lang === "ar" ? tier.taglineAr : tier.tagline,
+                    features: lang === "ar" ? tier.includesAr : tier.includes,
                     priceId: {
                       month: PADDLE_PRICE_ID?.[tier.id]?.month ?? null,
                       year: PADDLE_PRICE_ID?.[tier.id]?.year ?? null,

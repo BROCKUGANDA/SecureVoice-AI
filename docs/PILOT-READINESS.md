@@ -247,8 +247,12 @@ only when every item below is closed or has a written, owner-signed exception.
    reversible, staged hold. The institution's human commits it.
 3. **One alert type.** Do not expand scope mid-pilot without a change record
    and a new go/no-go.
-4. **Hard cap.** The daily call cap and concurrency cap are enforced in config,
-   not in a spreadsheet.
+4. **Hard cap.** The daily intervention cap and concurrency cap are enforced in
+   config, not in a spreadsheet. The unit is the INTERVENTION — one case —
+   and it counts the cases this organisation has **admitted today or acted on
+   today** (a case admitted yesterday and dialled today counts today). It is
+   not a count of calls placed: a case still waiting for a human is already
+   against the cap, because it is volume the pilot has committed to.
 5. **Kill switch.** The institution can stop outbound calls immediately; the
    switch is tested before the first dial.
 6. **Daily review.** Contact rate, containment, false-positive friction,

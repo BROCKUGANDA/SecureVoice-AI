@@ -84,14 +84,7 @@ mock.module("@/lib/flags", () => ({
 mock.module("@/lib/db", () => ({
   db: {
     case: {
-      findFirst: async () => ({
-        id: "case-1",
-        conversationId: null,
-        state: "SCREENED",
-        phone: "+256700123456",
-        signalKind: "card_transaction",
-        callCategory: "time_critical_fraud",
-      }),
+      findFirst: async () => caseRow,
     },
     doNotCall: { findUnique: async () => null },
     // The pilot kill switch's DATABASE half. It is read before every dial, and
@@ -149,7 +142,44 @@ mock.module("@/lib/scale/queue", () => ({
   DIAL_IN_FLIGHT: "dial_in_flight",
 }));
 
-const { handle, mediaStreamHost } = await import("@/worker/dial");
+/** Did the worker clear the in-flight marker on its last attempt? */
+let clearedInFlight = false;
+
+/**
+ * The case row the dial worker reads.
+ *
+ * A case with no destination phone is a failure BEFORE the carrier is reached,
+ * which is a different thing from a carrier that went quiet — so the fixture
+ * is a named constant the tests can reason about.
+ */
+const caseRow: {
+  id: string;
+  conversationId: string | null;
+  state: string;
+  phone: string | null;
+  signalKind: string;
+  callCategory: string;
+} = {
+  id: "case-1",
+  conversationId: null,
+  state: "SCREENED",
+  phone: "+256700123456",
+  signalKind: "card_transaction",
+  callCategory: "time_critical_fraud",
+};
+mock.module("@/lib/scale/queue", () => ({
+  drainDialQueue: async () => [],
+  markDialStarted: async () => true,
+  clearDialInFlight: async () => {
+    clearedInFlight = true;
+    return true;
+  },
+  renewClaim: async () => true,
+  DIAL_IN_FLIGHT: "dial_in_flight",
+}));
+
+const { handle, mediaStreamHost, _resetDialTelephonyBreakerForTest } =
+  await import("@/worker/dial");
 
 // The media-stream host is configuration, not a fact the process can invent:
 // these tests set it explicitly and put the environment back afterwards so a
@@ -182,6 +212,13 @@ beforeEach(() => {
   transitions.length = 0;
   outboxRows.length = 0;
   audits.length = 0;
+  clearedInFlight = false;
+  // The telephony breaker is a PROCESS-WIDE singleton, and this file drives
+  // several carrier failures through it on purpose. Its threshold is five, so
+  // without a reset the breaker opens part-way through the file and every
+  // later test is answered with "circuit breaker open" — which is a correct
+  // refusal of the wrong thing, and reads as a broken suite.
+  _resetDialTelephonyBreakerForTest();
   mediaStreamsOn = true;
   convai.throwWith = null;
   process.env.SITE_ADDRESS = PUBLIC_HOST;
@@ -191,6 +228,89 @@ beforeEach(() => {
 afterEach(() => {
   if (ORIGINAL_SITE_ADDRESS === undefined) delete process.env.SITE_ADDRESS;
   else process.env.SITE_ADDRESS = ORIGINAL_SITE_ADDRESS;
+});
+
+describe("dial worker — the attempt ladder, and the one call it must not repeat", () => {
+  // A job with a CLAIMANT is the production shape: the worker owns the row,
+  // so the in-flight marker is written before the carrier call and the
+  // question "was the call placed?" is a real one.
+  const CLAIMED_JOB = { ...JOB, claimed_by: "worker-1" };
+
+  it("a carrier that REFUSED the call is retried — nothing was placed", async () => {
+    // A 429 is an ANSWER: the carrier said "not now". Nothing was placed, the
+    // customer's phone did not ring, and the attempt ladder is exactly the
+    // mechanism for trying again.
+    twilio.next = { ok: false, status: 429, error: "Too Many Requests" };
+
+    const outcome = await handle(CLAIMED_JOB);
+
+    expect(outcome.ok).toBe(false);
+    if (!outcome.ok) {
+      expect(outcome.retryable, "a refusal must climb the ladder").toBe(true);
+    }
+    // And the in-flight marker is CLEARED, because a preserved marker would
+    // make the next attempt look like an unknown outcome — which is how a
+    // refused call used to dead-letter after one attempt.
+    expect(clearedInFlight).toBe(true);
+  });
+
+  it("a carrier that did NOT answer is not retried — the call may be ringing", async () => {
+    // A 500 is the absence of an answer. The request may have been accepted
+    // and the response lost, so the customer's phone may already be ringing.
+    // Dialling again would ring a customer twice.
+    twilio.next = { ok: false, status: 500, error: "internal error" };
+
+    const outcome = await handle(CLAIMED_JOB);
+
+    expect(outcome.ok).toBe(false);
+    if (!outcome.ok) {
+      expect(outcome.retryable, "an unknown outcome must not be retried").toBe(false);
+    }
+    // The marker is NOT cleared: the call may have been placed.
+    expect(clearedInFlight).toBe(false);
+  });
+
+  it("a network failure is not retried either — it is the absence of an answer", async () => {
+    twilio.next = { ok: false, status: 503, error: "network error" };
+
+    const outcome = await handle(CLAIMED_JOB);
+
+    expect(outcome.ok).toBe(false);
+    if (!outcome.ok) expect(outcome.retryable).toBe(false);
+    expect(clearedInFlight).toBe(false);
+  });
+
+  it("a failure BEFORE the carrier was handed the job is deferred, not failed", async () => {
+    // The telephony breaker opens after five carrier failures, and an open
+    // breaker DEFERS the job — no attempt consumed, no call placed, and the
+    // case waits for the carrier to come back. That is a failure of the
+    // CARRIER, not of the carrier call itself, and it is the one pre-boundary
+    // outcome that is retryable.
+    twilio.next = { ok: false, status: 503, error: "network error" };
+    for (let i = 0; i < 5; i++) await handle(CLAIMED_JOB);
+    const outcome = await handle(CLAIMED_JOB);
+    expect(outcome.ok).toBe(false);
+    if (!outcome.ok) {
+      expect(outcome.retryable, "a deferred job is retried, not dead-lettered").toBe(true);
+      expect(outcome.error).toContain("circuit breaker open");
+    }
+  });
+
+  it("a carrier that did not answer is NOT retried even with no claimant", async () => {
+    // The row has no claimant, so the in-flight marker cannot be written and
+    // the worker cannot tell that the carrier was reached. The SAFE answer is
+    // still to refuse the retry: a call whose outcome is unknown must not be
+    // dialled again, and the cost of being wrong is a customer rung twice.
+    //
+    // (The production path always has a claimant — `claimDialJobs` sets
+    // `claimed_by` — so this is a malformed-row case. It is pinned because a
+    // future refactor that let a job reach `handle` without a claimant would
+    // otherwise double-ring with no test failing.)
+    twilio.next = { ok: false, status: 500, error: "internal error" };
+    const outcome = await handle(JOB); // the fixture has no claimant
+    expect(outcome.ok).toBe(false);
+    if (!outcome.ok) expect(outcome.retryable).toBe(false);
+  });
 });
 
 describe("dial worker — Twilio media-streams plane", () => {

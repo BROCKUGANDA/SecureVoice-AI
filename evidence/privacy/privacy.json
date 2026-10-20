@@ -121,7 +121,7 @@
     {
       "name": "erased-at-recorded",
       "ok": true,
-      "detail": "erasedAt=2026-10-20T16:45:07.827Z"
+      "detail": "erasedAt=2026-10-20T18:48:28.350Z"
     },
     {
       "name": "read-after-erasure-throws",
@@ -156,12 +156,12 @@
     {
       "name": "erasure-witness-in-chain",
       "ok": true,
-      "detail": "witness row cmvgwz4hz000c7g7qbq4l54ey records keyDestroyed=true"
+      "detail": "witness row cmvh1dqrs000cgo7qr72eic32 records keyDestroyed=true"
     },
     {
       "name": "negative-control-tamper-is-detected",
       "ok": true,
-      "detail": "detected at cmvgwz4g100087g7qgnmxdrvg"
+      "detail": "detected at cmvh1dqqi0008go7qcoe5kcit"
     },
     {
       "name": "erasure-is-idempotent",
@@ -211,7 +211,7 @@
     {
       "name": "pilot-audio-is-zero-days",
       "ok": true,
-      "detail": "org-privacy-pilot-mvgwz43q: audioDays=0 (source pilot)"
+      "detail": "org-privacy-pilot-mvh1dqee: audioDays=0 (source pilot)"
     },
     {
       "name": "pilot-leaves-other-tiers-alone",
@@ -291,7 +291,7 @@
     {
       "name": "dry-run-reports-due-work",
       "ok": true,
-      "detail": "dry run would act on 1 audio tier case(s): SV-P-mvgwz43q-AUDIO0"
+      "detail": "dry run would act on 1 audio tier case(s): SV-P-mvh1dqee-AUDIO0"
     },
     {
       "name": "dry-run-reports-no-transcript-work",
@@ -301,7 +301,7 @@
     {
       "name": "zero-day-audio-purged-immediately",
       "ok": true,
-      "detail": "pilot case purged on the first run (SV-P-mvgwz43q-AUDIO0)"
+      "detail": "pilot case purged on the first run (SV-P-mvh1dqee-AUDIO0)"
     },
     {
       "name": "thirty-day-audio-not-purged",
@@ -341,7 +341,7 @@
     {
       "name": "transcript-tier-fires-at-140-days",
       "ok": true,
-      "detail": "acted on 5 case(s): SV-P-mvgwz43q-TIER, SV-P-mvgwz43q-AUDIO30, SV-P-mvgwz43q-KEYA, SV-P-mvgwz43q-KEYB, SV-P-mvgwz43q-SEAL"
+      "detail": "acted on 5 case(s): SV-P-mvh1dqee-TIER, SV-P-mvh1dqee-AUDIO30, SV-P-mvh1dqee-KEYA, SV-P-mvh1dqee-KEYB, SV-P-mvh1dqee-SEAL"
     },
     {
       "name": "transcript-tier-scrubs-payload",
@@ -481,19 +481,19 @@
     {
       "name": "master-key-in-process",
       "ok": true,
-      "detail": "master key resolved; ops fingerprint bf0b7d4013fc910f is a hash, not the key"
+      "detail": "master key resolved; ops fingerprint 9879885da7418a23 is a hash, not the key"
     }
   ],
-  "digest": "cf2aee7439054844632d9b647e022b6664590c29b5d266a4fd74a795881551b6",
-  "generatedAt": "2026-10-20T16:45:08.433Z",
+  "digest": "35d93368b753ccdae2d696d7c3f16b8e35037a42f2b03c5e04deb4d219a14deb",
+  "generatedAt": "2026-10-20T18:48:28.830Z",
   "run": {
-    "id": "mvgwz43q",
+    "id": "mvh1dqee",
     "orgs": {
-      "default": "org-privacy-default-mvgwz43q",
-      "pilot": "org-privacy-pilot-mvgwz43q",
-      "override": "org-privacy-override-mvgwz43q"
+      "default": "org-privacy-default-mvh1dqee",
+      "pilot": "org-privacy-pilot-mvh1dqee",
+      "override": "org-privacy-override-mvh1dqee"
     },
-    "batch": "SV-P-mvgwz43q-BATCHORG",
+    "batch": "SV-P-mvh1dqee-BATCHORG",
     "database": "TEST_DATABASE_URL",
     "note": "identifiers above are per-run; the digest covers the deterministic core only"
   },

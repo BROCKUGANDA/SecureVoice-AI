@@ -84,6 +84,30 @@ is by image tag. There is no multi-region failover; that is roadmap.
 
 ### 3.1 The dial kill switch — the one you actually want
 
+**The console has a PILOT panel, and it is the first thing to look for.**
+`src/views/PilotPanel.tsx`, at the top of the Command Center: it shows the
+mode, the kill switch, the daily cap and the count against it, and — in
+`live` mode — the cases waiting for a per-dial human decision, with an
+**Approve** and a **Decline** button for each.
+
+That panel is the reason the controls are reachable at all. Three things a
+pilot needs during a shift are now one click instead of a `curl`:
+
+| Control        | Where in the console         | What it does                                           |
+| -------------- | ---------------------------- | ------------------------------------------------------ |
+| Stop dialling  | Pilot panel, "Stop dialling" | Engages the platform-wide switch, in seconds           |
+| Approve a dial | Pilot panel, per case        | Writes the approval for THAT attempt and wakes the job |
+| Decline a dial | Pilot panel, per case        | Dead-letters the job and moves the case to REJECTED    |
+
+The kill switch is platform-wide, so only a **platform operator** (a session
+with no active organisation) may flip it. A tenant-scoped operator sees the
+state and the button is disabled with the reason — a control that answers 403
+teaches people the console is lying.
+
+`docs/RUNBOOK.md` §5 has the "the button did nothing" troubleshooting, and
+`docs/PILOT-READINESS.md` §3 is the gate that says the switch must be tested
+end to end before the first dial.
+
 `docs/RUNBOOK.md` used to say, in these words, that there was **no kill switch
 for live dialling**, and that stopping outbound calls meant
 `docker compose stop dial-worker`. That is no longer true, and a runbook that

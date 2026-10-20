@@ -3668,6 +3668,16 @@ writeable and enableOfflineQueue options is false`. Deterministic per boot on a 
 a one-off on a bad night. The fix's claim is therefore falsifiable in the same terms: on the first
 boot of a build that carries `established()`, that count must be zero for the same probe.
 
+**Result, measured on the next roll.** `846c65e` deployed at 01:52 and its app container carried
+the fix (`established` present in the built tree), and `docker compose logs --since 25m app` showed
+**0** `POST /api/tts` requests before mine — so the probe was genuinely the first metered request of
+that process. It returned `200`, 103,278 bytes, `X-Voice-Source: elevenlabs`, and the app log gained
+**0** `shared meter unreachable` lines where the control gained exactly 1. The positive half is the
+durable counter, not the absence of an error: `redis-cli GET elevenlabs:monthly_chars:2026-10`
+returned `2061` with a TTL of 1,115,042 s to month end, so the request was charged to Redis rather
+than to the process's own map. The defect is closed by observation, and the first `decrBy` release
+path now runs against a meter that was already reachable.
+
 ### 59. The cache the reclaimer could not reach was six hours old, and the reclaim report said "16 deleted"
 
 §57 shipped the builder rule and §55 the anonymous-volume rule, so the disk was supposed to be

@@ -10,9 +10,11 @@
  *   · `voice:check` proves a voice produces the right WORDS in the right SCRIPT. It
  *     cannot hear an accent, and its own header says so.
  *   · The vendor exposes no usable capability metadata for the voices on this
- *     account. Measured 2026-10-13 and restated in `voice-language-check.mjs`:
- *     `GET /v1/voices?supported_languages=ar` returns the same 23 voices for every
- *     language, each with an EMPTY `supported_languages`, all labelled `language: en`.
+ *     account. Measured 2026-10-20: `GET /v1/voices` returns 25 voices for every
+ *     language filter; their labels carry gender, age, accent and native language,
+ *     but the top-level `language` field is inconsistent (some `en`, some the
+ *     native language) and nothing states which of the six delivery languages a
+ *     voice can actually speak. A label is not a capability claim.
  *
  * So the only instrument left is a human with headphones, and the blocker was never
  * the model — it was that listening needed six API calls per candidate typed by hand.
@@ -37,6 +39,7 @@
  *
  * Exit 0 every file was written; 1 something failed (the table says what).
  */
+import { createHash } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { SUPPORTED_LANGS } from "../src/lib/languages.ts";
@@ -96,13 +99,15 @@ async function listVoices() {
   }
   const { voices } = await r.json();
   for (const v of voices ?? []) {
-    const labels = (v.labels?.language ?? v.language ?? "?").toString();
-    console.log(`${v.voice_id}  ${v.name}  [language label: ${labels}]`);
+    const l = v.labels ?? {};
+    const label = [l.gender, l.age, l.accent, l.language].filter(Boolean).join(", ") || "no labels";
+    console.log(`${v.voice_id}  ${v.name}  [${label}]`);
   }
   console.log(
-    `\n${voices?.length ?? 0} voices. Note: every one of them is labelled ` +
-      "`language: en` with an empty supported_languages array on this account — " +
-      "the label is not a capability claim, which is why you are listening.",
+    `\n${voices?.length ?? 0} voices. Labels describe the voice, not which of ` +
+      "this product's six delivery languages it can speak — the top-level " +
+      "`language` field is inconsistent, so the label is not a capability claim. " +
+      "That is why you are listening.",
   );
   process.exit(0);
 }
@@ -160,7 +165,16 @@ for (const wanted of requested) {
     try {
       const audio = await synth(voiceId, PHRASE[lang], model);
       writeFileSync(file, audio);
-      rows.push({ voice: wanted, voiceId, lang, model, bytes: audio.length, file, error: "" });
+      rows.push({
+        voice: wanted,
+        voiceId,
+        lang,
+        model,
+        bytes: audio.length,
+        sha: createHash("sha256").update(audio).digest("hex"),
+        file,
+        error: "",
+      });
     } catch (err) {
       failed++;
       rows.push({
@@ -169,10 +183,33 @@ for (const wanted of requested) {
         lang,
         model,
         bytes: 0,
+        sha: "",
         file,
         error: err instanceof Error ? err.message : String(err),
       });
     }
+  }
+}
+
+// Byte-size equality is not evidence of duplicate audio (CBR pads different
+// sentences to the same length), so duplicates are judged by content hash. An
+// identical hash across candidates or languages means the vendor returned the
+// same audio for text that should differ — the files are not six auditions.
+const bySha = new Map();
+for (const r of rows) {
+  if (r.error) continue;
+  const group = bySha.get(r.sha) ?? [];
+  group.push(r);
+  bySha.set(r.sha, group);
+}
+const duplicates = [...bySha.values()].filter((g) => g.length > 1);
+if (duplicates.length) {
+  failed += duplicates.length;
+  console.error("\nDUPLICATE AUDIO — the same bytes were returned for different requests:");
+  for (const g of duplicates) {
+    console.error(
+      `  ${g[0].sha.slice(0, 12)}  ${g.map((r) => `${r.voiceId.slice(0, 8)}/${r.lang}`).join(", ")}`,
+    );
   }
 }
 

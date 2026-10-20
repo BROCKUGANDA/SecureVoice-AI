@@ -2,8 +2,8 @@
  * LLM FAILOVER on a live turn — the ladder as attempts, not as a preference.
  *
  * `selectProvider()` chose ONE provider and any throw became `null`, which meant
- * an environment holding both a Groq key and a self-hosted LiteLLM had a working
- * second provider it never used, and a `DEPENDENCIES` list that named an "llm"
+ * an environment holding both a Groq key and a Gemini key had a working second
+ * provider it never used, and a `DEPENDENCIES` list that named an "llm"
  * circuit breaker nobody had ever instantiated. This file drives the real
  * drafter with the adapter replaced by a script of outcomes, so what is asserted
  * is the behaviour that decides whether a customer hears a sentence or silence.
@@ -54,7 +54,6 @@ mock.module("@/lib/adapters/llm-adapter", () => ({
 
 const SAVED = {
   GROQ_API_KEY: process.env.GROQ_API_KEY,
-  LITELLM_API_KEY: process.env.LITELLM_API_KEY,
   GEMINI_API_KEY: process.env.GEMINI_API_KEY,
   LLM_TURN_BUDGET_MS: process.env.LLM_TURN_BUDGET_MS,
 };
@@ -62,8 +61,7 @@ const SAVED = {
 /** Two configured platform providers, in the order the ladder prefers. */
 function withLadder(): void {
   process.env.GROQ_API_KEY = "gsk-first";
-  process.env.LITELLM_API_KEY = "sk-litellm-second";
-  delete process.env.GEMINI_API_KEY;
+  process.env.GEMINI_API_KEY = "gemini-second";
 }
 
 const BYOK = {
@@ -114,11 +112,11 @@ beforeEach(() => {
 });
 
 describe("a failed provider hands the turn to the next one", () => {
-  test("Groq throws, LiteLLM answers, the customer hears a sentence", async () => {
+  test("Groq throws, Gemini answers, the customer hears a sentence", async () => {
     outcomes = ["throw", "ok"];
     const reply = await draft();
     expect(reply).toBe(replyText);
-    expect(calls.map((c) => c.provider)).toEqual(["groq", "openai"]);
+    expect(calls.map((c) => c.provider)).toEqual(["groq", "gemini"]);
   });
 
   test("every provider failing still ends in the scripted reply, not a crash", async () => {

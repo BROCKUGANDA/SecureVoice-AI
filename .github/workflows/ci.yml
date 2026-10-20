@@ -998,8 +998,8 @@ jobs:
       # step, not a cancelled job. That is precisely the case the ladder runs
       # into: a superseded push cancels the run whose smoke stack is already
       # half-built, and the stack is left running. Measured 2026-10-12 while
-      # chasing the WP-20 timeout: a smoke project's litellm container was
-      # burning 96% of a core while the suite tried to run on the same 4 cores.
+      # chasing the WP-20 timeout: a smoke project's container was burning 96%
+      # of a core while the suite tried to run on the same 4 cores.
       # The job below is the cancellation-proof half of this teardown.
       - name: Tear down
         if: always()

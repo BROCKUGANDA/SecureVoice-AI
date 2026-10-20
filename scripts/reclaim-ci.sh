@@ -55,6 +55,9 @@
 #   CACHE_MAX_AGE_PRESSURE
 #                      the same filter once the filesystem is tight, default 6h
 #   PRESSURE_FREE_GB   free space at or below which the pressure floor is used, default 15
+#   CACHE_FREE_EMERGENCY_GB
+#                      free space at or below which the age floor is dropped entirely and every
+#                      unused cache entry is evicted, default 12
 #   BUILDER_KEEP       comma-separated builder names that must never be removed, even
 #                      when they match the leftover shape and pass the age floor
 set -uo pipefail
@@ -72,6 +75,7 @@ IMG_MIN_AGE_M="${IMG_MIN_AGE_M:-30}"
 CACHE_MAX_AGE="${CACHE_MAX_AGE:-72h}"
 CACHE_MAX_AGE_PRESSURE="${CACHE_MAX_AGE_PRESSURE:-6h}"
 PRESSURE_FREE_GB="${PRESSURE_FREE_GB:-15}"
+CACHE_FREE_EMERGENCY_GB="${CACHE_FREE_EMERGENCY_GB:-12}"
 
 # ── how hard to evict depends on how little room there is ─────────────────────
 # The 72 h floor exists so a nightly deploy does not rebuild `next` from nothing, and it
@@ -82,10 +86,11 @@ PRESSURE_FREE_GB="${PRESSURE_FREE_GB:-15}"
 # and therefore does not dedupe them. The box sat at 21 GB free against a 20 GB floor and
 # a rule that could not reach a single byte of what was using it.
 #
-# So the age floor is now urgency-aware: normal conditions keep 72 h of cache, and at or
-# below PRESSURE_FREE_GB the eviction drops to 6 h, which is the age of the entries that
-# were actually filling the disk. Least-recently-used cache is exactly what should be shed
-# first when a build is at risk of dying mid-step.
+# So the floor is now graduated by how little room is left — see the three-tier block below,
+# which supersedes the original two-tier version of this paragraph. Dropping 72 h to 6 h is NOT
+# the lever it looked like: with the cache young AND huge, `--filter until=6h` measured 214.4 MB
+# freed against 32.48 GB reclaimable. Least-recently-used eviction only helps when the pressure
+# is old garbage; when it is fresh volume, the only age that works is "any".
 #
 # Where 15 comes from, because inventing a number here is what the paragraph below warns
 # about: `ci.yml` and `deploy.yml` both call `bun scripts/runner-preflight.ts --min-gb 10`,
@@ -94,28 +99,46 @@ PRESSURE_FREE_GB="${PRESSURE_FREE_GB:-15}"
 # preflight owns "may this build run", this owns "what am I willing to delete", and only
 # the first has a hard number in one place.
 #
-# What this does NOT fix, and the owner's call: the duplicate builds are the reason the
-# cache is 30 GB of six-hour-old layers. `ci.yml` triggers on both `push` to dev/staging/main
-# and `pull_request` into them, and promote.yml opens a PR for every push, so every promotion
-# commit builds the whole image twice — `concurrency` groups by `github.ref`, and those two
-# events have different refs, so nothing dedupes them. Deduplicating by SHA would risk the
-# wrong run being cancelled: if the `pull_request` run is the casualty, the PR's required check
-# reads cancelled, the ladder parks, and a disk problem has been traded for a stalled release.
-# The safe form is to stop the redundant PUSH run, not to cancel the PR run, and that changes
-# which commits carry a gate — so it is proposed rather than done.
+# THREE TIERS, AND THE MIDDLE ONE IS NEARLY WORTHLESS — measured, not assumed.
 #
-# This is NOT a second copy of the capacity threshold that `scripts/runner-preflight.ts`
-# owns. That one answers "is this disk fit to build on" and refuses the build; this one
-# answers "how much cache am I willing to lose" and evicts. Collapsing them would either
-# make the refusal depend on a deletion rule or the deletion depend on a refusal, and the
-# §55 lesson is that two places restating one number is how they drift.
+# The first version of this block escalated 72h -> 6h under pressure. Then the pressure arrived
+# for real (2026-10-20, 12.4 GB free with `docker system df` reporting 33.93 GB of build cache,
+# 32.48 of it reclaimable) and `docker builder prune --force --filter until=6h` freed 214.4 MB.
+# One age cliff cannot help when the cache is BOTH young and huge: it was filling at roughly
+# 3 GB/hour because two runners were rebuilding the same image on every promotion commit — the
+# duplication `ci.yml`'s trigger list has since been fixed to stop. So escalation is graduated:
+#
+#   normal      free  > PRESSURE_FREE_GB          -> keep ${CACHE_MAX_AGE} of cache
+#   pressure    free <= PRESSURE_FREE_GB          -> ${CACHE_MAX_AGE_PRESSURE}
+#   emergency   free <= CACHE_FREE_EMERGENCY_GB   -> ALL unused cache, no age filter
+#
+# Emergency drops the age question entirely and lets buildkit's own "in use" judgement decide,
+# which is the only rule that can reach 32 GB of six-hour-old layers. Its cost is honest and
+# larger than this repo: the cache is a machine resource, so crucible's and astrolabe's next
+# builds on this box rebuild from nothing too. That is the trade being made — a runner that is
+# refused at 10 GB free builds nothing at all, and a build that dies mid-step leaves a red
+# required check, a parked promotion PR, and production that does not deploy. Cache is the
+# cheapest thing here to lose; it is also the only thing that comes back on its own.
+#
+# This is NOT a second copy of the capacity threshold `scripts/runner-preflight.ts` owns. That
+# one answers "is this disk fit to build on" and refuses the build; this answers "how much cache
+# am I willing to lose" and evicts. Collapsing them would make the refusal depend on a deletion
+# rule or the deletion depend on a refusal, and §55 is the record of what happens when one
+# number lives in two places.
 free_gb=$(df -P -k "$TARGET_DIR" 2>/dev/null | awk 'NR==2 {printf "%.1f", $(NF-2)/1024/1024}')
-if [ -n "$free_gb" ] && awk -v a="$free_gb" -v b="$PRESSURE_FREE_GB" 'BEGIN { exit !(a <= b) }'; then
-  if [ "$CACHE_MAX_AGE" != "$CACHE_MAX_AGE_PRESSURE" ]; then
-    echo "PRESSURE: ${free_gb} GB free at or below the ${PRESSURE_FREE_GB} GB mark — " \
-"cache eviction floor drops ${CACHE_MAX_AGE} -> ${CACHE_MAX_AGE_PRESSURE}"
-  fi
-  CACHE_MAX_AGE="$CACHE_MAX_AGE_PRESSURE"
+CACHE_FILTER=(--filter "until=${CACHE_MAX_AGE}")
+TIER=normal
+if [ -n "$free_gb" ] && awk -v a="$free_gb" -v b="$CACHE_FREE_EMERGENCY_GB" 'BEGIN { exit !(a <= b) }'; then
+  TIER=emergency
+  CACHE_FILTER=()
+  echo "EMERGENCY: ${free_gb} GB free at or below the ${CACHE_FREE_EMERGENCY_GB} GB mark — evicting" \
+"ALL unused build cache, no age floor. Other projects' builds on this box will rebuild."
+elif [ -n "$free_gb" ] && awk -v a="$free_gb" -v b="$PRESSURE_FREE_GB" 'BEGIN { exit !(a <= b) }'; then
+  TIER=pressure
+  CACHE_FILTER=(--filter "until=${CACHE_MAX_AGE_PRESSURE}")
+  echo "PRESSURE: ${free_gb} GB free at or below the ${PRESSURE_FREE_GB} GB mark — cache eviction" \
+"floor drops ${CACHE_MAX_AGE} -> ${CACHE_MAX_AGE_PRESSURE}. Measured once at 214 MB freed; the" \
+"emergency tier is what actually reaches a young-but-large cache."
 fi
 
 now_epoch=$(date -u +%s)
@@ -337,27 +360,39 @@ for b in $(docker buildx ls --format '{{.Name}}' 2>/dev/null | grep -v '^default
   else
     echo "buildx ${b}: not a leftover name — cache only, builder kept"
   fi
+  # The filter comes from CACHE_FILTER, which is set by the tier decision above: an empty array
+  # means "no age floor", which is the only setting that reaches a young-but-huge cache. The
+  # `${ARR[@]+…}` form expands to nothing on an empty array even under `set -u`, because
+  # `${ARR[@]}` alone aborts the script there — a reclaimer that dies on its own emergency tier
+  # is the worst possible failure at exactly the moment it is needed.
   if [ "$do_it" = "1" ]; then
-    freed=$(docker buildx prune --builder "$b" --force --filter "until=${CACHE_MAX_AGE}" 2>/dev/null | tail -1)
+    freed=$(docker buildx prune --builder "$b" --force ${CACHE_FILTER[@]+"${CACHE_FILTER[@]}"} 2>/dev/null | tail -1)
     [ -n "$freed" ] && echo "buildx ${b}: ${freed}"
   else
-    echo "would: docker buildx prune --builder $b --force --filter until=${CACHE_MAX_AGE}"
+    echo "would: docker buildx prune --builder $b --force ${CACHE_FILTER[*]}"
   fi
 done
 
-# Dangling images (untagged leftovers of rebuilt layers) and old build cache.
+# Dangling images (untagged leftovers of rebuilt layers) and build cache, at the tier chosen
+# above. `docker image prune --force` without `-a` removes only untagged leftovers, so the
+# named images of every project on this box — production's workers included — are not candidates.
 if [ "$do_it" = "1" ]; then
   docker image prune --force >/dev/null 2>&1 || true
-  docker builder prune --force --filter "until=${CACHE_MAX_AGE}" >/dev/null 2>&1 || true
+  docker builder prune --force ${CACHE_FILTER[@]+"${CACHE_FILTER[@]}"} >/dev/null 2>&1 || true
 elif [ "$SHOW_WOULD" = "1" ]; then
   echo "would: docker image prune --force"
-  echo "would: docker builder prune --force --filter until=${CACHE_MAX_AGE}"
+  echo "would: docker builder prune --force ${CACHE_FILTER[*]}"
 fi
 
 free_after_kb=$(df -P -k "$TARGET_DIR" 2>/dev/null | awk 'NR==2 {print $(NF-2)}')
-# Whole-number GB to one decimal, computed in awk so this needs no `bc`.
+# Whole GB to one decimal, computed in awk so this needs no `bc`. Reported only in `reclaim`:
+# in dry-run the disk moves anyway because concurrent jobs are building, and a `freed=0.1GB`
+# line from a run that deleted nothing is exactly the count-passes-for-outcome error this
+# report was added to prevent.
 freed_gb=$(awk -v a="${free_after_kb:-0}" -v b="${free_before_kb:-0}" 'BEGIN { printf "%.1f", (a - b) / 1024 / 1024 }')
-echo "reclaim[$MODE]: containers=$removed_containers networks=$removed_networks volumes(named)=$removed_named volumes(anonymous>=${ANON_MIN_AGE_H}h)=$removed_volumes images=$removed_images builders=$removed_builders held-back(referenced)=$held_back freed=${freed_gb}GB"
+delta=""
+[ "$MODE" = "reclaim" ] && delta=" freed=${freed_gb}GB tier=${TIER}"
+echo "reclaim[$MODE]: containers=$removed_containers networks=$removed_networks volumes(named)=$removed_named volumes(anonymous>=${ANON_MIN_AGE_H}h)=$removed_volumes images=$removed_images builders=$removed_builders held-back(referenced)=$held_back$delta"
 # Shared layers make a deletion list and a disk delta disagree honestly, and the delta is
 # the number that decides whether the next build survives. Say so when they diverge — and
 # only when something was actually deleted, because a run that found nothing eligible also

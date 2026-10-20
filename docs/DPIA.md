@@ -81,7 +81,7 @@ Measured against the live database on 2026-10-19, counts only, no value leaving 
 | ---------------------------------------------------------------------------- | ------------------------------------------------ | ---------------------------------------------------------------- |
 | `Case` rows                                                                  | 1140                                             | the whole population this assessment describes                   |
 | newest `Case.createdAt`                                                      | 2026-10-10                                       | **no processing about a live subject has occurred in 9 days**    |
-| rows that held a plaintext handset number                                    | 847                                              | §3.2 — the exposure this assessment closes                       |
+| rows that held a plaintext handset number                                    | 847, **0 on the 2026-10-20 re-measurement**      | §3.2 — the exposure this assessment closes, and has closed       |
 | of those, rows with no `orgId`, a fixture `orgId`, or a deleted organization | 825                                              | synthetic: written by the load, isolation and integration suites |
 | of those, rows belonging to an organization that exists                      | 22 of 22 seeded ids (`0b0b0b0b-*`, `0a0a0a0a-*`) | no real tenant was ever in the plaintext set                     |
 | `pii_vault` rows                                                             | 22 (0 before today)                              | the seal path ran in production for the first time               |

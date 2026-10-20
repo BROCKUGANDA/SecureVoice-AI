@@ -13,7 +13,7 @@
  * `rotateTenantSecret()` mints a fresh secret when a test needs a known-good
  * value after another test revoked or rewrote it.
  */
-import { randomBytes, createHash } from "node:crypto";
+import { randomBytes, createHash, randomUUID } from "node:crypto";
 import { db } from "@/lib/db";
 
 /** Fixed so repeated runs share one tenant instead of littering organizations. */
@@ -45,13 +45,14 @@ async function ensureOrganization(): Promise<void> {
 export async function issueTenantToolSecret(label = "tool-tests"): Promise<string> {
   await ensureOrganization();
   const plaintext = generateToolSecret();
-  await db.agentToolSecret.create({
-    data: {
-      label,
-      keyHash: hashToolSecret(plaintext),
-      orgId: TOOL_TENANT_ORG_ID,
-    },
-  });
+  // Raw insert deliberately omits `toolScope`: this fixture must also run
+  // against a database that has not applied the additive tool-scope migration.
+  // The resolver's legacy fallback then exercises the same path an existing
+  // credential takes during a rolling deploy.
+  await db.$executeRaw`
+    INSERT INTO "AgentToolSecret" ("id", "label", "keyHash", "orgId")
+    VALUES (${randomUUID()}, ${label}, ${hashToolSecret(plaintext)}, ${TOOL_TENANT_ORG_ID})
+  `;
   return plaintext;
 }
 

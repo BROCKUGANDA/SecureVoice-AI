@@ -88,6 +88,10 @@ export async function POST(_req: NextRequest) {
         [WEBHOOK_SIGNATURE_HEADER]: signPayload(body, Math.floor(started / 1000), endpoint.secret),
       },
       body,
+      // This URL is tenant-controlled and the body is signed. Following a 3xx
+      // would hand that signed body to a host the SSRF validation above never
+      // inspected, so a redirect is reported as a failed test instead.
+      redirect: "manual",
       signal: AbortSignal.timeout(TEST_TIMEOUT_MS),
     });
     const ms = Date.now() - started;

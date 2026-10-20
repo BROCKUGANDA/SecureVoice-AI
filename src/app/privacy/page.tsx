@@ -16,12 +16,12 @@ import { Privacy } from "@/views/Legal";
 export const metadata: Metadata = {
   title: "Privacy Policy",
   description:
-    "How SecureVoice Technologies FZ-LLC handles personal data: what is collected through this website, lawful basis under UAE PDPL and EU GDPR, where data is stored and processed, sub-processors, retention, your rights, and how to contact us.",
+    "How SecureVoice Technologies FZ-LLC handles personal data: what is collected through this website, lawful basis under DIFC, UAE and EU data-protection law, where data is stored and processed, sub-processors, retention, Shariah-aware processing for Islamic banks and Takaful operators, your rights, and how to contact us.",
   alternates: { canonical: "/privacy" },
   openGraph: {
     title: "Privacy Policy — SecureVoice AI",
     description:
-      "What we collect, why, where it lives, and your rights under UAE PDPL and the EU GDPR.",
+      "What we collect, why, where it lives, and your rights under DIFC, UAE and EU data-protection law.",
     url: "/privacy",
   },
 };

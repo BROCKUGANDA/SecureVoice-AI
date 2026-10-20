@@ -41,11 +41,33 @@ export async function POST(req: NextRequest) {
     return failure("semantically_invalid", { detail: "deadLetterId or all=true is required" });
   }
 
+  const orgId = guard.profile.orgId;
+
   if (parsed.data.all) {
-    const pending = await db.deadLetter.findMany({ where: { replayedAt: null }, take: 50 });
+    const visible = orgId ? await deadLetterIdsFor(orgId) : null;
+    const pending = await db.deadLetter.findMany({
+      where: { replayedAt: null, ...(visible ? { eventId: { in: visible } } : {}) },
+      take: 50,
+    });
     const results: { id: string; ok: boolean; error?: string }[] = [];
     for (const dl of pending) results.push({ id: dl.id, ...(await replayDeadLetter(dl.id)) });
     return NextResponse.json({ ok: true, replayed: results.filter((r) => r.ok).length, results });
+  }
+
+  // A tenant operator may only replay its own institution's events. The
+  // DeadLetter row has no orgId, so ownership is read from the OutboxEvent it
+  // points at; a row that cannot be tied to the caller is treated as absent.
+  if (orgId) {
+    const dl = await db.deadLetter.findUnique({
+      where: { id: parsed.data.deadLetterId! },
+      select: { eventId: true },
+    });
+    const event = dl
+      ? await db.outboxEvent.findUnique({ where: { id: dl.eventId }, select: { orgId: true } })
+      : null;
+    if (!event || event.orgId !== orgId) {
+      return failure("not_found", { detail: "dead_letter_not_found" });
+    }
   }
 
   const result = await replayDeadLetter(parsed.data.deadLetterId!);
@@ -57,13 +79,28 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({ ok: true });
 }
 
+/** Event ids belonging to one tenant's dead-lettered bank deliveries. */
+async function deadLetterIdsFor(orgId: string): Promise<string[]> {
+  const events = await db.outboxEvent.findMany({
+    where: { orgId, state: "DEAD" },
+    select: { id: true },
+    take: 500,
+  });
+  return events.map((e) => e.id);
+}
+
 /** GET lists dead letters so the console can show what needs replaying. */
 export async function GET() {
   const guard = await requireOperator();
   if (!guard.ok) {
     return failure(guard.status === 401 ? "unauthenticated" : "not_found", { detail: guard.error });
   }
-  const rows = await db.deadLetter.findMany({ orderBy: { failedAt: "desc" }, take: 50 });
+  const visible = guard.profile.orgId ? await deadLetterIdsFor(guard.profile.orgId) : null;
+  const rows = await db.deadLetter.findMany({
+    where: visible ? { eventId: { in: visible } } : {},
+    orderBy: { failedAt: "desc" },
+    take: 50,
+  });
   return NextResponse.json(
     { ok: true, deadLetters: rows },
     { headers: { "Cache-Control": "no-store" } },

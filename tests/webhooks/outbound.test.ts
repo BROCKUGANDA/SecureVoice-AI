@@ -313,6 +313,40 @@ test("WP-5: concurrent claimers never both win the same delivery", async () => {
   await db.$disconnect();
 }, 120_000);
 
+test("WP-5: a redirect is a failed delivery, never a signed payload to another host", async () => {
+  // The endpoint is tenant-controlled and the body is signed. `fetch` follows
+  // 3xx by default; that would hand a validly signed bank event to a host the
+  // SSRF validation never inspected. The outbox must refuse the redirect and
+  // leave the row retryable.
+  const caseRef = `SV-F-OUT-REDIRECT-${Date.now().toString(36).toUpperCase()}`;
+  const event = await db.outboxEvent.create({
+    data: {
+      caseRef,
+      eventType: "case.notified",
+      payload: canonicalJson({ event_id: "redirect", event_type: "case.notified", data: {} }),
+      targetUrl: "https://receiver.invalid/hook",
+      state: "PENDING",
+      nextAttemptAt: new Date(0),
+    },
+  });
+
+  const claimed = (await claimBatch(50)).filter((e) => e.id === event.id);
+  expect(claimed).toHaveLength(1);
+  const redirecting = (async () =>
+    new Response(null, {
+      status: 302,
+      headers: { location: "http://169.254.169.254/latest/meta-data/" },
+    })) as unknown as typeof fetch;
+
+  const result = await deliver(claimed[0]!, redirecting);
+  expect(result.status).toBe("RETRY");
+  const after = await db.outboxEvent.findUnique({ where: { id: event.id } });
+  expect(after?.state).toBe("PENDING");
+  expect(after?.lastError ?? "").toContain("redirect refused");
+
+  await db.outboxEvent.delete({ where: { id: event.id } });
+});
+
 function findPython(): string | null {
   const candidates = [
     process.env.PYTHON,

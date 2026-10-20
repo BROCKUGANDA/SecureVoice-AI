@@ -110,6 +110,7 @@ export async function POST(req: NextRequest) {
       intent: transferred ? "warm_transferred" : "warm_transfer_degraded",
       callerId: "agent-tool",
       redactedText: redactText(summary),
+      orgId: guard.orgId ?? undefined,
       meta: {
         tool: TOOL_NAME,
         transferred,

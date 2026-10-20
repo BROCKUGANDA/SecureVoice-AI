@@ -308,6 +308,21 @@ export function DocumentsSection({ compact = false }: { compact?: boolean }) {
         </p>
       </div>
 
+      {/* Islamic-finance guidance. The terminology filter speaks the institution's
+          approved vocabulary, but it is not a Shariah opinion: the uploaded
+          document is the evidence a reviewer asks for, and the board that
+          approved it is the authority. Saying so here prevents an operator from
+          treating the upload itself as certification. */}
+      <div className="rounded-xl border border-line bg-paper px-4 py-3">
+        <p className="text-[12px] leading-relaxed text-ink-2">
+          {t(
+            "Islamic banks and Takaful operators: upload the Shariah supervisory board-approved policy, product terms and disclosure wording. They are indexed per tenant, and for a tenant with the Shariah switch enabled the terminology pass runs after retrieval and before speech. Uploading a document is not itself a Shariah approval.",
+            "للمصارف الإسلامية ومشغّلي التكافل: ارفعوا سياسة معتمدة من هيئة الرقابة الشرعية، وشروط المنتج، وصياغة الإفصاح. تُفهرس لكل مستأجر، ولمستأجر مُفعَّل فيه مفتاح الشريعة يعمل تمرير المصطلحات بعد الاسترجاع وقبل النطق. ورفع المستند ليس بحد ذاته اعتماداً شرعياً.",
+            lang,
+          )}
+        </p>
+      </div>
+
       {/* Dropzone. A real <button> so it is reachable by keyboard; the file input
           is hidden but stays in the DOM for the click to target. */}
       <button

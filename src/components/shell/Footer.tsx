@@ -174,7 +174,7 @@ export function Footer() {
                 Real-time fraud intervention for banks & insurers · CBUAE-aligned · Dubai, UAE
               </p>
               <p dir="rtl" className="font-arabic mt-2 text-[11.5px] text-ink-3">
-                صوت آمن · حماية خلال ٦٠ ثانية
+                صوت آمن · مهلة حالة ٦٠ ثانية
               </p>
             </div>
 

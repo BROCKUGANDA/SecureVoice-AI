@@ -68,6 +68,13 @@ process.env.ELEVENLABS_DRY_RUN = "true";
 // which would turn this whole file red for an environment reason rather than a
 // code one. A real value still wins; only empty/missing is replaced.
 process.env.WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || "console-gate-secret";
+// The console fires into the operator's TENANT, so it signs with the
+// deployment-INTERNAL secret rather than the shared `WEBHOOK_SECRET` — the
+// ingest refuses to let a shared-secret caller name an organisation, because
+// every producer holds that secret. A DIFFERENT value, or the console's
+// signature would verify as a producer's and the `org_id` would be refused.
+process.env.CONSOLE_INGEST_SECRET =
+  process.env.CONSOLE_INGEST_SECRET || "console-internal-ingest-secret";
 
 /* â”€â”€ Session (mocked at the getProfile seam; the org claim and email are the fixture) â”€â”€ */
 
@@ -360,14 +367,26 @@ test("console fire: the forwarded signal is v1-shaped, signed over the exact byt
 
   // The signature covers the EXACT bytes sent — verified independently here, so
   // this asserts the console's signing, not just the upstream's acceptance.
+  //
+  // It is verified against `CONSOLE_INGEST_SECRET`, not `WEBHOOK_SECRET`: the
+  // console fires into the operator's TENANT, and the ingest refuses to let a
+  // shared-secret caller name an organisation — because every producer holds
+  // that secret. The console's credential is deployment-internal, so it can.
   const sv = /^t=(\d{10}),v1=([0-9a-f]{64})$/.exec(
     sent!.headers["SV-Signature"] ?? sent!.headers["sv-signature"] ?? "",
   );
   expect(sv).not.toBeNull();
-  const expected = createHmac("sha256", process.env.WEBHOOK_SECRET!)
+  const expected = createHmac("sha256", process.env.CONSOLE_INGEST_SECRET!)
     .update(`${sv![1]}.${sent!.rawBody}`)
     .digest("hex");
   expect(timingSafeEqual(Buffer.from(expected, "hex"), Buffer.from(sv![2]!, "hex"))).toBe(true);
+
+  // And it must NOT verify as a producer's signature, or the ingest would
+  // treat the console as a shared-secret caller and refuse the `org_id`.
+  const asProducer = createHmac("sha256", process.env.WEBHOOK_SECRET!)
+    .update(`${sv![1]}.${sent!.rawBody}`)
+    .digest("hex");
+  expect(asProducer).not.toBe(sv![2]);
 
   // The v1 route rejects a signal without one (min 8 chars).
   const idem = sent!.headers["Idempotency-Key"] ?? sent!.headers["idempotency-key"] ?? "";

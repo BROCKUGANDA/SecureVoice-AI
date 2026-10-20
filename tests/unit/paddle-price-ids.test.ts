@@ -9,12 +9,12 @@ import { paddlePriceIds, paddlePricesConfigured } from "@/lib/paddle-browser";
  */
 
 const SANDBOX = JSON.stringify({
-  usd_9900_month: "pri_01m4kc8amfsr590wkmf02v0q91",
-  usd_99000_year: "pri_01m4kmzw3cq4na5tfn6xqd6ekn",
-  usd_49900_month: "pri_01m4kc8bdy18z7h9g4qwbv6vqq",
-  usd_499000_year: "pri_01m4kmzwg9vdfe2c4x5qnz2s4s",
-  usd_200000_month: "pri_01m4kc8c6y167c8jx1pk7vcazx",
-  usd_2000000_year: "pri_01m4kmzwwqy407sttdb550w8dt",
+  usd_250000_month: "pri_01m4kc8amfsr590wkmf02v0q91",
+  usd_2500000_year: "pri_01m4kmzw3cq4na5tfn6xqd6ekn",
+  usd_900000_month: "pri_01m4kc8bdy18z7h9g4qwbv6vqq",
+  usd_9000000_year: "pri_01m4kmzwg9vdfe2c4x5qnz2s4s",
+  usd_2500000_month: "pri_01m4kc8c6y167c8jx1pk7vcazx",
+  usd_25000000_year: "pri_01m4kmzwwqy407sttdb550w8dt",
 });
 
 const save = process.env.NEXT_PUBLIC_PADDLE_PRICES;
@@ -24,10 +24,15 @@ afterEach(() => {
 });
 
 /**
- * The three tiers the sandbox map must resolve. `paddlePriceIds` returns an
+ * The tiers the sandbox map must resolve. `paddlePriceIds` returns an
  * index-signature record, so each lookup is `PriceTier | undefined` to the
  * compiler; a map that dropped a tier would make the assertions below vacuous,
  * so missing tiers are a hard failure here.
+ *
+ * The interval is part of the key, and it has to be: Starter's annual price is
+ * $2,500 x 10 = $25,000, and Enterprise's monthly price is $25,000, so
+ * `usd_2500000` alone names two different prices. `usd_2500000_month` is
+ * Enterprise and `usd_2500000_year` is Starter.
  */
 function resolvedIds() {
   const ids = paddlePriceIds();
@@ -52,7 +57,7 @@ describe("paddlePriceIds", () => {
   });
 
   test("the annual amount maps to the same tier as its monthly anchor", () => {
-    // $99/mo -> $990/yr is a 10x key difference. Resolving `usd_99000_year`
+    // $2,500/mo -> $25,000/yr is a 10x key difference. Resolving `usd_2500000_year`
     // against the MONTHLY table is the bug that would silently drop every
     // annual Buy button.
     process.env.NEXT_PUBLIC_PADDLE_PRICES = SANDBOX;
@@ -66,9 +71,9 @@ describe("paddlePriceIds", () => {
     // Only monthly ids present: the annual Buy button would be dead with no
     // error, which reads as a one-tier bug instead of a config error.
     process.env.NEXT_PUBLIC_PADDLE_PRICES = JSON.stringify({
-      usd_9900_month: "pri_aaa1",
-      usd_49900_month: "pri_bbb1",
-      usd_200000_month: "pri_ccc1",
+      usd_250000_month: "pri_aaa1",
+      usd_900000_month: "pri_bbb1",
+      usd_2500000_month: "pri_ccc1",
     });
     expect(paddlePricesConfigured()).toBe(false);
     expect(() => paddlePriceIds()).toThrow(/NEXT_PUBLIC_PADDLE_PRICES/);
@@ -86,12 +91,12 @@ describe("paddlePriceIds", () => {
 
     // A sandbox-shaped map with a non-`pri_` value must not be accepted.
     process.env.NEXT_PUBLIC_PADDLE_PRICES = JSON.stringify({
-      usd_9900_month: "nope",
-      usd_99000_year: "nope2",
-      usd_49900_month: "nope3",
-      usd_499000_year: "nope4",
-      usd_200000_month: "nope5",
-      usd_2000000_year: "nope6",
+      usd_250000_month: "nope",
+      usd_2500000_year: "nope2",
+      usd_900000_month: "nope3",
+      usd_9000000_year: "nope4",
+      usd_2500000_month: "nope5",
+      usd_25000000_year: "nope6",
     });
     expect(paddlePricesConfigured()).toBe(false);
   });

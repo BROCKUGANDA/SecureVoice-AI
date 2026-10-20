@@ -10,7 +10,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 /**
- * The catalog as seeded and then extended, 2026-10-10.
+ * The catalog as seeded and then extended.
  *
  * Monthly prices came from `bun run paddle:seed`; annual prices from
  * `bun run paddle:add-annual` (10x monthly, "two months free"). Both were read
@@ -19,42 +19,80 @@ import { fileURLToPath } from "node:url";
  * Sandbox and production catalogs are entirely separate and these `pri_` ids do
  * not exist in production; regenerating them for live is a matter of re-running
  * the two scripts against a live key. The AMOUNTS are the business fact.
+ *
+ * ── TWO TIERS ON THE PAGE, THREE IN THE CATALOG, AND THE IDS ARE STALE ──────
+ *
+ * The Pilot is `salesAssisted`: it is invoiced, not sold through Paddle, so
+ * it has no Paddle product and no row here. It is a ninety-day engagement, and
+ * it has no annual price to seed either.
+ *
+ * Enterprise IS in the catalog even though it is invoiced in practice, because
+ * an invoiced tenant's commercial plan has to resolve from a price id.
+ *
+ * The `pri_` ids are the ones from the seeding that carried $99 / $499 /
+ * $2,000. The AMOUNTS below are the new rate card. **The ids are stale until
+ * `bun run paddle:seed` is re-run against the sandbox account**, and the ids
+ * are only ever asserted for SHAPE here — the seed script prints the new ones.
+ *
+ * ── AND ONE AMOUNT IS SHARED BY TWO PRICES ──────────────────────────────────
+ *
+ * Starter's annual price is $2,500 x 10 = $25,000 and Enterprise's monthly
+ * price is $25,000. A Paddle price key encodes the AMOUNT, so `usd_2500000`
+ * alone names two different prices. The key's INTERVAL disambiguates them
+ * (`usd_2500000_year` is Starter, `usd_2500000_month` is Enterprise), and
+ * `src/lib/payments/plans.ts` resolves on the interval. Resolving on the
+ * amount alone rated a Starter annual subscriber as Enterprise.
  */
 const CATALOG = [
   {
     id: "starter",
     name: "Starter",
-    monthlyUsd: 99,
-    yearlyUsd: 990,
+    monthlyUsd: 2500,
+    yearlyUsd: 25000,
     productId: "pro_01m4kc8a89eb5fs4638p0trbf7",
     monthlyPriceId: "pri_01m4kc8amfsr590wkmf02v0q91",
     yearlyPriceId: "pri_01m4kmzw3cq4na5tfn6xqd6ekn",
-    monthlyRegional: { GBP: 7425, EUR: 8910, AUD: 14850 },
-    yearlyRegional: { GBP: 74250, EUR: 89100, AUD: 148500 },
+    monthlyRegional: { GBP: 187500, EUR: 225000, AUD: 375000 },
+    yearlyRegional: { GBP: 1875000, EUR: 2250000, AUD: 3750000 },
   },
   {
     id: "growth",
     name: "Growth",
-    monthlyUsd: 499,
-    yearlyUsd: 4990,
+    monthlyUsd: 9000,
+    yearlyUsd: 90000,
     productId: "pro_01m4kc8b21kpp6eabxrybvb935",
     monthlyPriceId: "pri_01m4kc8bdy18z7h9g4qwbv6vqq",
     yearlyPriceId: "pri_01m4kmzwg9vdfe2c4x5qnz2s4s",
-    monthlyRegional: { GBP: 37425, EUR: 44910, AUD: 74850 },
-    yearlyRegional: { GBP: 374250, EUR: 449100, AUD: 748500 },
+    monthlyRegional: { GBP: 675000, EUR: 810000, AUD: 1350000 },
+    yearlyRegional: { GBP: 6750000, EUR: 8100000, AUD: 13500000 },
   },
   {
     id: "enterprise",
     name: "Enterprise",
-    monthlyUsd: 2000,
-    yearlyUsd: 20000,
+    monthlyUsd: 25000,
+    yearlyUsd: 250000,
     productId: "pro_01m4kc8bvk4vjrdhzcgqms3pfk",
     monthlyPriceId: "pri_01m4kc8c6y167c8jx1pk7vcazx",
     yearlyPriceId: "pri_01m4kmzwwqy407sttdb550w8dt",
-    monthlyRegional: { GBP: 150000, EUR: 180000, AUD: 300000 },
-    yearlyRegional: { GBP: 1500000, EUR: 1800000, AUD: 3000000 },
+    monthlyRegional: { GBP: 1875000, EUR: 2250000, AUD: 3750000 },
+    yearlyRegional: { GBP: 18750000, EUR: 22500000, AUD: 37500000 },
   },
 ] as const;
+
+/**
+ * The plans sold THROUGH Paddle — the ones the catalog has to carry.
+ *
+ * A plan marked `salesAssisted` is invoiced, has no Paddle product, and must
+ * not appear in the catalog or in the browser price map. The PILOT is such a
+ * plan: ninety days, bought once, with no annual price to seed.
+ *
+ * Enterprise is NOT one of them, even though it is invoiced in practice. It
+ * keeps its Paddle product because an invoiced tenant's commercial plan has to
+ * resolve from a price id — `Organization.planTier` carries the ABUSE tier
+ * vocabulary, not a plan id. The invoice route is a decision taken in the
+ * order form; the catalog entry is what keeps the tenant's plan resolvable.
+ */
+const PADDLE_PLANS = PLANS.filter((p) => !p.salesAssisted);
 
 /**
  * Products from the FIRST seeding, retired on the re-seed.
@@ -74,7 +112,10 @@ describe("the website and the Paddle catalog quote the same prices", () => {
   test("the plan ids line up one-to-one", () => {
     // A plan on the page with no catalog entry is a plan nobody can buy; a
     // catalog entry with no plan is a price nobody can find.
-    expect(PLANS.map((p) => p.id)).toEqual(CATALOG.map((c) => c.id));
+    //
+    // The comparison is over the PADDLE-SOLD plans. A `salesAssisted` plan is
+    // invoiced and has no Paddle product by design.
+    expect(PADDLE_PLANS.map((p) => p.id)).toEqual(CATALOG.map((c) => c.id));
   });
 
   test.each(CATALOG.map((c) => [c.name, c] as const))(
@@ -166,18 +207,52 @@ describe("the website and the Paddle catalog quote the same prices", () => {
 });
 
 describe("the pricing model matches what the code can charge", () => {
-  test("every plan has included volume, and overage except Enterprise", () => {
+  test("every plan has an included volume AND a posted overage rate", () => {
+    // There is no longer a tier whose overage is "negotiated" and therefore
+    // un-ratable. Enterprise's rate is posted ($2.25, with the telephony leg
+    // passed through at cost + 10%), because a rate that cannot be rated is a
+    // ceiling nobody can price against — and because the rater REFUSING to
+    // invoice Enterprise overage is a missing invoice a bank finds on its own
+    // statement, months later.
     for (const plan of PLANS) {
       expect(plan.includedPerMonth, `${plan.name} has no included volume`).toBeGreaterThan(0);
+      expect(plan.overageCents, `${plan.name} has no overage rate`).toBeGreaterThan(0);
     }
-    expect(PLANS.filter((p) => p.overageCents === null).map((p) => p.id)).toEqual(["enterprise"]);
   });
 
   test("included volume rises monotonically with price", () => {
-    const priced = [...PLANS].sort((a, b) => a.monthlyUsd! - b.monthlyUsd!);
+    // Over the RECURRING plans only, and the Pilot is deliberately excluded.
+    //
+    // The Pilot is a different SHAPE, not a cheaper month: $12,000 buys ninety
+    // days and 2,000 interventions, so it is priced at $6.00 an intervention
+    // against Growth's $3.60. That premium is the point of a pilot — it buys a
+    // scoped engagement, a charter and a written success criteria, none of
+    // which a monthly plan carries. Folding it into the recurring ladder would
+    // assert something false ("a pilot includes more than a cheaper plan").
+    //
+    // The ladder that DOES have to hold is the recurring one: Starter $2,500 /
+    // 500, Growth $9,000 / 2,500, Enterprise $25,000 / 10,000.
+    const recurring = PLANS.filter((p) => p.yearlyUsd !== null);
+    const priced = [...recurring].sort((a, b) => a.monthlyUsd! - b.monthlyUsd!);
     for (let i = 1; i < priced.length; i++) {
-      expect(priced[i]!.includedPerMonth!).toBeGreaterThan(priced[i - 1]!.includedPerMonth!);
+      expect(
+        priced[i]!.includedPerMonth!,
+        `${priced[i]!.name} vs ${priced[i - 1]!.name}`,
+      ).toBeGreaterThan(priced[i - 1]!.includedPerMonth!);
     }
+  });
+
+  test("the pilot is priced above the recurring ladder, per intervention", () => {
+    // $12,000 / 2,000 = $6.00, against Growth's $9,000 / 2,500 = $3.60. If the
+    // pilot ever came out CHEAPER per intervention than the monthly plans, the
+    // rate card would be inviting every customer to buy a pilot and never
+    // convert — and nobody would notice, because both numbers are correct on
+    // their own.
+    const pilot = PLANS.find((p) => p.id === "pilot")!;
+    const growth = PLANS.find((p) => p.id === "growth")!;
+    const pilotPer = pilot.monthlyUsd! / pilot.includedPerMonth!;
+    const growthPer = growth.monthlyUsd! / growth.includedPerMonth!;
+    expect(pilotPer).toBeGreaterThan(growthPer);
   });
 
   test("annual is offered and priced, with no trial promised anywhere", () => {
@@ -185,9 +260,14 @@ describe("the pricing model matches what the code can charge", () => {
     // catalog — nothing seeds one — so the page must not promise one. This is the
     // same guard that previously asserted the opposite, inverted because the
     // catalog now carries annual prices.
-    for (const plan of PLANS) {
+    //
+    // The PILOT is the exception, and it is a real one: ninety days, bought
+    // once, invoiced. It has no annual price because it has no second year.
+    for (const plan of PADDLE_PLANS) {
       expect(plan.yearlyUsd, `${plan.name} has no annual price`).not.toBeNull();
     }
+    const pilot = PLANS.find((p) => p.id === "pilot")!;
+    expect(pilot.yearlyUsd, "the pilot is a ninety-day engagement, not a subscription").toBeNull();
     const page = read("src/views/Pricing.tsx");
     expect(page).not.toMatch(/trial/i);
   });
@@ -197,7 +277,9 @@ describe("the pricing model matches what the code can charge", () => {
       // A contact-sales tier formats the annual to "" on purpose — printing it
       // under a "Custom" headline would publish the figure the month hides. Its
       // annual NUMBER is still asserted above; this is only about rendering.
-      if (plan.publiclyPriced === false) {
+      //
+      // A one-off engagement has no annual at all, and prints none.
+      if (plan.publiclyPriced === false || plan.yearlyUsd === null) {
         expect(formatYearly(plan, "en"), `${plan.name} must hide its annual`).toBe("");
         continue;
       }
@@ -213,17 +295,23 @@ describe("the pricing model matches what the code can charge", () => {
   });
 
   test("included and overage format to real numbers", () => {
-    // Unlike the monthly price, overage IS in cents by nature — $0.15 — so it
+    // Unlike the monthly price, overage IS in cents by nature — $4.50 — so it
     // must carry two decimals.
     const starter = PLANS.find((p) => p.id === "starter")!;
     expect(formatIncluded(starter, "en")).toBe("500");
-    expect(formatOverage(starter, "en")).toBe("$0.15");
+    expect(formatOverage(starter, "en")).toBe("$4.50");
     expect(
       formatOverage(
         PLANS.find((p) => p.id === "enterprise")!,
         "en",
       ),
-    ).toBe("");
+    ).toBe("$2.25");
+    expect(
+      formatOverage(
+        PLANS.find((p) => p.id === "pilot")!,
+        "en",
+      ),
+    ).toBe("$5.00");
   });
 });
 

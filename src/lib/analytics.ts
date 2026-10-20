@@ -75,16 +75,18 @@ type OrgEventProps = {
  * gates and a case row is written. This is the platform's core value action —
  * the moment a fraud alert became a real intervention.
  *
- * `outcome` distinguishes the three paths the handler can take after the gates
+ * `outcome` distinguishes the paths the handler can take after the gates
  * pass, which is the only place in the product that knows whether a call will
  * actually be placed:
  *   `queued`        a dial job is enqueued and a call will happen
  *   `sms_only`      the customer is deaf/HH; the voice path is skipped entirely
  *   `degraded`      capacity shed the voice path to an async channel
+ *   `shadow`        the deployment is in pilot shadow mode; the case was
+ *                   recorded and NO customer was contacted
  */
 export function interventionAccepted(
   props: OrgEventProps & {
-    outcome: "queued" | "sms_only" | "degraded";
+    outcome: "queued" | "sms_only" | "degraded" | "shadow";
     language: string;
     signalKind?: string | null;
     callCategory?: string | null;
@@ -115,8 +117,17 @@ export function interventionAccepted(
  */
 export function interventionRefused(
   props: OrgEventProps & {
-    /** Which gate refused: `policy`, `compliance`, `abuse`, or `consent`. */
-    stage: "policy" | "compliance" | "abuse" | "consent";
+    /**
+     * Which gate refused: `policy`, `compliance`, `abuse`, `consent`, or
+     * `pilot`.
+     *
+     * `pilot` is the pilot charter gate (`src/lib/pilot/gate.ts`): the signal
+     * was outside the pilot's agreed alert type, or the pilot's contracted
+     * daily volume was already spent. It is a decision about the pilot, not
+     * about the customer, which is why it is its own stage rather than being
+     * folded into `policy`.
+     */
+    stage: "policy" | "compliance" | "abuse" | "consent" | "pilot";
     /** The gate's own typed reason code. Never a message. */
     reason: string;
   },

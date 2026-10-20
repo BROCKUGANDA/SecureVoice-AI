@@ -2,21 +2,24 @@
 
 Two separate questions, and they have different answers:
 
-| You want to…                                               | Use                                                                               | Difficulty   |
-| ---------------------------------------------------------- | --------------------------------------------------------------------------------- | ------------ |
-| **Call SecureVoice** from your fraud engine / core banking | [`POST /api/interventions`](#1-bank--fraud-engine--core-banking) — signed webhook | Half a day   |
-| **Let SecureVoice call your customers**                    | [`POST /api/enroll`](#2-customer-enrolment-for-outbound-calls)                    | An hour      |
-| **Receive every phase transition** back in your systems    | [`POST /api/webhooks`](#3-outbound-events-back-to-your-bank)                      | An hour      |
-| **Run it inside your own VPC / cloud**                     | [`docker compose`](#5-run-it-yourself)                                            | A day        |
-| **Give your staff their own console + keys**               | [Multi-tenant onboarding](#6-multi-tenant--self-serve-onboarding)                 | Product work |
-| **Use it right now, no deployment**                        | [`securevoiceai.me`](#7-use-the-hosted-demo)                                      | Seconds      |
+| You want to…                                   | Use                                                                                   | Difficulty   |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------- | ------------ |
+| **Call SecureVoice** from your fraud engine    | [`POST /v1/interventions`](#1-fraud-engine--securevoice) — signed signal              | Half a day   |
+| **Let SecureVoice call your customers**        | [`POST /v1/enroll`](#2-customer-enrolment-for-outbound-calls)                         | An hour      |
+| **Receive signed case events** in your systems | [`case.notified`](#3-outbound-events-back-to-your-bank) to your callback URL          | An hour      |
+| **Run it inside your own VPC / cloud**         | [`docker compose`](#5-run-it-yourself)                                                | A day        |
+| **Give your staff their own console + keys**   | [Multi-tenant onboarding](#6-multi-tenant--self-serve-onboarding) (operator-assisted) | Product work |
+| **Use it right now, no deployment**            | [`securevoiceai.me`](#7-use-the-hosted-demo)                                          | Seconds      |
 
 ---
 
-## 1. Bank / fraud engine → core banking
+## 1. Fraud engine → SecureVoice
 
-`POST /api/interventions` is the ingest contract. Anything that can POST JSON and
+`POST /v1/interventions` is the ingest contract. Anything that can POST JSON and
 HMAC-sign it can drive the platform — no SDK, no agent install.
+
+`/api/interventions` is retired and returns `410` with the successor path. Use the
+versioned URL.
 
 ### The signing scheme (do not skip this)
 
@@ -24,6 +27,7 @@ Untrusted or unsigned risk signals are rejected with **401**. The platform never
 on a signal it cannot attribute.
 
 ```
+Idempotency-Key: <required, at least 8 characters, reused on every retry>
 SV-Signature: t={unix_seconds},v1={hmac_sha256(WEBHOOK_SECRET, "{t}.{rawBody}")}
 ```
 
@@ -31,23 +35,27 @@ SV-Signature: t={unix_seconds},v1={hmac_sha256(WEBHOOK_SECRET, "{t}.{rawBody}")}
   the raw body. Re-serialising JSON changes key order and breaks the signature.
 - `t` has a **5-minute replay window**. Clock-skewed producers should sync to NTP.
 - Comparison is constant-time.
+- `Idempotency-Key` is required. Reuse it on every retry; a fresh key creates a
+  second case and a second call.
 
-```bash
-# Node — sign and send a risk signal
+```js
+// Node — sign and send a risk signal
 import { createHmac } from "node:crypto";
 
-const url = "https://securevoiceai.me/api/interventions";
-const secret = process.env.WEBHOOK_SECRET;           // shared with SecureVoice
+const url = "https://securevoiceai.me/v1/interventions";
+const secret = process.env.WEBHOOK_SECRET; // shared with SecureVoice
 
 const body = JSON.stringify({
-  signal: {
-    caseId: "FRAUD-2026-08612",
-    riskScore: 0.94,
-    channel: "card",
-    customer: { ref: "CUST-8642", lang: "ar" },      // your internal id, NOT PII
-    transaction: { amountAed: 2500, merchant: "Electronics World" },
-    callbackUrl: "https://bank.example/webhooks/securevoice",
-  },
+  transaction_ref: "FRAUD-2026-08612",
+  risk_score: 0.94,
+  language: "ar",
+  phone: "+971501234567",
+  currency: "AED",
+  amount: 2500,
+  merchant: "Electronics World",
+  consent_record_id: "CN-2026-04-1183",
+  callback_url: "https://bank.example/hooks/securevoice",
+  org_id: "bank-core-uae",
 });
 
 const t = Math.floor(Date.now() / 1000);
@@ -55,7 +63,11 @@ const v1 = createHmac("sha256", secret).update(`${t}.${body}`).digest("hex");
 
 const res = await fetch(url, {
   method: "POST",
-  headers: { "content-type": "application/json", "SV-Signature": `t=${t},v1=${v1}` },
+  headers: {
+    "content-type": "application/json",
+    "Idempotency-Key": "FRAUD-2026-08612",
+    "SV-Signature": `t=${t},v1=${v1}`,
+  },
   body,
 });
 console.log(res.status, await res.json());
@@ -90,18 +102,19 @@ enrollment record.
 The **SLA clock starts on acceptance**, not on call completion — that is the metric
 box M tracks (`AuditLog.first_contact_at − alert_received_at`).
 
-### From a core-banking sandbox, claims engine, or case-management mock
+### From a fraud-engine sandbox, claims engine, or case-management mock
 
 You do not need those systems to have a SecureVoice plugin. Model them as **producers**
-(→ `/api/interventions`) and **consumers** (← `/api/webhooks`). If you want a real
-tool-call surface instead of push, the ElevenLabs agent's server tools hit
-`/api/elevenlabs/tools/card-freeze` — see [tool auth](#4-elevenlabs-agent--tool-authorisation).
+(→ `POST /v1/interventions`) and **consumers** (← signed delivery to your
+`callback_url`). If you want a real tool-call surface instead of push, the
+ElevenLabs agent's server tools hit `/api/elevenlabs/tools/card-freeze` — see
+[tool auth](#4-elevenlabs-agent--tool-authorisation).
 
 ---
 
 ## 2. Customer enrolment for outbound calls
 
-`POST /api/enroll` registers a number and — critically — the **consent reference**
+`POST /v1/enroll` registers a number and — critically — the **consent reference**
 that the platform requires before it will dial it. Enrolling puts that reference in
 our store, which is what makes opt-out enforceable per number. The consent record
 itself stays in your system of record: the platform requires the reference, refuses a
@@ -154,22 +167,23 @@ unrestricted delivery use a paid account and set `TWILIO_*` in your deployment.
 
 ## 3. Outbound events back to your bank
 
-`POST /api/webhooks` emits every phase transition to your `callbackUrl`. The same
-`SV-Signature` header proves authenticity, and **PII is redacted before signing**, so
-you receive evidence, not customer data.
+SecureVoice delivers signed `case.notified` events to the `callback_url` supplied
+with the signal. Today that is the only emitted event type; treat unknown types as
+additive and ignore them. The same `SV-Signature` header proves authenticity, and
+**PII is redacted before signing**, so you receive evidence, not customer data.
 
-| Event                  | Meaning                                                      |
-| ---------------------- | ------------------------------------------------------------ |
-| `intervention.started` | case accepted, SLA clock running                             |
-| `identity.verified`    | customer passed the zero-knowledge check                     |
-| `customer.confirmed`   | customer said "yes, that was me"                             |
-| `account.frozen`       | freeze staged — **see the human-approval note below**        |
-| `escalated.human`      | specialist queued, `sla_seconds` included                    |
-| `case.closed`          | terminal state, with `action_taken` and `prevented_loss_aed` |
+| Event           | Meaning                                                                                |
+| --------------- | -------------------------------------------------------------------------------------- |
+| `case.notified` | state, outcome, staged-hold/handoff flags and an evidence pointer, keyed by `case_ref` |
 
-> **`account.frozen` does not mean the card is blocked.** The agent can only stage a
-> reversible `pending_specialist` state. A human fraud specialist finalises it in the
-> bank's console. This is deliberate — see the guardrails table in
+`POST /api/webhooks` is **not** the production event-delivery endpoint. It is an
+operator-only signing demo. A reference receiver lives at
+`POST /api/webhooks/receiver`; do not point production traffic at either demo
+surface.
+
+> **A staged hold is not a blocked card.** The agent can only stage a reversible
+> `pending_specialist` state. A human fraud specialist finalises it in the bank's
+> console. This is deliberate — see the guardrails table in
 > [docs/SUBMISSION.md](SUBMISSION.md#k-guardrails-every-row-is-a-code-level-mechanism-not-a-comment).
 
 ---
@@ -362,7 +376,7 @@ not.** This is the honest state as of this commit — read it before planning ar
 
 1. **Automated provisioning.** An org is created by an operator today. There is no
    signup → org → first-producer-key flow; someone with console access does it.
-2. **Onboarding UI.** No guided "connect your core banking" wizard — the integration
+2. **Onboarding UI.** No guided "connect your fraud engine" wizard — the integration
    above is documentation, not a form.
 3. **Self-serve verification.** `PilotRequest` captures intent but nothing closes the
    loop automatically.
@@ -376,7 +390,7 @@ org + Better Auth organization created       ← INSERT here
   ↓ auto-mint
 first ProducerKey handed to the bank   ← INSERT here (nonce + one-time display)
   ↓ bank runs
-POST /api/enroll per customer, then POST /api/interventions on risk
+POST /v1/enroll per customer, then POST /v1/interventions on risk
 ```
 
 The three `INSERT` points are the whole product gap. Everything they need —
@@ -411,7 +425,7 @@ Twilio numbers are dialled and no ElevenLabs quota is burned unless you supply k
 
 | Symptom                             | Cause                                                                                                                                               |
 | ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `401` from `/api/interventions`     | Signature mismatch. Sign the **exact raw body**, not a re-serialised object. Check the replay window.                                               |
+| `401` from `/v1/interventions`      | Signature mismatch. Sign the **exact raw body**, not a re-serialised object. Check the replay window.                                               |
 | `P1001` from Prisma on a healthy DB | Direct DB host is IPv6-only and your host has no IPv6 route. Use the IPv4 pooler.                                                                   |
 | Tool call returns `405`             | ElevenLabs signed-URL endpoints are `GET` with `agent_id` as a **query param**, not a JSON body. (Already handled in `/api/elevenlabs/signed-url`.) |
 | Agent has no tools available        | Free-tier accounts get HTTP 200 while silently dropping `tool_ids`. Attach tools in the ElevenLabs **dashboard**, not the API.                      |

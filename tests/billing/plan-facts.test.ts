@@ -115,7 +115,7 @@ describe("a price id resolves to the plan it belongs to", () => {
     setEnv(
       "PADDLE_PRICES",
       JSON.stringify({
-        usd_9900_monthly: "pr_starter",
+        usd_250000_monthly: "pr_starter",
         [`usd_${(growth.monthlyUsd ?? 0) * 100}_monthly`]: "pr_growth",
         [`usd_${(growth.yearlyUsd ?? 0) * 100}_yearly`]: "pr_growth_annual",
       }),
@@ -155,21 +155,24 @@ describe("the overage rate is the plan's own", () => {
     expect(starter.configured).toBe(false);
   });
 
-  test("Enterprise publishes no rate, so nothing is rated", () => {
-    // `overageCents: null` is "negotiated". Billing it at the Starter default
-    // would put an invented number on a Tier-1 bank's invoice.
+  test("Enterprise publishes a rate, so its overage is rated rather than refused", () => {
+    // It used to publish `overageCents: null` — "negotiated" — which meant the
+    // rater REFUSED to invoice Enterprise overage at all. A missing invoice is
+    // recoverable; a rate nobody can price against is a ceiling with no
+    // commercial meaning. The rate card now posts $2.25 per intervention, with
+    // the telephony leg passed through at cost + 10%.
     setEnv("OVERAGE_RATE_MINOR_PER_UNIT", undefined);
-    expect(planById("enterprise")!.overageCents).toBeNull();
+    expect(planById("enterprise")!.overageCents).toBe(225);
     const r = resolveOverageRate("enterprise");
-    expect(r.ok).toBe(false);
-    if (r.ok) return;
-    expect(r.reason).toBe("rate_not_negotiated");
-    expect(r.detail).toContain("negotiated");
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.rateMinorPerUnit).toBe(225);
+    expect(r.configured).toBe(false);
   });
 
   test("the env override beats every plan, and reports itself as configured", () => {
     setEnv("OVERAGE_RATE_MINOR_PER_UNIT", "9");
-    for (const id of ["starter", "growth", "enterprise"]) {
+    for (const id of ["starter", "growth", "enterprise", "pilot"]) {
       const r = resolveOverageRate(id);
       expect(r.ok, id).toBe(true);
       if (r.ok) {
@@ -224,7 +227,15 @@ describe("no seat cap is invisible", () => {
   test("seats never go DOWN as the price goes UP", () => {
     // A cheaper plan with MORE seats means the cap being enforced is not the cap
     // being sold. `null` is unlimited, so it is the largest value.
-    const priced = [...PLANS].sort((a, b) => a.monthlyUsd! - b.monthlyUsd!);
+    //
+    // Over the RECURRING ladder. The Pilot is a different SHAPE — ninety days,
+    // bought once, invoiced — so it is not a rung on the subscription ladder,
+    // and putting it in the middle of that ladder would assert something false
+    // ("a $12,000 engagement includes fewer seats than a $9,000 month"). It
+    // carries the same seat count as Growth, which is what a pilot team
+    // actually needs: a pilot is staffed, not staffed by one person.
+    const recurring = PLANS.filter((p) => p.yearlyUsd !== null);
+    const priced = [...recurring].sort((a, b) => a.monthlyUsd! - b.monthlyUsd!);
     for (let i = 1; i < priced.length; i++) {
       const prev = priced[i - 1]!.seats;
       const next = priced[i]!.seats;

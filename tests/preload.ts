@@ -59,6 +59,18 @@ process.env.BETTER_AUTH_SECRET ??= "test-only-better-auth-secret-not-a-credentia
 process.env.ELEVENLABS_WEBHOOK_SECRET =
   process.env.ELEVENLABS_WEBHOOK_SECRET || "test-only-elevenlabs-webhook-secret-not-a-credential";
 
+// The DEPLOYMENT-INTERNAL ingest secret, for the suites that fire a signal
+// naming an organisation.
+//
+// `WEBHOOK_SECRET` is shared with every producer, so the ingest refuses to let
+// a request signed with it CHOOSE a tenant: the body could otherwise put a
+// case in — and dial on — another bank's organisation. A suite that names an
+// org is the platform acting on a tenant it operates, so it signs with this
+// one instead. Same reasoning as the two above: `||` makes an empty value mean
+// unset, and a real environment wins.
+process.env.CONSOLE_INGEST_SECRET =
+  process.env.CONSOLE_INGEST_SECRET || "test-only-console-ingest-secret-not-a-credential";
+
 // The origin Better Auth derives its own URLs from, same reasoning as above: the
 // three tenancy suites that construct the auth layer fail to import without it,
 // which made them red or green depending on whether the developer's `.env`

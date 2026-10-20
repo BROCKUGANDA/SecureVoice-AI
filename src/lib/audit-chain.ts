@@ -46,7 +46,7 @@ export type AuditEntry = {
    * trust. Extend this rather than reusing a word; the DB column is a plain String, so
    * this union is the only thing keeping the vocabulary honest.
    */
-  action: "tts" | "asr" | "agent" | "freeze" | "handoff" | "consent" | "sla";
+  action: "tts" | "asr" | "agent" | "freeze" | "handoff" | "consent" | "sla" | "pilot";
   intent?: string;
   callerId?: string;
   redactedText?: string;

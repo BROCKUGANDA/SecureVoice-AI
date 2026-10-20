@@ -16,6 +16,7 @@ import {
 import { useState } from "react";
 import { useApp, t } from "@/lib/store";
 import type { InstitutionType } from "@/lib/institution-types";
+import { INSURANCE_INSTITUTIONS, INSURANCE_LINES, INSURANCE_TERMS } from "@/lib/insurance";
 import { useStandalone } from "@/components/shell/standalone-context";
 import { Reveal } from "@/components/fx/core";
 import { cn } from "@/lib/utils";
@@ -67,7 +68,7 @@ const USE_CASES_AR: Record<string, UseCaseAr> = {
       "ينفّذ استراتيجية المعاملة المعتمدة بدقة — دون انحراف أو اجتهاد",
       "ستّ لغات صوتية في الشيفرة — EN · AR · HI · UR · FR · SW؛ الوكيل الحيّ مهيّأ للإنجليزية والعربية والهندية، وخط الاستمرارية يضيف الأردنية والفرنسية والسواحيلية، ولا توجد محادثة كاملة مسجّلة إلا بالإنجليزية والعربية",
       "ساعات الاتصال المسموحة مفروضة بالإعدادات؛ وكل طلب إلغاء يُحترم ويُسجّل",
-      "كل مكالمة مسجّلة بأثر تدقيق غير قابل للتغيير",
+      "كل مكالمة موثّقة بأثر تدقيق غير قابل للتغيير",
     ],
     inScope: [
       "مكالمات روتينية مجدولة بشأن التزام قائم أو على وشك الانتهاء",
@@ -152,7 +153,7 @@ const USE_CASES_AR: Record<string, UseCaseAr> = {
 
   "claims-fraud": {
     pitch:
-      "لحظة صرف التعويض هي أكثر لحظة تكون فيها جهة التأمين مكشوفة وحامل الوثيقة أقلّها اشكاكاً: المال متوقَّع، والمتصل هو جهة التأمين، وحساب المستفِد جديد. وحين يُحوَّل تعويض — مستفِد غُيِّر قبل أربع دقائق، أو مطالبة على وثيقة منتهية، أو ضرر موصوف بما لا يغطيه العقد — ي-call الوكيل حامل الوثيقة قبل خروج المال، بلغته، ويؤكّد المطالبة وحساب المستفِد دون أن يطلب رقماً سرياً أو كلمة مرور أو رمزاً لمرة واحدة.",
+      "لحظة صرف التعويض هي أكثر لحظة تكون فيها جهة التأمين مكشوفة وحامل الوثيقة أقلّها ارتياباً: المال متوقَّع، والمتصل هو جهة التأمين، وحساب المستفيد جديد. وحين يُحوَّل تعويض — مستفيد غُيِّر قبل أربع دقائق، أو مطالبة على وثيقة منتهية، أو ضرر موصوف بما لا يغطيه العقد — يتصل الوكيل بحامل الوثيقة قبل خروج المال، بلغته، ويؤكّد المطالبة وحساب المستفيد دون أن يطلب رقماً سرياً أو كلمة مرور أو رمزاً لمرة واحدة.",
     agent: [
       "تجري المكالمة فور قبول إشارة الصرف، قبل إرسال أمر الصرف إلى نظام الصرف",
       "يُؤكَّد التعريف بتحدي المطالبة — يُسأل حامل الوثيقة عن المطالبة، لا عن بياناته",
@@ -177,19 +178,22 @@ const USE_CASES_AR: Record<string, UseCaseAr> = {
 
   "policy-change": {
     pitch:
-      "خدمة الوثيقة هي أهدأ مكان يعمل فيه المحتال، لأنها لا تبدو احتيالاً. إضافة منفعة، أو تغيير عنوان، أو إعادة كتابة مستفِد، أو إعادة فتح وثيقة بعد الإلغاء — كل طلب منها طبيعي، والطلب الطبيعي هو بالضبط ما لا يراجعه أحد. يستدعي الوكيل حامل الوثيقة عند تسجيل تغيير في الخدمة، فيؤكّد أن التغيير كان منه، ويجهّز عكساً يقرّرهUNDERWRITER أو فريق الخدمة.",
+      "خدمة الوثيقة هي أهدأ مكان يعمل فيه المحتال، لأنها لا تبدو احتيالاً. إضافة منفعة، أو تغيير عنوان، أو إعادة كتابة مستفيد، أو إعادة فتح وثيقة بعد الإلغاء — كل طلب منها طبيعي، والطلب الطبيعي هو بالضبط ما لا يراجعه أحد. يستدعي الوكيل حامل الوثيقة عند تسجيل تغيير في الخدمة، فيؤكّد أن التغيير كان منه، ويجهّز عكساً يقرّره مسؤول الاكتتاب أو فريق الخدمة.",
     agent: [
       "يستدعى الحدثُ الخدمةَ نفسُه، لا درجةَ خطورة — المراجعة هي الضابط، فيجري ذلك على كل تغيير مُعلَّم لا على الأسوأ فقط",
       "يُؤكَّد التعريف بتحدي الوثيقة — يُسأل المتصل بما تغيَّر، لا بهُويّته",
-      "لا يُعكس التغيير إلا بشريّاً: الوكيل يُجهّز، وUNDERWRITER يقرّر",
-      "لغة مطابقة للشريعة حيث يكون المستأجر مشغّل تكافل — «اشتراك» و«صرف» بدل «قسطرة» و«تعويض»",
+      "لا يُعكس التغيير إلا بشريّاً: الوكيل يُجهّز، ومسؤول الاكتتاب يقرّر",
+      "لغة متوافقة مع الشريعة حيث يكون المستأجر مشغّل تكافل — «مساهمة» و«صرف» بدل «قسط» و«تعويض»",
     ],
     inScope: [
-      "تغيير المستفيد أو المستفِد على وثيقة سارية",
+      "تغيير المستفيد أو المستلم على وثيقة سارية",
       "إعادة فتح وثيقة بعد الإلغاء أو الانتهاء",
       "تغيير بيانات الاتصال يتبعه طلب خدمة",
     ],
-    outScope: ["التسعير والاكتتاب — قرار UNDERWRITER", "رسوم التجديد والانتهاء، لأنها غير عاجلة"],
+    outScope: [
+      "التسعير والاكتتاب — قرار مسؤول الاكتتاب",
+      "رسوم التجديد والانتهاء، لأنها غير عاجلة",
+    ],
     personas: ["رئيس الاكتتاب، شركة تأمين حياة", "كبير مسؤولي العمليات، مشغّل تكافل"],
     status: {
       label: "نسخة مرجعية",
@@ -259,7 +263,7 @@ const USE_CASES: {
       "Executes the approved treatment strategy exactly — no deviation, no improvisation",
       "Six speech languages in the code — EN · AR · HI · UR · FR · SW; the live agent plane is configured for EN/AR/HI, the continuity pipeline adds UR/FR/SW, and only EN and AR have a recorded end-to-end conversation",
       "Permitted calling hours enforced by configuration; every opt-out honoured and logged",
-      "Every call recorded with an immutable audit trail",
+      "Every call audited with an immutable trail",
     ],
     inScope: [
       "Scheduled, routine calls about an outstanding or expiring obligation",
@@ -524,6 +528,66 @@ export function UseCases() {
           </button>
         ))}
       </div>
+
+      {/* Insurance coverage map. The insurer briefs below are specific; this is
+          the vocabulary and line coverage that applies across them, so a health,
+          life, motor or Takaful reader can see their terms rather than infer
+          them from a card that happens to mention a claim. */}
+      {audience === "insurer" && (
+        <section className="mt-8 rounded-3xl border border-line bg-paper p-6 sm:p-8">
+          <div className="micro text-primary">
+            {t("INSURANCE COVERAGE & TERMS", "التغطية التأمينية والمصطلحات", lang)}
+          </div>
+          <p className="mt-2 max-w-3xl text-[13.5px] leading-relaxed text-ink-2">
+            {t(
+              "The same guardrail engine serves health, life, motor, property, travel and Takaful tenants. Takaful uses contribution and disbursement rather than premium and payout; a conventional insurer keeps its own product language.",
+              "المحرّك نفسه وضوابط الحماية يخدم التأمين الصحي والحياة والمركبات والممتلكات والسفر والتكافل. يستخدم التكافل «المساهمة» و«الصرف» بدل «القسط» و«التعويض»، ويحتفظ التأمين التقليدي بلغة منتجه.",
+              lang,
+            )}
+          </p>
+
+          <div className="mt-4 flex flex-wrap gap-2">
+            {INSURANCE_LINES.map((line) => (
+              <span
+                key={line.id}
+                className="rounded-full border border-line bg-white px-3 py-1.5 text-[12px] font-semibold text-ink-2"
+              >
+                {lang === "ar" ? line.ar : line.en}
+              </span>
+            ))}
+          </div>
+
+          <div className="mt-5 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {INSURANCE_TERMS.map((term) => (
+              <div
+                key={term.id}
+                className="flex items-center justify-between gap-3 rounded-xl border border-line bg-white px-3 py-2"
+              >
+                <span className="text-[12px] font-medium text-ink-2">{term.en}</span>
+                <span dir="rtl" className="text-right text-[12px] text-ink-3" lang="ar">
+                  {term.ar}
+                </span>
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-5">
+            <div className="micro text-[9px] text-ink-3">
+              {t("INSTITUTION TYPES", "أنواع المؤسسات", lang)}
+            </div>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {INSURANCE_INSTITUTIONS.map((inst) => (
+                <span
+                  key={inst.id}
+                  className="rounded-full border border-primary/20 bg-green-tint px-3 py-1.5 text-[12px] font-semibold text-primary"
+                >
+                  {lang === "ar" ? inst.ar : inst.en}
+                </span>
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* cards */}
       <div className="mt-8 space-y-6">

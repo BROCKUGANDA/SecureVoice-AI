@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { createHash } from "node:crypto";
 import { z } from "zod";
 import { consume as consumeRateLimit, rateLimitId } from "@/lib/ratelimit";
 import { verifyProducerKey } from "@/lib/producer-keys";
@@ -6,6 +7,8 @@ import { isE164 } from "@/lib/twilio";
 import { isAfterHours } from "@/lib/abuse/velocity";
 import { createCase, transitionCase } from "@/lib/case-state-machine";
 import { enqueueDialJob } from "@/lib/scale/queue";
+import { PilotRefusalError, runPilotGate } from "@/lib/pilot/gate";
+import { isUniqueViolation } from "@/lib/idempotency";
 import { db } from "@/lib/db";
 import { preNotificationLeadMs } from "@/lib/prenotify";
 import { logInfo, logWarn } from "@/lib/validation/safe-log";
@@ -27,6 +30,23 @@ export const dynamic = "force-dynamic";
  * The only campaign-specific work is the summary: a producer wants to know how
  * many recipients were accepted, skipped for do-not-call, refused as malformed,
  * or deferred to the calling window — before it spends the batch.
+ *
+ * ── The pilot gate, and why a campaign is the wrong shape for a pilot ───────
+ *
+ * This route used to enqueue dial jobs with no reference to pilot mode at all,
+ * which made it a door straight into a live pilot: it bypassed the volume cap
+ * at ingest, it bypassed the one-alert-type charter, and it created cases with
+ * NO `signalKind`, which is the value the charter check reads — so a campaign
+ * could dial five hundred recipients under a charter that was supposed to
+ * mean one alert type. In SHADOW mode it was worse than a bypass: it created
+ * cases and jobs in a phase that is defined by touching no customer, and those
+ * parked jobs were dialled the moment the deployment switched to live.
+ *
+ * A campaign is a MARKETING shape — a list, a category, no per-recipient alert
+ * type — so under a one-alert-type charter it is out of scope by
+ * construction, and the gate refuses it. That is the correct answer, and it is
+ * better to say so at the door than to admit a batch the pilot was not
+ * chartered for.
  */
 const CATEGORIES = [
   "fact_finding",
@@ -53,7 +73,12 @@ const bodySchema = z.object({
 });
 
 type Outcome =
-  "accepted" | "invalid_phone" | "skipped_do_not_call" | "deferred_calling_hours" | "failed";
+  | "accepted"
+  | "invalid_phone"
+  | "skipped_do_not_call"
+  | "deferred_calling_hours"
+  | "pilot_refused"
+  | "failed";
 
 export async function POST(req: Request) {
   const rl = await consumeRateLimit("campaigns", rateLimitId(req, "campaigns"), 1, 20);
@@ -68,6 +93,20 @@ export async function POST(req: Request) {
     );
   }
   const orgId = producer.orgId ?? null;
+
+  // A campaign is a batch of side effects, so the retry boundary is the
+  // request. Without a stable key, a client retry creates a new case and a new
+  // dial job for every recipient — five hundred duplicate calls from one
+  // timeout. The key is required for the same reason the single-signal ingest
+  // requires one; it makes the derived case ref deterministic, and the Case
+  // unique index is the race backstop behind that derivation.
+  const idemKey = req.headers.get("idempotency-key")?.trim() ?? "";
+  if (idemKey.length < 8) {
+    return NextResponse.json(
+      { ok: false, error: "Idempotency-Key header is required, min 8 characters", code: "invalid" },
+      { status: 400 },
+    );
+  }
 
   const parsed = bodySchema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) {
@@ -91,8 +130,57 @@ export async function POST(req: Request) {
     invalid_phone: 0,
     skipped_do_not_call: 0,
     deferred_calling_hours: 0,
+    pilot_refused: 0,
     failed: 0,
   };
+
+  // THE PILOT GATE, before a single case is created.
+  //
+  // Checked ONCE for the whole batch rather than per recipient: the gate's
+  // questions — "is this deployment running a pilot", "is this alert type in
+  // scope", "is the day's volume spent" — are the same for every recipient on
+  // the list, and a per-recipient check would issue the same database reads
+  // five hundred times to learn the same answer.
+  //
+  // A campaign carries NO `signalKind`: it is a list, not a per-recipient
+  // alert. Under a one-alert-type charter that is out of scope, and the gate
+  // says so. In shadow mode the batch is accepted for RECORDING and no job is
+  // created, because Phase 0 touches no customer.
+  const pilot = await runPilotGate({ orgId, signalKind: null });
+  if (!pilot.ok) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: pilot.reason,
+        code: pilot.code,
+        stage: "pilot",
+        accepted: 0,
+        refused: recipients.length,
+      },
+      { status: 409 },
+    );
+  }
+  if (pilot.shadow) {
+    // Shadow mode: the batch is recorded for the readout and NO case, NO dial
+    // job, NO SMS and NO admission slot are created. A campaign is a list, so
+    // there is nothing to record per recipient either — the pilot's shadow
+    // readout is about alerts, not about marketing lists.
+    return NextResponse.json(
+      {
+        ok: true,
+        count: recipients.length,
+        ...counts,
+        results: [],
+        shadow: {
+          mode: "shadow" as const,
+          contacted: false,
+          detail:
+            "Recorded under the pilot's shadow mode. No call, no SMS, no case and no queue entry were created.",
+        },
+      },
+      { status: 200 },
+    );
+  }
 
   // The do-not-call registry, resolved ONCE for the whole batch.
   //
@@ -138,7 +226,15 @@ export async function POST(req: Request) {
     }
 
     const afterHours = callCategory === "routine" && isAfterHours(Date.now());
-    const caseRef = `SV-CAMP-${Math.random().toString(36).slice(2, 10).toUpperCase()}`;
+    // Tenant + request + destination. Reordering the list, or a retry of the
+    // same list, produces the same ref; two tenants can never collide because
+    // the org is in the digest.
+    const digest = createHash("sha256")
+      .update(`${orgId ?? "platform"}|${idemKey}|${phone}`)
+      .digest("hex")
+      .slice(0, 12)
+      .toUpperCase();
+    const caseRef = `SV-CAMP-${digest}`;
     try {
       const { id } = await createCase({
         caseRef,
@@ -157,6 +253,10 @@ export async function POST(req: Request) {
         caseRef,
         orgId,
         attemptNo: 1,
+        // A campaign is a list, not a per-recipient alert, so it carries no
+        // signal kind. Under a one-alert-type charter that is out of scope and
+        // the queue's own gate refuses it.
+        signalKind: null,
         // The language travels with the job: the worker resolves the ASR, the
         // voice and every spoken line from it, and an absent language is an
         // English call whatever the case row says.
@@ -175,6 +275,29 @@ export async function POST(req: Request) {
         results.push({ phone, outcome: "accepted", caseRef });
       }
     } catch (err) {
+      // The deterministic ref already exists: this recipient was accepted by
+      // an earlier attempt of the SAME key. Its dial job is already durable
+      // and idempotent on (case_id, attempt_no); report it as accepted rather
+      // than creating a second call.
+      if (isUniqueViolation(err)) {
+        counts.accepted++;
+        results.push({ phone, outcome: "accepted", caseRef });
+        continue;
+      }
+      // A pilot refusal is not a failure and must not be reported as one. The
+      // case may already exist (the gate at the queue refused the JOB, after
+      // the case row was written) — the operator sees "pilot_refused", which
+      // says the pilot said no, rather than "failed", which says something
+      // broke.
+      if (err instanceof PilotRefusalError) {
+        counts.pilot_refused++;
+        results.push({ phone, outcome: "pilot_refused", caseRef });
+        logWarn("[campaigns] recipient refused by the pilot gate", {
+          caseRef,
+          code: err.code,
+        });
+        continue;
+      }
       counts.failed++;
       results.push({ phone, outcome: "failed" });
       logWarn("[campaigns] recipient enqueue failed", {
@@ -194,6 +317,7 @@ export async function GET() {
     purpose:
       "Batch outbound campaign ingest: enqueue a recipient list through the same durable dial queue as single-signal ingest",
     auth: "Authorization: Bearer svb_… (per-org producer key)",
+    idempotency: "Idempotency-Key: <required, min 8 characters>",
     body: {
       lang: "en|ar|hi|ur|fr|sw (optional, default en)",
       callCategory: `${CATEGORIES.join(" | ")} (optional, default routine)`,

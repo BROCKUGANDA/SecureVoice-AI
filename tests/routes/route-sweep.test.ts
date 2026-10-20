@@ -139,6 +139,10 @@ describe("authorization coverage", () => {
       "/api/console/abuse",
       "/api/console/analytics",
       "/api/console/audit",
+      // Agent-tool credential lifecycle. Derives the org from the session,
+      // stores only the hash, and narrows each credential to an explicit tool
+      // scope; exercised by tests/unit/agent-tool-scope.test.ts.
+      "/api/console/agent-tools",
       "/api/console/crm",
       "/api/console/dead-letter",
       // Knowledge base. Every one of these derives its org from the session and
@@ -169,6 +173,13 @@ describe("authorization coverage", () => {
       "/api/console/me",
       "/api/console/outbox/replay",
       "/api/console/producer-keys",
+      // Pilot mode surfaces. GET derives its org from the session and reads
+      // PlatformSwitch/dial_job through Prisma (tests/console/pilot.test.ts);
+      // the kill switch is requirePlatformOperator-only and the per-dial
+      // approval writes the pilot intent into the audit chain.
+      "/api/console/pilot",
+      "/api/console/pilot/approvals",
+      "/api/console/pilot/kill-switch",
       "/api/console/realtime-token",
       "/api/console/search/transcripts",
       "/api/console/settings",

@@ -167,7 +167,7 @@ const PRIVACY_SECTIONS = [
     h: "Who we are",
     body: [
       'SecureVoice Technologies FZ-LLC ("SecureVoice", "we") provides a real-time voice fraud-intervention platform for banks and insurers operating in the United Arab Emirates. This policy explains what personal data we process through this website and the platform, why, and the rights you have over it.',
-      "We act as the data controller for data submitted through this website (for example, a pilot request) and as a data processor acting on your bank's documented instructions for any data processed inside a bank deployment of the platform.",
+      "We act as the data controller for data submitted through this website (for example, a pilot request) and as a data processor acting on your bank's documented instructions for any data processed inside a bank deployment of the platform. We are established in the Dubai International Financial Centre (DIFC). For personal data processed under DIFC Data Protection Law No. 5 of 2020 and its Regulations, the DIFC Commissioner of Data Protection supervises our processing.",
     ],
   },
   {
@@ -180,8 +180,8 @@ const PRIVACY_SECTIONS = [
   {
     h: "Lawful basis",
     body: [
-      'For website data we rely on your consent, given when you submit a form, and on our legitimate interest in operating and securing the service. For fraud-intervention calls processed for a bank, the lawful basis is established by that bank — typically the vital-interest and legal-obligation bases recognised under Federal Decree-Law No. 45 of 2021 (the "PDPL") — and we operate strictly on the bank\'s documented instructions.',
-      "Because this deployment runs in the European Economic Area, we also comply with the EU General Data Protection Regulation (Regulation (EU) 2016/679) for personal data processed in connection with it: we rely on your consent for website submissions and on legitimate interests for security logging, we have concluded a Data Processing Agreement with each processor, and transfers outside the EEA are covered by Standard Contractual Clauses or an adequacy decision.",
+      "For website data we rely on your consent, given when you submit a form, and on our legitimate interest in operating and securing the service. For fraud-intervention calls processed for a bank, the bank determines the lawful basis under the law applicable to it and gives us documented instructions. That basis will usually be the bank's legal obligation, its legitimate interests in preventing financial crime, or vital interests; we do not make that determination for the bank.",
+      "For processing governed by the DIFC Data Protection Law No. 5 of 2020, we apply its principles and rely on consent for website submissions and legitimate interests for security logging. Where the EU General Data Protection Regulation (Regulation (EU) 2016/679) applies to a deployment, we also comply with it: we rely on your consent for website submissions and on legitimate interests for security logging, require data-processing terms with our processors, and cover transfers outside the EEA by Standard Contractual Clauses or an adequacy decision. For EEA processing, the Irish Data Protection Commission is our lead supervisory authority where the one-stop-shop applies.",
     ],
   },
   {
@@ -196,7 +196,7 @@ const PRIVACY_SECTIONS = [
   {
     h: "Sub-processors",
     body: [
-      "We use a small number of processors, each under contract and each limited to the purpose stated: identity and session management, which we host ourselves on our own infrastructure (the Clerk processor was retired at the Clerk -> Better Auth cutover, and no account data is sent to a third-party identity provider); telephony for outbound intervention calls and SMS (Twilio); speech synthesis and transcription (ElevenLabs, with Deepgram as fallback); optional reply drafting (Groq or Google Gemini); infrastructure and database hosting (the cloud provider and database provider named in our sub-processor register); and transactional email (Resend) for support replies. Where a deployment enables Better Auth's optional hosted telemetry (BETTER_AUTH_API_KEY), Better Auth receives request metadata only — never case content, credentials, or personal data — and that processor must be added to the register below before such a deployment is offered.",
+      "We use a small number of processors, each limited to the purpose stated: identity and session management, which we host ourselves on our own infrastructure (the Clerk processor was retired at the Clerk -> Better Auth cutover, and no account data is sent to a third-party identity provider); telephony for outbound intervention calls and SMS (Twilio); speech synthesis and transcription (ElevenLabs, with Deepgram as fallback); optional reply drafting (Groq or Google Gemini); infrastructure and database hosting (the cloud provider and database provider named in our sub-processor register); and transactional email (Resend) for support replies. The processor register and locations are available to pilot customers; executed processor terms are part of the pilot gate, not assumed by this notice. Where a deployment enables Better Auth's optional hosted telemetry (BETTER_AUTH_API_KEY), Better Auth receives request metadata only — never case content, credentials, or personal data — and that processor must be added to the register below before such a deployment is offered.",
       "Where a bank requires additional residency, silence, or a written commitment for any of these, we will either pin the processor to an in-region endpoint or remove it from that deployment. The current register, with processing locations and the standard contractual clauses where applicable, is available on request.",
     ],
   },
@@ -208,9 +208,16 @@ const PRIVACY_SECTIONS = [
     ],
   },
   {
+    h: "Islamic finance and Shariah-aware processing",
+    body: [
+      "For an Islamic bank or Takaful operator that enables the Shariah-compliant mode, the platform applies a tenant-scoped terminology pass to the words spoken on a call — for example 'interest rate' becomes 'profit rate', 'insurance' becomes 'takaful', 'premium' becomes 'contribution' and 'claim payout' becomes 'fund disbursement'. The pass changes the spoken wording only; it does not add or change the categories of personal data we process.",
+      "Routine calls may be deferred around prayer times using the deployment's UAE calling region and the local prayer calendar; time-critical fraud verification is exempt. Prayer timing is used to schedule a call, not to profile an individual. The institution's Shariah supervisory board, not SecureVoice, remains responsible for approving product terms, disclosures and call scripts.",
+    ],
+  },
+  {
     h: "How long we keep it",
     body: [
-      "Pilot requests are retained for up to 24 months from last contact, then deleted or anonymised. Inside a bank deployment, retention runs in four tiers, each configurable per organisation: call audio is kept for 30 days and then deleted — an organisation under a no-recording agreement keeps no recording at all; transcripts are retained for 90 days, after which the per-case encryption key is shredded so the sealed payload can no longer be read while the audit chain stays verifiable; the redacted case row is kept for 7 years; and the tamper-evident audit chain is retained permanently, holding hashes only and no personal data.",
+      "Pilot requests are retained only for as long as needed to evaluate and manage the request, and are then deleted or anonymised. Inside a bank deployment, retention runs in four tiers, each configurable per organisation: call audio is kept for 30 days and then deleted — an organisation under a no-recording agreement keeps no recording at all; transcripts are retained for 90 days, after which the per-case encryption key is shredded so the sealed payload can no longer be read while the audit chain stays verifiable; the redacted case row is kept for 7 years; and the tamper-evident audit chain is retained permanently, holding hashes only and no personal data.",
     ],
   },
   {
@@ -222,7 +229,7 @@ const PRIVACY_SECTIONS = [
   {
     h: "Your rights",
     body: [
-      `Under the PDPL you may request access, correction, deletion, portability, or object to processing. Under the GDPR you may also request restriction and erasure, and you may complain to your national supervisory authority — in the EEA, the Irish Data Protection Commission is our lead authority. Email ${SUPPORT_EMAIL} and we will verify and respond within 30 days.`,
+      `Under the DIFC Data Protection Law No. 5 of 2020 you may request access, correction, deletion, restriction, portability, or object to processing, and withdraw consent where consent is the basis; you may complain to the DIFC Commissioner of Data Protection. Where the UAE PDPL applies to a deployment outside the DIFC, you have corresponding rights under that law. Under the GDPR you may also request restriction and erasure, and you may complain to your national supervisory authority — in the EEA, the Irish Data Protection Commission is our lead authority where the one-stop-shop applies. Email ${SUPPORT_EMAIL} and we will verify and respond within 30 days.`,
       "If your data is processed inside your bank's deployment of SecureVoice, direct your request to the bank; we support the bank in fulfilling it. If you ask us to delete a case record, we destroy the encryption key that makes the transcript readable while retaining the hash chain, so the record of the action remains provable without the content.",
     ],
   },
@@ -247,7 +254,7 @@ const PRIVACY_SECTIONS_AR = [
     h: "من نحن",
     body: [
       "تُقدّم شركة SecureVoice Technologies FZ-LLC («SecureVoice»، «نحن») منصة صوتية للتدخل الفوري في الاحتيال، للبنوك وشركات التأمين العاملة في دولة الإمارات العربية المتحدة. وتوضح هذه السياسة بيانات الشخصية التي نعالجها عبر هذا الموقع والمنصة، وسبب معالجتها، والحقوق التي تتمتّعون بها بشأنها.",
-      "نعمل كمراقب للبيانات المقدّمة عبر هذا الموقع (مثل طلب تجربة ميدانية)، وكمعالج للبيانات يتصرّف وفق تعليمات بنككم الموثّقة بالنسبة إلى أي بيانات تُعالج داخل نشر بنكي للمنصة.",
+      "نعمل كمراقب للبيانات المقدّمة عبر هذا الموقع (مثل طلب تجربة ميدانية)، وكمعالج للبيانات يتصرّف وفق تعليمات بنككم الموثّقة بالنسبة إلى أي بيانات تُعالج داخل نشر بنكي للمنصة. وشركتنا مسجّلة في مركز دبي المالي العالمي (DIFC). وبالنسبة إلى البيانات الشخصية المعالجة بموجب قانون حماية البيانات رقم 5 لسنة 2020 ولوائحه، يشرف على معالجتنا مفوّض حماية البيانات في مركز دبي المالي العالمي.",
     ],
   },
   {
@@ -260,8 +267,8 @@ const PRIVACY_SECTIONS_AR = [
   {
     h: "الأساس القانوني",
     body: [
-      "بالنسبة إلى بيانات الموقع، نعتمد على موافقتكم المقدّمة عند إرسال النموذج، وعلى مصلحتنا المشروعة في تشغيل الخدمة وتأمينها. وبالنسبة إلى مكالمات التدخل الاحتيالي التي تُعالج لحساب بنك، فالأساس القانوني يحدّده ذلك البنك — وعادةً ما يكون أساس المصلحة الحيوية والالتزام القانوني المعترف بهما بموجب المرسوم بقانون اتحادي رقم 45 لسنة 2021 (قانون حماية البيانات الشخصية) — ونحن نعمل حصراً وفق تعليمات البنك الموثّقة.",
-      "لأن هذا النشر يعمل داخل المنطقة الاقتصادية الأوروبية، فإننا نلتزم أيضاً باللائحة العامة لحماية البيانات في الاتحاد الأوروبي (اللائحة (EU) 2016/679) بالنسبة إلى البيانات الشخصية المعالجة بالارتباط به: نعتمد على موافقتكم لإرسالات الموقع وعلى المصالح المشروعة لتسجيل أحداث الأمان، وقد أبرمنا اتفاقية معالجة بيانات مع كل معالج، وتغطّي البنود التعاقدية النموذجية أو قرار الملاءمة عمليات النقل خارج المنطقة الاقتصادية الأوروبية.",
+      "بالنسبة إلى بيانات الموقع، نعتمد على موافقتكم المقدّمة عند إرسال النموذج، وعلى مصلحتنا المشروعة في تشغيل الخدمة وتأمينها. وبالنسبة إلى مكالمات التدخل الاحتيالي التي تُعالج لحساب بنك، يحدّد البنك الأساس القانوني بموجب القانون المنطبق عليه، ويقدّم لنا تعليمات موثّقة. وعادةً ما يكون هذا الأساس التزاماً قانونياً على البنك، أو مصلحة مشروعة له في منع الجرائم المالية، أو مصلحة حيوية؛ ونحن لا نتّخذ هذا التحديد نيابة عن البنك.",
+      "وبالنسبة إلى المعالجة الخاضعة لقانون حماية البيانات رقم 5 لسنة 2020 في مركز دبي المالي العالمي، نطبّق مبادئه ونعتمد على الموافقة لإرسالات الموقع وعلى المصالح المشروعة لتسجيل أحداث الأمان. وحيثما تنطبق اللائحة العامة لحماية البيانات في الاتحاد الأوروبي (اللائحة (EU) 2016/679) على نشر معيّن، فإننا نلتزم بها أيضاً: نعتمد على موافقتكم لإرسالات الموقع وعلى المصالح المشروعة لتسجيل أحداث الأمان، ونشترط شروط معالجة البيانات مع معالجينا، ونغطّي عمليات النقل خارج المنطقة الاقتصادية الأوروبية بالبنود التعاقدية النموذجية أو بقرار ملاءمة. وبالنسبة إلى المعالجة في المنطقة الاقتصادية الأوروبية، تكون لجنة حماية البيانات الأيرلندية سلطتنا الرقابية الرئيسية حيث ينطبق نظام الشباك الواحد.",
     ],
   },
   {
@@ -276,7 +283,7 @@ const PRIVACY_SECTIONS_AR = [
   {
     h: "المعالجون الفرعيون",
     body: [
-      "نستخدم عدداً قليلاً من المعالجين، كل منهم بموجب عقد وكل منهم مقيّد بالغرض المذكور: إدارة الهوية والجلسات، التي نستضيفها بأنفسنا على بنيتنا التحتية (وقد أُوقف معالج Clerk عند الانتقال من Clerk إلى Better Auth، ولا تُرسل أي بيانات حساب إلى مزوّد هوية خارجي)؛ والاتصالات الهاتفية للمكالمات الصادرة والرسائل النصية (Twilio)؛ وتوليف الكلام وتحويله إلى نص (ElevenLabs، مع Deepgram كبديل)؛ وصياغة الردود الاختيارية (Groq أو Google Gemini)؛ واستضافة البنية التحتية وقاعدة البيانات (مزوّد الخدمات السحابية ومزوّد قاعدة البيانات المذكورين في سجل المعالجين الفرعيين)؛ والبريد الإلكتروني للردود على الاستفسارات (Resend). وحيثما يُفعّل النشر القياسات الاختيارية المستضافة لدى Better Auth (BETTER_AUTH_API_KEY)، فإن Better Auth يستقبل بيانات وصفية عن الطلبات فقط — لا محتوى الحالات ولا بيانات الاعتماد ولا البيانات الشخصية — ويجب إضافة ذلك المعالج إلى السجل أدناه قبل طرح مثل هذا النشر.",
+      "نستخدم عدداً قليلاً من المعالجين، وكل منهم مقيّد بالغرض المذكور: إدارة الهوية والجلسات، التي نستضيفها بأنفسنا على بنيتنا التحتية (وقد أُوقف معالج Clerk عند الانتقال من Clerk إلى Better Auth، ولا تُرسل أي بيانات حساب إلى مزوّد هوية خارجي)؛ والاتصالات الهاتفية للمكالمات الصادرة والرسائل النصية (Twilio)؛ وتوليف الكلام وتحويله إلى نص (ElevenLabs، مع Deepgram كبديل)؛ وصياغة الردود الاختيارية (Groq أو Google Gemini)؛ واستضافة البنية التحتية وقاعدة البيانات (مزوّد الخدمات السحابية ومزوّد قاعدة البيانات المذكورين في سجل المعالجين الفرعيين)؛ والبريد الإلكتروني للردود على الاستفسارات (Resend). وسجل المعالجين ومواقع المعالجة متاحة لعملاء التجربة؛ أما شروط المعالجة الموقّعة فهي جزء من بوابة التجربة ولا تفترضها هذه السياسة. وحيثما يُفعّل النشر القياسات الاختيارية المستضافة لدى Better Auth (BETTER_AUTH_API_KEY)، فإن Better Auth يستقبل بيانات وصفية عن الطلبات فقط — لا محتوى الحالات ولا بيانات الاعتماد ولا البيانات الشخصية — ويجب إضافة ذلك المعالج إلى السجل أدناه قبل طرح مثل هذا النشر.",
       "وحيثما يشترط أحد البنوك موقعاً إضافياً للبيانات، أو التزاماً بالسرّية، أو تعهّداً كتابياً بأي من هذه الجهات، فسنقوم إما بتثبيت المعالج على نقطة نهاية داخل المنطقة أو بإزالته من ذلك النشر. والسجل الحالي، بمواقع المعالجة والبنود التعاقدية النموذجية حيث تنطبق، متاح عند الطلب.",
     ],
   },
@@ -288,9 +295,16 @@ const PRIVACY_SECTIONS_AR = [
     ],
   },
   {
+    h: "التمويل الإسلامي والمعالجة المراعية للشريعة",
+    body: [
+      "عند تفعيل الوضع المتوافق مع الشريعة لدى مصرف إسلامي أو مشغّل تكافل، تطبّق المنصة تمرير مصطلحات خاصاً بالمستأجر على الكلمات المنطوقة في المكالمة — فمثلاً تصبح «الفائدة» «نسبة ربح»، و«التأمين» «تكافل»، و«العلاوة» «اشتراك»، و«تعويض المطالبة» «صرف الأموال». ولا يغيّر هذا التمرير إلا الصياغة المنطوقة؛ ولا يضيف فئات جديدة من البيانات الشخصية ولا يغيّرها.",
+      "قد تُؤجَّل المكالمات الروتينية حول أوقات الصلاة باستخدام منطقة الاتصال الإماراتية في النشر والتقويم المحلي للصلاة؛ وتُستثنى من ذلك عملية التحقق العاجلة من الاحتيال. ويُستخدم توقيت الصلاة لجدولة المكالمة لا لبناء ملف شخصي. وتبقى هيئة الرقابة الشرعية في المؤسسة، لا SecureVoice، مسؤولة عن اعتماد شروط المنتج والإفصاحات ونصوص المكالمات.",
+    ],
+  },
+  {
     h: "مدة الاحتفاظ بها",
     body: [
-      "تُحتفظ بطلبات التجربة لمدة تصل إلى ٢٤ شهراً من آخر تواصل، ثم تُحذف أو تُصبح مجهولة الهوية. وداخل النشر البنكي، تسري مدة الاحتفاظ على أربع شرائح، كل منها قابلة للتحديد لكل مؤسسة: يُحتفظ بصوت المكالمات ٣٠ يوماً ثم يُحذف — والمؤسسة الخاضعة لاتفاقية عدم التسجيل لا تحتفظ بأي تسجيل إطلاقاً؛ وتُحتفظ النصوص المحوّلة ٩٠ يوماً، وبعدها يُتلف مفتاح التشفير الخاص بالحالة فيصبح المحتوى المغلق غير قابل للقراءة مع بقاء سلسلة التدقيق قابلة للتحقق؛ ويُحتفظ صف الحالة المجرَّد ٧ سنوات؛ وتُحتفظ سلسلة التدقيق المقاومة للعبث دائماً، وهي لا تحفظ بصمات فقط ولا بيانات شخصية.",
+      "تُحتفظ بطلبات التجربة فقط للمدة اللازمة لتقييم الطلب وإدارته، ثم تُحذف أو تُصبح مجهولة الهوية. وداخل النشر البنكي، تسري مدة الاحتفاظ على أربع شرائح، كل منها قابلة للتحديد لكل مؤسسة: يُحتفظ بصوت المكالمات ٣٠ يوماً ثم يُحذف — والمؤسسة الخاضعة لاتفاقية عدم التسجيل لا تحتفظ بأي تسجيل إطلاقاً؛ وتُحتفظ النصوص المحوّلة ٩٠ يوماً، وبعدها يُتلف مفتاح التشفير الخاص بالحالة فيصبح المحتوى المغلق غير قابل للقراءة مع بقاء سلسلة التدقيق قابلة للتحقق؛ ويُحتفظ صف الحالة المجرَّد ٧ سنوات؛ وتُحتفظ سلسلة التدقيق المقاومة للعبث دائماً، وهي لا تحفظ بصمات فقط ولا بيانات شخصية.",
     ],
   },
   {
@@ -302,7 +316,7 @@ const PRIVACY_SECTIONS_AR = [
   {
     h: "حقوقكم",
     body: [
-      `بموجب قانون حماية البيانات الشخصية، يمكنكم طلب الوصول أو التصحيح أو الحذف أو النقل، أو الاعتراض على المعالجة. وبموجب اللائحة العامة لحماية البيانات، يمكنكم أيضاً طلب تقييد المعالجة والمحو، وتقديم شكوى إلى سلطة الرقابة الوطنية — وفي المنطقة الاقتصادية الأوروبية تكون لجنة حماية البيانات الأيرلندية هي سلطتنا الرئيسية. راسلوا ${SUPPORT_EMAIL} وسنتحقق ونردّ خلال ٣٠ يوماً.`,
+      `بموجب قانون حماية البيانات رقم 5 لسنة 2020 في مركز دبي المالي العالمي، يمكنكم طلب الوصول أو التصحيح أو الحذف أو التقييد أو النقل أو الاعتراض على المعالجة، وسحب الموافقة حيث تكون الموافقة هي الأساس؛ ويمكنكم تقديم شكوى إلى مفوّض حماية البيانات في مركز دبي المالي العالمي. وحيثما ينطبق قانون حماية البيانات الشخصية الإماراتي على نشر خارج مركز دبي المالي العالمي، تتمتعون بحقوق مقابلة بموجبه. وبموجب اللائحة العامة لحماية البيانات، يمكنكم أيضاً طلب تقييد المعالجة والمحو، وتقديم شكوى إلى سلطة الرقابة الوطنية — وفي المنطقة الاقتصادية الأوروبية تكون لجنة حماية البيانات الأيرلندية هي سلطتنا الرئيسية حيث ينطبق نظام الشباك الواحد. راسلوا ${SUPPORT_EMAIL} وسنتحقق ونردّ خلال ٣٠ يوماً.`,
       "إذا كانت بياناتكم تُعالج داخل نشر SecureVoice في بنككم، فوجّهوا طلبكم إلى البنك؛ ونحن ندعم البنك في تنفيذه. وإذا طلبتم منا حذف سجل حالة، فإننا نتلف مفتاح التشفير الذي يجعل النص المحوّل قابلاً للقراءة، مع الاحتفاظ بسلسلة البصمات، فيبقى إثبات وقوع الإجراء ممكناً دون الاحتفاظ بالمحتوى.",
     ],
   },
@@ -329,7 +343,7 @@ export function Privacy() {
       titleAr="سياسة الخصوصية"
       subtitleEn="We collect the minimum needed to answer you, we store it in Europe, and we never sell it. This page is the plain-English version; the legal text of our DPA is available to pilot customers on request."
       subtitleAr="نجمع الحد الأدنى اللازم للرد عليك، ونخزّنه في أوروبا، ولا نبيعه أبداً. هذه النسخة المبسطة؛ والنص القانوني متاح لعملاء البرنامج التجريبي عند الطلب."
-      meta={{ version: "1.3", effective: "2026-10-02", entity: "SECUREVOICE TECHNOLOGIES FZ-LLC" }}
+      meta={{ version: "1.6", effective: "2026-10-20", entity: "SECUREVOICE TECHNOLOGIES FZ-LLC" }}
       sections={PRIVACY_SECTIONS}
       sectionsAr={PRIVACY_SECTIONS_AR}
     />
@@ -367,6 +381,15 @@ const TERMS_SECTIONS = [
     h: "Protective actions are not financial advice",
     body: [
       "Fraud decisions produced by the platform are operational actions taken on behalf of the contracting bank under its own policies. Nothing on this website constitutes financial, legal, or regulatory advice, and no customer relationship is created by using the demonstration.",
+    ],
+  },
+  {
+    h: "Shariah governance and Islamic finance",
+    body: [
+      "The Service is a technology platform. It does not take deposits, provide financing, underwrite insurance or Takaful risk, deal in investments, or charge or pay interest. Fees are consideration for software, telephony and related services.",
+      "Where an institution enables the Shariah-compliant terminology mode, the platform applies its fixed terminology map to the words spoken on that tenant's calls — for example profit rate, Takaful, contribution and disbursement. That mode is a language control, not a fatwa, certification or endorsement, and it does not replace the institution's Shariah supervisory board, its product documentation or its own regulatory approvals.",
+      "The institution is responsible for the Shariah compliance of its products, disclosures and configured scripts. SecureVoice does not provide Shariah, legal, tax or investment advice. Prayer-window deferral is a courtesy for routine calls and is not applied to time-critical fraud verification.",
+      "Nothing in these Terms creates a deposit, loan, investment or interest-bearing arrangement between you and SecureVoice.",
     ],
   },
   {
@@ -431,6 +454,15 @@ const TERMS_SECTIONS_AR = [
     ],
   },
   {
+    h: "الحوكمة الشرعية والتمويل الإسلامي",
+    body: [
+      "الخدمة منصة تقنية. ولا تتلقى ودائع، ولا تقدّم تمويلاً، ولا تكتتب في مخاطر التأمين أو التكافل، ولا تتداول الاستثمارات، ولا تفرض فائدة أو تدفعها. والرسوم مقابلة على البرمجيات والاتصالات والخدمات المرتبطة بها.",
+      "وحيثما تُفعّل المؤسسة وضع المصطلحات المتوافق مع الشريعة، تطبّق المنصة خريطة المصطلحات الثابتة لديها على الكلمات المنطوقة في مكالمات ذلك المستأجر — مثل نسبة الربح، والتكافل، والاشتراك، والصرف. وهذا الوضع ضابط لغوي، وليس فتوى أو شهادة أو تأييداً، ولا يحل محل هيئة الرقابة الشرعية في المؤسسة أو وثائق منتجاتها أو موافقاتها التنظيمية.",
+      "وتبقى المؤسسة مسؤولة عن توافق منتجاتها وإفصاحاتها ونصوصها المُعدَّة مع الشريعة. ولا تقدّم SecureVoice استشارة شرعية أو قانونية أو ضريبية أو استثمارية. وتأجيل المكالمات حول أوقات الصلاة مجاملة للمكالمات الروتينية ولا يُطبَّق على التحقق العاجل من الاحتيال.",
+      "ولا ينشئ أي شيء في هذه الشروط وديعة أو قرضاً أو استثماراً أو ترتيباً بفائدة بينكم وبين SecureVoice.",
+    ],
+  },
+  {
     h: "الذكاء الاصطناعي والقرارات الآلية",
     body: [
       "تستخدم الخدمة وكيلاً صوتياً بالذكاء الاصطناعي للتواصل مع العملاء، ونموذجاً لغوياً — حيث يكون مكوّناً — لصياغة الردود. ولا يقرّر أي نموذج نتيجة مالية. فتصنيف النية والتحقق من الهوية وكل إجراء وقائي هي شيفرة خادمية حتمية يحكمها سياسة البنك؛ ولا يجوز للنموذج اللغوي سوى إعادة صياغة عبارة وافقت عليها السياسة مسبقاً، ويُفحص مخرجه قبل النطق به.",
@@ -467,7 +499,7 @@ export function Terms() {
       titleAr="الشروط والأحكام"
       subtitleEn="The short version: use this site lawfully, treat the demo as evaluation-only, and rely on a signed agreement for production. The long version follows."
       subtitleAr="باختصار: استخدم الموقع بشكل قانوني، وتعامل مع العرض التجريبي كتقييم فقط، واعتمد على اتفاقية موقّعة للإنتاج. التفاصيل الكاملة أدناه."
-      meta={{ version: "1.2", effective: "2026-10-02", entity: "SECUREVOICE TECHNOLOGIES FZ-LLC" }}
+      meta={{ version: "1.3", effective: "2026-10-20", entity: "SECUREVOICE TECHNOLOGIES FZ-LLC" }}
       sections={TERMS_SECTIONS}
       sectionsAr={TERMS_SECTIONS_AR}
     />
@@ -510,6 +542,14 @@ const REFUND_SECTIONS = [
     body: [
       "The platform runs on a prepaid Credit Wallet: a monthly platform fee per tier, plus credits that fund intervention signals. One credit funds one intervention signal. Purchased credits are non-refundable and unused credits expire 12 months from the date of purchase.",
       "A consumed credit is never refunded, because the intervention it paid for has already burned carrier minutes, speech synthesis and a model turn. Refunding those would let a customer probe the platform for free. We will show you a per-intervention consumption breakdown on request, so you can see exactly how many credits were spent and on what.",
+    ],
+  },
+  {
+    h: "Shariah treatment of fees and credits",
+    body: [
+      "The parties intend fees and credits to be consideration for services (ujrah), not a loan, deposit, investment or trust. No interest (riba) is charged on late payment or earned on any prepaid balance, and no profit is distributed on unused credits.",
+      "The 12-month expiry of unused credits is a service-term limit disclosed before purchase; it is not a forfeiture of a deposit or trust. Where an institution requires a different Shariah-approved billing structure, the signed Master Services Agreement governs and prevails over this page.",
+      "Refunds and service credits are returned to the wallet in the same currency; no interest is added to a refund or to a service credit.",
     ],
   },
   {
@@ -567,6 +607,14 @@ const REFUND_SECTIONS_AR = [
     ],
   },
   {
+    h: "المعالجة الشرعية للرسوم والأرصدة",
+    body: [
+      "يقصد الطرفان أن تكون الرسوم والأرصدة مقابلة على خدمات (أجرة)، وليست قرضاً أو وديعة أو استثماراً أو أمانة. ولا تُفرض فائدة (ربا) على التأخر في السداد، ولا تُكتسب فائدة على أي رصيد مدفوع مسبقاً، ولا يُوزَّع ربح على الأرصدة غير المستخدمة.",
+      "وانتهاء صلاحية الأرصدة غير المستخدمة بعد ١٢ شهراً حدٌّ زمني للخدمة يُفصح عنه قبل الشراء؛ وليس مصادرة لوديعة أو أمانة. وحيثما تشترط مؤسسة هيكلاً فوترة معتمداً شرعياً مختلفاً، تحكم اتفاقية الخدمات الموقّعة وتتقدّم على هذه الصفحة.",
+      "تُعاد المبالغ وأرصدة الخدمة إلى المحفظة بالعملة نفسها؛ ولا تُضاف فائدة إلى أي استرداد أو رصيد خدمة.",
+    ],
+  },
+  {
     h: "متى نعيد الأرصدة دون أن تُطلب منا",
     body: [
       "إذا فشل تدخل في الاتصال، أو انقطع بسبب خلل في بنية SecureVoice — لا بسبب حجب من مشغّل الاتصالات، ولا انقطاع في شبكة العميل، ولا تعذّر الوصول إلى العميل — يُعاد الرصيد المستهلك في هذا التدخل إلى المحفظة تلقائياً خلال 48 ساعة.",
@@ -612,8 +660,8 @@ export function Refund() {
       subtitleEn="Prepaid credits are non-refundable and expire 12 months after purchase. Credits consumed by a SecureVoice infrastructure fault come back automatically within 48 hours. The demo environment is free, so there is nothing to refund."
       subtitleAr="الأرصدة المدفوعة مسبقاً غير قابلة للاسترداد وتنتهي صلاحيتها بعد 12 شهراً من الشراء. ويرجع الرصيد المستهلك بخلل في بنية SecureVoice تلقائياً خلال 48 ساعة. وبيئة العرض مجانية، فلا يوجد ما يُسترد."
       meta={{
-        version: "2.0",
-        effective: "2026-10-10",
+        version: "2.1",
+        effective: "2026-10-20",
         entity: "SECUREVOICE TECHNOLOGIES FZ-LLC",
       }}
       sections={REFUND_SECTIONS}

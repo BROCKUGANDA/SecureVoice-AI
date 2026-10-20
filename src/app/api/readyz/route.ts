@@ -10,7 +10,10 @@ import { abuseConfig } from "@/lib/abuse/config";
 import { isE164 } from "@/lib/twilio";
 import { llmBreakerState } from "@/lib/llm";
 import { getPoolStatus } from "@/lib/elevenlabs/pool";
+import { storageConfigured } from "@/lib/storage/s3";
+import { flag } from "@/lib/flags";
 import { maskE164 } from "@/lib/abuse/geo";
+import { pilotStatus } from "@/lib/pilot/mode";
 
 export const dynamic = "force-dynamic";
 
@@ -136,6 +139,28 @@ export async function GET() {
     };
   });
 
+  // Recording is a regulated-finance obligation, not a nice-to-have. The
+  // ElevenLabs ConvAI plane archives audio through the post-call audio webhook
+  // only when object storage is configured; the Twilio media-stream plane has
+  // no recording path at all. Reporting this as `degraded` is deliberately
+  // non-fatal — refusing traffic would stop calls while an operator fixes
+  // storage — but it must not be invisible behind a green readiness check.
+  await timed("recording_archive", false, async () => {
+    const storage = storageConfigured();
+    const mediaStream = flag("twilioMediaStreams");
+    const ok = storage && !mediaStream;
+    return {
+      name: "recording_archive",
+      ok,
+      fatal: false,
+      detail: mediaStream
+        ? "media-stream plane has no recording path"
+        : storage
+          ? "post-call audio archive configured"
+          : "storage unconfigured — live calls will not be archived",
+    };
+  });
+
   // Vendor reachability is reported, never asserted: a voice-provider outage
   // must not mark us unready, because we would then refuse the very traffic
   // that is queueing while the provider recovers.
@@ -208,6 +233,35 @@ export async function GET() {
     return {
       name: "dial_readiness",
       ok,
+      fatal: false,
+      detail,
+    };
+  });
+
+  // The pilot's operating mode and its kill switch.
+  //
+  // Reported, never asserted: a deployment in shadow mode or with the dial
+  // kill switch engaged is still a HEALTHY instance — it can serve the
+  // console, the webhooks and the audit chain perfectly well while placing no
+  // calls at all. Refusing readiness for it would pull every instance out of
+  // rotation and turn a deliberate, operator-chosen stop into an outage.
+  //
+  // It is on this surface rather than only on `/api/status` because the kill
+  // switch is an incident control: the person who flipped it needs to see, in
+  // one place, that the platform has actually stopped dialling.
+  await timed("pilot", false, async () => {
+    const status = await pilotStatus(null);
+    const detail =
+      `mode=${status.mode}` +
+      ` · kill_switch=${status.killSwitch.engaged ? "ENGAGED" : "off"}` +
+      (status.dailyCap !== null ? ` · daily_cap=${status.dailyCap}` : "") +
+      (status.concurrencyCap !== null ? ` · concurrency_cap=${status.concurrencyCap}` : "") +
+      (status.humanApprovalRequired ? " · human_approval=required" : "") +
+      (status.signalKind ? ` · signal_kind=${status.signalKind}` : "");
+    return {
+      name: "pilot",
+      // Always ok: a stopped pilot is a decided state, not a fault.
+      ok: true,
       fatal: false,
       detail,
     };

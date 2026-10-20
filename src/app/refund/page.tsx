@@ -7,19 +7,20 @@ import { Refund } from "@/views/Legal";
  *
  * This document did not exist at all until now — the site had Terms and Privacy
  * and no refund policy, which is the gap the publication checklist names
- * explicitly. The content is deliberately specific (cancellation window, refund
- * currency, prepaid-credit rules, what is not refunded) because "contact us and
- * we'll see" satisfies nobody and is worse than publishing nothing.
+ * explicitly. The content is deliberately specific (prepaid-credit rules, the
+ * 48-hour service-credit path, refund currency, what is not refunded, and the
+ * Shariah treatment of fees and balances) because "contact us and we'll see"
+ * satisfies nobody and is worse than publishing nothing.
  */
 export const metadata: Metadata = {
   title: "Refund Policy",
   description:
-    "SecureVoice AI refund policy: cancel a monthly subscription any time before renewal and the unused period is refunded pro rata with no cancellation fee. Unspent prepaid intervention credits are refundable in full; credits consumed by a completed intervention call are not. Plans are billed in USD through Paddle as Merchant of Record, and regional charges are refunded in the currency taken.",
+    "SecureVoice AI refund policy for the prepaid credit wallet: purchased credits are non-refundable and unused credits expire 12 months after purchase. A credit consumed by a SecureVoice infrastructure fault is returned automatically within 48 hours. Fees and credits are consideration for services (ujrah), not a loan, deposit or interest-bearing balance. Plans are billed in USD through Paddle as Merchant of Record.",
   alternates: { canonical: "/refund" },
   openGraph: {
     title: "Refund Policy — SecureVoice AI",
     description:
-      "Pro-rata refunds on monthly plans, no cancellation fee, full refund on unspent prepaid credits.",
+      "Prepaid credits, service credits for provider faults, and the Shariah treatment of fees and balances.",
     url: "/refund",
   },
 };

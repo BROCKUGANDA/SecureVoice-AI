@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 
-process.env.WEBHOOK_SECRET = process.env.WEBHOOK_SECRET ?? "test-secret";
+process.env.WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || "test-secret";
 process.env.TWILIO_DRY_RUN = "true";
 
 test("compliance gate rejects routine outside calling hours", async () => {

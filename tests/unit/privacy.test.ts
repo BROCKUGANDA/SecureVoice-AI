@@ -121,6 +121,7 @@ import {
   assertRetentionMutationAllowed,
   configuredOrgs,
   dueForDeletion,
+  EVIDENCE_RETENTION_DAYS,
   isPilotOrg,
   resetRetentionConfig,
   retentionPolicy,
@@ -216,6 +217,8 @@ type CaseRow = {
   transcriptRedacted: string | null;
   evaluationResults: string | null;
   dataCollectionResults: string | null;
+  isEvidenceLocked: boolean;
+  fraudConfirmedAt: Date | null;
 };
 
 function makeRow(overrides: Partial<CaseRow> = {}): CaseRow {
@@ -227,6 +230,8 @@ function makeRow(overrides: Partial<CaseRow> = {}): CaseRow {
     transcriptRedacted: null,
     evaluationResults: null,
     dataCollectionResults: null,
+    isEvidenceLocked: false,
+    fraudConfirmedAt: null,
     ...overrides,
   };
 }
@@ -1237,6 +1242,69 @@ describe("dueForDeletion — what past the window actually selects", () => {
     const ancient = new Date(cutoff.getTime() - DAY_MS);
     const shredded = makeRow({ orgId: "org-1", postCallAt: ancient, createdAt: ancient });
     expect(selects(sel, "caseRecords", shredded)).toBe(true);
+  });
+});
+
+describe("dueForDeletion — evidence lock holds the record", () => {
+  const AT = new Date("2030-01-01T00:00:00.000Z");
+  const insideHold = new Date(AT.getTime() - 365 * DAY_MS);
+  const pastHold = new Date(AT.getTime() - (EVIDENCE_RETENTION_DAYS + 1) * DAY_MS);
+  const ancient = new Date(AT.getTime() - 4_000 * DAY_MS);
+  const agedPayload = {
+    orgId: "org-1",
+    postCallAt: ancient,
+    createdAt: ancient,
+    dataKeyEnc: "svk1.a.b.c",
+  };
+
+  test("an aged locked case inside the evidence window is held from every deletion tier", () => {
+    const sel = dueForDeletion(AT, { orgId: "org-1" });
+    const locked = makeRow({
+      ...agedPayload,
+      isEvidenceLocked: true,
+      fraudConfirmedAt: insideHold,
+    });
+    expect(selects(sel, "audio", locked)).toBe(false);
+    expect(selects(sel, "transcripts", locked)).toBe(false);
+    expect(selects(sel, "caseRecords", locked)).toBe(false);
+  });
+
+  test("once the evidence window passes, the normal tiers apply again", () => {
+    const sel = dueForDeletion(AT, { orgId: "org-1" });
+    const expired = makeRow({
+      ...agedPayload,
+      isEvidenceLocked: true,
+      fraudConfirmedAt: pastHold,
+    });
+    expect(selects(sel, "audio", expired)).toBe(true);
+    expect(selects(sel, "transcripts", expired)).toBe(true);
+    expect(selects(sel, "caseRecords", expired)).toBe(true);
+  });
+
+  test("an unlocked aged case is not held", () => {
+    const sel = dueForDeletion(AT, { orgId: "org-1" });
+    const unlocked = makeRow({ ...agedPayload, isEvidenceLocked: false });
+    expect(selects(sel, "audio", unlocked)).toBe(true);
+    expect(selects(sel, "transcripts", unlocked)).toBe(true);
+  });
+
+  test("a legacy locked row with no confirmation instant starts its hold at createdAt", () => {
+    const sel = dueForDeletion(AT, { orgId: "org-1" });
+    const legacyOld = makeRow({
+      ...agedPayload,
+      isEvidenceLocked: true,
+      fraudConfirmedAt: null,
+    });
+    expect(selects(sel, "audio", legacyOld)).toBe(true); // createdAt is past the hold
+
+    const legacyFresh = makeRow({
+      ...agedPayload,
+      postCallAt: ancient,
+      createdAt: insideHold,
+      isEvidenceLocked: true,
+      fraudConfirmedAt: null,
+    });
+    expect(selects(sel, "audio", legacyFresh)).toBe(false); // hold still running
   });
 });
 

@@ -54,6 +54,7 @@ const PLAIN_EMAIL = `plain-${RUN}@example.test`;
 const FULL_EMAIL = `full-${RUN}@example.test`;
 const PARTIAL_EMAIL = `partial-${RUN}@example.test`;
 const DEMO_EMAIL = `demo-2fa-${RUN}@example.test`;
+const ACCOUNT_ID = `acct-2fa-${RUN}`;
 
 const users = [USER_ID, DEMO_USER_ID, PARTIAL_USER_ID];
 
@@ -95,12 +96,27 @@ beforeAll(async () => {
   await db.twoFactor.create({
     data: { userId: USER_ID, secret: "JBSWY3DPEHPK3PXP".repeat(2), backupCodes: "1111,2222" },
   });
+  // The production shape: an Identity carries the internal Account row id, not
+  // the User id. The gate must resolve through the account before it reads the
+  // factor, or every real payer is refused as if they had never enrolled.
+  await db.account.create({
+    data: {
+      id: ACCOUNT_ID,
+      accountId: `credential-${RUN}`,
+      providerId: "credential",
+      userId: USER_ID,
+      email: FULL_EMAIL,
+      name: "Gate test operator",
+      role: "operator",
+    },
+  });
   // The integrity case: the flag is set, the factor is not there to answer.
   await db.user.update({ where: { id: PARTIAL_USER_ID }, data: { twoFactorEnabled: true } });
 }, 120_000);
 
 afterAll(async () => {
   await db.twoFactor.deleteMany({ where: { userId: { in: users } } });
+  await db.account.deleteMany({ where: { id: ACCOUNT_ID } });
   await db.user.deleteMany({ where: { id: { in: users } } });
   if (previousDemoEnv === undefined) delete process.env.NEXT_PUBLIC_DEMO_LOGIN_EMAIL;
   else process.env.NEXT_PUBLIC_DEMO_LOGIN_EMAIL = previousDemoEnv;
@@ -109,6 +125,12 @@ afterAll(async () => {
 describe("the money gate", () => {
   test("a configured factor with a matching factor row passes", async () => {
     expect(await moneyTwoFactorBlocker(identity(FULL_EMAIL, USER_ID))).toBeNull();
+  });
+
+  test("an identity carrying the Account id resolves to its User's factor", async () => {
+    // Production identity.accountId is Account.id. Passing it straight to
+    // User.id made the gate deny every enrolled payer; this is the regression.
+    expect(await moneyTwoFactorBlocker(identity(FULL_EMAIL, ACCOUNT_ID))).toBeNull();
   });
 
   test("an account with no second factor is refused with 428, not 403", async () => {

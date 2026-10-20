@@ -35,6 +35,8 @@ async function caseWith(opts: {
   receivedAgoMs: number | null;
   ring?: boolean;
   sms?: boolean;
+  /** Dispatch the case to the dial queue, as a real intervention would be. */
+  dispatch?: boolean;
 }): Promise<string> {
   const caseRef = `SLA-${RUN}-${opts.tag}`;
   refs.push(caseRef);
@@ -50,6 +52,25 @@ async function caseWith(opts: {
     consentRecordId: `consent-${RUN}-${opts.tag}`,
     signalReceivedAt: opts.receivedAgoMs == null ? null : new Date(Date.now() - opts.receivedAgoMs),
   });
+  if (opts.dispatch) {
+    // The sweep only marks a case that was DISPATCHED to the dial queue, and
+    // for the right reason: a case the platform never tried to contact cannot
+    // have missed a CONTACT deadline. That is not a corner case — it is every
+    // case of a Phase 0 shadow pilot, where the whole point is that nobody is
+    // called, and a sweep that marked them all would make the shadow readout
+    // read as a 100% deadline miss.
+    //
+    // So "never reached the customer" has to mean DISPATCHED AND NOT REACHED,
+    // and that is what the fixture below builds.
+    const { enqueueDialJob } = await import("@/lib/scale/queue");
+    await enqueueDialJob({
+      caseId: caseRef,
+      caseRef,
+      orgId: ORG,
+      attemptNo: 1,
+      payload: { phone: "+971501234567", language: "en" },
+    });
+  }
   if (opts.ring) {
     await db.case.update({ where: { id: created.id }, data: { ringingAt: new Date() } });
   }
@@ -86,7 +107,11 @@ describe("the SLA-breach sweep", () => {
   });
 
   test("a case that never reached its customer is marked, and the audit says so", async () => {
-    const caseRef = await caseWith({ tag: "miss", receivedAgoMs: (slaSeconds() + 30) * 1000 });
+    const caseRef = await caseWith({
+      tag: "miss",
+      receivedAgoMs: (slaSeconds() + 30) * 1000,
+      dispatch: true,
+    });
     const res = await sweepSlaBreaches();
     expect(res.windowSecs).toBe(slaSeconds());
     expect(res.breached).toBeGreaterThan(0);
@@ -113,7 +138,11 @@ describe("the SLA-breach sweep", () => {
     // suite, another worker) legitimately raises its count. The claim that matters is
     // that one case is recorded once — which is what the compare-and-set buys, and
     // what a breach-per-sweep-pass bug would break.
-    const mine = await caseWith({ tag: "twice", receivedAgoMs: (slaSeconds() + 30) * 1000 });
+    const mine = await caseWith({
+      tag: "twice",
+      receivedAgoMs: (slaSeconds() + 30) * 1000,
+      dispatch: true,
+    });
     await sweepSlaBreaches();
     const first = (await row(mine)).slaBreachedAt;
     expect(first).toBeInstanceOf(Date);

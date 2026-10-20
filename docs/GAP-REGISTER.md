@@ -3761,6 +3761,22 @@ and the deploy pre-roll both call this same script now, so the likeliest explana
 job's reclaim running with the new floor — but I did not observe that job, so it is a hypothesis
 with a named place to check rather than a result.
 
+**The pressure tier I shipped with this turned out to be the wrong instrument, and it was measured
+before being replaced.** Hours later the box was at 12.4 GB free with `docker system df` reporting
+33.93 GB of build cache, 32.48 GB reclaimable — and the escalation this section just described,
+`--filter until=6h`, freed **214.4 MB**. An age floor only helps against old garbage; this cache was
+young _and_ enormous, growing about 3 GB an hour, so no age above zero reaches it. Eviction is now
+three tiers — normal 72 h, pressure 6 h at ≤15 GB free, and **emergency: no age filter at all** at
+≤12 GB free, which lets buildkit's own "in use" judgement decide because it is the only rule that
+can see 32 GB. The emergency tier's cost is wider than this repository and is stated in the script:
+crucible's and astrolabe's next builds on this box rebuild from nothing too. The alternative is not
+cheap either — a runner refused at 10 GB builds nothing at all and leaves a red required check parked
+in front of production. Each tier was proven to select correctly by driving the thresholds past the
+free-space reading, the empty filter array expands to nothing under `set -u` rather than aborting
+the reclaimer at exactly the moment it is needed, and `freed=`/`tier=` now appear only in `reclaim`
+mode, because a dry run that reported `freed=0.1GB` while deleting nothing was repeating the
+count-passes-for-outcome error this report exists to remove.
+
 ### 60. One build per commit: the trigger list is where it went, after a workflow-level `if:` broke the file
 
 §59 named the cause and left the remedy to the owner; the owner chose suppressing the redundant

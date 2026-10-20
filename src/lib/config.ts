@@ -35,8 +35,20 @@ function numSetting(
   min = 0,
   max = Number.POSITIVE_INFINITY,
 ): number {
-  const raw = Number(process.env[name]);
-  return Number.isFinite(raw) && raw >= min && raw <= max ? raw : fallback;
+  const raw = process.env[name];
+  // An EMPTY value is UNSET, not zero.
+  //
+  // `Number("")` is 0, and 0 is inside the range of every setting whose
+  // minimum is 0 — so a blank environment variable used to be read as "zero
+  // milliseconds" for a setting whose documented default was five seconds. The
+  // operator typed nothing; the platform took it as an instruction.
+  //
+  // The contract this function documents has always said "unset, NaN or out of
+  // range takes the default", and an empty string is the most common way a
+  // variable is unset — `.env.example` ships the placeholders as `NAME=""`.
+  if (raw === undefined || raw.trim() === "") return fallback;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= min && n <= max ? n : fallback;
 }
 
 /** The dial retry ladder that ships as the default — see `env.dialRetryLadderMs`
@@ -704,6 +716,75 @@ export const env = {
   },
   get pilotRateLimitPerHour(): number {
     return numSetting("PILOT_RATE_LIMIT_PER_HOUR", 6, 1);
+  },
+
+  /* ── Pilot mode ──────────────────────────────────────────────────────────
+   *
+   * The pilot's own tunables. Every one of them is a DECISION an operator
+   * makes per deployment — how long the kill-switch state is trusted, how long
+   * a blocked dial waits before it is looked at again, how many cases the
+   * console's waiting list shows — and a decision that lives in a source file
+   * is a decision that needs a deploy to change.
+   */
+  get pilotSwitchCacheMs(): number {
+    return numSetting("PILOT_SWITCH_CACHE_MS", 5_000, 0);
+  },
+  get pilotBlockRetryMinMs(): number {
+    return numSetting("PILOT_BLOCK_RETRY_MIN_MS", 60_000, 1_000);
+  },
+  get pilotBlockRetryMaxMs(): number {
+    return numSetting("PILOT_BLOCK_RETRY_MAX_MS", 86_400_000, 60_000);
+  },
+  /**
+   * How long a job waits when the pilot is in SHADOW mode.
+   *
+   * Long enough that a shadow deployment is not re-deciding every queued case
+   * every minute, short enough that a switch out of shadow takes effect
+   * promptly.
+   */
+  get pilotShadowRetryMs(): number {
+    return numSetting("PILOT_SHADOW_RETRY_MS", 300_000, 1_000);
+  },
+  /**
+   * How long a job waits when the CHARTER refuses it.
+   *
+   * Long on purpose: the charter is a decision an operator makes in the
+   * deployment configuration, and a job that re-decides every minute while an
+   * operator works out what to do is noise in the queue and in the audit chain.
+   */
+  get pilotCharterRetryMs(): number {
+    return numSetting("PILOT_CHARTER_RETRY_MS", 3_600_000, 60_000);
+  },
+  get pilotWaitingListLimit(): number {
+    return numSetting("PILOT_WAITING_LIST_LIMIT", 25, 1, 1_000);
+  },
+  /**
+   * The floor under the cap's reset countdown.
+   *
+   * The countdown is how long the operator has before the cap refills, and a
+   * zero would read as "the cap resets NOW" for a cap that resets at
+   * midnight. One minute is the smallest value that still means "not yet".
+   */
+  get pilotCapResetFloorSec(): number {
+    return numSetting("PILOT_CAP_RESET_FLOOR_SEC", 60, 1);
+  },
+  /**
+   * How long the dial worker holds a claim across a carrier call.
+   *
+   * It has to outlast the longest call the platform places plus the handover,
+   * and it is the number that decides how long a dead worker's job waits to
+   * be picked up again — so it is a deployment decision, not a constant.
+   */
+  get dialWorkerCallLeaseMs(): number {
+    return numSetting("DIAL_WORKER_CALL_LEASE_MS", 900_000, 60_000);
+  },
+  /** The telephony breaker's failure threshold, per deployment. */
+  get breakerFailureThreshold(): number {
+    return numSetting("BREAKER_FAILURE_THRESHOLD", 5, 1);
+  },
+  /** The telephony breaker's half-open probe count, per deployment. */
+  get breakerHalfOpenProbes(): number {
+    return numSetting("BREAKER_HALF_OPEN_PROBES", 1, 1);
   },
 
   /* ── Readiness warning thresholds ── */

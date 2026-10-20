@@ -43,3 +43,21 @@ export const FOUNDER_EMAIL = process.env.NEXT_PUBLIC_FOUNDER_EMAIL ?? "founder@s
  * `undefined` in the browser rather than falling through to this default.
  */
 export const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE ?? "https://securevoiceai.me";
+
+/**
+ * How often the console's Pilot panel refreshes, in milliseconds.
+ *
+ * It is a build-time value because it reaches a client component, and
+ * `NEXT_PUBLIC_*` is the only thing the compiler inlines into the browser
+ * bundle. The default is fifteen seconds: long enough that the panel is not a
+ * chatty request generator against the status route, short enough that an
+ * operator watching a live pilot sees the counters move.
+ *
+ * A malformed value takes the default rather than becoming `NaN` — a panel
+ * that polls every NaN milliseconds is worse than one that polls every
+ * fifteen seconds.
+ */
+export const PILOT_POLL_INTERVAL_MS = (() => {
+  const raw = Number(process.env.NEXT_PUBLIC_PILOT_POLL_INTERVAL_MS);
+  return Number.isFinite(raw) && raw >= 1_000 && raw <= 600_000 ? raw : 15_000;
+})();

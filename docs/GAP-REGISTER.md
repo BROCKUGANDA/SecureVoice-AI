@@ -3133,8 +3133,11 @@ one played, keeping the browser engine only as the fallback `speakText` already 
 **"One agent across six languages" needed no new mechanism.** The six slots are
 per-language because a deployment may need them to be, not because the product must
 change speakers: one voice id in all six is already one identity, on the call and — now
-that the demo resolves through the same table — in the demo too. What was missing was a
-way to choose it, because nothing in the repo can hear an accent. `voice:check` proves a
+that the demo resolves through the same table — in the demo too. On 2026-10-20 the owner
+ruled for the other shape — six distinct voices, one per language — and §65 records it;
+the mechanism is unchanged either way, and the audition's job is now to choose each
+language's voice. What was missing was a way to choose it, because nothing in the repo
+can hear an accent. `voice:check` proves a
 voice produces the right words in the right script and its own header says that is not
 the same as sounding native; the vendor returns the same 23 voices for every
 `supported_languages` query, each labelled `language: en` with an empty capability array.
@@ -3403,14 +3406,16 @@ log to diff against, and the failure mode crontab entries actually have (no TTY,
 PATH) is now ruled out by measurement rather than by assumption.
 
 **One thing the brief asked for was invisible, so the deploy now says it.** "Matching
-multilingual voices" has a mechanism (one id in six `ELEVENLABS_VOICE_<LANG>` slots) and a
+multilingual voices" has a mechanism (one id per `ELEVENLABS_VOICE_<LANG>` slot) and a
 measurement (`voice:check`, which proves each language is spoken in that language), but nothing
-that reported whether the six slots actually hold one voice — the state most likely to rot
-silently, because six different voices pass every test and sound wrong only to a human on a call.
+that reported which voice each slot actually holds — the state most likely to rot
+silently, because six voices pass every test and whether they sound like the right six people is
+audible only to a human on a call.
 `checkVoiceIdentity` in the box suite reads those six keys and says `one voice across all six
-slots` or `N DIFFERENT voices across the six slots`. It reports and does not fail: which voice
-represents a bank is recorded above as an owner decision, and a gate that turns red on an
-unmade decision is a gate that gets deleted inside a week. The parser is exercised against a
+slots` or `N distinct voices across the six slots`; since §65's ruling, the latter is the
+intended state. It reports and does not fail: which voice represents a bank is recorded above
+as an owner decision, and a gate that turns red on a decision made in prose would only teach
+people to ignore it. The parser is exercised against a
 real `.env` (a checkout with none configured → `0/6 slots set, MISSING for EN,AR,…`) and its
 self-test was made honest the hard way — the first quoted-value fixture was all-quoted, so it
 stayed green when the quote-strip was deleted from the parser, because six identically-quoted
@@ -3921,7 +3926,7 @@ upstream is a funded provider, not a local model. And the credential must be sto
 `secrun` can read a secret but cannot create one, which is why §41's blocker was never solvable from
 code alone.
 
-### 63. The voice audition is now one click per candidate; production still speaks as six people
+### 63. The voice audition is now one click per candidate; the owner ruled for six distinct voices
 
 The 36 clips from 2026-10-19 are real and distinct: every file hashes differently. The byte-size
 collisions that looked suspicious are CBR padding, not duplicate audio — the distinction now has an
@@ -3943,10 +3948,12 @@ error. `.voice-audition/LISTEN.md` now points at them and records the order of t
 
 The production slots were re-read from the box and resolved against the vendor API the same day: they
 are still six different people — Sarah (en), George (ar), Alice (hi), Brian (ur), Roger (fr) and Matilda
-(sw). Choosing which one voice replaces all six is the owner's listening decision and is not derivable
-from code. Applying a choice is an `.env` edit plus recreation of **both** consumers: the app container
-and `voice-stream-worker`. The worker owns in-flight calls, so that recreation drops a live call unless
-it is done in a quiet window; the app alone changes the demo and console only.
+(sw). That was written up as a question for the owner (which one voice replaces all six); on 2026-10-20
+the owner answered the opposite way: six distinct voices, one per language, is the intent. §65 records
+that ruling and what it changes. Applying any later slot change is still an `.env` edit plus recreation
+of **both** consumers: the app container and `voice-stream-worker`. The worker owns in-flight calls, so
+that recreation drops a live call unless it is done in a quiet window; the app alone changes the demo
+and console only.
 
 ### 64. The DIFC blockers are measured where they can be measured; four remain appointments
 
@@ -3987,3 +3994,36 @@ Where this is recorded: `docs/AI-INVENTORY.md` §6 (DPO/ASO constraints and the 
 (caller-ID measurement) and §9 (new action 10 for the notification); `docs/ROPA.md` §3.1 (the Forge
 delegation). The remaining work is four owner actions — appoint, instruct counsel, contract a carrier,
 file — and this register cannot perform any of them.
+
+### 65. The voice ruling is six distinct voices, one per language — and production already matches it
+
+Asked to name the single identity that should replace all six slots, the owner answered the opposite
+way: the six language slots are meant to hold six **different** voices, so a caller hears a voice that
+belongs to their language rather than an English voice reading Arabic. The one-identity framing in §63
+and in `voice-audition.mjs` was the premise under discussion, not a defect in the deployment.
+
+**Nothing needed applying.** Measured on the box 2026-10-20 after the promotion: the host `.env` holds
+six distinct ids — `EXAVITQu4vr4xnSDxMaL` (en, Sarah), `JBFqnCBsd6RMkjVDRZzb` (ar, George),
+`Xb7hH8MSUJpSbSDYk0k2` (hi, Alice), `nPczCjzI2devNBz1zQrb` (ur, Brian), `CwhRBWXzGAHq8TQ4Fs17` (fr,
+Roger), `XrExE9yKIg1WjnnlVkGX` (sw, Matilda) — and both `app` and `voice-stream-worker` run with
+exactly those values. Host and runtime agree, so no `.env` edit and no recreation were performed. The
+worker's internal `/healthz` reported `activeCalls: 0` at the time of measurement; that endpoint, not
+a guess about the queue, is the quiet-window instrument for any future slot change.
+
+**What changed is the question the instrument asks.** The audition still renders the opening disclosure
+in all six languages per candidate, but the listen is now per language (does this candidate sound like
+a person who speaks it?) and then across slots (are the six distinct?), not "does one voice carry all
+six". `scripts/voice-audition.mjs`, `.env.example` and the `checkVoiceIdentity` comment and messages in
+`scripts/drift-gates.mjs` now state the ruling; the gate keeps reporting what the slots hold without
+failing, and the one-voice branch is the deviation to explain rather than the target.
+
+**Any later slot change still has two consumers.** `ELEVEN_VOICE_ENV` is a module-level constant read at
+import (`src/lib/elevenlabs/client.ts:98`), so editing `.env` reaches neither process until both are
+recreated. The worker owns in-flight calls — `SHUTDOWN_DRAIN_MS` is 65 s and compose's stop grace is
+75 s — so recreate `app` first, then `voice-stream-worker` only while `/healthz` reports
+`activeCalls: 0`.
+
+**Residual, not a blocker.** The six ids currently in production are distinct and `voice:check` proves
+each language is spoken in that language, but no native ear chose them: an American English voice
+carrying Urdu is exactly the class of thing only listening can answer. The audition command remains the
+instrument, now aimed per language.

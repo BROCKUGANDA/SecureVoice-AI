@@ -39,9 +39,63 @@ const read = (rel: string) =>
 const PRICING_SRC = read("src/views/Pricing.tsx");
 const COMMERCIAL_SRC = read("src/lib/commercial.ts");
 
-describe("the pricing page has ONE rate card", () => {
-  test("it imports the catalog rather than restating it", () => {
-    expect(PRICING_SRC).toMatch(/import\s*\{[^}]*\bPLANS\b[^}]*\}\s*from\s*"@\/lib\/commercial"/);
+type TierLiteral = {
+  id: string;
+  usd: number;
+  included: number;
+  publiclyPriced: boolean;
+};
+
+/**
+ * Pull the three tier literals out of the source.
+ *
+ * Scoped to the `TIERS` array so a `usd:` appearing in a comment, a helper or
+ * the AED function is not mistaken for a tier. Matches the shape the file
+ * actually uses rather than trying to be a general parser.
+ */
+function parseTiers(src: string): TierLiteral[] {
+  const start = src.indexOf("const TIERS: Tier[] = [");
+  if (start === -1) throw new Error("TIERS array not found in Pricing.tsx");
+  const end = src.indexOf("\n];", start);
+  if (end === -1) throw new Error("TIERS array is unterminated in Pricing.tsx");
+  const body = src.slice(start, end);
+
+  const out: TierLiteral[] = [];
+  // Each tier literal begins with `id: "<id>"`; capture everything up to the
+  // next one (or the end) so the flags belong to the tier they follow.
+  const idRe = /id:\s*"(pilot|starter|growth|enterprise)"/g;
+  const hits = [...body.matchAll(idRe)];
+  for (let i = 0; i < hits.length; i++) {
+    // `hits[i]` is present by construction and `matchAll` guarantees `index`;
+    // the guards below turn that into a hard failure rather than a `!` that
+    // would let a restructured array silently parse as fewer tiers.
+    const hit = hits[i];
+    if (!hit || hit.index === undefined) continue;
+    const next = hits[i + 1];
+    const chunk = body.slice(hit.index, next?.index ?? body.length);
+
+    const id = hit[1];
+    const usd = chunk.match(/usd:\s*(\d+)/);
+    const included = chunk.match(/included:\s*(\d+)/);
+    if (!id || !usd || !included) throw new Error(`tier ${id ?? i} is missing id/usd/included`);
+    out.push({
+      id,
+      usd: Number(usd[1]),
+      included: Number(included[1]),
+      publiclyPriced: !/publiclyPriced:\s*false/.test(chunk),
+    });
+  }
+  return out;
+}
+
+const TIERS = parseTiers(PRICING_SRC);
+
+describe("Pricing.tsx tiers vs commercial.ts plans", () => {
+  test("the parser found exactly the four published tiers", () => {
+    // A guard on the guard. If the array is renamed or restructured, `parseTiers`
+    // returns fewer tiers and every assertion below silently compares a subset —
+    // which would make this file pass while checking almost nothing.
+    expect(TIERS.map((t) => t.id).sort()).toEqual(["enterprise", "growth", "pilot", "starter"]);
   });
 
   test("it carries no hand-written tier literals", () => {

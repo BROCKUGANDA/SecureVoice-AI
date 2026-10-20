@@ -25,7 +25,6 @@ import { randomUUID } from "node:crypto";
 import {
   drainDialQueue,
   markDialStarted,
-  clearDialInFlight,
   renewClaim,
   DIAL_IN_FLIGHT,
   type DialJob,
@@ -211,48 +210,6 @@ export function shouldSkipRedial(
 }
 
 /**
- * Did the provider ANSWER, or did it simply fail?
- *
- * ── Why the distinction decides whether the customer is called again ─────────
- *
- * A carrier call that crosses the provider boundary can end in three ways, and
- * only two of them are failures:
- *
- *   1. The provider REFUSED it (a 4xx). It answered, and what it said was
- *      "no". Nothing was placed, the customer's phone did not ring, and the
- *      attempt ladder is exactly the mechanism for trying again. A 429 or a
- *      503 from the provider's own edge is the same answer.
- *   2. The provider FAILED without answering (a 5xx, a timeout, a socket
- *      reset). The request may have been accepted and the response lost, so
- *      the call MAY already be ringing on the customer's phone. Re-dialling
- *      would ring a customer twice, which on a fraud intervention is the
- *      failure that teaches people to ignore the number.
- *   3. The provider accepted it and the call is in progress. Not a failure.
- *
- * The provider's own status code tells us which of 1 and 2 happened, because
- * both planes put it in the message: `placeOutboundCall` throws
- * `ElevenLabs outbound-call <status>: …` and the worker throws
- * `twilio dial refused (status <status>): …` for the Twilio plane.
- *
- * A 4xx is an ANSWER. Everything else — a 5xx, a network error, a message
- * with no status in it at all — is the absence of one, and the absence of an
- * answer is what must not be retried.
- */
-export function providerAnswered(message: string): boolean {
-  // The three spellings the two planes use:
-  //   `twilio dial refused (status 400): …`
-  //   `ElevenLabs outbound-call 404: …`
-  //   `Twilio 500`
-  // The gap between the word and the digits is bounded so a number further
-  // along the message — a body echoing a case ref, say — cannot be mistaken
-  // for the status.
-  const m = /(?:status|outbound-call|refused|twilio)\D{0,12}(\d{3})/i.exec(message);
-  if (!m) return false;
-  const status = Number(m[1]);
-  return status >= 400 && status < 500;
-}
-
-/**
  * Place one call.
  *
  * The recovery checks come first. If the case already carries a conversation id,
@@ -274,6 +231,27 @@ async function handle(job: DialJob): Promise<DialOutcome> {
    * did.
    */
   let providerCallStarted = false;
+
+  // A reclaimed job carrying this marker is the one case the lease cannot
+  // resolve: a previous worker reached the provider boundary and stopped. The
+  // provider may have accepted a call, so redialling can ring the customer
+  // twice; the honest outcome is "unknown", which the queue dead-letters into
+  // the SMS fallback and a human-visible record.
+  //
+  // The marker can carry a suffix. `failDialJob` PRESERVES it when the
+  // provider call itself failed after the boundary was crossed, so the row
+  // reads `dial_in_flight: <the provider's error>` rather than losing the
+  // marker entirely. That distinction is the difference between "the worker
+  // died mid-call" and "the provider call failed after we had already handed
+  // it over" — and in BOTH cases the carrier may have accepted the call, so
+  // in both cases the answer is the same: do not ring the customer again.
+  if (job.last_error?.startsWith(DIAL_IN_FLIGHT)) {
+    return {
+      ok: false,
+      error: "previous dial outcome unknown — the provider call started and the worker stopped",
+      retryable: false,
+    };
+  }
 
   // A reclaimed job carrying this marker is the one case the lease cannot
   // resolve: a previous worker reached the provider boundary and stopped. The
@@ -554,9 +532,6 @@ async function handle(job: DialJob): Promise<DialOutcome> {
       if (!marked) {
         return { ok: false, error: "claim lost immediately before dial", retryable: true };
       }
-      // The marker is durable, so from here on a failure is a failure of the
-      // CARRIER CALL and not of our own preparation.
-      providerCallStarted = true;
     }
 
     // Both planes must report the truth about the carrier. `placeOutboundCall`

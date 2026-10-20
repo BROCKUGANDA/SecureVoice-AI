@@ -260,14 +260,14 @@ Enterprise invoiced directly rather than through Paddle (~5% + $0.50); and a
 pilot volume cap enforced contractually, with overage billed at the Starter
 rate.
 
-**What is in code and what is still a decision.** The prices above live in
-ONE place — `src/lib/commercial.ts` — and everything else reads it: the pricing
-page renders `PLANS` directly, the browser price map is derived from it, the
-Paddle catalog seeder reads it, and the overage rater takes its rates from it.
-The page used to keep its own copy of the numbers, which is how the card and
-the page's own meta description came to quote two different prices; that copy
-is gone, and the drift between “what the page says” and “what the catalog
-charges” is now a build failure rather than a surprise at checkout.
+**What is in code and what is still a decision.** The prices above are in
+`src/lib/commercial.ts` and on the pricing page, and the Paddle catalog is now
+DERIVED from that one file (`scripts/seed-paddle-catalog.ts` reads `PLANS`
+rather than carrying a third hand-written copy of the numbers), so the drift
+between "what the page says" and "what the catalog charges" is a build failure
+rather than a surprise at checkout. The Pilot is `salesAssisted` — a ninety-day
+engagement bought once and invoiced, with no Paddle product, because a plan
+sold by negotiation has no price id anybody bills against.
 
 Still open, and none of it is a code change:
 

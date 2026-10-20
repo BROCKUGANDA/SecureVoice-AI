@@ -142,6 +142,12 @@ mock.module("@/lib/audit-chain", () => ({
 
 mock.module("@/lib/sms-verdict", () => ({ sweepExpiredSmsCases: async () => 0 }));
 mock.module("@/lib/elevenlabs/sms-fallback", () => ({ markVoiceFailed: async () => {} }));
+mock.module("@/lib/scale/queue", () => ({
+  drainDialQueue: async () => [],
+  markDialStarted: async () => true,
+  renewClaim: async () => true,
+  DIAL_IN_FLIGHT: "dial_in_flight",
+}));
 
 /** Did the worker clear the in-flight marker on its last attempt? */
 let clearedInFlight = false;

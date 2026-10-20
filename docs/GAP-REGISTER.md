@@ -3590,3 +3590,137 @@ flight, so nothing here says the deploy succeeded — §56's fix is verified as 
 main_, and the rollback of the deployment claim waits for the roll. Production answered
 `ok:true` on `0.2.39` with eleven services up throughout, including across the builder
 removal and the runner restart.
+
+### 58. The metered budget degraded on every boot, and the proof came from a passing probe
+
+The post-roll voice check passed. `/api/tts` returned 41,838 bytes of `audio/mpeg` with
+`X-Voice-Source: elevenlabs`, `/api/tts/stream` returned 37,660 bytes chunked, six consecutive
+stream probes all 200, zero licence refusals — and because the roll had just booted a new build,
+the app log was read as part of looking. Two lines in it:
+
+```
+{"level":"error","msg":"[elevenlabs/egress] event","fields":{"args":["shared meter unreachable,
+  degrading to in-process limits:","Stream isn't writeable and enableOfflineQueue options is false"]}}
+{"level":"error","msg":"[elevenlabs/egress] event","fields":{"args":["degraded: in-process budget
+  limit active (ceiling 0.5 of 10000)"]}}
+```
+
+A green response and a red error line for the same request. The voice worked; the **fleet-wide
+budget did not**.
+
+**A healthy Redis.** `docker compose exec redis redis-cli ping` answered `PONG`, and
+`REDIS_URL=redis://redis:6379` names the right service. One occurrence per boot, on the first
+metered request, and never again — six later probes added nothing. So this is not an outage and
+not a flake; it is a property of the code.
+
+**Why, from the vendor's own text rather than from a guess.** That error string is ioredis's, in
+`lib/Redis.ts`: a command sent while the stream is not writable is rejected outright when
+`enableOfflineQueue: false`. And `lazyConnect: true` — documented as "delay the connection to the
+server until **the first command is sent** or `redis.connect()` is called explicitly" — means the
+first command IS the thing that starts the socket, so it is by definition sent while the stream
+is not yet writable. The option's own comment in `src/lib/redis.ts` claimed "fail fast rather than
+queue: the caller has a declared degraded path", which describes an outage and was implemented as
+a guarantee about boot. Every deploy therefore re-based the ElevenLabs monthly character ceiling,
+and the persisted per-call token usage that shares the counter, onto one process's local count —
+silently, correctly logged, and entirely invisible in the response, because the request still
+succeeded.
+
+**The fix waits for readiness once, not forever.** `established()` awaits `connect()` before the
+first command, behind a single shared promise, because ioredis refuses a second `connect()` with
+"Connection is already connected" — so three concurrent first requests would have degraded two of
+them on a working server. `enableOfflineQueue: false` stays: an offline queue would hold a money
+decision open through an outage, and awaiting a connection we just asked for is not queueing. A
+failed connection still rejects and the caller still degrades loudly, and a failure clears the
+cached promise so one blip at boot cannot strand the process on the local meter for its whole
+life.
+
+**`whenReady()` does not exist in the version this repo ships.** The first draft awaited it,
+because the documentation page said so; `bunx tsc --noEmit` rejected it — the installed ioredis is
+**6.0.0** and its `Redis.d.ts` exposes only `connect()` and `disconnect()`. A library's docs are
+not this repository's vendor; the type declaration in `node_modules` is. Recorded because the
+mistake was about to be invisible: `whenReady` would have failed the build, not production.
+
+**Proven by mutation, twice.** `tests/unit/redis-first-command.test.ts` reimplements the fake
+client from the vendor's quoted behaviour rather than from my own code and asserts seven things:
+no socket at import time (the laziness contract stays), the first command reaches the durable
+meter, concurrent first requests connect exactly once, later requests do not reconnect, an
+unreachable Redis still rejects, a failed attempt is retried, and an in-flight connect is reported
+as the stream condition rather than as the internal refusal. Reverting `incrBy` to the old
+`connect()` form turns five of seven red; deleting the swallow-branch line turns the seventh red.
+Both restored, all seven green.
+
+**Also this change:** `.worktrees/**` is now in `eslint.config.mjs` ignores. A scratch merge
+worktree parked inside the repo made `bun run lint` exit 1 with four "Unused eslint-disable
+directive" warnings from _its_ generated Prisma files, on a repository whose own tree is clean.
+ESLint does not read `.gitignore` — the same reason `.gitnexus/**` and `.covprobe2/**` are already
+listed, and the second time this week a local gate lied about a commit.
+
+**Not claimed.** Production verification is the next boot: after this rolls, the first metered
+request must leave no degradation line in the app log. Until that measurement exists the fix is
+proven against a fake that quotes the vendor, which is a strong argument and not the same thing
+as the observation.
+
+**The control was measured, which makes the after-claim checkable.** The roll to `edb3e55`
+(v0.2.40) booted a build that does NOT contain this fix, so the first `/api/tts` after it came up
+is the negative control: `uptimeSec: 126`, one request, `http=200` 65,244 bytes — and exactly one
+line in the app log, `shared meter unreachable, degrading to in-process limits: Stream isn't
+writeable and enableOfflineQueue options is false`. Deterministic per boot on a healthy Redis, not
+a one-off on a bad night. The fix's claim is therefore falsifiable in the same terms: on the first
+boot of a build that carries `established()`, that count must be zero for the same probe.
+
+### 59. The cache the reclaimer could not reach was six hours old, and the reclaim report said "16 deleted"
+
+§57 shipped the builder rule and §55 the anonymous-volume rule, so the disk was supposed to be
+handled. It was not: free space went 27.4 GB → 21 GB → 17.8 GB through 2026-10-19 while every
+reclaim reported success. The rules were correct and unreachable, which is a different failure, and
+only visible by measuring the thing they filter on.
+
+**`docker builder du` named the consumer and refuted the rule.** 66 cache entries, 30.77 GB, all of
+it reclaimable by docker's own reckoning — and the six largest were 2.691 GB each, last accessed 6
+minutes, 30 minutes, 56 minutes, about an hour, about an hour, and 6 hours ago. `grep -c "days
+ago"` over that same table returned **0**. So `--filter until=72h`, the floor chosen so a nightly
+deploy would not rebuild `next` from nothing, could not reach a single byte: the cache was young
+because it was being rewritten continuously, and it filled the disk anyway. A rule that only fires
+on age cannot bound size.
+
+**Why the cache is six copies of the same layers.** `ci.yml` triggers on `push` to
+`[dev, staging, main]` _and_ on `pull_request` into those same three branches, and promote.yml
+opens a pull request for every push, so each promotion commit is built twice in full, once per
+event. `concurrency.group: ci-${{ github.ref }}` was meant to stop redundant runs, but the two
+events have different refs (`refs/heads/staging` and `refs/pull/158/merge`), so they are different
+groups and nothing dedupes them. Seen directly: runs 39337233039 (`push`, staging) and 39337237289
+(`pull_request`, #158) executing the same commit `c43cd38` on the same two-runner box.
+
+**What shipped: eviction that responds to pressure, not only to age.** `CACHE_MAX_AGE_PRESSURE`
+(default 6h) replaces `CACHE_MAX_AGE` (72h) once free space is at or below `PRESSURE_FREE_GB`
+(default 15). 15 is not invented — `ci.yml` and `deploy.yml` both call
+`bun scripts/runner-preflight.ts --min-gb 10`, so 10 GB is where a build is _refused_, and 15 is
+that plus roughly one build's headroom. It is a reference to that decision, not a second copy of
+it: the preflight owns "may this build run", the reclaimer owns "what am I willing to lose", and
+§55 already documented what happens when one number is restated in two places. Boundary proven both
+ways on the box: at 20 GB free with the default 15 the floor stayed `until=72h`; with
+`PRESSURE_FREE_GB=21` the same run printed `PRESSURE: 18.8 GB free at or below the 21 GB mark` and
+issued `until=6h` on both prune paths.
+
+**What did NOT ship, and why it is the owner's call.** Deduplicating those two CI runs by commit
+would remove about 15 GB of the pressure outright, but `cancel-in-progress` cancels whichever run
+arrives second, and if the casualty is the `pull_request` run then the PR's required check reads
+_cancelled_, `mergeStateStatus` goes BLOCKED and the ladder stops — §54 and §55 spent days on
+exactly that failure, reached here from the other direction. The safe form suppresses the redundant
+**push** run on dev and staging rather than racing the PR run, and that changes which commits carry
+a gate, so it is a decision rather than a patch.
+
+**"16 deleted" freed 0.15 GB.** The same window produced the more general lesson.
+`reclaim[reclaim]: … images=16` reads like a working cleaner and moved the disk 17.77 → 17.92 GB,
+because CI stacks share their layers with images the guards deliberately keep — deleting a tag is
+not reclaiming space. The reclaimer now ends on `freed=<GB>` and flags a run that deleted objects
+while freeing less than 1, so a future reader is not told that a count is an outcome. Proven with a
+truth table over the exact condition (`deleted=0` quiet, `deleted=16` fires at −0.1 and 0.0, quiet
+at 5.0) and by a live run that deleted nothing and printed no note. `EXIT=0` throughout: this is a
+louder report, not a new gate that can fail a build.
+
+**One measurement left unattributed on purpose.** Free space recovered from 17.8 GB to 25 GB during
+this window while my own reclaim deleted nothing (`images=0, held-back=1`). The CI pre-build step
+and the deploy pre-roll both call this same script now, so the likeliest explanation is a concurrent
+job's reclaim running with the new floor — but I did not observe that job, so it is a hypothesis
+with a named place to check rather than a result.

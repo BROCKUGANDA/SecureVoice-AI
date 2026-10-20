@@ -1,11 +1,11 @@
 #!/usr/bin/env bun
 /**
- * bun scripts/voice-audition.mjs — listen before you choose a voice identity.
+ * bun scripts/voice-audition.mjs — listen before you choose a language's voice.
  *
- * WHY THIS EXISTS. The product decision on the table is "one agent, six delivery
- * languages" — the same voice for English, Arabic, Hindi, Urdu, French and Swahili,
- * so a caller who switches language is not suddenly talking to a different person.
- * Nothing in this repository can make that choice for you:
+ * WHY THIS EXISTS. The owner's ruling of 2026-10-20 is six DISTINCT voices, one per
+ * delivery language, so a caller hears a voice that belongs to their language rather
+ * than an English voice reading Arabic. Nothing in this repository can make those
+ * six choices for you:
  *
  *   · `voice:check` proves a voice produces the right WORDS in the right SCRIPT. It
  *     cannot hear an accent, and its own header says so.
@@ -22,13 +22,16 @@
  * call with, in every language, for each voice you name, into files you can play.
  *
  * WHAT IT DOES NOT DO. It does not pick, rank, or score. It does not write
- * configuration. When you have heard enough, the answer is one ElevenLabs voice id
- * put in all six `ELEVENLABS_VOICE_<LANG>` slots on the deployment — the resolver in
- * `src/lib/elevenlabs/client.ts` reads those per language, so one id in six slots is
- * already one identity across the product, on the live call and in the demo alike.
- * A cloned voice additionally needs a `Voice` row with `consentUrl`/`consentAt`;
- * cloning is disabled on this account, and which voice represents the brand is a
- * bank-facing decision, not an API lookup.
+ * configuration. Listen within one language first (does this candidate sound native?),
+ * then across the six (are they distinct?); the clips are per language so both
+ * questions are answerable from the same run. When you have heard enough, change that
+ * language's `ELEVENLABS_VOICE_<LANG>` slot — the resolver in
+ * `src/lib/elevenlabs/client.ts` reads each slot per language, and the ruling is six
+ * distinct ids, not one id repeated. Changing any slot means recreating BOTH consumers
+ * (`app` and `voice-stream-worker`): the env table is read at module import, and the
+ * worker owns in-flight calls. A cloned voice additionally needs a `Voice` row with
+ * `consentUrl`/`consentAt`; cloning is disabled on this account, and which voice
+ * represents the brand is a bank-facing decision, not an API lookup.
  *
  * Spends vendor quota (one short synthesis per language per candidate) and therefore
  * is NOT wired into CI, matching `voice:check`. It refuses to run without a real key.
@@ -228,9 +231,10 @@ console.log(
   `\n${rows.filter((r) => !r.error).length}/${rows.length} files written for ${voices} voice(s) × ${langs.length} languages.`,
 );
 console.log(
-  "Listen for: does the SAME voice carry all six, and does each one sound like a\n" +
-    "person who speaks that language? When you have a winner, put its id in all six\n" +
-    "ELEVENLABS_VOICE_<LANG> slots on the deployment — the resolver reads those per\n" +
-    "language, so one id in six slots is already one identity across the product.",
+  "Listen per language: does this candidate sound like a person who speaks it?\n" +
+    "The ruling is six DISTINCT voices, so pick the winner for each\n" +
+    "ELEVENLABS_VOICE_<LANG> slot separately. Changing any slot means recreating\n" +
+    "both `app` and `voice-stream-worker`; recreate the worker only when its\n" +
+    "/healthz reports activeCalls: 0.",
 );
 process.exit(failed ? 1 : 0);

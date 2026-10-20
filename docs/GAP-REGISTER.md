@@ -3668,6 +3668,32 @@ writeable and enableOfflineQueue options is false`. Deterministic per boot on a 
 a one-off on a bad night. The fix's claim is therefore falsifiable in the same terms: on the first
 boot of a build that carries `established()`, that count must be zero for the same probe.
 
+**Result, measured on the next roll — and re-measured, because the first reading was wrong.**
+`846c65e` deployed at 01:52 and its app container carried the fix (`established` present in the
+built tree, read out of the deployed checkout rather than out of git). The first claim I wrote down
+was that `docker compose logs --since 25m app` showed zero `/api/tts` requests before mine, making my
+probe the first metered request of that process. That evidence proves nothing: the app never logs
+request paths, so a count of zero from that grep is a property of the grep, not of the traffic — the
+same class of error as §58's own subject, and it is why the claim is corrected rather than kept.
+
+The instrument that does work measures the whole lifetime instead of trying to count requests. With
+`uptimeSec: 1596`, a `--since 90m app` log window provably begins at the Next.js boot banner, so it
+contains every metered request the process has ever served:
+
+```
+degradation lines over the WHOLE uptime: 0
+any "degraded: in-process budget" line:  0
+```
+
+Within that window one request is certain — the probe, `200`, 103,278 bytes,
+`X-Voice-Source: elevenlabs` — so the first metered request of a process carrying `established()`
+did not degrade, and neither did anything else that process served. The control (v0.2.40, same
+single request, same grep) produced exactly 1. The positive half is the durable counter rather than
+the absence of an error: `redis-cli GET elevenlabs:monthly_chars:2026-10` returned `2061` with a TTL
+of 1,115,042 s to month end, so the charge landed in Redis and not in the process's own map. The
+defect is closed by observation, and the `decrBy` release path now runs against a meter that was
+already reachable.
+
 ### 59. The cache the reclaimer could not reach was six hours old, and the reclaim report said "16 deleted"
 
 §57 shipped the builder rule and §55 the anonymous-volume rule, so the disk was supposed to be
@@ -3690,6 +3716,16 @@ event. `concurrency.group: ci-${{ github.ref }}` was meant to stop redundant run
 events have different refs (`refs/heads/staging` and `refs/pull/158/merge`), so they are different
 groups and nothing dedupes them. Seen directly: runs 39337233039 (`push`, staging) and 39337237289
 (`pull_request`, #158) executing the same commit `c43cd38` on the same two-runner box.
+
+**The duplicate runs do not only cost disk: they raise false alarms.** Deploy 39346234640
+(`edb3e55`, 00:12) went red at step 1 with `RUN_CONCLUSION: cancelled`, `RUN_ID: 39344126878`. That
+refusal is correct and deliberate — a cancelled run proved nothing, so production did not deploy it,
+and the next one (39351314912) rolled `edb3e55` and then `d5b7e58` cleanly — but the _cause_ of the
+cancellation is the pair above: two CI runs for one commit on a two-runner box, and
+`cancel-in-progress` sacrificing one of them. So one commit can produce a red Deploy that means
+"nothing is wrong except that we built it twice", which is precisely the report that makes this
+pipeline look broken to whoever is watching it. Any dedupe decision has to keep the refusal gate
+and drop the cancellation, not the other way round.
 
 **What shipped: eviction that responds to pressure, not only to age.** `CACHE_MAX_AGE_PRESSURE`
 (default 6h) replaces `CACHE_MAX_AGE` (72h) once free space is at or below `PRESSURE_FREE_GB`
@@ -3724,3 +3760,118 @@ this window while my own reclaim deleted nothing (`images=0, held-back=1`). The 
 and the deploy pre-roll both call this same script now, so the likeliest explanation is a concurrent
 job's reclaim running with the new floor — but I did not observe that job, so it is a hypothesis
 with a named place to check rather than a result.
+
+**The pressure tier I shipped with this turned out to be the wrong instrument, and it was measured
+before being replaced.** Hours later the box was at 12.4 GB free with `docker system df` reporting
+33.93 GB of build cache, 32.48 GB reclaimable — and the escalation this section just described,
+`--filter until=6h`, freed **214.4 MB**. An age floor only helps against old garbage; this cache was
+young _and_ enormous, growing about 3 GB an hour, so no age above zero reaches it. Eviction is now
+three tiers — normal 72 h, pressure 6 h at ≤15 GB free, and **emergency: no age filter at all** at
+≤12 GB free, which lets buildkit's own "in use" judgement decide because it is the only rule that
+can see 32 GB. The emergency tier's cost is wider than this repository and is stated in the script:
+crucible's and astrolabe's next builds on this box rebuild from nothing too. The alternative is not
+cheap either — a runner refused at 10 GB builds nothing at all and leaves a red required check parked
+in front of production. Each tier was proven to select correctly by driving the thresholds past the
+free-space reading, the empty filter array expands to nothing under `set -u` rather than aborting
+the reclaimer at exactly the moment it is needed, and `freed=`/`tier=` now appear only in `reclaim`
+mode, because a dry run that reported `freed=0.1GB` while deleting nothing was repeating the
+count-passes-for-outcome error this report exists to remove.
+
+### 60. One build per commit: the trigger list is where it went, after a workflow-level `if:` broke the file
+
+§59 named the cause and left the remedy to the owner; the owner chose suppressing the redundant
+`push` run rather than racing the two runs, and that is the right edge of the two, because a race
+produces exactly the cancelled run whose refusal made Deploy 39346234640 red.
+
+**The first attempt was wrong and CI said so immediately.** `ci.yml` was given a workflow-level
+`if: github.event_name != 'push' || github.ref == 'refs/heads/main'`, on the reasoning that one
+condition at the top of the document beats the same condition copied into five job `if:`s. Pushed
+as `ad4f36c`, the very next run — 39357023040 — came back `conclusion: failure` with `jobs: []`.
+That is not a job failing; it is GitHub refusing to compile the document, and there is no such key
+on a workflow: `if` belongs to jobs and steps. The shape of the failure is worth keeping, because
+it is the one this repository has been chasing all week — a signal that reports nothing about its
+own cause. Had it reached main, every push run on main would have failed to compile, deploy.yml
+would have had no green `workflow_run: CI` to trust, and production would have silently stopped
+deploying while CI looked idle.
+
+**The dedupe is therefore a trigger restriction: `push` now means `[main]` alone.** dev and staging
+get gated by the `pull_request` run on the rung PR that promote.yml opens for every push, so no
+commit loses its gate and none is built twice. This is also a strictly simpler statement of the
+rule — it is schema, not expression, so it cannot fail the way the clause did, and there is nothing
+left for a future editor to mis-apply to four of five jobs.
+
+**`main` keeps its push trigger, and that is the load-bearing half.** main is reached by a squash
+merge, so the commit that exists on main existed on no branch and emits no `pull_request` event.
+`deploy.yml` and `autoversion.yml` both key on `workflow_run: CI` for main, and that run is the only
+proof the commit was ever built. Suppressing it too would not slow the pipeline; it would stop
+production deploying.
+
+**The coverage given up, stated rather than hidden.** promote.yml carries `paths-ignore` for
+`**.md`, `docs/**` and `evidence/**`, so a docs-only push to dev opens no PR — and now also runs no
+CI. Such a commit gets its verdict at the next promotion PR, which is the last gate before main, so
+nothing ungated reaches production; what is lost is the per-commit signal on dev, and
+`bun scripts/drift-gates.mjs repo` locally is the same claim the drift job would have made. The
+dependency this buys into is named in a test rather than in prose: if promote.yml ever stops firing
+on pushes to dev and staging, those rungs go dark instead of merely single-built.
+
+**Proven, including that the proof can fail.** `tests/unit/ci-event-gate.test.ts` reads the shipped
+YAML and asserts the trigger lists — `push.branches` exactly `["main"]` and explicitly NOT containing
+`dev` or `staging` (naming the pre-fix value, so restoring it fails the test rather than silently
+passing a different one), `pull_request.branches` still covering all three rungs, no `if` key anywhere
+on the document, `concurrency` still grouped by `github.ref` so nobody widens it back into the race,
+and deploy.yml plus autoversion.yml still keyed to CI on main. Nine tests. Both mutations bite: putting
+`[dev, staging, main]` back turns one red, re-planting the workflow-level `if:` turns one red, and the
+file was then restored byte-identical (`diff -q`) before committing. A guard on the parser itself is
+asserted too — `on:` is a YAML 1.1 boolean keyword, and a reader that resolved it to `true` would make
+every assertion below it vacuous, so the test fails loudly if the trigger map is unreadable rather than
+comparing against `undefined`.
+
+**Two owner decisions landed with it.** Release-bump PRs (AutoVersion's `chore/release-vX.Y.Z` into
+main) merge automatically as each opens — nothing in the repo arms them, so it is a standing
+instruction, and #163 (v0.2.42) is armed and brought up to date accordingly. And the hygiene cron's
+mechanism was proven without waiting for 04:15: a one-shot ubuntu crontab entry fired at 01:40:01 and
+wrote its file, after which `/var/log/syslog` was checked and contains `(root) CMD` lines but **not**
+`(ubuntu) CMD` — so on this box the job's own output file is the only witness, which is why
+`runner-hygiene.sh` now prints its header before any decision.
+
+### 61. The plaintext-phone queue is empty, and the migration that was supposed to empty it has no runnable home
+
+Closing out the PII backlog needed one number: how many `Case` rows still answer to a raw phone.
+Getting it produced two results, and the second is the one that matters going forward.
+
+**The number.** Production holds `total_cases: 1140, raw_phone: 0, raw_without_org: 0, vaulted: 22,
+blind_indexed: 22`. So the "~85 rows" that §42 left open — measured by §51 as 847, ninety-seven per
+cent of it our own test harness — and the same figure in the open task were both stale: the
+clear-not-delete pass recorded on 2026-10-19 emptied the queue, and the 22 vaulted rows are the ones
+that were tokenised rather than dropped. The dry run's own exit criterion, `pending: 0`, is the only
+condition on which the legacy `phone` arm of `casePhoneWhere` may ever be removed, and that condition
+is now measured rather than assumed. The arm stays, as §51 decided; what changes is that the next
+reader sees the number instead of reasoning from a count written down weeks ago.
+
+**The gap.** `bun run pii:backfill` cannot currently be executed anywhere in production. The image that
+has the sealing key cannot run the script: `docker compose exec app bun ... scripts/backfill-...` dies
+with `Cannot find module '@prisma/adapter-pg' from '/app/src/lib/db.ts'`, because the app stage is a
+Next standalone output whose traced dependencies do not resolve from source paths. The image that can
+run the script does not have the key: the workers declare no `env_file`, deliberately, and `AUTH_SECRET`
+
+- which `pii-vault.ts`, `byok.ts`, `hmac.ts` and `session.ts` all require by that exact name, distinct
+  from `BETTER_AUTH_SECRET` - is present only in the app container. So `--apply`, the irreversible half
+  that §42's standing rule insists must be watched, has never had a container to be run in. Nothing
+  about that is visible from the script's help text or from the deployment.
+
+**What is not claimed.** That the gap is dangerous today: with `raw_phone: 0` there is nothing to
+migrate, so the missing capability is latent, not live. And the fix is deliberately not made here. A
+profile-gated one-shot service carrying `AUTH_SECRET` would be a change to production compose topology
+for a migration with no rows to process, which is a decision to make when it is needed rather than a
+convenience to add now.
+
+**The instrument that worked, and the one that nearly lied.** A read-only count needs no sealing key, so
+a throwaway `docker compose run --rm --no-deps` from the worker image, with a `pg` pool pointed at the
+container's own `DATABASE_URL` and the image's shipped `supabase-ca.crt`, answered the question in one
+command while writing nothing and mutating no live container. Before that, the same question was asked
+of `docker compose exec db psql ...`, which returned `0 cases`, and that was wrong: production data
+lives on the managed Supabase pooler (`aws-0-eu-central-1.pooler.supabase.com:6543`, visible in the
+workers' own pool-budget log) while the compose `db` container is a vestigial local instance holding
+nothing. An empty table from the wrong database is the most convincing kind of wrong answer this
+register keeps meeting. It agrees with the hypothesis, it arrives instantly, and a `0` from a system
+that could not have produced a non-zero is not a measurement.

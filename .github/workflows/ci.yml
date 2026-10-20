@@ -12,8 +12,42 @@
 name: CI
 
 on:
+  # `push` here means MAIN ONLY, and that restriction IS the dedupe.
+  #
+  # Measured 2026-10-20 (docs/GAP-REGISTER.md §59): `docker builder du` reported 30.77 GB of
+  # build cache in 66 entries of which ZERO were older than six hours, six of them near-identical
+  # 2.691 GB copies of the same app layers. This workflow fired twice per commit — pushing to dev
+  # or staging emitted a `push` event, and promote.yml immediately opened a pull request for that
+  # same commit, which emitted a `pull_request` event. Runs 39337233039 (`push`) and 39337237289
+  # (`pull_request`) both executed SHA `c43cd38`, on a box with two runners and 15 GB of RAM that
+  # also serves production.
+  #
+  # The duplication also cancelled runs. `concurrency` keys on `github.ref`, and the two events
+  # have different refs (`refs/heads/staging` versus `refs/pull/158/merge`), so nothing deduped
+  # them — but a later push could cancel one. Deploy 39346234640 then correctly refused to ship
+  # `RUN_CONCLUSION: cancelled` for run 39344126878. That refusal stays; what was wrong is that a
+  # red Deploy could mean nothing worse than "we built this twice and one of them lost".
+  #
+  # The fix is applied HERE rather than with a condition, because a workflow-level `if:` is not a
+  # thing: run 39357023040 came back `conclusion: failure` with `jobs: []`, which means GitHub
+  # rejected the document before scheduling anything, and it took the dev push runs with it. `if`
+  # is legal on jobs and steps only. Restricting `branches` is a schema feature and cannot fail
+  # that way — which is the property that matters for a file that gates production deploys.
+  #
+  # Why main must stay: main is reached by a SQUASH merge, so the commit on main existed on no
+  # branch and emits no `pull_request` event. deploy.yml and autoversion.yml both key on
+  # `workflow_run: CI` for main, and that run is the only proof either commit was built. Removing
+  # it would not slow the pipeline; production would silently stop deploying, looking like idleness.
+  #
+  # Why dev and staging keep their gate: promote.yml fires on every push to them and opens the
+  # rung PR, and the `pull_request` trigger below runs the identical suite on it. The coverage
+  # actually given up is narrower than it looks — promote.yml carries `paths-ignore` for `**.md`,
+  # `docs/**` and `evidence/**`, so a docs-only push to dev opens no PR and now gets no CI either.
+  # It is gated at the next promotion PR, the last gate before main, so nothing ungated reaches
+  # production; lost is the per-commit verdict on dev, and `bun scripts/drift-gates.mjs repo`
+  # locally makes the same claim the drift job would have.
   push:
-    branches: [dev, staging, main]
+    branches: [main]
   # The promotion ladder (dev -> staging -> main, see promote.yml) opens pull
   # requests, so every edge needs a gate — not only the last one. A PR into
   # staging that never runs CI is how a green `main` and a broken release branch
@@ -26,6 +60,12 @@ on:
   workflow_dispatch:
 
 # A superseded commit on a PR makes the whole run meaningless; cancel it.
+#
+# `github.ref` is the right key now precisely because the duplication is gone at the trigger
+# list: what is left to cancel is an older commit on the SAME pull request, which is genuinely
+# superseded. It must not be widened to the commit SHA — that would make a push and a PR run race
+# each other again, and the loser would be a required check reading `cancelled`, which is the
+# state that parked the ladder before this fix.
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true

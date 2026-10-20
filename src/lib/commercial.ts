@@ -14,27 +14,34 @@
  * module and the Paddle catalog ids. Read it before changing a number here.
  *
  * ─────────────────────────────────────────────────────────────────────────────
- * ⚠️  THREE DIFFERENT PRICE SETS HAVE EXISTED ACROSS THESE BRANCHES. READ THIS.
+ * ⚠️  FIVE DIFFERENT PRICE SETS HAVE EXISTED ACROSS THESE BRANCHES. READ THIS.
  *
  *   1. The pre-existing inline home-page block: $490 / $1,490 / Enterprise
  *      quote-per-deployment.
  *   2. `commercial.ts` and the seeded Paddle sandbox catalog: $10 / $40 /
  *      Advanced $120.
- *   3. `src/views/Pricing.tsx` (from origin/dev), now the authority on the page
- *      a buyer actually reads: Starter $99 / Growth $499 / Enterprise $2,000,
- *      with included intervention volume and per-intervention overage, plus an
- *      AED conversion for the UAE buyer.
+ *   3. `src/views/Pricing.tsx` (from origin/dev): Starter $99 / Growth $499 /
+ *      Enterprise $2,000, with included intervention volume and per-intervention
+ *      overage, plus an AED conversion for the UAE buyer.
+ *   4. `docs/canvas-build/content.json`: "AED 15,000 a month" (~$4,085) as a
+ *      described BUYER deal value against AED 200,000 of write-offs — not a list
+ *      price, so not comparable, but worth a rate-card owner deciding between.
+ *   5. THE CURRENT SET: Pilot $12,000 for 90 days, Starter $2,500/mo, Growth
+ *      $9,000/mo, Enterprise from $25,000/mo — with the overage at $5.00 /
+ *      $4.50 / $3.50 / $2.25, because set (3)'s $0.15 and $0.12 were BELOW the
+ *      fully loaded cost of one intervention on every route.
  *
- * Set (3) was adopted here. It is the only one that models the product the
- * code implements — `src/lib/credits.ts` is one intervention = one credit, and
- * `src/lib/payments/overage.ts` computes the per-intervention charge beyond the
- * included volume. Flat prices with no overage term cannot express either.
+ * Set (5) is what ships, and this file is the authority for it: the pricing
+ * page renders from it, the browser price map is DERIVED from it, the Paddle
+ * catalog seeder is DERIVED from it, and the rater reads its overage rates
+ * from it. There is no second copy to drift — which is the whole point of
+ * having moved the numbers into one place.
  *
- * ⚠️  THE PADDLE SANDBOX CATALOG IS THEREFORE STALE. It was seeded from set (2).
- * After changing a number below, re-run `bun run paddle:seed` (which recreates
- * the catalog) and `bun run paddle:repair-overrides`. Until then the gateway
- * charges amounts the page does not show, which is the exact failure the parity
- * test exists to catch.
+ * ⚠️  THE PADDLE SANDBOX CATALOG IS THEREFORE STALE. It was seeded from set
+ * (3). After changing a number below, re-run `bun run paddle:seed` (which
+ * recreates the catalog) and `bun run paddle:repair-overrides`. Until then the
+ * gateway charges amounts the page does not show, which is the exact failure
+ * the parity test exists to catch.
  *
  * IF SET (2) WERE THE REAL ONES, revert this file, `scripts/seed-paddle-catalog.ts`
  * and `src/views/Pricing.tsx` TOGETHER. Changing one alone is the drift again.
@@ -158,6 +165,27 @@ export type Plan = {
    * a deployment default — see `src/lib/payments/plans.ts`.
    */
   salesAssisted?: boolean;
+  /**
+   * A ONE-OFF engagement rather than a subscription.
+   *
+   * A ninety-day Pilot is bought once and invoiced. Rendering it with "per
+   * month" would tell a bank it renews, and a bank that discovers that in
+   * month two does not renew.
+   */
+  oneOff?: boolean;
+  /**
+   * The wording of the overage line, with `{amount}` as the placeholder for
+   * the formatted rate.
+   *
+   * The DEFAULT is "{amount} per additional intervention"; a plan overrides it
+   * only when the commercial model says something more — Enterprise's adds the
+   * telephony pass-through, because a buyer reading "$2.25 per intervention"
+   * on a Twilio route would not know the carrier is billed on top.
+   *
+   * The RATE itself is never written here. It is `overageCents`, and it is
+   * substituted at render time, so the wording and the number cannot drift.
+   */
+  overagePhrase?: { en: string; ar: string };
   /** schema.org Offer. A missing `price` means "contact sales", which is valid
    *  and is what an answer engine needs in order to say "custom" rather than
    *  invent a number. */
@@ -186,7 +214,7 @@ export type Plan = {
  * as often as the buyer chose.
  *
  * —————————————————————————————————————————————————————————————————————————————
- * ⚠️  PRICE SETS, for the record. Four have existed across these branches.
+ * ⚠️  PRICE SETS, for the record. Five have existed across these branches.
  *
  *   1. Pre-existing inline home block: $490 / $1,490 / Enterprise quote.
  *   2. `commercial.ts` + a first seeded catalog: $10 / $40 / Advanced $120.
@@ -243,6 +271,8 @@ export const PLANS: Plan[] = [
     seats: 5,
     // Ninety days, invoiced, with 50% of the fee credited toward the first
     // annual contract. It is a way to buy the evidence, not a subscription.
+    // Ninety days, bought once, invoiced — not a subscription.
+    oneOff: true,
     salesAssisted: true,
     tagline: "Ninety days, one alert type, written success criteria.",
     taglineAr: "تسعون يوماً، ونوع تنبيه واحد، ومعايير نجاح مكتوبة.",
@@ -371,6 +401,14 @@ export const PLANS: Plan[] = [
     // cannot be rated is a ceiling nobody can price against.
     overageCents: 225,
     seats: null,
+    // The telephony leg is billed ON TOP on a Twilio route, so the line says so.
+    // A buyer reading "$2.25 per intervention" would not know the carrier is
+    // charged at cost + 10% on top, and that is the kind of surprise a bank
+    // finds in month two.
+    overagePhrase: {
+      en: "{amount} per additional intervention, plus telephony at cost + 10%",
+      ar: "{amount} لكل تدخل إضافي، إضافة إلى قيمة الاتصال بتكلفة زائد ١٠٪",
+    },
     // NOT `salesAssisted`: Enterprise KEEPS its Paddle product, because an
     // invoiced tenant's commercial plan has to resolve from somewhere, and
     // `Organization.planTier` is the ABUSE tier vocabulary — it cannot carry
@@ -486,6 +524,30 @@ export function formatOverage(plan: Plan, lang: Lang = "en"): string {
     currency: PRICE_CURRENCY,
     maximumFractionDigits: 2,
   }).format(plan.overageCents / 100);
+}
+
+/**
+ * The default overage wording, in both languages.
+ *
+ * `{amount}` is the placeholder for the formatted rate, so the wording and
+ * the number are one thing rather than two that can drift.
+ */
+const DEFAULT_OVERAGE_PHRASE = {
+  en: "{amount} per additional intervention",
+  ar: "{amount} لكل تدخل إضافي",
+} as const;
+
+/**
+ * The overage LINE a buyer reads — the rate and the wording together.
+ *
+ * The rate comes from `overageCents` and the wording from the plan (or the
+ * default), so the two cannot drift: a plan that publishes a rate but no
+ * phrase gets the standard line, and a plan that publishes a phrase but no
+ * rate gets an empty amount rather than a price that does not exist.
+ */
+export function formatOveragePhrase(plan: Plan, lang: Lang = "en"): string {
+  const phrase = plan.overagePhrase ?? DEFAULT_OVERAGE_PHRASE;
+  return phrase[lang].replace("{amount}", formatOverage(plan, lang));
 }
 
 /** A plan by id, or `null` for an id this catalog does not publish. */

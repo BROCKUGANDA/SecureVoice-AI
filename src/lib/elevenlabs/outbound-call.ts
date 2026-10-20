@@ -318,15 +318,43 @@ export async function placeOutboundCall(params: OutboundCallParams): Promise<Out
     // mint a fresh bucket by opening another case.
     billableChars: 0,
     callerId: "dial",
+    // NO INTERNAL RETRY, and this is the reason the queue's "unknown outcome"
+    // rule means anything.
+    //
+    // The egress layer retries a 429/5xx/timeout up to two more times — which
+    // is right for a READ and wrong for this: the request may have been
+    // ACCEPTED and the response lost, so the second attempt can place a SECOND
+    // call to the same customer. The queue's rule ("a 5xx may mean the call is
+    // already ringing, so do not redial") cannot fix a double placement that
+    // happened inside the HTTP client, five layers down.
+    //
+    // So the dial call opts out of the internal retry and hands the decision
+    // to the queue, which has the marker, the ladder and the case. A vendor
+    // error is then ONE failed attempt with ONE recorded outcome.
+    //
+    // The cost is a slightly higher failure rate on a transient 5xx: the
+    // ladder retries it with backoff instead. That is the right trade — the
+    // ladder is a careful retry and the HTTP client is not.
+    maxRetries: 0,
   });
 
   if (!res.ok) {
     // Breaker-open / quota / retry-exhausted all surface here with a typed
     // status. The dial path treats this as a failed placement, not a silent
     // drop — the caller decides queue-vs-alert per the declared fallback.
-    throw new Error(
+    //
+    // The status rides on the ERROR as a typed field, not only inside the
+    // message. The dial worker has to know whether the provider ANSWERED
+    // (a 4xx — nothing was placed, so the attempt may be retried) or merely
+    // FAILED (a 5xx, a timeout — the call may be ringing, so it must not be),
+    // and it has to decide that from something a vendor cannot reword.
+    // Re-parsing a formatted string is a silent-failure waiting to happen:
+    // change the message format and the ladder changes with it.
+    const err = new Error(
       `ElevenLabs outbound-call ${res.error.status}: ${res.error.body.slice(0, 300)}`,
-    );
+    ) as Error & { providerStatus?: number };
+    err.providerStatus = res.error.status;
+    throw err;
   }
 
   const data = res.data;

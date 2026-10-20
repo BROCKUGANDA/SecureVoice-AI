@@ -48,6 +48,7 @@ import { LoadingIndicator } from "@/components/fx/LoadingIndicator";
 import { walletEmptyNotice } from "@/lib/credits-wallet";
 import { getInstitutionLabels, getInstitutionLabelsAr } from "@/lib/institution-context";
 import { CreditWidget } from "@/components/billing/CreditWidget";
+import { PilotPanel } from "@/views/PilotPanel";
 
 /**
  * Operator Command Center — run the platform for real, on your own information:
@@ -1045,6 +1046,17 @@ export function Console() {
             {t("feed", "التغذية", lang)}: {describeConnection(feedConn, now)}
           </span>
         </div>
+      </div>
+
+      {/* ————— the pilot panel —————
+          It sits ABOVE the two rails rather than inside either one, because it
+          is not a step in the demo: it is the state of the DEPLOYMENT, and an
+          operator who has to scroll past "connect your phone" to find the kill
+          switch during an incident will not find it. It also renders whether
+          or not the pilot is engaged — a panel that appears only when something
+          is wrong is a panel nobody learns where it is. */}
+      <div className="mt-8">
+        <PilotPanel lang={lang} />
       </div>
 
       <div className="mt-8 grid gap-6 lg:grid-cols-[1fr_1.1fr]">

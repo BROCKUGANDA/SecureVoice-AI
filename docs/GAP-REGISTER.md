@@ -3667,3 +3667,60 @@ line in the app log, `shared meter unreachable, degrading to in-process limits: 
 writeable and enableOfflineQueue options is false`. Deterministic per boot on a healthy Redis, not
 a one-off on a bad night. The fix's claim is therefore falsifiable in the same terms: on the first
 boot of a build that carries `established()`, that count must be zero for the same probe.
+
+### 59. The cache the reclaimer could not reach was six hours old, and the reclaim report said "16 deleted"
+
+§57 shipped the builder rule and §55 the anonymous-volume rule, so the disk was supposed to be
+handled. It was not: free space went 27.4 GB → 21 GB → 17.8 GB through 2026-10-19 while every
+reclaim reported success. The rules were correct and unreachable, which is a different failure, and
+only visible by measuring the thing they filter on.
+
+**`docker builder du` named the consumer and refuted the rule.** 66 cache entries, 30.77 GB, all of
+it reclaimable by docker's own reckoning — and the six largest were 2.691 GB each, last accessed 6
+minutes, 30 minutes, 56 minutes, about an hour, about an hour, and 6 hours ago. `grep -c "days
+ago"` over that same table returned **0**. So `--filter until=72h`, the floor chosen so a nightly
+deploy would not rebuild `next` from nothing, could not reach a single byte: the cache was young
+because it was being rewritten continuously, and it filled the disk anyway. A rule that only fires
+on age cannot bound size.
+
+**Why the cache is six copies of the same layers.** `ci.yml` triggers on `push` to
+`[dev, staging, main]` _and_ on `pull_request` into those same three branches, and promote.yml
+opens a pull request for every push, so each promotion commit is built twice in full, once per
+event. `concurrency.group: ci-${{ github.ref }}` was meant to stop redundant runs, but the two
+events have different refs (`refs/heads/staging` and `refs/pull/158/merge`), so they are different
+groups and nothing dedupes them. Seen directly: runs 39337233039 (`push`, staging) and 39337237289
+(`pull_request`, #158) executing the same commit `c43cd38` on the same two-runner box.
+
+**What shipped: eviction that responds to pressure, not only to age.** `CACHE_MAX_AGE_PRESSURE`
+(default 6h) replaces `CACHE_MAX_AGE` (72h) once free space is at or below `PRESSURE_FREE_GB`
+(default 15). 15 is not invented — `ci.yml` and `deploy.yml` both call
+`bun scripts/runner-preflight.ts --min-gb 10`, so 10 GB is where a build is _refused_, and 15 is
+that plus roughly one build's headroom. It is a reference to that decision, not a second copy of
+it: the preflight owns "may this build run", the reclaimer owns "what am I willing to lose", and
+§55 already documented what happens when one number is restated in two places. Boundary proven both
+ways on the box: at 20 GB free with the default 15 the floor stayed `until=72h`; with
+`PRESSURE_FREE_GB=21` the same run printed `PRESSURE: 18.8 GB free at or below the 21 GB mark` and
+issued `until=6h` on both prune paths.
+
+**What did NOT ship, and why it is the owner's call.** Deduplicating those two CI runs by commit
+would remove about 15 GB of the pressure outright, but `cancel-in-progress` cancels whichever run
+arrives second, and if the casualty is the `pull_request` run then the PR's required check reads
+_cancelled_, `mergeStateStatus` goes BLOCKED and the ladder stops — §54 and §55 spent days on
+exactly that failure, reached here from the other direction. The safe form suppresses the redundant
+**push** run on dev and staging rather than racing the PR run, and that changes which commits carry
+a gate, so it is a decision rather than a patch.
+
+**"16 deleted" freed 0.15 GB.** The same window produced the more general lesson.
+`reclaim[reclaim]: … images=16` reads like a working cleaner and moved the disk 17.77 → 17.92 GB,
+because CI stacks share their layers with images the guards deliberately keep — deleting a tag is
+not reclaiming space. The reclaimer now ends on `freed=<GB>` and flags a run that deleted objects
+while freeing less than 1, so a future reader is not told that a count is an outcome. Proven with a
+truth table over the exact condition (`deleted=0` quiet, `deleted=16` fires at −0.1 and 0.0, quiet
+at 5.0) and by a live run that deleted nothing and printed no note. `EXIT=0` throughout: this is a
+louder report, not a new gate that can fail a build.
+
+**One measurement left unattributed on purpose.** Free space recovered from 17.8 GB to 25 GB during
+this window while my own reclaim deleted nothing (`images=0, held-back=1`). The CI pre-build step
+and the deploy pre-roll both call this same script now, so the likeliest explanation is a concurrent
+job's reclaim running with the new floor — but I did not observe that job, so it is a hypothesis
+with a named place to check rather than a result.

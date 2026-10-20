@@ -1675,6 +1675,80 @@ function selfTestNumberingGate() {
 }
 
 /**
+ * CHECK — there is exactly one definition of "clean up this box", and the runner cron is
+ * not allowed to be a second one.
+ *
+ * The 2026-10-19 disk incident produced `scripts/reclaim-ci.sh` by deleting three divergent
+ * inline reclaim loops from three workflows. Four days later the box's own cron held a fourth
+ * copy, written earlier, and its `docker buildx prune` was the exact command the reclaimer
+ * had already been fixed away from: plain `buildx prune` reaches only the ONE builder the
+ * endpoint resolves to, so it reported success nightly while builders accumulated 14.6 GB and
+ * 2.27 GB of state volumes and the disk slid to 21 GB free. The fix that was already in the
+ * repository could not help a schedule that did not read it.
+ *
+ * So: the cron delegates, and a `docker … prune` inside it is the regression this names.
+ */
+function reclaimDuplication(text) {
+  const owned = [
+    "docker buildx prune",
+    "docker builder prune",
+    "docker volume prune",
+    "docker image prune",
+    "docker system prune",
+  ];
+  // Comments are stripped first. This file explains at length why `docker buildx prune` is
+  // the wrong command, and a scanner that reads prose as code gets reworded away rather than
+  // obeyed — the same way a `// TODO` that trips a lint rule trains its author to write the
+  // sentence differently instead of fixing the thing.
+  const code = text
+    .split("\n")
+    .filter((line) => !/^\s*#/.test(line))
+    .join("\n");
+  return owned.filter((cmd) => code.includes(cmd));
+}
+
+function checkSingleReclaimer() {
+  const hygiene = read("scripts/runner-hygiene.sh");
+  const problems = [];
+  if (!hygiene.includes("scripts/reclaim-ci.sh"))
+    problems.push(
+      "scripts/runner-hygiene.sh does not call scripts/reclaim-ci.sh — the box's nightly " +
+        "schedule and CI would then run different definitions of cleanup",
+    );
+  const dupes = reclaimDuplication(hygiene);
+  if (dupes.length)
+    problems.push(
+      `scripts/runner-hygiene.sh runs its own docker reclaim (${dupes.join(", ")}); ` +
+        `those rules belong to scripts/reclaim-ci.sh, which guards them with reference and ` +
+        `age checks this file cannot see`,
+    );
+  if (problems.length) fail(`single reclaimer:\n       ${problems.join("\n       ")}`);
+  else
+    info(
+      "single reclaimer: the runner cron delegates to scripts/reclaim-ci.sh and keeps no docker prune of its own",
+    );
+}
+
+/**
+ * Self-test: a planted private prune must be caught, the delegating form must clear, and a
+ * script that calls NOTHING must not pass — the empty read is the failure mode every parser
+ * here has been burned by.
+ */
+function selfTestReclaimGate() {
+  const broken = [];
+  const planted = "#!/usr/bin/env bash\nfoo\n  docker buildx prune -f\n  docker volume prune -f\n";
+  const caught = reclaimDuplication(planted);
+  if (!caught.includes("docker buildx prune"))
+    broken.push("planted private buildx prune was NOT caught");
+  if (!caught.includes("docker volume prune"))
+    broken.push("planted private volume prune was NOT caught");
+  if (reclaimDuplication('RECLAIMER="$REPO_DIR/scripts/reclaim-ci.sh"\n').length)
+    broken.push("the delegating form was falsely flagged");
+  if (broken.length) fail(`reclaimer gate self-test: ${broken.join("; ")}`);
+  else info("reclaimer gate self-test: planted private prunes caught, delegating form cleared");
+}
+
+/**
  * Self-test: the parser must count identities, not lines. Planted one-voice, six-voice,
  * mixed-quoting, gaped and all-empty cases, because the shape that matters — "six slots,
  * six people" — is the one an empty or careless regex reports as clean. Every branch here
@@ -1811,6 +1885,8 @@ const SUITES = {
     checkVendorAttestationSites,
     selfTestNumberingGate,
     checkRegisterNumbering,
+    selfTestReclaimGate,
+    checkSingleReclaimer,
     selfTestVoiceIdentityState,
     selfTestAppendOnlyGate,
     checkAppendOnlyShrink,

@@ -3482,3 +3482,111 @@ dozen of them, ~6.3 GB. What it deliberately does NOT do is delete an idle build
 the only way to reclaim a state volume's low-water mark — a runner whose `--builder` vanishes
 fails its next build instead of recreating it, and which two builders the runners hold open is
 a fact nobody has written down. Left as a task, not done quietly.
+
+### 57. The task was answered by measuring, and the measurement found a second outage nobody had noticed
+
+§56 closed with an open question — which builders do the runners hold open — and with a
+top rung of the ladder (`#158`, `staging → main`) sitting `DIRTY`. Both turned out to be
+answerable from the box, and one of them had been quietly costing CI half its capacity.
+
+**The conflict, resolved by containment rather than by preference.** `#158` conflicted in one
+file, `docs/GAP-REGISTER.md`, because the squash that made `#157` re-diverged ancestry — the
+hazard §44 and §52 describe. The register was resolved by proving containment first:
+`git diff --numstat origin/main origin/staging -- docs/GAP-REGISTER.md` reports
+**66 additions, 0 deletions**, so staging already carried every line of main's copy. Taking
+staging's side was therefore provably lossless, and re-checked independently with `comm`
+(not one line of main's version absent from the result) and byte-identically against
+`origin/staging`. The job this is supposed to do it automatically — `realign.yml` — could not
+run its own fix yet, because the fix reaches production through the ladder it is trying to
+unstick.
+
+The containment argument is why `package.json` was NOT taken with the rest. Main held
+`992ce1d` (v0.2.39, cut by AutoVersion) and staging still said 0.2.38, so a wholesale
+`-X ours`-style resolution would have **reverted a release commit** — the exact blind spot the
+unbiased merge-tree guard exists to catch. Git auto-merged the version to 0.2.39, and the
+merged tree differs from staging by exactly one line. The append-only guard then audited the
+merge commit itself: `merge c43cd38 keeps every numbered section present in both parents`.
+
+**The ladder self-healed on its first real test.** The merged commit went to staging, `#158`
+flipped `DIRTY → MERGEABLE`, auto-merge was armed with squash, and main became `4b14e83`.
+Realign run 39338997728 then did the thing it had refused to do: it adopted main into staging
+(`main is an ancestor of staging: YES`, staging tip `baee7ca`). Every promotion after this one
+gets that for free; before it, each squash re-armed the same stall.
+
+**A check that fails because of the checker.** The watch loop printed `NOT YET: main still
+lacks PROVEN_SHA` after main had merged, and the cause was not the tree: Git Bash rewrites
+`git show origin/main:.github/workflows/deploy.yml` into
+`origin\main;.github\workflows\deploy.yml`, so the command errored and `grep -c` answered 0.
+Re-run with `MSYS_NO_PATHCONV=1`, the same markers read 2/2/1/1/2/1/2/4 —
+`PROVEN_SHA`, `git checkout -B main`, realign's real-merge branch, ci.yml's
+`docker rm -f -v`, `buildx prune --builder`, the app-tag rule, `checkVoiceIdentity`, and the
+preflight's inode + fdatasync pair. A green-or-red signal whose color depends on which shell
+typed it is the same class of bug as §54's null step conclusions, and it is the reason §38
+insists on verifying provenance rather than trusting a zero.
+
+**The outage nobody had noticed: a runner dead for nine hours.** `securevoice-vps-2` was
+`offline` in the Actions API with three runs queued. `systemctl status` said
+`failed (Result: oom-kill) since 13:31:04` — the kernel OOM killer took it mid `Compose stack
+smoke test`, `runsvc.sh` then exited 0 and logged _"stop the service, no retry needed"_, and
+the unit GitHub generates carries **no `Restart=` at all**. Nothing restarted it, nothing
+reported it, and the only symptom was a slow-looking CI. Both runner units got the same
+override, which was the latent defect for the healthy one too. `scripts/runner-systemd-override.conf`
+is now the tracked source: `Restart=always`, `RestartSec=10`, `StartLimitIntervalSec=0`, and
+**`OOMPolicy=continue`** — without that last one an OOM kill parks the unit in `failed`
+whatever `Restart=` says, which is the part a reader would otherwise re-derive in a month.
+Applied as drop-ins (never editing the generated unit, which the runner owns) and verified
+through `systemctl show`, not by reading the file back: `Restart=always RestartUSec=10s
+OOMPolicy=continue` on both. Runner-2 came back and picked up a job within three seconds.
+
+**`installed is not fired`, again in the other direction.** §55 recorded a cron that existed
+but had never run. This one has run exactly once — the manual `env -i` exercise on 2026-10-19
+at 14:10:32Z — and the box clock read `22:47 UTC` while this was written, so 04:15 UTC on
+2026-10-20 had not arrived. The task stays open with a date attached rather than being marked
+confirmed because the mechanism looks right. What did land: the script no longer `exit 0`s
+above its own threshold. The box sat at 21.2 GB free holding 17 GB of reclaimable builder
+cache while the nightly rule that could have helped was behind a floor set to catch an
+emergency, so reclaim is now unconditional and the floor only decides whether to sound the
+alarm. Delegation goes to `scripts/reclaim-ci.sh` from the production checkout, and a missing
+reclaimer is an error rather than a reason to run a private copy of "clean up".
+
+**The builders: measured, and then removable for a stated reason.** §56's open question
+answered itself with four commands. Two `docker-container` builders remained, holding 14.6 GB
+and 2.27 GB of `_state`; `buildx du` reported **17.01 GB** of cache in them; removing both took
+`/` from 22 GB free to 40. Why it is safe, which is the question §56 declined to answer
+without: `release.yml` is the only workflow that calls `docker/setup-buildx-action`, that
+action's own `action.yml` shows `cleanup` defaults to **true** and removes the builder at job
+end, both survivors belonged to **finished** runs (one the failed v0.2.37), no `--builder`
+appears anywhere in the runners' `run.sh`/`.env`, and the cache worth keeping goes to
+`type=gha` rather than living in the local builder. So a builder is leaked specifically when
+the **runner dies mid-job** and post steps never run — which is the OOM above, not a missing
+step. That is why no disposal step was added to `release.yml`: an `if: always()` step cannot
+execute in a runner that has been killed, and adding one would have been a gesture at the
+symptom. The only thing that can reclaim those leftovers is a schedule outside the pipeline.
+`reclaim-ci.sh` now removes UUID-shaped (`builder-<8-4-4-4-12>`) or `sv-rel-*` builders past the
+24 h floor, keeps any builder someone named on purpose because this box also hosts the
+crucible and astrolabe runners, and prints what the rule leaves alone instead of pretending to
+be complete. `BUILDER_KEEP` opts specific names out.
+
+**A guard found by dry-running against live work.** The new reclaimer, run in `dry-run` at
+22:55 while a compose-smoke job was in flight, named **nine images belonging to that running
+job** as removable. The unreferenced check does not protect them: compose-smoke builds
+`svci-<run_id>-*` images minutes **before** it creates the containers, so during that window
+the images its own run is about to start are exactly "unreferenced", and a `cleanup` job on
+one runner could delete what the other runner is mid-way through using. Fixed with a 30-minute
+floor on per-run CI images — the same discriminator the containers loop already used — and
+proven by re-running the identical dry-run: `images=9 → images=0`, same box, same live job.
+
+**The new gate caught its own author.** `checkSingleReclaimer` exists because the box's cron
+had become a fourth divergent copy of "clean up", and its `docker buildx prune` was the exact
+command the reclaimer had already been fixed away from. It failed the first time it ran, on
+the script that introduced it — because that script's _header comment_ quotes
+`docker buildx prune` to explain why it is wrong. Fixed by stripping comment lines before
+scanning, not by rewording the prose: a scanner that reads documentation as code gets
+reworded out of existence, which is how a lint rule dies. Self-test planted both, and the
+delegating form clears.
+
+**Not claimed.** At the time of writing main had only just merged and its CI was still in
+flight, so nothing here says the deploy succeeded — §56's fix is verified as _content on
+main_, and the rollback of the deployment claim waits for the roll. Production answered
+`ok:true` on `0.2.39` with eleven services up throughout, including across the builder
+removal and the runner restart.

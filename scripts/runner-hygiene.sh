@@ -40,6 +40,17 @@
 # Install (the box keeps a copy at /home/ubuntu/runner-hygiene.sh; this file is the
 # reviewed source, and re-scp it after any change — see docs/RUNBOOK.md):
 #   15 4 * * * /home/ubuntu/runner-hygiene.sh >> /home/ubuntu/runner-hygiene.log 2>&1
+#
+# HOW TO PROVE USER CRON RUNS AT ALL, without waiting for 04:15. On 2026-10-20 this was
+# measured with a one-shot entry that could only fire once, then the crontab was restored
+# from a snapshot and the checksum compared:
+#   40 1 20 10 * /usr/bin/date -u >> /home/ubuntu/cron-probe.log 2>&1
+# The file appeared with `01:40:01`, so ubuntu's crontab is executed by cron. Note what did
+# NOT work as evidence: `grep "CMD (ubuntu)" /var/log/syslog` returned nothing even though
+# the job had demonstrably run — this box's rsyslog records root's cron commands and not
+# ubuntu's. The job's own output file is the only witness here, which is why this script
+# prints its header before any threshold decision: a missing log line at 04:15 can then mean
+# exactly one thing.
 set -euo pipefail
 
 # Below this much free space, shout. Not a gate on reclaiming — see note 1 above.

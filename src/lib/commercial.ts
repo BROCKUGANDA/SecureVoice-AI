@@ -165,6 +165,27 @@ export type Plan = {
    * a deployment default — see `src/lib/payments/plans.ts`.
    */
   salesAssisted?: boolean;
+  /**
+   * A ONE-OFF engagement rather than a subscription.
+   *
+   * A ninety-day Pilot is bought once and invoiced. Rendering it with "per
+   * month" would tell a bank it renews, and a bank that discovers that in
+   * month two does not renew.
+   */
+  oneOff?: boolean;
+  /**
+   * The wording of the overage line, with `{amount}` as the placeholder for
+   * the formatted rate.
+   *
+   * The DEFAULT is "{amount} per additional intervention"; a plan overrides it
+   * only when the commercial model says something more — Enterprise's adds the
+   * telephony pass-through, because a buyer reading "$2.25 per intervention"
+   * on a Twilio route would not know the carrier is billed on top.
+   *
+   * The RATE itself is never written here. It is `overageCents`, and it is
+   * substituted at render time, so the wording and the number cannot drift.
+   */
+  overagePhrase?: { en: string; ar: string };
   /** schema.org Offer. A missing `price` means "contact sales", which is valid
    *  and is what an answer engine needs in order to say "custom" rather than
    *  invent a number. */
@@ -250,6 +271,8 @@ export const PLANS: Plan[] = [
     seats: 5,
     // Ninety days, invoiced, with 50% of the fee credited toward the first
     // annual contract. It is a way to buy the evidence, not a subscription.
+    // Ninety days, bought once, invoiced — not a subscription.
+    oneOff: true,
     salesAssisted: true,
     tagline: "Ninety days, one alert type, written success criteria.",
     taglineAr: "تسعون يوماً، ونوع تنبيه واحد، ومعايير نجاح مكتوبة.",
@@ -378,6 +401,14 @@ export const PLANS: Plan[] = [
     // cannot be rated is a ceiling nobody can price against.
     overageCents: 225,
     seats: null,
+    // The telephony leg is billed ON TOP on a Twilio route, so the line says so.
+    // A buyer reading "$2.25 per intervention" would not know the carrier is
+    // charged at cost + 10% on top, and that is the kind of surprise a bank
+    // finds in month two.
+    overagePhrase: {
+      en: "{amount} per additional intervention, plus telephony at cost + 10%",
+      ar: "{amount} لكل تدخل إضافي، إضافة إلى قيمة الاتصال بتكلفة زائد ١٠٪",
+    },
     // NOT `salesAssisted`: Enterprise KEEPS its Paddle product, because an
     // invoiced tenant's commercial plan has to resolve from somewhere, and
     // `Organization.planTier` is the ABUSE tier vocabulary — it cannot carry

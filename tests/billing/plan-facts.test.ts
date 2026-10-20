@@ -110,6 +110,24 @@ describe("a price id resolves to the plan it belongs to", () => {
     expect(planFromPriceKey("")).toBeNull();
   });
 
+  test("an AMBIGUOUS amount with no interval resolves to nothing", () => {
+    // `usd_2500000` is BOTH Enterprise's monthly amount ($25,000) and
+    // Starter's annual amount ($2,500 x 10). A key that names no interval
+    // cannot say which it means, and answering "enterprise" would rate a
+    // Starter annual subscriber with Enterprise's 10,000-intervention
+    // allowance and Enterprise's overage rate — a mis-bill on every invoice.
+    //
+    // A refusal is recoverable; a wrong plan is not. And the interval-bearing
+    // keys — which is what every key in this repository and in the
+    // `PADDLE_PRICES` environment map actually uses — resolve unambiguously.
+    expect(planFromPriceKey("usd_2500000")).toBeNull();
+    expect(planFromPriceKey("usd_2500000_monthly")).toBe("enterprise");
+    expect(planFromPriceKey("usd_2500000_yearly")).toBe("starter");
+    // And an amount that is only a monthly price still resolves.
+    expect(planFromPriceKey("usd_250000")).toBe("starter");
+    expect(planFromPriceKey("usd_250000_monthly")).toBe("starter");
+  });
+
   test("planFromPriceId goes through the deployment's PADDLE_PRICES map", () => {
     const growth = PLANS.find((p) => p.id === "growth")!;
     setEnv(

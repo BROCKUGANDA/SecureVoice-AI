@@ -108,17 +108,37 @@ const PRICE_KEY_TO_PLAN: Readonly<Record<string, string>> = Object.freeze(
 /**
  * The MONTHLY reading of each amount, for a key that carries no interval.
  *
- * The historical fallback. `usd_2500000` with no interval is ambiguous in the
- * current card — it is Enterprise's monthly amount AND Starter's annual
- * amount — and this table answers it as Enterprise, because "the amount" has
- * historically meant the monthly price. A key that means an annual price
- * SHOULD carry its interval, and every key this repository writes does.
+ * The historical fallback, and it is deliberately INCOMPLETE.
+ *
+ * An amount that is BOTH a monthly price and a yearly price is ambiguous: a
+ * key with no interval cannot say which it means. In the current card
+ * `usd_2500000` is both — Enterprise's monthly amount ($25,000) AND
+ * Starter's annual amount ($2,500 x 10) — so it is absent from this table and
+ * resolves to nothing.
+ *
+ * The alternative was to pick one of the two, and every choice of one is
+ * wrong for the other: answering "enterprise" would rate a Starter annual
+ * subscriber as Enterprise, with Enterprise's 10,000-intervention allowance and
+ * Enterprise's overage rate. A refusal is recoverable and a wrong plan is a
+ * mis-bill on every invoice, so the ambiguous amount is simply absent.
+ *
+ * Every key this repository writes carries its interval — `usd_250000_month`
+ * and `usd_2500000_yearly` — and the interval is what disambiguates them.
  */
 const MONTHLY_AMOUNT_TO_PLAN: Readonly<Record<string, string>> = Object.freeze(
   (() => {
     const out: Record<string, string> = {};
     for (const plan of PLANS) {
-      if (plan.monthlyUsd !== null) out[`usd_${plan.monthlyUsd * 100}`] = plan.id;
+      if (plan.monthlyUsd === null) continue;
+      out[`usd_${plan.monthlyUsd * 100}`] = plan.id;
+    }
+    // The ambiguity is CROSS-INTERVAL, so it can only be seen by comparing the
+    // monthly amounts with the YEARLY ones. Two plans sharing a MONTHLY amount
+    // cannot happen (each plan has its own price), but one amount being both a
+    // monthly and a yearly price is exactly what the current card contains.
+    for (const plan of PLANS) {
+      if (plan.yearlyUsd === null) continue;
+      delete out[`usd_${plan.yearlyUsd * 100}`];
     }
     return out;
   })(),

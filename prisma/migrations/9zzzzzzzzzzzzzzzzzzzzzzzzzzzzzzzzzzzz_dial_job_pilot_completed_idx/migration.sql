@@ -1,0 +1,24 @@
+-- The SECOND index the pilot's daily-cap counter needs.
+--
+-- The first one (`dial_job_org_id_created_at_idx`) serves the "admitted
+-- today" half of the counter's window. The counter's window is a UNION:
+--
+--   WHERE org_id = $1
+--     AND ( created_at >= date_trunc('day', now())
+--        OR completed_at >= date_trunc('day', now()) )
+--
+-- One index can serve one arm of that disjunction. With only the created_at
+-- index, the completed_at arm degrades to a FILTER over every row the
+-- organisation has ever queued — which is exactly the scan the index was added
+-- to remove, and it gets worse with every intervention the tenant has ever
+-- run.
+--
+-- With both, Postgres builds a BitmapOr of the two index scans and the count
+-- stays an index scan.
+--
+-- `completed_at` is NULL for a job that has not finished, and a NULL does not
+-- satisfy the predicate, so the index holds one entry per SETTLED job — the
+-- rows this arm is about.
+
+-- CreateIndex
+CREATE INDEX IF NOT EXISTS "dial_job_org_id_completed_at_idx" ON "dial_job"("org_id", "completed_at");

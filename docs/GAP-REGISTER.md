@@ -3691,6 +3691,16 @@ events have different refs (`refs/heads/staging` and `refs/pull/158/merge`), so 
 groups and nothing dedupes them. Seen directly: runs 39337233039 (`push`, staging) and 39337237289
 (`pull_request`, #158) executing the same commit `c43cd38` on the same two-runner box.
 
+**The duplicate runs do not only cost disk: they raise false alarms.** Deploy 39346234640
+(`edb3e55`, 00:12) went red at step 1 with `RUN_CONCLUSION: cancelled`, `RUN_ID: 39344126878`. That
+refusal is correct and deliberate — a cancelled run proved nothing, so production did not deploy it,
+and the next one (39351314912) rolled `edb3e55` and then `d5b7e58` cleanly — but the _cause_ of the
+cancellation is the pair above: two CI runs for one commit on a two-runner box, and
+`cancel-in-progress` sacrificing one of them. So one commit can produce a red Deploy that means
+"nothing is wrong except that we built it twice", which is precisely the report that makes this
+pipeline look broken to whoever is watching it. Any dedupe decision has to keep the refusal gate
+and drop the cancellation, not the other way round.
+
 **What shipped: eviction that responds to pressure, not only to age.** `CACHE_MAX_AGE_PRESSURE`
 (default 6h) replaces `CACHE_MAX_AGE` (72h) once free space is at or below `PRESSURE_FREE_GB`
 (default 15). 15 is not invented — `ci.yml` and `deploy.yml` both call

@@ -486,7 +486,7 @@ describe("checkout reports a DEPLOYMENT problem as 503, not a customer problem",
     gatewayState = GATEWAY(async () => {
       // A message that names a price key and an org id — precisely what the
       // route's comment says must not reach the browser.
-      throw new Error("no price for usd_9900_month on org_secret_bank");
+      throw new Error("no price for usd_250000_month on org_secret_bank");
     });
     const r = await checkout(
       req("/api/billing/checkout", {
@@ -497,7 +497,7 @@ describe("checkout reports a DEPLOYMENT problem as 503, not a customer problem",
     const body = await r.json();
     expect(body).toEqual({ error: "checkout_failed" });
     expect(JSON.stringify(body)).not.toContain("org_secret_bank");
-    expect(JSON.stringify(body)).not.toContain("usd_9900_month");
+    expect(JSON.stringify(body)).not.toContain("usd_250000_month");
   });
 
   test("a successful mint returns the url and the reference", async () => {

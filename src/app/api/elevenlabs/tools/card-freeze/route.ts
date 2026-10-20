@@ -69,6 +69,7 @@ export async function POST(req: NextRequest) {
       intent: "freeze_staged",
       callerId: "agent-tool",
       redactedText: account_id,
+      orgId: guard.orgId ?? undefined,
       meta: {
         tool: TOOL_NAME,
         stage: "pending_specialist",

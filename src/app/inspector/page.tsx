@@ -1,5 +1,5 @@
 import { headers } from "next/headers";
-import { requireOperator } from "@/lib/credits";
+import { requirePlatformOperator } from "@/lib/credits";
 import { db } from "@/lib/db";
 import { verifySignature, WEBHOOK_SIGNATURE_HEADER } from "@/lib/outbox";
 import { Inspector, type InspectorRow } from "@/components/inspector/Inspector";
@@ -28,7 +28,7 @@ export const dynamic = "force-dynamic";
  * — this is only the server-rendered first paint of one operator route.
  */
 export default async function InspectorPage() {
-  const guard = await requireOperator();
+  const guard = await requirePlatformOperator();
 
   const accept = (await headers()).get("accept-language") ?? "";
   const lang: UiLang = accept.toLowerCase().startsWith("ar") ? "ar" : "en";

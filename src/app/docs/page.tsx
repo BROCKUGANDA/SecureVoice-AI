@@ -16,14 +16,14 @@ import { Docs } from "@/views/Docs";
  * `setView` navigation (checked), so nothing renders as a dead control here.
  */
 export const metadata: Metadata = {
-  title: "Documentation — API, webhooks and guardrails",
+  title: "Documentation — API, webhooks, Shariah controls and guardrails",
   description:
-    "Developer documentation for the SecureVoice AI platform: the /v1/interventions ingest API with HMAC request signing, the SV-Signature webhook scheme, agent tool endpoints, voice and language support, and the compliance guardrails enforced on every turn.",
+    "Developer documentation for the SecureVoice AI platform: the /v1/interventions ingest API with HMAC request signing, the SV-Signature webhook scheme, agent tool endpoints, voice and language support, the compliance guardrails enforced on every turn, and the opt-in Shariah and Islamic finance terminology controls for Islamic banks and Takaful operators.",
   alternates: { canonical: "/docs" },
   openGraph: {
     title: "Documentation — SecureVoice AI",
     description:
-      "Ingest API, signed webhooks, agent tools and the guardrails enforced on every turn.",
+      "Ingest API, signed webhooks, agent tools, guardrails, and Shariah and Islamic finance terminology controls.",
     url: "/docs",
   },
 };

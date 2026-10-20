@@ -800,6 +800,52 @@ function composeQuery(args) {
   }
 }
 
+/**
+ * Is this box running the blue/green colour slots?
+ *
+ * Asked of DOCKER, through the compose labels, for the same reason
+ * `scripts/deploy.mjs mode` asks docker rather than compose: the blue/green
+ * override declares `image: ${IMAGE:?…}` with no default, so a compose
+ * command against the merged files refuses to parse without IMAGE. A gate
+ * that cannot ask must not answer "no" — it must answer "unknown" and let
+ * the operator look.
+ */
+function blueGreenMode() {
+  try {
+    const out = sh(
+      'docker ps --format "{{.Labels}}" --filter "label=com.docker.compose.service=app-blue"',
+    );
+    return out.includes("app-blue");
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The compose services of the RUNNING containers in this project, read from
+ * docker's own labels.
+ *
+ * The project label matters because this host serves more than one product: a
+ * bare service-name filter would find the other product's `app`.
+ */
+function runningServicesByLabel() {
+  const project = (YAML.parse(read("docker-compose.yml")).name ?? "securevoice-ai").toString();
+  try {
+    const out = sh(
+      `docker ps --format '{{.Label "com.docker.compose.service"}}' ` +
+        `--filter "label=com.docker.compose.project=${project}"`,
+    );
+    return new Set(
+      out
+        .split("\n")
+        .map((s) => s.trim())
+        .filter(Boolean),
+    );
+  } catch {
+    return new Set();
+  }
+}
+
 function checkBoxInventory() {
   const declared = YAML.parse(read("docker-compose.yml"));
   const defined = Object.keys(declared.services ?? {});
@@ -825,6 +871,26 @@ function checkBoxInventory() {
       (s) => Array.isArray(declared.services[s]?.profiles) && declared.services[s].profiles.length,
     ),
   );
+
+  // BLUE/GREEN. In colour-slot mode the base `app` service is deliberately
+  // STOPPED — it is the container the adoption replaced, kept only so the
+  // rollback is a `start` away. A gate that demands it be running would fail
+  // every blue/green box, and the honest way to avoid that is to change what
+  // the gate DEMANDS, not to leave `app` running beside the colours and
+  // quietly serve traffic from two places.
+  const blueGreen = blueGreenMode();
+  if (blueGreen) {
+    // The stopped plain container is the rollback, not a forgotten service.
+    ONESHOT.add("app");
+    // The colour slots are NOT in docker-compose.yml — they live in the
+    // blue/green override, which this gate cannot ask compose about (the
+    // merged files refuse to parse without IMAGE). So the running set is
+    // completed from DOCKER's own labels, which is where the truth is.
+    for (const service of runningServicesByLabel()) {
+      running.add(service);
+      if (!defined.includes(service)) defined.push(service);
+    }
+  }
 
   const missing = defined.filter((s) => !ONESHOT.has(s) && !PROFILED.has(s) && !running.has(s));
   if (missing.length) {
@@ -990,6 +1056,34 @@ function checkBoxCurrency() {
   }
 }
 
+/**
+ * The container id of a compose service, by whichever means answers.
+ *
+ * `docker compose ps -q <svc>` cannot see the blue/green colour slots: they
+ * live in the override file, which this gate cannot ask compose about (the
+ * merged files refuse to parse without IMAGE). So compose is tried first —
+ * it is the proven path for the base services — and DOCKER's own labels are
+ * the fallback.
+ */
+function containerIdForService(svc) {
+  try {
+    const viaCompose = sh(`docker compose --project-directory "${BOX}" ps -q ${svc}`);
+    if (viaCompose) return viaCompose.split("\n")[0].trim();
+  } catch {
+    // compose could not answer; the label lookup below may still.
+  }
+  const project = (YAML.parse(read("docker-compose.yml")).name ?? "securevoice-ai").toString();
+  try {
+    const viaLabel = sh(
+      `docker ps -q --filter "label=com.docker.compose.project=${project}" ` +
+        `--filter "label=com.docker.compose.service=${svc}"`,
+    );
+    return viaLabel.split("\n")[0]?.trim() ?? "";
+  } catch {
+    return "";
+  }
+}
+
 function checkBoxImageConformance() {
   // The running container for EVERY service the deploy claims to roll must use an
   // image some tag still points at. This used to inspect `securevoice-ai-app-1`
@@ -1031,10 +1125,21 @@ function checkBoxImageConformance() {
 
   const problems = [];
   const checked = [];
-  for (const svc of rolled) {
+  // In blue/green mode the traffic-bearing container is a COLOUR SLOT, not the
+  // base `app` service — and the base `app` container is deliberately stopped,
+  // so inspecting it would certify a container that serves nothing. The slots
+  // that exist are checked instead.
+  const blueGreen = blueGreenMode();
+  const rolledServices = blueGreen
+    ? [
+        ...rolled.filter((s) => s !== "app"),
+        ...["app-blue", "app-green"].filter((s) => containerIdForService(s)),
+      ]
+    : rolled;
+  for (const svc of rolledServices) {
     let cid = "";
     try {
-      cid = sh(`docker compose --project-directory "${BOX}" ps -q ${svc}`);
+      cid = containerIdForService(svc);
     } catch (e) {
       const where = e.stderr?.toString?.() || e.message || String(e);
       problems.push(

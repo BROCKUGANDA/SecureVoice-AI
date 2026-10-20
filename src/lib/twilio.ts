@@ -28,6 +28,7 @@ import { prepareSpeech, type SpeechContext } from "@/lib/compliance/speech-gate"
 import { recordTelecomEvent } from "@/lib/telecom-outbox";
 import { createTelecomAdapter, type TelecomResult } from "@/lib/adapters/telecom-adapter";
 import { describeDtmfForSpeech } from "@/lib/voice/dtmf";
+import { storageConfigured } from "@/lib/storage/s3";
 import { logError, logWarn } from "@/lib/validation/safe-log";
 
 export { twilioMode, isTwilioConfigured };
@@ -392,6 +393,55 @@ function statusCallbackUrl(path: string): string | undefined {
 }
 
 export const TWILIO_STATUS_CALLBACK_PATH = "/api/twilio/status";
+export const TWILIO_RECORDING_CALLBACK_PATH = "/api/twilio/recording";
+
+/**
+ * Download a completed Twilio recording with the platform's own credentials.
+ *
+ * The URL is provider-issued, but it is still fetched only after the signed
+ * recording callback has been verified. The response is bounded: a recording is
+ * an audio file, not an arbitrary download endpoint.
+ */
+export async function downloadRecording(
+  recordingUrl: string,
+): Promise<{ ok: true; audio: Buffer; contentType: string } | { ok: false; error: string }> {
+  let parsed: URL;
+  try {
+    parsed = new URL(recordingUrl);
+  } catch {
+    return { ok: false, error: "invalid_recording_url" };
+  }
+  if (parsed.protocol !== "https:" || parsed.hostname !== "api.twilio.com") {
+    return { ok: false, error: "unexpected_recording_host" };
+  }
+  const c = creds();
+  const auth = Buffer.from(`${c.username}:${c.password}`).toString("base64");
+  const target = parsed.pathname.endsWith(".mp3") ? parsed.toString() : `${parsed.toString()}.mp3`;
+  try {
+    const res = await fetch(target, {
+      headers: { Authorization: `Basic ${auth}` },
+      signal: AbortSignal.timeout(env.twilioTimeoutMs),
+      redirect: "error",
+    });
+    if (!res.ok) return { ok: false, error: `recording_download_http_${res.status}` };
+    const length = Number(res.headers.get("content-length") ?? 0);
+    if (Number.isFinite(length) && length > 25 * 1024 * 1024) {
+      return { ok: false, error: "recording_too_large" };
+    }
+    const audio = Buffer.from(await res.arrayBuffer());
+    if (audio.length === 0) return { ok: false, error: "recording_empty" };
+    return {
+      ok: true,
+      audio,
+      contentType: res.headers.get("content-type") ?? "audio/mpeg",
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message.slice(0, 120) : "recording_download_failed",
+    };
+  }
+}
 
 /**
  * The outbox row for a send that happened.
@@ -601,6 +651,12 @@ export async function placeInterventionCall(args: {
   if (!caller.ok) return { ok: false, status: caller.status, error: caller.error };
   const from = caller.from;
   const callback = statusCallbackUrl(TWILIO_STATUS_CALLBACK_PATH);
+  // Record only when there is a durable archive to put the audio in. Recording
+  // with no store burns Twilio storage and still leaves the evidence
+  // unretrievable; the readiness check reports that deployment state instead.
+  const recordingCallback = storageConfigured()
+    ? statusCallbackUrl(TWILIO_RECORDING_CALLBACK_PATH)
+    : undefined;
   const res = await twilioPost(c.accountSid, c.username, c.password, "Calls.json", {
     To: args.to,
     From: from,
@@ -614,6 +670,14 @@ export async function placeInterventionCall(args: {
       args.speech,
     ),
     ...(callback ? { StatusCallback: callback } : {}),
+    ...(recordingCallback
+      ? {
+          Record: "true",
+          RecordingStatusCallback: recordingCallback,
+          RecordingStatusCallbackEvent: "completed",
+          RecordingChannels: "dual",
+        }
+      : {}),
   });
   if (!res.ok) return { ok: false, status: res.status, error: res.error, from };
   const sid = String(res.data.sid ?? "");

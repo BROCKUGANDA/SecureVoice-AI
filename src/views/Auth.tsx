@@ -462,6 +462,15 @@ function DemoQueueButton({
             setPhase({ name: "idle" });
             return;
           }
+          if (res.status === 401) {
+            throw new Error(
+              t(
+                "Demo operator access is not provisioned on this deployment. Use the public demo below or request a pilot.",
+                "دخول المشغّل التجريبي غير مُهيأ على هذا النشر. استخدم العرض العام أدناه أو اطلب تجربة.",
+                lang,
+              ),
+            );
+          }
           throw new Error(data?.error || `Sign-in failed (HTTP ${res.status})`);
         }
         try {
@@ -476,7 +485,7 @@ function DemoQueueButton({
         resetTurnstile();
       }
     },
-    [getTurnstileToken, resetTurnstile],
+    [getTurnstileToken, lang, resetTurnstile],
   );
 
   const pollStatus = useCallback(
@@ -661,6 +670,14 @@ function DemoQueueButton({
         >
           {phase.message}
         </p>
+      )}
+      {phase.name === "error" && (
+        <a
+          href="/#live-demo"
+          className="rounded-full border border-white/15 px-4 py-2 text-[12px] font-semibold text-white/80 transition hover:border-white/30 hover:text-white"
+        >
+          {t("Open the public demo", "افتح العرض العام", lang)}
+        </a>
       )}
       {waiting && (
         <p className="text-[11.5px] text-white/40">

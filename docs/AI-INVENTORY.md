@@ -122,10 +122,11 @@ The table is that list, with what exists and what does not.
 | (iv)      | the principles the System was designed to, including safeguards built in by design                                                                                                                            | §5 maps all of 10.3.1(a)-(e) to code                                                                                                                                                                                                                                                  | the _narrative_ is missing; the evidence is not                                                                                                                                                                                |
 | (v)       | the codes/certifications the System follows — the Regulation names OECD, NIST AI RMF, UNESCO, Dubai Digital Authority, and the **CBUAE Guidelines for Financial Institutions adopting Enabling Technologies** | CBUAE consumer-protection and ElevenLabs Prohibited-Use reasoning is already embedded in `policy.ts` (items 1-7 name the clauses they answer); an OECD-derived framing is present in the architecture notes                                                                           | **no formal adoption statement exists**, and 10.2.2(b)(v) invites exactly this citation. Cheapest unclaimed win in the document: name CBUAE + NIST AI RMF + ISO/IEC 29134, and hold the mapping to the controls already built. |
 
-**Not `OPEN` but worth stating plainly:** the `/privacy` notice does not mention the DIFC regime at all.
-Measured 2026-10-18, `DIFC` appears **zero times** under `src/app` and `src/views`. For a DIFC-registered
-Deployer/Operator this is the first thing a Commissioner's reviewer notices, and it is a copy fix, not
-an engineering project.
+**Regime gap closed 2026-10-20.** The `/privacy` notice now names DIFC Data Protection Law No. 5 of
+2020, the DIFC Commissioner of Data Protection, and scopes the Irish Data Protection Commission to
+EEA processing where the one-stop-shop applies. The separate Regulation 10.2.2 System notice with all
+five (b) parts is still `OPEN` and remains action 3 below; naming the regime is not the same as
+publishing that notice.
 
 ---
 
@@ -308,7 +309,7 @@ for 10.2.2(b)(iv), and it should be cited from this inventory rather than left b
 | 1   | Appoint the ASO (and resolve the DPO question)                                                                                                                            | owner decision, no code | Regs 10.3.3(d), Art 16(2)(b)                         |
 | 2   | Get a written High-Risk characterisation from DIFC counsel, choosing among §6's three postures                                                                            | legal                   | the sequencing of every commercial step              |
 | 3   | Write the System notice with the five 10.2.2(b) parts, citing CBUAE + NIST AI RMF + ISO/IEC 29134 as adopted principles                                                   | document                | Regs 10.2.2(a), (b)(i)-(v)                           |
-| 4   | Fix the `/privacy` regime gap: name the DIFC Law; re-examine the Irish-DPC lead-authority sentence                                                                        | copy                    | Art 29-31; Regs 10.2.2(a)                            |
+| 4   | Fix the `/privacy` regime gap: name the DIFC Law; re-examine the Irish-DPC lead-authority sentence                                                                        | **done 2026-10-20**     | Art 29-31; Regs 10.2.2(a)                            |
 | 5   | Record an Article 11 condition for `hearing_impaired` on the intake contract and scope its retention to the case                                                          | code + contract         | Art 11; `docs/ROPA.md` §7.3                          |
 | 6   | Build a non-account-holder rights intake (Art 40 methods), or publish the bank-channel alternative as the formal answer                                                   | code + document         | Regs 10.2.2(g)(ii); Arts 33-35, 38(1), 40            |
 | 7   | Provision an in-region / attributable caller ID — Twilio reports zero AE local numbers available; a carrier or UAE aggregator is required                                 | owner, carrier          | Regs 10.2.2(a) trust; the abuse-report problem in §7 |

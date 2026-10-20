@@ -41,6 +41,7 @@ import "server-only";
 import { append as auditAppend } from "@/lib/audit-chain";
 import { slaSeconds } from "@/lib/config";
 import { db } from "@/lib/db";
+import { pilotMode } from "@/lib/pilot/mode";
 import { logError, logInfo } from "@/lib/validation/safe-log";
 
 /** Candidates per pass. A breach is not urgent; a breach storm is not a backlog fix. */
@@ -63,6 +64,29 @@ export async function sweepSlaBreaches(
   limit: number = SWEEP_LIMIT,
 ): Promise<SlaBreachSweepResult> {
   const windowSecs = slaSeconds();
+
+  // ── SHADOW MODE: no contact deadline was ever in force ─────────────────────
+  //
+  // In shadow mode the platform places no call and sends no SMS by design —
+  // that is what Phase 0 is. Every case would therefore "miss" a deadline it
+  // was never subject to, the sweep would mark ALL of them as breaches, and
+  // the shadow readout — the deliverable of the phase — would read as a 100%
+  // deadline miss.
+  //
+  // An audit trail full of breaches for calls that were deliberately never
+  // placed is worse than no audit trail: it makes the one measure the pilot
+  // exists to produce read as a failure of the platform rather than a
+  // measurement of it.
+  //
+  // The check is MODE-scoped, not state-scoped, on purpose. The definition
+  // this file has always used is "a breach is the ABSENCE OF CONTACT", and
+  // enumerating states instead would drift the first time somebody adds one.
+  // Shadow mode is not a state — it is a promise that has not been made yet,
+  // and a promise not made is not a promise broken.
+  if (pilotMode() === "shadow") {
+    return { breached: 0, windowSecs };
+  }
+
   const deadline = new Date(now.getTime() - windowSecs * 1000);
 
   const candidates = await db.case.findMany({

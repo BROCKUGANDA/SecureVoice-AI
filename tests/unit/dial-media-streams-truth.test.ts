@@ -94,6 +94,12 @@ mock.module("@/lib/db", () => ({
       }),
     },
     doNotCall: { findUnique: async () => null },
+    // The pilot kill switch's DATABASE half. It is read before every dial, and
+    // a read that FAILS is treated as ENGAGED — the conservative direction for
+    // a control whose purpose is "stop contacting customers". Without this
+    // mock the read throws, the switch reads as engaged, and every dial in
+    // this file is blocked by the pilot before it ever reaches the carrier.
+    platformSwitch: { findUnique: async () => null },
   },
 }));
 
@@ -136,7 +142,12 @@ mock.module("@/lib/audit-chain", () => ({
 
 mock.module("@/lib/sms-verdict", () => ({ sweepExpiredSmsCases: async () => 0 }));
 mock.module("@/lib/elevenlabs/sms-fallback", () => ({ markVoiceFailed: async () => {} }));
-mock.module("@/lib/scale/queue", () => ({ drainDialQueue: async () => [] }));
+mock.module("@/lib/scale/queue", () => ({
+  drainDialQueue: async () => [],
+  markDialStarted: async () => true,
+  renewClaim: async () => true,
+  DIAL_IN_FLIGHT: "dial_in_flight",
+}));
 
 const { handle, mediaStreamHost } = await import("@/worker/dial");
 

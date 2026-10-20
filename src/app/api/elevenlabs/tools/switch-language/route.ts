@@ -5,6 +5,7 @@ import { Prisma } from "@/generated/prisma/client";
 import { authorizeToolCall } from "@/lib/agent-tool-auth";
 import { CASE_STATES } from "@/lib/case-state-machine";
 import { append as auditAppend } from "@/lib/audit-chain";
+import { SUPPORTED_LANGS } from "@/lib/config";
 import { db } from "@/lib/db";
 import { makeFailure, type FailureCode, type FailureInit } from "@/lib/failures/envelope";
 import { logError, parseJson } from "@/lib/validation/safe-log";
@@ -59,6 +60,16 @@ export async function POST(req: NextRequest) {
 
   const { conversation_id } = parsed.data;
   const language = parsed.data.language.toLowerCase();
+  // The database column is free text and the voice plane only has six
+  // languages. Storing `de-DE` here would look like a successful switch while
+  // the next turn resolved back to English (or failed), so the tool refuses a
+  // language the platform cannot speak rather than recording a lie.
+  const base = language.split("-")[0] ?? language;
+  if (!(SUPPORTED_LANGS as readonly string[]).includes(base)) {
+    return failure("semantically_invalid", {
+      detail: `language must be one of ${SUPPORTED_LANGS.join(", ")}`,
+    });
+  }
 
   // One round trip: the tenant credential lives in agentToolSecret, and the
   // comparison is constant-time over fixed-size hashes.
@@ -126,6 +137,7 @@ export async function POST(req: NextRequest) {
           action: "agent",
           intent: `tool_refused_${TOOL_NAME}`,
           callerId: "agent-tool",
+          orgId: auth.orgId ?? undefined,
           meta: {
             tool: TOOL_NAME,
             state: existingCase.state,
@@ -154,6 +166,7 @@ export async function POST(req: NextRequest) {
       action: "agent",
       intent: "switch_language",
       callerId: "agent-tool",
+      orgId: auth.orgId ?? undefined,
       meta: { tool: TOOL_NAME, to_language: language, state, source: "elevenlabs_agent_tool" },
     },
     { fast: true },

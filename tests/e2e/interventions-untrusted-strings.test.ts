@@ -32,15 +32,30 @@ import { afterAll, expect, test } from "bun:test";
 import { createHmac } from "node:crypto";
 import { NextRequest } from "next/server";
 
-process.env.WEBHOOK_SECRET = process.env.WEBHOOK_SECRET ?? "test-secret";
+// `||`, not `??`: a developer `.env` commonly carries an EMPTY placeholder,
+// and the ingest treats an empty secret as unconfigured, which would turn
+// this whole file red for an environment reason rather than a code one.
+process.env.WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || "test-secret";
 process.env.TWILIO_DRY_RUN = "true";
-const SECRET = process.env.WEBHOOK_SECRET;
+
+/**
+ * The credential that may NAME an organisation.
+ *
+ * `WEBHOOK_SECRET` is shared with every producer, so a request signed with it
+ * proves only that the caller knows a shared secret — and the ingest refuses to
+ * let that path select a tenant, because any integrator holding it could
+ * otherwise create a case in, and dial on, another bank's organisation.
+ *
+ * This suite names an org, so it signs with the DEPLOYMENT-INTERNAL secret:
+ * the platform acting on a tenant it operates.
+ */
+const NAMING_SECRET = process.env.CONSOLE_INGEST_SECRET!;
 
 const PHONE = "+971500000781";
 
 function signBody(body: string): string {
   const t = Math.floor(Date.now() / 1000).toString();
-  return `t=${t},v1=${createHmac("sha256", SECRET).update(`${t}.${body}`).digest("hex")}`;
+  return `t=${t},v1=${createHmac("sha256", NAMING_SECRET).update(`${t}.${body}`).digest("hex")}`;
 }
 
 const org = `san_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;

@@ -79,14 +79,16 @@ describe("pricing data", () => {
 
   test("included volume and overage format to real money", () => {
     // The metering is the pricing model, so these two formatters are as
-    // load-bearing as the price itself. Overage IS in cents by nature — $0.15 —
+    // load-bearing as the price itself. Overage IS in cents by nature — $4.50 —
     // so unlike the monthly price it must carry two decimals.
     const starter = PLANS.find((p) => p.id === "starter")!;
     expect(formatIncluded(starter, "en")).toBe("500");
-    expect(formatOverage(starter, "en")).toBe("$0.15");
-    // Enterprise is negotiated rather than tiered, so it formats to "".
+    expect(formatOverage(starter, "en")).toBe("$4.50");
+    // Enterprise publishes a POSTED rate now ($2.25, with the telephony leg
+    // passed through at cost + 10%), so it formats to a number rather than to
+    // the "" a negotiated rate produced.
     const enterprise = PLANS.find((p) => p.id === "enterprise")!;
-    expect(formatOverage(enterprise, "en")).toBe("");
+    expect(formatOverage(enterprise, "en")).toBe("$2.25");
   });
 
   test("every plan is purchasable, and a published price is the price charged", () => {

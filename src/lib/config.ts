@@ -168,6 +168,24 @@ export const env = {
   get webhookSecret(): string | undefined {
     return process.env.WEBHOOK_SECRET;
   },
+  /**
+   * The DEPLOYMENT-INTERNAL ingest secret.
+   *
+   * `WEBHOOK_SECRET` is shared with every producer — a bank's fraud engine
+   * signs inbound signals with it — so a request carrying it proves only that
+   * the caller knows a shared secret. It must therefore never be able to
+   * CHOOSE a tenant: the ingest refuses an `org_id` from that path.
+   *
+   * The platform's own console fires a real signal into a real tenant's
+   * organisation, so it needs a credential that can. That credential is this
+   * one: a separate value, held only by the deployment, never given to a
+   * producer, and never sent to a browser. A request signed with it is the
+   * platform acting on its own tenant's behalf, which is a different
+   * authority from a producer's, and the ingest treats it as such.
+   */
+  get consoleIngestSecret(): string | undefined {
+    return process.env.CONSOLE_INGEST_SECRET;
+  },
 
   /* ElevenLabs */
   get elevenLabsApiKey(): string | undefined {

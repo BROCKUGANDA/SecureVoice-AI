@@ -491,6 +491,26 @@ jobs:
           # the never-rolled ones above, seen from the other side, and `checkBuildRollSymmetry`
           # in scripts/drift-gates.mjs now fails CI if the two lists ever diverge.
           ROLLED=(dial-worker retention-worker voice-stream-worker email-worker overage-worker outbox-worker)
+
+          # ── Which stack is this host running? ────────────────────────────────
+          #
+          # `plain` — one `app` container, replaced in place on every deploy.
+          # `bluegreen` — two colour slots, and a release is staged into the
+          # idle one and then widened by the Canary workflow.
+          #
+          # The probe is `scripts/deploy.mjs mode`, which asks DOCKER for the
+          # compose labels rather than parsing the compose files — the
+          # blue/green override declares `image: ${IMAGE:?…}` with no default,
+          # so `docker compose ps` would refuse to parse without IMAGE and the
+          # probe would answer "unknown" on the one host where the operator
+          # has not set it.
+          #
+          # `unknown` (the stack is down) is deliberately NOT treated as
+          # `plain`. The plain path is the proven one; taking it on a guess
+          # would roll a container onto a stack that is not the one serving.
+          STACK_MODE="$(bun scripts/deploy.mjs mode 2>/dev/null || echo unknown)"
+          echo "stack mode: ${STACK_MODE}"
+
           if [ "$DEPLOY_SOURCE" = "release" ]; then
             docker compose build "${ROLLED[@]}" db-setup
           else
@@ -507,6 +527,43 @@ jobs:
            # database, and --no-deps keeps it off the app's dependency graph.
            docker compose run --rm --no-deps db-setup sh -c "bunx prisma migrate deploy"
 
+           # ── BLUE/GREEN: stage the release into the idle colour ──────────────
+           #
+           # The plain `app` container is NOT rolled here. In blue/green mode
+           # the app lives in the colour slots, and this step brings the new
+           # colour up and proves it ready WITHOUT moving any traffic: the old
+           # colour keeps serving 100% until the Canary workflow widens the
+           # split and promotes.
+           #
+           # The WORKERS still roll here. They are shared by both colours and
+           # are not traffic-bearing, so rolling them is the same operation it
+           # always was.
+           #
+           # The old colour keeps serving throughout this branch, so a failure
+           # anywhere in it leaves production on the build that was already
+           # serving — which is the property the whole mechanism exists for.
+           #
+           # WHY STAGE HERE AND WIDEN THERE, rather than doing the whole
+           # release in this workflow: the widening is the part that can fail
+           # with the site half on the new build, so it belongs in the command
+           # that can roll back from inside itself. Splitting it across two
+           # workflows would mean the rollback lives in a step that does not run
+           # when the runner dies mid-step.
+           if [ "$STACK_MODE" = "bluegreen" ]; then
+             echo "blue/green: rolling the shared workers, staging the release into the idle colour"
+             docker compose up -d "${ROLLED[@]}"
+             bun scripts/deploy.mjs stage --image "$IMAGE"
+             bun scripts/deploy.mjs status
+             echo "::notice::release STAGED. The app is still serving the previous build."
+             echo "::notice::the Canary workflow widens the split and promotes it."
+             exit 0
+           fi
+
+           # ── PLAIN: roll the single app container, exactly as before ─────────
+           #
+           # Unchanged, deliberately. This is the proven path and it stays
+           # byte-identical for every host that has not adopted blue/green.
+           #
            # THE LIST IS THE INVENTORY, and that is the trap. Measured on this box
            # 2026-10-12: `overage-worker` is in docker-compose.yml and has NEVER
            # had a container — `docker ps -a --filter name=overage` is empty — for

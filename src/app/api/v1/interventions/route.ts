@@ -15,6 +15,7 @@ import { qstashConfigured, publishEnvelope, dispatchPath } from "@/lib/queue/qst
 import { makeEnvelope } from "@/lib/queue/envelope";
 import { runPolicyGate } from "@/lib/policy-gate";
 import { runComplianceGate } from "@/lib/compliance/gate";
+import { runPilotGate } from "@/lib/pilot/gate";
 import { assertDialAllowed, releaseDialSlot } from "@/lib/abuse/guards";
 import { validateOutboundUrl } from "@/lib/validation/ssrf";
 import { planTierFor } from "@/lib/abuse/tiers";
@@ -209,6 +210,11 @@ export async function POST(req: NextRequest) {
   const rawBody = await req.text();
   const bearerHeader = req.headers.get("authorization");
   let bearerAuth: { callerId: string; orgId: string | null } | null = null;
+  // True when the request was signed with the DEPLOYMENT-INTERNAL console
+  // secret rather than the shared `WEBHOOK_SECRET`. It is the platform
+  // acting on its own tenant's behalf, and it is the only credential other
+  // than a tenant-scoped producer key that may name an organisation.
+  let consoleCredential = false;
   if (bearerHeader?.startsWith("Bearer svb_")) {
     const producer = await verifyProducerKey(bearerHeader.slice("Bearer ".length));
     if (!producer.ok) {
@@ -220,9 +226,33 @@ export async function POST(req: NextRequest) {
       req.headers.get("sv-signature") ||
       req.headers.get("SV-Signature") ||
       req.headers.get("x-securevoice-signature");
-    const sig = verifySignature(rawBody, sigHeader, env.webhookSecret ?? "");
+    // TWO secrets, and the difference between them is the whole point.
+    //
+    // `WEBHOOK_SECRET` is shared with every producer, so a request signed with
+    // it proves only "the caller knows a shared secret" — it may NOT choose a
+    // tenant. `CONSOLE_INGEST_SECRET` is deployment-internal and never leaves
+    // the server, so a request signed with it is the platform acting on its
+    // own tenant's behalf, and it MAY name the organisation.
+    //
+    // The platform secret is tried FIRST, so a deployment that has not set the
+    // internal one behaves exactly as it did before, and a deployment that has
+    // set it to the SAME value falls back to the stricter rule rather than
+    // silently widening it. Two secrets that are equal would make the console
+    // indistinguishable from a producer, and that is the safe way round.
+    let sig = verifySignature(rawBody, sigHeader, env.webhookSecret ?? "");
+    let consoleAuth = false;
+    if (!sig.ok) {
+      const internal = verifySignature(rawBody, sigHeader, env.consoleIngestSecret ?? "");
+      if (internal.ok) {
+        sig = internal;
+        consoleAuth = true;
+      }
+    }
     if (!sig.ok) {
       return failure("unauthenticated", { detail: `signature rejected: ${sig.reason}` });
+    }
+    if (consoleAuth) {
+      consoleCredential = true;
     }
   }
 
@@ -252,7 +282,35 @@ export async function POST(req: NextRequest) {
   // name that resolves into the private network (a cloud metadata endpoint in
   // particular) passed every regex. Runs before the DB round-trip so a
   // hostile callback never becomes a stored value a later step would fetch.
-  const orgId = bearerAuth?.orgId ?? signal.org_id ?? null;
+  // Tenant selection is a property of the CREDENTIAL, never of the body.
+  //
+  // The deployment-wide WEBHOOK_SECRET authenticates the deployment, not a
+  // tenant: every holder can sign any body, so accepting `org_id` from that
+  // path let any integrator create a case in — and dial on — another bank's
+  // organisation. A producer key already carries its org (`bearerAuth.orgId`);
+  // the optional body field may only CONFIRM it, never change it. An
+  // org-less platform key is refused for the same reason.
+  //
+  // THE CONSOLE CREDENTIAL IS THE EXCEPTION, and it is the only one. It is
+  // deployment-internal (`CONSOLE_INGEST_SECRET`), never given to a producer
+  // and never sent to a browser, so a request signed with it is the platform
+  // firing a real signal into a real tenant's organisation on the operator's
+  // behalf. It is still a CREDENTIAL, not a body field: the body only says
+  // WHICH organisation, and the signature says the platform may.
+  if (signal.org_id) {
+    const mayNameOrg = Boolean(bearerAuth?.orgId) || consoleCredential;
+    if (!mayNameOrg) {
+      return failure("unauthenticated", {
+        detail: "org_id requires a tenant-scoped producer key",
+      });
+    }
+    if (bearerAuth?.orgId && signal.org_id !== bearerAuth.orgId) {
+      return failure("semantically_invalid", {
+        detail: "org_id does not match the authenticated producer key",
+      });
+    }
+  }
+  const orgId = bearerAuth?.orgId ?? (consoleCredential ? (signal.org_id ?? null) : null);
   const effectiveCallerId = bearerAuth?.callerId ?? callerId;
   const idemHash = hashKey(idemKey.trim());
 
@@ -570,6 +628,9 @@ async function armAndDial(
   // Stamped the moment the deterministic gate passes, so the provider span
   // measures what the caller actually waits on rather than collapsing to 0.
   let acceptedAt = 0;
+  // Set when the deployment is running a pilot in shadow mode: the case is
+  // recorded and every gate has run, but no customer may be contacted.
+  let shadowPilot = false;
 
   // Policy gate — deterministic, fail-fast, audited either way.
   const gate = await runPolicyGate({
@@ -635,6 +696,47 @@ async function armAndDial(
     });
     throw err;
   }
+
+  // Pilot charter gate. Runs AFTER the legal preconditions (consent, calling
+  // hours, prayer window) and BEFORE the abuse gate, because the two kinds of
+  // refusal are different questions: a consent refusal is about the customer
+  // and retrying cannot change it; a pilot refusal is about the pilot's
+  // agreed shape, and the pilot owner can change that.
+  //
+  // In `off` mode this is a no-op — one boolean read, no database round-trip —
+  // so a deployment that never heard of pilot mode pays nothing for it.
+  //
+  // In `shadow` mode it sets `shadowPilot`, and the case is recorded with no
+  // customer contacted: that is Phase 0, the shadow readout.
+  const pilot = await runPilotGate({ orgId, signalKind: signal.signal_kind ?? null });
+  if (!pilot.ok) {
+    void auditAppend(
+      {
+        callRef: caseRef,
+        action: "freeze",
+        intent: `policy_rejected_${pilot.code}`,
+        callerId: effectiveCallerId,
+        meta: {
+          reason: pilot.reason,
+          code: pilot.code,
+          transactionRef: signal.transaction_ref,
+        },
+        orgId: orgId ?? undefined,
+      },
+      { fast: true },
+    ).catch(() => {});
+    const err = new Error(pilot.reason) as Error & { status: number; code: string };
+    err.status = 409;
+    err.code = pilot.code;
+    interventionRefused({
+      orgId: orgId ?? "unscoped",
+      planTier: planTierFor(orgId ?? "unscoped"),
+      stage: "pilot",
+      reason: pilot.code,
+    });
+    throw err;
+  }
+  shadowPilot = pilot.shadow;
 
   // Abuse gate (WP-14): geography, demo-tier test-number restriction,
   // per-destination cooldown, per-org and global concurrency caps, and the
@@ -762,6 +864,56 @@ async function armAndDial(
   // consume a voice slot) and BEFORE the dial. A shed case still gets an
   // outcome: it falls back to SMS/app push and the decision is in the chain.
   //
+  // Pilot shadow mode (Phase 0). The case exists, every gate has run, and NO
+  // customer is contacted: no dial job, no pre-notification SMS, no admission
+  // voice slot, no blind-ping fallback.
+  //
+  // It comes BEFORE the deaf/hard-of-hearing branch on purpose. Both branches
+  // end in "the customer is not called", but the HH branch's fallback is an SMS
+  // — and in shadow mode there is no channel to that customer at all, because
+  // Phase 0 touches nobody. A shadow run that sent SMS to a flagged customer
+  // would not be a shadow run.
+  if (shadowPilot) {
+    releaseDialSlot(dialSlot);
+    dialSlot = null;
+    void auditAppend(
+      {
+        callRef: caseRef,
+        action: "handoff",
+        intent: "pilot_shadow_no_contact",
+        callerId: effectiveCallerId,
+        redactedText: "pilot shadow mode: case recorded, no customer contacted",
+        meta: { channel: "none", voiceAttempted: false, smsAttempted: false },
+        orgId: orgId ?? undefined,
+      },
+      { fast: true },
+    ).catch(() => {});
+    interventionAccepted({
+      orgId: orgId ?? "unscoped",
+      planTier: planTierFor(orgId ?? "unscoped"),
+      outcome: "shadow",
+      language: signal.language,
+      signalKind: signal.signal_kind,
+      callCategory: signal.call_category,
+      riskBand: riskBand(signal.risk_score),
+      hearingImpaired: signal.hearing_impaired === true,
+    });
+    const envelope = {
+      ok: true,
+      caseRef,
+      transactionRef: signal.transaction_ref,
+      status: "shadow_pilot",
+      shadow: {
+        mode: "shadow" as const,
+        contacted: false,
+        detail:
+          "Recorded under the pilot's shadow mode. No call, no SMS and no queue entry were created; the decision is available for the shadow readout.",
+      },
+      receivedAt: new Date().toISOString(),
+    };
+    return { envelope, acceptedAt };
+  }
+
   // Deaf / hard-of-hearing customers skip voice ENTIRELY (WCAG telecom
   // accessibility): no admission voice slot is consumed and no dial job is
   // enqueued. The case goes straight to the blind-ping SMS flow through the

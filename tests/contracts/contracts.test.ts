@@ -764,6 +764,13 @@ const REASON_SOURCES: Record<string, string> = {
   "src/lib/abuse/velocity.ts": read("src/lib/abuse/velocity.ts"),
   "src/lib/abuse/guards.ts": read("src/lib/abuse/guards.ts"),
   "src/lib/validation/ssrf.ts": read("src/lib/validation/ssrf.ts"),
+  // The pilot gate refuses into the same typed-409 path as the policy gate
+  // (`src/app/api/v1/interventions/route.ts`), so its three codes are part of
+  // the published contract whether or not this list said so. Without it, the
+  // refusals a bank can actually receive during a pilot — the daily cap, the
+  // one-alert-type charter and a misconfigured cap — had no catalog entry and
+  // the provenance scan below could not see them either.
+  "src/lib/pilot/gate.ts": read("src/lib/pilot/gate.ts"),
 };
 
 function literals(sources: Record<string, string>, ...patterns: RegExp[]): Set<string> {

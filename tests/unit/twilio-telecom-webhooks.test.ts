@@ -372,3 +372,23 @@ describe("twilio inbound voice", () => {
     expect(audits[0]).toMatchObject({ intent: "inbound_callback_no_open_case" });
   });
 });
+
+describe("twilio completed-recording callback", () => {
+  test("an unsigned callback is refused and writes nothing", async () => {
+    audits.length = 0;
+    const { POST } = await import("@/app/api/twilio/recording/route");
+    const res = await POST(
+      new NextRequest("http://localhost/api/twilio/recording", {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          CallSid: "CA9",
+          RecordingStatus: "completed",
+          RecordingUrl: "https://api.twilio.com/2010-04-01/Accounts/AC9/Recordings/RE9",
+        }).toString(),
+      }),
+    );
+    expect(res.status).toBe(403);
+    expect(audits).toHaveLength(0);
+  });
+});

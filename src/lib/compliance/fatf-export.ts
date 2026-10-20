@@ -1,13 +1,14 @@
 import "server-only";
 
 import crypto from "node:crypto";
-import { db } from "@/lib/db";
+import { append as auditAppend } from "@/lib/audit-chain";
 import { generateCaseFile } from "@/lib/regulatory-export";
 
 export async function generateSTREvidence(
   interventionId: string,
+  orgId: string | null = null,
 ): Promise<Record<string, unknown>> {
-  const base = await generateCaseFile(interventionId);
+  const base = await generateCaseFile(interventionId, orgId);
 
   const strPackage = {
     report_id: `STR-${base.intervention_id}`,
@@ -38,13 +39,12 @@ export async function generateSTREvidence(
   }
 
   try {
-    await db.auditLog.create({
-      data: {
-        callRef: strPackage.case_id as string,
-        action: "fiu_str_evidence_generated",
-        meta: JSON.stringify({ report_id: strPackage.report_id }),
-        chainHash: crypto.randomUUID(),
-      },
+    await auditAppend({
+      callRef: strPackage.case_id as string,
+      action: "handoff",
+      intent: "fiu_str_evidence_generated",
+      orgId: orgId ?? undefined,
+      meta: { report_id: strPackage.report_id },
     });
   } catch {
     // non-blocking

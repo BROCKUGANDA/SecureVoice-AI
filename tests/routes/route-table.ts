@@ -158,6 +158,8 @@ const PUBLIC_BY_DESIGN: Readonly<Record<string, string>> = {
     "Twilio inbound-SMS webhook authenticated by X-Twilio-Signature (fails closed without it), not a session",
   "/api/twilio/status":
     "Twilio delivery callback authenticated by X-Twilio-Signature (fails closed without it); writes only the telecom outbox, never case state — proven by tests/unit/twilio-telecom-webhooks.test.ts",
+  "/api/twilio/recording":
+    "Twilio completed-recording callback authenticated by X-Twilio-Signature (fails closed without it); writes only the tenant-scoped recording object and its audit row",
   "/api/twilio/inbound-voice":
     "Twilio inbound-voice webhook authenticated by X-Twilio-Signature (fails closed without it); tenant comes from the dialled number, never from the caller — same suite",
   "/api/webhooks/receiver":

@@ -44,9 +44,9 @@ have marked it early.**
 | #   | Question                                  | Answer                                                                                                                                                                                                                     |
 | --- | ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 4.1 | What personal data is processed?          | See the minimisation list in the integration one-pager. The short answer: an alert reference, your customer token, a phone number, a language, an amount, a merchant, a risk score, a consent reference, and a transcript. |
-| 4.2 | Do you process card data?                 | **No.** PAN never transits or is stored. Identifiers are tokens and last-4. PCI scope is **SAQ A**.                                                                                                                        |
+| 4.2 | Do you process card data?                 | **No.** PAN never transits or is stored. Identifiers are tokens and last-4. No PCI DSS scope or SAQ level is asserted here; confirm applicability with a QSA.                                                              |
 | 4.3 | Where is data processed?                  | Application and database in the EU (Frankfurt). Speech synthesis/transcription in the US and UK. **In-VPC deployment available** for in-country processing.                                                                |
-| 4.4 | Cross-border transfers?                   | Yes, to our named sub-processors under contract, with Standard Contractual Clauses where applicable. The full register is provided on request.                                                                             |
+| 4.4 | Cross-border transfers?                   | Yes, to our named sub-processors. Executed Article 24 processor terms and SCCs are `OPEN` for every active processor and are a Phase 1 gate; the register and locations are provided on request.                           |
 | 4.5 | Can you delete my data?                   | **Yes.** Per-case crypto-shredding destroys the encryption key; the audit hash chain still verifies, so deletion is provable and the record of it is retained.                                                             |
 | 4.6 | Is PII redacted automatically?            | **Yes**, before persistence — in transcripts, audit rows and webhooks.                                                                                                                                                     |
 | 4.7 | Do you use customer data to train models? | **No.** No customer audio or transcript is used for training, by us or by our processors.                                                                                                                                  |
@@ -93,8 +93,9 @@ have marked it early.**
 | ElevenLabs (+ Deepgram fallback) | Speech synthesis and transcription                                             | US/UK     |
 | Groq or Google Gemini (optional) | Reply phrasing on the continuity path                                          | US        |
 
-All under written contract, limited to the stated purpose. Register provided on
-request; 30 days' notice before any change.
+Processing locations are disclosed above. Executed Article 24 processor terms
+and SCCs are `OPEN` and must close before Phase 1; this document does not claim
+they are signed. Register provided on request; 30 days' notice before any change.
 
 ## 9. Incident response
 

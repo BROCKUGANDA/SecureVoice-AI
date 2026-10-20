@@ -196,7 +196,13 @@ export async function claimBatch(
     attempts: number;
   }[]
 > {
-  const stale = new Date(Date.now() - leaseMs);
+  const lease = Math.max(0, Math.trunc(leaseMs));
+  // The stale boundary is the DATABASE clock, not this process's. A `SENDING`
+  // row is reclaimed when `updatedAt` is older than an interval; sending a JS
+  // `Date` here compares a UTC instant against a timezone-less timestamp and,
+  // on any non-UTC Postgres (this repo's own runs UTC+3), turns a five-minute
+  // lease into one that expired three hours ago. Same defect and same fix as
+  // the dial queue's `nowPlusMs`.
   const rows = await db.$queryRaw<
     {
       id: string;
@@ -213,7 +219,7 @@ export async function claimBatch(
      WHERE o.id IN (
        SELECT id FROM "OutboxEvent"
         WHERE (state = 'PENDING' AND "nextAttemptAt" <= now())
-           OR (state = 'SENDING' AND "updatedAt" < ${stale})
+           OR (state = 'SENDING' AND "updatedAt" < now() - (CAST(${lease} AS text) || ' milliseconds')::interval)
         ORDER BY "nextAttemptAt" ASC
         FOR UPDATE SKIP LOCKED
         LIMIT ${limit}
@@ -229,7 +235,7 @@ export async function claimBatch(
      -- rows. This is the same defect the dial-queue load gate caught.
      AND (
        (o.state = 'PENDING' AND o."nextAttemptAt" <= now())
-       OR (o.state = 'SENDING' AND o."updatedAt" < ${stale})
+       OR (o.state = 'SENDING' AND o."updatedAt" < now() - (CAST(${lease} AS text) || ' milliseconds')::interval)
      )
     RETURNING o.id, o."orgId", o."eventType", o."caseRef", o.payload, o."targetUrl", o.attempts
   `;
@@ -296,10 +302,20 @@ export async function deliver(
         ),
       },
       body: event.payload,
+      // A tenant-controlled endpoint must not be able to redirect a signed
+      // payload somewhere the SSRF check never saw. `assertVendorUrlDeliverable`
+      // validated the stored URL, but `fetch` follows a 3xx by default and the
+      // signature is over the body, not the destination — so a 302 to a
+      // metadata address or another host delivered a validly signed event
+      // there. Redirects are refused as a delivery failure instead.
+      redirect: "manual",
       // A slow bank server must not hang the worker. 10s is generous for a
       // webhook delivery; the retry ladder handles transient failures.
       signal: AbortSignal.timeout(Number(process.env.OUTBOX_DELIVERY_TIMEOUT_MS) || 10_000),
     });
+    if (res.status >= 300 && res.status < 400) {
+      throw new Error(`redirect refused (HTTP ${res.status})`);
+    }
     ok = res.status >= 200 && res.status < 300;
     if (!ok) error = `HTTP ${res.status}`;
   } catch (err) {
@@ -354,11 +370,20 @@ export async function deliver(
     return { id: event.id, status: "DEAD", attempts: attempt };
   }
 
-  const nextAttemptAt = new Date(now.getTime() + backoffMs(attempt));
-  await db.outboxEvent.update({
-    where: { id: event.id },
-    data: { state: "PENDING", attempts: attempt, lastError: error, nextAttemptAt },
-  });
+  // Schedule on the DATABASE clock. `new Date(now.getTime() + backoffMs())` is
+  // a client instant written into a column compared to `now()`; on a non-UTC
+  // Postgres that shortened the retry ladder — or, in the other direction,
+  // parked a delivery for hours. The duration is what the caller means, so the
+  // interval is added server-side and the persisted instant is returned.
+  const backoff = backoffMs(attempt);
+  const scheduled = await db.$queryRaw<{ nextAttemptAt: Date }[]>`
+    UPDATE "OutboxEvent"
+       SET state = 'PENDING', attempts = ${attempt}, "lastError" = ${error},
+           "nextAttemptAt" = now() + (CAST(${backoff} AS text) || ' milliseconds')::interval
+     WHERE id = ${event.id}
+    RETURNING "nextAttemptAt"
+  `;
+  const nextAttemptAt = scheduled[0]?.nextAttemptAt ?? new Date(now.getTime() + backoff);
   return { id: event.id, status: "RETRY", attempts: attempt, nextAttemptAt };
 }
 

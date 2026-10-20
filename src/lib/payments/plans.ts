@@ -56,20 +56,69 @@ export const PLAN_INCLUDED_UNITS: Readonly<Record<string, number>> = Object.free
 );
 
 /**
- * Paddle price-key prefix (`usd_<minor>`) → plan id, built from the catalog.
+ * Paddle price-key → plan id, built from the catalog.
  *
- * Both intervals are registered. Monthly `usd_9900` and yearly `usd_99000` are
- * the SAME Starter plan; a map that only carried the monthly figure made an
- * annual subscriber's plan unresolvable, which silently replaced their included
- * allowance with `INCLUDED_UNITS_PER_PERIOD` — the deployment's guess at what
- * some other tenant bought.
+ * ── WHY THE KEY IS INTERVAL-AWARE ───────────────────────────────────────────
+ *
+ * A price key encodes the AMOUNT (`usd_<minor units>`) and, optionally, the
+ * interval it is charged at: `usd_250000_month`, `usd_2500000_year` on the
+ * browser side, `usd_250000_monthly` and `usd_2500000_yearly` on the server
+ * side. Both spellings are in this repository and both are real.
+ *
+ * The obvious implementation resolves a plan from the AMOUNT ALONE. It worked
+ * until the rate card made it ambiguous: Starter's annual price is
+ * $2,500 x 10 = $25,000, and Enterprise's monthly price is $25,000. Both are
+ * `usd_2500000`. One key, two plans, and whichever was written last won — so
+ * a STARTER ANNUAL subscriber resolved to Enterprise, and was rated with
+ * Enterprise's 10,000-intervention allowance and Enterprise's overage rate. A
+ * silent mis-bill on every annual Starter invoice, and one that no test would
+ * have caught, because each plan's own key still resolved correctly in
+ * isolation.
+ *
+ * So the key's INTERVAL is part of the lookup. `usd_2500000_month` is
+ * Enterprise and `usd_2500000_year` is Starter, and neither is ambiguous.
+ *
+ * A key with NO recognisable interval falls back to the monthly table, which
+ * is the historical reading and the one a hand-written key gets. It is
+ * ambiguous for exactly one amount in the current card, and that ambiguity is
+ * documented rather than hidden.
+ *
+ * A plan sold by negotiation (`salesAssisted`) is INCLUDED here, because an
+ * invoiced tenant's plan still has to resolve from a price id — it simply has
+ * no browser price, which is a different map with a different completeness
+ * rule (`src/lib/paddle-browser.ts`).
  */
 const PRICE_KEY_TO_PLAN: Readonly<Record<string, string>> = Object.freeze(
   (() => {
     const out: Record<string, string> = {};
     for (const plan of PLANS) {
+      if (plan.monthlyUsd !== null) {
+        out[`usd_${plan.monthlyUsd * 100}_month`] = plan.id;
+        out[`usd_${plan.monthlyUsd * 100}_monthly`] = plan.id;
+      }
+      if (plan.yearlyUsd !== null) {
+        out[`usd_${plan.yearlyUsd * 100}_year`] = plan.id;
+        out[`usd_${plan.yearlyUsd * 100}_yearly`] = plan.id;
+      }
+    }
+    return out;
+  })(),
+);
+
+/**
+ * The MONTHLY reading of each amount, for a key that carries no interval.
+ *
+ * The historical fallback. `usd_2500000` with no interval is ambiguous in the
+ * current card — it is Enterprise's monthly amount AND Starter's annual
+ * amount — and this table answers it as Enterprise, because "the amount" has
+ * historically meant the monthly price. A key that means an annual price
+ * SHOULD carry its interval, and every key this repository writes does.
+ */
+const MONTHLY_AMOUNT_TO_PLAN: Readonly<Record<string, string>> = Object.freeze(
+  (() => {
+    const out: Record<string, string> = {};
+    for (const plan of PLANS) {
       if (plan.monthlyUsd !== null) out[`usd_${plan.monthlyUsd * 100}`] = plan.id;
-      if (plan.yearlyUsd !== null) out[`usd_${plan.yearlyUsd * 100}`] = plan.id;
     }
     return out;
   })(),
@@ -82,8 +131,18 @@ const PRICE_KEY_TO_PLAN: Readonly<Record<string, string>> = Object.freeze(
  */
 export function planFromPriceKey(priceKey: string | null | undefined): string | null {
   if (!priceKey) return null;
-  const cents = priceKey.split("_").slice(0, 2).join("_");
-  return PRICE_KEY_TO_PLAN[cents] ?? null;
+  const parts = priceKey.split("_");
+  const amount = parts.slice(0, 2).join("_");
+  const interval = parts[2];
+  if (
+    interval === "month" ||
+    interval === "monthly" ||
+    interval === "year" ||
+    interval === "yearly"
+  ) {
+    return PRICE_KEY_TO_PLAN[`${amount}_${interval}`] ?? null;
+  }
+  return MONTHLY_AMOUNT_TO_PLAN[amount] ?? null;
 }
 
 /** The plan a mirrored `priceId` belongs to, via the deployment's `PADDLE_PRICES` map. */

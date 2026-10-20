@@ -340,10 +340,10 @@ export const INVARIANTS: readonly Invariant[] = [
     guarantees:
       "A risk signal arriving at the ingestion gateway is refused with 401 unless it carries a valid, in-window SV-Signature HMAC or an unrevoked org-scoped producer key.",
     enforcedAt: [
-      { file: "src/app/api/v1/interventions/route.ts", line: 223, identifier: "verifySignature" },
+      { file: "src/app/api/v1/interventions/route.ts", line: 242, identifier: "verifySignature" },
       {
         file: "src/app/api/v1/interventions/route.ts",
-        line: 173,
+        line: 174,
         identifier: "Missing SV-Signature",
       },
     ],

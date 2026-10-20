@@ -121,7 +121,7 @@
     {
       "name": "erased-at-recorded",
       "ok": true,
-      "detail": "erasedAt=2026-10-16T13:24:44.612Z"
+      "detail": "erasedAt=2026-10-20T16:45:07.827Z"
     },
     {
       "name": "read-after-erasure-throws",
@@ -156,12 +156,12 @@
     {
       "name": "erasure-witness-in-chain",
       "ok": true,
-      "detail": "witness row cmvb020np000ch47qqccskxd2 records keyDestroyed=true"
+      "detail": "witness row cmvgwz4hz000c7g7qbq4l54ey records keyDestroyed=true"
     },
     {
       "name": "negative-control-tamper-is-detected",
       "ok": true,
-      "detail": "detected at cmvb020lx0008h47qs47iy9v9"
+      "detail": "detected at cmvgwz4g100087g7qgnmxdrvg"
     },
     {
       "name": "erasure-is-idempotent",
@@ -211,7 +211,7 @@
     {
       "name": "pilot-audio-is-zero-days",
       "ok": true,
-      "detail": "org-privacy-pilot-mvb020bt: audioDays=0 (source pilot)"
+      "detail": "org-privacy-pilot-mvgwz43q: audioDays=0 (source pilot)"
     },
     {
       "name": "pilot-leaves-other-tiers-alone",
@@ -291,7 +291,7 @@
     {
       "name": "dry-run-reports-due-work",
       "ok": true,
-      "detail": "dry run would act on 1 audio tier case(s): SV-P-mvb020bt-AUDIO0"
+      "detail": "dry run would act on 1 audio tier case(s): SV-P-mvgwz43q-AUDIO0"
     },
     {
       "name": "dry-run-reports-no-transcript-work",
@@ -301,7 +301,7 @@
     {
       "name": "zero-day-audio-purged-immediately",
       "ok": true,
-      "detail": "pilot case purged on the first run (SV-P-mvb020bt-AUDIO0)"
+      "detail": "pilot case purged on the first run (SV-P-mvgwz43q-AUDIO0)"
     },
     {
       "name": "thirty-day-audio-not-purged",
@@ -341,7 +341,7 @@
     {
       "name": "transcript-tier-fires-at-140-days",
       "ok": true,
-      "detail": "acted on 5 case(s): SV-P-mvb020bt-TIER, SV-P-mvb020bt-AUDIO30, SV-P-mvb020bt-KEYA, SV-P-mvb020bt-KEYB, SV-P-mvb020bt-SEAL"
+      "detail": "acted on 5 case(s): SV-P-mvgwz43q-TIER, SV-P-mvgwz43q-AUDIO30, SV-P-mvgwz43q-KEYA, SV-P-mvgwz43q-KEYB, SV-P-mvgwz43q-SEAL"
     },
     {
       "name": "transcript-tier-scrubs-payload",
@@ -444,6 +444,16 @@
       "detail": "a zero batch size would spin forever"
     },
     {
+      "name": "scale-fixture-actually-due",
+      "ok": true,
+      "detail": "4 orgs left 4 due, 12 orgs left 12 due — the comparison is only meaningful if the second run did more work"
+    },
+    {
+      "name": "org-count-does-not-drive-query-count",
+      "ok": true,
+      "detail": "4 orgs cost 6 queries, 12 orgs cost 6; a per-org selector would scale with the org count"
+    },
+    {
       "name": "case-record-deleted",
       "ok": true,
       "detail": "cleared [transcriptRedacted, evaluationResults], keyDestroyed=true"
@@ -471,26 +481,26 @@
     {
       "name": "master-key-in-process",
       "ok": true,
-      "detail": "master key resolved; ops fingerprint 5cb89727b3b33a96 is a hash, not the key"
+      "detail": "master key resolved; ops fingerprint bf0b7d4013fc910f is a hash, not the key"
     }
   ],
-  "digest": "e24c12a1aec7b56b3260abda2fb7aaec4b9a609c0f6f472ea8f49dd2917bdee1",
-  "generatedAt": "2026-10-16T13:24:45.080Z",
+  "digest": "cf2aee7439054844632d9b647e022b6664590c29b5d266a4fd74a795881551b6",
+  "generatedAt": "2026-10-20T16:45:08.433Z",
   "run": {
-    "id": "mvb020bt",
+    "id": "mvgwz43q",
     "orgs": {
-      "default": "org-privacy-default-mvb020bt",
-      "pilot": "org-privacy-pilot-mvb020bt",
-      "override": "org-privacy-override-mvb020bt"
+      "default": "org-privacy-default-mvgwz43q",
+      "pilot": "org-privacy-pilot-mvgwz43q",
+      "override": "org-privacy-override-mvgwz43q"
     },
-    "batch": "SV-P-mvb020bt-BATCHORG",
+    "batch": "SV-P-mvgwz43q-BATCHORG",
     "database": "TEST_DATABASE_URL",
     "note": "identifiers above are per-run; the digest covers the deterministic core only"
   },
   "summary": {
     "result": "pass",
-    "total": 89,
-    "passed": 89,
+    "total": 91,
+    "passed": 91,
     "failed": 0,
     "invariants": {
       "I-6 chain verifies from genesis after erasure": true,

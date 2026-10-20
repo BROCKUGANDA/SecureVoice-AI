@@ -6,6 +6,7 @@ import { deployedVersion } from "@/lib/release-version";
 import { APP_VERSION } from "@/lib/version";
 import { requireOperator } from "@/lib/credits";
 import { admissionSnapshot } from "@/lib/admission";
+import { pilotStatus } from "@/lib/pilot/mode";
 
 export const dynamic = "force-dynamic";
 
@@ -91,6 +92,17 @@ export async function GET() {
       },
       telephony: twilioMode(),
       capacity: await admissionSnapshot(),
+      // The pilot's operating mode, its ceilings and its kill switch.
+      //
+      // On this surface — which is operator-gated — rather than only on the
+      // public probe, because these are the numbers a bank asks for during a
+      // pilot review: the mode the deployment is in, the contracted daily
+      // volume against the volume used, and whether dialling is stopped.
+      //
+      // `pilotStatus` never throws and never fabricates a count: a ceiling it
+      // could not read is null, which reads as "unknown" rather than as "there
+      // is room".
+      pilot: await pilotStatus(guard.profile.orgId),
       heapUsedMb: Math.round(mem.heapUsed / 1048576),
       rssMb: Math.round(mem.rss / 1048576),
       ts: new Date().toISOString(),

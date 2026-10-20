@@ -3,44 +3,106 @@
 #
 # An OVERRIDE file. Merge it with the base stack:
 #
-#   docker compose -f docker-compose.yml -f docker-compose.bluegreen.yml up -d
+#   docker compose -f docker-compose.yml -f docker-compose.bluegreen.yml up -d app-blue
 #
-# Why slots rather than a rolling update: a fraud intervention that is mid-call
-# during a bad deploy drops a live customer call. Blue/green brings the new
-# image up ALONGSIDE the running one, proves it on its own healthcheck, and only
-# then moves traffic. The old colour stays up and warm for the soak window, so a
-# rollback is a second traffic flip rather than a cold rebuild.
+# ── WHY THIS FILE IS A MINIMAL OVERRIDE, AND WHY THAT CHANGED ────────────────
 #
-# ── What this does NOT do ─────────────────────────────────────────────────────
-# It does not run database migrations. A migration is not reversible by
-# flipping traffic back, so blue/green gives you a safe ROLLBACK only for
-# application code. Migrate first, separately, under `db-setup`; see
-# `docs/DEPLOY.md` for the ordering rule.
+# It used to be a second, self-contained stack: its own `name:`, its own `db`,
+# its own `realtime`, its own `db-setup` and its own volumes. That is a
+# DIFFERENT COMPOSE PROJECT, and a different project means a different volume
+# namespace — so `db-data` in the blue/green project was a SECOND, EMPTY
+# Postgres, not the one the production data was in. Standing the colours up
+# beside production would have started a fresh, empty database and pointed the
+# new colour at it.
 #
-# ── The active colour ─────────────────────────────────────────────────────────
-# Caddy reads `APP_UPSTREAM` (see `Caddyfile`, `reverse_proxy {$APP_UPSTREAM}`),
-# and `scripts/deploy.mjs` is the only thing that writes it. It resolves the
-# service name inside the compose project network, so no host port is published
-# for either colour — which is what keeps the `src/proxy.ts` X-Forwarded-For
-# trust model sound.
+# The hazard was real and it was written down: `canary.yml`'s header said the
+# workflow "assumes the BLUE-GREEN stack is the running one" and warned that
+# switching projects without standing the colours up first leaves both stacks
+# running. The reason it was dangerous is precisely the second database.
+#
+# So this file now adds ONLY the two colour slots. Everything else — the
+# database, the realtime service, the one-shot migration job, Redis, the
+# workers, the volumes and the Caddy service — comes from the base file
+# unchanged, in the SAME project. The merge is a service ADDITION, not a
+# second deployment.
+#
+# ── What the slots are ───────────────────────────────────────────────────────
+#
+# Two interchangeable instances of the app, `blue` and `green`, each with the
+# base `app` service's contract: the same environment, the same `env_file`,
+# the same readiness healthcheck, the same drain window. Only the image
+# differs between them, and that is the whole point — a release is staged
+# into the idle colour and the traffic pointer moves once it is proven.
+#
+# Neither slot publishes a host port. They are reachable on the compose
+# network as `app-blue:3000` and `app-green:3000`, which is what Caddy's
+# `{$APP_UPSTREAM}` resolves to. Keeping them off the host preserves the
+# `src/proxy.ts` X-Forwarded-For trust model: a published port would be
+# reachable without the edge, and the edge is what marks a request as
+# proxied.
+#
+# ── The traffic pointer ──────────────────────────────────────────────────────
+#
+# `APP_UPSTREAM` is delivered as a FILE, not as a compose interpolation:
+# `.deploy/active.env`, mounted into the caddy service by the BASE file's
+# `env_file` declaration. Two consequences, both measured:
+#
+#  1. `${APP_UPSTREAM:?}` is resolved when compose PARSES the file, from the
+#     ambient environment — never from anything the deploy script writes.
+#     `docker compose up -d --no-deps caddy` therefore aborted with "required
+#     variable APP_UPSTREAM is missing a value" on any host that had not
+#     exported it, which is every host: `scripts/deploy.mjs` does not export
+#     it. The traffic flip could not run at all.
+#  2. Caddy resolves `{$APP_UPSTREAM}` from its OWN process environment, so
+#     `.deploy/active.env` — which `scripts/deploy.mjs` writes and nothing
+#     else reads — is the real source of truth for the active colour and the
+#     canary split.
+#
+# ── IMAGE is required here ───────────────────────────────────────────────────
+#
+# The slots have no default image on purpose. A slot that resolved to the
+# mutable `securevoice-ai-app:local` tag could be serving a build nobody
+# named, which is the stale-image condition the production deploy path exists
+# to catch. `scripts/deploy.mjs` passes IMAGE explicitly on every command.
 # ---------------------------------------------------------------------------
-name: securevoice-bluegreen
 
 x-app-slot: &app-slot
   build:
     context: .
     target: runner
-  image: ${IMAGE:?set IMAGE to the release tag being promoted, e.g. ghcr.io/...:v0.4.0}
+  image: ${IMAGE:?set IMAGE to the release tag being promoted, e.g. ghcr.io/...:v0.4.0 or securevoice-ai-app:<sha12>}
   restart: unless-stopped
+  # The app's own drain: scripts/server-preload.ts flips /api/readyz to 503 so
+  # Caddy de-rotates, then waits SHUTDOWN_DRAIN_MS (65s) for accepted requests.
+  # Docker's 10s default would kill it mid-window, so a roll would drop the
+  # very requests the drain exists to protect. Same value as the base `app`
+  # service, and the same reason.
+  stop_grace_period: 75s
   logging:
     driver: json-file
     options: { max-size: "10m", max-file: "5" }
   mem_limit: 1g
   environment:
     HOSTNAME: 0.0.0.0
-    DATABASE_URL: ${DATABASE_URL:?DATABASE_URL must be set in .env}
+    # Built from parts — see db-setup in docker-compose.yml for why a
+    # whole-URL interpolation is unsafe.
+    DATABASE_URL: ${DATABASE_URL:-postgresql://${POSTGRES_USER:-securevoice}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-securevoice}}
+    # Durable ElevenLabs character meter. Unset degrades to a per-process count
+    # at a tightened ceiling rather than failing.
+    REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+    # The compose database is a container on a private network with no server
+    # certificate; src/lib/db.ts refuses a plaintext connection in production
+    # without this explicit acknowledgement.
+    DB_ALLOW_PLAINTEXT_PRIVATE_NETWORK: "true"
+    REDIS_ALLOW_PLAINTEXT_PRIVATE_NETWORK: "true"
+    # Opt-in: refuse to boot production against anything but the VPS Postgres.
+    REQUIRE_VPS_DATABASE: ${REQUIRE_VPS_DATABASE:-false}
+    # Internal service name, NEVER localhost: inside the app container,
+    # localhost is the app container. Empty = realtime disabled, console uses SSE.
     REALTIME_URL: ${REALTIME_URL:-http://realtime:4000}
     REALTIME_INGEST_SECRET: ${REALTIME_INGEST_SECRET:-}
+    # Where the MCP transport forwards tools/call. Always the app's OWN origin.
+    MCP_TOOL_FORWARD_ORIGIN: ${MCP_TOOL_FORWARD_ORIGIN:-http://127.0.0.1:3000}
     # Proven at boot in the response body and on /api/health, so a rollback can
     # prove which build is actually serving rather than trusting a tag.
     SECUREVOICE_RELEASE: ${IMAGE:?set IMAGE}
@@ -50,17 +112,23 @@ x-app-slot: &app-slot
   expose:
     - "3000"
   depends_on:
+    # Schema before code: a slot must never start against a schema it does
+    # not understand. `db-setup` is the base file's one-shot migration job.
+    db-setup:
+      condition: service_completed_successfully
     realtime:
       condition: service_started
+    redis:
+      condition: service_healthy
   healthcheck:
-    # Readiness, not liveness: an instance must reach its database before it may
-    # take traffic. `/api/health` stays a pure process probe for uptime monitors,
-    # and that asymmetry is asserted in tests/ops.
+    # Readiness, not liveness: an instance must reach its database before it
+    # may take traffic. `/api/health` stays a pure process probe for uptime
+    # monitors, and that asymmetry is asserted in tests/ops.
     test: ["CMD", "bun", "-e", "fetch('http://127.0.0.1:3000/api/readyz').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
     interval: 10s
     timeout: 5s
-    # Deliberately short: the deploy script gates on the FIRST healthy result, so
-    # a slow start must be reported as not-healthy rather than waited out.
+    # Deliberately short: the deploy script gates on the FIRST healthy result,
+    # so a slow start must be reported as not-healthy rather than waited out.
     retries: 12
     start_period: 20s
 
@@ -71,7 +139,6 @@ services:
     # Coarse container-level alias, so `docker compose logs app-blue` and
     # `docker inspect` identify the colour without reading the release tag.
     hostname: app-blue
-    container_name: securevoice-app-blue
     networks:
       default:
         aliases: [app-blue]
@@ -79,101 +146,6 @@ services:
   app-green:
     <<: *app-slot
     hostname: app-green
-    container_name: securevoice-app-green
     networks:
       default:
         aliases: [app-green]
-
-  # ── traffic ─────────────────────────────────────────────────────────────────
-  # Only caddy is public. Both colours are `expose`-only, never `ports`.
-  caddy:
-    image: ${CADDY_IMAGE:-caddy:2-alpine}
-    restart: unless-stopped
-    logging:
-      driver: json-file
-      options: { max-size: "10m", max-file: "5" }
-    ports:
-      - "80:80"
-      - "443:443"
-    # ── How the active colour reaches Caddy ──────────────────────────────────
-    # `APP_UPSTREAM` is delivered as a FILE, not as a compose interpolation, and
-    # the `env_file` for it is declared on the BASE caddy service in
-    # docker-compose.yml — deliberately, because compose DROPS an `env_file`
-    # declared here in the override file (measured with `docker compose config`).
-    # Two consequences of that earlier shape, both real:
-    #
-    #  1. `${APP_UPSTREAM:?}` is resolved when compose PARSES the file, from the
-    #     ambient environment — never from anything the deploy script writes.
-    #     `docker compose up -d --no-deps caddy` therefore aborted with
-    #     "required variable APP_UPSTREAM is missing a value" on any host that
-    #     had not exported it, which is every host: scripts/deploy.mjs does not
-    #     export it. The traffic flip could not run at all.
-    #  2. Caddy resolves `{$APP_UPSTREAM}` from its OWN process environment, so
-    #     `.deploy/active.env` — which scripts/deploy.mjs already wrote and which
-    #     nothing read — is the real source of truth for the active colour and
-    #     the canary split.
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy-data:/data
-      - caddy-config:/config
-    depends_on:
-      - db
-      - realtime
-
-  realtime:
-    image: ${REALTIME_IMAGE:-securevoice-realtime:local}
-    build:
-      context: ./mini-services/realtime
-    restart: unless-stopped
-    logging:
-      driver: json-file
-      options: { max-size: "10m", max-file: "5" }
-    expose:
-      - "4000"
-    environment:
-      PORT: "4000"
-      REALTIME_INGEST_SECRET: ${REALTIME_INGEST_SECRET:-}
-      REALTIME_URL: ${REALTIME_URL:-http://realtime:4000}
-
-  db:
-    image: postgres:16-alpine
-    restart: unless-stopped
-    logging:
-      driver: json-file
-      options: { max-size: "10m", max-file: "5" }
-    mem_limit: 2g
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:-securevoice}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
-      POSTGRES_DB: ${POSTGRES_DB:-securevoice}
-    volumes:
-      - db-data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-securevoice} -d ${POSTGRES_DB:-securevoice}"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-
-  # Reuse the base stack's one-shot migration job so a slot never starts against
-  # a schema it does not understand.
-  db-setup:
-    image: securevoice-ai-app:local
-    build:
-      context: .
-      target: runner
-    depends_on:
-      db:
-        condition: service_healthy
-    environment:
-      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL must be set in .env}
-      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set in .env}
-    env_file:
-      - path: .env
-        required: false
-    command: ["bun", "scripts/db-setup.ts"]
-    restart: "no"
-
-volumes:
-  db-data:
-  caddy-data:
-  caddy-config:

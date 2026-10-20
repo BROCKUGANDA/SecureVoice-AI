@@ -1291,6 +1291,51 @@ export const ERROR_CODES: readonly ErrorCodeEntry[] = [
       "Resume the subscription from the billing portal (or wait for the scheduled resume). Dialling resumes on the next signal — no re-send of the refused ones is required for anything that is still time-critical, and a paused fraud queue should be re-driven by the bank once calls are allowed again.",
   },
   {
+    id: "gate_pilot_daily_cap_reached",
+    status: 409,
+    code: null,
+    literal: "pilot_daily_cap_reached",
+    surface: "http_message",
+    envelope: "failure_envelope_v1",
+    reachedFrom: [INGEST],
+    envelopeCode: "policy_precondition",
+    retryable: false,
+    meaning:
+      "This deployment is running a pilot with a hard daily intervention cap, and the contracted volume for today has already been dispatched. The signal was refused at ingest: no case was created, no call was placed, no SMS was sent and no spend was committed. It is a decision about the pilot's agreed volume, not a fault and not a statement about the customer or the risk.",
+    remediation:
+      "Do not retry the same signal today — it will be refused identically. If the volume genuinely needs raising, the pilot owner raises the cap in the deployment configuration; the next signal after the platform's daily boundary is accepted again.",
+  },
+  {
+    id: "gate_pilot_signal_kind_out_of_scope",
+    status: 409,
+    code: null,
+    literal: "pilot_signal_kind_out_of_scope",
+    surface: "http_message",
+    envelope: "failure_envelope_v1",
+    reachedFrom: [INGEST],
+    envelopeCode: "policy_precondition",
+    retryable: false,
+    meaning:
+      "This deployment is running a pilot chartered for ONE alert type, and the signal carries another. The signal was refused at ingest: no case was created and no customer was contacted. The charter is what the institution agreed to, so a signal outside it is not dialled and not queued — the platform does not widen a pilot's scope on its own.",
+    remediation:
+      "Do not retry this signal during the pilot. Either narrow the producer to the chartered alert type, or have the pilot owner extend the charter in the deployment configuration (which is a scope change requiring a change record, not a config tweak).",
+  },
+  {
+    id: "gate_pilot_cap_misconfigured",
+    status: 409,
+    code: null,
+    literal: "pilot_cap_misconfigured",
+    surface: "http_message",
+    envelope: "failure_envelope_v1",
+    reachedFrom: [INGEST],
+    envelopeCode: "policy_precondition",
+    retryable: false,
+    meaning:
+      "This deployment is running a pilot whose daily volume cap is not a usable number, so the platform refuses new pilot signals rather than running with no ceiling at all. The signal was refused at ingest: no case was created and no customer was contacted. This is a CONFIGURATION fault, not a statement about the pilot's volume and not a statement about the customer — which is why it is a different cause from `pilot_daily_cap_reached` rather than the same one with different words.",
+    remediation:
+      "The pilot owner fixes the cap in the deployment configuration (a positive whole number of interventions per day) and the platform resumes accepting signals. Retrying before the configuration is fixed will be refused identically.",
+  },
+  {
     id: "gate_invalid_e164",
     status: 409,
     code: null,

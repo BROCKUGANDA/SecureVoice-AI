@@ -53,7 +53,7 @@ function parseTiers(src: string): TierLiteral[] {
   const out: TierLiteral[] = [];
   // Each tier literal begins with `id: "<id>"`; capture everything up to the
   // next one (or the end) so the flags belong to the tier they follow.
-  const idRe = /id:\s*"(starter|growth|enterprise)"/g;
+  const idRe = /id:\s*"(pilot|starter|growth|enterprise)"/g;
   const hits = [...body.matchAll(idRe)];
   for (let i = 0; i < hits.length; i++) {
     // `hits[i]` is present by construction and `matchAll` guarantees `index`;
@@ -81,11 +81,11 @@ function parseTiers(src: string): TierLiteral[] {
 const TIERS = parseTiers(PRICING_SRC);
 
 describe("Pricing.tsx tiers vs commercial.ts plans", () => {
-  test("the parser found exactly the three published tiers", () => {
+  test("the parser found exactly the four published tiers", () => {
     // A guard on the guard. If the array is renamed or restructured, `parseTiers`
     // returns fewer tiers and every assertion below silently compares a subset —
     // which would make this file pass while checking almost nothing.
-    expect(TIERS.map((t) => t.id).sort()).toEqual(["enterprise", "growth", "starter"]);
+    expect(TIERS.map((t) => t.id).sort()).toEqual(["enterprise", "growth", "pilot", "starter"]);
   });
 
   test("every tier in the view has a matching plan, and vice versa", () => {

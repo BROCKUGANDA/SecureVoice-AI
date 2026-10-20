@@ -42,12 +42,14 @@ describe("roleFromMembership", () => {
     }
   });
 
-  test("no membership row keeps the pre-Better-Auth shape", () => {
-    // An active org with no member row is how this deployment works TODAY (the
-    // member table is empty). Demoting it would lock out every existing pilot login
-    // the day memberships are introduced, so it stays an operator — and that
-    // looseness is stated here rather than left to the fallback's silence.
-    expect(roleFromMembership(null, "org-1")).toBe("operator");
+  test("no membership row is a removal, not an implicit promotion", () => {
+    // An active org with no member row for this user means the membership was
+    // deleted (or the cookie still names an org the user has left). It is not
+    // an operator. The one legacy shape that may still fall back is an org that
+    // has never had ANY member rows; `getProfile` proves that with a count and
+    // passes the flag explicitly.
+    expect(roleFromMembership(null, "org-1")).toBe("demo");
+    expect(roleFromMembership(null, "org-1", { legacyOrgWithoutMembers: true })).toBe("operator");
     expect(roleFromMembership(null, null)).toBe("demo");
   });
 

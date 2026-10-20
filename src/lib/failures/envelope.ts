@@ -787,10 +787,32 @@ export const COMPLIANCE_REFUSAL_CODES = [
 ] as const;
 export type ComplianceRefusalCode = (typeof COMPLIANCE_REFUSAL_CODES)[number];
 
+/**
+ * Refusals from the pilot charter gate (`src/lib/pilot/gate.ts`).
+ *
+ * These are DECISIONS about the pilot's contract, not faults and not customer
+ * attributes, and they are 409 for the same reason the other gate refusals are:
+ * retrying the identical signal produces the identical refusal, so a 5xx would
+ * tell the bank to do the one thing that cannot help.
+ *
+ * They are separated from the other three lists because they are scoped to a
+ * deployment (only a deployment in pilot mode can emit them) and because the
+ * operator needs to be able to answer "why was my pilot signal refused?" from
+ * the code alone — `pilot_daily_cap_reached` says "the contracted volume is
+ * spent", which no other code in the vocabulary says.
+ */
+export const PILOT_REFUSAL_CODES = [
+  "pilot_daily_cap_reached",
+  "pilot_signal_kind_out_of_scope",
+  "pilot_cap_misconfigured",
+] as const;
+export type PilotRefusalCode = (typeof PILOT_REFUSAL_CODES)[number];
+
 const refusalUnion = [
   ...POLICY_GATE_REFUSAL_CODES,
   ...ABUSE_REFUSAL_CODES,
   ...COMPLIANCE_REFUSAL_CODES,
+  ...PILOT_REFUSAL_CODES,
 ];
 
 /**

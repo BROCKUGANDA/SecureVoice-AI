@@ -56,11 +56,36 @@ const COLOURS = ["blue", "green"];
 
 const opposite = (c) => (c === "blue" ? "green" : "blue");
 
+/**
+ * The image the colour slots resolve to.
+ *
+ * The blue/green override declares `image: ${IMAGE:?…}` with NO default, on
+ * purpose: a slot that resolved to the mutable `securevoice-ai-app:local` tag
+ * could be serving a build nobody named, which is the stale-image condition
+ * the production deploy path exists to catch. So every compose command
+ * against the merged stack needs IMAGE — and a command that does not name an
+ * image of its own (a traffic flip, a promote, a rollback) takes it from the
+ * deploy state, then the environment, and never guesses.
+ */
+function resolveImage(explicit) {
+  if (explicit) return explicit;
+  const state = readState();
+  if (state.image) return state.image;
+  if (process.env.IMAGE) return process.env.IMAGE;
+  return null;
+}
+
 function compose(args, opts = {}) {
+  const image = opts.env?.IMAGE ?? resolveImage();
   const r = spawnSync("docker", ["compose", ...BASE, ...args], {
     cwd: ROOT,
     stdio: opts.capture ? "pipe" : "inherit",
     encoding: "utf8",
+    env: {
+      ...process.env,
+      ...(opts.env ?? {}),
+      ...(image ? { IMAGE: image } : {}),
+    },
   });
   if (r.status !== 0 && !opts.allowFail) {
     console.error(`\ndocker compose ${args.join(" ")} failed (exit ${r.status})`);
@@ -139,30 +164,117 @@ function writeState(next) {
   );
 }
 
+/**
+ * The compose project name, read from the base compose file.
+ *
+ * `docker compose ps -q <service>` would have been the obvious way to ask
+ * "is this service running", and it is WRONG here for a specific reason: the
+ * blue/green override declares `image: ${IMAGE:?…}` with no default, so
+ * compose refuses to PARSE the merged files without IMAGE — and it parses
+ * them before it answers anything. A mode probe that depends on an
+ * environment variable is a mode probe that reports "unknown" on the one host
+ * where the operator has not set it, which is exactly when they are trying to
+ * find out what is running.
+ *
+ * So the probe asks DOCKER directly, using the compose labels every
+ * compose-created container carries, and the project name comes from the
+ * tracked compose file rather than from an env var.
+ */
+function projectName() {
+  try {
+    const src = readFileSync(resolve(ROOT, "docker-compose.yml"), "utf8");
+    const m = /^name:\s*(\S+)\s*$/m.exec(src);
+    return m?.[1] ?? "securevoice-ai";
+  } catch {
+    return "securevoice-ai";
+  }
+}
+
+/**
+ * The container ID of a compose service, or "" when it is not running.
+ *
+ * Resolved through the compose labels rather than by container NAME, and the
+ * distinction is not cosmetic. The colour slots used to declare
+ * `container_name: securevoice-app-blue`, so `docker inspect app-blue` looked
+ * for a container called `app-blue` that does not exist: the real name is the
+ * PROJECT-prefixed one. Every health wait and every in-container probe
+ * addressed a container that was never there, so a colour that was starting
+ * up looked exactly like a colour that had died.
+ *
+ * The project label is part of the filter because this box serves a second
+ * product: a bare service-name filter would find THAT product's `app`.
+ */
+function containerId(service) {
+  const r = spawnSync(
+    "docker",
+    [
+      "ps",
+      "-q",
+      "--filter",
+      `label=com.docker.compose.project=${projectName()}`,
+      "--filter",
+      `label=com.docker.compose.service=${service}`,
+    ],
+    { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
+  );
+  return (r.stdout ?? "").trim().split(/\r?\n/).filter(Boolean)[0] ?? "";
+}
+
+/**
+ * Which stack is actually serving.
+ *
+ * `bluegreen` — at least one colour slot exists.
+ * `plain`     — only the base `app` service exists.
+ * `unknown`   — neither. The stack is down, or was never started.
+ *
+ * The canary workflow branches on this, and the branch is the difference
+ * between "roll out a canary" and "there is nothing to canary". Guessing would
+ * be the wrong answer in BOTH directions: a canary against a plain stack
+ * would leave a second project's containers fighting over ports 80 and 443,
+ * and a deploy that assumed blue/green on a plain stack would take the site
+ * down.
+ */
+export function stackMode() {
+  if (containerId("app-blue") || containerId("app-green")) return "bluegreen";
+  if (containerId("app")) return "plain";
+  return "unknown";
+}
+
 /** Wait for a colour's container to report healthy, or give up. */
 async function waitHealthy(colour, timeoutMs = 180_000) {
   const service = `app-${colour}`;
   const deadline = Date.now() + timeoutMs;
   process.stdout.write(`  waiting for ${service} to be healthy`);
   while (Date.now() < deadline) {
-    const r = spawnSync(
-      "docker",
-      [
-        "inspect",
-        "--format",
-        "{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}",
-        service,
-      ],
-      { encoding: "utf8" },
-    );
-    const status = r.stdout?.trim();
-    if (status === "healthy") {
-      console.log(" ok");
-      return true;
-    }
-    if (status === "unhealthy" || status === "exited" || status === "dead") {
-      console.log(` ${status}`);
-      return false;
+    const id = containerId(service);
+    if (!id) {
+      // No container: either it has not been created yet or it was removed.
+      // Compose creates it within a second of `up`, so a short grace period is
+      // right, and beyond that the roll has failed.
+      if (Date.now() > deadline - timeoutMs + 20_000) {
+        console.log(" no container");
+        return false;
+      }
+    } else {
+      const r = spawnSync(
+        "docker",
+        [
+          "inspect",
+          "--format",
+          "{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}",
+          id,
+        ],
+        { encoding: "utf8" },
+      );
+      const status = r.stdout?.trim();
+      if (status === "healthy") {
+        console.log(" ok");
+        return true;
+      }
+      if (status === "unhealthy" || status === "exited" || status === "dead") {
+        console.log(` ${status}`);
+        return false;
+      }
     }
     process.stdout.write(".");
     await new Promise((r) => setTimeout(r, 3000));
@@ -177,11 +289,13 @@ async function waitHealthy(colour, timeoutMs = 180_000) {
  * exactly the case that must not receive traffic.
  */
 function probeDirect(colour) {
+  const id = containerId(`app-${colour}`);
+  if (!id) return { ok: false, code: "no-container" };
   const r = spawnSync(
     "docker",
     [
       "exec",
-      `app-${colour}`,
+      id,
       "bun",
       "-e",
       "fetch('http://127.0.0.1:3000/api/readyz').then(r=>{console.log(r.status);process.exit(r.ok?0:1)}).catch(()=>{console.log('ERR');process.exit(1)})",
@@ -211,19 +325,16 @@ function flipTraffic(colour, split) {
 
 function stopColour(colour) {
   if (!colour) return;
-  spawnSync("docker", ["compose", ...BASE, "stop", `app-${colour}`], {
-    cwd: ROOT,
-    stdio: "inherit",
-  });
-  spawnSync("docker", ["compose", ...BASE, "rm", "-f", `app-${colour}`], {
-    cwd: ROOT,
-    stdio: "inherit",
-  });
+  // Routed through `compose()` so IMAGE is resolved and injected: the merged
+  // files refuse to parse without it, and a rollback that fails on a missing
+  // env var is a rollback that does not happen.
+  compose(["stop", `app-${colour}`], { allowFail: true });
+  compose(["rm", "-f", `app-${colour}`], { allowFail: true });
 }
 
-async function deploy(image) {
+async function deploy(image, canaryPercent) {
   if (!image) {
-    console.error("usage: bun scripts/deploy.mjs deploy --image <ref>");
+    console.error("usage: bun scripts/deploy.mjs deploy --image <ref> [--canary N]");
     process.exit(1);
   }
   const state = readState();
@@ -262,9 +373,41 @@ async function deploy(image) {
   // 3. Move traffic. The old colour is still running.
   // `flipTraffic` writes the state file itself, before recreating caddy — see
   // the ordering note there.
-  console.log(`\n  flipping traffic to app-${target}`);
-  flipTraffic(target, upstreamList(target, null, 0));
-  writeState({ active: target, previous: serving, image, upstream: `app-${target}:3000` });
+  //
+  // With `--canary N` only N% of requests move to the new colour and the old
+  // one keeps serving the rest. That is the shape an AUTOMATIC release wants:
+  // the deploy hands the canary workflow a staged, verified, already-widened
+  // release, and the canary workflow decides whether it goes to 100% or rolls
+  // back. Without it, the deploy flips everything and the canary has nothing
+  // left to canary.
+  const pct = canaryPercent === undefined ? 100 : Math.min(100, Math.max(0, canaryPercent));
+  if (pct >= 100) {
+    console.log(`\n  flipping traffic to app-${target}`);
+    flipTraffic(target, upstreamList(target, null, 0));
+    writeState({ active: target, previous: serving, image, upstream: `app-${target}:3000` });
+  } else {
+    const slots = Math.round((pct / 100) * CANARY_SLOTS);
+    if (slots === 0) {
+      console.error(
+        `\n  ${pct}% is below this split's ${100 / CANARY_SLOTS}% granularity — use 0 or a multiple of ${100 / CANARY_SLOTS}.`,
+      );
+      process.exit(1);
+    }
+    const split = upstreamList(target, serving ?? target, pct);
+    console.log(`\n  canary ${slots}/${CANARY_SLOTS} slots → ${pct}% app-${target}`);
+    flipTraffic(target, split);
+    // `active` stays the colour taking the majority: `rollback` and `promote`
+    // reason about which colour is the safe one, and below 50% the canary is
+    // not.
+    writeState({
+      ...readState(),
+      active: serving ?? target,
+      previous: serving ?? target,
+      canary: { colour: target, percent: pct },
+      image,
+      upstream: split,
+    });
+  }
 
   // 4. Verify THROUGH the proxy, which is the path a caller actually takes.
   console.log(`  verifying through caddy`);
@@ -290,11 +433,152 @@ async function deploy(image) {
   }
 }
 
+/**
+ * Adopt the blue/green slots — the ONE-TIME migration from the plain stack.
+ *
+ * The plain stack runs a single `app` container and Caddy proxies to it. The
+ * blue/green stack runs two colour slots and Caddy proxies to whichever one
+ * `.deploy/active.env` names. This command moves a live deployment from the
+ * first to the second, with a rollback if any step fails.
+ *
+ * ── Why it is a separate, MANUAL command ────────────────────────────────────
+ *
+ * It changes which container serves production. That is not something an
+ * automated deploy should do to itself at 03:00, and it is not something a
+ * canary canary-ing: there is no old colour to fall back to, because the old
+ * colour IS the plain `app` container. So it is an operator step, run once,
+ * with the steps below — and every later deploy is automatic.
+ *
+ * ── The steps, and why they are in this order ───────────────────────────────
+ *
+ *  1. Read the RUNNING image of the plain `app` container. The colour must
+ *     start on the build that is already serving: adopting on a different
+ *     build would be an unannounced release, and the whole point of the
+ *     adoption is that it changes nothing about what customers see.
+ *  2. Start `app-blue` on that image and prove it healthy — in-container
+ *     readiness, not just "the container exists". Neither colour publishes a
+ *     host port, so this cannot disturb the live edge.
+ *  3. Point `.deploy/active.env` at `app-blue:3000` and recreate ONLY caddy
+ *     (`--no-deps`, so compose does not pull the base `app` service back up
+ *     behind the colours). Caddy is the only public process; the colours
+ *     serve throughout.
+ *  4. Verify THROUGH Caddy. A colour that answers on its own port but not
+ *     through the proxy is exactly the case that must not receive traffic.
+ *  5. Only then stop the plain `app` container — and STOP it, not remove it,
+ *     so the rollback is a `start` away.
+ *
+ * If step 3 or 4 fails, the rollback restores the pointer to `app:3000`,
+ * recreates caddy and starts the plain container again.
+ */
+async function adopt() {
+  const mode = stackMode();
+  if (mode === "bluegreen") {
+    console.log("\n  already running the blue/green stack — nothing to adopt.");
+    return;
+  }
+  if (mode === "unknown") {
+    console.error(
+      "\n  neither the plain `app` service nor a colour slot is running — refusing to adopt a stack that is not up.",
+    );
+    process.exit(1);
+  }
+
+  const plainId = containerId("app");
+  const imageRef = spawnSync("docker", ["inspect", "--format", "{{.Config.Image}}", plainId], {
+    encoding: "utf8",
+  }).stdout?.trim();
+  if (!imageRef) {
+    console.error(
+      "\n  could not read the running image of the plain `app` container — refusing to adopt.",
+    );
+    process.exit(1);
+  }
+
+  console.log(`\nadopt blue/green`);
+  console.log(`  running image   ${imageRef}`);
+  console.log(`  staging colour  blue`);
+
+  // 1-2. Stand the first colour up on the build that is ALREADY serving.
+  compose(["up", "-d", "app-blue"], { capture: true, env: { ...process.env, IMAGE: imageRef } });
+  const healthy = await waitHealthy("blue");
+  if (!healthy) {
+    console.error("\n  ✗ app-blue never became healthy — the live stack is untouched.");
+    stopColour("blue");
+    process.exit(1);
+  }
+  const probe = probeDirect("blue");
+  if (!probe.ok) {
+    console.error(`\n  ✗ app-blue is healthy but /api/readyz failed in-container (${probe.code}).`);
+    stopColour("blue");
+    process.exit(1);
+  }
+
+  // 3. Move the pointer. `flipTraffic` writes the state file BEFORE recreating
+  // caddy — see the ordering note there.
+  console.log("\n  pointing caddy at app-blue");
+  flipTraffic("blue", upstreamList("blue", null, 0));
+
+  // 4. Verify through the proxy.
+  const viaProxy = spawnSync(
+    "curl",
+    ["-fsS", "-o", "/dev/null", "-w", "%{http_code}", "http://127.0.0.1/api/readyz"],
+    { encoding: "utf8" },
+  );
+  const status = viaProxy.stdout?.trim();
+  if (viaProxy.status !== 0 || status !== "200") {
+    console.error(
+      `\n  ✗ the edge did not answer after the flip (got "${status ?? "no response"}") — ROLLING BACK to the plain stack.`,
+    );
+    revertToPlain();
+    process.exit(1);
+  }
+
+  // 5. Retire the plain container — stopped, not removed, so the rollback is
+  // a `start` away.
+  console.log("\n  stopping the plain `app` container");
+  compose(["stop", "app"], { allowFail: true });
+
+  writeState({
+    ...readState(),
+    active: "blue",
+    previous: null,
+    image: imageRef,
+    upstream: "app-blue:3000",
+    adopted: true,
+  });
+  console.log(`\n  ✓ adopted. Production is served by app-blue (${imageRef}).`);
+  console.log(
+    "    the plain `app` container is stopped, not removed: `docker compose start app` brings it back.",
+  );
+}
+
+/**
+ * Undo an adoption: point the edge back at the plain `app` container and
+ * start it again.
+ *
+ * Only used when the adoption itself fails part-way. It is deliberately NOT a
+ * general "leave blue/green" command, because leaving blue/green with a
+ * stopped plain container is a state with no operator-facing way back.
+ */
+function revertToPlain() {
+  console.error("\n  reverting to the plain stack");
+  writeState({ ...readState(), active: null, previous: null, upstream: "app:3000" });
+  compose(["up", "-d", "--no-deps", "app"], { allowFail: true });
+  compose(["up", "-d", "--no-deps", "caddy"], { allowFail: true });
+}
+
 function rollback() {
   const state = readState();
   if (!state.previous) {
     console.error("\n  no previous colour recorded — nothing to roll back to.");
     process.exit(1);
+  }
+  // A rollback to the colour that is ALREADY serving is a no-op, and saying so
+  // is better than "rolling back" to it: the operator learns that the switch
+  // was already where they wanted it.
+  if (state.previous === state.active) {
+    console.log(`\n  already live on app-${state.active} — nothing to roll back to.`);
+    return;
   }
   console.log(`\n  rolling back: app-${state.active} → app-${state.previous}`);
   // Flip first, THEN stop. Stopping before the flip is an outage, not a rollback.
@@ -304,11 +588,39 @@ function rollback() {
   console.log(`  ✓ live on ${state.previous}. The failed colour was left running for inspection.`);
 }
 
+/**
+ * Retire the previous colour: it is now the only build that is not serving, and
+ * it is stopped so the next deploy has a clean pair of slots.
+ *
+ * ── THE INVARIANT THIS COMMAND HAS TO HOLD ──────────────────────────────────
+ *
+ * `promote` STOPS a container. If the colour it stops is the one currently
+ * serving, production goes down — and there is a state in which that is
+ * exactly what the recorded values say: after a `rollback`, the state file
+ * records `active` and `previous` as the SAME colour, because the rollback
+ * moved the active colour back to where the previous one already was. A
+ * `promote` that trusted those two fields would then stop the serving
+ * container.
+ *
+ * So the check is not "is there a previous colour" but "is the previous colour
+ * DIFFERENT from the active one". When they are the same there is nothing to
+ * retire, and the command says so instead of stopping the live container.
+ */
 function promote() {
   const state = readState();
   if (!state.active || !state.previous) {
     console.error("\n  nothing to promote — no previous colour recorded.");
     process.exit(1);
+  }
+  if (state.previous === state.active) {
+    console.log(
+      `\n  nothing to promote: app-${state.active} is both the active and the previous colour.`,
+    );
+    console.log(
+      "  (this is the state a rollback leaves behind — the retired colour was not re-recorded.)",
+    );
+    writeState({ ...state, previous: null, upstream: `app-${state.active}:3000` });
+    return;
   }
   console.log(`\n  promoting: stopping app-${state.previous}`);
   stopColour(state.previous);
@@ -449,25 +761,83 @@ function canary({ to, percent }) {
   console.log(`      bun scripts/deploy.mjs canary --percent 0     # abandon it`);
 }
 
+/**
+ * Prove the release is serving, from both sides.
+ *
+ * Two questions, and a canary needs both answered:
+ *
+ *   · does the COLOUR answer on its own port? (in-container `/api/readyz`)
+ *   · does the EDGE answer? (the public path a caller actually takes)
+ *
+ * A gate that only asked the second would pass while the canary upstream was
+ * broken — which is exactly the failure a canary exists to catch. A gate that
+ * only asked the first would pass while the proxy was pointing at the wrong
+ * container.
+ *
+ * Exit code is the contract: 0 when both answer, 1 otherwise. The Canary
+ * workflow branches on it.
+ */
+function probe({ colour }) {
+  const problems = [];
+
+  if (colour) {
+    const direct = probeDirect(colour);
+    if (!direct.ok) {
+      problems.push(`app-${colour} did not answer /api/readyz in-container (${direct.code})`);
+    } else {
+      console.log(`  app-${colour}      readyz ${direct.code}`);
+    }
+  }
+
+  const edge = spawnSync(
+    "curl",
+    ["-fsS", "-o", "/dev/null", "-w", "%{http_code}", "http://127.0.0.1/api/readyz"],
+    { encoding: "utf8" },
+  );
+  const status = edge.stdout?.trim();
+  if (edge.status !== 0 || status !== "200") {
+    problems.push(`the edge answered "${status ?? "nothing"}" for /api/readyz`);
+  } else {
+    console.log(`  via caddy  readyz ${status}`);
+  }
+
+  if (problems.length) {
+    console.error(`\n  ✗ ${problems.join("; ")}`);
+    process.exit(1);
+  }
+  console.log("  ✓ ready");
+}
+
 async function status() {
   const state = readState();
   console.log("\nblue/green status");
+  console.log(`  stack      ${stackMode()}`);
   console.log(`  active     ${state.active ?? "(unknown)"}`);
   console.log(`  previous   ${state.previous ?? "(none)"}`);
   console.log(`  image      ${state.image ?? "(unknown)"}`);
+  if (state.canary) {
+    console.log(`  canary     ${state.canary.percent}% → app-${state.canary.colour}`);
+  }
   for (const c of COLOURS) {
+    const id = containerId(`app-${c}`);
+    if (!id) {
+      console.log(`  app-${c.padEnd(6)} (not running)`);
+      continue;
+    }
     const r = spawnSync(
       "docker",
       [
         "inspect",
         "--format",
         "{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}",
-        `app-${c}`,
+        id,
       ],
       { encoding: "utf8" },
     );
     if (r.stdout) console.log(`  app-${c.padEnd(6)} ${r.stdout.trim()}`);
   }
+  const plain = containerId("app");
+  console.log(`  app        ${plain ? "running (plain stack)" : "(not running)"}`);
   const curl = spawnSync(
     "curl",
     ["-fsS", "-o", "/dev/null", "-w", "%{http_code}", "http://127.0.0.1/api/health"],
@@ -478,11 +848,192 @@ async function status() {
   console.log(`  via caddy  ${curl.stdout?.trim() ?? "unreachable"}`);
 }
 
+/**
+ * The FULL release pipeline, run as one command.
+ *
+ *   bun scripts/deploy.mjs auto --image ghcr.io/org/repo:v0.4.0
+ *     [--start-percent 5] [--mid-percent 50] [--soak-seconds 300] [--probe-interval 30]
+ *
+ * stage → canary start% → soak → mid% → soak → 100% → promote, and at ANY
+ * point a failed probe reverts the traffic and exits non-zero. This is what
+ * the canary workflow calls, so the pipeline that runs when a human is at the
+ * keyboard and the pipeline that runs at 03:00 are THE SAME pipeline — a
+ * rollback path that only exists in CI is a rollback path nobody has ever
+ * tested.
+ *
+ * ── The preflight, and why it refuses rather than adapts ─────────────────────
+ *
+ * The first thing `auto` does is ask `stackMode()`. If production is on the
+ * plain stack, auto REFUSES: a canary against a plain stack would leave a
+ * second project's containers fighting over ports 80/443, and "just adopt"
+ * is not a 03:00 decision — `adopt` is a deliberate, manual, one-time step
+ * with its own rollback. Refusing here costs a deploy; guessing costs the
+ * site. Run `bun scripts/deploy.mjs adopt` once by hand, then auto works.
+ *
+ * The same refusal fires when the state file still carries an unfinished
+ * canary (`state.canary` set): an automatic pipeline that "resumes" a split
+ * it did not start widens traffic on a build it never staged. The operator
+ * resolves the outstanding canary first (`canary --percent 0` to abandon,
+ * `--percent 100` to accept).
+ *
+ * ── What the soak actually watches ────────────────────────────────────────────
+ *
+ * Every probe interval it asks BOTH questions of BOTH surfaces:
+ *
+ *   · does the EDGE answer /api/readyz? (via caddy — the caller's path)
+ *   · does the CANARY colour answer /api/readyz? (in-container, its own port)
+ *
+ * The edge probe catches a proxy/traffic problem; the colour probe catches a
+ * colour that is still \"up\" internally but wrong. Either failing reverts
+ * immediately — a soak that only sampled the edge would keep 50% of real
+ * customers pointed at a colour this script has already proven is not ready.
+ *
+ * Budget: total soak time is start-soak + mid-soak, each `--soak-seconds`.
+ * Sentry/exit-rate gating lives ABOVE this (the workflow), because this
+ * script cannot see application errors — only transport-level readiness.
+ */
+async function auto(image, opts) {
+  const startPct = opts.startPercent ?? 5;
+  const midPct = opts.midPercent ?? 50;
+  const soakSeconds = opts.soakSeconds ?? 300;
+  const probeInterval = opts.probeInterval ?? 30;
+
+  // The image defaults to the one the deploy workflow ALREADY STAGED.
+  //
+  // The pipeline is two stages on purpose: the deploy workflow builds,
+  // migrates and stages the new colour without moving traffic, and this
+  // command widens the split and promotes. Naming the image again on the
+  // second command is one more place for the two halves to disagree about
+  // which build is being released — and a canary that widens onto a
+  // DIFFERENT image than the one that was staged is a canary of nothing.
+  const releaseImage = image ?? readState().image ?? undefined;
+  if (!releaseImage) {
+    console.error(
+      "\n  ✗ auto: no image to release. Pass --image, or stage one first " +
+        "('bun scripts/deploy.mjs stage --image <ref>').",
+    );
+    process.exit(1);
+  }
+
+  const mode = stackMode();
+  if (mode !== "bluegreen") {
+    console.error(
+      `\n  ✗ auto requires the blue/green stack; stack mode is "${mode}".` +
+        `\n    Run 'bun scripts/deploy.mjs adopt' ONCE by hand, deliberately, then re-run auto.` +
+        `\n    (see scripts/deploy.mjs 'adopt' — it is manual on purpose)`,
+    );
+    process.exit(1);
+  }
+  const state0 = readState();
+  if (state0.canary) {
+    console.error(
+      `\n  ✗ an unfinished canary is outstanding (${state0.canary.percent}% → app-${state0.canary.colour}).` +
+        `\n    Resolve it first: 'canary --percent 0' to abandon, or '--percent 100' to accept.`,
+    );
+    process.exit(1);
+  }
+  // NO `--image` GUARD HERE, and that is deliberate.
+  //
+  // The image defaults to the one the deploy workflow already staged — the
+  // `releaseImage` resolution above is the contract, and the canary workflow
+  // relies on it: it calls `auto` with the percentages and the soak and NOT
+  // with an image, because naming the image again on the second command is one
+  // more place for the two halves of the release to disagree about which build
+  // is being released.
+  //
+  // A usage guard here would therefore refuse the ONE invocation the
+  // automatic path makes, and the automatic path is the whole point of the
+  // command. `releaseImage` has already refused the genuinely image-less case
+  // ("auto: no image to release"), and it refuses it with an instruction
+  // rather than a usage string.
+
+  /** Abort with the traffic reverted, so a failed auto leaves the site serving. */
+  const abort = async (step, detail) => {
+    console.error(`\n  ✗ auto: ${step} failed${detail ? ` — ${detail}` : ""} — ROLLING BACK.`);
+    const state = readState();
+    if (state.active && state.previous && state.active !== state.previous) {
+      // A full switch in flight (or any state with a distinct warm previous):
+      // the previous colour is still running, so the rollback is a flip, not a
+      // rebuild. The failed colour is left RUNNING — stopping it is the
+      // postmortem's decision, not the abort's urgency.
+      rollback();
+    } else if (state.canary) {
+      // Split-stage failure: `active` is the majority colour the canary state
+      // never displaced; canary(0) reverts all traffic to it.
+      canary({ percent: 0, to: state.canary.colour });
+    }
+    process.exit(1);
+  };
+
+  /** Edge + colour probes, repeated until the soak budget is exhausted. */
+  const soak = async (label, colour, seconds) => {
+    console.log(
+      `\n  soak (${label}): probing edge + app-${colour} every ${probeInterval}s for ${seconds}s`,
+    );
+    const deadline = Date.now() + seconds * 1000;
+    while (Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, probeInterval * 1000));
+      const edge = spawnSync(
+        "curl",
+        ["-fsS", "-o", "/dev/null", "-w", "%{http_code}", "http://127.0.0.1/api/readyz"],
+        { encoding: "utf8" },
+      );
+      const edgeCode = edge.stdout?.trim();
+      if (edge.status !== 0 || edgeCode !== "200") {
+        await abort(`${label} soak`, `edge answered "${edgeCode ?? "nothing"}"`);
+      }
+      const direct = probeDirect(colour);
+      if (!direct.ok) {
+        await abort(`${label} soak`, `app-${colour} readyz ${direct.code}`);
+      }
+      process.stdout.write(`.`);
+    }
+    console.log(` ok`);
+  };
+
+  console.log(`\nauto blue/green + canary release`);
+  console.log(`  image ${releaseImage}`);
+
+  // canary()/rollback() call process.exit on failure, so the .catch only shields
+  // the stage path (the only one that returns rather than exits).
+  await stage(releaseImage)
+    .catch(async (err) => abort("stage", err?.message))
+    .then(() => canary({ percent: startPct }));
+  const canaryColour = () => readState().canary?.colour ?? opposite(readState().active);
+  await soak("canary", canaryColour(), soakSeconds);
+  canary({ percent: midPct });
+  await soak("mid", canaryColour(), soakSeconds);
+  canary({ percent: 100 });
+
+  // The full switch IS the acceptance. Verify the edge once more, then retire
+  // the old colour — but only if it is genuinely not the active one (promote's
+  // own invariant does that check us no favours: after the 100% switch the
+  // state records active=new, previous=old, so a straight promote is correct).
+  const edge = spawnSync(
+    "curl",
+    ["-fsS", "-o", "/dev/null", "-w", "%{http_code}", "http://127.0.0.1/api/readyz"],
+    { encoding: "utf8" },
+  );
+  const code = edge.stdout?.trim();
+  if (edge.status !== 0 || code !== "200") {
+    await abort("post-switch verification", `edge answered "${code ?? "nothing"}"`);
+  }
+  promote();
+  writeState({ ...readState(), canary: undefined });
+  console.log(`\n  ✓ auto release complete: app-${readState().active} is serving ${releaseImage}`);
+}
+
+function argValue(rest, flag) {
+  const i = rest.indexOf(flag);
+  return i >= 0 ? rest[i + 1] : undefined;
+}
+
 const [, , cmd, ...rest] = process.argv;
 switch (cmd) {
   case "deploy": {
     const i = rest.indexOf("--image");
-    await deploy(i >= 0 ? rest[i + 1] : undefined);
+    const c = rest.indexOf("--canary");
+    await deploy(i >= 0 ? rest[i + 1] : undefined, c >= 0 ? Number(rest[c + 1]) : undefined);
     break;
   }
   case "rollback":
@@ -503,14 +1054,61 @@ switch (cmd) {
   case "status":
     await status();
     break;
+  case "mode":
+    // One machine-readable word on stdout, so CI can branch on it without
+    // parsing prose. `unknown` is a real answer, not an error: it means the
+    // stack is down, and a workflow must not treat that as "plain".
+    console.log(stackMode());
+    break;
+  case "staged-colour": {
+    // The colour a release is being canaried on.
+    //
+    // Read from the deploy state, and printed as ONE word, because the deploy
+    // workflow and the canary workflow must agree about which container is the
+    // new build. A disagreement there would canary the OLD colour and report
+    // success — which is the failure mode a canary must not have.
+    const state = readState();
+    const colour = state.canary?.colour ?? state.staged ?? "";
+    console.log(colour);
+    break;
+  }
+  case "probe": {
+    const c = rest.indexOf("--colour");
+    probe({ colour: c >= 0 ? rest[c + 1] : undefined });
+    break;
+  }
+  case "adopt":
+    await adopt();
+    break;
   case "stage": {
     const i = rest.indexOf("--image");
     await stage(i >= 0 ? rest[i + 1] : undefined);
     break;
   }
+  case "auto": {
+    await auto(argValue(rest, "--image") ?? process.env.IMAGE, {
+      startPercent:
+        argValue(rest, "--start-percent") !== undefined
+          ? Number(argValue(rest, "--start-percent"))
+          : undefined,
+      midPercent:
+        argValue(rest, "--mid-percent") !== undefined
+          ? Number(argValue(rest, "--mid-percent"))
+          : undefined,
+      soakSeconds:
+        argValue(rest, "--soak-seconds") !== undefined
+          ? Number(argValue(rest, "--soak-seconds"))
+          : undefined,
+      probeInterval:
+        argValue(rest, "--probe-interval") !== undefined
+          ? Number(argValue(rest, "--probe-interval"))
+          : undefined,
+    });
+    break;
+  }
   default:
     console.error(
-      "usage: bun scripts/deploy.mjs <deploy --image REF | stage --image REF | rollback | promote | canary --percent N [--to COLOUR] | status>",
+      "usage: bun scripts/deploy.mjs <deploy --image REF [--canary N] | auto [--image REF] [--start-percent N --mid-percent N --soak-seconds N] | stage --image REF | rollback | promote | canary --percent N [--to COLOUR] | probe [--colour COLOUR] | adopt | mode | staged-colour | status>",
     );
     process.exit(1);
 }

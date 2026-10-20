@@ -381,6 +381,10 @@ model AgentToolSecret {
   keyHash      String       @unique // sha256 of the plaintext svt_ secret
   orgId        String       @db.Uuid // the ONE tenant this credential may act for
   organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  /// Comma-separated allow-list of tool names this credential may invoke.
+  /// NULL is the legacy credential shape: it still obeys AGENT_TOOL_ALLOWED,
+  /// but it is not tool-scoped. New credentials always write a non-null value.
+  toolScope    String?
   revoked      Boolean      @default(false)
   lastUsedAt   DateTime?
   createdAt    DateTime     @default(now())
@@ -788,6 +792,10 @@ model DialJob {
   @@index([state, leaseExpiresAt], map: "dial_job_state_lease_expires_at_idx")
   @@index([caseId], map: "dial_job_case_id_idx")
   @@index([state, createdAt], map: "dial_job_state_created_at_idx")
+  /// The pilot's daily-cap counter filters on the organisation and a day
+  /// window, and has no `state` predicate -- so none of the indexes above is
+  /// usable for it and the count was a sequential scan on the dial hot path.
+  @@index([orgId, createdAt], map: "dial_job_org_id_created_at_idx")
   @@map("dial_job")
 }
 
@@ -1184,6 +1192,38 @@ model RateLimit {
 
   @@unique([key])
   @@map("rateLimit")
+}
+
+/// A global operational switch — read on the hot path, changed without a deploy.
+///
+/// WHY THIS EXISTS. `BILLING_KILL_SWITCH` is an environment variable, and an
+/// environment variable inside a container is fixed at container start. Flipping
+/// it in `.env` stops metering only after a `docker compose up -d`, which is a
+/// deploy wearing a hat: it needs host access, it needs the box, and it needs
+/// somebody awake enough to run it. A kill switch that cannot be flipped by the
+/// person holding the pager is not an incident lever, it is a runbook step.
+///
+/// So the DIAL kill switch has a second, database-backed half: a row here. The
+/// console writes it, every dial worker reads it before every call, and the
+/// platform stops dialling within seconds — no restart, no deploy, no shell on
+/// the box. The environment variable remains as the outer, process-level
+/// brake for a host that is already unhealthy.
+///
+/// `name` is the switch's identity (`dial_kill_switch`); it is the primary key
+/// so a switch cannot be duplicated under two spellings. There is no `orgId`:
+/// every switch here is PLATFORM-WIDE, because the control they implement —
+/// "stop contacting customers" — is not a per-tenant decision and a per-tenant
+/// kill switch would be a lockout waiting for a support ticket.
+///
+/// `updatedAt` is when the switch last changed, and `actor` is who changed it.
+/// A kill switch with no name on it is a switch nobody dares re-open, because
+/// nobody knows whether the thing it stopped is still broken.
+model PlatformSwitch {
+  name      String   @id
+  engaged   Boolean  @default(false)
+  reason    String?
+  actor     String?
+  updatedAt DateTime @default(now())
 }
 
 /// An institution's connection to ITS OWN CRM (Zendesk / Salesforce / signed

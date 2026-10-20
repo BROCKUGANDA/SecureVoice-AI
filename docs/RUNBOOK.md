@@ -76,12 +76,146 @@ is by image tag. There is no multi-region failover; that is roadmap.
 
 ## 3. Kill switches
 
-| Switch                | Where              | Deploy needed?                 | Effect                                           |
-| --------------------- | ------------------ | ------------------------------ | ------------------------------------------------ |
-| `BILLING_KILL_SWITCH` | env, read per call | **No** — set it and it is live | Stops all metered billing and credit reservation |
+| Switch                         | Where                | Deploy needed?                           | Effect                                           |
+| ------------------------------ | -------------------- | ---------------------------------------- | ------------------------------------------------ |
+| `DIAL_KILL_SWITCH`             | env, read per dial   | **No** to set; **yes** to change the env | Stops every outbound CARRIER CALL                |
+| The dial kill switch (console) | `PlatformSwitch` row | **No** — not even a restart              | The same, flipped by an operator in the console  |
+| `BILLING_KILL_SWITCH`          | env, read per call   | **No** — set it and it is live           | Stops all metered billing and credit reservation |
 
-`BILLING_KILL_SWITCH` is the **only** genuinely deploy-free kill switch today.
-It accepts `1`, `true`, `on`, `yes`, `stop`, `halt`.
+### 3.1 The dial kill switch — the one you actually want
+
+`docs/RUNBOOK.md` used to say, in these words, that there was **no kill switch
+for live dialling**, and that stopping outbound calls meant
+`docker compose stop dial-worker`. That is no longer true, and a runbook that
+tells the person holding the pager to take a container down during an incident
+is a runbook that will be ignored.
+
+There are now two halves, and either one stops dialling:
+
+- **The environment half** — `DIAL_KILL_SWITCH=stop` (it accepts the same
+  spellings as `BILLING_KILL_SWITCH`: `1`, `true`, `on`, `yes`, `stop`,
+  `halt`). It is read from `process.env` on every dial decision and never
+  cached, so flipping it takes effect on the next call. Changing the
+  container's own environment still needs a restart — which is why the second
+  half exists.
+  - It also accepts an explicit OFF: `0`, `false`, `off`, `no`, `disabled`,
+    `none`. `DIAL_KILL_SWITCH=0` is what an operator writes when they mean
+    "leave it off", and it has to MEAN that — otherwise the natural thing to
+    type during an incident would stop every fraud call.
+  - **Any other spelling is NOT engaged**, and is logged as an unrecognised
+    spelling. A typo that silently left the switch off is the failure this
+    variable must not have, and a typo that silently STOPPED every fraud call
+    is the other failure. So: allowlist semantics, a loud log, and the raw
+    value plus an `envRecognised` flag on `GET /api/console/pilot` so the
+    operator's screen says _"NOT RECOGNISED — the switch is NOT engaged"_
+    instead of a bare `false` they have to interpret.
+- **The database half** — a row in `PlatformSwitch` named `dial_kill_switch`,
+  flipped from the operator console:
+  ```bash
+  curl -X POST https://securevoiceai.me/api/console/pilot/kill-switch \
+    -H 'Content-Type: application/json' \
+    -b "$SESSION_COOKIE" \
+    -d '{"engaged":true,"reason":"carrier outage"}'
+  ```
+  No deploy, no restart, no shell on the box. The platform stops dialling
+  within seconds, and every engage and release is written to the audit chain
+  with the operator's id. It is a **platform** lever: only a platform operator
+  can flip it, so an admin of one bank cannot stop every bank.
+
+**A switch whose state cannot be read is treated as ENGAGED.** The database
+half fails closed, because a database blip is transient and the conservative
+reading costs a minute of not-dialling; failing open would silently disarm the
+control during exactly the incident it exists for. The status surface
+distinguishes the two facts (`databaseAvailable: false` means "we could not
+tell", not "an operator stopped the pilot").
+
+**What the switch stops: VOICE.** The blind-ping SMS fallback keeps running,
+and that is a deliberate boundary rather than an omission — the SMS exists to
+warn a customer whose card is being questioned and to tell the bank the
+customer was not reached. Suppressing it during a voice incident would leave a
+customer with a live fraud attempt and nobody telling them. What the switch
+does guarantee is that no carrier call is placed.
+
+**What it does NOT stop, and how to stop that instead:**
+
+| Thing                       | How to stop it                                                  |
+| --------------------------- | --------------------------------------------------------------- |
+| The blind-ping SMS fallback | Not stopped by the dial switch — by design (see above).         |
+| The LLM phrasing layer      | Blank `GROQ_API_KEY` / `GEMINI_API_KEY`: scripted replies only. |
+| BYOK                        | Blank `ELEVENLABS_API_KEY`: the platform voice is used instead. |
+| Outbound bank webhooks      | Blank `BANK_WEBHOOK_URL`: dispatch pauses, the outbox keeps.    |
+| Metered billing             | `BILLING_KILL_SWITCH`.                                          |
+
+### 3.2 Pilot mode — the other switches
+
+`src/lib/pilot/mode.ts` adds a bounded operating mode for a live pilot. It is
+**off by default**, so a deployment that has never heard of it behaves exactly
+as it always has.
+
+| Env var                 | Effect                                                                      |
+| ----------------------- | --------------------------------------------------------------------------- |
+| `PILOT_MODE`            | `off` (default) / `shadow` (no customer contact) / `live` (Phase 1).        |
+| `DIAL_KILL_SWITCH`      | See above.                                                                  |
+| `PILOT_DAILY_CALL_CAP`  | Interventions one organisation may act on per day.                          |
+| `PILOT_CONCURRENCY_CAP` | Calls one organisation may have in flight at once, counted across replicas. |
+| `PILOT_SIGNAL_KIND`     | The one alert type the pilot is chartered for.                              |
+| `PILOT_HUMAN_APPROVAL`  | Whether a human approves every dial. On by default in `live`.               |
+
+**What the daily cap counts**, because a cap whose unit is ambiguous is a cap
+nobody can reason about: DISTINCT **cases**, over the union of "admitted
+today" and "settled today", on the **database's** calendar day.
+
+- _Cases_, not job rows: a case that is dialled, comes back unanswered and is
+  retried is still one intervention — the same unit the pricing model bills.
+  Counting rows would make a pilot hit its ceiling at half the contracted
+  number of customers.
+- _Admitted today OR settled today_, not just admitted today: a pilot that
+  admitted five hundred cases yesterday and has not dialled them yet has a
+  BACKLOG, and yesterday's admission says nothing about how many customers
+  that backlog will ring today. The union is the number of distinct customers
+  the pilot can still touch today, which is what a "hard daily call cap" is
+  for.
+- The database's day, not UTC and not the app server's: the queue leases, the
+  audit chain and every deadline in this system already run on the database
+  clock, and a cap that resets on a different boundary is a cap nobody can
+  reason about.
+
+**What the charter counts.** `PILOT_SIGNAL_KIND` names the ONE alert type the
+pilot is chartered for, and it fails CLOSED: a signal whose type is unknown is
+REFUSED, not admitted. `signal_kind` is optional in the bank contract, so "no
+type" is the common case, and a scope control that waves through everything
+it cannot classify is not a scope control.
+
+**A human approval is bound to ONE attempt.** A case that is dialled, comes
+back unanswered and is retried as attempt 2 needs a SECOND approval: a second
+call to a customer is a second call to a customer, and Phase 1 says a human
+approves every dial. The approval lives in the audit chain with the attempt
+number in its `intent` (`pilot_dial_approved:2` — a colon, because the audit
+chain's field sanitiser strips `#` on the way in), and a decline for the case
+refuses every attempt for it.
+
+Read the live state from `GET /api/console/pilot` (any signed-in operator) or
+from `/api/status` (platform operator). `/api/readyz` carries a `pilot` check
+that reports the mode and whether the switch is engaged — it is a check, not an
+assertion: a stopped pilot is a decided state, not a fault, and refusing
+readiness for it would turn a deliberate stop into an outage.
+
+**A pilot block never fails a dial.** "The cap is reached", "a human has not
+approved this yet" and "the switch is on" all PARK the dial job — back to
+PENDING, no attempt consumed, no SMS — so a pilot block can never dead-letter a
+case into the blind-ping fallback and text a customer the operator decided not
+to call.
+
+**And a pilot decision that cannot be MADE is also a park.** The counters
+read the database, and a database blip in the middle of one used to throw out
+of the decision function — into the worker's handler, where a throw is a
+crashed handler that climbs the attempt ladder and eventually dead-letters
+into the blind-ping SMS. A database wobble would have become a text message
+to a customer during exactly the window the pilot was supposed to contact
+nobody. The whole decision is now wrapped, and an unreadable control is a
+refusal, not an exception.
+
+### 3.3 Compliance controls are not switches
 
 Feature flags in `src/lib/flags.ts` — `realtime`, `elevenLabsLive`,
 `consoleLiveFeed`, `seedDemo`, `twilioMediaStreams` — are read from `process.env`
@@ -89,7 +223,7 @@ on every call (no module-load cache), so flipping one takes effect without a
 rebuild but **does need a container restart** to take effect for
 already-running processes.
 
-There is **no flag for a compliance control, and there must not be one.** The
+There is **no** flag for a compliance control, and there must not be one. The
 opening disclosure, the credential-ask refusal, PII redaction and inbound
 `SV-Signature` enforcement are invariants: the code that performs them reads no
 flag at all, so they are on in every deployment and `FEATURE_COMPLIANCE_*`,
@@ -100,16 +234,6 @@ flag at all, so they are on in every deployment and `FEATURE_COMPLIANCE_*`,
 test that proves it; `tests/surface/invariants.test.ts` keeps that list honest.
 If a previous runbook or ticket told you one of these could be switched off,
 that instruction was never executable.
-
-There is **no** kill switch for live dialling, the LLM phrasing layer, BYOK, or
-outbound webhooks. To stop dialling now, take the dial worker down:
-
-```bash
-docker compose stop dial-worker
-```
-
-Jobs stay queued in `dial_job` and are picked up when it returns. This is
-recorded as an open gap in `docs/GAP-REGISTER.md` §7.
 
 ---
 
@@ -190,13 +314,50 @@ the one criterion worth 30%.
 
 ⬜ **INPUT REQUIRED** — fill before the demo.
 
-| Role                  | Name | Contact | Covers                           |
-| --------------------- | ---- | ------- | -------------------------------- |
-| Platform on-call      | ⬜   | ⬜      | Sev 1                            |
-| Database / Supabase   | ⬜   | ⬜      | P1001, connection exhaustion     |
-| ElevenLabs support    | ⬜   | ⬜      | Conversation plane outage, quota |
-| Twilio support        | ⬜   | ⬜      | DDI failures, concurrency limits |
-| Institutional contact | ⬜   | ⬜      | Pilot                            |
+| Role                      | Name | Contact | Covers                             |
+| ------------------------- | ---- | ------- | ---------------------------------- |
+| Platform on-call          | ⬜   | ⬜      | Sev 1                              |
+| Database / Supabase       | ⬜   | ⬜      | P1001, connection exhaustion       |
+| ElevenLabs support        | ⬜   | ⬜      | Conversation plane outage, quota   |
+| Twilio support            | ⬜   | ⬜      | DDI failures, concurrency limits   |
+| Institutional contact     | ⬜   | ⬜      | Pilot                              |
+| **Named pilot owner**     | ⬜   | ⬜      | Pilot go/no-go, scope, the charter |
+| **Incident commander**    | ⬜   | ⬜      | Sev 1/Sev 2 — declared in advance  |
+| **Security owner**        | ⬜   | ⬜      | Security exception, pen-test gate  |
+| **Data-protection owner** | ⬜   | ⬜      | DPO / rights requests / transfers  |
+
+### 7.1 Pilot support hours and escalation — TO AGREE
+
+These are **not yet agreed with any institution**, and this document does not
+imply they are. They are the terms a pilot agreement has to state, and
+`docs/PILOT-READINESS.md` carries the same items as open Phase 1 gates.
+
+| Term                 | State    | What has to be decided                                                       |
+| -------------------- | -------- | ---------------------------------------------------------------------------- |
+| Support hours        | TO AGREE | Coverage window in the institution's local time, and whether it is 24×7.     |
+| Support channel      | TO AGREE | A monitored mailbox, a ticket system, or a named phone number.               |
+| Response times       | TO AGREE | Sev 1 / Sev 2 / Sev 3, and what "response" means (acknowledge vs. restore).  |
+| Escalation path      | TO AGREE | Operator → pilot owner → institution's sponsor, with the point of no return. |
+| Bank-side escalation | TO AGREE | Who at the institution we call, and when.                                    |
+| Named pilot owner    | TO AGREE | One accountable human, named in the pilot charter.                           |
+| Incident commander   | TO AGREE | Named per incident; the founder by default until a rota exists.              |
+
+**What is in place today, so the gap is only the roster and the hours:** the
+technical levers are real — a deploy-free dial kill switch (§3.1), a
+health-gated blue/green rollback (§4), a durable queue that survives a worker
+restart, a reconciliation sweep for missing post-call webhooks, and an audit
+chain that is verifiable per case. What is missing is a name against a phone
+number, and that is an agreement with a person, not a piece of code.
+
+### 7.2 Contracts — TO AGREE / OPEN
+
+| Document                           | State                  | Note                                                                                                                                                                                              |
+| ---------------------------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| MSA                                | OPEN — template exists | `docs/LOI-TEMPLATE.md` is a letter of intent, not the MSA.                                                                                                                                        |
+| Data processing agreement          | OPEN — template exists | Must name controller, processor, purposes, retention and deletion.                                                                                                                                |
+| Order form / pilot terms           | OPEN                   | Scope, volume cap, success criteria, termination assistance.                                                                                                                                      |
+| SLA                                | OPEN                   | Service levels and credits; a premium SLA is priced separately.                                                                                                                                   |
+| Shariah supervisory board approval | OPEN — CONDITIONAL     | The institution's SSB must approve the terminology map, the scripts, the product terms and the spoken disclosures before any Shariah-mode call. SecureVoice issues no fatwa and no certification. |
 
 ---
 

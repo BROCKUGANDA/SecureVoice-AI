@@ -79,6 +79,24 @@ export const DEFAULT_RETENTION_DAYS = {
   caseRecords: 7 * 365,
 } as const;
 
+/**
+ * How long a case under an evidence lock is held before the normal tiers apply.
+ *
+ * `isEvidenceLocked` is set when a case becomes CONFIRMED_FRAUD, and
+ * `eraseCase` already refuses to destroy it. Retention ignored the flag, so the
+ * audio and transcript tiers could delete the very evidence the lock was meant
+ * to preserve. Five years is the FATF-style record-keeping floor this product
+ * already cites; it is env-overridable so a bank's own schedule can replace it
+ * rather than being hard-coded.
+ *
+ * This is a HOLD, not an erasure exemption forever: once the window has passed,
+ * the normal audio/transcript/case-record tiers decide what happens next.
+ */
+export const EVIDENCE_RETENTION_DAYS = (() => {
+  const raw = Number(process.env.PRIVACY_EVIDENCE_RETENTION_DAYS);
+  return Number.isInteger(raw) && raw > 0 ? raw : 5 * 365;
+})();
+
 /** An org that must hold no recording at all — deletion is immediate (0 days). */
 export const PILOT_AUDIO_DAYS = 0;
 
@@ -394,13 +412,34 @@ export type DueSelector = {
  *  ask a question that has one answer. `null` still means "the org-less rows",
  *  which is a different scope and is NOT folded into the `in` form.
  */
-function agedWhere(orgIds: string | readonly string[] | null, cutoff: Date): Prisma.CaseWhereInput {
+function agedWhere(
+  orgIds: string | readonly string[] | null,
+  cutoff: Date,
+  evidenceCutoff: Date,
+): Prisma.CaseWhereInput {
   return {
     // `Array.isArray` does not narrow `readonly string[]` (its guard is typed for
     // `any[]`), so the readonly case is narrowed structurally instead of with a
     // cast that would hide a real mismatch.
     orgId: typeof orgIds === "string" || orgIds === null ? orgIds : { in: [...orgIds] },
-    OR: [{ postCallAt: { lt: cutoff } }, { postCallAt: null, createdAt: { lt: cutoff } }],
+    AND: [
+      { OR: [{ postCallAt: { lt: cutoff } }, { postCallAt: null, createdAt: { lt: cutoff } }] },
+      {
+        // A locked case is held until its evidence window elapses. The clock is
+        // `fraudConfirmedAt` where the state writer recorded it; legacy locked
+        // rows fall back to `createdAt`, so the hold still has a start rather
+        // than becoming an accidental permanent exemption.
+        OR: [
+          { isEvidenceLocked: false },
+          { isEvidenceLocked: true, fraudConfirmedAt: { lt: evidenceCutoff } },
+          {
+            isEvidenceLocked: true,
+            fraudConfirmedAt: null,
+            createdAt: { lt: evidenceCutoff },
+          },
+        ],
+      },
+    ],
   };
 }
 
@@ -444,6 +483,7 @@ export function dueForDeletion(
   const audioCutoff = cutoffFor(policy.audioDays);
   const transcriptCutoff = cutoffFor(policy.transcriptDays);
   const recordCutoff = cutoffFor(policy.caseRecordDays);
+  const evidenceCutoff = cutoffFor(EVIDENCE_RETENTION_DAYS);
 
   return {
     at,
@@ -455,25 +495,28 @@ export function dueForDeletion(
         days: policy.audioDays,
         cutoff: audioCutoff,
         due: true,
-        where: agedWhere(orgScope, audioCutoff),
+        where: agedWhere(orgScope, audioCutoff, evidenceCutoff),
         action: "purgeAudio",
         mutation: { target: "Case", columns: [] },
         note:
           policy.audioDays === 0
-            ? "immediate (pilot / no-recording agreement): every call in this org is due at once"
-            : `recordings older than ${policy.audioDays} days; none are stored on our side unless an audio store is registered`,
+            ? "immediate (pilot / no-recording agreement): every call in this org is due at once, except evidence-locked cases during their hold"
+            : `recordings older than ${policy.audioDays} days; evidence-locked cases are held for ${EVIDENCE_RETENTION_DAYS} days`,
       },
       transcripts: {
         tier: "transcripts",
         days: policy.transcriptDays,
         cutoff: transcriptCutoff,
         due: true,
-        where: { AND: [agedWhere(orgScope, transcriptCutoff), holdsPayloadWhere()] },
+        where: {
+          AND: [agedWhere(orgScope, transcriptCutoff, evidenceCutoff), holdsPayloadWhere()],
+        },
         action: "shredPayloadKey",
         mutation: { target: "Case", columns: ["dataKeyEnc", "erasedAt", ...PAYLOAD_COLUMNS] },
         note:
           `payloads older than ${policy.transcriptDays} days that still hold a key or text: shred the ` +
-          `per-case data key and clear the plaintext columns. The ciphertext stays in the chain ` +
+          `per-case data key and clear the plaintext columns. Evidence-locked cases are held for ` +
+          `${EVIDENCE_RETENTION_DAYS} days first. The ciphertext stays in the chain ` +
           `(deleting it would break the chain) and is inert without the key.`,
       },
       caseRecords: {
@@ -485,10 +528,23 @@ export function dueForDeletion(
           orgId:
             typeof orgScope === "string" || orgScope === null ? orgScope : { in: [...orgScope] },
           createdAt: { lt: recordCutoff },
+          // The case row's 7-year clock starts at creation; the evidence hold
+          // starts when fraud was confirmed. A row can be older than 7 years and
+          // still be inside a fresh evidence window, so this clause is not
+          // conditional on the two durations' ordering.
+          OR: [
+            { isEvidenceLocked: false },
+            { isEvidenceLocked: true, fraudConfirmedAt: { lt: evidenceCutoff } },
+            {
+              isEvidenceLocked: true,
+              fraudConfirmedAt: null,
+              createdAt: { lt: evidenceCutoff },
+            },
+          ],
         },
         action: "deleteCaseRecord",
         mutation: { target: "Case", columns: [] },
-        note: `redacted case rows older than ${policy.caseRecordDays} days; the case's audit chain is unaffected`,
+        note: `redacted case rows older than ${policy.caseRecordDays} days; evidence-locked rows are held for ${EVIDENCE_RETENTION_DAYS} days from confirmation; the case's audit chain is unaffected`,
       },
       audit: {
         tier: "audit",

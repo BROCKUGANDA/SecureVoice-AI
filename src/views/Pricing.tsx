@@ -71,7 +71,7 @@ const USD_TO_AED = 3.6725;
 const aed = (usd: number): string => `AED ${Math.round(usd * USD_TO_AED).toLocaleString("en-US")}`;
 
 type Tier = {
-  id: "starter" | "growth" | "enterprise";
+  id: "pilot" | "starter" | "growth" | "enterprise";
   name: { en: string; ar: string };
   blurb: { en: string; ar: string };
   usd: number;
@@ -85,6 +85,14 @@ type Tier = {
    * exists to keep the two from drifting.
    */
   publiclyPriced?: boolean;
+  /**
+   * A ONE-OFF engagement rather than a subscription.
+   *
+   * The Pilot is ninety days, bought once, invoiced — not a monthly plan that
+   * renews. Rendering it with "/mo" would tell a bank it is a subscription, and
+   * a bank that discovers that in month two does not renew.
+   */
+  oneOff?: boolean;
   included: number;
   overage: { en: string; ar: string } | null;
   features: { en: string; ar: string }[];
@@ -93,15 +101,55 @@ type Tier = {
 
 const TIERS: Tier[] = [
   {
+    id: "pilot",
+    name: { en: "Pilot", ar: "التجربة" },
+    blurb: {
+      en: "Ninety days, one alert type, written success criteria.",
+      ar: "تسعون يوماً، ونوع تنبيه واحد، ومعايير نجاح مكتوبة.",
+    },
+    usd: 12000,
+    oneOff: true,
+    included: 2000,
+    overage: {
+      en: "$5.00 per additional intervention",
+      ar: "٥٫٠٠ دولار لكل تدخل إضافي",
+    },
+    features: [
+      {
+        en: "2,000 intervention signals over 90 days",
+        ar: "٢٬٠٠٠ إشارة تدخّل خلال ٩٠ يوماً",
+      },
+      {
+        en: "Shadow run first: cases recorded, no customer contacted",
+        ar: "يبدأ بوضع الظل: تُسجَّل الحالات دون الاتصال بأي عميل",
+      },
+      {
+        en: "One named pilot owner and a written success criteria sheet",
+        ar: "مالك تجربة واحد مسمّى وورقة معايير نجاح مكتوبة",
+      },
+      {
+        en: "Daily review of contact rate, containment and complaints",
+        ar: "مراجعة يومية لمعدل الاتصال ونسبة الاحتواء والشكاوى",
+      },
+      {
+        en: "50% of the pilot fee credited toward your first annual contract",
+        ar: "يُضاف نصف رسوم التجربة إلى عقدك السنوي الأول",
+      },
+    ],
+  },
+  {
     id: "starter",
     name: { en: "Starter", ar: "الانطلاق" },
     blurb: {
       en: "For evaluation teams proving the voice loop end to end.",
       ar: "للفرق التقييمية التي تُثبت الحلقة الصوتية من طرف إلى طرف.",
     },
-    usd: 99,
+    usd: 2500,
     included: 500,
-    overage: { en: "$0.15 per additional intervention", ar: "0.15 دولار لكل تدخل إضافي" },
+    overage: {
+      en: "$4.50 per additional intervention",
+      ar: "٤٫٥٠ دولار لكل تدخل إضافي",
+    },
     features: [
       { en: "500 interventions included per month", ar: "500 تدخل مشمول شهرياً" },
       {
@@ -123,9 +171,12 @@ const TIERS: Tier[] = [
       en: "For mid-market banks and insurers running live fraud desks.",
       ar: "للبنوك وشركات التأمين متوسطة الحجم التي تدير مكاتب احتيال حية.",
     },
-    usd: 499,
+    usd: 9000,
     included: 2500,
-    overage: { en: "$0.12 per additional intervention", ar: "0.12 دولار لكل تدخل إضافي" },
+    overage: {
+      en: "$3.50 per additional intervention",
+      ar: "٣٫٥٠ دولار لكل تدخل إضافي",
+    },
     featured: true,
     features: [
       { en: "2,500 interventions included per month", ar: "2,500 تدخل مشمول شهرياً" },
@@ -149,12 +200,15 @@ const TIERS: Tier[] = [
       en: "For Tier-1 UAE banks deploying inside their own perimeter.",
       ar: "للبنوك من الفئة الأولى في الإمارات التي تنشر داخل محيطها الخاص.",
     },
-    usd: 2000,
+    usd: 25000,
     // The price is real — Paddle still charges it and the catalog parity test
     // still holds. It is simply not printed. See `publiclyPriced`.
     publiclyPriced: false,
     included: 10000,
-    overage: null,
+    overage: {
+      en: "$2.25 per additional intervention, plus telephony at cost + 10%",
+      ar: "٢٫٢٥ دولار لكل تدخل إضافي، إضافة إلى قيمة الاتصال بتكلفة زائد ١٠٪",
+    },
     features: [
       {
         en: "10,000 interventions included, custom volume pricing beyond",
@@ -311,7 +365,14 @@ export function Pricing({
                     : `$${tier.usd.toLocaleString("en-US")}`}
                 </span>
                 {tier.publiclyPriced !== false && (
-                  <span className="text-[13px] text-ink-3">{t("per month", "شهرياً", lang)}</span>
+                  <span className="text-[13px] text-ink-3">
+                    {/* A one-off engagement is not a subscription, and "per month"
+                        on the Pilot would be a false statement: it is bought once,
+                        for ninety days, and invoiced. */}
+                    {tier.oneOff
+                      ? t("one-off, 90 days", "لمرة واحدة، ٩٠ يوماً", lang)
+                      : t("per month", "شهرياً", lang)}
+                  </span>
                 )}
               </div>
               {tier.publiclyPriced !== false ? (
@@ -361,15 +422,24 @@ export function Pricing({
                     Buy button next to "Custom" is a contradiction, and a buyer
                     who checks out at a list price is a worse outcome for both
                     sides than a conversation. The product is kept for the sales
-                    team to quote from; the page does not offer it. */}
-              {tier.publiclyPriced === false ? (
+                    team to quote from; the page does not offer it.
+
+                    THE PILOT IS ALSO A CONTACT TIER, and for a different reason:
+                    it has NO Paddle product at all. A ninety-day engagement,
+                    invoiced, with the charter and the success criteria agreed
+                    before the first dial — that is a conversation, not a cart.
+                    Rendering a Buy button for a plan with no price id behind it
+                    would open a checkout that cannot complete. */}
+              {tier.publiclyPriced === false || tier.oneOff ? (
                 <a
                   href={`mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(
-                    `SecureVoice Enterprise — ${tier.included.toLocaleString("en-US")} interventions/mo`,
+                    `SecureVoice ${tier.name.en} — ${tier.included.toLocaleString("en-US")} interventions${
+                      tier.oneOff ? " over 90 days" : "/mo"
+                    }`,
                   )}`}
                   className="mt-6 inline-flex w-full items-center justify-center rounded-xl border border-primary/40 bg-primary/10 px-5 py-3 text-[13.5px] font-semibold text-primary transition-colors hover:bg-primary/15"
                 >
-                  {t("Contact sales", "تواصل مع المبيعات", lang)}
+                  {t(tier.oneOff ? "Start a pilot" : "Contact sales", "ابدأ تجربة", lang)}
                 </a>
               ) : (
                 <SubscribeButtons

@@ -33,7 +33,10 @@ import { expect, test } from "bun:test";
 import { createHmac } from "node:crypto";
 import { NextRequest } from "next/server";
 
-process.env.WEBHOOK_SECRET = process.env.WEBHOOK_SECRET ?? "test-secret";
+// `||`, not `??`: a developer `.env` commonly carries an EMPTY placeholder,
+// and the ingest treats an empty secret as unconfigured, which would turn this
+// whole file red for an environment reason rather than a code one.
+process.env.WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || "test-secret";
 process.env.TWILIO_DRY_RUN = "true";
 const SECRET = process.env.WEBHOOK_SECRET;
 
@@ -43,6 +46,27 @@ const GATE_NUMBERS = ["+971500000701", "+971500000702", "+971500000703", "+97150
 function signBody(body: string): string {
   const t = Math.floor(Date.now() / 1000).toString();
   return `t=${t},v1=${createHmac("sha256", SECRET).update(`${t}.${body}`).digest("hex")}`;
+}
+
+/**
+ * The credential that may NAME an organisation.
+ *
+ * `WEBHOOK_SECRET` is shared with every producer, so a request signed with it
+ * proves only that the caller knows a shared secret — and the ingest refuses
+ * to let that path select a tenant, because any integrator holding it could
+ * otherwise create a case in, and dial on, another bank's organisation.
+ *
+ * This suite is the platform's own harness, acting on a tenant it operates, so
+ * it signs with the DEPLOYMENT-INTERNAL `CONSOLE_INGEST_SECRET` — the same
+ * credential the console's fire button uses, and the only one besides a
+ * tenant-scoped producer key that may name an org.
+ */
+const ORG_NAMING_SECRET = process.env.CONSOLE_INGEST_SECRET ?? "test-console-ingest-secret";
+process.env.CONSOLE_INGEST_SECRET = ORG_NAMING_SECRET;
+
+function signNaming(body: string): string {
+  const t = Math.floor(Date.now() / 1000).toString();
+  return `t=${t},v1=${createHmac("sha256", ORG_NAMING_SECRET).update(`${t}.${body}`).digest("hex")}`;
 }
 
 function signal(orgId: string, phone: string, transactionRef: string) {
@@ -61,8 +85,32 @@ function signal(orgId: string, phone: string, transactionRef: string) {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      "sv-signature": signBody(body),
+      "sv-signature": signNaming(body),
       "idempotency-key": `credits-${transactionRef}`,
+    },
+    body,
+  });
+}
+
+/** The same signal, signed with the SHARED secret every producer holds. */
+function sharedSecretSignal(orgId: string, phone: string, transactionRef: string) {
+  const body = JSON.stringify({
+    org_id: orgId,
+    transaction_ref: transactionRef,
+    risk_score: 0.93,
+    language: "en",
+    phone,
+    currency: "AED",
+    amount: 250000,
+    merchant: "Electronics World",
+    consent_record_id: `CONSENT-${transactionRef}`,
+  });
+  return new NextRequest("http://localhost/api/v1/interventions", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "sv-signature": signBody(body),
+      "idempotency-key": `credits-shared-${transactionRef}`,
     },
     body,
   });
@@ -86,6 +134,21 @@ async function wire(org: string) {
 }
 
 const run = () => `credits_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+
+test("a SHARED-secret caller cannot name an organisation", async () => {
+  // The shared `WEBHOOK_SECRET` is handed to every producer, so a request
+  // signed with it proves only that the caller knows a shared secret. Letting
+  // the BODY choose the tenant on that path would let any integrator create a
+  // case in — and dial on — another bank's organisation. So the body may only
+  // CONFIRM a tenant that the CREDENTIAL already names.
+  const org = `${run()}_shared`;
+  const { POST, db } = await wire(org);
+  const res = await POST(sharedSecretSignal(org, GATE_NUMBERS[0]!, `TXN-${org}-shared`));
+  expect(res.status).toBe(401);
+  expect(await res.text()).toContain("org_id requires a tenant-scoped producer key");
+  // And nothing was armed for that organisation.
+  expect(await db.case.count({ where: { orgId: org } })).toBe(0);
+});
 
 test("an organisation with no credits is refused with 402, and nothing is reserved or dialled", async () => {
   const org = `${run()}_a`;

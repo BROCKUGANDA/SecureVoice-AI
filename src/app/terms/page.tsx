@@ -19,7 +19,7 @@ import { Terms } from "@/views/Legal";
 export const metadata: Metadata = {
   title: "Terms of Service",
   description:
-    "Terms governing use of the SecureVoice AI website and any evaluation access to the platform, operated by SecureVoice Technologies FZ-LLC. Covers acceptable use, demo data, automated decisions, intellectual property, limitation of liability and governing law (Dubai, UAE). Production use by a financial institution is governed by a separate signed agreement.",
+    "Terms governing use of the SecureVoice AI website and any evaluation access to the platform, operated by SecureVoice Technologies FZ-LLC. Covers acceptable use, demo data, automated decisions, Shariah governance and Islamic finance, intellectual property, limitation of liability and governing law (Dubai, UAE). Production use by a financial institution is governed by a separate signed agreement.",
   alternates: { canonical: "/terms" },
   openGraph: {
     title: "Terms of Service — SecureVoice AI",

@@ -3735,47 +3735,59 @@ and the deploy pre-roll both call this same script now, so the likeliest explana
 job's reclaim running with the new floor — but I did not observe that job, so it is a hypothesis
 with a named place to check rather than a result.
 
-### 60. One build per commit: the duplicate trigger was removed at the workflow, not in five jobs
+### 60. One build per commit: the trigger list is where it went, after a workflow-level `if:` broke the file
 
 §59 named the cause and left the remedy to the owner; the owner chose suppressing the redundant
 `push` run rather than racing the two runs, and that is the right edge of the two, because a race
 produces exactly the cancelled run whose refusal made Deploy 39346234640 red.
 
-**The rule lives once.** `ci.yml` now carries a workflow-level `if:` —
-`github.event_name != 'push' || github.ref == 'refs/heads/main'` — instead of the clause being
-repeated in the five job `if:`s that already each carry the fork guard. Restating one rule in five
-scheduling clauses is precisely the divergence §55 was written about, and a job-level patch would
-have been easy to half-apply to the two root jobs and miss `cleanup`.
+**The first attempt was wrong and CI said so immediately.** `ci.yml` was given a workflow-level
+`if: github.event_name != 'push' || github.ref == 'refs/heads/main'`, on the reasoning that one
+condition at the top of the document beats the same condition copied into five job `if:`s. Pushed
+as `ad4f36c`, the very next run — 39357023040 — came back `conclusion: failure` with `jobs: []`.
+That is not a job failing; it is GitHub refusing to compile the document, and there is no such key
+on a workflow: `if` belongs to jobs and steps. The shape of the failure is worth keeping, because
+it is the one this repository has been chasing all week — a signal that reports nothing about its
+own cause. Had it reached main, every push run on main would have failed to compile, deploy.yml
+would have had no green `workflow_run: CI` to trust, and production would have silently stopped
+deploying while CI looked idle.
 
-**`main` keeps its push trigger, and that is the load-bearing half of the clause.** main is reached
-by a squash merge, so the commit that exists on main existed on no branch and emits no
-`pull_request` event. `deploy.yml` and `autoversion.yml` both key on `workflow_run: CI` for main,
-and that run is the only proof the commit was ever built. Suppressing it too would not slow the
-pipeline, it would stop production deploying and look like CI idleness. So the gate is asymmetric on
-purpose: dev and staging are gated by the PR run that promote.yml opens, main by its push run.
+**The dedupe is therefore a trigger restriction: `push` now means `[main]` alone.** dev and staging
+get gated by the `pull_request` run on the rung PR that promote.yml opens for every push, so no
+commit loses its gate and none is built twice. This is also a strictly simpler statement of the
+rule — it is schema, not expression, so it cannot fail the way the clause did, and there is nothing
+left for a future editor to mis-apply to four of five jobs.
+
+**`main` keeps its push trigger, and that is the load-bearing half.** main is reached by a squash
+merge, so the commit that exists on main existed on no branch and emits no `pull_request` event.
+`deploy.yml` and `autoversion.yml` both key on `workflow_run: CI` for main, and that run is the only
+proof the commit was ever built. Suppressing it too would not slow the pipeline; it would stop
+production deploying.
 
 **The coverage given up, stated rather than hidden.** promote.yml carries `paths-ignore` for
 `**.md`, `docs/**` and `evidence/**`, so a docs-only push to dev opens no PR — and now also runs no
 CI. Such a commit gets its verdict at the next promotion PR, which is the last gate before main, so
 nothing ungated reaches production; what is lost is the per-commit signal on dev, and
-`bun scripts/drift-gates.mjs repo` locally is the same claim the drift job would have made.
+`bun scripts/drift-gates.mjs repo` locally is the same claim the drift job would have made. The
+dependency this buys into is named in a test rather than in prose: if promote.yml ever stops firing
+on pushes to dev and staging, those rungs go dark instead of merely single-built.
 
-**Proven, including that the proof can fail.** `tests/unit/ci-event-gate.test.ts` parses the shipped
-YAML, extracts the actual `if:` text and evaluates it through a parser that handles only disjoined
-comparison terms and **throws** on anything else — a `&&`, a `startsWith(...)`, an unknown operand.
-The loud failure matters: a reader that silently mis-parses the clause would report green against a
-rule it had stopped checking. Six scenarios are pinned (`push` dev/staging false; `push` main,
-`pull_request` into staging and main, and `workflow_dispatch` true), the narrow `concurrency` group
-is asserted so nobody widens it back into the race, and both mutations are shown to bite: replacing
-the shipped clause with `github.event_name != 'pull_request'` — the pre-fix behaviour — turns 3 tests
-red, and `github.event_name != 'push'`, the over-correction that would stop production deploying,
-disagrees on main. Two bugs were caught on the way and both were the harness failing honestly: a
-quote regex missing its closing `'` and a `.as(id)` call bun's `expect` does not have.
+**Proven, including that the proof can fail.** `tests/unit/ci-event-gate.test.ts` reads the shipped
+YAML and asserts the trigger lists — `push.branches` exactly `["main"]` and explicitly NOT containing
+`dev` or `staging` (naming the pre-fix value, so restoring it fails the test rather than silently
+passing a different one), `pull_request.branches` still covering all three rungs, no `if` key anywhere
+on the document, `concurrency` still grouped by `github.ref` so nobody widens it back into the race,
+and deploy.yml plus autoversion.yml still keyed to CI on main. Nine tests. Both mutations bite: putting
+`[dev, staging, main]` back turns one red, re-planting the workflow-level `if:` turns one red, and the
+file was then restored byte-identical (`diff -q`) before committing. A guard on the parser itself is
+asserted too — `on:` is a YAML 1.1 boolean keyword, and a reader that resolved it to `true` would make
+every assertion below it vacuous, so the test fails loudly if the trigger map is unreadable rather than
+comparing against `undefined`.
 
 **Two owner decisions landed with it.** Release-bump PRs (AutoVersion's `chore/release-vX.Y.Z` into
 main) merge automatically as each opens — nothing in the repo arms them, so it is a standing
-instruction, and #163 (v0.2.42) is now armed to test it. And the hygiene cron's mechanism was proven
-without waiting for 04:15: a one-shot ubuntu crontab entry fired at 01:40:01 and wrote its file,
-after which `/var/log/syslog` was checked and contains `(root) CMD` lines but **not** `(ubuntu)
-CMD` — so on this box the job's own output file is the only witness, which is why
+instruction, and #163 (v0.2.42) is armed and brought up to date accordingly. And the hygiene cron's
+mechanism was proven without waiting for 04:15: a one-shot ubuntu crontab entry fired at 01:40:01 and
+wrote its file, after which `/var/log/syslog` was checked and contains `(root) CMD` lines but **not**
+`(ubuntu) CMD` — so on this box the job's own output file is the only witness, which is why
 `runner-hygiene.sh` now prints its header before any decision.

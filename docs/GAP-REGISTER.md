@@ -3734,3 +3734,48 @@ this window while my own reclaim deleted nothing (`images=0, held-back=1`). The 
 and the deploy pre-roll both call this same script now, so the likeliest explanation is a concurrent
 job's reclaim running with the new floor — but I did not observe that job, so it is a hypothesis
 with a named place to check rather than a result.
+
+### 60. One build per commit: the duplicate trigger was removed at the workflow, not in five jobs
+
+§59 named the cause and left the remedy to the owner; the owner chose suppressing the redundant
+`push` run rather than racing the two runs, and that is the right edge of the two, because a race
+produces exactly the cancelled run whose refusal made Deploy 39346234640 red.
+
+**The rule lives once.** `ci.yml` now carries a workflow-level `if:` —
+`github.event_name != 'push' || github.ref == 'refs/heads/main'` — instead of the clause being
+repeated in the five job `if:`s that already each carry the fork guard. Restating one rule in five
+scheduling clauses is precisely the divergence §55 was written about, and a job-level patch would
+have been easy to half-apply to the two root jobs and miss `cleanup`.
+
+**`main` keeps its push trigger, and that is the load-bearing half of the clause.** main is reached
+by a squash merge, so the commit that exists on main existed on no branch and emits no
+`pull_request` event. `deploy.yml` and `autoversion.yml` both key on `workflow_run: CI` for main,
+and that run is the only proof the commit was ever built. Suppressing it too would not slow the
+pipeline, it would stop production deploying and look like CI idleness. So the gate is asymmetric on
+purpose: dev and staging are gated by the PR run that promote.yml opens, main by its push run.
+
+**The coverage given up, stated rather than hidden.** promote.yml carries `paths-ignore` for
+`**.md`, `docs/**` and `evidence/**`, so a docs-only push to dev opens no PR — and now also runs no
+CI. Such a commit gets its verdict at the next promotion PR, which is the last gate before main, so
+nothing ungated reaches production; what is lost is the per-commit signal on dev, and
+`bun scripts/drift-gates.mjs repo` locally is the same claim the drift job would have made.
+
+**Proven, including that the proof can fail.** `tests/unit/ci-event-gate.test.ts` parses the shipped
+YAML, extracts the actual `if:` text and evaluates it through a parser that handles only disjoined
+comparison terms and **throws** on anything else — a `&&`, a `startsWith(...)`, an unknown operand.
+The loud failure matters: a reader that silently mis-parses the clause would report green against a
+rule it had stopped checking. Six scenarios are pinned (`push` dev/staging false; `push` main,
+`pull_request` into staging and main, and `workflow_dispatch` true), the narrow `concurrency` group
+is asserted so nobody widens it back into the race, and both mutations are shown to bite: replacing
+the shipped clause with `github.event_name != 'pull_request'` — the pre-fix behaviour — turns 3 tests
+red, and `github.event_name != 'push'`, the over-correction that would stop production deploying,
+disagrees on main. Two bugs were caught on the way and both were the harness failing honestly: a
+quote regex missing its closing `'` and a `.as(id)` call bun's `expect` does not have.
+
+**Two owner decisions landed with it.** Release-bump PRs (AutoVersion's `chore/release-vX.Y.Z` into
+main) merge automatically as each opens — nothing in the repo arms them, so it is a standing
+instruction, and #163 (v0.2.42) is now armed to test it. And the hygiene cron's mechanism was proven
+without waiting for 04:15: a one-shot ubuntu crontab entry fired at 01:40:01 and wrote its file,
+after which `/var/log/syslog` was checked and contains `(root) CMD` lines but **not** `(ubuntu)
+CMD` — so on this box the job's own output file is the only witness, which is why
+`runner-hygiene.sh` now prints its header before any decision.

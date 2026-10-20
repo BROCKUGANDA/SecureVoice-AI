@@ -25,7 +25,52 @@ on:
   # never ran a step; a dispatch is the fastest way to confirm a fix.
   workflow_dispatch:
 
+# ONE build per commit, not two.
+#
+# Measured on 2026-10-20 (docs/GAP-REGISTER.md §59): `docker builder du` reported 30.77 GB
+# of build cache in 66 entries of which ZERO were older than six hours, and the six largest
+# were near-identical 2.691 GB copies of the same app layers. The reason is that both
+# triggers below fire for the same commit: pushing to dev or staging emits a `push` event,
+# and promote.yml immediately opens a pull request for that commit, which emits a
+# `pull_request` event — so every promotion commit ran the full suite twice on a box with
+# two runners and 15 GB of RAM shared with production. Runs 39337233039 (`push`) and
+# 39337237289 (`pull_request`) executing the same SHA `c43cd38` is the direct evidence.
+#
+# The duplication is not merely wasteful. It cancelled runs: `concurrency` keys on
+# `github.ref`, and the two events have different refs (`refs/heads/staging` versus
+# `refs/pull/158/merge`), so nothing deduped them — but a later push on either ref could
+# cancel the other. Deploy 39346234640 then went red refusing `RUN_CONCLUSION: cancelled`
+# for run 39344126878. That refusal is correct and stays: production deploys only what a
+# green CI run proved. What was wrong is that a red Deploy could mean nothing more than
+# "we built this commit twice and one of them lost".
+#
+# So the `push` event is dropped for dev and staging, and kept for main. The direction
+# matters: the alternative — letting both start and cancelling one — is what produced the
+# cancelled run in the first place, and a cancelled `pull_request` run reads as a cancelled
+# required check, which parks the ladder. Here no second run is ever queued, so there is
+# nothing to cancel and nothing can be cancelled into a red gate.
+#
+# Why main must keep its push trigger: main is reached by a SQUASH merge, so the commit that
+# exists on main never existed on any branch and no `pull_request` event is emitted for it.
+# deploy.yml and autoversion.yml both key on `workflow_run: CI` for main, and that upstream
+# run is the only proof either commit was ever built. Dropping it would mean no deploy at all.
+#
+# The coverage this does give up, stated rather than hidden: promote.yml carries
+# `paths-ignore` for `**.md`, `docs/**` and `evidence/**`, so a docs-only push to dev opens
+# no PR and — with this gate — runs no CI either. Such a commit gets its verdict at the next
+# promotion PR, which is the last point before main, so nothing ungated can reach production;
+# what is lost is the per-commit verdict on dev, and locally `bun scripts/drift-gates.mjs
+# repo` is the same claim the drift job would have made.
+if: >-
+  github.event_name != 'push' ||
+  github.ref == 'refs/heads/main'
+
 # A superseded commit on a PR makes the whole run meaningless; cancel it.
+#
+# `github.ref` is the right key now precisely because the push/PR duplication is gone: what
+# is left to cancel is an older commit on the SAME pull request, which is genuinely
+# superseded. It must not be widened to the commit SHA — that would make a push and a PR run
+# race each other again, and the loser would be a required check reading `cancelled`.
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true

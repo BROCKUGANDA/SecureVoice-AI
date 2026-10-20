@@ -3833,3 +3833,45 @@ mechanism was proven without waiting for 04:15: a one-shot ubuntu crontab entry 
 wrote its file, after which `/var/log/syslog` was checked and contains `(root) CMD` lines but **not**
 `(ubuntu) CMD` — so on this box the job's own output file is the only witness, which is why
 `runner-hygiene.sh` now prints its header before any decision.
+
+### 61. The plaintext-phone queue is empty, and the migration that was supposed to empty it has no runnable home
+
+Closing out the PII backlog needed one number: how many `Case` rows still answer to a raw phone.
+Getting it produced two results, and the second is the one that matters going forward.
+
+**The number.** Production holds `total_cases: 1140, raw_phone: 0, raw_without_org: 0, vaulted: 22,
+blind_indexed: 22`. So the "~85 rows" that §42 left open — measured by §51 as 847, ninety-seven per
+cent of it our own test harness — and the same figure in the open task were both stale: the
+clear-not-delete pass recorded on 2026-10-19 emptied the queue, and the 22 vaulted rows are the ones
+that were tokenised rather than dropped. The dry run's own exit criterion, `pending: 0`, is the only
+condition on which the legacy `phone` arm of `casePhoneWhere` may ever be removed, and that condition
+is now measured rather than assumed. The arm stays, as §51 decided; what changes is that the next
+reader sees the number instead of reasoning from a count written down weeks ago.
+
+**The gap.** `bun run pii:backfill` cannot currently be executed anywhere in production. The image that
+has the sealing key cannot run the script: `docker compose exec app bun ... scripts/backfill-...` dies
+with `Cannot find module '@prisma/adapter-pg' from '/app/src/lib/db.ts'`, because the app stage is a
+Next standalone output whose traced dependencies do not resolve from source paths. The image that can
+run the script does not have the key: the workers declare no `env_file`, deliberately, and `AUTH_SECRET`
+
+- which `pii-vault.ts`, `byok.ts`, `hmac.ts` and `session.ts` all require by that exact name, distinct
+  from `BETTER_AUTH_SECRET` - is present only in the app container. So `--apply`, the irreversible half
+  that §42's standing rule insists must be watched, has never had a container to be run in. Nothing
+  about that is visible from the script's help text or from the deployment.
+
+**What is not claimed.** That the gap is dangerous today: with `raw_phone: 0` there is nothing to
+migrate, so the missing capability is latent, not live. And the fix is deliberately not made here. A
+profile-gated one-shot service carrying `AUTH_SECRET` would be a change to production compose topology
+for a migration with no rows to process, which is a decision to make when it is needed rather than a
+convenience to add now.
+
+**The instrument that worked, and the one that nearly lied.** A read-only count needs no sealing key, so
+a throwaway `docker compose run --rm --no-deps` from the worker image, with a `pg` pool pointed at the
+container's own `DATABASE_URL` and the image's shipped `supabase-ca.crt`, answered the question in one
+command while writing nothing and mutating no live container. Before that, the same question was asked
+of `docker compose exec db psql ...`, which returned `0 cases`, and that was wrong: production data
+lives on the managed Supabase pooler (`aws-0-eu-central-1.pooler.supabase.com:6543`, visible in the
+workers' own pool-budget log) while the compose `db` container is a vestigial local instance holding
+nothing. An empty table from the wrong database is the most convincing kind of wrong answer this
+register keeps meeting. It agrees with the hypothesis, it arrives instantly, and a `0` from a system
+that could not have produced a non-zero is not a measurement.
